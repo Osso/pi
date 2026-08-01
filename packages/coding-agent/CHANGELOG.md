@@ -175,6 +175,7 @@
 
 ### Fixed
 
+- Fixed duplicate-turn recovery rendering the repeated assistant response and internal `end_turn` nudge in live InteractiveMode or resident-console chat; runtime context and persisted messages remain unchanged.
 - Fixed the built-in `grep` tool allowing a single ripgrep JSON match record to grow without bound; searches now apply the existing 10KB output bound before JSON parsing.
 - Fixed `search_current_session_history` matching assistant and tool content such as skill listings or clipboard paths; matching now searches user-message content only, while requested neighboring context entries may still include other entry types.
 - Fixed `manage_goal set` queuing a duplicate continuation during an active turn; `/goal set` still queues the required reminder when busy, and raw goal continuation follow-ups now render as `goal` instead of `unknown`.

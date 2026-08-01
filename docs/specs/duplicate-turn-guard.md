@@ -19,6 +19,11 @@ Module boundary: `AgentSession` runtime behavior. Pi detects consecutive identic
 - [x] When the guard-generated terminal `end_turn` ends a Supervisor request, use the last completed JSON response from that same current request; never reuse a response from an earlier request (`supervisor-service.test.ts`).
 - [x] Keep the injected instruction out of persisted session history (`agent-session-prompt.test.ts`).
 
+### Presentation
+
+- [x] Hide the duplicate assistant response that triggers the guard from live InteractiveMode chat while preserving the message in runtime context and session persistence (`interactive-mode-streaming-render-throttle.test.ts`, `agent-session-prompt.test.ts`).
+- [x] Hide the internal `end_turn` guard nudge from live InteractiveMode and resident-console chat (`interactive-mode-streaming-render-throttle.test.ts`, `resident-console-command.test.ts`).
+
 ### Reset behavior
 
 - [x] Reset detection when assistant content changes (`agent-session-prompt.test.ts`).
@@ -31,7 +36,10 @@ Module boundary: `AgentSession` runtime behavior. Pi detects consecutive identic
 
 ## Implementation inventory
 
-- `packages/coding-agent/src/core/agent-session.ts` — tracks assistant fingerprints, injects the runtime-only guard message, resets detection, and excludes synthetic messages from persistence.
+- `packages/coding-agent/src/core/agent-session.ts` — tracks assistant fingerprints, marks presentation-only duplicate messages, injects the runtime-only guard message, emits marker metadata, resets detection, and excludes synthetic messages from persistence.
+- `packages/coding-agent/src/core/runtime-message-markers.ts` — owns runtime-only message identity markers used by local and transported presentation paths.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` — hides marked duplicate assistant output and guard nudges from live chat.
+- `packages/coding-agent/src/cli/resident-console-command.ts` — applies the same live-chat filtering to resident-console events.
 - `packages/coding-agent/test/suite/agent-session-prompt.test.ts` — verifies injection, child-runtime coverage, persistence exclusion, and reset behavior.
 - `packages/coding-agent/test/suite/regressions/2835-tools-allowlist-filters-extension-tools.test.ts` — verifies allowlists preserve `end_turn`.
 - `packages/coding-agent/test/suite/regressions/3592-no-builtin-tools-keeps-extension-tools.test.ts` — verifies no-tools and no-builtin-tools preserve `end_turn`.
@@ -39,7 +47,9 @@ Module boundary: `AgentSession` runtime behavior. Pi detects consecutive identic
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/suite/agent-session-prompt.test.ts` — duplicate-turn guard and reset regressions.
+- `packages/coding-agent/test/suite/agent-session-prompt.test.ts` — duplicate-turn guard, marker emission, and reset regressions.
+- `packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts` — InteractiveMode live rendering filters.
+- `packages/coding-agent/test/resident-console-command.test.ts` — resident-console live rendering filters.
 
 ## Known gaps (current cycle)
 

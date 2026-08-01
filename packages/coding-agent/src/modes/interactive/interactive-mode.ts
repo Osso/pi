@@ -117,6 +117,10 @@ import {
 	SessionManager,
 	sessionEntryToContextMessages,
 } from "../../core/session-manager.ts";
+import {
+	isDuplicateTurnAssistantMessage,
+	isDuplicateTurnGuardMessage,
+} from "../../core/runtime-message-markers.ts";
 import type { SettingsScope } from "../../core/settings-manager.ts";
 import { parseSkillBlock } from "../../core/skill-block.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
@@ -4066,6 +4070,7 @@ export class InteractiveMode {
 					this.addMessageToChat(event.message);
 					this.ui.requestRender();
 				} else if (event.message.role === "user") {
+					if (isDuplicateTurnGuardMessage(event.message, event.runtimeMessageMarker)) break;
 					this.addMessageToChat(event.message);
 					this.updatePendingMessagesDisplay();
 					this.ui.requestRender();
@@ -4100,6 +4105,15 @@ export class InteractiveMode {
 				this.cancelPartialUpdateRender();
 				this.footer.invalidate();
 				if (event.message.role === "user") break;
+				if (isDuplicateTurnAssistantMessage(event.message, event.runtimeMessageMarker)) {
+					if (this.streamingComponent) {
+						this.chatContainer.removeChild(this.streamingComponent);
+						this.streamingComponent = undefined;
+						this.streamingMessage = undefined;
+					}
+					this.ui.requestRender();
+					break;
+				}
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
 					this.addCompletedThinkingDurationBeforeToolCall(this.streamingMessage);

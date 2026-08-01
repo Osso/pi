@@ -126,6 +126,15 @@ describe("AgentSession prompt characterization", () => {
 				.filter((entry): entry is SessionMessageEntry => entry.type === "message" && entry.message.role === "user")
 				.map((entry) => getMessageText(entry.message)),
 		).toEqual(["start"]);
+
+		const duplicateAssistantEnds = harness
+			.eventsOfType("message_end")
+			.filter((event) => event.message.role === "assistant");
+		expect(duplicateAssistantEnds[1]?.runtimeMessageMarker).toBe("duplicate_turn_assistant");
+		const guardStart = harness
+			.eventsOfType("message_start")
+			.find((event) => event.message.role === "user" && getMessageText(event.message).includes("end_turn"));
+		expect(guardStart?.runtimeMessageMarker).toBe("duplicate_turn_guard");
 	});
 
 	it("terminates when the model repeats after the duplicate-turn guard", async () => {

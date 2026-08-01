@@ -129,6 +129,10 @@ function createUserMessage(text: string): AgentSessionEvent {
 	};
 }
 
+function markRuntimeMessageEvent(event: AgentSessionEvent, runtimeMessageMarker: string): AgentSessionEvent {
+	return { ...event, runtimeMessageMarker } as AgentSessionEvent;
+}
+
 function createFakeInteractiveModeThis(): HandleEventThis {
 	return Object.assign(Object.create(InteractiveMode.prototype) as HandleEventThis, {
 		chatContainer: new Container(),
@@ -225,6 +229,35 @@ describe("InteractiveMode streaming render throttling", () => {
 
 		await vi.advanceTimersByTimeAsync(50);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(2);
+	});
+
+	test("hides duplicate-turn assistant output and the internal end_turn nudge", async () => {
+		const fakeThis = createFakeInteractiveModeThis();
+		const duplicateAssistant = createAssistantMessage("repeated response");
+
+		await handleEvent.call(fakeThis, { type: "message_start", message: duplicateAssistant });
+		await handleEvent.call(
+			fakeThis,
+			markRuntimeMessageEvent({ type: "message_end", message: duplicateAssistant }, "duplicate_turn_assistant"),
+		);
+		expect(fakeThis.chatContainer.children).toHaveLength(0);
+
+		await handleEvent.call(
+			fakeThis,
+			markRuntimeMessageEvent(createUserMessage("internal nudge"), "duplicate_turn_guard"),
+		);
+		expect(fakeThis.chatContainer.children).toHaveLength(0);
+	});
+
+	test("renders ordinary assistant output without a runtime marker", async () => {
+		const fakeThis = createFakeInteractiveModeThis();
+		const assistant = createAssistantMessage("ordinary response");
+
+		await handleEvent.call(fakeThis, { type: "message_start", message: assistant });
+		await handleEvent.call(fakeThis, { type: "message_end", message: assistant });
+
+		expect(fakeThis.chatContainer.children).toHaveLength(1);
+		expect(fakeThis.chatContainer.render(80).join("\n")).toContain("ordinary response");
 	});
 
 	test("renders completed thinking time between consecutive tool calls", async () => {

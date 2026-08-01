@@ -127,6 +127,13 @@ import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 import { formatRuntimeMailboxPrompt, formatSharedChannelPrompt } from "./runtime-coordination-format.ts";
 import type { ProcessIdentity } from "./runtime-process.ts";
+import {
+	getRuntimeMessageMarker,
+	isDuplicateTurnGuardMessage,
+	markDuplicateTurnAssistantMessage,
+	markDuplicateTurnGuardMessage,
+	type RuntimeMessageMarker,
+} from "./runtime-message-markers.ts";
 
 const BUILT_IN_COMPACTION_DISABLED_MESSAGE =
 	"Built-in compaction is disabled; enable compaction or configure a compaction extension";
@@ -304,9 +311,13 @@ function buildAllowAlwaysAgentPrompt(input: { cwd: string; input: Record<string,
 	].join("\n");
 }
 
+type AgentMessageEvent = Extract<AgentEvent, { type: "message_start" | "message_update" | "message_end" }>;
+type AgentSessionMessageEvent = AgentMessageEvent & { runtimeMessageMarker?: RuntimeMessageMarker };
+
 /** Session-specific events that extend the core AgentEvent */
 export type AgentSessionEvent =
-	| Exclude<AgentEvent, { type: "agent_end" }>
+	| Exclude<AgentEvent, { type: "agent_end" } | AgentMessageEvent>
+	| AgentSessionMessageEvent
 	| {
 			type: "agent_end";
 			messages: AgentMessage[];
@@ -337,6 +348,11 @@ export type AgentSessionEvent =
 	| { type: "auto_retry_end"; success: boolean; attempt: number; finalError?: string }
 	/** Provider-internal retry or transport fallback inside a single stream request. */
 	| { type: "provider_stream_retry"; retry: ProviderRetryEvent };
+
+function addRuntimeMessageMarker(event: AgentMessageEvent): AgentSessionMessageEvent {
+	const runtimeMessageMarker = getRuntimeMessageMarker(event.message);
+	return runtimeMessageMarker ? { ...event, runtimeMessageMarker } : event;
+}
 
 /** Listener function for agent session events */
 export type AgentSessionEventListener = (event: AgentSessionEvent) => void;
@@ -685,8 +701,6 @@ export class AgentSession {
 	private _duplicateTurnGuardInjected = false;
 	/** Stops the current loop when the model repeats after receiving the guard. */
 	private _duplicateTurnLoopDetected = false;
-	/** Synthetic loop-guard messages are runtime-only and must not enter session history. */
-	private _internalSteeringMessages = new WeakSet<AgentMessage>();
 	/** Messages queued to be included with the next user prompt as context ("asides"). */
 	private _pendingNextTurnMessages: CustomMessage[] = [];
 	/** User prompts held outside Agent queues, such as TUI input replay after abort. */
@@ -1265,7 +1279,7 @@ export class AgentSession {
 			return;
 		}
 		if (event.message.role !== "user") return;
-		const isInternalSteeringMessage = this._internalSteeringMessages.has(event.message);
+		const isInternalSteeringMessage = isDuplicateTurnGuardMessage(event.message);
 		if (!isInternalSteeringMessage) this._resetDuplicateTurnGuard();
 		this._overflowRecoveryAttempted = false;
 		this._lengthRecoveryAttempted = false;
@@ -1309,7 +1323,7 @@ export class AgentSession {
 		originalToolCallId: string | undefined,
 	): Promise<void> {
 		const { message } = event;
-		const isInternalSteeringMessage = this._internalSteeringMessages.has(message);
+		const isInternalSteeringMessage = isDuplicateTurnGuardMessage(message);
 		if (message.role === "custom") {
 			this.sessionManager.appendCustomMessageEntry(
 				message.customType,
@@ -1323,8 +1337,6 @@ export class AgentSession {
 		) {
 			this.sessionManager.appendMessage(message);
 		}
-		if (isInternalSteeringMessage) this._internalSteeringMessages.delete(message);
-
 		if (originalToolCallId !== undefined) {
 			await this._extensionRunner.deliverToolResultRelocation(originalToolCallId);
 		}
@@ -1335,6 +1347,14 @@ export class AgentSession {
 		this._lastAssistantTurnFingerprint = undefined;
 		this._duplicateTurnGuardInjected = false;
 		this._duplicateTurnLoopDetected = false;
+	}
+
+	private _markDuplicateAssistantMessageForPresentation(message: AssistantMessage): void {
+		if (message.stopReason === "aborted" || message.stopReason === "error") return;
+		if (message.content.some((item) => item.type === "toolCall")) return;
+
+		const fingerprint = JSON.stringify({ text: getAssistantMessageText(message), stopReason: message.stopReason });
+		if (fingerprint === this._lastAssistantTurnFingerprint) markDuplicateTurnAssistantMessage(message);
 	}
 
 	private _trackDuplicateAssistantTurn(message: AssistantMessage): void {
@@ -1355,10 +1375,12 @@ export class AgentSession {
 			return;
 		}
 		if (this._duplicateTurnGuardInjected) {
+			markDuplicateTurnAssistantMessage(message);
 			this._duplicateTurnLoopDetected = true;
 			return;
 		}
 
+		markDuplicateTurnAssistantMessage(message);
 		this._duplicateTurnGuardInjected = true;
 		const guardMessage: AgentMessage = {
 			role: "user",
@@ -1366,7 +1388,7 @@ export class AgentSession {
 			inputSource: "extension",
 			timestamp: Date.now(),
 		};
-		this._internalSteeringMessages.add(guardMessage);
+		markDuplicateTurnGuardMessage(guardMessage);
 		this._steerAgent(guardMessage);
 	}
 
@@ -1378,18 +1400,23 @@ export class AgentSession {
 				? "cwd_relocation"
 				: undefined;
 		if (event.type === "tool_execution_start") this._resetDuplicateTurnGuard();
+		if (event.type === "message_end" && event.message.role === "assistant") {
+			this._markDuplicateAssistantMessageForPresentation(event.message);
+		}
 		this._publishCurrentAgentActivity(event);
 		this._removeStartedMessageFromQueue(event);
 		await this._emitExtensionEvent(event, sessionContinuation);
-		this._emit(
+		const listenerEvent =
 			event.type === "agent_end"
 				? {
 						...event,
 						willRetry: sessionContinuation !== undefined || this._willRetryAfterAgentEnd(event),
 						sessionContinuation,
 					}
-				: event,
-		);
+				: event.type === "message_start" || event.type === "message_update" || event.type === "message_end"
+					? addRuntimeMessageMarker(event)
+					: event;
+		this._emit(listenerEvent);
 		if (event.type === "message_end") await this._persistCompletedMessage(event, originalToolCallId);
 		if (event.type === "agent_end" && sessionContinuation) {
 			await this._extensionRunner.activateToolResultRelocation();

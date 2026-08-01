@@ -3,6 +3,10 @@ import { Container, type Focusable, Input, Key, matchesKey, Spacer, Text, type T
 import { getAgentDir } from "../config.ts";
 import type { AgentSessionEvent } from "../core/agent-session.ts";
 import { ResidentConsoleClient, type ResidentConsoleService } from "../core/resident-console-transport.ts";
+import {
+	isDuplicateTurnAssistantMessage,
+	isDuplicateTurnGuardMessage,
+} from "../core/runtime-message-markers.ts";
 import { getControlDbPath } from "../core/session-control-db.ts";
 import { type SessionEntry, sessionEntryToContextMessages } from "../core/session-manager.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
@@ -52,7 +56,7 @@ export async function runResidentConsoleCommand(command: ResidentConsoleCommand)
 	}
 }
 
-class ResidentConsoleUi extends Container implements Focusable {
+export class ResidentConsoleUi extends Container implements Focusable {
 	readonly input = new Input();
 	private _focused = false;
 	private readonly chat = new Container();
@@ -130,19 +134,28 @@ class ResidentConsoleUi extends Container implements Focusable {
 		if (event.type === "entry_appended") this.appendEntry(event.entry);
 		if (event.type === "agent_start") this.status.setText(theme.fg("muted", "Working…"));
 		if (event.type === "agent_end") this.status.setText("");
-		if (event.type === "message_start") this.startMessage(event.message);
+		if (event.type === "message_start") this.startMessage(event.message, event.runtimeMessageMarker);
 		if (event.type === "message_update" && event.message.role === "assistant") {
 			this.streamingAssistant?.updateContent(event.message);
 		}
 		if (event.type === "message_end" && event.message.role === "assistant") {
-			this.streamingAssistant?.updateContent(event.message);
-			this.streamingAssistant = undefined;
+			if (isDuplicateTurnAssistantMessage(event.message, event.runtimeMessageMarker)) {
+				if (this.streamingAssistant) this.chat.removeChild(this.streamingAssistant);
+				this.streamingAssistant = undefined;
+			} else {
+				this.streamingAssistant?.updateContent(event.message);
+				this.streamingAssistant = undefined;
+			}
 		}
 		this.ui.requestRender();
 	}
 
-	private startMessage(message: Extract<AgentSessionEvent, { type: "message_start" }>["message"]): void {
+	private startMessage(
+		message: Extract<AgentSessionEvent, { type: "message_start" }>["message"],
+		runtimeMessageMarker?: Extract<AgentSessionEvent, { type: "message_start" }>["runtimeMessageMarker"],
+	): void {
 		if (message.role === "user") {
+			if (isDuplicateTurnGuardMessage(message, runtimeMessageMarker)) return;
 			this.chat.addChild(new UserMessageComponent(readTextContent(message.content)));
 			return;
 		}
