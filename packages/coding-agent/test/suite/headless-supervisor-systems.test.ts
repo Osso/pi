@@ -104,7 +104,7 @@ describe("headless Supervisor goal system", () => {
 			const additiveObjective = `${RUNNING_GOAL}; Add the Supervisor regression test`;
 			agent.respondToSupervisorRequest(review, {
 				kind: "set",
-				objective: additiveObjective,
+				objective: `${RUNNING_GOAL}; ${additiveObjective}`,
 				reason: "Preserve the active goal while adding the subtask.",
 			});
 

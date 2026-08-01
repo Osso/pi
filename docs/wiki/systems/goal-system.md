@@ -78,8 +78,10 @@ removes both pause fields. Completion evidence is never inferred automatically.
 request includes the current objective when one exists and the proposed objective.
 The Supervisor must return a `set` decision whose objective preserves every
 requirement and completion criterion from the current objective, then adds the
-proposal; without a current objective, it returns the proposal unchanged. A
-review error or stale review leaves the existing goal state unchanged.
+proposal. Before persistence, the extension collapses exact repeated copies of
+the current objective so successive additive updates remain idempotent. Without
+a current objective, it returns the proposal unchanged. A review error or stale
+review leaves the existing goal state unchanged.
 
 `manage_goal` is supervisor-only. The SDK denylist removes that capability from
 spawned, attached/resumed, and `/bg` child sessions, and from the resident

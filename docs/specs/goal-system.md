@@ -32,7 +32,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
   project-local `.pi/extensions/` code.
 - [x] A `manage_goal` tool can set, pause, resume, complete, clear, and view the active objective for tool-capability parity with `/goal` lifecycle actions; pause requires a non-empty reason and persists/displays it, completion accepts paused active goals without requiring resume, and set rejects reserved goal-control words such as `continue`.
 - [x] The `manage_goal` tool exposes an action parameter plus optional objective, pause-only reason, and completionReport parameters; `complete` requires a nonblank free-form Markdown completionReport.
-- [x] `manage_goal set` sends the current and proposed objectives to the resident Supervisor; the returned objective preserves every current requirement and completion criterion while adding the proposed scope, returns the proposal unchanged when no goal exists, and leaves goal state unchanged when review fails or becomes stale.
+- [x] `manage_goal set` sends the current and proposed objectives to the resident Supervisor; the returned objective preserves every current requirement and completion criterion while adding the proposed scope, collapses exact repeated copies of the current objective before persistence, returns the proposal unchanged when no goal exists, and leaves goal state unchanged when review fails or becomes stale.
 - [x] Supervisor-only capability filtering removes every tool named `manage_goal` from production `spawn_agent`, `attach_session_agent`, and `/bg` runtimes even when an external extension registers it; the supervisor retains the tool.
 - [x] Calls to denied `manage_goal` tools fail as inactive, including calls issued through the Pyrun `pi.tools.call` bridge.
 

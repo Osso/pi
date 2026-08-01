@@ -423,6 +423,28 @@ describe("goal extension", () => {
 		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
 	});
 
+	it("deduplicates restated current scope before persisting a Supervisor goal set decision", async () => {
+		const currentObjective = "ship the complete goal system; keep tests; keep documentation";
+		const proposedObjective = `${currentObjective}; add one proof ledger item`;
+		const reviewGoal = vi.fn(async () => ({
+			kind: "set" as const,
+			objective: `${currentObjective}; ${proposedObjective}`,
+			reason: "Preserve current scope and add the ledger item.",
+		}));
+		const harness = createGoalHarness(cwd, { reviewGoal });
+
+		await harness.runCommand(`set ${currentObjective}`);
+		const result = await harness.runSetGoal(proposedObjective);
+
+		const objective = readStoredGoal<{ objective: string }>(cwd).objective;
+		expect(objective).toBe(`${currentObjective}; add one proof ledger item`);
+		expect(objective.match(/ship the complete goal system/g)).toHaveLength(1);
+		expect(objective.match(/keep tests/g)).toHaveLength(1);
+		expect(objective.match(/keep documentation/g)).toHaveLength(1);
+		expect(objective.match(/add one proof ledger item/g)).toHaveLength(1);
+		expect(result?.content).toEqual([{ type: "text", text: `Goal set: ${objective}` }]);
+	});
+
 	it("does not queue a generic continuation when manage_goal set runs during a turn", async () => {
 		const harness = createGoalHarness(cwd, { idle: false });
 

@@ -16,6 +16,7 @@ import { type ErrorStatusScheduler, createErrorStatusScheduler } from "./error-s
 import { runScheduledGoalAgentEnd } from "./goal-agent-end-scheduling.ts";
 import { parseGoalArgs } from "./goal-args.ts";
 import { selectGoalForIdleReview } from "./goal-idle-selection.ts";
+import { deduplicateCurrentGoalScope } from "./goal-objective.ts";
 import { isRecord, optionalString, parseGoalJson } from "./goal-parsing.ts";
 import { goalFooterStatus, goalStartupMessage, goalSystemBlock, goalViewMessage } from "./goal-presentation.ts";
 import {
@@ -181,7 +182,11 @@ async function reviewGoalSetObjective(
 	const currentGoal = loadOrMigrateActiveGoal(ctx);
 	const reviewStillApplies = activeGoal ? goalMatchesReview(currentGoal, activeGoal) : currentGoal === null;
 	if (!reviewStillApplies) return textResult("Goal changed while Supervisor review was in progress; stale decision ignored.");
-	if (reviewed.decision.kind === "set") return reviewed.decision.objective;
+	if (reviewed.decision.kind === "set") {
+		return activeGoal
+			? deduplicateCurrentGoalScope(reviewed.decision.objective, activeGoal.objective)
+			: reviewed.decision.objective;
+	}
 
 	const reason = reviewed.decision.reason;
 	ctx.ui.notify(`Supervisor goal set review failed: ${reason}`, "error");
