@@ -1257,7 +1257,7 @@ export class AgentSession {
 	private _removeStartedMessageFromQueue(event: AgentEvent): void {
 		if (event.type !== "message_start") return;
 		if (event.message.role === "custom") {
-			if (event.message.customType !== "shared_channel") return;
+			if (event.message.customType !== "shared_channel" || typeof event.message.content !== "string") return;
 			const followUpIndex = this._followUpMessages.indexOf(event.message.content);
 			if (followUpIndex === -1) return;
 			this._followUpMessages.splice(followUpIndex, 1);
