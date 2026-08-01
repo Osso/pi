@@ -159,15 +159,12 @@ describe("resident Supervisor service", () => {
 		expect(parseSupervisorResponse("approval_review", '{"kind":"pause","reason":"wait"}')).toBeUndefined();
 	});
 
-	it("accepts a valid JSON decision followed by a generated text suffix", () => {
+	it("rejects valid JSON followed by generated text", () => {
 		expect(
 			parseSupervisorResponse(
 				"goal_completion_review",
 				'{"kind":"complete","reason":"verified"}  ... Need end_turn.',
 			),
-		).toEqual({ kind: "complete", reason: "verified" });
-		expect(
-			parseSupervisorResponse("goal_completion_review", '{"kind":"complete","reason":"verified"} trailing'),
 		).toBeUndefined();
 	});
 
@@ -185,10 +182,10 @@ describe("resident Supervisor service", () => {
 			status: "claimed",
 		});
 
-		expect(prompt).toContain('{"kind":"wait","reason":"..."}');
-		expect(prompt).toContain("Return wait when progress is already underway asynchronously");
+		expect(prompt).toContain("Use wait when progress is already underway asynchronously");
 		expect(prompt).toContain("or depends on an external condition that can be rechecked");
-		expect(prompt).toContain("Return pause only when progress requires user action");
+		expect(prompt).toContain("Use pause only when progress requires user action");
+		expect(prompt).toContain("Call supervisor_response exactly once as the final action");
 	});
 
 	it("builds a bounded prompt without historical transcript retrieval", () => {
@@ -235,7 +232,7 @@ describe("resident Supervisor service", () => {
 				senderSessionId: "main",
 				status: "claimed",
 			}),
-		).toContain('"kind":"pause"');
+		).toContain("Use kind complete, pause, wait, continue, or error");
 	});
 
 	it("prompts for and parses advisory-only responses", () => {
@@ -252,7 +249,7 @@ describe("resident Supervisor service", () => {
 			status: "claimed" as const,
 		};
 		const prompt = buildSupervisorPrompt(request);
-		expect(prompt).toContain('{"kind":"advisory","answer":"..."}');
+		expect(prompt).toContain("Use kind advisory with a non-empty answer");
 		expect(prompt).toContain("advisory only");
 		expect(parseSupervisorResponse(request.kind, { kind: "advisory", answer: "Nothing is missing." })).toEqual({
 			kind: "advisory",
@@ -333,6 +330,38 @@ describe("resident Supervisor service", () => {
 
 		expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({
 			response: { kind: "complete", reason: "current response" },
+			status: "completed",
+		});
+	});
+
+	it("accepts a structured supervisor response tool call without assistant JSON text", async () => {
+		const requestId = postSupervisorRequest(controlDbPath, {
+			deadlineAt: new Date(Date.now() + 30_000).toISOString(),
+			kind: "goal_completion_review",
+			payload: { objective: "finish" },
+			projectId: "pi",
+			senderSessionId: "main",
+		});
+		const request = claimNextSupervisorRequest(controlDbPath, "runtime");
+		if (!request) throw new Error("expected request");
+		const sessionManager = SessionManager.create(tempDir, tempDir);
+		const session = {
+			abort: async () => {},
+			prompt: async () => {
+				sessionManager.appendMessage(
+					fauxAssistantMessage(
+						fauxToolCall("supervisor_response", { kind: "complete", reason: "structured proof" }),
+						{ stopReason: "toolUse" },
+					),
+				);
+			},
+			sessionManager,
+		};
+
+		await processSupervisorRequest(controlDbPath, request, session);
+
+		expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({
+			response: { kind: "complete", reason: "structured proof" },
 			status: "completed",
 		});
 	});

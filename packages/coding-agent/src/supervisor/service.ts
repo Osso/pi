@@ -19,14 +19,14 @@ export interface RunSupervisorRequestInput {
 export function buildSupervisorPrompt(request: SupervisorRequest): string {
 	const responseContract =
 		request.kind === "approval_review"
-			? 'Return {"kind":"approve|reject","reason":"..."}.'
+			? "Use kind approve or reject with a non-empty reason."
 			: request.kind === "supervisor_advisory"
-				? 'Return {"kind":"advisory","answer":"..."}. This response is advisory only and cannot direct or control the caller.'
+				? "Use kind advisory with a non-empty answer. This response is advisory only and cannot direct or control the caller."
 				: [
-						'Return {"kind":"complete","reason":"..."}, {"kind":"pause","reason":"..."}, {"kind":"wait","reason":"..."}, {"kind":"continue","reason":"...","instructions":"..."}, or {"kind":"error","reason":"..."}.',
+						"Use kind complete, pause, wait, continue, or error with a non-empty reason.",
 						"Continue instructions must give a concrete, actionable next step.",
-						"Return wait when progress is already underway asynchronously or depends on an external condition that can be rechecked, and no duplicate continuation should start.",
-						"Return pause only when progress requires user action or input and cannot advance automatically.",
+						"Use wait when progress is already underway asynchronously or depends on an external condition that can be rechecked, and no duplicate continuation should start.",
+						"Use pause only when progress requires user action or input and cannot advance automatically.",
 					].join("\n");
 	return [
 		"You are Pi Supervisor, a resident local policy engine.",
@@ -36,7 +36,7 @@ export function buildSupervisorPrompt(request: SupervisorRequest): string {
 		`Project memory: memory/supervisor/${request.projectId}.md`,
 		"Global memory: memory/supervisor/global.md",
 		responseContract,
-		"Respond with exactly one JSON object and no markdown.",
+		"Call supervisor_response exactly once as the final action. Do not emit assistant text, JSON, markdown, or call end_turn before or after it.",
 		"Request:",
 		JSON.stringify(
 			{
@@ -159,13 +159,7 @@ function extractTextContent(response: Record<string, unknown>): string | undefin
 }
 
 function parseJsonObject(json: string): Record<string, unknown> | undefined {
-	const trimmed = json.trim();
-	const exact = parseJsonRecord(trimmed);
-	if (exact) return exact;
-
-	const suffixIndex = trimmed.lastIndexOf("...");
-	if (suffixIndex < 0) return undefined;
-	return parseJsonRecord(trimmed.slice(0, suffixIndex).trimEnd());
+	return parseJsonRecord(json.trim());
 }
 
 function parseJsonRecord(json: string): Record<string, unknown> | undefined {

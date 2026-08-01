@@ -24,6 +24,7 @@ import { SettingsManager } from "../core/settings-manager.ts";
 import { resolveReadPath, resolveToCwd } from "../core/tools/path-utils.ts";
 import { DEFAULT_SUPERVISOR_KB_DIR } from "./project-resolver.ts";
 import { notifySupervisorRequest, SupervisorRequestWakeServer } from "./request-wake.ts";
+import { createSupervisorResponseTool, SUPERVISOR_RESPONSE_TOOL_NAME } from "./response-tool.ts";
 import { runSupervisorRequest } from "./service.ts";
 
 const SUPERVISOR_SESSION_ID = "supervisor";
@@ -214,7 +215,8 @@ async function createSupervisorAgentSession(
 		sessionManager,
 		settingsManager,
 		thinkingLevel: "low",
-		tools: SUPERVISOR_TOOL_NAMES,
+		customTools: [createSupervisorResponseTool()],
+		tools: [...SUPERVISOR_TOOL_NAMES, SUPERVISOR_RESPONSE_TOOL_NAME],
 	});
 	return session;
 }
@@ -297,7 +299,7 @@ export async function processSupervisorRequest(
 					if (signal.aborted) throw new Error("Supervisor request aborted");
 					const previousLeafId = session.sessionManager.getLeafId();
 					await session.prompt(prompt);
-					return readCurrentAssistantText(session.sessionManager.getBranch(), previousLeafId);
+					return readCurrentSupervisorResponse(session.sessionManager.getBranch(), previousLeafId);
 				} finally {
 					signal.removeEventListener("abort", abort);
 				}
@@ -316,10 +318,10 @@ export function cleanupSupervisorProviderContext(sessionId: string): void {
 	cleanupSessionResources(sessionId);
 }
 
-function readCurrentAssistantText(
+function readCurrentSupervisorResponse(
 	entries: ReturnType<SessionManager["getBranch"]>,
 	previousLeafId: string | null,
-): string {
+): unknown {
 	const previousLeafIndex = previousLeafId ? entries.findIndex((entry) => entry.id === previousLeafId) : -1;
 	if (previousLeafId && previousLeafIndex === -1) {
 		throw new Error("Supervisor request boundary is missing from the current session branch");
@@ -335,6 +337,8 @@ function readCurrentAssistantText(
 	if (!isRecord(terminalMessage) || !Array.isArray(terminalMessage.content)) {
 		throw new Error("Supervisor model returned no assistant text for current request");
 	}
+	const structuredResponse = readStructuredSupervisorResponse(terminalMessage);
+	if (structuredResponse !== undefined) return structuredResponse;
 	const responseMessage = terminalMessageCallsEndTurn(terminalMessage)
 		? [...assistantMessages].reverse().find((message) => message.stopReason === "stop")
 		: terminalMessage;
@@ -353,6 +357,22 @@ function readCurrentAssistantText(
 		.join("");
 	if (!text.trim()) throw new Error("Supervisor model returned no assistant text for current request");
 	return text;
+}
+
+function readStructuredSupervisorResponse(message: Record<string, unknown>): Record<string, unknown> | undefined {
+	const responseToolCall = Array.isArray(message.content)
+		? message.content.find(
+				(part) => isRecord(part) && part.type === "toolCall" && part.name === SUPERVISOR_RESPONSE_TOOL_NAME,
+			)
+		: undefined;
+	if (!isRecord(responseToolCall) || !isRecord(responseToolCall.arguments)) return undefined;
+	const hasAssistantText = message.content.some(
+		(part) => isRecord(part) && part.type === "text" && typeof part.text === "string" && part.text.trim(),
+	);
+	if (hasAssistantText) {
+		throw new Error("Supervisor model emitted assistant text with structured response");
+	}
+	return responseToolCall.arguments;
 }
 
 function terminalMessageCallsEndTurn(message: Record<string, unknown>): boolean {
