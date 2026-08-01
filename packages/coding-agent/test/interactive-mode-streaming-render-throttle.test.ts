@@ -2,8 +2,8 @@ import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
 import { Container, type MarkdownTheme, Text, type TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import type { AgentSessionEvent } from "../src/core/agent-session.ts";
-import type { RuntimeMessageMarker } from "../src/core/runtime-message-markers.ts";
 import type { AgentSnapshot } from "../src/core/multi-agent-store.ts";
+import type { RuntimeMessageMarker } from "../src/core/runtime-message-markers.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { getMarkdownTheme, initTheme } from "../src/modes/interactive/theme/theme.ts";
 
@@ -130,7 +130,10 @@ function createUserMessage(text: string): AgentSessionEvent {
 	};
 }
 
-function markRuntimeMessageEvent(event: AgentSessionEvent, runtimeMessageMarker: RuntimeMessageMarker): AgentSessionEvent {
+function markRuntimeMessageEvent(
+	event: AgentSessionEvent,
+	runtimeMessageMarker: RuntimeMessageMarker,
+): AgentSessionEvent {
 	return { ...event, runtimeMessageMarker } as AgentSessionEvent;
 }
 
