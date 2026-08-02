@@ -84,8 +84,8 @@ describe("getSupportedThinkingLevels", () => {
 		expect(getSupportedThinkingLevels(model!)).toEqual(["high"]);
 	});
 
-	it("includes only high/xhigh plus off for DeepSeek V4 Flash on OpenRouter", () => {
-		const model = getModel("openrouter", "deepseek/deepseek-v4-flash");
+	it("includes only high/xhigh plus off for DeepSeek V4 Flash 0731 on OpenRouter", () => {
+		const model = getModel("openrouter", "deepseek/deepseek-v4-flash-0731");
 		expect(model).toBeDefined();
 		expect(getSupportedThinkingLevels(model!)).toEqual(["off", "high", "xhigh"]);
 	});
