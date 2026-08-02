@@ -184,6 +184,8 @@
 
 ### Fixed
 
+- Fixed packed Node and Bun package CLIs failing at startup because first-party extension modules were emitted outside the published runtime tree; local release builds now smoke-test installed CLI startup and detached Pyrun runner loading.
+
 <<<<<<< HEAD
 - Fixed repeated `manage_goal set` updates persisting duplicate copies of unchanged active scope when the Supervisor restates the current objective; exact repeated current-objective blocks now collapse before persistence.
 - Fixed completed agents losing their visible `agent_viewer` summary when a tool-only `end_turn` call followed the agent's final text response.

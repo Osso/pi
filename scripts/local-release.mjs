@@ -225,6 +225,7 @@ if (!options.skipInstall) {
 
 	run("npm", ["install", "--omit=dev", "--ignore-scripts"], { cwd: nodeInstallDirectory });
 	createPiShim(nodeInstallDirectory);
+	run(process.execPath, ["scripts/smoke-local-release.mjs", join(nodeInstallDirectory, "pi")], { cwd: repoRoot });
 
 	if (!options.skipBunInstall) {
 		if (!commandExists("bun")) {
