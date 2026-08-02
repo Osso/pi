@@ -8,6 +8,7 @@ The built-in `end_turn` tool gives normal coding-agent model turns an explicit c
 
 - [x] Register a built-in `end_turn` tool in the default active tool set.
 - [x] Require one nonblank free-form `reason` argument and reject a blank reason.
+- [x] Instruct the model to keep working while actionable task work remains and call `end_turn` only after completion, when progress requires user input, or when the user explicitly asks it to stop.
 - [x] Return a terminating tool result when execution succeeds.
 
 ### Agent loop

@@ -9,6 +9,9 @@ describe("end_turn tool", () => {
 
 		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("end_turn");
 		expect(definitions.end_turn.name).toBe("end_turn");
+		expect(definitions.end_turn.promptGuidelines).toContain(
+			"Call end_turn only when the task is complete, progress requires user input, or the user explicitly asks you to stop. If work remains and progress is possible, continue working instead of calling end_turn. Assistant text alone does not finish the turn.",
+		);
 		expect(Value.Check(definitions.end_turn.parameters, {})).toBe(false);
 		await expect(tool.execute("end-blank", { reason: "  " })).rejects.toThrow(
 			"end_turn reason must be a non-empty string",

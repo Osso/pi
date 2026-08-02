@@ -18,7 +18,7 @@ export function createEndTurnToolDefinition(): ToolDefinition<typeof endTurnSche
 		description: "End the current model turn. Provide a concise reason explaining why the turn is finished.",
 		promptSnippet: "End the current model turn with a required reason",
 		promptGuidelines: [
-			"Call end_turn when the current turn is finished; assistant text without this tool does not finish the turn.",
+			"Call end_turn only when the task is complete, progress requires user input, or the user explicitly asks you to stop. If work remains and progress is possible, continue working instead of calling end_turn. Assistant text alone does not finish the turn.",
 			"Provide one concise, non-empty reason.",
 		],
 		parameters: endTurnSchema,
