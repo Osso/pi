@@ -17,14 +17,14 @@ import { createAllToolDefinitions, DEFAULT_ACTIVE_TOOL_NAMES } from "../src/core
 import { createListSessionsToolDefinition } from "../src/core/tools/list-sessions.ts";
 
 describe("session coordination tools", () => {
-	it("registers session coordination tools as built-ins active by default", () => {
+	it("registers active session coordination tools while Architect requests are disabled", () => {
 		const tools = createAllToolDefinitions("/tmp");
-		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("ask_architect");
+		expect(DEFAULT_ACTIVE_TOOL_NAMES).not.toContain("ask_architect");
+		expect(tools).not.toHaveProperty("ask_architect");
 		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("ask_supervisor");
 		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("list_sessions");
 		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("broadcast");
 		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("channel_post");
-		expect(tools.ask_architect.name).toBe("ask_architect");
 		expect(tools.ask_supervisor.name).toBe("ask_supervisor");
 		expect(tools.list_sessions.name).toBe("list_sessions");
 		expect(tools.broadcast.name).toBe("broadcast");

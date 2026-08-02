@@ -2,7 +2,7 @@
 
 Module boundary: core resident SDK service.
 
-The resident Architect is a systemd-supervised Sol advisor that preserves a dedicated cross-session transcript and sends advisory hypotheses about evidence-backed coordination issues only to the affected session. It is not a dispatcher or remediation agent. Its transcript is persisted as an archived non-subagent session under `<agent-dir>/architect-sessions/`, so it remains available through Archived even though it is outside the Current Folder directory scope. Implementation details live in [../wiki/systems/architect-service.md](../wiki/systems/architect-service.md).
+The resident Architect is a retained but temporarily disabled systemd-supervised Sol advisor. Its implementation and transcript format remain available for rework, but deployment does not install or start the service and Pi does not expose `ask_architect`. When re-enabled, it preserves a dedicated cross-session transcript and sends advisory hypotheses about evidence-backed coordination issues only to the affected session. Implementation details live in [../wiki/systems/architect-service.md](../wiki/systems/architect-service.md).
 
 ## What it must do
 
@@ -32,7 +32,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 ### Advice
 
 - [x] Load shared and `rules/architect/*.md` user rules through an explicit rule-scope override while retaining the Architect's `observer` execution role; ordinary observers remain shared-only.
-- [x] Keep the standard Pi tool set available except Architect-disabled `broadcast`, `ask_architect`, and `contact_parent` while the `read-only` bwrap profile routes file, shell, and default-loaded Pyrun runner workers through Bubblewrap. Pyrun remains available with its Pi bridge disabled. The removed `contact_supervisor` name is not a compatibility alias.
+- [x] Keep `ask_architect` out of the built-in tool registry and default active tool list while the Architect is disabled; the retained Architect runtime still excludes `broadcast`, `ask_architect`, and `contact_parent` when re-enabled.
 - [x] Send evidence-backed advice through direct `send_agent_message` delivery to the originating session; block `broadcast` and global `channel_post` fanout.
 - [x] Frame findings as advisory hypotheses for the receiving session to verify, accept, reject, or defer; never issue commands, execution gates, stop conditions, operational sequencing, mandatory next steps, or reinterpret goal completion.
 - [x] Never dispatch agents, edit files, restart sessions, or remediate autonomously.
@@ -41,7 +41,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 
 - [x] Run the installed Bun-compiled Pi binary as a systemd user service using `openai-codex/gpt-5.6-sol`.
 - [x] Preserve a dedicated Architect session transcript across service restarts while reading normal shared Pi state; persist its metadata with `archived_at` set.
-- [x] Install the compiled `pi` binary and install, enable, start, and restart the user service through deployment.
+- [x] Install the compiled `pi` binary while deployment disables and stops any existing Architect user service, removes its installed unit, and keeps the Supervisor service active.
 
 ## How it works
 
@@ -60,14 +60,15 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 - `packages/coding-agent/src/cli/resident-console-command.ts` — `--architect` console client and optional initial prompt handling.
 - `packages/coding-agent/src/main.ts` — early dispatch for resident-console flags without changing service commands.
 - `packages/coding-agent/systemd/pi-architect.service` — user-service template for the installed Bun-compiled Pi binary.
-- `deploy.sh` — compiled binary installation and systemd unit deployment.
+- `deploy.sh` — compiled binary installation and resident-service configuration.
+- `scripts/configure-resident-services.sh` — disables/removes Architect and configures the Supervisor unit.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/architect-observer.test.ts` — initial/material snapshots, completed-goal stability, current-main-session selection, deterministic metadata deduplication, subagent/self exclusion, and explicit main-session architect-request filtering.
 - `packages/coding-agent/test/session-directory.test.ts` — regression proving Architect and global
   inventory retain only the current main-session binding.
-- `packages/coding-agent/test/architect-service.test.ts` — Architect prompt policy, advisory boundary, `architect`-scope user rules, ordinary observer isolation, authoritative-spec discovery, installed-binary unit command, and deployment reload, enable/start, and restart steps.
+- `packages/coding-agent/test/architect-service.test.ts` — retained Architect policy and regression coverage proving deployment disables/removes its installed unit while configuring Supervisor.
 - `packages/coding-agent/test/list-sessions-broadcast-tools.test.ts` — explicit directory persistence and canonicalization, cwd defaulting, and empty, relative, missing, or non-directory path rejection.
 - `packages/coding-agent/test/session-control-db.test.ts` — durable request persistence, claims, completion, and project-cwd projection.
 - `packages/coding-agent/test/architect-service.test.ts` — console wake, prompt serialization, exact branch snapshot, and lifecycle ownership.
@@ -78,7 +79,7 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 
 - [x] `architect-observer.test.ts` covers initial/material snapshots, current-main-session selection, deterministic metadata deduplication, subagent/self exclusion, read-only missing-DB behavior, and self-message suppression.
 - [x] `architect-service.test.ts` covers event-driven prompting, bounded shutdown, the read-only profile, global-fanout and broadcast blocking, and deployment lifecycle commands.
-- [x] Deployment builds the compiled binary, installs/enables/restarts the service, and systemd health is verified.
+- [x] Deployment disables/removes the Architect unit and verifies it is inactive/disabled while Supervisor health is verified.
 
 ## Out of scope
 
@@ -88,3 +89,4 @@ The resident Architect is a systemd-supervised Sol advisor that preserves a dedi
 - Task dispatch, autonomous code changes, process/session control, or automatic remediation.
 - Reading full agent transcripts on routine observations.
 - Pi bridge capabilities for sandboxed runtimes. They are deliberately disabled.
+- Reworking or deleting the retained Architect implementation; this cycle only disables its startup and request tool.

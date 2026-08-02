@@ -17,6 +17,7 @@
 
 ### Changed
 
+- Temporarily disabled the resident Architect service and removed the `ask_architect` built-in tool while retaining the implementation and service template for rework; deployment now stops/removes Architect and keeps Supervisor active.
 - Changed `manage_goal set` to require resident Supervisor review; the returned objective preserves the active goal's requirements and completion criteria while adding the proposed scope, and failed or stale reviews leave goal state unchanged.
 
 ### Added

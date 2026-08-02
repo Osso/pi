@@ -1,5 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,7 +35,9 @@ import { getControlDbPath, readSessionMetadata } from "../src/core/session-contr
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SUPERVISOR_ONLY_TOOL_NAMES } from "../src/core/tool-capabilities.ts";
 
-const deployScript = fileURLToPath(new URL("../../../deploy.sh", import.meta.url));
+const residentServicesScript = fileURLToPath(
+	new URL("../../../scripts/configure-resident-services.sh", import.meta.url),
+);
 const serviceUnit = fileURLToPath(new URL("../systemd/pi-architect.service", import.meta.url));
 const systemdPathValidator = fileURLToPath(new URL("../../../scripts/validate-systemd-exec-path.mjs", import.meta.url));
 
@@ -443,24 +454,69 @@ describe("resident architect service", () => {
 		expect(replacement.stderr).toContain("systemd ExecStart");
 	});
 
-	it("renders the configured binary path and verifies the restarted Architect service", () => {
-		const deploy = readFileSync(deployScript, "utf8");
-		const unit = readFileSync(serviceUnit, "utf8");
+	it("keeps the Architect unit template but disables the installed service", () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-resident-services-"));
+		try {
+			const fakeBinDir = join(tempDir, "bin");
+			const configHome = join(tempDir, "config");
+			const systemdUserDir = join(configHome, "systemd", "user");
+			const systemctlLog = join(tempDir, "systemctl.log");
+			const architectDisabledMarker = join(tempDir, "architect-disabled");
+			const fakeSystemctl = join(fakeBinDir, "systemctl");
+			mkdirSync(fakeBinDir, { recursive: true });
+			mkdirSync(systemdUserDir, { recursive: true });
+			writeFileSync(join(systemdUserDir, "pi-architect.service"), "previous architect unit");
+			writeFileSync(
+				fakeSystemctl,
+				`#!/usr/bin/env node
+const { appendFileSync, existsSync, writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(process.env.PI_TEST_SYSTEMCTL_LOG, args.join(" ") + "\\n");
+const command = args[1];
+const unit = args.at(-1);
+if (command === "cat" && unit === "pi-architect.service") process.exit(0);
+if (command === "disable" && unit === "pi-architect.service") {
+  writeFileSync(process.env.PI_TEST_ARCHITECT_DISABLED, "disabled");
+  process.exit(0);
+}
+if ((command === "is-active" || command === "is-enabled") && unit === "pi-architect.service") {
+  process.exit(existsSync(process.env.PI_TEST_ARCHITECT_DISABLED) ? 1 : 0);
+}
+process.exit(0);
+`,
+			);
+			chmodSync(fakeSystemctl, 0o755);
 
-		expect(unit).toContain("ExecStart=@PI_ARCHITECT_BINARY@ architect");
-		expect(deploy).toContain("@PI_ARCHITECT_BINARY@");
-		expect(deploy).not.toContain("@PI_NODE_LAUNCHER@");
-		expect(deploy).not.toContain("@PI_TSCONFIG@");
-		expect(deploy).not.toContain("@PI_CLI_SOURCE@");
-		expect(deploy).toContain("pi-architect.service");
-		expect(deploy).toContain('XDG_RUNTIME_DIR="');
-		expect(deploy).toContain("/run/user/$(id -u)");
-		expect(deploy).toContain('DBUS_SESSION_BUS_ADDRESS="');
-		expect(deploy).toContain("unix:path=$XDG_RUNTIME_DIR/bus");
-		expect(deploy).toContain("systemctl --user daemon-reload");
-		expect(deploy).toContain("systemctl --user enable --now pi-architect.service");
-		expect(deploy).toContain("systemctl --user restart pi-architect.service");
-		expect(deploy).toContain("systemctl --user is-active --quiet pi-architect.service");
-		expect(deploy).not.toContain('"$USER"');
+			const result = spawnSync(residentServicesScript, ["/home/osso/.local/bin/pi"], {
+				encoding: "utf8",
+				env: {
+					...process.env,
+					HOME: join(tempDir, "home"),
+					PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+					PI_TEST_ARCHITECT_DISABLED: architectDisabledMarker,
+					PI_TEST_SYSTEMCTL_LOG: systemctlLog,
+					XDG_CONFIG_HOME: configHome,
+				},
+			});
+
+			expect(result.status, result.stderr).toBe(0);
+			expect(readFileSync(serviceUnit, "utf8")).toContain("ExecStart=@PI_ARCHITECT_BINARY@ architect");
+			expect(existsSync(join(systemdUserDir, "pi-architect.service"))).toBe(false);
+			expect(readFileSync(join(systemdUserDir, "pi-supervisor.service"), "utf8")).toContain(
+				"ExecStart=/home/osso/.local/bin/pi supervisor",
+			);
+			expect(readFileSync(systemctlLog, "utf8").trim().split("\n")).toEqual([
+				"--user cat pi-architect.service",
+				"--user disable --now pi-architect.service",
+				"--user daemon-reload",
+				"--user is-active --quiet pi-architect.service",
+				"--user is-enabled --quiet pi-architect.service",
+				"--user enable --now pi-supervisor.service",
+				"--user restart pi-supervisor.service",
+				"--user is-active --quiet pi-supervisor.service",
+			]);
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
 	});
 });
