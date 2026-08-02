@@ -69,7 +69,7 @@ import {
 } from "../../../src/core/tool-capabilities.ts";
 import { deliverTerminalOutboxProjections } from "../../../src/core/terminal-outbox-delivery.ts";
 
-const MAX_GOAL_OBJECTIVE_CHARS = 4000;
+const MAX_GOAL_OBJECTIVE_CHARS = 10_000;
 const GOAL_EXTENSION_PATH = "<first-party:goal>";
 const AGENT_START_CUSTOM_TYPE = "agent_start";
 const AGENT_COMPLETE_CUSTOM_TYPE = "agent_complete";

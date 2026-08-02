@@ -577,12 +577,20 @@ describe("goal extension", () => {
 		expect(harness.notify).toHaveBeenCalledWith("No active goal — use /goal set <objective>", "info");
 	});
 
-	it("rejects objectives longer than the codex limit", async () => {
+	it("accepts objectives up to 10000 characters and rejects longer ones", async () => {
 		const harness = createGoalHarness(cwd);
+		const maximumObjective = "x".repeat(10_000);
 
-		await harness.runCommand(`set ${"x".repeat(4001)}`);
+		await harness.runCommand(`set ${maximumObjective}`);
 
-		expect(harness.notify).toHaveBeenCalledWith("Objective too long (4001 > 4000 chars)", "error");
+		expect(readStoredGoal<{ objective: string }>(cwd).objective).toBe(maximumObjective);
+		expect(harness.notify).toHaveBeenCalledWith("Goal set — starting work", "info");
+
+		harness.notify.mockClear();
+		harness.sendUserMessage.mockClear();
+		await harness.runCommand(`set ${maximumObjective}x`);
+
+		expect(harness.notify).toHaveBeenCalledWith("Objective too long (10001 > 10000 chars)", "error");
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 	});
 

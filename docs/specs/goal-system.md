@@ -17,7 +17,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] `/goal pause` suspends context injection and autonomous continuation without clearing the objective, persists `Paused by user.` as its reason, and displays that reason.
 - [x] `/goal resume` resumes a paused objective without replacing it and removes the persisted pause timestamp and reason.
 - [x] `/goal clear` removes the active objective.
-- [x] Objectives longer than 4000 characters are rejected with a visible error and are not persisted; production child prompts are still validated before dispatch.
+- [x] Objectives longer than 10,000 characters are rejected with a visible error and are not persisted; production child prompts are still validated before dispatch.
 - [x] Removed budget flags (`--token-budget`, `--wall-clock-minutes`) and the replacement flag (`--replace`) are rejected with a visible error and are not persisted.
 - [x] At most one active goal exists per session at a time; separate non-child sessions in the same project can have distinct active goals.
 - [x] The active goal survives `session_start` with reason `resume`/`reload`/`fork` and is surfaced to the user from persisted state.

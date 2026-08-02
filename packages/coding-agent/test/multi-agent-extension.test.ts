@@ -4927,14 +4927,14 @@ describe("multi-agent extension tools", () => {
 			}),
 		});
 
-		await harness.command("bg", "x".repeat(4001), {
+		await harness.command("bg", "x".repeat(10001), {
 			model: parentHarness.getModel(),
 			modelRegistry: parentHarness.session.modelRegistry,
 			sessionManager: parentHarness.sessionManager,
 			ui: { notify: (message, level) => notifications.push({ level, message }) },
 		});
 
-		expect(notifications).toEqual([{ level: "error", message: "Objective too long (4001 > 4000 chars)" }]);
+		expect(notifications).toEqual([{ level: "error", message: "Objective too long (10001 > 10000 chars)" }]);
 		expect(harness.store.listAgents()).toEqual([]);
 	});
 
@@ -4971,7 +4971,7 @@ describe("multi-agent extension tools", () => {
 
 	it("rejects oversized prompts without persisting when no executable runtime exists", async () => {
 		const harness = createMultiAgentHarness();
-		const prompt = "x".repeat(4001);
+		const prompt = "x".repeat(10001);
 		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", { context: "fresh", prompt });
 		expect(spawned.details).toMatchObject({ dispatched: false, prompt });
 		expect(harness.store.listAgents()).toEqual([]);
@@ -4994,9 +4994,9 @@ describe("multi-agent extension tools", () => {
 			}),
 		});
 
-		const spawned = await harness.call("spawn_agent", { context: "fresh", prompt: "x".repeat(4001) });
+		const spawned = await harness.call("spawn_agent", { context: "fresh", prompt: "x".repeat(10001) });
 
-		expect(spawned.content).toEqual([{ text: "spawn_agent prompt too long (4001 > 4000 chars)", type: "text" }]);
+		expect(spawned.content).toEqual([{ text: "spawn_agent prompt too long (10001 > 10000 chars)", type: "text" }]);
 		expect(harness.store.listAgents()).toEqual([]);
 	});
 

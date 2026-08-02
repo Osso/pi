@@ -53,7 +53,7 @@ Continue working toward the active goal.
 
 A second `/goal set <objective>` replaces the active incomplete goal.
 
-Objective text is limited to 4000 characters. Longer objectives are rejected
+Objective text is limited to 10,000 characters. Longer objectives are rejected
 before state is written.
 
 The command rejects flags with a visible error and does not write state. Removed budget flags keep specific error messages.

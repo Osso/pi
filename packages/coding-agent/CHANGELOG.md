@@ -17,6 +17,7 @@
 
 ### Changed
 
+- Increased the maximum `/goal` objective and production child prompt length from 4,000 to 10,000 characters.
 - Temporarily disabled the resident Architect service and removed the `ask_architect` built-in tool while retaining the implementation and service template for rework; deployment now stops/removes Architect and keeps Supervisor active.
 - Changed Supervisor goal reviews from routine step direction to exception-based peer unblocking: competent progress receives the generic active-goal reminder, while specific corrective instructions are reserved for evidence-backed omissions, repeated failed or circular work, lost objective scope, or missing completion proof; the full original objective remains authoritative over narrower subtasks.
 - Changed `manage_goal set` to require resident Supervisor review; the returned objective preserves the active goal's requirements and completion criteria while adding the proposed scope, and failed or stale reviews leave goal state unchanged.

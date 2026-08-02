@@ -56,7 +56,7 @@ import { reviewGoalWithResidentSupervisor, withSupervisorReviewStatus } from "./
 import { createWaitCountdownRefresher } from "./wait-countdown.ts";
 import { appendGoalSchedulingError, createWaitStatusCallbacks } from "./wait-status.ts";
 
-const MAX_OBJECTIVE_CHARS = 4000;
+const MAX_OBJECTIVE_CHARS = 10_000;
 const USER_PAUSE_REASON = "Paused by user.";
 const RESERVED_GOAL_OBJECTIVES = new Set(["set", "pause", "resume", "clear", "status", "complete", "continue"]);
 
