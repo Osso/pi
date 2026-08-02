@@ -184,6 +184,7 @@
 
 ### Fixed
 
+- Fixed text-only `end_turn` continuations allowing the model to continue or infer a new user request; the immediate follow-up now instructs the model to terminate without repeating or continuing, and remains runtime-only.
 - Fixed packed Node and Bun package CLIs failing at startup because first-party extension modules were emitted outside the published runtime tree; local release builds now smoke-test installed CLI startup and detached Pyrun runner loading.
 
 <<<<<<< HEAD
