@@ -33,6 +33,7 @@
 - Added an optional `onRetry` stream option that reports provider-internal retries and transport fallbacks. The OpenAI Codex API emits it for HTTP retries, WebSocket connection-limit reconnects, and WebSocket-to-SSE fallback.
 - Added optional `Model.autoCompactionThreshold` metadata for models with an exact preferred automatic-compaction boundary.
 - Added GPT-5.6 Sol and GPT-5.6 Terra to the `openai-codex` and `openai-codex-gc` model catalogs, and refreshed OpenRouter models with GPT-5.6 variants.
+- Added/refreshed metadata for the versioned OpenRouter DeepSeek V4 Flash 0731 model (`deepseek/deepseek-v4-flash-0731`).
 - Added an `openai-codex-gc` provider alias for logging in to a second OpenAI Codex account separately.
 - Refreshed generated model catalogs from models.dev, adding newly listed models including Kimi K2.7 Code for GitHub Copilot and Fable 5 to several providers ([#6256](https://github.com/earendil-works/pi/issues/6256)).
 - Added Claude Sonnet 5 to the GitHub Copilot model catalog ([#6200](https://github.com/earendil-works/pi/issues/6200)).
