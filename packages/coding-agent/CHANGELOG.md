@@ -185,6 +185,7 @@
 ### Fixed
 
 - Fixed packed Node and Bun package CLIs failing at startup because first-party extension modules were emitted outside the published runtime tree; local release builds now smoke-test installed CLI startup and detached Pyrun runner loading.
+- Fixed the selected subagent footer showing effort as off when the transcript lacks an initial thinking-level entry; it now prefers persisted child settings and agent snapshot metadata before the transcript fallback.
 
 <<<<<<< HEAD
 - Fixed repeated `manage_goal set` updates persisting duplicate copies of unchanged active scope when the Supervisor restates the current objective; exact repeated current-objective blocks now collapse before persistence.
