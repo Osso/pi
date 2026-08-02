@@ -25,7 +25,7 @@ The resident Supervisor is a systemd-supervised peer-unblocking policy engine th
 
 ### Authority boundary
 
-- [x] Act as a peer-unblocking policy engine whose typed response is enforced by the calling subsystem.
+- [x] Act as a peer-unblocking policy engine, not a manager: preserve agent autonomy and intervene only on evidence-backed exceptions; the calling subsystem enforces the typed response.
 - [x] Read and write only inside the configured shared KB root.
 - [x] Keep Bash and Pyrun unavailable to the Supervisor.
 - [x] Never edit workspace files, dispatch agents, control processes or sessions, mutate goals directly, or change approval policy directly.
@@ -73,7 +73,7 @@ The resident Supervisor is a systemd-supervised peer-unblocking policy engine th
 - [x] Return exactly `complete`, `continue`, `wait`, `pause`, or generic `error` for goal completion review.
 - [x] Mark the goal complete only when the caller receives `complete`, persisting the verbatim completionReport as completionReason.
 - [x] Clear stored goal-review conversation evidence when completion is applied.
-- [x] Keep the goal running when the caller receives `continue`; use the generic active-goal reminder when the agent can continue autonomously, and reserve specific Supervisor instructions for an evidence-backed omission, repeated failed or circular work, lost objective scope, or missing completion proof.
+- [x] Keep the goal running when the caller receives `continue`; use exactly `Continue working toward the active goal.` when the agent can continue autonomously, and reserve specific Supervisor instructions for an evidence-backed omission, repeated failed or circular work, lost objective scope, or missing completion proof, naming only the exception and smallest corrective action.
 - [x] On `wait`, append a durable Supervisor status entry; if agents are active, start a cancellable background `wait_agents` and re-review after wake, otherwise schedule the five-minute countdown and re-review, including when progress depends on an external condition that can be rechecked.
 - [x] On `error`, append durable status and keep the completion request unresolved without scheduling automatic re-review; rejected completion reports remain visible with the Supervisor's reason in durable status.
 - [x] Leave the goal active without another continuation only when required user action or input is needed and no automatic recheck can advance progress; the caller receives `pause` only for that manual stop condition.
@@ -90,7 +90,7 @@ The resident Supervisor is a systemd-supervised peer-unblocking policy engine th
 - [x] Replace only the current unconditional continuation-message decision with Supervisor evaluation.
 - [x] Return exactly `complete`, `continue`, `wait`, `pause`, or generic `error` for goal idle review.
 - [x] Mark the goal complete when the caller receives `complete`.
-- [x] Submit exactly the generic active-goal reminder when competent progress can continue without help; submit a specific corrective prompt only for an evidence-backed omission such as unhandled pagination or an omitted required element, repeated failed or circular work, lost objective scope, or missing completion proof.
+- [x] Submit exactly `Continue working toward the active goal.` when competent progress can continue without help; submit a specific corrective prompt only for an evidence-backed omission such as unhandled pagination or an omitted required element, repeated failed or circular work, lost objective scope, or missing completion proof, naming only the exception and smallest corrective action.
 - [x] Keep the goal active on `wait`, append a durable status entry, and re-run review after agent wake or the scheduled five-minute countdown, including for external conditions that can be rechecked.
 - [x] Leave the goal active without another continuation when the caller receives `pause` because required user action or input is needed and no automatic recheck can advance progress.
 - [x] Preserve the full objective as authoritative scope throughout continuation review; a current subtask never replaces remaining requirements.
