@@ -316,6 +316,7 @@ function createTranscriptSwitchFixture(options: {
 		agentType: "worker",
 		cwd: "/repo",
 		displayName: "Scout",
+		model: { providerId: "faux", modelId: "faux-1", thinkingLevel: "xhigh" },
 		permission: { narrowed: true, policy: "on-request" },
 		transcript: {
 			path: options.withChildPath ? childTranscriptPath : undefined,
@@ -905,7 +906,7 @@ describe("InteractiveMode key handlers", () => {
 		}
 	});
 
-	test("selecting an active child view renders the child transcript and updates the footer model", () => {
+	test("selecting an active child view renders the child transcript and configured footer effort", () => {
 		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
 		try {
 			const selected = interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId);
@@ -918,7 +919,7 @@ describe("InteractiveMode key handlers", () => {
 			expect(fixture.fakeThis.footer.setSessionOverride).toHaveBeenCalledWith(
 				expect.objectContaining({
 					model: expect.objectContaining({ provider: "faux", id: "faux-1" }),
-					thinkingLevel: "off",
+					thinkingLevel: "xhigh",
 				}),
 			);
 			const output = normalizeRenderedOutput(fixture.fakeThis.chatContainer);
