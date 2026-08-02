@@ -124,14 +124,11 @@ describe("resident Supervisor service", () => {
 		const unit = readFileSync(serviceUnit, "utf8");
 
 		expect(unit).toContain("ExecStart=@PI_SUPERVISOR_BINARY@ supervisor");
-		expect(deploy).toContain("@PI_SUPERVISOR_BINARY@");
+		expect(deploy).not.toContain("@PI_SUPERVISOR_BINARY@");
 		expect(deploy).not.toContain("@PI_NODE_LAUNCHER@");
 		expect(deploy).not.toContain("@PI_TSCONFIG@");
 		expect(deploy).not.toContain("@PI_CLI_SOURCE@");
-		expect(deploy).toContain("pi-supervisor.service");
-		expect(deploy).toContain("systemctl --user enable --now pi-supervisor.service");
-		expect(deploy).toContain("systemctl --user restart pi-supervisor.service");
-		expect(deploy).toContain("systemctl --user is-active --quiet pi-supervisor.service");
+		expect(deploy).toContain('"$ROOT_DIR/scripts/configure-resident-services.sh" "$BIN_DIR/pi"');
 	});
 
 	it("accepts only response kinds valid for the request", () => {
