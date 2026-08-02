@@ -17,7 +17,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] `/goal pause` suspends context injection and autonomous continuation without clearing the objective, persists `Paused by user.` as its reason, and displays that reason.
 - [x] `/goal resume` resumes a paused objective without replacing it and removes the persisted pause timestamp and reason.
 - [x] `/goal clear` removes the active objective.
-- [x] Objectives longer than 10,000 characters are rejected with a visible error and are not persisted; production child prompts are still validated before dispatch.
+- [x] Objectives longer than 10,000 characters are rejected with a visible error and are not persisted; production-created child prompts longer than 10,000 characters are rejected before dispatch without creating a child.
 - [x] Removed budget flags (`--token-budget`, `--wall-clock-minutes`) and the replacement flag (`--replace`) are rejected with a visible error and are not persisted.
 - [x] At most one active goal exists per session at a time; separate non-child sessions in the same project can have distinct active goals.
 - [x] The active goal survives `session_start` with reason `resume`/`reload`/`fork` and is surfaced to the user from persisted state.
@@ -104,7 +104,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `manage_goal`, Supervisor-reviewed additive `manage_goal set`, `/goal` set/view/pause/resume/clear, persisted and displayed pause reasons, Supervisor countdown persistence/rendering/redraw/expiry/cancellation/restore, active-agent deadline exclusion, wait fallback deadlines, completion-pause and thrown-error reason display, default replacement for `/goal`, objective length cap, context injection, continuation prompt state, footer status, resume/reload/fork notification, corrupt state handling, `agent_end` continuation, ordered running and paused conversation evidence, generated and failed-event filtering, stale/error evidence preservation, lifecycle clearing, busy guard, error-stop suppression, empty-response retry eligibility, and shutdown cancellation.
-- `packages/coding-agent/test/multi-agent-extension.test.ts` — production child prompt validation, absence of child goal state, exclusion of the goal extension from child sessions, supervisor-only `manage_goal` denial for spawned and attached children, Pyrun bridge denial, supervisor retention, and absence of goal continuation injection on child completion.
+- `packages/coding-agent/test/multi-agent-extension.test.ts` — production child prompt validation and 10,000-character cap, absence of child goal state, exclusion of the goal extension from child sessions, supervisor-only `manage_goal` denial for spawned and attached children, Pyrun bridge denial, supervisor retention, and absence of goal continuation injection on child completion.
 - `packages/coding-agent/test/architect-service.test.ts` — resident Architect supervisor-only tool exclusion policy.
 - `packages/coding-agent/test/session-control-db.test.ts` — control SQLite metadata coverage for `goal_json`, `is_subagent`, and `subagent_name` columns.
 - `packages/coding-agent/test/supervisor-service.test.ts` — additive `goal_set_review` response parsing and Supervisor prompt contract.
