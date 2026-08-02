@@ -16,7 +16,9 @@ const supervisorResponseParameters = Type.Object({
 		Type.Literal("error"),
 	]),
 	reason: Type.Optional(Type.String({ description: "Why this decision applies." })),
-	instructions: Type.Optional(Type.String({ description: "Concrete next step for continue decisions." })),
+	instructions: Type.Optional(
+		Type.String({ description: "Generic active-goal reminder, or the smallest evidence-backed corrective action." }),
+	),
 	objective: Type.Optional(Type.String({ description: "Additive objective for goal set decisions." })),
 	answer: Type.Optional(Type.String({ description: "Text answer for advisory decisions." })),
 });

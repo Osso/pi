@@ -2,7 +2,7 @@
 
 Module boundary: core resident SDK policy service.
 
-The resident Supervisor is a systemd-supervised policy engine that evaluates synchronous approval and goal decisions for Pi sessions. It preserves one global model transcript, reads and writes durable project memories in the shared KB, and returns typed decisions to the calling subsystem. It does not coordinate work across sessions or mutate supervised sessions directly. Implementation details belong in [../wiki/systems/supervisor-service.md](../wiki/systems/supervisor-service.md).
+The resident Supervisor is a systemd-supervised peer-unblocking policy engine that evaluates synchronous approval and goal decisions for Pi sessions. It preserves one global model transcript, reads and writes durable project memories in the shared KB, and returns typed decisions to the calling subsystem. It does not coordinate work across sessions or mutate supervised sessions directly. Implementation details belong in [../wiki/systems/supervisor-service.md](../wiki/systems/supervisor-service.md).
 
 ## What it must do
 
@@ -25,7 +25,7 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 
 ### Authority boundary
 
-- [x] Act as a policy engine whose typed response is enforced by the calling subsystem.
+- [x] Act as a peer-unblocking policy engine whose typed response is enforced by the calling subsystem.
 - [x] Read and write only inside the configured shared KB root.
 - [x] Keep Bash and Pyrun unavailable to the Supervisor.
 - [x] Never edit workspace files, dispatch agents, control processes or sessions, mutate goals directly, or change approval policy directly.
@@ -73,11 +73,12 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - [x] Return exactly `complete`, `continue`, `wait`, `pause`, or generic `error` for goal completion review.
 - [x] Mark the goal complete only when the caller receives `complete`, persisting the verbatim completionReport as completionReason.
 - [x] Clear stored goal-review conversation evidence when completion is applied.
-- [x] Keep the goal running and inject concrete Supervisor next-step instructions when the caller receives `continue`.
+- [x] Keep the goal running when the caller receives `continue`; use the generic active-goal reminder when the agent can continue autonomously, and reserve specific Supervisor instructions for an evidence-backed omission, repeated failed or circular work, lost objective scope, or missing completion proof.
 - [x] On `wait`, append a durable Supervisor status entry; if agents are active, start a cancellable background `wait_agents` and re-review after wake, otherwise schedule the five-minute countdown and re-review, including when progress depends on an external condition that can be rechecked.
 - [x] On `error`, append durable status and keep the completion request unresolved without scheduling automatic re-review; rejected completion reports remain visible with the Supervisor's reason in durable status.
 - [x] Leave the goal active without another continuation only when required user action or input is needed and no automatic recheck can advance progress; the caller receives `pause` only for that manual stop condition.
-- [x] Require the Supervisor to make its best judgment between `complete`, actionable `continue`, scheduled `wait` for recheckable asynchronous or external progress, and manual-only `pause` from the supplied report when evidence is uncertain; the caller must provide a nonblank report, and the system never infers completion evidence automatically.
+- [x] Treat the supplied objective as the authoritative full scope when judging completion, so completing one subtask cannot replace a broader objective.
+- [x] Require the Supervisor to make its best judgment between `complete`, autonomous or corrective `continue`, scheduled `wait` for recheckable asynchronous or external progress, and manual-only `pause` from the supplied report; uncertainty alone uses generic continuation rather than invented oversight, the caller must provide a nonblank report, and the system never infers completion evidence automatically.
 
 ### Goal idle review
 
@@ -89,10 +90,11 @@ The resident Supervisor is a systemd-supervised policy engine that evaluates syn
 - [x] Replace only the current unconditional continuation-message decision with Supervisor evaluation.
 - [x] Return exactly `complete`, `continue`, `wait`, `pause`, or generic `error` for goal idle review.
 - [x] Mark the goal complete when the caller receives `complete`.
-- [x] Submit the Supervisor's concrete, actionable instructions as the follow-up continuation prompt when the caller receives `continue`.
+- [x] Submit exactly the generic active-goal reminder when competent progress can continue without help; submit a specific corrective prompt only for an evidence-backed omission such as unhandled pagination or an omitted required element, repeated failed or circular work, lost objective scope, or missing completion proof.
 - [x] Keep the goal active on `wait`, append a durable status entry, and re-run review after agent wake or the scheduled five-minute countdown, including for external conditions that can be rechecked.
 - [x] Leave the goal active without another continuation when the caller receives `pause` because required user action or input is needed and no automatic recheck can advance progress.
-- [x] Require best judgment between `complete`, actionable `continue`, scheduled `wait` for recheckable asynchronous or external progress, and manual-only `pause` despite uncertainty.
+- [x] Preserve the full objective as authoritative scope throughout continuation review; a current subtask never replaces remaining requirements.
+- [x] Require best judgment between `complete`, autonomous or corrective `continue`, scheduled `wait` for recheckable asynchronous or external progress, and manual-only `pause`; do not restate plans, prescribe routine steps, or invent oversight when the agent can determine how to continue.
 - [x] On goal `error`, keep the goal running, append visible durable error status without requiring human approval, and use the same agent-wake or five-minute re-review path as `wait`; rejected scheduled work remains visibly durable.
 - [x] Retry before review when pending input is transient, preserve reviewed decisions when input becomes pending during review, and cancel in-flight reviews, deferred decisions, waits, discovery calls, and timers on input, new turns, goal lifecycle changes, and shutdown; recheck cancellation generation and goal identity before applying an asynchronous decision.
 - [x] Enforce a three-minute deadline for goal reviews.

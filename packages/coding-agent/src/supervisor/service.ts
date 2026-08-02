@@ -19,7 +19,11 @@ export interface RunSupervisorRequestInput {
 function goalProgressResponseContract(): string {
 	return [
 		"Use kind complete, pause, wait, continue, or error with a non-empty reason.",
-		"Continue instructions must give a concrete, actionable next step.",
+		"Act as a peer unblocker, not a manager: preserve agent autonomy and intervene only on evidence-backed exceptions.",
+		"Treat payload.objective as the authoritative full goal; compare all progress and completion claims against its complete scope, and a completed subtask must not replace broader scope.",
+		'When the agent is making competent progress or can determine its own next step, use continue with instructions exactly "Continue working toward the active goal."',
+		"Use different continue instructions only when evidence identifies a concrete omission, such as unhandled pagination or a required omitted element; repeated failed or circular work; lost objective scope; or missing completion proof. Name only the exception and smallest corrective action.",
+		"Do not restate the plan, prescribe routine steps, or invent oversight when evidence is uncertain.",
 		"Use wait when progress is already underway asynchronously or depends on an external condition that can be rechecked, and no duplicate continuation should start.",
 		"Use pause only when progress requires user action or input and cannot advance automatically.",
 	].join("\n");
@@ -46,7 +50,7 @@ function responseContractForRequest(kind: SupervisorRequestKind): string {
 export function buildSupervisorPrompt(request: SupervisorRequest): string {
 	const responseContract = responseContractForRequest(request.kind);
 	return [
-		"You are Pi Supervisor, a resident local policy engine.",
+		"You are Pi Supervisor, a resident peer unblocker and policy engine.",
 		"Evaluate only this bounded request, selectively reading Supervisor KB memory when necessary.",
 		"Do not request or reconstruct historical session transcripts.",
 		"You may read and write KB memory synchronously. Do not edit workspace files or control sessions, goals, processes, or agents.",

@@ -194,7 +194,7 @@ describe("resident Supervisor service", () => {
 		expect(prompt).toContain("Use kind set with a non-empty reason and objective");
 	});
 
-	it("tells goal reviewers to schedule rechecks for asynchronous and externally advancing work", () => {
+	it("frames goal reviews as exception-based peer unblocking", () => {
 		const prompt = buildSupervisorPrompt({
 			claimToken: "runtime",
 			claimedAt: "2026-07-17T12:00:00.000Z",
@@ -202,12 +202,19 @@ describe("resident Supervisor service", () => {
 			deadlineAt: "2026-07-17T12:03:00.000Z",
 			id: 2,
 			kind: "goal_idle_review",
-			payload: { objective: "finish", terminalTurn: [] },
+			payload: { objective: "Fix every unresolved Sentry issue", terminalTurn: [] },
 			projectId: "pi",
 			senderSessionId: "main",
 			status: "claimed",
 		});
 
+		expect(prompt).toContain("resident peer unblocker and policy engine");
+		expect(prompt).toContain("Treat payload.objective as the authoritative full goal");
+		expect(prompt).toContain("a completed subtask must not replace broader scope");
+		expect(prompt).toContain('instructions exactly "Continue working toward the active goal."');
+		expect(prompt).toContain("unhandled pagination or a required omitted element");
+		expect(prompt).toContain("repeated failed or circular work");
+		expect(prompt).toContain("Do not restate the plan, prescribe routine steps, or invent oversight");
 		expect(prompt).toContain("Use wait when progress is already underway asynchronously");
 		expect(prompt).toContain("or depends on an external condition that can be rechecked");
 		expect(prompt).toContain("Use pause only when progress requires user action");
@@ -244,7 +251,7 @@ describe("resident Supervisor service", () => {
 				senderSessionId: "main",
 				status: "claimed",
 			}),
-		).toContain("concrete, actionable next step");
+		).toContain('instructions exactly "Continue working toward the active goal."');
 		expect(
 			buildSupervisorPrompt({
 				claimToken: "runtime",
