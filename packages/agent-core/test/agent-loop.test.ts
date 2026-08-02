@@ -1278,8 +1278,12 @@ describe("agentLoop with AgentMessage", () => {
 		};
 		const context: AgentContext = { systemPrompt: "", messages: [], tools: [endTool] };
 		const config: AgentLoopConfig = { model: createModel(), convertToLlm: identityConverter };
+		const continuationInstruction =
+			"Your previous response was already delivered. Do not continue, repeat, or infer a new user request. Call `end_turn` now with a concise reason.";
 		let callIndex = 0;
-		const stream = agentLoop([createUserMessage("work")], context, config, undefined, () => {
+		let secondRequestMessages: Message[] = [];
+		const stream = agentLoop([createUserMessage("work")], context, config, undefined, (_model, requestContext) => {
+			if (callIndex === 1) secondRequestMessages = requestContext.messages;
 			const mockStream = new MockAssistantStream();
 			queueMicrotask(() => {
 				const isFirstCall = callIndex++ === 0;
@@ -1302,13 +1306,28 @@ describe("agentLoop with AgentMessage", () => {
 			return mockStream;
 		});
 
-		for await (const _event of stream) {
-			// consume
+		const events: AgentEvent[] = [];
+		for await (const event of stream) {
+			events.push(event);
 		}
 
 		const messages = await stream.result();
 		expect(callIndex).toBe(2);
+		expect(secondRequestMessages).toEqual(
+			expect.arrayContaining([expect.objectContaining({ role: "user", content: continuationInstruction })]),
+		);
 		expect(messages.map((message) => message.role)).toEqual(["user", "assistant", "assistant", "toolResult"]);
+		expect(messages).not.toEqual(
+			expect.arrayContaining([expect.objectContaining({ role: "user", content: continuationInstruction })]),
+		);
+		expect(
+			events.filter(
+				(event) =>
+					event.type === "message_start" &&
+					event.message.role === "user" &&
+					event.message.content === continuationInstruction,
+			),
+		).toHaveLength(0);
 	});
 
 	it("should stop after a tool batch when every tool result sets terminate=true", async () => {

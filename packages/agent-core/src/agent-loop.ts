@@ -9,6 +9,7 @@ import {
 	EventStream,
 	streamSimple,
 	type ToolResultMessage,
+	type UserMessage,
 	validateToolArguments,
 } from "@earendil-works/pi-ai/compat";
 import type {
@@ -23,6 +24,9 @@ import type {
 } from "./types.ts";
 
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
+
+const END_TURN_CONTINUATION_INSTRUCTION =
+	"Your previous response was already delivered. Do not continue, repeat, or infer a new user request. Call `end_turn` now with a concise reason.";
 
 /**
  * Start an agent loop with a new prompt message.
@@ -225,6 +229,7 @@ async function runLoop(
 	let currentContext = initialContext;
 	let config = initialConfig;
 	let firstTurn = true;
+	let continuationInstructionPending = false;
 	// Check for steering messages at start (user may have typed while waiting)
 	let pendingMessages: AgentMessage[] = (await config.getSteeringMessages?.()) || [];
 
@@ -253,10 +258,25 @@ async function runLoop(
 			}
 
 			// Stream assistant response
+			const runtimeContinuationMessage: UserMessage | undefined = continuationInstructionPending
+				? {
+						role: "user",
+						content: END_TURN_CONTINUATION_INSTRUCTION,
+						timestamp: Date.now(),
+					}
+				: undefined;
+			continuationInstructionPending = false;
 			await emit({ type: "model_request_start" });
 			let message: AssistantMessage;
 			try {
-				message = await streamAssistantResponse(currentContext, config, signal, emit, streamFn);
+				message = await streamAssistantResponse(
+					currentContext,
+					config,
+					signal,
+					emit,
+					streamFn,
+					runtimeContinuationMessage,
+				);
 			} finally {
 				await emit({ type: "model_request_end" });
 			}
@@ -284,6 +304,7 @@ async function runLoop(
 				}
 			} else if (currentContext.tools?.some((tool) => tool.name === "end_turn")) {
 				hasMoreToolCalls = true;
+				continuationInstructionPending = true;
 			}
 
 			await emit({ type: "turn_end", message, toolResults });
@@ -405,6 +426,7 @@ async function streamAssistantResponse(
 	signal: AbortSignal | undefined,
 	emit: AgentEventSink,
 	streamFn?: StreamFn,
+	runtimeContinuationMessage?: UserMessage,
 ): Promise<AssistantMessage> {
 	// Apply context transform if configured (AgentMessage[] → AgentMessage[])
 	let messages = context.messages;
@@ -414,11 +436,12 @@ async function streamAssistantResponse(
 
 	// Convert to LLM-compatible messages (AgentMessage[] → Message[])
 	const llmMessages = await config.convertToLlm(messages);
+	const requestMessages = runtimeContinuationMessage ? [...llmMessages, runtimeContinuationMessage] : llmMessages;
 
 	// Build LLM context
 	const llmContext: Context = {
 		systemPrompt: context.systemPrompt,
-		messages: llmMessages,
+		messages: requestMessages,
 		tools: context.tools,
 	};
 

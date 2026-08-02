@@ -13,6 +13,7 @@ The built-in `end_turn` tool gives normal coding-agent model turns an explicit c
 ### Agent loop
 
 - [x] Continue a normal coding-agent model run after an assistant response containing text but no tool call when `end_turn` is available.
+- [x] Before that immediate continuation request, append a runtime-only user instruction stating that the prior response was already delivered, that the model must not continue, repeat, or infer a new user request, and that it must call `end_turn` with a concise reason. The instruction is not emitted as an event, returned in `newMessages`, or persisted.
 - [x] End the run after a tool batch whose finalized results all request termination, including `end_turn`.
 - [x] Keep model errors, aborted turns, and existing explicit termination mechanisms terminal.
 - [x] Detect consecutive identical text-only assistant turns at the AgentSession boundary and inject one non-persisted instruction to call `end_turn` with a concise reason; changed content, tool execution, and new user input reset detection.
