@@ -103,26 +103,21 @@ function launchDetachedBashJob(
 ): ReturnType<DetachedJobLifecycleController["launchBash"]> {
 	const jobId = options.store.allocateAgentIdForLifecycleCoordinator("bash");
 	const artifacts = reserveDetachedJobArtifacts(detachedJobArtifactRoot(options), jobId);
+	const activationPath = join(artifacts.directory, "activation.json");
+	const foregroundCompletionPath = join(artifacts.directory, "foreground-completed");
 	const manifestPath = join(artifacts.directory, "launch.json");
 	const runnerPid = launchDetachedBashRunner(manifestPath);
-	const ownership = registerDetachedJob(options, {
-		agentType: "bash",
-		cwd: input.cwd,
-		displayName: "Bash command",
-		jobId,
-		processIdentity: readProcessIdentity(runnerPid),
-		workerHandleId: String(runnerPid),
-		toolCallId: input.toolCallId,
-	});
+	const processIdentity = readProcessIdentity(runnerPid);
 	try {
 		(options.writeBashLaunchManifest ?? writeDetachedBashLaunchManifest)(manifestPath, {
+			activationPath,
 			args: input.args,
 			artifacts,
 			command: input.command,
 			controlDbPath: options.controlDbPath,
 			cwd: input.cwd,
 			env: input.env,
-			identity: ownership.identity,
+			foregroundCompletionPath,
 			runnerAddress: { agentId: jobId, sessionId: options.ownerSessionId },
 			sessionPath: options.sessionPath,
 			timeoutMs: input.timeoutMs,
@@ -130,16 +125,9 @@ function launchDetachedBashJob(
 		});
 	} catch (error) {
 		terminateDetachedRunner(runnerPid);
-		const failed = options.coordinator.failDetachedLaunch({
-			agent: ownership.agent,
-			error: { code: "runtime_spawn_failed", message: error instanceof Error ? error.message : String(error) },
-			ownership: ownership.controlOwnership,
-			terminalLifecycle: "failed",
-		});
-		if (failed.ok) options.store.publishLifecycleCoordinatorSnapshot(failed.agent);
 		throw error;
 	}
-	return { manifestPath, ownership, runnerPid };
+	return { activationPath, artifacts, foregroundCompletionPath, jobId, manifestPath, processIdentity, runnerPid };
 }
 
 function detachedJobArtifactRoot(options: DetachedJobLifecycleControllerOptions): string {

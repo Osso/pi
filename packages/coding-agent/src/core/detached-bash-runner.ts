@@ -17,18 +17,19 @@ import { finalizeDetachedJob, type RuntimeMailboxAddress } from "./session-contr
 import { isSqliteContentionError } from "./sqlite.ts";
 
 export const DETACHED_BASH_RUNNER_MODE = "--internal-detached-bash-runner";
-const DETACHED_BASH_LAUNCH_VERSION = 2;
+const DETACHED_BASH_LAUNCH_VERSION = 3;
 const LAUNCH_MANIFEST_POLL_MS = 10;
 const LAUNCH_MANIFEST_TIMEOUT_MS = 30_000;
 
 export interface DetachedBashLaunchManifestData {
+	activationPath: string;
 	args: string[];
 	artifacts: DetachedJobArtifacts;
 	command: string;
 	controlDbPath: string;
 	cwd: string;
 	env: NodeJS.ProcessEnv;
-	identity: DetachedJobOwnershipIdentity;
+	foregroundCompletionPath: string;
 	runnerAddress: RuntimeMailboxAddress;
 	sessionPath: string;
 	timeoutMs?: number;
@@ -45,6 +46,13 @@ export interface DetachedBashRunnerResult {
 	terminalRevision: number;
 }
 
+export interface DetachedBashForegroundCompletion {
+	cancelReason?: string;
+	exitCode: number | null;
+	signal: NodeJS.Signals | null;
+	timedOut: boolean;
+}
+
 export function writeDetachedBashLaunchManifest(path: string, data: DetachedBashLaunchManifestData): void {
 	const unsigned: Omit<DetachedBashLaunchManifest, "checksum"> = {
 		...data,
@@ -56,6 +64,15 @@ export function writeDetachedBashLaunchManifest(path: string, data: DetachedBash
 	fsyncFile(temporaryPath);
 	renameSync(temporaryPath, path);
 	fsyncDirectory(dirname(path));
+}
+
+export function writeDetachedBashActivation(path: string, identity: DetachedJobOwnershipIdentity): void {
+	writeAtomicJson(path, identity);
+}
+
+export function readDetachedBashActivation(path: string): DetachedJobOwnershipIdentity | undefined {
+	if (!existsSync(path)) return undefined;
+	return JSON.parse(readFileSync(path, "utf8")) as DetachedJobOwnershipIdentity;
 }
 
 export function getDetachedBashRunnerInvocation(
@@ -108,6 +125,16 @@ export async function runDetachedBashRunner(
 	payload.persistIdentity();
 	payload.release();
 	const controlled = await waitForDetachedBashExit(payload, manifest);
+	const identity = controlled.identity;
+	if (!identity) {
+		writeAtomicJson(manifest.foregroundCompletionPath, {
+			cancelReason: controlled.cancelReason,
+			exitCode: controlled.exit.exitCode,
+			signal: controlled.exit.signal,
+			timedOut: controlled.timedOut,
+		} satisfies DetachedBashForegroundCompletion);
+		return { exitCode: controlled.exit.exitCode, terminalRevision: 0 };
+	}
 	const outcome = controlled.timedOut
 		? ({ error: { message: "Detached Bash command timed out" }, kind: "failed" } as const)
 		: controlled.cancelReason
@@ -115,7 +142,7 @@ export async function runDetachedBashRunner(
 			: detachedBashOutcome(controlled.exit.exitCode, controlled.exit.signal);
 	const terminal = createDetachedJobTerminalInput(
 		manifest.artifacts,
-		controlled.identity,
+		identity,
 		outcome,
 		options?.now?.() ?? new Date().toISOString(),
 		undefined,
@@ -134,42 +161,46 @@ async function waitForDetachedBashExit(
 ): Promise<{
 	cancelReason?: string;
 	exit: GatedDetachedPayloadExit;
-	identity: DetachedJobOwnershipIdentity;
+	identity?: DetachedJobOwnershipIdentity;
 	timedOut: boolean;
 }> {
 	let exit: GatedDetachedPayloadExit | undefined;
 	let cancelReason: string | undefined;
-	let identity = manifest.identity;
+	let identity = readDetachedBashActivation(manifest.activationPath);
 	let timedOut = false;
 	const timeoutAt = manifest.timeoutMs === undefined ? undefined : Date.now() + manifest.timeoutMs;
 	const exitPromise = payload.waitForExit().then((result) => {
 		exit = result;
 	});
 	while (!exit) {
+		identity ??= readDetachedBashActivation(manifest.activationPath);
 		if (!timedOut && timeoutAt !== undefined && Date.now() >= timeoutAt) {
 			timedOut = true;
 			signalPayloadGroup(payload.pid);
 		}
-		for (const command of claimDetachedJobRuntimeCommands(manifest.controlDbPath, manifest.runnerAddress, identity)) {
-			if (command.command === "status") {
-				enqueueDetachedJobStatusResponse({
-					controlDbPath: manifest.controlDbPath,
-					identity,
-					replyTo: command.replyTo,
-					requestId: command.requestId,
-					runnerAddress: manifest.runnerAddress,
-					sessionPath: manifest.sessionPath,
-					status: { outputPath: manifest.artifacts.outputPath, payloadPid: payload.pid, state: "running" },
-				});
-				continue;
+		if (identity) {
+			for (const command of claimDetachedJobRuntimeCommands(manifest.controlDbPath, manifest.runnerAddress, identity)) {
+				if (command.command === "status") {
+					enqueueDetachedJobStatusResponse({
+						controlDbPath: manifest.controlDbPath,
+						identity,
+						replyTo: command.replyTo,
+						requestId: command.requestId,
+						runnerAddress: manifest.runnerAddress,
+						sessionPath: manifest.sessionPath,
+						status: { outputPath: manifest.artifacts.outputPath, payloadPid: payload.pid, state: "running" },
+					});
+					continue;
+				}
+				if (command.command !== "cancel") continue;
+				identity = command.identity;
+				cancelReason = command.reason ?? "cancelled";
+				signalPayloadGroup(payload.pid);
 			}
-			if (command.command !== "cancel") continue;
-			identity = command.identity;
-			cancelReason = command.reason ?? "cancelled";
-			signalPayloadGroup(payload.pid);
 		}
 		await Promise.race([exitPromise, new Promise((resolve) => setTimeout(resolve, 25))]);
 	}
+	identity ??= readDetachedBashActivation(manifest.activationPath);
 	return { cancelReason, exit, identity, timedOut };
 }
 
@@ -230,6 +261,14 @@ function detachedBashOutcome(exitCode: number | null, signal: NodeJS.Signals | n
 
 function hashJson(value: unknown): string {
 	return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function writeAtomicJson(path: string, value: unknown): void {
+	const temporaryPath = `${path}.tmp`;
+	writeFileSync(temporaryPath, `${JSON.stringify(value)}\n`, { encoding: "utf8", mode: 0o600 });
+	fsyncFile(temporaryPath);
+	renameSync(temporaryPath, path);
+	fsyncDirectory(dirname(path));
 }
 
 function fsyncFile(path: string): void {

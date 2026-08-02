@@ -15,9 +15,11 @@ import {
 	trackDetachedChildPid,
 	untrackDetachedChildPid,
 } from "../../utils/shell.ts";
+import { writeDetachedBashActivation, type DetachedBashForegroundCompletion } from "../detached-bash-runner.ts";
 import type { DetachedJobArtifacts, DetachedJobLifecycleController } from "../detached-job-runner.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
 import { type AgentSnapshot, isActiveLifecycle, type MultiAgentStore } from "../multi-agent-store.ts";
+import { isProcessIdentityAlive } from "../runtime-process.ts";
 import { type ToolDetachHandle, ToolDetachRegistry } from "../tool-detach-registry.ts";
 import { OutputAccumulator } from "./output-accumulator.ts";
 import { getTextOutput, invalidArgText, str } from "./render-utils.ts";
@@ -323,6 +325,10 @@ function resultFromTerminalBashAgent(
 	return { exitCode: agent.lifecycle === "completed" ? 0 : 1 };
 }
 
+type BashRunnerResult = { exitCode: number | null; detached?: BashDetachedResult };
+type BashOwnership = ReturnType<DetachedJobLifecycleController["register"]>;
+type LaunchedBashRunner = ReturnType<DetachedJobLifecycleController["launchBash"]>;
+
 async function executeRunnerOwnedBash(
 	command: string,
 	cwd: string,
@@ -336,22 +342,15 @@ async function executeRunnerOwnedBash(
 		timeout?: number;
 		toolCallId?: string;
 	},
-): Promise<{ exitCode: number | null; detached?: BashDetachedResult }> {
+): Promise<BashRunnerResult> {
 	const shell = getShellConfig(options.shellPath);
 	if (shell.commandTransport === "stdin")
 		throw new Error("Detached Bash runner does not support stdin shell transport");
-	const restoredJob = options.toolCallId ? options.lifecycle.findBashJobByToolCallId(options.toolCallId) : undefined;
-	if (restoredJob && (restoredJob.lifecycle === "cancelling" || restoredJob.lifecycle === "aborted")) {
-		let restoredState = restoredJob;
-		while (isActiveLifecycle(restoredState.lifecycle)) {
-			restoredState = options.lifecycle.observe(restoredState.id) ?? restoredState;
-			if (isActiveLifecycle(restoredState.lifecycle)) await new Promise((resolve) => setTimeout(resolve, 25));
-		}
-		const outputPath = restoredState.result?.fileRefs?.find((fileRef) => fileRef.label === "Bash output")?.path;
-		if (outputPath && existsSync(outputPath)) options.onData(readFileSync(outputPath));
-		return resultFromTerminalBashAgent(restoredState, { aborted: false, timeout: options.timeout });
-	}
-	const launched = options.lifecycle.launchBash({
+
+	const restoredResult = await waitForRestoredBashJob(options);
+	if (restoredResult) return restoredResult;
+
+	const runner = options.lifecycle.launchBash({
 		args: [...shell.args, command],
 		command: shell.shell,
 		cwd,
@@ -359,49 +358,145 @@ async function executeRunnerOwnedBash(
 		timeoutMs: resolveTimeoutMs(options.timeout),
 		toolCallId: options.toolCallId,
 	});
+	return observeForegroundBashRunner(runner, cwd, options);
+}
+
+async function waitForRestoredBashJob(options: {
+	lifecycle: DetachedJobLifecycleController;
+	onData: (data: Buffer) => void;
+	timeout?: number;
+	toolCallId?: string;
+}): Promise<BashRunnerResult | undefined> {
+	if (!options.toolCallId) return undefined;
+	const restoredJob = options.lifecycle.findBashJobByToolCallId(options.toolCallId);
+	if (!restoredJob || (restoredJob.lifecycle !== "cancelling" && restoredJob.lifecycle !== "aborted")) return undefined;
+
+	let restoredState = restoredJob;
+	while (isActiveLifecycle(restoredState.lifecycle)) {
+		restoredState = options.lifecycle.observe(restoredState.id) ?? restoredState;
+		if (isActiveLifecycle(restoredState.lifecycle)) await new Promise((resolve) => setTimeout(resolve, 25));
+	}
+	const outputPath = restoredState.result?.fileRefs?.find((fileRef) => fileRef.label === "Bash output")?.path;
+	if (outputPath && existsSync(outputPath)) options.onData(readFileSync(outputPath));
+	return resultFromTerminalBashAgent(restoredState, { aborted: false, timeout: options.timeout });
+}
+
+async function observeForegroundBashRunner(
+	runner: LaunchedBashRunner,
+	cwd: string,
+	options: {
+		detach: BashDetachOptions;
+		lifecycle: DetachedJobLifecycleController;
+		onData: (data: Buffer) => void;
+		signal?: AbortSignal;
+		timeout?: number;
+		toolCallId?: string;
+	},
+): Promise<BashRunnerResult> {
 	let outputOffset = 0;
 	let aborted = false;
-	let terminalAgent: AgentSnapshot | undefined;
+	let ownership: BashOwnership | undefined;
 	const requestCancellation = () => {
 		aborted = true;
-		options.lifecycle.cancel(launched.ownership, "Bash tool call aborted");
+		if (ownership) options.lifecycle.cancel(ownership, "Bash tool call aborted");
+		else terminateForegroundBashRunner(runner.runnerPid);
 	};
 	if (options.signal?.aborted) requestCancellation();
 	else options.signal?.addEventListener("abort", requestCancellation, { once: true });
 	try {
 		for (;;) {
-			const output = existsSync(launched.ownership.artifacts.outputPath)
-				? readFileSync(launched.ownership.artifacts.outputPath)
-				: Buffer.alloc(0);
-			if (output.length > outputOffset) {
-				options.onData(output.subarray(outputOffset));
-				outputOffset = output.length;
-			}
-			terminalAgent = options.lifecycle.observe(launched.ownership.agent.id);
-			if (terminalAgent && !isActiveLifecycle(terminalAgent.lifecycle)) break;
+			outputOffset = forwardBashRunnerOutput(runner, outputOffset, options.onData);
+			const completion = settleForegroundBashRunner(runner, aborted, options.timeout);
+			if (completion) return completion;
 			if (options.detach.signal.aborted) {
-				// Mark detachment before reporting it so the terminal notification is
-				// guaranteed. If the job already reached a terminal state, keep polling
-				// and deliver the result in-band instead.
-				const marked = options.lifecycle.markDetached(launched.ownership);
-				if (marked.ok) {
-					return {
-						exitCode: null,
-						detached: {
-							jobId: launched.ownership.agent.id,
-							logPath: launched.ownership.artifacts.outputPath,
-							message: `Detached bash command as background job ${launched.ownership.agent.id}.`,
-						},
-					};
+				const activation = activateDetachedBashRunner(runner, cwd, options);
+				if (activation) {
+					ownership = activation.ownership;
+					return activation.result;
 				}
 			}
 			await new Promise((resolve) => setTimeout(resolve, 25));
 		}
-		if (!terminalAgent) throw new Error("Detached Bash job terminal state is unavailable");
-		return resultFromTerminalBashAgent(terminalAgent, { aborted, timeout: options.timeout });
 	} finally {
 		options.signal?.removeEventListener("abort", requestCancellation);
 	}
+}
+
+function forwardBashRunnerOutput(
+	runner: LaunchedBashRunner,
+	outputOffset: number,
+	onData: (data: Buffer) => void,
+): number {
+	if (!existsSync(runner.artifacts.outputPath)) return outputOffset;
+	const output = readFileSync(runner.artifacts.outputPath);
+	if (output.length <= outputOffset) return outputOffset;
+	onData(output.subarray(outputOffset));
+	return output.length;
+}
+
+function settleForegroundBashRunner(
+	runner: LaunchedBashRunner,
+	aborted: boolean,
+	timeout?: number,
+): BashRunnerResult | undefined {
+	const completion = readForegroundBashCompletion(runner.foregroundCompletionPath);
+	if (completion) {
+		if (completion.timedOut) throw new Error(`timeout:${timeout}`);
+		if (aborted || completion.cancelReason) throw new Error("aborted");
+		return { exitCode: completion.exitCode ?? 1 };
+	}
+	if (isProcessIdentityAlive(runner.processIdentity)) return undefined;
+	const runnerErrorPath = `${runner.manifestPath}.runner-error`;
+	if (existsSync(runnerErrorPath)) throw new Error(readFileSync(runnerErrorPath, "utf8").trim());
+	if (aborted) throw new Error("aborted");
+	throw new Error("Detached Bash runner exited without producing a result");
+}
+
+function activateDetachedBashRunner(
+	runner: LaunchedBashRunner,
+	cwd: string,
+	options: {
+		lifecycle: DetachedJobLifecycleController;
+		toolCallId?: string;
+	},
+): { ownership: BashOwnership; result: BashRunnerResult } | undefined {
+	if (!isProcessIdentityAlive(runner.processIdentity)) return undefined;
+	try {
+		const ownership = options.lifecycle.register({
+			agentType: "bash",
+			cwd,
+			detached: true,
+			displayName: "Bash command",
+			jobId: runner.jobId,
+			processIdentity: runner.processIdentity,
+			toolCallId: options.toolCallId,
+			workerHandleId: String(runner.runnerPid),
+		});
+		writeDetachedBashActivation(runner.activationPath, ownership.identity);
+		return {
+			ownership,
+			result: {
+				exitCode: null,
+				detached: {
+					jobId: runner.jobId,
+					logPath: runner.artifacts.outputPath,
+					message: `Detached bash command as background job ${runner.jobId}.`,
+				},
+			},
+		};
+	} catch (error) {
+		terminateForegroundBashRunner(runner.runnerPid);
+		throw error;
+	}
+}
+
+function readForegroundBashCompletion(path: string): DetachedBashForegroundCompletion | undefined {
+	if (!existsSync(path)) return undefined;
+	return JSON.parse(readFileSync(path, "utf8")) as DetachedBashForegroundCompletion;
+}
+
+function terminateForegroundBashRunner(pid: number): void {
+	killProcessTree(pid);
 }
 
 function rebuildBashResultRenderComponent(

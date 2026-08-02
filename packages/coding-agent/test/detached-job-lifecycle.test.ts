@@ -86,9 +86,7 @@ describe("detached job lifecycle controller", () => {
 				env: process.env,
 			}),
 		).toThrow("manifest disk failure");
-		expect(fixture.store.listAgents()).toMatchObject([
-			{ error: { code: "runtime_spawn_failed" }, lifecycle: "failed", revision: 2 },
-		]);
+		expect(fixture.store.listAgents()).toHaveLength(0);
 	});
 
 	it("binds preallocated artifacts, ownership, projection, and exact finalization", () => {

@@ -115,6 +115,27 @@ function registerCancelAgentTool(store: MultiAgentStore): RegisteredTool {
 }
 
 describe("bash tool background detach", () => {
+	it("keeps a fast Bash command foreground without creating a background job", async () => {
+		const cwd = await createTempDir();
+		const store = new MultiAgentStore();
+		const detachRegistry = new BashToolDetachRegistry({ autoDetachAfterMs: 1_000 });
+		const backgroundJobs = createBackgroundJobs(cwd, store);
+		const tool = createBashToolDefinition(cwd, { backgroundJobs, detachRegistry });
+
+		const result = await tool.execute(
+			"tool-bash-foreground",
+			{ command: `${quotePath(process.execPath)} -e ${quotePath("console.log('foreground')")}` },
+			undefined,
+			undefined,
+			{} as never,
+		);
+
+		const resultText = textFrom(result);
+		expect(resultText).toContain("foreground");
+		expect(resultText).not.toContain("Command moved to background");
+		expect(store.listAgents()).toHaveLength(0);
+	});
+
 	it("detaches a running bash tool into the multi-agent job store and moves later output to a log file", async () => {
 		const cwd = await createTempDir();
 		const scriptPath = join(cwd, "emit-after-detach.mjs");

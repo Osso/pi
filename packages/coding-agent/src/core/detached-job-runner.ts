@@ -66,8 +66,12 @@ export interface LaunchDetachedBashInput {
 }
 
 export interface LaunchedDetachedBashJob {
+	activationPath: string;
+	artifacts: DetachedJobArtifacts;
+	foregroundCompletionPath: string;
+	jobId: string;
 	manifestPath: string;
-	ownership: DetachedJobOwnership;
+	processIdentity: ProcessIdentity;
 	runnerPid: number;
 }
 

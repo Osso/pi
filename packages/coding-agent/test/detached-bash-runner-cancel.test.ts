@@ -2,7 +2,11 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { runDetachedBashRunner, writeDetachedBashLaunchManifest } from "../src/core/detached-bash-runner.ts";
+import {
+	runDetachedBashRunner,
+	writeDetachedBashActivation,
+	writeDetachedBashLaunchManifest,
+} from "../src/core/detached-bash-runner.ts";
 import { createDetachedJobLifecycleController } from "../src/core/detached-job-lifecycle.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
@@ -52,17 +56,20 @@ describe("detached Bash runner cancellation", () => {
 			workerHandleId: "runner-pending",
 		});
 		const manifestPath = join(artifacts.directory, "launch.json");
+		const activationPath = join(artifacts.directory, "activation.json");
 		writeDetachedBashLaunchManifest(manifestPath, {
+			activationPath,
 			args: ["-e", "setInterval(() => console.log('running'), 50)"],
 			artifacts,
 			command: process.execPath,
 			controlDbPath,
 			cwd: root,
 			env: process.env,
-			identity: ownership.identity,
+			foregroundCompletionPath: join(artifacts.directory, "foreground-completed"),
 			runnerAddress,
 			sessionPath,
 		});
+		writeDetachedBashActivation(activationPath, ownership.identity);
 		const running = runDetachedBashRunner(manifestPath);
 		await waitFor(() => existsSync(join(artifacts.directory, "payload.json")));
 		const cancelling = coordinator.requestDetachedCancellation({

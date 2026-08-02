@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	finalizeDetachedJobWithRetry,
 	runDetachedBashRunner,
+	writeDetachedBashActivation,
 	writeDetachedBashLaunchManifest,
 } from "../src/core/detached-bash-runner.ts";
 import { createDetachedJobLifecycleController } from "../src/core/detached-job-lifecycle.ts";
@@ -55,16 +56,18 @@ describe("detached Bash runner", () => {
 		const markerPath = join(root, "payload-ran");
 		const manifestPath = join(artifacts.directory, "launch.json");
 		writeDetachedBashLaunchManifest(manifestPath, {
+			activationPath: join(artifacts.directory, "activation.json"),
 			args: ["-e", `require("node:fs").writeFileSync(${JSON.stringify(markerPath)}, "ran"); console.log("done")`],
 			artifacts,
 			command: process.execPath,
 			controlDbPath,
 			cwd: root,
 			env: process.env,
-			identity: ownership.identity,
+			foregroundCompletionPath: join(artifacts.directory, "foreground-completed"),
 			runnerAddress: { agentId: jobId, sessionId: "main" },
 			sessionPath,
 		});
+		writeDetachedBashActivation(join(artifacts.directory, "activation.json"), ownership.identity);
 
 		expect(await runDetachedBashRunner(manifestPath, { now: () => "2026-07-11T22:00:30.000Z" })).toEqual({
 			exitCode: 0,
@@ -81,6 +84,54 @@ describe("detached Bash runner", () => {
 				result: { fileRefs: [{ path: artifacts.outputPath }], summary: "Process exited successfully." },
 			},
 		]);
+	});
+
+	it("completes a foreground run without registering a background job", async () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-detached-bash-foreground-"));
+		temporaryDirectories.push(root);
+		const controlDbPath = join(root, "control.sqlite");
+		const sessionPath = join(root, "session.jsonl");
+		const store = new MultiAgentStore();
+		const coordinator = new LifecycleCoordinator({
+			controlDbPath,
+			createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
+			now: () => "2026-07-11T22:00:00.000Z",
+			processIdentity: testProcessIdentity("foreground-runner"),
+			sessionPath,
+		});
+		const lifecycle = createDetachedJobLifecycleController({
+			artifactRoot: root,
+			controlDbPath,
+			coordinator,
+			ownerSessionId: "main",
+			sessionPath,
+			store,
+		});
+		const jobId = lifecycle.allocateJobId("bash");
+		const artifacts = lifecycle.createArtifacts(jobId);
+		const manifestPath = join(artifacts.directory, "launch.json");
+		const activationPath = join(artifacts.directory, "activation.json");
+		const foregroundCompletionPath = join(artifacts.directory, "foreground-completed");
+		writeDetachedBashLaunchManifest(manifestPath, {
+			activationPath,
+			args: ["-e", 'console.log("foreground")'],
+			artifacts,
+			command: process.execPath,
+			controlDbPath,
+			cwd: root,
+			env: process.env,
+			foregroundCompletionPath,
+			runnerAddress: { agentId: jobId, sessionId: "main" },
+			sessionPath,
+		});
+
+		expect(await runDetachedBashRunner(manifestPath)).toEqual({ exitCode: 0, terminalRevision: 0 });
+		expect(readFileSync(artifacts.outputPath, "utf8")).toContain("foreground");
+		expect(JSON.parse(readFileSync(foregroundCompletionPath, "utf8"))).toMatchObject({
+			exitCode: 0,
+			timedOut: false,
+		});
+		expect(store.listAgents()).toHaveLength(0);
 	});
 
 	it("launches an independent runner that remains the payload parent", async () => {
@@ -111,8 +162,18 @@ describe("detached Bash runner", () => {
 			cwd: root,
 			env: process.env,
 		});
-		const { artifacts } = launched.ownership;
+		const { artifacts, processIdentity } = launched;
 		const runnerPid = launched.runnerPid;
+		const ownership = lifecycle.register({
+			agentType: "bash",
+			cwd: root,
+			detached: true,
+			displayName: "Bash command",
+			jobId: launched.jobId,
+			processIdentity,
+			workerHandleId: String(runnerPid),
+		});
+		writeDetachedBashActivation(launched.activationPath, ownership.identity);
 		expect(existsSync(`${launched.manifestPath}.runner-error`)).toBe(false);
 		const identityPath = join(artifacts.directory, "payload.json");
 		await waitFor(() => existsSync(identityPath));
