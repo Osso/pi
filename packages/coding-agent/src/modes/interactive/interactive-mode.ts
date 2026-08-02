@@ -3329,6 +3329,10 @@ export class InteractiveMode {
 		}
 
 		const sessionContext = this.childViewSessionManager.buildSessionContext();
+		const persistedSettings = this.childViewSessionManager.readPersistedSessionSettings();
+		const selectedAgent = this.childViewAgentId ? this.multiAgentStore?.getAgent(this.childViewAgentId) : undefined;
+		const thinkingLevel =
+			persistedSettings?.thinkingLevel ?? selectedAgent?.model?.thinkingLevel ?? sessionContext.thinkingLevel;
 		const model = sessionContext.model
 			? this.session.modelRegistry.find(sessionContext.model.provider, sessionContext.model.modelId)
 			: undefined;
@@ -3346,7 +3350,7 @@ export class InteractiveMode {
 			cwd: this.childViewSessionManager.getCwd(),
 			sessionManager: this.childViewSessionManager,
 			model: model ?? null,
-			thinkingLevel: sessionContext.thinkingLevel,
+			thinkingLevel,
 			contextUsage,
 		};
 		this.footer.setSessionOverride(footerOverride);
