@@ -43,6 +43,7 @@ I regularly publish my own `pi-mono` work sessions here:
   - [Commands](#commands)
   - [Keyboard Shortcuts](#keyboard-shortcuts)
   - [Message Queue](#message-queue)
+- [Supervisor Service](#supervisor-service)
 - [Sessions](#sessions)
   - [Branching](#branching)
   - [Compaction](#compaction)
@@ -229,6 +230,28 @@ On Windows Terminal, `Alt+Enter` is fullscreen by default. Remap it in [docs/ter
 Configure delivery in [settings](docs/settings.md): `steeringMode` and `followUpMode` can be `"one-at-a-time"` (default, waits for response) or `"all"` (delivers all queued at once). `transport` selects provider transport preference (`"sse"`, `"websocket"`, or `"auto"`) for providers that support multiple transports.
 
 ---
+
+## Supervisor Service
+
+The Supervisor is a separate resident process that backs the `ask_supervisor` tool (bounded, advisory guidance from a persistent supervisor context). It is enabled by default in every session but is not required for normal pi use; it only powers `ask_supervisor`.
+
+If the Supervisor is not running, an `ask_supervisor` call is queued in the control database, waits for up to three minutes, and then reports `Supervisor request timed out`.
+
+### Running on Linux (systemd user service)
+
+A ready-made unit ships with the source tree at `packages/coding-agent/systemd/pi-supervisor.service`. Point its `@PI_SUPERVISOR_BINARY@` placeholder at your `pi` binary, install the unit, and enable it:
+
+```bash
+mkdir -p ~/.config/systemd/user
+sed 's|@PI_SUPERVISOR_BINARY@|/path/to/pi|' \
+  packages/coding-agent/systemd/pi-supervisor.service \
+  > ~/.config/systemd/user/pi-supervisor.service
+systemctl --user daemon-reload
+systemctl --user enable --now pi-supervisor.service
+systemctl --user is-active pi-supervisor.service   # verify
+```
+
+Deployments that build pi from source can instead run `scripts/configure-resident-services.sh <pi-binary>`, which performs the unit substitution and `enable --now` automatically. To run the service without systemd, start `pi supervisor` in the foreground.
 
 ## Sessions
 
