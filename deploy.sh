@@ -7,7 +7,6 @@ BIN_DIR="${PI_DEPLOY_BIN_DIR:-$HOME/.local/bin}"
 TMP_INSTALL_DIR="${INSTALL_DIR}.tmp"
 OLD_INSTALL_DIR="${INSTALL_DIR}.old"
 BUILD_DIR="${PI_DEPLOY_BUILD_DIR:-$ROOT_DIR/packages/coding-agent/binaries}"
-DEFER_ARCHITECT_RESTART="${PI_DEPLOY_DEFER_ARCHITECT_RESTART:-0}"
 
 require_safe_absolute_dir() {
 	local name="$1"
@@ -24,26 +23,6 @@ require_safe_absolute_dir() {
 			exit 1
 			;;
 	esac
-}
-
-render_architect_service_unit() {
-	local template_path="$ROOT_DIR/packages/coding-agent/systemd/pi-architect.service"
-	local output_path="$1"
-	local line
-
-	while IFS= read -r line || [[ -n "$line" ]]; do
-		printf '%s\n' "${line//@PI_ARCHITECT_BINARY@/$BIN_DIR/pi}"
-	done < "$template_path" > "$output_path"
-}
-
-render_supervisor_service_unit() {
-	local template_path="$ROOT_DIR/packages/coding-agent/systemd/pi-supervisor.service"
-	local output_path="$1"
-	local line
-
-	while IFS= read -r line || [[ -n "$line" ]]; do
-		printf '%s\n' "${line//@PI_SUPERVISOR_BINARY@/$BIN_DIR/pi}"
-	done < "$template_path" > "$output_path"
 }
 
 cleanup_extension_build_outputs() {
@@ -130,23 +109,5 @@ DEPLOY_REPLACED_INSTALL=1
 ln -sfn "$INSTALL_DIR/pi" "$BIN_DIR/pi"
 
 "$BIN_DIR/pi" --version
-SYSTEMD_USER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-mkdir -p "$SYSTEMD_USER_DIR"
-render_architect_service_unit "$SYSTEMD_USER_DIR/pi-architect.service"
-render_supervisor_service_unit "$SYSTEMD_USER_DIR/pi-supervisor.service"
-chmod 644 "$SYSTEMD_USER_DIR/pi-architect.service" "$SYSTEMD_USER_DIR/pi-supervisor.service"
-XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
-export XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
-systemctl --user daemon-reload
-if [[ "$DEFER_ARCHITECT_RESTART" == "1" ]]; then
-	echo "Architect restart deferred until lifecycle protocol migration completes."
-else
-	systemctl --user enable --now pi-architect.service
-	systemctl --user restart pi-architect.service
-	systemctl --user is-active --quiet pi-architect.service
-fi
-systemctl --user enable --now pi-supervisor.service
-systemctl --user restart pi-supervisor.service
-systemctl --user is-active --quiet pi-supervisor.service
+"$ROOT_DIR/scripts/configure-resident-services.sh" "$BIN_DIR/pi"
 rm -rf "$OLD_INSTALL_DIR"
