@@ -86,6 +86,19 @@ What the LLM sees:
 
 On repeated compactions, the summarized span starts at the previous compaction's kept boundary (`firstKeptEntryId`), not at the compaction entry itself, falling back to the entry after the previous compaction if that kept entry cannot be found in the path. This preserves messages that survived the earlier compaction by including them in the next summarization pass as well. Pi also recalculates `tokensBefore` from the rebuilt session context before writing the new `CompactionEntry`, so the token count reflects the actual pre-compaction context being replaced.
 
+### Speculative background compaction cache
+
+At 70% of the model context window, Pi may start one cache-only compaction for the current session. Background generation does not append a session entry or replace active agent messages. It only prepares a result for the next real compaction.
+
+When the result is ready:
+
+- If the session is idle and its snapshot is still current, Pi immediately runs normal compaction using the cached result.
+- If the session advanced while generation was running, Pi waits for the active turn's safe end point before running normal compaction.
+- Entries appended after the snapshot remain on the active branch verbatim.
+- A cache is discarded when its session, branch ancestry, model, compaction settings, or system prompt no longer matches.
+
+Only one speculative cache may exist per session, and it does not overlap another speculative or real compaction. If the cache is stale, canceled, unavailable, or not ready when threshold or overflow recovery is required, Pi uses synchronous compaction instead.
+
 ### Split Turns
 
 A "turn" starts with a user message and includes all assistant responses and tool calls until the next user message. Normally, compaction cuts at turn boundaries.

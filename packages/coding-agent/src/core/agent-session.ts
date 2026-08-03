@@ -58,6 +58,7 @@ import { sleep } from "../utils/sleep.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
 import {
+	type CompactionPreparation,
 	type CompactionResult,
 	type CompactionSourceInfo,
 	calculateContextTokens,
@@ -208,6 +209,25 @@ const PERMISSION_PROMPT_TOOL_NAME = "approval_prompt";
 const PERMISSION_PROMPT_SCHEMA_FIELDS = ["tool_name", "input", "tool_use_id", "cwd"] as const;
 const RUNTIME_MAILBOX_POLL_INTERVAL_MS = 30_000;
 const RUNTIME_MAILBOX_HEARTBEAT_INTERVAL_MS = 60_000;
+const BACKGROUND_COMPACTION_CONTEXT_RATIO = 0.7;
+
+interface BackgroundCompactionCache {
+	state: "pending" | "ready" | "failed";
+	sessionId: string;
+	snapshotLeafId: string;
+	branchEntries: SessionEntry[];
+	preparation: CompactionPreparation;
+	settings: { enabled: boolean; reserveTokens: number; keepRecentTokens: number };
+	model: { provider: string; id: string; api: string };
+	thinkingLevel: ThinkingLevel;
+	systemPrompt: string;
+	extensionRunner: ExtensionRunner;
+	abortController: AbortController;
+	promise?: Promise<void>;
+	compaction?: CompactionResult;
+	fromExtension?: boolean;
+	generationDurationMs?: number;
+}
 
 function readHeadlessToolAutoDetachAfterMs(env: NodeJS.ProcessEnv = process.env): number | undefined {
 	const value = env.PI_HEADLESS_TOOL_AUTO_DETACH_MS;
@@ -711,6 +731,7 @@ export class AgentSession {
 	// Compaction state
 	private _compactionAbortController: AbortController | undefined = undefined;
 	private _autoCompactionAbortController: AbortController | undefined = undefined;
+	private _backgroundCompactionCache: BackgroundCompactionCache | undefined = undefined;
 	private _overflowRecoveryAttempted = false;
 	private _lengthRecoveryAttempted = false;
 
@@ -3753,6 +3774,7 @@ export class AgentSession {
 		const wasRunningAgentTurn = this.isStreaming;
 		this._disconnectFromAgent();
 		await this.abort();
+		await this._cancelBackgroundCompaction();
 		const compactionAbortController = new AbortController();
 		this._compactionAbortController = compactionAbortController;
 		const sourceHint = await this.getCompactionSourceHint("manual", false);
@@ -3954,6 +3976,169 @@ export class AgentSession {
 	abortCompaction(): void {
 		this._compactionAbortController?.abort();
 		this._autoCompactionAbortController?.abort();
+		this._backgroundCompactionCache?.abortController.abort();
+	}
+
+	private _backgroundCompactionMatchesCurrentSession(cache: BackgroundCompactionCache): boolean {
+		const model = this.model;
+		if (!model) return false;
+		const settings = this.settingsManager.getCompactionSettings();
+		const snapshotIsAncestor = this.sessionManager.getBranch().some((entry) => entry.id === cache.snapshotLeafId);
+		return (
+			cache.sessionId === this.sessionManager.getSessionId() &&
+			snapshotIsAncestor &&
+			cache.model.provider === model.provider &&
+			cache.model.id === model.id &&
+			cache.model.api === model.api &&
+			cache.thinkingLevel === this.thinkingLevel &&
+			cache.systemPrompt === this.agent.state.systemPrompt &&
+			cache.extensionRunner === this._extensionRunner &&
+			cache.settings.enabled === settings.enabled &&
+			cache.settings.reserveTokens === settings.reserveTokens &&
+			cache.settings.keepRecentTokens === settings.keepRecentTokens
+		);
+	}
+
+	private _hasReadyBackgroundCompaction(): boolean {
+		const cache = this._backgroundCompactionCache;
+		if (!cache || cache.state !== "ready") return false;
+		if (this._backgroundCompactionMatchesCurrentSession(cache)) return true;
+		this._backgroundCompactionCache = undefined;
+		return false;
+	}
+
+	private async _cancelBackgroundCompaction(): Promise<void> {
+		const cache = this._backgroundCompactionCache;
+		if (!cache) return;
+		cache.abortController.abort();
+		await cache.promise;
+		if (this._backgroundCompactionCache === cache) {
+			this._backgroundCompactionCache = undefined;
+		}
+	}
+
+	private async _takeBackgroundCompaction(): Promise<BackgroundCompactionCache | undefined> {
+		const cache = this._backgroundCompactionCache;
+		if (!cache) return undefined;
+		if (cache.state === "pending") {
+			await this._cancelBackgroundCompaction();
+			return undefined;
+		}
+		this._backgroundCompactionCache = undefined;
+		if (cache.state !== "ready" || !this._backgroundCompactionMatchesCurrentSession(cache)) return undefined;
+		return cache;
+	}
+
+	private _scheduleBackgroundCompactionInstall(cache: BackgroundCompactionCache): void {
+		void this._withTurnStartLock(async () => {
+			if (!this._backgroundCompactionMatchesCurrentSession(cache)) {
+				if (this._backgroundCompactionCache === cache) this._backgroundCompactionCache = undefined;
+				return;
+			}
+			const sessionAdvancedSinceSnapshot = this.sessionManager.getLeafId() !== cache.snapshotLeafId;
+			const agentRunNeedsPostProcessing = this.isStreaming || this._lastAssistantMessage !== undefined;
+			if (
+				this._backgroundCompactionCache !== cache ||
+				cache.state !== "ready" ||
+				sessionAdvancedSinceSnapshot ||
+				agentRunNeedsPostProcessing
+			) {
+				return;
+			}
+			await this._runAutoCompaction("threshold", false);
+		}).catch((error: unknown) => {
+			console.error("Failed to install background compaction cache:", error);
+		});
+	}
+
+	private async _generateLocalBackgroundCompaction(
+		cache: BackgroundCompactionCache,
+		model: Model<any>,
+	): Promise<CompactionResult | undefined> {
+		if (!cache.settings.enabled) return undefined;
+		const { apiKey, headers, env } = await this._getCompactionRequestAuth(model);
+		return compact(
+			cache.preparation,
+			model,
+			apiKey,
+			headers,
+			undefined,
+			cache.abortController.signal,
+			cache.thinkingLevel,
+			this.agent.streamFn,
+			env,
+		);
+	}
+
+	private _storeReadyBackgroundCompaction(
+		cache: BackgroundCompactionCache,
+		compaction: CompactionResult,
+		fromExtension: boolean,
+		startedAt: number,
+	): void {
+		if (cache.abortController.signal.aborted || this._backgroundCompactionCache !== cache) return;
+		cache.compaction = compaction;
+		cache.fromExtension = fromExtension;
+		cache.generationDurationMs = Date.now() - startedAt;
+		cache.state = "ready";
+		this._scheduleBackgroundCompactionInstall(cache);
+	}
+
+	private async _generateBackgroundCompaction(cache: BackgroundCompactionCache, model: Model<any>): Promise<void> {
+		const startedAt = Date.now();
+		try {
+			const extensionResult = cache.extensionRunner.hasHandlers("compaction")
+				? await cache.extensionRunner.emit({
+						type: "compaction",
+						preparation: cache.preparation,
+						branchEntries: cache.branchEntries,
+						customInstructions: undefined,
+						reason: "threshold",
+						willRetry: false,
+						signal: cache.abortController.signal,
+					})
+				: undefined;
+			if (extensionResult?.cancel) return;
+			const extensionCompaction = extensionResult?.compaction;
+			const compaction = extensionCompaction ?? (await this._generateLocalBackgroundCompaction(cache, model));
+			if (!compaction) return;
+			this._storeReadyBackgroundCompaction(cache, compaction, extensionCompaction !== undefined, startedAt);
+		} catch (error) {
+			if (cache.abortController.signal.aborted) return;
+			cache.state = "failed";
+			console.error("Background compaction cache generation failed:", error);
+		}
+	}
+
+	private _startBackgroundCompaction(contextTokens: number, contextWindow: number): void {
+		if (contextWindow <= 0 || contextTokens < contextWindow * BACKGROUND_COMPACTION_CONTEXT_RATIO) return;
+		if (this._backgroundCompactionCache || this._autoCompactionAbortController || this._compactionAbortController) {
+			return;
+		}
+		const model = this.model;
+		if (!model) return;
+		const settings = this.settingsManager.getCompactionSettings();
+		if (!settings.enabled && !this._extensionRunner.hasHandlers("compaction")) return;
+		const branchEntries = this.sessionManager.getBranch();
+		const snapshotLeafId = this.sessionManager.getLeafId();
+		if (!snapshotLeafId) return;
+		const preparation = prepareCompaction(branchEntries, settings);
+		if (!preparation) return;
+		const cache: BackgroundCompactionCache = {
+			state: "pending",
+			sessionId: this.sessionManager.getSessionId(),
+			snapshotLeafId,
+			branchEntries,
+			preparation,
+			settings,
+			model: { provider: model.provider, id: model.id, api: model.api },
+			thinkingLevel: this.thinkingLevel,
+			systemPrompt: this.agent.state.systemPrompt,
+			extensionRunner: this._extensionRunner,
+			abortController: new AbortController(),
+		};
+		this._backgroundCompactionCache = cache;
+		cache.promise = this._generateBackgroundCompaction(cache, model);
 	}
 
 	/**
@@ -4074,6 +4259,10 @@ export class AgentSession {
 			}
 			return await this._runAutoCompaction("threshold", willRetry);
 		}
+		if (this._hasReadyBackgroundCompaction()) {
+			return await this._runAutoCompaction("threshold", false);
+		}
+		this._startBackgroundCompaction(contextTokens, contextWindow);
 		return false;
 	}
 
@@ -4094,10 +4283,11 @@ export class AgentSession {
 				return false;
 			}
 
+			const cachedCompaction = await this._takeBackgroundCompaction();
 			let apiKey: string | undefined;
 			let headers: Record<string, string> | undefined;
 			let env: Record<string, string> | undefined;
-			if (settings.enabled) {
+			if (!cachedCompaction && settings.enabled) {
 				if (this.agent.streamFn === streamSimple) {
 					const authResult = await this._modelRegistry.getApiKeyAndHeaders(this.model);
 					if (!authResult.ok || !authResult.apiKey) {
@@ -4111,9 +4301,9 @@ export class AgentSession {
 				}
 			}
 
-			const pathEntries = this.sessionManager.getBranch();
+			const pathEntries = cachedCompaction?.branchEntries ?? this.sessionManager.getBranch();
 
-			const preparation = prepareCompaction(pathEntries, settings);
+			const preparation = cachedCompaction?.preparation ?? prepareCompaction(pathEntries, settings);
 			if (!preparation) {
 				return false;
 			}
@@ -4147,10 +4337,10 @@ export class AgentSession {
 				}
 			}
 
-			let extensionCompaction: CompactionResult | undefined;
-			let fromExtension = false;
+			let extensionCompaction = cachedCompaction?.compaction;
+			let fromExtension = cachedCompaction?.fromExtension ?? false;
 
-			if (this._extensionRunner.hasHandlers("compaction")) {
+			if (!cachedCompaction && this._extensionRunner.hasHandlers("compaction")) {
 				const extensionResult = await this._extensionRunner.emit({
 					type: "compaction",
 					preparation,
@@ -4232,7 +4422,7 @@ export class AgentSession {
 				return false;
 			}
 
-			const durationMs = Date.now() - startedAt;
+			const durationMs = cachedCompaction?.generationDurationMs ?? Date.now() - startedAt;
 			this.sessionManager.appendCompaction(
 				summary,
 				firstKeptEntryId,
