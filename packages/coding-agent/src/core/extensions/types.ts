@@ -1466,6 +1466,9 @@ export interface ExtensionAPI {
 	/** Append a custom entry to the session for state persistence (not sent to LLM). */
 	appendEntry<T = unknown>(customType: string, data?: T): void;
 
+	/** Request one continuation turn after the current session is resumed. */
+	requestResumeContinuation(): void;
+
 	// =========================================================================
 	// Session Metadata
 	// =========================================================================
@@ -1779,6 +1782,7 @@ export interface ExtensionActions {
 	sendMessage: SendMessageHandler;
 	sendUserMessage: SendUserMessageHandler;
 	appendEntry: AppendEntryHandler;
+	requestResumeContinuation: () => void;
 	setSessionName: SetSessionNameHandler;
 	getSessionName: GetSessionNameHandler;
 	setLabel: SetLabelHandler;

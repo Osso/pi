@@ -746,6 +746,8 @@ export class AgentSession {
 	private _externalUserInputReservations = 0;
 	/** Serializes turn-start checks through the Agent core transition. */
 	private _turnStartLockTail: Promise<void> = Promise.resolve();
+	/** Whether an extension requested one continuation after session resume. */
+	private _resumeContinuationRequested = false;
 
 	// Compaction state
 	private _compactionAbortController: AbortController | undefined = undefined;
@@ -2030,6 +2032,18 @@ export class AgentSession {
 	/** Current retry attempt (0 if not retrying) */
 	get retryAttempt(): number {
 		return this._retryAttempt;
+	}
+
+	/** Request one continuation turn after the current session is resumed. */
+	requestResumeContinuation(): void {
+		this._resumeContinuationRequested = true;
+	}
+
+	/** Return and clear the pending one-shot resume continuation request. */
+	consumeResumeContinuationRequest(): boolean {
+		const requested = this._resumeContinuationRequested;
+		this._resumeContinuationRequested = false;
+		return requested;
 	}
 
 	/**
@@ -4739,6 +4753,7 @@ export class AgentSession {
 						this._emit({ type: "entry_appended", entry });
 					}
 				},
+				requestResumeContinuation: () => this.requestResumeContinuation(),
 				setSessionName: (name) => {
 					this.setSessionName(name);
 				},
