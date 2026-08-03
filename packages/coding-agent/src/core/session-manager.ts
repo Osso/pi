@@ -761,6 +761,7 @@ function scanCompleteReverseLines(scan: ReverseSessionScan, pending: Buffer, fil
 			return { remaining: Buffer.alloc(0), loaded: loadedActiveSlice(scan) };
 		}
 		lineEnd = newlineIndex;
+		if (lineEnd === 0) break;
 		newlineIndex = pending.lastIndexOf(0x0a, lineEnd - 1);
 	}
 	return { remaining: pending.subarray(0, lineEnd) };

@@ -1,7 +1,8 @@
+import { spawnSync } from "node:child_process";
 import fs, { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { syncBuiltinESMExports } from "module";
 import { tmpdir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SessionManager, type SessionTreeNode } from "../../src/core/session-manager.ts";
 
@@ -84,6 +85,53 @@ describe("active slice session loading", () => {
 		}
 
 		expect(totalBytesRead).toBeLessThan(Buffer.byteLength(content) / 2);
+	});
+
+	it("loads the active slice when a reverse-read chunk begins at a newline", () => {
+		const file = join(tempDir, "newline-boundary.jsonl");
+		const header = {
+			type: "session" as const,
+			version: 3,
+			id: "session-1",
+			timestamp: "2025-01-01T00:00:00Z",
+			cwd: "/tmp",
+		};
+		const oldEntry = messageEntry("old-1", null, "old");
+		const keptEntry = messageEntry("kept-1", "old-1", "kept");
+		const compactionEntry = {
+			type: "compaction" as const,
+			id: "compaction-1",
+			parentId: "kept-1",
+			timestamp: "2025-01-01T00:00:00Z",
+			summary: "summary",
+			firstKeptEntryId: "kept-1",
+			tokensBefore: 1000,
+		};
+		const bufferSize = 1024 * 1024;
+		const compactionLine = JSON.stringify(compactionEntry);
+		const emptyAfterLine = JSON.stringify(messageEntry("after-1", "compaction-1", ""));
+		const afterContentBytes =
+			bufferSize - 1 - Buffer.byteLength(compactionLine) - 1 - Buffer.byteLength(emptyAfterLine) - 1;
+		const afterEntry = messageEntry("after-1", "compaction-1", "x".repeat(afterContentBytes));
+		const suffix = `\n${compactionLine}\n${JSON.stringify(afterEntry)}\n`;
+		expect(Buffer.byteLength(suffix)).toBe(bufferSize);
+
+		const prefix = [header, oldEntry, keptEntry].map((entry) => JSON.stringify(entry)).join("\n");
+		const content = prefix + suffix;
+		expect(Buffer.byteLength(content) - bufferSize).toBe(Buffer.byteLength(prefix));
+		expect(Buffer.from(content)[Buffer.byteLength(prefix)]).toBe(0x0a);
+		writeFileSync(file, content);
+
+		const fixture = resolve(__dirname, "open-session-fixture.ts");
+		const tsxLoader = resolve(__dirname, "../../../../node_modules/tsx/dist/loader.mjs");
+		const result = spawnSync(process.execPath, ["--max-old-space-size=64", "--import", tsxLoader, fixture, file], {
+			encoding: "utf8",
+			timeout: 5_000,
+			env: { ...process.env, TSX_TSCONFIG_PATH: resolve(__dirname, "../../../../tsconfig.json") },
+		});
+
+		expect(result.status, result.stderr).toBe(0);
+		expect(JSON.parse(result.stdout)).toEqual(["kept-1", "compaction-1", "after-1"]);
 	});
 
 	it("ignores one incomplete trailing entry", () => {
