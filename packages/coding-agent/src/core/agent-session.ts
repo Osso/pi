@@ -545,13 +545,11 @@ function isCompletedEndTurnBatch(
 ): boolean {
 	if (toolCalls.length === 0 || toolCalls.some((toolCall) => toolCall.name !== "end_turn")) return false;
 	return toolCalls.every((toolCall) =>
-		messages.some(
-			(message) =>
-				message.role === "toolResult" &&
-				message.toolCallId === toolCall.id &&
-				message.toolName === "end_turn" &&
-				!message.isError,
-		),
+		messages.some((message) => {
+			if (message.role !== "toolResult") return false;
+			const matchesEndTurnResult = message.toolCallId === toolCall.id && message.toolName === "end_turn";
+			return matchesEndTurnResult && !message.isError;
+		}),
 	);
 }
 
