@@ -141,6 +141,7 @@ function createGoalHarness(
 	const sendMessage = vi.fn();
 	const sendUserMessage = vi.fn();
 	const requestRender = vi.fn();
+	const requestResumeContinuation = vi.fn();
 	const setStatus = vi.fn();
 
 	const pi = {
@@ -187,6 +188,7 @@ function createGoalHarness(
 				manageGoalTool = tool;
 			}
 		},
+		requestResumeContinuation,
 		sendMessage,
 		sendUserMessage,
 	} as unknown as ExtensionAPI;
@@ -304,6 +306,7 @@ function createGoalHarness(
 		callTool,
 		notify,
 		requestRender,
+		requestResumeContinuation,
 		setStatus,
 		sendMessage,
 		sendUserMessage,
@@ -594,7 +597,7 @@ describe("goal extension", () => {
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 	});
 
-	it("notifies when a persisted goal is restored on resume, reload, and fork", async () => {
+	it("notifies and requests continuation when a running goal is restored", async () => {
 		const harness = createGoalHarness(cwd);
 
 		await harness.runCommand("set resume this objective");
@@ -607,6 +610,7 @@ describe("goal extension", () => {
 		expect(harness.notify).toHaveBeenNthCalledWith(1, "Active goal: resume this objective", "info");
 		expect(harness.notify).toHaveBeenNthCalledWith(2, "Active goal: resume this objective", "info");
 		expect(harness.notify).toHaveBeenNthCalledWith(3, "Active goal: resume this objective", "info");
+		expect(harness.requestResumeContinuation).toHaveBeenCalledTimes(3);
 	});
 
 	it("keeps a subagent goal independent from the parent goal", async () => {
@@ -2013,6 +2017,7 @@ describe("goal extension", () => {
 		await harness.runSessionStart("resume");
 		await harness.runCommand("");
 
+		expect(harness.requestResumeContinuation).not.toHaveBeenCalled();
 		expect(harness.notify).toHaveBeenNthCalledWith(1, "Paused goal: No pause reason recorded", "info");
 		expect(harness.notify).toHaveBeenNthCalledWith(2, "Goal paused: No pause reason recorded", "info");
 		expect(harness.setStatus).toHaveBeenCalledWith("goal", "goal paused: No pause reason recorded");

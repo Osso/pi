@@ -656,6 +656,7 @@ function registerSessionGoalHandlers(
 		const goal = loadOrMigrateActiveGoal(ctx);
 		updateGoalFooterStatus(ctx);
 		runtime.status.restore(ctx);
+		if (goal && !goal.pausedAt) pi.requestResumeContinuation();
 		if (goal) ctx.ui.notify(goalStartupMessage(goal), "info");
 	});
 	pi.on("session_shutdown", async () => runtime.clearAllGoalSchedules());
