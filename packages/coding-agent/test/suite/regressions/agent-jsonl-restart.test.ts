@@ -301,14 +301,24 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			});
 			expect(ownershipAfter?.processIdentity?.incarnation).not.toBe(ownershipBefore.processIdentity.incarnation);
 
-			pi.respondToLlmRequest(restoredChildRequest.id, fauxAssistantMessage("Recovery turn complete"));
+			pi.respondToLlmRequest(
+				restoredChildRequest.id,
+				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Recovery turn complete" }), {
+					stopReason: "toolUse",
+				}),
+			);
 			const steeredChildRequest = await pi.waitForLlmRequest(
 				(request) => request.agentId === spawned.id && request.id !== restoredChildRequest.id,
 			);
 			expect(steeredChildRequest.userMessages).toContainEqual(
 				expect.stringContaining("Finish the review after restart"),
 			);
-			pi.respondToLlmRequest(steeredChildRequest.id, fauxAssistantMessage("Recovered review complete"));
+			pi.respondToLlmRequest(
+				steeredChildRequest.id,
+				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Recovered review complete" }), {
+					stopReason: "toolUse",
+				}),
+			);
 			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "completed");
 			const review = await pi.waitForSupervisorRequest("goal_idle_review");
 			expect(review.kind).toBe("goal_idle_review");
