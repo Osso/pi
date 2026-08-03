@@ -281,12 +281,26 @@ describe("resume_session first-party tool", () => {
 			isError: false,
 			timestamp: Date.now(),
 		} satisfies AgentSession["messages"][number];
+		const endTurnCall = fauxAssistantMessage(
+			fauxToolCall("end_turn", { reason: "Finished requested work" }, { id: "end-turn-before-exit" }),
+		);
+		const endTurnResult = {
+			role: "toolResult",
+			toolCallId: "end-turn-before-exit",
+			toolName: "end_turn",
+			content: [{ type: "text", text: "Turn ended: Finished requested work" }],
+			details: { reason: "Finished requested work" },
+			isError: false,
+			timestamp: Date.now(),
+		} satisfies AgentSession["messages"][number];
 
 		expect(shouldContinueInterruptedSession([resumeCall])).toBe(false);
 		expect(shouldContinueInterruptedSession([mixedCall])).toBe(false);
 		expect(shouldContinueInterruptedSession([mixedCall, ordinaryResult])).toBe(false);
 		expect(shouldContinueInterruptedSession([ordinaryCall])).toBe(true);
 		expect(shouldContinueInterruptedSession([ordinaryCall, ordinaryResult])).toBe(true);
+		expect(shouldContinueInterruptedSession([endTurnCall])).toBe(true);
+		expect(shouldContinueInterruptedSession([endTurnCall, endTurnResult])).toBe(false);
 	});
 
 	it("keeps a restored source alive without replaying its completed switch", async () => {

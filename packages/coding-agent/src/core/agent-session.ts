@@ -537,6 +537,24 @@ function findTrailingAssistantToolBatch(messages: readonly AgentMessage[]): Assi
 	return undefined;
 }
 
+type AssistantToolCall = Extract<AssistantMessage["content"][number], { type: "toolCall" }>;
+
+function isCompletedEndTurnBatch(
+	messages: readonly AgentMessage[],
+	toolCalls: readonly AssistantToolCall[],
+): boolean {
+	if (toolCalls.length === 0 || toolCalls.some((toolCall) => toolCall.name !== "end_turn")) return false;
+	return toolCalls.every((toolCall) =>
+		messages.some(
+			(message) =>
+				message.role === "toolResult" &&
+				message.toolCallId === toolCall.id &&
+				message.toolName === "end_turn" &&
+				!message.isError,
+		),
+	);
+}
+
 export function shouldContinueInterruptedSession(messages: readonly AgentMessage[]): boolean {
 	let lastMessageIndex = messages.length - 1;
 	while (lastMessageIndex >= 0) {
@@ -553,6 +571,7 @@ export function shouldContinueInterruptedSession(messages: readonly AgentMessage
 	if (!assistant) return lastMessage.role === "toolResult";
 	if (assistant.stopReason === "aborted") return true;
 	const toolCalls = assistant.content.filter((content) => content.type === "toolCall");
+	if (isCompletedEndTurnBatch(relevantMessages, toolCalls)) return false;
 	return toolCalls.length > 0 && toolCalls.every((content) => content.name !== "resume_session");
 }
 
