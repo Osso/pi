@@ -33,9 +33,9 @@ This fork extends upstream Pi with workflows for long-running, supervised coding
 - **Approval and sandbox controls**: select approval policies, persist permission rules, delegate permission prompts, and route supported tool workers through bubblewrap profiles. See the [approval](docs/specs/approval-system.md) and [sandbox](docs/specs/bwrap-sandbox.md) specs.
 - **Isolated worktree startup**: launch with `-w` or `--worktree` to create or reuse a sibling Git worktree. See the [worktree startup spec](docs/specs/worktree-startup-option.md).
 - **Layered project context**: load global and project rules plus repository-local context such as `docs/local/memory.md`. See the [user rules](docs/specs/user-rules-loader.md) and [project context](docs/specs/project-context-files.md) specs.
-- **Expanded coding tools**: structural code indexing, browser automation, hosted web search and image generation, Pyrun execution, recurring prompts, safe mode, and explicit end-turn handling.
+- **Expanded coding workflows and tools**: run `PLAN.md` tasks, validate feature specs, use structural code indexing and browser automation, call hosted web search, execute Python through Pyrun, schedule recurring prompts, restrict sessions with safe mode, and require explicit end-turn handling. See the [run-plan](docs/specs/run-plan-command.md) and [spec-validation](docs/specs/spec-validation.md) specs.
 - **Persistent runtime operations**: control-database-backed session lookup, naming and archive state, shared coordination channels, cwd/session switching, history search, self-restart, and detached job tracking.
-- **Codex enhancements**: runtime fast mode, usage visibility, hosted image generation, remote compaction, and paired-provider quota fallback. See the [Codex feature specs](docs/specs/codex-fast-mode.md).
+- **Codex enhancements**: runtime fast mode, usage visibility, hosted image generation, remote compaction, and paired-provider quota fallback. See the specs for [fast mode](docs/specs/codex-fast-mode.md), [image generation](docs/specs/codex-image-generation.md), [remote compaction](docs/specs/openai-remote-compaction.md), and [quota fallback](docs/specs/codex-quota-fallback.md).
 
 Detailed behavior and implementation status are tracked in the [feature specifications](docs/specs/README.md).
 
