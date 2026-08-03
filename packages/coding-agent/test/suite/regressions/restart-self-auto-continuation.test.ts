@@ -58,14 +58,48 @@ it("keeps a completed turn idle after process restart without a running goal", a
 	});
 }, 30_000);
 
-it("continues a completed turn after process restart when a running goal exists", async () => {
+it("continues a completed running goal after restart while a child remains live", async () => {
 	await withHeadlessPi(async (pi) => {
-		await persistCompletedEndTurn(pi);
+		await pi.send({ type: "prompt", message: "Spawn a child, then complete the main turn" });
+		const mainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
+		pi.respondToLlmRequest(
+			mainRequest.id,
+			fauxAssistantMessage(
+				fauxToolCall("spawn_agent", {
+					context: "fresh",
+					displayName: "Resume policy child",
+					prompt: "Wait across restart",
+				}),
+				{ stopReason: "toolUse" },
+			),
+		);
+		const child = await pi.waitForAgent((agent) => agent.displayName === "Resume policy child");
+		const initialChildRequest = await pi.waitForLlmRequest((request) => request.agentId === child.id);
+		const mainAfterSpawn = await pi.waitForLlmRequest(
+			(request) => request.agentId === null && request.id !== mainRequest.id,
+		);
+		pi.respondToLlmRequest(
+			mainAfterSpawn.id,
+			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Main turn completed" }), {
+				stopReason: "toolUse",
+			}),
+		);
+		await pi.waitForSessionEntry(
+			null,
+			(entry) =>
+				entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "end_turn",
+		);
 		pi.writeRunningGoal("Continue after restoring this session");
 
 		await pi.restart();
 
 		const continuation = await pi.waitForLlmRequest((request) => request.agentId === null, 10_000);
+		const restoredChildRequest = await pi.waitForLlmRequest(
+			(request) => request.agentId === child.id && request.id !== initialChildRequest.id,
+			10_000,
+		);
 		expect(continuation.sessionId).toBe(pi.sessionId);
+		expect(restoredChildRequest.userMessages).toContain("Wait across restart");
+		expect(pi.listAgents().find((agent) => agent.id === child.id)?.lifecycle).toBe("running");
 	});
 }, 30_000);
