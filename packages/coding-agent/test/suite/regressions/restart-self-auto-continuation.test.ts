@@ -13,7 +13,8 @@ async function persistCompletedEndTurn(pi: HeadlessPi): Promise<void> {
 	);
 	await pi.waitForSessionEntry(
 		null,
-		(entry) => entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "end_turn",
+		(entry) =>
+			entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "end_turn",
 	);
 }
 

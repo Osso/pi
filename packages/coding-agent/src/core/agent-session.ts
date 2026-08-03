@@ -539,10 +539,7 @@ function findTrailingAssistantToolBatch(messages: readonly AgentMessage[]): Assi
 
 type AssistantToolCall = Extract<AssistantMessage["content"][number], { type: "toolCall" }>;
 
-function isCompletedEndTurnBatch(
-	messages: readonly AgentMessage[],
-	toolCalls: readonly AssistantToolCall[],
-): boolean {
+function isCompletedEndTurnBatch(messages: readonly AgentMessage[], toolCalls: readonly AssistantToolCall[]): boolean {
 	if (toolCalls.length === 0 || toolCalls.some((toolCall) => toolCall.name !== "end_turn")) return false;
 	return toolCalls.every((toolCall) =>
 		messages.some((message) => {
