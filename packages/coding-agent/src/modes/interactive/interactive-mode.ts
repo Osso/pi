@@ -6150,7 +6150,8 @@ export class InteractiveMode {
 	}
 
 	private async continueInterruptedResumedSession(): Promise<void> {
-		if (!shouldContinueInterruptedSession(this.session.messages)) return;
+		const extensionRequestedContinuation = this.session.consumeResumeContinuationRequest();
+		if (!extensionRequestedContinuation && !shouldContinueInterruptedSession(this.session.messages)) return;
 		await this.session.continue();
 	}
 

@@ -812,7 +812,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		};
 	})();
 
-	if (shouldContinueInterruptedSession(session.messages)) {
+	const extensionRequestedContinuation = session.consumeResumeContinuationRequest();
+	if (extensionRequestedContinuation || shouldContinueInterruptedSession(session.messages)) {
 		void session.continue().catch((continuationError: unknown) => {
 			process.stderr.write(
 				`Failed to continue restored session: ${continuationError instanceof Error ? continuationError.message : String(continuationError)}\n`,

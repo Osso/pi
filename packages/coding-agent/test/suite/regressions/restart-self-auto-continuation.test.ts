@@ -1,6 +1,21 @@
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { expect, it } from "vitest";
-import { withHeadlessPi } from "../headless-pi.ts";
+import { type HeadlessPi, withHeadlessPi } from "../headless-pi.ts";
+
+async function persistCompletedEndTurn(pi: HeadlessPi): Promise<void> {
+	await pi.send({ type: "prompt", message: "Finish this turn before process restart" });
+	const request = await pi.waitForLlmRequest((candidate) => candidate.agentId === null);
+	pi.respondToLlmRequest(
+		request.id,
+		fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Turn completed before restart" }), {
+			stopReason: "toolUse",
+		}),
+	);
+	await pi.waitForSessionEntry(
+		null,
+		(entry) => entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "end_turn",
+	);
+}
 
 it("automatically continues the restored session after restart_self", async () => {
 	await withHeadlessPi(async (pi) => {
@@ -28,5 +43,29 @@ it("automatically continues the restored session after restart_self", async () =
 			null,
 			(entry) => entry.type === "message" && JSON.stringify(entry.message).includes("continued"),
 		);
+	});
+}, 30_000);
+
+it("keeps a completed turn idle after process restart without a running goal", async () => {
+	await withHeadlessPi(async (pi) => {
+		await persistCompletedEndTurn(pi);
+
+		await pi.restart();
+
+		await expect(pi.waitForLlmRequest((request) => request.agentId === null, 1_000)).rejects.toThrow(
+			"Timed out waiting for LLM request",
+		);
+	});
+}, 30_000);
+
+it("continues a completed turn after process restart when a running goal exists", async () => {
+	await withHeadlessPi(async (pi) => {
+		await persistCompletedEndTurn(pi);
+		pi.writeRunningGoal("Continue after restoring this session");
+
+		await pi.restart();
+
+		const continuation = await pi.waitForLlmRequest((request) => request.agentId === null, 10_000);
+		expect(continuation.sessionId).toBe(pi.sessionId);
 	});
 }, 30_000);
