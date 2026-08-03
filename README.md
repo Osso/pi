@@ -18,10 +18,26 @@ This is the home of the Pi agent harness project including our self extensible c
 * **[@earendil-works/pi-agent-core](packages/agent-core)**: Agent runtime with tool calling and state management
 * **[@earendil-works/pi-ai](packages/ai)**: Unified multi-provider LLM API (OpenAI, Anthropic, Google, …)
 
-To learn more about Pi:
+To learn more about upstream Pi:
 
 * [Visit pi.dev](https://pi.dev), the project website with demos
 * [Read the documentation](https://pi.dev/docs/latest), but you can also ask the agent to explain itself
+
+## Features added in this fork
+
+This fork extends upstream Pi with workflows for long-running, supervised coding tasks:
+
+- **Persistent goals**: set, pause, resume, review, and complete objectives that survive across turns and sessions. See the [goal system spec](docs/specs/goal-system.md).
+- **Native multi-agent workflows**: spawn or attach agents, choose inherited or fresh context, exchange mailbox messages, steer active work, and monitor agent status. See the [multi-agent spec](docs/specs/multi-agent.md).
+- **Supervisor integration**: use a resident service for bounded advice, approval decisions, and goal continuation or completion review. See the [Supervisor spec](docs/specs/supervisor-service.md).
+- **Approval and sandbox controls**: select approval policies, persist permission rules, delegate permission prompts, and route supported tool workers through bubblewrap profiles. See the [approval](docs/specs/approval-system.md) and [sandbox](docs/specs/bwrap-sandbox.md) specs.
+- **Isolated worktree startup**: launch with `-w` or `--worktree` to create or reuse a sibling Git worktree. See the [worktree startup spec](docs/specs/worktree-startup-option.md).
+- **Layered project context**: load global and project rules plus repository-local context such as `docs/local/memory.md`. See the [user rules](docs/specs/user-rules-loader.md) and [project context](docs/specs/project-context-files.md) specs.
+- **Expanded coding tools**: structural code indexing, browser automation, hosted web search and image generation, Pyrun execution, recurring prompts, safe mode, and explicit end-turn handling.
+- **Persistent runtime operations**: control-database-backed session lookup, naming and archive state, shared coordination channels, cwd/session switching, history search, self-restart, and detached job tracking.
+- **Codex enhancements**: runtime fast mode, usage visibility, hosted image generation, remote compaction, and paired-provider quota fallback. See the [Codex feature specs](docs/specs/codex-fast-mode.md).
+
+Detailed behavior and implementation status are tracked in the [feature specifications](docs/specs/README.md).
 
 ## All Packages
 
