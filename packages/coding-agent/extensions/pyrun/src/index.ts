@@ -327,7 +327,7 @@ function listScopedModels(ctx: ExtensionContext): Array<{
 	}));
 }
 
-const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
 type PyrunThinkingLevel = (typeof THINKING_LEVELS)[number];
 
 function isPyrunThinkingLevel(value: string): value is PyrunThinkingLevel {
@@ -374,7 +374,7 @@ function normalizeSetModelParams(params: unknown): {
 		record.thinkingLevel !== undefined &&
 		(typeof record.thinkingLevel !== "string" || !isPyrunThinkingLevel(record.thinkingLevel))
 	) {
-		throw new Error("pi.models.set thinkingLevel must be off, minimal, low, medium, high, or xhigh");
+		throw new Error("pi.models.set thinkingLevel must be off, minimal, low, medium, high, xhigh, max, or ultra");
 	}
 	return {
 		provider: record.provider.trim(),

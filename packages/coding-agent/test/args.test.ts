@@ -29,6 +29,13 @@ describe("parseArgs", () => {
 		});
 	});
 
+	describe("thinking levels", () => {
+		test("accepts max and ultra thinking levels", () => {
+			expect(parseArgs(["--thinking", "max"]).thinking).toBe("max");
+			expect(parseArgs(["--thinking", "ultra"]).thinking).toBe("ultra");
+		});
+	});
+
 	describe("tools command", () => {
 		test("parses tools as a metadata command instead of a prompt", () => {
 			const result = parseArgs(["tools"]);

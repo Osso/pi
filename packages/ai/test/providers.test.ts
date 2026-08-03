@@ -49,6 +49,7 @@ describe("builtin providers", () => {
 			maxTokens: 128000,
 			autoCompactionThreshold: 272000,
 		});
+		expect(codexSolModel?.thinkingLevelMap).toMatchObject({ max: "max", ultra: "max" });
 		expect(models.getModel("openai-codex", "gpt-5.6-terra")).toMatchObject({
 			name: "GPT-5.6 Terra",
 			contextWindow: 372000,

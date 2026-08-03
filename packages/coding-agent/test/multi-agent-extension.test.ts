@@ -342,6 +342,7 @@ function spawnStoreFixture(
 function createMultiAgentHarness(
 	options: {
 		appendEntry?: (customType: string, data?: unknown) => void;
+		includeDelegationControl?: boolean;
 		createAttachedSession?: AttachedSessionFactory;
 		createChildSession?: ChildAgentSessionFactory;
 		ctx?: Partial<ExtensionContext>;
@@ -383,6 +384,7 @@ function createMultiAgentHarness(
 		...(options.legacyDispatcher ? { dispatcher: options.legacyDispatcher } : {}),
 	} as MultiAgentExtensionOptions;
 	multiAgentExtension(pi, extensionOptions);
+	if (options.includeDelegationControl) effortExtension(pi);
 
 	ctx = {
 		cwd: "/repo",
@@ -564,6 +566,20 @@ describe("multi-agent extension tools", () => {
 		for (const harness of completedHarnesses) harness.session.dispose();
 		await delay(100);
 		for (const harness of completedHarnesses) harness.cleanup();
+	});
+
+	it("keeps child runtimes from changing the parent delegation mode", async () => {
+		const sessionManager = createControlDbSession();
+		const notify = vi.fn();
+		const harness = createMultiAgentHarness({ includeDelegationControl: true });
+
+		await harness.command("multi-agent", "explicit", {
+			multiAgentAgentId: "child-agent",
+			sessionManager,
+			ui: { notify },
+		});
+
+		expect(notify).toHaveBeenCalledWith("Multi-agent mode is controlled by the main thread", "warning");
 	});
 
 	it("registers spawn/list/cancel/steer/contact/viewer tools", () => {

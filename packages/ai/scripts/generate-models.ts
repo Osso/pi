@@ -504,6 +504,12 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 		mergeThinkingLevelMap(model, { minimal: "low" });
 	}
 	if (
+		(model.provider === "openai-codex" || model.provider === "openai-codex-gc") &&
+		model.id === "gpt-5.6-sol"
+	) {
+		mergeThinkingLevelMap(model, { max: "max", ultra: "max" });
+	}
+	if (
 		(model.provider === "moonshotai" || model.provider === "moonshotai-cn") &&
 		(model.id === "kimi-k2.7-code" || model.id === "kimi-k2.7-code-highspeed")
 	) {

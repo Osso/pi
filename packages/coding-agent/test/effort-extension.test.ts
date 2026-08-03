@@ -1,23 +1,36 @@
 import { describe, expect, it, vi } from "vitest";
 import effortExtension from "../extensions/effort/src/index.ts";
-import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "../src/core/extensions/types.ts";
+import type {
+	ExtensionAPI,
+	ExtensionCommandContext,
+	ExtensionContext,
+	RegisteredCommand,
+} from "../src/core/extensions/types.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../src/core/slash-commands.ts";
 
 function createCommandHarness(options?: {
+	branch?: unknown[];
+	child?: boolean;
 	reasoning?: boolean;
-	thinkingLevel?: string;
 	selectedEffort?: string | undefined;
+	thinkingLevel?: string;
 }) {
-	let command: Omit<RegisteredCommand, "name" | "sourceInfo"> | undefined;
+	const commands = new Map<string, Omit<RegisteredCommand, "name" | "sourceInfo">>();
+	const handlers = new Map<string, Array<(event: unknown, ctx: ExtensionContext) => unknown>>();
 	let thinkingLevel = options?.thinkingLevel ?? "off";
 	const setThinkingLevel = vi.fn((level: string) => {
 		thinkingLevel = level;
 	});
+	const appendEntry = vi.fn();
 	const pi = {
 		getThinkingLevel: () => thinkingLevel,
-		registerCommand: (_name: string, registeredCommand: Omit<RegisteredCommand, "name" | "sourceInfo">) => {
-			command = registeredCommand;
+		on: (name: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) => {
+			handlers.set(name, [...(handlers.get(name) ?? []), handler]);
 		},
+		registerCommand: (name: string, registeredCommand: Omit<RegisteredCommand, "name" | "sourceInfo">) => {
+			commands.set(name, registeredCommand);
+		},
+		appendEntry,
 		setThinkingLevel,
 	} as unknown as ExtensionAPI;
 
@@ -26,23 +39,45 @@ function createCommandHarness(options?: {
 	const notify = vi.fn();
 	const select = vi.fn().mockResolvedValue(options?.selectedEffort);
 	const setEditorText = vi.fn();
+	const setStatus = vi.fn();
 	const setTargetThinkingLevel = vi.fn((level: string) => {
 		thinkingLevel = level;
 	});
+	const sessionManager = {
+		getBranch: () => options?.branch ?? [],
+		isSubagentSession: () => options?.child === true,
+	};
 	const ctx = {
 		model: {
 			id: "reasoner",
 			provider: "test",
 			contextWindow: 200_000,
 			reasoning: options?.reasoning ?? true,
+			thinkingLevelMap: { xhigh: "xhigh", max: "max", ultra: "max" },
 		},
-		ui: { notify, select, setEditorText },
+		multiAgentAgentId: options?.child ? "child-agent" : undefined,
+		sessionManager,
+		ui: { notify, select, setEditorText, setStatus },
 		getThinkingLevel: () => thinkingLevel,
 		setThinkingLevel: setTargetThinkingLevel,
 	} as unknown as ExtensionCommandContext;
 
-	if (!command) throw new Error("/effort command was not registered");
-	return { command, ctx, notify, select, setEditorText, setTargetThinkingLevel, setThinkingLevel };
+	const command = commands.get("effort");
+	const multiAgentCommand = commands.get("multi-agent");
+	if (!command || !multiAgentCommand) throw new Error("expected effort and multi-agent commands");
+	return {
+		appendEntry,
+		command,
+		ctx,
+		handlers,
+		multiAgentCommand,
+		notify,
+		select,
+		setEditorText,
+		setStatus,
+		setTargetThinkingLevel,
+		setThinkingLevel,
+	};
 }
 
 describe("effort extension", () => {
@@ -120,5 +155,82 @@ describe("effort extension", () => {
 
 		expect(setThinkingLevel).not.toHaveBeenCalled();
 		expect(notify).toHaveBeenCalledWith('Invalid effort "high". Available: off', "warning");
+	});
+
+	it("defaults to proactive delegation and injects an observable policy", async () => {
+		const { ctx, handlers } = createCommandHarness();
+		const beforeAgentStart = handlers.get("before_agent_start")?.[0];
+		if (!beforeAgentStart) throw new Error("expected before_agent_start handler");
+
+		const result = await beforeAgentStart({ systemPrompt: "base" }, ctx);
+
+		expect(result).toMatchObject({
+			systemPrompt: expect.stringContaining("Proactive multi-agent delegation is active."),
+		});
+	});
+
+	it("persists and restores explicit delegation without retaining proactive policy", async () => {
+		const initial = createCommandHarness();
+		await initial.multiAgentCommand.handler("explicit", initial.ctx);
+
+		expect(initial.appendEntry).toHaveBeenCalledWith("multi-agent-mode", { mode: "explicit" });
+		const beforeAgentStart = initial.handlers.get("before_agent_start")?.[0];
+		if (!beforeAgentStart) throw new Error("expected before_agent_start handler");
+		const explicitResult = await beforeAgentStart(
+			{
+				systemPrompt:
+					"base\n\n<multi_agent_mode>Proactive multi-agent delegation is active.</multi_agent_mode>",
+			},
+			initial.ctx,
+		);
+		expect(explicitResult.systemPrompt).toContain("Do not spawn sub-agents unless");
+		expect(explicitResult.systemPrompt).not.toContain("Proactive multi-agent delegation is active.");
+
+		const restored = createCommandHarness({
+			branch: [{ type: "custom", customType: "multi-agent-mode", data: { mode: "explicit" } }],
+		});
+		const sessionStart = restored.handlers.get("session_start")?.[0];
+		if (!sessionStart) throw new Error("expected session_start handler");
+		await sessionStart({ type: "session_start", reason: "resume" }, restored.ctx);
+		const restoredBeforeAgentStart = restored.handlers.get("before_agent_start")?.[0];
+		if (!restoredBeforeAgentStart) throw new Error("expected before_agent_start handler");
+		const restoredResult = await restoredBeforeAgentStart({ systemPrompt: "base" }, restored.ctx);
+		expect(restoredResult.systemPrompt).toContain("Do not spawn sub-agents unless");
+	});
+
+	it("keeps delegation mode when changing a non-ultra effort", async () => {
+		const { command, ctx, handlers, multiAgentCommand } = createCommandHarness();
+		await multiAgentCommand.handler("explicit", ctx);
+		await command.handler("high", ctx);
+
+		const beforeAgentStart = handlers.get("before_agent_start")?.[0];
+		if (!beforeAgentStart) throw new Error("expected before_agent_start handler");
+		const result = await beforeAgentStart({ systemPrompt: "base" }, ctx);
+		expect(result.systemPrompt).toContain("Do not spawn sub-agents unless");
+	});
+
+	it("maps /effort ultra to ultra reasoning and proactive delegation", async () => {
+		const { appendEntry, command, ctx, handlers, notify, setTargetThinkingLevel } = createCommandHarness({
+			thinkingLevel: "high",
+		});
+
+		await command.handler("ultra", ctx);
+
+		expect(setTargetThinkingLevel).toHaveBeenCalledWith("max");
+		expect(appendEntry).toHaveBeenCalledWith("multi-agent-mode", { mode: "proactive" });
+		expect(notify).toHaveBeenCalledWith("Effort: ultra (max + proactive)", "info");
+		const beforeAgentStart = handlers.get("before_agent_start")?.[0];
+		if (!beforeAgentStart) throw new Error("expected before_agent_start handler");
+		const result = await beforeAgentStart({ systemPrompt: "base" }, ctx);
+		expect(result.systemPrompt).toContain("Proactive multi-agent delegation is active.");
+	});
+
+	it("does not let child runtimes change delegation mode", async () => {
+		const { appendEntry, ctx, multiAgentCommand, notify } = createCommandHarness({ child: true });
+
+		await multiAgentCommand.handler("explicit", ctx);
+
+		expect(appendEntry).not.toHaveBeenCalled();
+		expect(notify).toHaveBeenCalledWith("Multi-agent mode is controlled by the main thread", "warning");
 	});
 });

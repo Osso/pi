@@ -39,6 +39,12 @@ describe("getSupportedThinkingLevels", () => {
 		expect(getSupportedThinkingLevels(model!)).toContain("xhigh");
 	});
 
+	it("includes max and ultra for GPT-5.6 Sol", () => {
+		const model = getModel("openai-codex", "gpt-5.6-sol");
+		expect(model).toBeDefined();
+		expect(getSupportedThinkingLevels(model!)).toEqual(expect.arrayContaining(["max", "ultra"]));
+	});
+
 	it("includes only medium/high/xhigh for OpenAI GPT-5.5 Pro", () => {
 		const model = getModel("openai", "gpt-5.5-pro");
 		expect(model).toBeDefined();

@@ -101,7 +101,7 @@ export const OPENAI_CODEX_MODELS = {
 		provider: "openai-codex",
 		baseUrl: "https://chatgpt.com/backend-api",
 		reasoning: true,
-		thinkingLevelMap: {"xhigh":"xhigh","minimal":"low"},
+		thinkingLevelMap: {"xhigh":"xhigh","minimal":"low","max":"max","ultra":"max"},
 		input: ["text", "image"],
 		cost: {
 			input: 5,

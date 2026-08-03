@@ -60,6 +60,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | Codex fast mode (`/fast`) | [`codex-fast-mode.md`](codex-fast-mode.md) | **BUILD** (done) | Runtime-only priority processing toggle for OpenAI Codex providers; resets on restart or resume. |
 | TUI customization | [`tui-customization.md`](tui-customization.md) | **NATIVE** | Themes, keybindings, `registerShortcut`, header/footer/widget/editor swap, `ui.custom()`. |
 | Thinking status indicator | [`thinking-status.md`](thinking-status.md) | **BUILD** (done) | Default working ticker reports elapsed thinking time without replacing tool-wait messages. |
+| Reasoning effort and delegation | [`reasoning-effort-delegation.md`](reasoning-effort-delegation.md) | **BUILD** | GPT-5.6 Sol `max`/`ultra` effort plus orthogonal proactive/explicit delegation control. |
 
 ## Build priority
 

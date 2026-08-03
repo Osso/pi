@@ -222,7 +222,7 @@ type ResolvedAgentProfile = {
 	tools?: string[];
 };
 
-const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh"]);
+const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
 const CHILD_AGENT_CONTROL_TOOL_NAMES = ["contact_parent", "send_agent_message", "end_turn"] as const;
 const MAIN_THREAD_AGENT_ID = "main";
 const CANCELLATION_SETTLEMENT_TIMEOUT_MS = 5_000;

@@ -25,6 +25,7 @@
 
 ### Added
 
+- Added `/multi-agent proactive|explicit` with proactive delegation as the default; `/effort ultra` selects maximum reasoning and proactive delegation.
 - Added first-party `ask_secret` for interactive-TUI-only masked credential prompts that provision browser records through the typed Secrets Broker path without returning secret values to the model.
 - Added duplicate-turn loop termination: after consecutive identical text-only assistant turns, Pi injects a non-persisted instruction to call the always-active `end_turn` control tool with a concise reason, then stops the current loop if the model repeats after that instruction instead of consuming request deadlines such as resident Supervisor reviews; a guard-generated terminal `end_turn` uses the last completed JSON response from that same request, never historical response text. Changed assistant content, tool execution, or new user input resets detection. Ordinary tool filtering remains unchanged.
 - Added `pi sessions truncate-tool-output` to migrate existing session JSONL files whose persisted tool-result content exceeds the 1 MiB cap; changed files receive backups and malformed or non-session files are skipped.
