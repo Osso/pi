@@ -179,7 +179,11 @@ async function waitForDetachedBashExit(
 			signalPayloadGroup(payload.pid);
 		}
 		if (identity) {
-			for (const command of claimDetachedJobRuntimeCommands(manifest.controlDbPath, manifest.runnerAddress, identity)) {
+			for (const command of claimDetachedJobRuntimeCommands(
+				manifest.controlDbPath,
+				manifest.runnerAddress,
+				identity,
+			)) {
 				if (command.command === "status") {
 					enqueueDetachedJobStatusResponse({
 						controlDbPath: manifest.controlDbPath,

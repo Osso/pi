@@ -15,7 +15,7 @@ import {
 	trackDetachedChildPid,
 	untrackDetachedChildPid,
 } from "../../utils/shell.ts";
-import { writeDetachedBashActivation, type DetachedBashForegroundCompletion } from "../detached-bash-runner.ts";
+import { type DetachedBashForegroundCompletion, writeDetachedBashActivation } from "../detached-bash-runner.ts";
 import type { DetachedJobArtifacts, DetachedJobLifecycleController } from "../detached-job-runner.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
 import { type AgentSnapshot, isActiveLifecycle, type MultiAgentStore } from "../multi-agent-store.ts";
@@ -369,7 +369,8 @@ async function waitForRestoredBashJob(options: {
 }): Promise<BashRunnerResult | undefined> {
 	if (!options.toolCallId) return undefined;
 	const restoredJob = options.lifecycle.findBashJobByToolCallId(options.toolCallId);
-	if (!restoredJob || (restoredJob.lifecycle !== "cancelling" && restoredJob.lifecycle !== "aborted")) return undefined;
+	if (!restoredJob || (restoredJob.lifecycle !== "cancelling" && restoredJob.lifecycle !== "aborted"))
+		return undefined;
 
 	let restoredState = restoredJob;
 	while (isActiveLifecycle(restoredState.lifecycle)) {

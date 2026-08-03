@@ -48,7 +48,9 @@ describe("headless Bash foreground and detach behavior", () => {
 				const detachedJob = await agent.waitForAgent(
 					(candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running",
 				);
-				await agent.waitForAgent((candidate) => candidate.id === detachedJob.id && candidate.lifecycle === "completed");
+				await agent.waitForAgent(
+					(candidate) => candidate.id === detachedJob.id && candidate.lifecycle === "completed",
+				);
 				await agent.send({ type: "abort" });
 			},
 			{ autoDetachTools: true },
