@@ -1251,20 +1251,22 @@ describe("AgentSession compaction characterization", () => {
 		}
 	});
 
-	it("runs normal compaction at the end of the turn where the background cache becomes ready", async () => {
+	it("preserves a second user turn when committing a background compaction from the first turn", async () => {
 		const releaseCompaction = createDeferred<void>();
-		const turnStarted = createDeferred<void>();
-		const releaseTurn = createDeferred<void>();
+		const secondTurnStarted = createDeferred<void>();
+		const releaseSecondTurn = createDeferred<void>();
+		let compactionCalls = 0;
 		const harness = await createHarness({
 			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 0 } },
-			models: [{ id: "faux-1", contextWindow: 100, maxTokens: 100 }],
+			models: [{ id: "faux-1", contextWindow: 6000, maxTokens: 100 }],
 			extensionFactories: [
 				(pi) => {
 					pi.on("compaction", async (event) => {
+						compactionCalls++;
 						await releaseCompaction.promise;
 						return {
 							compaction: {
-								summary: "cache ready during active turn",
+								summary: "summary generated after first user turn",
 								firstKeptEntryId: event.preparation.firstKeptEntryId,
 								tokensBefore: event.preparation.tokensBefore,
 								details: {},
@@ -1276,47 +1278,72 @@ describe("AgentSession compaction characterization", () => {
 		});
 		harnesses.push(harness);
 		seedCompactableSession(harness);
-		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
-		const triggerAssistant = createAssistant(harness, {
-			stopReason: "stop",
-			totalTokens: 70,
-			timestamp: Date.now(),
-		});
-		harness.sessionManager.appendMessage(triggerAssistant);
+		harness.sessionManager.appendMessage(
+			createAssistant(harness, { stopReason: "stop", totalTokens: 1, timestamp: Date.now() }),
+		);
 		harness.session.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
-		await sessionInternals._checkCompaction(triggerAssistant);
 		harness.setResponses([
 			async () => {
-				turnStarted.resolve();
-				await releaseTurn.promise;
-				return fauxAssistantMessage(
-					[{ type: "text", text: "turn completed" }, fauxToolCall("end_turn", { reason: "turn completed" })],
-					{ stopReason: "toolUse" },
-				);
+				const response = createAssistant(harness, { stopReason: "toolUse", totalTokens: 70 });
+				response.content = [
+					{ type: "text", text: "first turn completed" },
+					fauxToolCall("end_turn", { reason: "first turn completed" }),
+				];
+				return response;
 			},
-			fauxAssistantMessage("unexpected second call"),
+			async () => {
+				secondTurnStarted.resolve();
+				await releaseSecondTurn.promise;
+				const response = createAssistant(harness, { stopReason: "toolUse", totalTokens: 10 });
+				response.content = [
+					{ type: "text", text: "second turn completed" },
+					fauxToolCall("end_turn", { reason: "second turn completed" }),
+				];
+				return response;
+			},
+			fauxAssistantMessage("unexpected third call"),
 		]);
 
-		const prompt = harness.session.prompt("continue while cache is pending");
-		await turnStarted.promise;
+		let firstPromptSettled = false;
+		const firstPrompt = harness.session.prompt("first user message").then(() => {
+			firstPromptSettled = true;
+		});
+		await vi.waitFor(() => expect(compactionCalls).toBe(1), { timeout: 100 });
+		await vi.waitFor(() => expect(firstPromptSettled).toBe(true), { timeout: 100 });
+		await firstPrompt;
+
+		const secondPrompt = harness.session.prompt("second user message");
+		await secondTurnStarted.promise;
 		releaseCompaction.resolve();
 		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(harness.sessionManager.getBranch().filter((entry) => entry.type === "compaction")).toHaveLength(0);
 
-		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(0);
+		releaseSecondTurn.resolve();
+		await secondPrompt;
 
-		releaseTurn.resolve();
-		await prompt;
+		const branch = harness.sessionManager.getBranch();
+		const compactionEntries = branch.filter((entry) => entry.type === "compaction");
+		const branchUserTexts = branch
+			.filter((entry) => entry.type === "message" && entry.message.role === "user")
+			.flatMap((entry) =>
+				typeof entry.message.content === "string"
+					? [entry.message.content]
+					: entry.message.content.filter((part) => part.type === "text").map((part) => part.text),
+			);
 
-		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(1);
+		expect(compactionEntries).toHaveLength(1);
+		expect(compactionEntries[0]).toMatchObject({ summary: "summary generated after first user turn" });
 		expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({
 			reason: "threshold",
 			willRetry: false,
-			result: { summary: "cache ready during active turn" },
+			result: { summary: "summary generated after first user turn" },
 		});
-		expect(harness.faux.state.callCount).toBe(1);
+		expect(getUserTexts(harness)).toContain("second user message");
+		expect(branchUserTexts).toContain("second user message");
+		expect(getAssistantTexts(harness)).toContain("second turn completed");
+		expect(compactionCalls).toBe(1);
+		expect(harness.faux.state.callCount).toBe(2);
 		expect(harness.getPendingResponseCount()).toBe(1);
-		expect(getUserTexts(harness)).toContain("continue while cache is pending");
-		expect(getAssistantTexts(harness)).toContain("turn completed");
 	});
 
 	it.each([
