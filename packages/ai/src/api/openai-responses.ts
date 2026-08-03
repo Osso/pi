@@ -22,7 +22,7 @@ import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.ts";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.ts";
-import { buildBaseOptions } from "./simple-options.ts";
+import { buildBaseOptions, clampStandardReasoningLevel } from "./simple-options.ts";
 
 const OPENAI_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode"]);
 
@@ -171,7 +171,7 @@ export const streamSimple: StreamFunction<"openai-responses", SimpleStreamOption
 
 	const base = buildBaseOptions(model, context, options, options?.apiKey);
 	const clampedReasoning = options?.reasoning ? clampThinkingLevel(model, options.reasoning) : undefined;
-	const reasoningEffort = clampedReasoning === "off" ? undefined : clampedReasoning;
+	const reasoningEffort = clampStandardReasoningLevel(clampedReasoning);
 
 	return stream(model, context, {
 		...base,

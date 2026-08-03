@@ -40,6 +40,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { CONFIG_DIR_NAME, DynamicBorder, getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -52,7 +53,7 @@ interface Preset {
 	/** Model ID (e.g., "claude-sonnet-4-5") */
 	model?: string;
 	/** Thinking level */
-	thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+	thinkingLevel?: ThinkingLevel;
 	/** Tools to enable (replaces default set) */
 	tools?: string[];
 	/** Instructions to append to system prompt */
@@ -100,7 +101,7 @@ function loadPresets(cwd: string): PresetsConfig {
 
 interface OriginalState {
 	model: Model<Api> | undefined;
-	thinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+	thinkingLevel: ThinkingLevel;
 	tools: string[];
 }
 

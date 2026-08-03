@@ -8,6 +8,18 @@ import type {
 } from "../src/core/extensions/types.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../src/core/slash-commands.ts";
 
+function requireSystemPrompt(result: unknown): string {
+	if (
+		typeof result !== "object" ||
+		result === null ||
+		!("systemPrompt" in result) ||
+		typeof result.systemPrompt !== "string"
+	) {
+		throw new Error("expected before_agent_start to return a system prompt");
+	}
+	return result.systemPrompt;
+}
+
 function createCommandHarness(options?: {
 	branch?: unknown[];
 	child?: boolean;
@@ -178,13 +190,12 @@ describe("effort extension", () => {
 		if (!beforeAgentStart) throw new Error("expected before_agent_start handler");
 		const explicitResult = await beforeAgentStart(
 			{
-				systemPrompt:
-					"base\n\n<multi_agent_mode>Proactive multi-agent delegation is active.</multi_agent_mode>",
+				systemPrompt: "base\n\n<multi_agent_mode>Proactive multi-agent delegation is active.</multi_agent_mode>",
 			},
 			initial.ctx,
 		);
-		expect(explicitResult.systemPrompt).toContain("Do not spawn sub-agents unless");
-		expect(explicitResult.systemPrompt).not.toContain("Proactive multi-agent delegation is active.");
+		expect(requireSystemPrompt(explicitResult)).toContain("Do not spawn sub-agents unless");
+		expect(requireSystemPrompt(explicitResult)).not.toContain("Proactive multi-agent delegation is active.");
 
 		const restored = createCommandHarness({
 			branch: [{ type: "custom", customType: "multi-agent-mode", data: { mode: "explicit" } }],
@@ -195,7 +206,7 @@ describe("effort extension", () => {
 		const restoredBeforeAgentStart = restored.handlers.get("before_agent_start")?.[0];
 		if (!restoredBeforeAgentStart) throw new Error("expected before_agent_start handler");
 		const restoredResult = await restoredBeforeAgentStart({ systemPrompt: "base" }, restored.ctx);
-		expect(restoredResult.systemPrompt).toContain("Do not spawn sub-agents unless");
+		expect(requireSystemPrompt(restoredResult)).toContain("Do not spawn sub-agents unless");
 	});
 
 	it("keeps delegation mode when changing a non-ultra effort", async () => {
@@ -206,7 +217,7 @@ describe("effort extension", () => {
 		const beforeAgentStart = handlers.get("before_agent_start")?.[0];
 		if (!beforeAgentStart) throw new Error("expected before_agent_start handler");
 		const result = await beforeAgentStart({ systemPrompt: "base" }, ctx);
-		expect(result.systemPrompt).toContain("Do not spawn sub-agents unless");
+		expect(requireSystemPrompt(result)).toContain("Do not spawn sub-agents unless");
 	});
 
 	it("maps /effort ultra to ultra reasoning and proactive delegation", async () => {
@@ -222,7 +233,7 @@ describe("effort extension", () => {
 		const beforeAgentStart = handlers.get("before_agent_start")?.[0];
 		if (!beforeAgentStart) throw new Error("expected before_agent_start handler");
 		const result = await beforeAgentStart({ systemPrompt: "base" }, ctx);
-		expect(result.systemPrompt).toContain("Proactive multi-agent delegation is active.");
+		expect(requireSystemPrompt(result)).toContain("Proactive multi-agent delegation is active.");
 	});
 
 	it("does not let child runtimes change delegation mode", async () => {

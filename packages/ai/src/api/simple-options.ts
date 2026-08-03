@@ -2,6 +2,7 @@ import type {
 	Api,
 	Context,
 	Model,
+	ModelThinkingLevel,
 	SimpleStreamOptions,
 	StreamOptions,
 	ThinkingBudgets,
@@ -49,6 +50,13 @@ export function clampReasoning(
 	effort: ThinkingLevel | undefined,
 ): Exclude<ThinkingLevel, "xhigh" | "max" | "ultra"> | undefined {
 	return effort === "xhigh" || effort === "max" || effort === "ultra" ? "high" : effort;
+}
+
+export function clampStandardReasoningLevel(
+	level: ModelThinkingLevel | undefined,
+): Exclude<ModelThinkingLevel, "off" | "max" | "ultra"> | undefined {
+	if (level === undefined || level === "off") return undefined;
+	return level === "max" || level === "ultra" ? "high" : level;
 }
 
 export function adjustMaxTokensForThinking(

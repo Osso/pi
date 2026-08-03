@@ -1020,7 +1020,7 @@ function buildAdditionalModelRequestFields(
 					output_config: { effort: mapThinkingLevelToEffort(model, options.reasoning) },
 				}
 			: (() => {
-					const defaultBudgets: Record<ThinkingLevel, number> = {
+					const defaultBudgets: Record<Exclude<ThinkingLevel, "max" | "ultra">, number> = {
 						minimal: 1024,
 						low: 2048,
 						medium: 8192,
@@ -1029,8 +1029,11 @@ function buildAdditionalModelRequestFields(
 					};
 
 					// Custom budgets override defaults (xhigh not in ThinkingBudgets, use high)
-					const level = options.reasoning === "xhigh" ? "high" : options.reasoning;
-					const budget = options.thinkingBudgets?.[level] ?? defaultBudgets[options.reasoning];
+					const level =
+						options.reasoning === "xhigh" || options.reasoning === "max" || options.reasoning === "ultra"
+							? "high"
+							: options.reasoning;
+					const budget = options.thinkingBudgets?.[level] ?? defaultBudgets[level];
 
 					return {
 						thinking: {
