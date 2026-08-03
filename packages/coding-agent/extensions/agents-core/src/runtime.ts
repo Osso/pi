@@ -797,6 +797,9 @@ export function createProductionAttachedSessionFactory(
 		if (!existsSync(sessionPath)) {
 			throw new Error(`Child agent transcript does not exist: ${sessionPath}`);
 		}
+		if (agent.cwd !== ctx.cwd && !existsSync(agent.cwd)) {
+			throw new Error(`Agent ${agent.id} working directory does not exist: ${agent.cwd}`);
+		}
 		const sessionDir = options.sessionDir ?? ctx.sessionManager.getSessionDir();
 		const sessionManager = SessionManager.open(sessionPath, sessionDir, agent.cwd);
 		const expectedSessionId = agent.transcript?.sessionId;

@@ -4698,6 +4698,44 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
+	it("rejects recovery before runtime creation when the persisted child cwd is missing", async () => {
+		const parentHarness = await createHarness();
+		childHarnesses.push(parentHarness);
+		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const target = SessionManager.create("/repo", parentHarness.tempDir, { id: "missing-cwd-child" });
+		target.appendMessage({ role: "user", content: "existing", timestamp: 1 });
+		target.persistForRecovery();
+		const missingCwd = join(parentHarness.tempDir, "deleted-agent-cwd");
+		const createSession = vi.fn(async () => ({
+			session: { bindExtensions: async () => {}, messages: [], prompt: async () => {} },
+		}));
+		const attachedFactory = createProductionAttachedSessionFactory({ createSession, multiAgentStore: store });
+		const agent = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "verifier",
+			cwd: missingCwd,
+			displayName: "Interrupted verifier",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: target.getSessionFile(), sessionId: target.getSessionId() },
+		}).agent;
+
+		await expect(
+			attachedFactory({
+				agent,
+				ctx: {
+					cwd: parentHarness.tempDir,
+					hasUI: false,
+					mode: "print",
+					model: parentHarness.getModel(),
+					modelRegistry: parentHarness.session.modelRegistry,
+					sessionManager: parentHarness.sessionManager,
+				} as unknown as ExtensionContext,
+				prompt: "resume",
+				sessionPath: target.getSessionFile() ?? "",
+			}),
+		).rejects.toThrow(`Agent ${agent.id} working directory does not exist: ${missingCwd}`);
+		expect(createSession).not.toHaveBeenCalled();
+	});
+
 	it("rejects recovery when the persisted child transcript is missing", async () => {
 		const parentHarness = await createHarness();
 		childHarnesses.push(parentHarness);
