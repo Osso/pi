@@ -1323,13 +1323,13 @@ describe("AgentSession compaction characterization", () => {
 
 		const branch = harness.sessionManager.getBranch();
 		const compactionEntries = branch.filter((entry) => entry.type === "compaction");
-		const branchUserTexts = branch
-			.filter((entry) => entry.type === "message" && entry.message.role === "user")
-			.flatMap((entry) =>
-				typeof entry.message.content === "string"
-					? [entry.message.content]
-					: entry.message.content.filter((part) => part.type === "text").map((part) => part.text),
-			);
+		const branchUserTexts = branch.flatMap((entry) => {
+			if (entry.type !== "message" || entry.message.role !== "user") return [];
+			const content = entry.message.content;
+			return typeof content === "string"
+				? [content]
+				: content.filter((part) => part.type === "text").map((part) => part.text);
+		});
 
 		expect(compactionEntries).toHaveLength(1);
 		expect(compactionEntries[0]).toMatchObject({ summary: "summary generated after first user turn" });
