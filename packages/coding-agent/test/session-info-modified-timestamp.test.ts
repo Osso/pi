@@ -1,7 +1,8 @@
-import { writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { SessionHeader } from "../src/core/session-manager.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
@@ -39,7 +40,7 @@ function createSessionFile(path: string): void {
 	});
 }
 
-describe("SessionInfo.modified", () => {
+describe("SessionInfo", () => {
 	beforeAll(() => initTheme("dark"));
 
 	afterEach(() => {
@@ -79,5 +80,34 @@ describe("SessionInfo.modified", () => {
 		expect(s).toBeDefined();
 		expect(s!.modified.getTime()).toBe(msgTime);
 		expect(s!.modified.getTime()).not.toBe(before.mtime.getTime());
+	});
+
+	it("uses the first real user prompt after persisted runtime coordination input", async () => {
+		const sessionDir = mkdtempSync(join(tmpdir(), "pi-session-first-message-"));
+		try {
+			const session = SessionManager.create("/tmp", sessionDir);
+			session.appendMessage({
+				role: "user",
+				content: [
+					"From:",
+					"- session: coordination-session",
+					"- agent: agent_113",
+					"",
+					"Message:",
+					"A coordination update was delivered.",
+				].join("\n"),
+				inputSource: "extension",
+				timestamp: 1,
+			});
+			session.appendMessage(fauxAssistantMessage("coordination acknowledged"));
+			session.appendMessage({ role: "user", content: "resume the implementation", timestamp: 3 });
+			session.appendMessage(fauxAssistantMessage("implementation resumed"));
+
+			const sessions = await SessionManager.list("/tmp", sessionDir);
+			expect(sessions).toHaveLength(1);
+			expect(sessions[0]?.firstMessage).toBe("resume the implementation");
+		} finally {
+			rmSync(sessionDir, { recursive: true, force: true });
+		}
 	});
 });

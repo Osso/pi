@@ -1000,7 +1000,8 @@ function applySessionInfoEntry(accumulator: SessionInfoAccumulator, entry: Sessi
 	accumulator.allMessagesText = accumulator.allMessagesText
 		? `${accumulator.allMessagesText} ${textContent}`
 		: textContent;
-	if (!accumulator.firstMessage && message.role === "user") {
+	const isUserPrompt = message.role === "user" && message.inputSource !== "extension";
+	if (!accumulator.firstMessage && isUserPrompt) {
 		accumulator.firstMessage = textContent;
 	}
 }
