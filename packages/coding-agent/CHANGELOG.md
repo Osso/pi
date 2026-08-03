@@ -33,6 +33,8 @@
 - Added `ExtensionUIContext.requestRender()` so interactive extensions can request lightweight redraws while RPC and print modes safely ignore the request.
 - Added built-in `change_working_directory` for persistently changing the current session cwd by direct path or another session's recorded cwd without switching session identity.
 - Added built-in `end_turn` as a default active tool requiring one nonblank free-form reason; normal coding-agent model turns continue after assistant text without a tool call until a terminating `end_turn` batch, while errors, aborts, and existing explicit termination remain terminal.
+- Added one-shot `ExtensionAPI.requestResumeContinuation()` for extensions to request one continuation after session startup or resume; InteractiveMode and RPC consume the request once.
+- Added startup/resume continuation for active unpaused goals; paused and completed goals do not request continuation.
 - Added automatic detached-job artifact cleanup at Pi startup and after terminal outbox delivery; Linux `/proc`-backed cleanup preserves nonterminal or live-referenced jobs, removes artifacts at least three days old, and caps retained terminal artifacts at 2 GiB.
 - Added the `steering_message_queued` AgentSession event; interactive mode uses it to wake active process-local `wait_agents` after accepted ordinary main-session steering.
 - Added first-party `/spec-validation` to validate each `docs/specs/*.md` file independently in one native agent turn.
@@ -309,6 +311,7 @@
 - Fixed `RpcClient` startup/shutdown races so startup rejects when stop begins, stop rejects in-flight requests and waits for confirmed child exit, and failed forced termination retains the live child handle for safe cleanup retry.
 - Fixed headless fixture cleanup to roll back partial startup, remove state even when process/server shutdown fails, preserve both scenario and cleanup errors, and reject waiters during or immediately after disposal instead of timing out or reading removed state.
 - Fixed `deploy.sh` failing outside login shells when `USER`, `XDG_RUNTIME_DIR`, or `DBUS_SESSION_BUS_ADDRESS` are absent.
+- Fixed completed persisted `end_turn` batches being treated as interrupted on resume; they now remain idle unless a running goal requests continuation, while unfinished interrupted turns still resume.
 - Fixed interactive session resume stopping after a persisted tool result instead of continuing the interrupted assistant turn.
 - Fixed detached Bash and Pyrun jobs from different supervisor sessions sharing stale artifact directories when their per-session agent IDs matched; artifacts are now session-namespaced and exclusively reserved before runner launch.
 - Fixed detached Pyrun success and failure results losing the original invocation duration; durable settlement and completion notifications now use the shared tool lifecycle start timestamp.

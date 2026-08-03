@@ -29,7 +29,8 @@ The `resume_session` tool lets an agent switch the current main Pi session to an
 - [x] The optional `starter_prompt` accepts caller-provided instructions and is sent only after the target session is active.
 - [x] The starter prompt uses the replacement session context, not the stale pre-resume context.
 - [x] If resume is cancelled, the starter prompt is not sent.
-- [x] Interactive startup resume and in-session resume automatically continue an interrupted assistant turn when the active transcript ends with a `toolResult`.
+- [x] Interactive startup resume and in-session resume continue interrupted turns identified by persisted transcript state; a successful persisted `end_turn` result is clean completion and stays idle unless a running goal requests one continuation.
+- [x] Extensions can call `requestResumeContinuation()` to request one startup/resume continuation; InteractiveMode and RPC consume and clear that one-shot request before continuation, so it is not replayed by later idle checks.
 - [x] Reopening a source session whose restored pending assistant tool-call batch contains any `resume_session` call treats that batch as a completed terminal switch, leaving the source session active without appending a `toolResult`; batches without `resume_session` continue normally.
 
 ## How it works
@@ -42,12 +43,15 @@ The `resume_session` tool lets an agent switch the current main Pi session to an
 - `packages/coding-agent/src/core/tools/resume-session.ts` — defines `resume_session`, target resolution, rendering, and starter prompt delivery.
 - `packages/coding-agent/src/core/agent-session-runtime.ts` — validates target runtime availability before invalidating the caller session.
 - `packages/coding-agent/src/core/tools/index.ts` — registers `resume_session` in built-in tool lists and factories.
-- `packages/coding-agent/src/core/extensions/types.ts` — exposes `switchSession(..., { withSession })` on extension contexts.
-- `packages/coding-agent/src/core/extensions/runner.ts` — forwards `switchSession` options from extension contexts to the runtime handler.
+- `packages/coding-agent/src/core/extensions/types.ts` — exposes `switchSession(..., { withSession })` and `requestResumeContinuation()` on extension APIs.
+- `packages/coding-agent/src/core/extensions/runner.ts` — forwards session-switch options and the continuation request to the runtime handler.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` and `packages/coding-agent/src/modes/rpc/rpc-mode.ts` — consume one-shot extension continuation requests.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/suite/regressions/7421-resume-session-tool.test.ts`
+- `packages/coding-agent/test/suite/resume-continuation-request.test.ts`
+- `packages/coding-agent/test/suite/regressions/restart-self-auto-continuation.test.ts`
 
 ## Known gaps (current cycle)
 

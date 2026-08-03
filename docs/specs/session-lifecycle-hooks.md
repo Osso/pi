@@ -12,6 +12,10 @@ Session lifecycle hooks let an extension observe and, at key points, cancel or r
 - [x] `session_shutdown` fires before a runtime is torn down with `reason` ∈ {quit, reload, new, resume, fork, restart} and a `targetSessionFile` when caused by session replacement (`agent-session-runtime-events.test.ts:119,131` and `2860-replaced-session-context.test.ts`).
 - [x] On a `new`/`resume` switch the ordering is `session_before_switch` → `session_shutdown` → `session_start` (`agent-session-runtime-events.test.ts:118-120,130-132`).
 
+### Resume continuation request
+
+- [x] `ExtensionAPI.requestResumeContinuation()` lets an active extension request one continuation after session startup or resume; requests are coalesced into one pending flag and consumed/cleared once by InteractiveMode or RPC mode before startup/session-switch continuation.
+
 ### Switch / fork (cancellable)
 
 - [x] `session_before_switch` fires with `reason` ∈ {new, resume} and `targetSessionFile`; a handler may return `{ cancel: true }` (`agent-session-runtime-events.test.ts:118,130` assert the event; cancel result type at types.ts).
@@ -47,6 +51,9 @@ Session lifecycle hooks let an extension observe and, at key points, cancel or r
 - `packages/coding-agent/src/core/extensions/types.ts:623-631` — `SessionEvent` union.
 - `packages/coding-agent/src/core/extensions/types.ts:984` — `ExtensionEvent` union includes `ProjectTrustEvent`, `ResourcesDiscoverEvent`, `SessionEvent`.
 - `packages/coding-agent/src/core/extensions/types.ts:1125-1140` — `on(...)` overloads for `project_trust`, `resources_discover`, and all eight session events, with cancellable result types on the `before_*` variants.
+- `packages/coding-agent/src/core/extensions/types.ts:1467` — exposes `ExtensionAPI.requestResumeContinuation()`.
+- `packages/coding-agent/src/core/agent-session.ts:2038` — stores and consumes the one-shot continuation request.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` and `packages/coding-agent/src/modes/rpc/rpc-mode.ts` — consume the request before restored-session continuation.
 - `packages/coding-agent/src/core/extensions/runner.ts:1046` — `emitResourcesDiscover`: aggregates skill/prompt/theme paths across extensions.
 
 ## Tests asserting this spec
@@ -55,6 +62,7 @@ Session lifecycle hooks let an extension observe and, at key points, cancel or r
 - `packages/coding-agent/test/compaction-extensions.test.ts:55,153,159` — `session_before_compact` cancel and `session_compact` after-event.
 - `packages/coding-agent/test/suite/regressions/3688-tree-cancel-compacting.test.ts:18` — `session_before_tree` `{ cancel: true }` clears branch-summary state.
 - `packages/coding-agent/test/extensions-runner.test.ts:89` — `project_trust` event.
+- `packages/coding-agent/test/suite/resume-continuation-request.test.ts` — one-shot extension-requested continuation in a real session runtime.
 
 ## Known gaps (current cycle)
 
