@@ -308,7 +308,7 @@ Entries form a tree:
 
 ## Current-Version Loading
 
-When a version 3 session contains compaction, `SessionManager.open()` reverse-scans the active parent chain to the latest compaction and continues through its `firstKeptEntryId`. Only that active slice is retained in memory. The source JSONL remains complete and untrimmed on disk; `forkFrom()` copies the loaded slice and detaches its first retained entry from any omitted parent.
+When a version 3 session contains compaction, `SessionManager.open()` and `SessionManager.continueRecent()` reverse-scan the active parent chain to the latest compaction and continue through its `firstKeptEntryId`. A newline exactly at the start of a reverse-read chunk is treated as a boundary rather than rescanned, so opening, continuing, and forking cannot loop or exhaust memory at that boundary. Only that active slice is retained in memory. The source JSONL remains complete and untrimmed on disk; `forkFrom()` copies the loaded slice and detaches its first retained entry from any omitted parent.
 
 The loader ignores one incomplete trailing JSONL line. It fails on malformed interior entries, a broken active parent chain, or a compaction whose `firstKeptEntryId` cannot be found. Custom extension entries and labels omitted before the retained boundary are not checkpointed into the slice, so extensions must reconstruct or clear their state during `session_start`.
 
