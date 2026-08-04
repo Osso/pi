@@ -115,7 +115,7 @@
 
 ### Fixed
 
-- Fixed compacted child recovery after `restart_self`: active `agent_start` admissions are refreshed after parent compaction, and legacy compacted sessions restore missing unmatched admissions from the full parent JSONL before rebinding the live child and delivering queued steering.
+- Fixed compacted child recovery after `restart_self`: active `agent_start` admissions are refreshed after parent compaction, and legacy compacted sessions restore missing unmatched admissions from the full parent JSONL before rebinding the live child and delivering queued steering; exact-owner cancellation can then commit `aborted`, and model-facing `list_agents` excludes the terminal child.
 
 ### Changed
 

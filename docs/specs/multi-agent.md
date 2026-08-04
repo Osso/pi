@@ -147,8 +147,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       auto-prompted. After listener registration, the owning supervisor reconciles candidates through
       coordinator/repository commands using exact path assertion and `(pid, startTimeTicks, incarnation)` identity.
       A changed incarnation with unchanged PID and start time identifies a prior exec-restarted runtime and permits
-      ownership replacement for active `steering_pending` recovery; queued steering remains deliverable and the
-      child can reach its terminal lifecycle after rebinding.
+      ownership replacement for active `steering_pending` recovery; queued steering remains deliverable, and
+      post-rebind `cancel_agent` can commit `aborted` while model-facing `list_agents` excludes the terminal child.
       Confirmed owner-process exit resolves as `failed/lost_runtime` from `running` or `aborted/lost_runtime`
       from `cancelling`, never direct JSON rewrite or inferred result. Transient SQLite busy/locked contention
       defers dead-detached-runtime reconciliation to a later poll without terminating Pi; other database,
@@ -572,7 +572,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   asserts real-process steering of a restored child through the current main session after supervisor restart.
 - [`packages/coding-agent/test/suite/regressions/restart-self-auto-continuation.test.ts`](../../packages/coding-agent/test/suite/regressions/restart-self-auto-continuation.test.ts)
   asserts compacted active-child admission refresh, legacy full-parent-JSONL recovery, prior-incarnation
-  ownership rebinding, queued steering delivery, and terminal child completion after `restart_self`.
+  ownership rebinding, queued steering delivery, post-rebind cancellation to `aborted`, and model-facing
+  `list_agents` exclusion of the terminal child after `restart_self`.
 - [`packages/coding-agent/test/runtime-mailbox.test.ts`](../../packages/coding-agent/test/runtime-mailbox.test.ts)
   verifies canonical runtime mailbox delivery for child completion, waiting-for-input,
   steering, and failed detached Pyrun notifications, including `wait_agents({})` delivery marking.

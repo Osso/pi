@@ -94,8 +94,9 @@ recovery commands while preserving agent and transcript identity.
 Runtime ownership is the exact Linux process identity `(pid, /proc/<pid>/stat startTimeTicks)`; recovery
 occurs only after that exact identity is gone and never rewrites lifecycle JSON directly. A `restart_self`
 recovery may replace a prior runtime incarnation when PID and `startTimeTicks` are unchanged, preserving the
-live logical child and its queued steering through rebinding until it reaches terminal lifecycle. The one
-registered supervisor binding persists that exact process identity for its asserted session path.
+live logical child and its queued steering through rebinding. After rebinding, exact-owner `cancel_agent` can
+commit `aborted`, and model-facing `list_agents` omits the terminal child. The one registered supervisor binding
+persists that exact process identity for its asserted session path.
 If a new Pi runtime reuses the same PID, registration advances the inventory-only session health generation
 without mutating lifecycle rows. A different PID cannot
 replace the binding while its predecessor is still verified as a live Pi runtime. Inventory tools never create listener bindings or
