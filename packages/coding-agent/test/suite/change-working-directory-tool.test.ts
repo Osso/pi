@@ -408,7 +408,7 @@ describe("change_working_directory real-process lifecycle", () => {
 			);
 			expect(toolResultIndex).toBeGreaterThanOrEqual(0);
 			expect(cwdChangedIndex).toBeGreaterThan(toolResultIndex);
-			expect(SessionManager.open(agent.sessionFile).getCwd()).toBe(targetCwd);
+			expect(openHeadlessSession(agent).getCwd()).toBe(targetCwd);
 
 			const oldAgentEnd = agent.waitForEvent((event) => event.type === "agent_end");
 			const continuedRequestPromise = agent.waitForLlmRequest((request) => request.id !== changeRequest.id);
@@ -429,7 +429,16 @@ describe("change_working_directory real-process lifecycle", () => {
 				(request) => request.id !== changeRequest.id && request.id !== continuedRequest.id,
 			);
 			expect(JSON.stringify(readFollowUp.messages)).toContain("continued from relocated cwd");
-			agent.respondToLlmRequest(readFollowUp.id, fauxAssistantMessage("relocated turn complete"));
+			agent.respondToLlmRequest(
+				readFollowUp.id,
+				fauxAssistantMessage(
+					[
+						{ type: "text", text: "relocated turn complete" },
+						fauxToolCall("end_turn", { reason: "relocated turn complete" }),
+					],
+					{ stopReason: "toolUse" },
+				),
+			);
 			await agent.waitForSessionEntry(
 				null,
 				(entry) =>
