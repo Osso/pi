@@ -2,11 +2,15 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai/compat";
 import { expect, it } from "vitest";
 import { withHeadlessPi } from "../headless-pi.ts";
 
-it("restores explicit delegation mode and effort after supervisor restart", async () => {
+it("preserves effort and explicit delegation across restart while replacing proactive policy", async () => {
 	await withHeadlessPi(
 		async (agent) => {
 			await agent.send({ type: "prompt", message: "Persist the session before changing delegation mode" });
 			const initialRequest = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
+			expect(initialRequest.systemPrompt).toContain("Proactive multi-agent delegation is active.");
+			expect(initialRequest.systemPrompt).not.toContain(
+				"Any earlier instruction enabling proactive multi-agent delegation no longer applies.",
+			);
 			agent.respondToLlmRequest(initialRequest.id, fauxAssistantMessage("Session persisted"));
 			await agent.waitForSessionEntry(
 				null,
