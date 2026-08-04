@@ -120,6 +120,19 @@ function delayedResponse(
 	};
 }
 
+function fauxCompletedTurn(text: string): AssistantMessage {
+	return fauxAssistantMessage([{ type: "text", text }, fauxToolCall("end_turn", { reason: text })], {
+		stopReason: "toolUse",
+	});
+}
+
+function delayedCompletedTurn(text: string): () => Promise<AssistantMessage> {
+	return async () => {
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		return fauxCompletedTurn(text);
+	};
+}
+
 function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 	let resolve!: (value: T) => void;
 	const promise = new Promise<T>((promiseResolve) => {
@@ -527,7 +540,7 @@ describe("AgentSession compaction characterization", () => {
 			}
 		});
 		seedCompactableSession(harness);
-		harness.setResponses([fauxAssistantMessage("first response"), fauxAssistantMessage("second response")]);
+		harness.setResponses([fauxCompletedTurn("first response"), fauxCompletedTurn("second response")]);
 
 		const compactPromise = harness.session.compact();
 		await compactionStarted.promise;
@@ -676,7 +689,7 @@ describe("AgentSession compaction characterization", () => {
 			],
 		});
 		harnesses.push(harness);
-		harness.setResponses([fauxAssistantMessage("one"), fauxAssistantMessage("two")]);
+		harness.setResponses([fauxCompletedTurn("one"), fauxCompletedTurn("two")]);
 		await harness.session.prompt("first");
 		await harness.session.prompt("second");
 
@@ -734,7 +747,7 @@ describe("AgentSession compaction characterization", () => {
 		};
 		harness.sessionManager.appendMessage(latestUser);
 		harness.session.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
-		harness.setResponses([fauxAssistantMessage("continued after compact")]);
+		harness.setResponses([fauxCompletedTurn("continued after compact")]);
 
 		await harness.session.compact();
 
@@ -775,9 +788,9 @@ describe("AgentSession compaction characterization", () => {
 		harnesses.push(harness);
 		sessionRef.current = harness.session;
 		harness.setResponses([
-			createAssistant(harness, { stopReason: "stop", totalTokens: 100 }),
+			fauxCompletedTurn("old request complete"),
 			fauxAssistantMessage(fauxToolCall("compact_now", {}), { stopReason: "toolUse" }),
-			fauxAssistantMessage("continued after compact"),
+			fauxCompletedTurn("continued after compact"),
 		]);
 
 		await harness.session.prompt("old request");
@@ -814,7 +827,7 @@ describe("AgentSession compaction characterization", () => {
 			],
 		});
 		harnesses.push(harness);
-		harness.setResponses([fauxAssistantMessage("first complete"), fauxAssistantMessage("complete")]);
+		harness.setResponses([fauxCompletedTurn("first complete"), fauxCompletedTurn("complete")]);
 
 		await harness.session.prompt("first done turn");
 		await harness.session.prompt("done turn");
@@ -869,7 +882,7 @@ describe("AgentSession compaction characterization", () => {
 		});
 		harnesses.push(harness);
 		seedCompactableSession(harness);
-		harness.setResponses([fauxAssistantMessage("completed answer")]);
+		harness.setResponses([fauxCompletedTurn("completed answer")]);
 
 		await expect(harness.session.prompt("hello")).resolves.toBeUndefined();
 
@@ -1072,7 +1085,7 @@ describe("AgentSession compaction characterization", () => {
 		seedCompactableSession(harness);
 		harness.setResponses([
 			delayedResponse("truncated output", { stopReason: "length" }),
-			delayedResponse("resumed output"),
+			delayedCompletedTurn("resumed output"),
 		]);
 
 		await harness.session.prompt("x".repeat(4000));

@@ -1,6 +1,6 @@
 # Compaction length-retry
 
-Module boundary: core subsystem (`packages/coding-agent/src/core/agent-session.ts`).
+Module boundaries: agent loop (`packages/agent-core/src/agent-loop.ts`) and coding-agent core (`packages/coding-agent/src/core/agent-session.ts`).
 
 When an agent turn ends with `stopReason: "length"` (the provider truncated the output
 mid-work) and the context is over the auto-compaction threshold, the session must compact and
@@ -34,6 +34,7 @@ unfinished work. How compaction itself works is described in
 
 ## Implementation inventory
 
+- `packages/agent-core/src/agent-loop.ts` — treats provider `"length"` truncation as terminal so the host receives `agent_end` and can run post-turn compaction.
 - `packages/coding-agent/src/core/agent-session.ts` — `_checkCompaction` decides
   `willRetry` for threshold compactions; `_runAutoCompaction` strips the truncated trailing
   assistant message before the continuation; `_lengthRecoveryAttempted` guard state.
