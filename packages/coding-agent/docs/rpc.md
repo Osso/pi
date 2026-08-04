@@ -308,9 +308,9 @@ Set the reasoning/thinking level for models that support it.
 {"type": "set_thinking_level", "level": "high"}
 ```
 
-Levels: `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`
+Levels: `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, `"ultra"` when advertised by the selected model.
 
-Note: `"xhigh"` is only supported by OpenAI codex-max models.
+Note: `"max"` and `"ultra"` are model-dependent. For GPT-5.6 Sol, both use provider maximum reasoning effort; coding-agent's `"ultra"` also enables proactive delegation.
 
 Response:
 ```json

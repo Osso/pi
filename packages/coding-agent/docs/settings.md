@@ -29,9 +29,9 @@ Use `/trust` in interactive mode to save a project trust decision for future ses
 |---------|------|---------|-------------|
 | `defaultProvider` | string | - | Default provider (e.g., `"anthropic"`, `"openai"`) |
 | `defaultModel` | string | - | Default model ID |
-| `defaultThinkingLevel` | string | - | `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"` |
+| `defaultThinkingLevel` | string | - | `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, `"ultra"` (when supported by the selected model) |
 | `hideThinkingBlock` | boolean | `false` | Hide thinking blocks in output |
-| `thinkingBudgets` | object | - | Custom token budgets per thinking level |
+| `thinkingBudgets` | object | - | Custom token budgets per token-budget thinking level |
 
 #### thinkingBudgets
 
@@ -45,6 +45,8 @@ Use `/trust` in interactive mode to save a project trust decision for future ses
   }
 }
 ```
+
+`defaultThinkingLevel` controls reasoning only; delegation mode is not a global settings value. Sessions start in proactive mode, `/multi-agent explicit` changes the current session branch to explicit mode, and the selected delegation mode is restored on reload and branch navigation.
 
 ### UI & Display
 

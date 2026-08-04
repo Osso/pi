@@ -89,15 +89,27 @@ function injectDelegationPolicy(systemPrompt: string, mode: MultiAgentMode): str
 	return basePrompt ? `${basePrompt}\n\n${policy}` : policy;
 }
 
-function setDelegationMode(
+function applyDelegationMode(
 	pi: ExtensionAPI,
-	ctx: ExtensionCommandContext,
+	ctx: ExtensionContext,
 	state: DelegationState,
 	mode: MultiAgentMode,
 ): void {
 	state.mode = mode;
 	persistDelegationMode(pi, state);
 	updateDelegationStatus(ctx, state);
+}
+
+function setDelegationMode(
+	pi: ExtensionAPI,
+	ctx: ExtensionCommandContext,
+	state: DelegationState,
+	mode: MultiAgentMode,
+): void {
+	if (mode === "explicit" && ctx.getThinkingLevel() === "ultra") {
+		ctx.setThinkingLevel("max");
+	}
+	applyDelegationMode(pi, ctx, state, mode);
 	ctx.ui.notify(`Multi-agent mode: ${mode}`, "info");
 	clearEditor(ctx);
 }
@@ -141,16 +153,23 @@ function registerDelegationControl(pi: ExtensionAPI, state: DelegationState): vo
 	});
 
 	pi.on("session_start", (_event, ctx) => {
+		if (isChildRuntime(ctx)) return;
 		restoreDelegationMode(state, ctx);
 		updateDelegationStatus(ctx, state);
 	});
 	pi.on("session_tree", (_event, ctx) => {
+		if (isChildRuntime(ctx)) return;
 		restoreDelegationMode(state, ctx);
 		updateDelegationStatus(ctx, state);
 	});
-	pi.on("before_agent_start", (event) => ({
-		systemPrompt: injectDelegationPolicy(event.systemPrompt, state.mode),
-	}));
+	pi.on("thinking_level_select", (event, ctx) => {
+		if (isChildRuntime(ctx) || event.level !== "ultra" || state.mode === "proactive") return;
+		applyDelegationMode(pi, ctx, state, "proactive");
+	});
+	pi.on("before_agent_start", (event, ctx) => {
+		if (isChildRuntime(ctx)) return;
+		return { systemPrompt: injectDelegationPolicy(event.systemPrompt, state.mode) };
+	});
 }
 
 function setEffort(
@@ -159,15 +178,13 @@ function setEffort(
 	state: DelegationState,
 	effort: EffortLevel,
 ): void {
-	ctx.setThinkingLevel((effort === "ultra" ? "max" : effort) as AgentThinkingLevel);
-	if (effort === "ultra") {
-		state.mode = "proactive";
-		persistDelegationMode(pi, state);
-		updateDelegationStatus(ctx, state);
-		ctx.ui.notify("Effort: ultra (max + proactive)", "info");
-	} else {
-		ctx.ui.notify(`Effort: ${ctx.getThinkingLevel()}`, "info");
+	const activatesProactiveDelegation = effort === "ultra" && !isChildRuntime(ctx);
+	if (activatesProactiveDelegation) {
+		applyDelegationMode(pi, ctx, state, "proactive");
 	}
+	ctx.setThinkingLevel(effort as AgentThinkingLevel);
+	const label = activatesProactiveDelegation ? "ultra (max + proactive)" : ctx.getThinkingLevel();
+	ctx.ui.notify(`Effort: ${label}`, "info");
 	clearEditor(ctx);
 }
 

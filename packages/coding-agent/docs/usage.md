@@ -39,7 +39,8 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/model` | Switch models |
 | `/scoped-models` | Enable/disable models for Ctrl+P cycling |
 | `/settings` | Thinking level, theme, message delivery, transport |
-| `/effort [level]` | Choose a supported thinking level, or set one directly |
+| `/effort [level]` | Choose a supported thinking level (`max`/`ultra` when advertised), or set one directly |
+| `/multi-agent [proactive|explicit]` | Set delegation policy; defaults to proactive and persists in the session branch |
 | `/debug`, `/debug off` | Enable or disable the privileged local live-process JavaScript REPL |
 | `/resume` | Pick from previous sessions |
 | `/archive` | Archive the current persisted session; accepts no arguments |
@@ -197,7 +198,7 @@ cat README.md | pi -p "Summarize this text"
 | `--provider <name>` | Provider, such as `anthropic`, `openai`, or `google` |
 | `--model <pattern>` | Model pattern or ID; supports `provider/id` and optional `:<thinking>` |
 | `--api-key <key>` | API key, overriding environment variables |
-| `--thinking <level>` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh` |
+| `--thinking <level>` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` (model-dependent) |
 | `--models <patterns>` | Comma-separated patterns for Ctrl+P cycling |
 | `--list-models [search]` | List available models |
 

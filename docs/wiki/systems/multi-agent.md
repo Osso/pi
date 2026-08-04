@@ -59,6 +59,9 @@ decisions or research are required; they choose `fresh` for isolated work, revie
 falsification. `/bg` and restart recovery select `fresh` internally. `attach_session_agent` reuses an
 existing transcript and does not use this context choice.
 
+Reasoning effort and delegation controls are specified in the
+[reasoning effort and delegation contract](../../specs/reasoning-effort-delegation.md): proactive delegation is the default, `/multi-agent explicit` is an opt-out, and `/effort ultra` combines proactive delegation with maximum reasoning. This policy is injected into the model-facing prompt; Pi does not send Responses multi-agent beta fields or headers to the ChatGPT Codex backend.
+
 Model execution guidance and verifier proof scope are specified in the
 [model execution and proof contract](../../specs/multi-agent.md#model-execution-and-proof): known
 independent tool calls are emitted together, while dependent calls wait for their inputs, and

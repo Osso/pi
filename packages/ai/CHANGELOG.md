@@ -28,7 +28,7 @@
 
 ### Added
 
-- Added GPT-5.6 Sol `max` and `ultra` reasoning levels; both send provider maximum reasoning effort, with `ultra` enabling proactive delegation in coding-agent.
+- Added GPT-5.6 Sol `max` and `ultra` effort metadata; both serialize as provider maximum reasoning effort (`reasoning.effort: "max"`). Coding-agent layers proactive delegation onto `ultra`; the Codex adapter does not send Responses multi-agent beta fields or headers.
 - Added `AssistantMessage.imageGenerationResult` and OpenAI Responses parsing for completed hosted `image_generation_call` results as PNG image content.
 - Added `EventStream.fail(error)` so producers can reject both final results and active async iterators instead of leaving consumers pending.
 - Added an optional `onRetry` stream option that reports provider-internal retries and transport fallbacks. The OpenAI Codex API emits it for HTTP retries, WebSocket connection-limit reconnects, and WebSocket-to-SSE fallback.

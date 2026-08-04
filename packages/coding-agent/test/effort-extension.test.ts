@@ -227,7 +227,7 @@ describe("effort extension", () => {
 
 		await command.handler("ultra", ctx);
 
-		expect(setTargetThinkingLevel).toHaveBeenCalledWith("max");
+		expect(setTargetThinkingLevel).toHaveBeenCalledWith("ultra");
 		expect(appendEntry).toHaveBeenCalledWith("multi-agent-mode", { mode: "proactive" });
 		expect(notify).toHaveBeenCalledWith("Effort: ultra (max + proactive)", "info");
 		const beforeAgentStart = handlers.get("before_agent_start")?.[0];
@@ -236,12 +236,39 @@ describe("effort extension", () => {
 		expect(requireSystemPrompt(result)).toContain("Proactive multi-agent delegation is active.");
 	});
 
-	it("does not let child runtimes change delegation mode", async () => {
-		const { appendEntry, ctx, multiAgentCommand, notify } = createCommandHarness({ child: true });
+	it("enables proactive delegation when the interactive selector chooses ultra", async () => {
+		const { appendEntry, ctx, handlers, multiAgentCommand } = createCommandHarness({ thinkingLevel: "max" });
+		await multiAgentCommand.handler("explicit", ctx);
+		appendEntry.mockClear();
+
+		const thinkingLevelSelect = handlers.get("thinking_level_select")?.[0];
+		if (!thinkingLevelSelect) throw new Error("expected thinking_level_select handler");
+		await thinkingLevelSelect({ level: "ultra", previousLevel: "max" }, ctx);
+
+		expect(appendEntry).toHaveBeenCalledWith("multi-agent-mode", { mode: "proactive" });
+		const beforeAgentStart = handlers.get("before_agent_start")?.[0];
+		if (!beforeAgentStart) throw new Error("expected before_agent_start handler");
+		const result = await beforeAgentStart({ systemPrompt: "base" }, ctx);
+		expect(requireSystemPrompt(result)).toContain("Proactive multi-agent delegation is active.");
+	});
+
+	it("keeps maximum reasoning when explicit mode disables an ultra preset", async () => {
+		const { ctx, multiAgentCommand, setTargetThinkingLevel } = createCommandHarness({ thinkingLevel: "ultra" });
+
+		await multiAgentCommand.handler("explicit", ctx);
+
+		expect(setTargetThinkingLevel).toHaveBeenCalledWith("max");
+	});
+
+	it("does not let child runtimes change delegation mode or receive its policy", async () => {
+		const { appendEntry, ctx, handlers, multiAgentCommand, notify } = createCommandHarness({ child: true });
 
 		await multiAgentCommand.handler("explicit", ctx);
 
 		expect(appendEntry).not.toHaveBeenCalled();
 		expect(notify).toHaveBeenCalledWith("Multi-agent mode is controlled by the main thread", "warning");
+		const beforeAgentStart = handlers.get("before_agent_start")?.[0];
+		if (!beforeAgentStart) throw new Error("expected before_agent_start handler");
+		expect(await beforeAgentStart({ systemPrompt: "base" }, ctx)).toBeUndefined();
 	});
 });
