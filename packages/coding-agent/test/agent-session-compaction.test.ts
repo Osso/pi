@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentSession, type AgentSessionEvent } from "../src/core/agent-session.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
+import { getControlDbPath } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { createCodingTools } from "../src/index.ts";
@@ -57,6 +58,7 @@ describe.skipIf(!API_KEY)("AgentSession compaction e2e", () => {
 		});
 
 		sessionManager = inMemory ? SessionManager.inMemory() : SessionManager.create(tempDir, join(tempDir, "sessions"));
+		sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
 		const settingsManager = SettingsManager.create(tempDir, tempDir);
 		// Use minimal keepRecentTokens so small test conversations have something to summarize
 		settingsManager.applyOverrides({ compaction: { keepRecentTokens: 1 } });

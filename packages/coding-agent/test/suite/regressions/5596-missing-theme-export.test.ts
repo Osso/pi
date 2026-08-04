@@ -8,6 +8,7 @@ import { AgentSession } from "../../../src/core/agent-session.ts";
 import { AuthStorage } from "../../../src/core/auth-storage.ts";
 import { convertToLlm } from "../../../src/core/messages.ts";
 import { ModelRegistry } from "../../../src/core/model-registry.ts";
+import { getControlDbPath, readSessionMetadata } from "../../../src/core/session-control-db.ts";
 import { SessionManager } from "../../../src/core/session-manager.ts";
 import { SettingsManager } from "../../../src/core/settings-manager.ts";
 import { initTheme } from "../../../src/modes/interactive/theme/theme.ts";
@@ -53,6 +54,7 @@ describe("regression #5596: missing configured theme export", () => {
 
 		const settingsManager = SettingsManager.inMemory({ theme: "missing-theme" });
 		const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
+		sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
 		const agent = new Agent({
 			getApiKey: () => "faux-key",
 			initialState: {
@@ -70,6 +72,9 @@ describe("regression #5596: missing configured theme export", () => {
 			modelRegistry,
 			resourceLoader: createTestResourceLoader(),
 		});
+		const sessionFile = sessionManager.getSessionFile();
+		if (!sessionFile) throw new Error("Missing persisted test session file");
+		expect(readSessionMetadata(getControlDbPath(tempDir), sessionFile)).toMatchObject({ cwd: tempDir });
 		cleanups.push(() => {
 			session.dispose();
 			faux.unregister();

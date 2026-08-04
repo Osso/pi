@@ -16,6 +16,7 @@ import type { Extension, ExtensionFactory, LoadExtensionsResult } from "../src/c
 import { createExtensionRuntime, loadExtensionFromFactory } from "../src/core/extensions/loader.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
 import type { ResourceLoader } from "../src/core/resource-loader.ts";
+import { getControlDbPath } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { createCodingTools } from "../src/index.ts";
@@ -251,6 +252,7 @@ export function createTestSession(options: TestSessionOptions = {}): TestSession
 	const sessionManager = options.inMemory
 		? SessionManager.inMemory()
 		: SessionManager.create(tempDir, join(tempDir, "sessions"));
+	sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
 	const settingsManager = SettingsManager.create(tempDir, tempDir);
 
 	if (options.settingsOverrides) {

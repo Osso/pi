@@ -262,7 +262,7 @@ async function createRuntimeForTest(responses: string[], extensionFactory?: Exte
 	return { runtime };
 }
 
-describe("resume_session first-party tool", () => {
+describe("resume_session test fixture isolation", () => {
 	it("stores runtime sessions inside the fixture-owned temporary directory", async () => {
 		const { runtime } = await createRuntimeForTest([]);
 
@@ -270,7 +270,9 @@ describe("resume_session first-party tool", () => {
 			join(runtime.session.sessionManager.getCwd(), "sessions"),
 		);
 	});
+});
 
+describe("resume_session first-party tool", () => {
 	it("does not classify a trailing resume_session call as interrupted work", () => {
 		const resumeCall = fauxAssistantMessage(
 			fauxToolCall("resume_session", { path: "/sessions/target.jsonl" }, { id: "resume-before-exit" }),
