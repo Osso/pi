@@ -177,6 +177,24 @@ function openHeadlessSession(agent: HeadlessPi): SessionManager {
 	return session;
 }
 
+async function completeRestoredChildTurn(agent: HeadlessPi, agentId: string, requestId: string): Promise<void> {
+	agent.respondToLlmRequest(requestId, fauxAssistantMessage("Child recovered after restart"));
+	const endTurnRequest = await agent.waitForLlmRequest(
+		(request) => request.agentId === agentId && request.id !== requestId,
+	);
+	expect(agent.listAgents().find((candidate) => candidate.id === agentId)?.lifecycle).toBe("running");
+	expect(JSON.stringify(endTurnRequest.messages)).toContain("end_turn");
+	agent.respondToLlmRequest(
+		endTurnRequest.id,
+		fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Child recovered after restart" }), {
+			stopReason: "toolUse",
+		}),
+	);
+	await expect(
+		agent.waitForAgent((candidate) => candidate.id === agentId && candidate.lifecycle === "completed"),
+	).resolves.toMatchObject({ id: agentId, lifecycle: "completed" });
+}
+
 async function changeHeadlessWorkingDirectory(agent: HeadlessPi, targetCwd: string, toolCallId: string): Promise<void> {
 	await agent.send({ type: "prompt", message: `Change working directory to ${targetCwd}` });
 	const request = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
@@ -604,19 +622,7 @@ describe("change_working_directory process restart", () => {
 			expect(persistedHeader.cwd).toBe(agent.paths.workspaceDir);
 			expect(basename(agent.sessionFile)).toContain(agent.sessionId);
 
-			agent.respondToLlmRequest(
-				restoredChildRequest.id,
-				fauxAssistantMessage(
-					[
-						{ type: "text", text: "Child recovered after restart" },
-						fauxToolCall("end_turn", { reason: "Child recovered after restart" }),
-					],
-					{ stopReason: "toolUse" },
-				),
-			);
-			await expect(
-				agent.waitForAgent((candidate) => candidate.id === spawned.id && candidate.lifecycle === "completed"),
-			).resolves.toMatchObject({ id: spawned.id, lifecycle: "completed" });
+			await completeRestoredChildTurn(agent, spawned.id, restoredChildRequest.id);
 		});
 	});
 });
