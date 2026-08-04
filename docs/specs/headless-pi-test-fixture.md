@@ -86,6 +86,7 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 - `packages/coding-agent/test/agent-session-registration-failure.test.ts`
 - `packages/coding-agent/test/orphaned-detached-reconciliation.test.ts`
 - `packages/coding-agent/test/suite/regressions/session-active-slice-restart.test.ts`
+- `packages/coding-agent/test/session-manager/active-slice-load.test.ts`
 - `packages/coding-agent/test/suite/headless-supervisor-systems.test.ts`
 - `packages/coding-agent/test/rpc-client-process-exit.test.ts`
 
