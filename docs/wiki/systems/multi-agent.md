@@ -82,14 +82,20 @@ persists `failed` revision 1. After the `running` commit, the parent session app
 custom JSONL record containing the agent ID and child transcript identity. A committed `completed`,
 `failed`, or `aborted` transition appends the matching `agent_complete` record. Unmatched starts are
 the authoritative restart candidates; matching completions prevent recovery. Control-DB lifecycle and
-ownership rows remain required, but cannot admit child recovery without the parent record. There is no
-control-DB-only fallback. Detached Bash and Pyrun jobs retain their separate tool-call JSONL and runner
+ownership rows remain required, but cannot admit child recovery without the parent record. After parent-session
+compaction, active child admissions are refreshed with `agent_start` records so the active branch retains
+restart visibility. For a legacy compacted session whose active branch lacks an admission, startup checks the
+full parent JSONL and restores an unmatched `agent_start` before child recovery. This repairs journal admission
+only; lifecycle, ownership, and transcript identity remain authoritative. There is no control-DB-only fallback.
+Detached Bash and Pyrun jobs retain their separate tool-call JSONL and runner
 recovery contract and do not use these child-agent records. After the one registered supervisor binding
 for the session path registers, that supervisor reconstructs eligible active children through coordinator
 recovery commands while preserving agent and transcript identity.
 Runtime ownership is the exact Linux process identity `(pid, /proc/<pid>/stat startTimeTicks)`; recovery
-occurs only after that exact identity is gone and never rewrites lifecycle JSON directly.
-The one registered supervisor binding persists that exact process identity for its asserted session path.
+occurs only after that exact identity is gone and never rewrites lifecycle JSON directly. A `restart_self`
+recovery may replace a prior runtime incarnation when PID and `startTimeTicks` are unchanged, preserving the
+live logical child and its queued steering through rebinding until it reaches terminal lifecycle. The one
+registered supervisor binding persists that exact process identity for its asserted session path.
 If a new Pi runtime reuses the same PID, registration advances the inventory-only session health generation
 without mutating lifecycle rows. A different PID cannot
 replace the binding while its predecessor is still verified as a live Pi runtime. Inventory tools never create listener bindings or

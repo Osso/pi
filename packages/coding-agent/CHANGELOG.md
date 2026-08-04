@@ -113,6 +113,10 @@
 - Added the systemd-deployed Resident Architect service: a 30-second, event-driven `openai-codex/gpt-5.6-sol` advisor with read-only control-SQLite observation and read-only bwrap file/shell/Pyrun workers.
 - Added the public `bash_messages_committed` session event for observing idle or deferred bash messages after they enter session state.
 
+### Fixed
+
+- Fixed compacted child recovery after `restart_self`: active `agent_start` admissions are refreshed after parent compaction, and legacy compacted sessions restore missing unmatched admissions from the full parent JSONL before rebinding the live child and delivering queued steering.
+
 ### Changed
 
 - Built-in `ls` calls now render as `ls` instead of `rtk ls`; execution still delegates to `rtk` when available and falls back to the filesystem implementation.
