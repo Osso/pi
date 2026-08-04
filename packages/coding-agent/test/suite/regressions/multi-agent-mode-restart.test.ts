@@ -46,7 +46,6 @@ it("restores explicit delegation mode and effort after supervisor restart", asyn
 				(entry) =>
 					entry.type === "message" && JSON.stringify(entry.message).includes("Restored settings confirmed"),
 			);
-
 		},
 		{ model: "headless-faux-reasoning" },
 	);
