@@ -171,6 +171,12 @@ function findHeadlessSessionFile(agent: HeadlessPi, cwd: string): string {
 	return session.sessionPath;
 }
 
+function openHeadlessSession(agent: HeadlessPi): SessionManager {
+	const session = SessionManager.open(agent.sessionFile);
+	session.setMetadataControlDbPath(getControlDbPath(agent.paths.agentDir));
+	return session;
+}
+
 async function changeHeadlessWorkingDirectory(agent: HeadlessPi, targetCwd: string, toolCallId: string): Promise<void> {
 	await agent.send({ type: "prompt", message: `Change working directory to ${targetCwd}` });
 	const request = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
@@ -553,10 +559,10 @@ describe("change_working_directory process restart", () => {
 					readTextContent(entry.message.content).includes("replacement runtime settled"),
 			);
 
-			expect(SessionManager.open(agent.sessionFile).getCwd()).toBe(targetCwd);
+			expect(openHeadlessSession(agent).getCwd()).toBe(targetCwd);
 			expect(agent.listAgents().find((candidate) => candidate.id === spawned.id)?.lifecycle).toBe("running");
 			await agent.restart();
-			expect(SessionManager.open(agent.sessionFile).getCwd()).toBe(targetCwd);
+			expect(openHeadlessSession(agent).getCwd()).toBe(targetCwd);
 
 			const restoredChildRequest = await agent.waitForLlmRequest(
 				(request) => request.agentId === spawned.id && request.id !== interruptedChildRequest.id,
@@ -586,10 +592,19 @@ describe("change_working_directory process restart", () => {
 			const persistedHeader = JSON.parse(readFileSync(agent.sessionFile, "utf8").split("\n")[0] ?? "{}") as {
 				cwd?: string;
 			};
-			expect(persistedHeader.cwd).toBe(targetCwd);
+			expect(persistedHeader.cwd).toBe(agent.paths.workspaceDir);
 			expect(basename(agent.sessionFile)).toContain(agent.sessionId);
 
-			agent.respondToLlmRequest(restoredChildRequest.id, fauxAssistantMessage("Child recovered after restart"));
+			agent.respondToLlmRequest(
+				restoredChildRequest.id,
+				fauxAssistantMessage(
+					[
+						{ type: "text", text: "Child recovered after restart" },
+						fauxToolCall("end_turn", { reason: "Child recovered after restart" }),
+					],
+					{ stopReason: "toolUse" },
+				),
+			);
 			await expect(
 				agent.waitForAgent((candidate) => candidate.id === spawned.id && candidate.lifecycle === "completed"),
 			).resolves.toMatchObject({ id: spawned.id, lifecycle: "completed" });

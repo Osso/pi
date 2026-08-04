@@ -1,10 +1,10 @@
 import { spawnSync } from "node:child_process";
-import fs, { mkdtempSync, rmSync, writeFileSync } from "fs";
+import fs, { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { syncBuiltinESMExports } from "module";
 import { tmpdir } from "os";
-import { join, resolve } from "path";
+import { basename, join, resolve } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SessionManager, type SessionTreeNode } from "../../src/core/session-manager.ts";
+import { getDefaultSessionDir, SessionManager, type SessionTreeNode } from "../../src/core/session-manager.ts";
 
 function messageEntry(id: string, parentId: string | null, content: string): object {
 	return {
@@ -208,6 +208,83 @@ describe("active slice session loading", () => {
 		writeFileSync(file, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
 
 		expect(() => SessionManager.open(file, tempDir)).toThrow(/broken active parent chain/);
+	});
+
+	it("opens a compacted active slice whose summarized prefix was omitted", () => {
+		const file = join(tempDir, "relocated-active-slice.jsonl");
+		const entries = [
+			{
+				type: "session",
+				version: 3,
+				id: "session-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				cwd: "/tmp",
+			},
+			messageEntry("kept-1", "missing-summarized-parent", "kept"),
+			{
+				type: "compaction",
+				id: "compaction-1",
+				parentId: "kept-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				summary: "summary",
+				firstKeptEntryId: "kept-1",
+				tokensBefore: 1000,
+			},
+			messageEntry("after-1", "compaction-1", "after"),
+		];
+		writeFileSync(file, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+
+		const session = SessionManager.open(file, tempDir);
+
+		expect(session.getEntries().map((entry) => entry.id)).toEqual(["kept-1", "compaction-1", "after-1"]);
+	});
+
+	it("preserves the complete JSONL when relocating an opened compacted slice", () => {
+		const projectA = join(tempDir, "project-a");
+		const projectB = join(tempDir, "project-b");
+		const agentDir = join(tempDir, "agent");
+		mkdirSync(projectA);
+		mkdirSync(projectB);
+		const sourceSessionDir = getDefaultSessionDir(projectA, agentDir);
+		const sourceFile = join(sourceSessionDir, "compacted.jsonl");
+		const entries = [
+			{
+				type: "session",
+				version: 3,
+				id: "session-1",
+				timestamp: "2026-08-04T00:00:00.000Z",
+				cwd: projectA,
+			},
+			messageEntry("old-1", null, "summarized"),
+			messageEntry("kept-1", "old-1", "kept"),
+			{
+				type: "compaction",
+				id: "compaction-1",
+				parentId: "kept-1",
+				timestamp: "2026-08-04T00:00:03.000Z",
+				summary: "summary",
+				firstKeptEntryId: "kept-1",
+				tokensBefore: 1000,
+			},
+			messageEntry("after-1", "compaction-1", "after"),
+		];
+		const originalContent = `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`;
+		writeFileSync(sourceFile, originalContent);
+
+		const session = SessionManager.open(sourceFile, sourceSessionDir);
+		expect(session.getEntries().map((entry) => entry.id)).toEqual(["kept-1", "compaction-1", "after-1"]);
+
+		session.relocate(projectB, agentDir);
+
+		const movedFile = session.getSessionFile();
+		if (!movedFile) throw new Error("Expected relocated session file");
+		expect(movedFile).toBe(join(getDefaultSessionDir(projectB, agentDir), basename(sourceFile)));
+		expect(readFileSync(movedFile, "utf8")).toBe(originalContent);
+		expect(
+			SessionManager.open(movedFile)
+				.getEntries()
+				.map((entry) => entry.id),
+		).toEqual(["kept-1", "compaction-1", "after-1"]);
 	});
 
 	it("rejects a compaction with a missing first kept entry", () => {

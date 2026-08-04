@@ -189,6 +189,7 @@
 
 ### Fixed
 
+- Fixed cwd relocation of compacted sessions rewriting only the in-memory active slice, which dropped summarized ancestors and caused `broken active parent chain` errors after restart; already-affected retained-slice files now reopen when the omitted ancestor precedes the latest compaction boundary.
 - Fixed saved-session previews and title fallbacks to ignore extension-generated internal prompts and use the first actual user prompt.
 - Fixed text-only `end_turn` continuations allowing the model to continue or infer a new user request; the immediate follow-up now instructs the model to terminate without repeating or continuing, and remains runtime-only.
 - Fixed packed Node and Bun package CLIs failing at startup because first-party extension modules were emitted outside the published runtime tree; local release builds now smoke-test installed CLI startup and detached Pyrun runner loading.

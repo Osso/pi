@@ -4,8 +4,10 @@ import { randomUUID } from "crypto";
 import {
 	appendFileSync,
 	closeSync,
+	copyFileSync,
 	createReadStream,
 	existsSync,
+	constants as fsConstants,
 	mkdirSync,
 	openSync,
 	readdirSync,
@@ -768,7 +770,9 @@ function scanCompleteReverseLines(scan: ReverseSessionScan, pending: Buffer, fil
 }
 
 function validateCompleteReverseScan(scan: ReverseSessionScan, filePath: string): void {
-	if (scan.activePath.length > 0 && scan.requiredParentId !== null) {
+	const hasUnresolvedActiveParent = scan.activePath.length > 0 && scan.requiredParentId !== null;
+	const missingParentPrecedesRetainedCompaction = scan.foundFirstKeptEntry;
+	if (hasUnresolvedActiveParent && !missingParentPrecedesRetainedCompaction) {
 		throw new Error(`Session file contains a broken active parent chain: ${filePath}`);
 	}
 	if (scan.latestCompaction && !scan.foundFirstKeptEntry) {
@@ -1517,9 +1521,9 @@ export class SessionManager {
 	}
 
 	private copyRelocatedSessionFile(plan: SessionRelocationPlan): void {
-		if (plan.shouldCopyExistingFile && plan.oldSessionFile && plan.destination && existsSync(plan.oldSessionFile)) {
-			this._writeEntries(plan.destination, "wx");
-		}
+		if (!plan.shouldCopyExistingFile || !plan.oldSessionFile || !plan.destination) return;
+		if (!existsSync(plan.oldSessionFile)) return;
+		copyFileSync(plan.oldSessionFile, plan.destination, fsConstants.COPYFILE_EXCL);
 	}
 
 	private relocateControlData(plan: SessionRelocationPlan): void {

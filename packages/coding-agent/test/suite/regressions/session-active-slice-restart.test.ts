@@ -4,7 +4,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat
 import { expect, it } from "vitest";
 import { getControlDbPath, readSessionMetadata, writeSessionMetadata } from "../../../src/core/session-control-db.ts";
 import type { SessionMessageEntry } from "../../../src/core/session-manager.ts";
-import { withHeadlessPi } from "../headless-pi.ts";
+import { type HeadlessPi, withHeadlessPi } from "../headless-pi.ts";
 
 function userEntry(id: string, parentId: string | null, content: string): SessionMessageEntry {
 	return {
@@ -16,13 +16,92 @@ function userEntry(id: string, parentId: string | null, content: string): Sessio
 	};
 }
 
-it("restores a compacted active slice and session state after process replacement", async () => {
+function fauxEndTurn(reason: string, id: string): ReturnType<typeof fauxAssistantMessage> {
+	return fauxAssistantMessage(fauxToolCall("end_turn", { reason }, { id }), { stopReason: "toolUse" });
+}
+
+function expectActiveSlice(agent: HeadlessPi): void {
+	expect(
+		agent
+			.readSessionEntries(null)
+			.slice(0, 4)
+			.map((entry) => entry.id),
+	).toEqual(["kept", "cwd-change", "compaction", "after"]);
+}
+
+function expectSummarizedPrefix(agent: HeadlessPi): void {
+	const transcript = readFileSync(agent.sessionFile, "utf8");
+	expect(transcript).toContain('"id":"summarized"');
+	expect(transcript).toContain('"id":"abandoned"');
+}
+
+function expectNoLegacySettingEntries(agent: HeadlessPi): void {
+	const legacyEntries = agent
+		.readSessionEntries(null)
+		.filter((entry) => entry.type === "model_change" || entry.type === "thinking_level_change");
+	expect(legacyEntries).toEqual([]);
+}
+
+async function waitForToolResult(agent: HeadlessPi, toolCallId: string): Promise<void> {
+	await agent.waitForSessionEntry(
+		null,
+		(entry) =>
+			entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolCallId === toolCallId,
+	);
+}
+
+async function relocateCompactedSession(agent: HeadlessPi, finalCwd: string): Promise<void> {
+	const relocationRequest = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
+	agent.respondToLlmRequest(
+		relocationRequest.id,
+		fauxAssistantMessage(
+			fauxToolCall("change_working_directory", { path: finalCwd }, { id: "relocate-compacted-session" }),
+			{ stopReason: "toolUse" },
+		),
+	);
+	await agent.waitForSessionEntry(
+		null,
+		(entry) =>
+			entry.type === "custom_message" &&
+			entry.customType === "cwd_changed" &&
+			typeof entry.content === "string" &&
+			entry.content.includes(finalCwd),
+	);
+	const settlementRequest = await agent.waitForLlmRequest(
+		(candidate) => candidate.agentId === null && candidate.id !== relocationRequest.id,
+	);
+	agent.respondToLlmRequest(
+		settlementRequest.id,
+		fauxEndTurn("Compacted session relocation settled", "end-compacted-relocation"),
+	);
+	await waitForToolResult(agent, "end-compacted-relocation");
+	await agent.waitForEvent((event) => event.type === "agent_end");
+}
+
+async function expectCurrentCwdMarker(agent: HeadlessPi): Promise<void> {
+	await agent.send({ type: "prompt", message: "Read cwd-marker.txt" });
+	const readRequest = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
+	agent.respondToLlmRequest(
+		readRequest.id,
+		fauxAssistantMessage(fauxToolCall("read", { path: "cwd-marker.txt" }), { stopReason: "toolUse" }),
+	);
+	const resultRequest = await agent.waitForLlmRequest(
+		(candidate) => candidate.agentId === null && candidate.id !== readRequest.id,
+	);
+	expect(JSON.stringify(resultRequest.messages)).toContain("final relocated cwd");
+	agent.respondToLlmRequest(resultRequest.id, fauxEndTurn("Relocated cwd read verified", "end-relocated-read"));
+	await waitForToolResult(agent, "end-relocated-read");
+}
+
+it("restores and relocates a compacted active slice across process replacement", async () => {
 	await withHeadlessPi(
 		async (agent) => {
 			await agent.crash();
 			const relocatedCwd = join(agent.paths.tempDir, "relocated");
+			const finalCwd = join(agent.paths.tempDir, "final-relocated");
 			mkdirSync(relocatedCwd, { recursive: true });
-			writeFileSync(join(relocatedCwd, "cwd-marker.txt"), "relocated cwd");
+			mkdirSync(finalCwd, { recursive: true });
+			writeFileSync(join(finalCwd, "cwd-marker.txt"), "final relocated cwd");
 
 			const entries = [
 				{
@@ -88,15 +167,8 @@ it("restores a compacted active slice and session state after process replacemen
 
 			await agent.restart();
 
-			expect(agent.readSessionEntries(null).map((entry) => entry.id)).toEqual([
-				"kept",
-				"cwd-change",
-				"compaction",
-				"after",
-			]);
-			const rawTranscript = readFileSync(agent.sessionFile, "utf8");
-			expect(rawTranscript).toContain('"id":"summarized"');
-			expect(rawTranscript).toContain('"id":"abandoned"');
+			expectActiveSlice(agent);
+			expectSummarizedPrefix(agent);
 
 			const state = await agent.send({ type: "get_state" });
 			expect(state).toMatchObject({
@@ -110,22 +182,20 @@ it("restores a compacted active slice and session state after process replacemen
 				modelId: "headless-faux-reasoning",
 				thinkingLevel: "high",
 			});
-			expect(
-				agent
-					.readSessionEntries(null)
-					.filter((entry) => entry.type === "model_change" || entry.type === "thinking_level_change"),
-			).toEqual([]);
+			expectNoLegacySettingEntries(agent);
 
-			const request = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
-			agent.respondToLlmRequest(
-				request.id,
-				fauxAssistantMessage(fauxToolCall("read", { path: "cwd-marker.txt" }), { stopReason: "toolUse" }),
-			);
-			const resultRequest = await agent.waitForLlmRequest(
-				(candidate) => candidate.agentId === null && candidate.id !== request.id,
-			);
-			expect(JSON.stringify(resultRequest.messages)).toContain("relocated cwd");
-			agent.respondToLlmRequest(resultRequest.id, fauxAssistantMessage("done"));
+			await relocateCompactedSession(agent, finalCwd);
+
+			expectSummarizedPrefix(agent);
+			expect(readSessionMetadata(controlDbPath, agent.sessionFile)).toMatchObject({ cwd: finalCwd });
+
+			await agent.restart();
+
+			expectActiveSlice(agent);
+			expectSummarizedPrefix(agent);
+			expect(readSessionMetadata(controlDbPath, agent.sessionFile)).toMatchObject({ cwd: finalCwd });
+
+			await expectCurrentCwdMarker(agent);
 		},
 		{ model: false },
 	);
