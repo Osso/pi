@@ -282,7 +282,7 @@ async function runLoop(
 			}
 			newMessages.push(message);
 
-			if (message.stopReason === "error" || message.stopReason === "aborted") {
+			if (message.stopReason === "error" || message.stopReason === "aborted" || message.stopReason === "length") {
 				await emit({ type: "turn_end", message, toolResults: [] });
 				await emit({ type: "agent_end", messages: newMessages });
 				return;

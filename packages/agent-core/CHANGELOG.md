@@ -15,6 +15,7 @@
 
 ### Fixed
 
+- Fixed provider `"length"` truncation being forced through the text-only `end_turn` continuation; truncated responses now terminalize the loop so hosts can compact or recover them.
 - Fixed text-only continuations with an active `end_turn` tool by appending a runtime-only instruction that tells the model its prior response was delivered and must be terminated without inferring a new user request; the instruction is not emitted or persisted.
 - Fixed `Agent.steer()` to abort an active model request while leaving active tool execution uninterrupted; queued steering remains available for the continuation.
 - Fixed aborted model stream acquisition and iteration remaining pending indefinitely when a provider ignores its abort signal; the agent run now terminalizes without waiting for provider cooperation.
