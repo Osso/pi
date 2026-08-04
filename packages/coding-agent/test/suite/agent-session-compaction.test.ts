@@ -1146,6 +1146,120 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.getPendingResponseCount()).toBe(1);
 	});
 
+	it("starts speculative compaction during a multi-cycle turn and consumes it at safe end", async () => {
+		const contextWindow = 1000;
+		const reserveTokens = 200;
+		const backgroundTriggerTokens = contextWindow * 0.7;
+		const compactionThresholdTokens = contextWindow - reserveTokens;
+		const releaseCompaction = createDeferred<void>();
+		const firstToolStarted = createDeferred<void>();
+		const releaseFirstTool = createDeferred<void>();
+		let compactionCalls = 0;
+		const blockedTool: AgentTool = {
+			name: "blocked_tool",
+			label: "Blocked Tool",
+			description: "Wait until the test releases the first tool",
+			parameters: Type.Object({}),
+			execute: async () => {
+				firstToolStarted.resolve();
+				await releaseFirstTool.promise;
+				return { content: [{ type: "text", text: "first tool" }], details: {} };
+			},
+		};
+		const secondTool: AgentTool = {
+			name: "second_tool",
+			label: "Second Tool",
+			description: "Complete the second tool cycle",
+			parameters: Type.Object({}),
+			execute: async () => ({ content: [{ type: "text", text: "second tool" }], details: {} }),
+		};
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow, maxTokens: 100 }],
+			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens } },
+			tools: [blockedTool, secondTool],
+			extensionFactories: [
+				(pi) => {
+					pi.on("compaction", async (event) => {
+						compactionCalls++;
+						await releaseCompaction.promise;
+						return {
+							compaction: {
+								summary: "mid-turn cached summary",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								tokensBefore: event.preparation.tokensBefore,
+								details: {},
+							},
+						};
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		const historyTimestamp = Date.now() - 1000;
+		harness.sessionManager.appendMessage({
+			role: "user",
+			content: [{ type: "text", text: "older turn to compact" }],
+			timestamp: historyTimestamp,
+		});
+		const historyAssistant = createAssistant(harness, {
+			stopReason: "stop",
+			totalTokens: 60,
+			timestamp: historyTimestamp + 1,
+		});
+		historyAssistant.content = [{ type: "text", text: "older response to compact" }];
+		harness.sessionManager.appendMessage(historyAssistant);
+		harness.session.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
+
+		const firstResponse = fauxAssistantMessage(fauxToolCall("blocked_tool", {}), { stopReason: "toolUse" });
+		const secondResponse = fauxAssistantMessage(fauxToolCall("second_tool", {}), { stopReason: "toolUse" });
+		harness.setResponses([
+			firstResponse,
+			secondResponse,
+			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "completed" }), { stopReason: "toolUse" }),
+		]);
+
+		let promptPromise: Promise<void> | undefined;
+		try {
+			promptPromise = harness.session.prompt("run multiple tool cycles");
+			await firstToolStarted.promise;
+			const firstAssistantEnd = harness
+				.eventsOfType("message_end")
+				.find((event) => event.message.role === "assistant");
+			if (!firstAssistantEnd || firstAssistantEnd.message.role !== "assistant") {
+				throw new Error("Expected the first assistant message to finish before tool execution");
+			}
+			expect(firstAssistantEnd.message.usage.totalTokens).toBeGreaterThanOrEqual(backgroundTriggerTokens);
+			expect(firstAssistantEnd.message.usage.totalTokens).toBeLessThan(compactionThresholdTokens);
+			await vi.waitFor(() => expect(compactionCalls).toBe(1), { timeout: 100 });
+			expect(harness.eventsOfType("compaction_start")).toHaveLength(0);
+			expect(harness.eventsOfType("agent_end")).toHaveLength(0);
+			expect(harness.sessionManager.getBranch().filter((entry) => entry.type === "compaction")).toHaveLength(0);
+
+			releaseCompaction.resolve();
+			await new Promise((resolve) => setTimeout(resolve, 0));
+			releaseFirstTool.resolve();
+			await promptPromise;
+
+			expect(compactionCalls).toBe(1);
+			expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({
+				reason: "threshold",
+				aborted: false,
+				result: { summary: "mid-turn cached summary" },
+			});
+			const branchText = harness.sessionManager
+				.getBranch()
+				.map((entry) => JSON.stringify(entry))
+				.join("\n");
+			expect(branchText).toContain("first tool");
+			expect(branchText).toContain("second tool");
+			expect(branchText).toContain("completed");
+		} finally {
+			releaseCompaction.resolve();
+			releaseFirstTool.resolve();
+			if (promptPromise) await promptPromise;
+		}
+	});
+
 	it("starts exactly one speculative compaction when context crosses 70%", async () => {
 		const releaseCompaction = createDeferred<void>();
 		let compactionCalls = 0;

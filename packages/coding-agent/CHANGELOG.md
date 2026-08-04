@@ -409,6 +409,7 @@
 - Fixed persisted multi-agent ID reuse when counter rows lagged alternate counter state or existing agent, artifact, mailbox, and runtime transport IDs: allocation now reconciles those sources before advancing, migrates and drops legacy `multi_agent_counters_v2`, and conflicting or incomplete mailbox message ID reuse fails transactionally instead of overwriting the existing message.
 - Fixed the interactive retry indicator persisting after a successful retry.
 - Fixed detached Pyrun jobs to record elapsed duration in `durationMs`, include `Duration: Nms` in completion/failure notifications, and made direct `wait_agents({})` consume pending completion notifications and pending failure notifications for detached Pyrun jobs, return the winning agent and message in `details`, and mark the matching runtime mailbox transport row delivered; non-Pyrun failure waits retain their existing behavior.
+- Fixed speculative compaction waiting until `agent_end` to notice long tool-heavy turns crossing 70% context; persisted assistant tool-call responses now start cache generation during the active turn so the ready result is consumed at the existing safe end without a second compaction request.
 
 ### Removed
 

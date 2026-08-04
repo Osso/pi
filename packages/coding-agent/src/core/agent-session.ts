@@ -1454,7 +1454,12 @@ export class AgentSession {
 					? addRuntimeMessageMarker(event)
 					: event;
 		this._emit(listenerEvent);
-		if (event.type === "message_end") await this._persistCompletedMessage(event, originalToolCallId);
+		if (event.type === "message_end") {
+			await this._persistCompletedMessage(event, originalToolCallId);
+			if (event.message.role === "assistant") {
+				this._startBackgroundCompactionDuringToolTurn(event.message);
+			}
+		}
 		if (event.type === "agent_end" && sessionContinuation) {
 			await this._extensionRunner.activateToolResultRelocation();
 		}
@@ -4136,6 +4141,26 @@ export class AgentSession {
 			cache.state = "failed";
 			console.error("Background compaction cache generation failed:", error);
 		}
+	}
+
+	private _startBackgroundCompactionDuringToolTurn(message: AssistantMessage): void {
+		if (message.stopReason !== "toolUse") return;
+		const model = this.model;
+		if (!model || message.provider !== model.provider || message.model !== model.id) return;
+
+		const contextWindow = model.contextWindow;
+		const contextTokens = message.usage ? calculateContextTokens(message.usage) : 0;
+		if (contextTokens <= 0 || contextWindow <= 0) return;
+
+		const settings = this.settingsManager.getCompactionSettings();
+		const thresholdReached = shouldCompact(
+			contextTokens,
+			contextWindow,
+			{ ...settings, enabled: true },
+			model.autoCompactionThreshold,
+		);
+		if (thresholdReached) return;
+		this._startBackgroundCompaction(contextTokens, contextWindow);
 	}
 
 	private _startBackgroundCompaction(contextTokens: number, contextWindow: number): void {

@@ -88,7 +88,7 @@ On repeated compactions, the summarized span starts at the previous compaction's
 
 ### Speculative background compaction cache
 
-At 70% of the model context window, Pi may start one cache-only compaction for the current session. Background generation does not append a session entry or replace active agent messages. It only prepares a result for the next real compaction.
+At 70% of the model context window, Pi may start one cache-only compaction for the current session. Tool-heavy turns can start generation between tool calls as soon as a persisted assistant response crosses that boundary; Pi still waits for the normal safe turn end before installing the result. Background generation does not append a session entry or replace active agent messages. It only prepares a result for the next real compaction.
 
 When the result is ready:
 

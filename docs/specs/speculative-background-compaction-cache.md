@@ -6,7 +6,7 @@ Speculative background compaction prepares a compaction result before normal com
 
 ### Cache lifecycle
 
-- [x] Start at most one cache-only compaction when context reaches 70% of the model context window.
+- [x] Start at most one cache-only compaction when context reaches 70% of the model context window, including between tool calls in one active turn.
 - [x] Keep background generation from appending session entries or mutating active agent messages/context.
 - [x] Preserve a ready result for normal compaction instead of exposing it as a second context.
 
@@ -36,6 +36,7 @@ Speculative background compaction prepares a compaction result before normal com
 
 - `packages/coding-agent/test/suite/agent-session-compaction.test.ts`
   - speculative trigger and single-flight behavior
+  - mid-turn tool cycles start generation before `agent_end` and consume it at the safe turn end
   - no active-context mutation while generation is pending
   - idle cache consumption
   - post-snapshot entry preservation
