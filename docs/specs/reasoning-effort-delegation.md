@@ -44,7 +44,7 @@ GPT-5.6 Sol exposes maximum reasoning and automatic delegation through the first
 
 ## Known gaps (current cycle)
 
-- [ ] Final full-project check must pass after the last implementation change.
+- None.
 
 ## Out of scope
 
