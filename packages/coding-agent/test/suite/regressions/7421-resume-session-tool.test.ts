@@ -211,7 +211,7 @@ async function createRuntimeForTest(responses: string[], extensionFactory?: Exte
 	const runtime = await createAgentSessionRuntime(createRuntime, {
 		cwd: tempDir,
 		agentDir: tempDir,
-		sessionManager: SessionManager.create(tempDir),
+		sessionManager: SessionManager.create(tempDir, join(tempDir, "sessions")),
 	});
 
 	const rebindSession = async (): Promise<void> => {
@@ -263,6 +263,14 @@ async function createRuntimeForTest(responses: string[], extensionFactory?: Exte
 }
 
 describe("resume_session first-party tool", () => {
+	it("stores runtime sessions inside the fixture-owned temporary directory", async () => {
+		const { runtime } = await createRuntimeForTest([]);
+
+		expect(runtime.session.sessionManager.getSessionDir()).toBe(
+			join(runtime.session.sessionManager.getCwd(), "sessions"),
+		);
+	});
+
 	it("does not classify a trailing resume_session call as interrupted work", () => {
 		const resumeCall = fauxAssistantMessage(
 			fauxToolCall("resume_session", { path: "/sessions/target.jsonl" }, { id: "resume-before-exit" }),

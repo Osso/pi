@@ -58,6 +58,7 @@ describe("importExternalSessionAlias", () => {
 	it("imports a Codex session alias into a Pi session", async () => {
 		const homeDir = createTempDir();
 		const projectDir = join(homeDir, "project");
+		const sessionDir = join(homeDir, "sessions");
 		const sessionId = "019de1a5-95a6-7793-a098-68abf8e21e9e";
 		const codexDir = join(homeDir, ".codex", "sessions", "2026", "04", "30");
 		mkdirSync(codexDir, { recursive: true });
@@ -80,9 +81,10 @@ describe("importExternalSessionAlias", () => {
 			},
 		]);
 
-		const imported = await importExternalSessionAlias(`codex/${sessionId}`, { homeDir });
+		const imported = await importExternalSessionAlias(`codex/${sessionId}`, { homeDir, sessionDir });
 
 		expect(imported).not.toBeUndefined();
+		expect(imported!.path).toBe(join(sessionDir, `codex-${sessionId}.jsonl`));
 		const sessionManager = SessionManager.open(imported!.path);
 		expect(sessionManager.getCwd()).toBe(projectDir);
 		expect(sessionManager.getSessionId()).toBe(`codex-${sessionId}`);
@@ -95,6 +97,7 @@ describe("importExternalSessionAlias", () => {
 	it("imports a Claude Code session alias into a Pi session", async () => {
 		const homeDir = createTempDir();
 		const projectDir = join(homeDir, "project");
+		const sessionDir = join(homeDir, "sessions");
 		const sessionId = "11111111-2222-4333-8444-555555555555";
 		const claudeDir = join(homeDir, ".claude", "projects", "-tmp-project");
 		mkdirSync(claudeDir, { recursive: true });
@@ -114,7 +117,7 @@ describe("importExternalSessionAlias", () => {
 			},
 		]);
 
-		const imported = await importExternalSessionAlias(`claude/${sessionId}`, { homeDir });
+		const imported = await importExternalSessionAlias(`claude/${sessionId}`, { homeDir, sessionDir });
 
 		expect(imported).not.toBeUndefined();
 		const entries = readJsonl(imported!.path);
@@ -128,6 +131,7 @@ describe("importExternalSessionAlias", () => {
 	it("reuses an existing imported session", async () => {
 		const homeDir = createTempDir();
 		const projectDir = join(homeDir, "project");
+		const sessionDir = join(homeDir, "sessions");
 		const sessionId = "reuse-session";
 		const codexDir = join(homeDir, ".codex", "sessions");
 		mkdirSync(codexDir, { recursive: true });
@@ -136,8 +140,8 @@ describe("importExternalSessionAlias", () => {
 			{ type: "session_meta", payload: { id: sessionId, cwd: projectDir } },
 		]);
 
-		const first = await importExternalSessionAlias(`codex/${sessionId}`, { homeDir });
-		const second = await importExternalSessionAlias(`codex/${sessionId}`, { homeDir });
+		const first = await importExternalSessionAlias(`codex/${sessionId}`, { homeDir, sessionDir });
+		const second = await importExternalSessionAlias(`codex/${sessionId}`, { homeDir, sessionDir });
 
 		expect(second?.path).toBe(first?.path);
 	});

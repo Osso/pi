@@ -54,7 +54,7 @@ it("does not emit session_start or retain timers when runtime listener registrat
 			createAgentSessionFromServices({
 				model: faux.getModel(),
 				services,
-				sessionManager: SessionManager.create(agentDir),
+				sessionManager: SessionManager.create(agentDir, join(agentDir, "sessions")),
 			}),
 		).rejects.toThrow(/forced listener registration failure/);
 		expect(sessionStartCount).toBe(0);
