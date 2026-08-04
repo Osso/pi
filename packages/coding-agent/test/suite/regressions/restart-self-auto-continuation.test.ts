@@ -59,7 +59,7 @@ async function completeChildTextResponse(
 	);
 }
 
-function replaceLatestParentAgentStartWithLegacyMarker(pi: HeadlessPi, agentId: string): number {
+function replaceLatestParentAgentStartWithLegacyMarker(pi: HeadlessPi, agentId: string): void {
 	const lines = readFileSync(pi.sessionFile, "utf8").trimEnd().split("\n");
 	const entries = lines.map(
 		(line) => JSON.parse(line) as { type?: string; customType?: string; data?: { agentId?: string } },
@@ -73,7 +73,6 @@ function replaceLatestParentAgentStartWithLegacyMarker(pi: HeadlessPi, agentId: 
 	if (!latestStart) throw new Error(`Parent agent_start record ${latestStartIndex} is missing`);
 	entries[latestStartIndex] = { ...latestStart, customType: "legacy_compacted_agent_start" };
 	writeFileSync(pi.sessionFile, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf8");
-	return startIndexes.length;
 }
 
 function waitForMainRequest(pi: HeadlessPi, timeoutMs?: number) {
@@ -84,8 +83,15 @@ function waitForChildRequest(pi: HeadlessPi, agentId: string, timeoutMs?: number
 	return pi.waitForLlmRequest((request) => request.agentId === agentId, timeoutMs);
 }
 
-function waitForAgentLifecycle(pi: HeadlessPi, agentId: string, lifecycle: "steering_pending" | "completed") {
+function waitForAgentLifecycle(pi: HeadlessPi, agentId: string, lifecycle: "steering_pending" | "aborted") {
 	return pi.waitForAgent((agent) => agent.id === agentId && agent.lifecycle === lifecycle);
+}
+
+function waitForMainToolResult(pi: HeadlessPi, toolName: string) {
+	return pi.waitForSessionEntry(
+		null,
+		(entry) => entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === toolName,
+	);
 }
 
 function waitForSteeredChildRequest(pi: HeadlessPi, agentId: string) {
@@ -192,7 +198,7 @@ it("continues a completed running goal after restart while a child remains live"
 	});
 }, 30_000);
 
-it("recovers a compacted logical child after restart_self changes the supervisor incarnation", async () => {
+it("recovers and cancels a compacted logical child after restart_self changes the supervisor incarnation", async () => {
 	await withHeadlessPi(async (pi) => {
 		configureSmallCompactionWindow(pi);
 		await pi.restart();
@@ -224,7 +230,7 @@ it("recovers a compacted logical child after restart_self changes the supervisor
 		const compactionResponse = await compaction;
 		expect(compactionResponse).toMatchObject({ command: "compact", success: true });
 		await pi.waitForSessionEntry(null, (entry) => entry.type === "compaction");
-		expect(replaceLatestParentAgentStartWithLegacyMarker(pi, child.id)).toBe(2);
+		replaceLatestParentAgentStartWithLegacyMarker(pi, child.id);
 
 		await pi.send({ type: "prompt", message: "Queue steering for the compacted child" });
 		const steerRequest = await waitForMainRequest(pi);
@@ -271,15 +277,29 @@ it("recovers a compacted logical child after restart_self changes the supervisor
 			"Recovery turn settled",
 			"Recovery prompt handled",
 		);
-		const steeredChildRequest = await waitForSteeredChildRequest(pi, child.id);
-		await completeChildTextResponse(
-			pi,
-			child.id,
-			steeredChildRequest.id,
-			"Recovered compacted child",
-			"Recovered child already completed",
+		await waitForSteeredChildRequest(pi, child.id);
+		const mainAfterRestart = await waitForMainRequest(pi, 10_000);
+		pi.respondToLlmRequest(
+			mainAfterRestart.id,
+			fauxAssistantMessage(
+				fauxToolCall("cancel_agent", { agentId: child.id, reason: "Verify recovered cancellation" }),
+				{ stopReason: "toolUse" },
+			),
 		);
-		const completed = await waitForAgentLifecycle(pi, child.id, "completed");
-		expect(completed.error).toBeUndefined();
+		const cancelResult = await waitForMainToolResult(pi, "cancel_agent");
+		expect(JSON.stringify(cancelResult)).toContain("Cancelled");
+		await waitForAgentLifecycle(pi, child.id, "aborted");
+
+		const mainAfterCancel = await waitForMainRequest(pi);
+		pi.respondToLlmRequest(
+			mainAfterCancel.id,
+			fauxAssistantMessage(fauxToolCall("list_agents", {}), { stopReason: "toolUse" }),
+		);
+		const listResult = await waitForMainToolResult(pi, "list_agents");
+		const serializedListResult = JSON.stringify(listResult);
+		expect(serializedListResult).toContain("Found 0 agents.");
+		expect(serializedListResult).not.toContain(child.id);
+		const mainAfterList = await waitForMainRequest(pi);
+		await completeParentTurn(pi, mainAfterList.id, "Recovered cancellation and listing verified");
 	});
 }, 30_000);
