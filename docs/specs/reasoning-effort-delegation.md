@@ -20,6 +20,7 @@ GPT-5.6 Sol exposes maximum reasoning and automatic delegation through the first
 
 - Existing multi-agent runtime: [`multi-agent.md`](multi-agent.md)
 - Prompt policy injection: [`prompt-context-hooks.md`](prompt-context-hooks.md)
+- Spawn-contract experiment findings: [`native-ultra-spawn-contract-experiment.md`](../wiki/systems/native-ultra-spawn-contract-experiment.md)
 
 ## Implementation inventory
 
