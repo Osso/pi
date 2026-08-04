@@ -1,21 +1,108 @@
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { expect, it } from "vitest";
+import { getControlDbPath, readMultiAgentRuntimeOwnership } from "../../../src/core/session-control-db.ts";
 import { type HeadlessPi, withHeadlessPi } from "../headless-pi.ts";
 
 async function persistCompletedEndTurn(pi: HeadlessPi): Promise<void> {
 	await pi.send({ type: "prompt", message: "Finish this turn before process restart" });
 	const request = await pi.waitForLlmRequest((candidate) => candidate.agentId === null);
+	await completeParentTurn(pi, request.id, "Turn completed before restart");
+}
+
+async function completeParentTurn(pi: HeadlessPi, requestId: string, reason: string): Promise<void> {
 	pi.respondToLlmRequest(
-		request.id,
-		fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Turn completed before restart" }), {
-			stopReason: "toolUse",
-		}),
+		requestId,
+		fauxAssistantMessage(fauxToolCall("end_turn", { reason }), { stopReason: "toolUse" }),
 	);
 	await pi.waitForSessionEntry(
 		null,
 		(entry) =>
-			entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "end_turn",
+			entry.type === "message" &&
+			entry.message.role === "toolResult" &&
+			entry.message.toolName === "end_turn" &&
+			JSON.stringify(entry.message).includes(reason),
 	);
+}
+
+function configureSmallCompactionWindow(pi: HeadlessPi): void {
+	const settingsPath = join(pi.paths.agentDir, "settings.json");
+	const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
+	writeFileSync(
+		settingsPath,
+		JSON.stringify({
+			...settings,
+			compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 16_384 },
+		}),
+		"utf8",
+	);
+}
+
+async function completeChildTextResponse(
+	pi: HeadlessPi,
+	agentId: string,
+	requestId: string,
+	text: string,
+	endTurnReason: string,
+): Promise<void> {
+	pi.respondToLlmRequest(requestId, fauxAssistantMessage(text));
+	const endTurnRequest = await pi.waitForLlmRequest(
+		(request) =>
+			request.agentId === agentId &&
+			request.id !== requestId &&
+			request.userMessages.some((message) => message.includes("Your previous response was already delivered")),
+	);
+	pi.respondToLlmRequest(
+		endTurnRequest.id,
+		fauxAssistantMessage(fauxToolCall("end_turn", { reason: endTurnReason }), { stopReason: "toolUse" }),
+	);
+}
+
+function replaceLatestParentAgentStartWithLegacyMarker(pi: HeadlessPi, agentId: string): number {
+	const lines = readFileSync(pi.sessionFile, "utf8").trimEnd().split("\n");
+	const entries = lines.map(
+		(line) => JSON.parse(line) as { type?: string; customType?: string; data?: { agentId?: string } },
+	);
+	const startIndexes = entries.flatMap((entry, index) =>
+		entry.type === "custom" && entry.customType === "agent_start" && entry.data?.agentId === agentId ? [index] : [],
+	);
+	const latestStartIndex = startIndexes.at(-1);
+	if (latestStartIndex === undefined) throw new Error(`No parent agent_start record found for ${agentId}`);
+	const latestStart = entries[latestStartIndex];
+	if (!latestStart) throw new Error(`Parent agent_start record ${latestStartIndex} is missing`);
+	entries[latestStartIndex] = { ...latestStart, customType: "legacy_compacted_agent_start" };
+	writeFileSync(pi.sessionFile, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf8");
+	return startIndexes.length;
+}
+
+function waitForMainRequest(pi: HeadlessPi, timeoutMs?: number) {
+	return pi.waitForLlmRequest((request) => request.agentId === null, timeoutMs);
+}
+
+function waitForChildRequest(pi: HeadlessPi, agentId: string, timeoutMs?: number) {
+	return pi.waitForLlmRequest((request) => request.agentId === agentId, timeoutMs);
+}
+
+function waitForAgentLifecycle(pi: HeadlessPi, agentId: string, lifecycle: "steering_pending" | "completed") {
+	return pi.waitForAgent((agent) => agent.id === agentId && agent.lifecycle === lifecycle);
+}
+
+function waitForSteeredChildRequest(pi: HeadlessPi, agentId: string) {
+	return pi.waitForLlmRequest(
+		(request) =>
+			request.agentId === agentId &&
+			request.userMessages.some((message) => message.includes("Finish the compacted recovery after restart")),
+	);
+}
+
+function expectOneActiveParentAgentStart(pi: HeadlessPi, agentId: string): void {
+	const activeStarts = pi.readSessionEntries(null).filter((entry) => {
+		if (entry.type !== "custom" || entry.customType !== "agent_start") return false;
+		const data = entry.data as { agentId?: unknown } | undefined;
+		return data?.agentId === agentId;
+	});
+	expect(activeStarts).toHaveLength(1);
 }
 
 it("automatically continues the restored session after restart_self", async () => {
@@ -102,5 +189,97 @@ it("continues a completed running goal after restart while a child remains live"
 		expect(continuation.sessionId).toBe(pi.sessionId);
 		expect(restoredChildRequest.userMessages).toContain("Wait across restart");
 		expect(pi.listAgents().find((agent) => agent.id === child.id)?.lifecycle).toBe("running");
+	});
+}, 30_000);
+
+it("recovers a compacted logical child after restart_self changes the supervisor incarnation", async () => {
+	await withHeadlessPi(async (pi) => {
+		configureSmallCompactionWindow(pi);
+		await pi.restart();
+		await pi.send({ type: "prompt", message: "Spawn a child and restart yourself while it is live" });
+		const mainRequest = await waitForMainRequest(pi);
+		pi.respondToLlmRequest(
+			mainRequest.id,
+			fauxAssistantMessage(
+				fauxToolCall("spawn_agent", {
+					context: "fresh",
+					displayName: "Stale logical child",
+					prompt: "Remain live through restart",
+				}),
+				{ stopReason: "toolUse" },
+			),
+		);
+		const child = await pi.waitForAgent((agent) => agent.displayName === "Stale logical child");
+		await waitForChildRequest(pi, child.id);
+		const mainAfterSpawn = await waitForMainRequest(pi);
+		const controlDbPath = getControlDbPath(pi.paths.agentDir);
+		await completeParentTurn(pi, mainAfterSpawn.id, "Wait for the child");
+		await pi.send({ type: "prompt", message: "Record another parent turn before compaction" });
+		const beforeCompaction = await waitForMainRequest(pi, 10_000);
+		await completeParentTurn(pi, beforeCompaction.id, "Parent turn before compaction complete");
+
+		const compaction = pi.send({ type: "compact" });
+		const compactionRequest = await waitForMainRequest(pi, 10_000);
+		pi.respondToLlmRequest(compactionRequest.id, fauxAssistantMessage("Child remains active across compaction"));
+		const compactionResponse = await compaction;
+		expect(compactionResponse).toMatchObject({ command: "compact", success: true });
+		await pi.waitForSessionEntry(null, (entry) => entry.type === "compaction");
+		expect(replaceLatestParentAgentStartWithLegacyMarker(pi, child.id)).toBe(2);
+
+		await pi.send({ type: "prompt", message: "Queue steering for the compacted child" });
+		const steerRequest = await waitForMainRequest(pi);
+		pi.respondToLlmRequest(
+			steerRequest.id,
+			fauxAssistantMessage(
+				fauxToolCall("steer_agent", {
+					agentId: child.id,
+					message: "Finish the compacted recovery after restart",
+				}),
+				{ stopReason: "toolUse" },
+			),
+		);
+		await waitForAgentLifecycle(pi, child.id, "steering_pending");
+		const mainAfterSteer = await waitForMainRequest(pi);
+		await completeParentTurn(pi, mainAfterSteer.id, "Steering queued before restart");
+		const ownershipBefore = readMultiAgentRuntimeOwnership(controlDbPath, pi.sessionFile, child.id);
+		if (!ownershipBefore?.processIdentity) throw new Error("Steered logical child has no runtime ownership");
+
+		await pi.send({ type: "prompt", message: "Restart while the compacted child remains live" });
+		const restartRequest = await waitForMainRequest(pi, 10_000);
+		pi.respondToLlmRequest(
+			restartRequest.id,
+			fauxAssistantMessage(fauxToolCall("restart_self", {}), { stopReason: "toolUse" }),
+		);
+		await pi.waitForSessionEntry(
+			null,
+			(entry) => entry.type === "custom_message" && entry.customType === "self_restart",
+		);
+		const restoredChildRequest = await waitForChildRequest(pi, child.id, 10_000);
+		expectOneActiveParentAgentStart(pi, child.id);
+		const ownershipAfter = readMultiAgentRuntimeOwnership(controlDbPath, pi.sessionFile, child.id);
+		expect(ownershipAfter?.processIdentity).toMatchObject({
+			pid: ownershipBefore.processIdentity.pid,
+			startTimeTicks: ownershipBefore.processIdentity.startTimeTicks,
+		});
+		expect(ownershipAfter?.processIdentity?.incarnation).not.toBe(ownershipBefore.processIdentity.incarnation);
+
+		expect(pi.listAgents().find((agent) => agent.id === child.id)?.lifecycle).toBe("steering_pending");
+		await completeChildTextResponse(
+			pi,
+			child.id,
+			restoredChildRequest.id,
+			"Recovery turn settled",
+			"Recovery prompt handled",
+		);
+		const steeredChildRequest = await waitForSteeredChildRequest(pi, child.id);
+		await completeChildTextResponse(
+			pi,
+			child.id,
+			steeredChildRequest.id,
+			"Recovered compacted child",
+			"Recovered child already completed",
+		);
+		const completed = await waitForAgentLifecycle(pi, child.id, "completed");
+		expect(completed.error).toBeUndefined();
 	});
 }, 30_000);

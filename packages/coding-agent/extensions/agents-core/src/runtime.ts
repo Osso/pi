@@ -68,56 +68,20 @@ import {
 	SUPERVISOR_ONLY_TOOL_NAMES,
 } from "../../../src/core/tool-capabilities.ts";
 import { deliverTerminalOutboxProjections } from "../../../src/core/terminal-outbox-delivery.ts";
+import {
+	appendParentAgentCompletion,
+	appendParentAgentStart,
+	isTerminalAgentLifecycle,
+	readActiveParentAgentIds,
+	registerParentAgentCompactionRefresh,
+	restoreCompactedParentAgentRecords,
+	type ParentAgentJournalWriter,
+} from "./parent-agent-journal.ts";
+
+export type { ParentAgentJournalWriter } from "./parent-agent-journal.ts";
 
 const MAX_GOAL_OBJECTIVE_CHARS = 10_000;
 const GOAL_EXTENSION_PATH = "<first-party:goal>";
-const AGENT_START_CUSTOM_TYPE = "agent_start";
-const AGENT_COMPLETE_CUSTOM_TYPE = "agent_complete";
-
-type ParentAgentRecordType = typeof AGENT_START_CUSTOM_TYPE | typeof AGENT_COMPLETE_CUSTOM_TYPE;
-
-export type ParentAgentJournalWriter = Pick<ExtensionAPI, "appendEntry">;
-
-interface ParentAgentRecordData {
-	agentId: string;
-	childSessionId: string;
-	lifecycle: AgentLifecycleState;
-	transcriptPath: string;
-}
-
-function isTerminalAgentLifecycle(lifecycle: AgentLifecycleState): boolean {
-	return lifecycle === "completed" || lifecycle === "failed" || lifecycle === "aborted";
-}
-
-function appendParentAgentRecord(pi: ParentAgentJournalWriter, customType: ParentAgentRecordType, agent: AgentSnapshot): void {
-	const childSessionId = agent.transcript?.sessionId;
-	const transcriptPath = agent.transcript?.path;
-	if (!childSessionId || !transcriptPath) {
-		throw new Error(`Cannot persist ${customType} for ${agent.id} without transcript identity`);
-	}
-	pi.appendEntry(customType, {
-		agentId: agent.id,
-		childSessionId,
-		lifecycle: agent.lifecycle,
-		transcriptPath,
-	} satisfies ParentAgentRecordData);
-}
-
-function readActiveParentAgentIds(ctx: ExtensionContext): Set<string> {
-	const started = new Set<string>();
-	const completed = new Set<string>();
-	for (const entry of ctx.sessionManager.getEntries()) {
-		if (entry.type !== "custom" || (entry.customType !== AGENT_START_CUSTOM_TYPE && entry.customType !== AGENT_COMPLETE_CUSTOM_TYPE)) {
-			continue;
-		}
-		const data = entry.data as Partial<ParentAgentRecordData> | undefined;
-		if (typeof data?.agentId !== "string") continue;
-		if (entry.customType === AGENT_START_CUSTOM_TYPE) started.add(data.agentId);
-		else completed.add(data.agentId);
-	}
-	for (const agentId of completed) started.delete(agentId);
-	return started;
-}
 
 const checkpointSchema = Type.Union([
 	Type.Literal("next_model_call"),
@@ -1229,7 +1193,7 @@ async function spawnAgent(
 	}
 	store.publishLifecycleCoordinatorSnapshot(created.agent);
 	try {
-		appendParentAgentRecord(pi, AGENT_START_CUSTOM_TYPE, created.agent);
+		appendParentAgentStart(pi, created.agent);
 	} catch (error) {
 		childSession?.dispose?.();
 		const message = error instanceof Error ? error.message : String(error);
@@ -3319,6 +3283,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 
 	pi.on?.("session_start", async (_event, ctx) => {
 		unbindParentAgentJournal?.();
+		restoreCompactedParentAgentRecords(pi, store, ctx);
 		if (!isChildAgentRuntime(ctx)) {
 			if (ctx.sessionManager) {
 				unbindParentAgentJournal = store.subscribeAgentTransitions((previous, current) => {
@@ -3327,7 +3292,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 						isTerminalAgentLifecycle(current.lifecycle) &&
 						readActiveParentAgentIds(ctx).has(current.id)
 					) {
-						appendParentAgentRecord(pi, AGENT_COMPLETE_CUSTOM_TYPE, current);
+						appendParentAgentCompletion(pi, current);
 					}
 				});
 			}
@@ -3344,6 +3309,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			waitingDesktopNotifications,
 		});
 	});
+	registerParentAgentCompactionRefresh(pi, store);
 	pi.on?.("session_shutdown", async (event) => {
 		unbindParentAgentJournal?.();
 		unbindParentAgentJournal = undefined;
