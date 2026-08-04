@@ -2,7 +2,6 @@ import type { ThinkingLevel as AgentThinkingLevel } from "@earendil-works/pi-age
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "../../../src/core/extensions/types.ts";
 
-type EffortLevel = AgentThinkingLevel | "max" | "ultra";
 type MultiAgentMode = "proactive" | "explicit";
 
 type DelegationModeEntry = {
@@ -25,15 +24,15 @@ interface DelegationState {
 	mode: MultiAgentMode;
 }
 
-function getEffortLevels(ctx: ExtensionCommandContext): EffortLevel[] | undefined {
-	return ctx.model ? (getSupportedThinkingLevels(ctx.model) as EffortLevel[]) : undefined;
+function getEffortLevels(ctx: ExtensionCommandContext): AgentThinkingLevel[] | undefined {
+	return ctx.model ? getSupportedThinkingLevels(ctx.model) : undefined;
 }
 
-function formatEffortLevels(levels: readonly EffortLevel[]): string {
+function formatEffortLevels(levels: readonly AgentThinkingLevel[]): string {
 	return levels.join(", ");
 }
 
-function findSelectedEffort(levels: readonly EffortLevel[], effort: string): EffortLevel | undefined {
+function findSelectedEffort(levels: readonly AgentThinkingLevel[], effort: string): AgentThinkingLevel | undefined {
 	return levels.find((level) => level === effort.toLowerCase());
 }
 
@@ -146,22 +145,20 @@ async function handleDelegationCommand(
 	setDelegationMode(pi, ctx, state, mode);
 }
 
+function restoreAndUpdateDelegationMode(state: DelegationState, ctx: ExtensionContext): void {
+	if (isChildRuntime(ctx)) return;
+	restoreDelegationMode(state, ctx);
+	updateDelegationStatus(ctx, state);
+}
+
 function registerDelegationControl(pi: ExtensionAPI, state: DelegationState): void {
 	pi.registerCommand("multi-agent", {
 		description: "Set multi-agent delegation mode",
 		handler: (args, ctx) => handleDelegationCommand(args, ctx, pi, state),
 	});
 
-	pi.on("session_start", (_event, ctx) => {
-		if (isChildRuntime(ctx)) return;
-		restoreDelegationMode(state, ctx);
-		updateDelegationStatus(ctx, state);
-	});
-	pi.on("session_tree", (_event, ctx) => {
-		if (isChildRuntime(ctx)) return;
-		restoreDelegationMode(state, ctx);
-		updateDelegationStatus(ctx, state);
-	});
+	pi.on("session_start", (_event, ctx) => restoreAndUpdateDelegationMode(state, ctx));
+	pi.on("session_tree", (_event, ctx) => restoreAndUpdateDelegationMode(state, ctx));
 	pi.on("thinking_level_select", (event, ctx) => {
 		if (isChildRuntime(ctx) || event.level !== "ultra" || state.mode === "proactive") return;
 		applyDelegationMode(pi, ctx, state, "proactive");
@@ -176,23 +173,30 @@ function setEffort(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
 	state: DelegationState,
-	effort: EffortLevel,
+	effort: AgentThinkingLevel,
 ): void {
 	const activatesProactiveDelegation = effort === "ultra" && !isChildRuntime(ctx);
 	if (activatesProactiveDelegation) {
 		applyDelegationMode(pi, ctx, state, "proactive");
 	}
-	ctx.setThinkingLevel(effort as AgentThinkingLevel);
+	ctx.setThinkingLevel(effort);
 	const label = activatesProactiveDelegation ? "ultra (max + proactive)" : ctx.getThinkingLevel();
 	ctx.ui.notify(`Effort: ${label}`, "info");
 	clearEditor(ctx);
 }
 
-function showInvalidEffort(ctx: ExtensionCommandContext, requestedEffort: string, levels: readonly EffortLevel[]): void {
+function showInvalidEffort(
+	ctx: ExtensionCommandContext,
+	requestedEffort: string,
+	levels: readonly AgentThinkingLevel[],
+): void {
 	ctx.ui.notify(`Invalid effort "${requestedEffort}". Available: ${formatEffortLevels(levels)}`, "warning");
 }
 
-async function selectEffort(ctx: ExtensionCommandContext, levels: readonly EffortLevel[]): Promise<EffortLevel | undefined> {
+async function selectEffort(
+	ctx: ExtensionCommandContext,
+	levels: readonly AgentThinkingLevel[],
+): Promise<AgentThinkingLevel | undefined> {
 	const selectedEffort = await ctx.ui.select("Select effort", [...levels]);
 	return selectedEffort ? findSelectedEffort(levels, selectedEffort) : undefined;
 }
