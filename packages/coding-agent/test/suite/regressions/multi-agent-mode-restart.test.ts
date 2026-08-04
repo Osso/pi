@@ -43,7 +43,8 @@ it("restores explicit delegation mode and effort after supervisor restart", asyn
 			agent.respondToLlmRequest(request.id, fauxAssistantMessage("Restored settings confirmed"));
 			await agent.waitForSessionEntry(
 				null,
-				(entry) => entry.type === "message" && JSON.stringify(entry.message).includes("Restored settings confirmed"),
+				(entry) =>
+					entry.type === "message" && JSON.stringify(entry.message).includes("Restored settings confirmed"),
 			);
 		},
 		{ model: "headless-faux-reasoning" },
