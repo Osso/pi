@@ -33,6 +33,7 @@ interface WireLlmRequest {
 	type: "request";
 	id: string;
 	sessionId?: string;
+	systemPrompt?: string;
 	messages: Message[];
 }
 
@@ -40,6 +41,7 @@ export interface HeadlessLlmRequest {
 	id: string;
 	sessionId?: string;
 	agentId: string | null;
+	systemPrompt?: string;
 	messages: Message[];
 	userMessages: string[];
 }
@@ -489,6 +491,7 @@ function createRequestRecorder(options: {
 			id: wireRequest.id,
 			sessionId: wireRequest.sessionId,
 			agentId: options.resolveAgentId(wireRequest.sessionId),
+			systemPrompt: wireRequest.systemPrompt,
 			messages: wireRequest.messages,
 			userMessages: wireRequest.messages.map(userMessageText).filter((text): text is string => text !== undefined),
 		});

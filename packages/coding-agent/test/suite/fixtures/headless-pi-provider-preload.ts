@@ -68,6 +68,7 @@ function waitForParentResponse(context: Context, options: StreamOptions | undefi
 			type: "request",
 			id: requestId,
 			sessionId: options?.sessionId,
+			systemPrompt: context.systemPrompt,
 			messages: context.messages,
 			tools: context.tools,
 		})}\n`,
