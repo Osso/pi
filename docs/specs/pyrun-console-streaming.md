@@ -18,7 +18,8 @@ Pyrun console streaming exposes evaluated Python stdout and stderr through incre
 - [x] Foreground streamed and buffered results use the shared tool lifecycle start/end timestamps for elapsed rendering.
 - [x] Foreground results, including immediate failures, render elapsed durations below one second in milliseconds.
 - [x] Durable foreground evaluations use the same visible progress formatter and console accumulator as direct foreground evaluations.
-- [x] Durable foreground artifact readers consume append-only JSONL bytes incrementally, retaining an incomplete line once rather than rereading the growing artifact on every poll.
+- [x] Durable foreground artifact readers consume append-only JSONL bytes in bounded chunks, retaining an incomplete line once rather than rereading the growing artifact on every poll.
+- [x] Dense durable console records are coalesced before live tool updates while the append-only artifact retains every original record.
 - [x] Large newline-free console records remain memory-bounded across exec restart, restored child execution, and a parent blocked in `wait_agents`.
 - [x] Detached success and failure results retain duration from the original foreground tool invocation.
 - [x] Detached completion and failure notifications render the persisted duration consistently.
@@ -44,7 +45,7 @@ Pyrun console streaming exposes evaluated Python stdout and stderr through incre
 - `packages/coding-agent/test/tool-definition-wrapper.test.ts`
 - `packages/coding-agent/test/detached-job-runner.test.ts`
 - `packages/coding-agent/test/session-control-db.test.ts`
-- `packages/coding-agent/test/pyrun-extension.test.ts`
+- `packages/coding-agent/test/pyrun-extension.test.ts` — includes dense durable console flooding with bounded live updates and complete artifact retention.
 - `packages/coding-agent/test/suite/regressions/post-restart-pyrun-memory.test.ts`
 - Canonical runner: `tests/test_jsonl.py` in the Pyrun repository.
 

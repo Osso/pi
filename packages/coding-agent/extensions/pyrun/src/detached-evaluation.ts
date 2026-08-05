@@ -37,6 +37,8 @@ import {
 import type { CanonicalPyrunEvalResult, CanonicalPyrunProgressUpdate, PyrunRunnerOptions } from "./runner.ts";
 
 const ARTIFACT_POLL_MS = 25;
+const ARTIFACT_READ_BYTE_LIMIT = 1_048_576;
+const DENSE_CONSOLE_RECORD_THRESHOLD = 100;
 const FOREGROUND_RUNNER_LIVENESS_POLL_MS = 3_000;
 
 export async function runDurableDetachablePyrunEvaluation(input: {
@@ -469,7 +471,31 @@ function terminateForegroundRunner(pid: number, signal: NodeJS.Signals = "SIGTER
 	}
 }
 
+interface ConsoleProgressBatch {
+	text: string[];
+	update?: CanonicalPyrunProgressUpdate;
+}
+
+function hasDenseConsoleProgress(records: PyrunArtifactRecord[]): boolean {
+	let consoleRecordCount = 0;
+	for (const record of records) {
+		if (record.kind !== "progress" || record.update.type !== "console") continue;
+		consoleRecordCount += 1;
+		if (consoleRecordCount >= DENSE_CONSOLE_RECORD_THRESHOLD) return true;
+	}
+	return false;
+}
+
 function consumeArtifactRecords(
+	records: PyrunArtifactRecord[],
+	reportProgress: (update: CanonicalPyrunProgressUpdate) => void,
+): CanonicalPyrunEvalResult | undefined {
+	return hasDenseConsoleProgress(records)
+		? consumeDenseArtifactRecords(records, reportProgress)
+		: consumeIndividualArtifactRecords(records, reportProgress);
+}
+
+function consumeIndividualArtifactRecords(
 	records: PyrunArtifactRecord[],
 	reportProgress: (update: CanonicalPyrunProgressUpdate) => void,
 ): CanonicalPyrunEvalResult | undefined {
@@ -479,6 +505,51 @@ function consumeArtifactRecords(
 		else if (record.kind === "result") result = record.result;
 	}
 	return result;
+}
+
+function consumeDenseArtifactRecords(
+	records: PyrunArtifactRecord[],
+	reportProgress: (update: CanonicalPyrunProgressUpdate) => void,
+): CanonicalPyrunEvalResult | undefined {
+	const batch: ConsoleProgressBatch = { text: [] };
+	let result: CanonicalPyrunEvalResult | undefined;
+	for (const record of records) {
+		if (record.kind === "progress") {
+			consumeDenseProgressUpdate(record.update, batch, reportProgress);
+			continue;
+		}
+		flushConsoleProgress(batch, reportProgress);
+		if (record.kind === "result") result = record.result;
+	}
+	flushConsoleProgress(batch, reportProgress);
+	return result;
+}
+
+function consumeDenseProgressUpdate(
+	update: CanonicalPyrunProgressUpdate,
+	batch: ConsoleProgressBatch,
+	reportProgress: (update: CanonicalPyrunProgressUpdate) => void,
+): void {
+	if (update.type !== "console" || typeof update.text !== "string") {
+		flushConsoleProgress(batch, reportProgress);
+		reportProgress(update);
+		return;
+	}
+	if (batch.update && batch.update.stream !== update.stream) {
+		flushConsoleProgress(batch, reportProgress);
+	}
+	batch.update = update;
+	batch.text.push(update.text);
+}
+
+function flushConsoleProgress(
+	batch: ConsoleProgressBatch,
+	reportProgress: (update: CanonicalPyrunProgressUpdate) => void,
+): void {
+	if (!batch.update) return;
+	reportProgress({ ...batch.update, text: batch.text.join("") });
+	batch.update = undefined;
+	batch.text.length = 0;
 }
 
 function formatTerminalAgentError(params: PyrunEvalParams, agent: AgentSnapshot): AgentToolResult<unknown> {
@@ -500,13 +571,15 @@ function createJsonLineReadCursor(): JsonLineReadCursor {
 	return { fragments: [], fragmentBytes: 0, offset: 0 };
 }
 
-function readNewJsonLines<T>(path: string, cursor: JsonLineReadCursor): T[] {
+function readNewJsonLines<T>(path: string, cursor: JsonLineReadCursor, byteLimit?: number): T[] {
 	if (!existsSync(path)) return [];
 	const descriptor = openSync(path, "r");
 	try {
 		const size = fstatSync(descriptor).size;
 		if (size <= cursor.offset) return [];
-		const data = Buffer.allocUnsafe(size - cursor.offset);
+		const unreadBytes = size - cursor.offset;
+		const bytesToRead = byteLimit === undefined ? unreadBytes : Math.min(unreadBytes, byteLimit);
+		const data = Buffer.allocUnsafe(bytesToRead);
 		const bytesRead = readSync(descriptor, data, 0, data.length, cursor.offset);
 		cursor.offset += bytesRead;
 		return consumeJsonLineBytes<T>(cursor, data.subarray(0, bytesRead));
@@ -545,7 +618,7 @@ type PyrunArtifactRecord =
 	| { kind: "result"; result: CanonicalPyrunEvalResult };
 
 function readNewArtifactRecords(path: string, cursor: JsonLineReadCursor): PyrunArtifactRecord[] {
-	return readNewJsonLines<PyrunArtifactRecord>(path, cursor);
+	return readNewJsonLines<PyrunArtifactRecord>(path, cursor, ARTIFACT_READ_BYTE_LIMIT);
 }
 
 function detachedResult(params: PyrunEvalParams, jobId: string, logPath: string): AgentToolResult<unknown> {

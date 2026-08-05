@@ -115,6 +115,7 @@
 
 ### Fixed
 
+- Fixed interactive Pi exhausting memory on dense Pyrun console streams by reading durable artifacts in bounded chunks and coalescing live updates while retaining the complete append-only output artifact.
 - Fixed compacted child recovery after `restart_self`: active `agent_start` admissions are refreshed after parent compaction, and legacy compacted sessions restore missing unmatched admissions from the full parent JSONL before rebinding the live child and delivering queued steering; exact-owner cancellation can then commit `aborted`, and model-facing `list_agents` excludes the terminal child.
 
 ### Changed

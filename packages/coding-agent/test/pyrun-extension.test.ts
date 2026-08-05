@@ -1,7 +1,16 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import type { TUI } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
@@ -393,6 +402,21 @@ async function resultFor(request) {
       process.stdout.write(JSON.stringify({ type: "console", stream: "stdout", text }) + "\\n");
     }
     return { type: "completed", executed: request.code, console: [text], value: "done" };
+  }
+  if (request.code === "print.dense_stream()") {
+    const lineCount = 20_000;
+    if (request.stream_console === true) {
+      const events = Array.from({ length: lineCount }, (_, index) =>
+        JSON.stringify({ type: "console", stream: "stdout", text: "line " + index + "\\n" }),
+      ).join("\\n");
+      process.stdout.write(events + "\\n");
+    }
+    return {
+      type: "completed",
+      executed: request.code,
+      console: Array.from({ length: 300 }, (_, index) => "line " + (lineCount - 300 + index)),
+      value: "done"
+    };
   }
   if (request.code === "print.interleaved_streams()") {
     if (request.stream_console === true) {
@@ -1248,6 +1272,31 @@ for await (const line of createInterface({ input: process.stdin })) {
 		expect(updates.map((update) => readToolText(update))).toEqual(["tick 1\n", "tick 1\ntick 2\n"]);
 		expect(readToolText(result)).toBe("print.streaming()\n\ntick 1\ntick 2\ndone");
 		expect(store.listAgents()).toEqual([]);
+	});
+
+	it("bounds dense durable console progress while retaining complete artifact output", async () => {
+		const store = new MultiAgentStore();
+		const detachRegistry = new ToolDetachRegistry();
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
+
+		const result = await harness.evaluate({ code: "print.dense_stream()" }, (update) => updates.push(update));
+
+		expect(updates.length).toBeLessThan(100);
+		expect(readToolText(updates.at(-1) ?? { content: [], details: undefined })).toContain("line 19999");
+		expect(readToolText(result)).toContain("line 19999");
+		const persistence = store.getPersistenceTarget();
+		if (!persistence) throw new Error("Expected persisted Pyrun store");
+		const sessionFileName = basename(persistence.sessionPath);
+		const sessionName = sessionFileName.slice(0, -extname(sessionFileName).length);
+		const artifactRoot = join(dirname(persistence.sessionPath), "detached-jobs", sessionName);
+		const [artifactDirectory] = readdirSync(artifactRoot);
+		if (!artifactDirectory) throw new Error("Expected Pyrun artifact directory");
+		const outputPath = join(artifactRoot, artifactDirectory, "output.log");
+		const output = readFileSync(outputPath, "utf8");
+		expect(statSync(outputPath).size).toBeGreaterThan(1_000_000);
+		expect(output).toContain('"text":"line 0\\n"');
+		expect(output).toContain('"text":"line 19999\\n"');
 	});
 
 	it("preserves stdout and stderr console event order including partial text", async () => {
