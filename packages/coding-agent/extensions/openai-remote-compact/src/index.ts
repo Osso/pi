@@ -47,6 +47,10 @@ interface OpenAICompactPayload {
 	parallel_tool_calls: boolean;
 }
 
+interface OpenAICompactPayloadOptions {
+	pinnedMessages?: readonly AgentMessage[];
+}
+
 interface OpenAICompactResponse {
 	output?: unknown;
 }
@@ -75,8 +79,13 @@ export async function handleCompaction(event: CompactionEvent, ctx: ExtensionCon
 
 	const endpoint = buildCompactEndpoint(model);
 	const messages = [...event.preparation.messagesToSummarize, ...event.preparation.turnPrefixMessages];
+	const openingUserMessage = event.preparation.isSplitTurn
+		? event.preparation.turnPrefixMessages.find((message) => message.role === "user")
+		: undefined;
 	const instructions = buildOpenAICompactInstructions(ctx.getSystemPrompt(), event.customInstructions);
-	const payload = buildOpenAICompactPayload(model, messages, instructions, previousReplacementHistory);
+	const payload = buildOpenAICompactPayload(model, messages, instructions, previousReplacementHistory, {
+		pinnedMessages: openingUserMessage ? [openingUserMessage] : [],
+	});
 	const startedAt = Date.now();
 	const response = await postOpenAICompact(endpoint, payload, model, auth.apiKey, auth.headers, event.signal);
 	const durationMs = Date.now() - startedAt;
@@ -137,14 +146,28 @@ export function buildOpenAICompactPayload(
 	messages: AgentMessage[],
 	instructions: string,
 	previousReplacementHistory: OpenAIResponseItem[],
+	options: OpenAICompactPayloadOptions = {},
 ): OpenAICompactPayload {
-	const convertedMessages = convertAgentMessagesToOpenAIResponseItems(model, messages);
+	const pinnedMessages = new Set(options.pinnedMessages);
+	const convertedMessageGroups = messages.map((message) => ({
+		message,
+		items: convertAgentMessagesToOpenAIResponseItems(model, [message]),
+	}));
+	const convertedMessages = convertedMessageGroups.flatMap(({ items }) => items);
 	const reconciledMessages = reconcileOpenAIToolPairs(convertedMessages);
+	const pinnedRawItems = convertedMessageGroups
+		.filter(({ message }) => pinnedMessages.has(message))
+		.flatMap(({ items }) => items)
+		.filter((item) => reconciledMessages.includes(item));
+	const boundedPinnedRawItems =
+		serializedOpenAIInputChars(pinnedRawItems) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS ? pinnedRawItems : [];
 	const previousHistoryFits =
-		serializedOpenAIInputChars(previousReplacementHistory) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS;
+		serializedOpenAIInputChars([...previousReplacementHistory, ...boundedPinnedRawItems]) <=
+		MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS;
 	const encryptedCompactionItems = previousReplacementHistory.filter(isOpenAICompactionItem);
 	const encryptedCompactionItemsFit =
-		serializedOpenAIInputChars(encryptedCompactionItems) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS;
+		serializedOpenAIInputChars([...encryptedCompactionItems, ...boundedPinnedRawItems]) <=
+		MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS;
 	const pinnedPreviousItems = previousHistoryFits
 		? previousReplacementHistory
 		: encryptedCompactionItemsFit
@@ -152,7 +175,7 @@ export function buildOpenAICompactPayload(
 			: [];
 	const input = limitOpenAICompactInput(
 		[...previousReplacementHistory, ...reconciledMessages],
-		new Set(pinnedPreviousItems),
+		new Set([...pinnedPreviousItems, ...boundedPinnedRawItems]),
 		new Set(previousReplacementHistory),
 	);
 	return {

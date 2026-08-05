@@ -10,7 +10,8 @@ OpenAI remote compaction uses OpenAI's `/responses/compact` endpoint for first-p
 - [x] Codex remote compaction must use `gpt-5.6-terra` regardless of the active Codex generation model, while preserving native history across Codex model switches.
 - [x] Remote compaction results must keep OpenAI's native replacement history in compaction entry details.
 - [x] When the compact endpoint returns provider-generated `message` rows that are identical except for response-item `id`, remote compaction must keep only the latest row while preserving every non-message item unchanged.
-- [x] When a compact request exceeds the 400,000-character serialized-input limit, it must retain prior OpenAI-native replacement history intact and allocate the remaining budget to newer raw context.
+- [x] When a compact request exceeds the 400,000-character serialized-input limit, it must retain prior OpenAI-native replacement history intact when that history and any pinned split-turn opening user fit together, then allocate the remaining budget to newer raw context.
+- [x] For split-turn compaction, the opening user message of the active turn must appear exactly once within the existing 400,000-character budget before prior non-encrypted native history or newer coherent raw context; tool-call/output pairs remain intact. Ordinary multi-turn payload selection is unchanged.
 - [x] When prior OpenAI-native replacement history alone exceeds the 400,000-character serialized-input limit, remote compaction must preserve encrypted compaction items that fit, truncate non-encrypted native context, and continue.
 - [x] An encrypted compaction item that cannot itself fit within the serialized-input limit must be omitted rather than exceed the limit or cancel compaction.
 - [x] Truncation must not group raw tool calls across the boundary with prior native history or retain a raw call without its matching output.
@@ -29,7 +30,8 @@ OpenAI remote compaction uses OpenAI's `/responses/compact` endpoint for first-p
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/openai-remote-compact-extension.test.ts`
+- `packages/coding-agent/test/openai-remote-compact-extension.test.ts` — payload limits, Terra selection, and tool-pair preservation.
+- `packages/coding-agent/test/openai-remote-compact-split-turn.test.ts` — split-turn opening-user pinning within the payload limit.
 
 ## Known gaps (current cycle)
 

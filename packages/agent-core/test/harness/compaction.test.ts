@@ -142,6 +142,60 @@ function createFauxModel(reasoning: boolean, maxTokens = 8192): { faux: FauxProv
 	return { faux, model: faux.getModel() };
 }
 
+function createRepeatedToolCycleEntries(cycleCount: number, resultText: string): SessionTreeEntry[] {
+	const entries: SessionTreeEntry[] = [];
+	let parentId: string | null = null;
+	const user = createMessageEntry(createUserMessage("continue the work"), parentId);
+	entries.push(user);
+	parentId = user.id;
+
+	for (let cycle = 0; cycle < cycleCount; cycle++) {
+		const toolCallId = `tool-${cycle}`;
+		const assistant = createMessageEntry(
+			{
+				...createAssistantMessage("", createMockUsage(100, 50)),
+				content: [{ type: "toolCall", id: toolCallId, name: "ordinary_tool", arguments: { cycle } }],
+			},
+			parentId,
+		);
+		entries.push(assistant);
+		const toolResult = createMessageEntry(
+			{
+				role: "toolResult",
+				toolCallId,
+				toolName: "ordinary_tool",
+				content: [{ type: "text", text: resultText }],
+				isError: false,
+				timestamp: Date.now(),
+			},
+			assistant.id,
+		);
+		entries.push(toolResult);
+		parentId = toolResult.id;
+	}
+
+	return entries;
+}
+
+function expectKeptToolResultsToFollowCalls(
+	entries: SessionTreeEntry[],
+	firstKeptIndex: number,
+	expectedResultText: string,
+): void {
+	const keptToolCallIds = new Set<string>();
+	for (const entry of entries.slice(firstKeptIndex)) {
+		if (entry.type !== "message") continue;
+		if (entry.message.role === "assistant") {
+			for (const block of entry.message.content) {
+				if (block.type === "toolCall") keptToolCallIds.add(block.id);
+			}
+		} else if (entry.message.role === "toolResult") {
+			expect(keptToolCallIds.has(entry.message.toolCallId)).toBe(true);
+			expect(entry.message.content[0]).toMatchObject({ type: "text", text: expectedResultText });
+		}
+	}
+}
+
 describe("harness compaction", () => {
 	beforeEach(() => {
 		nextId = 0;
@@ -269,6 +323,46 @@ describe("harness compaction", () => {
 		expect(preparation?.firstKeptEntryId).toBe(latestUser.id);
 		expect(preparation?.messagesToSummarize).not.toContain(latestUser.message);
 		expect(preparation?.turnPrefixMessages).toEqual([]);
+	});
+
+	it("prepares a split turn for repeated ordinary-sized tool cycles", () => {
+		const resultText = "x".repeat(4_000);
+		const entries = createRepeatedToolCycleEntries(24, resultText);
+		const preparation = getOrThrow(prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS));
+
+		expect(preparation).toMatchObject({ isSplitTurn: true });
+		expect(preparation?.turnPrefixMessages[0]?.role).toBe("user");
+		expect(preparation?.turnPrefixMessages.length).toBeGreaterThan(1);
+
+		const firstKeptIndex = entries.findIndex((entry) => entry.id === preparation?.firstKeptEntryId);
+		expect(firstKeptIndex).toBeGreaterThan(0);
+		expect(entries[firstKeptIndex]?.type).toBe("message");
+		expect((entries[firstKeptIndex] as MessageEntry).message.role).toBe("assistant");
+		expectKeptToolResultsToFollowCalls(entries, firstKeptIndex, resultText);
+	});
+
+	it("does not prepare a short single active turn", () => {
+		const user = createMessageEntry(createUserMessage("short turn"));
+		const assistant = createMessageEntry(
+			{
+				...createAssistantMessage("", createMockUsage(100, 50)),
+				content: [{ type: "toolCall", id: "short-tool", name: "ordinary_tool", arguments: {} }],
+			},
+			user.id,
+		);
+		const toolResult = createMessageEntry(
+			{
+				role: "toolResult",
+				toolCallId: "short-tool",
+				toolName: "ordinary_tool",
+				content: [{ type: "text", text: "short result" }],
+				isError: false,
+				timestamp: Date.now(),
+			},
+			assistant.id,
+		);
+
+		expect(getOrThrow(prepareCompaction([user, assistant, toolResult], DEFAULT_COMPACTION_SETTINGS))).toBeUndefined();
 	});
 
 	it("covers cut-point and turn-start edge cases", () => {

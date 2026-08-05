@@ -386,6 +386,30 @@ describe("findCutPoint", () => {
 		expect(preparation?.turnPrefixMessages).toEqual([]);
 	});
 
+	it("splits a boundary-start turn when only non-context entries precede it", () => {
+		const modelChange = createModelChangeEntry("openai", "gpt-5.6-sol");
+		const activeUser = createMessageEntry(createUserMessage("one cumulative turn"));
+		const assistantMessages = Array.from({ length: 4 }, (_, index) =>
+			createMessageEntry(createAssistantMessage(`small result ${index} ${"x".repeat(4_000)}`)),
+		);
+
+		const preparation = prepareCompaction(
+			[modelChange, activeUser, ...assistantMessages],
+			DEFAULT_COMPACTION_SETTINGS,
+		);
+
+		expect(preparation).toMatchObject({ isSplitTurn: true });
+	});
+
+	it("does not compact a short single active turn", () => {
+		const entries: SessionEntry[] = [
+			createMessageEntry(createUserMessage("short request")),
+			createMessageEntry(createAssistantMessage("short response")),
+		];
+
+		expect(prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS)).toBeUndefined();
+	});
+
 	it("excludes goal reminders but preserves other extension messages in compaction input", () => {
 		const goalStart = createMessageEntry(
 			createExtensionUserMessage("Work toward this objective until it is achieved: fix compaction"),

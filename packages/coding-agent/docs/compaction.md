@@ -101,9 +101,11 @@ Only one speculative cache may exist per session, and it does not overlap anothe
 
 ### Split Turns
 
-A "turn" starts with a user message and includes all assistant responses and tool calls until the next user message. Normally, compaction cuts at turn boundaries.
+A "turn" starts with a user message and includes all assistant responses and tool calls until the next user message. Compaction normally cuts at turn boundaries and keeps the active turn whole when older compactable history exists.
 
-When a single turn exceeds `keepRecentTokens`, the cut point lands mid-turn at an assistant message. This is a "split turn":
+If the active turn begins at the compaction boundary and grows beyond the protected suffix, Pi cuts at a valid assistant boundary instead of treating the session as too small. Short one-turn sessions remain unchanged. This is a "split turn":
+
+For OpenAI remote compaction, the split turn's opening user message is pinned exactly once inside the existing 400,000-character input budget before prior non-encrypted native history and newest coherent raw context fill the remaining space. Tool-call/output pairs remain intact; ordinary multi-turn payload selection is unchanged.
 
 ```
 Split turn (one huge turn exceeds budget):

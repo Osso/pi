@@ -367,7 +367,12 @@ function findProtectedSuffixCutIndex(
 	const tokenBoundedCutIndex = findTokenBoundedCutIndex(entries, protectedStartIndex, endIndex);
 	let shorterSuffixCutIndex = Math.max(messageCountCutIndex, tokenBoundedCutIndex);
 	const activeTurnFloorIndex = findActiveTurnFloorIndex(entries, protectedStartIndex, endIndex);
-	if (activeTurnFloorIndex !== undefined) {
+	const firstCutPointIndex = cutPoints[0];
+	const hasEarlierCompactableContext =
+		activeTurnFloorIndex !== undefined &&
+		firstCutPointIndex !== undefined &&
+		firstCutPointIndex < activeTurnFloorIndex;
+	if (hasEarlierCompactableContext) {
 		shorterSuffixCutIndex = Math.min(shorterSuffixCutIndex, activeTurnFloorIndex);
 	}
 	return findNearestCutPointAtOrAfter(cutPoints, shorterSuffixCutIndex);
@@ -674,6 +679,9 @@ export function prepareCompaction(
 			const msg = getMessageFromEntryForCompaction(pathEntries[i]);
 			if (msg) turnPrefixMessages.push(msg);
 		}
+	}
+	if (messagesToSummarize.length === 0 && turnPrefixMessages.length === 0) {
+		return ok(undefined);
 	}
 	const fileOps = extractFileOperations(messagesToSummarize, pathEntries, prevCompactionIndex);
 	if (cutPoint.isSplitTurn) {

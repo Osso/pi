@@ -1,14 +1,16 @@
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import {
 	type AssistantMessage,
 	createAssistantMessageEventStream,
 	fauxAssistantMessage,
 	fauxToolCall,
 	type Model,
+	type ToolResultMessage,
 } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { estimateTokens, findCutPoint } from "../../src/core/compaction/index.ts";
+import type { SessionMessageEntry } from "../../src/core/session-manager.ts";
 import { createHarness, getAssistantTexts, getUserTexts, type Harness } from "./harness.ts";
 
 type SessionWithCompactionInternals = {
@@ -139,6 +141,22 @@ function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void
 		resolve = promiseResolve;
 	});
 	return { promise, resolve };
+}
+
+function expectToolResultsToFollowCalls(messages: readonly AgentMessage[], toolName: string): number {
+	const seenToolCallIds = new Set<string>();
+	let matchingResultCount = 0;
+	for (const message of messages) {
+		if (message.role === "assistant") {
+			for (const block of message.content) {
+				if (block.type === "toolCall") seenToolCallIds.add(block.id);
+			}
+		} else if (message.role === "toolResult" && message.toolName === toolName) {
+			matchingResultCount++;
+			expect(seenToolCallIds.has(message.toolCallId)).toBe(true);
+		}
+	}
+	return matchingResultCount;
 }
 
 function seedCompactableSession(harness: Harness): void {
@@ -861,6 +879,89 @@ describe("AgentSession compaction characterization", () => {
 		expect(compactionErrors).toContain(
 			"Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.",
 		);
+	});
+
+	it("compacts and retries overflow after repeated small tool results fill one turn", async () => {
+		const smallResultText = "x".repeat(4_000);
+		const repeatedResultTool: AgentTool = {
+			name: "repeated_result",
+			label: "Repeated Result",
+			description: "Return one ordinary-sized result",
+			parameters: Type.Object({}),
+			execute: async () => ({ content: [{ type: "text", text: smallResultText }], details: {} }),
+		};
+		let compactionCalls = 0;
+		let retryContextChecked = false;
+		const harness = await createHarness({
+			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 5_000 } },
+			models: [{ id: "faux-1", contextWindow: 30_000, maxTokens: 100 }],
+			tools: [repeatedResultTool],
+			extensionFactories: [
+				(pi) => {
+					pi.on("compaction", async (event) => {
+						compactionCalls++;
+						return {
+							compaction: {
+								summary: "repeated-results overflow summary",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								tokensBefore: event.preparation.tokensBefore,
+								details: {},
+							},
+						};
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		const toolCycles = Array.from({ length: 24 }, () =>
+			fauxAssistantMessage(fauxToolCall("repeated_result", {}), { stopReason: "toolUse" }),
+		);
+		harness.setResponses([
+			...toolCycles,
+			fauxAssistantMessage("", {
+				stopReason: "error",
+				errorMessage:
+					"Codex error: Your input exceeds the context window of this model. Please adjust your input and try again.",
+			}),
+			async (context) => {
+				retryContextChecked = true;
+				const retainedResultCount = expectToolResultsToFollowCalls(context.messages, "repeated_result");
+				expect(retainedResultCount).toBeGreaterThan(0);
+				await new Promise((resolve) => setTimeout(resolve, 5));
+				return fauxCompletedTurn("recovered after repeated results overflow");
+			},
+		]);
+
+		await harness.session.prompt("start one cumulative tool turn");
+
+		const repeatedResults = harness.sessionManager
+			.getEntries()
+			.filter(
+				(entry): entry is SessionMessageEntry & { message: ToolResultMessage } =>
+					entry.type === "message" &&
+					entry.message.role === "toolResult" &&
+					entry.message.toolName === "repeated_result",
+			);
+		const compactionEntries = harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction");
+		expect(repeatedResults).toHaveLength(toolCycles.length);
+		expect(
+			repeatedResults.every((entry) =>
+				entry.message.content.every(
+					(block) => block.type !== "text" || block.text.length <= smallResultText.length,
+				),
+			),
+		).toBe(true);
+		expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({
+			reason: "overflow",
+			aborted: false,
+			willRetry: true,
+		});
+		expect(compactionEntries).toHaveLength(1);
+		expect(compactionEntries[0]).toMatchObject({ summary: "repeated-results overflow summary" });
+		expect(compactionCalls).toBe(1);
+		expect(retryContextChecked).toBe(true);
+		expect(harness.faux.state.callCount).toBe(toolCycles.length + 2);
+		expect(getAssistantTexts(harness)).toContain("recovered after repeated results overflow");
 	});
 
 	it("compacts successful overflow responses without retrying", async () => {
