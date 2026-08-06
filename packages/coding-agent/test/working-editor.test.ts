@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
-import type { EditorComponent, LoaderIndicatorOptions } from "@earendil-works/pi-tui";
+import { type EditorComponent, type LoaderIndicatorOptions, TUI } from "@earendil-works/pi-tui";
 import { describe, it } from "vitest";
+import { defaultEditorTheme } from "../../tui/test/test-themes.ts";
+import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
+import { KeybindingsManager } from "../src/core/keybindings.ts";
+import { CustomEditor } from "../src/modes/interactive/components/custom-editor.ts";
 import {
 	clearWorkingEditor,
 	positionWorkingEditor,
+	supportsWorkingPromptAnimation,
 	syncWorkingEditor,
 } from "../src/modes/interactive/working-editor.ts";
 
@@ -70,6 +75,22 @@ describe("working editor integration", () => {
 		clearWorkingEditor(editor);
 		assert.strictEqual(editor.working, false);
 		assert.strictEqual(editor.origin, undefined);
+	});
+
+	it("preserves inherited prompt animation in CustomEditor", () => {
+		const theme = { ...defaultEditorTheme, promptPrefix: (text: string) => text };
+		const editor = new CustomEditor(new TUI(new VirtualTerminal()), theme, KeybindingsManager.create());
+		const indicator = { frames: ["x"], intervalMs: 120 };
+
+		editor.render(40);
+		positionWorkingEditor(editor, { row: 4, col: 2 });
+		syncWorkingEditor(editor, true, indicator);
+
+		assert.strictEqual(supportsWorkingPromptAnimation(editor, indicator), true);
+		assert.ok(editor.render(40)[1]?.startsWith("x "));
+
+		clearWorkingEditor(editor);
+		assert.ok(editor.render(40)[1]?.startsWith("› "));
 	});
 
 	it("leaves arbitrary custom editors unchanged", () => {

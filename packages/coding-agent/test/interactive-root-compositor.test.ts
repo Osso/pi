@@ -63,5 +63,9 @@ describe("interactive root compositor", () => {
 		components.footer.lines = ["footer 1", "footer 2"];
 		compositor.render(20);
 		assert.deepStrictEqual(editorOrigin, { row: 8, col: 0 });
+
+		components.editor.lines = ["editor top", "editor prompt", "editor middle", "editor bottom"];
+		compositor.render(20);
+		assert.deepStrictEqual(editorOrigin, { row: 7, col: 0 });
 	});
 });
