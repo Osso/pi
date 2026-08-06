@@ -452,6 +452,24 @@ export class Editor implements Component, Focusable {
 		return this.working ? this.getWorkingPromptFrame() : this.promptPrefix;
 	}
 
+	private renderPromptForLine(
+		promptPrefixWidth: number,
+		paddingX: number,
+		visibleLineIndex: number,
+		row: number,
+	): { text: string; position: { row: number; col: number } | undefined } {
+		const hasPrompt = promptPrefixWidth > 0 && this.scrollOffset + visibleLineIndex === 0;
+		if (!hasPrompt) {
+			return { text: " ".repeat(promptPrefixWidth), position: undefined };
+		}
+
+		const promptText = this.getPromptText();
+		return {
+			text: promptText + " ".repeat(Math.max(0, promptPrefixWidth - visibleWidth(promptText))),
+			position: { row, col: paddingX },
+		};
+	}
+
 	private updatePromptCellPlacement(): void {
 		if (!this.promptPosition || !this.screenOrigin) {
 			this.promptCell.clear();
@@ -847,17 +865,11 @@ export class Editor implements Component, Focusable {
 			// Calculate padding based on actual visible width
 			const padding = " ".repeat(Math.max(0, editorContentWidth - lineVisibleWidth));
 			const lineRightPadding = cursorInPadding ? rightPadding.slice(1) : rightPadding;
-			const hasPrompt = promptPrefixWidth > 0 && this.scrollOffset + i === 0;
-			if (hasPrompt) {
-				promptPosition = { row: result.length, col: paddingX };
-			}
-			const promptText = hasPrompt ? this.getPromptText() : "";
-			const promptPrefix = hasPrompt
-				? promptText + " ".repeat(Math.max(0, promptPrefixWidth - visibleWidth(promptText)))
-				: " ".repeat(promptPrefixWidth);
+			const prompt = this.renderPromptForLine(promptPrefixWidth, paddingX, i, result.length);
+			promptPosition = prompt.position ?? promptPosition;
 
 			// Render the line (no side borders, just horizontal lines above and below)
-			result.push(`${leftPadding}${promptPrefix}${displayText}${padding}${lineRightPadding}`);
+			result.push(`${leftPadding}${prompt.text}${displayText}${padding}${lineRightPadding}`);
 		}
 
 		// Render bottom border (with scroll indicator if more content below)
