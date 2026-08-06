@@ -165,7 +165,7 @@ export interface ExtensionUIContext {
 	/**
 	 * Configure the interactive working indicator shown during streaming.
 	 *
-	 * - Omit the argument to restore the default animated spinner.
+	 * - Omit the argument to restore the static default indicator.
 	 * - Use `frames: ["●"]` for a static indicator.
 	 * - Use `frames: []` to hide the indicator entirely.
 	 * - Custom frames are rendered as provided, so extensions must add their own colors.
