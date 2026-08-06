@@ -13,8 +13,8 @@ import {
 	visibleWidth,
 } from "../utils.ts";
 import { findWordBackward, findWordForward } from "../word-navigation.ts";
-import { SelectList, type SelectListLayoutOptions, type SelectListTheme } from "./select-list.ts";
 import type { LoaderIndicatorOptions } from "./loader.ts";
+import { SelectList, type SelectListLayoutOptions, type SelectListTheme } from "./select-list.ts";
 
 const graphemeSegmenter = getGraphemeSegmenter();
 const wordSegmenter = getWordSegmenter();
@@ -241,6 +241,11 @@ const HISTORY_SEARCH_MAX_RENDERED_ROWS = 20;
 const DEFAULT_PROMPT_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const DEFAULT_PROMPT_INTERVAL_MS = 250;
 
+function assertSingleCellWorkingFrames(frames: string[] | undefined): void {
+	if (!frames?.some((frame) => visibleWidth(frame) !== 1)) return;
+	throw new Error("Editor working indicator frames must occupy exactly one terminal cell");
+}
+
 function escapeCharacterClass(value: string): string {
 	return value.replace(/[\\^$.*+?()[\]{}|-]/g, "\\$&");
 }
@@ -406,12 +411,14 @@ export class Editor implements Component, Focusable {
 
 	setWorkingIndicator(options?: LoaderIndicatorOptions): void {
 		const frames = options?.frames;
+		assertSingleCellWorkingFrames(frames);
 		if (frames === undefined) {
 			this.workingFrames = DEFAULT_PROMPT_FRAMES.map((frame) => this.promptPrefixFn(frame));
 		} else {
 			this.workingFrames = [...frames];
 		}
-		this.workingIntervalMs = options?.intervalMs && options.intervalMs > 0 ? options.intervalMs : DEFAULT_PROMPT_INTERVAL_MS;
+		this.workingIntervalMs =
+			options?.intervalMs && options.intervalMs > 0 ? options.intervalMs : DEFAULT_PROMPT_INTERVAL_MS;
 		this.workingFrame = 0;
 		this.restartWorkingAnimation();
 		this.updatePromptCell();

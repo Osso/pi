@@ -3,7 +3,6 @@ import { describe, it, mock } from "node:test";
 import { stripVTControlCharacters } from "node:util";
 import { type AutocompleteProvider, CombinedAutocompleteProvider } from "../src/autocomplete.ts";
 import { Editor, type EditorTheme, wordWrapLine } from "../src/components/editor.ts";
-import type { LoaderIndicatorOptions } from "../src/components/loader.ts";
 import { type FixedCell, TUI } from "../src/tui.ts";
 import { visibleWidth } from "../src/utils.ts";
 import { defaultEditorTheme } from "./test-themes.ts";
@@ -22,7 +21,10 @@ interface WorkingEditorTUI extends TUI {
 	createFixedCell(): FixedCell;
 }
 
-function createWorkingEditorTUI(cols = 80, rows = 24): {
+function createWorkingEditorTUI(
+	cols = 80,
+	rows = 24,
+): {
 	tui: WorkingEditorTUI;
 	writes: FixedCellWrite[];
 	getGlobalRenderCount: () => number;
@@ -99,10 +101,7 @@ describe("Editor component", () => {
 				assert.deepStrictEqual(promptPosition, { row: 1, col: 0 });
 
 				assert.ok(writes.length >= 1, "working state should render an initial prompt frame");
-				assert.deepStrictEqual(
-					{ row: writes[0]!.row, col: writes[0]!.col },
-					{ row: 11, col: 5 },
-				);
+				assert.deepStrictEqual({ row: writes[0]!.row, col: writes[0]!.col }, { row: 11, col: 5 });
 				assert.notStrictEqual(writes[0]!.value, "›");
 
 				const globalRendersBeforeTick = getGlobalRenderCount();
@@ -149,6 +148,16 @@ describe("Editor component", () => {
 			}
 		});
 
+		it("rejects working frames wider than one terminal cell", () => {
+			const { tui } = createWorkingEditorTUI();
+			const editor = new Editor(tui, promptEditorTheme);
+
+			assert.throws(
+				() => editor.setWorkingIndicator({ frames: ["XX"] }),
+				/working indicator frames must occupy exactly one terminal cell/,
+			);
+		});
+
 		it("keeps the prompt cell at the first wrapped editor row", () => {
 			const { tui, writes } = createWorkingEditorTUI();
 			const editor = new Editor(tui, promptEditorTheme);
@@ -162,10 +171,7 @@ describe("Editor component", () => {
 
 			editor.setScreenOrigin(4, 3);
 			editor.setWorking(true);
-			assert.deepStrictEqual(
-				{ row: writes.at(-1)!.row, col: writes.at(-1)!.col },
-				{ row: 5, col: 3 },
-			);
+			assert.deepStrictEqual({ row: writes.at(-1)!.row, col: writes.at(-1)!.col }, { row: 5, col: 3 });
 		});
 
 		it("reports the prompt column after editor padding", () => {

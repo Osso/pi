@@ -35,7 +35,14 @@ type HandleEventThis = {
 	hiddenThinkingLabel: string;
 	hideThinkingBlock: boolean;
 	isInitialized: boolean;
-	loadingAnimation: { setMessage(message: string): void } | undefined;
+	editor: Text;
+	editorContainer: Container;
+	loadingAnimation:
+		| {
+				setIndicator?(options?: LoaderIndicatorOptions): void;
+				setMessage(message: string): void;
+		  }
+		| undefined;
 	multiAgentStore:
 		| {
 				getAgent(agentId: string): Pick<AgentSnapshot, "currentActivity"> | undefined;
@@ -48,6 +55,7 @@ type HandleEventThis = {
 		session: {
 			getFollowUpMessages(): string[];
 			getSteeringMessages(): string[];
+			isStreaming: boolean;
 			retryAttempt: number;
 			sessionManager: { getCwd(): string };
 			settingsManager: { getImageWidthCells(): number; getShowImages(): boolean };
@@ -61,6 +69,7 @@ type HandleEventThis = {
 	workingIndicatorOptions: LoaderIndicatorOptions | undefined;
 	workingLoaderView: "main" | "child" | undefined;
 	workingMessage: string | undefined;
+	workingVisible: boolean;
 	ui: Pick<TUI, "requestRender">;
 	getRegisteredToolDefinition(): undefined;
 };
@@ -91,7 +100,7 @@ interface WorkingLoader {
 }
 
 interface WorkingLoaderInternals {
-	createWorkingLoader(this: unknown): WorkingLoader;
+	createWorkingLoader(this: unknown, indicator: LoaderIndicatorOptions): WorkingLoader;
 	getWorkingLoaderMessage(this: unknown): string;
 	setWorkingIndicator(this: unknown, options?: LoaderIndicatorOptions): void;
 	startChildActivityTimer(this: unknown): void;
@@ -148,6 +157,9 @@ function markRuntimeMessageEvent(
 }
 
 function createFakeInteractiveModeThis(): HandleEventThis {
+	const editor = new Text("", 0, 0);
+	const editorContainer = new Container();
+	editorContainer.addChild(editor);
 	return Object.assign(Object.create(InteractiveMode.prototype) as HandleEventThis, {
 		chatContainer: new Container(),
 		childActivityTimer: undefined,
@@ -162,6 +174,8 @@ function createFakeInteractiveModeThis(): HandleEventThis {
 		hiddenThinkingLabel: "Thinking...",
 		hideThinkingBlock: false,
 		isInitialized: true,
+		editor,
+		editorContainer,
 		loadingAnimation: undefined,
 		multiAgentStore: undefined,
 		pendingMessagesContainer: new Container(),
@@ -170,6 +184,7 @@ function createFakeInteractiveModeThis(): HandleEventThis {
 			session: {
 				getFollowUpMessages: () => [],
 				getSteeringMessages: () => [],
+				isStreaming: true,
 				retryAttempt: 0,
 				sessionManager: { getCwd: () => process.cwd() },
 				settingsManager: { getImageWidthCells: () => 40, getShowImages: () => false },
@@ -183,6 +198,7 @@ function createFakeInteractiveModeThis(): HandleEventThis {
 		workingIndicatorOptions: undefined,
 		workingLoaderView: undefined,
 		workingMessage: undefined,
+		workingVisible: true,
 		ui: { requestRender: vi.fn() },
 		getRegisteredToolDefinition: () => undefined,
 	});
@@ -208,10 +224,10 @@ describe("InteractiveMode streaming render throttling", () => {
 		expect(fakeThis.chatContainer.render(80).join("\n")).not.toContain("main thread leak");
 	});
 
-	test("does not timer-render the default working indicator while idle", async () => {
+	test("keeps the normal working status label static", async () => {
 		vi.useFakeTimers();
 		const defaultMode = createFakeInteractiveModeThis();
-		const defaultLoader = workingLoader.createWorkingLoader.call(defaultMode);
+		const defaultLoader = workingLoader.createWorkingLoader.call(defaultMode, { frames: [] });
 		try {
 			expect(defaultLoader.render(80).join("\n")).toContain("Thinking...");
 			expect(defaultMode.ui.requestRender).toHaveBeenCalledTimes(1);
@@ -230,12 +246,14 @@ describe("InteractiveMode streaming render throttling", () => {
 		}
 	});
 
-	test("preserves configured animation and stops it when restoring the default indicator", async () => {
+	test("preserves child loader animation and stops it when restoring the default indicator", async () => {
 		vi.useFakeTimers();
 		const animatedMode = createFakeInteractiveModeThis();
+		animatedMode.multiAgentStore = { getAgent: () => ({}), getSelectedAgentId: () => "agent_1" };
 		animatedMode.workingIndicatorOptions = { frames: ["a", "b"], intervalMs: 250 };
-		const animatedLoader = workingLoader.createWorkingLoader.call(animatedMode);
+		const animatedLoader = workingLoader.createWorkingLoader.call(animatedMode, animatedMode.workingIndicatorOptions);
 		animatedMode.loadingAnimation = animatedLoader;
+		animatedMode.workingLoaderView = "child";
 		try {
 			expect(animatedMode.ui.requestRender).toHaveBeenCalledTimes(1);
 

@@ -38,15 +38,18 @@ terminal_resize_reflow_max_rows = 5000
 - [ ] `ctx.ui.setHeader(factory | undefined)` / `setFooter(factory | undefined)` replace the startup header / footer (footer factory receives a `ReadonlyFooterDataProvider`); passing `undefined` restores the built-in.
 - [ ] `ctx.ui.setWidget(key, content, options?)` shows a string-array or component widget above/below the editor.
 - [ ] `ctx.ui.setEditorComponent(factory | undefined)` replaces the core input editor (subclass `CustomEditor`, call `super.handleInput` for app keybindings); `getEditorComponent()` reads the current factory.
+- [x] Interactive layout preserves normal component rendering order while anchoring status, editor widgets, editor, and footer to the viewport bottom when content is shorter than the terminal.
 - [ ] `ctx.ui.custom<T>(factory, options?)` shows a full-screen or overlay component with keyboard focus and resolves with a result `T`.
 - [ ] `ctx.ui.setTitle`, `setEditorText`/`getEditorText`, `pasteToEditor`, `editor(title, prefill?)`, `addAutocompleteProvider`, and `getToolsExpanded`/`setToolsExpanded` are available as supporting surface.
 - [x] `pi.registerEntryRenderer(customType, renderer)` renders matching display-only `pi.appendEntry()` data in interactive chat immediately on append and from the active compaction-aware branch during transcript startup, resume, and rebuild; entries remain excluded from model context.
 
 ### Working indicator
 
-- [x] The default normal working indicator shows static `Thinking...` and `Streaming...` text without glyph animation or a periodic render timer.
-- [x] `ctx.ui.setWorkingIndicator()` with no argument restores the static default.
-- [x] Explicit custom multi-frame indicators remain animated; compaction, retry, and tool loaders remain unchanged.
+- [x] Normal working status text remains static `Thinking...` / `Streaming...`; the built-in editor prompt cell carries the working animation without rendering the global component tree on each frame.
+- [x] `ctx.ui.setWorkingIndicator()` with no argument restores the default prompt animation while preserving the static status label.
+- [x] Explicit one-cell multi-frame indicators animate in the prompt for the built-in editor and compatible subclasses; selected-child views, arbitrary custom editors, and wider frames retain loader-based indicators.
+- [x] Pending renders, terminal resize, hidden prompt rows, and overlays suppress unsafe direct cell writes; the next normal render recalculates placement and synchronizes the frame cache.
+- [x] Compaction, retry, and tool loaders remain unchanged.
 
 ## How it works
 
@@ -56,8 +59,11 @@ terminal_resize_reflow_max_rows = 5000
 ## Implementation inventory
 
 - `packages/coding-agent/src/core/extensions/types.ts:163-186` — `setWidget`, `setFooter`, `setHeader`, `setTitle` on the `ctx.ui` interface.
-- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` — creates the static default working indicator and restores it when no indicator options are passed.
-- `packages/tui/src/components/loader.ts` — animates explicit multi-frame working-indicator options.
+- `packages/coding-agent/src/modes/interactive/interactive-root-compositor.ts` and `interactive-mode.ts` — preserve flow order, anchor the interactive bottom zone, route editor bounds, and keep normal working labels static.
+- `packages/coding-agent/src/modes/interactive/working-editor.ts` — detects compatible editors and coordinates working state and prompt placement without changing arbitrary custom editors.
+- `packages/tui/src/components/editor.ts` — owns prompt frames, timer lifetime, multiline prompt placement, and idle-prompt restoration.
+- `packages/tui/src/tui.ts` — performs one-cell terminal updates while synchronizing the cached rendered frame and rejecting unsafe writes.
+- `packages/tui/src/components/loader.ts` — retains loader animation for selected-child views, arbitrary custom editors, compaction, retries, and tools.
 - `packages/coding-agent/src/core/extensions/types.ts:188-203` — `custom<T>(...)` full-screen/overlay component with `done(result)`.
 - `packages/coding-agent/src/core/extensions/types.ts:220-256` — `setEditorComponent` / `getEditorComponent` (CustomEditor base, `super.handleInput`).
 - `packages/coding-agent/src/core/extensions/types.ts:270-274` — `getToolsExpanded` / `setToolsExpanded`.
@@ -94,7 +100,11 @@ terminal_resize_reflow_max_rows = 5000
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts:211-256` — default working-indicator text does not timer-render while idle; configured animation remains animated and stops when the default is restored.
+- `packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts:211-256` — working-label timer behavior and configured indicator lifecycle.
+- `packages/coding-agent/test/interactive-root-compositor.test.ts` — actual interactive flow/bottom ordering plus editor repositioning after terminal and footer height changes.
+- `packages/coding-agent/test/interactive-mode-working-editor.test.ts` and `working-editor.test.ts` — main/child/custom-editor indicator routing, temporary editor replacement, and prompt placement coordination.
+- `packages/tui/test/fixed-cell.test.ts` — one-cell writes without tree renders, cache synchronization, pending-render/resize rejection, recovery, and overlay suppression.
+- `packages/tui/test/editor.test.ts` — prompt animation, multiline/padded/scrolled prompt placement, custom/static/hidden frames, and idle restoration.
 - `packages/coding-agent/test/extensions-runner.test.ts:128-313` — shortcut conflict detection: warns on reserved conflict, allows when reserved set changes, reserved wins over non-reserved across iteration order, warns-but-allows on non-reserved built-in.
 - `packages/coding-agent/test/interactive-mode-status.test.ts:201-270` — `ctx.ui.custom` overlay/replacement focus regression: an overlay reclaims input after a non-overlay custom UI closes.
 - `packages/coding-agent/test/interactive-mode-custom-entry-rendering.test.ts` — custom entries render on live append and persisted transcript rebuild.

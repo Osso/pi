@@ -58,8 +58,6 @@ export {
 	parseKey,
 	setKittyProtocolActive,
 } from "./keys.ts";
-// Input buffering for batch splitting
-export { StdinBuffer, type StdinBufferEventMap, type StdinBufferOptions } from "./stdin-buffer.ts";
 // Root viewport composition
 export {
 	RootCompositor,
@@ -67,6 +65,8 @@ export {
 	type RootLayoutEntry,
 	type RootLayoutRect,
 } from "./root-compositor.ts";
+// Input buffering for batch splitting
+export { StdinBuffer, type StdinBufferEventMap, type StdinBufferOptions } from "./stdin-buffer.ts";
 // Terminal interface and implementations
 export { isTerminalRawModeFailure, ProcessTerminal, type Terminal, TerminalRawModeError } from "./terminal.ts";
 // Terminal colors

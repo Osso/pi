@@ -83,6 +83,63 @@ describe("TUI fixed-cell updates", () => {
 		tui.stop();
 	});
 
+	it("rejects fixed-cell writes while a normal render is pending", async () => {
+		const terminal = new LoggingVirtualTerminal(20, 5);
+		const tui = new TUI(terminal);
+		const component = new RenderCountingComponent(["body", "› prompt", "footer"]);
+		const cell = tui.createFixedCell();
+		tui.addChild(component);
+		tui.start();
+		await terminal.waitForRender();
+		terminal.clearWrites();
+
+		component.lines = ["body", "queued prompt", "footer"];
+		const renderCountBeforePendingRender = component.renderCount;
+		tui.requestRender();
+		cell.place(1, 0);
+
+		assert.strictEqual(cell.update("⠋"), false);
+		assert.strictEqual(terminal.getWrites(), "");
+		assert.strictEqual(terminal.getViewport()[1], "› prompt");
+
+		await terminal.waitForRender();
+
+		assert.strictEqual(component.renderCount, renderCountBeforePendingRender + 1);
+		assert.strictEqual(terminal.getViewport()[1], "⠋ueued prompt");
+		tui.stop();
+	});
+
+	it("rejects fixed-cell writes before resize render and accepts them after repositioning", async () => {
+		const terminal = new LoggingVirtualTerminal(20, 5);
+		const tui = new TUI(terminal);
+		const component = new RenderCountingComponent(["body", "› prompt", "footer"]);
+		const cell = tui.createFixedCell();
+		tui.addChild(component);
+		tui.start();
+		await terminal.waitForRender();
+		terminal.clearWrites();
+
+		cell.place(1, 0);
+		terminal.resize(30, 6);
+
+		assert.strictEqual(cell.update("⠋"), false);
+		assert.strictEqual(terminal.getWrites(), "");
+
+		await terminal.waitForRender();
+		assert.strictEqual(terminal.getViewport()[1], "⠋ prompt");
+		const renderCountAfterResize = component.renderCount;
+		terminal.clearWrites();
+
+		cell.place(2, 0);
+		assert.strictEqual(cell.update("X"), true);
+		await terminal.flush();
+
+		assert.strictEqual(component.renderCount, renderCountAfterResize);
+		assert.strictEqual(terminal.getViewport()[2], "Xooter");
+		assert.ok(terminal.getWrites().length > 0);
+		tui.stop();
+	});
+
 	it("rejects fixed-cell writes while an overlay is visible", async () => {
 		const terminal = new LoggingVirtualTerminal(20, 5);
 		const tui = new TUI(terminal);

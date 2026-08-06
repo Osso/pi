@@ -17,7 +17,7 @@
 
 ### Changed
 
-- Changed the default normal working indicator to static `Thinking...`/`Streaming...` text without glyph animation or a periodic render timer; `ctx.ui.setWorkingIndicator()` without arguments restores this default, while explicit multi-frame indicators remain animated. Compaction, retry, and tool loaders are unchanged.
+- Changed normal working indication to keep `Thinking...`/`Streaming...` status text static while animating the built-in editor prompt through one-cell terminal updates instead of periodic global renders. `ctx.ui.setWorkingIndicator()` without arguments restores the default prompt animation; explicit indicators use the prompt for compatible editors and retain loader behavior for selected-child views and arbitrary custom editors. Compaction, retry, and tool loaders are unchanged.
 - Changed the built-in `end_turn` instruction to keep working while actionable task work remains and only end after completion, when progress requires user input, or when the user explicitly asks it to stop.
 - Increased the maximum `/goal` objective and production child prompt length from 4,000 to 10,000 characters.
 - Temporarily disabled the resident Architect service and removed the `ask_architect` built-in tool while retaining the implementation and service template for rework; deployment now stops/removes Architect and keeps Supervisor active.

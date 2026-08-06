@@ -29,7 +29,12 @@ describe("RootCompositor", () => {
 			flow: [{ component: body }],
 			bottom: [
 				{ component: status },
-				{ component: editor, onLayout: (rect) => (editorRect = rect) },
+				{
+					component: editor,
+					onLayout: (rect) => {
+						editorRect = rect;
+					},
+				},
 				{ component: footer },
 			],
 		});
@@ -59,7 +64,12 @@ describe("RootCompositor", () => {
 			getHeight: () => 6,
 			flow: [],
 			bottom: [
-				{ component: editor, onLayout: (rect) => (editorRect = rect) },
+				{
+					component: editor,
+					onLayout: (rect) => {
+						editorRect = rect;
+					},
+				},
 				{ component: footer },
 			],
 		});
@@ -81,7 +91,12 @@ describe("RootCompositor", () => {
 			getHeight: () => 4,
 			flow: [{ component: body }],
 			bottom: [
-				{ component: editor, onLayout: (rect) => (editorRect = rect) },
+				{
+					component: editor,
+					onLayout: (rect) => {
+						editorRect = rect;
+					},
+				},
 				{ component: footer },
 			],
 		});

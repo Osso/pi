@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
-import { describe, it } from "vitest";
 import type { EditorComponent, LoaderIndicatorOptions } from "@earendil-works/pi-tui";
-import { clearWorkingEditor, positionWorkingEditor, syncWorkingEditor } from "../src/modes/interactive/working-editor.ts";
+import { describe, it } from "vitest";
+import {
+	clearWorkingEditor,
+	positionWorkingEditor,
+	syncWorkingEditor,
+} from "../src/modes/interactive/working-editor.ts";
 
 class TestEditor implements EditorComponent {
 	working = false;

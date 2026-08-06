@@ -27,6 +27,7 @@ import type {
 	MarkdownTheme,
 	OverlayHandle,
 	OverlayOptions,
+	RootLayoutRect,
 	SlashCommand,
 } from "@earendil-works/pi-tui";
 import {
@@ -193,6 +194,7 @@ import { type FilterMode, TreeSelectorComponent } from "./components/tree-select
 import { TrustSelectorComponent } from "./components/trust-selector.ts";
 import { UserMessageComponent } from "./components/user-message.ts";
 import { UserMessageSelectorComponent } from "./components/user-message-selector.ts";
+import { createInteractiveRootCompositor } from "./interactive-root-compositor.ts";
 import { getModelSearchCandidates } from "./model-search.ts";
 import {
 	getAvailableThemes,
@@ -208,6 +210,13 @@ import {
 	theme,
 } from "./theme/theme.ts";
 import { InteractiveThemeController } from "./theme/theme-controller.ts";
+import {
+	clearWorkingEditor,
+	clearWorkingEditorPosition,
+	positionWorkingEditor,
+	supportsWorkingPromptAnimation,
+	syncWorkingEditor,
+} from "./working-editor.ts";
 
 /** Interface for components that can be expanded/collapsed */
 const AGENT_SLOT_KEYBINDINGS = [
@@ -461,6 +470,8 @@ export class InteractiveMode {
 	private fdPath: string | undefined;
 	private editorContainer: Container;
 	private footer: FooterComponent;
+	private footerContainer: Container;
+	private rootCompositor: Component;
 	private footerDataProvider: FooterDataProvider;
 	// Stored so the same manager can be injected into custom editors, selectors, and extension UI.
 	private keybindings: KeybindingsManager;
@@ -653,6 +664,21 @@ export class InteractiveMode {
 		this.footerDataProvider = new FooterDataProvider(this.sessionManager.getCwd());
 		this.footer = new FooterComponent(this.session, this.footerDataProvider);
 		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
+		this.footerContainer = new Container();
+		this.footerContainer.addChild(this.footer);
+		this.rootCompositor = createInteractiveRootCompositor({
+			getHeight: () => this.ui.terminal.rows,
+			header: this.headerContainer,
+			loadedResources: this.loadedResourcesContainer,
+			chat: this.chatContainer,
+			pendingMessages: this.pendingMessagesContainer,
+			status: this.statusContainer,
+			widgetAbove: this.widgetContainerAbove,
+			editor: this.editorContainer,
+			widgetBelow: this.widgetContainerBelow,
+			footer: this.footerContainer,
+			onEditorLayout: (rect) => this.handleEditorLayout(rect),
+		});
 
 		// Load hide thinking block setting
 		this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
@@ -941,19 +967,9 @@ export class InteractiveMode {
 			console.log(theme.fg("dim", `Model scope: ${modelList}${cycleHint}`));
 		}
 
-		// Add header container as first child. Populate it after applying theme settings.
 		// Keep loaded resources before chat so restored session messages never precede them.
-		this.ui.addChild(this.headerContainer);
-		this.ui.addChild(this.loadedResourcesContainer);
-
-		this.ui.addChild(this.chatContainer);
-		this.ui.addChild(this.pendingMessagesContainer);
-		this.ui.addChild(this.statusContainer);
 		this.renderWidgets(); // Initialize with default spacer
-		this.ui.addChild(this.widgetContainerAbove);
-		this.ui.addChild(this.editorContainer);
-		this.ui.addChild(this.widgetContainerBelow);
-		this.ui.addChild(this.footer);
+		this.ui.addChild(this.rootCompositor);
 		this.ui.setFocus(this.editor);
 
 		this.setupKeyHandlers();
@@ -2233,13 +2249,26 @@ export class InteractiveMode {
 		this.toolWaitingTimer = undefined;
 	}
 
-	private createWorkingLoader(): Loader {
+	private getWorkingLoaderIndicator(view: "main" | "child"): LoaderIndicatorOptions {
+		const editorOwnsIndicator =
+			view === "main" && supportsWorkingPromptAnimation(this.editor, this.workingIndicatorOptions);
+		return editorOwnsIndicator
+			? DEFAULT_WORKING_INDICATOR
+			: (this.workingIndicatorOptions ?? DEFAULT_WORKING_INDICATOR);
+	}
+
+	private updateWorkingLoaderIndicator(): void {
+		if (!this.loadingAnimation || !this.workingLoaderView) return;
+		this.loadingAnimation.setIndicator(this.getWorkingLoaderIndicator(this.workingLoaderView));
+	}
+
+	private createWorkingLoader(indicator: LoaderIndicatorOptions): Loader {
 		return new Loader(
 			this.ui,
 			(spinner) => theme.fg("accent", spinner),
 			(text) => theme.fg("muted", text),
 			this.getWorkingLoaderMessage(),
-			this.workingIndicatorOptions ?? DEFAULT_WORKING_INDICATOR,
+			indicator,
 		);
 	}
 
@@ -2290,10 +2319,39 @@ export class InteractiveMode {
 		this.childActivityTimer = undefined;
 	}
 
+	private handleEditorLayout(rect: RootLayoutRect): void {
+		const editor = this.editor;
+		const isMounted = this.editorContainer.children.includes(editor as Component);
+		if (!isMounted) {
+			clearWorkingEditorPosition(editor);
+			return;
+		}
+		positionWorkingEditor(editor, rect);
+	}
+
+	private syncWorkingEditorState(): void {
+		const editor = this.editor;
+		const isMounted = this.editorContainer.children.includes(editor as Component);
+		const canAnimatePrompt = supportsWorkingPromptAnimation(editor, this.workingIndicatorOptions);
+		const isMainView = !this.isViewingAgentSession();
+		const shouldShowWorking = isMainView && this.workingVisible && this.session.isStreaming;
+		syncWorkingEditor(editor, shouldShowWorking && canAnimatePrompt, this.workingIndicatorOptions);
+		if (!isMounted) {
+			clearWorkingEditorPosition(editor);
+		}
+	}
+
 	private syncWorkingLoaderVisibility(): void {
 		const viewingChild = this.isViewingAgentSession();
 		const shouldShow =
 			this.workingVisible && (viewingChild ? this.isSelectedChildWorking() : this.session.isStreaming);
+		const isEditorMounted = this.editorContainer?.children.includes(this.editor as Component) ?? true;
+		const canAnimatePrompt = supportsWorkingPromptAnimation(this.editor, this.workingIndicatorOptions);
+		const isMainView = !viewingChild;
+		syncWorkingEditor(this.editor, isMainView && shouldShow && canAnimatePrompt, this.workingIndicatorOptions);
+		if (!isEditorMounted) {
+			clearWorkingEditorPosition(this.editor);
+		}
 		if (!shouldShow) {
 			this.stopWorkingLoader();
 			return;
@@ -2305,7 +2363,7 @@ export class InteractiveMode {
 			return;
 		}
 		this.stopWorkingLoader();
-		this.loadingAnimation = this.createWorkingLoader();
+		this.loadingAnimation = this.createWorkingLoader(this.getWorkingLoaderIndicator(desiredView));
 		this.workingLoaderView = desiredView;
 		this.statusContainer.addChild(this.loadingAnimation);
 		if (viewingChild) {
@@ -2330,7 +2388,8 @@ export class InteractiveMode {
 
 	private setWorkingIndicator(options?: LoaderIndicatorOptions): void {
 		this.workingIndicatorOptions = options;
-		this.loadingAnimation?.setIndicator(options ?? DEFAULT_WORKING_INDICATOR);
+		this.syncWorkingEditorState();
+		this.updateWorkingLoaderIndicator();
 		this.ui.requestRender();
 	}
 
@@ -2485,11 +2544,10 @@ export class InteractiveMode {
 			| ((tui: TUI, thm: Theme, footerData: ReadonlyFooterDataProvider) => Component & { dispose?(): void })
 			| undefined,
 	): void {
-		const previousFooter = this.currentFooter();
 		this.customFooter?.dispose?.();
 		this.customFooter = factory ? factory(this.ui, theme, this.footerDataProvider) : undefined;
-		this.ui.removeChild(previousFooter);
-		this.ui.addChild(this.currentFooter());
+		this.footerContainer.clear();
+		this.footerContainer.addChild(this.currentFooter());
 		this.ui.requestRender();
 	}
 
@@ -2501,12 +2559,11 @@ export class InteractiveMode {
 			| ((tui: TUI, thm: Theme, footerData: ReadonlyFooterDataProvider) => Component & { dispose?(): void })
 			| undefined,
 	): void {
-		const previousFooter = this.currentFooter();
 		this.defaultExtensionFooter?.dispose?.();
 		this.defaultExtensionFooter = factory ? factory(this.ui, theme, this.footerDataProvider) : undefined;
 		if (!this.customFooter) {
-			this.ui.removeChild(previousFooter);
-			this.ui.addChild(this.currentFooter());
+			this.footerContainer.clear();
+			this.footerContainer.addChild(this.currentFooter());
 			this.ui.requestRender();
 		}
 	}
@@ -2826,6 +2883,7 @@ export class InteractiveMode {
 
 		// Save text from current editor before switching
 		const currentText = this.editor.getText();
+		clearWorkingEditor(this.editor);
 
 		this.editorContainer.clear();
 
@@ -2883,6 +2941,8 @@ export class InteractiveMode {
 		}
 
 		this.editorContainer.addChild(this.editor as Component);
+		this.syncWorkingEditorState();
+		this.updateWorkingLoaderIndicator();
 		this.ui.setFocus(this.editor as Component);
 		this.ui.requestRender();
 	}
@@ -4218,6 +4278,7 @@ export class InteractiveMode {
 					this.ui.terminal.setProgress(false);
 				}
 				this.stopWorkingLoader();
+				clearWorkingEditor(this.editor);
 				if (this.streamingComponent) {
 					this.chatContainer.removeChild(this.streamingComponent);
 					this.streamingComponent = undefined;

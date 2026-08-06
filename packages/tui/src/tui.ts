@@ -392,7 +392,10 @@ export class TUI extends Container {
 			disposed: false,
 		};
 		this.fixedCells.add(state);
+		return this.createFixedCellHandle(state);
+	}
 
+	private createFixedCellHandle(state: FixedCellState): FixedCell {
 		return {
 			place: (row, col) => {
 				if (state.disposed) return;
@@ -1269,7 +1272,8 @@ export class TUI extends Container {
 
 	private patchFixedCellLine(line: string, col: number, value: string, hasLineReset: boolean): string | undefined {
 		if (isImageLine(line)) return undefined;
-		const rawLine = hasLineReset && line.endsWith(TUI.SEGMENT_RESET) ? line.slice(0, -TUI.SEGMENT_RESET.length) : line;
+		const rawLine =
+			hasLineReset && line.endsWith(TUI.SEGMENT_RESET) ? line.slice(0, -TUI.SEGMENT_RESET.length) : line;
 		const lineWidth = visibleWidth(rawLine);
 		if (col < 0 || col >= lineWidth) return undefined;
 
@@ -1288,7 +1292,8 @@ export class TUI extends Container {
 		if (this.fixedCells.size === 0) return lines;
 		const result = [...lines];
 		for (const state of this.fixedCells) {
-			if (state.disposed || state.row === undefined || state.col === undefined || state.value === "") continue;
+			if (state.disposed || state.value === "") continue;
+			if (state.row === undefined || state.col === undefined) continue;
 			const line = result[state.row];
 			if (line === undefined) continue;
 			const patched = this.patchFixedCellLine(line, state.col, state.value, false);
@@ -1298,40 +1303,38 @@ export class TUI extends Container {
 	}
 
 	private writeFixedCell(state: FixedCellState): boolean {
-		if (
-			this.stopped ||
-			!this.terminalFocused ||
-			this.renderRequested ||
-			this.hasOverlay() ||
-			state.row === undefined ||
-			state.col === undefined ||
-			this.previousWidth !== this.terminal.columns ||
-			this.previousHeight !== this.terminal.rows
-		) {
-			return false;
-		}
+		if (state.row === undefined || state.col === undefined) return false;
+		if (this.stopped || !this.terminalFocused) return false;
+		if (this.renderRequested || this.hasOverlay()) return false;
+		if (this.previousWidth !== this.terminal.columns || this.previousHeight !== this.terminal.rows) return false;
 
 		const line = this.previousLines[state.row];
+		if (line === undefined) return false;
 		const viewportBottom = this.previousViewportTop + this.terminal.rows;
-		if (line === undefined || state.row < this.previousViewportTop || state.row >= viewportBottom) return false;
+		const isVisible = state.row >= this.previousViewportTop && state.row < viewportBottom;
+		if (!isVisible) return false;
 		if (state.col < 0 || state.col >= this.terminal.columns) return false;
 
 		const patched = this.patchFixedCellLine(line, state.col, state.value, true);
 		const cell = sliceWithWidth(state.value, 0, 1, true);
 		if (patched === undefined || cell.width !== 1) return false;
 
-		const screenRow = state.row - this.previousViewportTop;
+		this.writeFixedCellToTerminal(state.row, state.col, cell.text);
+		this.previousLines[state.row] = patched;
+		return true;
+	}
+
+	private writeFixedCellToTerminal(row: number, col: number, value: string): void {
+		const screenRow = row - this.previousViewportTop;
 		const buffer =
 			"\x1b[?2026h" +
 			"\x1b7" +
-			`\x1b[${screenRow + 1};${state.col + 1}H` +
-			cell.text +
+			`\x1b[${screenRow + 1};${col + 1}H` +
+			value +
 			TUI.SEGMENT_RESET +
 			"\x1b8" +
 			"\x1b[?2026l";
 		this.terminal.write(buffer);
-		this.previousLines[state.row] = patched;
-		return true;
 	}
 
 	/** Splice overlay content into a base line at a specific column. Single-pass optimized. */
