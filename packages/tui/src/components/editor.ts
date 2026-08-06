@@ -2,7 +2,7 @@ import type { AutocompleteProvider, AutocompleteSuggestions } from "../autocompl
 import { getKeybindings } from "../keybindings.ts";
 import { decodePrintableKey, matchesKey } from "../keys.ts";
 import { KillRing } from "../kill-ring.ts";
-import { type Component, CURSOR_MARKER, type Focusable, type TUI } from "../tui.ts";
+import { type Component, CURSOR_MARKER, type FixedCell, type Focusable, type TUI } from "../tui.ts";
 import { UndoStack } from "../undo-stack.ts";
 import {
 	cjkBreakRegex,
@@ -14,6 +14,7 @@ import {
 } from "../utils.ts";
 import { findWordBackward, findWordForward } from "../word-navigation.ts";
 import { SelectList, type SelectListLayoutOptions, type SelectListTheme } from "./select-list.ts";
+import type { LoaderIndicatorOptions } from "./loader.ts";
 
 const graphemeSegmenter = getGraphemeSegmenter();
 const wordSegmenter = getWordSegmenter();
@@ -237,6 +238,8 @@ const SLASH_COMMAND_SELECT_LIST_LAYOUT: SelectListLayoutOptions = {
 const ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS = 20;
 const DEFAULT_AUTOCOMPLETE_TRIGGER_CHARACTERS = ["@", "#"];
 const HISTORY_SEARCH_MAX_RENDERED_ROWS = 20;
+const DEFAULT_PROMPT_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const DEFAULT_PROMPT_INTERVAL_MS = 250;
 
 function escapeCharacterClass(value: string): string {
 	return value.replace(/[\\^$.*+?()[\]{}|-]/g, "\\$&");
@@ -265,6 +268,15 @@ export class Editor implements Component, Focusable {
 	private theme: EditorTheme;
 	private paddingX: number = 0;
 	private promptPrefix: string = "";
+	private promptPrefixFn: (str: string) => string = (str) => str;
+	private promptCell: FixedCell;
+	private working = false;
+	private workingFrames: string[] = [];
+	private workingIntervalMs = DEFAULT_PROMPT_INTERVAL_MS;
+	private workingFrame = 0;
+	private workingTimer: ReturnType<typeof setInterval> | undefined;
+	private promptPosition: { row: number; col: number } | undefined;
+	private screenOrigin: { row: number; col: number } | undefined;
 
 	// Store last render width for cursor navigation
 	private lastWidth: number = 80;
@@ -334,7 +346,10 @@ export class Editor implements Component, Focusable {
 		this.tui = tui;
 		this.theme = theme;
 		this.borderColor = theme.borderColor;
+		this.promptPrefixFn = theme.promptPrefix ?? (() => "");
 		this.promptPrefix = theme.promptPrefix?.("›") ?? "";
+		this.promptCell = tui.createFixedCell();
+		this.setWorkingIndicator();
 		const paddingX = options.paddingX ?? 0;
 		this.paddingX = Number.isFinite(paddingX) ? Math.max(0, Math.floor(paddingX)) : 0;
 		const maxVisible = options.autocompleteMaxVisible ?? 5;
@@ -379,6 +394,79 @@ export class Editor implements Component, Focusable {
 		this.cancelAutocomplete();
 		this.autocompleteProvider = provider;
 		this.setAutocompleteTriggerCharacters(provider.triggerCharacters ?? []);
+	}
+
+	setWorking(working: boolean): void {
+		if (this.working === working) return;
+		this.working = working;
+		this.workingFrame = 0;
+		this.restartWorkingAnimation();
+		this.updatePromptCell();
+	}
+
+	setWorkingIndicator(options?: LoaderIndicatorOptions): void {
+		const frames = options?.frames;
+		if (frames === undefined) {
+			this.workingFrames = DEFAULT_PROMPT_FRAMES.map((frame) => this.promptPrefixFn(frame));
+		} else {
+			this.workingFrames = [...frames];
+		}
+		this.workingIntervalMs = options?.intervalMs && options.intervalMs > 0 ? options.intervalMs : DEFAULT_PROMPT_INTERVAL_MS;
+		this.workingFrame = 0;
+		this.restartWorkingAnimation();
+		this.updatePromptCell();
+	}
+
+	getPromptPosition(): { row: number; col: number } | undefined {
+		return this.promptPosition ? { ...this.promptPosition } : undefined;
+	}
+
+	setScreenOrigin(row: number, col: number): void {
+		this.screenOrigin = { row, col };
+		this.updatePromptCellPlacement();
+	}
+
+	clearScreenOrigin(): void {
+		this.screenOrigin = undefined;
+		this.promptCell.clear();
+	}
+
+	private restartWorkingAnimation(): void {
+		if (this.workingTimer) {
+			clearInterval(this.workingTimer);
+			this.workingTimer = undefined;
+		}
+		if (!this.working || this.workingFrames.length <= 1) return;
+		this.workingTimer = setInterval(() => {
+			this.workingFrame = (this.workingFrame + 1) % this.workingFrames.length;
+			this.updatePromptCell();
+		}, this.workingIntervalMs);
+		this.workingTimer.unref?.();
+	}
+
+	private getWorkingPromptFrame(): string {
+		return this.workingFrames[this.workingFrame] ?? " ";
+	}
+
+	private getPromptText(): string {
+		return this.working ? this.getWorkingPromptFrame() : this.promptPrefix;
+	}
+
+	private updatePromptCellPlacement(): void {
+		if (!this.promptPosition || !this.screenOrigin) {
+			this.promptCell.clear();
+			return;
+		}
+		this.promptCell.place(
+			this.screenOrigin.row + this.promptPosition.row,
+			this.screenOrigin.col + this.promptPosition.col,
+		);
+	}
+
+	private updatePromptCell(): void {
+		this.updatePromptCellPlacement();
+		if (!this.promptPosition || !this.screenOrigin) return;
+		this.promptCell.update(this.getPromptText());
 	}
 
 	/**
@@ -692,6 +780,7 @@ export class Editor implements Component, Focusable {
 		const visibleLines = layoutLines.slice(this.scrollOffset, this.scrollOffset + maxVisibleLines);
 
 		const result: string[] = [];
+		let promptPosition: { row: number; col: number } | undefined;
 		const leftPadding = " ".repeat(paddingX);
 		const rightPadding = leftPadding;
 
@@ -758,10 +847,14 @@ export class Editor implements Component, Focusable {
 			// Calculate padding based on actual visible width
 			const padding = " ".repeat(Math.max(0, editorContentWidth - lineVisibleWidth));
 			const lineRightPadding = cursorInPadding ? rightPadding.slice(1) : rightPadding;
-			const promptPrefix =
-				promptPrefixWidth > 0 && this.scrollOffset + i === 0
-					? this.promptPrefix + " ".repeat(Math.max(0, promptPrefixWidth - visibleWidth(this.promptPrefix)))
-					: " ".repeat(promptPrefixWidth);
+			const hasPrompt = promptPrefixWidth > 0 && this.scrollOffset + i === 0;
+			if (hasPrompt) {
+				promptPosition = { row: result.length, col: paddingX };
+			}
+			const promptText = hasPrompt ? this.getPromptText() : "";
+			const promptPrefix = hasPrompt
+				? promptText + " ".repeat(Math.max(0, promptPrefixWidth - visibleWidth(promptText)))
+				: " ".repeat(promptPrefixWidth);
 
 			// Render the line (no side borders, just horizontal lines above and below)
 			result.push(`${leftPadding}${promptPrefix}${displayText}${padding}${lineRightPadding}`);
@@ -788,6 +881,8 @@ export class Editor implements Component, Focusable {
 			}
 		}
 
+		this.promptPosition = promptPosition;
+		this.updatePromptCellPlacement();
 		return result;
 	}
 

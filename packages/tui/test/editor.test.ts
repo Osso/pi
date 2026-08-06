@@ -1,9 +1,10 @@
 import assert from "node:assert";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
 import { stripVTControlCharacters } from "node:util";
 import { type AutocompleteProvider, CombinedAutocompleteProvider } from "../src/autocomplete.ts";
-import { Editor, wordWrapLine } from "../src/components/editor.ts";
-import { TUI } from "../src/tui.ts";
+import { Editor, type EditorTheme, wordWrapLine } from "../src/components/editor.ts";
+import type { LoaderIndicatorOptions } from "../src/components/loader.ts";
+import { type FixedCell, TUI } from "../src/tui.ts";
 import { visibleWidth } from "../src/utils.ts";
 import { defaultEditorTheme } from "./test-themes.ts";
 import { VirtualTerminal } from "./virtual-terminal.ts";
@@ -12,6 +13,51 @@ import { VirtualTerminal } from "./virtual-terminal.ts";
 function createTestTUI(cols = 80, rows = 24): TUI {
 	return new TUI(new VirtualTerminal(cols, rows));
 }
+
+type PromptCellPosition = { row: number; col: number };
+
+type FixedCellWrite = PromptCellPosition & { value: string };
+
+interface WorkingEditorTUI extends TUI {
+	createFixedCell(): FixedCell;
+}
+
+function createWorkingEditorTUI(cols = 80, rows = 24): {
+	tui: WorkingEditorTUI;
+	writes: FixedCellWrite[];
+	getGlobalRenderCount: () => number;
+} {
+	const tui = createTestTUI(cols, rows) as WorkingEditorTUI;
+	const writes: FixedCellWrite[] = [];
+	let position: PromptCellPosition | undefined;
+	let globalRenderCount = 0;
+	const fixedCell: FixedCell = {
+		place: (row, col) => {
+			position = { row, col };
+		},
+		clear: () => {
+			position = undefined;
+		},
+		update: (value) => {
+			if (!position) return false;
+			writes.push({ ...position, value });
+			return true;
+		},
+		dispose: () => {
+			position = undefined;
+		},
+	};
+	tui.createFixedCell = () => fixedCell;
+	tui.requestRender = () => {
+		globalRenderCount++;
+	};
+	return { tui, writes, getGlobalRenderCount: () => globalRenderCount };
+}
+
+const promptEditorTheme: EditorTheme = {
+	...defaultEditorTheme,
+	promptPrefix: (text) => text,
+};
 
 /** Standard applyCompletion that replaces prefix with item.value */
 function applyCompletion(
@@ -39,6 +85,140 @@ async function flushAutocomplete(): Promise<void> {
 }
 
 describe("Editor component", () => {
+	describe("Working prompt animation", () => {
+		it("animates the prompt through fixed-cell writes without global renders", () => {
+			mock.timers.enable({ apis: ["setInterval"] });
+			const { tui, writes, getGlobalRenderCount } = createWorkingEditorTUI();
+			const editor = new Editor(tui, promptEditorTheme);
+
+			try {
+				editor.render(40);
+				editor.setScreenOrigin(10, 5);
+				editor.setWorking(true);
+				const promptPosition = editor.getPromptPosition();
+				assert.deepStrictEqual(promptPosition, { row: 1, col: 0 });
+
+				assert.ok(writes.length >= 1, "working state should render an initial prompt frame");
+				assert.deepStrictEqual(
+					{ row: writes[0]!.row, col: writes[0]!.col },
+					{ row: 11, col: 5 },
+				);
+				assert.notStrictEqual(writes[0]!.value, "›");
+
+				const globalRendersBeforeTick = getGlobalRenderCount();
+				const writesBeforeTick = writes.length;
+				mock.timers.tick(250);
+
+				assert.ok(writes.length > writesBeforeTick, "an animation tick should update the prompt cell");
+				assert.notStrictEqual(writes[writes.length - 1]!.value, writes[writesBeforeTick - 1]!.value);
+				assert.strictEqual(getGlobalRenderCount(), globalRendersBeforeTick);
+			} finally {
+				mock.timers.reset();
+			}
+		});
+
+		it("supports static, hidden, and custom indicators and restores the idle prompt", () => {
+			mock.timers.enable({ apis: ["setInterval"] });
+			const { tui, writes, getGlobalRenderCount } = createWorkingEditorTUI();
+			const editor = new Editor(tui, promptEditorTheme);
+
+			try {
+				editor.render(40);
+				editor.setScreenOrigin(0, 0);
+				editor.setWorkingIndicator({ frames: ["●"] });
+				editor.setWorking(true);
+				assert.strictEqual(writes.at(-1)?.value, "●");
+
+				const staticWrites = writes.length;
+				mock.timers.tick(1_000);
+				assert.strictEqual(writes.length, staticWrites);
+
+				editor.setWorkingIndicator({ frames: ["a", "b"], intervalMs: 100 });
+				const customWrites = writes.length;
+				mock.timers.tick(100);
+				assert.ok(writes.length > customWrites);
+				assert.strictEqual(writes.at(-1)?.value, "b");
+
+				editor.setWorkingIndicator({ frames: [] });
+				assert.strictEqual(writes.at(-1)?.value, " ");
+				editor.setWorking(false);
+				assert.strictEqual(writes.at(-1)?.value, "›");
+				assert.strictEqual(getGlobalRenderCount(), 0);
+			} finally {
+				mock.timers.reset();
+			}
+		});
+
+		it("keeps the prompt cell at the first wrapped editor row", () => {
+			const { tui, writes } = createWorkingEditorTUI();
+			const editor = new Editor(tui, promptEditorTheme);
+			editor.setText("a long line that wraps across multiple editor rows");
+
+			const rendered = editor.render(20);
+			const promptPosition = editor.getPromptPosition();
+
+			assert.ok(rendered.length > 3, "the editor text should wrap");
+			assert.deepStrictEqual(promptPosition, { row: 1, col: 0 });
+
+			editor.setScreenOrigin(4, 3);
+			editor.setWorking(true);
+			assert.deepStrictEqual(
+				{ row: writes.at(-1)!.row, col: writes.at(-1)!.col },
+				{ row: 5, col: 3 },
+			);
+		});
+
+		it("reports the prompt column after editor padding", () => {
+			const { tui } = createWorkingEditorTUI();
+			const editor = new Editor(tui, promptEditorTheme, { paddingX: 3 });
+
+			editor.render(40);
+
+			assert.deepStrictEqual(editor.getPromptPosition(), { row: 1, col: 3 });
+		});
+
+		it("does not write a prompt cell when vertical scrolling hides the prompt", () => {
+			mock.timers.enable({ apis: ["setInterval"] });
+			const { tui, writes, getGlobalRenderCount } = createWorkingEditorTUI(40, 10);
+			const editor = new Editor(tui, promptEditorTheme);
+			editor.setText(Array.from({ length: 20 }, (_, index) => `line ${index}`).join("\n"));
+
+			try {
+				editor.render(40);
+				editor.setScreenOrigin(2, 1);
+				assert.strictEqual(editor.getPromptPosition(), undefined);
+
+				editor.setWorking(true);
+				mock.timers.tick(1_000);
+
+				assert.strictEqual(writes.length, 0);
+				assert.strictEqual(getGlobalRenderCount(), 0);
+			} finally {
+				mock.timers.reset();
+			}
+		});
+
+		it("stops fixed-cell writes after its screen origin is cleared", () => {
+			mock.timers.enable({ apis: ["setInterval"] });
+			const { tui, writes } = createWorkingEditorTUI();
+			const editor = new Editor(tui, promptEditorTheme);
+
+			try {
+				editor.render(40);
+				editor.setScreenOrigin(2, 1);
+				editor.setWorking(true);
+				const writesBeforeClear = writes.length;
+
+				editor.clearScreenOrigin();
+				mock.timers.tick(1_000);
+
+				assert.strictEqual(writes.length, writesBeforeClear);
+			} finally {
+				mock.timers.reset();
+			}
+		});
+	});
+
 	describe("Prompt history navigation", () => {
 		it("does nothing on Up arrow when history is empty", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
