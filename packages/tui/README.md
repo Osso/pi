@@ -68,6 +68,34 @@ tui.requestRender(); // Request a re-render
 tui.onDebug = () => console.log("Debug triggered");
 ```
 
+### Root composition and fixed cells
+
+`RootCompositor` renders a normal flow followed by a bottom zone. When the combined content is shorter than the terminal, the bottom zone is padded down to the viewport bottom. `onLayout` receives entry bounds in root rendered-line coordinates, so components can update placement after wrapping, resize, or height changes.
+
+```typescript
+import { RootCompositor } from "@earendil-works/pi-tui";
+
+const root = new RootCompositor({
+  getHeight: () => terminal.rows,
+  flow: [{ component: chat }],
+  bottom: [
+    { component: editor, onLayout: ({ row, col }) => editor.setScreenOrigin(row, col) },
+    { component: footer },
+  ],
+});
+tui.addChild(root);
+```
+
+`TUI.createFixedCell()` provides a low-level one-cell update for an already-rendered root line and terminal column. `update(value)` returns `true` only when the value occupies exactly one terminal cell and the cached frame is safe to patch; it returns `false` while a normal render is pending, terminal dimensions are stale, the position is not visible, or an overlay is active. Successful updates synchronize the differential-render cache. Clear or dispose the handle when the position is no longer valid.
+
+```typescript
+const cell = tui.createFixedCell();
+cell.place(row, col);
+cell.update("⠋");
+cell.clear();
+cell.dispose();
+```
+
 ### Overlays
 
 Overlays render components on top of existing content without replacing it. Useful for dialogs, menus, and modal UI.
@@ -314,7 +342,16 @@ editor.setAutocompleteProvider(provider);
 editor.borderColor = (s) => chalk.blue(s); // Change border dynamically
 editor.setPaddingX(1); // Update horizontal padding dynamically
 editor.getPaddingX();  // Get current padding
+
+// Optional working-prompt integration
+editor.setWorkingIndicator({ frames: ["⠋", "⠙"], intervalMs: 120 });
+editor.setWorking(true);
+editor.getPromptPosition(); // Position within the rendered editor
+editor.setScreenOrigin(row, col); // Absolute origin supplied by a root layout
+editor.clearScreenOrigin();
 ```
+
+Working-prompt frames must each occupy exactly one visible terminal cell; `Editor.setWorkingIndicator()` rejects wider frames. The working timer updates the prompt cell, while the surrounding component tree remains unchanged.
 
 **Features:**
 - Multi-line editing with word wrap

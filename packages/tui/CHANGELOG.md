@@ -4,7 +4,7 @@
 
 ### Added
 
-- Added root flow/bottom composition and cache-synchronized fixed-cell updates for viewport-anchored interactive elements without global component-tree renders.
+- Added root flow/bottom composition and cache-synchronized fixed-cell updates for viewport-anchored interactive elements without global component-tree renders. Fixed-cell writes reject pending renders, stale terminal dimensions, hidden positions, and visible overlays; successful writes update the differential-render cache.
 - Added Editor-owned working prompt animation with fixed-cell updates, custom/static/hidden frames, multiline prompt positioning, and idle prompt restoration.
 
 ### Changed

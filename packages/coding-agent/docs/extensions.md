@@ -2383,11 +2383,11 @@ ctx.ui.setStatus("my-ext", undefined);  // Clear
 // Lightweight redraw after extension-owned state changes
 ctx.ui.requestRender();
 
-// Working loader (shown during streaming)
+// Working status (shown during streaming)
 ctx.ui.setWorkingMessage("Thinking deeply...");
 ctx.ui.setWorkingMessage();  // Restore the elapsed-time default thinking label
-ctx.ui.setWorkingVisible(false);  // Hide the built-in working loader row entirely
-ctx.ui.setWorkingVisible(true);   // Show the built-in working loader row
+ctx.ui.setWorkingVisible(false);  // Hide the working status row and prompt indicator
+ctx.ui.setWorkingVisible(true);   // Show the working status and prompt indicator
 
 // Working indicator (shown during streaming)
 ctx.ui.setWorkingIndicator({ frames: [ctx.ui.theme.fg("accent", "●")] });  // Static dot
@@ -2401,10 +2401,12 @@ ctx.ui.setWorkingIndicator({
   intervalMs: 120,
 });
 ctx.ui.setWorkingIndicator({ frames: [] });  // Hide indicator
-ctx.ui.setWorkingIndicator();  // Restore the static Thinking.../Streaming... default
+ctx.ui.setWorkingIndicator();  // Restore prompt animation with static Thinking.../Streaming... labels
 
-// The default normal indicator is static, with no glyph animation or periodic render timer.
-// Explicit custom multi-frame indicators remain animated; compaction, retry, and tool loaders are unchanged.
+// Status labels remain static; the built-in editor animates compatible one-cell frames
+// through direct prompt-cell updates instead of periodic global renders.
+// Child views, arbitrary custom editors, and wider frames use loader-based animation.
+// Compaction, retry, and tool loaders are unchanged.
 
 // Widget above editor (default)
 ctx.ui.setWidget("my-widget", ["Line 1", "Line 2"]);

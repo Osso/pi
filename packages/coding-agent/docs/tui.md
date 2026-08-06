@@ -749,7 +749,7 @@ ctx.ui.setStatus("my-ext", undefined);
 
 ### Pattern 4b: Working Indicator Customization
 
-The default normal working indicator shows static `Thinking...` and `Streaming...` text. It has no glyph animation or periodic render timer. This only affects the normal streaming working indicator; compaction, retry, and tool loaders keep their built-in behavior.
+The default normal working indicator keeps the status labels static: `Thinking...` and `Streaming...`. The built-in editor animates its prompt cell with direct one-cell terminal updates, so animation does not render the global component tree on every frame. This only affects the normal streaming working indicator; compaction, retry, and tool loaders keep their built-in behavior.
 
 Customize the inline working indicator shown while pi is streaming a response.
 
@@ -771,17 +771,21 @@ ctx.ui.setWorkingIndicator({
 // Hide the indicator entirely
 ctx.ui.setWorkingIndicator({ frames: [] });
 
-// Restore pi's static default indicator
+// Restore prompt animation with static Thinking.../Streaming... labels
 ctx.ui.setWorkingIndicator();
 ```
 
-Calling `ctx.ui.setWorkingIndicator()` with no argument restores the static default. Explicit custom multi-frame indicators remain animated; custom frames are rendered verbatim, so extensions must add their own colors when needed.
+Calling `ctx.ui.setWorkingIndicator()` with no argument restores the default prompt animation while keeping the status label static. Explicit custom indicators use the prompt only for the main built-in editor or a compatible editor whose frames each occupy exactly one terminal cell. Selected-child views, arbitrary custom editors, and frames wider than one cell use the loader-based indicator instead. Custom frames are rendered verbatim, so extensions must add their own colors when needed.
+
+Pending renders, terminal resize, hidden prompt rows, and visible overlays suppress unsafe direct prompt-cell writes; the next normal render recalculates placement and synchronizes the differential-render cache.
 
 **Examples:** [working-indicator.ts](../examples/extensions/working-indicator.ts)
 
 ### Pattern 5: Widgets Above/Below Editor
 
 Show persistent content above or below the input editor. Good for todo lists, progress.
+
+In the interactive layout, header/resources/chat/pending content remains in normal flow. Status, above-editor widgets, editor, below-editor widgets, and footer form a bottom-anchored zone when the content fits the terminal; widget and footer height changes, terminal resize, and editor wrapping recalculate the editor's position.
 
 ```typescript
 // Simple string array (above editor by default)
