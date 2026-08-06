@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Added root flow/bottom composition and cache-synchronized fixed-cell updates for viewport-anchored interactive elements without global component-tree renders.
+
 ### Changed
 
 - `fuzzyFilter`'s `getText` may now return multiple candidate strings; each query token is scored against every candidate independently (best score wins) so a token cannot match by spanning two candidates.

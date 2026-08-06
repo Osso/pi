@@ -60,6 +60,13 @@ export {
 } from "./keys.ts";
 // Input buffering for batch splitting
 export { StdinBuffer, type StdinBufferEventMap, type StdinBufferOptions } from "./stdin-buffer.ts";
+// Root viewport composition
+export {
+	RootCompositor,
+	type RootCompositorOptions,
+	type RootLayoutEntry,
+	type RootLayoutRect,
+} from "./root-compositor.ts";
 // Terminal interface and implementations
 export { isTerminalRawModeFailure, ProcessTerminal, type Terminal, TerminalRawModeError } from "./terminal.ts";
 // Terminal colors
@@ -101,6 +108,7 @@ export {
 	type Component,
 	Container,
 	CURSOR_MARKER,
+	type FixedCell,
 	type Focusable,
 	isFocusable,
 	type OverlayAnchor,
