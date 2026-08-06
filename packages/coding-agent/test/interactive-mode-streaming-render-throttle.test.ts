@@ -35,7 +35,7 @@ type HandleEventThis = {
 	hiddenThinkingLabel: string;
 	hideThinkingBlock: boolean;
 	isInitialized: boolean;
-	loadingAnimation: WorkingLoader | undefined;
+	loadingAnimation: { setMessage(message: string): void } | undefined;
 	multiAgentStore:
 		| {
 				getAgent(agentId: string): Pick<AgentSnapshot, "currentActivity"> | undefined;
