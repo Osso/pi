@@ -1,5 +1,5 @@
 import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
-import { Container, type MarkdownTheme, Text, type TUI } from "@earendil-works/pi-tui";
+import { Container, type LoaderIndicatorOptions, type MarkdownTheme, Text, type TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import type { AgentSessionEvent } from "../src/core/agent-session.ts";
 import type { AgentSnapshot } from "../src/core/multi-agent-store.ts";
@@ -35,7 +35,7 @@ type HandleEventThis = {
 	hiddenThinkingLabel: string;
 	hideThinkingBlock: boolean;
 	isInitialized: boolean;
-	loadingAnimation: { setMessage(message: string): void } | undefined;
+	loadingAnimation: WorkingLoader | undefined;
 	multiAgentStore:
 		| {
 				getAgent(agentId: string): Pick<AgentSnapshot, "currentActivity"> | undefined;
@@ -58,6 +58,7 @@ type HandleEventThis = {
 	thinkingFollowsTool: boolean;
 	thinkingStartedAt: number | undefined;
 	toolOutputExpanded: boolean;
+	workingIndicatorOptions: LoaderIndicatorOptions | undefined;
 	workingLoaderView: "main" | "child" | undefined;
 	workingMessage: string | undefined;
 	ui: Pick<TUI, "requestRender">;
@@ -82,8 +83,17 @@ function createToolExecutionStub(): ToolExecutionStub {
 
 type HandleEvent = (this: HandleEventThis, event: AgentSessionEvent) => Promise<void>;
 
+interface WorkingLoader {
+	render(width: number): string[];
+	setIndicator(options?: LoaderIndicatorOptions): void;
+	setMessage(message: string): void;
+	stop(): void;
+}
+
 interface WorkingLoaderInternals {
+	createWorkingLoader(this: unknown): WorkingLoader;
 	getWorkingLoaderMessage(this: unknown): string;
+	setWorkingIndicator(this: unknown, options?: LoaderIndicatorOptions): void;
 	startChildActivityTimer(this: unknown): void;
 	stopChildActivityTimer(this: unknown): void;
 }
@@ -170,6 +180,7 @@ function createFakeInteractiveModeThis(): HandleEventThis {
 		thinkingFollowsTool: false,
 		thinkingStartedAt: undefined,
 		toolOutputExpanded: false,
+		workingIndicatorOptions: undefined,
 		workingLoaderView: undefined,
 		workingMessage: undefined,
 		ui: { requestRender: vi.fn() },
@@ -195,6 +206,53 @@ describe("InteractiveMode streaming render throttling", () => {
 
 		expect(fakeThis.chatContainer.render(80).join("\n")).toContain("child backlog");
 		expect(fakeThis.chatContainer.render(80).join("\n")).not.toContain("main thread leak");
+	});
+
+	test("does not timer-render the default working indicator while idle", async () => {
+		vi.useFakeTimers();
+		const defaultMode = createFakeInteractiveModeThis();
+		const defaultLoader = workingLoader.createWorkingLoader.call(defaultMode);
+		try {
+			expect(defaultLoader.render(80).join("\n")).toContain("Thinking...");
+			expect(defaultMode.ui.requestRender).toHaveBeenCalledTimes(1);
+
+			await vi.advanceTimersByTimeAsync(1_000);
+			expect(defaultMode.ui.requestRender).toHaveBeenCalledTimes(1);
+
+			defaultLoader.setMessage("Streaming...");
+			expect(defaultLoader.render(80).join("\n")).toContain("Streaming...");
+			expect(defaultMode.ui.requestRender).toHaveBeenCalledTimes(2);
+
+			await vi.advanceTimersByTimeAsync(1_000);
+			expect(defaultMode.ui.requestRender).toHaveBeenCalledTimes(2);
+		} finally {
+			defaultLoader.stop();
+		}
+	});
+
+	test("preserves configured animation and stops it when restoring the default indicator", async () => {
+		vi.useFakeTimers();
+		const animatedMode = createFakeInteractiveModeThis();
+		animatedMode.workingIndicatorOptions = { frames: ["a", "b"], intervalMs: 250 };
+		const animatedLoader = workingLoader.createWorkingLoader.call(animatedMode);
+		animatedMode.loadingAnimation = animatedLoader;
+		try {
+			expect(animatedMode.ui.requestRender).toHaveBeenCalledTimes(1);
+
+			await vi.advanceTimersByTimeAsync(249);
+			expect(animatedMode.ui.requestRender).toHaveBeenCalledTimes(1);
+
+			await vi.advanceTimersByTimeAsync(1);
+			expect(animatedMode.ui.requestRender).toHaveBeenCalledTimes(2);
+
+			workingLoader.setWorkingIndicator.call(animatedMode, undefined);
+			const renderCountAfterReset = vi.mocked(animatedMode.ui.requestRender).mock.calls.length;
+
+			await vi.advanceTimersByTimeAsync(1_000);
+			expect(animatedMode.ui.requestRender).toHaveBeenCalledTimes(renderCountAfterReset);
+		} finally {
+			animatedLoader.stop();
+		}
 	});
 
 	test("coalesces rapid assistant message updates into one delayed render", async () => {

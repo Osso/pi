@@ -749,6 +749,8 @@ ctx.ui.setStatus("my-ext", undefined);
 
 ### Pattern 4b: Working Indicator Customization
 
+The default normal working indicator shows static `Thinking...` and `Streaming...` text. It has no glyph animation or periodic render timer. This only affects the normal streaming working indicator; compaction, retry, and tool loaders keep their built-in behavior.
+
 Customize the inline working indicator shown while pi is streaming a response.
 
 ```typescript
@@ -769,11 +771,11 @@ ctx.ui.setWorkingIndicator({
 // Hide the indicator entirely
 ctx.ui.setWorkingIndicator({ frames: [] });
 
-// Restore pi's default spinner
+// Restore pi's static default indicator
 ctx.ui.setWorkingIndicator();
 ```
 
-This only affects the normal streaming working indicator. Compaction and retry loaders keep their built-in styling. Custom frames are rendered verbatim, so extensions must add their own colors when needed.
+Calling `ctx.ui.setWorkingIndicator()` with no argument restores the static default. Explicit custom multi-frame indicators remain animated; custom frames are rendered verbatim, so extensions must add their own colors when needed.
 
 **Examples:** [working-indicator.ts](../examples/extensions/working-indicator.ts)
 

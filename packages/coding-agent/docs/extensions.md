@@ -2401,7 +2401,10 @@ ctx.ui.setWorkingIndicator({
   intervalMs: 120,
 });
 ctx.ui.setWorkingIndicator({ frames: [] });  // Hide indicator
-ctx.ui.setWorkingIndicator();  // Restore default spinner
+ctx.ui.setWorkingIndicator();  // Restore the static Thinking.../Streaming... default
+
+// The default normal indicator is static, with no glyph animation or periodic render timer.
+// Explicit custom multi-frame indicators remain animated; compaction, retry, and tool loaders are unchanged.
 
 // Widget above editor (default)
 ctx.ui.setWidget("my-widget", ["Line 1", "Line 2"]);

@@ -42,6 +42,12 @@ terminal_resize_reflow_max_rows = 5000
 - [ ] `ctx.ui.setTitle`, `setEditorText`/`getEditorText`, `pasteToEditor`, `editor(title, prefill?)`, `addAutocompleteProvider`, and `getToolsExpanded`/`setToolsExpanded` are available as supporting surface.
 - [x] `pi.registerEntryRenderer(customType, renderer)` renders matching display-only `pi.appendEntry()` data in interactive chat immediately on append and from the active compaction-aware branch during transcript startup, resume, and rebuild; entries remain excluded from model context.
 
+### Working indicator
+
+- [x] The default normal working indicator shows static `Thinking...` and `Streaming...` text without glyph animation or a periodic render timer.
+- [x] `ctx.ui.setWorkingIndicator()` with no argument restores the static default.
+- [x] Explicit custom multi-frame indicators remain animated; compaction, retry, and tool loaders remain unchanged.
+
 ## How it works
 
 - See docs/wiki/systems/tui-customization.md (stub).
@@ -50,6 +56,8 @@ terminal_resize_reflow_max_rows = 5000
 ## Implementation inventory
 
 - `packages/coding-agent/src/core/extensions/types.ts:163-186` — `setWidget`, `setFooter`, `setHeader`, `setTitle` on the `ctx.ui` interface.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` — creates the static default working indicator and restores it when no indicator options are passed.
+- `packages/tui/src/components/loader.ts` — animates explicit multi-frame working-indicator options.
 - `packages/coding-agent/src/core/extensions/types.ts:188-203` — `custom<T>(...)` full-screen/overlay component with `done(result)`.
 - `packages/coding-agent/src/core/extensions/types.ts:220-256` — `setEditorComponent` / `getEditorComponent` (CustomEditor base, `super.handleInput`).
 - `packages/coding-agent/src/core/extensions/types.ts:270-274` — `getToolsExpanded` / `setToolsExpanded`.
@@ -86,6 +94,7 @@ terminal_resize_reflow_max_rows = 5000
 
 ## Tests asserting this spec
 
+- `packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts:211-256` — default working-indicator text does not timer-render while idle; configured animation remains animated and stops when the default is restored.
 - `packages/coding-agent/test/extensions-runner.test.ts:128-313` — shortcut conflict detection: warns on reserved conflict, allows when reserved set changes, reserved wins over non-reserved across iteration order, warns-but-allows on non-reserved built-in.
 - `packages/coding-agent/test/interactive-mode-status.test.ts:201-270` — `ctx.ui.custom` overlay/replacement focus regression: an overlay reclaims input after a non-overlay custom UI closes.
 - `packages/coding-agent/test/interactive-mode-custom-entry-rendering.test.ts` — custom entries render on live append and persisted transcript rebuild.

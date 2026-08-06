@@ -285,6 +285,7 @@ type CompactionQueuedMessage = {
 };
 
 const PARTIAL_UPDATE_RENDER_THROTTLE_MS = 50;
+const DEFAULT_WORKING_INDICATOR: LoaderIndicatorOptions = { frames: [] };
 
 function resolveEnabledModelsPersistTarget(
 	projectEnabledModels: string[] | undefined,
@@ -2238,7 +2239,7 @@ export class InteractiveMode {
 			(spinner) => theme.fg("accent", spinner),
 			(text) => theme.fg("muted", text),
 			this.getWorkingLoaderMessage(),
-			this.workingIndicatorOptions,
+			this.workingIndicatorOptions ?? DEFAULT_WORKING_INDICATOR,
 		);
 	}
 
@@ -2329,7 +2330,7 @@ export class InteractiveMode {
 
 	private setWorkingIndicator(options?: LoaderIndicatorOptions): void {
 		this.workingIndicatorOptions = options;
-		this.loadingAnimation?.setIndicator(options);
+		this.loadingAnimation?.setIndicator(options ?? DEFAULT_WORKING_INDICATOR);
 		this.ui.requestRender();
 	}
 
