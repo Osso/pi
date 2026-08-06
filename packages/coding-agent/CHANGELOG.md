@@ -17,7 +17,7 @@
 
 ### Changed
 
-- Changed all built-in coding-agent cosmetic loaders to static status text: compatible main and selected-child editors animate active work through the prompt fixed cell, while compaction, retry, branch summarization, local bash, bordered loaders, and incompatible or hidden custom editors avoid recurring spinner renders. Countdown, elapsed-time, streaming-content, and transcript updates still use normal renders.
+- Changed all built-in coding-agent cosmetic loaders and exported status indicators to static status text: compatible main and selected-child editors animate active work through the prompt fixed cell, while compaction, retry, branch summarization, local bash, bordered loaders, exported status indicators, and incompatible or hidden custom editors avoid recurring spinner renders. Countdown, elapsed-time, streaming-content, and transcript updates still use normal renders.
 - Changed the built-in `end_turn` instruction to keep working while actionable task work remains and only end after completion, when progress requires user input, or when the user explicitly asks it to stop.
 - Increased the maximum `/goal` objective and production child prompt length from 4,000 to 10,000 characters.
 - Temporarily disabled the resident Architect service and removed the `ask_architect` built-in tool while retaining the implementation and service template for rework; deployment now stops/removes Architect and keeps Supervisor active.
