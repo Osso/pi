@@ -20,6 +20,7 @@ export class BorderedLoader extends Container {
 				(s) => theme.fg("accent", s),
 				(s) => theme.fg("muted", s),
 				message,
+				{ frames: [] },
 			);
 		} else {
 			this.signalController = new AbortController();
@@ -28,6 +29,7 @@ export class BorderedLoader extends Container {
 				(s) => theme.fg("accent", s),
 				(s) => theme.fg("muted", s),
 				message,
+				{ frames: [] },
 			);
 		}
 		this.addChild(this.loader);

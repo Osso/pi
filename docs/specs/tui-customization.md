@@ -45,11 +45,12 @@ terminal_resize_reflow_max_rows = 5000
 
 ### Working indicator
 
-- [x] Normal working status text remains static `Thinking...` / `Streaming...`; the built-in editor prompt cell carries the working animation without rendering the global component tree on each frame.
+- [x] Normal working status text remains static `Thinking...` / `Streaming...`; active main- or selected-child-agent work animates only through the compatible editor prompt fixed cell without rendering the global component tree on each frame (`interactive-mode-streaming-render-throttle.test.ts`, `interactive-mode-working-editor.test.ts`).
 - [x] `ctx.ui.setWorkingIndicator()` with no argument restores the default prompt animation while preserving the static status label.
-- [x] Explicit one-cell multi-frame indicators animate in the prompt for the built-in editor and compatible subclasses; selected-child views, arbitrary custom editors, and wider frames retain loader-based indicators.
+- [x] Prompt activity from main work, selected-child work, compaction, retry, branch summarization, and local bash shares the compatible editor prompt animation; the corresponding coding-agent status loaders are static (`interactive-mode-working-editor.test.ts`, `interactive-mode-idle-notification.test.ts`, `interactive-mode-bash-prompt.test.ts`).
+- [x] Bordered loaders and incompatible, hidden, replaced, or otherwise unsupported custom editors show static status text only; they do not retain a recurring cosmetic loader interval (`bordered-loader.test.ts`, `interactive-mode-working-editor.test.ts`).
+- [x] Countdown, elapsed-time, streaming-content, and transcript updates continue through normal renders because their text or layout can change (`interactive-mode-streaming-render-throttle.test.ts`, `tool-execution-component.test.ts`).
 - [x] Pending renders, terminal resize, hidden prompt rows, and overlays suppress unsafe direct cell writes; the next normal render recalculates placement and synchronizes the frame cache.
-- [x] Compaction, retry, and tool loaders remain unchanged.
 
 ## How it works
 
@@ -59,11 +60,13 @@ terminal_resize_reflow_max_rows = 5000
 ## Implementation inventory
 
 - `packages/coding-agent/src/core/extensions/types.ts:163-186` — `setWidget`, `setFooter`, `setHeader`, `setTitle` on the `ctx.ui` interface.
-- `packages/coding-agent/src/modes/interactive/interactive-root-compositor.ts` and `interactive-mode.ts` — preserve flow order, anchor the interactive bottom zone, route editor bounds, and keep normal working labels static.
-- `packages/coding-agent/src/modes/interactive/working-editor.ts` — detects compatible editors and coordinates working state and prompt placement without changing arbitrary custom editors.
+- `packages/coding-agent/src/modes/interactive/interactive-root-compositor.ts` and `interactive-mode.ts` — preserve flow order, anchor the interactive bottom zone, track prompt activity sources, and create static coding-agent status loaders.
+- `packages/coding-agent/src/modes/interactive/working-editor.ts` — detects compatible editors and coordinates main/child prompt activity and placement without changing unsupported custom editors.
+- `packages/coding-agent/src/modes/interactive/components/bash-execution.ts` — keeps local bash status text static while retaining its separate elapsed-time update path.
+- `packages/coding-agent/src/modes/interactive/components/bordered-loader.ts` — creates static bordered status loaders, including cancellable loaders.
 - `packages/tui/src/components/editor.ts` — owns prompt frames, timer lifetime, multiline prompt placement, and idle-prompt restoration.
 - `packages/tui/src/tui.ts` — performs one-cell terminal updates while synchronizing the cached rendered frame and rejecting unsafe writes.
-- `packages/tui/src/components/loader.ts` — retains loader animation for selected-child views, arbitrary custom editors, compaction, retries, and tools.
+- `packages/tui/src/components/loader.ts` — retains the generic loader API; coding-agent uses it with an empty frame list for static status text.
 - `packages/coding-agent/src/core/extensions/types.ts:188-203` — `custom<T>(...)` full-screen/overlay component with `done(result)`.
 - `packages/coding-agent/src/core/extensions/types.ts:220-256` — `setEditorComponent` / `getEditorComponent` (CustomEditor base, `super.handleInput`).
 - `packages/coding-agent/src/core/extensions/types.ts:270-274` — `getToolsExpanded` / `setToolsExpanded`.
@@ -100,9 +103,13 @@ terminal_resize_reflow_max_rows = 5000
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts:211-256` — working-label timer behavior and configured indicator lifecycle.
+- `packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts:211-256` — main/child working labels remain static and child status loaders do not request recurring renders.
+- `packages/coding-agent/test/interactive-mode-working-editor.test.ts` and `working-editor.test.ts` — main/child prompt routing, static status loaders, incompatible/wider custom indicators, temporary editor replacement, and prompt placement coordination.
+- `packages/coding-agent/test/interactive-mode-compaction.test.ts` and `interactive-mode-idle-notification.test.ts` — compaction/retry status labels and prompt-activity lifecycle.
+- `packages/coding-agent/test/interactive-mode-bash-prompt.test.ts` — local bash activity starts and stops prompt animation around the running command.
+- `packages/coding-agent/test/bordered-loader.test.ts` — bordered status loaders render without recurring spinner updates.
+- `packages/coding-agent/test/tool-execution-component.test.ts` — bash status remains static when elapsed timing is disabled while elapsed timing remains separately testable.
 - `packages/coding-agent/test/interactive-root-compositor.test.ts` — actual interactive flow/bottom ordering plus editor repositioning after terminal and footer height changes.
-- `packages/coding-agent/test/interactive-mode-working-editor.test.ts` and `working-editor.test.ts` — main/child/custom-editor indicator routing, temporary editor replacement, and prompt placement coordination.
 - `packages/tui/test/fixed-cell.test.ts` — one-cell writes without tree renders, cache synchronization, pending-render/resize rejection, recovery, and overlay suppression.
 - `packages/tui/test/editor.test.ts` — prompt animation, multiline/padded/scrolled prompt placement, custom/static/hidden frames, and idle restoration.
 - `packages/coding-agent/test/extensions-runner.test.ts:128-313` — shortcut conflict detection: warns on reserved conflict, allows when reserved set changes, reserved wins over non-reserved across iteration order, warns-but-allows on non-reserved built-in.

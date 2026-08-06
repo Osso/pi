@@ -293,6 +293,8 @@ type CompactionQueuedMessage = {
 	mode: "steer" | "followUp";
 };
 
+type PromptActivitySource = "bash" | "branch-summary" | "compaction" | "retry";
+
 const PARTIAL_UPDATE_RENDER_THROTTLE_MS = 50;
 const DEFAULT_WORKING_INDICATOR: LoaderIndicatorOptions = { frames: [] };
 
@@ -486,6 +488,7 @@ export class InteractiveMode {
 	private workingMessage: string | undefined = undefined;
 	private workingVisible = true;
 	private workingIndicatorOptions: LoaderIndicatorOptions | undefined = undefined;
+	private promptActivitySources = new Set<PromptActivitySource>();
 	private readonly defaultStreamingMessage = "Streaming...";
 	private readonly defaultWorkingMessage = "Thinking...";
 	private currentWorkingDefaultMessage = this.defaultWorkingMessage;
@@ -2249,26 +2252,22 @@ export class InteractiveMode {
 		this.toolWaitingTimer = undefined;
 	}
 
-	private getWorkingLoaderIndicator(view: "main" | "child"): LoaderIndicatorOptions {
-		const editorOwnsIndicator =
-			view === "main" && supportsWorkingPromptAnimation(this.editor, this.workingIndicatorOptions);
-		return editorOwnsIndicator
-			? DEFAULT_WORKING_INDICATOR
-			: (this.workingIndicatorOptions ?? DEFAULT_WORKING_INDICATOR);
+	private getWorkingLoaderIndicator(_view: "main" | "child"): LoaderIndicatorOptions {
+		return DEFAULT_WORKING_INDICATOR;
 	}
 
 	private updateWorkingLoaderIndicator(): void {
 		if (!this.loadingAnimation || !this.workingLoaderView) return;
-		this.loadingAnimation.setIndicator(this.getWorkingLoaderIndicator(this.workingLoaderView));
+		this.loadingAnimation.setIndicator(DEFAULT_WORKING_INDICATOR);
 	}
 
-	private createWorkingLoader(indicator: LoaderIndicatorOptions): Loader {
+	private createWorkingLoader(_indicator?: LoaderIndicatorOptions): Loader {
 		return new Loader(
 			this.ui,
 			(spinner) => theme.fg("accent", spinner),
 			(text) => theme.fg("muted", text),
 			this.getWorkingLoaderMessage(),
-			indicator,
+			DEFAULT_WORKING_INDICATOR,
 		);
 	}
 
@@ -2333,25 +2332,30 @@ export class InteractiveMode {
 		const editor = this.editor;
 		const isMounted = this.editorContainer.children.includes(editor as Component);
 		const canAnimatePrompt = supportsWorkingPromptAnimation(editor, this.workingIndicatorOptions);
-		const isMainView = !this.isViewingAgentSession();
-		const shouldShowWorking = isMainView && this.workingVisible && this.session.isStreaming;
+		const viewingChild = this.isViewingAgentSession();
+		const selectedSessionIsWorking = viewingChild ? this.isSelectedChildWorking() : this.session.isStreaming;
+		const hasPromptActivity = selectedSessionIsWorking || this.promptActivitySources.size > 0;
+		const shouldShowWorking = this.workingVisible && hasPromptActivity;
 		syncWorkingEditor(editor, shouldShowWorking && canAnimatePrompt, this.workingIndicatorOptions);
 		if (!isMounted) {
 			clearWorkingEditorPosition(editor);
 		}
 	}
 
+	private setPromptActivity(source: PromptActivitySource, active: boolean): void {
+		if (active) {
+			this.promptActivitySources.add(source);
+		} else {
+			this.promptActivitySources.delete(source);
+		}
+		this.syncWorkingEditorState();
+	}
+
 	private syncWorkingLoaderVisibility(): void {
 		const viewingChild = this.isViewingAgentSession();
 		const shouldShow =
 			this.workingVisible && (viewingChild ? this.isSelectedChildWorking() : this.session.isStreaming);
-		const isEditorMounted = this.editorContainer?.children.includes(this.editor as Component) ?? true;
-		const canAnimatePrompt = supportsWorkingPromptAnimation(this.editor, this.workingIndicatorOptions);
-		const isMainView = !viewingChild;
-		syncWorkingEditor(this.editor, isMainView && shouldShow && canAnimatePrompt, this.workingIndicatorOptions);
-		if (!isEditorMounted) {
-			clearWorkingEditorPosition(this.editor);
-		}
+		this.syncWorkingEditorState();
 		if (!shouldShow) {
 			this.stopWorkingLoader();
 			return;
@@ -4309,8 +4313,10 @@ export class InteractiveMode {
 					(spinner) => theme.fg("accent", spinner),
 					(text) => theme.fg("muted", text),
 					label,
+					DEFAULT_WORKING_INDICATOR,
 				);
 				this.statusContainer.addChild(this.autoCompactionLoader);
+				this.setPromptActivity("compaction", true);
 				this.ui.requestRender();
 				break;
 			}
@@ -4328,6 +4334,7 @@ export class InteractiveMode {
 					this.autoCompactionLoader = undefined;
 					this.statusContainer.clear();
 				}
+				this.setPromptActivity("compaction", false);
 				if (event.aborted) {
 					if (event.reason === "manual") {
 						this.showError("Compaction cancelled");
@@ -4388,6 +4395,7 @@ export class InteractiveMode {
 					(spinner) => theme.fg("warning", spinner),
 					(text) => theme.fg("muted", text),
 					retryMessage(Math.ceil(event.delayMs / 1000)),
+					DEFAULT_WORKING_INDICATOR,
 				);
 				this.retryCountdown = new CountdownTimer(
 					event.delayMs,
@@ -4400,6 +4408,7 @@ export class InteractiveMode {
 					},
 				);
 				this.statusContainer.addChild(this.retryLoader);
+				this.setPromptActivity("retry", true);
 				this.ui.requestRender();
 				break;
 			}
@@ -4430,6 +4439,7 @@ export class InteractiveMode {
 					this.retryCountdown = undefined;
 				}
 				this.stopRetryLoader();
+				this.setPromptActivity("retry", false);
 				// Show error only on final failure (success shows normal response)
 				if (!event.success) {
 					this.showError(`Retry failed after ${event.attempt} attempts: ${event.finalError || "Unknown error"}`);
@@ -6033,8 +6043,10 @@ export class InteractiveMode {
 							(spinner) => theme.fg("accent", spinner),
 							(text) => theme.fg("muted", text),
 							`Summarizing branch... (${keyText("app.interrupt")} to cancel)`,
+							DEFAULT_WORKING_INDICATOR,
 						);
 						this.statusContainer.addChild(summaryLoader);
+						this.setPromptActivity("branch-summary", true);
 						this.ui.requestRender();
 					}
 
@@ -6069,6 +6081,7 @@ export class InteractiveMode {
 						if (summaryLoader) {
 							summaryLoader.stop();
 							this.statusContainer.clear();
+							this.setPromptActivity("branch-summary", false);
 						}
 						this.defaultEditor.onEscape = originalOnEscape;
 					}
@@ -7315,6 +7328,7 @@ export class InteractiveMode {
 			// Show in chat immediately when agent is idle
 			this.chatContainer.addChild(this.bashComponent);
 		}
+		this.setPromptActivity("bash", true);
 		this.ui.requestRender();
 
 		try {
@@ -7343,10 +7357,11 @@ export class InteractiveMode {
 				this.bashComponent.setComplete(undefined, false);
 			}
 			this.showError(`Bash command failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+		} finally {
+			this.bashComponent = undefined;
+			this.setPromptActivity("bash", false);
+			this.ui.requestRender();
 		}
-
-		this.bashComponent = undefined;
-		this.ui.requestRender();
 	}
 
 	private async handleCompactCommand(customInstructions?: string): Promise<void> {

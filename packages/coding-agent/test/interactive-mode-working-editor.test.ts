@@ -86,6 +86,7 @@ type SyncContext = {
 	isSelectedChildWorking(): boolean;
 	isViewingAgentSession(): boolean;
 	loadingAnimation: LoaderStub | undefined;
+	promptActivitySources: Set<string>;
 	session: { isStreaming: boolean };
 	startChildActivityTimer(): void;
 	statusContainer: { addChild(component: Component): void };
@@ -132,6 +133,7 @@ function createContext(editor: EditorComponent): SyncContext {
 		isSelectedChildWorking: () => false,
 		isViewingAgentSession: () => false,
 		loadingAnimation,
+		promptActivitySources: new Set(),
 		session: { isStreaming: true },
 		startChildActivityTimer: vi.fn(),
 		statusContainer: { addChild: vi.fn() },
@@ -163,7 +165,7 @@ describe("InteractiveMode working editor", () => {
 		assert.strictEqual(editor.working, false);
 	});
 
-	it("keeps child custom indicators on the child status loader", () => {
+	it("drives selected child activity through the prompt and keeps the status label static", () => {
 		const editor = new WorkingEditor();
 		const context = createContext(editor);
 		context.isViewingAgentSession = () => true;
@@ -173,11 +175,12 @@ describe("InteractiveMode working editor", () => {
 
 		prototype.syncWorkingLoaderVisibility.call(context);
 
-		assert.strictEqual(editor.working, false);
-		assert.deepStrictEqual(context.createdIndicators, [context.workingIndicatorOptions]);
+		assert.strictEqual(editor.working, true);
+		assert.deepStrictEqual(editor.indicator, context.workingIndicatorOptions);
+		assert.deepStrictEqual(context.createdIndicators, [{ frames: [] }]);
 	});
 
-	it("uses the status loader for custom indicators when the editor lacks fixed-cell support", () => {
+	it("keeps the status label static when the editor lacks fixed-cell support", () => {
 		const editor = new PlainEditor();
 		const context = createContext(editor);
 		context.loadingAnimation = undefined;
@@ -185,10 +188,10 @@ describe("InteractiveMode working editor", () => {
 
 		prototype.syncWorkingLoaderVisibility.call(context);
 
-		assert.deepStrictEqual(context.createdIndicators, [context.workingIndicatorOptions]);
+		assert.deepStrictEqual(context.createdIndicators, [{ frames: [] }]);
 	});
 
-	it("uses the status loader when custom frames cannot fit the one-cell editor prompt", () => {
+	it("keeps the status label static when custom frames cannot fit the one-cell editor prompt", () => {
 		const editor = new WorkingEditor();
 		const context = createContext(editor);
 		context.loadingAnimation = undefined;
@@ -199,7 +202,7 @@ describe("InteractiveMode working editor", () => {
 
 		assert.strictEqual(editor.working, false);
 		assert.strictEqual(editor.indicator, undefined);
-		assert.deepStrictEqual(context.createdIndicators, [context.workingIndicatorOptions]);
+		assert.deepStrictEqual(context.createdIndicators, [{ frames: [] }]);
 	});
 
 	it("clears only prompt placement while a working editor is temporarily replaced", () => {
@@ -219,16 +222,20 @@ describe("InteractiveMode working editor", () => {
 		assert.deepStrictEqual(editor.origin, { row: 7, col: 3 });
 	});
 
-	it("updates the active child loader when custom indicator options change", () => {
+	it("keeps the active child status label static when prompt indicator options change", () => {
 		const editor = new WorkingEditor();
 		const context = createContext(editor);
 		const indicator = { frames: ["x", "y"], intervalMs: 80 };
+		context.isViewingAgentSession = () => true;
+		context.isSelectedChildWorking = () => true;
 		context.workingLoaderView = "child";
 
 		prototype.setWorkingIndicator.call(context, indicator);
 
 		assert.deepStrictEqual(context.workingIndicatorOptions, indicator);
-		expect(context.loadingAnimation?.setIndicator).toHaveBeenCalledWith(indicator);
+		assert.deepStrictEqual(editor.indicator, indicator);
+		assert.strictEqual(editor.working, true);
+		expect(context.loadingAnimation?.setIndicator).toHaveBeenCalledWith({ frames: [] });
 	});
 
 	it("keeps the main status label static when the editor owns the custom indicator", () => {

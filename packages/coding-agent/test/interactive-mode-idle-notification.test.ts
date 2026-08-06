@@ -1,5 +1,5 @@
 import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
-import { Container, type Loader } from "@earendil-works/pi-tui";
+import { Container, type Loader, type LoaderIndicatorOptions, Text } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSessionEvent } from "../src/core/agent-session.ts";
 import { PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS } from "../src/core/desktop-notification.ts";
@@ -7,6 +7,17 @@ import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
 const desktopNotifier = vi.hoisted(() => vi.fn());
+
+class WorkingEditor extends Text {
+	working = false;
+
+	setWorking(working: boolean): void {
+		this.working = working;
+	}
+	setWorkingIndicator(): void {}
+	setScreenOrigin(): void {}
+	clearScreenOrigin(): void {}
+}
 
 const EMPTY_USAGE: Usage = {
 	input: 0,
@@ -46,6 +57,8 @@ type HandleEventContext = {
 	defaultEditor: { onEscape?: () => void };
 	defaultStreamingMessage: string;
 	defaultWorkingMessage: string;
+	editor: WorkingEditor;
+	editorContainer: Container;
 	executingToolNames: Map<string, string>;
 	executingToolStartedAt: Map<string, number>;
 	footer: { invalidate(): void };
@@ -55,6 +68,7 @@ type HandleEventContext = {
 	loadingAnimation: Loader | undefined;
 	multiAgentStore: undefined;
 	pendingTools: Map<string, { dispose(): void }>;
+	promptActivitySources: Set<string>;
 	retryCountdown: { dispose(): void } | undefined;
 	retryEscapeHandler: (() => void) | undefined;
 	retryLoader: Loader | undefined;
@@ -77,10 +91,12 @@ type HandleEventContext = {
 	streamingMessage: unknown;
 	thinkingFollowsTool: boolean;
 	ui: { requestRender(): void; terminal: { setProgress(progress: boolean): void } };
+	workingIndicatorOptions: LoaderIndicatorOptions | undefined;
 	workingVisible: boolean;
 };
 
 type SubmitContext = {
+	addSubmittedTextToHistory(text: string): void;
 	closeResponseCompleteNotification(): void;
 	defaultEditor: { onSubmit?: (text: string) => Promise<void> };
 	editor: {
@@ -121,6 +137,9 @@ function createContext(): HandleEventContext {
 	context.defaultEditor = {};
 	context.defaultStreamingMessage = "Streaming...";
 	context.defaultWorkingMessage = "Thinking...";
+	context.editor = new WorkingEditor("", 0, 0);
+	context.editorContainer = new Container();
+	context.editorContainer.addChild(context.editor);
 	context.executingToolNames = new Map();
 	context.executingToolStartedAt = new Map();
 	context.footer = { invalidate: vi.fn() };
@@ -130,6 +149,7 @@ function createContext(): HandleEventContext {
 	context.loadingAnimation = undefined;
 	context.multiAgentStore = undefined;
 	context.pendingTools = new Map();
+	context.promptActivitySources = new Set();
 	context.retryCountdown = undefined;
 	context.retryEscapeHandler = undefined;
 	context.retryLoader = undefined;
@@ -150,12 +170,14 @@ function createContext(): HandleEventContext {
 	context.streamingMessage = undefined;
 	context.thinkingFollowsTool = false;
 	context.ui = { requestRender: vi.fn(), terminal: { setProgress: vi.fn() } };
+	context.workingIndicatorOptions = undefined;
 	context.workingVisible = true;
 	return context;
 }
 
 function createSubmitContext(): SubmitContext {
 	return {
+		addSubmittedTextToHistory: vi.fn(),
 		closeResponseCompleteNotification: vi.fn(),
 		defaultEditor: {},
 		editor: {
@@ -282,6 +304,7 @@ describe("InteractiveMode retry status", () => {
 		vi.useFakeTimers();
 		const context = createContext();
 
+		context.runtimeHost.session.isStreaming = false;
 		await interactiveModePrototype.handleEvent.call(context, {
 			type: "auto_retry_start",
 			attempt: 1,
@@ -289,11 +312,17 @@ describe("InteractiveMode retry status", () => {
 			delayMs: 1000,
 			errorMessage: "overloaded",
 		});
+		expect(context.editor.working).toBe(true);
 		const retryLoader = context.statusContainer.children[0] as Loader;
 		const stop = vi.spyOn(retryLoader, "stop");
 		expect(retryLoader.render(100).join("\n")).toContain("Retrying (1/3) in 1s...");
-		vi.advanceTimersByTime(1000);
+		const renderCountAfterStart = vi.mocked(context.ui.requestRender).mock.calls.length;
 
+		await vi.advanceTimersByTimeAsync(999);
+		expect(context.ui.requestRender).toHaveBeenCalledTimes(renderCountAfterStart);
+		await vi.advanceTimersByTimeAsync(1);
+
+		context.runtimeHost.session.isStreaming = true;
 		await interactiveModePrototype.handleEvent.call(context, { type: "agent_start" });
 
 		expect(context.statusContainer.children).toEqual([retryLoader]);
@@ -309,6 +338,7 @@ describe("InteractiveMode retry status", () => {
 
 		await interactiveModePrototype.handleEvent.call(context, { type: "agent_end", messages: [], willRetry: false });
 
+		expect(context.editor.working).toBe(false);
 		expect(stop).toHaveBeenCalledTimes(1);
 		expect(context.loadingAnimation).toBeUndefined();
 		expect(context.statusContainer.children).toEqual([]);

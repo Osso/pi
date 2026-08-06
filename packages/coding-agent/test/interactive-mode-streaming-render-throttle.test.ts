@@ -51,6 +51,7 @@ type HandleEventThis = {
 		| undefined;
 	pendingMessagesContainer: Container;
 	pendingTools: Map<string, unknown>;
+	promptActivitySources: Set<string>;
 	runtimeHost: {
 		session: {
 			getFollowUpMessages(): string[];
@@ -180,6 +181,7 @@ function createFakeInteractiveModeThis(): HandleEventThis {
 		multiAgentStore: undefined,
 		pendingMessagesContainer: new Container(),
 		pendingTools: new Map<string, unknown>(),
+		promptActivitySources: new Set(),
 		runtimeHost: {
 			session: {
 				getFollowUpMessages: () => [],
@@ -246,30 +248,27 @@ describe("InteractiveMode streaming render throttling", () => {
 		}
 	});
 
-	test("preserves child loader animation and stops it when restoring the default indicator", async () => {
+	test("keeps child status labels static when the prompt owns animation", async () => {
 		vi.useFakeTimers();
-		const animatedMode = createFakeInteractiveModeThis();
-		animatedMode.multiAgentStore = { getAgent: () => ({}), getSelectedAgentId: () => "agent_1" };
-		animatedMode.workingIndicatorOptions = { frames: ["a", "b"], intervalMs: 250 };
-		const animatedLoader = workingLoader.createWorkingLoader.call(animatedMode, animatedMode.workingIndicatorOptions);
-		animatedMode.loadingAnimation = animatedLoader;
-		animatedMode.workingLoaderView = "child";
+		const mode = createFakeInteractiveModeThis();
+		mode.multiAgentStore = { getAgent: () => ({}), getSelectedAgentId: () => "agent_1" };
+		mode.workingIndicatorOptions = { frames: ["a", "b"], intervalMs: 250 };
+		const loader = workingLoader.createWorkingLoader.call(mode, mode.workingIndicatorOptions);
+		mode.loadingAnimation = loader;
+		mode.workingLoaderView = "child";
 		try {
-			expect(animatedMode.ui.requestRender).toHaveBeenCalledTimes(1);
-
-			await vi.advanceTimersByTimeAsync(249);
-			expect(animatedMode.ui.requestRender).toHaveBeenCalledTimes(1);
-
-			await vi.advanceTimersByTimeAsync(1);
-			expect(animatedMode.ui.requestRender).toHaveBeenCalledTimes(2);
-
-			workingLoader.setWorkingIndicator.call(animatedMode, undefined);
-			const renderCountAfterReset = vi.mocked(animatedMode.ui.requestRender).mock.calls.length;
+			expect(mode.ui.requestRender).toHaveBeenCalledTimes(1);
 
 			await vi.advanceTimersByTimeAsync(1_000);
-			expect(animatedMode.ui.requestRender).toHaveBeenCalledTimes(renderCountAfterReset);
+			expect(mode.ui.requestRender).toHaveBeenCalledTimes(1);
+
+			workingLoader.setWorkingIndicator.call(mode, undefined);
+			const renderCountAfterReset = vi.mocked(mode.ui.requestRender).mock.calls.length;
+
+			await vi.advanceTimersByTimeAsync(1_000);
+			expect(mode.ui.requestRender).toHaveBeenCalledTimes(renderCountAfterReset);
 		} finally {
-			animatedLoader.stop();
+			loader.stop();
 		}
 	});
 

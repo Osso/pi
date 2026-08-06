@@ -28,9 +28,9 @@ function createBaseToolDefinition(name = "custom_tool"): ToolDefinition {
 	};
 }
 
-function createFakeTui(): TUI {
+function createFakeTui(requestRender: () => void = () => {}): TUI {
 	return {
-		requestRender: () => {},
+		requestRender,
 	} as unknown as TUI;
 }
 
@@ -100,6 +100,23 @@ describe("ToolExecutionComponent parity", () => {
 		vi.setSystemTime(9_000);
 		component.invalidate();
 		expect(stripAnsi(component.render(120).join("\n"))).toContain("elapsed 2s");
+	});
+
+	test("keeps the bash status label static when elapsed time is hidden", async () => {
+		vi.useFakeTimers();
+		const requestRender = vi.fn();
+		const component = new BashExecutionComponent("echo done", createFakeTui(requestRender), false, {
+			showElapsed: false,
+		});
+		try {
+			const initialRenderCount = requestRender.mock.calls.length;
+
+			await vi.advanceTimersByTimeAsync(1_000);
+
+			expect(requestRender).toHaveBeenCalledTimes(initialRenderCount);
+		} finally {
+			component.dispose();
+		}
 	});
 
 	test("caps expanded general tool output at 100 lines", () => {

@@ -1,10 +1,31 @@
 import { beforeAll, describe, expect, test, vi } from "vitest";
+import type { AgentSessionEvent } from "../src/core/agent-session.ts";
 import {
 	formatCompactionFailureMessage,
 	formatCompactionStartLabel,
 	InteractiveMode,
 } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+
+class WorkingEditor {
+	working = false;
+
+	render(): string[] {
+		return [];
+	}
+	invalidate(): void {}
+	handleInput(): void {}
+	getText(): string {
+		return "";
+	}
+	setText(): void {}
+	setWorking(working: boolean): void {
+		this.working = working;
+	}
+	setWorkingIndicator(): void {}
+	setScreenOrigin(): void {}
+	clearScreenOrigin(): void {}
+}
 
 describe("InteractiveMode compaction events", () => {
 	beforeAll(() => {
@@ -37,55 +58,79 @@ describe("InteractiveMode compaction events", () => {
 		).toBe("Auto-compacting locally... (escape to cancel)");
 	});
 
-	test("shows remote source in the in-progress compaction loader", async () => {
+	test("shows remote source without periodically rerendering the compaction label", async () => {
+		vi.useFakeTimers();
 		const addedChildren: Array<{ render: (width: number) => string[]; stop?: () => void }> = [];
+		const editor = new WorkingEditor();
 		const fakeThis = {
 			isInitialized: true,
 			isViewingAgentSession: () => false,
+			isSelectedChildWorking: () => false,
 			footer: { invalidate: vi.fn() },
 			autoCompactionEscapeHandler: undefined as (() => void) | undefined,
 			autoCompactionLoader: undefined,
+			autoCompactionSourceHint: undefined,
 			defaultEditor: {},
+			editor,
+			editorContainer: { children: [editor] },
+			flushCompactionQueue: vi.fn().mockResolvedValue(undefined),
+			promptActivitySources: new Set<string>(),
+			setPromptActivity: Reflect.get(InteractiveMode.prototype, "setPromptActivity"),
+			showError: vi.fn(),
 			statusContainer: {
 				clear: vi.fn(),
 				addChild: vi.fn((child: { render: (width: number) => string[]; stop?: () => void }) => {
 					addedChildren.push(child);
 				}),
 			},
+			syncWorkingEditorState: Reflect.get(InteractiveMode.prototype, "syncWorkingEditorState"),
 			settingsManager: { getShowTerminalProgress: () => false },
-			session: { abortCompaction: vi.fn() },
+			session: { abortCompaction: vi.fn(), isStreaming: false },
 			ui: { requestRender: vi.fn(), terminal: { setProgress: vi.fn() } },
+			workingIndicatorOptions: undefined,
+			workingVisible: true,
 		};
 
 		const handleEvent = Reflect.get(InteractiveMode.prototype, "handleEvent") as (
 			this: typeof fakeThis,
-			event: {
-				type: "compaction_start";
-				reason: "manual";
-				sourceHint: {
-					type: "openai_remote";
-					provider: string;
-					model: string;
-					endpoint: string;
-				};
-			},
+			event: AgentSessionEvent,
 		) => Promise<void>;
 
-		await handleEvent.call(fakeThis, {
-			type: "compaction_start",
-			reason: "manual",
-			sourceHint: {
-				type: "openai_remote",
-				provider: "openai",
-				model: "gpt-4.1-mini",
-				endpoint: "https://api.openai.com/v1/responses/compact",
-			},
-		});
+		try {
+			await handleEvent.call(fakeThis, {
+				type: "compaction_start",
+				reason: "manual",
+				sourceHint: {
+					type: "openai_remote",
+					provider: "openai",
+					model: "gpt-4.1-mini",
+					endpoint: "https://api.openai.com/v1/responses/compact",
+				},
+			});
 
-		const renderedLoader = addedChildren[0]?.render(120).join("\n") ?? "";
-		expect(renderedLoader).toContain(
-			"Compacting context via OpenAI remote endpoint (openai/gpt-4.1-mini, https://api.openai.com/v1/responses/compact)...",
-		);
+			const renderedLoader = addedChildren[0]?.render(120).join("\n") ?? "";
+			expect(renderedLoader).toContain(
+				"Compacting context via OpenAI remote endpoint (openai/gpt-4.1-mini, https://api.openai.com/v1/responses/compact)...",
+			);
+			expect(editor.working).toBe(true);
+			const renderCountAfterStart = fakeThis.ui.requestRender.mock.calls.length;
+
+			await vi.advanceTimersByTimeAsync(1_000);
+
+			expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(renderCountAfterStart);
+
+			await handleEvent.call(fakeThis, {
+				type: "compaction_end",
+				reason: "manual",
+				result: undefined,
+				aborted: true,
+				willRetry: false,
+			});
+			expect(editor.working).toBe(false);
+		} finally {
+			addedChildren[0]?.stop?.();
+			vi.useRealTimers();
+		}
 	});
 
 	test("rebuilds chat and appends a synthetic compaction summary at the bottom", async () => {
@@ -104,6 +149,7 @@ describe("InteractiveMode compaction events", () => {
 			showStatus: vi.fn(),
 			clearStatusIndicator: vi.fn(),
 			flushCompactionQueue: vi.fn().mockResolvedValue(undefined),
+			setPromptActivity: vi.fn(),
 			settingsManager: { getShowTerminalProgress: () => false },
 			ui: { requestRender: vi.fn(), terminal: { setProgress: vi.fn() } },
 		};
@@ -300,6 +346,7 @@ describe("InteractiveMode compaction events", () => {
 			showError: vi.fn(),
 			showStatus: vi.fn(),
 			flushCompactionQueue: vi.fn().mockResolvedValue(undefined),
+			setPromptActivity: vi.fn(),
 			settingsManager: { getShowTerminalProgress: () => false },
 			ui: { requestRender: vi.fn(), terminal: { setProgress: vi.fn() } },
 		};

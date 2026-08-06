@@ -71,6 +71,7 @@ export class BashExecutionComponent extends Container {
 			(spinner) => theme.fg(colorKey, spinner),
 			(text) => theme.fg("muted", text),
 			`Running... (${keyText("tui.select.cancel")} to cancel)`, // Plain text for loader
+			{ frames: [] },
 		);
 		this.contentContainer.addChild(this.loader);
 		if (this.showElapsed) {
