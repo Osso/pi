@@ -17,7 +17,7 @@ export class StatusIndicator extends Loader {
 		message: string,
 		indicator?: WorkingIndicatorOptions,
 	) {
-		super(ui, spinnerColorFn, messageColorFn, message, indicator);
+		super(ui, spinnerColorFn, messageColorFn, message, { ...indicator, frames: [] });
 		this.kind = kind;
 	}
 

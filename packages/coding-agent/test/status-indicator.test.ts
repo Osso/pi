@@ -1,6 +1,10 @@
 import type { TUI } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { IdleStatus, RetryStatusIndicator } from "../src/modes/interactive/components/status-indicator.ts";
+import {
+	IdleStatus,
+	RetryStatusIndicator,
+	WorkingStatusIndicator,
+} from "../src/modes/interactive/components/status-indicator.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
 describe("status indicators", () => {
@@ -14,6 +18,26 @@ describe("status indicators", () => {
 		const lines = idleStatus.render(20);
 		expect(lines).toHaveLength(2);
 		expect(lines).toEqual([" ".repeat(20), " ".repeat(20)]);
+	});
+
+	it("keeps configured working status frames static", async () => {
+		initTheme("dark");
+		vi.useFakeTimers();
+		const requestRender = vi.fn();
+		const tui = { requestRender } as unknown as TUI;
+		const indicator = new WorkingStatusIndicator(tui, "Working...", {
+			frames: ["a", "b"],
+			intervalMs: 250,
+		});
+		try {
+			const callsAfterConstruction = requestRender.mock.calls.length;
+
+			await vi.advanceTimersByTimeAsync(1000);
+
+			expect(requestRender).toHaveBeenCalledTimes(callsAfterConstruction);
+		} finally {
+			indicator.dispose();
+		}
 	});
 
 	it("disposes retry countdown updates", () => {

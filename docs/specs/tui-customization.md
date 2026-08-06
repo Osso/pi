@@ -47,9 +47,9 @@ terminal_resize_reflow_max_rows = 5000
 
 - [x] Normal working status text remains static `Thinking...` / `Streaming...`; active main- or selected-child-agent work animates only through the compatible editor prompt fixed cell without rendering the global component tree on each frame (`interactive-mode-streaming-render-throttle.test.ts`, `interactive-mode-working-editor.test.ts`).
 - [x] `ctx.ui.setWorkingIndicator()` with no argument restores the default prompt animation while preserving the static status label.
-- [x] Prompt activity from main work, selected-child work, compaction, retry, branch summarization, and local bash shares the compatible editor prompt animation; the corresponding coding-agent status loaders are static (`interactive-mode-working-editor.test.ts`, `interactive-mode-idle-notification.test.ts`, `interactive-mode-bash-prompt.test.ts`).
-- [x] Bordered loaders and incompatible, hidden, replaced, or otherwise unsupported custom editors show static status text only; they do not retain a recurring cosmetic loader interval (`bordered-loader.test.ts`, `interactive-mode-working-editor.test.ts`).
-- [x] Countdown, elapsed-time, streaming-content, and transcript updates continue through normal renders because their text or layout can change (`interactive-mode-streaming-render-throttle.test.ts`, `tool-execution-component.test.ts`).
+- [x] Prompt activity from main work, selected-child work, compaction, retry, branch summarization, and local bash shares the compatible editor prompt animation; the corresponding coding-agent status loaders are static (`interactive-mode-working-editor.test.ts`, `interactive-mode-compaction.test.ts`, `interactive-mode-idle-notification.test.ts`, `interactive-mode-branch-summary-prompt.test.ts`, `interactive-mode-bash-prompt.test.ts`).
+- [x] Bordered loaders, exported status indicators, and incompatible, replaced, or otherwise unsupported custom editors show static status text only; they do not retain a recurring cosmetic loader interval (`bordered-loader.test.ts`, `status-indicator.test.ts`, `interactive-mode-working-editor.test.ts`).
+- [x] Countdown, elapsed-time, streaming-content, and transcript updates continue through normal renders because their text or layout can change (`interactive-mode-streaming-render-throttle.test.ts`, `interactive-mode-idle-notification.test.ts`, `tool-execution-component.test.ts`, `interactive-mode-status.test.ts`).
 - [x] Pending renders, terminal resize, hidden prompt rows, and overlays suppress unsafe direct cell writes; the next normal render recalculates placement and synchronizes the frame cache.
 
 ## How it works
@@ -64,6 +64,7 @@ terminal_resize_reflow_max_rows = 5000
 - `packages/coding-agent/src/modes/interactive/working-editor.ts` — detects compatible editors and coordinates main/child prompt activity and placement without changing unsupported custom editors.
 - `packages/coding-agent/src/modes/interactive/components/bash-execution.ts` — keeps local bash status text static while retaining its separate elapsed-time update path.
 - `packages/coding-agent/src/modes/interactive/components/bordered-loader.ts` — creates static bordered status loaders, including cancellable loaders.
+- `packages/coding-agent/src/modes/interactive/components/status-indicator.ts` — keeps exported working, retry, compaction, and branch-summary status indicators static while preserving countdown updates.
 - `packages/tui/src/components/editor.ts` — owns prompt frames, timer lifetime, multiline prompt placement, and idle-prompt restoration.
 - `packages/tui/src/tui.ts` — performs one-cell terminal updates while synchronizing the cached rendered frame and rejecting unsafe writes.
 - `packages/tui/src/components/loader.ts` — retains the generic loader API; coding-agent uses it with an empty frame list for static status text.
@@ -107,7 +108,9 @@ terminal_resize_reflow_max_rows = 5000
 - `packages/coding-agent/test/interactive-mode-working-editor.test.ts` and `working-editor.test.ts` — main/child prompt routing, static status loaders, incompatible/wider custom indicators, temporary editor replacement, and prompt placement coordination.
 - `packages/coding-agent/test/interactive-mode-compaction.test.ts` and `interactive-mode-idle-notification.test.ts` — compaction/retry status labels and prompt-activity lifecycle.
 - `packages/coding-agent/test/interactive-mode-bash-prompt.test.ts` — local bash activity starts and stops prompt animation around the running command.
+- `packages/coding-agent/test/interactive-mode-branch-summary-prompt.test.ts` — branch-summary activity starts and stops prompt animation while its status loader remains static.
 - `packages/coding-agent/test/bordered-loader.test.ts` — bordered status loaders render without recurring spinner updates.
+- `packages/coding-agent/test/status-indicator.test.ts` — exported status indicators remain static while retry countdown disposal remains testable.
 - `packages/coding-agent/test/tool-execution-component.test.ts` — bash status remains static when elapsed timing is disabled while elapsed timing remains separately testable.
 - `packages/coding-agent/test/interactive-root-compositor.test.ts` — actual interactive flow/bottom ordering plus editor repositioning after terminal and footer height changes.
 - `packages/tui/test/fixed-cell.test.ts` — one-cell writes without tree renders, cache synchronization, pending-render/resize rejection, recovery, and overlay suppression.
