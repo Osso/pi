@@ -39,7 +39,7 @@ terminal_resize_reflow_max_rows = 5000
 - [ ] `ctx.ui.setWidget(key, content, options?)` shows a string-array or component widget above/below the editor.
 - [ ] `ctx.ui.setEditorComponent(factory | undefined)` replaces the core input editor (subclass `CustomEditor`, call `super.handleInput` for app keybindings); `getEditorComponent()` reads the current factory.
 - [x] Interactive layout preserves normal component rendering order while anchoring status, editor widgets, editor, and footer to the viewport bottom when content is shorter than the terminal.
-- [x] Explicit root layout callbacks can register full-width render regions; same-height descendant updates redraw only that row range and synchronize the frame cache, while stale placement, resize, pending renders, overlays, or height changes fall back to normal rendering (`render-region.test.ts`, `interactive-root-compositor.test.ts`).
+- [x] Explicit root layout callbacks can register full-width render regions; same-height descendant updates redraw only that row range and synchronize the frame cache, while stale placement, resize, pending renders, overlays, invalid output, or height changes fall back to normal rendering (`render-region.test.ts`, `render-region-safety.test.ts`, `interactive-root-compositor.test.ts`).
 - [ ] `ctx.ui.custom<T>(factory, options?)` shows a full-screen or overlay component with keyboard focus and resolves with a result `T`.
 - [ ] `ctx.ui.setTitle`, `setEditorText`/`getEditorText`, `pasteToEditor`, `editor(title, prefill?)`, `addAutocompleteProvider`, and `getToolsExpanded`/`setToolsExpanded` are available as supporting surface.
 - [x] `pi.registerEntryRenderer(customType, renderer)` renders matching display-only `pi.appendEntry()` data in interactive chat immediately on append and from the active compaction-aware branch during transcript startup, resume, and rebuild; entries remain excluded from model context.
@@ -115,7 +115,7 @@ terminal_resize_reflow_max_rows = 5000
 - `packages/coding-agent/test/status-indicator.test.ts` — exported status indicators remain static while retry countdown disposal remains testable.
 - `packages/coding-agent/test/tool-execution-component.test.ts` — bash status remains static when elapsed timing is disabled while elapsed timing remains separately testable.
 - `packages/coding-agent/test/interactive-root-compositor.test.ts` — actual interactive flow/bottom ordering, editor repositioning, and nested status Loader updates without unrelated root-entry renders.
-- `packages/tui/test/render-region.test.ts` and `loader.test.ts` — same-height row updates, cache synchronization, descendant remapping, safety fallbacks, height changes, and unregistered Loader behavior.
+- `packages/tui/test/render-region.test.ts`, `render-region-safety.test.ts`, and `loader.test.ts` — same-height row updates, cache synchronization, descendant remapping, safety fallbacks, height changes, and unregistered Loader behavior.
 - `packages/tui/test/fixed-cell.test.ts` — one-cell writes without tree renders, cache synchronization, pending-render/resize rejection, recovery, and overlay suppression.
 - `packages/tui/test/editor.test.ts` — prompt animation, multiline/padded/scrolled prompt placement, custom/static/hidden frames, and idle restoration.
 - `packages/coding-agent/test/extensions-runner.test.ts:128-313` — shortcut conflict detection: warns on reserved conflict, allows when reserved set changes, reserved wins over non-reserved across iteration order, warns-but-allows on non-reserved built-in.
