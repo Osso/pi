@@ -63,6 +63,7 @@ type AgentEndContext = {
 	executingToolStartedAt: Map<string, number>;
 	init(): Promise<void>;
 	isInitialized: boolean;
+	handleHiddenMainSessionDisplayEvent(event: AgentSessionEvent): boolean;
 	isViewingAgentSession(): boolean;
 	notifyResponseComplete(event: AgentEndEvent): void;
 	settingsManager: { getShowTerminalProgress(): boolean };
@@ -260,6 +261,7 @@ describe("InteractiveMode working editor", () => {
 			executingToolStartedAt: new Map(),
 			init: async () => {},
 			isInitialized: true,
+			handleHiddenMainSessionDisplayEvent: () => false,
 			isViewingAgentSession: () => false,
 			notifyResponseComplete: vi.fn(),
 			settingsManager: { getShowTerminalProgress: () => false },
