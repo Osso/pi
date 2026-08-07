@@ -22,6 +22,7 @@ import type {
 	AutocompleteItem,
 	AutocompleteProvider,
 	EditorComponent,
+	FlowRenderRegion,
 	Keybinding,
 	KeyId,
 	MarkdownTheme,
@@ -462,6 +463,8 @@ export class InteractiveMode {
 	private ui: TUI;
 	private loadedResourcesContainer: Container;
 	private chatContainer: Container;
+	private transcriptTailContainer: Container;
+	private transcriptTailRegion: FlowRenderRegion;
 	private pendingMessagesContainer: Container;
 	private statusContainer: Container;
 	private defaultEditor: CustomEditor;
@@ -645,6 +648,8 @@ export class InteractiveMode {
 		this.headerContainer = new Container();
 		this.loadedResourcesContainer = new Container();
 		this.chatContainer = new Container();
+		this.transcriptTailContainer = new Container();
+		this.transcriptTailRegion = this.ui.createFlowRenderRegion(this.transcriptTailContainer);
 		this.pendingMessagesContainer = new Container();
 		this.statusContainer = new Container();
 		this.widgetContainerAbove = new Container();
@@ -675,7 +680,9 @@ export class InteractiveMode {
 			header: this.headerContainer,
 			loadedResources: this.loadedResourcesContainer,
 			chat: this.chatContainer,
+			transcriptTail: this.transcriptTailContainer,
 			pendingMessages: this.pendingMessagesContainer,
+			onTranscriptTailLayout: (layout) => this.transcriptTailRegion.place(layout),
 			status: this.statusContainer,
 			widgetAbove: this.widgetContainerAbove,
 			editor: this.editorContainer,
@@ -2037,6 +2044,8 @@ export class InteractiveMode {
 		this.disposeActiveBashComponents();
 		this.loadedResourcesContainer.clear();
 		this.chatContainer.clear();
+		this.transcriptTailRegion.clear();
+		this.transcriptTailContainer.clear();
 		this.pendingMessagesContainer.clear();
 		this.compactionQueuedMessages = [];
 		this.streamingComponent = undefined;
@@ -3945,13 +3954,18 @@ export class InteractiveMode {
 	}
 
 	private schedulePartialUpdateRender(): void {
-		if (this.partialUpdateRenderTimeout) {
-			return;
-		}
+		this.scheduleDeferredRender(() => this.ui.requestRender());
+	}
 
+	private scheduleTranscriptTailUpdateRender(): void {
+		this.scheduleDeferredRender(() => this.transcriptTailRegion.requestRender());
+	}
+
+	private scheduleDeferredRender(render: () => void): void {
+		if (this.partialUpdateRenderTimeout) return;
 		this.partialUpdateRenderTimeout = setTimeout(() => {
 			this.partialUpdateRenderTimeout = undefined;
-			this.ui.requestRender();
+			render();
 		}, PARTIAL_UPDATE_RENDER_THROTTLE_MS);
 	}
 
@@ -3969,6 +3983,25 @@ export class InteractiveMode {
 			component.dispose();
 		}
 		this.pendingTools.clear();
+	}
+
+	private moveStreamingComponentToChat(): void {
+		const component = this.streamingComponent;
+		if (!component) return;
+		this.clearTranscriptTail();
+		this.chatContainer.addChild(component);
+	}
+
+	private discardStreamingComponent(): void {
+		if (!this.streamingComponent) return;
+		this.clearTranscriptTail();
+		this.streamingComponent = undefined;
+		this.streamingMessage = undefined;
+	}
+
+	private clearTranscriptTail(): void {
+		this.transcriptTailRegion.clear();
+		this.transcriptTailContainer.clear();
 	}
 
 	private disposeActiveBashComponents(): void {
@@ -4157,9 +4190,9 @@ export class InteractiveMode {
 						this.hiddenThinkingLabel,
 					);
 					this.streamingMessage = event.message;
-					this.chatContainer.addChild(this.streamingComponent);
+					this.transcriptTailContainer.addChild(this.streamingComponent);
 					this.streamingComponent.updateContent(this.streamingMessage);
-					this.ui.requestRender();
+					this.transcriptTailRegion.requestRender();
 				}
 				break;
 
@@ -4170,7 +4203,7 @@ export class InteractiveMode {
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
 					this.streamingComponent.updateContent(this.streamingMessage);
-					this.schedulePartialUpdateRender();
+					this.scheduleTranscriptTailUpdateRender();
 				}
 				break;
 
@@ -4179,17 +4212,12 @@ export class InteractiveMode {
 				this.footer.invalidate();
 				if (event.message.role === "user") break;
 				if (isDuplicateTurnAssistantMessage(event.message, event.runtimeMessageMarker)) {
-					if (this.streamingComponent) {
-						this.chatContainer.removeChild(this.streamingComponent);
-						this.streamingComponent = undefined;
-						this.streamingMessage = undefined;
-					}
+					this.discardStreamingComponent();
 					this.ui.requestRender();
 					break;
 				}
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
-					this.addCompletedThinkingDurationBeforeToolCall(this.streamingMessage);
 					let errorMessage: string | undefined;
 					if (this.streamingMessage.stopReason === "aborted") {
 						const retryAttempt = this.session.retryAttempt;
@@ -4200,6 +4228,8 @@ export class InteractiveMode {
 						this.streamingMessage.errorMessage = errorMessage;
 					}
 					this.streamingComponent.updateContent(this.streamingMessage);
+					this.moveStreamingComponentToChat();
+					this.addCompletedThinkingDurationBeforeToolCall(this.streamingMessage);
 
 					if (this.streamingMessage.stopReason === "aborted" || this.streamingMessage.stopReason === "error") {
 						if (!errorMessage) {
@@ -4290,11 +4320,7 @@ export class InteractiveMode {
 				}
 				this.stopWorkingLoader();
 				clearWorkingEditor(this.editor);
-				if (this.streamingComponent) {
-					this.chatContainer.removeChild(this.streamingComponent);
-					this.streamingComponent = undefined;
-					this.streamingMessage = undefined;
-				}
+				this.discardStreamingComponent();
 				this.clearPendingToolComponents();
 
 				await this.checkShutdownRequested();
@@ -5133,9 +5159,11 @@ export class InteractiveMode {
 
 		// If streaming, re-add the streaming component with updated visibility and re-render
 		if (this.streamingComponent && this.streamingMessage) {
+			this.transcriptTailRegion.clear();
+			this.transcriptTailContainer.clear();
 			this.streamingComponent.setHideThinkingBlock(this.hideThinkingBlock);
 			this.streamingComponent.updateContent(this.streamingMessage);
-			this.chatContainer.addChild(this.streamingComponent);
+			this.transcriptTailContainer.addChild(this.streamingComponent);
 		}
 
 		this.showStatus(`Thinking blocks: ${this.hideThinkingBlock ? "hidden" : "visible"}`);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { RootCompositor } from "../src/root-compositor.ts";
-import { type Component, Container, type RenderRegion, TUI } from "../src/tui.ts";
+import { type Component, Container, CURSOR_MARKER, type RenderRegion, TUI } from "../src/tui.ts";
 import { VirtualTerminal } from "./virtual-terminal.ts";
 
 class RenderCountingComponent implements Component {
@@ -100,6 +100,253 @@ describe("TUI full-width render regions", () => {
 		}
 	});
 
+	it("grows a flow tail without rendering surrounding components", async () => {
+		const terminal = new LoggingVirtualTerminal(24, 8);
+		const tui = new TUI(terminal);
+		const history = new RenderCountingComponent(["history"]);
+		const tailRoot = new Container();
+		const tail = new RenderCountingComponent(["tail one"]);
+		const followingFlow = new RenderCountingComponent(["following"]);
+		const editor = new RenderCountingComponent(["editor"]);
+		const footer = new RenderCountingComponent(["footer"]);
+		tailRoot.addChild(tail);
+		const region = tui.createFlowRenderRegion(tailRoot);
+		const root = new RootCompositor({
+			getHeight: () => terminal.rows,
+			flow: [
+				{ component: history },
+				{ component: tailRoot, onFlowLayout: region.place },
+				{ component: followingFlow },
+			],
+			bottom: [{ component: editor }, { component: footer }],
+		});
+		tui.addChild(root);
+		tui.start();
+		await terminal.waitForRender();
+		terminal.clearWrites();
+		const historyRenderCount = history.renderCount;
+		const followingRenderCount = followingFlow.renderCount;
+		const editorRenderCount = editor.renderCount;
+		const footerRenderCount = footer.renderCount;
+		tail.lines = ["tail one", "tail two", "tail three"];
+
+		assert.strictEqual(tui.requestComponentRender(tail), true);
+		await terminal.waitForRender();
+
+		assert.deepStrictEqual(terminal.getViewport(), [
+			"history",
+			"tail one",
+			"tail two",
+			"tail three",
+			"following",
+			"",
+			"editor",
+			"footer",
+		]);
+		assert.strictEqual(history.renderCount, historyRenderCount);
+		assert.strictEqual(followingFlow.renderCount, followingRenderCount);
+		assert.strictEqual(editor.renderCount, editorRenderCount);
+		assert.strictEqual(footer.renderCount, footerRenderCount);
+		assert.ok(terminal.getWrites().length > 0);
+		tui.stop();
+		await terminal.flush();
+	});
+
+	it("appends and routes a new descendant from an empty flow tail", async () => {
+		const terminal = new LoggingVirtualTerminal(24, 6);
+		const tui = new TUI(terminal);
+		const history = new RenderCountingComponent(["history"]);
+		const tailRoot = new Container();
+		const pending = new RenderCountingComponent(["pending"]);
+		const editor = new RenderCountingComponent(["editor"]);
+		const footer = new RenderCountingComponent(["footer"]);
+		const region = tui.createFlowRenderRegion(tailRoot);
+		const root = new RootCompositor({
+			getHeight: () => terminal.rows,
+			flow: [{ component: history }, { component: tailRoot, onFlowLayout: region.place }, { component: pending }],
+			bottom: [{ component: editor }, { component: footer }],
+		});
+		tui.addChild(root);
+		tui.start();
+		await terminal.waitForRender();
+		const unchangedRenderCounts = {
+			history: history.renderCount,
+			pending: pending.renderCount,
+			editor: editor.renderCount,
+			footer: footer.renderCount,
+		};
+		const message = new RenderCountingComponent(["new message"]);
+		tailRoot.addChild(message);
+
+		assert.strictEqual(region.requestRender(), true);
+		await terminal.waitForRender();
+		message.lines = ["updated message"];
+		assert.strictEqual(tui.requestComponentRender(message), true);
+		await terminal.waitForRender();
+
+		assert.deepStrictEqual(terminal.getViewport(), ["history", "updated message", "pending", "", "editor", "footer"]);
+		assert.strictEqual(history.renderCount, unchangedRenderCounts.history);
+		assert.strictEqual(pending.renderCount, unchangedRenderCounts.pending);
+		assert.strictEqual(editor.renderCount, unchangedRenderCounts.editor);
+		assert.strictEqual(footer.renderCount, unchangedRenderCounts.footer);
+		tui.stop();
+		await terminal.flush();
+	});
+
+	it("updates the visible rows of a flow tail that starts above the viewport", async () => {
+		const terminal = new LoggingVirtualTerminal(24, 4);
+		const tui = new TUI(terminal);
+		const tail = new RenderCountingComponent(["tail one", "tail two", "tail three", "tail four", "tail five"]);
+		const editor = new RenderCountingComponent(["editor"]);
+		const region = tui.createFlowRenderRegion(tail);
+		const root = new RootCompositor({
+			getHeight: () => terminal.rows,
+			flow: [{ component: tail, onFlowLayout: region.place }],
+			bottom: [{ component: editor }],
+		});
+		tui.addChild(root);
+		tui.start();
+		await terminal.waitForRender();
+		const editorRenderCount = editor.renderCount;
+		tail.lines = ["tail one", "tail two", "tail three", "tail four", "tail changed"];
+
+		assert.strictEqual(tui.requestComponentRender(tail), true);
+		await terminal.waitForRender();
+
+		assert.deepStrictEqual(terminal.getViewport(), ["tail three", "tail four", "tail changed", "editor"]);
+		assert.strictEqual(editor.renderCount, editorRenderCount);
+		tui.stop();
+		await terminal.flush();
+	});
+
+	it("grows a visible flow tail while preserving terminal scrollback", async () => {
+		const terminal = new LoggingVirtualTerminal(24, 4);
+		const tui = new TUI(terminal);
+		const history = new RenderCountingComponent(["history one", "history two", "history three"]);
+		const tail = new RenderCountingComponent(["tail one"]);
+		const editor = new RenderCountingComponent(["editor"]);
+		const region = tui.createFlowRenderRegion(tail);
+		const root = new RootCompositor({
+			getHeight: () => terminal.rows,
+			flow: [{ component: history }, { component: tail, onFlowLayout: region.place }],
+			bottom: [{ component: editor }],
+		});
+		tui.addChild(root);
+		tui.start();
+		await terminal.waitForRender();
+		const historyRenderCount = history.renderCount;
+		const editorRenderCount = editor.renderCount;
+		tail.lines = ["tail one", "tail two"];
+
+		assert.strictEqual(tui.requestComponentRender(tail), true);
+		await terminal.waitForRender();
+
+		assert.deepStrictEqual(terminal.getViewport(), ["history three", "tail one", "tail two", "editor"]);
+		assert.deepStrictEqual(terminal.getScrollBuffer().slice(-6), [
+			"history one",
+			"history two",
+			"history three",
+			"tail one",
+			"tail two",
+			"editor",
+		]);
+		assert.strictEqual(history.renderCount, historyRenderCount);
+		assert.strictEqual(editor.renderCount, editorRenderCount);
+		tui.stop();
+		await terminal.flush();
+	});
+
+	it("preserves a bottom hardware cursor while a flow tail grows", async () => {
+		const terminal = new LoggingVirtualTerminal(24, 4);
+		const tui = new TUI(terminal);
+		const history = new RenderCountingComponent(["history one", "history two", "history three"]);
+		const tail = new RenderCountingComponent(["tail one"]);
+		const editor = new RenderCountingComponent([`editor ${CURSOR_MARKER}`]);
+		const region = tui.createFlowRenderRegion(tail);
+		const root = new RootCompositor({
+			getHeight: () => terminal.rows,
+			flow: [{ component: history }, { component: tail, onFlowLayout: region.place }],
+			bottom: [{ component: editor }],
+		});
+		tui.addChild(root);
+		tui.start();
+		await terminal.waitForRender();
+		const editorRenderCount = editor.renderCount;
+		tail.lines = ["tail one", "tail two"];
+
+		assert.strictEqual(tui.requestComponentRender(tail), true);
+		await terminal.waitForRender();
+
+		assert.deepStrictEqual(terminal.getViewport(), ["history three", "tail one", "tail two", "editor "]);
+		assert.deepStrictEqual(terminal.getCursorPosition(), { x: 7, y: 3 });
+		assert.strictEqual(editor.renderCount, editorRenderCount);
+		tui.stop();
+		await terminal.flush();
+	});
+
+	it("shifts a fixed bottom cell after flow-tail growth", async () => {
+		const terminal = new LoggingVirtualTerminal(24, 4);
+		const tui = new TUI(terminal);
+		const history = new RenderCountingComponent(["history one", "history two", "history three"]);
+		const tail = new RenderCountingComponent(["tail one"]);
+		const editor = new RenderCountingComponent(["editor"]);
+		const tailRegion = tui.createFlowRenderRegion(tail);
+		const fixedCell = tui.createFixedCell();
+		fixedCell.update("*");
+		const root = new RootCompositor({
+			getHeight: () => terminal.rows,
+			flow: [{ component: history }, { component: tail, onFlowLayout: tailRegion.place }],
+			bottom: [
+				{
+					component: editor,
+					onLayout: (rect) => fixedCell.place(rect.row, 0),
+				},
+			],
+		});
+		tui.addChild(root);
+		tui.start();
+		await terminal.waitForRender();
+		tail.lines = ["tail one", "tail two"];
+		assert.strictEqual(tui.requestComponentRender(tail), true);
+		await terminal.waitForRender();
+
+		assert.strictEqual(fixedCell.update("#"), true);
+		await terminal.flush();
+
+		assert.deepStrictEqual(terminal.getViewport(), ["history three", "tail one", "tail two", "#ditor"]);
+		tui.stop();
+		await terminal.flush();
+	});
+
+	it("shifts a registered bottom region after flow-tail growth", async () => {
+		const terminal = new LoggingVirtualTerminal(24, 4);
+		const tui = new TUI(terminal);
+		const history = new RenderCountingComponent(["history one", "history two", "history three"]);
+		const tail = new RenderCountingComponent(["tail one"]);
+		const status = new RenderCountingComponent(["status"]);
+		const tailRegion = tui.createFlowRenderRegion(tail);
+		const statusRegion = tui.createRenderRegion(status);
+		const root = new RootCompositor({
+			getHeight: () => terminal.rows,
+			flow: [{ component: history }, { component: tail, onFlowLayout: tailRegion.place }],
+			bottom: [{ component: status, onLayout: statusRegion.place }],
+		});
+		tui.addChild(root);
+		tui.start();
+		await terminal.waitForRender();
+		tail.lines = ["tail one", "tail two"];
+		assert.strictEqual(tui.requestComponentRender(tail), true);
+		await terminal.waitForRender();
+		status.lines = ["status changed"];
+
+		assert.strictEqual(tui.requestComponentRender(status), true);
+		await terminal.waitForRender();
+
+		assert.deepStrictEqual(terminal.getViewport(), ["history three", "tail one", "tail two", "status changed"]);
+		tui.stop();
+		await terminal.flush();
+	});
+
 	it("synchronizes the previous frame after a partial region update", async () => {
 		const fixture = await startFixture();
 		try {
@@ -166,6 +413,38 @@ describe("TUI full-width render regions", () => {
 		} finally {
 			await stopFixture(fixture);
 		}
+	});
+
+	it("falls back to a normal root render when a flow tail shrinks", async () => {
+		const terminal = new LoggingVirtualTerminal(24, 6);
+		const tui = new TUI(terminal);
+		const history = new RenderCountingComponent(["history"]);
+		const tail = new RenderCountingComponent(["tail one", "tail two"]);
+		const pending = new RenderCountingComponent(["pending"]);
+		const editor = new RenderCountingComponent(["editor"]);
+		const region = tui.createFlowRenderRegion(tail);
+		const root = new RootCompositor({
+			getHeight: () => terminal.rows,
+			flow: [{ component: history }, { component: tail, onFlowLayout: region.place }, { component: pending }],
+			bottom: [{ component: editor }],
+		});
+		tui.addChild(root);
+		tui.start();
+		await terminal.waitForRender();
+		const historyRenderCount = history.renderCount;
+		const pendingRenderCount = pending.renderCount;
+		const editorRenderCount = editor.renderCount;
+		tail.lines = ["tail one"];
+
+		assert.strictEqual(tui.requestComponentRender(tail), false);
+		await terminal.waitForRender();
+
+		assert.ok(history.renderCount > historyRenderCount);
+		assert.ok(pending.renderCount > pendingRenderCount);
+		assert.ok(editor.renderCount > editorRenderCount);
+		assert.deepStrictEqual(terminal.getViewport(), ["history", "tail one", "pending", "", "", "editor"]);
+		tui.stop();
+		await terminal.flush();
 	});
 
 	it("falls back to a normal root render when the region height changes", async () => {

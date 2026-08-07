@@ -24,6 +24,8 @@ const EMPTY_USAGE: Usage = {
 
 type HandleEventThis = {
 	chatContainer: Container;
+	transcriptTailContainer: Container;
+	transcriptTailRegion: { requestRender(): boolean; clear(): void };
 	childActivityTimer: ReturnType<typeof setInterval> | undefined;
 	compactionQueuedMessages: [];
 	currentWorkingDefaultMessage: string;
@@ -185,6 +187,14 @@ function createFakeInteractiveModeThis(): HandleEventThis {
 	editorContainer.addChild(editor);
 	return Object.assign(Object.create(InteractiveMode.prototype) as HandleEventThis, {
 		chatContainer: new Container(),
+		transcriptTailContainer: new Container(),
+		transcriptTailRegion: {
+			requestRender: () => {
+				requestRender();
+				return false;
+			},
+			clear: vi.fn(),
+		},
 		childActivityTimer: undefined,
 		compactionQueuedMessages: [],
 		currentWorkingDefaultMessage: "Thinking...",
@@ -321,6 +331,40 @@ describe("InteractiveMode streaming render throttling", () => {
 		} finally {
 			loader.stop();
 		}
+	});
+
+	test("routes assistant streaming start and updates through the transcript tail region", async () => {
+		vi.useFakeTimers();
+		const fakeThis = createFakeInteractiveModeThis();
+		const tailRequestRender = vi.fn(() => true);
+		fakeThis.transcriptTailRegion.requestRender = tailRequestRender;
+		const initialMessage = createAssistantMessage("");
+
+		await handleEvent.call(fakeThis, { type: "message_start", message: initialMessage });
+		await handleEvent.call(fakeThis, createMessageUpdate(createAssistantMessage("h")));
+		await vi.advanceTimersByTimeAsync(50);
+
+		expect(fakeThis.transcriptTailRegion.requestRender).toHaveBeenCalledTimes(2);
+		expect(fakeThis.ui.requestRender).not.toHaveBeenCalled();
+		expect(fakeThis.chatContainer.children).toHaveLength(0);
+		expect(fakeThis.transcriptTailContainer.children).toHaveLength(1);
+	});
+
+	test("consolidates the completed assistant tail before the normal render", async () => {
+		vi.useFakeTimers();
+		const fakeThis = createFakeInteractiveModeThis();
+		const tailRequestRender = vi.fn(() => true);
+		fakeThis.transcriptTailRegion.requestRender = tailRequestRender;
+		const assistant = createAssistantMessage("final");
+
+		await handleEvent.call(fakeThis, { type: "message_start", message: assistant });
+		await handleEvent.call(fakeThis, { type: "message_end", message: assistant });
+
+		expect(fakeThis.transcriptTailRegion.clear).toHaveBeenCalledTimes(1);
+		expect(fakeThis.transcriptTailContainer.children).toHaveLength(0);
+		expect(fakeThis.chatContainer.children).toHaveLength(1);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+		expect(tailRequestRender).toHaveBeenCalledTimes(1);
 	});
 
 	test("coalesces rapid assistant message updates into one delayed render", async () => {

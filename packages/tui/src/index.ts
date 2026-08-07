@@ -62,6 +62,7 @@ export {
 export {
 	RootCompositor,
 	type RootCompositorOptions,
+	type RootFlowLayout,
 	type RootLayoutEntry,
 	type RootLayoutRect,
 } from "./root-compositor.ts";
@@ -109,6 +110,8 @@ export {
 	Container,
 	CURSOR_MARKER,
 	type FixedCell,
+	type FlowRenderRegion,
+	type FlowRenderRegionLayout,
 	type Focusable,
 	isFocusable,
 	type OverlayAnchor,

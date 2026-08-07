@@ -1,10 +1,12 @@
-import type { Component, RenderRegionRect } from "./tui.ts";
+import type { Component, FlowRenderRegionLayout, RenderRegionRect } from "./tui.ts";
 
 export type RootLayoutRect = RenderRegionRect;
+export type RootFlowLayout = FlowRenderRegionLayout;
 
 export interface RootLayoutEntry {
 	component: Component;
 	onLayout?: (rect: RootLayoutRect) => void;
+	onFlowLayout?: (layout: RootFlowLayout) => void;
 }
 
 export interface RootCompositorOptions {
@@ -18,6 +20,8 @@ type RenderedEntry = {
 	lines: string[];
 };
 
+type RootFlowMetrics = Omit<RootFlowLayout, "rect">;
+
 function renderEntries(entries: RootLayoutEntry[], width: number): RenderedEntry[] {
 	return entries.map((entry) => ({ entry, lines: entry.component.render(width) }));
 }
@@ -30,6 +34,16 @@ function notifyLayout(entries: RenderedEntry[], startRow: number, width: number)
 	let row = startRow;
 	for (const { entry, lines } of entries) {
 		entry.onLayout?.({ row, col: 0, width, height: lines.length });
+		row += lines.length;
+	}
+}
+
+function notifyFlowLayout(entries: RenderedEntry[], width: number, metrics: RootFlowMetrics): void {
+	let row = 0;
+	for (const { entry, lines } of entries) {
+		const rect = { row, col: 0, width, height: lines.length };
+		entry.onLayout?.(rect);
+		entry.onFlowLayout?.({ rect, ...metrics });
 		row += lines.length;
 	}
 }
@@ -54,7 +68,12 @@ export class RootCompositor implements Component {
 		const gapHeight = Math.max(0, viewportHeight - flowHeight - bottomHeight);
 		const bottomRow = flowHeight + gapHeight;
 
-		notifyLayout(flow, 0, width);
+		notifyFlowLayout(flow, width, {
+			flowEndRow: flowHeight,
+			bottomRow,
+			bottomHeight,
+			viewportHeight,
+		});
 		notifyLayout(bottom, bottomRow, width);
 
 		return [

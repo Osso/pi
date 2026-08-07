@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { type Component, Container, Loader, TUI } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
-import { createInteractiveRootCompositor } from "../src/modes/interactive/interactive-root-compositor.ts";
+import {
+	createInteractiveRootCompositor,
+	type InteractiveRootFlowLayout,
+} from "../src/modes/interactive/interactive-root-compositor.ts";
 
 class TestComponent implements Component {
 	lines: string[];
@@ -27,6 +30,7 @@ describe("interactive root compositor", () => {
 			header: new TestComponent(["header"]),
 			loadedResources: new TestComponent(["resources"]),
 			chat: new TestComponent(["chat"]),
+			transcriptTail: new TestComponent(["tail"]),
 			pendingMessages: new TestComponent(["pending"]),
 			status: new TestComponent(["status"]),
 			widgetAbove: new TestComponent(["above"]),
@@ -35,9 +39,13 @@ describe("interactive root compositor", () => {
 			footer: new TestComponent(["footer"]),
 		};
 		let editorOrigin: { row: number; col: number } | undefined;
+		let transcriptTailLayout: InteractiveRootFlowLayout | undefined;
 		const compositor = createInteractiveRootCompositor({
 			getHeight: () => terminalHeight,
 			...components,
+			onTranscriptTailLayout: (layout) => {
+				transcriptTailLayout = layout;
+			},
 			onStatusLayout: () => {},
 			onEditorLayout: ({ row, col }) => {
 				editorOrigin = { row, col };
@@ -48,8 +56,8 @@ describe("interactive root compositor", () => {
 			"header",
 			"resources",
 			"chat",
+			"tail",
 			"pending",
-			"",
 			"status",
 			"above",
 			"editor top",
@@ -59,6 +67,13 @@ describe("interactive root compositor", () => {
 			"footer",
 		]);
 		assert.deepStrictEqual(editorOrigin, { row: 7, col: 0 });
+		assert.deepStrictEqual(transcriptTailLayout, {
+			rect: { row: 3, col: 0, width: 20, height: 1 },
+			flowEndRow: 5,
+			bottomRow: 5,
+			bottomHeight: 7,
+			viewportHeight: 12,
+		});
 
 		terminalHeight = 14;
 		compositor.render(20);
@@ -90,6 +105,7 @@ describe("interactive root compositor", () => {
 			header: new TestComponent(["header"]),
 			loadedResources: new TestComponent([]),
 			chat: new TestComponent(["chat"]),
+			transcriptTail: new TestComponent([]),
 			pendingMessages: new TestComponent([]),
 			status,
 			widgetAbove: new TestComponent([]),
@@ -100,6 +116,7 @@ describe("interactive root compositor", () => {
 		const compositor = createInteractiveRootCompositor({
 			getHeight: () => terminal.rows,
 			...components,
+			onTranscriptTailLayout: () => {},
 			onStatusLayout: statusRegion.place,
 			onEditorLayout: () => {},
 		});
@@ -124,5 +141,78 @@ describe("interactive root compositor", () => {
 		loader.stop();
 		tui.stop();
 		await terminal.flush();
+	});
+
+	it("renders transcript tail growth through production partial-region wiring", async () => {
+		const terminal = new VirtualTerminal(40, 10);
+		const tui = new TUI(terminal);
+		const transcriptTail = new TestComponent(["tail one"]);
+		const transcriptTailRegion = tui.createFlowRenderRegion(transcriptTail);
+		const components = {
+			header: new TestComponent(["header"]),
+			loadedResources: new TestComponent([]),
+			chat: new TestComponent(["chat"]),
+			transcriptTail,
+			pendingMessages: new TestComponent(["pending"]),
+			status: new TestComponent(["status"]),
+			widgetAbove: new TestComponent([]),
+			editor: new TestComponent(["editor"]),
+			widgetBelow: new TestComponent([]),
+			footer: new TestComponent(["footer"]),
+		};
+		const compositor = createInteractiveRootCompositor({
+			getHeight: () => terminal.rows,
+			...components,
+			onTranscriptTailLayout: transcriptTailRegion.place,
+			onStatusLayout: () => {},
+			onEditorLayout: () => {},
+		});
+		tui.addChild(compositor);
+		tui.start();
+		try {
+			await terminal.waitForRender();
+			const initialRenderCounts = {
+				header: components.header.renderCount,
+				loadedResources: components.loadedResources.renderCount,
+				chat: components.chat.renderCount,
+				pendingMessages: components.pendingMessages.renderCount,
+				status: components.status.renderCount,
+				widgetAbove: components.widgetAbove.renderCount,
+				editor: components.editor.renderCount,
+				widgetBelow: components.widgetBelow.renderCount,
+				footer: components.footer.renderCount,
+				transcriptTail: components.transcriptTail.renderCount,
+			};
+
+			components.transcriptTail.lines = ["tail one", "tail two", "tail three"];
+			assert.strictEqual(tui.requestComponentRender(components.transcriptTail), true);
+			await terminal.waitForRender();
+
+			assert.deepStrictEqual(terminal.getViewport(), [
+				"header",
+				"chat",
+				"tail one",
+				"tail two",
+				"tail three",
+				"pending",
+				"",
+				"status",
+				"editor",
+				"footer",
+			]);
+			assert.strictEqual(components.transcriptTail.renderCount, initialRenderCounts.transcriptTail + 1);
+			assert.strictEqual(components.header.renderCount, initialRenderCounts.header);
+			assert.strictEqual(components.loadedResources.renderCount, initialRenderCounts.loadedResources);
+			assert.strictEqual(components.chat.renderCount, initialRenderCounts.chat);
+			assert.strictEqual(components.pendingMessages.renderCount, initialRenderCounts.pendingMessages);
+			assert.strictEqual(components.status.renderCount, initialRenderCounts.status);
+			assert.strictEqual(components.widgetAbove.renderCount, initialRenderCounts.widgetAbove);
+			assert.strictEqual(components.editor.renderCount, initialRenderCounts.editor);
+			assert.strictEqual(components.widgetBelow.renderCount, initialRenderCounts.widgetBelow);
+			assert.strictEqual(components.footer.renderCount, initialRenderCounts.footer);
+		} finally {
+			tui.stop();
+			await terminal.flush();
+		}
 	});
 });

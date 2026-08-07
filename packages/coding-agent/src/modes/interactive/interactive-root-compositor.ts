@@ -1,11 +1,15 @@
-import { type Component, RootCompositor, type RootLayoutRect } from "@earendil-works/pi-tui";
+import { type Component, RootCompositor, type RootFlowLayout, type RootLayoutRect } from "@earendil-works/pi-tui";
+
+export type InteractiveRootFlowLayout = RootFlowLayout;
 
 export interface InteractiveRootCompositorOptions {
 	getHeight: () => number;
 	header: Component;
 	loadedResources: Component;
 	chat: Component;
+	transcriptTail: Component;
 	pendingMessages: Component;
+	onTranscriptTailLayout: (layout: InteractiveRootFlowLayout) => void;
 	status: Component;
 	widgetAbove: Component;
 	editor: Component;
@@ -22,6 +26,7 @@ export function createInteractiveRootCompositor(options: InteractiveRootComposit
 			{ component: options.header },
 			{ component: options.loadedResources },
 			{ component: options.chat },
+			{ component: options.transcriptTail, onFlowLayout: options.onTranscriptTailLayout },
 			{ component: options.pendingMessages },
 		],
 		bottom: [

@@ -112,6 +112,21 @@ export interface RenderRegion {
 	dispose(): void;
 }
 
+export interface FlowRenderRegionLayout {
+	rect: RenderRegionRect;
+	flowEndRow: number;
+	bottomRow: number;
+	bottomHeight: number;
+	viewportHeight: number;
+}
+
+export interface FlowRenderRegion {
+	place(layout: FlowRenderRegionLayout): void;
+	clear(): void;
+	requestRender(): boolean;
+	dispose(): void;
+}
+
 type InputListenerResult = { consume?: boolean; data?: string } | undefined;
 type InputListener = (data: string) => InputListenerResult;
 type PendingOsc11BackgroundQuery = {
@@ -281,12 +296,39 @@ type FixedCellState = {
 	disposed: boolean;
 };
 
+type FixedCellPlacementUpdate = {
+	state: FixedCellState;
+	row: number;
+};
+
 type RenderRegionState = {
 	component: Component;
 	rect: RenderRegionRect | undefined;
+	flowLayout: FlowRenderRegionLayout | undefined;
 	generation: number | undefined;
 	components: Set<Component>;
 	disposed: boolean;
+};
+
+type RenderRegionPlacementUpdate = {
+	state: RenderRegionState;
+	rect: RenderRegionRect;
+	flowLayout: FlowRenderRegionLayout | undefined;
+};
+
+type FlowRenderFrame = {
+	lines: string[];
+	rect: RenderRegionRect;
+	flowEndRow: number;
+	bottomRow: number;
+	heightDelta: number;
+	bottomDelta: number;
+};
+
+type FlowRenderStateUpdates = {
+	placements: RenderRegionPlacementUpdate[];
+	fixedCells: FixedCellPlacementUpdate[];
+	cursorPosition: { row: number; col: number } | null;
 };
 
 /**
@@ -351,6 +393,7 @@ export class TUI extends Container {
 	private static readonly MIN_RENDER_INTERVAL_MS = 16;
 	private cursorRow = 0; // Logical cursor row (end of rendered content)
 	private hardwareCursorRow = 0; // Actual terminal cursor row (may differ due to IME positioning)
+	private cachedCursorPosition: { row: number; col: number } | null = null;
 	private showHardwareCursor = process.env.PI_HARDWARE_CURSOR === "1";
 	private clearOnShrink = process.env.PI_CLEAR_ON_SHRINK === "1"; // Clear empty rows when content shrinks (default: off)
 	private maxLinesRendered = 0; // Track terminal's working area (max lines ever rendered)
@@ -421,18 +464,33 @@ export class TUI extends Container {
 	}
 
 	createRenderRegion(component: Component): RenderRegion {
-		const state: RenderRegionState = {
-			component,
-			rect: undefined,
-			generation: undefined,
-			components: new Set(),
-			disposed: false,
-		};
+		const state = this.createRenderRegionState(component);
 		return {
 			place: (rect) => this.placeRenderRegion(state, rect),
 			clear: () => this.clearRenderRegion(state),
 			requestRender: () => this.requestRenderRegion(state),
 			dispose: () => this.disposeRenderRegion(state),
+		};
+	}
+
+	createFlowRenderRegion(component: Component): FlowRenderRegion {
+		const state = this.createRenderRegionState(component);
+		return {
+			place: (layout) => this.placeFlowRenderRegion(state, layout),
+			clear: () => this.clearRenderRegion(state),
+			requestRender: () => this.requestRenderRegion(state),
+			dispose: () => this.disposeRenderRegion(state),
+		};
+	}
+
+	private createRenderRegionState(component: Component): RenderRegionState {
+		return {
+			component,
+			rect: undefined,
+			flowLayout: undefined,
+			generation: undefined,
+			components: new Set(),
+			disposed: false,
 		};
 	}
 
@@ -447,6 +505,17 @@ export class TUI extends Container {
 		if (state.disposed) return;
 		this.unmapRenderRegionComponents(state);
 		state.rect = { ...rect };
+		state.flowLayout = undefined;
+		state.generation = this.renderGeneration;
+		this.mapRenderRegionComponents(state, state.component);
+	}
+
+	private placeFlowRenderRegion(state: RenderRegionState, layout: FlowRenderRegionLayout): void {
+		if (state.disposed) return;
+		this.unmapRenderRegionComponents(state);
+		const rect = { ...layout.rect };
+		state.rect = rect;
+		state.flowLayout = { ...layout, rect };
 		state.generation = this.renderGeneration;
 		this.mapRenderRegionComponents(state, state.component);
 	}
@@ -454,6 +523,7 @@ export class TUI extends Container {
 	private clearRenderRegion(state: RenderRegionState): void {
 		this.unmapRenderRegionComponents(state);
 		state.rect = undefined;
+		state.flowLayout = undefined;
 		state.generation = undefined;
 	}
 
@@ -482,7 +552,8 @@ export class TUI extends Container {
 	}
 
 	private requestRenderRegion(state: RenderRegionState): boolean {
-		if (this.writeRenderRegion(state)) return true;
+		const rendered = state.flowLayout ? this.writeFlowRenderRegion(state) : this.writeRenderRegion(state);
+		if (rendered) return true;
 		this.requestRender();
 		return false;
 	}
@@ -1429,6 +1500,209 @@ export class TUI extends Container {
 		this.terminal.write(buffer);
 	}
 
+	private writeFlowRenderRegion(state: RenderRegionState): boolean {
+		const layout = this.getWritableFlowRenderRegionLayout(state);
+		if (!layout) return false;
+
+		const frame = this.buildFlowRenderFrame(state, layout);
+		if (!frame) return false;
+
+		const updates = this.planFlowRenderStateUpdates(state, layout, frame);
+		if (!updates) return false;
+		if (
+			!this.commitRenderedFrame(frame.lines, updates.cursorPosition, this.previousWidth, this.previousHeight, false)
+		) {
+			return false;
+		}
+
+		this.applyFlowRenderStateUpdates(state, updates);
+		return true;
+	}
+
+	private buildFlowRenderFrame(state: RenderRegionState, layout: FlowRenderRegionLayout): FlowRenderFrame | undefined {
+		const { rect } = layout;
+		if (this.previousLines.slice(rect.row).some((line) => isImageLine(line))) return undefined;
+
+		const renderedLines = state.component.render(rect.width);
+		if (renderedLines.length < rect.height) return undefined;
+		const tailLines = this.prepareFlowRenderRegionLines(renderedLines, rect.width);
+		if (!tailLines) return undefined;
+
+		const heightDelta = tailLines.length - rect.height;
+		const flowEndRow = layout.flowEndRow + heightDelta;
+		const bottomRow = Math.max(flowEndRow, layout.viewportHeight - layout.bottomHeight);
+		return {
+			lines: this.spliceFlowRenderFrameLines(layout, tailLines, flowEndRow, bottomRow),
+			rect: { ...rect, height: tailLines.length },
+			flowEndRow,
+			bottomRow,
+			heightDelta,
+			bottomDelta: bottomRow - layout.bottomRow,
+		};
+	}
+
+	private spliceFlowRenderFrameLines(
+		layout: FlowRenderRegionLayout,
+		tailLines: string[],
+		flowEndRow: number,
+		bottomRow: number,
+	): string[] {
+		const { rect } = layout;
+		const trailingFlowLines = this.previousLines.slice(rect.row + rect.height, layout.flowEndRow);
+		const gapLines = this.applyLineResets(Array.from({ length: bottomRow - flowEndRow }, () => ""));
+		return [
+			...this.previousLines.slice(0, rect.row),
+			...tailLines,
+			...trailingFlowLines,
+			...gapLines,
+			...this.previousLines.slice(layout.bottomRow),
+		];
+	}
+
+	private planFlowRenderStateUpdates(
+		state: RenderRegionState,
+		layout: FlowRenderRegionLayout,
+		frame: FlowRenderFrame,
+	): FlowRenderStateUpdates | undefined {
+		const placements = this.planFlowRenderRegionPlacementUpdates(state, layout, frame.rect, frame.bottomRow);
+		const fixedCells = this.planFlowFixedCellPlacementUpdates(layout, frame.heightDelta, frame.bottomDelta);
+		const cursorPosition = this.shiftFlowCursorPosition(layout, frame.heightDelta, frame.bottomDelta);
+		if (!placements || !fixedCells || cursorPosition === undefined) return undefined;
+		return { placements, fixedCells, cursorPosition };
+	}
+
+	private shiftFlowCursorPosition(
+		layout: FlowRenderRegionLayout,
+		heightDelta: number,
+		bottomDelta: number,
+	): { row: number; col: number } | null | undefined {
+		const cursorPosition = this.cachedCursorPosition;
+		if (!cursorPosition) return null;
+		const row = this.shiftFlowRow(cursorPosition.row, layout, heightDelta, bottomDelta);
+		return row === undefined ? undefined : { ...cursorPosition, row };
+	}
+
+	private applyFlowRenderStateUpdates(state: RenderRegionState, updates: FlowRenderStateUpdates): void {
+		this.cachedCursorPosition = updates.cursorPosition;
+		for (const update of updates.placements) {
+			update.state.rect = update.rect;
+			update.state.flowLayout = update.flowLayout;
+		}
+		for (const update of updates.fixedCells) {
+			update.state.row = update.row;
+		}
+		this.unmapRenderRegionComponents(state);
+		this.mapRenderRegionComponents(state, state.component);
+	}
+
+	private planFlowRenderRegionPlacementUpdates(
+		currentState: RenderRegionState,
+		layout: FlowRenderRegionLayout,
+		nextRect: RenderRegionRect,
+		nextBottomRow: number,
+	): RenderRegionPlacementUpdate[] | undefined {
+		const heightDelta = nextRect.height - layout.rect.height;
+		const bottomDelta = nextBottomRow - layout.bottomRow;
+		const states = new Set(this.componentRenderRegions.values());
+		const updates: RenderRegionPlacementUpdate[] = [];
+		for (const state of states) {
+			const rect = state.rect;
+			if (!rect || state.generation !== this.renderGeneration) continue;
+			const shiftedRect =
+				state === currentState ? nextRect : this.shiftRenderRegionRect(rect, layout, heightDelta, bottomDelta);
+			if (!shiftedRect) return undefined;
+			const flowLayout = state.flowLayout
+				? {
+						...state.flowLayout,
+						rect: shiftedRect,
+						flowEndRow: state.flowLayout.flowEndRow + heightDelta,
+						bottomRow: state.flowLayout.bottomRow + bottomDelta,
+					}
+				: undefined;
+			updates.push({ state, rect: shiftedRect, flowLayout });
+		}
+		return updates;
+	}
+
+	private shiftRenderRegionRect(
+		rect: RenderRegionRect,
+		layout: FlowRenderRegionLayout,
+		heightDelta: number,
+		bottomDelta: number,
+	): RenderRegionRect | undefined {
+		const rectBottom = rect.row + rect.height;
+		const tailStart = layout.rect.row;
+		const tailBottom = tailStart + layout.rect.height;
+		if (rectBottom <= tailStart) return { ...rect };
+		if (rect.row >= tailBottom && rectBottom <= layout.flowEndRow) {
+			return { ...rect, row: rect.row + heightDelta };
+		}
+		const bottomEnd = layout.bottomRow + layout.bottomHeight;
+		if (rect.row >= layout.bottomRow && rectBottom <= bottomEnd) {
+			return { ...rect, row: rect.row + bottomDelta };
+		}
+		return undefined;
+	}
+
+	private planFlowFixedCellPlacementUpdates(
+		layout: FlowRenderRegionLayout,
+		heightDelta: number,
+		bottomDelta: number,
+	): FixedCellPlacementUpdate[] | undefined {
+		const updates: FixedCellPlacementUpdate[] = [];
+		for (const state of this.fixedCells) {
+			if (state.disposed || state.row === undefined) continue;
+			const row = this.shiftFlowRow(state.row, layout, heightDelta, bottomDelta);
+			if (row === undefined) return undefined;
+			updates.push({ state, row });
+		}
+		return updates;
+	}
+
+	private shiftFlowRow(
+		row: number,
+		layout: FlowRenderRegionLayout,
+		heightDelta: number,
+		bottomDelta: number,
+	): number | undefined {
+		const tailStart = layout.rect.row;
+		const tailBottom = tailStart + layout.rect.height;
+		if (row < tailStart) return row;
+		if (row < tailBottom) return undefined;
+		if (row < layout.flowEndRow) return row + heightDelta;
+		if (row < layout.bottomRow) return undefined;
+		if (row < layout.bottomRow + layout.bottomHeight) return row + bottomDelta;
+		return undefined;
+	}
+
+	private getWritableFlowRenderRegionLayout(state: RenderRegionState): FlowRenderRegionLayout | undefined {
+		const layout = state.flowLayout;
+		const hasCurrentPlacement = layout !== undefined && !state.disposed && state.generation === this.renderGeneration;
+		if (!hasCurrentPlacement || !this.canWriteRenderRegionNow()) return undefined;
+
+		const { rect } = layout;
+		const isFullWidth = rect.col === 0 && rect.width === this.previousWidth;
+		if (!isFullWidth || layout.viewportHeight !== this.terminal.rows) return undefined;
+
+		const regionBottom = rect.row + rect.height;
+		const frameEnd = layout.bottomRow + layout.bottomHeight;
+		const hasValidRows =
+			rect.row >= 0 &&
+			rect.height >= 0 &&
+			regionBottom <= layout.flowEndRow &&
+			layout.flowEndRow <= layout.bottomRow &&
+			layout.bottomHeight >= 0 &&
+			frameEnd === this.previousLines.length;
+		return hasValidRows ? layout : undefined;
+	}
+
+	private prepareFlowRenderRegionLines(lines: string[], width: number): string[] | undefined {
+		if (lines.some((line) => line.includes(CURSOR_MARKER) || isImageLine(line) || visibleWidth(line) > width)) {
+			return undefined;
+		}
+		return this.applyLineResets([...lines]);
+	}
+
 	private writeRenderRegion(state: RenderRegionState): boolean {
 		const rect = this.getWritableRenderRegionRect(state);
 		if (!rect) return false;
@@ -1597,6 +1871,33 @@ export class TUI extends Container {
 		if (this.stopped) return;
 		const width = this.terminal.columns;
 		const height = this.terminal.rows;
+
+		this.renderGeneration++;
+		this.rendering = true;
+		let newLines: string[];
+		try {
+			newLines = this.render(width);
+		} finally {
+			this.rendering = false;
+		}
+		newLines = this.applyFixedCells(newLines);
+		if (this.overlayStack.length > 0) {
+			newLines = this.compositeOverlays(newLines, width, height);
+		}
+		const cursorPos = this.extractCursorPosition(newLines, height);
+		newLines = this.applyLineResets(newLines);
+		if (this.commitRenderedFrame(newLines, cursorPos, width, height, true)) {
+			this.cachedCursorPosition = cursorPos;
+		}
+	}
+
+	private commitRenderedFrame(
+		newLines: string[],
+		cursorPos: { row: number; col: number } | null,
+		width: number,
+		height: number,
+		allowFullRender: boolean,
+	): boolean {
 		const widthChanged = this.previousWidth !== 0 && this.previousWidth !== width;
 		const heightChanged = this.previousHeight !== 0 && this.previousHeight !== height;
 		const previousBufferLength = this.previousHeight > 0 ? this.previousViewportTop + this.previousHeight : height;
@@ -1608,27 +1909,6 @@ export class TUI extends Container {
 			const targetScreenRow = targetRow - viewportTop;
 			return targetScreenRow - currentScreenRow;
 		};
-
-		// Render all components to get new lines
-		this.renderGeneration++;
-		this.rendering = true;
-		let newLines: string[];
-		try {
-			newLines = this.render(width);
-		} finally {
-			this.rendering = false;
-		}
-		newLines = this.applyFixedCells(newLines);
-
-		// Composite overlays into the rendered lines (before differential compare)
-		if (this.overlayStack.length > 0) {
-			newLines = this.compositeOverlays(newLines, width, height);
-		}
-
-		// Extract cursor position before applying line resets (marker must be found first)
-		const cursorPos = this.extractCursorPosition(newLines, height);
-
-		newLines = this.applyLineResets(newLines);
 
 		// Helper to clear scrollback and viewport and render all new lines
 		const fullRender = (clear: boolean): void => {
@@ -1681,37 +1961,35 @@ export class TUI extends Container {
 			const msg = `[${new Date().toISOString()}] fullRender: ${reason} (prev=${this.previousLines.length}, new=${newLines.length}, height=${height})\n`;
 			fs.appendFileSync(logPath, msg);
 		};
+		const fallbackToFullRender = (reason: string, clear: boolean): boolean => {
+			logRedraw(reason);
+			if (!allowFullRender) return false;
+			fullRender(clear);
+			return true;
+		};
 
 		// First render - just output everything without clearing (assumes clean screen)
 		if (this.previousLines.length === 0 && !widthChanged && !heightChanged) {
-			logRedraw("first render");
-			fullRender(false);
-			return;
+			return fallbackToFullRender("first render", false);
 		}
 
 		// Width changes always need a full re-render because wrapping changes.
 		if (widthChanged) {
-			logRedraw(`terminal width changed (${this.previousWidth} -> ${width})`);
-			fullRender(true);
-			return;
+			return fallbackToFullRender(`terminal width changed (${this.previousWidth} -> ${width})`, true);
 		}
 
 		// Height changes normally need a full re-render to keep the visible viewport aligned,
 		// but Termux changes height when the software keyboard shows or hides.
 		// In that environment, a full redraw causes the entire history to replay on every toggle.
 		if (heightChanged && !isTermuxSession()) {
-			logRedraw(`terminal height changed (${this.previousHeight} -> ${height})`);
-			fullRender(true);
-			return;
+			return fallbackToFullRender(`terminal height changed (${this.previousHeight} -> ${height})`, true);
 		}
 
 		// Content shrunk below the working area and no overlays - re-render to clear empty rows
 		// (overlays need the padding, so only do this when no overlays are active)
 		// Configurable via setClearOnShrink() or PI_CLEAR_ON_SHRINK=0 env var
 		if (this.clearOnShrink && newLines.length < this.maxLinesRendered && this.overlayStack.length === 0) {
-			logRedraw(`clearOnShrink (maxLinesRendered=${this.maxLinesRendered})`);
-			fullRender(true);
-			return;
+			return fallbackToFullRender(`clearOnShrink (maxLinesRendered=${this.maxLinesRendered})`, true);
 		}
 
 		// Find first and last changed lines
@@ -1748,7 +2026,7 @@ export class TUI extends Container {
 			this.positionHardwareCursor(cursorPos, newLines.length);
 			this.previousViewportTop = prevViewportTop;
 			this.previousHeight = height;
-			return;
+			return true;
 		}
 
 		// All changes are in deleted lines (nothing to render, just clear)
@@ -1759,9 +2037,7 @@ export class TUI extends Container {
 				// Move to end of new content (clamp to 0 for empty content)
 				const targetRow = Math.max(0, newLines.length - 1);
 				if (targetRow < prevViewportTop) {
-					logRedraw(`deleted lines moved viewport up (${targetRow} < ${prevViewportTop})`);
-					fullRender(true);
-					return;
+					return fallbackToFullRender(`deleted lines moved viewport up (${targetRow} < ${prevViewportTop})`, true);
 				}
 				const lineDiff = computeLineDiff(targetRow);
 				if (lineDiff > 0) buffer += `\x1b[${lineDiff}B`;
@@ -1770,9 +2046,7 @@ export class TUI extends Container {
 				// Clear extra lines without scrolling
 				const extraLines = this.previousLines.length - newLines.length;
 				if (extraLines > height) {
-					logRedraw(`extraLines > height (${extraLines} > ${height})`);
-					fullRender(true);
-					return;
+					return fallbackToFullRender(`extraLines > height (${extraLines} > ${height})`, true);
 				}
 				const clearStartOffset = newLines.length === 0 ? 0 : 1;
 				if (extraLines > 0 && clearStartOffset > 0) {
@@ -1797,15 +2071,13 @@ export class TUI extends Container {
 			this.previousWidth = width;
 			this.previousHeight = height;
 			this.previousViewportTop = prevViewportTop;
-			return;
+			return true;
 		}
 
 		// Differential rendering can only touch what was actually visible.
 		// If the first changed line is above the previous viewport, we need a full redraw.
 		if (firstChanged < prevViewportTop) {
-			logRedraw(`firstChanged < viewportTop (${firstChanged} < ${prevViewportTop})`);
-			fullRender(true);
-			return;
+			return fallbackToFullRender(`firstChanged < viewportTop (${firstChanged} < ${prevViewportTop})`, true);
 		}
 
 		// Render from first changed line to end
@@ -1848,11 +2120,10 @@ export class TUI extends Container {
 			if (imageReservedRows > 1) {
 				const imageStartScreenRow = i - viewportTop;
 				if (imageStartScreenRow < 0 || imageStartScreenRow + imageReservedRows > height) {
-					logRedraw(
+					return fallbackToFullRender(
 						`kitty image pre-clear would scroll (${imageStartScreenRow} + ${imageReservedRows} > ${height})`,
+						true,
 					);
-					fullRender(true);
-					return;
 				}
 
 				buffer += "\x1b[2K";
@@ -1967,6 +2238,7 @@ export class TUI extends Container {
 		this.previousKittyImageIds = this.collectKittyImageIds(newLines);
 		this.previousWidth = width;
 		this.previousHeight = height;
+		return true;
 	}
 
 	/**
