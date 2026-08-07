@@ -116,6 +116,8 @@ export {
 	type OverlayMargin,
 	type OverlayOptions,
 	type OverlayUnfocusOptions,
+	type RenderRegion,
+	type RenderRegionRect,
 	type SizeValue,
 	TUI,
 } from "./tui.ts";

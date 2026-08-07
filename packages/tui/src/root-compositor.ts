@@ -1,11 +1,6 @@
-import type { Component } from "./tui.ts";
+import type { Component, RenderRegionRect } from "./tui.ts";
 
-export interface RootLayoutRect {
-	row: number;
-	col: number;
-	width: number;
-	height: number;
-}
+export type RootLayoutRect = RenderRegionRect;
 
 export interface RootLayoutEntry {
 	component: Component;

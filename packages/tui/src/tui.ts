@@ -98,6 +98,20 @@ export interface FixedCell {
 	dispose(): void;
 }
 
+export interface RenderRegionRect {
+	row: number;
+	col: number;
+	width: number;
+	height: number;
+}
+
+export interface RenderRegion {
+	place(rect: RenderRegionRect): void;
+	clear(): void;
+	requestRender(): boolean;
+	dispose(): void;
+}
+
 type InputListenerResult = { consume?: boolean; data?: string } | undefined;
 type InputListener = (data: string) => InputListenerResult;
 type PendingOsc11BackgroundQuery = {
@@ -267,6 +281,14 @@ type FixedCellState = {
 	disposed: boolean;
 };
 
+type RenderRegionState = {
+	component: Component;
+	rect: RenderRegionRect | undefined;
+	generation: number | undefined;
+	components: Set<Component>;
+	disposed: boolean;
+};
+
 /**
  * Container - a component that contains other components
  */
@@ -345,6 +367,9 @@ export class TUI extends Container {
 	private overlayStack: OverlayStackEntry[] = [];
 	private overlayFocusRestore: OverlayFocusRestoreState = { status: "inactive" };
 	private fixedCells = new Set<FixedCellState>();
+	private renderGeneration = 0;
+	private rendering = false;
+	private componentRenderRegions = new Map<Component, RenderRegionState>();
 
 	constructor(terminal: Terminal, showHardwareCursor?: boolean) {
 		super();
@@ -393,6 +418,73 @@ export class TUI extends Container {
 		};
 		this.fixedCells.add(state);
 		return this.createFixedCellHandle(state);
+	}
+
+	createRenderRegion(component: Component): RenderRegion {
+		const state: RenderRegionState = {
+			component,
+			rect: undefined,
+			generation: undefined,
+			components: new Set(),
+			disposed: false,
+		};
+		return {
+			place: (rect) => this.placeRenderRegion(state, rect),
+			clear: () => this.clearRenderRegion(state),
+			requestRender: () => this.requestRenderRegion(state),
+			dispose: () => this.disposeRenderRegion(state),
+		};
+	}
+
+	requestComponentRender(component: Component): boolean {
+		const state = this.componentRenderRegions.get(component);
+		if (state) return this.requestRenderRegion(state);
+		this.requestRender();
+		return false;
+	}
+
+	private placeRenderRegion(state: RenderRegionState, rect: RenderRegionRect): void {
+		if (state.disposed) return;
+		this.unmapRenderRegionComponents(state);
+		state.rect = { ...rect };
+		state.generation = this.renderGeneration;
+		this.mapRenderRegionComponents(state, state.component);
+	}
+
+	private clearRenderRegion(state: RenderRegionState): void {
+		this.unmapRenderRegionComponents(state);
+		state.rect = undefined;
+		state.generation = undefined;
+	}
+
+	private disposeRenderRegion(state: RenderRegionState): void {
+		if (state.disposed) return;
+		state.disposed = true;
+		this.clearRenderRegion(state);
+	}
+
+	private mapRenderRegionComponents(state: RenderRegionState, component: Component): void {
+		state.components.add(component);
+		this.componentRenderRegions.set(component, state);
+		if (!(component instanceof Container)) return;
+		for (const child of component.children) {
+			this.mapRenderRegionComponents(state, child);
+		}
+	}
+
+	private unmapRenderRegionComponents(state: RenderRegionState): void {
+		for (const component of state.components) {
+			if (this.componentRenderRegions.get(component) === state) {
+				this.componentRenderRegions.delete(component);
+			}
+		}
+		state.components.clear();
+	}
+
+	private requestRenderRegion(state: RenderRegionState): boolean {
+		if (this.writeRenderRegion(state)) return true;
+		this.requestRender();
+		return false;
 	}
 
 	private createFixedCellHandle(state: FixedCellState): FixedCell {
@@ -1337,6 +1429,74 @@ export class TUI extends Container {
 		this.terminal.write(buffer);
 	}
 
+	private writeRenderRegion(state: RenderRegionState): boolean {
+		const rect = this.getWritableRenderRegionRect(state);
+		if (!rect) return false;
+
+		const previousLines = this.previousLines.slice(rect.row, rect.row + rect.height);
+		if (previousLines.some((line) => isImageLine(line))) return false;
+
+		const renderedLines = state.component.render(rect.width);
+		if (renderedLines.length !== rect.height) return false;
+		const nextLines = this.prepareRenderRegionLines(renderedLines, rect);
+		if (!nextLines) return false;
+
+		this.writeRenderRegionLines(rect.row, previousLines, nextLines);
+		this.previousLines.splice(rect.row, rect.height, ...nextLines);
+		this.unmapRenderRegionComponents(state);
+		this.mapRenderRegionComponents(state, state.component);
+		return true;
+	}
+
+	private getWritableRenderRegionRect(state: RenderRegionState): RenderRegionRect | undefined {
+		const rect = state.rect;
+		if (!rect || state.disposed || state.generation !== this.renderGeneration) return undefined;
+		if (this.stopped || this.rendering || !this.terminalFocused) return undefined;
+		if (this.renderRequested || this.hasOverlay()) return undefined;
+		if (this.previousWidth !== this.terminal.columns || this.previousHeight !== this.terminal.rows) return undefined;
+		if (rect.col !== 0 || rect.width !== this.previousWidth) return undefined;
+		if (rect.row < 0 || rect.height < 0 || rect.row + rect.height > this.previousLines.length) return undefined;
+
+		const viewportBottom = this.previousViewportTop + this.terminal.rows;
+		if (rect.row < this.previousViewportTop || rect.row + rect.height > viewportBottom) return undefined;
+		return rect;
+	}
+
+	private prepareRenderRegionLines(lines: string[], rect: RenderRegionRect): string[] | undefined {
+		if (lines.some((line) => line.includes(CURSOR_MARKER) || isImageLine(line) || visibleWidth(line) > rect.width)) {
+			return undefined;
+		}
+		return this.applyLineResets(this.applyFixedCellsToRegion(lines, rect.row));
+	}
+
+	private applyFixedCellsToRegion(lines: string[], startRow: number): string[] {
+		const result = [...lines];
+		if (this.fixedCells.size === 0) return result;
+		for (const state of this.fixedCells) {
+			if (state.disposed || state.value === "") continue;
+			if (state.row === undefined || state.col === undefined) continue;
+			const lineIndex = state.row - startRow;
+			if (lineIndex < 0 || lineIndex >= result.length) continue;
+			const patched = this.patchFixedCellLine(result[lineIndex], state.col, state.value, false);
+			if (patched !== undefined) result[lineIndex] = patched;
+		}
+		return result;
+	}
+
+	private writeRenderRegionLines(startRow: number, previousLines: string[], nextLines: string[]): void {
+		let buffer = "\x1b[?2026h\x1b7";
+		let changed = false;
+		for (let index = 0; index < nextLines.length; index++) {
+			if (previousLines[index] === nextLines[index]) continue;
+			const screenRow = startRow + index - this.previousViewportTop;
+			buffer += `\x1b[${screenRow + 1};1H\x1b[2K${nextLines[index]}`;
+			changed = true;
+		}
+		if (!changed) return;
+		buffer += "\x1b8\x1b[?2026l";
+		this.terminal.write(buffer);
+	}
+
 	/** Splice overlay content into a base line at a specific column. Single-pass optimized. */
 	private compositeLineAt(
 		baseLine: string,
@@ -1433,7 +1593,14 @@ export class TUI extends Container {
 		};
 
 		// Render all components to get new lines
-		let newLines = this.render(width);
+		this.renderGeneration++;
+		this.rendering = true;
+		let newLines: string[];
+		try {
+			newLines = this.render(width);
+		} finally {
+			this.rendering = false;
+		}
 		newLines = this.applyFixedCells(newLines);
 
 		// Composite overlays into the rendered lines (before differential compare)
