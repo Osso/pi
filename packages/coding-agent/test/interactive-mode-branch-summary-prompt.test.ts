@@ -108,7 +108,11 @@ type BranchContext = {
 	showSelector(factory: SelectorFactory): void;
 	showStatus(message: string): void;
 	statusContainer: Container;
-	ui: { requestRender(): void; terminal: { rows: number } };
+	ui: {
+		requestComponentRender(component: unknown): boolean;
+		requestRender(): void;
+		terminal: { rows: number };
+	};
 	workingIndicatorOptions: LoaderIndicatorOptions | undefined;
 	workingVisible: boolean;
 };
@@ -165,7 +169,14 @@ describe("InteractiveMode branch-summary prompt activity", () => {
 			},
 			showStatus: vi.fn(),
 			statusContainer: new Container(),
-			ui: { requestRender, terminal: { rows: 24 } },
+			ui: {
+				requestRender,
+				requestComponentRender: () => {
+					requestRender();
+					return false;
+				},
+				terminal: { rows: 24 },
+			},
 			workingIndicatorOptions: { frames: ["a", "b"], intervalMs: 250 },
 			workingVisible: true,
 		});

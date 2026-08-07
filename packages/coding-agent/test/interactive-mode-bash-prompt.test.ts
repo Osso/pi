@@ -71,7 +71,7 @@ type BashContext = {
 			sessionManager: { getCwd(): string };
 		};
 	};
-	ui: { requestRender(): void };
+	ui: { requestComponentRender(component: unknown): boolean; requestRender(): void };
 	workingIndicatorOptions: LoaderIndicatorOptions | undefined;
 	workingVisible: boolean;
 };
@@ -105,7 +105,10 @@ describe("InteractiveMode bash prompt activity", () => {
 					sessionManager: { getCwd: () => process.cwd() },
 				},
 			},
-			ui: { requestRender: vi.fn() },
+			ui: {
+				requestComponentRender: () => false,
+				requestRender: vi.fn(),
+			},
 			workingIndicatorOptions: { frames: ["a", "b"], intervalMs: 250 },
 			workingVisible: true,
 		});

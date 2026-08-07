@@ -48,6 +48,7 @@ type SubmitContext = {
 	handleEvent(this: SubmitContext, event: AgentSessionEvent): Promise<void>;
 	isBashMode: boolean;
 	isInitialized: boolean;
+	handleHiddenMainSessionDisplayEvent(event: AgentSessionEvent): boolean;
 	isViewingAgentSession: () => boolean;
 	multiAgentStore?: {
 		getAgent: (agentId: string) =>
@@ -135,6 +136,11 @@ function createSubmitContext(): SubmitContext {
 		handleEvent: interactiveModePrototype.handleEvent,
 		isBashMode: false,
 		isInitialized: true,
+		handleHiddenMainSessionDisplayEvent: (
+			InteractiveMode.prototype as unknown as {
+				handleHiddenMainSessionDisplayEvent(event: AgentSessionEvent): boolean;
+			}
+		).handleHiddenMainSessionDisplayEvent,
 		isViewingAgentSession: () => false,
 		options: {},
 		pendingUserInputs: [],

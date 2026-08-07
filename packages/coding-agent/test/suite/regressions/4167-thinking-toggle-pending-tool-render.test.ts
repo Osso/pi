@@ -54,6 +54,7 @@ type RenderSessionContextThis = {
 	getPendingToolStartedAt(toolCallId: string): number | undefined;
 	isInitialized: boolean;
 	viewingAgentSession: boolean;
+	handleHiddenMainSessionDisplayEvent(event: AgentSessionEvent): boolean;
 	isViewingAgentSession(): boolean;
 	startToolWaitingTimer(): void;
 	stopToolWaitingTimerIfIdle(): void;
@@ -104,6 +105,11 @@ function createFakeInteractiveModeThis(): RenderSessionContextThis {
 		).getPendingToolStartedAt,
 		isInitialized: true,
 		viewingAgentSession: false,
+		handleHiddenMainSessionDisplayEvent: (
+			InteractiveMode.prototype as unknown as {
+				handleHiddenMainSessionDisplayEvent(event: AgentSessionEvent): boolean;
+			}
+		).handleHiddenMainSessionDisplayEvent,
 		isViewingAgentSession() {
 			return this.viewingAgentSession;
 		},
