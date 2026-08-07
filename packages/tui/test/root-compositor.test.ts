@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { RootCompositor, type RootLayoutRect } from "../src/root-compositor.ts";
-import type { Component } from "../src/tui.ts";
+import { type Component, Container, CURSOR_MARKER, TUI } from "../src/tui.ts";
+import { VirtualTerminal } from "./virtual-terminal.ts";
 
 class TestComponent implements Component {
 	lines: string[];
@@ -80,6 +81,50 @@ describe("RootCompositor", () => {
 		footer.lines = ["footer 1", "footer 2"];
 		assert.deepStrictEqual(compositor.render(12), ["", "", "", "editor", "footer 1", "footer 2"]);
 		assert.deepStrictEqual(editorRect, { row: 3, col: 0, width: 12, height: 1 });
+	});
+
+	it("restores bottom anchoring after a tall editor replacement closes with Escape", async () => {
+		const terminal = new VirtualTerminal(20, 6);
+		const tui = new TUI(terminal);
+		const body = new TestComponent(["body 1", "body 2", "body 3", "body 4", "body 5"]);
+		const editor = new TestComponent([`editor${CURSOR_MARKER}`]);
+		const editorContainer = new Container();
+		const footer = new TestComponent(["footer"]);
+		editorContainer.addChild(editor);
+		const selector: Component = {
+			render: () =>
+				Array.from({ length: 5 }, (_, index) =>
+					index === 1 ? `selector ${index + 1}${CURSOR_MARKER}` : `selector ${index + 1}`,
+				),
+			invalidate: () => {},
+			handleInput: (data) => {
+				if (data !== "\x1b") return;
+				editorContainer.clear();
+				editorContainer.addChild(editor);
+				tui.setFocus(editor);
+				tui.requestRender();
+			},
+		};
+		const compositor = new RootCompositor({
+			getHeight: () => terminal.rows,
+			flow: [{ component: body }],
+			bottom: [{ component: editorContainer }, { component: footer }],
+		});
+		tui.addChild(compositor);
+		tui.start();
+		await terminal.waitForRender();
+		editorContainer.clear();
+		editorContainer.addChild(selector);
+		tui.setFocus(selector);
+		tui.requestRender();
+		await terminal.waitForRender();
+
+		terminal.sendInput("\x1b");
+		await terminal.waitForRender();
+
+		assert.deepStrictEqual(terminal.getViewport(), ["body 2", "body 3", "body 4", "body 5", "editor", "footer"]);
+		tui.stop();
+		await terminal.flush();
 	});
 
 	it("keeps the full flow when content exceeds the viewport", () => {

@@ -204,6 +204,17 @@ function isTermuxSession(): boolean {
 	return Boolean(process.env.TERMUX_VERSION);
 }
 
+function findUpwardViewportTopAfterShrink(
+	previousLineCount: number,
+	nextLineCount: number,
+	height: number,
+	currentViewportTop: number,
+): number | undefined {
+	if (nextLineCount >= previousLineCount) return undefined;
+	const nextViewportTop = Math.max(0, nextLineCount - height);
+	return nextViewportTop < currentViewportTop ? nextViewportTop : undefined;
+}
+
 /**
  * Options for overlay positioning and sizing.
  * Values can be absolute numbers or percentage strings (e.g., "50%").
@@ -1992,6 +2003,19 @@ export class TUI extends Container {
 			return fallbackToFullRender(`clearOnShrink (maxLinesRendered=${this.maxLinesRendered})`, true);
 		}
 
+		const upwardViewportTop = findUpwardViewportTopAfterShrink(
+			this.previousLines.length,
+			newLines.length,
+			height,
+			prevViewportTop,
+		);
+		if (upwardViewportTop !== undefined) {
+			return fallbackToFullRender(
+				`content shrink moved viewport up (${prevViewportTop} -> ${upwardViewportTop})`,
+				true,
+			);
+		}
+
 		// Find first and last changed lines
 		let firstChanged = -1;
 		let lastChanged = -1;
@@ -2036,9 +2060,6 @@ export class TUI extends Container {
 				buffer += this.deleteChangedKittyImages(firstChanged, lastChanged);
 				// Move to end of new content (clamp to 0 for empty content)
 				const targetRow = Math.max(0, newLines.length - 1);
-				if (targetRow < prevViewportTop) {
-					return fallbackToFullRender(`deleted lines moved viewport up (${targetRow} < ${prevViewportTop})`, true);
-				}
 				const lineDiff = computeLineDiff(targetRow);
 				if (lineDiff > 0) buffer += `\x1b[${lineDiff}B`;
 				else if (lineDiff < 0) buffer += `\x1b[${-lineDiff}A`;
