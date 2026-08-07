@@ -1448,17 +1448,34 @@ export class TUI extends Container {
 		return true;
 	}
 
+	private canWriteRenderRegionNow(): boolean {
+		const terminalSizeMatches =
+			this.previousWidth === this.terminal.columns && this.previousHeight === this.terminal.rows;
+		return (
+			!this.stopped &&
+			!this.rendering &&
+			this.terminalFocused &&
+			!this.renderRequested &&
+			!this.hasOverlay() &&
+			terminalSizeMatches
+		);
+	}
+
 	private getWritableRenderRegionRect(state: RenderRegionState): RenderRegionRect | undefined {
 		const rect = state.rect;
-		if (!rect || state.disposed || state.generation !== this.renderGeneration) return undefined;
-		if (this.stopped || this.rendering || !this.terminalFocused) return undefined;
-		if (this.renderRequested || this.hasOverlay()) return undefined;
-		if (this.previousWidth !== this.terminal.columns || this.previousHeight !== this.terminal.rows) return undefined;
-		if (rect.col !== 0 || rect.width !== this.previousWidth) return undefined;
-		if (rect.row < 0 || rect.height < 0 || rect.row + rect.height > this.previousLines.length) return undefined;
+		const hasCurrentPlacement = rect !== undefined && !state.disposed && state.generation === this.renderGeneration;
+		if (!hasCurrentPlacement || !this.canWriteRenderRegionNow()) return undefined;
+
+		const isFullWidth = rect.col === 0 && rect.width === this.previousWidth;
+		if (!isFullWidth) return undefined;
+
+		const regionBottom = rect.row + rect.height;
+		const isInsideFrame = rect.row >= 0 && rect.height >= 0 && regionBottom <= this.previousLines.length;
+		if (!isInsideFrame) return undefined;
 
 		const viewportBottom = this.previousViewportTop + this.terminal.rows;
-		if (rect.row < this.previousViewportTop || rect.row + rect.height > viewportBottom) return undefined;
+		const isInsideViewport = rect.row >= this.previousViewportTop && regionBottom <= viewportBottom;
+		if (!isInsideViewport) return undefined;
 		return rect;
 	}
 
