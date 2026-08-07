@@ -1,17 +1,30 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
 import { Loader } from "../src/components/loader.ts";
-import type { TUI } from "../src/tui.ts";
+import { type Component, TUI } from "../src/tui.ts";
+import { VirtualTerminal } from "./virtual-terminal.ts";
 
-function createRenderCounter(): { tui: TUI; getRenderCount: () => number } {
+function createRenderCounter(): { tui: Pick<TUI, "requestComponentRender">; getRenderCount: () => number } {
 	let renderCount = 0;
 	const tui = {
-		requestRender(): void {
+		requestComponentRender(): boolean {
 			renderCount++;
+			return false;
 		},
-	} as TUI;
+	};
 
 	return { tui, getRenderCount: () => renderCount };
+}
+
+class RenderCountingComponent implements Component {
+	renderCount = 0;
+
+	render(_width: number): string[] {
+		this.renderCount++;
+		return ["unrelated"];
+	}
+
+	invalidate(): void {}
 }
 
 describe("Loader", () => {
@@ -36,5 +49,32 @@ describe("Loader", () => {
 			loader.stop();
 			mock.timers.reset();
 		}
+	});
+
+	it("falls back to a normal root render when no region is registered", async () => {
+		const terminal = new VirtualTerminal(30, 6);
+		const tui = new TUI(terminal);
+		const loader = new Loader(
+			tui,
+			(value) => value,
+			(value) => value,
+			"Loading",
+			{ frames: [] },
+		);
+		const unrelated = new RenderCountingComponent();
+		tui.addChild(loader);
+		tui.addChild(unrelated);
+		tui.start();
+		await terminal.waitForRender();
+		const unrelatedRenderCount = unrelated.renderCount;
+
+		loader.setMessage("Updated");
+		await terminal.waitForRender();
+
+		assert.strictEqual(unrelated.renderCount, unrelatedRenderCount + 1);
+		assert.ok(terminal.getViewport().join("\n").includes("Updated"));
+		loader.stop();
+		tui.stop();
+		await terminal.flush();
 	});
 });

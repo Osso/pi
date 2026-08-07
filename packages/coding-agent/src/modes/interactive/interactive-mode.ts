@@ -669,6 +669,7 @@ export class InteractiveMode {
 		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
 		this.footerContainer = new Container();
 		this.footerContainer.addChild(this.footer);
+		const statusRenderRegion = this.ui.createRenderRegion(this.statusContainer);
 		this.rootCompositor = createInteractiveRootCompositor({
 			getHeight: () => this.ui.terminal.rows,
 			header: this.headerContainer,
@@ -680,6 +681,7 @@ export class InteractiveMode {
 			editor: this.editorContainer,
 			widgetBelow: this.widgetContainerBelow,
 			footer: this.footerContainer,
+			onStatusLayout: statusRenderRegion.place,
 			onEditorLayout: (rect) => this.handleEditorLayout(rect),
 		});
 

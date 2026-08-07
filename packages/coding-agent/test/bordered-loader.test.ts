@@ -18,16 +18,16 @@ describe("BorderedLoader", () => {
 	it("renders its status message without recurring spinner updates", () => {
 		vi.useFakeTimers();
 		initTheme("dark");
-		const requestRender = vi.fn();
-		const loader = new BorderedLoader({ requestRender } as unknown as TUI, createTheme(), "Working...");
+		const requestComponentRender = vi.fn(() => false);
+		const loader = new BorderedLoader({ requestComponentRender } as unknown as TUI, createTheme(), "Working...");
 
 		try {
 			expect(stripAnsi(loader.render(80).join("\n"))).toContain("Working...");
-			expect(requestRender).toHaveBeenCalledTimes(1);
+			expect(requestComponentRender).toHaveBeenCalledTimes(1);
 
 			vi.advanceTimersByTime(1_000);
 
-			expect(requestRender).toHaveBeenCalledTimes(1);
+			expect(requestComponentRender).toHaveBeenCalledTimes(1);
 		} finally {
 			loader.dispose();
 		}

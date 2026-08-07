@@ -23,18 +23,18 @@ describe("status indicators", () => {
 	it("keeps configured working status frames static", async () => {
 		initTheme("dark");
 		vi.useFakeTimers();
-		const requestRender = vi.fn();
-		const tui = { requestRender } as unknown as TUI;
+		const requestComponentRender = vi.fn(() => false);
+		const tui = { requestComponentRender } as unknown as TUI;
 		const indicator = new WorkingStatusIndicator(tui, "Working...", {
 			frames: ["a", "b"],
 			intervalMs: 250,
 		});
 		try {
-			const callsAfterConstruction = requestRender.mock.calls.length;
+			const callsAfterConstruction = requestComponentRender.mock.calls.length;
 
 			await vi.advanceTimersByTimeAsync(1000);
 
-			expect(requestRender).toHaveBeenCalledTimes(callsAfterConstruction);
+			expect(requestComponentRender).toHaveBeenCalledTimes(callsAfterConstruction);
 		} finally {
 			indicator.dispose();
 		}
@@ -43,14 +43,14 @@ describe("status indicators", () => {
 	it("disposes retry countdown updates", () => {
 		initTheme("dark");
 		vi.useFakeTimers();
-		const requestRender = vi.fn();
-		const tui = { requestRender } as unknown as TUI;
+		const requestComponentRender = vi.fn(() => false);
+		const tui = { requestComponentRender } as unknown as TUI;
 		const indicator = new RetryStatusIndicator(tui, 1, 3, 1000);
-		const callsBeforeDispose = requestRender.mock.calls.length;
+		const callsBeforeDispose = requestComponentRender.mock.calls.length;
 
 		indicator.dispose();
 		vi.advanceTimersByTime(2000);
 
-		expect(requestRender).toHaveBeenCalledTimes(callsBeforeDispose);
+		expect(requestComponentRender).toHaveBeenCalledTimes(callsBeforeDispose);
 	});
 });

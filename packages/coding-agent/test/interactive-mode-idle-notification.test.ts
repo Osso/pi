@@ -1,5 +1,5 @@
 import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
-import { Container, type Loader, type LoaderIndicatorOptions, Text } from "@earendil-works/pi-tui";
+import { type Component, Container, type Loader, type LoaderIndicatorOptions, Text } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentSessionEvent } from "../src/core/agent-session.ts";
 import { PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS } from "../src/core/desktop-notification.ts";
@@ -90,7 +90,11 @@ type HandleEventContext = {
 	streamingComponent: { updateContent(message: unknown): void } | undefined;
 	streamingMessage: unknown;
 	thinkingFollowsTool: boolean;
-	ui: { requestRender(): void; terminal: { setProgress(progress: boolean): void } };
+	ui: {
+		requestComponentRender(component: Component): boolean;
+		requestRender(): void;
+		terminal: { setProgress(progress: boolean): void };
+	};
 	workingIndicatorOptions: LoaderIndicatorOptions | undefined;
 	workingVisible: boolean;
 };
@@ -169,7 +173,15 @@ function createContext(): HandleEventContext {
 	context.streamingComponent = undefined;
 	context.streamingMessage = undefined;
 	context.thinkingFollowsTool = false;
-	context.ui = { requestRender: vi.fn(), terminal: { setProgress: vi.fn() } };
+	const requestRender = vi.fn();
+	context.ui = {
+		requestRender,
+		requestComponentRender: () => {
+			requestRender();
+			return false;
+		},
+		terminal: { setProgress: vi.fn() },
+	};
 	context.workingIndicatorOptions = undefined;
 	context.workingVisible = true;
 	return context;

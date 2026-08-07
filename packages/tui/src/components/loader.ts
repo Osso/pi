@@ -11,6 +11,8 @@ export interface LoaderIndicatorOptions {
 const DEFAULT_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const DEFAULT_INTERVAL_MS = 250;
 
+type LoaderTUI = Pick<TUI, "requestComponentRender">;
+
 /**
  * Loader component that updates with an optional spinning animation.
  */
@@ -19,14 +21,14 @@ export class Loader extends Text {
 	private intervalMs = DEFAULT_INTERVAL_MS;
 	private currentFrame = 0;
 	private intervalId: NodeJS.Timeout | null = null;
-	private ui: TUI | null = null;
+	private ui: LoaderTUI | null = null;
 	private renderIndicatorVerbatim = false;
 	private spinnerColorFn: (str: string) => string;
 	private messageColorFn: (str: string) => string;
 	private message: string = "Loading...";
 
 	constructor(
-		ui: TUI,
+		ui: LoaderTUI,
 		spinnerColorFn: (str: string) => string,
 		messageColorFn: (str: string) => string,
 		message: string = "Loading...",
@@ -86,7 +88,7 @@ export class Loader extends Text {
 		const indicator = frame.length > 0 ? `${renderedFrame} ` : "";
 		this.setText(`${indicator}${this.messageColorFn(this.message)}`);
 		if (this.ui) {
-			this.ui.requestRender();
+			this.ui.requestComponentRender(this);
 		}
 	}
 }

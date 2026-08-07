@@ -11,6 +11,7 @@ export interface InteractiveRootCompositorOptions {
 	editor: Component;
 	widgetBelow: Component;
 	footer: Component;
+	onStatusLayout: (rect: RootLayoutRect) => void;
 	onEditorLayout: (rect: RootLayoutRect) => void;
 }
 
@@ -24,7 +25,7 @@ export function createInteractiveRootCompositor(options: InteractiveRootComposit
 			{ component: options.pendingMessages },
 		],
 		bottom: [
-			{ component: options.status },
+			{ component: options.status, onLayout: options.onStatusLayout },
 			{ component: options.widgetAbove },
 			{ component: options.editor, onLayout: options.onEditorLayout },
 			{ component: options.widgetBelow },

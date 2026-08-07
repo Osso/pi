@@ -71,7 +71,7 @@ type HandleEventThis = {
 	workingLoaderView: "main" | "child" | undefined;
 	workingMessage: string | undefined;
 	workingVisible: boolean;
-	ui: Pick<TUI, "requestRender">;
+	ui: Pick<TUI, "requestComponentRender" | "requestRender">;
 	getRegisteredToolDefinition(): undefined;
 };
 
@@ -181,6 +181,7 @@ function markRuntimeMessageEvent(
 function createFakeInteractiveModeThis(): HandleEventThis {
 	const editor = new Text("", 0, 0);
 	const editorContainer = new Container();
+	const requestRender = vi.fn();
 	editorContainer.addChild(editor);
 	return Object.assign(Object.create(InteractiveMode.prototype) as HandleEventThis, {
 		chatContainer: new Container(),
@@ -222,7 +223,13 @@ function createFakeInteractiveModeThis(): HandleEventThis {
 		workingLoaderView: undefined,
 		workingMessage: undefined,
 		workingVisible: true,
-		ui: { requestRender: vi.fn() },
+		ui: {
+			requestRender,
+			requestComponentRender: () => {
+				requestRender();
+				return false;
+			},
+		},
 		getRegisteredToolDefinition: () => undefined,
 	});
 }
