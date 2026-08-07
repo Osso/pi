@@ -139,6 +139,27 @@ function createMessageUpdate(message: AssistantMessage): AgentSessionEvent {
 	};
 }
 
+function createHiddenThinkingUpdate(message: AssistantMessage): AgentSessionEvent {
+	return {
+		type: "message_update",
+		message,
+		assistantMessageEvent: {
+			type: "thinking_delta",
+			contentIndex: 0,
+			delta: "hidden reasoning",
+			partial: message,
+		},
+	};
+}
+
+function createToolCallUpdate(message: AssistantMessage, delta: string): AgentSessionEvent {
+	return {
+		type: "message_update",
+		message,
+		assistantMessageEvent: { type: "toolcall_delta", contentIndex: 0, delta, partial: message },
+	};
+}
+
 function createUserMessage(text: string): AgentSessionEvent {
 	return {
 		type: "message_start",
@@ -224,6 +245,29 @@ describe("InteractiveMode streaming render throttling", () => {
 
 		expect(fakeThis.chatContainer.render(80).join("\n")).toContain("child backlog");
 		expect(fakeThis.chatContainer.render(80).join("\n")).not.toContain("main thread leak");
+	});
+
+	test("does not request a root render for main-session message updates while viewing an agent", async () => {
+		const fakeThis = createFakeInteractiveModeThis();
+		fakeThis.multiAgentStore = { getAgent: () => ({}), getSelectedAgentId: () => "agent_1" };
+
+		await handleEvent.call(fakeThis, createMessageUpdate(createAssistantMessage("hidden main output")));
+
+		expect(fakeThis.ui.requestRender).not.toHaveBeenCalled();
+	});
+
+	test("does not schedule a root render for hidden thinking deltas", async () => {
+		vi.useFakeTimers();
+		const fakeThis = createFakeInteractiveModeThis();
+		fakeThis.hideThinkingBlock = true;
+		const initialMessage = createAssistantMessage("");
+
+		await handleEvent.call(fakeThis, { type: "message_start", message: initialMessage });
+		vi.mocked(fakeThis.ui.requestRender).mockClear();
+		await handleEvent.call(fakeThis, createHiddenThinkingUpdate(initialMessage));
+		await vi.advanceTimersByTimeAsync(50);
+
+		expect(fakeThis.ui.requestRender).not.toHaveBeenCalled();
 	});
 
 	test("keeps the normal working status label static", async () => {
@@ -356,7 +400,7 @@ describe("InteractiveMode streaming render throttling", () => {
 		expect(fakeThis.thinkingFollowsTool).toBe(false);
 	});
 
-	test("renders final tool call arguments without streaming partial arguments", async () => {
+	test("defers tool call argument rendering and root renders until message completion", async () => {
 		vi.useFakeTimers();
 		const fakeThis = createFakeInteractiveModeThis();
 		const initialMessage = createAssistantMessage("");
@@ -365,16 +409,16 @@ describe("InteractiveMode streaming render throttling", () => {
 		);
 
 		await handleEvent.call(fakeThis, { type: "message_start", message: initialMessage });
-		await handleEvent.call(fakeThis, createMessageUpdate(createToolCallMessage("git di")));
+		await handleEvent.call(fakeThis, createToolCallUpdate(createToolCallMessage("git di"), "git di"));
 		await vi.advanceTimersByTimeAsync(50);
 
 		expect(fakeThis.chatContainer.render(80).join("\n")).not.toContain("git di");
-		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(2);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
 
 		await handleEvent.call(fakeThis, { type: "message_end", message: finalToolCallMessage });
 
 		expect(fakeThis.chatContainer.render(120).join("\n")).toContain("git diff --");
-		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(4);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(3);
 	});
 
 	test("coalesces rapid partial updates across tools", async () => {

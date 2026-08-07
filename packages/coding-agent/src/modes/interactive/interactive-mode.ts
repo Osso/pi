@@ -4012,6 +4012,16 @@ export class InteractiveMode {
 		}
 	}
 
+	private handleHiddenMainSessionDisplayEvent(event: AgentSessionEvent): boolean {
+		if (!this.isViewingAgentSession() || !isMainSessionDisplayEvent(event)) return false;
+
+		this.syncToolExecutionTrackingForHiddenMainEvent(event);
+		if (event.type !== "message_update") {
+			this.ui.requestRender();
+		}
+		return true;
+	}
+
 	private ensureToolExecutionComponent(toolName: string, toolCallId: string, args: unknown): ToolExecutionComponent {
 		const existingComponent = this.pendingTools.get(toolCallId);
 		if (existingComponent) {
@@ -4049,11 +4059,7 @@ export class InteractiveMode {
 			await this.init();
 		}
 
-		if (this.isViewingAgentSession() && isMainSessionDisplayEvent(event)) {
-			this.syncToolExecutionTrackingForHiddenMainEvent(event);
-			this.ui.requestRender();
-			return;
-		}
+		if (this.handleHiddenMainSessionDisplayEvent(event)) return;
 
 		switch (event.type) {
 			case "agent_start":
@@ -4156,10 +4162,9 @@ export class InteractiveMode {
 				break;
 
 			case "message_update":
-				if (this.isVisibleAssistantDelta(event)) {
-					this.stopThinkingTimer();
-					this.setDefaultWorkingMessage(this.defaultStreamingMessage);
-				}
+				if (!this.isVisibleAssistantDelta(event)) break;
+				this.stopThinkingTimer();
+				this.setDefaultWorkingMessage(this.defaultStreamingMessage);
 				if (this.streamingComponent && event.message.role === "assistant") {
 					this.streamingMessage = event.message;
 					this.streamingComponent.updateContent(this.streamingMessage);
