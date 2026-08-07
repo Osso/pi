@@ -50,6 +50,7 @@ terminal_resize_reflow_max_rows = 5000
 - [x] Prompt activity from main work, selected-child work, compaction, retry, branch summarization, and local bash shares the compatible editor prompt animation; the corresponding coding-agent status loaders are static (`interactive-mode-working-editor.test.ts`, `interactive-mode-compaction.test.ts`, `interactive-mode-idle-notification.test.ts`, `interactive-mode-branch-summary-prompt.test.ts`, `interactive-mode-bash-prompt.test.ts`).
 - [x] Bordered loaders and the exported working status indicator show static status text without recurring spinner renders; retry status indicators retain countdown cleanup behavior. Incompatible, replaced, or otherwise unsupported custom editors show static status text only (`bordered-loader.test.ts`, `status-indicator.test.ts`, `interactive-mode-working-editor.test.ts`).
 - [x] Countdown, elapsed-time, streaming-content, and transcript updates continue through normal renders because their text or layout can change (`interactive-mode-streaming-render-throttle.test.ts`, `interactive-mode-idle-notification.test.ts`, `tool-execution-component.test.ts`, `interactive-mode-status.test.ts`).
+- [x] Invisible assistant stream updates do not schedule root renders: hidden thinking deltas, partial tool-call/protocol deltas, and hidden main-session message updates while viewing a child are ignored; visible text/thinking updates and final message rendering remain unchanged (`interactive-mode-streaming-render-throttle.test.ts`).
 - [x] Pending renders, terminal resize, hidden prompt rows, and overlays suppress unsafe direct cell writes; the next normal render recalculates placement and synchronizes the frame cache.
 
 ## How it works
@@ -104,7 +105,7 @@ terminal_resize_reflow_max_rows = 5000
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts:211-256` — main/child working labels remain static and child status loaders do not request recurring renders.
+- `packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts` — main/child working labels remain static; invisible thinking, partial tool-call, and hidden main-session message updates do not request root renders; visible and final stream rendering remain covered.
 - `packages/coding-agent/test/interactive-mode-working-editor.test.ts` and `working-editor.test.ts` — main/child prompt routing, static status loaders, incompatible/wider custom indicators, temporary editor replacement, and prompt placement coordination.
 - `packages/coding-agent/test/interactive-mode-compaction.test.ts` and `interactive-mode-idle-notification.test.ts` — compaction/retry status labels and prompt-activity lifecycle.
 - `packages/coding-agent/test/interactive-mode-bash-prompt.test.ts` — local bash activity starts and stops prompt animation around the running command.
