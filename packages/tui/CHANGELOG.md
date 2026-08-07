@@ -4,6 +4,7 @@
 
 ### Added
 
+- Added full-width render regions for same-height component updates without rendering the global component tree. Root layout callbacks record row bounds, descendant requests route to their registered boundary, successful writes synchronize the differential-render cache, and unsafe or height-changing updates fall back to normal rendering.
 - Added root flow/bottom composition and cache-synchronized fixed-cell updates for viewport-anchored interactive elements without global component-tree renders. Fixed-cell writes reject pending renders, stale terminal dimensions, hidden positions, and visible overlays; successful writes update the differential-render cache.
 - Added Editor-owned working prompt animation with fixed-cell updates, custom/static/hidden frames, multiline prompt positioning, and idle prompt restoration.
 

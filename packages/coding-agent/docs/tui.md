@@ -491,6 +491,25 @@ class CachedComponent {
 
 Call `invalidate()` when state changes, then `handle.requestRender()` to trigger re-render.
 
+### Full-width render regions
+
+Low-level TUI components with an explicit `RootCompositor` entry can register a full-width render region. A same-height update then renders and writes only that row range instead of traversing the global component tree:
+
+```typescript
+const region = tui.createRenderRegion(statusContainer);
+const root = new RootCompositor({
+  getHeight: () => tui.terminal.rows,
+  flow: [],
+  bottom: [{ component: statusContainer, onLayout: region.place }],
+});
+tui.addChild(root);
+
+// Registered descendants route to the enclosing statusContainer boundary.
+tui.requestComponentRender(statusText);
+```
+
+The partial path is used only while the recorded width, height, viewport, and layout generation remain current and no overlay or normal render is pending. Unsupported output, resize, stale placement, or a height change automatically requests a normal render. Regions currently cover complete terminal rows; arbitrary columns, overlapping regions, and cell-grid composition are not supported.
+
 ## Invalidation and Theme Changes
 
 When the theme changes, the TUI calls `invalidate()` on all components to clear their caches. Components must properly implement `invalidate()` to ensure theme changes take effect.

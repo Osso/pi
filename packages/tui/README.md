@@ -68,7 +68,7 @@ tui.requestRender(); // Request a re-render
 tui.onDebug = () => console.log("Debug triggered");
 ```
 
-### Root composition and fixed cells
+### Root composition, render regions, and fixed cells
 
 `RootCompositor` renders a normal flow followed by a bottom zone. When the combined content is shorter than the terminal, the bottom zone is padded down to the viewport bottom. `onLayout` receives entry bounds in root rendered-line coordinates, so components can update placement after wrapping, resize, or height changes.
 
@@ -85,6 +85,23 @@ const root = new RootCompositor({
 });
 tui.addChild(root);
 ```
+
+`TUI.createRenderRegion(component)` registers a full-width layout boundary. Pass `region.place` to the matching root entry's `onLayout`; registered descendants can then call `tui.requestComponentRender(component)`, or the boundary can call `region.requestRender()`. Same-height updates render and diff only the recorded rows while synchronizing the cached frame.
+
+```typescript
+const statusRegion = tui.createRenderRegion(statusContainer);
+const root = new RootCompositor({
+  getHeight: () => terminal.rows,
+  flow: [],
+  bottom: [{ component: statusContainer, onLayout: statusRegion.place }],
+});
+tui.addChild(root);
+
+// A child inside statusContainer changed.
+tui.requestComponentRender(statusText);
+```
+
+Partial region writes require a current full-width placement with unchanged height and visible rows. Pending normal renders, resize, stale layout generations, overlays, cursor markers, images, invalid widths, or height changes fall back to normal rendering. Arbitrary column slicing and overlapping region composition are not supported.
 
 `TUI.createFixedCell()` provides a low-level one-cell update for an already-rendered root line and terminal column. `update(value)` returns `true` only when the value occupies exactly one terminal cell and the cached frame is safe to patch; it returns `false` while a normal render is pending, terminal dimensions are stale, the position is not visible, or an overlay is active. Successful updates synchronize the differential-render cache. Clear or dispose the handle when the position is no longer valid.
 
