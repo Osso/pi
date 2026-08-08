@@ -46,6 +46,11 @@ terminal_resize_reflow_max_rows = 5000
 - [ ] `ctx.ui.setTitle`, `setEditorText`/`getEditorText`, `pasteToEditor`, `editor(title, prefill?)`, `addAutocompleteProvider`, and `getToolsExpanded`/`setToolsExpanded` are available as supporting surface.
 - [x] `pi.registerEntryRenderer(customType, renderer)` renders matching display-only `pi.appendEntry()` data in interactive chat immediately on append and from the active compaction-aware branch during transcript startup, resume, and rebuild; entries remain excluded from model context.
 
+### Transcript and tree views
+
+- [x] Successful live compaction renders exactly one enriched generated summary first, followed by kept and post-compaction transcript entries in canonical order; compacted-away entries are absent (`interactive-mode-compaction-rendering.test.ts`: “renders one enriched compaction summary before kept messages after compaction”).
+- [x] `/tree` user-only mode is compaction-aware on the active branch, showing the generated summary first followed by retained and later user prompts in canonical context order, while default and other filters retain the full persisted tree and pre-compaction tree behavior is unchanged (`tree-selector-compaction.test.ts`: “shows the generated compaction summary before retained active-context prompts”).
+
 ### Working indicator
 
 - [x] Normal working status text remains static `Thinking...` / `Streaming...`; active main- or selected-child-agent work animates only through the compatible editor prompt fixed cell without rendering the global component tree on each frame (`interactive-mode-streaming-render-throttle.test.ts`, `interactive-mode-working-editor.test.ts`).
@@ -111,6 +116,7 @@ terminal_resize_reflow_max_rows = 5000
 - `packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts` — main/child working labels remain static; invisible thinking, partial tool-call, and hidden main-session message updates do not request renders; assistant start and visible updates route through the transcript-tail region; completion consolidates the tail before one normal render.
 - `packages/coding-agent/test/interactive-mode-working-editor.test.ts` and `working-editor.test.ts` — main/child prompt routing, static status loaders, incompatible/wider custom indicators, temporary editor replacement, and prompt placement coordination.
 - `packages/coding-agent/test/interactive-mode-compaction.test.ts` and `interactive-mode-idle-notification.test.ts` — compaction/retry status labels and prompt-activity lifecycle.
+- `packages/coding-agent/test/interactive-mode-compaction-rendering.test.ts` — one enriched summary renders first after compaction without compacted-away transcript entries.
 - `packages/coding-agent/test/interactive-mode-bash-prompt.test.ts` — local bash activity starts and stops prompt animation around the running command.
 - `packages/coding-agent/test/interactive-mode-branch-summary-prompt.test.ts` — branch-summary activity starts and stops prompt animation while its status loader remains static.
 - `packages/coding-agent/test/bordered-loader.test.ts` — bordered status loaders render without recurring spinner updates.
@@ -124,6 +130,7 @@ terminal_resize_reflow_max_rows = 5000
 - `packages/coding-agent/test/extensions-runner.test.ts:128-313` — shortcut conflict detection: warns on reserved conflict, allows when reserved set changes, reserved wins over non-reserved across iteration order, warns-but-allows on non-reserved built-in.
 - `packages/coding-agent/test/interactive-mode-status.test.ts:201-270` — `ctx.ui.custom` overlay/replacement focus regression: an overlay reclaims input after a non-overlay custom UI closes.
 - `packages/coding-agent/test/interactive-mode-custom-entry-rendering.test.ts` — custom entries render on live append and persisted transcript rebuild.
+- `packages/coding-agent/test/tree-selector-compaction.test.ts` — compaction-aware user-only tree ordering and preservation of the full tree in other filters.
 - `packages/coding-agent/test/keybindings-migration.test.ts:25-87` — legacy keybinding name migration, namespaced-id precedence, and in-memory loading through `KeybindingsManager.create(agentDir)`.
 - `packages/tui/test/editor.test.ts` — optional editor prompt prefix rendering and width preservation.
 - `packages/coding-agent/test/theme-picker.test.ts:34-50` — theme listing uses custom theme content names and returns file paths for `getAvailableThemesWithPaths`.

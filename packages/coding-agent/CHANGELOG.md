@@ -21,6 +21,7 @@
 - Changed all built-in coding-agent cosmetic loaders and exported status indicators to static status text: compatible main and selected-child editors animate active work through the prompt fixed cell, while compaction, retry, branch summarization, local bash, bordered loaders, exported status indicators, and incompatible or hidden custom editors avoid recurring spinner renders. Dynamic tool/countdown layouts and non-streaming transcript mutations still use normal renders.
 - Changed assistant message start and visible text/thinking stream updates to render through a dedicated transcript-tail flow region without rerendering committed transcript or unrelated root entries; message completion consolidates the tail into chat and performs one normal render. User messages, tool layouts, history rebuilds, and other transcript mutations retain normal rendering.
 - Changed same-height status loader updates to redraw only the registered bottom status region when safe; stale layout, resize, overlays, or height changes retain the normal full-layout render path.
+- Changed goal status rendering to use its own footer line while keeping other extension statuses grouped.
 - Changed the built-in `end_turn` instruction to keep working while actionable task work remains and only end after completion, when progress requires user input, or when the user explicitly asks it to stop.
 - Increased the maximum `/goal` objective and production child prompt length from 4,000 to 10,000 characters.
 - Temporarily disabled the resident Architect service and removed the `ask_architect` built-in tool while retaining the implementation and service template for rework; deployment now stops/removes Architect and keeps Supervisor active.
@@ -119,8 +120,9 @@
 
 ### Fixed
 
-- Fixed `list_sessions` and its shared broadcast inventory to exclude archived sessions regardless of `include_ended`.
+- Fixed `list_sessions` and its shared broadcast inventory to expose only non-archived main sessions, excluding `archived_at IS NOT NULL` and `is_subagent = 1` rows regardless of `include_ended`; child rows of archived parents are excluded without changing archive write semantics.
 - Fixed child-runtime authorization after reopening a historical subagent transcript: live child runtimes cannot restart Pi, explicit current runtime child identity remains authoritative, and `is_subagent` transcript provenance alone no longer blocks a session opened as the main orchestrator from main-thread controls.
+- Fixed successful live compaction display to render exactly one enriched generated summary before kept and post-compaction transcript entries, omit compacted-away entries, and make active-branch `/tree` user-only mode show the summary followed by retained and later prompts without changing other filters or pre-compaction trees.
 - Fixed `/model` and other tall temporary selector dismissals so Escape restores the editor and footer at the terminal bottom instead of leaving the viewport shifted upward (`packages/tui/test/root-compositor.test.ts`: "restores bottom anchoring after a tall editor replacement closes with Escape").
 - Fixed root renders triggered by invisible assistant stream updates: hidden thinking, partial tool-call events, and hidden main-session message updates while viewing a child are now skipped, while visible text/thinking and final message rendering remain unchanged.
 - Fixed interactive Pi exhausting memory on dense Pyrun console streams by reading durable artifacts in bounded chunks and coalescing live updates while retaining the complete append-only output artifact.

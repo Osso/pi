@@ -66,6 +66,10 @@ describe("InteractiveMode compaction events", () => {
 			isInitialized: true,
 			isViewingAgentSession: () => false,
 			isSelectedChildWorking: () => false,
+			handleHiddenMainSessionDisplayEvent: Reflect.get(
+				InteractiveMode.prototype,
+				"handleHiddenMainSessionDisplayEvent",
+			),
 			footer: { invalidate: vi.fn() },
 			autoCompactionEscapeHandler: undefined as (() => void) | undefined,
 			autoCompactionLoader: undefined,
@@ -86,7 +90,11 @@ describe("InteractiveMode compaction events", () => {
 			syncWorkingEditorState: Reflect.get(InteractiveMode.prototype, "syncWorkingEditorState"),
 			settingsManager: { getShowTerminalProgress: () => false },
 			session: { abortCompaction: vi.fn(), isStreaming: false },
-			ui: { requestRender: vi.fn(), terminal: { setProgress: vi.fn() } },
+			ui: {
+				requestRender: vi.fn(),
+				requestComponentRender: vi.fn(),
+				terminal: { setProgress: vi.fn() },
+			},
 			workingIndicatorOptions: undefined,
 			workingVisible: true,
 		};
@@ -131,95 +139,6 @@ describe("InteractiveMode compaction events", () => {
 			addedChildren[0]?.stop?.();
 			vi.useRealTimers();
 		}
-	});
-
-	test("rebuilds chat and appends a synthetic compaction summary at the bottom", async () => {
-		const fakeThis = {
-			isInitialized: true,
-			isViewingAgentSession: () => false,
-			footer: { invalidate: vi.fn() },
-			autoCompactionEscapeHandler: undefined as (() => void) | undefined,
-			autoCompactionLoader: undefined,
-			defaultEditor: {},
-			statusContainer: { clear: vi.fn() },
-			chatContainer: { clear: vi.fn() },
-			rebuildChatFromMessages: vi.fn(),
-			addMessageToChat: vi.fn(),
-			showError: vi.fn(),
-			showStatus: vi.fn(),
-			clearStatusIndicator: vi.fn(),
-			flushCompactionQueue: vi.fn().mockResolvedValue(undefined),
-			setPromptActivity: vi.fn(),
-			settingsManager: { getShowTerminalProgress: () => false },
-			ui: { requestRender: vi.fn(), terminal: { setProgress: vi.fn() } },
-		};
-
-		const handleEvent = Reflect.get(InteractiveMode.prototype, "handleEvent") as (
-			this: typeof fakeThis,
-			event: {
-				type: "compaction_end";
-				reason: "manual" | "threshold" | "overflow";
-				result:
-					| {
-							tokensBefore: number;
-							summary: string;
-							durationMs?: number;
-							estimatedTokensAfter?: number;
-							keptFromPreviousContextTokens?: number;
-							compactedResultTokens?: number;
-							source?: {
-								type: "openai_remote";
-								provider: string;
-								model: string;
-								endpoint: string;
-							};
-					  }
-					| undefined;
-				aborted: boolean;
-				willRetry: boolean;
-				errorMessage?: string;
-			},
-		) => Promise<void>;
-
-		await handleEvent.call(fakeThis, {
-			type: "compaction_end",
-			reason: "manual",
-			result: {
-				tokensBefore: 123,
-				summary: "summary",
-				durationMs: 4567,
-				estimatedTokensAfter: 89,
-				keptFromPreviousContextTokens: 67,
-				compactedResultTokens: 22,
-				source: {
-					type: "openai_remote",
-					provider: "openai",
-					model: "gpt-4.1-mini",
-					endpoint: "https://api.openai.com/v1/responses/compact",
-				},
-			},
-			aborted: false,
-			willRetry: false,
-		});
-
-		expect(fakeThis.chatContainer.clear).toHaveBeenCalledTimes(1);
-		expect(fakeThis.rebuildChatFromMessages).toHaveBeenCalledTimes(1);
-		expect(fakeThis.addMessageToChat).toHaveBeenCalledTimes(1);
-		expect(fakeThis.addMessageToChat).toHaveBeenCalledWith(
-			expect.objectContaining({
-				role: "compactionSummary",
-				tokensBefore: 123,
-				summary: "summary",
-				durationMs: 4567,
-				tokensAfter: 89,
-				keptFromPreviousContextTokens: 67,
-				compactedResultTokens: 22,
-			}),
-		);
-		expect(fakeThis.showStatus).toHaveBeenCalledWith(
-			"Compaction completed via OpenAI remote endpoint (openai/gpt-4.1-mini, https://api.openai.com/v1/responses/compact)",
-		);
-		expect(fakeThis.flushCompactionQueue).toHaveBeenCalledWith({ willRetry: false });
 	});
 
 	test("flushCompactionQueue delivers queued messages even when a turn resumed after compaction", async () => {
@@ -335,6 +254,10 @@ describe("InteractiveMode compaction events", () => {
 		const fakeThis = {
 			isInitialized: true,
 			isViewingAgentSession: () => false,
+			handleHiddenMainSessionDisplayEvent: Reflect.get(
+				InteractiveMode.prototype,
+				"handleHiddenMainSessionDisplayEvent",
+			),
 			footer: { invalidate: vi.fn() },
 			autoCompactionEscapeHandler: undefined as (() => void) | undefined,
 			autoCompactionLoader: undefined,
@@ -342,6 +265,7 @@ describe("InteractiveMode compaction events", () => {
 			statusContainer: { clear: vi.fn() },
 			chatContainer: { clear: vi.fn() },
 			rebuildChatFromMessages: vi.fn(),
+			rebuildChatAfterCompaction: vi.fn(),
 			addMessageToChat: vi.fn(),
 			showError: vi.fn(),
 			showStatus: vi.fn(),

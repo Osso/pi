@@ -99,8 +99,14 @@ achieved and to report blockers instead of stopping silently.
 
 ## Footer Status
 
-The extension shows the active objective in the footer status line as
-`goal: <objective>`. A paused goal instead shows `goal paused: <reason>`, keeping the stop reason visible. Setting, restoring, pausing, resuming, clearing, or completing a goal updates that status.
+The extension shows the active objective on its own footer status line as
+`goal: <objective>`. A paused goal instead shows `goal paused: <reason>`, keeping the stop reason visible. Other extension statuses remain grouped on their shared footer line. Setting, restoring, pausing, resuming, clearing, or completing a goal updates that status.
+
+## Implementation inventory
+
+- `packages/coding-agent/src/utils/footer-status.ts` — shared footer-status formatter that sanitizes values, groups non-goal statuses, and emits the `goal` status on its own line.
+- `packages/coding-agent/extensions/default-footer/src/index.ts` — default-footer renderer that truncates each formatted extension-status line to the terminal width.
+- `packages/coding-agent/src/modes/interactive/components/footer.ts` — core `FooterComponent` fallback that uses the shared formatter when no extension default footer replaces it.
 
 ## Session Start
 
@@ -171,7 +177,7 @@ behavior: first-party registration, explicit `/goal set`, bare-objective and res
 prompt injection, continuation state without budget lines, footer status,
 session-start restore notifications, fork-only goal inheritance, corrupt state
 handling, start-on-set follow-up scheduling, automatic continuation, ordered idle and completion conversation evidence, paused accumulation, generated/failed-event filtering, error/cancellation preservation, lifecycle clearing, deferred error-status cancellation, retry exhaustion and cancellation, empty-response polling and cancellation, per-session isolation, budget flag rejection, and legacy
-budget field ignorance. `packages/coding-agent/test/suite/goal-extension-runtime.test.ts` verifies that `manage_goal set` during an active turn starts its queued follow-up round. `packages/coding-agent/test/supervisor-service.test.ts` verifies additive `goal_set_review` parsing and prompt instructions. Production child exclusion,
+budget field ignorance. `packages/coding-agent/test/default-footer-extension.test.ts` covers the default footer's dedicated goal status line and grouped non-goal statuses. `packages/coding-agent/test/footer-width.test.ts` covers the core `FooterComponent` fallback's dedicated goal status line and grouped non-goal statuses. `packages/coding-agent/test/suite/goal-extension-runtime.test.ts` verifies that `manage_goal set` during an active turn starts its queued follow-up round. `packages/coding-agent/test/supervisor-service.test.ts` verifies additive `goal_set_review` parsing and prompt instructions. Production child exclusion,
 external-tool denial for spawned and attached sessions, inactive Pyrun calls,
 supervisor retention, and no-continuation behavior are covered by
 `packages/coding-agent/test/multi-agent-extension.test.ts`; the Architect policy

@@ -4,19 +4,8 @@ import type { AgentSession } from "../../../core/agent-session.ts";
 import { areExperimentalFeaturesEnabled } from "../../../core/experimental.ts";
 import type { ContextUsage } from "../../../core/extensions/types.ts";
 import type { FooterSessionOverride, ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
+import { formatExtensionStatusTextLines } from "../../../utils/footer-status.ts";
 import { theme } from "../theme/theme.ts";
-
-/**
- * Sanitize text for display in a single-line status.
- * Removes newlines, tabs, carriage returns, and other control characters.
- */
-function sanitizeStatusText(text: string): string {
-	// Replace newlines, tabs, carriage returns with space, then collapse multiple spaces
-	return text
-		.replace(/[\r\n\t]/g, " ")
-		.replace(/ +/g, " ")
-		.trim();
-}
 
 /**
  * Format token counts for compact footer display.
@@ -273,17 +262,10 @@ export class FooterComponent implements Component {
 		const pwdLine = truncateToWidth(theme.fg("dim", pwd), width, theme.fg("dim", "..."));
 		const lines = [pwdLine, dimStatsLeft + dimRemainder];
 
-		// Add extension statuses on a single line, sorted by key alphabetically
-		const extensionStatuses = this.footerData.getExtensionStatuses();
-		if (extensionStatuses.size > 0) {
-			const sortedStatuses = Array.from(extensionStatuses.entries())
-				.sort(([a], [b]) => a.localeCompare(b))
-				.map(([, text]) => sanitizeStatusText(text));
-			const statusLine = sortedStatuses.join(" ");
-			// Truncate to terminal width with dim ellipsis for consistency with footer style
-			lines.push(truncateToWidth(statusLine, width, theme.fg("dim", "...")));
-		}
+		const extensionStatusLines = formatExtensionStatusTextLines(this.footerData.getExtensionStatuses()).map((line) =>
+			truncateToWidth(line, width, theme.fg("dim", "...")),
+		);
 
-		return lines;
+		return [...lines, ...extensionStatusLines];
 	}
 }

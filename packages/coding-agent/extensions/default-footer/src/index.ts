@@ -13,6 +13,10 @@ import {
 	type MultiAgentStore,
 } from "../../../src/core/multi-agent-store.ts";
 import type { Theme } from "../../../src/modes/interactive/theme/theme.ts";
+import {
+	formatExtensionStatusTextLines,
+	sanitizeFooterStatusText,
+} from "../../../src/utils/footer-status.ts";
 
 export interface DefaultFooterAgentLifecycleCounts {
 	running: number;
@@ -95,7 +99,7 @@ function formatSelectedAgent(agent: DefaultFooterSelectedAgent | undefined): str
 	}
 
 	const slot = agent.slotIndex === undefined ? "" : ` #${agent.slotIndex}`;
-	return sanitizeStatusText(`selected${slot} ${agent.displayName} ${formatAgentLifecycle(agent.lifecycle)}`);
+	return sanitizeFooterStatusText(`selected${slot} ${agent.displayName} ${formatAgentLifecycle(agent.lifecycle)}`);
 }
 
 function formatCwd(cwd: string, home: string | undefined): string {
@@ -110,13 +114,6 @@ function formatCwd(cwd: string, home: string | undefined): string {
 
 	if (!isInsideHome) return cwd;
 	return relativeToHome === "" ? "~" : `~${sep}${relativeToHome}`;
-}
-
-function sanitizeStatusText(text: string): string {
-	return text
-		.replace(/[\r\n\t]/g, " ")
-		.replace(/ +/g, " ")
-		.trim();
 }
 
 function countMatchingLifecycle(
@@ -241,15 +238,9 @@ function selectedAgentSlotIndex(store: MultiAgentStore, selectedAgent: AgentSnap
 }
 
 function extensionStatusLines(input: DefaultFooterComponentInput, width: number): string[] {
-	const statuses = input.footerData.getExtensionStatuses();
-	if (statuses.size === 0) {
-		return [];
-	}
-	const statusLine = Array.from(statuses.entries())
-		.sort(([left], [right]) => left.localeCompare(right))
-		.map(([, text]) => sanitizeStatusText(text))
-		.join(" ");
-	return [truncateToWidth(statusLine, width, input.theme.fg("dim", "..."))];
+	return formatExtensionStatusTextLines(input.footerData.getExtensionStatuses()).map((line) =>
+		truncateToWidth(line, width, input.theme.fg("dim", "...")),
+	);
 }
 
 export function createDefaultFooterComponent(input: DefaultFooterComponentInput): Component & { dispose?(): void } {

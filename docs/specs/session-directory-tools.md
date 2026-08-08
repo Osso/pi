@@ -14,7 +14,7 @@ liveness, then deliver a message only to eligible sessions. Implementation detai
 - [x] `list_sessions` returns session id, pid, status, startedAt, lastActiveAt, name, goal, cwd,
       lastCheckedAt, checkStatus, checkLatencyMs, agentGeneration, checkedGeneration, and
       eligibleToReceive.
-- [x] Core session inventory excludes archived metadata, so `list_sessions` never returns archived sessions.
+- [x] `list_sessions` is a non-archived main-session inventory: it excludes metadata with `archived_at IS NOT NULL` or `is_subagent = 1`, regardless of `include_ended`; this also excludes child rows belonging to archived parents.
 - [x] Session purpose prefers `/name` and active `/goal` objective text when present.
 - [x] Live main-thread pids come only from the one registered supervisor listener binding addressed
       `(session_id, null)` for each session and are tracked per session with an inventory-only health

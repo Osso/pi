@@ -68,7 +68,11 @@ import {
 	shouldContinueInterruptedSession,
 } from "../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
-import { type CompactionSourceInfo, estimateContextTokens } from "../../core/compaction/index.ts";
+import {
+	type CompactionResult,
+	type CompactionSourceInfo,
+	estimateContextTokens,
+} from "../../core/compaction/index.ts";
 import {
 	type DesktopNotificationHandle,
 	PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
@@ -4376,21 +4380,7 @@ export class InteractiveMode {
 					}
 				} else if (event.result) {
 					const sourceLogMessage = formatCompactionSourceLogMessage(event.result.source);
-					this.chatContainer.clear();
-					this.rebuildChatFromMessages();
-					this.addMessageToChat(
-						createCompactionSummaryMessage(
-							event.result.summary,
-							event.result.tokensBefore,
-							new Date().toISOString(),
-							{
-								durationMs: event.result.durationMs,
-								tokensAfter: event.result.estimatedTokensAfter,
-								keptFromPreviousContextTokens: event.result.keptFromPreviousContextTokens,
-								compactedResultTokens: event.result.compactedResultTokens,
-							},
-						),
-					);
+					this.rebuildChatAfterCompaction(event.result);
 					this.footer.invalidate();
 					this.showStatus(sourceLogMessage);
 				} else if (event.errorMessage) {
@@ -4823,6 +4813,21 @@ export class InteractiveMode {
 	private rebuildChatFromMessages(): void {
 		this.chatContainer.clear();
 		InteractiveMode.prototype.renderSessionEntries.call(this, this.sessionManager.buildContextEntries());
+	}
+
+	private rebuildChatAfterCompaction(result: CompactionResult): void {
+		this.chatContainer.clear();
+		this.addMessageToChat(
+			createCompactionSummaryMessage(result.summary, result.tokensBefore, new Date().toISOString(), {
+				durationMs: result.durationMs,
+				tokensAfter: result.estimatedTokensAfter,
+				keptFromPreviousContextTokens: result.keptFromPreviousContextTokens,
+				compactedResultTokens: result.compactedResultTokens,
+			}),
+		);
+
+		const entries = this.sessionManager.buildContextEntries().filter((entry) => entry.type !== "compaction");
+		InteractiveMode.prototype.renderSessionEntries.call(this, entries);
 	}
 
 	// =========================================================================

@@ -30,9 +30,11 @@ owned by a replacement process.
 
 1. Keep the newest listener per PID and retire older same-PID rows left by previous binaries or
    interrupted switches.
-2. Keep one active metadata row per session ID. Archived metadata is excluded from the core
-   inventory before deduplication. `listActiveSessionMetadata()` supplies deterministic `modified_at`,
-   `updated_at`, then `session_path` descending order.
+2. Keep one non-archived main-session metadata row per session ID. Rows with `archived_at IS NOT NULL`
+   or `is_subagent = 1` are excluded before deduplication, so child rows belonging to archived parents
+   are excluded even though archive writes do not implicitly mark children archived.
+   `listActiveSessionMetadata()` supplies deterministic `modified_at`, `updated_at`, then `session_path`
+   descending order.
 3. Synchronize `ok` health only from a non-future listener heartbeat no older than five minutes.
 4. For an older, invalid, or future-dated binding, verify whether the PID still represents a Pi
    runtime. A missing or non-Pi process retires the binding. A still-existing Pi runtime retains its

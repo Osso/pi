@@ -8,6 +8,7 @@ import {
 	completeSupervisorRequest,
 	getControlDbPath,
 	listPendingArchitectRequests,
+	registerRuntimeMailboxListener,
 	writeSessionHealth,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
@@ -234,32 +235,66 @@ describe("historical subagent session authorization", () => {
 });
 
 describe("session inventory and channel tools", () => {
-	it("never returns archived rows when list_sessions receives include_ended true", async () => {
+	it("returns only active and ended non-archived main sessions with include_ended true", async () => {
 		const agentDir = mkdtempSync(join(tmpdir(), "pi-list-sessions-archived-tool-"));
 		try {
 			const controlDbPath = getControlDbPath(agentDir);
 			for (const session of [
 				{
-					sessionPath: "/sessions/active.jsonl",
-					id: "active",
+					sessionPath: "/sessions/active-main.jsonl",
+					id: "active-main",
 					cwd: "/repo/active",
+					modifiedAt: "2026-01-01T00:40:00.000Z",
 				},
 				{
-					sessionPath: "/sessions/archived.jsonl",
-					id: "archived",
+					sessionPath: "/sessions/ended-main.jsonl",
+					id: "ended-main",
+					cwd: "/repo/ended",
+					modifiedAt: "2026-01-01T00:30:00.000Z",
+				},
+				{
+					sessionPath: "/sessions/archived-main.jsonl",
+					id: "archived-main",
 					cwd: "/repo/archived",
+					modifiedAt: "2026-01-01T00:20:00.000Z",
+				},
+				{
+					sessionPath: "/sessions/archived-main-child.jsonl",
+					id: "archived-main-child",
+					cwd: "/repo/archived",
+					parentSessionPath: "/sessions/archived-main.jsonl",
+					isSubagent: true,
+					modifiedAt: "2026-01-01T00:10:00.000Z",
+				},
+				{
+					sessionPath: "/sessions/historical-child.jsonl",
+					id: "historical-child",
+					cwd: "/repo/history",
+					isSubagent: true,
+					modifiedAt: "2026-01-01T00:00:00.000Z",
 				},
 			]) {
 				writeSessionMetadata(controlDbPath, {
 					...session,
 					createdAt: "2026-01-01T00:00:00.000Z",
-					modifiedAt: "2026-01-01T00:10:00.000Z",
 					messageCount: 1,
 					firstMessage: "hello",
 					allMessagesText: "hello",
 				});
 			}
-			archiveSession(controlDbPath, "/sessions/archived.jsonl");
+			archiveSession(controlDbPath, "/sessions/archived-main.jsonl");
+			writeSessionHealth(controlDbPath, {
+				...emptySessionHealth("ended-main"),
+				agentGeneration: 1,
+				checkStatus: "dead",
+				checkedGeneration: 1,
+			});
+			registerRuntimeMailboxListener(
+				controlDbPath,
+				{ agentId: null, sessionId: "active-main" },
+				process.pid,
+				"/sessions/active-main.jsonl",
+			);
 			const tool = createListSessionsToolDefinition();
 
 			const result = await tool.execute("list-sessions", { include_ended: true }, undefined, undefined, {
@@ -269,9 +304,19 @@ describe("session inventory and channel tools", () => {
 					getSessionId: () => "current",
 				},
 			} as Parameters<typeof tool.execute>[4]);
+			const sessions = result.details?.sessions ?? [];
+			const renderedText = result.content[0]?.type === "text" ? result.content[0].text : "";
 
-			expect(result.details?.sessions.map((session) => session.sessionId)).toEqual(["active"]);
-			expect(result.content[0]).toEqual({ type: "text", text: expect.not.stringContaining("archived") });
+			expect(sessions.map((session) => session.sessionId)).toEqual(["active-main", "ended-main"]);
+			expect(sessions).toEqual([
+				expect.objectContaining({ sessionId: "active-main", status: "running" }),
+				expect.objectContaining({ sessionId: "ended-main", status: "ended" }),
+			]);
+			expect(renderedText).toContain("active-main");
+			expect(renderedText).toContain("ended-main");
+			expect(renderedText).not.toContain("archived-main");
+			expect(renderedText).not.toContain("archived-main-child");
+			expect(renderedText).not.toContain("historical-child");
 		} finally {
 			rmSync(agentDir, { force: true, recursive: true });
 		}
