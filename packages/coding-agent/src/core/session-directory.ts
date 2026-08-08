@@ -215,7 +215,9 @@ function toDirectoryEntry(metadata: SessionMetadata, health: SessionHealthRecord
 export function listSessions(controlDbPath: string, options: SessionDirectoryOptions = {}): SessionDirectoryEntry[] {
 	const now = resolveNow(options);
 	const nowIso = now.toISOString();
-	const metadata = newestMetadataBySessionId(listActiveSessionMetadata(controlDbPath));
+	const metadata = newestMetadataBySessionId(
+		listActiveSessionMetadata(controlDbPath).filter((row) => !row.isSubagent),
+	);
 	const healthMap = healthBySessionId(controlDbPath);
 	const isRuntimeProcessAlive = options.isRuntimeProcessAlive ?? isPiRuntimeProcessAlive;
 	const bindings = reconcileCurrentMainSessionBindings(controlDbPath, now, isRuntimeProcessAlive);
