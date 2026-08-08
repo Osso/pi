@@ -12,7 +12,7 @@ import {
 	visibleWidth,
 	wrapTextWithAnsi,
 } from "@earendil-works/pi-tui";
-import type { SessionTreeNode } from "../../../core/session-manager.ts";
+import { buildContextEntries, type SessionTreeNode } from "../../../core/session-manager.ts";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { formatKeyText, keyHint } from "./keybinding-hints.ts";
@@ -119,6 +119,7 @@ class TreeList implements Component {
 	private visibleChildrenMap: Map<string | null, string[]> = new Map();
 	private lastSelectedId: string | null = null;
 	private foldedNodes: Set<string> = new Set();
+	private isCompactedUserView = false;
 
 	public onSelect?: (entryId: string) => void;
 	public onCancel?: () => void;
@@ -326,6 +327,25 @@ class TreeList implements Component {
 		return result;
 	}
 
+	private buildFilterCandidates(): { nodes: FlatNode[]; isCompactedUserView: boolean } {
+		if (this.filterMode !== "user-only") {
+			return { nodes: this.flatNodes, isCompactedUserView: false };
+		}
+
+		const entries = this.flatNodes.map((flatNode) => flatNode.node.entry);
+		const contextEntries = buildContextEntries(entries, this.currentLeafId);
+		if (!contextEntries.some((entry) => entry.type === "compaction")) {
+			return { nodes: this.flatNodes, isCompactedUserView: false };
+		}
+
+		const nodesById = new Map(this.flatNodes.map((flatNode) => [flatNode.node.entry.id, flatNode]));
+		const nodes = contextEntries.flatMap((entry) => {
+			const flatNode = nodesById.get(entry.id);
+			return flatNode ? [flatNode] : [];
+		});
+		return { nodes, isCompactedUserView: true };
+	}
+
 	private applyFilter(): void {
 		// Update lastSelectedId only when we have a valid selection (non-empty list)
 		// This preserves the selection when switching through empty filter results
@@ -334,8 +354,10 @@ class TreeList implements Component {
 		}
 
 		const searchTokens = this.searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
+		const { nodes: filterCandidates, isCompactedUserView } = this.buildFilterCandidates();
+		this.isCompactedUserView = isCompactedUserView;
 
-		this.filteredNodes = this.flatNodes.filter((flatNode) => {
+		this.filteredNodes = filterCandidates.filter((flatNode) => {
 			const entry = flatNode.node.entry;
 			const isCurrentLeaf = entry.id === this.currentLeafId;
 
@@ -363,8 +385,9 @@ class TreeList implements Component {
 
 			switch (this.filterMode) {
 				case "user-only":
-					// Just user messages
-					passesFilter = entry.type === "message" && entry.message.role === "user";
+					passesFilter =
+						(entry.type === "message" && entry.message.role === "user") ||
+						(this.isCompactedUserView && entry.type === "compaction");
 					break;
 				case "no-tools":
 					// Default minus tool results
@@ -432,6 +455,10 @@ class TreeList implements Component {
 	 */
 	private recalculateVisualStructure(): void {
 		if (this.filteredNodes.length === 0) return;
+		if (this.isCompactedUserView) {
+			this.recalculateCompactedUserStructure();
+			return;
+		}
 
 		const visibleIds = new Set(this.filteredNodes.map((n) => n.node.entry.id));
 
@@ -555,6 +582,24 @@ class TreeList implements Component {
 		this.visibleChildrenMap = visibleChildren;
 	}
 
+	private recalculateCompactedUserStructure(): void {
+		const entryIds = this.filteredNodes.map((flatNode) => flatNode.node.entry.id);
+		const visibleChildren = new Map<string | null, string[]>();
+		visibleChildren.set(null, entryIds);
+
+		this.multipleRoots = false;
+		this.visibleParentMap = new Map(entryIds.map((entryId) => [entryId, null]));
+		this.visibleChildrenMap = visibleChildren;
+		for (const flatNode of this.filteredNodes) {
+			flatNode.indent = 0;
+			flatNode.showConnector = false;
+			flatNode.isLast = true;
+			flatNode.gutters = [];
+			flatNode.isVirtualRootChild = false;
+			visibleChildren.set(flatNode.node.entry.id, []);
+		}
+	}
+
 	/** Get searchable text content from a node */
 	private getSearchableText(node: SessionTreeNode): string {
 		const entry = node.entry;
@@ -587,7 +632,7 @@ class TreeList implements Component {
 				break;
 			}
 			case "compaction":
-				parts.push("compaction");
+				parts.push("compaction", entry.summary);
 				break;
 			case "branch_summary":
 				parts.push("branch summary", entry.summary);
@@ -815,7 +860,7 @@ class TreeList implements Component {
 			}
 			case "compaction": {
 				const tokens = Math.round(entry.tokensBefore / 1000);
-				result = theme.fg("borderAccent", `[compaction: ${tokens}k tokens]`);
+				result = theme.fg("borderAccent", `[compaction: ${tokens}k tokens]: `) + normalize(entry.summary);
 				break;
 			}
 			case "branch_summary":

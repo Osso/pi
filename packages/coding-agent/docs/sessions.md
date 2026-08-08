@@ -118,6 +118,8 @@ Example shape:
 
 Filter modes are: default, no-tools, user-only, labeled-only, and all. Configure the default with `treeFilterMode` in [Settings](settings.md).
 
+On the active branch after compaction, user-only mode is compaction-aware: it shows the generated summary first, followed by retained and later user prompts in canonical context order. Compacted-away prompts are omitted. Default and other filters continue to show the full persisted tree, and trees before compaction are unchanged.
+
 ### Selection Behavior
 
 Selecting a user or custom message:
