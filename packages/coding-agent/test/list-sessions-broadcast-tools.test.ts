@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	archiveSession,
 	claimNextSupervisorRequest,
 	completeSupervisorRequest,
 	getControlDbPath,
@@ -233,6 +234,49 @@ describe("historical subagent session authorization", () => {
 });
 
 describe("session inventory and channel tools", () => {
+	it("never returns archived rows when list_sessions receives include_ended true", async () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "pi-list-sessions-archived-tool-"));
+		try {
+			const controlDbPath = getControlDbPath(agentDir);
+			for (const session of [
+				{
+					sessionPath: "/sessions/active.jsonl",
+					id: "active",
+					cwd: "/repo/active",
+				},
+				{
+					sessionPath: "/sessions/archived.jsonl",
+					id: "archived",
+					cwd: "/repo/archived",
+				},
+			]) {
+				writeSessionMetadata(controlDbPath, {
+					...session,
+					createdAt: "2026-01-01T00:00:00.000Z",
+					modifiedAt: "2026-01-01T00:10:00.000Z",
+					messageCount: 1,
+					firstMessage: "hello",
+					allMessagesText: "hello",
+				});
+			}
+			archiveSession(controlDbPath, "/sessions/archived.jsonl");
+			const tool = createListSessionsToolDefinition();
+
+			const result = await tool.execute("list-sessions", { include_ended: true }, undefined, undefined, {
+				controlDbPath,
+				sessionManager: {
+					getSessionFile: () => "/sessions/current.jsonl",
+					getSessionId: () => "current",
+				},
+			} as Parameters<typeof tool.execute>[4]);
+
+			expect(result.details?.sessions.map((session) => session.sessionId)).toEqual(["active"]);
+			expect(result.content[0]).toEqual({ type: "text", text: expect.not.stringContaining("archived") });
+		} finally {
+			rmSync(agentDir, { force: true, recursive: true });
+		}
+	});
+
 	it("excludes ended rows when list_sessions receives include_ended false", async () => {
 		const agentDir = mkdtempSync(join(tmpdir(), "pi-list-sessions-tool-"));
 		try {

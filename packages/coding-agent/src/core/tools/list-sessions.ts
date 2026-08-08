@@ -7,7 +7,8 @@ import type { SessionDirectoryEntry } from "../session-health.ts";
 const listSessionsSchema = Type.Object({
 	include_ended: Type.Optional(
 		Type.Boolean({
-			description: "Include ended/sticky-dead sessions. Defaults to true so failures remain inspectable.",
+			description:
+				"Include ended/sticky-dead non-archived sessions. Defaults to true so failures remain inspectable.",
 		}),
 	),
 });
@@ -31,10 +32,11 @@ export function createListSessionsToolDefinition(): ToolDefinition<typeof listSe
 		name: "list_sessions",
 		label: "list_sessions",
 		description:
-			"List known Pi sessions with purpose metadata and sticky liveness checks. Use this before messaging other sessions.",
-		promptSnippet: "List running/known sessions with purpose and liveness",
+			"List known non-archived Pi sessions with purpose metadata and sticky liveness checks. Use this before messaging other sessions.",
+		promptSnippet: "List running/known non-archived sessions with purpose and liveness",
 		promptGuidelines: [
-			"Use list_sessions to discover other Pi sessions and inspect whether they are eligible to receive messages.",
+			"Use list_sessions to discover other non-archived Pi sessions and inspect whether they are eligible to receive messages.",
+			"Archived sessions are excluded regardless of include_ended.",
 			"Prefer name and goal fields to understand what a session is for; ids alone are usually not useful.",
 			"Sessions marked checkStatus=dead for the current agentGeneration are sticky-dead and should be skipped until a new agent starts for that session.",
 		],

@@ -30,8 +30,9 @@ owned by a replacement process.
 
 1. Keep the newest listener per PID and retire older same-PID rows left by previous binaries or
    interrupted switches.
-2. Keep one metadata row per session ID. `listSessionMetadata()` supplies deterministic
-   `modified_at`, `updated_at`, then `session_path` descending order.
+2. Keep one active metadata row per session ID. Archived metadata is excluded from the core
+   inventory before deduplication. `listActiveSessionMetadata()` supplies deterministic `modified_at`,
+   `updated_at`, then `session_path` descending order.
 3. Synchronize `ok` health only from a non-future listener heartbeat no older than five minutes.
 4. For an older, invalid, or future-dated binding, verify whether the PID still represents a Pi
    runtime. A missing or non-Pi process retires the binding. A still-existing Pi runtime retains its
@@ -46,9 +47,10 @@ owned by a replacement process.
    their explicit recovery policy.
 7. Exclude every ended row when `includeEnded` is `false`.
 
-`broadcast` selects recipients from the same reconciled current-binding inventory. Resident
-Architect uses a bounded read-only SQL projection with the same requirements: main listener,
-matching `ok` health generation, and health activity inside the five-minute freshness window.
+`broadcast` selects recipients from the same reconciled active, non-archived current-binding
+inventory as `listSessions()`. Resident Architect uses a bounded read-only SQL projection with the
+same requirements: main listener, matching `ok` health generation, and health activity inside the
+five-minute freshness window.
 
 ## Root causes fixed
 

@@ -9,6 +9,8 @@ Pi persists archive state for session transcripts without moving or deleting the
 - [x] Persist an archive timestamp in control-DB session metadata.
 - [x] Archive and unarchive a session without changing its transcript path or contents (`session-control-db.test.ts`).
 - [x] Hide archived sessions from normal session metadata listings used by Current Folder and All resume scopes.
+- [x] Exclude archived metadata from core session inventory, so `list_sessions` never returns archived
+      sessions and `broadcast` inherits the same active inventory.
 - [x] Expose archived sessions through a dedicated Archived resume-picker scope (`session-selector-path-delete.test.ts`).
 - [x] Preserve recent ordering in Archived scope instead of promoting named sessions, while displaying session names (`session-picker-selection.test.ts`).
 - [x] Archive the selected picker session when Ctrl+A is pressed (`session-selector-path-delete.test.ts`).

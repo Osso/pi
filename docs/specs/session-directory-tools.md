@@ -14,6 +14,7 @@ liveness, then deliver a message only to eligible sessions. Implementation detai
 - [x] `list_sessions` returns session id, pid, status, startedAt, lastActiveAt, name, goal, cwd,
       lastCheckedAt, checkStatus, checkLatencyMs, agentGeneration, checkedGeneration, and
       eligibleToReceive.
+- [x] Core session inventory excludes archived metadata, so `list_sessions` never returns archived sessions.
 - [x] Session purpose prefers `/name` and active `/goal` objective text when present.
 - [x] Live main-thread pids come only from the one registered supervisor listener binding addressed
       `(session_id, null)` for each session and are tracked per session with an inventory-only health
@@ -57,8 +58,8 @@ liveness, then deliver a message only to eligible sessions. Implementation detai
       `status`).
 - [x] Candidate sessions pass through the same eligibility/check pipeline as `list_sessions`.
 - [x] Ended or stale-bound sessions are skipped without PID-based revival.
-- [x] `broadcast` uses the same current main-session binding and deduplicated metadata inventory
-      as `list_sessions`; historical session IDs sharing a PID are never targeted.
+- [x] `broadcast` uses the same active, non-archived current main-session binding and deduplicated
+      metadata inventory as `list_sessions`; historical session IDs sharing a PID are never targeted.
 
 ## How it works
 

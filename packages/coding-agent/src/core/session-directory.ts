@@ -2,9 +2,9 @@ import { randomUUID } from "node:crypto";
 import { isPiRuntimeProcessAlive } from "./runtime-process.ts";
 import {
 	enqueueRuntimeMailboxMessage,
+	listActiveSessionMetadata,
 	listRuntimeMailboxListeners,
 	listSessionHealth,
-	listSessionMetadata,
 	retireRuntimeMailboxListener,
 	type SessionMetadata,
 	upsertMultiAgentMailboxMessage,
@@ -215,7 +215,7 @@ function toDirectoryEntry(metadata: SessionMetadata, health: SessionHealthRecord
 export function listSessions(controlDbPath: string, options: SessionDirectoryOptions = {}): SessionDirectoryEntry[] {
 	const now = resolveNow(options);
 	const nowIso = now.toISOString();
-	const metadata = newestMetadataBySessionId(listSessionMetadata(controlDbPath));
+	const metadata = newestMetadataBySessionId(listActiveSessionMetadata(controlDbPath));
 	const healthMap = healthBySessionId(controlDbPath);
 	const isRuntimeProcessAlive = options.isRuntimeProcessAlive ?? isPiRuntimeProcessAlive;
 	const bindings = reconcileCurrentMainSessionBindings(controlDbPath, now, isRuntimeProcessAlive);
