@@ -28,7 +28,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] Production-created `/bg` child jobs validate non-empty prompts before dispatch, but do not seed goal state or load the goal extension.
 - [x] Corrupt or malformed goal JSON is handled as "no active goal" without crashing the command or turn hook.
 - [x] Completed goals are not treated as active by `/goal`, startup notifications, continuation, or context injection.
-- [x] Paused goals display their reason in `/goal`, startup notifications, and the footer, but do not inject context or continue automatically until `/goal resume` clears the paused state; legacy paused state without a reason displays `No pause reason recorded` instead of stopping silently.
+- [x] Active and paused goals display their status on a dedicated footer line; paused goals also display their reason in `/goal` and startup notifications, but do not inject context or continue automatically until `/goal resume` clears the paused state; legacy paused state without a reason displays `No pause reason recorded` instead of stopping silently, while other extension statuses remain grouped.
 - [x] `/goal` is delivered from a tracked first-party extension package, not from
   project-local `.pi/extensions/` code.
 - [x] A `manage_goal` tool can set, pause, resume, complete, clear, and view the active objective for tool-capability parity with `/goal` lifecycle actions; pause requires a non-empty reason and persists/displays it, completion accepts paused active goals without requiring resume, and set rejects reserved goal-control words such as `continue`.
@@ -74,7 +74,10 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 
 ## Implementation inventory
 
-- `packages/coding-agent/extensions/goal/src/index.ts` — first-party extension entry: registers `/goal` and goal lifecycle hooks, requests one continuation for restored running goals, injects active objectives, and coordinates Supervisor decisions.
+- `packages/coding-agent/extensions/goal/src/index.ts` — first-party extension entry: registers `/goal` and goal lifecycle hooks, requests one continuation for restored running goals, injects active objectives, updates the `goal` footer status, and coordinates Supervisor decisions.
+- `packages/coding-agent/src/utils/footer-status.ts` — shared footer-status formatter that sanitizes values, groups non-goal statuses, and emits the `goal` status on its own line.
+- `packages/coding-agent/extensions/default-footer/src/index.ts` — default-footer renderer that truncates each formatted extension-status line to the terminal width.
+- `packages/coding-agent/src/modes/interactive/components/footer.ts` — core `FooterComponent` fallback that uses the shared formatter when no extension default footer replaces it.
 - `packages/coding-agent/src/core/extensions/types.ts` and `packages/coding-agent/src/core/agent-session.ts` — expose and consume the one-shot extension resume-continuation request used by goal startup.
 - `packages/coding-agent/extensions/goal/src/goal-state.ts` — loads, migrates, persists, pauses, resumes, completes, and clears per-session goal state.
 - `packages/coding-agent/extensions/goal/src/goal-review-evidence.ts` — records ordered user/end-turn evidence, attaches it to goal reviews, and consumes applied-review evidence.
@@ -97,6 +100,8 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - `packages/coding-agent/extensions/goal/package.json` — workspace metadata for the first-party goal extension package.
 - `package.json` / `package-lock.json` — include the goal extension as a reviewed workspace package.
 - `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for first-party extension delivery, explicit `/goal set`, bare-objective rejection, reserved control-word rejection, `manage_goal`, paused-goal completion, view/pause/resume/clear, per-session goal isolation, replacement, objective length cap, context injection, continuation prompt state, footer status, start-on-set behavior, resume/reload/fork notification, running-goal resume continuation requests, corrupt/malformed goal state handling, completed-goal inactivity, `agent_end` continuation, ordered running and paused Supervisor conversation evidence, extension-generated and failed-event filtering, stale/error evidence preservation, lifecycle clearing, queued steering and aborts preserving the running goal, queued input arriving during Supervisor review, busy and pending-input guards, error-stop suppression, no numeric turn cap, empty-response retry eligibility and shutdown cancellation, budget flag rejection, legacy budget field ignorance, and removed replacement flag rejection.
+- `packages/coding-agent/test/default-footer-extension.test.ts` — default-footer rendering coverage for a dedicated goal status line and grouped non-goal statuses.
+- `packages/coding-agent/test/footer-width.test.ts` — core `FooterComponent` fallback coverage for a dedicated goal status line and grouped non-goal statuses.
 - `packages/coding-agent/test/suite/goal-extension-runtime.test.ts` — runtime coverage that setting a goal through `manage_goal` during an active turn queues and starts the required follow-up round.
 - `packages/coding-agent/test/suite/headless-supervisor-systems.test.ts` — real-process coverage that active goals remain active across restart and Supervisor wait decisions while explicit paused state and accumulated conversation evidence survive restart byte-for-byte.
 - `packages/coding-agent/test/suite/resume-continuation-request.test.ts` — real-process coverage for one-shot extension-requested continuation.
