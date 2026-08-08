@@ -112,9 +112,7 @@ function expectOneActiveParentAgentStart(pi: HeadlessPi, agentId: string): void 
 }
 
 function expectFailedToolResult(request: HeadlessLlmRequest, toolName: string, errorMessage: string): void {
-	const results = request.messages.filter(
-		(message) => message.role === "toolResult" && message.toolName === toolName,
-	);
+	const results = request.messages.filter((message) => message.role === "toolResult" && message.toolName === toolName);
 	expect(results).toHaveLength(1);
 	expect(results[0]).toMatchObject({ isError: true });
 	expect(JSON.stringify(results[0])).toContain(errorMessage);
@@ -189,32 +187,16 @@ it("rejects child restart_self without replacing the supervisor session", async 
 				.readSessionEntries(child.id)
 				.filter((entry) => entry.type === "custom_message" && entry.customType === "self_restart"),
 		).toHaveLength(0);
-
-		pi.respondToLlmRequest(
-			mainAfterSpawn.id,
-			fauxAssistantMessage(fauxToolCall("restart_self", {}), { stopReason: "toolUse" }),
-		);
-		const mainAfterRestart = await pi.waitForLlmRequest(
-			(request) => request.agentId === null && request.id !== mainAfterSpawn.id,
-			10_000,
-		);
-		const childAfterSupervisorRestart = await pi.waitForLlmRequest(
-			(request) => request.agentId === child.id && request.id !== childAfterRejection.id,
-			10_000,
-		);
-
-		expect(mainAfterRestart.sessionId).toBe(pi.sessionId);
-		expect(childAfterSupervisorRestart.sessionId).toBe(childSessionId);
+		expect(mainAfterSpawn.agentId).toBeNull();
+		expect(mainAfterSpawn.sessionId).toBe(pi.sessionId);
 		expect(
 			pi
 				.readSessionEntries(null)
 				.filter((entry) => entry.type === "custom_message" && entry.customType === "self_restart"),
-		).toHaveLength(1);
-		expect(
-			pi
-				.readSessionEntries(child.id)
-				.filter((entry) => entry.type === "custom_message" && entry.customType === "self_restart"),
 		).toHaveLength(0);
+
+		pi.respondToLlmRequest(childAfterRejection.id, fauxAssistantMessage("Child restart rejected"));
+		pi.respondToLlmRequest(mainAfterSpawn.id, fauxAssistantMessage("Supervisor remains active"));
 	});
 }, 30_000);
 

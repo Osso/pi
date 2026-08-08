@@ -260,7 +260,9 @@ describe("effort extension", () => {
 
 		expect(setTargetThinkingLevel).toHaveBeenCalledWith("max");
 	});
+});
 
+describe("effort runtime authorization", () => {
 	it("lets a main runtime with historical subagent provenance control delegation mode", async () => {
 		const { appendEntry, ctx, multiAgentCommand, notify } = createCommandHarness({ subagentProvenance: true });
 

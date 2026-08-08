@@ -4716,6 +4716,16 @@ export class AgentSession {
 		]);
 	}
 
+	private _restartFromExtension(options?: { notice?: string; process?: boolean }): Promise<void> {
+		if (this._multiAgentRuntimeRole === "child") {
+			throw new Error("Child agent runtimes cannot restart Pi");
+		}
+		if (!this._extensionCommandContextActions) {
+			throw new Error("Restart is not available in this session mode");
+		}
+		return this._extensionCommandContextActions.restart(options);
+	}
+
 	private _bindExtensionCore(runner: ExtensionRunner): void {
 		const getCommands = (): SlashCommandInfo[] => {
 			const extensionCommands: SlashCommandInfo[] = runner.getRegisteredCommands().map((command) => ({
@@ -4820,15 +4830,7 @@ export class AgentSession {
 				shutdown: () => {
 					this._extensionShutdownHandler?.();
 				},
-				restart: (options) => {
-					if (this._multiAgentRuntimeRole === "child") {
-						throw new Error("Child agent runtimes cannot restart Pi");
-					}
-					if (!this._extensionCommandContextActions) {
-						throw new Error("Restart is not available in this session mode");
-					}
-					return this._extensionCommandContextActions.restart(options);
-				},
+				restart: (options) => this._restartFromExtension(options),
 				getControlDbPath: () => this._getRuntimeMailboxControlDbPath(),
 				getContextUsage: () => this.getContextUsage(),
 				getMultiAgentAgentId: () => this._multiAgentAgentId,

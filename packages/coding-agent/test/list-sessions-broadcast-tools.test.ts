@@ -193,7 +193,9 @@ describe("session coordination tools", () => {
 			).rejects.toThrow("ask_supervisor is only available from main sessions");
 		}
 	});
+});
 
+describe("historical subagent session authorization", () => {
 	it("reaches Supervisor request persistence from a main runtime with historical subagent provenance", async () => {
 		const agentDir = mkdtempSync(join(tmpdir(), "pi-ask-supervisor-tool-"));
 		try {
@@ -228,7 +230,9 @@ describe("session coordination tools", () => {
 			rmSync(agentDir, { force: true, recursive: true });
 		}
 	});
+});
 
+describe("session inventory and channel tools", () => {
 	it("excludes ended rows when list_sessions receives include_ended false", async () => {
 		const agentDir = mkdtempSync(join(tmpdir(), "pi-list-sessions-tool-"));
 		try {
