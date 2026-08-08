@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it, vi } from "vitest";
+import { isProcessIdentityAlive, type ProcessIdentity, readProcessIdentity } from "../../src/core/runtime-process.ts";
 import {
 	getControlDbPath,
 	postSharedChannelMessage,
@@ -1589,6 +1590,141 @@ describe("headless Pi fixture", () => {
 			agent.respondToLlmRequest(restoredRequest.id, fauxAssistantMessage("Live Pyrun restored"));
 			await agent.waitForEvent((event) => event.type === "agent_end");
 		});
+	});
+
+	it("keeps an auto-detached Pyrun runner alive across supervisor restart", async () => {
+		await withHeadlessPi(
+			async (agent) => {
+				const toolCallId = "auto-detached-restart-call";
+				const beforePath = join(agent.paths.workspaceDir, "before-restart");
+				const releasePath = join(agent.paths.workspaceDir, "release-restart");
+				const afterPath = join(agent.paths.workspaceDir, "after-restart");
+				const code = [
+					"from pathlib import Path",
+					"import time",
+					`before = Path(${JSON.stringify(beforePath)})`,
+					`release = Path(${JSON.stringify(releasePath)})`,
+					`after = Path(${JSON.stringify(afterPath)})`,
+					`before.write_text("before-restart\\n")`,
+					'print("before-restart", flush=True)',
+					"while not release.exists(): time.sleep(0.05)",
+					`after.write_text("after-restart\\n")`,
+					'print("after-restart", flush=True)',
+				].join("\n");
+				let runnerIdentity: ProcessIdentity | undefined;
+				try {
+					await agent.send({ type: "prompt", message: "Run a long detached Pyrun evaluation" });
+					const initialRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+					agent.respondToLlmRequest(
+						initialRequest.id,
+						fauxAssistantMessage(
+							{ ...fauxToolCall("pyrun_eval", { code }), id: toolCallId },
+							{ stopReason: "toolUse" },
+						),
+					);
+
+					const detachedEntry = (await agent.waitForSessionEntry(
+						null,
+						(entry) =>
+							entry.type === "message" &&
+							entry.message.role === "toolResult" &&
+							entry.message.toolCallId === toolCallId,
+					)) as SessionMessageEntry;
+					if (detachedEntry.message.role !== "toolResult") {
+						throw new Error("Expected detached Pyrun tool result");
+					}
+					const detachedDetails = detachedEntry.message.details as
+						| { backgroundJobId?: string; type?: string }
+						| undefined;
+					expect(detachedDetails).toMatchObject({ type: "detached" });
+					const backgroundJobId = detachedDetails?.backgroundJobId;
+					if (!backgroundJobId) throw new Error("Detached Pyrun result has no background job ID");
+
+					await agent.waitForAgent(
+						(candidate) => candidate.id === backgroundJobId && candidate.lifecycle === "running",
+					);
+					await waitForFileContent(beforePath, "before-restart\n");
+
+					let outputPath: string | undefined;
+					await vi.waitFor(() => {
+						const foundManifest = readdirSync(agent.paths.sessionDir, { recursive: true })
+							.filter((path): path is string => typeof path === "string" && path.endsWith("launch.json"))
+							.map((path) => join(agent.paths.sessionDir, path))
+							.some((path) => {
+								const manifest = JSON.parse(readFileSync(path, "utf8")) as {
+									artifacts?: { outputPath?: string };
+									runnerAddress?: { agentId?: string };
+									runnerProcessIdentity?: ProcessIdentity;
+								};
+								if (manifest.runnerAddress?.agentId !== backgroundJobId) return false;
+								outputPath = manifest.artifacts?.outputPath;
+								runnerIdentity = manifest.runnerProcessIdentity;
+								return outputPath !== undefined && runnerIdentity !== undefined;
+							});
+						expect(foundManifest).toBe(true);
+					});
+					if (!outputPath) throw new Error("Detached Pyrun output path not found");
+					if (!runnerIdentity) throw new Error("Detached Pyrun runner identity not found");
+					const exactOutputPath = outputPath;
+					const exactRunnerIdentity = runnerIdentity;
+					const runnerPid = exactRunnerIdentity.pid;
+					expect(agent.getRunnerPid(backgroundJobId)).toBe(runnerPid);
+					expect(isProcessIdentityAlive(exactRunnerIdentity)).toBe(true);
+					await vi.waitFor(() => {
+						expect(readFileSync(exactOutputPath, "utf8")).toContain("before-restart");
+					});
+
+					await agent.crash();
+					expect(isProcessIdentityAlive(exactRunnerIdentity)).toBe(true);
+					await agent.restart();
+					const restoredJob = await agent.waitForAgent(
+						(candidate) => candidate.id === backgroundJobId && candidate.lifecycle === "running",
+					);
+					expect(restoredJob.id).toBe(backgroundJobId);
+					const restoredPid = agent.getRunnerPid(backgroundJobId);
+					expect(restoredPid).toBe(runnerPid);
+					expect(isProcessIdentityAlive(exactRunnerIdentity)).toBe(true);
+					expect(readProcessIdentity(runnerPid).startTimeTicks).toBe(exactRunnerIdentity.startTimeTicks);
+					expect(
+						agent
+							.listAgents()
+							.filter((candidate) => candidate.displayName === "Pyrun evaluation")
+							.map((candidate) => candidate.id),
+					).toEqual([backgroundJobId]);
+
+					writeFileSync(releasePath, "release");
+					const completedJob = await agent.waitForAgent(
+						(candidate) => candidate.id === backgroundJobId && candidate.lifecycle === "completed",
+					);
+					expect(completedJob.revision).toBe(2);
+					await waitForFileContent(afterPath, "after-restart\n");
+					await vi.waitFor(() => {
+						const output = readFileSync(exactOutputPath, "utf8");
+						expect(output).toContain("before-restart");
+						expect(output).toContain("after-restart");
+					});
+					expect(agent.readTerminalOutboxStatuses(backgroundJobId)).toHaveLength(1);
+					expect(
+						agent
+							.listAgents()
+							.filter((candidate) => candidate.displayName === "Pyrun evaluation")
+							.map((candidate) => candidate.id),
+					).toEqual([backgroundJobId]);
+					await vi.waitFor(() => {
+						expect(isProcessIdentityAlive(exactRunnerIdentity)).toBe(false);
+					});
+				} finally {
+					const cleanupIdentity = runnerIdentity;
+					if (cleanupIdentity && isProcessIdentityAlive(cleanupIdentity)) {
+						killProcessGroup(cleanupIdentity.pid);
+						await vi.waitFor(() => {
+							expect(isProcessIdentityAlive(cleanupIdentity)).toBe(false);
+						});
+					}
+				}
+			},
+			{ autoDetachTools: true },
+		);
 	});
 
 	it("does not rerun an unfinished Pyrun tool call after its runner dies", async () => {
