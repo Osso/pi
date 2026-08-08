@@ -18,18 +18,31 @@ interface FastModeAuthority {
 	serviceTier: "priority" | "ultrafast" | undefined;
 }
 
-function createHarness(
-	provider = "openai-codex",
-	authority?: FastModeAuthority,
-	child = false,
-	historicalSubagent = false,
-) {
+interface FastStateEntry {
+	type: "custom";
+	customType: string;
+	data?: unknown;
+}
+
+interface FastHarnessOptions {
+	authority?: FastModeAuthority;
+	branch?: FastStateEntry[];
+	child?: boolean;
+	historicalSubagent?: boolean;
+	provider?: string;
+}
+
+function createHarness(options: FastHarnessOptions = {}) {
+	const authority = options.authority ?? { serviceTier: undefined };
+	const provider = options.provider ?? "openai-codex";
 	let command: Omit<RegisteredCommand, "name" | "sourceInfo"> | undefined;
 	let commandName: string | undefined;
 	let beforeProviderRequest: BeforeProviderRequestHandler | undefined;
 	let modelSelect: ModelSelectHandler | undefined;
 	let sessionStart: SessionStartHandler | undefined;
+	const appendEntry = vi.fn();
 	const pi = {
+		appendEntry,
 		on: (event: string, handler: BeforeProviderRequestHandler | ModelSelectHandler | SessionStartHandler) => {
 			if (event === "before_provider_request") beforeProviderRequest = handler as BeforeProviderRequestHandler;
 			if (event === "model_select") modelSelect = handler as ModelSelectHandler;
@@ -40,7 +53,7 @@ function createHarness(
 			command = value;
 		},
 	} as unknown as ExtensionAPI;
-	codexFastExtension(pi, authority ? { authority } : undefined);
+	codexFastExtension(pi, { authority });
 
 	const notify = vi.fn();
 	const setEditorText = vi.fn();
@@ -51,14 +64,19 @@ function createHarness(
 			id: "test-model",
 			provider,
 		},
-		multiAgentAgentId: child ? "child-agent" : undefined,
-		sessionManager: { isSubagentSession: () => historicalSubagent },
+		multiAgentAgentId: options.child ? "child-agent" : undefined,
+		sessionManager: {
+			getBranch: () => options.branch ?? [],
+			isSubagentSession: () => options.historicalSubagent === true,
+		},
 		ui: { notify, setEditorText, setStatus },
 	} as unknown as ExtensionCommandContext;
 	if (!command) throw new Error("/fast command was not registered");
 	if (!beforeProviderRequest) throw new Error("before_provider_request handler was not registered");
 	if (!modelSelect) throw new Error("model_select handler was not registered");
 	return {
+		appendEntry,
+		authority,
 		beforeProviderRequest,
 		command,
 		commandName,
@@ -91,14 +109,16 @@ describe("Codex fast mode extension", () => {
 		expect(setEditorText).toHaveBeenCalledTimes(2);
 	});
 
-	it("supports explicit on and off arguments", async () => {
-		const { command, ctx, notify } = createHarness("openai-codex-gc");
+	it("supports and persists explicit on and off arguments", async () => {
+		const { appendEntry, command, ctx, notify } = createHarness({ provider: "openai-codex-gc" });
 
 		await command.handler("on", ctx);
 		await command.handler("off", ctx);
 
 		expect(notify).toHaveBeenNthCalledWith(1, "Fast mode: on", "info");
 		expect(notify).toHaveBeenNthCalledWith(2, "Fast mode: off", "info");
+		expect(appendEntry).toHaveBeenNthCalledWith(1, "codex-fast-mode", { serviceTier: "priority" });
+		expect(appendEntry).toHaveBeenNthCalledWith(2, "codex-fast-mode", { serviceTier: null });
 	});
 
 	it("selects ultrafast processing until fast mode is disabled", async () => {
@@ -119,7 +139,7 @@ describe("Codex fast mode extension", () => {
 	});
 
 	it("rejects enabling fast mode for unsupported providers", async () => {
-		const { command, ctx, notify, setStatus } = createHarness("anthropic");
+		const { command, ctx, notify, setStatus } = createHarness({ provider: "anthropic" });
 
 		await command.handler("on", ctx);
 
@@ -128,7 +148,7 @@ describe("Codex fast mode extension", () => {
 	});
 
 	it("rejects ordinary OpenAI providers", async () => {
-		const { command, ctx, notify } = createHarness("openai");
+		const { command, ctx, notify } = createHarness({ provider: "openai" });
 
 		await command.handler("on", ctx);
 
@@ -180,8 +200,8 @@ describe("Codex fast mode extension", () => {
 
 	it("shares live main-thread fast mode with child runtimes", async () => {
 		const authority: FastModeAuthority = { serviceTier: undefined };
-		const main = createHarness("openai-codex", authority);
-		const child = createHarness("openai-codex", authority, true);
+		const main = createHarness({ authority });
+		const child = createHarness({ authority, child: true });
 		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
 
 		expect(child.beforeProviderRequest(event, child.ctx)).toBeUndefined();
@@ -196,8 +216,8 @@ describe("Codex fast mode extension", () => {
 
 	it("prevents child commands from changing main-thread fast mode", async () => {
 		const authority: FastModeAuthority = { serviceTier: "priority" };
-		const main = createHarness("openai-codex", authority);
-		const child = createHarness("openai-codex", authority, true);
+		const main = createHarness({ authority });
+		const child = createHarness({ authority, child: true });
 		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
 
 		await child.command.handler("off", child.ctx);
@@ -211,7 +231,7 @@ describe("Codex fast mode extension", () => {
 
 	it("allows a main runtime with historical subagent provenance to change fast mode", async () => {
 		const authority: FastModeAuthority = { serviceTier: undefined };
-		const main = createHarness("openai-codex", authority, false, true);
+		const main = createHarness({ authority, historicalSubagent: true });
 
 		await main.command.handler("on", main.ctx);
 
@@ -219,26 +239,33 @@ describe("Codex fast mode extension", () => {
 		expect(main.notify).toHaveBeenLastCalledWith("Fast mode: on", "info");
 	});
 
-	it("preserves shared fast mode on reload and resets it on main session replacement", async () => {
-		const authority: FastModeAuthority = { serviceTier: "priority" };
-		const main = createHarness("openai-codex", authority);
-		const child = createHarness("openai-codex", authority, true);
+	it("restores the latest persisted fast mode on main session startup", () => {
+		const authority: FastModeAuthority = { serviceTier: undefined };
+		const branch: FastStateEntry[] = [
+			{ type: "custom", customType: "codex-fast-mode", data: { serviceTier: "priority" } },
+			{ type: "custom", customType: "other-state", data: { serviceTier: null } },
+			{ type: "custom", customType: "codex-fast-mode", data: { serviceTier: "ultrafast" } },
+		];
+		const main = createHarness({ authority, branch });
+		const child = createHarness({ authority, branch: [], child: true });
 		if (!main.sessionStart || !child.sessionStart) throw new Error("session_start handler was not registered");
 
 		child.sessionStart({ reason: "startup", type: "session_start" }, child.ctx);
-		expect(authority.serviceTier).toBe("priority");
-		main.sessionStart({ reason: "reload", type: "session_start" }, main.ctx);
-		expect(authority.serviceTier).toBe("priority");
-		main.sessionStart({ reason: "resume", type: "session_start" }, main.ctx);
 		expect(authority.serviceTier).toBeUndefined();
+		main.sessionStart({ reason: "startup", type: "session_start" }, main.ctx);
+		expect(authority.serviceTier).toBe("ultrafast");
+		expect(main.setStatus).toHaveBeenLastCalledWith("codex-fast", "fast ultra");
 	});
 
-	it("starts disabled when the runtime extension is recreated without shared authority", async () => {
+	it("starts disabled when the opened session has no persisted fast mode", async () => {
 		const first = createHarness();
 		await first.command.handler("on", first.ctx);
 		const second = createHarness();
+		if (!second.sessionStart) throw new Error("session_start handler was not registered");
+		second.sessionStart({ reason: "startup", type: "session_start" }, second.ctx);
 		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
 
+		expect(second.authority.serviceTier).toBeUndefined();
 		expect(second.beforeProviderRequest(event, second.ctx)).toBeUndefined();
 	});
 });

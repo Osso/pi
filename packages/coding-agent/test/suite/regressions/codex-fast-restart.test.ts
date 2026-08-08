@@ -1,0 +1,71 @@
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
+import { expect, it } from "vitest";
+import { type HeadlessPi, withHeadlessPi } from "../headless-pi.ts";
+
+async function spawnLiveChild(agent: HeadlessPi): Promise<void> {
+	await agent.send({ type: "prompt", message: "Spawn a child before enabling fast mode" });
+	const initialMainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+	agent.respondToLlmRequest(
+		initialMainRequest.id,
+		fauxAssistantMessage(
+			fauxToolCall("spawn_agent", {
+				context: "fresh",
+				displayName: "Live fast-mode child",
+				prompt: "Remain live across the supervisor restart",
+			}),
+			{ stopReason: "toolUse" },
+		),
+	);
+	const child = await agent.waitForAgent(
+		(candidate) => candidate.displayName === "Live fast-mode child" && candidate.lifecycle === "running",
+	);
+	await agent.waitForLlmRequest((request) => request.agentId === child.id);
+	const mainAfterSpawn = await agent.waitForLlmRequest(
+		(request) => request.agentId === null && request.id !== initialMainRequest.id,
+	);
+	agent.respondToLlmRequest(
+		mainAfterSpawn.id,
+		fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Child remains live" }), { stopReason: "toolUse" }),
+	);
+	await agent.waitForEvent((event) => event.type === "agent_end");
+}
+
+it("preserves Codex fast mode across /restart while a child is live", async () => {
+	await withHeadlessPi(
+		async (agent) => {
+			await spawnLiveChild(agent);
+			const sessionId = agent.sessionId;
+
+			await agent.send({ type: "prompt", message: "/fast ultra" });
+			const enabledStatus = await agent.waitForExtensionUiRequest(
+				(request) =>
+					request.method === "setStatus" &&
+					request.statusKey === "codex-fast" &&
+					request.statusText === "fast ultra",
+			);
+			expect(enabledStatus).toMatchObject({ statusKey: "codex-fast", statusText: "fast ultra" });
+			expect(agent.readSessionEntries(null)).toContainEqual(
+				expect.objectContaining({
+					type: "custom",
+					customType: "codex-fast-mode",
+					data: { serviceTier: "ultrafast" },
+				}),
+			);
+
+			void agent.send({ type: "prompt", message: "/restart" }).catch(() => {
+				// Process replacement can close the pending RPC command before it returns a response.
+			});
+
+			expect(agent.sessionId).toBe(sessionId);
+			const restoredStatus = await agent.waitForExtensionUiRequest(
+				(request) =>
+					request.id !== enabledStatus.id &&
+					request.method === "setStatus" &&
+					request.statusKey === "codex-fast" &&
+					request.statusText === "fast ultra",
+			);
+			expect(restoredStatus).toMatchObject({ statusKey: "codex-fast", statusText: "fast ultra" });
+		},
+		{ model: "headless-faux-codex", provider: "openai-codex" },
+	);
+}, 30_000);

@@ -25,8 +25,9 @@ Codex fast mode provides a main-thread-owned runtime `/fast` authority that sele
 
 ### Lifetime
 
-- [x] Keep the selected tier in the shared main runtime authority across child session startup and extension reload; do not persist fast-mode state to session entries or settings.
-- [x] Reset the authority to disabled on main session startup, restart, resume, or replacement.
+- [x] Persist each accepted main-thread `/fast` change as a non-LLM `codex-fast-mode` custom session entry, including explicit off.
+- [x] Restore the latest valid fast-mode entry when the main runtime opens the same session; child session startup must not overwrite the shared authority, and sessions without a fast-mode entry start disabled.
+- [x] Preserve the selected tier and session identity across process `/restart`.
 
 ## How it works
 
@@ -34,12 +35,13 @@ Codex fast mode provides a main-thread-owned runtime `/fast` authority that sele
 
 ## Implementation inventory
 
-- `packages/coding-agent/extensions/codex-fast/src/index.ts` — handles `/fast`, prevents child mutation, reads shared authority for footer status and Codex request payload mutation, and resets it on main session start.
+- `packages/coding-agent/extensions/codex-fast/src/index.ts` — handles `/fast`, persists and restores session state, prevents child mutation, and reads shared authority for footer status and Codex request payload mutation.
 - `packages/coding-agent/src/main.ts` — creates one authority per main runtime and passes it to spawned and attached child extension runtimes.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/codex-fast-extension.test.ts` — command, provider, payload, footer, and runtime-recreation behavior.
+- `packages/coding-agent/test/codex-fast-extension.test.ts` — command, persistence, provider, payload, footer, child-authority, and runtime-recreation behavior.
+- `packages/coding-agent/test/suite/regressions/codex-fast-restart.test.ts` — real-process `/restart` preservation.
 - `packages/coding-agent/test/cli-runtime-inventory.test.ts` — first-party extension registration.
 
 ## Known gaps (current cycle)
@@ -48,6 +50,6 @@ None.
 
 ## Out of scope
 
-- Persisting fast mode across restart, resume, or session replacement.
+- Global fast-mode state shared across unrelated sessions.
 - Applying service tiers to non-Codex providers.
 - One-shot fast mode, generic service-tier controls, or pricing configuration.

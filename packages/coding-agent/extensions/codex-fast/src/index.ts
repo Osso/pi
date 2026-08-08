@@ -5,12 +5,17 @@ import type {
 	ExtensionContext,
 } from "../../../src/core/extensions/types.ts";
 
+const FAST_MODE_ENTRY = "codex-fast-mode";
 const FAST_STATUS_KEY = "codex-fast";
 const PRIORITY_SERVICE_TIER = "priority";
 const ULTRAFAST_SERVICE_TIER = "ultrafast";
 const SUPPORTED_PROVIDERS = new Set(["openai-codex", "openai-codex-gc"]);
 
 type FastServiceTier = typeof PRIORITY_SERVICE_TIER | typeof ULTRAFAST_SERVICE_TIER;
+
+type FastModeEntry = {
+	serviceTier: FastServiceTier | null;
+};
 
 function supportsFastMode(model: Model<string> | undefined): boolean {
 	return model !== undefined && SUPPORTED_PROVIDERS.has(model.provider);
@@ -55,9 +60,33 @@ function isChildRuntime(ctx: ExtensionContext): boolean {
 	return ctx.multiAgentAgentId !== undefined || ctx.multiAgentRequiresAgentId === true;
 }
 
+function parsePersistedServiceTier(data: unknown): FastServiceTier | null | undefined {
+	if (typeof data !== "object" || data === null || Array.isArray(data)) return undefined;
+	const { serviceTier } = data as { serviceTier?: unknown };
+	if (serviceTier === null) return null;
+	if (serviceTier === PRIORITY_SERVICE_TIER || serviceTier === ULTRAFAST_SERVICE_TIER) return serviceTier;
+	return undefined;
+}
+
+function readPersistedFastMode(ctx: ExtensionContext): FastServiceTier | undefined {
+	const branch = ctx.sessionManager.getBranch();
+	for (let index = branch.length - 1; index >= 0; index--) {
+		const entry = branch[index];
+		if (entry.type !== "custom" || entry.customType !== FAST_MODE_ENTRY) continue;
+		const persistedTier = parsePersistedServiceTier(entry.data);
+		if (persistedTier !== undefined) return persistedTier ?? undefined;
+	}
+	return undefined;
+}
+
+function persistFastMode(pi: ExtensionAPI, authority: FastModeAuthority): void {
+	pi.appendEntry<FastModeEntry>(FAST_MODE_ENTRY, { serviceTier: authority.serviceTier ?? null });
+}
+
 async function handleFastCommand(
 	args: string,
 	ctx: ExtensionCommandContext,
+	pi: ExtensionAPI,
 	authority: FastModeAuthority,
 ): Promise<void> {
 	if (isChildRuntime(ctx)) {
@@ -78,6 +107,7 @@ async function handleFastCommand(
 	}
 
 	authority.serviceTier = requested === false ? undefined : requested;
+	persistFastMode(pi, authority);
 	updateFastStatus(ctx, authority);
 	ctx.ui.notify(`Fast mode: ${fastModeLabel(authority.serviceTier)}`, "info");
 	clearEditor(ctx);
@@ -87,10 +117,10 @@ export default function codexFastExtension(pi: ExtensionAPI, options?: CodexFast
 	const authority = options?.authority ?? { serviceTier: undefined };
 	pi.registerCommand("fast", {
 		description: "Toggle Codex priority or ultrafast processing from the main thread",
-		handler: (args, ctx) => handleFastCommand(args, ctx, authority),
+		handler: (args, ctx) => handleFastCommand(args, ctx, pi, authority),
 	});
-	pi.on("session_start", (event, ctx) => {
-		if (!isChildRuntime(ctx) && event.reason !== "reload") authority.serviceTier = undefined;
+	pi.on("session_start", (_event, ctx) => {
+		if (!isChildRuntime(ctx)) authority.serviceTier = readPersistedFastMode(ctx);
 		updateFastStatus(ctx, authority);
 	});
 	pi.on("model_select", (event, ctx) => {

@@ -63,6 +63,7 @@ export interface HeadlessPiOptions {
 	deleteCwdBeforeSelfRestart?: boolean;
 	env?: Record<string, string>;
 	model?: string | false;
+	provider?: "headless-faux" | "openai-codex";
 }
 
 export interface HeadlessRpcExtensionError {
@@ -121,7 +122,30 @@ interface HeadlessPiRuntime extends HeadlessPi {
 	dispose(): Promise<void>;
 }
 
-function createModelsJson(): string {
+function createHeadlessModelConfig(id: string, name: string, reasoning = false) {
+	return {
+		id,
+		name,
+		reasoning,
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 128000,
+		maxTokens: 16384,
+	};
+}
+
+function createModelsJson(provider: HeadlessPiOptions["provider"] = "headless-faux"): string {
+	const codexProvider =
+		provider === "openai-codex"
+			? {
+					"openai-codex": {
+						api: "headless-faux",
+						apiKey: "test-key",
+						baseUrl: "http://localhost:0",
+						models: [createHeadlessModelConfig("headless-faux-codex", "Headless Faux Codex")],
+					},
+				}
+			: {};
 	return JSON.stringify({
 		providers: {
 			"headless-faux": {
@@ -129,26 +153,11 @@ function createModelsJson(): string {
 				apiKey: "test-key",
 				baseUrl: "http://localhost:0",
 				models: [
-					{
-						id: "headless-faux-1",
-						name: "Headless Faux",
-						reasoning: false,
-						input: ["text"],
-						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-						contextWindow: 128000,
-						maxTokens: 16384,
-					},
-					{
-						id: "headless-faux-reasoning",
-						name: "Headless Faux Reasoning",
-						reasoning: true,
-						input: ["text"],
-						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-						contextWindow: 128000,
-						maxTokens: 16384,
-					},
+					createHeadlessModelConfig("headless-faux-1", "Headless Faux"),
+					createHeadlessModelConfig("headless-faux-reasoning", "Headless Faux Reasoning", true),
 				],
 			},
+			...codexProvider,
 		},
 	});
 }
@@ -169,6 +178,7 @@ const defaultHeadlessPathOperations: HeadlessPathOperations = {
 
 export function createHeadlessPaths(
 	operations: HeadlessPathOperations = defaultHeadlessPathOperations,
+	provider: HeadlessPiOptions["provider"] = "headless-faux",
 ): HeadlessRuntimePaths {
 	const tempDir = operations.createTempDir();
 	const paths = {
@@ -182,7 +192,7 @@ export function createHeadlessPaths(
 		operations.createDirectory(paths.agentDir);
 		operations.createDirectory(paths.sessionDir);
 		operations.createDirectory(paths.workspaceDir);
-		operations.writeModelsJson(join(paths.agentDir, "models.json"), createModelsJson());
+		operations.writeModelsJson(join(paths.agentDir, "models.json"), createModelsJson(provider));
 		return paths;
 	} catch (error) {
 		try {
@@ -263,6 +273,8 @@ function createHeadlessRpcClient(
 	const cliPath = join(import.meta.dirname, "..", "..", "src", "cli.ts");
 	const args = [...(options.approvalPreset ? [] : ["--approve"]), "--no-context-files", "--no-skills", "--no-themes"];
 	if (sessionFile) args.push("--session", sessionFile);
+	const selectedProvider = options.provider ?? "headless-faux";
+	const defaultModel = selectedProvider === "openai-codex" ? "headless-faux-codex" : "headless-faux-1";
 	return new RpcClient({
 		cliPath,
 		cwd: paths.workspaceDir,
@@ -275,8 +287,8 @@ function createHeadlessRpcClient(
 			...(options.env ?? {}),
 			...(sessionStartReleasePath ? { PI_HEADLESS_SESSION_START_RELEASE_PATH: sessionStartReleasePath } : {}),
 		},
-		provider: "headless-faux",
-		model: options.model === false ? undefined : (options.model ?? "headless-faux-1"),
+		provider: selectedProvider,
+		model: options.model === false ? undefined : (options.model ?? defaultModel),
 		nodeArgs: [
 			"--import",
 			import.meta.resolve("tsx"),
@@ -857,7 +869,7 @@ function createHeadlessRuntime(options: {
 }
 
 async function startHeadlessPi(fixtureOptions: HeadlessPiOptions = {}): Promise<HeadlessPiRuntime> {
-	const paths = createHeadlessPaths();
+	const paths = createHeadlessPaths(defaultHeadlessPathOperations, fixtureOptions.provider);
 	const testExtensionDir = join(paths.agentDir, "extensions");
 	mkdirSync(testExtensionDir, { recursive: true });
 
