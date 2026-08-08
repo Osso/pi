@@ -43,11 +43,14 @@ function createContext(usage: AssistantUsage, usingOAuth = false): ExtensionCont
 	} as unknown as ExtensionContext;
 }
 
-function createFooterData(executableName?: string): ReadonlyFooterDataProvider {
+function createFooterData(
+	executableName?: string,
+	extensionStatuses: ReadonlyMap<string, string> = new Map<string, string>(),
+): ReadonlyFooterDataProvider {
 	return {
 		getAvailableProviderCount: () => 1,
 		getExecutableName: () => executableName,
-		getExtensionStatuses: () => new Map<string, string>(),
+		getExtensionStatuses: () => extensionStatuses,
 		getGitBranch: () => "main",
 		getSessionOverride: () => undefined,
 		onBranchChange: () => () => {},
@@ -82,6 +85,47 @@ function renderedStatsLine(
 function statsLine(counts?: DefaultFooterAgentLifecycleCounts, usingOAuth = false, executableName?: string): string {
 	return stripAnsi(renderedStatsLine(counts, usingOAuth, executableName));
 }
+
+describe("default footer extension status lines", () => {
+	it("renders the goal status on its own footer line", () => {
+		initTheme(undefined, false);
+		const footer = createDefaultFooterComponent({
+			ctx: createContext({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }),
+			footerData: createFooterData(
+				undefined,
+				new Map([
+					["bwrap", "bwrap ready"],
+					["goal", "goal: ship footer"],
+					["multi-agent-mode", "multi-agent: proactive"],
+				]),
+			),
+			theme,
+		});
+
+		const statusLines = footer.render(160).slice(2).map(stripAnsi);
+
+		expect(statusLines).toEqual(["bwrap ready multi-agent: proactive", "goal: ship footer"]);
+	});
+
+	it("keeps non-goal statuses grouped when no goal is active", () => {
+		initTheme(undefined, false);
+		const footer = createDefaultFooterComponent({
+			ctx: createContext({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }),
+			footerData: createFooterData(
+				undefined,
+				new Map([
+					["multi-agent-mode", "multi-agent: proactive"],
+					["bwrap", "bwrap ready"],
+				]),
+			),
+			theme,
+		});
+
+		const statusLines = footer.render(160).slice(2).map(stripAnsi);
+
+		expect(statusLines).toEqual(["bwrap ready multi-agent: proactive"]);
+	});
+});
 
 describe("default footer extension", () => {
 	it("uses readable labels and omits cache and auto fields", () => {

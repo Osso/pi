@@ -73,11 +73,15 @@ function createSession(options: {
 	return session as unknown as AgentSession;
 }
 
-function createFooterData(providerCount: number, executableName?: string): ReadonlyFooterDataProvider {
+function createFooterData(
+	providerCount: number,
+	executableName?: string,
+	extensionStatuses: ReadonlyMap<string, string> = new Map(),
+): ReadonlyFooterDataProvider {
 	const provider = {
 		getGitBranch: () => "main",
 		getExecutableName: () => executableName,
-		getExtensionStatuses: () => new Map<string, string>(),
+		getExtensionStatuses: () => extensionStatuses,
 		getAvailableProviderCount: () => providerCount,
 		getSessionOverride: () => undefined,
 		onBranchChange: (callback: () => void) => {
@@ -97,6 +101,37 @@ describe("formatCwdForFooter", () => {
 	it("abbreviates the home directory and descendants", () => {
 		expect(formatCwdForFooter("/home/user", "/home/user")).toBe("~");
 		expect(formatCwdForFooter("/home/user/project", "/home/user")).toBe("~/project");
+	});
+});
+
+describe("FooterComponent extension status lines", () => {
+	beforeAll(() => {
+		initTheme(undefined, false);
+	});
+
+	it("renders goal status on its own line while grouping other statuses", () => {
+		const statuses = new Map([
+			["agent", "agent ready"],
+			["goal", "goal active"],
+			["pyrun", "pyrun ready"],
+		]);
+		const session = createSession({ sessionName: "" });
+		const footer = new FooterComponent(session, createFooterData(1, undefined, statuses));
+
+		const statusLines = footer.render(120).slice(2).map(stripAnsi);
+		expect(statusLines).toEqual(["agent ready pyrun ready", "goal active"]);
+	});
+
+	it("keeps non-goal statuses grouped on one line", () => {
+		const statuses = new Map([
+			["pyrun", "pyrun ready"],
+			["agent", "agent ready"],
+		]);
+		const session = createSession({ sessionName: "" });
+		const footer = new FooterComponent(session, createFooterData(1, undefined, statuses));
+
+		const statusLines = footer.render(120).slice(2).map(stripAnsi);
+		expect(statusLines).toEqual(["agent ready pyrun ready"]);
 	});
 });
 
