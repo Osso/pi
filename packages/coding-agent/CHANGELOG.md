@@ -119,7 +119,7 @@
 
 ### Fixed
 
-- Fixed `list_sessions` and its shared broadcast inventory to exclude archived sessions regardless of `include_ended`.
+- Fixed `list_sessions` and its shared broadcast inventory to expose only non-archived main sessions, excluding `archived_at IS NOT NULL` and `is_subagent = 1` rows regardless of `include_ended`; child rows of archived parents are excluded without changing archive write semantics.
 - Fixed child-runtime authorization after reopening a historical subagent transcript: live child runtimes cannot restart Pi, explicit current runtime child identity remains authoritative, and `is_subagent` transcript provenance alone no longer blocks a session opened as the main orchestrator from main-thread controls.
 - Fixed `/model` and other tall temporary selector dismissals so Escape restores the editor and footer at the terminal bottom instead of leaving the viewport shifted upward (`packages/tui/test/root-compositor.test.ts`: "restores bottom anchoring after a tall editor replacement closes with Escape").
 - Fixed root renders triggered by invisible assistant stream updates: hidden thinking, partial tool-call events, and hidden main-session message updates while viewing a child are now skipped, while visible text/thinking and final message rendering remain unchanged.
