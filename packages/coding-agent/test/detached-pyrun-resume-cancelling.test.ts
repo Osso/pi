@@ -26,7 +26,7 @@ afterEach(() => {
 	for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { force: true, recursive: true });
 });
 
-interface CancellingJobFixture {
+interface PyrunEvaluationFixture {
 	controlDbPath: string;
 	evalInput: Parameters<typeof runDurableDetachablePyrunEvaluation>[0];
 	manifestPath: string;
@@ -35,7 +35,7 @@ interface CancellingJobFixture {
 	sessionPath: string;
 }
 
-async function wedgeCancellingPyrunJob(toolCallId: string): Promise<CancellingJobFixture> {
+async function wedgeCancellingPyrunJob(toolCallId: string): Promise<PyrunEvaluationFixture> {
 	const root = mkdtempSync(join(tmpdir(), "pi-pyrun-resume-cancel-"));
 	temporaryDirectories.push(root);
 	const runnerPath = join(root, "fake-pyrun.mjs");
@@ -112,7 +112,7 @@ async function wedgeCancellingPyrunJob(toolCallId: string): Promise<CancellingJo
 	return { controlDbPath, evalInput, manifestPath, root, sessionManager, sessionPath };
 }
 
-interface RestorablePyrunArtifactFixture extends CancellingJobFixture {
+interface RestorablePyrunArtifactFixture extends PyrunEvaluationFixture {
 	directory: string;
 	outputPath: string;
 	scriptPath: string;
@@ -195,7 +195,7 @@ function createRestorablePyrunArtifact(toolCallId: string, output: string): Rest
 	};
 }
 
-function pyrunJobDirectory(fixture: CancellingJobFixture, jobId: string): string {
+function pyrunJobDirectory(fixture: PyrunEvaluationFixture, jobId: string): string {
 	return join(
 		dirname(fixture.sessionPath),
 		"detached-jobs",
@@ -205,7 +205,7 @@ function pyrunJobDirectory(fixture: CancellingJobFixture, jobId: string): string
 }
 
 async function replayInterruptedCall(
-	fixture: CancellingJobFixture,
+	fixture: PyrunEvaluationFixture,
 	overrides: Partial<Parameters<typeof runDurableDetachablePyrunEvaluation>[0]>,
 ) {
 	const resumeStore = new MultiAgentStore();
