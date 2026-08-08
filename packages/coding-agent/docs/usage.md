@@ -110,13 +110,11 @@ See [Sessions](sessions.md) and [Compaction](compaction.md) for details.
 
 ## Context Files
 
-Pi loads `AGENTS.md`, `AGENTS.local.md`, `CLAUDE.md`, or `CLAUDE.local.md` at startup from:
+Pi searches the global agent directory and cwd ancestors for context files. In each searched directory, it loads every AGENTS-family file that reads successfully when at least one AGENTS-family file loads successfully there. If no AGENTS-family file loads successfully there, it loads every CLAUDE-family file that reads successfully there.
 
-- `~/.pi/agent/AGENTS.md` for global instructions
-- parent directories, walking up from the current working directory
-- the current directory
+For cwd ancestors, `docs/local/memory.md` is loaded when present after that directory's instruction-file candidates. It is not loaded from the global agent directory.
 
-Use context files for project conventions, commands, safety rules, preferences, and local overrides. Disable loading with `--no-context-files` or `-nc`.
+Use context files for project conventions, commands, safety rules, preferences, and local overrides. Disable loading with `--no-context-files` or `-nc`, including project memory.
 
 ### System Prompt Files
 
@@ -239,7 +237,7 @@ Built-in tools: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`, `outline`
 | `--no-prompt-templates` | Disable prompt template discovery |
 | `--theme <path>` | Load a theme; repeatable |
 | `--no-themes` | Disable theme discovery |
-| `--no-context-files`, `-nc` | Disable `AGENTS.md`, `AGENTS.local.md`, `CLAUDE.md`, and `CLAUDE.local.md` discovery |
+| `--no-context-files`, `-nc` | Disable `AGENTS.md`, `AGENTS.local.md`, `CLAUDE.md`, `CLAUDE.local.md`, and project `docs/local/memory.md` context-file discovery |
 
 Combine `--no-*` with explicit flags to load exactly what you need, ignoring settings. Example:
 

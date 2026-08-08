@@ -2,9 +2,14 @@
 
 Module boundary: core resource-loader/system-prompt feature, not a first-party extension module.
 
-The user-rules-loader feature extends Pi's existing context-file loading so that all `*.md` files under the global agent rules directory (`~/.config/pi/agent/rules/` by default) and optionally `.pi/rules/` (project-local, trust-gated) are read in sorted filename order, trimmed, joined with double newlines, and injected into the system instructions alongside AGENTS.md. Pi already loads AGENTS.md/CLAUDE.md from cwd ancestors and from the global agent directory via `loadProjectContextFiles()` in `packages/coding-agent/src/core/resource-loader.ts` (lines 84–122); this spec only adds the `rules/` subdirectory path. The loader addition belongs in `core/resource-loader.ts`; injection into the prompt belongs in `core/system-prompt.ts`. See [docs/wiki/systems/user-rules-loader.md](../wiki/systems/user-rules-loader.md) for how it works.
+The user-rules-loader feature extends Pi's existing context-file loading so that all `*.md` files under the global agent rules directory (`~/.config/pi/agent/rules/` by default) and optionally `.pi/rules/` (project-local, trust-gated) are read in sorted filename order, trimmed, joined with double newlines, and injected into the system instructions alongside project context. Pi loads instruction files from cwd ancestors and the global agent directory via `loadProjectContextFiles()` in `packages/coding-agent/src/core/resource-loader.ts`: in each searched directory, it loads AGENTS-family files whenever one or more load successfully and reads CLAUDE-family files only when no AGENTS-family file loads there. This spec only adds the `rules/` subdirectory path. The loader addition belongs in `core/resource-loader.ts`; injection into the prompt belongs in `core/system-prompt.ts`. See [docs/wiki/systems/user-rules-loader.md](../wiki/systems/user-rules-loader.md) for how it works.
 
 ## What it must do
+
+### Existing context-file loading
+
+- [x] AGENTS-family files take precedence independently in each searched global or cwd-ancestor directory; CLAUDE-family files are read there only when no AGENTS-family file loads successfully.
+- [x] Existing context-file ordering, deduplication, cwd-ancestor `docs/local/memory.md` loading, and `noContextFiles` behavior are unchanged.
 
 ### Directory discovery
 - [x] Returns no content (does not error) when the global agent `rules/` directory does not exist.

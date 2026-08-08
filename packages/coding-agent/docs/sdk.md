@@ -364,7 +364,7 @@ const { session } = await createAgentSession({
   - `.agents/skills/` in `cwd` and ancestor directories
   - `.codex/skills/` and `.claude/skills/` in `cwd` and ancestor directories
 - Project prompts (`.pi/prompts/`)
-- Context files (`AGENTS.md`, `AGENTS.local.md`, `CLAUDE.md`, and `CLAUDE.local.md` walking up from cwd)
+- Context files (`AGENTS.md`, `AGENTS.local.md`, `CLAUDE.md`, and `CLAUDE.local.md` walking up from cwd), loading every AGENTS-family file that reads successfully when at least one AGENTS-family file loads successfully in a directory and using CLAUDE-family files only when none do
 - Session directory naming
 
 `agentDir` is used by `DefaultResourceLoader` for:
@@ -373,7 +373,7 @@ const { session } = await createAgentSession({
   - `skills/` under `agentDir` (for example `~/.pi/agent/skills/`)
   - `~/.agents/skills/`
 - Global prompts (`prompts/`)
-- Global context files (`AGENTS.md`, `AGENTS.local.md`, `CLAUDE.md`, and `CLAUDE.local.md`; not `docs/local/memory.md`)
+- Global context files (`AGENTS.md`, `AGENTS.local.md`, `CLAUDE.md`, and `CLAUDE.local.md`; not `docs/local/memory.md`), using the same per-directory AGENTS-family precedence and CLAUDE-family fallback
 - Settings (`settings.json`)
 - Custom models (`models.json`)
 - Credentials (`auth.json`)
@@ -669,7 +669,7 @@ const { session } = await createAgentSession({ resourceLoader: loader });
 
 ### Context Files
 
-`DefaultResourceLoader` loads `AGENTS.md`, `AGENTS.local.md`, `CLAUDE.md`, and `CLAUDE.local.md` from the global agent directory and cwd ancestors. It also loads `docs/local/memory.md` from cwd ancestors only, after the instruction-file candidates in each directory. Set `noContextFiles: true` to disable both instruction-file and project-memory discovery.
+`DefaultResourceLoader` searches the global agent directory and cwd ancestors for context files. In each searched directory, it loads every AGENTS-family file that reads successfully when at least one AGENTS-family file loads successfully there. If no AGENTS-family file loads successfully there, it loads every CLAUDE-family file that reads successfully there. It also loads `docs/local/memory.md` from cwd ancestors only, after the instruction-file candidates in each directory. Set `noContextFiles: true` to disable both instruction-file and project-memory discovery.
 
 ```typescript
 import { createAgentSession, DefaultResourceLoader } from "@earendil-works/pi-coding-agent";

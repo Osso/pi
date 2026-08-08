@@ -409,6 +409,49 @@ Content`,
 			]);
 		});
 
+		it("should load only AGENTS-family files when both families exist in one directory", async () => {
+			writeFileSync(join(cwd, "AGENTS.md"), "Agents context.");
+			writeFileSync(join(cwd, "AGENTS.local.md"), "Agents local context.");
+			writeFileSync(join(cwd, "CLAUDE.md"), "Claude context.");
+			writeFileSync(join(cwd, "CLAUDE.local.md"), "Claude local context.");
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getAgentsFiles().agentsFiles).toEqual([
+				{ path: join(cwd, "AGENTS.md"), content: "Agents context." },
+				{ path: join(cwd, "AGENTS.local.md"), content: "Agents local context." },
+			]);
+		});
+
+		it("should load CLAUDE-family files when no AGENTS-family file exists", async () => {
+			writeFileSync(join(cwd, "CLAUDE.md"), "Claude context.");
+			writeFileSync(join(cwd, "CLAUDE.local.md"), "Claude local context.");
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getAgentsFiles().agentsFiles).toEqual([
+				{ path: join(cwd, "CLAUDE.md"), content: "Claude context." },
+				{ path: join(cwd, "CLAUDE.local.md"), content: "Claude local context." },
+			]);
+		});
+
+		it("should fall back to CLAUDE-family files independently in each directory", async () => {
+			const nestedCwd = join(cwd, "src");
+			mkdirSync(nestedCwd, { recursive: true });
+			writeFileSync(join(cwd, "AGENTS.md"), "Ancestor agents context.");
+			writeFileSync(join(nestedCwd, "CLAUDE.md"), "Nested Claude context.");
+
+			const loader = new DefaultResourceLoader({ cwd: nestedCwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getAgentsFiles().agentsFiles).toEqual([
+				{ path: join(cwd, "AGENTS.md"), content: "Ancestor agents context." },
+				{ path: join(nestedCwd, "CLAUDE.md"), content: "Nested Claude context." },
+			]);
+		});
+
 		it("should load project memory from cwd ancestors after instruction files", async () => {
 			const nestedCwd = join(cwd, "src");
 			const projectMemoryDir = join(cwd, "docs", "local");
@@ -417,7 +460,6 @@ Content`,
 			mkdirSync(projectMemoryDir, { recursive: true });
 			mkdirSync(globalMemoryDir, { recursive: true });
 			writeFileSync(join(cwd, "AGENTS.md"), "Project instructions.");
-			writeFileSync(join(cwd, "CLAUDE.local.md"), "Local instructions.");
 			writeFileSync(join(projectMemoryDir, "memory.md"), "Project memory.");
 			writeFileSync(join(globalMemoryDir, "memory.md"), "Global memory must not load.");
 
@@ -426,7 +468,6 @@ Content`,
 
 			expect(loader.getAgentsFiles().agentsFiles).toEqual([
 				{ path: join(cwd, "AGENTS.md"), content: "Project instructions." },
-				{ path: join(cwd, "CLAUDE.local.md"), content: "Local instructions." },
 				{ path: join(projectMemoryDir, "memory.md"), content: "Project memory." },
 			]);
 		});
@@ -474,9 +515,9 @@ Content`,
 			]);
 		});
 
-		it("should not load AGENTS.md and CLAUDE.md twice when they resolve to the same file", async () => {
-			writeFileSync(join(cwd, "CLAUDE.md"), "Shared context.");
-			symlinkSync(join(cwd, "CLAUDE.md"), join(cwd, "AGENTS.md"));
+		it("should not load AGENTS filename variants twice when they resolve to the same file", async () => {
+			writeFileSync(join(cwd, "AGENTS.md"), "Shared context.");
+			symlinkSync(join(cwd, "AGENTS.md"), join(cwd, "AGENTS.MD"));
 
 			const loader = new DefaultResourceLoader({ cwd, agentDir });
 			await loader.reload();

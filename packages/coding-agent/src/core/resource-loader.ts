@@ -85,18 +85,9 @@ function resolvePromptInput(input: string | undefined, description: string): str
 	return input;
 }
 
-const CONTEXT_FILE_CANDIDATES = [
-	"AGENTS.md",
-	"AGENTS.local.md",
-	"AGENTS.MD",
-	"AGENTS.local.MD",
-	"CLAUDE.md",
-	"CLAUDE.local.md",
-	"CLAUDE.MD",
-	"CLAUDE.local.MD",
-];
+const AGENTS_CONTEXT_FILE_CANDIDATES = ["AGENTS.md", "AGENTS.local.md", "AGENTS.MD", "AGENTS.local.MD"];
+const CLAUDE_CONTEXT_FILE_CANDIDATES = ["CLAUDE.md", "CLAUDE.local.md", "CLAUDE.MD", "CLAUDE.local.MD"];
 const PROJECT_MEMORY_RELATIVE_PATH = join("docs", "local", "memory.md");
-const PROJECT_CONTEXT_FILE_CANDIDATES = [...CONTEXT_FILE_CANDIDATES, PROJECT_MEMORY_RELATIVE_PATH];
 
 interface LoadedContextFile {
 	path: string;
@@ -104,7 +95,7 @@ interface LoadedContextFile {
 	realPath: string;
 }
 
-function loadContextFilesFromDir(dir: string, candidates = CONTEXT_FILE_CANDIDATES): LoadedContextFile[] {
+function loadContextFilesFromDir(dir: string, candidates: string[]): LoadedContextFile[] {
 	const contextFiles: LoadedContextFile[] = [];
 	for (const filename of candidates) {
 		const filePath = join(dir, filename);
@@ -123,6 +114,11 @@ function loadContextFilesFromDir(dir: string, candidates = CONTEXT_FILE_CANDIDAT
 	return contextFiles;
 }
 
+function loadInstructionContextFilesFromDir(dir: string): LoadedContextFile[] {
+	const agentsFiles = loadContextFilesFromDir(dir, AGENTS_CONTEXT_FILE_CANDIDATES);
+	return agentsFiles.length > 0 ? agentsFiles : loadContextFilesFromDir(dir, CLAUDE_CONTEXT_FILE_CANDIDATES);
+}
+
 export function loadProjectContextFiles(options: {
 	cwd: string;
 	agentDir: string;
@@ -134,7 +130,7 @@ export function loadProjectContextFiles(options: {
 	const contextFiles: Array<{ path: string; content: string }> = [];
 	const seenPaths = new Set<string>();
 
-	for (const globalContext of loadContextFilesFromDir(resolvedAgentDir)) {
+	for (const globalContext of loadInstructionContextFilesFromDir(resolvedAgentDir)) {
 		if (!seenPaths.has(globalContext.realPath)) {
 			contextFiles.push({ path: globalContext.path, content: globalContext.content });
 			seenPaths.add(globalContext.realPath);
@@ -148,7 +144,10 @@ export function loadProjectContextFiles(options: {
 
 	while (true) {
 		const projectMemoryPath = join(currentDir, PROJECT_MEMORY_RELATIVE_PATH);
-		const loadedContextFiles = loadContextFilesFromDir(currentDir, PROJECT_CONTEXT_FILE_CANDIDATES);
+		const loadedContextFiles = [
+			...loadInstructionContextFilesFromDir(currentDir),
+			...loadContextFilesFromDir(currentDir, [PROJECT_MEMORY_RELATIVE_PATH]),
+		];
 		const projectContextFiles = loadedContextFiles.filter(
 			(contextFile) =>
 				contextFile.path !== projectMemoryPath || contextFile.realPath !== globalProjectMemoryRealPath,

@@ -339,7 +339,7 @@ Use `--offline` or `PI_OFFLINE=1` to disable all startup network operations desc
 
 ## Context Files
 
-Pi loads `AGENTS.md`, `AGENTS.local.md`, `CLAUDE.md`, and `CLAUDE.local.md` from the global agent directory (`~/.pi/agent/` by default) and every directory from the filesystem root through cwd. In each cwd ancestor, it then loads `docs/local/memory.md` when present, after those instruction-file candidates. `docs/local/memory.md` is project context only: Pi does not load it from the global agent directory.
+Pi searches the global agent directory (`~/.pi/agent/` by default) and every directory from the filesystem root through cwd for context files. In each searched directory, it loads every AGENTS-family file that reads successfully when at least one AGENTS-family file loads successfully there. If no AGENTS-family file loads successfully there, it loads every CLAUDE-family file that reads successfully there. In each cwd ancestor, it then loads `docs/local/memory.md` when present, after that directory's instruction-file candidates. `docs/local/memory.md` is project context only: Pi does not load it from the global agent directory.
 
 Use the instruction files for project instructions, local overrides, conventions, and common commands. Use `docs/local/memory.md` for durable project-specific agent context. Matching files are concatenated in discovery order.
 
