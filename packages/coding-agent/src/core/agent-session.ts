@@ -5342,6 +5342,11 @@ export class AgentSession {
 		this._emit({ type: "session_info_changed", name: undefined });
 	}
 
+	updateCompactionSummary(entryId: string, summary: string): void {
+		this.sessionManager.updateCompactionSummary(entryId, summary);
+		this.agent.state.messages = this.sessionManager.buildSessionContext().messages;
+	}
+
 	// =========================================================================
 	// Tree Navigation
 	// =========================================================================

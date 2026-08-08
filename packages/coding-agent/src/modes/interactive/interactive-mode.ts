@@ -117,7 +117,9 @@ import {
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
 import { SessionImportFileNotFoundError } from "../../core/session-errors.ts";
 import {
+	type CompactionEntry,
 	type CustomEntry,
+	getLatestCompactionEntry,
 	type SessionEntry,
 	type SessionInfo,
 	type SessionListProgress,
@@ -488,6 +490,7 @@ export class InteractiveMode {
 	private isInitialized = false;
 	private onInputCallback?: (text: string) => void;
 	private pendingUserInputs: string[] = [];
+	private pendingCompactionSummaryEditId: string | undefined;
 	private clipboardTempFiles = createClipboardTempFileTracker();
 	private responseCompleteNotification: DesktopNotificationHandle | undefined;
 	private loadingAnimation: Loader | undefined = undefined;
@@ -555,6 +558,7 @@ export class InteractiveMode {
 	private autoCompactionLoader: Loader | undefined = undefined;
 	private autoCompactionEscapeHandler?: () => void;
 	private autoCompactionSourceHint?: CompactionSourceInfo;
+	private liveCompactionDisplay: { entryId: string; result: CompactionResult; timestamp: string } | undefined;
 
 	// Auto-retry state
 	private retryLoader: Loader | undefined = undefined;
@@ -1939,6 +1943,8 @@ export class InteractiveMode {
 					try {
 						const result = await this.runtimeHost.fork(entryId, options);
 						if (!result.cancelled) {
+							this.pendingCompactionSummaryEditId = undefined;
+							this.liveCompactionDisplay = undefined;
 							this.editor.setText(result.selectedText ?? "");
 							this.showStatus("Forked to new session");
 						}
@@ -1958,6 +1964,8 @@ export class InteractiveMode {
 						return { cancelled: true };
 					}
 
+					this.pendingCompactionSummaryEditId = undefined;
+					this.liveCompactionDisplay = undefined;
 					this.chatContainer.clear();
 					this.renderInitialMessages();
 					if (result.editorText && !this.editor.getText().trim()) {
@@ -2045,6 +2053,8 @@ export class InteractiveMode {
 	}
 
 	private renderCurrentSessionState(): void {
+		this.pendingCompactionSummaryEditId = undefined;
+		this.liveCompactionDisplay = undefined;
 		this.disposeActiveBashComponents();
 		this.loadedResourcesContainer.clear();
 		this.chatContainer.clear();
@@ -3714,6 +3724,52 @@ export class InteractiveMode {
 		this.editor.addToHistory?.(text);
 	}
 
+	private startCompactionSummaryEdit(entry: CompactionEntry): void {
+		if (this.editor.getText().trim()) {
+			this.showWarning("Clear the editor before editing a compaction summary");
+			return;
+		}
+		this.pendingCompactionSummaryEditId = entry.id;
+		this.editor.setText(entry.summary);
+		this.showStatus("Editing compaction summary");
+		this.ui.requestRender();
+	}
+
+	private submitPendingCompactionSummaryEdit(summary: string): boolean {
+		const entryId = this.pendingCompactionSummaryEditId;
+		if (!entryId) return false;
+		try {
+			this.session.updateCompactionSummary(entryId, summary);
+		} catch (error: unknown) {
+			this.showError(error instanceof Error ? error.message : String(error));
+			return true;
+		}
+		this.pendingCompactionSummaryEditId = undefined;
+		this.addSubmittedTextToHistory(summary);
+		this.editor.setText("");
+		InteractiveMode.prototype.renderEditedCompactionSummary.call(this, entryId, summary);
+		this.showStatus("Compaction summary updated");
+		this.ui.requestRender();
+		return true;
+	}
+
+	private renderEditedCompactionSummary(entryId: string, summary: string): void {
+		const liveDisplay = this.liveCompactionDisplay;
+		if (liveDisplay?.entryId === entryId) {
+			this.rebuildChatAfterCompaction({ ...liveDisplay.result, summary }, liveDisplay.timestamp);
+			return;
+		}
+		this.chatContainer.clear();
+		this.renderInitialMessages();
+	}
+
+	private routePlainTextSubmission(text: string, submittedText: string): boolean | Promise<boolean> {
+		const isPlainText = !text.startsWith("/") && !text.startsWith("!");
+		if (!isPlainText) return false;
+		if (InteractiveMode.prototype.submitPendingCompactionSummaryEdit.call(this, text)) return true;
+		return this.submitSelectedAgentSteering(text, submittedText);
+	}
+
 	private setupEditorSubmitHandler(): void {
 		this.defaultEditor.onSubmit = async (text: string) => {
 			const submittedText = text;
@@ -3907,11 +3963,7 @@ export class InteractiveMode {
 				}
 			}
 
-			if (
-				!text.startsWith("/") &&
-				!text.startsWith("!") &&
-				(await this.submitSelectedAgentSteering(text, submittedText))
-			) {
+			if (await InteractiveMode.prototype.routePlainTextSubmission.call(this, text, submittedText)) {
 				return;
 			}
 
@@ -4815,10 +4867,18 @@ export class InteractiveMode {
 		InteractiveMode.prototype.renderSessionEntries.call(this, this.sessionManager.buildContextEntries());
 	}
 
-	private rebuildChatAfterCompaction(result: CompactionResult): void {
+	private rememberLiveCompactionDisplay(entries: SessionEntry[], result: CompactionResult, timestamp: string): void {
+		const compactionEntry = getLatestCompactionEntry(entries);
+		this.liveCompactionDisplay = compactionEntry ? { entryId: compactionEntry.id, result, timestamp } : undefined;
+	}
+
+	private rebuildChatAfterCompaction(result: CompactionResult, timestamp = new Date().toISOString()): void {
+		const entries = this.sessionManager.buildContextEntries();
+		InteractiveMode.prototype.rememberLiveCompactionDisplay.call(this, entries, result, timestamp);
+
 		this.chatContainer.clear();
 		this.addMessageToChat(
-			createCompactionSummaryMessage(result.summary, result.tokensBefore, new Date().toISOString(), {
+			createCompactionSummaryMessage(result.summary, result.tokensBefore, timestamp, {
 				durationMs: result.durationMs,
 				tokensAfter: result.estimatedTokensAfter,
 				keptFromPreviousContextTokens: result.keptFromPreviousContextTokens,
@@ -4826,8 +4886,8 @@ export class InteractiveMode {
 			}),
 		);
 
-		const entries = this.sessionManager.buildContextEntries().filter((entry) => entry.type !== "compaction");
-		InteractiveMode.prototype.renderSessionEntries.call(this, entries);
+		const nonCompactionEntries = entries.filter((entry) => entry.type !== "compaction");
+		InteractiveMode.prototype.renderSessionEntries.call(this, nonCompactionEntries);
 	}
 
 	// =========================================================================
@@ -5951,6 +6011,8 @@ export class InteractiveMode {
 							return;
 						}
 
+						this.pendingCompactionSummaryEditId = undefined;
+						this.liveCompactionDisplay = undefined;
 						this.editor.setText(result.selectedText ?? "");
 						done();
 						this.showStatus("Forked to new session");
@@ -6009,6 +6071,19 @@ export class InteractiveMode {
 		}
 	}
 
+	private handleTreeSelectionWithoutNavigation(entryId: string, leafId: string | null, done: () => void): boolean {
+		const selectedEntry = this.sessionManager.getEntry(entryId);
+		if (selectedEntry?.type === "compaction") {
+			done();
+			this.startCompactionSummaryEdit(selectedEntry);
+			return true;
+		}
+		if (entryId !== leafId) return false;
+		done();
+		this.showStatus("Already at this point");
+		return true;
+	}
+
 	private showTreeSelector(initialSelectedId?: string, filterMode?: FilterMode): void {
 		const tree = this.sessionManager.getTree();
 		const realLeafId = this.sessionManager.getLeafId();
@@ -6025,10 +6100,9 @@ export class InteractiveMode {
 				realLeafId,
 				this.ui.terminal.rows,
 				async (entryId) => {
-					// Selecting the current leaf is a no-op (already there)
-					if (entryId === realLeafId) {
-						done();
-						this.showStatus("Already at this point");
+					if (
+						InteractiveMode.prototype.handleTreeSelectionWithoutNavigation.call(this, entryId, realLeafId, done)
+					) {
 						return;
 					}
 
@@ -6108,6 +6182,8 @@ export class InteractiveMode {
 						}
 
 						// Update UI
+						this.pendingCompactionSummaryEditId = undefined;
+						this.liveCompactionDisplay = undefined;
 						this.chatContainer.clear();
 						this.renderInitialMessages();
 						if (result.editorText && !this.editor.getText().trim()) {

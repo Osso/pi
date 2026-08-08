@@ -56,6 +56,10 @@ With the setting disabled, registered `compaction` handlers still run for manual
 
 After successful live compaction, the transcript shows exactly one enriched generated summary first, followed by kept and post-compaction entries in canonical order. Entries removed by compaction are absent, and the summary is not duplicated.
 
+### Editing persisted compaction summaries
+
+In `/tree`, selecting a compaction entry loads its summary into the normal message editor, including when that entry is the current leaf. Submitting non-command text updates only that persisted summary in place; all other entry fields and the leaf remain unchanged. Pi refreshes the active LLM context and transcript without dropping live token, duration, or remote-result metadata, and the edited summary remains after reopening the session. Slash commands and `!` commands retain their normal handling.
+
 ```
 Before compaction:
 

@@ -63,83 +63,112 @@ function createCompactedEntries(): SessionEntry[] {
 	];
 }
 
+function createRenderingHarness() {
+	const entries = createCompactedEntries();
+	const fakeThis = {
+		isInitialized: true,
+		isViewingAgentSession: () => false,
+		handleHiddenMainSessionDisplayEvent: Reflect.get(
+			InteractiveMode.prototype,
+			"handleHiddenMainSessionDisplayEvent",
+		),
+		footer: { invalidate: vi.fn() },
+		autoCompactionEscapeHandler: undefined as (() => void) | undefined,
+		autoCompactionLoader: undefined,
+		defaultEditor: {},
+		editor: { addToHistory: vi.fn(), setText: vi.fn() },
+		pendingCompactionSummaryEditId: undefined as string | undefined,
+		statusContainer: { clear: vi.fn() },
+		chatContainer: new Container(),
+		session: {
+			updateCompactionSummary: (entryId: string, summary: string) => {
+				const entry = entries.find((candidate) => candidate.id === entryId);
+				if (!entry || entry.type !== "compaction") throw new Error("Expected compaction entry");
+				entry.summary = summary;
+			},
+		},
+		sessionManager: {
+			buildContextEntries: () => buildContextEntries(entries),
+			getCwd: () => "/repo",
+			getEntries: () => entries,
+		},
+		rebuildChatAfterCompaction: Reflect.get(InteractiveMode.prototype, "rebuildChatAfterCompaction"),
+		renderInitialMessages: Reflect.get(InteractiveMode.prototype, "renderInitialMessages"),
+		renderProjectTrustWarningIfNeeded: vi.fn(),
+		renderSessionEntries: Reflect.get(InteractiveMode.prototype, "renderSessionEntries"),
+		renderSessionItems: Reflect.get(InteractiveMode.prototype, "renderSessionItems"),
+		clearPendingToolComponents: Reflect.get(InteractiveMode.prototype, "clearPendingToolComponents"),
+		pendingTools: new Map(),
+		completedToolTimings: new Map(),
+		addMessageToChat: Reflect.get(InteractiveMode.prototype, "addMessageToChat"),
+		addRenderedMessageToEditorHistory: vi.fn(),
+		addSubmittedTextToHistory: vi.fn(),
+		getUserMessageText: Reflect.get(InteractiveMode.prototype, "getUserMessageText"),
+		getMarkdownThemeWithSettings: Reflect.get(InteractiveMode.prototype, "getMarkdownThemeWithSettings"),
+		getRegisteredToolDefinition: () => undefined,
+		toolOutputExpanded: true,
+		hideThinkingBlock: false,
+		hiddenThinkingLabel: "Thinking...",
+		showError: vi.fn(),
+		showStatus: vi.fn(),
+		flushCompactionQueue: vi.fn().mockResolvedValue(undefined),
+		setPromptActivity: vi.fn(),
+		settingsManager: {
+			getShowTerminalProgress: () => false,
+			getShowImages: () => false,
+			getImageWidthCells: () => 80,
+			getCodeBlockIndent: () => 0,
+		},
+		ui: { requestRender: vi.fn(), terminal: { setProgress: vi.fn() } },
+		updateEditorBorderColor: vi.fn(),
+	};
+	const handleEvent = Reflect.get(InteractiveMode.prototype, "handleEvent") as (
+		this: typeof fakeThis,
+		event: Extract<AgentSessionEvent, { type: "compaction_end" }>,
+	) => Promise<void>;
+	const submitCompactionEdit = Reflect.get(InteractiveMode.prototype, "submitPendingCompactionSummaryEdit") as (
+		this: typeof fakeThis,
+		summary: string,
+	) => boolean;
+	const compactionEndEvent: Extract<AgentSessionEvent, { type: "compaction_end" }> = {
+		type: "compaction_end",
+		reason: "manual",
+		result: {
+			tokensBefore: 123,
+			summary: "generated summary",
+			firstKeptEntryId: "kept-user",
+			durationMs: 4567,
+			estimatedTokensAfter: 89,
+			keptFromPreviousContextTokens: 67,
+			compactedResultTokens: 22,
+			source: {
+				type: "openai_remote",
+				provider: "openai",
+				model: "gpt-4.1-mini",
+				endpoint: "https://api.openai.com/v1/responses/compact",
+			},
+		},
+		aborted: false,
+		willRetry: false,
+	};
+	return { compactionEndEvent, fakeThis, handleEvent, submitCompactionEdit };
+}
+
+function renderedTranscript(fakeThis: ReturnType<typeof createRenderingHarness>["fakeThis"]): string {
+	return stripAnsi(fakeThis.chatContainer.render(220).join("\n")).trim();
+}
+
 describe("InteractiveMode compaction transcript rendering", () => {
 	beforeAll(() => {
 		initTheme("dark");
 	});
 
 	test("renders one enriched compaction summary before kept messages after compaction", async () => {
-		const entries = createCompactedEntries();
-		const fakeThis = {
-			isInitialized: true,
-			isViewingAgentSession: () => false,
-			handleHiddenMainSessionDisplayEvent: Reflect.get(
-				InteractiveMode.prototype,
-				"handleHiddenMainSessionDisplayEvent",
-			),
-			footer: { invalidate: vi.fn() },
-			autoCompactionEscapeHandler: undefined as (() => void) | undefined,
-			autoCompactionLoader: undefined,
-			defaultEditor: {},
-			statusContainer: { clear: vi.fn() },
-			chatContainer: new Container(),
-			sessionManager: {
-				buildContextEntries: () => buildContextEntries(entries),
-				getCwd: () => "/repo",
-			},
-			rebuildChatAfterCompaction: Reflect.get(InteractiveMode.prototype, "rebuildChatAfterCompaction"),
-			renderSessionEntries: Reflect.get(InteractiveMode.prototype, "renderSessionEntries"),
-			renderSessionItems: Reflect.get(InteractiveMode.prototype, "renderSessionItems"),
-			clearPendingToolComponents: Reflect.get(InteractiveMode.prototype, "clearPendingToolComponents"),
-			pendingTools: new Map(),
-			completedToolTimings: new Map(),
-			addMessageToChat: Reflect.get(InteractiveMode.prototype, "addMessageToChat"),
-			getUserMessageText: Reflect.get(InteractiveMode.prototype, "getUserMessageText"),
-			getMarkdownThemeWithSettings: Reflect.get(InteractiveMode.prototype, "getMarkdownThemeWithSettings"),
-			getRegisteredToolDefinition: () => undefined,
-			toolOutputExpanded: true,
-			hideThinkingBlock: false,
-			hiddenThinkingLabel: "Thinking...",
-			showError: vi.fn(),
-			showStatus: vi.fn(),
-			flushCompactionQueue: vi.fn().mockResolvedValue(undefined),
-			setPromptActivity: vi.fn(),
-			settingsManager: {
-				getShowTerminalProgress: () => false,
-				getShowImages: () => false,
-				getImageWidthCells: () => 80,
-				getCodeBlockIndent: () => 0,
-			},
-			ui: { requestRender: vi.fn(), terminal: { setProgress: vi.fn() } },
-		};
-		const handleEvent = Reflect.get(InteractiveMode.prototype, "handleEvent") as (
-			this: typeof fakeThis,
-			event: Extract<AgentSessionEvent, { type: "compaction_end" }>,
-		) => Promise<void>;
+		const { compactionEndEvent, fakeThis, handleEvent } = createRenderingHarness();
 
-		await handleEvent.call(fakeThis, {
-			type: "compaction_end",
-			reason: "manual",
-			result: {
-				tokensBefore: 123,
-				summary: "generated summary",
-				firstKeptEntryId: "kept-user",
-				durationMs: 4567,
-				estimatedTokensAfter: 89,
-				keptFromPreviousContextTokens: 67,
-				compactedResultTokens: 22,
-				source: {
-					type: "openai_remote",
-					provider: "openai",
-					model: "gpt-4.1-mini",
-					endpoint: "https://api.openai.com/v1/responses/compact",
-				},
-			},
-			aborted: false,
-			willRetry: false,
-		});
+		await handleEvent.call(fakeThis, compactionEndEvent);
 
-		const output = stripAnsi(fakeThis.chatContainer.render(220).join("\n")).trim();
+		const output = renderedTranscript(fakeThis);
 		const summaryIndex = output.indexOf("generated summary");
 		const keptIndex = output.indexOf("kept user");
 		const postIndex = output.indexOf("post-compaction user");
@@ -155,5 +184,18 @@ describe("InteractiveMode compaction transcript rendering", () => {
 			"Compaction completed via OpenAI remote endpoint (openai/gpt-4.1-mini, https://api.openai.com/v1/responses/compact)",
 		);
 		expect(fakeThis.flushCompactionQueue).toHaveBeenCalledWith({ willRetry: false });
+	});
+
+	test("keeps live compaction metadata visible after editing the summary", async () => {
+		const { compactionEndEvent, fakeThis, handleEvent, submitCompactionEdit } = createRenderingHarness();
+		await handleEvent.call(fakeThis, compactionEndEvent);
+		fakeThis.pendingCompactionSummaryEditId = "compaction";
+
+		expect(submitCompactionEdit.call(fakeThis, "edited summary")).toBe(true);
+
+		const output = renderedTranscript(fakeThis);
+		expect(output).toContain("edited summary");
+		expect(output).not.toContain("generated summary");
+		expect(output).toContain("Compacted from 123 to 89 tokens; kept 67 tokens; remote result 22 tokens in 4.6s");
 	});
 });

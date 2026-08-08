@@ -50,6 +50,7 @@ terminal_resize_reflow_max_rows = 5000
 
 - [x] Successful live compaction renders exactly one enriched generated summary first, followed by kept and post-compaction transcript entries in canonical order; compacted-away entries are absent (`interactive-mode-compaction-rendering.test.ts`: “renders one enriched compaction summary before kept messages after compaction”).
 - [x] `/tree` user-only mode is compaction-aware on the active branch, showing the generated summary first followed by retained and later user prompts in canonical context order, while default and other filters retain the full persisted tree and pre-compaction tree behavior is unchanged (`tree-selector-compaction.test.ts`: “shows the generated compaction summary before retained active-context prompts”).
+- [x] Selecting a compaction summary in `/tree` loads it into the normal message editor even when it is the current leaf; submitting non-command text updates only that persisted summary, preserving all other entry fields and the leaf, refreshing active LLM context and transcript without dropping live compaction metadata, and surviving reopen (`interactive-mode-compaction-edit.test.ts`, `interactive-mode-compaction-rendering.test.ts`, `agent-session-compaction-summary-edit.test.ts`, `update-compaction-summary.test.ts`).
 
 ### Working indicator
 

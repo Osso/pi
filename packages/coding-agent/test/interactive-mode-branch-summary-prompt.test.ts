@@ -94,6 +94,7 @@ type BranchContext = {
 			navigateTree: ReturnType<typeof vi.fn>;
 			sessionManager: {
 				appendLabelChange(entryId: string, label: string | undefined): void;
+				getEntry(entryId: string): SessionMessageEntry | undefined;
 				getLeafId(): string;
 				getTree(): SessionTreeNode[];
 			};
@@ -153,6 +154,7 @@ describe("InteractiveMode branch-summary prompt activity", () => {
 					navigateTree,
 					sessionManager: {
 						appendLabelChange: vi.fn(),
+						getEntry: () => undefined,
 						getLeafId: () => "leaf",
 						getTree: createTree,
 					},

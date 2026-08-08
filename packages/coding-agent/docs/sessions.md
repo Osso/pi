@@ -128,7 +128,13 @@ Selecting a user or custom message:
 2. Places the selected message text in the editor.
 3. Lets you edit and resubmit, creating a new branch.
 
-Selecting an assistant, tool, compaction, or other non-user entry:
+Selecting a compaction summary:
+
+1. Loads the summary into the normal message editor, even when it is the current leaf.
+2. Lets you submit non-command text to update only that persisted summary.
+3. Preserves every other entry field and the leaf while refreshing active LLM context and transcript without dropping live compaction metadata; the edit survives reopening the session.
+
+Selecting an assistant, tool, or other non-user entry:
 
 1. Moves the leaf to that entry.
 2. Leaves the editor empty.

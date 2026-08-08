@@ -1783,6 +1783,29 @@ export class SessionManager {
 		return entry.id;
 	}
 
+	/** Update a compaction summary without changing the entry's tree position or metadata. */
+	updateCompactionSummary(entryId: string, summary: string): void {
+		const entry = this.byId.get(entryId);
+		if (!entry) {
+			throw new Error(`Entry ${entryId} not found`);
+		}
+		if (entry.type !== "compaction") {
+			throw new Error(`Entry ${entryId} is not a compaction`);
+		}
+		const trimmedSummary = summary.trim();
+		if (!trimmedSummary) {
+			throw new Error("Compaction summary must be non-empty");
+		}
+		const previousSummary = entry.summary;
+		entry.summary = trimmedSummary;
+		try {
+			this._rewriteFile();
+		} catch (error: unknown) {
+			entry.summary = previousSummary;
+			throw error;
+		}
+	}
+
 	/** Append a custom entry (for extensions) as child of current leaf, then advance leaf. Returns entry id. */
 	appendCustomEntry(customType: string, data?: unknown): string {
 		const entry: CustomEntry = {
@@ -1960,8 +1983,9 @@ export class SessionManager {
 
 	/**
 	 * Get all session entries (excludes header). Returns a shallow copy.
-	 * The session is append-only: use appendXXX() to add entries, branch() to
-	 * change the leaf pointer. Entries cannot be modified or deleted.
+	 * The session is append-only for new entries. Use appendXXX() to add entries and branch() to
+	 * change the leaf pointer. Entries cannot be deleted; updateCompactionSummary() is the only
+	 * supported mutation of an existing entry.
 	 */
 	getEntries(): SessionEntry[] {
 		return this.fileEntries.filter((e): e is SessionEntry => e.type !== "session");
