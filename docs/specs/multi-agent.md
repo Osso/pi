@@ -197,8 +197,13 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   bridge responses, and lifecycle completion use durable runtime-mailbox store references. If a detached
   `running` or `cancelling` runner dies before its terminal commit, reconciliation marks it `failed/lost_runtime`
   or `aborted/lost_runtime` from the exact persisted process identity, regardless of parent-session liveness;
-  an exact live replacement identity remains untouched. It does not replay output or reconstruct a terminal result. Coordinator
-  cancellation and its durable store/transport rows commit in one SQLite transaction; transport insertion
+  an exact live replacement identity remains untouched. It does not replay output or reconstruct a terminal result.
+  Foreground Pyrun artifacts without a registered lifecycle row are separate: recovery replays complete durable
+  result/error records, preserves `launch.json`, `script.py`, and `output.log`, ignores an incomplete trailing JSONL
+  record, and returns explicit `lost_runtime` without rerunning submitted code when no terminal record exists;
+  malformed complete JSONL fails explicitly. Registered detached jobs continue through lifecycle reconciliation and
+  exactly-once terminal outbox finalization. Coordinator cancellation and its durable store/transport rows commit
+  in one SQLite transaction; transport insertion
   failure rolls the lifecycle mutation back. Bash manifest persistence failure kills the unactivated runner,
   commits the registered row as failed through its exact ownership, and reports the launch error in the same call.
   A live runner retries the same terminal input only for SQLite
