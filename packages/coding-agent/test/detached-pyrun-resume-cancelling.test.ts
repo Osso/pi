@@ -162,6 +162,10 @@ function createRestorablePyrunArtifact(toolCallId: string, output: string): Rest
 	const manifestPath = join(directory, "launch.json");
 	writeFileSync(outputPath, output, { mode: 0o600 });
 	writeFileSync(scriptPath, `${params.code}\n`, { mode: 0o600 });
+	const deadRunnerProcessIdentity = {
+		...CURRENT_PROCESS_IDENTITY,
+		startTimeTicks: CURRENT_PROCESS_IDENTITY.startTimeTicks + 1,
+	};
 	writeDetachedPyrunLaunchManifest(manifestPath, {
 		activationPath: join(directory, "activation.json"),
 		artifacts: { directory, outputPath },
@@ -172,10 +176,7 @@ function createRestorablePyrunArtifact(toolCallId: string, output: string): Rest
 		params: createCanonicalPyrunEvalParams(params, ctx, false),
 		runnerAddress: { agentId: "pyrun_1", sessionId: sessionManager.getSessionId() },
 		runnerOptions: evalInput.runnerOptions,
-		runnerProcessIdentity: {
-			...CURRENT_PROCESS_IDENTITY,
-			startTimeTicks: CURRENT_PROCESS_IDENTITY.startTimeTicks + 1,
-		},
+		runnerProcessIdentity: deadRunnerProcessIdentity,
 		sessionPath,
 		startedAt: Date.now() - 100,
 		supervisorProcessIdentity: CURRENT_PROCESS_IDENTITY,
@@ -218,7 +219,7 @@ async function replayInterruptedCall(
 	});
 }
 
-describe("resuming a detached Pyrun job whose lifecycle is cancelling", () => {
+describe("resuming durable Pyrun artifacts", () => {
 	it("replays a complete terminal result without launching replacement code", async () => {
 		const output = [
 			JSON.stringify({ kind: "progress", update: { stream: "stdout", text: "streamed output\n", type: "console" } }),
@@ -237,6 +238,7 @@ describe("resuming a detached Pyrun job whose lifecycle is cancelling", () => {
 		expect(readFileSync(fixture.outputPath, "utf8")).toBe(output);
 		expect(existsSync(fixture.manifestPath)).toBe(true);
 		expect(existsSync(fixture.scriptPath)).toBe(true);
+		expect(existsSync(pyrunJobDirectory(fixture, "pyrun_2"))).toBe(false);
 	});
 
 	it("replays a complete terminal error with preceding console output", async () => {
@@ -253,6 +255,7 @@ describe("resuming a detached Pyrun job whose lifecycle is cancelling", () => {
 		expect(JSON.stringify(resumed.content)).toContain("before failure");
 		expect(JSON.stringify(resumed.content)).toContain("failed durably");
 		expect(readFileSync(fixture.outputPath, "utf8")).toBe(output);
+		expect(existsSync(pyrunJobDirectory(fixture, "pyrun_2"))).toBe(false);
 	});
 
 	it("ignores an incomplete trailing record when reporting a lost runtime", async () => {
@@ -272,6 +275,7 @@ describe("resuming a detached Pyrun job whose lifecycle is cancelling", () => {
 		expect(readFileSync(fixture.outputPath, "utf8")).toBe(output);
 		expect(existsSync(fixture.manifestPath)).toBe(true);
 		expect(existsSync(fixture.scriptPath)).toBe(true);
+		expect(existsSync(pyrunJobDirectory(fixture, "pyrun_2"))).toBe(false);
 	});
 
 	it("settles the matched job to aborted instead of re-running it", async () => {
