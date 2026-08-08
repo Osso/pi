@@ -64,7 +64,8 @@ function persistDelegationMode(pi: ExtensionAPI, state: DelegationState): void {
 }
 
 function updateDelegationStatus(ctx: ExtensionContext, state: DelegationState): void {
-	ctx.ui.setStatus(DELEGATION_STATUS_KEY, `multi-agent: ${state.mode}`);
+	const prefix = ctx.ui.theme.fg("dim", "multi-agent: ");
+	ctx.ui.setStatus(DELEGATION_STATUS_KEY, `${prefix}${state.mode}`);
 }
 
 function policyText(mode: MultiAgentMode): string {

@@ -7,6 +7,7 @@ import type {
 	RegisteredCommand,
 } from "../src/core/extensions/types.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../src/core/slash-commands.ts";
+import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 
 function requireSystemPrompt(result: unknown): string {
 	if (
@@ -52,7 +53,11 @@ function createCommandHarness(options?: {
 	const notify = vi.fn();
 	const select = vi.fn().mockResolvedValue(options?.selectedEffort);
 	const setEditorText = vi.fn();
-	const setStatus = vi.fn();
+	const extensionStatuses = new Map<string, string>();
+	const setStatus = vi.fn((key: string, status: string | undefined) => {
+		if (status === undefined) extensionStatuses.delete(key);
+		else extensionStatuses.set(key, status);
+	});
 	const setTargetThinkingLevel = vi.fn((level: string) => {
 		thinkingLevel = level;
 	});
@@ -70,7 +75,7 @@ function createCommandHarness(options?: {
 		},
 		multiAgentAgentId: options?.child ? "child-agent" : undefined,
 		sessionManager,
-		ui: { notify, select, setEditorText, setStatus },
+		ui: { notify, select, setEditorText, setStatus, theme },
 		getThinkingLevel: () => thinkingLevel,
 		setThinkingLevel: setTargetThinkingLevel,
 	} as unknown as ExtensionCommandContext;
@@ -82,6 +87,7 @@ function createCommandHarness(options?: {
 		appendEntry,
 		command,
 		ctx,
+		extensionStatuses,
 		handlers,
 		multiAgentCommand,
 		notify,
@@ -180,6 +186,17 @@ describe("effort extension", () => {
 		expect(result).toMatchObject({
 			systemPrompt: expect.stringContaining("Proactive multi-agent delegation is active."),
 		});
+	});
+
+	it("dims only the multi-agent status prefix", async () => {
+		initTheme(undefined, false);
+		const { ctx, extensionStatuses, handlers } = createCommandHarness();
+		const sessionStart = handlers.get("session_start")?.[0];
+		if (!sessionStart) throw new Error("expected session_start handler");
+
+		await sessionStart({ type: "session_start", reason: "new" }, ctx);
+
+		expect(extensionStatuses.get("multi-agent-mode")).toBe(`${theme.fg("dim", "multi-agent: ")}proactive`);
 	});
 
 	it("persists and restores explicit delegation without retaining proactive policy", async () => {
