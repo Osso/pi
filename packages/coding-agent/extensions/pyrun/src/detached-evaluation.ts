@@ -4,10 +4,10 @@ import {
 	fsyncSync,
 	fstatSync,
 	openSync,
+	readFileSync,
 	readSync,
 	readdirSync,
 	renameSync,
-	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
@@ -63,7 +63,14 @@ export async function runDurableDetachablePyrunEvaluation(input: {
 	const controller = createPyrunLifecycleController(input, persistence);
 	const restored = await restoreForegroundPyrunRunner(input, persistence);
 	if (restored?.kind === "aborted") return formatTerminalAgentError(input.params, restored.agent);
-	const runner = restored?.runner ?? launchForegroundPyrunRunner(input, persistence, controller, startedAt);
+	if (restored?.kind === "terminal") return formatCanonicalPyrunEvalResult(input.params, restored.result);
+	if (restored?.kind === "lost_runtime") {
+		return formatLostPyrunRuntime(input.params, restored.records, restored.outputPath);
+	}
+	const runner =
+		restored?.kind === "resume"
+			? restored.runner
+			: launchForegroundPyrunRunner(input, persistence, controller, startedAt);
 	return observeDetachablePyrunEvaluation({ ...input, controller, runner });
 }
 
@@ -100,7 +107,9 @@ type PyrunLaunchManifest = ReturnType<typeof readDetachedPyrunLaunchManifest>;
 
 type PyrunResumeDecision =
 	| { kind: "resume"; runner: RestoredPyrunRunner }
-	| { kind: "aborted"; agent: AgentSnapshot };
+	| { kind: "aborted"; agent: AgentSnapshot }
+	| { kind: "terminal"; result: CanonicalPyrunEvalResult }
+	| { kind: "lost_runtime"; outputPath: string; records: PyrunArtifactRecord[] };
 
 interface PyrunManifestCandidate {
 	directory: string;
@@ -141,9 +150,11 @@ function restorePyrunCandidate(
 	if (JSON.stringify(manifest.params) !== JSON.stringify(expectedParams)) {
 		throw new Error(`Pyrun tool-call artifact collision for ${toolCallId}`);
 	}
+	const records = readCompletePyrunArtifactRecords(manifest.artifacts.outputPath);
+	const terminalResult = restoreTerminalPyrunResult(records);
+	if (terminalResult) return { kind: "terminal", result: terminalResult };
 	if (!isProcessIdentityAlive(manifest.runnerProcessIdentity)) {
-		rmSync(directory, { recursive: true, force: true });
-		return undefined;
+		return { kind: "lost_runtime", outputPath: manifest.artifacts.outputPath, records };
 	}
 	const scriptPath = join(directory, "script.py");
 	if (!existsSync(scriptPath)) throw new Error(`Pyrun script artifact is missing: ${scriptPath}`);
@@ -221,6 +232,61 @@ async function settleCancellingPyrunJob(
 	);
 	if (finalized.ok) return finalized.terminalAgent;
 	return readMultiAgentAgent(persistence.controlDbPath, persistence.sessionPath, persisted.id) ?? persisted;
+}
+
+function readCompletePyrunArtifactRecords(path: string): PyrunArtifactRecord[] {
+	if (!existsSync(path)) return [];
+	const text = readFileSync(path, "utf8");
+	const lastNewline = text.lastIndexOf("\n");
+	if (lastNewline === -1) return [];
+	return text
+		.slice(0, lastNewline)
+		.split("\n")
+		.filter((line) => line.length > 0)
+		.map((line) => JSON.parse(line) as PyrunArtifactRecord);
+}
+
+function pyrunConsoleRecords(records: PyrunArtifactRecord[]): string[] {
+	return records.flatMap((record) => {
+		if (record.kind !== "progress" || record.update.type !== "console" || typeof record.update.text !== "string") {
+			return [];
+		}
+		return [record.update.text];
+	});
+}
+
+function restoreTerminalPyrunResult(records: PyrunArtifactRecord[]): CanonicalPyrunEvalResult | undefined {
+	let terminalResult: CanonicalPyrunEvalResult | undefined;
+	for (const record of records) {
+		if (record.kind === "progress") continue;
+		if (terminalResult) throw new Error("Pyrun output artifact contains multiple terminal records");
+		terminalResult =
+			record.kind === "result"
+				? record.result
+				: { console: pyrunConsoleRecords(records), error: record.error, type: "error" };
+	}
+	return terminalResult;
+}
+
+function formatLostPyrunRuntime(
+	params: PyrunEvalParams,
+	records: PyrunArtifactRecord[],
+	outputPath: string,
+): AgentToolResult<unknown> {
+	const error = "Pyrun runner exited before producing a result.";
+	const formatted = formatCanonicalPyrunEvalResult(params, {
+		console: pyrunConsoleRecords(records),
+		error,
+		executed: params.code,
+		type: "error",
+	});
+	return {
+		...formatted,
+		content: formatted.content.map((item) =>
+			item.type === "text" ? { ...item, text: `${item.text}\nPreserved output: ${outputPath}` } : item,
+		),
+		details: { ...formatted.details, outputPath, type: "lost_runtime" },
+	};
 }
 
 function writeDurablePyrunScript(path: string, code: string): void {

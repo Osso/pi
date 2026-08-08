@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -1505,7 +1505,7 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
-	it("reruns an unfinished Pyrun JSONL tool call when its original runner is dead", async () => {
+	it("does not rerun an unfinished Pyrun tool call after its runner dies", async () => {
 		await withHeadlessPi(async (agent) => {
 			const attemptPath = join(agent.paths.workspaceDir, "attempts-dead-pyrun");
 			const releasePath = join(agent.paths.workspaceDir, "release-dead-pyrun");
@@ -1514,9 +1514,9 @@ describe("headless Pi fixture", () => {
 				"import time",
 				`attempt = Path(${JSON.stringify(attemptPath)})`,
 				`release = Path(${JSON.stringify(releasePath)})`,
-				`attempt.write_text((attempt.read_text() if attempt.exists() else "") + "x")`,
+				`attempt.write_text((attempt.read_text() if attempt.exists() else "") + "original-run\\n")`,
+				'print("original-pyrun-output", flush=True)',
 				"while not release.exists(): time.sleep(0.05)",
-				'print("rerun-pyrun-output")',
 			].join("\n");
 			await agent.send({ type: "prompt", message: "Wait in Pyrun for the release marker" });
 			const initialRequest = await agent.waitForLlmRequest();
@@ -1525,24 +1525,53 @@ describe("headless Pi fixture", () => {
 				fauxAssistantMessage(fauxToolCall("pyrun_eval", { code }), { stopReason: "toolUse" }),
 			);
 			await agent.waitForEvent((event) => event.type === "tool_execution_start");
-			await waitForFileContent(attemptPath, "x");
+			await waitForFileContent(attemptPath, "original-run\n");
 			const [originalPid] = agent.getPyrunRunnerPids();
 			if (!originalPid) throw new Error("Pyrun runner has no PID");
+			const launchManifestPath = readdirSync(agent.paths.sessionDir, { recursive: true })
+				.filter((path): path is string => typeof path === "string" && path.endsWith("launch.json"))
+				.map((path) => join(agent.paths.sessionDir, path))
+				.find((path) => {
+					const manifest = JSON.parse(readFileSync(path, "utf8")) as {
+						runnerProcessIdentity?: { pid?: number };
+					};
+					return manifest.runnerProcessIdentity?.pid === originalPid;
+				});
+			if (!launchManifestPath) throw new Error("Pyrun launch manifest not found");
+			const launchManifest = JSON.parse(readFileSync(launchManifestPath, "utf8")) as {
+				artifacts?: { outputPath?: string };
+			};
+			const outputPath = launchManifest.artifacts?.outputPath;
+			if (!outputPath) throw new Error("Pyrun output path not found in launch manifest");
+			const scriptPath = join(dirname(launchManifestPath), "script.py");
+			await vi.waitFor(() => {
+				expect(existsSync(outputPath)).toBe(true);
+				expect(readFileSync(outputPath, "utf8")).toContain("original-pyrun-output");
+			});
 
 			await agent.crash();
 			killProcessGroup(originalPid);
 			await vi.waitFor(() => expect(() => process.kill(originalPid, 0)).toThrow());
-			await agent.restart();
-			await agent.waitForEvent((event) => event.type === "tool_execution_start");
-			await waitForFileContent(attemptPath, "xx");
-			const replacementPids = agent.getPyrunRunnerPids().filter((pid) => pid !== originalPid);
-			expect(replacementPids).toHaveLength(1);
 
-			writeFileSync(releasePath, "release");
-			const restoredRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
-			expectSingleToolResult(restoredRequest, "rerun-pyrun-output");
-			agent.respondToLlmRequest(restoredRequest.id, fauxAssistantMessage("Dead Pyrun rerun"));
-			await agent.waitForEvent((event) => event.type === "agent_end");
+			try {
+				await agent.restart();
+				writeFileSync(releasePath, "release");
+				expect(existsSync(outputPath), "original Pyrun output log must survive runner loss").toBe(true);
+				expect(readFileSync(outputPath, "utf8")).toContain("original-pyrun-output");
+				const restoredRequest = await agent.waitForLlmRequest((request) => request.agentId === null, 2_000);
+				expectSingleFailedToolResult(restoredRequest, "original-pyrun-output");
+				const [restoredResult] = restoredRequest.messages.filter((message) => message.role === "toolResult");
+				expect(restoredResult).toMatchObject({ details: { outputPath, type: "lost_runtime" } });
+				expect(readFileSync(attemptPath, "utf8")).toBe("original-run\n");
+				expect(existsSync(launchManifestPath)).toBe(true);
+				expect(existsSync(scriptPath)).toBe(true);
+				expect(agent.getPyrunRunnerPids().filter(isProcessAlive)).toHaveLength(0);
+				expect(agent.listAgents().filter((candidate) => candidate.displayName === "Pyrun evaluation")).toHaveLength(
+					0,
+				);
+			} finally {
+				for (const pid of agent.getPyrunRunnerPids().filter(isProcessAlive)) killProcessGroup(pid);
+			}
 		});
 	});
 
