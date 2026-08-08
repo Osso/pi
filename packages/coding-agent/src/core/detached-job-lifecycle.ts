@@ -2,9 +2,11 @@ import { basename, extname, join } from "node:path";
 import { launchDetachedBashRunner, writeDetachedBashLaunchManifest } from "./detached-bash-runner.ts";
 import {
 	createDetachedJobArtifacts,
+	DetachedJobArtifactExistsError,
 	type DetachedJobLifecycleController,
 	type DetachedJobOwnership,
 	type RegisterDetachedJobInput,
+	type ReservedDetachedJob,
 	reserveDetachedJobArtifacts,
 } from "./detached-job-runner.ts";
 import type { LifecycleCoordinator } from "./lifecycle-coordinator.ts";
@@ -75,6 +77,7 @@ export function createDetachedJobLifecycleController(
 			return agent;
 		},
 		register: (input) => registerDetachedJob(options, input),
+		reserveJob: (agentType) => reserveDetachedJob(options.store, artifactRoot, agentType),
 	};
 }
 
@@ -101,8 +104,7 @@ function launchDetachedBashJob(
 	options: DetachedJobLifecycleControllerOptions,
 	input: Parameters<DetachedJobLifecycleController["launchBash"]>[0],
 ): ReturnType<DetachedJobLifecycleController["launchBash"]> {
-	const jobId = options.store.allocateAgentIdForLifecycleCoordinator("bash");
-	const artifacts = reserveDetachedJobArtifacts(detachedJobArtifactRoot(options), jobId);
+	const { artifacts, jobId } = reserveDetachedJob(options.store, detachedJobArtifactRoot(options), "bash");
 	const activationPath = join(artifacts.directory, "activation.json");
 	const foregroundCompletionPath = join(artifacts.directory, "foreground-completed");
 	const manifestPath = join(artifacts.directory, "launch.json");
@@ -128,6 +130,21 @@ function launchDetachedBashJob(
 		throw error;
 	}
 	return { activationPath, artifacts, foregroundCompletionPath, jobId, manifestPath, processIdentity, runnerPid };
+}
+
+function reserveDetachedJob(
+	store: MultiAgentStore,
+	artifactRoot: string,
+	agentType: "bash" | "pyrun",
+): ReservedDetachedJob {
+	for (;;) {
+		const jobId = store.allocateAgentIdForLifecycleCoordinator(agentType);
+		try {
+			return { artifacts: reserveDetachedJobArtifacts(artifactRoot, jobId), jobId };
+		} catch (error) {
+			if (!(error instanceof DetachedJobArtifactExistsError)) throw error;
+		}
+	}
 }
 
 function detachedJobArtifactRoot(options: DetachedJobLifecycleControllerOptions): string {

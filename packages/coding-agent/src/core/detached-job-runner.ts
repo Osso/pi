@@ -22,6 +22,18 @@ export interface DetachedJobArtifacts {
 	outputPath: string;
 }
 
+export interface ReservedDetachedJob {
+	artifacts: DetachedJobArtifacts;
+	jobId: string;
+}
+
+export class DetachedJobArtifactExistsError extends Error {
+	constructor(directory: string) {
+		super(`Detached job artifact directory already exists: ${directory}`);
+		this.name = "DetachedJobArtifactExistsError";
+	}
+}
+
 export interface DetachedJobTerminalInput extends DetachedJobOwnershipIdentity {
 	terminalAt: string;
 	toolCallId?: string;
@@ -84,6 +96,7 @@ export interface DetachedJobLifecycleController {
 	markDetached(ownership: DetachedJobOwnership): DetachedJobLifecycleCommandResult;
 	observe(jobId: string): AgentSnapshot | undefined;
 	register(input: RegisterDetachedJobInput): DetachedJobOwnership;
+	reserveJob(agentType: "bash" | "pyrun"): ReservedDetachedJob;
 }
 
 export interface DetachedJobRunnerContract {
@@ -105,7 +118,7 @@ export function reserveDetachedJobArtifacts(rootDirectory: string, jobId: string
 		mkdirSync(directory, { mode: 0o700 });
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-			throw new Error(`Detached job artifact directory already exists: ${directory}`);
+			throw new DetachedJobArtifactExistsError(directory);
 		}
 		throw error;
 	}

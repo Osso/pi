@@ -122,6 +122,7 @@
 - Fixed root renders triggered by invisible assistant stream updates: hidden thinking, partial tool-call events, and hidden main-session message updates while viewing a child are now skipped, while visible text/thinking and final message rendering remain unchanged.
 - Fixed interactive Pi exhausting memory on dense Pyrun console streams by reading durable artifacts in bounded chunks and coalescing live updates while retaining the complete append-only output artifact.
 - Fixed compacted child recovery after `restart_self`: active `agent_start` admissions are refreshed after parent compaction, and legacy compacted sessions restore missing unmatched admissions from the full parent JSONL before rebinding the live child and delivering queued steering; exact-owner cancellation can then commit `aborted`, and model-facing `list_agents` excludes the terminal child.
+- Fixed detached Bash and Pyrun allocation reusing retained artifact directories when persisted IDs collide; allocation now advances to a free directory and preserves retained evidence.
 
 ### Changed
 

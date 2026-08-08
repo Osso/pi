@@ -1,6 +1,6 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	createDetachedJobLifecycleController,
@@ -9,7 +9,8 @@ import {
 import { createDetachedJobTerminalInput } from "../src/core/detached-job-runner.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
-import { finalizeDetachedJob, readMultiAgentState } from "../src/core/session-control-db.ts";
+import { finalizeDetachedJob, readMultiAgentState, writeMultiAgentCounters } from "../src/core/session-control-db.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
 import { testProcessIdentity } from "./helpers/process-identity.ts";
 
 const temporaryDirectories = new Set<string>();
@@ -71,12 +72,65 @@ describe("detached job lifecycle controller", () => {
 		expect(() => fixture.controller.createArtifacts("agent_1")).toThrow(/already exists/i);
 	});
 
-	it("kills and fails a Bash runner when launch manifest persistence fails", () => {
+	it.each(["bash", "pyrun"] as const)(
+		"reserves distinct %s jobs without reusing retained artifact directories",
+		(agentType) => {
+			const root = mkdtempSync(join(tmpdir(), `pi-detached-lifecycle-${agentType}-collision-`));
+			temporaryDirectories.add(root);
+			const sessionManager = SessionManager.create(root, join(root, "sessions"));
+			const controlDbPath = join(root, "control.sqlite");
+			sessionManager.setMetadataControlDbPath(controlDbPath);
+			const sessionPath = sessionManager.getSessionFile();
+			if (!sessionPath) throw new Error("Expected persisted session path");
+
+			const store = new MultiAgentStore();
+			store.setPersistenceSessionManager(sessionManager);
+			writeMultiAgentCounters(controlDbPath, sessionPath, { nextAgentNumber: 1, nextMessageNumber: 1 });
+			const coordinator = new LifecycleCoordinator({
+				controlDbPath,
+				createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
+				now: () => "2026-07-11T22:00:00.000Z",
+				processIdentity: testProcessIdentity(`persisted-${agentType}-runtime`),
+				sessionPath,
+			});
+			const controller = createDetachedJobLifecycleController({
+				artifactRoot: root,
+				controlDbPath,
+				coordinator,
+				ownerSessionId: sessionManager.getSessionId(),
+				sessionPath,
+				store,
+			});
+			const retainedDirectory = controller.createArtifacts(`${agentType}_1`).directory;
+			const markerPath = join(retainedDirectory, "retained-marker");
+			writeFileSync(markerPath, "preserve this evidence", { mode: 0o600 });
+
+			const first = controller.reserveJob(agentType);
+			const second = controller.reserveJob(agentType);
+
+			expect(first.jobId).toBe(`${agentType}_2`);
+			expect(second.jobId).toBe(`${agentType}_3`);
+			expect(first.artifacts.directory).not.toBe(retainedDirectory);
+			expect(second.artifacts.directory).not.toBe(first.artifacts.directory);
+			expect(first.artifacts.outputPath).not.toBe(second.artifacts.outputPath);
+			expect(existsSync(first.artifacts.directory)).toBe(true);
+			expect(existsSync(second.artifacts.directory)).toBe(true);
+			expect(readFileSync(markerPath, "utf8")).toBe("preserve this evidence");
+			expect(existsSync(retainedDirectory)).toBe(true);
+		},
+	);
+
+	it("preserves retained Bash artifacts when launch manifest persistence fails", () => {
+		let failedManifestPath: string | undefined;
 		const fixture = createFixture({
-			writeBashLaunchManifest: () => {
+			writeBashLaunchManifest: (manifestPath) => {
+				failedManifestPath = manifestPath;
 				throw new Error("manifest disk failure");
 			},
 		});
+		const retainedDirectory = fixture.controller.createArtifacts("bash_1").directory;
+		const retainedMarkerPath = join(retainedDirectory, "retained-marker");
+		writeFileSync(retainedMarkerPath, "preserve this evidence", { mode: 0o600 });
 
 		expect(() =>
 			fixture.controller.launchBash({
@@ -86,6 +140,12 @@ describe("detached job lifecycle controller", () => {
 				env: process.env,
 			}),
 		).toThrow("manifest disk failure");
+		if (!failedManifestPath) throw new Error("Expected Bash launch manifest path");
+		const failedDirectory = dirname(failedManifestPath);
+		expect(failedDirectory).not.toBe(retainedDirectory);
+		expect(existsSync(failedDirectory)).toBe(true);
+		expect(existsSync(failedManifestPath)).toBe(false);
+		expect(readFileSync(retainedMarkerPath, "utf8")).toBe("preserve this evidence");
 		expect(fixture.store.listAgents()).toHaveLength(0);
 	});
 

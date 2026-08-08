@@ -184,8 +184,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   directly. Detached Bash/Pyrun runners are execution-plane workers authorized to submit one exact
   terminal-finalize operation from their in-memory identity, outcome, and output metadata; they may not
   create agents, dispatch work, cancel other agents, recover stores, or mutate the parent graph.
-  Detached runners allocate a durable job/agent ID before payload spawn so the output path is identity-bound
-  from the first byte; foreground-only execution consumes no lifecycle row. Pyrun begins as a foreground
+  Detached runners allocate a durable job/agent ID and exclusively reserve its artifact directory before payload
+  spawn so the output path is identity-bound from the first byte. If a retained directory already exists,
+  allocation advances to a new ID without deleting or reusing the retained evidence. Foreground-only execution
+  consumes no lifecycle row. Pyrun begins as a foreground
   runner with diagnostic output and direct foreground bridge control only. Manual or automatic detachment
   creates exactly one running agent under the runner's exact process identity, then activates its runtime-mailbox
   control and terminal-finalize authority. Activation persistence failure kills the runner and resolves the row

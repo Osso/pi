@@ -247,8 +247,7 @@ function launchForegroundPyrunRunner(
 	controller: ReturnType<typeof createDetachedJobLifecycleController>,
 	startedAt: number,
 ) {
-	const jobId = controller.allocateJobId("pyrun");
-	const artifacts = controller.createArtifacts(jobId);
+	const { artifacts, jobId } = controller.reserveJob("pyrun");
 	const activationPath = join(artifacts.directory, "activation.json");
 	const bridgeRequestPath = join(artifacts.directory, "foreground-bridge-requests.jsonl");
 	const bridgeResponsePath = join(artifacts.directory, "foreground-bridge-responses.jsonl");

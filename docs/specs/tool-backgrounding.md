@@ -13,6 +13,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - [x] Detached Pyrun evaluations create a background job, complete independently, expose final output through an absolute log file reference, persist the submitted source as a permission-locked `script.py` file reference for the full running and terminal lifecycle, and record elapsed time in the agent result's `durationMs` field.
 - [x] The live-agent TUI view renders the detached Pyrun script and output log without fabricating a child transcript.
 - [x] Detached Pyrun completion and failure notifications include the recorded duration as `Duration: Nms`.
+- [x] Detached Bash and Pyrun allocation exclusively reserves each artifact directory; retained collisions advance allocation to a new ID without deleting or reusing retained evidence.
 - [x] `wait_agents({})` consumes every pending terminal notification already waiting before querying detached
       tool jobs active at invocation for a terminal agent row. Persisted coordination is detected by the waiter's
       three-second polling loop and returns with all currently pending deliverable runtime-mailbox and shared-channel
