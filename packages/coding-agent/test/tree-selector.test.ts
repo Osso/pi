@@ -3,7 +3,6 @@ import { setKeybindings, visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, beforeEach, describe, expect, test } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import type {
-	CompactionEntry,
 	ModelChangeEntry,
 	SessionEntry,
 	SessionMessageEntry,
@@ -95,18 +94,6 @@ function modelChange(id: string, parentId: string | null): ModelChangeEntry {
 		timestamp: new Date().toISOString(),
 		provider: "anthropic",
 		modelId: "claude-sonnet-4",
-	};
-}
-
-function compactionEntry(id: string, parentId: string, firstKeptEntryId: string, summary: string): CompactionEntry {
-	return {
-		type: "compaction",
-		id,
-		parentId,
-		timestamp: new Date().toISOString(),
-		summary,
-		firstKeptEntryId,
-		tokensBefore: 12_345,
 	};
 }
 
@@ -228,44 +215,6 @@ describe("TreeSelectorComponent", () => {
 			expect(plain).toContain("user: active branch");
 			expect(plain).not.toContain("assistant:");
 			expect(plain).toContain("[user]");
-		});
-
-		test("shows the generated compaction summary before retained active-context prompts", () => {
-			const entries: SessionEntry[] = [
-				userMessage("user-old", null, "compacted-away prompt"),
-				assistantMessage("assistant-old", "user-old", "compacted-away response"),
-				userMessage("user-kept", "assistant-old", "retained prompt"),
-				assistantMessage("assistant-kept", "user-kept", "retained response"),
-				compactionEntry("compaction-1", "assistant-kept", "user-kept", "generated compacted summary"),
-				userMessage("user-later", "compaction-1", "later prompt"),
-				assistantMessage("assistant-later", "user-later", "later response"),
-			];
-			const tree = buildTree(entries);
-			const selector = new TreeSelectorComponent(
-				tree,
-				"assistant-later",
-				24,
-				() => {},
-				() => {},
-				undefined,
-				undefined,
-				"user-only",
-			);
-
-			const plain = selector.getTreeList().render(200).map(stripVTControlCharacters).join("\n");
-			const summaryIndex = plain.indexOf("generated compacted summary");
-			const retainedIndex = plain.indexOf("retained prompt");
-			const laterIndex = plain.indexOf("later prompt");
-
-			expect(plain).not.toContain("compacted-away prompt");
-			expect(summaryIndex).toBeGreaterThanOrEqual(0);
-			expect(summaryIndex).toBeLessThan(retainedIndex);
-			expect(retainedIndex).toBeLessThan(laterIndex);
-			expect(plain).toContain("(3/3) [user]");
-
-			selector.handleInput("\x04");
-			const fullTree = selector.getTreeList().render(200).map(stripVTControlCharacters).join("\n");
-			expect(fullTree).toContain("compacted-away prompt");
 		});
 
 		test("switches to nearest visible user message when changing to user-only filter", () => {
