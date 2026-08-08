@@ -118,6 +118,7 @@
 
 ### Fixed
 
+- Fixed child-runtime authorization after reopening a historical subagent transcript: live child runtimes cannot restart Pi, explicit current runtime child identity remains authoritative, and `is_subagent` transcript provenance alone no longer blocks a session opened as the main orchestrator from main-thread controls.
 - Fixed `/model` and other tall temporary selector dismissals so Escape restores the editor and footer at the terminal bottom instead of leaving the viewport shifted upward (`packages/tui/test/root-compositor.test.ts`: "restores bottom anchoring after a tall editor replacement closes with Escape").
 - Fixed root renders triggered by invisible assistant stream updates: hidden thinking, partial tool-call events, and hidden main-session message updates while viewing a child are now skipped, while visible text/thinking and final message rendering remain unchanged.
 - Fixed interactive Pi exhausting memory on dense Pyrun console streams by reading durable artifacts in bounded chunks and coalescing live updates while retaining the complete append-only output artifact.

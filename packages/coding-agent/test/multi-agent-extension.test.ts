@@ -114,6 +114,12 @@ function createControlDbSession(cwd = "/repo"): SessionManager {
 	return session;
 }
 
+function createHistoricalSubagentSession(): SessionManager {
+	const session = createControlDbSession();
+	Object.defineProperty(session, "isSubagentSession", { value: () => true });
+	return session;
+}
+
 type FauxChildOutcome =
 	| { lifecycle: "completed"; result?: { summary?: string } }
 	| { lifecycle: "failed" | "aborted"; error?: { message: string; code?: string } };
@@ -580,6 +586,34 @@ describe("multi-agent extension tools", () => {
 		});
 
 		expect(notify).toHaveBeenCalledWith("Multi-agent mode is controlled by the main thread", "warning");
+	});
+
+	it("treats historical subagent metadata as main-thread orchestration state", async () => {
+		const harness = createMultiAgentHarness({ ctx: { sessionManager: createHistoricalSubagentSession() } });
+
+		const waited = await harness.call<WaitAgentsDetails>("wait_agents", {});
+
+		expect(waited.content).toEqual([]);
+		expect(waited.details).toEqual({});
+	});
+
+	it("uses main-thread sender identity for historical subagent metadata", async () => {
+		const harness = createMultiAgentHarness({ ctx: { sessionManager: createHistoricalSubagentSession() } });
+		const child = spawnStoreFixture(harness.store, {
+			displayName: "Historical metadata target",
+			prompt: "Child task",
+		});
+
+		const sent = await harness.call<SendAgentMessageDetails>("send_agent_message", {
+			message: "Main thread request",
+			toAgentId: child.details.agent.id,
+		});
+
+		expect(sent.details.message).toMatchObject({
+			body: "Main thread request",
+			fromAgentId: "main",
+			toAgentId: child.details.agent.id,
+		});
 	});
 
 	it("registers spawn/list/cancel/steer/contact/viewer tools", () => {

@@ -35,7 +35,7 @@ export function createAskArchitectToolDefinition(): ToolDefinition<typeof askArc
 		parameters: askArchitectSchema,
 		executionMode: "sequential",
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			if (ctx?.multiAgentAgentId || ctx?.multiAgentRequiresAgentId || ctx?.sessionManager.isSubagentSession?.()) {
+			if (ctx?.multiAgentAgentId || ctx?.multiAgentRequiresAgentId) {
 				throw new Error("ask_architect is only available from main sessions");
 			}
 			const controlDbPath = requireControlDbPath(ctx);

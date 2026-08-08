@@ -41,11 +41,7 @@ function clearEditor(ctx: ExtensionCommandContext): void {
 }
 
 function isChildRuntime(ctx: ExtensionContext): boolean {
-	return (
-		ctx.multiAgentAgentId !== undefined ||
-		ctx.multiAgentRequiresAgentId === true ||
-		ctx.sessionManager?.isSubagentSession?.() === true
-	);
+	return ctx.multiAgentAgentId !== undefined || ctx.multiAgentRequiresAgentId === true;
 }
 
 function parseMultiAgentMode(value: unknown): MultiAgentMode | undefined {

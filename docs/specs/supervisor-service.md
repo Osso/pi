@@ -50,7 +50,9 @@ The resident Supervisor is a systemd-supervised peer-unblocking policy engine th
 
 ### Supervisor advisory
 
-- [x] Expose `ask_supervisor` only to main sessions; sub-agents cannot use it.
+- [x] Expose `ask_supervisor` only to current main/orchestrator runtimes; explicit runtime child identity
+      remains authoritative, and historical `is_subagent` transcript provenance alone does not reject a
+      session opened as the main orchestrator. Sub-agents cannot use it.
 - [x] Persist advisory requests as `supervisor_advisory` queue rows and return a text-only `{ kind: "advisory", answer }` response; advisory responses cannot control the caller or mutate goals, policies, sessions, processes, or agents.
 - [x] Bound inputs to a 4,000-character question and optional 8,000-character context.
 - [x] Enforce a three-minute request deadline.

@@ -18,7 +18,12 @@ interface FastModeAuthority {
 	serviceTier: "priority" | "ultrafast" | undefined;
 }
 
-function createHarness(provider = "openai-codex", authority?: FastModeAuthority, child = false) {
+function createHarness(
+	provider = "openai-codex",
+	authority?: FastModeAuthority,
+	child = false,
+	historicalSubagent = false,
+) {
 	let command: Omit<RegisteredCommand, "name" | "sourceInfo"> | undefined;
 	let commandName: string | undefined;
 	let beforeProviderRequest: BeforeProviderRequestHandler | undefined;
@@ -47,6 +52,7 @@ function createHarness(provider = "openai-codex", authority?: FastModeAuthority,
 			provider,
 		},
 		multiAgentAgentId: child ? "child-agent" : undefined,
+		sessionManager: { isSubagentSession: () => historicalSubagent },
 		ui: { notify, setEditorText, setStatus },
 	} as unknown as ExtensionCommandContext;
 	if (!command) throw new Error("/fast command was not registered");
@@ -201,6 +207,16 @@ describe("Codex fast mode extension", () => {
 			model: "test-model",
 			service_tier: "priority",
 		});
+	});
+
+	it("allows a main runtime with historical subagent provenance to change fast mode", async () => {
+		const authority: FastModeAuthority = { serviceTier: undefined };
+		const main = createHarness("openai-codex", authority, false, true);
+
+		await main.command.handler("on", main.ctx);
+
+		expect(authority.serviceTier).toBe("priority");
+		expect(main.notify).toHaveBeenLastCalledWith("Fast mode: on", "info");
 	});
 
 	it("preserves shared fast mode on reload and resets it on main session replacement", async () => {

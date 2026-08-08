@@ -52,7 +52,6 @@ import {
 	listSharedChannelMessagesAfter,
 	readMultiAgentRuntimeOwnership,
 	readMultiAgentState,
-	readSessionMetadata,
 	readSharedChannelCursor,
 	readSharedChannelTail,
 	resolveOwnMainRuntimeCoordinationRecipient,
@@ -1003,11 +1002,7 @@ function assertNoWaitAgentsParams(params: unknown, apiName: string): void {
 }
 
 function isChildAgentRuntime(ctx: ExtensionContext): boolean {
-	return (
-		ctx.multiAgentAgentId !== undefined ||
-		ctx.multiAgentRequiresAgentId === true ||
-		ctx.sessionManager?.isSubagentSession?.() === true
-	);
+	return ctx.multiAgentAgentId !== undefined || ctx.multiAgentRequiresAgentId === true;
 }
 
 function isSupervisorOnlyAgentRequest(method: string): boolean {
@@ -2250,7 +2245,7 @@ function currentMessageSenderId(_store: MultiAgentStore, ctx: ExtensionContext |
 	if (ctx?.multiAgentRequiresAgentId) {
 		return undefined;
 	}
-	return ctx?.sessionManager?.isSubagentSession?.() ? undefined : MAIN_THREAD_AGENT_ID;
+	return MAIN_THREAD_AGENT_ID;
 }
 
 function currentMessageSenderAgent(store: MultiAgentStore, ctx: ExtensionContext | undefined): AgentSnapshot {
@@ -3155,20 +3150,7 @@ function resolveRuntimeRecipient(
 }
 
 function resolveParentRuntimeSessionId(ctx: ExtensionContext): string | undefined {
-	if (ctx.multiAgentParentSessionId) {
-		return ctx.multiAgentParentSessionId;
-	}
-	if (!ctx.sessionManager.isSubagentSession()) {
-		return undefined;
-	}
-	const parentSession = ctx.sessionManager.getHeader()?.parentSession;
-	if (!parentSession) {
-		return undefined;
-	}
-	if (!ctx.controlDbPath) {
-		return parentSession;
-	}
-	return readSessionMetadata(ctx.controlDbPath, parentSession)?.id ?? parentSession;
+	return ctx.multiAgentParentSessionId;
 }
 
 function emptyAgent(agentId: string): AgentSnapshot {

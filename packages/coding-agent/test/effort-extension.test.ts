@@ -24,6 +24,7 @@ function createCommandHarness(options?: {
 	branch?: unknown[];
 	child?: boolean;
 	reasoning?: boolean;
+	subagentProvenance?: boolean;
 	selectedEffort?: string | undefined;
 	thinkingLevel?: string;
 }) {
@@ -57,7 +58,7 @@ function createCommandHarness(options?: {
 	});
 	const sessionManager = {
 		getBranch: () => options?.branch ?? [],
-		isSubagentSession: () => options?.child === true,
+		isSubagentSession: () => options?.child === true || options?.subagentProvenance === true,
 	};
 	const ctx = {
 		model: {
@@ -258,6 +259,15 @@ describe("effort extension", () => {
 		await multiAgentCommand.handler("explicit", ctx);
 
 		expect(setTargetThinkingLevel).toHaveBeenCalledWith("max");
+	});
+
+	it("lets a main runtime with historical subagent provenance control delegation mode", async () => {
+		const { appendEntry, ctx, multiAgentCommand, notify } = createCommandHarness({ subagentProvenance: true });
+
+		await multiAgentCommand.handler("explicit", ctx);
+
+		expect(appendEntry).toHaveBeenCalledWith("multi-agent-mode", { mode: "explicit" });
+		expect(notify).toHaveBeenCalledWith("Multi-agent mode: explicit", "info");
 	});
 
 	it("does not let child runtimes change delegation mode or receive its policy", async () => {

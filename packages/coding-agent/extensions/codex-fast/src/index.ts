@@ -52,11 +52,7 @@ export interface CodexFastOptions {
 }
 
 function isChildRuntime(ctx: ExtensionContext): boolean {
-	return (
-		ctx.multiAgentAgentId !== undefined ||
-		ctx.multiAgentRequiresAgentId === true ||
-		ctx.sessionManager?.isSubagentSession?.() === true
-	);
+	return ctx.multiAgentAgentId !== undefined || ctx.multiAgentRequiresAgentId === true;
 }
 
 async function handleFastCommand(

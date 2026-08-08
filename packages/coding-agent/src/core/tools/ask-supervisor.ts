@@ -78,7 +78,7 @@ export function createAskSupervisorToolDefinition(): ToolDefinition<
 }
 
 function assertMainSession(ctx: ExtensionContext | undefined): void {
-	if (ctx?.multiAgentAgentId || ctx?.multiAgentRequiresAgentId || ctx?.sessionManager.isSubagentSession?.()) {
+	if (ctx?.multiAgentAgentId || ctx?.multiAgentRequiresAgentId) {
 		throw new Error("ask_supervisor is only available from main sessions");
 	}
 }

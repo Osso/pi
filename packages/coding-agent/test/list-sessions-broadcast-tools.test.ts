@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	claimNextSupervisorRequest,
+	completeSupervisorRequest,
 	getControlDbPath,
 	listPendingArchitectRequests,
 	writeSessionHealth,
@@ -34,7 +36,7 @@ describe("session coordination tools", () => {
 		expect(tools.channel_post.description).toContain("shared channel");
 	});
 
-	it("persists Architect requests with an explicit project directory", async () => {
+	it("persists Architect requests from a main runtime with historical subagent provenance", async () => {
 		const agentDir = mkdtempSync(join(tmpdir(), "pi-ask-architect-tool-"));
 		try {
 			const controlDbPath = getControlDbPath(agentDir);
@@ -52,6 +54,7 @@ describe("session coordination tools", () => {
 					cwd: "/repos/canonical",
 					sessionManager: {
 						getSessionId: () => "main-session",
+						isSubagentSession: () => true,
 					},
 				} as Parameters<typeof tool.execute>[4],
 			);
@@ -145,10 +148,6 @@ describe("session coordination tools", () => {
 				multiAgentRequiresAgentId: true,
 				sessionManager: { getSessionId: () => "child-session" },
 			},
-			{
-				controlDbPath: "/unused",
-				sessionManager: { getSessionId: () => "child-session", isSubagentSession: () => true },
-			},
 		]) {
 			await expect(
 				tool.execute(
@@ -182,10 +181,6 @@ describe("session coordination tools", () => {
 				multiAgentRequiresAgentId: true,
 				sessionManager: { getSessionId: () => "child-session" },
 			},
-			{
-				controlDbPath: "/unused",
-				sessionManager: { getSessionId: () => "child-session", isSubagentSession: () => true },
-			},
 		]) {
 			await expect(
 				tool.execute(
@@ -196,6 +191,41 @@ describe("session coordination tools", () => {
 					context as Parameters<typeof tool.execute>[4],
 				),
 			).rejects.toThrow("ask_supervisor is only available from main sessions");
+		}
+	});
+
+	it("reaches Supervisor request persistence from a main runtime with historical subagent provenance", async () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "pi-ask-supervisor-tool-"));
+		try {
+			const controlDbPath = getControlDbPath(agentDir);
+			const tool = createAskSupervisorToolDefinition();
+			const decision = tool.execute("ask-supervisor", { question: "Is this complete?" }, undefined, undefined, {
+				controlDbPath,
+				cwd: "/repos/canonical",
+				sessionManager: {
+					getSessionId: () => "main-session",
+					isSubagentSession: () => true,
+				},
+			} as Parameters<typeof tool.execute>[4]);
+			const request = claimNextSupervisorRequest(controlDbPath, "test-runtime");
+			if (!request) throw new Error("expected persisted Supervisor advisory request");
+			expect(request).toMatchObject({
+				kind: "supervisor_advisory",
+				payload: { question: "Is this complete?" },
+				senderSessionId: "main-session",
+			});
+			if (!request.claimToken) throw new Error("expected Supervisor request claim token");
+			completeSupervisorRequest(controlDbPath, request.id, request.claimToken, {
+				kind: "advisory",
+				answer: "Continue.",
+			});
+
+			await expect(decision).resolves.toMatchObject({
+				content: [{ type: "text", text: "Continue." }],
+				details: { senderSessionId: "main-session" },
+			});
+		} finally {
+			rmSync(agentDir, { force: true, recursive: true });
 		}
 	});
 

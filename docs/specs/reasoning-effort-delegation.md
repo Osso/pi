@@ -15,6 +15,8 @@ GPT-5.6 Sol exposes maximum reasoning and automatic delegation through the first
 - [x] Delegation mode persists as session custom state across session reload and active-branch restoration; absent saved state defaults to proactive.
 - [x] Unsupported providers and models do not receive `max` or `ultra` unless their model metadata advertises them.
 - [x] Proactive delegation is implemented through the model-facing delegation policy, not `multi_agent.enabled`, `max_concurrent_subagents`, or `OpenAI-Beta: responses_multi_agent=v1`.
+- [x] `/effort` and `/multi-agent` authorization uses the current runtime role and explicit child identity;
+  historical `is_subagent` transcript provenance alone does not restrict a runtime opened as the main orchestrator.
 
 ## How it works
 

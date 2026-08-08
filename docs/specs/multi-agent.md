@@ -44,7 +44,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       cancel, or otherwise advance that agent.
 - [x] Active-agent counts derive only from core lifecycle state, not from visible panes, rendered
       rows, cached UI state, or subprocess lists.
-- [x] Only the supervisor runtime can orchestrate or inspect agents. Child/subagent runtimes reject
+- [x] Only the supervisor runtime can orchestrate or inspect agents. Current runtime role and explicit
+      child identity determine this authorization; historical `is_subagent` transcript provenance does not
+      classify a session opened as the main orchestrator. Child/subagent runtimes reject
       `spawn_agent`, `attach_session_agent`, `wait_agents`, `/bg`, and the Pyrun `agents.spawn`,
       `agents.attachSession`, and `agents.wait` bridge methods before rows are created. Production child
       and attached sessions also exclude `spawn_agent`, `attach_session_agent`, `wait_agents`,

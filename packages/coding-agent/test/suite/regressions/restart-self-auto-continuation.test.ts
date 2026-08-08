@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { expect, it } from "vitest";
 import { getControlDbPath, readMultiAgentRuntimeOwnership } from "../../../src/core/session-control-db.ts";
-import { type HeadlessPi, withHeadlessPi } from "../headless-pi.ts";
+import { type HeadlessLlmRequest, type HeadlessPi, withHeadlessPi } from "../headless-pi.ts";
 
 async function persistCompletedEndTurn(pi: HeadlessPi): Promise<void> {
 	await pi.send({ type: "prompt", message: "Finish this turn before process restart" });
@@ -111,6 +111,15 @@ function expectOneActiveParentAgentStart(pi: HeadlessPi, agentId: string): void 
 	expect(activeStarts).toHaveLength(1);
 }
 
+function expectFailedToolResult(request: HeadlessLlmRequest, toolName: string, errorMessage: string): void {
+	const results = request.messages.filter(
+		(message) => message.role === "toolResult" && message.toolName === toolName,
+	);
+	expect(results).toHaveLength(1);
+	expect(results[0]).toMatchObject({ isError: true });
+	expect(JSON.stringify(results[0])).toContain(errorMessage);
+}
+
 it("automatically continues the restored session after restart_self", async () => {
 	await withHeadlessPi(async (pi) => {
 		await pi.send({ type: "prompt", message: "Restart and then continue automatically" });
@@ -137,6 +146,75 @@ it("automatically continues the restored session after restart_self", async () =
 			null,
 			(entry) => entry.type === "message" && JSON.stringify(entry.message).includes("continued"),
 		);
+	});
+}, 30_000);
+
+it("rejects child restart_self without replacing the supervisor session", async () => {
+	await withHeadlessPi(async (pi) => {
+		await pi.send({ type: "prompt", message: "Spawn a child that attempts to restart Pi" });
+		const initialMain = await waitForMainRequest(pi);
+		pi.respondToLlmRequest(
+			initialMain.id,
+			fauxAssistantMessage(
+				fauxToolCall("spawn_agent", {
+					context: "fresh",
+					displayName: "Restarting child",
+					prompt: "Attempt restart_self while remaining a child",
+				}),
+				{ stopReason: "toolUse" },
+			),
+		);
+		const child = await pi.waitForAgent((agent) => agent.displayName === "Restarting child");
+		const childSessionId = child.transcript?.sessionId;
+		if (!childSessionId) throw new Error("Spawned child has no transcript session ID");
+		const initialChild = await waitForChildRequest(pi, child.id);
+		const mainAfterSpawn = await pi.waitForLlmRequest(
+			(request) => request.agentId === null && request.id !== initialMain.id,
+		);
+
+		pi.respondToLlmRequest(
+			initialChild.id,
+			fauxAssistantMessage(fauxToolCall("restart_self", {}), { stopReason: "toolUse" }),
+		);
+		const childAfterRejection = await pi.waitForLlmRequest(
+			(request) => request.id !== initialChild.id && (request.agentId === child.id || request.agentId === null),
+			10_000,
+		);
+
+		expect(childAfterRejection.agentId).toBe(child.id);
+		expect(childAfterRejection.sessionId).toBe(childSessionId);
+		expectFailedToolResult(childAfterRejection, "restart_self", "Child agent runtimes cannot restart Pi");
+		expect(
+			pi
+				.readSessionEntries(child.id)
+				.filter((entry) => entry.type === "custom_message" && entry.customType === "self_restart"),
+		).toHaveLength(0);
+
+		pi.respondToLlmRequest(
+			mainAfterSpawn.id,
+			fauxAssistantMessage(fauxToolCall("restart_self", {}), { stopReason: "toolUse" }),
+		);
+		const mainAfterRestart = await pi.waitForLlmRequest(
+			(request) => request.agentId === null && request.id !== mainAfterSpawn.id,
+			10_000,
+		);
+		const childAfterSupervisorRestart = await pi.waitForLlmRequest(
+			(request) => request.agentId === child.id && request.id !== childAfterRejection.id,
+			10_000,
+		);
+
+		expect(mainAfterRestart.sessionId).toBe(pi.sessionId);
+		expect(childAfterSupervisorRestart.sessionId).toBe(childSessionId);
+		expect(
+			pi
+				.readSessionEntries(null)
+				.filter((entry) => entry.type === "custom_message" && entry.customType === "self_restart"),
+		).toHaveLength(1);
+		expect(
+			pi
+				.readSessionEntries(child.id)
+				.filter((entry) => entry.type === "custom_message" && entry.customType === "self_restart"),
+		).toHaveLength(0);
 	});
 }, 30_000);
 

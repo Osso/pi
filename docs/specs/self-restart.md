@@ -31,6 +31,9 @@ runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
   handoff only where `process.execve` is unavailable (Windows, Node < 23.11).
 - [x] Let an external supervisor restart interactive mode by sending `SIGHUP`, using the same
   persisted-session process handoff as `restart_self`.
+- [x] Authorize restart from the current runtime role: a live child runtime rejects `restart_self`
+  before process handoff and does not append a `self_restart` entry, while a runtime opened as the
+  main orchestrator may restart even when its transcript metadata has historical `is_subagent` provenance.
 
 ### First-party Tool
 

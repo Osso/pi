@@ -4667,7 +4667,9 @@ export class AgentSession {
 
 	private _applyExtensionBindings(runner: ExtensionRunner): void {
 		runner.setUIContext(this._extensionUIContext, this._extensionMode);
-		runner.bindCommandContext(this._extensionCommandContextActions);
+		if (this._extensionCommandContextActions !== undefined) {
+			runner.bindCommandContext(this._extensionCommandContextActions);
+		}
 
 		this._extensionErrorUnsubscriber?.();
 		this._extensionErrorUnsubscriber = this._extensionErrorListener
@@ -4819,6 +4821,9 @@ export class AgentSession {
 					this._extensionShutdownHandler?.();
 				},
 				restart: (options) => {
+					if (this._multiAgentRuntimeRole === "child") {
+						throw new Error("Child agent runtimes cannot restart Pi");
+					}
 					if (!this._extensionCommandContextActions) {
 						throw new Error("Restart is not available in this session mode");
 					}
