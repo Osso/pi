@@ -61,6 +61,7 @@ export interface HeadlessPiOptions {
 	approvalPreset?: ApprovalPresetName;
 	autoDetachTools?: boolean;
 	deleteCwdBeforeSelfRestart?: boolean;
+	env?: Record<string, string>;
 	model?: string | false;
 }
 
@@ -271,6 +272,7 @@ function createHeadlessRpcClient(
 			PI_CODING_AGENT_SESSION_DIR: paths.sessionDir,
 			PI_HEADLESS_PROVIDER_SOCKET: providerSocketPath,
 			...(options.autoDetachTools ? { PI_HEADLESS_TOOL_AUTO_DETACH_MS: "50" } : {}),
+			...(options.env ?? {}),
 			...(sessionStartReleasePath ? { PI_HEADLESS_SESSION_START_RELEASE_PATH: sessionStartReleasePath } : {}),
 		},
 		provider: "headless-faux",

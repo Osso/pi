@@ -115,7 +115,7 @@ export function launchDetachedPyrunRunner(manifestPath: string, options?: { entr
 	const child = spawn(invocation.executable, invocation.args, {
 		cwd: dirname(manifestPath),
 		detached: true,
-		env: { HOME: process.env.HOME, PATH: process.env.PATH },
+		env: process.env,
 		stdio: "ignore",
 	});
 	if (!child.pid) throw new Error("Could not launch detached Pyrun runner");

@@ -937,6 +937,92 @@ describe("headless Pi fixture", () => {
 		);
 	});
 
+	it("preserves parent environment in an auto-detached Pyrun runner", async () => {
+		await withHeadlessPi(
+			async (agent) => {
+				const toolCallId = "auto-detached-parent-env-call";
+				const code = [
+					"import os",
+					"import time",
+					"time.sleep(0.2)",
+					'print(os.environ.get("PYRUN_PARENT_MARKER", "<missing>"))',
+				].join("\n");
+				await agent.send({ type: "prompt", message: "Run a detached Pyrun environment check" });
+				const request = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
+				agent.respondToLlmRequest(
+					request.id,
+					fauxAssistantMessage(
+						{ ...fauxToolCall("pyrun_eval", { code }), id: toolCallId },
+						{ stopReason: "toolUse" },
+					),
+				);
+
+				const detachedEntry = (await agent.waitForSessionEntry(
+					null,
+					(entry) =>
+						entry.type === "message" &&
+						entry.message.role === "toolResult" &&
+						entry.message.toolCallId === toolCallId,
+				)) as SessionMessageEntry;
+				if (detachedEntry.message.role !== "toolResult") {
+					throw new Error("Expected detached Pyrun tool result");
+				}
+				const detachedDetails = detachedEntry.message.details as
+					| { backgroundJobId?: string; type?: string }
+					| undefined;
+				expect(detachedDetails).toMatchObject({ type: "detached" });
+				const backgroundJobId = detachedDetails?.backgroundJobId;
+				if (!backgroundJobId) throw new Error("Detached Pyrun result has no background job ID");
+				const detachedJob = await agent.waitForAgent(
+					(candidate) =>
+						candidate.id === backgroundJobId &&
+						(candidate.lifecycle === "running" || candidate.lifecycle === "completed"),
+				);
+
+				let launchManifestPath: string | undefined;
+				await vi.waitFor(() => {
+					launchManifestPath = readdirSync(agent.paths.sessionDir, { recursive: true })
+						.filter((path): path is string => typeof path === "string" && path.endsWith("launch.json"))
+						.map((path) => join(agent.paths.sessionDir, path))
+						.find((path) => {
+							const manifest = JSON.parse(readFileSync(path, "utf8")) as {
+								runnerAddress?: { agentId?: string };
+							};
+							return manifest.runnerAddress?.agentId === detachedJob.id;
+						});
+					expect(launchManifestPath).toBeDefined();
+				});
+				if (!launchManifestPath) throw new Error("Detached Pyrun launch manifest not found");
+
+				const launchManifest = JSON.parse(readFileSync(launchManifestPath, "utf8")) as {
+					artifacts?: { outputPath?: string };
+					runnerProcessIdentity?: { pid?: number };
+				};
+				const outputPath = launchManifest.artifacts?.outputPath;
+				if (!outputPath) throw new Error("Detached Pyrun output path not found");
+				await vi.waitFor(() => {
+					expect(existsSync(outputPath)).toBe(true);
+					expect(readFileSync(outputPath, "utf8")).toContain("marker-value");
+				});
+				await agent.waitForAgent(
+					(candidate) => candidate.id === detachedJob.id && candidate.lifecycle === "completed",
+				);
+				const persistedRunnerOptions = (
+					JSON.parse(readFileSync(launchManifestPath, "utf8")) as {
+						runnerOptions?: { env?: Record<string, string> };
+					}
+				).runnerOptions;
+				expect(persistedRunnerOptions?.env ?? {}).not.toHaveProperty("PYRUN_PARENT_MARKER");
+				expect(JSON.stringify(persistedRunnerOptions ?? {})).not.toContain("marker-value");
+				expect(agent.readTerminalOutboxStatuses(detachedJob.id)).toHaveLength(1);
+				const runnerPid = launchManifest.runnerProcessIdentity?.pid;
+				if (!runnerPid) throw new Error("Detached Pyrun runner PID not found");
+				await vi.waitFor(() => expect(isProcessAlive(runnerPid)).toBe(false));
+			},
+			{ autoDetachTools: true, env: { PYRUN_PARENT_MARKER: "marker-value" } },
+		);
+	});
+
 	it("excludes an auto-detached Pyrun turn when spawning an inherited child through the runtime mailbox", async () => {
 		await withHeadlessPi(
 			async (agent) => {

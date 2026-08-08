@@ -124,6 +124,7 @@
 - Fixed compacted child recovery after `restart_self`: active `agent_start` admissions are refreshed after parent compaction, and legacy compacted sessions restore missing unmatched admissions from the full parent JSONL before rebinding the live child and delivering queued steering; exact-owner cancellation can then commit `aborted`, and model-facing `list_agents` excludes the terminal child.
 - Fixed detached Bash and Pyrun allocation reusing retained artifact directories when persisted IDs collide; allocation now advances to a free directory and preserves retained evidence.
 - Fixed unfinished foreground Pyrun recovery so dead runners preserve artifacts, replay durable terminal records, report `lost_runtime` when necessary, and never rerun submitted code.
+- Fixed full-access detached Pyrun dropping parent environment variables while preserving manifest secrecy; sandboxed `inheritEnv: false` behavior remains unchanged.
 
 ### Changed
 
