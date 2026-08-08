@@ -314,6 +314,7 @@ export class AgentSessionRuntime {
 		const currentSessionFile = currentSessionManager.getSessionFile();
 
 		if (options?.process && currentSessionManager.isPersisted() && currentSessionFile) {
+			currentSessionManager.persistForRecovery();
 			await this.beforeProcessRestart?.();
 			await this.teardownCurrent("restart", currentSessionFile);
 			await this.processRestarter({

@@ -2,6 +2,8 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat
 import { expect, it } from "vitest";
 import { type HeadlessPi, withHeadlessPi } from "../headless-pi.ts";
 
+const CODEX_FIXTURE = { model: "headless-faux-codex", provider: "openai-codex" } as const;
+
 async function spawnLiveChild(agent: HeadlessPi): Promise<void> {
 	await agent.send({ type: "prompt", message: "Spawn a child before enabling fast mode" });
 	const initialMainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
@@ -30,42 +32,58 @@ async function spawnLiveChild(agent: HeadlessPi): Promise<void> {
 	await agent.waitForEvent((event) => event.type === "agent_end");
 }
 
-it("preserves Codex fast mode across /restart while a child is live", async () => {
-	await withHeadlessPi(
-		async (agent) => {
-			await spawnLiveChild(agent);
-			const sessionId = agent.sessionId;
-
-			await agent.send({ type: "prompt", message: "/fast ultra" });
-			const enabledStatus = await agent.waitForExtensionUiRequest(
-				(request) =>
-					request.method === "setStatus" &&
-					request.statusKey === "codex-fast" &&
-					request.statusText === "fast ultra",
-			);
-			expect(enabledStatus).toMatchObject({ statusKey: "codex-fast", statusText: "fast ultra" });
-			expect(agent.readSessionEntries(null)).toContainEqual(
-				expect.objectContaining({
-					type: "custom",
-					customType: "codex-fast-mode",
-					data: { serviceTier: "ultrafast" },
-				}),
-			);
-
-			void agent.send({ type: "prompt", message: "/restart" }).catch(() => {
-				// Process replacement can close the pending RPC command before it returns a response.
-			});
-
-			expect(agent.sessionId).toBe(sessionId);
-			const restoredStatus = await agent.waitForExtensionUiRequest(
-				(request) =>
-					request.id !== enabledStatus.id &&
-					request.method === "setStatus" &&
-					request.statusKey === "codex-fast" &&
-					request.statusText === "fast ultra",
-			);
-			expect(restoredStatus).toMatchObject({ statusKey: "codex-fast", statusText: "fast ultra" });
-		},
-		{ model: "headless-faux-codex", provider: "openai-codex" },
+async function enableFastUltra(agent: HeadlessPi): Promise<string> {
+	await agent.send({ type: "prompt", message: "/fast ultra" });
+	const status = await agent.waitForExtensionUiRequest(
+		(request) =>
+			request.method === "setStatus" && request.statusKey === "codex-fast" && request.statusText === "fast ultra",
 	);
+	expect(status).toMatchObject({ statusKey: "codex-fast", statusText: "fast ultra" });
+	return status.id;
+}
+
+async function expectFastUltraAfterRestart(
+	agent: HeadlessPi,
+	sessionId: string,
+	enabledStatusId: string,
+): Promise<void> {
+	void agent.send({ type: "prompt", message: "/restart" }).catch(() => {
+		// Process replacement can close the pending RPC command before it returns a response.
+	});
+
+	expect(agent.sessionId).toBe(sessionId);
+	const restoredStatus = await agent.waitForExtensionUiRequest(
+		(request) =>
+			request.id !== enabledStatusId &&
+			request.method === "setStatus" &&
+			request.statusKey === "codex-fast" &&
+			request.statusText === "fast ultra",
+	);
+	expect(restoredStatus).toMatchObject({ statusKey: "codex-fast", statusText: "fast ultra" });
+}
+
+it("preserves Codex fast mode across /restart before the first assistant response", async () => {
+	await withHeadlessPi(async (agent) => {
+		const sessionId = agent.sessionId;
+		const enabledStatusId = await enableFastUltra(agent);
+
+		await expectFastUltraAfterRestart(agent, sessionId, enabledStatusId);
+	}, CODEX_FIXTURE);
+}, 30_000);
+
+it("preserves Codex fast mode across /restart while a child is live", async () => {
+	await withHeadlessPi(async (agent) => {
+		await spawnLiveChild(agent);
+		const sessionId = agent.sessionId;
+		const enabledStatusId = await enableFastUltra(agent);
+		expect(agent.readSessionEntries(null)).toContainEqual(
+			expect.objectContaining({
+				type: "custom",
+				customType: "codex-fast-mode",
+				data: { serviceTier: "ultrafast" },
+			}),
+		);
+
+		await expectFastUltraAfterRestart(agent, sessionId, enabledStatusId);
+	}, CODEX_FIXTURE);
 }, 30_000);

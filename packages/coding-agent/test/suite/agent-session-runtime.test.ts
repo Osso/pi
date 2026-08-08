@@ -186,6 +186,31 @@ describe("AgentSessionRuntime characterization", () => {
 		expect(calls).toEqual([{ sessionFile: runtime.session.sessionManager.getSessionFile(), prompt: "Restarted." }]);
 	});
 
+	it("flushes pending session entries before process restart handoff", async () => {
+		const { runtime } = await createRuntimeForTest(() => {});
+		const sessionManager = runtime.session.sessionManager;
+		const sessionFile = sessionManager.getSessionFile();
+		if (!sessionFile) throw new Error("Expected persisted session file");
+		sessionManager.appendCustomEntry("pending-state", { enabled: true });
+		let persistedEntry: unknown;
+		runtime.setProcessRestarter(async () => {
+			persistedEntry = existsSync(sessionFile)
+				? SessionManager.open(sessionFile)
+						.getEntries()
+						.find((entry) => entry.type === "custom" && entry.customType === "pending-state")
+				: undefined;
+			throw new Error("process restart requested");
+		});
+
+		await expect(runtime.restart({ process: true })).rejects.toThrow("process restart requested");
+
+		expect(persistedEntry).toMatchObject({
+			type: "custom",
+			customType: "pending-state",
+			data: { enabled: true },
+		});
+	});
+
 	it("runs terminal teardown before invalidation cleanup and process restart", async () => {
 		const order: string[] = [];
 		const { runtime } = await createRuntimeForTest((pi) => {

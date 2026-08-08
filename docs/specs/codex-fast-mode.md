@@ -27,7 +27,7 @@ Codex fast mode provides a main-thread-owned runtime `/fast` authority that sele
 
 - [x] Persist each accepted main-thread `/fast` change as a non-LLM `codex-fast-mode` custom session entry, including explicit off.
 - [x] Restore the latest valid fast-mode entry when the main runtime opens the same session; child session startup must not overwrite the shared authority, and sessions without a fast-mode entry start disabled.
-- [x] Preserve the selected tier and session identity across process `/restart`.
+- [x] Preserve the selected tier and session identity across process `/restart`, including before the first assistant response when pending session entries are flushed before handoff.
 
 ## How it works
 
@@ -37,11 +37,13 @@ Codex fast mode provides a main-thread-owned runtime `/fast` authority that sele
 
 - `packages/coding-agent/extensions/codex-fast/src/index.ts` — handles `/fast`, persists and restores session state, prevents child mutation, and reads shared authority for footer status and Codex request payload mutation.
 - `packages/coding-agent/src/main.ts` — creates one authority per main runtime and passes it to spawned and attached child extension runtimes.
+- `packages/coding-agent/src/core/agent-session-runtime.ts` — flushes pending session entries before process restart handoff.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/codex-fast-extension.test.ts` — command, persistence, provider, payload, footer, child-authority, and runtime-recreation behavior.
-- `packages/coding-agent/test/suite/regressions/codex-fast-restart.test.ts` — real-process `/restart` preservation.
+- `packages/coding-agent/test/suite/regressions/codex-fast-restart.test.ts` — real-process `/restart` preservation before the first assistant response and with a live child.
+- `packages/coding-agent/test/suite/agent-session-runtime.test.ts` — runtime restart flush behavior.
 - `packages/coding-agent/test/cli-runtime-inventory.test.ts` — first-party extension registration.
 
 ## Known gaps (current cycle)
