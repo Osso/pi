@@ -120,6 +120,7 @@
 
 ### Fixed
 
+- Fixed multi-agent status formatting so only the `multi-agent: ` prefix is dimmed while the `proactive` or `explicit` mode remains normal.
 - Fixed `list_sessions` and its shared broadcast inventory to expose only non-archived main sessions, excluding `archived_at IS NOT NULL` and `is_subagent = 1` rows regardless of `include_ended`; child rows of archived parents are excluded without changing archive write semantics.
 - Fixed child-runtime authorization after reopening a historical subagent transcript: live child runtimes cannot restart Pi, explicit current runtime child identity remains authoritative, and `is_subagent` transcript provenance alone no longer blocks a session opened as the main orchestrator from main-thread controls.
 - Fixed successful live compaction display to render exactly one enriched generated summary before kept and post-compaction transcript entries, omit compacted-away entries, and make active-branch `/tree` user-only mode show the summary followed by retained and later prompts without changing other filters or pre-compaction trees.
