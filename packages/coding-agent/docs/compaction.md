@@ -52,6 +52,10 @@ With the setting disabled, registered `compaction` handlers still run for manual
 4. **Append entry**: Save `CompactionEntry` with summary and `firstKeptEntryId`
 5. **Reload**: Session reloads, using summary + messages from `firstKeptEntryId` onwards
 
+### Displayed transcript after compaction
+
+After successful live compaction, the transcript shows exactly one enriched generated summary first, followed by kept and post-compaction entries in canonical order. Entries removed by compaction are absent, and the summary is not duplicated.
+
 ```
 Before compaction:
 
