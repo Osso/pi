@@ -123,7 +123,10 @@ recipient listener identities, and transition legality before reserving the writ
 those snapshots and atomically updates the agent, allocates its message counter, and persists the mailbox
 payload. Steering delivery likewise validates the agent, exact ownership, transition, and canonical message
 payload before reserving the writer; the commit revalidates both payload snapshots and atomically updates the
-agent and message rows. Steering enqueue, lifecycle transition, and terminal mutation serialize through immediate SQLite
+agent and message rows. Terminal mutation preflights exact ownership, replay identity, transition legality,
+and descendant state read-only; its commit revalidates the agent snapshot and owner predicate, recursively
+rechecks that no persisted descendant is nonterminal, and atomically persists the terminal agent and one
+outbox row. Steering enqueue, lifecycle transition, and terminal mutation serialize through immediate SQLite
 transactions: steering that commits first keeps the agent active until delivery is acknowledged back to
 `running`; only then may it become idle or terminal. Steering attempted after a terminal commit receives
 an explicit inactive-agent rejection rather than being silently dropped.
