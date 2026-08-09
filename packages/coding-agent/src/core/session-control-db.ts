@@ -3814,7 +3814,7 @@ function persistDetachedAgentTerminalTransport(
 	if (!ownerSessionId) throw new Error(`Detached job ${agentId} ownership has no owner session`);
 	const messageId = `terminal:${agentId}:${terminalRevision}:${eventKind}`;
 	const body = JSON.stringify({ agentId, eventKind, terminalRevision, type: "multi_agent_terminal" });
-	persistStoredRuntimeMailboxMessage(db, {
+	persistImmutableMailboxPayload(db, {
 		kind: "system",
 		message: {
 			body,
@@ -3887,18 +3887,20 @@ interface DeadDetachedRuntimeCandidate {
 }
 
 export function reconcileDeadDetachedAgentRuntimes(controlDbPath: string, nowIso: string): number {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			let reconciled = 0;
-			for (const candidate of readDeadDetachedRuntimeCandidates(db)) {
-				const expectedOwner = readDetachedOwnerForRecovery(db, candidate);
-				if (!expectedOwner) continue;
-				const result = recoverDeadMultiAgentRuntimeInTransaction(db, expectedOwner, nowIso);
-				if (result.ok) reconciled += 1;
-			}
-			return reconciled;
-		}),
-	);
+	return withControlDb(controlDbPath, (db) => {
+		const expectedOwners = readDeadDetachedRuntimeCandidates(db).flatMap((candidate) => {
+			const owner = readDetachedOwnerForRecovery(db, candidate);
+			return owner ? [owner] : [];
+		});
+		let reconciled = 0;
+		for (const expectedOwner of expectedOwners) {
+			const result = withImmediateTransaction(db, () =>
+				recoverDeadMultiAgentRuntimeInTransaction(db, expectedOwner, nowIso, false),
+			);
+			if (result.ok) reconciled += 1;
+		}
+		return reconciled;
+	});
 }
 
 function readDeadDetachedRuntimeCandidates(db: SqliteDatabase): DeadDetachedRuntimeCandidate[] {
@@ -3928,6 +3930,7 @@ function readDetachedOwnerForRecovery(
 	const worker = agent.worker as AgentSnapshot["worker"] | undefined;
 	if (worker?.adapter !== "runtime" || worker.handleId !== String(processIdentity.pid)) return undefined;
 	if (hasTerminalOutboxRecord(db, candidate.session_path, candidate.agent_id)) return undefined;
+	if (isProcessIdentityAlive(processIdentity)) return undefined;
 	return {
 		agentId: candidate.agent_id,
 		owner: { agentId: candidate.owner_agent_id, sessionId: candidate.owner_session_id },
@@ -3948,6 +3951,7 @@ function recoverDeadMultiAgentRuntimeInTransaction(
 	db: SqliteDatabase,
 	expectedOwner: MultiAgentRuntimeOwnershipIdentity,
 	nowIso: string,
+	verifyOwnerLiveness = true,
 ): RecoverDeadMultiAgentRuntimeResult {
 	const { agentId, sessionPath } = expectedOwner;
 	const row = db
@@ -3959,7 +3963,9 @@ function recoverDeadMultiAgentRuntimeInTransaction(
 	const owner = readMultiAgentRuntimeOwnershipRow(db, sessionPath, agentId);
 	if (!runtimeOwnerMatches(owner, expectedOwner)) return { ok: false, error: "mutation_mismatch" };
 	if (hasActivePersistedDescendant(db, sessionPath, agentId)) return { ok: false, error: "invalid_transition" };
-	if (isProcessIdentityAlive(expectedOwner.processIdentity)) return { ok: false, error: "owner_alive" };
+	if (verifyOwnerLiveness && isProcessIdentityAlive(expectedOwner.processIdentity)) {
+		return { ok: false, error: "owner_alive" };
+	}
 	const released = db
 		.prepare(
 			`UPDATE multi_agent_runtime_owners

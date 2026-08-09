@@ -199,6 +199,72 @@ describe("orphaned detached runtime reconciliation", () => {
 		}
 	}, 15_000);
 
+	it("scans live detached runners without acquiring the writer lock", async () => {
+		createRunningDetachedJob(controlDbPath);
+		replaceRunnerIdentity(controlDbPath, readProcessIdentity(process.pid));
+
+		const db = createSqliteDatabase(controlDbPath);
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { reconcileDeadDetachedAgentRuntimes } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage("ready");
+				parentPort?.once("message", () => {
+					try {
+						const result = reconcileDeadDetachedAgentRuntimes(workerData.controlDbPath, workerData.nowIso);
+						parentPort?.postMessage(\`completed:\${result}\`);
+					} catch (error) {
+						parentPort?.postMessage(\`error:\${String(error)}\`);
+					}
+				});
+			`,
+			{
+				eval: true,
+				execArgv: ["--experimental-strip-types"],
+				workerData: { controlDbPath, nowIso: RECONCILED_AT },
+			},
+		);
+		let result: string | undefined;
+		const completed = new Promise<void>((resolve) => {
+			worker.on("message", (message: string) => {
+				if (message !== "ready") {
+					result = message;
+					resolve();
+				}
+			});
+			worker.on("error", (error) => {
+				result = `error:${String(error)}`;
+				resolve();
+			});
+		});
+		try {
+			await waitForWorkerMessage(worker, "ready");
+			db.exec("BEGIN IMMEDIATE");
+			worker.postMessage("reconcile");
+			await Promise.race([
+				completed,
+				new Promise((_, reject) =>
+					setTimeout(() => reject(new Error("live-runner reconciliation waited for the writer lock")), 1_000),
+				),
+			]);
+
+			expect(result).toBe("completed:0");
+			expect(readMultiAgentAgent(controlDbPath, SESSION_PATH, JOB_ID)?.lifecycle).toBe("running");
+			expect(countTerminalOutboxRows(controlDbPath)).toBe(0);
+		} finally {
+			try {
+				db.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			if (!result) await completed;
+			await worker.terminate();
+			db.close();
+		}
+	});
+
 	it("surfaces non-transient reconciliation failures", () => {
 		createRunningDetachedJob(controlDbPath);
 		const db = createSqliteDatabase(controlDbPath);
