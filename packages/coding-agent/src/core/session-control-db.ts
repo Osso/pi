@@ -3273,6 +3273,8 @@ const MULTI_AGENT_STEERING_MUTATION_MAX_ATTEMPTS = 3;
 
 type MultiAgentSteeringMutationPlan = {
 	agentData: string;
+	mailbox: PreparedSteeringMailboxMessage;
+	processIdentityData: string;
 	recipientListener: RuntimeMailboxListenerRow;
 	senderListener: RuntimeMailboxListenerRow;
 	updatedAgent: AgentSnapshot;
@@ -3283,10 +3285,12 @@ type MultiAgentSteeringMutationPreflight =
 	| { plan: MultiAgentSteeringMutationPlan }
 	| { result: CommitMultiAgentSteeringMutationResult };
 
+const STEERING_MESSAGE_ID_PLACEHOLDER = "__pi_generated_steering_message_id__";
+
 type PreparedSteeringMailboxMessage = {
-	input: EnqueueStoredRuntimeMailboxMessageInput;
-	message: AgentMailboxMessage;
-	prepared: PreparedStoredRuntimeMailboxMessage;
+	dataPrefix: string;
+	dataSuffix: string;
+	updatedAt: string;
 };
 
 export function commitMultiAgentSteeringMutation(
@@ -3340,6 +3344,8 @@ function prepareMultiAgentSteeringMutation(
 	return {
 		plan: {
 			agentData: agentRow.data,
+			mailbox: prepareSteeringMailboxMessage(input),
+			processIdentityData: serializeProcessIdentity(input.processIdentity),
 			recipientListener,
 			senderListener,
 			updatedAgent,
@@ -3390,12 +3396,19 @@ function persistMultiAgentSteeringMutation(
 	input: CommitMultiAgentSteeringMutationInput,
 	plan: MultiAgentSteeringMutationPlan,
 ): CommitMultiAgentSteeringMutationResult | undefined {
-	return withImmediateTransaction(db, () => {
+	const messageNumber = withImmediateTransaction(db, () => {
 		if (!compareAndPersistSteeringAgent(db, input, plan)) return undefined;
-		const mailbox = allocateAndPrepareSteeringMailboxMessage(db, input);
-		persistStoredRuntimeMailboxMessage(db, mailbox.input, mailbox.prepared);
-		return { agent: plan.updatedAgent, message: mailbox.message, ok: true };
+		const allocatedMessageNumber = allocateMultiAgentCounterWithDb(db, input.sessionPath, "message");
+		const messageId = `message_${allocatedMessageNumber}`;
+		persistPreparedSteeringMailboxMessage(db, input.sessionPath, messageId, plan.mailbox);
+		return allocatedMessageNumber;
 	});
+	if (messageNumber === undefined) return undefined;
+	return {
+		agent: plan.updatedAgent,
+		message: buildSteeringMailboxMessage(input, `message_${messageNumber}`),
+		ok: true,
+	};
 }
 
 function compareAndPersistSteeringAgent(
@@ -3434,7 +3447,7 @@ function compareAndPersistSteeringAgent(
 				plan.agentData,
 				input.sessionPath,
 				input.agentId,
-				serializeProcessIdentity(input.processIdentity),
+				plan.processIdentityData,
 				input.owner.sessionId,
 				input.owner.agentId,
 				input.owner.sessionId,
@@ -3455,17 +3468,16 @@ function compareAndPersistSteeringAgent(
 	);
 }
 
-function allocateAndPrepareSteeringMailboxMessage(
-	db: SqliteDatabase,
+function buildSteeringMailboxMessage(
 	input: CommitMultiAgentSteeringMutationInput,
-): PreparedSteeringMailboxMessage {
-	const messageNumber = allocateMultiAgentCounterWithDb(db, input.sessionPath, "message");
-	const message: AgentMailboxMessage = {
+	messageId: string,
+): AgentMailboxMessage {
+	return {
 		body: input.body,
 		createdAt: input.updatedAt,
 		fileRefs: input.fileRefs,
 		fromAgentId: input.fromAgentId,
-		id: `message_${messageNumber}`,
+		id: messageId,
 		kind: "steer",
 		status: "pending",
 		targetCheckpoint: input.targetCheckpoint,
@@ -3473,6 +3485,10 @@ function allocateAndPrepareSteeringMailboxMessage(
 		toAgentId: input.agentId,
 		updatedAt: input.updatedAt,
 	};
+}
+
+function prepareSteeringMailboxMessage(input: CommitMultiAgentSteeringMutationInput): PreparedSteeringMailboxMessage {
+	const message = buildSteeringMailboxMessage(input, STEERING_MESSAGE_ID_PLACEHOLDER);
 	const mailboxInput: EnqueueStoredRuntimeMailboxMessageInput = {
 		kind: message.kind,
 		message,
@@ -3481,7 +3497,31 @@ function allocateAndPrepareSteeringMailboxMessage(
 		storeRef: { messageId: message.id, sessionPath: input.sessionPath },
 		updatedAt: input.updatedAt,
 	};
-	return { input: mailboxInput, message, prepared: prepareStoredRuntimeMailboxMessage(mailboxInput) };
+	const serialized = prepareStoredRuntimeMailboxMessage(mailboxInput).serialized;
+	const serializedId = JSON.stringify(STEERING_MESSAGE_ID_PLACEHOLDER);
+	const idProperty = `"id":${serializedId}`;
+	const idPropertyIndex = serialized.indexOf(idProperty);
+	if (idPropertyIndex < 0 || serialized.indexOf(idProperty, idPropertyIndex + idProperty.length) >= 0) {
+		throw new Error("Prepared steering mailbox payload has an invalid generated message ID field");
+	}
+	const serializedIdIndex = idPropertyIndex + `"id":`.length;
+	return {
+		dataPrefix: serialized.slice(0, serializedIdIndex),
+		dataSuffix: serialized.slice(serializedIdIndex + serializedId.length),
+		updatedAt: input.updatedAt,
+	};
+}
+
+function persistPreparedSteeringMailboxMessage(
+	db: SqliteDatabase,
+	sessionPath: string,
+	messageId: string,
+	prepared: PreparedSteeringMailboxMessage,
+): void {
+	db.prepare(
+		`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+		 VALUES (?, ?, ? || json_quote(?) || ?, ?)`,
+	).run(sessionPath, messageId, prepared.dataPrefix, messageId, prepared.dataSuffix, prepared.updatedAt);
 }
 
 function runtimeListenerMatchesProcessIdentity(
@@ -3640,8 +3680,11 @@ const MULTI_AGENT_STEERING_DELIVERY_MAX_ATTEMPTS = 3;
 type MultiAgentSteeringDeliveryPlan = {
 	agentData: string;
 	messageData: string;
+	processIdentityData: string;
 	updatedAgent: AgentSnapshot;
+	updatedAgentData: string;
 	updatedMessage: AgentMailboxMessage;
+	updatedMessageData: string;
 };
 
 type MultiAgentSteeringDeliveryPreflight =
@@ -3707,7 +3750,17 @@ function prepareMultiAgentSteeringDelivery(
 		status: "delivered",
 		updatedAt: input.updatedAt,
 	} as unknown as AgentMailboxMessage;
-	return { plan: { agentData: agentRow.data, messageData: messageRow.data, updatedAgent, updatedMessage } };
+	return {
+		plan: {
+			agentData: agentRow.data,
+			messageData: messageRow.data,
+			processIdentityData: serializeProcessIdentity(input.processIdentity),
+			updatedAgent,
+			updatedAgentData: JSON.stringify(updatedAgent),
+			updatedMessage,
+			updatedMessageData: JSON.stringify(updatedMessage),
+		},
+	};
 }
 
 function persistMultiAgentSteeringDelivery(
@@ -3715,7 +3768,7 @@ function persistMultiAgentSteeringDelivery(
 	input: CommitMultiAgentSteeringDeliveryInput,
 	plan: MultiAgentSteeringDeliveryPlan,
 ): CommitMultiAgentSteeringDeliveryResult | undefined {
-	return withImmediateTransaction(db, () => {
+	const persisted = withImmediateTransaction(db, () => {
 		const agentUpdated = db
 			.prepare(
 				`UPDATE multi_agent_agents SET data = ?, updated_at = ?
@@ -3731,28 +3784,28 @@ function persistMultiAgentSteeringDelivery(
 				 )`,
 			)
 			.run(
-				JSON.stringify(plan.updatedAgent),
+				plan.updatedAgentData,
 				input.updatedAt,
 				input.sessionPath,
 				input.agentId,
 				plan.agentData,
 				input.sessionPath,
 				input.agentId,
-				serializeProcessIdentity(input.processIdentity),
+				plan.processIdentityData,
 				input.owner.sessionId,
 				input.owner.agentId,
 				input.sessionPath,
 				input.messageId,
 				plan.messageData,
 			).changes;
-		if (agentUpdated !== 1) return undefined;
+		if (agentUpdated !== 1) return false;
 		const messageUpdated = db
 			.prepare(
 				`UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ?
 				 WHERE session_path = ? AND message_id = ? AND data = ?`,
 			)
 			.run(
-				JSON.stringify(plan.updatedMessage),
+				plan.updatedMessageData,
 				input.updatedAt,
 				input.sessionPath,
 				input.messageId,
@@ -3761,8 +3814,9 @@ function persistMultiAgentSteeringDelivery(
 		if (messageUpdated !== 1) {
 			throw new Error(`Steering message changed during delivery ${input.sessionPath}#${input.messageId}`);
 		}
-		return { agent: plan.updatedAgent, message: plan.updatedMessage, ok: true };
+		return true;
 	});
+	return persisted ? { agent: plan.updatedAgent, message: plan.updatedMessage, ok: true } : undefined;
 }
 
 const MULTI_AGENT_LIFECYCLE_MUTATION_MAX_ATTEMPTS = 3;
@@ -3772,7 +3826,9 @@ type DetachedCancellationCommand = { message: string; messageId: string };
 type MultiAgentLifecycleMutationPlan = {
 	agentData: string;
 	cancellation?: DetachedCancellationCommand;
+	processIdentityData: string;
 	updatedAgent: Record<string, unknown>;
+	updatedAgentData: string;
 };
 
 type MultiAgentLifecycleMutationPreflight =
@@ -3826,7 +3882,15 @@ function prepareMultiAgentLifecycleMutation(
 	const cancellation = input.detachedCancellation
 		? buildDetachedCancellationMessage(input, input.detachedCancellation, updatedAgent.revision)
 		: undefined;
-	return { plan: { agentData: row.data, cancellation, updatedAgent } };
+	return {
+		plan: {
+			agentData: row.data,
+			cancellation,
+			processIdentityData: serializeProcessIdentity(input.processIdentity),
+			updatedAgent,
+			updatedAgentData: JSON.stringify(updatedAgent),
+		},
+	};
 }
 
 function persistMultiAgentLifecycleMutation(
@@ -3846,14 +3910,14 @@ function persistMultiAgentLifecycleMutation(
 				 )`,
 			)
 			.run(
-				JSON.stringify(plan.updatedAgent),
+				plan.updatedAgentData,
 				input.updatedAt,
 				input.sessionPath,
 				input.agentId,
 				plan.agentData,
 				input.sessionPath,
 				input.agentId,
-				serializeProcessIdentity(input.processIdentity),
+				plan.processIdentityData,
 				input.owner.sessionId,
 				input.owner.agentId,
 			).changes;
@@ -4912,9 +4976,10 @@ export function createMultiAgentChildWithRuntimeOwnership(
 	}
 	const parentId = typeof agent.parentId === "string" ? agent.parentId : undefined;
 	if (!parentId) return { ok: false, error: "parent_not_found" };
+	const processIdentityData = serializeProcessIdentity(input.processIdentity);
 	const serializedAgent = JSON.stringify(input.agent);
 	return withControlDb(controlDbPath, (db) =>
-		createMultiAgentChildWithRuntimeOwnershipWithDb(db, input, parentId, serializedAgent),
+		createMultiAgentChildWithRuntimeOwnershipWithDb(db, input, parentId, processIdentityData, serializedAgent),
 	);
 }
 
@@ -4922,13 +4987,14 @@ function createMultiAgentChildWithRuntimeOwnershipWithDb(
 	db: SqliteDatabase,
 	input: CreateMultiAgentChildWithRuntimeOwnershipInput,
 	parentId: string,
+	processIdentityData: string,
 	serializedAgent: string,
 ): CreateMultiAgentChildWithRuntimeOwnershipResult {
 	for (let attempt = 1; attempt <= MULTI_AGENT_CREATION_MAX_ATTEMPTS; attempt += 1) {
 		const parent = readActiveParentSnapshot(db, input.sessionPath, parentId);
 		if (!parent) return { ok: false, error: "parent_not_found" };
 		if (multiAgentAgentExists(db, input.sessionPath, input.agentId)) return { ok: false, error: "agent_exists" };
-		const result = commitMultiAgentChildWithRuntimeOwnership(db, input, serializedAgent, parent);
+		const result = commitMultiAgentChildWithRuntimeOwnership(db, input, processIdentityData, serializedAgent, parent);
 		if (result) return result;
 	}
 	throw new Error(`Child parent changed repeatedly ${input.sessionPath}#${input.agentId}`);
@@ -4937,6 +5003,7 @@ function createMultiAgentChildWithRuntimeOwnershipWithDb(
 function commitMultiAgentChildWithRuntimeOwnership(
 	db: SqliteDatabase,
 	input: CreateMultiAgentChildWithRuntimeOwnershipInput,
+	processIdentityData: string,
 	serializedAgent: string,
 	parent: ActiveParentSnapshot,
 ): CreateMultiAgentChildWithRuntimeOwnershipResult | undefined {
@@ -4953,10 +5020,8 @@ function commitMultiAgentChildWithRuntimeOwnership(
 		) {
 			return undefined;
 		}
-		persistAcquiredRuntimeOwnership(db, input);
-		const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-		if (!ownership) throw new Error(`Child runtime ownership did not persist ${input.sessionPath}#${input.agentId}`);
-		return { agent: input.agent, ok: true, ownership: multiAgentRuntimeOwnershipFromRow(ownership) };
+		persistAcquiredRuntimeOwnership(db, input, processIdentityData);
+		return { agent: input.agent, ok: true, ownership: multiAgentRuntimeOwnershipFromInput(input) };
 	});
 }
 
@@ -5021,9 +5086,11 @@ export function readMultiAgentRuntimeOwnership(
 const ATTACHED_RUNTIME_OWNERSHIP_MAX_ATTEMPTS = 3;
 
 type AcquireAttachedRuntimeOwnershipPlan = {
-	agent: Record<string, unknown>;
 	agentData: string;
 	ownership: MultiAgentRuntimeOwnershipRow | undefined;
+	processIdentityData: string;
+	updatedAgent: Record<string, unknown>;
+	updatedAgentData: string;
 };
 
 type AcquireAttachedRuntimeOwnershipPreflight =
@@ -5080,7 +5147,20 @@ function prepareAttachedRuntimeOwnershipAcquisition(
 	if (currentOwnerAlive && !replacesCurrentIncarnation) {
 		return { result: { ok: false, error: "ownership_held" } };
 	}
-	return { plan: { agent: agentRead.agent, agentData: agentRead.data, ownership } };
+	const updatedAgent = {
+		...agentRead.agent,
+		revision: Number(agentRead.agent.revision) + 1,
+		updatedAt: input.nowIso,
+	};
+	return {
+		plan: {
+			agentData: agentRead.data,
+			ownership,
+			processIdentityData: serializeProcessIdentity(input.processIdentity),
+			updatedAgent,
+			updatedAgentData: JSON.stringify(updatedAgent),
+		},
+	};
 }
 
 function readAttachedRuntimeAgent(db: SqliteDatabase, sessionPath: string, agentId: string): AttachedRuntimeAgentRead {
@@ -5100,41 +5180,40 @@ function commitAttachedRuntimeOwnershipAcquisition(
 	input: AcquireAttachedRuntimeOwnershipInput,
 	plan: AcquireAttachedRuntimeOwnershipPlan,
 ): AcquireAttachedRuntimeOwnershipResult | undefined {
-	return withImmediateTransaction(db, () => {
+	const persisted = withImmediateTransaction(db, () => {
 		if (!persistedSupervisorOwnsSession(db, input.sessionPath, input.supervisor)) {
-			return { ok: false, error: "mutation_mismatch" };
+			return { ok: false, error: "mutation_mismatch" } as const;
 		}
 		const row = db
 			.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
 			.get(input.sessionPath, input.agentId) as { data: string } | undefined;
-		if (!row) return { ok: false, error: "agent_not_found" };
+		if (!row) return { ok: false, error: "agent_not_found" } as const;
 		if (row.data !== plan.agentData) return undefined;
 		const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
 		if (!multiAgentRuntimeOwnershipRowsEqual(plan.ownership, ownership)) return undefined;
-		return persistAttachedRuntimeOwnershipAcquisition(db, input, plan.agent);
+		persistAttachedRuntimeOwnershipAcquisition(db, input, plan);
+		return true;
 	});
+	if (persisted !== true) return persisted;
+	return {
+		agent: plan.updatedAgent as unknown as AgentSnapshot,
+		ok: true,
+		ownership: multiAgentRuntimeOwnershipFromInput(input),
+	};
 }
 
 function persistAttachedRuntimeOwnershipAcquisition(
 	db: SqliteDatabase,
 	input: AcquireAttachedRuntimeOwnershipInput,
-	agent: Record<string, unknown>,
-): AcquireAttachedRuntimeOwnershipResult {
-	persistAcquiredRuntimeOwnership(db, input);
-	const updatedAgent = { ...agent, revision: Number(agent.revision) + 1, updatedAt: input.nowIso };
+	plan: AcquireAttachedRuntimeOwnershipPlan,
+): void {
+	persistAcquiredRuntimeOwnership(db, input, plan.processIdentityData);
 	db.prepare("UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?").run(
-		JSON.stringify(updatedAgent),
+		plan.updatedAgentData,
 		input.nowIso,
 		input.sessionPath,
 		input.agentId,
 	);
-	const acquired = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-	if (!acquired) throw new Error(`Attached runtime ownership did not persist ${input.sessionPath}#${input.agentId}`);
-	return {
-		agent: updatedAgent as unknown as AgentSnapshot,
-		ok: true,
-		ownership: multiAgentRuntimeOwnershipFromRow(acquired),
-	};
 }
 
 function registeredSupervisorOwnsSession(
@@ -5193,7 +5272,11 @@ function isRecoverableRuntimeLifecycle(value: unknown): boolean {
 	);
 }
 
-function persistAcquiredRuntimeOwnership(db: SqliteDatabase, input: MultiAgentRuntimeOwnershipIdentity): void {
+function persistAcquiredRuntimeOwnership(
+	db: SqliteDatabase,
+	input: MultiAgentRuntimeOwnershipIdentity,
+	processIdentityData: string,
+): void {
 	db.prepare(
 		`INSERT INTO multi_agent_runtime_owners (
 			session_path, agent_id, process_identity, owner_session_id, owner_agent_id
@@ -5202,13 +5285,16 @@ function persistAcquiredRuntimeOwnership(db: SqliteDatabase, input: MultiAgentRu
 			process_identity = excluded.process_identity,
 			owner_session_id = excluded.owner_session_id,
 			owner_agent_id = excluded.owner_agent_id`,
-	).run(
-		input.sessionPath,
-		input.agentId,
-		serializeProcessIdentity(input.processIdentity),
-		input.owner.sessionId,
-		input.owner.agentId,
-	);
+	).run(input.sessionPath, input.agentId, processIdentityData, input.owner.sessionId, input.owner.agentId);
+}
+
+function multiAgentRuntimeOwnershipFromInput(input: MultiAgentRuntimeOwnershipIdentity): MultiAgentRuntimeOwnership {
+	return {
+		agentId: input.agentId,
+		owner: input.owner,
+		processIdentity: input.processIdentity,
+		sessionPath: input.sessionPath,
+	};
 }
 
 function readMultiAgentRuntimeOwnershipRow(

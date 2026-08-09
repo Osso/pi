@@ -306,6 +306,123 @@ async function runRuntimeMailboxPayloadPreparationContention(
 	return completed;
 }
 
+type MultiAgentPayloadPreparationOperation = "attached" | "lifecycle" | "steering-delivery" | "steering-mutation";
+
+type WorkerRuntimeMailboxListener = {
+	recipient: { agentId: string | null; sessionId: string };
+	runtimeInstanceId?: string;
+	sessionPath?: string;
+};
+
+async function runMultiAgentPayloadPreparationContention(
+	controlDbPath: string,
+	operation: MultiAgentPayloadPreparationOperation,
+	input: Record<string, unknown>,
+	marker: string,
+	listeners: WorkerRuntimeMailboxListener[] = [],
+): Promise<WorkerStatusMessage> {
+	const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+	const workerSource = `
+		import { parentPort, workerData } from "node:worker_threads";
+		import {
+			acquireAttachedRuntimeOwnership,
+			commitMultiAgentLifecycleMutation,
+			commitMultiAgentSteeringDelivery,
+			commitMultiAgentSteeringMutation,
+			registerRuntimeMailboxListener,
+		} from ${JSON.stringify(moduleUrl)};
+
+		const originalStringify = JSON.stringify;
+		let markerReported = false;
+		JSON.stringify = ((value: unknown) => {
+			const serialized = originalStringify(value);
+			if (!markerReported && typeof serialized === "string" && serialized.includes(workerData.marker)) {
+				markerReported = true;
+				parentPort?.postMessage({ type: "serialized" });
+			}
+			return serialized;
+		}) as typeof JSON.stringify;
+
+		try {
+			for (const listener of workerData.listeners) {
+				registerRuntimeMailboxListener(
+					workerData.controlDbPath,
+					listener.recipient,
+					process.pid,
+					listener.sessionPath,
+					listener.runtimeInstanceId ? { runtimeInstanceId: listener.runtimeInstanceId } : undefined,
+				);
+			}
+			parentPort?.postMessage({ type: "ready" });
+		} catch (error) {
+			parentPort?.postMessage({ error: String(error), type: "error" });
+		}
+
+		parentPort?.once("message", () => {
+			try {
+				const result =
+					workerData.operation === "attached"
+						? acquireAttachedRuntimeOwnership(workerData.controlDbPath, workerData.input)
+						: workerData.operation === "lifecycle"
+							? commitMultiAgentLifecycleMutation(workerData.controlDbPath, workerData.input)
+							: workerData.operation === "steering-delivery"
+								? commitMultiAgentSteeringDelivery(workerData.controlDbPath, workerData.input)
+								: commitMultiAgentSteeringMutation(workerData.controlDbPath, workerData.input);
+				parentPort?.postMessage({ error: result.error, ok: result.ok, type: "completed" });
+			} catch (error) {
+				parentPort?.postMessage({ error: String(error), type: "completed" });
+			}
+		});
+	`;
+	const worker = new Worker(workerSource, {
+		eval: true,
+		execArgv: ["--experimental-strip-types"],
+		workerData: { controlDbPath, input, listeners, marker, operation },
+	});
+	const holder = createSqliteDatabase(controlDbPath);
+	configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+	let serializedBeforeRelease: WorkerStatusMessage | undefined;
+	let completed: WorkerStatusMessage | undefined;
+	let blockedBeforeSerialization: unknown;
+	try {
+		await waitForWorkerStatus(worker, {
+			expectedType: "ready",
+			timeoutMessage: `${operation} payload worker did not load`,
+		});
+		holder.exec("BEGIN IMMEDIATE");
+		worker.postMessage("run");
+		try {
+			serializedBeforeRelease = await waitForWorkerStatus(worker, {
+				expectedType: "serialized",
+				timeoutMessage: `${operation} payload serialization waited for the writer lock`,
+				timeoutMs: 1_000,
+			});
+		} catch (error) {
+			blockedBeforeSerialization = error;
+		}
+		holder.exec("ROLLBACK");
+		completed = await waitForWorkerStatus(worker, {
+			expectedType: "completed",
+			ignoredTypes: ["serialized"],
+			timeoutMessage: `${operation} payload worker did not finish after lock release`,
+		});
+	} finally {
+		try {
+			holder.exec("ROLLBACK");
+		} catch {
+			// The holder may already have released its transaction after the assertion.
+		}
+		await worker.terminate();
+		holder.close();
+	}
+
+	expect(blockedBeforeSerialization).toBeUndefined();
+	expect(serializedBeforeRelease).toMatchObject({ type: "serialized" });
+	if (!completed) throw new Error(`${operation} payload worker did not report completion`);
+	expect(completed.error).toBeUndefined();
+	return completed;
+}
+
 describe("session control DB", () => {
 	it("shares one runtime process incarnation across module initializers", () => {
 		const first = getRuntimeProcessInstanceId();
@@ -1790,6 +1907,47 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(readMultiAgentState(controlDbPath, sessionPath)).toEqual(beforeState);
 	});
 
+	it("prepares lifecycle payload before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/lifecycle-payload-contention.jsonl";
+		const agentId = "agent-lifecycle-payload-contention";
+		const marker = "lifecycle-payload-contention-marker";
+		const owner = { agentId: null, sessionId: "supervisor-lifecycle-payload-contention" };
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			displayName: marker,
+			id: agentId,
+			lifecycle: "running",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, {
+			agentId,
+			owner,
+			processIdentity: CURRENT_PROCESS_IDENTITY,
+			sessionPath,
+		});
+
+		const result = await runMultiAgentPayloadPreparationContention(
+			controlDbPath,
+			"lifecycle",
+			{
+				agentId,
+				owner,
+				processIdentity: CURRENT_PROCESS_IDENTITY,
+				requestedLifecycle: "waiting_for_input",
+				sessionPath,
+				updatedAt: "2026-08-09T00:01:00.000Z",
+			},
+			marker,
+		);
+
+		expect(result.ok).toBe(true);
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
+			{ displayName: marker, lifecycle: "waiting_for_input", revision: 2 },
+		]);
+	});
+
 	it("validates steering authority before acquiring the writer lock", async () => {
 		const sessionPath = "/sessions/steering-contention.jsonl";
 		const agentId = "agent-steering-contention";
@@ -2137,6 +2295,61 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.counters.nextMessageNumber).toBe(3);
 	});
 
+	it("prepares steering message payload before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/steering-payload-contention.jsonl";
+		const agentId = "agent-steering-payload-contention";
+		const childSessionId = "steering-payload-contention-child";
+		const supervisorSessionId = "steering-payload-contention-supervisor";
+		const marker = "steering-payload-contention-marker";
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			id: agentId,
+			lifecycle: "running",
+			origin: "spawned",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			transcript: { path: "/sessions/steering-payload-child.jsonl", sessionId: childSessionId },
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, {
+			agentId,
+			owner: { agentId: null, sessionId: supervisorSessionId },
+			processIdentity: CURRENT_PROCESS_IDENTITY,
+			sessionPath,
+		});
+
+		const result = await runMultiAgentPayloadPreparationContention(
+			controlDbPath,
+			"steering-mutation",
+			{
+				agentId,
+				body: marker,
+				fromAgentId: "supervisor",
+				owner: { agentId: null, sessionId: supervisorSessionId },
+				processIdentity: CURRENT_PROCESS_IDENTITY,
+				recipient: { agentId, sessionId: childSessionId },
+				requestedLifecycle: "steering_pending",
+				sessionPath,
+				updatedAt: "2026-08-09T00:01:00.000Z",
+			},
+			marker,
+			[
+				{ recipient: { agentId: null, sessionId: supervisorSessionId }, sessionPath },
+				{
+					recipient: { agentId, sessionId: childSessionId },
+					runtimeInstanceId: JSON.stringify(CURRENT_PROCESS_IDENTITY),
+				},
+			],
+		);
+
+		expect(result.ok).toBe(true);
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject({
+			agents: [{ lifecycle: "steering_pending", revision: 2 }],
+			counters: { nextMessageNumber: 2 },
+			mailboxMessages: [{ body: marker, id: "message_1", status: "pending" }],
+		});
+	});
+
 	it("validates steering delivery before acquiring the writer lock", async () => {
 		const sessionPath = "/sessions/steering-delivery-contention.jsonl";
 		const agentId = "agent-steering-delivery-contention";
@@ -2216,6 +2429,113 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed).toMatchObject({ error: "message_not_found", ok: false, type: "completed" });
 		expect(readMultiAgentState(controlDbPath, sessionPath)).toEqual(beforeState);
+	});
+
+	it("prepares steering delivery agent payload before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/steering-delivery-agent-payload.jsonl";
+		const agentId = "agent-steering-delivery-agent-payload";
+		const messageId = "steering-delivery-agent-payload-message";
+		const marker = "steering-delivery-agent-payload-marker";
+		const owner = { agentId: null, sessionId: "steering-delivery-agent-payload-supervisor" };
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			displayName: marker,
+			id: agentId,
+			lifecycle: "steering_pending",
+			origin: "spawned",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 2,
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, {
+			agentId,
+			owner,
+			processIdentity: CURRENT_PROCESS_IDENTITY,
+			sessionPath,
+		});
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: "deliver agent payload",
+			fromAgentId: "supervisor",
+			id: messageId,
+			kind: "steer",
+			status: "pending",
+			toAgentId: agentId,
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+
+		const result = await runMultiAgentPayloadPreparationContention(
+			controlDbPath,
+			"steering-delivery",
+			{
+				agentId,
+				messageId,
+				owner,
+				processIdentity: CURRENT_PROCESS_IDENTITY,
+				requestedLifecycle: "running",
+				sessionPath,
+				updatedAt: "2026-08-09T00:01:00.000Z",
+			},
+			marker,
+		);
+
+		expect(result.ok).toBe(true);
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject({
+			agents: [{ displayName: marker, lifecycle: "running", revision: 3 }],
+			mailboxMessages: [{ id: messageId, status: "delivered" }],
+		});
+	});
+
+	it("prepares steering delivery message payload before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/steering-delivery-message-payload.jsonl";
+		const agentId = "agent-steering-delivery-message-payload";
+		const messageId = "steering-delivery-message-payload-message";
+		const marker = "steering-delivery-message-payload-marker";
+		const owner = { agentId: null, sessionId: "steering-delivery-message-payload-supervisor" };
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			id: agentId,
+			lifecycle: "steering_pending",
+			origin: "spawned",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 2,
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, {
+			agentId,
+			owner,
+			processIdentity: CURRENT_PROCESS_IDENTITY,
+			sessionPath,
+		});
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: marker,
+			fromAgentId: "supervisor",
+			id: messageId,
+			kind: "steer",
+			status: "pending",
+			toAgentId: agentId,
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+
+		const result = await runMultiAgentPayloadPreparationContention(
+			controlDbPath,
+			"steering-delivery",
+			{
+				agentId,
+				messageId,
+				owner,
+				processIdentity: CURRENT_PROCESS_IDENTITY,
+				requestedLifecycle: "running",
+				sessionPath,
+				updatedAt: "2026-08-09T00:01:00.000Z",
+			},
+			marker,
+		);
+
+		expect(result.ok).toBe(true);
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject({
+			agents: [{ lifecycle: "running", revision: 3 }],
+			mailboxMessages: [{ body: marker, id: messageId, status: "delivered" }],
+		});
 	});
 
 	it("rejects steering to a dead recipient without advancing its counter", () => {
@@ -3383,6 +3703,56 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(completed).toMatchObject({ error: "owner_alive", ok: false, type: "completed" });
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents[0]).toEqual(beforeAgent);
 		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId)).toEqual(beforeOwnership);
+	});
+
+	it("prepares attached ownership payload before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/attached-payload-contention.jsonl";
+		const agentId = "agent-attached-payload-contention";
+		const supervisorSessionId = "supervisor-attached-payload-contention";
+		const marker = "attached-payload-contention-marker";
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			displayName: marker,
+			id: agentId,
+			lifecycle: "waiting_for_input",
+			origin: "attached",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+		const input = {
+			agentId,
+			nowIso: "2026-08-09T00:01:00.000Z",
+			owner: { agentId: null, sessionId: supervisorSessionId },
+			processIdentity: testProcessIdentity("attached-payload-new-owner"),
+			sessionPath,
+			supervisor: { processIdentity: CURRENT_PROCESS_IDENTITY, sessionId: supervisorSessionId },
+		};
+
+		const result = await runMultiAgentPayloadPreparationContention(
+			controlDbPath,
+			"attached",
+			input,
+			marker,
+			[
+				{
+					recipient: { agentId: null, sessionId: supervisorSessionId },
+					runtimeInstanceId: JSON.stringify(CURRENT_PROCESS_IDENTITY),
+					sessionPath,
+				},
+			],
+		);
+
+		expect(result.ok).toBe(true);
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
+			{ displayName: marker, revision: 2 },
+		]);
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId)).toMatchObject({
+			agentId,
+			owner: { agentId: null, sessionId: supervisorSessionId },
+			processIdentity: input.processIdentity,
+			sessionPath,
+		});
 	});
 
 	it("returns existing attached ownership before acquiring the writer lock", async () => {
