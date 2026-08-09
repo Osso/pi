@@ -126,7 +126,11 @@ payload before reserving the writer; the commit revalidates both payload snapsho
 agent and message rows. Terminal mutation preflights exact ownership, replay identity, transition legality,
 and descendant state read-only; its commit revalidates the agent snapshot and owner predicate, recursively
 rechecks that no persisted descendant is nonterminal, and atomically persists the terminal agent and one
-outbox row. Steering enqueue, lifecycle transition, and terminal mutation serialize through immediate SQLite
+outbox row. Detached-job finalization resolves the candidate session path from exact ownership rows and
+preflights path uniqueness, replay identity, terminal payload, lifecycle, ownership, and descendant state
+read-only. Its commit revalidates unique ownership, the agent snapshot, and recursive descendant absence in
+one CAS fence, then atomically persists the terminal agent, outbox row, and optional detached transport
+notification. Exact replays return the existing terminal result without reserving the writer. Steering enqueue, lifecycle transition, and terminal mutation serialize through immediate SQLite
 transactions: steering that commits first keeps the agent active until delivery is acknowledged back to
 `running`; only then may it become idle or terminal. Steering attempted after a terminal commit receives
 an explicit inactive-agent rejection rather than being silently dropped.

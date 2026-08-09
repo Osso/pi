@@ -67,7 +67,11 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       message rows. Terminal mutation preflights exact ownership, replay identity, transition legality, and
       descendant state read-only; its commit revalidates the agent snapshot and owner predicate, recursively
       rechecks that no persisted descendant is nonterminal, and atomically persists the terminal agent and one
-      outbox row. Lifecycle transactions read revision internally, verify session/agent/process ownership, update
+      outbox row. Detached-job finalization resolves the candidate session path from exact ownership rows and
+      preflights path uniqueness, replay identity, terminal payload, lifecycle, ownership, and descendant state
+      read-only. Its commit revalidates unique ownership, the agent snapshot, and recursive descendant absence in
+      one CAS fence, then atomically persists the terminal agent, outbox row, and optional detached transport
+      notification. Exact replays return the existing terminal result without reserving the writer. Lifecycle transactions read revision internally, verify session/agent/process ownership, update
       the agent row, and enqueue one pending completion notification in the same immediate SQLite transaction.
       The agent row is terminal truth; the outbox is only a delivery queue.
       Exact retries return the committed terminal revision without rewriting rows; conflicting predicates fail
