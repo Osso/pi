@@ -57,7 +57,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       Exact retries return the committed terminal revision without rewriting rows; conflicting predicates fail
       without creating another notification. Outbox rows use atomic single-claim delivery; failures return
       the same row to pending with an incremented attempt count and retained error, while successful delivery
-      finalizes only notification transport. Child construction occurs before persistence: success commits
+      finalizes only notification transport. An idle outbox claim performs a read-only eligibility probe and
+      returns without reserving the writer lock; when stale claims need recovery, that recovery remains in the
+      immediate transaction, and the pending-row selection plus claim is one atomic `UPDATE ... RETURNING`.
+      Child construction occurs before persistence: success commits
       the child row as `running` revision 1 with ownership, while construction interruption or failure
       commits `failed` revision 1. No persisted `queued` or `starting` startup row exists. Concurrent
       SQLite contenders serialize, repository code reads/increments revision internally, repeated identical
