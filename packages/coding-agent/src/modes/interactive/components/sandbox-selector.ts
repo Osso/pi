@@ -47,7 +47,11 @@ export class SandboxSelectorComponent extends Container {
 		this.onSelectCallback = options.onSelect;
 		this.onCancelCallback = options.onCancel;
 		this.selectedIndex = this.selectedIndexForScope();
+		this.addStaticLayout();
+		this.updateList();
+	}
 
+	private addStaticLayout(): void {
 		this.addChild(new DynamicBorder());
 		this.addChild(new Spacer(1));
 		this.addChild(new Text(theme.fg("accent", theme.bold("Sandbox profiles")), 1, 0));
@@ -55,23 +59,15 @@ export class SandboxSelectorComponent extends Container {
 		this.addChild(new Spacer(1));
 		this.addChild(this.listContainer);
 		this.addChild(new Spacer(1));
-		this.addChild(
-			new Text(
-				rawKeyHint("↑↓", "navigate") +
-					"  " +
-					rawKeyHint("Tab", "scope") +
-					"  " +
-					keyHint("tui.select.confirm", "save") +
-					"  " +
-					keyHint("tui.select.cancel", "cancel"),
-				1,
-				0,
-			),
-		);
+		const controls = [
+			rawKeyHint("↑↓", "navigate"),
+			rawKeyHint("Tab", "scope"),
+			keyHint("tui.select.confirm", "save"),
+			keyHint("tui.select.cancel", "cancel"),
+		].join("  ");
+		this.addChild(new Text(controls, 1, 0));
 		this.addChild(new Spacer(1));
 		this.addChild(new DynamicBorder());
-
-		this.updateList();
 	}
 
 	private optionsForScope(): SandboxSelectorOption[] {
