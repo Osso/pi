@@ -56,6 +56,7 @@ The bubblewrap sandbox backend is a Linux extension that routes selected Pi tool
 - `packages/coding-agent/test/approval-selector.test.ts` — session scope and inheritance visibility/selection.
 - `packages/coding-agent/test/approval-slash-commands.test.ts` — deterministic profile/scope arguments and inherit validation.
 - `packages/coding-agent/test/pyrun-extension.test.ts` — sandboxed Pyrun runner and disabled Pi bridge.
+- `packages/coding-agent/test/suite/regressions/session-sandbox-profile-restart.test.ts` — real-process session override, restart persistence, read-only write denial, sandboxed Pyrun execution, and new-session isolation.
 - `packages/coding-agent/test/suite/change-working-directory-tool.test.ts` — unsandboxed file-tool cwd after relocation and process restart.
 
 ## Known gaps (current cycle)

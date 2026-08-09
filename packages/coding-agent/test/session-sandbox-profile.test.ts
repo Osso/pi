@@ -93,7 +93,7 @@ describe("session sandbox profile control state", () => {
 		expect(readSessionSandboxProfile(controlDbPath, relocatedPath, sessionId)).toBeUndefined();
 	});
 
-	it("restores the override before runtime construction and clears it for a new session", async () => {
+	it("restores the override before runtime construction and clears it for forked and new sessions", async () => {
 		const workspaceDir = join(tempDir, "workspace");
 		const sessionDir = join(tempDir, "sessions");
 		const agentDir = join(tempDir, "agent");
@@ -103,8 +103,6 @@ describe("session sandbox profile control state", () => {
 		if (!model) throw new Error("Expected test model");
 		const settingsManager = SettingsManager.inMemory({ sandboxProfile: "full-access" });
 		const original = SessionManager.create(workspaceDir, sessionDir, { id: sessionId });
-		original.appendCustomEntry("test-session-created");
-		original.persistForRecovery();
 		original.setMetadataControlDbPath(controlDbPath);
 		original.setSessionSandboxProfile("read-only");
 		const sessionFile = original.getSessionFile();
@@ -123,6 +121,20 @@ describe("session sandbox profile control state", () => {
 		expect(restored.readPersistedSessionSettings()?.sandboxProfile).toBe("read-only");
 		expect(settingsManager.getExplicitSandboxProfile()).toBe("read-only");
 		firstRuntime.session.dispose();
+
+		const forkedSession = SessionManager.forkFrom(sessionFile, workspaceDir, sessionDir, { id: "session-fork" });
+		forkedSession.setMetadataControlDbPath(controlDbPath);
+		const forkedRuntime = await createAgentSession({
+			agentDir,
+			cwd: workspaceDir,
+			model,
+			noTools: "all",
+			sessionManager: forkedSession,
+			settingsManager,
+		});
+		expect(settingsManager.getSessionSandboxProfile()).toBeUndefined();
+		expect(settingsManager.getExplicitSandboxProfile()).toBe("full-access");
+		forkedRuntime.session.dispose();
 
 		const nextSession = SessionManager.create(workspaceDir, sessionDir, { id: "session-b" });
 		nextSession.setMetadataControlDbPath(controlDbPath);

@@ -1627,6 +1627,7 @@ export class SessionManager {
 
 	setSessionSandboxProfile(profile: SandboxProfileName | undefined): boolean {
 		if (!this.metadataControlDbPath || !this.sessionFile) return false;
+		this.persistForRecovery();
 		this.writeMetadataSnapshot();
 		if (profile) {
 			writeSessionSandboxProfile(this.metadataControlDbPath, this.sessionFile, this.sessionId, profile);
