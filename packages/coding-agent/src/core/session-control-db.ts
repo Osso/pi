@@ -2445,6 +2445,11 @@ function relocateSessionPathPrimaryKey(
 	);
 }
 
+type MultiAgentCounterRow = {
+	next_agent_number: number;
+	next_message_number: number;
+};
+
 function relocateMultiAgentCounters(
 	db: SqliteDatabase,
 	oldSessionPath: string,
@@ -3056,7 +3061,14 @@ export function claimMultiAgentTerminalOutbox(
 	return withControlDb(controlDbPath, (db) => {
 		if (!hasEligibleTerminalOutboxWork(db, maxAttempts, options)) return undefined;
 		return withImmediateTransaction(db, () => {
-			if (options.staleClaimBefore) recoverStaleTerminalOutboxClaims(db, nowIso, maxAttempts, options);
+			if (options.staleClaimBefore) {
+				recoverStaleTerminalOutboxClaims(db, {
+					maxAttempts,
+					nowIso,
+					sessionPath: options.sessionPath,
+					staleClaimBefore: options.staleClaimBefore,
+				});
+			}
 			const row = claimNextTerminalOutboxRow(db, claimId, nowIso, maxAttempts, options.sessionPath);
 			if (!row) return undefined;
 			return {
@@ -3098,18 +3110,29 @@ function hasEligibleTerminalOutboxWork(
 	);
 }
 
+type RecoverStaleTerminalOutboxClaimsInput = {
+	maxAttempts: number;
+	nowIso: string;
+	sessionPath?: string;
+	staleClaimBefore: string;
+};
+
 function recoverStaleTerminalOutboxClaims(
 	db: SqliteDatabase,
-	nowIso: string,
-	maxAttempts: number,
-	options: ClaimMultiAgentTerminalOutboxOptions,
+	input: RecoverStaleTerminalOutboxClaimsInput,
 ): void {
 	db.prepare(
 		`UPDATE multi_agent_terminal_outbox
 		 SET status = CASE WHEN attempt_count >= ? THEN 'poisoned' ELSE 'pending' END,
 		 claim_id = NULL, claimed_at = NULL, last_error = 'claim lease expired', updated_at = ?
 		 WHERE status = 'claimed' AND claimed_at < ? AND (? IS NULL OR session_path = ?)`,
-	).run(maxAttempts, nowIso, options.staleClaimBefore, options.sessionPath ?? null, options.sessionPath ?? null);
+	).run(
+		input.maxAttempts,
+		input.nowIso,
+		input.staleClaimBefore,
+		input.sessionPath ?? null,
+		input.sessionPath ?? null,
+	);
 }
 
 function claimNextTerminalOutboxRow(
