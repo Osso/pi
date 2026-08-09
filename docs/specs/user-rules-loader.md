@@ -2,14 +2,15 @@
 
 Module boundary: core resource-loader/system-prompt feature, not a first-party extension module.
 
-The user-rules-loader feature extends Pi's existing context-file loading so that all `*.md` files under the global agent rules directory (`~/.config/pi/agent/rules/` by default) and optionally `.pi/rules/` (project-local, trust-gated) are read in sorted filename order, trimmed, joined with double newlines, and injected into the system instructions alongside project context. Pi loads instruction files from cwd ancestors and the global agent directory via `loadProjectContextFiles()` in `packages/coding-agent/src/core/resource-loader.ts`: in each searched directory, it loads AGENTS-family files whenever one or more load successfully and reads CLAUDE-family files only when no AGENTS-family file loads there. This spec only adds the `rules/` subdirectory path. The loader addition belongs in `core/resource-loader.ts`; injection into the prompt belongs in `core/system-prompt.ts`. See [docs/wiki/systems/user-rules-loader.md](../wiki/systems/user-rules-loader.md) for how it works.
+The user-rules-loader feature extends Pi's existing context-file loading so that all `*.md` files under the global agent rules directory (`~/.config/pi/agent/rules/` by default) and optionally `.pi/rules/` (project-local, trust-gated) are read in sorted filename order, trimmed, joined with double newlines, and injected into the system instructions alongside project context. Pi scans the global agent directory and cwd ancestors for AGENTS-family instruction files first via `loadProjectContextFiles()` in `packages/coding-agent/src/core/resource-loader.ts`; if any AGENTS-family candidate loads successfully anywhere, CLAUDE-family paths are not accessed anywhere. Only when no AGENTS-family candidate loads successfully across the hierarchy does it load CLAUDE-family candidates. This spec only adds the `rules/` subdirectory path. The loader addition belongs in `core/resource-loader.ts`; injection into the prompt belongs in `core/system-prompt.ts`. See [docs/wiki/systems/user-rules-loader.md](../wiki/systems/user-rules-loader.md) for how it works.
 
 ## What it must do
 
 ### Existing context-file loading
 
-- [x] AGENTS-family files take precedence independently in each searched global or cwd-ancestor directory; CLAUDE-family files are read there only when no AGENTS-family file loads successfully.
-- [x] Existing context-file ordering, deduplication, cwd-ancestor `docs/local/memory.md` loading, and `noContextFiles` behavior are unchanged.
+- [x] Pi scans the global agent directory and cwd ancestors for AGENTS-family files first; if any load successfully anywhere, CLAUDE-family paths are not accessed anywhere.
+- [x] Only when no AGENTS-family file loads successfully across the hierarchy does Pi load CLAUDE-family files.
+- [x] Existing global-first/root-to-cwd ordering, per-directory project-memory placement, deduplication, cwd-ancestor `docs/local/memory.md` loading, and `noContextFiles` behavior are unchanged.
 
 ### Directory discovery
 - [x] Returns no content (does not error) when the global agent `rules/` directory does not exist.
@@ -57,7 +58,7 @@ The user-rules-loader feature extends Pi's existing context-file loading so that
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/resource-loader.test.ts` — sorted global rules, scoped loading, markdown-only filtering, empty-file skip, global/project merge order, and project trust gating.
+- `packages/coding-agent/test/resource-loader.test.ts` — hierarchy-wide AGENTS precedence and CLAUDE fallback, sorted global rules, scoped loading, markdown-only filtering, empty-file skip, global/project merge order, and project trust gating.
 - `packages/coding-agent/test/system-prompt.test.ts` — `<user_rules>` injection after project context and no empty tags when no rules content exists.
 - `packages/coding-agent/test/architect-service.test.ts` — resident Architect `architect`-scope override and ordinary observer shared-only behavior.
 

@@ -97,8 +97,8 @@ Pi loads context files at startup. Add an `AGENTS.md` file to tell it how to wor
 
 Pi loads:
 
-- In each searched global or cwd-ancestor directory, every AGENTS-family candidate that reads successfully when at least one AGENTS-family candidate loads successfully there; if none load successfully there, every CLAUDE-family candidate that reads successfully there
-- `docs/local/memory.md` from cwd ancestors only, after the instruction-file candidates in each directory; it is not loaded from the global agent directory
+- AGENTS-family candidates from the global agent directory and all cwd ancestors first; if any load successfully anywhere, CLAUDE-family paths are not accessed anywhere, and if none load across the hierarchy, CLAUDE-family candidates are loaded instead
+- `docs/local/memory.md` from cwd ancestors only, after each directory's selected instruction-file sequence; it is not loaded from the global agent directory
 
 Use `docs/local/memory.md` for durable project-specific agent context. Restart pi, or run `/reload`, after changing context files. Pass `--no-context-files` (or `-nc`) to disable all automatic context-file loading, including project memory.
 

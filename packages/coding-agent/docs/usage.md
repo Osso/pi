@@ -112,9 +112,9 @@ See [Sessions](sessions.md) and [Compaction](compaction.md) for details.
 
 ## Context Files
 
-Pi searches the global agent directory and cwd ancestors for context files. In each searched directory, it loads every AGENTS-family file that reads successfully when at least one AGENTS-family file loads successfully there. If no AGENTS-family file loads successfully there, it loads every CLAUDE-family file that reads successfully there.
+Pi searches the global agent directory and cwd ancestors for context files. It scans all those locations for AGENTS-family files first. If any AGENTS-family file loads successfully anywhere, CLAUDE-family paths are not accessed anywhere; only when none load across the hierarchy does it load every CLAUDE-family file that reads successfully.
 
-For cwd ancestors, `docs/local/memory.md` is loaded when present after that directory's instruction-file candidates. It is not loaded from the global agent directory.
+For cwd ancestors, `docs/local/memory.md` is loaded when present after that directory's selected instruction-file sequence. It is not loaded from the global agent directory.
 
 Use context files for project conventions, commands, safety rules, preferences, and local overrides. Disable loading with `--no-context-files` or `-nc`, including project memory.
 

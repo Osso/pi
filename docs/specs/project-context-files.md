@@ -2,15 +2,16 @@
 
 Module boundary: core resource-loader feature, not a first-party extension module.
 
-Pi assembles model-facing project context from instruction files and durable project memory. `packages/coding-agent/src/core/resource-loader.ts` loads instruction candidates from the global agent directory and cwd ancestors, using AGENTS-family files whenever one or more candidates load successfully in a directory and CLAUDE-family files only as that directory's fallback; it then loads `docs/local/memory.md` from each cwd ancestor only. The contract lives here; how loading and deduplication work belongs in [docs/wiki/systems/project-context-files.md](../wiki/systems/project-context-files.md).
+Pi assembles model-facing project context from instruction files and durable project memory. `packages/coding-agent/src/core/resource-loader.ts` scans the global agent directory and cwd ancestors for AGENTS-family candidates first; if any AGENTS-family candidate loads successfully anywhere in that hierarchy, CLAUDE-family paths are not accessed. Only when no AGENTS-family candidate loads successfully across the hierarchy does it load CLAUDE-family candidates. It then loads `docs/local/memory.md` from each cwd ancestor only. The contract lives here; how loading and deduplication work belongs in [docs/wiki/systems/project-context-files.md](../wiki/systems/project-context-files.md).
 
 ## What it must do
 
 ### Instruction-file discovery
 
-- [x] In the global agent directory and each cwd ancestor, Pi loads every AGENTS-family candidate that reads successfully when at least one AGENTS-family candidate loads successfully in that directory.
-- [x] When no AGENTS-family candidate loads successfully in a directory, Pi loads every CLAUDE-family candidate that reads successfully there.
-- [x] AGENTS-family selection and CLAUDE-family fallback are evaluated independently for each searched directory.
+- [x] Pi scans the global agent directory and every cwd ancestor for AGENTS-family candidates first, loading every candidate that reads successfully.
+- [x] If any AGENTS-family candidate loads successfully anywhere in the hierarchy, Pi does not access CLAUDE-family paths anywhere in that search.
+- [x] Only when no AGENTS-family candidate loads successfully across the hierarchy does Pi load every CLAUDE-family candidate that reads successfully.
+- [x] Instruction-file output preserves global-first, root-to-cwd ordering; each cwd ancestor's `docs/local/memory.md` remains after that directory's selected instruction-file sequence.
 
 ### Project-memory discovery
 
@@ -32,7 +33,7 @@ Pi assembles model-facing project context from instruction files and durable pro
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/resource-loader.test.ts` — asserts cwd-ancestor discovery, same-directory ordering, direct and symlinked global-agent exclusion, instruction-symlink preservation, and `noContextFiles` suppression.
+- `packages/coding-agent/test/resource-loader.test.ts` — asserts hierarchy-wide AGENTS precedence and CLAUDE fallback, global/root-to-cwd ordering, project-memory placement and exclusion, instruction-symlink preservation, and `noContextFiles` suppression.
 
 ## Known gaps (current cycle)
 

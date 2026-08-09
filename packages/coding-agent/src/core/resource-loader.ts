@@ -114,9 +114,41 @@ function loadContextFilesFromDir(dir: string, candidates: string[]): LoadedConte
 	return contextFiles;
 }
 
-function loadInstructionContextFilesFromDir(dir: string): LoadedContextFile[] {
-	const agentsFiles = loadContextFilesFromDir(dir, AGENTS_CONTEXT_FILE_CANDIDATES);
-	return agentsFiles.length > 0 ? agentsFiles : loadContextFilesFromDir(dir, CLAUDE_CONTEXT_FILE_CANDIDATES);
+function loadInstructionContextFilesFromDirs(dirs: string[]): LoadedContextFile[][] {
+	const agentsFilesByDir = dirs.map((dir) => loadContextFilesFromDir(dir, AGENTS_CONTEXT_FILE_CANDIDATES));
+	const hasAgentsFiles = agentsFilesByDir.some((files) => files.length > 0);
+	return hasAgentsFiles
+		? agentsFilesByDir
+		: dirs.map((dir) => loadContextFilesFromDir(dir, CLAUDE_CONTEXT_FILE_CANDIDATES));
+}
+
+function appendUniqueContextFiles(
+	contextFiles: Array<{ path: string; content: string }>,
+	loadedFiles: LoadedContextFile[],
+	seenPaths: Set<string>,
+): void {
+	for (const contextFile of loadedFiles) {
+		if (seenPaths.has(contextFile.realPath)) {
+			continue;
+		}
+		contextFiles.push({ path: contextFile.path, content: contextFile.content });
+		seenPaths.add(contextFile.realPath);
+	}
+}
+
+function listAncestorDirs(cwd: string): string[] {
+	const ancestorDirs: string[] = [];
+	let currentDir = cwd;
+	const root = resolve("/");
+	while (true) {
+		ancestorDirs.unshift(currentDir);
+		if (currentDir === root) break;
+
+		const parentDir = resolve(currentDir, "..");
+		if (parentDir === currentDir) break;
+		currentDir = parentDir;
+	}
+	return ancestorDirs;
 }
 
 export function loadProjectContextFiles(options: {
@@ -126,49 +158,24 @@ export function loadProjectContextFiles(options: {
 	const resolvedCwd = resolvePath(options.cwd);
 	const resolvedAgentDir = resolvePath(options.agentDir);
 	const globalProjectMemoryRealPath = canonicalizePath(join(resolvedAgentDir, PROJECT_MEMORY_RELATIVE_PATH));
-
+	const ancestorDirs = listAncestorDirs(resolvedCwd);
+	const instructionFilesByDir = loadInstructionContextFilesFromDirs([resolvedAgentDir, ...ancestorDirs]);
 	const contextFiles: Array<{ path: string; content: string }> = [];
 	const seenPaths = new Set<string>();
+	appendUniqueContextFiles(contextFiles, instructionFilesByDir[0] ?? [], seenPaths);
 
-	for (const globalContext of loadInstructionContextFilesFromDir(resolvedAgentDir)) {
-		if (!seenPaths.has(globalContext.realPath)) {
-			contextFiles.push({ path: globalContext.path, content: globalContext.content });
-			seenPaths.add(globalContext.realPath);
-		}
-	}
-
-	const ancestorContextFiles: Array<{ path: string; content: string }> = [];
-
-	let currentDir = resolvedCwd;
-	const root = resolve("/");
-
-	while (true) {
-		const projectMemoryPath = join(currentDir, PROJECT_MEMORY_RELATIVE_PATH);
+	for (const [index, ancestorDir] of ancestorDirs.entries()) {
+		const projectMemoryPath = join(ancestorDir, PROJECT_MEMORY_RELATIVE_PATH);
 		const loadedContextFiles = [
-			...loadInstructionContextFilesFromDir(currentDir),
-			...loadContextFilesFromDir(currentDir, [PROJECT_MEMORY_RELATIVE_PATH]),
+			...(instructionFilesByDir[index + 1] ?? []),
+			...loadContextFilesFromDir(ancestorDir, [PROJECT_MEMORY_RELATIVE_PATH]),
 		];
 		const projectContextFiles = loadedContextFiles.filter(
 			(contextFile) =>
 				contextFile.path !== projectMemoryPath || contextFile.realPath !== globalProjectMemoryRealPath,
 		);
-		const currentDirContextFiles: Array<{ path: string; content: string }> = [];
-		for (const contextFile of projectContextFiles) {
-			if (!seenPaths.has(contextFile.realPath)) {
-				currentDirContextFiles.push({ path: contextFile.path, content: contextFile.content });
-				seenPaths.add(contextFile.realPath);
-			}
-		}
-		ancestorContextFiles.unshift(...currentDirContextFiles);
-
-		if (currentDir === root) break;
-
-		const parentDir = resolve(currentDir, "..");
-		if (parentDir === currentDir) break;
-		currentDir = parentDir;
+		appendUniqueContextFiles(contextFiles, projectContextFiles, seenPaths);
 	}
-
-	contextFiles.push(...ancestorContextFiles);
 
 	return contextFiles;
 }

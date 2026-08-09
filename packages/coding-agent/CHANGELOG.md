@@ -18,7 +18,7 @@
 
 ### Changed
 
-- Changed project context discovery to load AGENTS-family instruction files whenever at least one loads successfully in each searched global or cwd-ancestor directory, with CLAUDE-family files as the per-directory fallback.
+- Changed project context discovery to scan the global agent directory and all cwd ancestors for AGENTS-family instruction files first; if any load successfully anywhere, CLAUDE-family paths are not accessed anywhere, and only when none load across the hierarchy are CLAUDE-family files loaded.
 - Changed all built-in coding-agent cosmetic loaders and exported status indicators to static status text: compatible main and selected-child editors animate active work through the prompt fixed cell, while compaction, retry, branch summarization, local bash, bordered loaders, exported status indicators, and incompatible or hidden custom editors avoid recurring spinner renders. Dynamic tool/countdown layouts and non-streaming transcript mutations still use normal renders.
 - Changed assistant message start and visible text/thinking stream updates to render through a dedicated transcript-tail flow region without rerendering committed transcript or unrelated root entries; message completion consolidates the tail into chat and performs one normal render. User messages, tool layouts, history rebuilds, and other transcript mutations retain normal rendering.
 - Changed same-height status loader updates to redraw only the registered bottom status region when safe; stale layout, resize, overlays, or height changes retain the normal full-layout render path.

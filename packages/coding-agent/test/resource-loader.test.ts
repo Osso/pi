@@ -437,18 +437,44 @@ Content`,
 			]);
 		});
 
-		it("should fall back to CLAUDE-family files independently in each directory", async () => {
+		it("should ignore ancestor CLAUDE-family files when a nested AGENTS-family file exists", async () => {
 			const nestedCwd = join(cwd, "src");
 			mkdirSync(nestedCwd, { recursive: true });
-			writeFileSync(join(cwd, "AGENTS.md"), "Ancestor agents context.");
-			writeFileSync(join(nestedCwd, "CLAUDE.md"), "Nested Claude context.");
+			writeFileSync(join(cwd, "CLAUDE.md"), "Ancestor Claude context.");
+			writeFileSync(join(nestedCwd, "AGENTS.md"), "Nested agents context.");
 
 			const loader = new DefaultResourceLoader({ cwd: nestedCwd, agentDir });
 			await loader.reload();
 
 			expect(loader.getAgentsFiles().agentsFiles).toEqual([
-				{ path: join(cwd, "AGENTS.md"), content: "Ancestor agents context." },
-				{ path: join(nestedCwd, "CLAUDE.md"), content: "Nested Claude context." },
+				{ path: join(nestedCwd, "AGENTS.md"), content: "Nested agents context." },
+			]);
+		});
+
+		it("should ignore project CLAUDE-family files when a global AGENTS-family file exists", async () => {
+			writeFileSync(join(agentDir, "AGENTS.md"), "Global agents context.");
+			writeFileSync(join(cwd, "CLAUDE.md"), "Project Claude context.");
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getAgentsFiles().agentsFiles).toEqual([
+				{ path: join(agentDir, "AGENTS.md"), content: "Global agents context." },
+			]);
+		});
+
+		it("should load CLAUDE-family files across the hierarchy when no AGENTS-family file exists", async () => {
+			const nestedCwd = join(cwd, "src");
+			mkdirSync(nestedCwd, { recursive: true });
+			writeFileSync(join(cwd, "CLAUDE.md"), "Ancestor Claude context.");
+			writeFileSync(join(nestedCwd, "CLAUDE.local.md"), "Nested Claude context.");
+
+			const loader = new DefaultResourceLoader({ cwd: nestedCwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getAgentsFiles().agentsFiles).toEqual([
+				{ path: join(cwd, "CLAUDE.md"), content: "Ancestor Claude context." },
+				{ path: join(nestedCwd, "CLAUDE.local.md"), content: "Nested Claude context." },
 			]);
 		});
 
