@@ -97,7 +97,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       identity; revision is repository-managed and never supplied by tools. Verified administrative restart
       may commit an explicit interruption; confirmed exact owner-process exit commits `failed/lost_runtime`
       from `running` or `aborted/lost_runtime` from `cancelling`, never a direct JSON rewrite or inferred result. Attached, terminal, current-live,
-      and uncertain process-backed rows follow their explicit recovery policy.
+      and uncertain process-backed rows follow their explicit recovery policy. Detached-runtime
+      reconciliation prepares candidate and exact runner-liveness scans without reserving the writer
+      lock, then revalidates each confirmed dead owner and commits one recovery at a time in a short
+      immediate transaction; unrelated candidates remain eligible for later passes.
 - [x] A main-thread listener registration persists its exact session path and assertion timestamp,
       atomically retires other main-session bindings for the same PID, marks their matching health
       rows ended and confirms the registered binding `ok`. Listener retirement removes only the
