@@ -1519,6 +1519,87 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(readMultiAgentState(controlDbPath, sessionPath)).toEqual(beforeState);
 	});
 
+	it("validates steering authority before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/steering-contention.jsonl";
+		const agentId = "agent-steering-contention";
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			id: agentId,
+			lifecycle: "running",
+			origin: "spawned",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			transcript: { path: "/sessions/steering-contention-child.jsonl", sessionId: "steering-contention-child" },
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+		const beforeState = readMultiAgentState(controlDbPath, sessionPath);
+		const input = {
+			agentId,
+			body: "Continue",
+			fromAgentId: "supervisor",
+			owner: { agentId: null, sessionId: "supervisor" },
+			processIdentity: testProcessIdentity("missing-steering-owner"),
+			recipient: { agentId, sessionId: "steering-contention-child" },
+			requestedLifecycle: "steering_pending",
+			sessionPath,
+			updatedAt: "2026-07-11T00:01:00.000Z",
+		};
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { commitMultiAgentSteeringMutation } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					const result = commitMultiAgentSteeringMutation(workerData.controlDbPath, workerData.input);
+					parentPort?.postMessage({ ...result, type: "completed" });
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "steering validation worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("steer");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "steering validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "steering validation worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed).toMatchObject({ error: "mutation_mismatch", ok: false, type: "completed" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toEqual(beforeState);
+	});
+
 	it("commits steering lifecycle and durable mailbox payload atomically", () => {
 		const sessionPath = "/sessions/steering.jsonl";
 		const agentId = "agent-steer";

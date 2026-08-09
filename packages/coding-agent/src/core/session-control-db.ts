@@ -3233,33 +3233,74 @@ export function cleanupMultiAgentTerminalOutbox(controlDbPath: string, olderThan
 	);
 }
 
+const MULTI_AGENT_STEERING_MUTATION_MAX_ATTEMPTS = 3;
+
+type MultiAgentSteeringMutationPlan = {
+	agentData: string;
+	recipientListener: RuntimeMailboxListenerRow;
+	senderListener: RuntimeMailboxListenerRow;
+	updatedAgent: AgentSnapshot;
+};
+
+type MultiAgentSteeringMutationPreflight =
+	| { plan: MultiAgentSteeringMutationPlan }
+	| { result: CommitMultiAgentSteeringMutationResult };
+
 export function commitMultiAgentSteeringMutation(
 	controlDbPath: string,
 	input: CommitMultiAgentSteeringMutationInput,
 ): CommitMultiAgentSteeringMutationResult {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const agent = readSteeringMutationAgent(db, input);
-			if (!agent) return { ok: false, error: "agent_not_found" };
-			if (
-				input.requestedLifecycle !== "steering_pending" ||
-				!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle)
-			) {
-				return { ok: false, error: "invalid_transition" };
-			}
-			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			if (!steeringMutationHasAuthority(db, agent, ownership, input)) {
-				return { ok: false, error: "mutation_mismatch" };
-			}
-			return persistSteeringMutation(db, agent, input);
-		}),
-	);
+	return withControlDb(controlDbPath, (db) => commitMultiAgentSteeringMutationWithDb(db, input));
+}
+
+function commitMultiAgentSteeringMutationWithDb(
+	db: SqliteDatabase,
+	input: CommitMultiAgentSteeringMutationInput,
+): CommitMultiAgentSteeringMutationResult {
+	for (let attempt = 1; attempt <= MULTI_AGENT_STEERING_MUTATION_MAX_ATTEMPTS; attempt += 1) {
+		const preflight = prepareMultiAgentSteeringMutation(db, input);
+		if ("result" in preflight) return preflight.result;
+		const result = persistMultiAgentSteeringMutation(db, input, preflight.plan);
+		if (result) return result;
+	}
+	return { ok: false, error: "mutation_mismatch" };
+}
+
+function prepareMultiAgentSteeringMutation(
+	db: SqliteDatabase,
+	input: CommitMultiAgentSteeringMutationInput,
+): MultiAgentSteeringMutationPreflight {
+	const agentRow = readSteeringMutationAgent(db, input);
+	if (!agentRow) return { result: { ok: false, error: "agent_not_found" } };
+	if (
+		input.requestedLifecycle !== "steering_pending" ||
+		!canPersistLifecycleTransition(agentRow.agent.lifecycle, input.requestedLifecycle)
+	) {
+		return { result: { ok: false, error: "invalid_transition" } };
+	}
+	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+	const senderListener = readRuntimeMailboxListenerRow(db, {
+		agentId: input.owner.agentId,
+		sessionId: input.owner.sessionId,
+	});
+	const recipientListener = readRuntimeMailboxListenerRow(db, input.recipient);
+	if (!senderListener || !recipientListener) return { result: { ok: false, error: "mutation_mismatch" } };
+	if (!steeringMutationHasAuthority(agentRow.agent, ownership, senderListener, recipientListener, input)) {
+		return { result: { ok: false, error: "mutation_mismatch" } };
+	}
+	const updatedAgent: AgentSnapshot = {
+		...agentRow.agent,
+		lifecycle: input.requestedLifecycle,
+		revision: agentRow.agent.revision + 1,
+		updatedAt: input.updatedAt,
+	};
+	return { plan: { agentData: agentRow.data, recipientListener, senderListener, updatedAgent } };
 }
 
 function readSteeringMutationAgent(
 	db: SqliteDatabase,
 	input: CommitMultiAgentSteeringMutationInput,
-): AgentSnapshot | undefined {
+): { agent: AgentSnapshot; data: string } | undefined {
 	const row = db
 		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
 		.get(input.sessionPath, input.agentId) as { data: string } | undefined;
@@ -3267,42 +3308,105 @@ function readSteeringMutationAgent(
 	const context = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
 	const agent = parseStoredJsonObject(row.data, context);
 	validatePersistedAgentPayload(agent, context);
-	return agent as unknown as AgentSnapshot;
+	return { agent: agent as unknown as AgentSnapshot, data: row.data };
 }
 
 function steeringMutationHasAuthority(
-	db: SqliteDatabase,
 	agent: AgentSnapshot,
 	ownership: MultiAgentRuntimeOwnershipRow | undefined,
+	senderListener: RuntimeMailboxListenerRow,
+	recipientListener: RuntimeMailboxListenerRow,
 	input: CommitMultiAgentSteeringMutationInput,
 ): boolean {
 	if (!runtimeOwnershipMatchesLifecycleMutation(ownership, input)) return false;
-	const senderListener = readRuntimeMailboxListenerRow(db, {
-		agentId: input.owner.agentId,
-		sessionId: input.owner.sessionId,
-	});
-	const recipientListener = readRuntimeMailboxListenerRow(db, input.recipient);
 	const senderPathMatches =
-		input.owner.agentId !== null ||
-		(senderListener !== undefined && trustedRuntimeMailboxSessionPath(senderListener) === input.sessionPath);
+		input.owner.agentId !== null || trustedRuntimeMailboxSessionPath(senderListener) === input.sessionPath;
 	const expectedSenderId = input.owner.agentId ?? "supervisor";
 	return (
 		input.fromAgentId === expectedSenderId &&
 		agent.parentId === (input.owner.agentId ?? "main") &&
 		input.recipient.agentId === input.agentId &&
 		input.recipient.sessionId === agent.transcript?.sessionId &&
-		senderListener?.pid === process.pid &&
+		senderListener.pid === process.pid &&
 		senderListener.runtime_instance_id === RUNTIME_PROCESS_INSTANCE_ID &&
 		senderPathMatches &&
 		runtimeListenerMatchesProcessIdentity(recipientListener, ownership?.process_identity)
 	);
 }
 
-function persistSteeringMutation(
+function persistMultiAgentSteeringMutation(
 	db: SqliteDatabase,
-	agent: AgentSnapshot,
 	input: CommitMultiAgentSteeringMutationInput,
-): CommitMultiAgentSteeringMutationResult {
+	plan: MultiAgentSteeringMutationPlan,
+): CommitMultiAgentSteeringMutationResult | undefined {
+	return withImmediateTransaction(db, () => {
+		if (!compareAndPersistSteeringAgent(db, input, plan)) return undefined;
+		const message = persistSteeringMailboxMessage(db, input);
+		return { agent: plan.updatedAgent, message, ok: true };
+	});
+}
+
+function compareAndPersistSteeringAgent(
+	db: SqliteDatabase,
+	input: CommitMultiAgentSteeringMutationInput,
+	plan: MultiAgentSteeringMutationPlan,
+): boolean {
+	return (
+		db
+			.prepare(
+				`UPDATE multi_agent_agents SET data = ?, updated_at = ?
+				 WHERE session_path = ? AND agent_id = ? AND data = ?
+				 AND EXISTS (
+					SELECT 1 FROM multi_agent_runtime_owners
+					WHERE session_path = ? AND agent_id = ? AND process_identity = ?
+					AND owner_session_id = ? AND owner_agent_id IS ?
+				 )
+				 AND EXISTS (
+					SELECT 1 FROM runtime_mailbox_listeners
+					WHERE recipient_session_id = ? AND recipient_agent_id_key = ? AND pid = ?
+					AND runtime_instance_id IS ? AND session_path IS ?
+					AND session_path_asserted_at IS ? AND updated_at = ?
+				 )
+				 AND EXISTS (
+					SELECT 1 FROM runtime_mailbox_listeners
+					WHERE recipient_session_id = ? AND recipient_agent_id_key = ? AND pid = ?
+					AND runtime_instance_id IS ? AND session_path IS ?
+					AND session_path_asserted_at IS ? AND updated_at = ?
+				 )`,
+			)
+			.run(
+				JSON.stringify(plan.updatedAgent),
+				input.updatedAt,
+				input.sessionPath,
+				input.agentId,
+				plan.agentData,
+				input.sessionPath,
+				input.agentId,
+				serializeProcessIdentity(input.processIdentity),
+				input.owner.sessionId,
+				input.owner.agentId,
+				input.owner.sessionId,
+				input.owner.agentId ?? "",
+				plan.senderListener.pid,
+				plan.senderListener.runtime_instance_id,
+				plan.senderListener.session_path,
+				plan.senderListener.session_path_asserted_at,
+				plan.senderListener.updated_at,
+				input.recipient.sessionId,
+				input.recipient.agentId ?? "",
+				plan.recipientListener.pid,
+				plan.recipientListener.runtime_instance_id,
+				plan.recipientListener.session_path,
+				plan.recipientListener.session_path_asserted_at,
+				plan.recipientListener.updated_at,
+			).changes === 1
+	);
+}
+
+function persistSteeringMailboxMessage(
+	db: SqliteDatabase,
+	input: CommitMultiAgentSteeringMutationInput,
+): AgentMailboxMessage {
 	const messageNumber = allocateMultiAgentCounterWithDb(db, input.sessionPath, "message");
 	const message: AgentMailboxMessage = {
 		body: input.body,
@@ -3318,12 +3422,6 @@ function persistSteeringMutation(
 		updatedAt: input.updatedAt,
 	};
 	validateMailboxPayload(message, `multi_agent_mailbox_messages:${input.sessionPath}#${message.id}`);
-	const updated: AgentSnapshot = {
-		...agent,
-		lifecycle: input.requestedLifecycle as AgentSnapshot["lifecycle"],
-		revision: agent.revision + 1,
-		updatedAt: input.updatedAt,
-	};
 	persistImmutableMailboxPayload(db, {
 		kind: message.kind,
 		message,
@@ -3332,13 +3430,7 @@ function persistSteeringMutation(
 		storeRef: { messageId: message.id, sessionPath: input.sessionPath },
 		updatedAt: input.updatedAt,
 	});
-	db.prepare("UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?").run(
-		JSON.stringify(updated),
-		input.updatedAt,
-		input.sessionPath,
-		input.agentId,
-	);
-	return { agent: updated, message, ok: true };
+	return message;
 }
 
 function runtimeListenerMatchesProcessIdentity(
