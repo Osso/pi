@@ -2527,6 +2527,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				terminalAt: "2026-07-11T22:00:00.000Z",
 			},
 		};
+		readMultiAgentState(controlDbPath, sessionPath);
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
