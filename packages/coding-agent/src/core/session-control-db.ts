@@ -863,6 +863,26 @@ function withImmediateTransaction<T>(db: SqliteDatabase, operation: () => T): T 
 	}
 }
 
+const RUNTIME_MAILBOX_REGISTRATION_MAX_ATTEMPTS = 3;
+
+type RuntimeMailboxRegistration = {
+	options: RuntimeMailboxRegistrationOptions;
+	pid: number;
+	recipient: RuntimeMailboxAddress;
+	runtimeInstanceId: string;
+	sessionPath: string | undefined;
+};
+
+type RuntimeMailboxRegistrationSnapshot = {
+	health: SessionHealthRecord | undefined;
+	listener: RuntimeMailboxListenerRow | undefined;
+};
+
+type RuntimeMailboxRegistrationPlan = {
+	shouldReconcileReplacement: boolean;
+	snapshot: RuntimeMailboxRegistrationSnapshot;
+};
+
 export function registerRuntimeMailboxListener(
 	controlDbPath: string,
 	recipient: RuntimeMailboxAddress,
@@ -870,30 +890,114 @@ export function registerRuntimeMailboxListener(
 	sessionPath?: string,
 	options: RuntimeMailboxRegistrationOptions = {},
 ): void {
-	withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () =>
-			registerRuntimeMailboxListenerInTransaction(db, recipient, pid, sessionPath, options),
-		),
+	const registration: RuntimeMailboxRegistration = {
+		options,
+		pid,
+		recipient,
+		runtimeInstanceId: options.runtimeInstanceId ?? RUNTIME_PROCESS_INSTANCE_ID,
+		sessionPath,
+	};
+	withControlDb(controlDbPath, (db) => registerRuntimeMailboxListenerWithDb(db, registration));
+}
+
+function registerRuntimeMailboxListenerWithDb(db: SqliteDatabase, registration: RuntimeMailboxRegistration): void {
+	for (let attempt = 1; attempt <= RUNTIME_MAILBOX_REGISTRATION_MAX_ATTEMPTS; attempt += 1) {
+		const plan = prepareRuntimeMailboxRegistration(db, registration);
+		if (commitRuntimeMailboxRegistration(db, registration, plan)) return;
+	}
+	throw new Error(
+		`Runtime mailbox listener changed repeatedly while registering session ${registration.recipient.sessionId}`,
+	);
+}
+
+function prepareRuntimeMailboxRegistration(
+	db: SqliteDatabase,
+	registration: RuntimeMailboxRegistration,
+): RuntimeMailboxRegistrationPlan {
+	const snapshot = readRuntimeMailboxRegistrationSnapshot(db, registration.recipient);
+	const runtimeOwnerChanged =
+		snapshot.listener?.pid !== registration.pid ||
+		snapshot.listener?.runtime_instance_id !== registration.runtimeInstanceId;
+	const shouldReconcileReplacement =
+		registration.recipient.agentId === null &&
+		registration.options.reconcileRuntimeReplacement !== false &&
+		runtimeOwnerChanged;
+	if (shouldReconcileReplacement) assertRuntimeReplacementAllowed(db, registration, snapshot);
+	return { shouldReconcileReplacement, snapshot };
+}
+
+function commitRuntimeMailboxRegistration(
+	db: SqliteDatabase,
+	registration: RuntimeMailboxRegistration,
+	plan: RuntimeMailboxRegistrationPlan,
+): boolean {
+	return withImmediateTransaction(db, () => {
+		const current = readRuntimeMailboxRegistrationSnapshot(db, registration.recipient);
+		if (!runtimeMailboxRegistrationSnapshotsEqual(plan.snapshot, current)) return false;
+		registerRuntimeMailboxListenerInTransaction(db, registration, plan.shouldReconcileReplacement);
+		return true;
+	});
+}
+
+function readRuntimeMailboxRegistrationSnapshot(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+): RuntimeMailboxRegistrationSnapshot {
+	return {
+		health: recipient.agentId === null ? readSessionHealthRow(db, recipient.sessionId) : undefined,
+		listener: readRuntimeMailboxListenerRow(db, recipient),
+	};
+}
+
+function runtimeMailboxRegistrationSnapshotsEqual(
+	expected: RuntimeMailboxRegistrationSnapshot,
+	current: RuntimeMailboxRegistrationSnapshot,
+): boolean {
+	return (
+		runtimeMailboxListenerRowsEqual(expected.listener, current.listener) &&
+		sessionHealthRowsEqual(expected.health, current.health)
+	);
+}
+
+function runtimeMailboxListenerRowsEqual(
+	expected: RuntimeMailboxListenerRow | undefined,
+	current: RuntimeMailboxListenerRow | undefined,
+): boolean {
+	if (!expected || !current) return expected === current;
+	return (
+		expected.pid === current.pid &&
+		expected.runtime_instance_id === current.runtime_instance_id &&
+		expected.session_path === current.session_path &&
+		expected.session_path_asserted_at === current.session_path_asserted_at &&
+		expected.updated_at === current.updated_at
+	);
+}
+
+function sessionHealthRowsEqual(
+	expected: SessionHealthRecord | undefined,
+	current: SessionHealthRecord | undefined,
+): boolean {
+	if (!expected || !current) return expected === current;
+	return (
+		expected.sessionId === current.sessionId &&
+		expected.agentGeneration === current.agentGeneration &&
+		expected.pid === current.pid &&
+		expected.lastActiveAt === current.lastActiveAt &&
+		expected.lastCheckedAt === current.lastCheckedAt &&
+		expected.checkStatus === current.checkStatus &&
+		expected.checkedGeneration === current.checkedGeneration &&
+		expected.checkLatencyMs === current.checkLatencyMs &&
+		expected.updatedAt === current.updatedAt
 	);
 }
 
 function registerRuntimeMailboxListenerInTransaction(
 	db: SqliteDatabase,
-	recipient: RuntimeMailboxAddress,
-	pid: number,
-	sessionPath: string | undefined,
-	options: RuntimeMailboxRegistrationOptions,
+	registration: RuntimeMailboxRegistration,
+	shouldReconcileReplacement: boolean,
 ): void {
 	const nowIso = new Date().toISOString();
-	const runtimeInstanceId = options.runtimeInstanceId ?? RUNTIME_PROCESS_INSTANCE_ID;
-	const existingListener = readRuntimeMailboxListenerRow(db, recipient);
-	const runtimeOwnerChanged =
-		existingListener?.pid !== pid || existingListener?.runtime_instance_id !== runtimeInstanceId;
-	const shouldReconcileReplacement =
-		recipient.agentId === null && options.reconcileRuntimeReplacement !== false && runtimeOwnerChanged;
-	if (shouldReconcileReplacement) {
-		assertRuntimeReplacementAllowed(db, recipient.sessionId, existingListener, pid, runtimeInstanceId, options);
-	}
+	const { pid, recipient, runtimeInstanceId, sessionPath } = registration;
 	if (recipient.agentId === null) {
 		retireSupersededMainRuntimeMailboxListeners(db, recipient.sessionId, pid, nowIso);
 	}
@@ -905,24 +1009,23 @@ function registerRuntimeMailboxListenerInTransaction(
 
 function assertRuntimeReplacementAllowed(
 	db: SqliteDatabase,
-	sessionId: string,
-	existingListener: RuntimeMailboxListenerRow | undefined,
-	pid: number,
-	runtimeInstanceId: string,
-	options: RuntimeMailboxRegistrationOptions,
+	registration: RuntimeMailboxRegistration,
+	snapshot: RuntimeMailboxRegistrationSnapshot,
 ): void {
-	const existingOwnerPid = existingListener?.pid ?? readSessionHealthRow(db, sessionId)?.pid;
+	const existingListener = snapshot.listener;
+	const existingOwnerPid = existingListener?.pid ?? snapshot.health?.pid;
 	if (existingOwnerPid === null || existingOwnerPid === undefined) return;
-	if (existingListener?.runtime_instance_id === runtimeInstanceId) return;
+	if (existingListener?.runtime_instance_id === registration.runtimeInstanceId) return;
 	if (existingListener?.runtime_instance_id) {
 		try {
 			if (!isProcessIdentityAlive(parseProcessIdentity(existingListener.runtime_instance_id))) return;
 		} catch {
-			if (existingOwnerPid === pid) return;
+			if (existingOwnerPid === registration.pid) return;
 		}
 	}
-	const isRuntimeProcessAlive = options.isRuntimeProcessAlive ?? isPiRuntimeProcessAlive;
+	const isRuntimeProcessAlive = registration.options.isRuntimeProcessAlive ?? isPiRuntimeProcessAlive;
 	if (!isRuntimeProcessAlive(existingOwnerPid)) return;
+	const sessionId = registration.recipient.sessionId;
 	const cwd = existingListener ? readVerifiedSessionCwd(db, sessionId, existingListener) : undefined;
 	const processContext = cwd ? `PID ${existingOwnerPid}, cwd ${cwd}` : `PID ${existingOwnerPid}`;
 	throw new Error(
@@ -995,39 +1098,25 @@ function retireRuntimeMailboxListenerRow(
 	return retired;
 }
 
-function listSupersededMainSessionIds(db: SqliteDatabase, currentSessionId: string, pid: number): string[] {
-	const rows = db
-		.prepare(
-			`
-			SELECT recipient_session_id
-			FROM runtime_mailbox_listeners
-			WHERE recipient_agent_id_key = ''
-				AND pid = ?
-				AND recipient_session_id <> ?
-			`,
-		)
-		.all(pid, currentSessionId) as Array<{ recipient_session_id: string }>;
-	return rows.map((row) => row.recipient_session_id);
-}
-
 function retireSupersededMainRuntimeMailboxListeners(
 	db: SqliteDatabase,
 	currentSessionId: string,
 	pid: number,
 	nowIso: string,
 ): void {
-	const supersededSessionIds = listSupersededMainSessionIds(db, currentSessionId, pid);
-	if (supersededSessionIds.length === 0) return;
-	db.prepare(
-		`
-		DELETE FROM runtime_mailbox_listeners
-		WHERE recipient_agent_id_key = ''
-			AND pid = ?
-			AND recipient_session_id <> ?
-		`,
-	).run(pid, currentSessionId);
-	for (const sessionId of supersededSessionIds) {
-		retireSessionHealthForListener(db, sessionId, pid, nowIso);
+	const supersededListeners = db
+		.prepare(
+			`
+			DELETE FROM runtime_mailbox_listeners
+			WHERE recipient_agent_id_key = ''
+				AND pid = ?
+				AND recipient_session_id <> ?
+			RETURNING recipient_session_id
+			`,
+		)
+		.all(pid, currentSessionId) as Array<{ recipient_session_id: string }>;
+	for (const listener of supersededListeners) {
+		retireSessionHealthForListener(db, listener.recipient_session_id, pid, nowIso);
 	}
 }
 
@@ -1065,15 +1154,15 @@ export function readRuntimeMailboxListener(
 
 export function assertMainSessionRuntimeAvailable(controlDbPath: string, sessionId: string): void {
 	withControlDb(controlDbPath, (db) => {
-		const recipient = { agentId: null, sessionId };
-		assertRuntimeReplacementAllowed(
-			db,
-			sessionId,
-			readRuntimeMailboxListenerRow(db, recipient),
-			process.pid,
-			RUNTIME_PROCESS_INSTANCE_ID,
-			{},
-		);
+		const registration: RuntimeMailboxRegistration = {
+			options: {},
+			pid: process.pid,
+			recipient: { agentId: null, sessionId },
+			runtimeInstanceId: RUNTIME_PROCESS_INSTANCE_ID,
+			sessionPath: undefined,
+		};
+		const snapshot = readRuntimeMailboxRegistrationSnapshot(db, registration.recipient);
+		assertRuntimeReplacementAllowed(db, registration, snapshot);
 	});
 }
 

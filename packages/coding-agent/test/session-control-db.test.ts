@@ -109,6 +109,39 @@ async function stopChildProcess(child: ChildProcess): Promise<void> {
 	await exited;
 }
 
+type WorkerStatusMessage = { error?: string; pid?: number; type: string };
+
+type WaitForWorkerStatusOptions = {
+	expectedType: string;
+	ignoredTypes?: readonly string[];
+	timeoutMessage: string;
+	timeoutMs?: number;
+};
+
+function waitForWorkerStatus(worker: Worker, options: WaitForWorkerStatusOptions): Promise<WorkerStatusMessage> {
+	return new Promise((resolve, reject) => {
+		const timeoutMs = options.timeoutMs ?? 5_000;
+		const timer = setTimeout(() => reject(new Error(options.timeoutMessage)), timeoutMs);
+		const cleanup = () => {
+			clearTimeout(timer);
+			worker.off("error", onError);
+			worker.off("message", onMessage);
+		};
+		const onError = (error: Error) => {
+			cleanup();
+			reject(error);
+		};
+		const onMessage = (message: WorkerStatusMessage) => {
+			if (options.ignoredTypes?.includes(message.type)) return;
+			cleanup();
+			if (message.type === options.expectedType) resolve(message);
+			else reject(new Error(message.error ?? `unexpected worker status: ${message.type}`));
+		};
+		worker.on("error", onError);
+		worker.on("message", onMessage);
+	});
+}
+
 function claimTestRuntimeMailboxMessages(
 	controlDbPath: string,
 	recipient: Parameters<typeof claimRuntimeMailboxMessages>[1],
@@ -3320,6 +3353,84 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			expect(canonicalStatuses).toEqual([{ status: "claimed" }, { status: "claimed" }]);
 		} finally {
 			db.close();
+		}
+	});
+
+	it("reaches listener process-liveness checks while another writer holds the database", async () => {
+		const sessionId = "listener-contention";
+		const nowIso = "2026-08-09T00:00:00.000Z";
+		writeSessionHealth(controlDbPath, {
+			...emptySessionHealth(sessionId, nowIso),
+			checkStatus: "ok",
+			pid: process.pid,
+		});
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { registerRuntimeMailboxListener } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						registerRuntimeMailboxListener(
+							workerData.controlDbPath,
+							workerData.recipient,
+							process.pid,
+							workerData.sessionPath,
+							{
+								isRuntimeProcessAlive: (pid: number) => {
+									parentPort?.postMessage({ pid, type: "callback" });
+									return false;
+								},
+							},
+						);
+						parentPort?.postMessage({ type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{
+				eval: true,
+				execArgv: ["--experimental-strip-types"],
+				workerData: {
+					controlDbPath,
+					recipient: { agentId: null, sessionId },
+					sessionPath: "/sessions/listener-contention.jsonl",
+				},
+			},
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "listener worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("register");
+			const callback = await waitForWorkerStatus(worker, {
+				expectedType: "callback",
+				timeoutMessage:
+					"registerRuntimeMailboxListener did not reach isRuntimeProcessAlive while writer lock was held",
+				timeoutMs: 1_000,
+			});
+			expect(callback.pid).toBe(process.pid);
+			holder.exec("ROLLBACK");
+			await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				ignoredTypes: ["callback"],
+				timeoutMessage: "listener registration did not complete",
+			});
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the callback assertion.
+			}
+			await worker.terminate();
+			holder.close();
 		}
 	});
 
