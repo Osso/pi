@@ -21,6 +21,7 @@ import {
 	cleanupMultiAgentTerminalOutbox,
 	commitMultiAgentDetachMark,
 	commitMultiAgentLifecycleMutation,
+	commitMultiAgentSteeringDelivery,
 	commitMultiAgentSteeringMutation,
 	commitMultiAgentTerminalMutation,
 	completeArchitectRequest,
@@ -1864,6 +1865,87 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			ok: true,
 		});
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.counters.nextMessageNumber).toBe(3);
+	});
+
+	it("validates steering delivery before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/steering-delivery-contention.jsonl";
+		const agentId = "agent-steering-delivery-contention";
+		const owner = { agentId: null, sessionId: "supervisor" };
+		const processIdentity = testProcessIdentity("runtime-steering-delivery-contention");
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			id: agentId,
+			lifecycle: "steering_pending",
+			origin: "spawned",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 2,
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, { agentId, owner, processIdentity, sessionPath });
+		const beforeState = readMultiAgentState(controlDbPath, sessionPath);
+		const input = {
+			agentId,
+			messageId: "missing-steering-message",
+			owner,
+			processIdentity,
+			requestedLifecycle: "running",
+			sessionPath,
+			updatedAt: "2026-07-11T00:01:00.000Z",
+		};
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { commitMultiAgentSteeringDelivery } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					const result = commitMultiAgentSteeringDelivery(workerData.controlDbPath, workerData.input);
+					parentPort?.postMessage({ ...result, type: "completed" });
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "steering delivery validation worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("deliver");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "steering delivery validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "steering delivery validation worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed).toMatchObject({ error: "message_not_found", ok: false, type: "completed" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toEqual(beforeState);
 	});
 
 	it("rejects steering to a dead recipient without advancing its counter", () => {
