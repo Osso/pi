@@ -4716,6 +4716,14 @@ function releaseDeadRuntimeOwnershipIfCurrent(
 	);
 }
 
+const MULTI_AGENT_CREATION_MAX_ATTEMPTS = 3;
+
+type ActiveParentSnapshot = {
+	agent?: AgentSnapshot;
+	data?: string;
+	parentId: string;
+};
+
 export function createFailedMultiAgentChild(
 	controlDbPath: string,
 	input: CreateFailedMultiAgentChildInput,
@@ -4728,41 +4736,44 @@ export function createFailedMultiAgentChild(
 	const parentId = agent.parentId;
 	if (!parentId) return { ok: false, error: "parent_not_found" };
 	const serializedAgent = JSON.stringify(agent);
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () =>
-			createFailedMultiAgentChildInTransaction(db, input, agent, parentId, serializedAgent),
-		),
-	);
+	return withControlDb(controlDbPath, (db) => {
+		for (let attempt = 1; attempt <= MULTI_AGENT_CREATION_MAX_ATTEMPTS; attempt += 1) {
+			const parent = readActiveParentSnapshot(db, input.sessionPath, parentId);
+			if (!parent) return { ok: false, error: "parent_not_found" };
+			if (multiAgentAgentExists(db, input.sessionPath, agent.id)) return { ok: false, error: "agent_exists" };
+			const result = withImmediateTransaction(db, () => {
+				if (!insertMultiAgentAgentIfParentCurrent(db, input.sessionPath, agent.id, serializedAgent, input.nowIso, parent)) {
+					return undefined;
+				}
+				db.prepare(
+					`INSERT INTO multi_agent_terminal_outbox (
+						session_path, agent_id, terminal_revision, event_kind, status,
+						claim_id, claimed_at, delivered_at, attempt_count, last_error, updated_at
+					) VALUES (?, ?, 1, 'failed', 'pending', NULL, NULL, NULL, 0, NULL, ?)`,
+				).run(input.sessionPath, agent.id, input.nowIso);
+				return { ok: true, agent } as const;
+			});
+			if (result) return result;
+		}
+		throw new Error(`Failed child parent changed repeatedly ${input.sessionPath}#${agent.id}`);
+	});
 }
 
-function createFailedMultiAgentChildInTransaction(
+function readActiveParentSnapshot(
 	db: SqliteDatabase,
-	input: CreateFailedMultiAgentChildInput,
-	agent: AgentSnapshot & Record<string, unknown>,
+	sessionPath: string,
 	parentId: string,
-	serializedAgent: string,
-): CreateFailedMultiAgentChildResult {
-	if (!hasActiveParent(db, input.sessionPath, parentId)) return { ok: false, error: "parent_not_found" };
-	if (multiAgentAgentExists(db, input.sessionPath, agent.id)) return { ok: false, error: "agent_exists" };
-	insertMultiAgentAgentRow(db, input.sessionPath, agent.id, serializedAgent, input.nowIso);
-	db.prepare(
-		`INSERT INTO multi_agent_terminal_outbox (
-			session_path, agent_id, terminal_revision, event_kind, status,
-			claim_id, claimed_at, delivered_at, attempt_count, last_error, updated_at
-		) VALUES (?, ?, 1, 'failed', 'pending', NULL, NULL, NULL, 0, NULL, ?)`,
-	).run(input.sessionPath, agent.id, input.nowIso);
-	return { ok: true, agent };
-}
-
-function hasActiveParent(db: SqliteDatabase, sessionPath: string, parentId: string): boolean {
-	if (parentId === "main") return true;
+): ActiveParentSnapshot | undefined {
+	if (parentId === "main") return { parentId };
 	const row = db
 		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
 		.get(sessionPath, parentId) as { data: string } | undefined;
-	if (!row) return false;
-	const parent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${parentId}`);
-	validatePersistedAgentPayload(parent, `multi_agent_agents:${sessionPath}#${parentId}`);
-	return isNonterminalLifecycle(parent.lifecycle);
+	if (!row) return undefined;
+	const context = `multi_agent_agents:${sessionPath}#${parentId}`;
+	const parent = parseStoredJsonObject(row.data, context);
+	validatePersistedAgentPayload(parent, context);
+	if (!isNonterminalLifecycle(parent.lifecycle)) return undefined;
+	return { agent: parent as unknown as AgentSnapshot, data: row.data, parentId };
 }
 
 function multiAgentAgentExists(db: SqliteDatabase, sessionPath: string, agentId: string): boolean {
@@ -4771,18 +4782,35 @@ function multiAgentAgentExists(db: SqliteDatabase, sessionPath: string, agentId:
 	);
 }
 
-function insertMultiAgentAgentRow(
+function insertMultiAgentAgentIfParentCurrent(
 	db: SqliteDatabase,
 	sessionPath: string,
 	agentId: string,
 	serializedAgent: string,
 	updatedAt: string,
-): void {
-	db.prepare("INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)").run(
-		sessionPath,
-		agentId,
-		serializedAgent,
-		updatedAt,
+	parent: ActiveParentSnapshot,
+): boolean {
+	return (
+		db
+			.prepare(
+				`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
+				 SELECT ?, ?, ?, ?
+				 WHERE (? = 'main' OR EXISTS (
+					SELECT 1 FROM multi_agent_agents
+					WHERE session_path = ? AND agent_id = ? AND data = ?
+				 ))
+				 ON CONFLICT(session_path, agent_id) DO NOTHING`,
+			)
+			.run(
+				sessionPath,
+				agentId,
+				serializedAgent,
+				updatedAt,
+				parent.parentId,
+				sessionPath,
+				parent.parentId,
+				parent.data ?? null,
+			).changes === 1
 	);
 }
 
@@ -4799,26 +4827,35 @@ export function createMultiAgentChildWithRuntimeOwnership(
 	const parentId = typeof agent.parentId === "string" ? agent.parentId : undefined;
 	if (!parentId) return { ok: false, error: "parent_not_found" };
 	const serializedAgent = JSON.stringify(input.agent);
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () =>
-			createMultiAgentChildWithRuntimeOwnershipInTransaction(db, input, parentId, serializedAgent),
-		),
-	);
-}
-
-function createMultiAgentChildWithRuntimeOwnershipInTransaction(
-	db: SqliteDatabase,
-	input: CreateMultiAgentChildWithRuntimeOwnershipInput,
-	parentId: string,
-	serializedAgent: string,
-): CreateMultiAgentChildWithRuntimeOwnershipResult {
-	if (!hasActiveParent(db, input.sessionPath, parentId)) return { ok: false, error: "parent_not_found" };
-	if (multiAgentAgentExists(db, input.sessionPath, input.agentId)) return { ok: false, error: "agent_exists" };
-	insertMultiAgentAgentRow(db, input.sessionPath, input.agentId, serializedAgent, input.nowIso);
-	persistAcquiredRuntimeOwnership(db, input);
-	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-	if (!ownership) throw new Error(`Child runtime ownership did not persist ${input.sessionPath}#${input.agentId}`);
-	return { ok: true, agent: input.agent, ownership: multiAgentRuntimeOwnershipFromRow(ownership) };
+	return withControlDb(controlDbPath, (db) => {
+		for (let attempt = 1; attempt <= MULTI_AGENT_CREATION_MAX_ATTEMPTS; attempt += 1) {
+			const parent = readActiveParentSnapshot(db, input.sessionPath, parentId);
+			if (!parent) return { ok: false, error: "parent_not_found" };
+			if (multiAgentAgentExists(db, input.sessionPath, input.agentId)) {
+				return { ok: false, error: "agent_exists" };
+			}
+			const result = withImmediateTransaction(db, () => {
+				if (
+					!insertMultiAgentAgentIfParentCurrent(
+						db,
+						input.sessionPath,
+						input.agentId,
+						serializedAgent,
+						input.nowIso,
+						parent,
+					)
+				) {
+					return undefined;
+				}
+				persistAcquiredRuntimeOwnership(db, input);
+				const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+				if (!ownership) throw new Error(`Child runtime ownership did not persist ${input.sessionPath}#${input.agentId}`);
+				return { agent: input.agent, ok: true, ownership: multiAgentRuntimeOwnershipFromRow(ownership) } as const;
+			});
+			if (result) return result;
+		}
+		throw new Error(`Child parent changed repeatedly ${input.sessionPath}#${input.agentId}`);
+	});
 }
 
 export function createMultiAgentAttachment(
@@ -4832,41 +4869,40 @@ export function createMultiAgentAttachment(
 		throw new Error("Attached agent creation requires waiting_for_input revision 1");
 	}
 	const serializedAgent = JSON.stringify(agent);
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => createMultiAgentAttachmentInTransaction(db, input, agent, serializedAgent)),
-	);
+	return withControlDb(controlDbPath, (db) => {
+		for (let attempt = 1; attempt <= MULTI_AGENT_CREATION_MAX_ATTEMPTS; attempt += 1) {
+			if (multiAgentAgentExists(db, input.sessionPath, input.agentId)) return { ok: false, error: "agent_exists" };
+			const parent = readAttachmentParentSnapshot(db, input.sessionPath, agent);
+			if ("error" in parent) return { ok: false, error: parent.error };
+			if (
+				insertMultiAgentAgentIfParentCurrent(
+					db,
+					input.sessionPath,
+					input.agentId,
+					serializedAgent,
+					input.nowIso,
+					parent,
+				)
+			) {
+				return { ok: true, agent: input.agent };
+			}
+		}
+		throw new Error(`Attachment parent changed repeatedly ${input.sessionPath}#${input.agentId}`);
+	});
 }
 
-function createMultiAgentAttachmentInTransaction(
-	db: SqliteDatabase,
-	input: CreateMultiAgentAttachmentInput,
-	agent: AgentSnapshot & Record<string, unknown>,
-	serializedAgent: string,
-): CreateMultiAgentAttachmentResult {
-	if (multiAgentAgentExists(db, input.sessionPath, input.agentId)) return { ok: false, error: "agent_exists" };
-	const parentError = readMultiAgentAttachmentParentError(db, input.sessionPath, agent);
-	if (parentError) return { ok: false, error: parentError };
-	insertMultiAgentAgentRow(db, input.sessionPath, input.agentId, serializedAgent, input.nowIso);
-	return { ok: true, agent: input.agent };
-}
-
-function readMultiAgentAttachmentParentError(
+function readAttachmentParentSnapshot(
 	db: SqliteDatabase,
 	sessionPath: string,
 	agent: AgentSnapshot & Record<string, unknown>,
-): "parent_not_found" | "permission_broadened" | undefined {
+): ActiveParentSnapshot | { error: "parent_not_found" | "permission_broadened" } {
 	const parentId = agent.parentId;
-	if (!parentId || parentId === "main") return undefined;
-	const parentRow = db
-		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-		.get(sessionPath, parentId) as { data: string } | undefined;
-	if (!parentRow) return "parent_not_found";
-	const parent = parseStoredJsonObject(parentRow.data, `multi_agent_agents:${sessionPath}#${parentId}`);
-	validatePersistedAgentPayload(parent, `multi_agent_agents:${sessionPath}#${parentId}`);
-	if (!isNonterminalLifecycle(parent.lifecycle)) return "parent_not_found";
-	const parentPermission = parent.permission as AgentSnapshot["permission"];
+	if (!parentId || parentId === "main") return { parentId: "main" };
+	const parent = readActiveParentSnapshot(db, sessionPath, parentId);
+	if (!parent?.agent) return { error: "parent_not_found" };
+	const parentPermission = parent.agent.permission;
 	const permissionMatches = agent.permission.narrowed && agent.permission.policy === parentPermission.policy;
-	return permissionMatches ? undefined : "permission_broadened";
+	return permissionMatches ? parent : { error: "permission_broadened" };
 }
 
 export function readMultiAgentRuntimeOwnership(

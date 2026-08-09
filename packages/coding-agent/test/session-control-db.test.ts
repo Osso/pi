@@ -125,6 +125,7 @@ type WorkerStatusMessage = {
 	value?: number;
 	paths?: string[];
 	pid?: number;
+	results?: Array<{ error?: string; ok: boolean }>;
 	statuses?: string[];
 	type: string;
 };
@@ -1365,6 +1366,136 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(completed?.error).toContain("Child agent payload ID does not match runtime ownership identity");
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []).toEqual([]);
 		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId)).toBeUndefined();
+	});
+
+	it("validates creation parents before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/missing-parent-contention.jsonl";
+		const parentId = "missing-parent";
+		const createdAt = "2026-08-09T00:00:00.000Z";
+		const failedInput = {
+			agent: {
+				agentType: "worker",
+				createdAt,
+				cwd: "/repo",
+				displayName: "Missing-parent failed child",
+				id: "failed-child",
+				lifecycle: "failed",
+				parentId,
+				permission: { narrowed: true, policy: "on-request" },
+				revision: 1,
+				updatedAt: createdAt,
+			},
+			nowIso: createdAt,
+			sessionPath,
+		};
+		const childInput = {
+			agent: {
+				agentType: "worker",
+				createdAt,
+				cwd: "/repo",
+				displayName: "Missing-parent child",
+				id: "running-child",
+				lifecycle: "running",
+				parentId,
+				permission: { narrowed: true, policy: "on-request" },
+				revision: 1,
+				updatedAt: createdAt,
+			},
+			agentId: "running-child",
+			nowIso: createdAt,
+			owner: { agentId: null, sessionId: "supervisor" },
+			processIdentity: testProcessIdentity("missing-parent-child-runtime"),
+			sessionPath,
+		};
+		const attachmentInput = {
+			agent: {
+				agentType: "worker",
+				createdAt,
+				cwd: "/repo",
+				displayName: "Missing-parent attachment",
+				id: "attached-child",
+				lifecycle: "waiting_for_input",
+				origin: "attached",
+				parentId,
+				permission: { narrowed: true, policy: "on-request" },
+				revision: 1,
+				updatedAt: createdAt,
+			},
+			agentId: "attached-child",
+			nowIso: createdAt,
+			sessionPath,
+		};
+		readMultiAgentState(controlDbPath, sessionPath);
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import {
+					createFailedMultiAgentChild,
+					createMultiAgentAttachment,
+					createMultiAgentChildWithRuntimeOwnership,
+				} from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					const results = [
+						createFailedMultiAgentChild(workerData.controlDbPath, workerData.failedInput),
+						createMultiAgentChildWithRuntimeOwnership(workerData.controlDbPath, workerData.childInput),
+						createMultiAgentAttachment(workerData.controlDbPath, workerData.attachmentInput),
+					];
+					parentPort?.postMessage({ results, type: "completed" });
+				});
+			`,
+			{
+				eval: true,
+				execArgv: ["--experimental-strip-types"],
+				workerData: { attachmentInput, childInput, controlDbPath, failedInput },
+			},
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "creation parent validation worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("create");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "creation parent validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "creation parent validation worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.results).toEqual([
+			{ error: "parent_not_found", ok: false },
+			{ error: "parent_not_found", ok: false },
+			{ error: "parent_not_found", ok: false },
+		]);
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []).toEqual([]);
 	});
 
 	it("serializes lifecycle mutation under the complete process ownership predicate", async () => {
