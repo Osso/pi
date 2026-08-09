@@ -54,8 +54,8 @@ import {
 	readIncomingMessageStatus,
 	readLastMessage,
 	readMultiAgentRuntimeOwnership,
-	readPromptHistory,
 	readMultiAgentState,
+	readPromptHistory,
 	readRuntimeMailboxMessage,
 	readSessionGoal,
 	readSessionHealth,
@@ -509,7 +509,9 @@ describe("session control DB", () => {
 			db.close();
 		}
 
-		expect(() => renewArchitectRequestClaims(controlDbPath, [requestId, requestId], "architect-runtime")).not.toThrow();
+		expect(() =>
+			renewArchitectRequestClaims(controlDbPath, [requestId, requestId], "architect-runtime"),
+		).not.toThrow();
 		const reader = createSqliteDatabase(controlDbPath);
 		try {
 			expect(reader.prepare("SELECT COUNT(*) AS count FROM architect_renewal_audit").get()).toEqual({ count: 1 });
