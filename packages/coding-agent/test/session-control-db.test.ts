@@ -21,7 +21,6 @@ import {
 	cleanupMultiAgentTerminalOutbox,
 	commitMultiAgentDetachMark,
 	commitMultiAgentLifecycleMutation,
-	commitMultiAgentSteeringDelivery,
 	commitMultiAgentSteeringMutation,
 	commitMultiAgentTerminalMutation,
 	completeArchitectRequest,

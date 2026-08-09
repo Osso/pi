@@ -3651,7 +3651,11 @@ function prepareMultiAgentSteeringDelivery(
 		revision: Number(agent.revision) + 1,
 		updatedAt: input.updatedAt,
 	} as unknown as AgentSnapshot;
-	const updatedMessage = { ...message, status: "delivered", updatedAt: input.updatedAt } as unknown as AgentMailboxMessage;
+	const updatedMessage = {
+		...message,
+		status: "delivered",
+		updatedAt: input.updatedAt,
+	} as unknown as AgentMailboxMessage;
 	return { plan: { agentData: agentRow.data, messageData: messageRow.data, updatedAgent, updatedMessage } };
 }
 
@@ -4112,9 +4116,7 @@ type FinalizeDetachedJobPlan = {
 	terminalRevision: number;
 };
 
-type FinalizeDetachedJobPreflight =
-	| { plan: FinalizeDetachedJobPlan }
-	| { result: FinalizeDetachedJobResult };
+type FinalizeDetachedJobPreflight = { plan: FinalizeDetachedJobPlan } | { result: FinalizeDetachedJobResult };
 
 export function finalizeDetachedJob(controlDbPath: string, input: FinalizeDetachedJobInput): FinalizeDetachedJobResult {
 	return withControlDb(controlDbPath, (db) => finalizeDetachedJobWithDb(db, input));
@@ -4607,7 +4609,9 @@ function persistDeadRuntimeRecovery(
 				plan.agentData,
 			).changes;
 		if (agentUpdated !== 1) {
-			throw new Error(`Recovered agent changed after ownership release ${expectedOwner.sessionPath}#${expectedOwner.agentId}`);
+			throw new Error(
+				`Recovered agent changed after ownership release ${expectedOwner.sessionPath}#${expectedOwner.agentId}`,
+			);
 		}
 		db.prepare(
 			`INSERT INTO multi_agent_terminal_outbox
@@ -4742,7 +4746,16 @@ export function createFailedMultiAgentChild(
 			if (!parent) return { ok: false, error: "parent_not_found" };
 			if (multiAgentAgentExists(db, input.sessionPath, agent.id)) return { ok: false, error: "agent_exists" };
 			const result = withImmediateTransaction(db, () => {
-				if (!insertMultiAgentAgentIfParentCurrent(db, input.sessionPath, agent.id, serializedAgent, input.nowIso, parent)) {
+				if (
+					!insertMultiAgentAgentIfParentCurrent(
+						db,
+						input.sessionPath,
+						agent.id,
+						serializedAgent,
+						input.nowIso,
+						parent,
+					)
+				) {
 					return undefined;
 				}
 				db.prepare(
@@ -4849,7 +4862,8 @@ export function createMultiAgentChildWithRuntimeOwnership(
 				}
 				persistAcquiredRuntimeOwnership(db, input);
 				const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-				if (!ownership) throw new Error(`Child runtime ownership did not persist ${input.sessionPath}#${input.agentId}`);
+				if (!ownership)
+					throw new Error(`Child runtime ownership did not persist ${input.sessionPath}#${input.agentId}`);
 				return { agent: input.agent, ok: true, ownership: multiAgentRuntimeOwnershipFromRow(ownership) } as const;
 			});
 			if (result) return result;
@@ -6274,7 +6288,9 @@ function readLifecycleMigrationOwnerTableState(
 	}
 	const processIdentities = (
 		db
-			.prepare(`SELECT process_identity FROM ${tableName} WHERE process_identity IS NOT NULL ORDER BY process_identity`)
+			.prepare(
+				`SELECT process_identity FROM ${tableName} WHERE process_identity IS NOT NULL ORDER BY process_identity`,
+			)
 			.all() as Array<{ process_identity: string }>
 	).map((owner) => owner.process_identity);
 	return { kind: "with_process_identity", processIdentities };
