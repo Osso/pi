@@ -553,10 +553,6 @@ function validateExistingStoredRuntimeMailboxMessage(
 	return { id: existing.id, listener: undefined };
 }
 
-function persistImmutableMailboxPayload(db: SqliteDatabase, input: EnqueueStoredRuntimeMailboxMessageInput): void {
-	persistStoredRuntimeMailboxMessage(db, input, prepareStoredRuntimeMailboxMessage(input));
-}
-
 function addRuntimeMailboxRouting(
 	message: Record<string, unknown>,
 	input: EnqueueRuntimeMailboxMessageInput,
