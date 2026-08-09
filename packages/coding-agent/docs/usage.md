@@ -80,6 +80,8 @@ You can submit messages while the agent is still working:
 - **Escape** aborts and restores queued messages to the editor.
 - **Alt+Up** retrieves queued messages back to the editor.
 
+New-turn submissions appear in the transcript as soon as the accepted, transformed message is prepared, so slow extension processing before agent startup does not delay the visible user message. The later agent event reconciles that display without duplication.
+
 On Windows Terminal, Alt+Enter is fullscreen by default. Remap it as described in [Terminal setup](terminal-setup.md) if you want pi to receive the shortcut.
 
 Configure delivery in [Settings](settings.md) with `steeringMode` and `followUpMode`.

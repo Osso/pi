@@ -429,6 +429,7 @@
 - Fixed the interactive retry indicator persisting after a successful retry.
 - Fixed detached Pyrun jobs to record elapsed duration in `durationMs`, include `Duration: Nms` in completion/failure notifications, and made direct `wait_agents({})` consume pending completion notifications and pending failure notifications for detached Pyrun jobs, return the winning agent and message in `details`, and mark the matching runtime mailbox transport row delivered; non-Pyrun failure waits retain their existing behavior.
 - Fixed speculative compaction waiting until `agent_end` to notice long tool-heavy turns crossing 70% context; persisted assistant tool-call responses now start cache generation during the active turn so the ready result is consumed at the existing safe end without a second compaction request.
+- Fixed new-turn user messages waiting for slow extension preflight before appearing in the interactive transcript; the display now uses the authoritative transformed message once prepared, reconciles the later message event without duplication, and cleans up safely across transcript rebuilds and child-agent views.
 
 ### Removed
 
