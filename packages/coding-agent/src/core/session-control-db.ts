@@ -2737,27 +2737,41 @@ export function unarchiveSession(controlDbPath: string, sessionPath: string): vo
 }
 
 export function archiveSessionsOlderThan(controlDbPath: string, cutoff: Date): string[] {
+	const cutoffIso = cutoff.toISOString();
 	return withControlDb(controlDbPath, (db) => {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			const rows = db
-				.prepare(
-					`SELECT session_path FROM session_metadata
-					 WHERE archived_at IS NULL AND is_subagent = 0 AND modified_at < ?
-					 ORDER BY modified_at ASC, session_path ASC`,
-				)
-				.all(cutoff.toISOString()) as Array<{ session_path: string }>;
-			const archivedAt = new Date().toISOString();
-			db.prepare(
-				"UPDATE session_metadata SET archived_at = ?, updated_at = ? WHERE archived_at IS NULL AND is_subagent = 0 AND modified_at < ?",
-			).run(archivedAt, archivedAt, cutoff.toISOString());
-			db.exec("COMMIT");
-			return rows.map((row) => row.session_path);
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		if (!hasSessionEligibleForArchival(db, cutoffIso)) return [];
+		const archivedAt = new Date().toISOString();
+		const rows = db
+			.prepare(
+				`UPDATE session_metadata
+				 SET archived_at = ?, updated_at = ?
+				 WHERE archived_at IS NULL AND is_subagent = 0 AND modified_at < ?
+				 RETURNING session_path, modified_at`,
+			)
+			.all(archivedAt, archivedAt, cutoffIso) as Array<{ modified_at: string; session_path: string }>;
+		return rows.sort(compareArchivedSessionRows).map((row) => row.session_path);
 	});
+}
+
+function hasSessionEligibleForArchival(db: SqliteDatabase, cutoffIso: string): boolean {
+	return Boolean(
+		db
+			.prepare(
+				`SELECT 1 FROM session_metadata
+				 WHERE archived_at IS NULL AND is_subagent = 0 AND modified_at < ?
+				 LIMIT 1`,
+			)
+			.get(cutoffIso),
+	);
+}
+
+function compareArchivedSessionRows(
+	left: { modified_at: string; session_path: string },
+	right: { modified_at: string; session_path: string },
+): number {
+	if (left.modified_at !== right.modified_at) return left.modified_at < right.modified_at ? -1 : 1;
+	if (left.session_path === right.session_path) return 0;
+	return left.session_path < right.session_path ? -1 : 1;
 }
 
 function sessionMetadataFromRow(row: SessionMetadataRow): SessionMetadata {

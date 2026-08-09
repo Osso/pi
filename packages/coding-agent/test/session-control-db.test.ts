@@ -117,6 +117,7 @@ type WorkerStatusMessage = {
 	entries?: string[];
 	error?: string;
 	id?: number;
+	paths?: string[];
 	pid?: number;
 	statuses?: string[];
 	type: string;
@@ -4561,6 +4562,49 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(listArchivedSessionMetadata(controlDbPath).map((session) => session.sessionPath)).toEqual([
 			"/tmp/old.jsonl",
 		]);
+	});
+
+	it("returns without a writer lock when no session is eligible for archival", async () => {
+		const cutoff = "2026-01-02T00:00:00.000Z";
+		expect(archiveSessionsOlderThan(controlDbPath, new Date(cutoff))).toEqual([]);
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { archiveSessionsOlderThan } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const paths = archiveSessionsOlderThan(workerData.controlDbPath, new Date(workerData.cutoff));
+						parentPort?.postMessage({ paths, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, cutoff } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "session-archive worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("archive");
+			const result = await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				timeoutMessage: "empty session archive waited for the writer lock",
+				timeoutMs: 1_000,
+			});
+			expect(result.paths).toEqual([]);
+		} finally {
+			holder.exec("ROLLBACK");
+			await worker.terminate();
+			holder.close();
+		}
 	});
 
 	it("updates existing session metadata without changing its session path", () => {
