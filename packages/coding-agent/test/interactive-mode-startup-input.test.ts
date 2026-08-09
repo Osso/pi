@@ -454,7 +454,10 @@ describe("InteractiveMode startup input", () => {
 
 		await interactiveModePrototype.submitMainLoopInput.call(context, "queued steering");
 
-		expect(context.session.prompt).toHaveBeenCalledWith("queued steering", { streamingBehavior: "steer" });
+		expect(context.session.prompt).toHaveBeenCalledWith(
+			"queued steering",
+			expect.objectContaining({ streamingBehavior: "steer" }),
+		);
 		expect(context.showError).not.toHaveBeenCalled();
 	});
 

@@ -495,6 +495,7 @@ export class InteractiveMode {
 	private isInitialized = false;
 	private onInputCallback?: (text: string) => void;
 	private pendingUserInputs: string[] = [];
+	private provisionalUserMessages?: Map<AgentMessage, Component[]>;
 	private pendingCompactionSummaryEditId: string | undefined;
 	private clipboardTempFiles = createClipboardTempFileTracker();
 	private responseCompleteNotification: DesktopNotificationHandle | undefined;
@@ -1191,12 +1192,86 @@ export class InteractiveMode {
 	 */
 	private async submitMainLoopInput(userInput: string): Promise<void> {
 		try {
-			await this.session.prompt(userInput, { streamingBehavior: "steer" });
+			await this.session.prompt(userInput, {
+				streamingBehavior: "steer",
+				onUserMessagePrepared: (message) => InteractiveMode.prototype.renderPreparedUserMessage.call(this, message),
+			});
 			this.clipboardTempFiles.cleanupReferencedIn(userInput);
 		} catch (error: unknown) {
 			const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 			this.showError(errorMessage);
+		} finally {
+			if (InteractiveMode.prototype.removeProvisionalUserMessages.call(this)) {
+				this.ui.requestRender();
+			}
 		}
+	}
+
+	private ensureProvisionalUserMessages(): Map<AgentMessage, Component[]> {
+		if (!this.provisionalUserMessages) {
+			this.provisionalUserMessages = new Map();
+		}
+		return this.provisionalUserMessages;
+	}
+
+	private removeComponentsFromChat(components: readonly Component[]): boolean {
+		const componentSet = new Set(components);
+		let removed = false;
+		for (let index = this.chatContainer.children.length - 1; index >= 0; index--) {
+			const child = this.chatContainer.children[index];
+			if (child && componentSet.has(child)) {
+				this.chatContainer.children.splice(index, 1);
+				removed = true;
+			}
+		}
+		return removed;
+	}
+
+	private renderPreparedUserMessage(message: AgentMessage): void {
+		if (message.role !== "user" || this.isViewingAgentSession()) return;
+
+		const previousChildCount = this.chatContainer.children.length;
+		this.addMessageToChat(message);
+		const components = this.chatContainer.children.slice(previousChildCount);
+		if (components.length === 0) return;
+
+		this.ensureProvisionalUserMessages().set(message, components);
+		this.ui.requestRender();
+	}
+
+	private consumePreparedUserMessage(message: AgentMessage): boolean {
+		const components = this.provisionalUserMessages?.get(message);
+		if (!components) return false;
+
+		this.provisionalUserMessages?.delete(message);
+		const componentsRemainInChat =
+			components.length > 0 && components.every((component) => this.chatContainer.children.includes(component));
+		if (componentsRemainInChat) return true;
+
+		this.removeComponentsFromChat(components);
+		return false;
+	}
+
+	private renderStartedUserMessage(event: Extract<AgentSessionEvent, { type: "message_start" }>): void {
+		if (event.message.role !== "user" || isDuplicateTurnGuardMessage(event.message, event.runtimeMessageMarker)) {
+			return;
+		}
+		if (!InteractiveMode.prototype.consumePreparedUserMessage.call(this, event.message)) {
+			this.addMessageToChat(event.message);
+		}
+		this.updatePendingMessagesDisplay();
+		this.ui.requestRender();
+	}
+
+	private removeProvisionalUserMessages(): boolean {
+		if (!this.provisionalUserMessages) return false;
+
+		let removed = false;
+		for (const components of this.provisionalUserMessages.values()) {
+			removed = this.removeComponentsFromChat(components) || removed;
+		}
+		this.provisionalUserMessages.clear();
+		return removed;
 	}
 
 	private async processControlMessage(
@@ -4251,10 +4326,7 @@ export class InteractiveMode {
 					this.addMessageToChat(event.message);
 					this.ui.requestRender();
 				} else if (event.message.role === "user") {
-					if (isDuplicateTurnGuardMessage(event.message, event.runtimeMessageMarker)) break;
-					this.addMessageToChat(event.message);
-					this.updatePendingMessagesDisplay();
-					this.ui.requestRender();
+					InteractiveMode.prototype.renderStartedUserMessage.call(this, event);
 				} else if (event.message.role === "assistant") {
 					this.setWorkingMessageForActiveTools();
 					this.streamingComponent = new AssistantMessageComponent(

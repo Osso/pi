@@ -496,6 +496,8 @@ export interface PromptOptions {
 	source?: InputSource;
 	/** Internal hook used by RPC mode to observe prompt preflight acceptance or rejection. */
 	preflightResult?: (success: boolean) => void;
+	/** Internal hook used by interactive mode to display accepted user input before turn-context hooks run. */
+	onUserMessagePrepared?: (message: AgentMessage) => void;
 }
 
 /** Result from cycleModel() */
@@ -2541,6 +2543,7 @@ export class AgentSession {
 	): Promise<void> {
 		const expandPromptTemplates = options?.expandPromptTemplates ?? true;
 		const preflightResult = options?.preflightResult;
+		const onUserMessagePrepared = options?.onUserMessagePrepared;
 		let messages: AgentMessage[] | undefined;
 
 		try {
@@ -2617,12 +2620,14 @@ export class AgentSession {
 			if (currentImages) {
 				userContent.push(...currentImages);
 			}
-			messages.push({
+			const userMessage = {
 				role: "user",
 				content: userContent,
 				inputSource: options?.source,
 				timestamp: Date.now(),
-			});
+			} satisfies AgentMessage;
+			messages.push(userMessage);
+			onUserMessagePrepared?.(userMessage);
 
 			// Inject any pending "nextTurn" messages as context alongside the user message
 			for (const msg of this._pendingNextTurnMessages) {
