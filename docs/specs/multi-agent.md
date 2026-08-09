@@ -389,12 +389,12 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       validates the binding against persisted ownership; one repository transaction under `BEGIN IMMEDIATE`
       verifies the current sender listener, direct-parent relation, recipient session/agent, canonical
       recipient-listener PID, embedded `(pid, startTimeTicks)` identity, identity liveness, and lifecycle
-      ownership. Only after validation succeeds does that same authority transaction allocate the
-      per-session message number, construct the canonical steering payload, and persist sender/recipient
-      routing metadata, runtime recipient, store reference, and lifecycle together. Recipient or sender
-      mismatches, PID or start-time mismatches, dead recipients, stale sender sessions, non-direct
-      descendants, and invalid lifecycle requests reject atomically without lifecycle/mailbox mutation or
-      counter advancement.
+      ownership. Read-only preflight validates and serializes the canonical steering payload with a
+      generated-ID template; the authority transaction allocates the per-session message number, splices the
+      allocated ID into that template, and persists sender/recipient routing metadata, runtime recipient,
+      store reference, and lifecycle together. Recipient or sender mismatches, PID or start-time mismatches,
+      dead recipients, stale sender sessions, non-direct descendants, and invalid lifecycle requests reject
+      atomically without lifecycle/mailbox mutation or counter advancement.
 - [x] A turn started by idle runtime-mailbox prompt delivery never awaits its own enclosing prompt drain
       at a post-tool checkpoint. Prompt-mode and steer-mode drains retain distinct ownership so the
       active turn can continue to its next model call without a self-deadlock.

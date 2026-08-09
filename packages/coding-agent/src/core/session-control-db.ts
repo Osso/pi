@@ -368,47 +368,44 @@ export function enqueueIncomingMessage(controlDbPath: string, content: string): 
 
 export function claimLatestIncomingMessage(controlDbPath: string): IncomingControlMessage | undefined {
 	return withControlDb(controlDbPath, (db) => {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			const row = db
-				.prepare(
-					`
-					SELECT id, content
-					FROM incoming_messages
-					WHERE status = 'pending'
-					ORDER BY id DESC
-					LIMIT 1
-					`,
-				)
-				.get() as IncomingRow | undefined;
-
-			if (!row) {
-				db.exec("COMMIT");
-				return undefined;
-			}
-
-			const now = new Date().toISOString();
-			db.prepare(
-				`
-				UPDATE incoming_messages
-				SET status = 'superseded', completed_at = ?
-				WHERE status = 'pending' AND id <> ?
-				`,
-			).run(now, row.id);
-			db.prepare(
-				`
-				UPDATE incoming_messages
-				SET status = 'claimed', claimed_at = ?
-				WHERE id = ?
-				`,
-			).run(now, row.id);
-			db.exec("COMMIT");
-			return row;
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		if (!readLatestPendingIncomingMessage(db)) return undefined;
+		const nowIso = new Date().toISOString();
+		return withImmediateTransaction(db, () => claimLatestIncomingMessageInTransaction(db, nowIso));
 	});
+}
+
+function claimLatestIncomingMessageInTransaction(db: SqliteDatabase, now: string): IncomingControlMessage | undefined {
+	const row = readLatestPendingIncomingMessage(db);
+	if (!row) return undefined;
+	db.prepare(
+		`
+		UPDATE incoming_messages
+		SET status = 'superseded', completed_at = ?
+		WHERE status = 'pending' AND id <> ?
+		`,
+	).run(now, row.id);
+	db.prepare(
+		`
+		UPDATE incoming_messages
+		SET status = 'claimed', claimed_at = ?
+		WHERE id = ?
+		`,
+	).run(now, row.id);
+	return row;
+}
+
+function readLatestPendingIncomingMessage(db: SqliteDatabase): IncomingRow | undefined {
+	return db
+		.prepare(
+			`
+			SELECT id, content
+			FROM incoming_messages
+			WHERE status = 'pending'
+			ORDER BY id DESC
+			LIMIT 1
+			`,
+		)
+		.get() as IncomingRow | undefined;
 }
 
 export function completeIncomingMessage(controlDbPath: string, id: number): void {
@@ -450,86 +447,110 @@ export function readIncomingMessageStatus(controlDbPath: string, id: number): st
 	});
 }
 
+const RUNTIME_MAILBOX_ROUTING_MAX_ATTEMPTS = 3;
+
 export function enqueueRuntimeMailboxMessage(controlDbPath: string, input: EnqueueRuntimeMailboxMessageInput): number {
-	const result = withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const row = readCanonicalMailboxRowByStoreRef(db, input.storeRef);
-			if (!row) {
-				throw new Error(
-					`Runtime mailbox store reference does not exist: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`,
-				);
-			}
-			const context = `multi_agent_mailbox_messages:${input.storeRef.sessionPath}#${input.storeRef.messageId}`;
-			const message = parseStoredJsonObject(row.data, context);
-			validateMailboxPayload(message, context);
-			const routed = addRuntimeMailboxRouting(message, input);
-			const serialized = JSON.stringify(routed);
-			const changed = serialized !== row.data;
-			if (changed) {
-				const now = new Date().toISOString();
-				db.prepare("UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ? WHERE rowid = ?").run(
-					serialized,
-					now,
-					row.id,
-				);
-			}
-			return {
-				id: row.id,
-				listener: changed ? readRuntimeMailboxListenerRow(db, input.recipient) : undefined,
-			};
-		}),
-	);
+	const result = withControlDb(controlDbPath, (db) => routeRuntimeMailboxMessage(db, input));
 	notifyRuntimeMailboxListener(result.listener);
 	return result.id;
 }
+
+function routeRuntimeMailboxMessage(db: SqliteDatabase, input: EnqueueRuntimeMailboxMessageInput) {
+	for (let attempt = 1; attempt <= RUNTIME_MAILBOX_ROUTING_MAX_ATTEMPTS; attempt += 1) {
+		const row = readCanonicalMailboxRowByStoreRef(db, input.storeRef);
+		if (!row) {
+			throw new Error(
+				`Runtime mailbox store reference does not exist: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`,
+			);
+		}
+		const context = `multi_agent_mailbox_messages:${input.storeRef.sessionPath}#${input.storeRef.messageId}`;
+		const message = parseStoredJsonObject(row.data, context);
+		validateMailboxPayload(message, context);
+		const routed = addRuntimeMailboxRouting(message, input);
+		if (JSON.stringify(routed) === row.data) return { id: row.id, listener: undefined };
+		if (!compareAndWriteCanonicalMailboxPayload(db, row, routed, new Date().toISOString())) continue;
+		return { id: row.id, listener: readRuntimeMailboxListenerRow(db, input.recipient) };
+	}
+	throw new Error(
+		`Runtime mailbox row changed while routing: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`,
+	);
+}
+
+type PreparedStoredRuntimeMailboxMessage = {
+	context: string;
+	routed: Record<string, unknown>;
+	serialized: string;
+	updatedAt: string;
+};
 
 export function enqueueStoredRuntimeMailboxMessage(
 	controlDbPath: string,
 	input: EnqueueStoredRuntimeMailboxMessageInput,
 ): number {
-	validateMailboxPayload(
-		input.message,
-		`multi_agent_mailbox_messages:${input.storeRef.sessionPath}#${input.storeRef.messageId}`,
-	);
-	const result = withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => persistStoredRuntimeMailboxMessage(db, input)),
-	);
+	const prepared = prepareStoredRuntimeMailboxMessage(input);
+	const result = withControlDb(controlDbPath, (db) => persistStoredRuntimeMailboxMessage(db, input, prepared));
 	notifyRuntimeMailboxListener(result.listener);
 	return result.id;
 }
 
-function persistStoredRuntimeMailboxMessage(db: SqliteDatabase, input: EnqueueStoredRuntimeMailboxMessageInput) {
-	const now = input.updatedAt ?? new Date().toISOString();
+function prepareStoredRuntimeMailboxMessage(
+	input: EnqueueStoredRuntimeMailboxMessageInput,
+): PreparedStoredRuntimeMailboxMessage {
 	const context = `multi_agent_mailbox_messages:${input.storeRef.sessionPath}#${input.storeRef.messageId}`;
+	validateMailboxPayload(input.message, context);
 	const incoming = parseStoredJsonObject(JSON.stringify(input.message), context);
 	const routed = addRuntimeMailboxRouting(incoming, input);
-	const serialized = JSON.stringify(routed);
-	const existing = readCanonicalMailboxRowByStoreRef(db, input.storeRef);
-	if (existing) {
-		const previous = parseStoredJsonObject(existing.data, context);
-		if (!sameMailboxMessageIdentity(previous, routed, input.storeRef.messageId)) {
-			throw new Error(`Mailbox message ID collision: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`);
-		}
-		assertRuntimeMailboxRouting(previous, input);
-		if (stripRuntimeMailboxDeliveryState(existing.data) !== stripRuntimeMailboxDeliveryState(serialized)) {
-			throw new Error(`Mailbox message ID collision: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`);
-		}
-		return { id: existing.id, listener: undefined };
-	}
-	const inserted = db
-		.prepare(
-			`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
-			 VALUES (?, ?, ?, ?)`,
-		)
-		.run(input.storeRef.sessionPath, input.storeRef.messageId, serialized, now);
 	return {
-		id: Number(inserted.lastInsertRowid),
-		listener: readRuntimeMailboxListenerRow(db, input.recipient),
+		context,
+		routed,
+		serialized: JSON.stringify(routed),
+		updatedAt: input.updatedAt ?? new Date().toISOString(),
 	};
 }
 
-function persistImmutableMailboxPayload(db: SqliteDatabase, input: EnqueueStoredRuntimeMailboxMessageInput): void {
-	persistStoredRuntimeMailboxMessage(db, input);
+function persistStoredRuntimeMailboxMessage(
+	db: SqliteDatabase,
+	input: EnqueueStoredRuntimeMailboxMessageInput,
+	prepared: PreparedStoredRuntimeMailboxMessage,
+) {
+	const existing = readCanonicalMailboxRowByStoreRef(db, input.storeRef);
+	if (existing) return validateExistingStoredRuntimeMailboxMessage(existing, input, prepared);
+	const inserted = db
+		.prepare(
+			`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+			 VALUES (?, ?, ?, ?)
+			 ON CONFLICT(session_path, message_id) DO NOTHING`,
+		)
+		.run(input.storeRef.sessionPath, input.storeRef.messageId, prepared.serialized, prepared.updatedAt);
+	if (inserted.changes === 1) {
+		return {
+			id: Number(inserted.lastInsertRowid),
+			listener: readRuntimeMailboxListenerRow(db, input.recipient),
+		};
+	}
+	const concurrent = readCanonicalMailboxRowByStoreRef(db, input.storeRef);
+	if (!concurrent) {
+		throw new Error(
+			`Runtime mailbox store reference disappeared after insert conflict: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`,
+		);
+	}
+	return validateExistingStoredRuntimeMailboxMessage(concurrent, input, prepared);
+}
+
+function validateExistingStoredRuntimeMailboxMessage(
+	existing: RuntimeMailboxRow,
+	input: EnqueueStoredRuntimeMailboxMessageInput,
+	prepared: PreparedStoredRuntimeMailboxMessage,
+) {
+	const previous = parseStoredJsonObject(existing.data, prepared.context);
+	if (!sameMailboxMessageIdentity(previous, prepared.routed, input.storeRef.messageId)) {
+		throw new Error(`Mailbox message ID collision: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`);
+	}
+	assertRuntimeMailboxRouting(previous, input);
+	if (stripRuntimeMailboxDeliveryState(existing.data) !== stripRuntimeMailboxDeliveryState(prepared.serialized)) {
+		throw new Error(`Mailbox message ID collision: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`);
+	}
+	return { id: existing.id, listener: undefined };
 }
 
 function addRuntimeMailboxRouting(
@@ -571,26 +592,57 @@ function stripRuntimeMailboxDeliveryState(serialized: string): string {
 	return JSON.stringify(identity);
 }
 
+type RuntimeMailboxAuthoritySnapshot = {
+	listener: RuntimeMailboxListenerRow | undefined;
+	ownership: MultiAgentRuntimeOwnershipRow | undefined;
+};
+
+type RuntimeMailboxCandidate = {
+	authority: RuntimeMailboxAuthoritySnapshot;
+	data: Record<string, unknown>;
+	row: RuntimeMailboxRow;
+};
+
 export function recoverDeadRuntimeMailboxClaims(controlDbPath: string, recipient: RuntimeMailboxAddress): number {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "claimed", Number.MAX_SAFE_INTEGER).filter(
-				(row) => canCurrentRuntimeClaimMailboxRow(db, recipient, row),
-			);
-			let recovered = 0;
-			const now = new Date().toISOString();
-			for (const row of rows) {
-				const message = parseCanonicalMailboxPayload(row);
-				const claimant = requireStringField(message, "claimantProcessIdentity", "runtime_mailbox_claim");
-				if (canonicalMailboxClaimantIsLive(db, recipient, claimant)) continue;
-				const pending: Record<string, unknown> = { ...message, status: "pending", updatedAt: now };
-				delete pending.claimedAt;
-				delete pending.claimantProcessIdentity;
-				if (compareAndWriteCanonicalMailboxPayload(db, row, pending, now)) recovered += 1;
-			}
-			return recovered;
-		}),
-	);
+	return withControlDb(controlDbPath, (db) => {
+		const candidates = readRecoverableRuntimeMailboxClaims(db, recipient);
+		const nowIso = new Date().toISOString();
+		return candidates.reduce(
+			(recovered, candidate) => recovered + Number(recoverRuntimeMailboxClaim(db, recipient, candidate, nowIso)),
+			0,
+		);
+	});
+}
+
+function readRecoverableRuntimeMailboxClaims(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+): RuntimeMailboxCandidate[] {
+	const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "claimed", Number.MAX_SAFE_INTEGER);
+	return rows.flatMap((row) => {
+		const authority = readRuntimeMailboxAuthoritySnapshot(db, recipient, row.session_path);
+		if (!currentRuntimeOwnsMailboxAuthority(recipient, authority)) return [];
+		const data = parseCanonicalMailboxPayload(row);
+		const claimant = requireStringField(data, "claimantProcessIdentity", "runtime_mailbox_claim");
+		return runtimeMailboxClaimantIsLive(authority.listener, claimant) ? [] : [{ authority, data, row }];
+	});
+}
+
+function recoverRuntimeMailboxClaim(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+	candidate: RuntimeMailboxCandidate,
+	nowIso: string,
+): boolean {
+	const pending: Record<string, unknown> = { ...candidate.data, status: "pending", updatedAt: nowIso };
+	delete pending.claimedAt;
+	delete pending.claimantProcessIdentity;
+	const serialized = JSON.stringify(pending);
+	return withImmediateTransaction(db, () => {
+		const currentAuthority = readRuntimeMailboxAuthoritySnapshot(db, recipient, candidate.row.session_path);
+		if (!runtimeMailboxAuthoritySnapshotsEqual(candidate.authority, currentAuthority)) return false;
+		return compareAndWriteSerializedCanonicalMailboxPayload(db, candidate.row, serialized, nowIso);
+	});
 }
 
 export function takeRuntimeMailboxMessagesForDelivery(
@@ -599,24 +651,105 @@ export function takeRuntimeMailboxMessagesForDelivery(
 	isEligible: (message: RuntimeMailboxMessage) => boolean,
 	limit = 20,
 ): RuntimeMailboxMessage[] {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "pending", Number.MAX_SAFE_INTEGER).filter(
-				(row) => canCurrentRuntimeClaimMailboxRow(db, recipient, row),
-			);
-			const now = new Date().toISOString();
-			const deliveredMessages: RuntimeMailboxMessage[] = [];
-			for (const row of rows) {
-				const data = parseCanonicalMailboxPayload(row);
-				const message = runtimeMailboxMessageFromCanonicalRow(row, data);
-				if (!isEligible(message)) continue;
-				const delivered = { ...data, status: "delivered", deliveredAt: now, updatedAt: now };
-				writeCanonicalMailboxPayload(db, row.id, delivered, now);
-				deliveredMessages.push(runtimeMailboxMessageFromCanonicalRow(row, delivered));
-				if (deliveredMessages.length === limit) break;
-			}
-			return deliveredMessages;
-		}),
+	return withControlDb(controlDbPath, (db) => {
+		const candidates = readEligibleRuntimeMailboxDeliveryCandidates(db, recipient, isEligible);
+		return deliverRuntimeMailboxCandidates(db, recipient, candidates, limit, new Date().toISOString());
+	});
+}
+
+function readEligibleRuntimeMailboxDeliveryCandidates(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+	isEligible: (message: RuntimeMailboxMessage) => boolean,
+): RuntimeMailboxCandidate[] {
+	const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "pending", Number.MAX_SAFE_INTEGER);
+	return rows.flatMap((row) => {
+		const authority = readRuntimeMailboxAuthoritySnapshot(db, recipient, row.session_path);
+		if (!currentRuntimeOwnsMailboxAuthority(recipient, authority)) return [];
+		const data = parseCanonicalMailboxPayload(row);
+		const message = runtimeMailboxMessageFromCanonicalRow(row, data);
+		return isEligible(message) ? [{ authority, data, row }] : [];
+	});
+}
+
+function deliverRuntimeMailboxCandidates(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+	candidates: RuntimeMailboxCandidate[],
+	limit: number,
+	nowIso: string,
+): RuntimeMailboxMessage[] {
+	const deliveredMessages: RuntimeMailboxMessage[] = [];
+	for (const candidate of candidates) {
+		const delivered = deliverRuntimeMailboxCandidate(db, recipient, candidate, nowIso);
+		if (delivered) deliveredMessages.push(delivered);
+		if (deliveredMessages.length === limit) break;
+	}
+	return deliveredMessages;
+}
+
+function deliverRuntimeMailboxCandidate(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+	candidate: RuntimeMailboxCandidate,
+	nowIso: string,
+): RuntimeMailboxMessage | undefined {
+	const delivered = { ...candidate.data, status: "delivered", deliveredAt: nowIso, updatedAt: nowIso };
+	const serialized = JSON.stringify(delivered);
+	const updated = withImmediateTransaction(db, () => {
+		const currentAuthority = readRuntimeMailboxAuthoritySnapshot(db, recipient, candidate.row.session_path);
+		if (!runtimeMailboxAuthoritySnapshotsEqual(candidate.authority, currentAuthority)) return false;
+		return compareAndWriteSerializedCanonicalMailboxPayload(db, candidate.row, serialized, nowIso);
+	});
+	return updated ? runtimeMailboxMessageFromCanonicalRow(candidate.row, delivered) : undefined;
+}
+
+function readRuntimeMailboxAuthoritySnapshot(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+	sessionPath: string,
+): RuntimeMailboxAuthoritySnapshot {
+	return {
+		listener: readRuntimeMailboxListenerRow(db, recipient),
+		ownership: recipient.agentId ? readMultiAgentRuntimeOwnershipRow(db, sessionPath, recipient.agentId) : undefined,
+	};
+}
+
+function currentRuntimeOwnsMailboxAuthority(
+	recipient: RuntimeMailboxAddress,
+	authority: RuntimeMailboxAuthoritySnapshot,
+): boolean {
+	if (
+		authority.listener?.pid === process.pid &&
+		authority.listener.runtime_instance_id === RUNTIME_PROCESS_INSTANCE_ID
+	) {
+		return true;
+	}
+	if (!recipient.agentId) return false;
+	return persistedProcessIdentityIsCurrent(authority.ownership?.process_identity);
+}
+
+function runtimeMailboxAuthoritySnapshotsEqual(
+	expected: RuntimeMailboxAuthoritySnapshot,
+	current: RuntimeMailboxAuthoritySnapshot,
+): boolean {
+	return (
+		runtimeMailboxListenerRowsEqual(expected.listener, current.listener) &&
+		multiAgentRuntimeOwnershipRowsEqual(expected.ownership, current.ownership)
+	);
+}
+
+function multiAgentRuntimeOwnershipRowsEqual(
+	expected: MultiAgentRuntimeOwnershipRow | undefined,
+	current: MultiAgentRuntimeOwnershipRow | undefined,
+): boolean {
+	if (!expected || !current) return expected === current;
+	return (
+		expected.session_path === current.session_path &&
+		expected.agent_id === current.agent_id &&
+		expected.process_identity === current.process_identity &&
+		expected.owner_session_id === current.owner_session_id &&
+		expected.owner_agent_id === current.owner_agent_id
 	);
 }
 
@@ -625,46 +758,63 @@ export function claimRuntimeMailboxMessages(
 	recipient: RuntimeMailboxAddress,
 	limit = 20,
 ): RuntimeMailboxMessage[] {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "pending", limit).filter((row) =>
-				canCurrentRuntimeClaimMailboxRow(db, recipient, row),
-			);
-			const now = new Date().toISOString();
-			const claimed: RuntimeMailboxMessage[] = [];
-			for (const row of rows) {
-				const message = parseCanonicalMailboxPayload(row);
-				message.status = "claimed";
-				message.claimedAt = now;
-				message.claimantProcessIdentity = RUNTIME_PROCESS_INSTANCE_ID;
-				message.updatedAt = now;
-				if (compareAndWriteCanonicalMailboxPayload(db, row, message, now)) {
-					claimed.push(runtimeMailboxMessageFromCanonicalRow(row, message));
-				}
-			}
-			return claimed;
-		}),
-	);
+	return withControlDb(controlDbPath, (db) => {
+		const candidates = readClaimableRuntimeMailboxCandidates(db, recipient, limit);
+		return claimRuntimeMailboxCandidates(db, recipient, candidates, new Date().toISOString());
+	});
 }
 
-function canCurrentRuntimeClaimMailboxRow(
+function readClaimableRuntimeMailboxCandidates(
 	db: SqliteDatabase,
 	recipient: RuntimeMailboxAddress,
-	row: RuntimeMailboxRow,
-): boolean {
-	const listener = readRuntimeMailboxListenerRow(db, recipient);
-	if (listener?.pid === process.pid && listener.runtime_instance_id === RUNTIME_PROCESS_INSTANCE_ID) return true;
-	if (!recipient.agentId) return false;
-	const ownership = readMultiAgentRuntimeOwnershipRow(db, row.session_path, recipient.agentId);
-	return persistedProcessIdentityIsCurrent(ownership?.process_identity);
+	limit: number,
+): RuntimeMailboxCandidate[] {
+	const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "pending", limit);
+	return rows.flatMap((row) => {
+		const authority = readRuntimeMailboxAuthoritySnapshot(db, recipient, row.session_path);
+		if (!currentRuntimeOwnsMailboxAuthority(recipient, authority)) return [];
+		return [{ authority, data: parseCanonicalMailboxPayload(row), row }];
+	});
 }
 
-function canonicalMailboxClaimantIsLive(
+function claimRuntimeMailboxCandidates(
 	db: SqliteDatabase,
 	recipient: RuntimeMailboxAddress,
+	candidates: RuntimeMailboxCandidate[],
+	nowIso: string,
+): RuntimeMailboxMessage[] {
+	return candidates.flatMap((candidate) => {
+		const claimed = claimRuntimeMailboxCandidate(db, recipient, candidate, nowIso);
+		return claimed ? [claimed] : [];
+	});
+}
+
+function claimRuntimeMailboxCandidate(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+	candidate: RuntimeMailboxCandidate,
+	nowIso: string,
+): RuntimeMailboxMessage | undefined {
+	const claimed = {
+		...candidate.data,
+		claimedAt: nowIso,
+		claimantProcessIdentity: RUNTIME_PROCESS_INSTANCE_ID,
+		status: "claimed",
+		updatedAt: nowIso,
+	};
+	const serialized = JSON.stringify(claimed);
+	const updated = withImmediateTransaction(db, () => {
+		const currentAuthority = readRuntimeMailboxAuthoritySnapshot(db, recipient, candidate.row.session_path);
+		if (!runtimeMailboxAuthoritySnapshotsEqual(candidate.authority, currentAuthority)) return false;
+		return compareAndWriteSerializedCanonicalMailboxPayload(db, candidate.row, serialized, nowIso);
+	});
+	return updated ? runtimeMailboxMessageFromCanonicalRow(candidate.row, claimed) : undefined;
+}
+
+function runtimeMailboxClaimantIsLive(
+	listener: RuntimeMailboxListenerRow | undefined,
 	claimantProcessIdentity: string,
 ): boolean {
-	const listener = readRuntimeMailboxListenerRow(db, recipient);
 	if (listener) return listener.runtime_instance_id === claimantProcessIdentity;
 	return persistedProcessIdentityIsLive(claimantProcessIdentity);
 }
@@ -754,12 +904,21 @@ function compareAndWriteCanonicalMailboxPayload(
 	message: Record<string, unknown>,
 	updatedAt: string,
 ): boolean {
+	return compareAndWriteSerializedCanonicalMailboxPayload(db, row, JSON.stringify(message), updatedAt);
+}
+
+function compareAndWriteSerializedCanonicalMailboxPayload(
+	db: SqliteDatabase,
+	row: RuntimeMailboxRow,
+	serialized: string,
+	updatedAt: string,
+): boolean {
 	const updated = db
 		.prepare(
 			`UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ?
 			 WHERE rowid = ? AND session_path = ? AND message_id = ? AND data = ? AND updated_at = ?`,
 		)
-		.run(JSON.stringify(message), updatedAt, row.id, row.session_path, row.message_id, row.data, row.updated_at);
+		.run(serialized, updatedAt, row.id, row.session_path, row.message_id, row.data, row.updated_at);
 	return updated.changes === 1;
 }
 
@@ -799,13 +958,11 @@ function updateClaimedCanonicalMailboxMessage(
 	error?: string,
 ): boolean {
 	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () =>
-			updateClaimedCanonicalMailboxMessageInTransaction(db, id, expectedPayloadData, status, error),
-		),
+		updateClaimedCanonicalMailboxMessageRow(db, id, expectedPayloadData, status, error),
 	);
 }
 
-function updateClaimedCanonicalMailboxMessageInTransaction(
+function updateClaimedCanonicalMailboxMessageRow(
 	db: SqliteDatabase,
 	id: number,
 	expectedPayloadData: string | undefined,
@@ -831,24 +988,22 @@ export function consumeRuntimeMailboxMessageByStoreRef(
 	controlDbPath: string,
 	storeRef: RuntimeMailboxStoreRef,
 ): number {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const row = readCanonicalMailboxRowByStoreRef(db, storeRef);
-			if (!row) return 0;
-			const message = parseCanonicalMailboxPayload(row);
-			if (message.status === "delivered") return 0;
-			const now = new Date().toISOString();
-			const delivered: Record<string, unknown> = {
-				...message,
-				status: "delivered",
-				deliveredAt: now,
-				updatedAt: now,
-			};
-			delete delivered.claimedAt;
-			delete delivered.claimantProcessIdentity;
-			return compareAndWriteCanonicalMailboxPayload(db, row, delivered, now) ? 1 : 0;
-		}),
-	);
+	return withControlDb(controlDbPath, (db) => {
+		const row = readCanonicalMailboxRowByStoreRef(db, storeRef);
+		if (!row) return 0;
+		const message = parseCanonicalMailboxPayload(row);
+		if (message.status === "delivered") return 0;
+		const now = new Date().toISOString();
+		const delivered: Record<string, unknown> = {
+			...message,
+			status: "delivered",
+			deliveredAt: now,
+			updatedAt: now,
+		};
+		delete delivered.claimedAt;
+		delete delivered.claimantProcessIdentity;
+		return compareAndWriteCanonicalMailboxPayload(db, row, delivered, now) ? 1 : 0;
+	});
 }
 
 function withImmediateTransaction<T>(db: SqliteDatabase, operation: () => T): T {
@@ -863,6 +1018,27 @@ function withImmediateTransaction<T>(db: SqliteDatabase, operation: () => T): T 
 	}
 }
 
+const RUNTIME_MAILBOX_REGISTRATION_MAX_ATTEMPTS = 3;
+
+type RuntimeMailboxRegistration = {
+	options: RuntimeMailboxRegistrationOptions;
+	pid: number;
+	recipient: RuntimeMailboxAddress;
+	runtimeInstanceId: string;
+	sessionPath: string | undefined;
+};
+
+type RuntimeMailboxRegistrationSnapshot = {
+	health: SessionHealthRecord | undefined;
+	listener: RuntimeMailboxListenerRow | undefined;
+};
+
+type RuntimeMailboxRegistrationPlan = {
+	nowIso: string;
+	shouldReconcileReplacement: boolean;
+	snapshot: RuntimeMailboxRegistrationSnapshot;
+};
+
 export function registerRuntimeMailboxListener(
 	controlDbPath: string,
 	recipient: RuntimeMailboxAddress,
@@ -870,30 +1046,114 @@ export function registerRuntimeMailboxListener(
 	sessionPath?: string,
 	options: RuntimeMailboxRegistrationOptions = {},
 ): void {
-	withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () =>
-			registerRuntimeMailboxListenerInTransaction(db, recipient, pid, sessionPath, options),
-		),
+	const registration: RuntimeMailboxRegistration = {
+		options,
+		pid,
+		recipient,
+		runtimeInstanceId: options.runtimeInstanceId ?? RUNTIME_PROCESS_INSTANCE_ID,
+		sessionPath,
+	};
+	withControlDb(controlDbPath, (db) => registerRuntimeMailboxListenerWithDb(db, registration));
+}
+
+function registerRuntimeMailboxListenerWithDb(db: SqliteDatabase, registration: RuntimeMailboxRegistration): void {
+	for (let attempt = 1; attempt <= RUNTIME_MAILBOX_REGISTRATION_MAX_ATTEMPTS; attempt += 1) {
+		const plan = prepareRuntimeMailboxRegistration(db, registration);
+		if (commitRuntimeMailboxRegistration(db, registration, plan)) return;
+	}
+	throw new Error(
+		`Runtime mailbox listener changed repeatedly while registering session ${registration.recipient.sessionId}`,
+	);
+}
+
+function prepareRuntimeMailboxRegistration(
+	db: SqliteDatabase,
+	registration: RuntimeMailboxRegistration,
+): RuntimeMailboxRegistrationPlan {
+	const snapshot = readRuntimeMailboxRegistrationSnapshot(db, registration.recipient);
+	const runtimeOwnerChanged =
+		snapshot.listener?.pid !== registration.pid ||
+		snapshot.listener?.runtime_instance_id !== registration.runtimeInstanceId;
+	const shouldReconcileReplacement =
+		registration.recipient.agentId === null &&
+		registration.options.reconcileRuntimeReplacement !== false &&
+		runtimeOwnerChanged;
+	if (shouldReconcileReplacement) assertRuntimeReplacementAllowed(db, registration, snapshot);
+	return { nowIso: new Date().toISOString(), shouldReconcileReplacement, snapshot };
+}
+
+function commitRuntimeMailboxRegistration(
+	db: SqliteDatabase,
+	registration: RuntimeMailboxRegistration,
+	plan: RuntimeMailboxRegistrationPlan,
+): boolean {
+	return withImmediateTransaction(db, () => {
+		const current = readRuntimeMailboxRegistrationSnapshot(db, registration.recipient);
+		if (!runtimeMailboxRegistrationSnapshotsEqual(plan.snapshot, current)) return false;
+		registerRuntimeMailboxListenerInTransaction(db, registration, plan.nowIso, plan.shouldReconcileReplacement);
+		return true;
+	});
+}
+
+function readRuntimeMailboxRegistrationSnapshot(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+): RuntimeMailboxRegistrationSnapshot {
+	return {
+		health: recipient.agentId === null ? readSessionHealthRow(db, recipient.sessionId) : undefined,
+		listener: readRuntimeMailboxListenerRow(db, recipient),
+	};
+}
+
+function runtimeMailboxRegistrationSnapshotsEqual(
+	expected: RuntimeMailboxRegistrationSnapshot,
+	current: RuntimeMailboxRegistrationSnapshot,
+): boolean {
+	return (
+		runtimeMailboxListenerRowsEqual(expected.listener, current.listener) &&
+		sessionHealthRowsEqual(expected.health, current.health)
+	);
+}
+
+function runtimeMailboxListenerRowsEqual(
+	expected: RuntimeMailboxListenerRow | undefined,
+	current: RuntimeMailboxListenerRow | undefined,
+): boolean {
+	if (!expected || !current) return expected === current;
+	return (
+		expected.pid === current.pid &&
+		expected.runtime_instance_id === current.runtime_instance_id &&
+		expected.session_path === current.session_path &&
+		expected.session_path_asserted_at === current.session_path_asserted_at &&
+		expected.updated_at === current.updated_at
+	);
+}
+
+function sessionHealthRowsEqual(
+	expected: SessionHealthRecord | undefined,
+	current: SessionHealthRecord | undefined,
+): boolean {
+	if (!expected || !current) return expected === current;
+	return (
+		expected.sessionId === current.sessionId &&
+		expected.agentGeneration === current.agentGeneration &&
+		expected.pid === current.pid &&
+		expected.lastActiveAt === current.lastActiveAt &&
+		expected.lastCheckedAt === current.lastCheckedAt &&
+		expected.checkStatus === current.checkStatus &&
+		expected.checkedGeneration === current.checkedGeneration &&
+		expected.checkLatencyMs === current.checkLatencyMs &&
+		expected.updatedAt === current.updatedAt
 	);
 }
 
 function registerRuntimeMailboxListenerInTransaction(
 	db: SqliteDatabase,
-	recipient: RuntimeMailboxAddress,
-	pid: number,
-	sessionPath: string | undefined,
-	options: RuntimeMailboxRegistrationOptions,
+	registration: RuntimeMailboxRegistration,
+	nowIso: string,
+	shouldReconcileReplacement: boolean,
 ): void {
-	const nowIso = new Date().toISOString();
-	const runtimeInstanceId = options.runtimeInstanceId ?? RUNTIME_PROCESS_INSTANCE_ID;
-	const existingListener = readRuntimeMailboxListenerRow(db, recipient);
-	const runtimeOwnerChanged =
-		existingListener?.pid !== pid || existingListener?.runtime_instance_id !== runtimeInstanceId;
-	const shouldReconcileReplacement =
-		recipient.agentId === null && options.reconcileRuntimeReplacement !== false && runtimeOwnerChanged;
-	if (shouldReconcileReplacement) {
-		assertRuntimeReplacementAllowed(db, recipient.sessionId, existingListener, pid, runtimeInstanceId, options);
-	}
+	const { pid, recipient, runtimeInstanceId, sessionPath } = registration;
 	if (recipient.agentId === null) {
 		retireSupersededMainRuntimeMailboxListeners(db, recipient.sessionId, pid, nowIso);
 	}
@@ -905,24 +1165,23 @@ function registerRuntimeMailboxListenerInTransaction(
 
 function assertRuntimeReplacementAllowed(
 	db: SqliteDatabase,
-	sessionId: string,
-	existingListener: RuntimeMailboxListenerRow | undefined,
-	pid: number,
-	runtimeInstanceId: string,
-	options: RuntimeMailboxRegistrationOptions,
+	registration: RuntimeMailboxRegistration,
+	snapshot: RuntimeMailboxRegistrationSnapshot,
 ): void {
-	const existingOwnerPid = existingListener?.pid ?? readSessionHealthRow(db, sessionId)?.pid;
+	const existingListener = snapshot.listener;
+	const existingOwnerPid = existingListener?.pid ?? snapshot.health?.pid;
 	if (existingOwnerPid === null || existingOwnerPid === undefined) return;
-	if (existingListener?.runtime_instance_id === runtimeInstanceId) return;
+	if (existingListener?.runtime_instance_id === registration.runtimeInstanceId) return;
 	if (existingListener?.runtime_instance_id) {
 		try {
 			if (!isProcessIdentityAlive(parseProcessIdentity(existingListener.runtime_instance_id))) return;
 		} catch {
-			if (existingOwnerPid === pid) return;
+			if (existingOwnerPid === registration.pid) return;
 		}
 	}
-	const isRuntimeProcessAlive = options.isRuntimeProcessAlive ?? isPiRuntimeProcessAlive;
+	const isRuntimeProcessAlive = registration.options.isRuntimeProcessAlive ?? isPiRuntimeProcessAlive;
 	if (!isRuntimeProcessAlive(existingOwnerPid)) return;
+	const sessionId = registration.recipient.sessionId;
 	const cwd = existingListener ? readVerifiedSessionCwd(db, sessionId, existingListener) : undefined;
 	const processContext = cwd ? `PID ${existingOwnerPid}, cwd ${cwd}` : `PID ${existingOwnerPid}`;
 	throw new Error(
@@ -967,8 +1226,9 @@ export function retireRuntimeMailboxListener(
 	recipient: RuntimeMailboxAddress,
 	pid: number,
 ): boolean {
+	const nowIso = new Date().toISOString();
 	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => retireRuntimeMailboxListenerRow(db, recipient, pid, new Date().toISOString())),
+		withImmediateTransaction(db, () => retireRuntimeMailboxListenerRow(db, recipient, pid, nowIso)),
 	);
 }
 
@@ -995,39 +1255,25 @@ function retireRuntimeMailboxListenerRow(
 	return retired;
 }
 
-function listSupersededMainSessionIds(db: SqliteDatabase, currentSessionId: string, pid: number): string[] {
-	const rows = db
-		.prepare(
-			`
-			SELECT recipient_session_id
-			FROM runtime_mailbox_listeners
-			WHERE recipient_agent_id_key = ''
-				AND pid = ?
-				AND recipient_session_id <> ?
-			`,
-		)
-		.all(pid, currentSessionId) as Array<{ recipient_session_id: string }>;
-	return rows.map((row) => row.recipient_session_id);
-}
-
 function retireSupersededMainRuntimeMailboxListeners(
 	db: SqliteDatabase,
 	currentSessionId: string,
 	pid: number,
 	nowIso: string,
 ): void {
-	const supersededSessionIds = listSupersededMainSessionIds(db, currentSessionId, pid);
-	if (supersededSessionIds.length === 0) return;
-	db.prepare(
-		`
-		DELETE FROM runtime_mailbox_listeners
-		WHERE recipient_agent_id_key = ''
-			AND pid = ?
-			AND recipient_session_id <> ?
-		`,
-	).run(pid, currentSessionId);
-	for (const sessionId of supersededSessionIds) {
-		retireSessionHealthForListener(db, sessionId, pid, nowIso);
+	const supersededListeners = db
+		.prepare(
+			`
+			DELETE FROM runtime_mailbox_listeners
+			WHERE recipient_agent_id_key = ''
+				AND pid = ?
+				AND recipient_session_id <> ?
+			RETURNING recipient_session_id
+			`,
+		)
+		.all(pid, currentSessionId) as Array<{ recipient_session_id: string }>;
+	for (const listener of supersededListeners) {
+		retireSessionHealthForListener(db, listener.recipient_session_id, pid, nowIso);
 	}
 }
 
@@ -1065,15 +1311,15 @@ export function readRuntimeMailboxListener(
 
 export function assertMainSessionRuntimeAvailable(controlDbPath: string, sessionId: string): void {
 	withControlDb(controlDbPath, (db) => {
-		const recipient = { agentId: null, sessionId };
-		assertRuntimeReplacementAllowed(
-			db,
-			sessionId,
-			readRuntimeMailboxListenerRow(db, recipient),
-			process.pid,
-			RUNTIME_PROCESS_INSTANCE_ID,
-			{},
-		);
+		const registration: RuntimeMailboxRegistration = {
+			options: {},
+			pid: process.pid,
+			recipient: { agentId: null, sessionId },
+			runtimeInstanceId: RUNTIME_PROCESS_INSTANCE_ID,
+			sessionPath: undefined,
+		};
+		const snapshot = readRuntimeMailboxRegistrationSnapshot(db, registration.recipient);
+		assertRuntimeReplacementAllowed(db, registration, snapshot);
 	});
 }
 
@@ -1210,68 +1456,90 @@ export function claimPendingArchitectRequests(
 	claimToken: string,
 	limit = 20,
 ): ArchitectRequest[] {
+	const nowIso = new Date().toISOString();
+	const claimLimit = Math.max(1, Math.floor(limit));
 	return withControlDb(controlDbPath, (db) => {
-		const now = new Date().toISOString();
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			db.prepare(
-				`UPDATE architect_requests
-				 SET status = 'pending', claimed_at = NULL, claim_token = NULL
-				 WHERE status = 'claimed' AND julianday(claimed_at) < julianday(?, '-2 minutes')`,
-			).run(now);
-			const rows = db
-				.prepare(
-					`SELECT id, sender_session_id, project_cwd, body, status, created_at, claimed_at, claim_token, completed_at
-					 FROM architect_requests
-					 WHERE status = 'pending'
-					 ORDER BY id ASC
-					 LIMIT ?`,
-				)
-				.all(Math.max(1, Math.floor(limit))) as ArchitectRequestRow[];
-			for (const row of rows) {
-				db.prepare(
-					`UPDATE architect_requests
-					 SET status = 'claimed', claimed_at = ?, claim_token = ?
-					 WHERE id = ? AND status = 'pending'`,
-				).run(now, claimToken, row.id);
-			}
-			db.exec("COMMIT");
-			return rows.map((row) =>
-				architectRequestFromRow({ ...row, status: "claimed", claimed_at: now, claim_token: claimToken }),
-			);
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		if (!hasArchitectClaimWork(db, nowIso)) return [];
+		const rows = withImmediateTransaction(db, () =>
+			claimPendingArchitectRequestsInTransaction(db, claimToken, nowIso, claimLimit),
+		);
+		return rows.map((row) =>
+			architectRequestFromRow({ ...row, status: "claimed", claimed_at: nowIso, claim_token: claimToken }),
+		);
 	});
 }
 
+function claimPendingArchitectRequestsInTransaction(
+	db: SqliteDatabase,
+	claimToken: string,
+	nowIso: string,
+	claimLimit: number,
+): ArchitectRequestRow[] {
+	db.prepare(
+		`UPDATE architect_requests
+		 SET status = 'pending', claimed_at = NULL, claim_token = NULL
+		 WHERE status = 'claimed' AND julianday(claimed_at) < julianday(?, '-2 minutes')`,
+	).run(nowIso);
+	const rows = db
+		.prepare(
+			`SELECT id, sender_session_id, project_cwd, body, status, created_at, claimed_at, claim_token, completed_at
+			 FROM architect_requests
+			 WHERE status = 'pending'
+			 ORDER BY id ASC
+			 LIMIT ?`,
+		)
+		.all(claimLimit) as ArchitectRequestRow[];
+	const claim = db.prepare(
+		`UPDATE architect_requests
+		 SET status = 'claimed', claimed_at = ?, claim_token = ?
+		 WHERE id = ? AND status = 'pending'`,
+	);
+	for (const row of rows) claim.run(nowIso, claimToken, row.id);
+	return rows;
+}
+
+function hasArchitectClaimWork(db: SqliteDatabase, nowIso: string): boolean {
+	return Boolean(
+		db
+			.prepare(
+				`SELECT 1 FROM architect_requests
+				 WHERE status = 'pending'
+				 OR (status = 'claimed' AND julianday(claimed_at) < julianday(?, '-2 minutes'))
+				 LIMIT 1`,
+			)
+			.get(nowIso),
+	);
+}
+
 export function renewArchitectRequestClaims(controlDbPath: string, requestIds: number[], claimToken: string): void {
-	if (requestIds.length === 0) return;
-	withControlDb(controlDbPath, (db) => {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			const now = new Date().toISOString();
-			const renew = db.prepare(
+	const uniqueRequestIds = [...new Set(requestIds)];
+	if (uniqueRequestIds.length === 0) return;
+	const requestIdsJson = JSON.stringify(uniqueRequestIds);
+	const now = new Date().toISOString();
+	withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			db.prepare(
 				`UPDATE architect_requests
 				 SET claimed_at = ?
-				 WHERE id = ? AND status = 'claimed' AND claim_token = ?`,
-			);
-			for (const requestId of requestIds) {
-				const result = renew.run(now, requestId, claimToken);
-				if (result.changes === 1) continue;
-				const row = db.prepare("SELECT status, claim_token FROM architect_requests WHERE id = ?").get(requestId) as
-					| { status: string; claim_token: string | null }
-					| undefined;
-				if (row?.status === "completed") continue;
-				throw new Error(`Architect request claim lost: ${requestId}`);
-			}
-			db.exec("COMMIT");
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
-	});
+				 WHERE id IN (SELECT CAST(value AS INTEGER) FROM json_each(?))
+				 AND status = 'claimed' AND claim_token = ?`,
+			).run(now, requestIdsJson, claimToken);
+			const lost = db
+				.prepare(
+					`SELECT CAST(request_ids.value AS INTEGER) AS id
+					 FROM json_each(?) AS request_ids
+					 LEFT JOIN architect_requests AS requests
+					 ON requests.id = CAST(request_ids.value AS INTEGER)
+					 WHERE requests.status IS NULL
+					 OR (requests.status <> 'completed'
+						AND (requests.status <> 'claimed' OR requests.claim_token <> ?))
+					 ORDER BY CAST(request_ids.key AS INTEGER)
+					 LIMIT 1`,
+				)
+				.get(requestIdsJson, claimToken) as { id: number } | undefined;
+			if (lost) throw new Error(`Architect request claim lost: ${lost.id}`);
+		}),
+	);
 }
 
 export function completeArchitectRequest(
@@ -1356,70 +1624,80 @@ export function readSupervisorRequest(controlDbPath: string, requestId: number):
 
 export function claimNextSupervisorRequest(controlDbPath: string, claimToken: string): SupervisorRequest | undefined {
 	return withControlDb(controlDbPath, (db) => {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			const activeClaim = db.prepare("SELECT 1 FROM supervisor_requests WHERE status = 'claimed' LIMIT 1").get();
-			if (activeClaim) {
-				db.exec("COMMIT");
-				return undefined;
-			}
-			const row = db
-				.prepare(
-					`SELECT ${SUPERVISOR_REQUEST_COLUMNS}
-					 FROM supervisor_requests
-					 WHERE status = 'pending'
-					 ORDER BY CASE kind
-						 WHEN 'approval_review' THEN 0
-						 WHEN 'supervisor_advisory' THEN 2
-						 ELSE 1
-					 END, id ASC
-					 LIMIT 1`,
-				)
-				.get() as SupervisorRequestRow | undefined;
-			if (!row) {
-				db.exec("COMMIT");
-				return undefined;
-			}
-			const claimedAt = new Date().toISOString();
-			db.prepare(
-				"UPDATE supervisor_requests SET status = 'claimed', claimed_at = ?, claim_token = ? WHERE id = ? AND status = 'pending'",
-			).run(claimedAt, claimToken, row.id);
-			db.exec("COMMIT");
-			return supervisorRequestFromRow({
-				...row,
-				status: "claimed",
-				claimed_at: claimedAt,
-				claim_token: claimToken,
-			});
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		if (!readNextSupervisorRequestToClaim(db)) return undefined;
+		const claimedAt = new Date().toISOString();
+		const row = withImmediateTransaction(db, () =>
+			claimNextSupervisorRequestInTransaction(db, claimToken, claimedAt),
+		);
+		return row ? supervisorRequestFromRow(row) : undefined;
 	});
 }
 
+function claimNextSupervisorRequestInTransaction(
+	db: SqliteDatabase,
+	claimToken: string,
+	claimedAt: string,
+): SupervisorRequestRow | undefined {
+	const row = readNextSupervisorRequestToClaim(db);
+	if (!row) return undefined;
+	return db
+		.prepare(
+			`UPDATE supervisor_requests
+			 SET status = 'claimed', claimed_at = ?, claim_token = ?
+			 WHERE id = ? AND status = 'pending'
+			 RETURNING ${SUPERVISOR_REQUEST_COLUMNS}`,
+		)
+		.get(claimedAt, claimToken, row.id) as SupervisorRequestRow | undefined;
+}
+
+function readNextSupervisorRequestToClaim(db: SqliteDatabase): SupervisorRequestRow | undefined {
+	const activeClaim = db.prepare("SELECT 1 FROM supervisor_requests WHERE status = 'claimed' LIMIT 1").get();
+	if (activeClaim) return undefined;
+	return db
+		.prepare(
+			`SELECT ${SUPERVISOR_REQUEST_COLUMNS}
+			 FROM supervisor_requests
+			 WHERE status = 'pending'
+			 ORDER BY CASE kind
+				 WHEN 'approval_review' THEN 0
+				 WHEN 'supervisor_advisory' THEN 2
+				 ELSE 1
+			 END, id ASC
+			 LIMIT 1`,
+		)
+		.get() as SupervisorRequestRow | undefined;
+}
+
 export function recoverSupervisorRequests(controlDbPath: string): void {
+	const nowIso = new Date().toISOString();
 	withControlDb(controlDbPath, (db) => {
-		const now = new Date().toISOString();
+		if (!hasSupervisorRecoveryWork(db, nowIso)) return;
 		const errorResponse = JSON.stringify({ kind: "error", reason: "Supervisor request deadline expired" });
-		db.exec("BEGIN IMMEDIATE");
-		try {
+		withImmediateTransaction(db, () => {
 			db.prepare(
 				`UPDATE supervisor_requests
 				 SET status = 'completed', completed_at = ?, response_json = ?, claim_token = NULL
 				 WHERE status IN ('pending', 'claimed') AND deadline_at <= ?`,
-			).run(now, errorResponse, now);
+			).run(nowIso, errorResponse, nowIso);
 			db.prepare(
 				`UPDATE supervisor_requests
 				 SET status = 'pending', claimed_at = NULL, claim_token = NULL
 				 WHERE status = 'claimed'`,
 			).run();
-			db.exec("COMMIT");
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		});
 	});
+}
+
+function hasSupervisorRecoveryWork(db: SqliteDatabase, nowIso: string): boolean {
+	return Boolean(
+		db
+			.prepare(
+				`SELECT 1 FROM supervisor_requests
+				 WHERE status = 'claimed' OR (status = 'pending' AND deadline_at <= ?)
+				 LIMIT 1`,
+			)
+			.get(nowIso),
+	);
 }
 
 export function hasPendingSupervisorApprovalRequest(controlDbPath: string): boolean {
@@ -1816,24 +2094,22 @@ function notifyRuntimeMailboxListener(listener: RuntimeMailboxListenerRow | unde
 }
 
 export function markRuntimeMailboxMessageDelivered(controlDbPath: string, id: number): void {
-	withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const row = readCanonicalMailboxRowById(db, id);
-			if (!row) return;
-			const message = parseCanonicalMailboxPayload(row);
-			if (message.status === "delivered") return;
-			const now = new Date().toISOString();
-			const delivered: Record<string, unknown> = {
-				...message,
-				status: "delivered",
-				deliveredAt: now,
-				updatedAt: now,
-			};
-			delete delivered.claimedAt;
-			delete delivered.claimantProcessIdentity;
-			compareAndWriteCanonicalMailboxPayload(db, row, delivered, now);
-		}),
-	);
+	withControlDb(controlDbPath, (db) => {
+		const row = readCanonicalMailboxRowById(db, id);
+		if (!row) return;
+		const message = parseCanonicalMailboxPayload(row);
+		if (message.status === "delivered") return;
+		const now = new Date().toISOString();
+		const delivered: Record<string, unknown> = {
+			...message,
+			status: "delivered",
+			deliveredAt: now,
+			updatedAt: now,
+		};
+		delete delivered.claimedAt;
+		delete delivered.claimantProcessIdentity;
+		compareAndWriteCanonicalMailboxPayload(db, row, delivered, now);
+	});
 }
 
 export function releaseRuntimeMailboxMessageClaim(controlDbPath: string, id: number): void {
@@ -2008,26 +2284,45 @@ export function readPromptHistory(controlDbPath: string, limit = 100): string[] 
 	return withControlDb(controlDbPath, (db) => readPromptHistoryRows(db, limit));
 }
 
+type PromptHistoryMigrationRow = { content: string; createdAt: string };
+
 export function readOrMigratePromptHistory(controlDbPath: string, legacyEntries: string[], limit = 100): string[] {
 	return withControlDb(controlDbPath, (db) => {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			const existingEntries = readPromptHistoryRows(db, limit);
-			if (existingEntries.length > 0) {
-				db.exec("COMMIT");
-				return existingEntries;
-			}
-
-			for (const entry of [...legacyEntries].reverse()) {
-				insertPromptHistoryEntry(db, entry);
-			}
-			db.exec("COMMIT");
-			return legacyEntries.slice(0, limit);
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		const existingEntries = readPromptHistoryRows(db, limit);
+		if (existingEntries.length > 0) return existingEntries;
+		if (legacyEntries.length === 0) return [];
+		const preparedRows = preparePromptHistoryMigrationRows(legacyEntries);
+		if (preparedRows.length === 0) return legacyEntries.slice(0, limit);
+		const inserted = insertPromptHistoryMigrationRows(db, preparedRows);
+		if (inserted === preparedRows.length) return legacyEntries.slice(0, limit);
+		if (inserted === 0) return readPromptHistoryRows(db, limit);
+		throw new Error(`Prompt history migration inserted ${inserted} of ${preparedRows.length} prepared rows`);
 	});
+}
+
+function preparePromptHistoryMigrationRows(legacyEntries: string[]): PromptHistoryMigrationRow[] {
+	const createdAt = new Date().toISOString();
+	const rows: PromptHistoryMigrationRow[] = [];
+	let previousContent: string | undefined;
+	for (let index = legacyEntries.length - 1; index >= 0; index -= 1) {
+		const content = legacyEntries[index]?.trim();
+		if (!content || content === previousContent) continue;
+		rows.push({ content, createdAt });
+		previousContent = content;
+	}
+	return rows;
+}
+
+function insertPromptHistoryMigrationRows(db: SqliteDatabase, rows: PromptHistoryMigrationRow[]): number {
+	return db
+		.prepare(
+			`INSERT INTO prompt_history (content, created_at)
+			 SELECT json_extract(value, '$.content'), json_extract(value, '$.createdAt')
+			 FROM json_each(?)
+			 WHERE NOT EXISTS (SELECT 1 FROM prompt_history)
+			 ORDER BY CAST(key AS INTEGER)`,
+		)
+		.run(JSON.stringify(rows)).changes;
 }
 
 function readPromptHistoryRows(db: SqliteDatabase, limit: number): string[] {
@@ -2196,6 +2491,11 @@ function relocateSessionPathPrimaryKey(
 		oldSessionPath,
 	);
 }
+
+type MultiAgentCounterRow = {
+	next_agent_number: number;
+	next_message_number: number;
+};
 
 function relocateMultiAgentCounters(
 	db: SqliteDatabase,
@@ -2564,27 +2864,41 @@ export function unarchiveSession(controlDbPath: string, sessionPath: string): vo
 }
 
 export function archiveSessionsOlderThan(controlDbPath: string, cutoff: Date): string[] {
+	const cutoffIso = cutoff.toISOString();
 	return withControlDb(controlDbPath, (db) => {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			const rows = db
-				.prepare(
-					`SELECT session_path FROM session_metadata
-					 WHERE archived_at IS NULL AND is_subagent = 0 AND modified_at < ?
-					 ORDER BY modified_at ASC, session_path ASC`,
-				)
-				.all(cutoff.toISOString()) as Array<{ session_path: string }>;
-			const archivedAt = new Date().toISOString();
-			db.prepare(
-				"UPDATE session_metadata SET archived_at = ?, updated_at = ? WHERE archived_at IS NULL AND is_subagent = 0 AND modified_at < ?",
-			).run(archivedAt, archivedAt, cutoff.toISOString());
-			db.exec("COMMIT");
-			return rows.map((row) => row.session_path);
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		if (!hasSessionEligibleForArchival(db, cutoffIso)) return [];
+		const archivedAt = new Date().toISOString();
+		const rows = db
+			.prepare(
+				`UPDATE session_metadata
+				 SET archived_at = ?, updated_at = ?
+				 WHERE archived_at IS NULL AND is_subagent = 0 AND modified_at < ?
+				 RETURNING session_path, modified_at`,
+			)
+			.all(archivedAt, archivedAt, cutoffIso) as Array<{ modified_at: string; session_path: string }>;
+		return rows.sort(compareArchivedSessionRows).map((row) => row.session_path);
 	});
+}
+
+function hasSessionEligibleForArchival(db: SqliteDatabase, cutoffIso: string): boolean {
+	return Boolean(
+		db
+			.prepare(
+				`SELECT 1 FROM session_metadata
+				 WHERE archived_at IS NULL AND is_subagent = 0 AND modified_at < ?
+				 LIMIT 1`,
+			)
+			.get(cutoffIso),
+	);
+}
+
+function compareArchivedSessionRows(
+	left: { modified_at: string; session_path: string },
+	right: { modified_at: string; session_path: string },
+): number {
+	if (left.modified_at !== right.modified_at) return left.modified_at < right.modified_at ? -1 : 1;
+	if (left.session_path === right.session_path) return 0;
+	return left.session_path < right.session_path ? -1 : 1;
 }
 
 function sessionMetadataFromRow(row: SessionMetadataRow): SessionMetadata {
@@ -2790,51 +3104,112 @@ export function claimMultiAgentTerminalOutbox(
 	nowIso: string,
 	options: ClaimMultiAgentTerminalOutboxOptions = {},
 ): MultiAgentTerminalOutboxRecord | undefined {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const maxAttempts = options.maxAttempts ?? 5;
+	const maxAttempts = options.maxAttempts ?? 5;
+	return withControlDb(controlDbPath, (db) => {
+		if (!hasEligibleTerminalOutboxWork(db, maxAttempts, options)) return undefined;
+		const row = withImmediateTransaction(db, () => {
 			if (options.staleClaimBefore) {
-				db.prepare(
-					`UPDATE multi_agent_terminal_outbox
-					 SET status = CASE WHEN attempt_count >= ? THEN 'poisoned' ELSE 'pending' END,
-					 claim_id = NULL, claimed_at = NULL, last_error = 'claim lease expired', updated_at = ?
-					 WHERE status = 'claimed' AND claimed_at < ? AND (? IS NULL OR session_path = ?)`,
-				).run(
+				recoverStaleTerminalOutboxClaims(db, {
 					maxAttempts,
 					nowIso,
-					options.staleClaimBefore,
-					options.sessionPath ?? null,
-					options.sessionPath ?? null,
-				);
+					sessionPath: options.sessionPath,
+					staleClaimBefore: options.staleClaimBefore,
+				});
 			}
-			const row = db
-				.prepare(
-					`SELECT session_path, agent_id, terminal_revision, event_kind
-					 FROM multi_agent_terminal_outbox
-					 WHERE status = 'pending' AND attempt_count < ? AND (? IS NULL OR session_path = ?)
-					 ORDER BY updated_at LIMIT 1`,
-				)
-				.get(maxAttempts, options.sessionPath ?? null, options.sessionPath ?? null) as
-				| { session_path: string; agent_id: string; terminal_revision: number; event_kind: string }
-				| undefined;
-			if (!row) return undefined;
-			const result = db
-				.prepare(
-					`UPDATE multi_agent_terminal_outbox SET status = 'claimed', claim_id = ?, claimed_at = ?, attempt_count = attempt_count + 1, updated_at = ? WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ? AND status = 'pending'`,
-				)
-				.run(claimId, nowIso, nowIso, row.session_path, row.agent_id, row.terminal_revision, row.event_kind);
-			if (result.changes !== 1) return undefined;
-			return {
-				agentId: row.agent_id,
-				attemptCount: readTerminalOutboxAttempt(db, row),
-				claimId,
-				eventKind: row.event_kind,
-				sessionPath: row.session_path,
-				status: "claimed",
-				terminalRevision: row.terminal_revision,
-			};
-		}),
+			return claimNextTerminalOutboxRow(db, claimId, nowIso, maxAttempts, options.sessionPath);
+		});
+		return row ? terminalOutboxRecordFromClaimedRow(row, claimId) : undefined;
+	});
+}
+
+function hasEligibleTerminalOutboxWork(
+	db: SqliteDatabase,
+	maxAttempts: number,
+	options: ClaimMultiAgentTerminalOutboxOptions,
+): boolean {
+	return Boolean(
+		db
+			.prepare(
+				`SELECT 1 FROM multi_agent_terminal_outbox
+				 WHERE (? IS NULL OR session_path = ?)
+				 AND (
+					(status = 'pending' AND attempt_count < ?)
+					OR (? IS NOT NULL AND status = 'claimed' AND claimed_at < ?)
+				 )
+				 LIMIT 1`,
+			)
+			.get(
+				options.sessionPath ?? null,
+				options.sessionPath ?? null,
+				maxAttempts,
+				options.staleClaimBefore ?? null,
+				options.staleClaimBefore ?? null,
+			),
 	);
+}
+
+type RecoverStaleTerminalOutboxClaimsInput = {
+	maxAttempts: number;
+	nowIso: string;
+	sessionPath?: string;
+	staleClaimBefore: string;
+};
+
+function recoverStaleTerminalOutboxClaims(db: SqliteDatabase, input: RecoverStaleTerminalOutboxClaimsInput): void {
+	db.prepare(
+		`UPDATE multi_agent_terminal_outbox
+		 SET status = CASE WHEN attempt_count >= ? THEN 'poisoned' ELSE 'pending' END,
+		 claim_id = NULL, claimed_at = NULL, last_error = 'claim lease expired', updated_at = ?
+		 WHERE status = 'claimed' AND claimed_at < ? AND (? IS NULL OR session_path = ?)`,
+	).run(input.maxAttempts, input.nowIso, input.staleClaimBefore, input.sessionPath ?? null, input.sessionPath ?? null);
+}
+
+type ClaimedTerminalOutboxRow = {
+	agent_id: string;
+	attempt_count: number;
+	event_kind: string;
+	session_path: string;
+	terminal_revision: number;
+};
+
+function claimNextTerminalOutboxRow(
+	db: SqliteDatabase,
+	claimId: string,
+	nowIso: string,
+	maxAttempts: number,
+	sessionPath?: string,
+): ClaimedTerminalOutboxRow | undefined {
+	return db
+		.prepare(
+			`UPDATE multi_agent_terminal_outbox
+			 SET status = 'claimed', claim_id = ?, claimed_at = ?,
+			 attempt_count = attempt_count + 1, updated_at = ?
+			 WHERE rowid = (
+				SELECT rowid FROM multi_agent_terminal_outbox
+				WHERE status = 'pending' AND attempt_count < ? AND (? IS NULL OR session_path = ?)
+				ORDER BY updated_at LIMIT 1
+			 )
+			 AND status = 'pending'
+			 RETURNING session_path, agent_id, terminal_revision, event_kind, attempt_count`,
+		)
+		.get(claimId, nowIso, nowIso, maxAttempts, sessionPath ?? null, sessionPath ?? null) as
+		| ClaimedTerminalOutboxRow
+		| undefined;
+}
+
+function terminalOutboxRecordFromClaimedRow(
+	row: ClaimedTerminalOutboxRow,
+	claimId: string,
+): MultiAgentTerminalOutboxRecord {
+	return {
+		agentId: row.agent_id,
+		attemptCount: row.attempt_count,
+		claimId,
+		eventKind: row.event_kind,
+		sessionPath: row.session_path,
+		status: "claimed",
+		terminalRevision: row.terminal_revision,
+	};
 }
 
 export function failMultiAgentTerminalOutbox(
@@ -2897,46 +3272,95 @@ export function cleanupMultiAgentTerminalOutbox(controlDbPath: string, olderThan
 	);
 }
 
-function readTerminalOutboxAttempt(
-	db: SqliteDatabase,
-	row: { session_path: string; agent_id: string; terminal_revision: number; event_kind: string },
-): number {
-	return (
-		db
-			.prepare(
-				`SELECT attempt_count FROM multi_agent_terminal_outbox WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ?`,
-			)
-			.get(row.session_path, row.agent_id, row.terminal_revision, row.event_kind) as { attempt_count: number }
-	).attempt_count;
-}
+const MULTI_AGENT_STEERING_MUTATION_MAX_ATTEMPTS = 3;
+
+type MultiAgentSteeringMutationPlan = {
+	agentData: string;
+	mailbox: PreparedSteeringMailboxMessage;
+	processIdentityData: string;
+	recipientListener: RuntimeMailboxListenerRow;
+	senderListener: RuntimeMailboxListenerRow;
+	updatedAgent: AgentSnapshot;
+	updatedAgentData: string;
+};
+
+type MultiAgentSteeringMutationPreflight =
+	| { plan: MultiAgentSteeringMutationPlan }
+	| { result: CommitMultiAgentSteeringMutationResult };
+
+const STEERING_MESSAGE_ID_PLACEHOLDER = "__pi_generated_steering_message_id__";
+
+type PreparedSteeringMailboxMessage = {
+	dataPrefix: string;
+	dataSuffix: string;
+	updatedAt: string;
+};
 
 export function commitMultiAgentSteeringMutation(
 	controlDbPath: string,
 	input: CommitMultiAgentSteeringMutationInput,
 ): CommitMultiAgentSteeringMutationResult {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const agent = readSteeringMutationAgent(db, input);
-			if (!agent) return { ok: false, error: "agent_not_found" };
-			if (
-				input.requestedLifecycle !== "steering_pending" ||
-				!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle)
-			) {
-				return { ok: false, error: "invalid_transition" };
-			}
-			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			if (!steeringMutationHasAuthority(db, agent, ownership, input)) {
-				return { ok: false, error: "mutation_mismatch" };
-			}
-			return persistSteeringMutation(db, agent, input);
-		}),
-	);
+	return withControlDb(controlDbPath, (db) => commitMultiAgentSteeringMutationWithDb(db, input));
+}
+
+function commitMultiAgentSteeringMutationWithDb(
+	db: SqliteDatabase,
+	input: CommitMultiAgentSteeringMutationInput,
+): CommitMultiAgentSteeringMutationResult {
+	for (let attempt = 1; attempt <= MULTI_AGENT_STEERING_MUTATION_MAX_ATTEMPTS; attempt += 1) {
+		const preflight = prepareMultiAgentSteeringMutation(db, input);
+		if ("result" in preflight) return preflight.result;
+		const result = persistMultiAgentSteeringMutation(db, input, preflight.plan);
+		if (result) return result;
+	}
+	return { ok: false, error: "mutation_mismatch" };
+}
+
+function prepareMultiAgentSteeringMutation(
+	db: SqliteDatabase,
+	input: CommitMultiAgentSteeringMutationInput,
+): MultiAgentSteeringMutationPreflight {
+	const agentRow = readSteeringMutationAgent(db, input);
+	if (!agentRow) return { result: { ok: false, error: "agent_not_found" } };
+	if (
+		input.requestedLifecycle !== "steering_pending" ||
+		!canPersistLifecycleTransition(agentRow.agent.lifecycle, input.requestedLifecycle)
+	) {
+		return { result: { ok: false, error: "invalid_transition" } };
+	}
+	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+	const senderListener = readRuntimeMailboxListenerRow(db, {
+		agentId: input.owner.agentId,
+		sessionId: input.owner.sessionId,
+	});
+	const recipientListener = readRuntimeMailboxListenerRow(db, input.recipient);
+	if (!senderListener || !recipientListener) return { result: { ok: false, error: "mutation_mismatch" } };
+	if (!steeringMutationHasAuthority(agentRow.agent, ownership, senderListener, recipientListener, input)) {
+		return { result: { ok: false, error: "mutation_mismatch" } };
+	}
+	const updatedAgent: AgentSnapshot = {
+		...agentRow.agent,
+		lifecycle: input.requestedLifecycle,
+		revision: agentRow.agent.revision + 1,
+		updatedAt: input.updatedAt,
+	};
+	return {
+		plan: {
+			agentData: agentRow.data,
+			mailbox: prepareSteeringMailboxMessage(input),
+			processIdentityData: serializeProcessIdentity(input.processIdentity),
+			recipientListener,
+			senderListener,
+			updatedAgent,
+			updatedAgentData: JSON.stringify(updatedAgent),
+		},
+	};
 }
 
 function readSteeringMutationAgent(
 	db: SqliteDatabase,
 	input: CommitMultiAgentSteeringMutationInput,
-): AgentSnapshot | undefined {
+): { agent: AgentSnapshot; data: string } | undefined {
 	const row = db
 		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
 		.get(input.sessionPath, input.agentId) as { data: string } | undefined;
@@ -2944,49 +3368,119 @@ function readSteeringMutationAgent(
 	const context = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
 	const agent = parseStoredJsonObject(row.data, context);
 	validatePersistedAgentPayload(agent, context);
-	return agent as unknown as AgentSnapshot;
+	return { agent: agent as unknown as AgentSnapshot, data: row.data };
 }
 
 function steeringMutationHasAuthority(
-	db: SqliteDatabase,
 	agent: AgentSnapshot,
 	ownership: MultiAgentRuntimeOwnershipRow | undefined,
+	senderListener: RuntimeMailboxListenerRow,
+	recipientListener: RuntimeMailboxListenerRow,
 	input: CommitMultiAgentSteeringMutationInput,
 ): boolean {
 	if (!runtimeOwnershipMatchesLifecycleMutation(ownership, input)) return false;
-	const senderListener = readRuntimeMailboxListenerRow(db, {
-		agentId: input.owner.agentId,
-		sessionId: input.owner.sessionId,
-	});
-	const recipientListener = readRuntimeMailboxListenerRow(db, input.recipient);
 	const senderPathMatches =
-		input.owner.agentId !== null ||
-		(senderListener !== undefined && trustedRuntimeMailboxSessionPath(senderListener) === input.sessionPath);
+		input.owner.agentId !== null || trustedRuntimeMailboxSessionPath(senderListener) === input.sessionPath;
 	const expectedSenderId = input.owner.agentId ?? "supervisor";
 	return (
 		input.fromAgentId === expectedSenderId &&
 		agent.parentId === (input.owner.agentId ?? "main") &&
 		input.recipient.agentId === input.agentId &&
 		input.recipient.sessionId === agent.transcript?.sessionId &&
-		senderListener?.pid === process.pid &&
+		senderListener.pid === process.pid &&
 		senderListener.runtime_instance_id === RUNTIME_PROCESS_INSTANCE_ID &&
 		senderPathMatches &&
 		runtimeListenerMatchesProcessIdentity(recipientListener, ownership?.process_identity)
 	);
 }
 
-function persistSteeringMutation(
+function persistMultiAgentSteeringMutation(
 	db: SqliteDatabase,
-	agent: AgentSnapshot,
 	input: CommitMultiAgentSteeringMutationInput,
-): CommitMultiAgentSteeringMutationResult {
-	const messageNumber = allocateMultiAgentCounterInTransaction(db, input.sessionPath, "message");
-	const message: AgentMailboxMessage = {
+	plan: MultiAgentSteeringMutationPlan,
+): CommitMultiAgentSteeringMutationResult | undefined {
+	const messageNumber = withImmediateTransaction(db, () => {
+		if (!compareAndPersistSteeringAgent(db, input, plan)) return undefined;
+		const allocatedMessageNumber = allocateMultiAgentCounterWithDb(db, input.sessionPath, "message");
+		const messageId = `message_${allocatedMessageNumber}`;
+		persistPreparedSteeringMailboxMessage(db, input.sessionPath, messageId, plan.mailbox);
+		return allocatedMessageNumber;
+	});
+	if (messageNumber === undefined) return undefined;
+	return {
+		agent: plan.updatedAgent,
+		message: buildSteeringMailboxMessage(input, `message_${messageNumber}`),
+		ok: true,
+	};
+}
+
+function compareAndPersistSteeringAgent(
+	db: SqliteDatabase,
+	input: CommitMultiAgentSteeringMutationInput,
+	plan: MultiAgentSteeringMutationPlan,
+): boolean {
+	return (
+		db
+			.prepare(
+				`UPDATE multi_agent_agents SET data = ?, updated_at = ?
+				 WHERE session_path = ? AND agent_id = ? AND data = ?
+				 AND EXISTS (
+					SELECT 1 FROM multi_agent_runtime_owners
+					WHERE session_path = ? AND agent_id = ? AND process_identity = ?
+					AND owner_session_id = ? AND owner_agent_id IS ?
+				 )
+				 AND EXISTS (
+					SELECT 1 FROM runtime_mailbox_listeners
+					WHERE recipient_session_id = ? AND recipient_agent_id_key = ? AND pid = ?
+					AND runtime_instance_id IS ? AND session_path IS ?
+					AND session_path_asserted_at IS ? AND updated_at = ?
+				 )
+				 AND EXISTS (
+					SELECT 1 FROM runtime_mailbox_listeners
+					WHERE recipient_session_id = ? AND recipient_agent_id_key = ? AND pid = ?
+					AND runtime_instance_id IS ? AND session_path IS ?
+					AND session_path_asserted_at IS ? AND updated_at = ?
+				 )`,
+			)
+			.run(
+				plan.updatedAgentData,
+				input.updatedAt,
+				input.sessionPath,
+				input.agentId,
+				plan.agentData,
+				input.sessionPath,
+				input.agentId,
+				plan.processIdentityData,
+				input.owner.sessionId,
+				input.owner.agentId,
+				input.owner.sessionId,
+				input.owner.agentId ?? "",
+				plan.senderListener.pid,
+				plan.senderListener.runtime_instance_id,
+				plan.senderListener.session_path,
+				plan.senderListener.session_path_asserted_at,
+				plan.senderListener.updated_at,
+				input.recipient.sessionId,
+				input.recipient.agentId ?? "",
+				plan.recipientListener.pid,
+				plan.recipientListener.runtime_instance_id,
+				plan.recipientListener.session_path,
+				plan.recipientListener.session_path_asserted_at,
+				plan.recipientListener.updated_at,
+			).changes === 1
+	);
+}
+
+function buildSteeringMailboxMessage(
+	input: CommitMultiAgentSteeringMutationInput,
+	messageId: string,
+): AgentMailboxMessage {
+	return {
 		body: input.body,
 		createdAt: input.updatedAt,
 		fileRefs: input.fileRefs,
 		fromAgentId: input.fromAgentId,
-		id: `message_${messageNumber}`,
+		id: messageId,
 		kind: "steer",
 		status: "pending",
 		targetCheckpoint: input.targetCheckpoint,
@@ -2994,28 +3488,43 @@ function persistSteeringMutation(
 		toAgentId: input.agentId,
 		updatedAt: input.updatedAt,
 	};
-	validateMailboxPayload(message, `multi_agent_mailbox_messages:${input.sessionPath}#${message.id}`);
-	const updated: AgentSnapshot = {
-		...agent,
-		lifecycle: input.requestedLifecycle as AgentSnapshot["lifecycle"],
-		revision: agent.revision + 1,
-		updatedAt: input.updatedAt,
-	};
-	persistImmutableMailboxPayload(db, {
+}
+
+function prepareSteeringMailboxMessage(input: CommitMultiAgentSteeringMutationInput): PreparedSteeringMailboxMessage {
+	const message = buildSteeringMailboxMessage(input, STEERING_MESSAGE_ID_PLACEHOLDER);
+	const mailboxInput: EnqueueStoredRuntimeMailboxMessageInput = {
 		kind: message.kind,
 		message,
 		recipient: input.recipient,
 		sender: input.owner,
 		storeRef: { messageId: message.id, sessionPath: input.sessionPath },
 		updatedAt: input.updatedAt,
-	});
-	db.prepare("UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?").run(
-		JSON.stringify(updated),
-		input.updatedAt,
-		input.sessionPath,
-		input.agentId,
-	);
-	return { agent: updated, message, ok: true };
+	};
+	const serialized = prepareStoredRuntimeMailboxMessage(mailboxInput).serialized;
+	const serializedId = JSON.stringify(STEERING_MESSAGE_ID_PLACEHOLDER);
+	const idProperty = `"id":${serializedId}`;
+	const idPropertyIndex = serialized.indexOf(idProperty);
+	if (idPropertyIndex < 0 || serialized.indexOf(idProperty, idPropertyIndex + idProperty.length) >= 0) {
+		throw new Error("Prepared steering mailbox payload has an invalid generated message ID field");
+	}
+	const serializedIdIndex = idPropertyIndex + `"id":`.length;
+	return {
+		dataPrefix: serialized.slice(0, serializedIdIndex),
+		dataSuffix: serialized.slice(serializedIdIndex + serializedId.length),
+		updatedAt: input.updatedAt,
+	};
+}
+
+function persistPreparedSteeringMailboxMessage(
+	db: SqliteDatabase,
+	sessionPath: string,
+	messageId: string,
+	prepared: PreparedSteeringMailboxMessage,
+): void {
+	db.prepare(
+		`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+		 VALUES (?, ?, ? || json_quote(?) || ?, ?)`,
+	).run(sessionPath, messageId, prepared.dataPrefix, messageId, prepared.dataSuffix, prepared.updatedAt);
 }
 
 function runtimeListenerMatchesProcessIdentity(
@@ -3070,6 +3579,12 @@ export type CommitMultiAgentDetachMarkResult =
 	| { ok: true; agent: AgentSnapshot }
 	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
 
+const MULTI_AGENT_DETACH_MARK_MAX_ATTEMPTS = 3;
+
+type MultiAgentDetachMarkPreflight =
+	| { plan: { agentData: string; updatedAgent: AgentSnapshot } }
+	| { result: CommitMultiAgentDetachMarkResult };
+
 /**
  * Mark an owned background job as detached from its waiting tool call.
  * Only detached jobs emit a terminal runtime-mailbox notification; attended
@@ -3079,37 +3594,80 @@ export function commitMultiAgentDetachMark(
 	controlDbPath: string,
 	input: CommitMultiAgentDetachMarkInput,
 ): CommitMultiAgentDetachMarkResult {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const row = db
-				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
-			if (!row) return { ok: false, error: "agent_not_found" };
-			const context = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
-			const agent = parseStoredJsonObject(row.data, context);
-			validatePersistedAgentPayload(agent, context);
-			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			if (!runtimeOwnerMatches(ownership, input)) {
-				return { ok: false, error: "mutation_mismatch" };
-			}
-			if (!isRecoverableRuntimeLifecycle(agent.lifecycle)) {
-				return { ok: false, error: "invalid_transition" };
-			}
-			if (agent.detached === true) {
-				return { ok: true, agent: agent as unknown as AgentSnapshot };
-			}
-			const updated = {
-				...agent,
-				detached: true,
-				revision: Number(agent.revision) + 1,
-				updatedAt: input.updatedAt,
-			};
-			db.prepare(
-				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updated), input.updatedAt, input.sessionPath, input.agentId);
-			validatePersistedAgentPayload(updated, context);
-			return { ok: true, agent: updated as unknown as AgentSnapshot };
-		}),
+	return withControlDb(controlDbPath, (db) => commitMultiAgentDetachMarkWithDb(db, input));
+}
+
+function commitMultiAgentDetachMarkWithDb(
+	db: SqliteDatabase,
+	input: CommitMultiAgentDetachMarkInput,
+): CommitMultiAgentDetachMarkResult {
+	for (let attempt = 1; attempt <= MULTI_AGENT_DETACH_MARK_MAX_ATTEMPTS; attempt += 1) {
+		const preflight = prepareMultiAgentDetachMark(db, input);
+		if ("result" in preflight) return preflight.result;
+		if (compareAndPersistMultiAgentDetachMark(db, input, preflight.plan)) {
+			return { agent: preflight.plan.updatedAgent, ok: true };
+		}
+	}
+	return { ok: false, error: "mutation_mismatch" };
+}
+
+function prepareMultiAgentDetachMark(
+	db: SqliteDatabase,
+	input: CommitMultiAgentDetachMarkInput,
+): MultiAgentDetachMarkPreflight {
+	const row = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(input.sessionPath, input.agentId) as { data: string } | undefined;
+	if (!row) return { result: { ok: false, error: "agent_not_found" } };
+	const context = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
+	const agent = parseStoredJsonObject(row.data, context);
+	validatePersistedAgentPayload(agent, context);
+	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+	if (!runtimeOwnerMatches(ownership, input)) return { result: { ok: false, error: "mutation_mismatch" } };
+	if (!isRecoverableRuntimeLifecycle(agent.lifecycle)) {
+		return { result: { ok: false, error: "invalid_transition" } };
+	}
+	if (agent.detached === true) {
+		return { result: { ok: true, agent: agent as unknown as AgentSnapshot } };
+	}
+	const updatedAgent = {
+		...agent,
+		detached: true,
+		revision: Number(agent.revision) + 1,
+		updatedAt: input.updatedAt,
+	};
+	validatePersistedAgentPayload(updatedAgent, context);
+	return { plan: { agentData: row.data, updatedAgent: updatedAgent as unknown as AgentSnapshot } };
+}
+
+function compareAndPersistMultiAgentDetachMark(
+	db: SqliteDatabase,
+	input: CommitMultiAgentDetachMarkInput,
+	plan: { agentData: string; updatedAgent: AgentSnapshot },
+): boolean {
+	return (
+		db
+			.prepare(
+				`UPDATE multi_agent_agents SET data = ?, updated_at = ?
+				 WHERE session_path = ? AND agent_id = ? AND data = ?
+				 AND EXISTS (
+					SELECT 1 FROM multi_agent_runtime_owners
+					WHERE session_path = ? AND agent_id = ? AND process_identity = ?
+					AND owner_session_id = ? AND owner_agent_id IS ?
+				 )`,
+			)
+			.run(
+				JSON.stringify(plan.updatedAgent),
+				input.updatedAt,
+				input.sessionPath,
+				input.agentId,
+				plan.agentData,
+				input.sessionPath,
+				input.agentId,
+				serializeProcessIdentity(input.processIdentity),
+				input.owner.sessionId,
+				input.owner.agentId,
+			).changes === 1
 	);
 }
 
@@ -3120,106 +3678,261 @@ function runtimeOwnershipMatchesLifecycleMutation(
 	return runtimeOwnerMatches(ownership, input);
 }
 
+const MULTI_AGENT_STEERING_DELIVERY_MAX_ATTEMPTS = 3;
+
+type MultiAgentSteeringDeliveryPlan = {
+	agentData: string;
+	messageData: string;
+	processIdentityData: string;
+	updatedAgent: AgentSnapshot;
+	updatedAgentData: string;
+	updatedMessage: AgentMailboxMessage;
+	updatedMessageData: string;
+};
+
+type MultiAgentSteeringDeliveryPreflight =
+	| { plan: MultiAgentSteeringDeliveryPlan }
+	| { result: CommitMultiAgentSteeringDeliveryResult };
+
 export function commitMultiAgentSteeringDelivery(
 	controlDbPath: string,
 	input: CommitMultiAgentSteeringDeliveryInput,
 ): CommitMultiAgentSteeringDeliveryResult {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const agentRow = db
-				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
-			if (!agentRow) return { ok: false, error: "agent_not_found" };
-			const agentContext = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
-			const agent = parseStoredJsonObject(agentRow.data, agentContext);
-			validatePersistedAgentPayload(agent, agentContext);
-			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			if (!runtimeOwnershipMatchesLifecycleMutation(ownership, input)) {
-				return { ok: false, error: "mutation_mismatch" };
-			}
-			if (!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle)) {
-				return { ok: false, error: "invalid_transition" };
-			}
-			const messageRow = db
-				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
-				.get(input.sessionPath, input.messageId) as { data: string } | undefined;
-			if (!messageRow) return { ok: false, error: "message_not_found" };
-			const messageContext = `multi_agent_mailbox_messages:${input.sessionPath}#${input.messageId}`;
-			const message = parseStoredJsonObject(messageRow.data, messageContext);
-			validateMailboxPayload(message, messageContext);
-			if (message.kind !== "steer" || message.toAgentId !== input.agentId) {
-				return { ok: false, error: "message_not_found" };
-			}
-			const updatedAt = input.updatedAt;
-			const updatedAgent = {
-				...agent,
-				lifecycle: input.requestedLifecycle,
-				revision: Number(agent.revision) + 1,
-				updatedAt,
-			};
-			const updatedMessage = { ...message, status: "delivered", updatedAt };
-			db.prepare(
-				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updatedAgent), updatedAt, input.sessionPath, input.agentId);
-			db.prepare(
-				"UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ? WHERE session_path = ? AND message_id = ?",
-			).run(JSON.stringify(updatedMessage), updatedAt, input.sessionPath, input.messageId);
-			return {
-				agent: updatedAgent as unknown as AgentSnapshot,
-				message: updatedMessage as unknown as AgentMailboxMessage,
-				ok: true,
-			};
-		}),
-	);
+	return withControlDb(controlDbPath, (db) => commitMultiAgentSteeringDeliveryWithDb(db, input));
 }
+
+function commitMultiAgentSteeringDeliveryWithDb(
+	db: SqliteDatabase,
+	input: CommitMultiAgentSteeringDeliveryInput,
+): CommitMultiAgentSteeringDeliveryResult {
+	for (let attempt = 1; attempt <= MULTI_AGENT_STEERING_DELIVERY_MAX_ATTEMPTS; attempt += 1) {
+		const preflight = prepareMultiAgentSteeringDelivery(db, input);
+		if ("result" in preflight) return preflight.result;
+		const result = persistMultiAgentSteeringDelivery(db, input, preflight.plan);
+		if (result) return result;
+	}
+	return { ok: false, error: "mutation_mismatch" };
+}
+
+function prepareMultiAgentSteeringDelivery(
+	db: SqliteDatabase,
+	input: CommitMultiAgentSteeringDeliveryInput,
+): MultiAgentSteeringDeliveryPreflight {
+	const agentRow = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(input.sessionPath, input.agentId) as { data: string } | undefined;
+	if (!agentRow) return { result: { ok: false, error: "agent_not_found" } };
+	const agentContext = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
+	const agent = parseStoredJsonObject(agentRow.data, agentContext);
+	validatePersistedAgentPayload(agent, agentContext);
+	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+	if (!runtimeOwnershipMatchesLifecycleMutation(ownership, input)) {
+		return { result: { ok: false, error: "mutation_mismatch" } };
+	}
+	if (!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle)) {
+		return { result: { ok: false, error: "invalid_transition" } };
+	}
+	const messageRow = db
+		.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+		.get(input.sessionPath, input.messageId) as { data: string } | undefined;
+	if (!messageRow) return { result: { ok: false, error: "message_not_found" } };
+	const messageContext = `multi_agent_mailbox_messages:${input.sessionPath}#${input.messageId}`;
+	const message = parseStoredJsonObject(messageRow.data, messageContext);
+	validateMailboxPayload(message, messageContext);
+	if (message.kind !== "steer" || message.toAgentId !== input.agentId) {
+		return { result: { ok: false, error: "message_not_found" } };
+	}
+	const updatedAgent = {
+		...agent,
+		lifecycle: input.requestedLifecycle,
+		revision: Number(agent.revision) + 1,
+		updatedAt: input.updatedAt,
+	} as unknown as AgentSnapshot;
+	const updatedMessage = {
+		...message,
+		status: "delivered",
+		updatedAt: input.updatedAt,
+	} as unknown as AgentMailboxMessage;
+	return {
+		plan: {
+			agentData: agentRow.data,
+			messageData: messageRow.data,
+			processIdentityData: serializeProcessIdentity(input.processIdentity),
+			updatedAgent,
+			updatedAgentData: JSON.stringify(updatedAgent),
+			updatedMessage,
+			updatedMessageData: JSON.stringify(updatedMessage),
+		},
+	};
+}
+
+function persistMultiAgentSteeringDelivery(
+	db: SqliteDatabase,
+	input: CommitMultiAgentSteeringDeliveryInput,
+	plan: MultiAgentSteeringDeliveryPlan,
+): CommitMultiAgentSteeringDeliveryResult | undefined {
+	const persisted = withImmediateTransaction(db, () => {
+		const agentUpdated = db
+			.prepare(
+				`UPDATE multi_agent_agents SET data = ?, updated_at = ?
+				 WHERE session_path = ? AND agent_id = ? AND data = ?
+				 AND EXISTS (
+					SELECT 1 FROM multi_agent_runtime_owners
+					WHERE session_path = ? AND agent_id = ? AND process_identity = ?
+					AND owner_session_id = ? AND owner_agent_id IS ?
+				 )
+				 AND EXISTS (
+					SELECT 1 FROM multi_agent_mailbox_messages
+					WHERE session_path = ? AND message_id = ? AND data = ?
+				 )`,
+			)
+			.run(
+				plan.updatedAgentData,
+				input.updatedAt,
+				input.sessionPath,
+				input.agentId,
+				plan.agentData,
+				input.sessionPath,
+				input.agentId,
+				plan.processIdentityData,
+				input.owner.sessionId,
+				input.owner.agentId,
+				input.sessionPath,
+				input.messageId,
+				plan.messageData,
+			).changes;
+		if (agentUpdated !== 1) return false;
+		const messageUpdated = db
+			.prepare(
+				`UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ?
+				 WHERE session_path = ? AND message_id = ? AND data = ?`,
+			)
+			.run(plan.updatedMessageData, input.updatedAt, input.sessionPath, input.messageId, plan.messageData).changes;
+		if (messageUpdated !== 1) {
+			throw new Error(`Steering message changed during delivery ${input.sessionPath}#${input.messageId}`);
+		}
+		return true;
+	});
+	return persisted ? { agent: plan.updatedAgent, message: plan.updatedMessage, ok: true } : undefined;
+}
+
+const MULTI_AGENT_LIFECYCLE_MUTATION_MAX_ATTEMPTS = 3;
+
+type DetachedCancellationCommand = { message: string; messageId: string };
+
+type MultiAgentLifecycleMutationPlan = {
+	agentData: string;
+	cancellation?: DetachedCancellationCommand;
+	processIdentityData: string;
+	updatedAgent: Record<string, unknown>;
+	updatedAgentData: string;
+};
+
+type MultiAgentLifecycleMutationPreflight =
+	| { plan: MultiAgentLifecycleMutationPlan }
+	| { result: CommitMultiAgentLifecycleMutationResult };
 
 export function commitMultiAgentLifecycleMutation(
 	controlDbPath: string,
 	input: CommitMultiAgentLifecycleMutationInput,
 ): CommitMultiAgentLifecycleMutationResult {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const row = db
-				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
-			if (!row) return { ok: false, error: "agent_not_found" };
-			const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
-			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			const matches =
-				ownership?.process_identity === serializeProcessIdentity(input.processIdentity) &&
-				ownership.owner_session_id === input.owner.sessionId &&
-				ownership.owner_agent_id === input.owner.agentId;
-			if (!matches) return { ok: false, error: "mutation_mismatch" };
-			if (agent.lifecycle === input.requestedLifecycle) return { ok: true, agent };
-			if (!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle))
-				return { ok: false, error: "invalid_transition" };
-			const updated = {
-				...agent,
-				lifecycle: input.requestedLifecycle,
-				revision: Number(agent.revision) + 1,
-				updatedAt: input.updatedAt,
-			};
-			db.prepare(
-				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updated), input.updatedAt, input.sessionPath, input.agentId);
-			if (input.detachedCancellation) persistDetachedCancellationCommand(db, input, updated.revision);
-			return { ok: true, agent: updated };
-		}),
-	);
+	return withControlDb(controlDbPath, (db) => commitMultiAgentLifecycleMutationWithDb(db, input));
+}
+
+function commitMultiAgentLifecycleMutationWithDb(
+	db: SqliteDatabase,
+	input: CommitMultiAgentLifecycleMutationInput,
+): CommitMultiAgentLifecycleMutationResult {
+	for (let attempt = 1; attempt <= MULTI_AGENT_LIFECYCLE_MUTATION_MAX_ATTEMPTS; attempt += 1) {
+		const preflight = prepareMultiAgentLifecycleMutation(db, input);
+		if ("result" in preflight) return preflight.result;
+		if (persistMultiAgentLifecycleMutation(db, input, preflight.plan)) {
+			return { agent: preflight.plan.updatedAgent, ok: true };
+		}
+	}
+	return { ok: false, error: "mutation_mismatch" };
+}
+
+function prepareMultiAgentLifecycleMutation(
+	db: SqliteDatabase,
+	input: CommitMultiAgentLifecycleMutationInput,
+): MultiAgentLifecycleMutationPreflight {
+	const row = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(input.sessionPath, input.agentId) as { data: string } | undefined;
+	if (!row) return { result: { ok: false, error: "agent_not_found" } };
+	const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
+	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+	if (!runtimeOwnerMatches(ownership, input)) return { result: { ok: false, error: "mutation_mismatch" } };
+	if (agent.lifecycle === input.requestedLifecycle) {
+		return { result: { ok: true, agent } };
+	}
+	if (!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle)) {
+		return { result: { ok: false, error: "invalid_transition" } };
+	}
+	const updatedAgent = {
+		...agent,
+		lifecycle: input.requestedLifecycle,
+		revision: Number(agent.revision) + 1,
+		updatedAt: input.updatedAt,
+	};
+	const cancellation = input.detachedCancellation
+		? buildDetachedCancellationMessage(input, input.detachedCancellation, updatedAgent.revision)
+		: undefined;
+	return {
+		plan: {
+			agentData: row.data,
+			cancellation,
+			processIdentityData: serializeProcessIdentity(input.processIdentity),
+			updatedAgent,
+			updatedAgentData: JSON.stringify(updatedAgent),
+		},
+	};
+}
+
+function persistMultiAgentLifecycleMutation(
+	db: SqliteDatabase,
+	input: CommitMultiAgentLifecycleMutationInput,
+	plan: MultiAgentLifecycleMutationPlan,
+): boolean {
+	return withImmediateTransaction(db, () => {
+		const updated = db
+			.prepare(
+				`UPDATE multi_agent_agents SET data = ?, updated_at = ?
+				 WHERE session_path = ? AND agent_id = ? AND data = ?
+				 AND EXISTS (
+					SELECT 1 FROM multi_agent_runtime_owners
+					WHERE session_path = ? AND agent_id = ? AND process_identity = ?
+					AND owner_session_id = ? AND owner_agent_id IS ?
+				 )`,
+			)
+			.run(
+				plan.updatedAgentData,
+				input.updatedAt,
+				input.sessionPath,
+				input.agentId,
+				plan.agentData,
+				input.sessionPath,
+				input.agentId,
+				plan.processIdentityData,
+				input.owner.sessionId,
+				input.owner.agentId,
+			).changes;
+		if (updated !== 1) return false;
+		if (plan.cancellation) persistDetachedCancellationCommand(db, input, plan.cancellation);
+		return true;
+	});
 }
 
 function persistDetachedCancellationCommand(
 	db: SqliteDatabase,
 	input: CommitMultiAgentLifecycleMutationInput,
-	cancellingRevision: number,
+	command: DetachedCancellationCommand,
 ): void {
-	const cancellation = input.detachedCancellation;
-	if (!cancellation) return;
-	const { message, messageId } = buildDetachedCancellationMessage(input, cancellation, cancellingRevision);
 	db.prepare(
 		`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
 		 VALUES (?, ?, ?, ?)`,
-	).run(input.sessionPath, messageId, message, input.updatedAt);
+	).run(input.sessionPath, command.messageId, command.message, input.updatedAt);
 }
 
 function buildDetachedCancellationMessage(
@@ -3271,50 +3984,177 @@ function canPersistLifecycleTransition(current: unknown, requested: string): boo
 		: transitions[current]?.includes(requested) === true;
 }
 
+const MULTI_AGENT_TERMINAL_MUTATION_MAX_ATTEMPTS = 3;
+
+type MultiAgentTerminalMutationPlan = {
+	agentData: string;
+	processIdentityData: string;
+	terminalRevision: number;
+	updatedAgentData: string;
+};
+
+type MultiAgentTerminalMutationPreflight =
+	| { plan: MultiAgentTerminalMutationPlan }
+	| { result: CommitMultiAgentTerminalMutationResult };
+
 export function commitMultiAgentTerminalMutation(
 	controlDbPath: string,
 	input: CommitMultiAgentTerminalMutationInput,
 ): CommitMultiAgentTerminalMutationResult {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const agentRow = db
-				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
-			if (!agentRow) return { ok: false, error: "agent_not_found" };
-			const agent = parseStoredJsonObject(agentRow.data, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
-			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			if (!runtimeOwnershipMatchesTerminalMutation(ownership, input))
-				return { ok: false, error: "mutation_mismatch" };
-			if (agent.lifecycle === input.terminalLifecycle) {
-				return terminalMutationReplayResult(db, input, agent, Number(agent.revision));
-			}
-			const terminalRevision = Number(agent.revision) + 1;
-			if (!canPersistTerminalTransition(agent.lifecycle, input.terminalLifecycle)) {
-				return { ok: false, error: "invalid_transition" };
-			}
-			if (hasActivePersistedDescendant(db, input.sessionPath, input.agentId)) {
-				return { ok: false, error: "invalid_transition" };
-			}
+	return withControlDb(controlDbPath, (db) => commitMultiAgentTerminalMutationWithDb(db, input));
+}
 
-			const updatedAgent = {
-				...agent,
-				...input.agentDetails,
-				currentActivity: undefined,
-				lifecycle: input.terminalLifecycle,
-				revision: terminalRevision,
-				updatedAt: input.updatedAt,
-			};
-			db.prepare(
-				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updatedAgent), input.updatedAt, input.sessionPath, input.agentId);
-			db.prepare(
-				`INSERT INTO multi_agent_terminal_outbox (
-					session_path, agent_id, terminal_revision, event_kind, status,
-					claim_id, claimed_at, delivered_at, attempt_count, last_error, updated_at
-				) VALUES (?, ?, ?, ?, 'pending', NULL, NULL, NULL, 0, NULL, ?)`,
-			).run(input.sessionPath, input.agentId, terminalRevision, input.eventKind, input.updatedAt);
-			return { ok: true, terminalRevision };
-		}),
+function commitMultiAgentTerminalMutationWithDb(
+	db: SqliteDatabase,
+	input: CommitMultiAgentTerminalMutationInput,
+): CommitMultiAgentTerminalMutationResult {
+	for (let attempt = 1; attempt <= MULTI_AGENT_TERMINAL_MUTATION_MAX_ATTEMPTS; attempt += 1) {
+		const preflight = prepareMultiAgentTerminalMutation(db, input);
+		if ("result" in preflight) return preflight.result;
+		const result = persistMultiAgentTerminalMutation(db, input, preflight.plan);
+		if (result) return result;
+	}
+	return { ok: false, error: "mutation_mismatch" };
+}
+
+function prepareMultiAgentTerminalMutation(
+	db: SqliteDatabase,
+	input: CommitMultiAgentTerminalMutationInput,
+): MultiAgentTerminalMutationPreflight {
+	const agentRow = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(input.sessionPath, input.agentId) as { data: string } | undefined;
+	if (!agentRow) return { result: { ok: false, error: "agent_not_found" } };
+	const agent = parseStoredJsonObject(agentRow.data, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
+	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+	if (!runtimeOwnershipMatchesTerminalMutation(ownership, input)) {
+		return { result: { ok: false, error: "mutation_mismatch" } };
+	}
+	if (agent.lifecycle === input.terminalLifecycle) {
+		return { result: terminalMutationReplayResult(db, input, agent, Number(agent.revision)) };
+	}
+	const terminalRevision = Number(agent.revision) + 1;
+	if (!canPersistTerminalTransition(agent.lifecycle, input.terminalLifecycle)) {
+		return { result: { ok: false, error: "invalid_transition" } };
+	}
+	if (hasActivePersistedDescendant(db, input.sessionPath, input.agentId)) {
+		return { result: { ok: false, error: "invalid_transition" } };
+	}
+	const updatedAgent = {
+		...agent,
+		...input.agentDetails,
+		currentActivity: undefined,
+		lifecycle: input.terminalLifecycle,
+		revision: terminalRevision,
+		updatedAt: input.updatedAt,
+	};
+	return {
+		plan: {
+			agentData: agentRow.data,
+			processIdentityData: serializeProcessIdentity(input.processIdentity),
+			terminalRevision,
+			updatedAgentData: JSON.stringify(updatedAgent),
+		},
+	};
+}
+
+function persistMultiAgentTerminalMutation(
+	db: SqliteDatabase,
+	input: CommitMultiAgentTerminalMutationInput,
+	plan: MultiAgentTerminalMutationPlan,
+): CommitMultiAgentTerminalMutationResult | undefined {
+	return withImmediateTransaction(db, () => {
+		const agentUpdated = updateTerminalAgentIfCurrent(db, {
+			agentData: plan.agentData,
+			agentId: input.agentId,
+			owner: input.owner,
+			processIdentityData: plan.processIdentityData,
+			requireUniqueOwnership: false,
+			sessionPath: input.sessionPath,
+			updatedAgentData: plan.updatedAgentData,
+			updatedAt: input.updatedAt,
+		});
+		if (!agentUpdated) return undefined;
+		db.prepare(
+			`INSERT INTO multi_agent_terminal_outbox (
+				session_path, agent_id, terminal_revision, event_kind, status,
+				claim_id, claimed_at, delivered_at, attempt_count, last_error, updated_at
+			) VALUES (?, ?, ?, ?, 'pending', NULL, NULL, NULL, 0, NULL, ?)`,
+		).run(input.sessionPath, input.agentId, plan.terminalRevision, input.eventKind, input.updatedAt);
+		return { ok: true, terminalRevision: plan.terminalRevision };
+	});
+}
+
+type TerminalAgentCasInput = {
+	agentData: string;
+	agentId: string;
+	owner: { agentId: string | null; sessionId: string };
+	processIdentityData: string;
+	requireUniqueOwnership: boolean;
+	sessionPath: string;
+	updatedAgentData: string;
+	updatedAt: string;
+};
+
+function updateTerminalAgentIfCurrent(db: SqliteDatabase, input: TerminalAgentCasInput): boolean {
+	return (
+		db
+			.prepare(
+				`WITH RECURSIVE descendants(agent_id) AS (
+					SELECT agent_id FROM multi_agent_agents
+					WHERE session_path = ? AND json_valid(data)
+					AND json_extract(data, '$.parentId') = ?
+					UNION
+					SELECT child.agent_id FROM multi_agent_agents AS child
+					JOIN descendants AS parent
+						ON json_valid(child.data) AND json_extract(child.data, '$.parentId') = parent.agent_id
+					WHERE child.session_path = ?
+				)
+				UPDATE multi_agent_agents SET data = ?, updated_at = ?
+				WHERE session_path = ? AND agent_id = ? AND data = ?
+				AND EXISTS (
+					SELECT 1 FROM multi_agent_runtime_owners
+					WHERE session_path = ? AND agent_id = ? AND process_identity = ?
+					AND owner_session_id = ? AND owner_agent_id IS ?
+				)
+				AND (? = 0 OR (
+					SELECT COUNT(*) FROM multi_agent_runtime_owners AS matching_owner
+					WHERE matching_owner.agent_id = ? AND matching_owner.process_identity = ?
+					AND matching_owner.owner_session_id = ? AND matching_owner.owner_agent_id IS ?
+				) = 1)
+				AND NOT EXISTS (
+					SELECT 1 FROM multi_agent_agents
+					WHERE session_path = ? AND NOT json_valid(data)
+				)
+				AND NOT EXISTS (
+					SELECT 1 FROM multi_agent_agents AS active
+					JOIN descendants ON descendants.agent_id = active.agent_id
+					WHERE active.session_path = ?
+					AND json_extract(active.data, '$.lifecycle') NOT IN ('completed', 'failed', 'aborted')
+				)`,
+			)
+			.run(
+				input.sessionPath,
+				input.agentId,
+				input.sessionPath,
+				input.updatedAgentData,
+				input.updatedAt,
+				input.sessionPath,
+				input.agentId,
+				input.agentData,
+				input.sessionPath,
+				input.agentId,
+				input.processIdentityData,
+				input.owner.sessionId,
+				input.owner.agentId,
+				input.requireUniqueOwnership ? 1 : 0,
+				input.agentId,
+				input.processIdentityData,
+				input.owner.sessionId,
+				input.owner.agentId,
+				input.sessionPath,
+				input.sessionPath,
+			).changes === 1
 	);
 }
 
@@ -3384,14 +4224,39 @@ function runtimeOwnershipMatchesTerminalMutation(
 	return runtimeOwnerMatches(ownership, input);
 }
 
+const FINALIZE_DETACHED_JOB_MAX_ATTEMPTS = 3;
+
+type PreparedTerminalTransport = {
+	input: EnqueueStoredRuntimeMailboxMessageInput;
+	prepared: PreparedStoredRuntimeMailboxMessage;
+};
+
+type FinalizeDetachedJobPlan = {
+	agentData: string;
+	eventKind: string;
+	ownership: MultiAgentRuntimeOwnershipRow;
+	processIdentityData: string;
+	sessionPath: string;
+	terminalAgent: AgentSnapshot;
+	terminalAgentData: string;
+	terminalRevision: number;
+	terminalTransport?: PreparedTerminalTransport;
+};
+
+type FinalizeDetachedJobPreflight = { plan: FinalizeDetachedJobPlan } | { result: FinalizeDetachedJobResult };
+
 export function finalizeDetachedJob(controlDbPath: string, input: FinalizeDetachedJobInput): FinalizeDetachedJobResult {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const sessionPath = findDetachedJobSessionPath(db, input);
-			if (!sessionPath) return detachedJobLookupFailure(db, input);
-			return finalizeDetachedJobTransaction(db, sessionPath, input.terminal);
-		}),
-	);
+	return withControlDb(controlDbPath, (db) => finalizeDetachedJobWithDb(db, input));
+}
+
+function finalizeDetachedJobWithDb(db: SqliteDatabase, input: FinalizeDetachedJobInput): FinalizeDetachedJobResult {
+	for (let attempt = 1; attempt <= FINALIZE_DETACHED_JOB_MAX_ATTEMPTS; attempt += 1) {
+		const preflight = prepareDetachedJobFinalization(db, input);
+		if ("result" in preflight) return preflight.result;
+		const result = persistDetachedJobFinalization(db, input.terminal, preflight.plan);
+		if (result) return result;
+	}
+	return { ok: false, error: "mutation_mismatch" };
 }
 
 function findDetachedJobSessionPath(db: SqliteDatabase, input: FinalizeDetachedJobInput): string | undefined {
@@ -3417,55 +4282,95 @@ function detachedJobLookupFailure(db: SqliteDatabase, input: FinalizeDetachedJob
 	return agent ? { ok: false, error: "mutation_mismatch" } : { ok: false, error: "agent_not_found" };
 }
 
-function finalizeDetachedJobTransaction(
+function prepareDetachedJobFinalization(
 	db: SqliteDatabase,
-	sessionPath: string,
-	terminal: DetachedJobTerminalInput,
-): FinalizeDetachedJobResult {
+	input: FinalizeDetachedJobInput,
+): FinalizeDetachedJobPreflight {
+	const sessionPath = findDetachedJobSessionPath(db, input);
+	if (!sessionPath) return { result: detachedJobLookupFailure(db, input) };
+	const terminal = input.terminal;
 	const row = db
 		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
 		.get(sessionPath, terminal.jobId) as { data: string } | undefined;
-	if (!row) return { ok: false, error: "agent_not_found" };
-	const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${terminal.jobId}`);
-	const persistedLifecycle = typeof agent.lifecycle === "string" ? agent.lifecycle : undefined;
-	const terminalLifecycle =
-		persistedLifecycle === "completed" || persistedLifecycle === "failed" || persistedLifecycle === "aborted"
-			? persistedLifecycle
-			: persistedLifecycle === "cancelling"
-				? "aborted"
-				: terminal.outcome.kind;
+	if (!row) return { result: { ok: false, error: "agent_not_found" } };
+	const context = `multi_agent_agents:${sessionPath}#${terminal.jobId}`;
+	const agent = parseStoredJsonObject(row.data, context);
+	const terminalLifecycle = resolveDetachedJobTerminalLifecycle(agent.lifecycle, terminal);
 	const eventKind = `detached_job_${terminalLifecycle}`;
 	const ownership = readMultiAgentRuntimeOwnershipRow(db, sessionPath, terminal.jobId);
-	if (
-		!ownership ||
-		!runtimeOwnerMatches(ownership, {
-			agentId: terminal.jobId,
-			owner: terminal.owner,
-			processIdentity: terminal.processIdentity,
-			sessionPath,
-		})
-	) {
-		return { ok: false, error: "mutation_mismatch" };
+	if (!ownership || !detachedJobOwnershipMatches(ownership, sessionPath, terminal)) {
+		return { result: { ok: false, error: "mutation_mismatch" } };
 	}
 	if (agent.lifecycle === terminalLifecycle) {
-		return detachedJobReplayResult(db, sessionPath, terminal, agent, Number(agent.revision), eventKind);
+		return {
+			result: detachedJobReplayResult(db, sessionPath, terminal, agent, Number(agent.revision), eventKind),
+		};
 	}
 	const terminalRevision = Number(agent.revision) + 1;
 	const canFinalize = agent.lifecycle === "running" || agent.lifecycle === "cancelling";
 	if (!canFinalize || hasActivePersistedDescendant(db, sessionPath, terminal.jobId)) {
-		return { ok: false, error: "invalid_transition" };
+		return { result: { ok: false, error: "invalid_transition" } };
 	}
-	const terminalAgent = persistDetachedJobTerminal(
-		db,
+	const terminalAgent = {
+		...agent,
+		...detachedJobAgentDetails(agent, terminal, terminalLifecycle),
+		currentActivity: undefined,
+		lifecycle: terminalLifecycle,
+		revision: terminalRevision,
+		updatedAt: terminal.terminalAt,
+		worker: undefined,
+	};
+	validatePersistedAgentPayload(terminalAgent, context);
+	const terminalTransport =
+		agent.detached === true
+			? prepareDetachedAgentTerminalTransport(
+					sessionPath,
+					terminal.jobId,
+					{
+						agentId: ownership.owner_agent_id,
+						sessionId: ownership.owner_session_id ?? undefined,
+					},
+					terminalRevision,
+					eventKind,
+					terminal.terminalAt,
+				)
+			: undefined;
+	return {
+		plan: {
+			agentData: row.data,
+			eventKind,
+			ownership,
+			processIdentityData: serializeProcessIdentity(terminal.processIdentity),
+			sessionPath,
+			terminalAgent: terminalAgent as unknown as AgentSnapshot,
+			terminalAgentData: JSON.stringify(terminalAgent),
+			terminalRevision,
+			terminalTransport,
+		},
+	};
+}
+
+function resolveDetachedJobTerminalLifecycle(
+	persistedLifecycle: unknown,
+	terminal: DetachedJobTerminalInput,
+): "aborted" | "completed" | "failed" {
+	if (persistedLifecycle === "completed" || persistedLifecycle === "failed" || persistedLifecycle === "aborted") {
+		return persistedLifecycle;
+	}
+	return persistedLifecycle === "cancelling" ? "aborted" : terminal.outcome.kind;
+}
+
+function detachedJobOwnershipMatches(
+	ownership: MultiAgentRuntimeOwnershipRow,
+	sessionPath: string,
+	terminal: DetachedJobTerminalInput,
+): boolean {
+	return runtimeOwnerMatches(ownership, {
+		agentId: terminal.jobId,
+		owner: terminal.owner,
+		processIdentity: terminal.processIdentity,
 		sessionPath,
-		terminal,
-		agent,
-		ownership,
-		terminalLifecycle,
-		terminalRevision,
-		eventKind,
-	);
-	return { ok: true, terminalAgent, terminalRevision };
+	});
 }
 
 function detachedJobReplayResult(
@@ -3496,81 +4401,48 @@ function detachedJobReplayResult(
 	return { ok: true, terminalAgent: terminalAgent as unknown as AgentSnapshot, terminalRevision };
 }
 
-function persistDetachedJobTerminal(
+function persistDetachedJobFinalization(
 	db: SqliteDatabase,
-	sessionPath: string,
 	terminal: DetachedJobTerminalInput,
-	agent: Record<string, unknown>,
-	ownership: MultiAgentRuntimeOwnershipRow,
-	terminalLifecycle: "completed" | "failed" | "aborted",
-	terminalRevision: number,
-	eventKind: string,
-): AgentSnapshot {
-	const updated = {
-		...agent,
-		...detachedJobAgentDetails(agent, terminal, terminalLifecycle),
-		currentActivity: undefined,
-		lifecycle: terminalLifecycle,
-		revision: terminalRevision,
-		updatedAt: terminal.terminalAt,
-		worker: undefined,
-	};
-	db.prepare("UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?").run(
-		JSON.stringify(updated),
-		terminal.terminalAt,
-		sessionPath,
-		terminal.jobId,
-	);
-	db.prepare(
-		`INSERT INTO multi_agent_terminal_outbox
-			(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
-		 VALUES (?, ?, ?, ?, 'pending', 0, ?)`,
-	).run(sessionPath, terminal.jobId, terminalRevision, eventKind, terminal.terminalAt);
-	// Attended jobs deliver their result in-band through the waiting tool call;
-	// only jobs explicitly detached from their tool call notify the supervisor.
-	if (agent.detached === true) {
-		persistDetachedJobTerminalTransport(db, sessionPath, terminal, ownership, terminalRevision, eventKind);
-	}
-	validatePersistedAgentPayload(updated, `multi_agent_agents:${sessionPath}#${terminal.jobId}`);
-	return updated as unknown as AgentSnapshot;
+	plan: FinalizeDetachedJobPlan,
+): FinalizeDetachedJobResult | undefined {
+	return withImmediateTransaction(db, () => {
+		const agentUpdated = updateTerminalAgentIfCurrent(db, {
+			agentData: plan.agentData,
+			agentId: terminal.jobId,
+			owner: terminal.owner,
+			processIdentityData: plan.processIdentityData,
+			requireUniqueOwnership: true,
+			sessionPath: plan.sessionPath,
+			updatedAgentData: plan.terminalAgentData,
+			updatedAt: terminal.terminalAt,
+		});
+		if (!agentUpdated) return undefined;
+		db.prepare(
+			`INSERT INTO multi_agent_terminal_outbox
+				(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
+			 VALUES (?, ?, ?, ?, 'pending', 0, ?)`,
+		).run(plan.sessionPath, terminal.jobId, plan.terminalRevision, plan.eventKind, terminal.terminalAt);
+		// Attended jobs deliver their result in-band through the waiting tool call;
+		// only jobs explicitly detached from their tool call notify the supervisor.
+		if (plan.terminalTransport) persistPreparedTerminalTransport(db, plan.terminalTransport);
+		return { ok: true, terminalAgent: plan.terminalAgent, terminalRevision: plan.terminalRevision };
+	});
 }
 
-function persistDetachedJobTerminalTransport(
-	db: SqliteDatabase,
-	sessionPath: string,
-	terminal: DetachedJobTerminalInput,
-	ownership: MultiAgentRuntimeOwnershipRow,
-	terminalRevision: number,
-	eventKind: string,
-): void {
-	persistDetachedAgentTerminalTransport(
-		db,
-		sessionPath,
-		terminal.jobId,
-		{
-			agentId: ownership.owner_agent_id,
-			sessionId: ownership.owner_session_id ?? undefined,
-		},
-		terminalRevision,
-		eventKind,
-		terminal.terminalAt,
-	);
-}
-
-function persistDetachedAgentTerminalTransport(
-	db: SqliteDatabase,
+function prepareDetachedAgentTerminalTransport(
 	sessionPath: string,
 	agentId: string,
 	owner: { agentId: string | null; sessionId?: string },
 	terminalRevision: number,
 	eventKind: string,
 	terminalAt: string,
-): void {
+): PreparedTerminalTransport {
 	const ownerSessionId = owner.sessionId;
 	if (!ownerSessionId) throw new Error(`Detached job ${agentId} ownership has no owner session`);
 	const messageId = `terminal:${agentId}:${terminalRevision}:${eventKind}`;
 	const body = JSON.stringify({ agentId, eventKind, terminalRevision, type: "multi_agent_terminal" });
-	persistStoredRuntimeMailboxMessage(db, {
+	const input: EnqueueStoredRuntimeMailboxMessageInput = {
 		kind: "system",
 		message: {
 			body,
@@ -3586,7 +4458,20 @@ function persistDetachedAgentTerminalTransport(
 		sender: { agentId, sessionId: ownerSessionId },
 		storeRef: { messageId, sessionPath },
 		updatedAt: terminalAt,
-	});
+	};
+	return { input, prepared: prepareStoredRuntimeMailboxMessage(input) };
+}
+
+function persistPreparedTerminalTransport(db: SqliteDatabase, transport: PreparedTerminalTransport): void {
+	db.prepare(
+		`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+		 VALUES (?, ?, ?, ?)`,
+	).run(
+		transport.input.storeRef.sessionPath,
+		transport.input.storeRef.messageId,
+		transport.prepared.serialized,
+		transport.prepared.updatedAt,
+	);
 }
 
 function detachedJobAgentDetails(
@@ -3619,18 +4504,83 @@ function detachedJobAgentDetails(
 	return { result: { fileRefs, ...timing, ...correlation } };
 }
 
+const DEAD_RUNTIME_RECOVERY_MAX_ATTEMPTS = 3;
+
+type SupervisorRecoveryAuthority = {
+	listener: RuntimeMailboxListenerRow;
+	supervisor: SupervisorRuntimeOwnership;
+	supervisorAgentData?: string;
+};
+
+type DeadRuntimeRecoveryPlan = {
+	agentData: string;
+	processIdentityData: string;
+	terminalRevision: number;
+	terminalTransport?: PreparedTerminalTransport;
+	updatedAgent: Record<string, unknown> & { updatedAt: string };
+	updatedAgentData: string;
+};
+
 export function recoverDeadMultiAgentRuntime(
 	controlDbPath: string,
 	input: RecoverDeadMultiAgentRuntimeInput,
 ): RecoverDeadMultiAgentRuntimeResult {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			if (!registeredSupervisorOwnsSession(db, input.expectedOwner.sessionPath, input.supervisor)) {
-				return { ok: false, error: "mutation_mismatch" };
-			}
-			return recoverDeadMultiAgentRuntimeInTransaction(db, input.expectedOwner, input.nowIso);
-		}),
-	);
+	return withControlDb(controlDbPath, (db) => recoverDeadMultiAgentRuntimeWithDb(db, input));
+}
+
+function recoverDeadMultiAgentRuntimeWithDb(
+	db: SqliteDatabase,
+	input: RecoverDeadMultiAgentRuntimeInput,
+): RecoverDeadMultiAgentRuntimeResult {
+	for (let attempt = 1; attempt <= DEAD_RUNTIME_RECOVERY_MAX_ATTEMPTS; attempt += 1) {
+		const supervisorAuthority = readSupervisorRecoveryAuthority(
+			db,
+			input.expectedOwner.sessionPath,
+			input.supervisor,
+		);
+		if (!supervisorAuthority) return { ok: false, error: "mutation_mismatch" };
+		const recoverable = readRecoverableMultiAgentRuntime(db, input.expectedOwner, true);
+		if (!recoverable.ok) return recoverable;
+		const plan = prepareDeadRuntimeRecovery(recoverable, input.expectedOwner, input.nowIso);
+		const result = persistDeadRuntimeRecovery(db, input.expectedOwner, plan, supervisorAuthority);
+		if (result) return result;
+	}
+	return { ok: false, error: "mutation_mismatch" };
+}
+
+function readSupervisorRecoveryAuthority(
+	db: SqliteDatabase,
+	sessionPath: string,
+	supervisor: SupervisorRuntimeOwnership,
+): SupervisorRecoveryAuthority | undefined {
+	if (!isProcessIdentityAlive(supervisor.processIdentity)) return undefined;
+	const listener = readRuntimeMailboxListenerRow(db, {
+		agentId: supervisor.agentId ?? null,
+		sessionId: supervisor.sessionId,
+	});
+	if (!listener?.runtime_instance_id || listener.pid !== supervisor.processIdentity.pid) return undefined;
+	try {
+		const listenerIdentity = serializeProcessIdentity(parseProcessIdentity(listener.runtime_instance_id));
+		if (listenerIdentity !== serializeProcessIdentity(supervisor.processIdentity)) return undefined;
+	} catch {
+		return undefined;
+	}
+	if (!supervisor.agentId) {
+		if (listener.session_path !== sessionPath || listener.session_path_asserted_at === null) return undefined;
+		return { listener, supervisor };
+	}
+	const supervisorRow = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(sessionPath, supervisor.agentId) as { data: string } | undefined;
+	if (!supervisorRow) return undefined;
+	const snapshot = parseStoredJsonObject(
+		supervisorRow.data,
+		`multi_agent_agents:${sessionPath}#${supervisor.agentId}`,
+	) as unknown as AgentSnapshot;
+	if (snapshot.transcript?.sessionId !== supervisor.sessionId || !isActiveLifecycle(snapshot.lifecycle)) {
+		return undefined;
+	}
+	return { listener, supervisor, supervisorAgentData: supervisorRow.data };
 }
 
 interface DeadDetachedRuntimeCandidate {
@@ -3643,18 +4593,31 @@ interface DeadDetachedRuntimeCandidate {
 }
 
 export function reconcileDeadDetachedAgentRuntimes(controlDbPath: string, nowIso: string): number {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			let reconciled = 0;
-			for (const candidate of readDeadDetachedRuntimeCandidates(db)) {
-				const expectedOwner = readDetachedOwnerForRecovery(db, candidate);
-				if (!expectedOwner) continue;
-				const result = recoverDeadMultiAgentRuntimeInTransaction(db, expectedOwner, nowIso);
-				if (result.ok) reconciled += 1;
-			}
-			return reconciled;
-		}),
-	);
+	return withControlDb(controlDbPath, (db) => {
+		const expectedOwners = readDeadDetachedRuntimeCandidates(db).flatMap((candidate) => {
+			const owner = readDetachedOwnerForRecovery(db, candidate);
+			return owner ? [owner] : [];
+		});
+		return expectedOwners.reduce(
+			(count, expectedOwner) => count + reconcileDeadDetachedAgentRuntime(db, expectedOwner, nowIso),
+			0,
+		);
+	});
+}
+
+function reconcileDeadDetachedAgentRuntime(
+	db: SqliteDatabase,
+	expectedOwner: MultiAgentRuntimeOwnershipIdentity,
+	nowIso: string,
+): number {
+	for (let attempt = 1; attempt <= DEAD_RUNTIME_RECOVERY_MAX_ATTEMPTS; attempt += 1) {
+		const recoverable = readRecoverableMultiAgentRuntime(db, expectedOwner, false);
+		if (!recoverable.ok) return 0;
+		const plan = prepareDeadRuntimeRecovery(recoverable, expectedOwner, nowIso);
+		const result = persistDeadRuntimeRecovery(db, expectedOwner, plan);
+		if (result) return result.ok ? 1 : 0;
+	}
+	return 0;
 }
 
 function readDeadDetachedRuntimeCandidates(db: SqliteDatabase): DeadDetachedRuntimeCandidate[] {
@@ -3684,6 +4647,7 @@ function readDetachedOwnerForRecovery(
 	const worker = agent.worker as AgentSnapshot["worker"] | undefined;
 	if (worker?.adapter !== "runtime" || worker.handleId !== String(processIdentity.pid)) return undefined;
 	if (hasTerminalOutboxRecord(db, candidate.session_path, candidate.agent_id)) return undefined;
+	if (isProcessIdentityAlive(processIdentity)) return undefined;
 	return {
 		agentId: candidate.agent_id,
 		owner: { agentId: candidate.owner_agent_id, sessionId: candidate.owner_session_id },
@@ -3700,11 +4664,17 @@ function hasTerminalOutboxRecord(db: SqliteDatabase, sessionPath: string, agentI
 	);
 }
 
-function recoverDeadMultiAgentRuntimeInTransaction(
+type RecoverDeadMultiAgentRuntimeFailure = Extract<RecoverDeadMultiAgentRuntimeResult, { ok: false }>;
+
+type RecoverableMultiAgentRuntime =
+	| { agent: Record<string, unknown>; agentData: string; ok: true }
+	| RecoverDeadMultiAgentRuntimeFailure;
+
+function readRecoverableMultiAgentRuntime(
 	db: SqliteDatabase,
 	expectedOwner: MultiAgentRuntimeOwnershipIdentity,
-	nowIso: string,
-): RecoverDeadMultiAgentRuntimeResult {
+	verifyOwnerLiveness: boolean,
+): RecoverableMultiAgentRuntime {
 	const { agentId, sessionPath } = expectedOwner;
 	const row = db
 		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
@@ -3715,22 +4685,18 @@ function recoverDeadMultiAgentRuntimeInTransaction(
 	const owner = readMultiAgentRuntimeOwnershipRow(db, sessionPath, agentId);
 	if (!runtimeOwnerMatches(owner, expectedOwner)) return { ok: false, error: "mutation_mismatch" };
 	if (hasActivePersistedDescendant(db, sessionPath, agentId)) return { ok: false, error: "invalid_transition" };
-	if (isProcessIdentityAlive(expectedOwner.processIdentity)) return { ok: false, error: "owner_alive" };
-	const released = db
-		.prepare(
-			`UPDATE multi_agent_runtime_owners
-			 SET process_identity = NULL, owner_session_id = NULL, owner_agent_id = NULL
-			 WHERE session_path = ? AND agent_id = ? AND process_identity = ?
-			 AND owner_session_id = ? AND owner_agent_id IS ?`,
-		)
-		.run(
-			sessionPath,
-			agentId,
-			serializeProcessIdentity(expectedOwner.processIdentity),
-			expectedOwner.owner.sessionId,
-			expectedOwner.owner.agentId,
-		);
-	if (released.changes !== 1) return { ok: false, error: "mutation_mismatch" };
+	if (verifyOwnerLiveness && isProcessIdentityAlive(expectedOwner.processIdentity)) {
+		return { ok: false, error: "owner_alive" };
+	}
+	return { agent, agentData: row.data, ok: true };
+}
+
+function prepareDeadRuntimeRecovery(
+	recoverable: Extract<RecoverableMultiAgentRuntime, { ok: true }>,
+	expectedOwner: MultiAgentRuntimeOwnershipIdentity,
+	nowIso: string,
+): DeadRuntimeRecoveryPlan {
+	const { agent } = recoverable;
 	const terminalRevision = Number(agent.revision) + 1;
 	const cancelling = agent.lifecycle === "cancelling";
 	const error = {
@@ -3742,7 +4708,7 @@ function recoverDeadMultiAgentRuntimeInTransaction(
 	const worker = agent.worker as AgentSnapshot["worker"] | undefined;
 	const result = agent.result as AgentSnapshot["result"] | undefined;
 	const toolCallId = worker?.toolCallId;
-	const updated = {
+	const updatedAgent = {
 		...agent,
 		error,
 		lifecycle: cancelling ? "aborted" : "failed",
@@ -3751,163 +4717,375 @@ function recoverDeadMultiAgentRuntimeInTransaction(
 		updatedAt: nowIso,
 		worker: undefined,
 	};
-	db.prepare("UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?").run(
-		JSON.stringify(updated),
-		nowIso,
-		sessionPath,
-		agentId,
-	);
-	db.prepare(
-		`INSERT INTO multi_agent_terminal_outbox
-			(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
-		 VALUES (?, ?, ?, 'lost_runtime', 'pending', 0, ?)`,
-	).run(sessionPath, agentId, terminalRevision, nowIso);
-	if (agent.detached === true) {
-		persistDetachedAgentTerminalTransport(
-			db,
-			sessionPath,
-			agentId,
-			expectedOwner.owner,
-			terminalRevision,
-			"lost_runtime",
-			nowIso,
-		);
-	}
-	return { ok: true, agent: updated, terminalRevision };
+	const terminalTransport =
+		agent.detached === true
+			? prepareDetachedAgentTerminalTransport(
+					expectedOwner.sessionPath,
+					expectedOwner.agentId,
+					expectedOwner.owner,
+					terminalRevision,
+					"lost_runtime",
+					nowIso,
+				)
+			: undefined;
+	return {
+		agentData: recoverable.agentData,
+		processIdentityData: serializeProcessIdentity(expectedOwner.processIdentity),
+		terminalRevision,
+		terminalTransport,
+		updatedAgent,
+		updatedAgentData: JSON.stringify(updatedAgent),
+	};
 }
+
+function persistDeadRuntimeRecovery(
+	db: SqliteDatabase,
+	expectedOwner: MultiAgentRuntimeOwnershipIdentity,
+	plan: DeadRuntimeRecoveryPlan,
+	supervisorAuthority?: SupervisorRecoveryAuthority,
+): RecoverDeadMultiAgentRuntimeResult | undefined {
+	return withImmediateTransaction(db, () => {
+		if (!releaseDeadRuntimeOwnershipIfCurrent(db, expectedOwner, plan, supervisorAuthority)) return undefined;
+		const agentUpdated = db
+			.prepare(
+				`UPDATE multi_agent_agents SET data = ?, updated_at = ?
+				 WHERE session_path = ? AND agent_id = ? AND data = ?`,
+			)
+			.run(
+				plan.updatedAgentData,
+				plan.updatedAgent.updatedAt,
+				expectedOwner.sessionPath,
+				expectedOwner.agentId,
+				plan.agentData,
+			).changes;
+		if (agentUpdated !== 1) {
+			throw new Error(
+				`Recovered agent changed after ownership release ${expectedOwner.sessionPath}#${expectedOwner.agentId}`,
+			);
+		}
+		db.prepare(
+			`INSERT INTO multi_agent_terminal_outbox
+				(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
+			 VALUES (?, ?, ?, 'lost_runtime', 'pending', 0, ?)`,
+		).run(expectedOwner.sessionPath, expectedOwner.agentId, plan.terminalRevision, plan.updatedAgent.updatedAt);
+		if (plan.terminalTransport) persistPreparedTerminalTransport(db, plan.terminalTransport);
+		return { agent: plan.updatedAgent, ok: true, terminalRevision: plan.terminalRevision };
+	});
+}
+
+function releaseDeadRuntimeOwnershipIfCurrent(
+	db: SqliteDatabase,
+	expectedOwner: MultiAgentRuntimeOwnershipIdentity,
+	plan: DeadRuntimeRecoveryPlan,
+	supervisorAuthority?: SupervisorRecoveryAuthority,
+): boolean {
+	const listener = supervisorAuthority?.listener;
+	const supervisor = supervisorAuthority?.supervisor;
+	const supervisorAgentData = supervisorAuthority?.supervisorAgentData;
+	return (
+		db
+			.prepare(
+				`WITH RECURSIVE descendants(agent_id) AS (
+					SELECT agent_id FROM multi_agent_agents
+					WHERE session_path = ? AND json_valid(data)
+					AND json_extract(data, '$.parentId') = ?
+					UNION
+					SELECT child.agent_id FROM multi_agent_agents AS child
+					JOIN descendants AS parent
+						ON json_valid(child.data) AND json_extract(child.data, '$.parentId') = parent.agent_id
+					WHERE child.session_path = ?
+				)
+				UPDATE multi_agent_runtime_owners
+				SET process_identity = NULL, owner_session_id = NULL, owner_agent_id = NULL
+				WHERE session_path = ? AND agent_id = ? AND process_identity = ?
+				AND owner_session_id = ? AND owner_agent_id IS ?
+				AND EXISTS (
+					SELECT 1 FROM multi_agent_agents
+					WHERE session_path = ? AND agent_id = ? AND data = ?
+				)
+				AND NOT EXISTS (
+					SELECT 1 FROM multi_agent_agents
+					WHERE session_path = ? AND NOT json_valid(data)
+				)
+				AND NOT EXISTS (
+					SELECT 1 FROM multi_agent_agents AS active
+					JOIN descendants ON descendants.agent_id = active.agent_id
+					WHERE active.session_path = ?
+					AND json_extract(active.data, '$.lifecycle') NOT IN ('completed', 'failed', 'aborted')
+				)
+				AND NOT EXISTS (
+					SELECT 1 FROM multi_agent_terminal_outbox
+					WHERE session_path = ? AND agent_id = ?
+				)
+				AND (? = 0 OR EXISTS (
+					SELECT 1 FROM runtime_mailbox_listeners
+					WHERE recipient_session_id = ? AND recipient_agent_id_key = ? AND pid = ?
+					AND runtime_instance_id IS ? AND session_path IS ?
+					AND session_path_asserted_at IS ? AND updated_at = ?
+				))
+				AND (? = 0 OR EXISTS (
+					SELECT 1 FROM multi_agent_agents
+					WHERE session_path = ? AND agent_id = ? AND data = ?
+				))`,
+			)
+			.run(
+				expectedOwner.sessionPath,
+				expectedOwner.agentId,
+				expectedOwner.sessionPath,
+				expectedOwner.sessionPath,
+				expectedOwner.agentId,
+				plan.processIdentityData,
+				expectedOwner.owner.sessionId,
+				expectedOwner.owner.agentId,
+				expectedOwner.sessionPath,
+				expectedOwner.agentId,
+				plan.agentData,
+				expectedOwner.sessionPath,
+				expectedOwner.sessionPath,
+				expectedOwner.sessionPath,
+				expectedOwner.agentId,
+				supervisorAuthority ? 1 : 0,
+				supervisor?.sessionId ?? null,
+				supervisor?.agentId ?? "",
+				listener?.pid ?? null,
+				listener?.runtime_instance_id ?? null,
+				listener?.session_path ?? null,
+				listener?.session_path_asserted_at ?? null,
+				listener?.updated_at ?? null,
+				supervisorAgentData ? 1 : 0,
+				expectedOwner.sessionPath,
+				supervisor?.agentId ?? null,
+				supervisorAgentData ?? null,
+			).changes === 1
+	);
+}
+
+const MULTI_AGENT_CREATION_MAX_ATTEMPTS = 3;
+
+type ActiveParentSnapshot = {
+	agent?: AgentSnapshot;
+	data?: string;
+	parentId: string;
+};
 
 export function createFailedMultiAgentChild(
 	controlDbPath: string,
 	input: CreateFailedMultiAgentChildInput,
 ): CreateFailedMultiAgentChildResult {
+	const agent = input.agent as AgentSnapshot & Record<string, unknown>;
+	validatePersistedAgentPayload(agent, `multi_agent_agents:${input.sessionPath}#${agent.id}`);
+	if (agent.lifecycle !== "failed" || agent.revision !== 1) {
+		throw new Error("Failed child creation requires failed revision 1");
+	}
+	const parentId = agent.parentId;
+	if (!parentId) return { ok: false, error: "parent_not_found" };
+	const serializedAgent = JSON.stringify(agent);
 	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const agent = input.agent as AgentSnapshot & Record<string, unknown>;
-			validatePersistedAgentPayload(agent, `multi_agent_agents:${input.sessionPath}#${agent.id}`);
-			if (agent.lifecycle !== "failed" || agent.revision !== 1) {
-				throw new Error("Failed child creation requires failed revision 1");
-			}
-			const parentId = agent.parentId;
-			if (!parentId || !hasActiveParent(db, input.sessionPath, parentId)) {
-				return { ok: false, error: "parent_not_found" };
-			}
-			if (
-				db
-					.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-					.get(input.sessionPath, agent.id)
-			) {
-				return { ok: false, error: "agent_exists" };
-			}
-			db.prepare(
-				"INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
-			).run(input.sessionPath, agent.id, JSON.stringify(agent), input.nowIso);
-			db.prepare(
-				`INSERT INTO multi_agent_terminal_outbox (
-					session_path, agent_id, terminal_revision, event_kind, status,
-					claim_id, claimed_at, delivered_at, attempt_count, last_error, updated_at
-				) VALUES (?, ?, 1, 'failed', 'pending', NULL, NULL, NULL, 0, NULL, ?)`,
-			).run(input.sessionPath, agent.id, input.nowIso);
-			return { ok: true, agent };
-		}),
+		createFailedMultiAgentChildWithDb(db, input, agent, parentId, serializedAgent),
 	);
 }
 
-function hasActiveParent(db: SqliteDatabase, sessionPath: string, parentId: string): boolean {
-	if (parentId === "main") return true;
+function createFailedMultiAgentChildWithDb(
+	db: SqliteDatabase,
+	input: CreateFailedMultiAgentChildInput,
+	agent: AgentSnapshot & Record<string, unknown>,
+	parentId: string,
+	serializedAgent: string,
+): CreateFailedMultiAgentChildResult {
+	for (let attempt = 1; attempt <= MULTI_AGENT_CREATION_MAX_ATTEMPTS; attempt += 1) {
+		const parent = readActiveParentSnapshot(db, input.sessionPath, parentId);
+		if (!parent) return { ok: false, error: "parent_not_found" };
+		if (multiAgentAgentExists(db, input.sessionPath, agent.id)) return { ok: false, error: "agent_exists" };
+		const result = commitFailedMultiAgentChild(db, input, agent, serializedAgent, parent);
+		if (result) return result;
+	}
+	throw new Error(`Failed child parent changed repeatedly ${input.sessionPath}#${agent.id}`);
+}
+
+function commitFailedMultiAgentChild(
+	db: SqliteDatabase,
+	input: CreateFailedMultiAgentChildInput,
+	agent: AgentSnapshot & Record<string, unknown>,
+	serializedAgent: string,
+	parent: ActiveParentSnapshot,
+): CreateFailedMultiAgentChildResult | undefined {
+	return withImmediateTransaction(db, () => {
+		if (
+			!insertMultiAgentAgentIfParentCurrent(db, input.sessionPath, agent.id, serializedAgent, input.nowIso, parent)
+		) {
+			return undefined;
+		}
+		db.prepare(
+			`INSERT INTO multi_agent_terminal_outbox (
+				session_path, agent_id, terminal_revision, event_kind, status,
+				claim_id, claimed_at, delivered_at, attempt_count, last_error, updated_at
+			) VALUES (?, ?, 1, 'failed', 'pending', NULL, NULL, NULL, 0, NULL, ?)`,
+		).run(input.sessionPath, agent.id, input.nowIso);
+		return { ok: true, agent };
+	});
+}
+
+function readActiveParentSnapshot(
+	db: SqliteDatabase,
+	sessionPath: string,
+	parentId: string,
+): ActiveParentSnapshot | undefined {
+	if (parentId === "main") return { parentId };
 	const row = db
 		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
 		.get(sessionPath, parentId) as { data: string } | undefined;
-	if (!row) return false;
-	const parent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${parentId}`);
-	validatePersistedAgentPayload(parent, `multi_agent_agents:${sessionPath}#${parentId}`);
-	return isNonterminalLifecycle(parent.lifecycle);
+	if (!row) return undefined;
+	const context = `multi_agent_agents:${sessionPath}#${parentId}`;
+	const parent = parseStoredJsonObject(row.data, context);
+	validatePersistedAgentPayload(parent, context);
+	if (!isNonterminalLifecycle(parent.lifecycle)) return undefined;
+	return { agent: parent as unknown as AgentSnapshot, data: row.data, parentId };
+}
+
+function multiAgentAgentExists(db: SqliteDatabase, sessionPath: string, agentId: string): boolean {
+	return Boolean(
+		db.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?").get(sessionPath, agentId),
+	);
+}
+
+function insertMultiAgentAgentIfParentCurrent(
+	db: SqliteDatabase,
+	sessionPath: string,
+	agentId: string,
+	serializedAgent: string,
+	updatedAt: string,
+	parent: ActiveParentSnapshot,
+): boolean {
+	return (
+		db
+			.prepare(
+				`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
+				 SELECT ?, ?, ?, ?
+				 WHERE (? = 'main' OR EXISTS (
+					SELECT 1 FROM multi_agent_agents
+					WHERE session_path = ? AND agent_id = ? AND data = ?
+				 ))
+				 ON CONFLICT(session_path, agent_id) DO NOTHING`,
+			)
+			.run(
+				sessionPath,
+				agentId,
+				serializedAgent,
+				updatedAt,
+				parent.parentId,
+				sessionPath,
+				parent.parentId,
+				parent.data ?? null,
+			).changes === 1
+	);
 }
 
 export function createMultiAgentChildWithRuntimeOwnership(
 	controlDbPath: string,
 	input: CreateMultiAgentChildWithRuntimeOwnershipInput,
 ): CreateMultiAgentChildWithRuntimeOwnershipResult {
+	const agent = input.agent as Record<string, unknown>;
+	validatePersistedAgentPayload(agent, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
+	if (agent.id !== input.agentId) throw new Error("Child agent payload ID does not match runtime ownership identity");
+	if (agent.lifecycle !== "running" || agent.revision !== 1) {
+		throw new Error("Child runtime ownership requires running revision 1");
+	}
+	const parentId = typeof agent.parentId === "string" ? agent.parentId : undefined;
+	if (!parentId) return { ok: false, error: "parent_not_found" };
+	const processIdentityData = serializeProcessIdentity(input.processIdentity);
+	const serializedAgent = JSON.stringify(input.agent);
 	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const agent = input.agent as Record<string, unknown>;
-			validatePersistedAgentPayload(agent, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
-			if (agent.id !== input.agentId)
-				throw new Error("Child agent payload ID does not match runtime ownership identity");
-			if (agent.lifecycle !== "running" || agent.revision !== 1) {
-				throw new Error("Child runtime ownership requires running revision 1");
-			}
-			const parentId = typeof agent.parentId === "string" ? agent.parentId : undefined;
-			if (!parentId || !hasActiveParent(db, input.sessionPath, parentId)) {
-				return { ok: false, error: "parent_not_found" };
-			}
-			if (
-				db
-					.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-					.get(input.sessionPath, input.agentId)
-			) {
-				return { ok: false, error: "agent_exists" };
-			}
-			db.prepare(
-				"INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
-			).run(input.sessionPath, input.agentId, JSON.stringify(input.agent), input.nowIso);
-			db.prepare(`INSERT INTO multi_agent_runtime_owners (
-			session_path, agent_id, process_identity, owner_session_id, owner_agent_id
-		) VALUES (?, ?, ?, ?, ?)`).run(
+		createMultiAgentChildWithRuntimeOwnershipWithDb(db, input, parentId, processIdentityData, serializedAgent),
+	);
+}
+
+function createMultiAgentChildWithRuntimeOwnershipWithDb(
+	db: SqliteDatabase,
+	input: CreateMultiAgentChildWithRuntimeOwnershipInput,
+	parentId: string,
+	processIdentityData: string,
+	serializedAgent: string,
+): CreateMultiAgentChildWithRuntimeOwnershipResult {
+	for (let attempt = 1; attempt <= MULTI_AGENT_CREATION_MAX_ATTEMPTS; attempt += 1) {
+		const parent = readActiveParentSnapshot(db, input.sessionPath, parentId);
+		if (!parent) return { ok: false, error: "parent_not_found" };
+		if (multiAgentAgentExists(db, input.sessionPath, input.agentId)) return { ok: false, error: "agent_exists" };
+		const result = commitMultiAgentChildWithRuntimeOwnership(db, input, processIdentityData, serializedAgent, parent);
+		if (result) return result;
+	}
+	throw new Error(`Child parent changed repeatedly ${input.sessionPath}#${input.agentId}`);
+}
+
+function commitMultiAgentChildWithRuntimeOwnership(
+	db: SqliteDatabase,
+	input: CreateMultiAgentChildWithRuntimeOwnershipInput,
+	processIdentityData: string,
+	serializedAgent: string,
+	parent: ActiveParentSnapshot,
+): CreateMultiAgentChildWithRuntimeOwnershipResult | undefined {
+	return withImmediateTransaction(db, () => {
+		if (
+			!insertMultiAgentAgentIfParentCurrent(
+				db,
 				input.sessionPath,
 				input.agentId,
-				serializeProcessIdentity(input.processIdentity),
-				input.owner.sessionId,
-				input.owner.agentId,
-			);
-			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			if (!ownership)
-				throw new Error(`Child runtime ownership did not persist ${input.sessionPath}#${input.agentId}`);
-			return { ok: true, agent: input.agent, ownership: multiAgentRuntimeOwnershipFromRow(ownership) };
-		}),
-	);
+				serializedAgent,
+				input.nowIso,
+				parent,
+			)
+		) {
+			return undefined;
+		}
+		persistAcquiredRuntimeOwnership(db, input, processIdentityData);
+		return { agent: input.agent, ok: true, ownership: multiAgentRuntimeOwnershipFromInput(input) };
+	});
 }
 
 export function createMultiAgentAttachment(
 	controlDbPath: string,
 	input: CreateMultiAgentAttachmentInput,
 ): CreateMultiAgentAttachmentResult {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const agent = input.agent as AgentSnapshot & Record<string, unknown>;
-			validatePersistedAgentPayload(agent, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
-			if (agent.id !== input.agentId) throw new Error("Attached agent payload ID does not match command identity");
-			if (agent.origin !== "attached" || agent.lifecycle !== "waiting_for_input" || agent.revision !== 1) {
-				throw new Error("Attached agent creation requires waiting_for_input revision 1");
-			}
+	const agent = input.agent as AgentSnapshot & Record<string, unknown>;
+	validatePersistedAgentPayload(agent, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
+	if (agent.id !== input.agentId) throw new Error("Attached agent payload ID does not match command identity");
+	if (agent.origin !== "attached" || agent.lifecycle !== "waiting_for_input" || agent.revision !== 1) {
+		throw new Error("Attached agent creation requires waiting_for_input revision 1");
+	}
+	const serializedAgent = JSON.stringify(agent);
+	return withControlDb(controlDbPath, (db) => {
+		for (let attempt = 1; attempt <= MULTI_AGENT_CREATION_MAX_ATTEMPTS; attempt += 1) {
+			if (multiAgentAgentExists(db, input.sessionPath, input.agentId)) return { ok: false, error: "agent_exists" };
+			const parent = readAttachmentParentSnapshot(db, input.sessionPath, agent);
+			if ("error" in parent) return { ok: false, error: parent.error };
 			if (
-				db
-					.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-					.get(input.sessionPath, input.agentId)
+				insertMultiAgentAgentIfParentCurrent(
+					db,
+					input.sessionPath,
+					input.agentId,
+					serializedAgent,
+					input.nowIso,
+					parent,
+				)
 			) {
-				return { ok: false, error: "agent_exists" };
+				return { ok: true, agent: input.agent };
 			}
-			if (agent.parentId && agent.parentId !== "main") {
-				const parentRow = db
-					.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-					.get(input.sessionPath, agent.parentId) as { data: string } | undefined;
-				if (!parentRow) return { ok: false, error: "parent_not_found" };
-				const parent = parseStoredJsonObject(
-					parentRow.data,
-					`multi_agent_agents:${input.sessionPath}#${agent.parentId}`,
-				);
-				validatePersistedAgentPayload(parent, `multi_agent_agents:${input.sessionPath}#${agent.parentId}`);
-				if (!isNonterminalLifecycle(parent.lifecycle)) return { ok: false, error: "parent_not_found" };
-				const parentPermission = parent.permission as AgentSnapshot["permission"];
-				if (!agent.permission.narrowed || agent.permission.policy !== parentPermission.policy) {
-					return { ok: false, error: "permission_broadened" };
-				}
-			}
-			db.prepare(
-				"INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
-			).run(input.sessionPath, input.agentId, JSON.stringify(agent), input.nowIso);
-			return { ok: true, agent: input.agent };
-		}),
-	);
+		}
+		throw new Error(`Attachment parent changed repeatedly ${input.sessionPath}#${input.agentId}`);
+	});
+}
+
+function readAttachmentParentSnapshot(
+	db: SqliteDatabase,
+	sessionPath: string,
+	agent: AgentSnapshot & Record<string, unknown>,
+): ActiveParentSnapshot | { error: "parent_not_found" | "permission_broadened" } {
+	const parentId = agent.parentId;
+	if (!parentId || parentId === "main") return { parentId: "main" };
+	const parent = readActiveParentSnapshot(db, sessionPath, parentId);
+	if (!parent?.agent) return { error: "parent_not_found" };
+	const parentPermission = parent.agent.permission;
+	const permissionMatches = agent.permission.narrowed && agent.permission.policy === parentPermission.policy;
+	return permissionMatches ? parent : { error: "permission_broadened" };
 }
 
 export function readMultiAgentRuntimeOwnership(
@@ -3921,93 +5099,233 @@ export function readMultiAgentRuntimeOwnership(
 	});
 }
 
+const ATTACHED_RUNTIME_OWNERSHIP_MAX_ATTEMPTS = 3;
+
+type SupervisorSessionAuthoritySnapshot = {
+	listener: {
+		runtime_instance_id: string;
+		session_path: string | null;
+		session_path_asserted_at: string | null;
+	};
+	supervisorAgentData?: string;
+};
+
+type AcquireAttachedRuntimeOwnershipPlan = {
+	agentData: string;
+	ownership: MultiAgentRuntimeOwnershipRow | undefined;
+	processIdentityData: string;
+	supervisorAuthority: SupervisorSessionAuthoritySnapshot;
+	updatedAgent: Record<string, unknown>;
+	updatedAgentData: string;
+};
+
+type AcquireAttachedRuntimeOwnershipPreflight =
+	| { plan: AcquireAttachedRuntimeOwnershipPlan }
+	| { result: AcquireAttachedRuntimeOwnershipResult };
+
+type AttachedRuntimeAgentRead =
+	| { agent: Record<string, unknown>; data: string; ok: true }
+	| { error: "agent_not_found" | "invalid_agent"; ok: false };
+
 export function acquireAttachedRuntimeOwnership(
 	controlDbPath: string,
 	input: AcquireAttachedRuntimeOwnershipInput,
 ): AcquireAttachedRuntimeOwnershipResult {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			if (!registeredSupervisorOwnsSession(db, input.sessionPath, input.supervisor)) {
-				return { ok: false, error: "mutation_mismatch" };
-			}
-			const row = db
-				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
-			if (!row) return { ok: false, error: "agent_not_found" };
-			const context = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
-			const agent = parseStoredJsonObject(row.data, context);
-			validatePersistedAgentPayload(agent, context);
-			if (!isRecoverableRuntimeLifecycle(agent.lifecycle)) return { ok: false, error: "invalid_agent" };
-			const current = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			const currentIdentity = current?.process_identity ? parseProcessIdentity(current.process_identity) : undefined;
-			const currentOwnerAlive = currentIdentity !== undefined && isProcessIdentityAlive(currentIdentity);
-			if (current && currentOwnerAlive && runtimeOwnerMatches(current, input)) {
-				return {
-					agent: agent as unknown as AgentSnapshot,
-					ok: true,
-					ownership: multiAgentRuntimeOwnershipFromRow(current),
-				};
-			}
-			const replacesCurrentIncarnation =
-				currentIdentity !== undefined &&
-				sameProcessWithSupersededIncarnation(currentIdentity, input.processIdentity);
-			if (currentOwnerAlive && !replacesCurrentIncarnation) return { ok: false, error: "ownership_held" };
-			persistAcquiredRuntimeOwnership(db, input);
-			const updatedAgent = { ...agent, revision: Number(agent.revision) + 1, updatedAt: input.nowIso };
-			db.prepare(
-				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updatedAgent), input.nowIso, input.sessionPath, input.agentId);
-			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			if (!ownership)
-				throw new Error(`Attached runtime ownership did not persist ${input.sessionPath}#${input.agentId}`);
-			return {
-				agent: updatedAgent as unknown as AgentSnapshot,
+	return withControlDb(controlDbPath, (db) => acquireAttachedRuntimeOwnershipWithDb(db, input));
+}
+
+function acquireAttachedRuntimeOwnershipWithDb(
+	db: SqliteDatabase,
+	input: AcquireAttachedRuntimeOwnershipInput,
+): AcquireAttachedRuntimeOwnershipResult {
+	for (let attempt = 1; attempt <= ATTACHED_RUNTIME_OWNERSHIP_MAX_ATTEMPTS; attempt += 1) {
+		const preflight = prepareAttachedRuntimeOwnershipAcquisition(db, input);
+		if ("result" in preflight) return preflight.result;
+		const result = commitAttachedRuntimeOwnershipAcquisition(db, input, preflight.plan);
+		if (result) return result;
+	}
+	return { ok: false, error: "mutation_mismatch" };
+}
+
+function prepareAttachedRuntimeOwnershipAcquisition(
+	db: SqliteDatabase,
+	input: AcquireAttachedRuntimeOwnershipInput,
+): AcquireAttachedRuntimeOwnershipPreflight {
+	const supervisorAuthority = readRegisteredSupervisorSessionAuthority(db, input.sessionPath, input.supervisor);
+	if (!supervisorAuthority) return { result: { ok: false, error: "mutation_mismatch" } };
+	const agentRead = readAttachedRuntimeAgent(db, input.sessionPath, input.agentId);
+	if (!agentRead.ok) return { result: agentRead };
+	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+	const currentIdentity = ownership?.process_identity ? parseProcessIdentity(ownership.process_identity) : undefined;
+	const currentOwnerAlive = currentIdentity !== undefined && isProcessIdentityAlive(currentIdentity);
+	if (ownership && currentOwnerAlive && runtimeOwnerMatches(ownership, input)) {
+		return {
+			result: {
+				agent: agentRead.agent as unknown as AgentSnapshot,
 				ok: true,
 				ownership: multiAgentRuntimeOwnershipFromRow(ownership),
-			};
-		}),
+			},
+		};
+	}
+	const replacesCurrentIncarnation =
+		currentIdentity !== undefined && sameProcessWithSupersededIncarnation(currentIdentity, input.processIdentity);
+	if (currentOwnerAlive && !replacesCurrentIncarnation) {
+		return { result: { ok: false, error: "ownership_held" } };
+	}
+	const updatedAgent = {
+		...agentRead.agent,
+		revision: Number(agentRead.agent.revision) + 1,
+		updatedAt: input.nowIso,
+	};
+	return {
+		plan: {
+			agentData: agentRead.data,
+			ownership,
+			processIdentityData: serializeProcessIdentity(input.processIdentity),
+			supervisorAuthority,
+			updatedAgent,
+			updatedAgentData: JSON.stringify(updatedAgent),
+		},
+	};
+}
+
+function readAttachedRuntimeAgent(db: SqliteDatabase, sessionPath: string, agentId: string): AttachedRuntimeAgentRead {
+	const row = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(sessionPath, agentId) as { data: string } | undefined;
+	if (!row) return { ok: false, error: "agent_not_found" };
+	const context = `multi_agent_agents:${sessionPath}#${agentId}`;
+	const agent = parseStoredJsonObject(row.data, context);
+	validatePersistedAgentPayload(agent, context);
+	if (!isRecoverableRuntimeLifecycle(agent.lifecycle)) return { ok: false, error: "invalid_agent" };
+	return { agent, data: row.data, ok: true };
+}
+
+function commitAttachedRuntimeOwnershipAcquisition(
+	db: SqliteDatabase,
+	input: AcquireAttachedRuntimeOwnershipInput,
+	plan: AcquireAttachedRuntimeOwnershipPlan,
+): AcquireAttachedRuntimeOwnershipResult | undefined {
+	const persisted = withImmediateTransaction(db, () => {
+		if (!supervisorSessionAuthorityIsCurrent(db, input.sessionPath, input.supervisor, plan.supervisorAuthority)) {
+			return { ok: false, error: "mutation_mismatch" } as const;
+		}
+		const row = db
+			.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+			.get(input.sessionPath, input.agentId) as { data: string } | undefined;
+		if (!row) return { ok: false, error: "agent_not_found" } as const;
+		if (row.data !== plan.agentData) return undefined;
+		const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+		if (!multiAgentRuntimeOwnershipRowsEqual(plan.ownership, ownership)) return undefined;
+		persistAttachedRuntimeOwnershipAcquisition(db, input, plan);
+		return true;
+	});
+	if (persisted !== true) return persisted;
+	return {
+		agent: plan.updatedAgent as unknown as AgentSnapshot,
+		ok: true,
+		ownership: multiAgentRuntimeOwnershipFromInput(input),
+	};
+}
+
+function persistAttachedRuntimeOwnershipAcquisition(
+	db: SqliteDatabase,
+	input: AcquireAttachedRuntimeOwnershipInput,
+	plan: AcquireAttachedRuntimeOwnershipPlan,
+): void {
+	persistAcquiredRuntimeOwnership(db, input, plan.processIdentityData);
+	db.prepare("UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?").run(
+		plan.updatedAgentData,
+		input.nowIso,
+		input.sessionPath,
+		input.agentId,
 	);
 }
 
-function registeredSupervisorOwnsSession(
+function readRegisteredSupervisorSessionAuthority(
 	db: SqliteDatabase,
 	sessionPath: string,
 	supervisor: SupervisorRuntimeOwnership,
-): boolean {
-	if (!isProcessIdentityAlive(supervisor.processIdentity)) return false;
-	const recipientAgentIdKey = supervisor.agentId ?? "";
+): SupervisorSessionAuthoritySnapshot | undefined {
+	if (!isProcessIdentityAlive(supervisor.processIdentity)) return undefined;
+	const authority = readPersistedSupervisorSessionAuthority(db, sessionPath, supervisor);
+	if (!authority) return undefined;
+	try {
+		const listenerIdentity = serializeProcessIdentity(parseProcessIdentity(authority.listener.runtime_instance_id));
+		return listenerIdentity === serializeProcessIdentity(supervisor.processIdentity) ? authority : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function readPersistedSupervisorSessionAuthority(
+	db: SqliteDatabase,
+	sessionPath: string,
+	supervisor: SupervisorRuntimeOwnership,
+): SupervisorSessionAuthoritySnapshot | undefined {
 	const listener = db
 		.prepare(
 			`SELECT runtime_instance_id, session_path, session_path_asserted_at
 			 FROM runtime_mailbox_listeners
 			 WHERE recipient_session_id = ? AND recipient_agent_id_key = ? AND pid = ?`,
 		)
-		.get(supervisor.sessionId, recipientAgentIdKey, supervisor.processIdentity.pid) as
-		| { runtime_instance_id: string | null; session_path: string | null; session_path_asserted_at: string | null }
+		.get(supervisor.sessionId, supervisor.agentId ?? "", supervisor.processIdentity.pid) as
+		| {
+				runtime_instance_id: string | null;
+				session_path: string | null;
+				session_path_asserted_at: string | null;
+		  }
 		| undefined;
-	if (!listener?.runtime_instance_id) return false;
-	if (supervisor.agentId) {
-		const supervisorAgent = db
-			.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-			.get(sessionPath, supervisor.agentId) as { data: string } | undefined;
-		if (!supervisorAgent) return false;
-		const snapshot = parseStoredJsonObject(
-			supervisorAgent.data,
-			`multi_agent_agents:${sessionPath}#${supervisor.agentId}`,
-		) as unknown as AgentSnapshot;
-		if (snapshot.transcript?.sessionId !== supervisor.sessionId || !isActiveLifecycle(snapshot.lifecycle))
-			return false;
-	} else if (listener.session_path !== sessionPath || listener.session_path_asserted_at === null) {
+	if (!listener?.runtime_instance_id) return undefined;
+	if (!supervisor.agentId) {
+		if (listener.session_path !== sessionPath || listener.session_path_asserted_at === null) return undefined;
+		return { listener: { ...listener, runtime_instance_id: listener.runtime_instance_id } };
+	}
+	const supervisorAgent = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(sessionPath, supervisor.agentId) as { data: string } | undefined;
+	if (!supervisorAgent) return undefined;
+	const snapshot = parseStoredJsonObject(
+		supervisorAgent.data,
+		`multi_agent_agents:${sessionPath}#${supervisor.agentId}`,
+	) as unknown as AgentSnapshot;
+	if (snapshot.transcript?.sessionId !== supervisor.sessionId || !isActiveLifecycle(snapshot.lifecycle)) {
+		return undefined;
+	}
+	return {
+		listener: { ...listener, runtime_instance_id: listener.runtime_instance_id },
+		supervisorAgentData: supervisorAgent.data,
+	};
+}
+
+function supervisorSessionAuthorityIsCurrent(
+	db: SqliteDatabase,
+	sessionPath: string,
+	supervisor: SupervisorRuntimeOwnership,
+	expected: SupervisorSessionAuthoritySnapshot,
+): boolean {
+	const listener = db
+		.prepare(
+			`SELECT runtime_instance_id, session_path, session_path_asserted_at
+			 FROM runtime_mailbox_listeners
+			 WHERE recipient_session_id = ? AND recipient_agent_id_key = ? AND pid = ?`,
+		)
+		.get(supervisor.sessionId, supervisor.agentId ?? "", supervisor.processIdentity.pid) as
+		| SupervisorSessionAuthoritySnapshot["listener"]
+		| undefined;
+	if (
+		!listener ||
+		listener.runtime_instance_id !== expected.listener.runtime_instance_id ||
+		listener.session_path !== expected.listener.session_path ||
+		listener.session_path_asserted_at !== expected.listener.session_path_asserted_at
+	) {
 		return false;
 	}
-	try {
-		return (
-			serializeProcessIdentity(parseProcessIdentity(listener.runtime_instance_id)) ===
-			serializeProcessIdentity(supervisor.processIdentity)
-		);
-	} catch {
-		return false;
-	}
+	if (!supervisor.agentId) return expected.supervisorAgentData === undefined;
+	const supervisorAgent = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(sessionPath, supervisor.agentId) as { data: string } | undefined;
+	return supervisorAgent?.data === expected.supervisorAgentData;
 }
 
 function isRecoverableRuntimeLifecycle(value: unknown): boolean {
@@ -4016,7 +5334,11 @@ function isRecoverableRuntimeLifecycle(value: unknown): boolean {
 	);
 }
 
-function persistAcquiredRuntimeOwnership(db: SqliteDatabase, input: MultiAgentRuntimeOwnershipIdentity): void {
+function persistAcquiredRuntimeOwnership(
+	db: SqliteDatabase,
+	input: MultiAgentRuntimeOwnershipIdentity,
+	processIdentityData: string,
+): void {
 	db.prepare(
 		`INSERT INTO multi_agent_runtime_owners (
 			session_path, agent_id, process_identity, owner_session_id, owner_agent_id
@@ -4025,13 +5347,16 @@ function persistAcquiredRuntimeOwnership(db: SqliteDatabase, input: MultiAgentRu
 			process_identity = excluded.process_identity,
 			owner_session_id = excluded.owner_session_id,
 			owner_agent_id = excluded.owner_agent_id`,
-	).run(
-		input.sessionPath,
-		input.agentId,
-		serializeProcessIdentity(input.processIdentity),
-		input.owner.sessionId,
-		input.owner.agentId,
-	);
+	).run(input.sessionPath, input.agentId, processIdentityData, input.owner.sessionId, input.owner.agentId);
+}
+
+function multiAgentRuntimeOwnershipFromInput(input: MultiAgentRuntimeOwnershipIdentity): MultiAgentRuntimeOwnership {
+	return {
+		agentId: input.agentId,
+		owner: input.owner,
+		processIdentity: input.processIdentity,
+		sessionPath: input.sessionPath,
+	};
 }
 
 function readMultiAgentRuntimeOwnershipRow(
@@ -4127,14 +5452,13 @@ function multiAgentActivityOwnershipMatches(
 	);
 }
 
-function permitsMultiAgentCurrentActivity(
-	agent: Record<string, unknown>,
-	metadata:
-		| Pick<AgentSnapshot, "currentActivity">
-		| Pick<AgentSnapshot, "lastActivity">
-		| Pick<AgentSnapshot, "slot">
-		| Pick<AgentSnapshot, "transcript">,
-): boolean {
+type MultiAgentAgentMetadata =
+	| Pick<AgentSnapshot, "currentActivity">
+	| Pick<AgentSnapshot, "lastActivity">
+	| Pick<AgentSnapshot, "slot">
+	| Pick<AgentSnapshot, "transcript">;
+
+function permitsMultiAgentCurrentActivity(agent: Record<string, unknown>, metadata: MultiAgentAgentMetadata): boolean {
 	return (
 		!("currentActivity" in metadata) ||
 		metadata.currentActivity === undefined ||
@@ -4143,36 +5467,117 @@ function permitsMultiAgentCurrentActivity(
 	);
 }
 
+const MULTI_AGENT_METADATA_UPDATE_MAX_ATTEMPTS = 3;
+
+type MultiAgentAgentMetadataRow = {
+	data: string;
+	updated_at: string;
+};
+
 function updateMultiAgentAgentMetadata(
 	controlDbPath: string,
 	sessionPath: string,
 	agentId: string,
-	metadata:
-		| Pick<AgentSnapshot, "currentActivity">
-		| Pick<AgentSnapshot, "lastActivity">
-		| Pick<AgentSnapshot, "slot">
-		| Pick<AgentSnapshot, "transcript">,
+	metadata: MultiAgentAgentMetadata,
 	updatedAt: string,
 	activityOwnership?: { ownerSessionId: string; processIdentity: ProcessIdentity },
 ): AgentSnapshot | undefined {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
+	return withControlDb(controlDbPath, (db) => {
+		for (let attempt = 1; attempt <= MULTI_AGENT_METADATA_UPDATE_MAX_ATTEMPTS; attempt += 1) {
 			const row = db
-				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-				.get(sessionPath, agentId) as { data: string } | undefined;
+				.prepare("SELECT data, updated_at FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+				.get(sessionPath, agentId) as MultiAgentAgentMetadataRow | undefined;
 			if (!row) return undefined;
-			const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${agentId}`);
-			validatePersistedAgentPayload(agent, `multi_agent_agents:${sessionPath}#${agentId}`);
+			const context = `multi_agent_agents:${sessionPath}#${agentId}`;
+			const agent = parseStoredJsonObject(row.data, context);
+			validatePersistedAgentPayload(agent, context);
 			if (activityOwnership && !multiAgentActivityOwnershipMatches(db, sessionPath, agentId, activityOwnership)) {
 				return undefined;
 			}
 			if (!permitsMultiAgentCurrentActivity(agent, metadata)) return undefined;
 			const updated = { ...agent, ...metadata, updatedAt } as AgentSnapshot;
-			db.prepare(
-				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updated), updatedAt, sessionPath, agentId);
-			return updated;
-		}),
+			if (compareAndUpdateMultiAgentAgentMetadata(db, sessionPath, agentId, row, updated, activityOwnership)) {
+				return updated;
+			}
+		}
+		throw new Error(`Multi-agent metadata changed repeatedly while updating ${sessionPath}#${agentId}`);
+	});
+}
+
+type MultiAgentMetadataWrite = {
+	agentId: string;
+	previous: MultiAgentAgentMetadataRow;
+	serialized: string;
+	sessionPath: string;
+	updatedAt: string;
+};
+
+function compareAndUpdateMultiAgentAgentMetadata(
+	db: SqliteDatabase,
+	sessionPath: string,
+	agentId: string,
+	row: MultiAgentAgentMetadataRow,
+	updated: AgentSnapshot,
+	activityOwnership?: { ownerSessionId: string; processIdentity: ProcessIdentity },
+): boolean {
+	const write: MultiAgentMetadataWrite = {
+		agentId,
+		previous: row,
+		serialized: JSON.stringify(updated),
+		sessionPath,
+		updatedAt: updated.updatedAt,
+	};
+	return activityOwnership
+		? compareAndUpdateOwnedMultiAgentMetadata(db, write, activityOwnership)
+		: compareAndUpdateMultiAgentMetadataSnapshot(db, write);
+}
+
+function compareAndUpdateMultiAgentMetadataSnapshot(db: SqliteDatabase, write: MultiAgentMetadataWrite): boolean {
+	return (
+		db
+			.prepare(
+				`UPDATE multi_agent_agents SET data = ?, updated_at = ?
+				 WHERE session_path = ? AND agent_id = ? AND data = ? AND updated_at = ?`,
+			)
+			.run(
+				write.serialized,
+				write.updatedAt,
+				write.sessionPath,
+				write.agentId,
+				write.previous.data,
+				write.previous.updated_at,
+			).changes === 1
+	);
+}
+
+function compareAndUpdateOwnedMultiAgentMetadata(
+	db: SqliteDatabase,
+	write: MultiAgentMetadataWrite,
+	ownership: { ownerSessionId: string; processIdentity: ProcessIdentity },
+): boolean {
+	return (
+		db
+			.prepare(
+				`UPDATE multi_agent_agents SET data = ?, updated_at = ?
+				 WHERE session_path = ? AND agent_id = ? AND data = ? AND updated_at = ?
+				 AND EXISTS (
+					SELECT 1 FROM multi_agent_runtime_owners
+					WHERE session_path = ? AND agent_id = ? AND owner_session_id = ?
+					AND owner_agent_id IS NULL AND process_identity = ?
+				 )`,
+			)
+			.run(
+				write.serialized,
+				write.updatedAt,
+				write.sessionPath,
+				write.agentId,
+				write.previous.data,
+				write.previous.updated_at,
+				write.sessionPath,
+				write.agentId,
+				ownership.ownerSessionId,
+				serializeProcessIdentity(ownership.processIdentity),
+			).changes === 1
 	);
 }
 
@@ -4181,19 +5586,39 @@ export function bootstrapMultiAgentAgent(controlDbPath: string, sessionPath: str
 		throw new Error(`Invalid persisted agent payload at multi_agent_agents:${sessionPath}#${id}`);
 	}
 	validatePersistedAgentPayload(data as Record<string, unknown>, `multi_agent_agents:${sessionPath}#${id}`);
-	withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			if (readMultiAgentRuntimeOwnershipRow(db, sessionPath, id)) {
-				throw new Error(`Generic agent upsert cannot mutate process-owned lifecycle row ${sessionPath}#${id}`);
-			}
-			db.prepare(
-				`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
-				 VALUES (?, ?, ?, ?)
-				 ON CONFLICT(session_path, agent_id) DO UPDATE SET
-				 data = excluded.data, updated_at = excluded.updated_at`,
-			).run(sessionPath, id, JSON.stringify(data), new Date().toISOString());
-		}),
-	);
+	const serialized = JSON.stringify(data);
+	const updatedAt = new Date().toISOString();
+	withControlDb(controlDbPath, (db) => upsertUnownedMultiAgentAgent(db, sessionPath, id, serialized, updatedAt));
+}
+
+function upsertUnownedMultiAgentAgent(
+	db: SqliteDatabase,
+	sessionPath: string,
+	agentId: string,
+	serializedAgent: string,
+	updatedAt: string,
+): void {
+	if (readMultiAgentRuntimeOwnershipRow(db, sessionPath, agentId)) {
+		throw new Error(`Generic agent upsert cannot mutate process-owned lifecycle row ${sessionPath}#${agentId}`);
+	}
+	const result = db
+		.prepare(
+			`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
+			 SELECT ?, ?, ?, ?
+			 WHERE NOT EXISTS (
+				SELECT 1 FROM multi_agent_runtime_owners WHERE session_path = ? AND agent_id = ?
+			 )
+			 ON CONFLICT(session_path, agent_id) DO UPDATE SET
+				data = excluded.data,
+				updated_at = excluded.updated_at
+			 WHERE NOT EXISTS (
+				SELECT 1 FROM multi_agent_runtime_owners WHERE session_path = ? AND agent_id = ?
+			 )`,
+		)
+		.run(sessionPath, agentId, serializedAgent, updatedAt, sessionPath, agentId, sessionPath, agentId);
+	if (result.changes !== 1) {
+		throw new Error(`Generic agent upsert cannot mutate process-owned lifecycle row ${sessionPath}#${agentId}`);
+	}
 }
 
 interface PersistedAgentRow {
@@ -4201,6 +5626,24 @@ interface PersistedAgentRow {
 	agent_id: string;
 	data: string;
 }
+
+const MULTI_AGENT_MAILBOX_UPSERT_MAX_ATTEMPTS = 3;
+
+type ParentRequestTargetSnapshot = {
+	agentId: string;
+	data: string;
+};
+
+type MultiAgentMailboxRowSnapshot = {
+	data: string;
+	updated_at: string;
+};
+
+type MultiAgentMailboxUpsertPlan = {
+	existing: MultiAgentMailboxRowSnapshot | undefined;
+	parentTarget: ParentRequestTargetSnapshot | undefined;
+	serialized: string;
+};
 
 export function upsertMultiAgentMailboxMessage(
 	controlDbPath: string,
@@ -4210,36 +5653,98 @@ export function upsertMultiAgentMailboxMessage(
 ): void {
 	validateMailboxPayload(data, `multi_agent_mailbox_messages:${sessionPath}#${id}`);
 	withControlDb(controlDbPath, (db) => {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			validateParentRequestTarget(db, sessionPath, data);
-			let serialized = JSON.stringify(data);
-			const existing = db
-				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
-				.get(sessionPath, id) as { data: string } | undefined;
-			if (existing) {
-				const previous = parseJsonObject(existing.data);
-				const next = parseJsonObject(serialized);
-				if (!previous || !next || !sameMailboxMessageIdentity(previous, next, id)) {
-					throw new Error(`Mailbox message ID collision: ${sessionPath}#${id}`);
-				}
-				serialized = JSON.stringify(mergeCanonicalMailboxUpdate(previous, next));
-			}
-			db.prepare(
-				`
-				INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
-				VALUES (?, ?, ?, ?)
-				ON CONFLICT(session_path, message_id) DO UPDATE SET
+		for (let attempt = 1; attempt <= MULTI_AGENT_MAILBOX_UPSERT_MAX_ATTEMPTS; attempt += 1) {
+			const plan = prepareMultiAgentMailboxUpsert(db, sessionPath, id, data);
+			if (plan.existing?.data === plan.serialized) return;
+			if (commitMultiAgentMailboxUpsert(db, sessionPath, id, plan)) return;
+		}
+		throw new Error(`Mailbox message changed repeatedly while updating ${sessionPath}#${id}`);
+	});
+}
+
+function prepareMultiAgentMailboxUpsert(
+	db: SqliteDatabase,
+	sessionPath: string,
+	id: string,
+	data: unknown,
+): MultiAgentMailboxUpsertPlan {
+	const parentTarget = readParentRequestTargetSnapshot(db, sessionPath, data);
+	const existing = readMultiAgentMailboxRowSnapshot(db, sessionPath, id);
+	let serialized = JSON.stringify(data);
+	if (existing) {
+		const previous = parseJsonObject(existing.data);
+		const next = parseJsonObject(serialized);
+		if (!previous || !next || !sameMailboxMessageIdentity(previous, next, id)) {
+			throw new Error(`Mailbox message ID collision: ${sessionPath}#${id}`);
+		}
+		serialized = JSON.stringify(mergeCanonicalMailboxUpdate(previous, next));
+	}
+	return { existing, parentTarget, serialized };
+}
+
+function commitMultiAgentMailboxUpsert(
+	db: SqliteDatabase,
+	sessionPath: string,
+	id: string,
+	plan: MultiAgentMailboxUpsertPlan,
+): boolean {
+	const hasParentTarget = plan.parentTarget ? 1 : 0;
+	const hasExisting = plan.existing ? 1 : 0;
+	return (
+		db
+			.prepare(
+				`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+				 SELECT ?, ?, ?, ?
+				 WHERE (? = 0 OR EXISTS (
+					SELECT 1 FROM multi_agent_agents
+					WHERE session_path = ? AND agent_id = ? AND data = ?
+				 ))
+				 AND ((? = 0 AND NOT EXISTS (
+					SELECT 1 FROM multi_agent_mailbox_messages
+					WHERE session_path = ? AND message_id = ?
+				 )) OR (? = 1 AND EXISTS (
+					SELECT 1 FROM multi_agent_mailbox_messages
+					WHERE session_path = ? AND message_id = ? AND data = ? AND updated_at = ?
+				 )))
+				 ON CONFLICT(session_path, message_id) DO UPDATE SET
 					data = excluded.data,
 					updated_at = excluded.updated_at
-				`,
-			).run(sessionPath, id, serialized, new Date().toISOString());
-			db.exec("COMMIT");
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
-	});
+				 WHERE ? = 1
+				 AND multi_agent_mailbox_messages.data = ?
+				 AND multi_agent_mailbox_messages.updated_at = ?`,
+			)
+			.run(
+				sessionPath,
+				id,
+				plan.serialized,
+				new Date().toISOString(),
+				hasParentTarget,
+				sessionPath,
+				plan.parentTarget?.agentId ?? null,
+				plan.parentTarget?.data ?? null,
+				hasExisting,
+				sessionPath,
+				id,
+				hasExisting,
+				sessionPath,
+				id,
+				plan.existing?.data ?? null,
+				plan.existing?.updated_at ?? null,
+				hasExisting,
+				plan.existing?.data ?? null,
+				plan.existing?.updated_at ?? null,
+			).changes === 1
+	);
+}
+
+function readMultiAgentMailboxRowSnapshot(
+	db: SqliteDatabase,
+	sessionPath: string,
+	id: string,
+): MultiAgentMailboxRowSnapshot | undefined {
+	return db
+		.prepare("SELECT data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+		.get(sessionPath, id) as MultiAgentMailboxRowSnapshot | undefined;
 }
 
 function mergeCanonicalMailboxUpdate(
@@ -4348,19 +5853,33 @@ function updateMultiAgentMailboxMessageStatus(
 	});
 }
 
-function validateParentRequestTarget(db: SqliteDatabase, sessionPath: string, data: unknown): void {
-	if (!data || typeof data !== "object" || Array.isArray(data)) return;
+function readParentRequestTargetSnapshot(
+	db: SqliteDatabase,
+	sessionPath: string,
+	data: unknown,
+): ParentRequestTargetSnapshot | undefined {
+	if (!data || typeof data !== "object" || Array.isArray(data)) return undefined;
 	const payload = data as Record<string, unknown>;
-	if (payload.kind !== "parent_request") return;
+	if (payload.kind !== "parent_request") return undefined;
 	const fromAgentId = requireStringField(payload, "fromAgentId", "parent_request");
 	const toAgentId = requireStringField(payload, "toAgentId", "parent_request");
-	const row = db
-		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-		.get(sessionPath, fromAgentId) as { data: string } | undefined;
+	const row = readParentRequestTargetRow(db, sessionPath, fromAgentId);
 	const sender = row ? parseJsonObject(row.data) : undefined;
 	if (!sender || sender.parentId !== toAgentId) {
 		throw new Error(`Invalid parent request target at ${sessionPath}#${fromAgentId}`);
 	}
+	return row;
+}
+
+function readParentRequestTargetRow(
+	db: SqliteDatabase,
+	sessionPath: string,
+	agentId: string,
+): ParentRequestTargetSnapshot | undefined {
+	const row = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(sessionPath, agentId) as { data: string } | undefined;
+	return row ? { agentId, data: row.data } : undefined;
 }
 
 function validateMailboxPayload(data: unknown, context: string): void {
@@ -4487,14 +6006,21 @@ export function writeMultiAgentCounters(
 
 export type MultiAgentCounterName = "agent" | "message";
 
-type MultiAgentCounterRow = {
-	next_agent_number: number;
-	next_message_number: number;
-};
-
-const MULTI_AGENT_COUNTER_COLUMNS: Record<MultiAgentCounterName, keyof MultiAgentCounterRow> = {
-	agent: "next_agent_number",
-	message: "next_message_number",
+const MULTI_AGENT_COUNTER_ALLOCATION_SQL: Record<MultiAgentCounterName, string> = {
+	agent: `INSERT INTO multi_agent_counters_v2
+		(session_path, next_agent_number, next_message_number, updated_at)
+		VALUES (?, 2, 1, ?)
+		ON CONFLICT(session_path) DO UPDATE SET
+			next_agent_number = next_agent_number + 1,
+			updated_at = excluded.updated_at
+		RETURNING next_agent_number - 1 AS value`,
+	message: `INSERT INTO multi_agent_counters_v2
+		(session_path, next_agent_number, next_message_number, updated_at)
+		VALUES (?, 1, 2, ?)
+		ON CONFLICT(session_path) DO UPDATE SET
+			next_message_number = next_message_number + 1,
+			updated_at = excluded.updated_at
+		RETURNING next_message_number - 1 AS value`,
 };
 
 export function allocateMultiAgentCounter(
@@ -4502,35 +6028,19 @@ export function allocateMultiAgentCounter(
 	sessionPath: string,
 	counterName: MultiAgentCounterName,
 ): number {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => allocateMultiAgentCounterInTransaction(db, sessionPath, counterName)),
-	);
+	return withControlDb(controlDbPath, (db) => allocateMultiAgentCounterWithDb(db, sessionPath, counterName));
 }
 
-function allocateMultiAgentCounterInTransaction(
+function allocateMultiAgentCounterWithDb(
 	db: SqliteDatabase,
 	sessionPath: string,
 	counterName: MultiAgentCounterName,
 ): number {
-	const column = MULTI_AGENT_COUNTER_COLUMNS[counterName];
-	const row = db
-		.prepare("SELECT next_agent_number, next_message_number FROM multi_agent_counters_v2 WHERE session_path = ?")
-		.get(sessionPath) as MultiAgentCounterRow | undefined;
-	const counters = {
-		next_agent_number: row?.next_agent_number ?? 1,
-		next_message_number: row?.next_message_number ?? 1,
-	};
-	const allocated = counters[column];
-	counters[column] = allocated + 1;
-	db.prepare(
-		`INSERT INTO multi_agent_counters_v2 (session_path, next_agent_number, next_message_number, updated_at)
-		 VALUES (?, ?, ?, ?)
-		 ON CONFLICT(session_path) DO UPDATE SET
-		  next_agent_number = excluded.next_agent_number,
-		  next_message_number = excluded.next_message_number,
-		  updated_at = excluded.updated_at`,
-	).run(sessionPath, counters.next_agent_number, counters.next_message_number, new Date().toISOString());
-	return allocated;
+	const row = db.prepare(MULTI_AGENT_COUNTER_ALLOCATION_SQL[counterName]).get(sessionPath, new Date().toISOString()) as
+		| { value: number }
+		| undefined;
+	if (!row) throw new Error(`Multi-agent ${counterName} counter allocation returned no value for ${sessionPath}`);
+	return row.value;
 }
 
 export function readMultiAgentAgent(
@@ -4958,50 +6468,94 @@ function migrateLegacyMultiAgentCounters(db: SqliteDatabase): void {
 	db.exec("DROP TABLE IF EXISTS multi_agent_artifacts");
 }
 
+type LifecycleMigrationOwnerTableState = {
+	kind: "missing" | "without_process_identity" | "with_process_identity";
+	processIdentities: string[];
+};
+
+type LifecycleProtocolMigrationState = {
+	ownerTables: Record<"multi_agent_dispatch_leases" | "multi_agent_runtime_owners", LifecycleMigrationOwnerTableState>;
+	runtimePids: number[];
+};
+
 function migrateLegacyMultiAgentPayloads(db: SqliteDatabase, selfRestartProcessId?: number): void {
 	const schemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
 	if (schemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) return;
+	const migrationState = readLifecycleProtocolMigrationState(db);
+	assertLifecycleProtocolMigrationQuiescent(migrationState, selfRestartProcessId);
+	const migrationTimestamp = new Date().toISOString();
 
 	withImmediateTransaction(db, () => {
 		const currentSchemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
 		if (currentSchemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) return;
-		assertLifecycleProtocolMigrationQuiescent(db, selfRestartProcessId);
+		const currentMigrationState = readLifecycleProtocolMigrationState(db);
+		if (!lifecycleProtocolMigrationStatesEqual(migrationState, currentMigrationState)) {
+			throw new Error("Lifecycle protocol migration state changed while acquiring the writer lock; retry");
+		}
 
 		migrateLegacyMultiAgentCounters(db);
 		dropLifecycleAccessControlTriggers(db);
 		db.exec("DROP TABLE IF EXISTS multi_agent_recovery_leader");
 		migrateTerminalOutboxSchema(db);
 		migrateRuntimeOwnerTable(db);
-		const now = new Date().toISOString();
-		migrateLegacyLifecycleRows(db, now);
-		migrateLegacyMultiAgentPayloadTable(db, "multi_agent_agents", "agent_id", now);
-		migrateLegacyMultiAgentPayloadTable(db, "multi_agent_mailbox_messages", "message_id", now);
-		migrateLegacyRuntimeMailboxMessages(db, now);
+		migrateLegacyLifecycleRows(db, migrationTimestamp);
+		migrateLegacyMultiAgentPayloadTable(db, "multi_agent_agents", "agent_id", migrationTimestamp);
+		migrateLegacyMultiAgentPayloadTable(db, "multi_agent_mailbox_messages", "message_id", migrationTimestamp);
+		migrateLegacyRuntimeMailboxMessages(db, migrationTimestamp);
 		createLegacyArtifactFieldTriggers(db);
 		db.exec(`PRAGMA user_version = ${CONTROL_DB_SCHEMA_VERSION}`);
 	});
 }
 
-function assertLifecycleProtocolMigrationQuiescent(db: SqliteDatabase, selfRestartProcessId?: number): void {
-	const rows = db
-		.prepare(
-			`SELECT pid FROM runtime_mailbox_listeners
-			 UNION
-			 SELECT pid FROM session_health WHERE pid IS NOT NULL`,
-		)
-		.all() as Array<{ pid: number }>;
-	const liveRuntimePids = rows.map((row) => row.pid).filter(isPiRuntimeProcessAlive);
-	for (const tableName of ["multi_agent_runtime_owners", "multi_agent_dispatch_leases"] as const) {
-		const tableExists = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName);
-		if (!tableExists) continue;
-		const ownerColumns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
-		if (!ownerColumns.some((column) => column.name === "process_identity")) continue;
-		const owners = db
-			.prepare(`SELECT process_identity FROM ${tableName} WHERE process_identity IS NOT NULL`)
-			.all() as Array<{ process_identity: string }>;
-		for (const owner of owners) {
+function readLifecycleProtocolMigrationState(db: SqliteDatabase): LifecycleProtocolMigrationState {
+	const runtimePids = (
+		db
+			.prepare(
+				`SELECT pid FROM runtime_mailbox_listeners
+				 UNION
+				 SELECT pid FROM session_health WHERE pid IS NOT NULL
+				 ORDER BY pid`,
+			)
+			.all() as Array<{ pid: number }>
+	).map((row) => row.pid);
+	return {
+		ownerTables: {
+			multi_agent_dispatch_leases: readLifecycleMigrationOwnerTableState(db, "multi_agent_dispatch_leases"),
+			multi_agent_runtime_owners: readLifecycleMigrationOwnerTableState(db, "multi_agent_runtime_owners"),
+		},
+		runtimePids,
+	};
+}
+
+function readLifecycleMigrationOwnerTableState(
+	db: SqliteDatabase,
+	tableName: "multi_agent_dispatch_leases" | "multi_agent_runtime_owners",
+): LifecycleMigrationOwnerTableState {
+	const tableExists = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName);
+	if (!tableExists) return { kind: "missing", processIdentities: [] };
+	const ownerColumns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+	if (!ownerColumns.some((column) => column.name === "process_identity")) {
+		return { kind: "without_process_identity", processIdentities: [] };
+	}
+	const processIdentities = (
+		db
+			.prepare(
+				`SELECT process_identity FROM ${tableName} WHERE process_identity IS NOT NULL ORDER BY process_identity`,
+			)
+			.all() as Array<{ process_identity: string }>
+	).map((owner) => owner.process_identity);
+	return { kind: "with_process_identity", processIdentities };
+}
+
+function assertLifecycleProtocolMigrationQuiescent(
+	state: LifecycleProtocolMigrationState,
+	selfRestartProcessId?: number,
+): void {
+	const liveRuntimePids = state.runtimePids.filter(isPiRuntimeProcessAlive);
+	for (const tableState of Object.values(state.ownerTables)) {
+		for (const serializedIdentity of tableState.processIdentities) {
 			try {
-				const identity = parseProcessIdentity(owner.process_identity);
+				const identity = parseProcessIdentity(serializedIdentity);
 				if (isProcessIdentityAlive(identity)) liveRuntimePids.push(identity.pid);
 			} catch {
 				// Pre-v11 runtime identities did not contain OS process identity.
@@ -5010,10 +6564,37 @@ function assertLifecycleProtocolMigrationQuiescent(db: SqliteDatabase, selfResta
 	}
 	const uniqueLivePids = [...new Set(liveRuntimePids)].filter((pid) => pid !== selfRestartProcessId);
 	if (uniqueLivePids.length === 0) return;
-
 	throw new Error(
 		`Cannot activate lifecycle protocol version ${CONTROL_DB_SCHEMA_VERSION} while lifecycle owners are active (PIDs: ${uniqueLivePids.join(", ")}). Stop all Pi and detached runner processes, then retry`,
 	);
+}
+
+function lifecycleProtocolMigrationStatesEqual(
+	expected: LifecycleProtocolMigrationState,
+	current: LifecycleProtocolMigrationState,
+): boolean {
+	return (
+		lifecycleMigrationOwnerTableStatesEqual(
+			expected.ownerTables.multi_agent_dispatch_leases,
+			current.ownerTables.multi_agent_dispatch_leases,
+		) &&
+		lifecycleMigrationOwnerTableStatesEqual(
+			expected.ownerTables.multi_agent_runtime_owners,
+			current.ownerTables.multi_agent_runtime_owners,
+		) &&
+		arraysEqual(expected.runtimePids, current.runtimePids)
+	);
+}
+
+function lifecycleMigrationOwnerTableStatesEqual(
+	expected: LifecycleMigrationOwnerTableState,
+	current: LifecycleMigrationOwnerTableState,
+): boolean {
+	return expected.kind === current.kind && arraysEqual(expected.processIdentities, current.processIdentities);
+}
+
+function arraysEqual<T>(expected: T[], current: T[]): boolean {
+	return expected.length === current.length && expected.every((value, index) => value === current[index]);
 }
 
 function migrateTerminalOutboxSchema(db: SqliteDatabase): void {

@@ -71,14 +71,22 @@ incarnation identifies one loaded Pi runtime and changes across an exec-in-place
 PID and `startTimeTicks` stay unchanged. Repository code reads
 and increments revision inside the SQLite transaction; callers never supply it. A terminal retry is
 valid only when it is an idempotent replay of the same committed terminal row and notification.
+Detachment marking validates lifecycle and exact ownership without waiting for an unrelated SQLite
+writer; a valid mark then commits the detached flag and revision atomically, while stale or foreign
+ownership is rejected without side effects. Repeating an already committed mark returns the existing
+agent state.
 
 Dispatch and graph invariants:
 
 - Child session construction occurs before persistence. On success, the child row, its single parent link,
   exact process ownership, `running` lifecycle, and revision 1 commit atomically. Construction interruption
   or failure persists `failed` revision 1 with the construction error; no persisted `queued` or `starting`
-  startup row exists. Parent links cannot self-reference or form cycles, and child/attachment creation
-  transactionally rejects a parent that is already terminal.
+  startup row exists. Parent links cannot self-reference or form cycles. Child creation preflights parent
+  lifecycle and uniqueness read-only, then revalidates the exact parent snapshot in the atomic child-plus-
+  ownership commit. Failed-child creation uses the same exact-parent CAS before atomically persisting the
+  failed child and terminal outbox. Attachment payload, ID, origin, lifecycle, revision, and serialization
+  complete before writer acquisition; parent lifecycle, permission, and uniqueness validation runs read-only,
+  then the exact parent snapshot is revalidated in the atomic attachment insert.
 - Each main-session and spawned or attached child-agent thinking phase has a 15-minute deadline. Tool execution clears the deadline and remains uncapped; when the last active tool finishes or steering starts another model turn, a fresh thinking deadline begins. Expiry aborts the active turn. Main sessions report `Main session thinking phase exceeded 15 minutes`; child sessions terminalize without waiting for provider cooperation and finalize as `failed` with `Child agent thinking phase exceeded 15 minutes`. Agent end, cancellation, disposal, and restoration replacement clear the prior timer. Observer runtimes are excluded, and the deadline is per thinking phase rather than a total request or turn timeout.
 - Parent cancellation cascades as cancellation intents to active descendants, but each descendant
   reaches a terminal state through its own exact-owner command. An owned child runtime gets a bounded
@@ -109,10 +117,29 @@ wall-clock time, or mailbox delivery:
    the ownership predicate and cannot rewrite the agent row or notification identity.
 
 A runtime cannot commit `waiting_for_input` or natural `completed` while lifecycle is
-`steering_pending`. Steering enqueue, lifecycle transition, and terminal mutation serialize through
-immediate SQLite transactions: steering that commits first keeps the agent active until delivery is
-acknowledged back to `running`; only then may it become idle or terminal. Steering attempted after a
-terminal commit receives an explicit inactive-agent rejection rather than being silently dropped.
+`steering_pending`. Lifecycle ownership and transition validation, including detached-cancellation
+payload preparation, run before the writer transaction so unrelated writers are not blocked; the commit
+revalidates the exact agent snapshot and owner predicate and atomically persists the lifecycle update plus
+cancellation command. Steering authority validation likewise reads the agent, exact ownership, sender and
+recipient listener identities, and transition legality before reserving the writer; agent serialization and
+mailbox JSON/routing preparation run read-only before the coupled transaction. Message-counter allocation
+remains inside that transaction so rollback preserves numbering and agent/mailbox atomicity. The commit
+revalidates those snapshots and atomically updates the agent and persists the prepared mailbox payload.
+Steering delivery likewise validates the agent, exact ownership, transition, and canonical message
+payload before reserving the writer; the commit revalidates both payload snapshots and atomically updates the
+agent and message rows. Terminal mutation preflights exact ownership, replay identity, transition legality,
+and descendant state read-only; its commit revalidates the agent snapshot and owner predicate, recursively
+rechecks that no persisted descendant is nonterminal, and atomically persists the terminal agent and one
+outbox row. Detached-job finalization resolves the candidate session path from exact ownership rows and
+preflights path uniqueness, replay identity, terminal payload, lifecycle, ownership, and descendant state
+read-only. Its commit revalidates unique ownership, the agent snapshot, and recursive descendant absence in
+one CAS fence, then atomically persists the terminal agent, outbox row, and optional detached transport
+insert. Detached terminal/recovery transport JSON and routing are prepared before the transaction; only the
+prepared canonical insert is coupled to terminal state. Exact replays return the existing terminal result
+without reserving the writer. Steering enqueue, lifecycle transition, and terminal mutation serialize through immediate SQLite
+transactions: steering that commits first keeps the agent active until delivery is acknowledged back to
+`running`; only then may it become idle or terminal. Steering attempted after a terminal commit receives
+an explicit inactive-agent rejection rather than being silently dropped.
 
 Every terminal transition updates the agent row and revision and enqueues exactly one pending completion
 or failure notification in the same SQLite transaction. The agent row is terminal truth; the outbox is
@@ -128,8 +155,10 @@ transaction and cannot rewrite lifecycle or revision from a stale in-memory proj
 writes its runtime-only worker-handle cleanup back to lifecycle storage. Mailbox/contact activity metadata
 uses the same merge rule and no longer advances the lifecycle revision token. Pinned-slot metadata follows
 the same rule, including clear operations. Generic full-row agent upsert is limited to unowned
-bootstrap/migration rows through the explicitly named `bootstrapMultiAgentAgent` API and rejects
-every row after runtime ownership exists. Repository transactions read current revision internally and
+bootstrap/migration rows through the explicitly named `bootstrapMultiAgentAgent` API. It validates
+process-owned-row rejection from read-only state, then uses one ownership-guarded upsert for an
+unowned row; the same guard rejects ownership appearing between preflight and write. Repository
+transactions read current revision internally and
 re-check exact session/agent/process ownership before lifecycle writes; callers never supply revision.
 Schema-version startup checks reject incompatible runtimes. A source-scan test checks the allowlisted
 production call sites for lifecycle writers; it is a static guard, not the runtime authority boundary.
@@ -174,7 +203,11 @@ Detached runner recovery does not reconstruct terminal state from artifacts. The
 finalizes from its in-memory identity, outcome, and output metadata. The output artifact is diagnostic
 only. If the runner dies before its terminal commit, dead-owner recovery uses the exact persisted
 process identity to mark a `running` agent `failed/lost_runtime`; it does not replay or infer a terminal
-result from the output file. If the persisted lifecycle already recorded a cancellation intent
+result from the output file. Recovery preflights supervisor authority, exact owner/liveness, and recursive
+descendant state read-only; commit-time CAS revalidates persisted authority, ownership, the agent snapshot,
+and descendant absence, then atomically releases ownership and persists terminal state, its outbox row,
+and any prepared detached transport insert. Detached transport JSON and routing are prepared before the
+transaction; the canonical insert remains coupled to recovery state. If the persisted lifecycle already recorded a cancellation intent
 (`cancelling`), dead-owner recovery settles that intent as `aborted/lost_runtime` — still without replaying
 or inferring a result. A cancellation committed before a pending natural-result
 finalizer still wins by transaction order; outside dead-owner recovery, `aborted` requires the exact

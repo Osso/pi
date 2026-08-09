@@ -24,6 +24,11 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
   messages.
 - [x] Allow a claimed incoming message to be marked completed after it is
   submitted to the agent.
+- [x] Renew Architect request claims by deduplicating request IDs before persistence,
+  applying one set-based update, and validating every requested row in the same
+  immediate transaction. Completed rows remain acceptable; any missing, foreign,
+  or otherwise lost claim rolls back the entire renewal. Architect and Supervisor claim result rows are mapped to
+  public request objects after the transaction releases the writer slot.
 - [x] Claim, release, fail, and deliver runtime-directed messages only on their canonical `multi_agent_mailbox_messages` row. Claims record exact process identity and are reclaimable only after that exact process dies.
 - [x] Store only the latest assistant message for external readers.
 - [x] Provide `pi control send`, `pi control restart --session-id <session-id>`,
@@ -50,23 +55,68 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       selects the session's rows. Runtime ownership acquisition is transactional and stores the exact Linux
       process identity `(pid, /proc/<pid>/stat startTimeTicks)`; a live exact owner rejects replacement,
       while a dead identity permits takeover without timers, heartbeats, expiry, renewal, lease IDs, or
-      fencing counters. Session-owned agents recover through the registered owning supervisor; startup also
-      globally reconciles exact dead detached runners without a recovery-leader lease. Lifecycle transactions read revision internally, verify session/agent/
-      process ownership, update the agent row, and enqueue one pending completion notification in the same
-      immediate SQLite transaction. The agent row is terminal truth; the outbox is only a delivery queue.
+      fencing counters. Attached ownership acquisition preflights supervisor, agent, ownership, and
+      process-liveness state read-only, returns an unchanged exact existing ownership without reserving the
+      writer lock, and revalidates the supervisor, agent payload snapshot, and ownership snapshot before
+      atomically taking over ownership and advancing the agent revision. Session-owned agents recover through
+      the registered owning supervisor; startup also
+      globally reconciles exact dead detached runners without a recovery-leader lease. Lifecycle mutations
+      validate the agent, exact process ownership, and requested transition from read-only snapshots, and
+      prepare any detached-cancellation payload before reserving the writer; the commit revalidates the exact
+      agent snapshot and owner predicate, then atomically updates lifecycle state and persists the cancellation
+      command. Steering mutations likewise validate the agent, exact ownership, transition, and sender/
+      recipient listener identities before reserving the writer; agent serialization plus mailbox JSON and routing
+      preparation run read-only before the coupled transaction. The prepared mailbox uses a validated generated-ID
+      template; message-counter allocation remains inside that transaction, where the allocated ID is spliced into
+      the template, so rollback preserves numbering and agent/mailbox atomicity. The commit revalidates those
+      snapshots and atomically updates the agent and persists the prepared canonical mailbox payload.
+      Steering delivery validates the agent, exact ownership, transition, and canonical message payload before
+      reserving the writer; the commit revalidates both payload snapshots and atomically updates the agent and
+      message rows. Terminal mutation preflights exact ownership, replay identity, transition legality, and
+      descendant state read-only; its commit revalidates the agent snapshot and owner predicate, recursively
+      rechecks that no persisted descendant is nonterminal, and atomically persists the terminal agent and one
+      outbox row. Detached-job finalization resolves the candidate session path from exact ownership rows and
+      preflights path uniqueness, replay identity, terminal payload, lifecycle, ownership, and descendant state
+      read-only. Its commit revalidates unique ownership, the agent snapshot, and recursive descendant absence in
+      one CAS fence, then atomically persists the terminal agent, outbox row, and optional detached transport
+      insert. Detached terminal/recovery transport JSON and routing are prepared before the transaction; only the direct insert of the prepared canonical
+      transport payload is coupled to terminal state. Exact replays return the existing terminal result
+      without reserving the writer. Lifecycle transactions read revision internally, verify session/agent/process ownership, update
+      the agent row, and enqueue one pending completion notification in the same immediate SQLite transaction.
+      The agent row is terminal truth; the outbox is only a delivery queue.
       Exact retries return the committed terminal revision without rewriting rows; conflicting predicates fail
       without creating another notification. Outbox rows use atomic single-claim delivery; failures return
       the same row to pending with an incremented attempt count and retained error, while successful delivery
-      finalizes only notification transport. Child construction occurs before persistence: success commits
-      the child row as `running` revision 1 with ownership, while construction interruption or failure
-      commits `failed` revision 1. No persisted `queued` or `starting` startup row exists. Concurrent
-      SQLite contenders serialize, repository code reads/increments revision internally, repeated identical
-      transitions are idempotent, and mismatched process ownership rejects without side effects. Legacy
+      finalizes only notification transport. An idle outbox claim performs a read-only eligibility probe and
+      returns without reserving the writer lock; when stale claims need recovery, that recovery remains in the
+      immediate transaction, and the pending-row selection plus claim is one atomic `UPDATE ... RETURNING`.
+      Runtime-mailbox claim, delivery, and dead-claim recovery prepare and serialize transition payloads before
+      each short transaction; the transaction revalidates authority and performs the exact-payload compare-and-swap,
+      while public message mapping occurs after commit. Child construction occurs before persistence: pure child payload, ID, lifecycle, parent-ID
+      validation, and serialization complete before writer acquisition; parent lifecycle validation and
+      uniqueness run as read-only preflight, while the commit revalidates the exact parent snapshot and
+      atomically inserts the child and ownership rows. Failed-child persistence applies the same pre-lock
+      boundary to payload/lifecycle/revision/parent-ID validation and serialization; its commit revalidates
+      the exact parent snapshot and uniqueness before atomically inserting the failed child and terminal
+      outbox rows. Success commits the child row as `running` revision 1 with ownership, while construction
+      interruption or failure commits `failed` revision 1. Attachment payload, ID, origin, lifecycle,
+      revision, and serialization complete before writer acquisition; parent lifecycle and permission
+      validation plus uniqueness run read-only, while the commit revalidates the exact parent snapshot and
+      atomically inserts the attachment. No persisted `queued` or `starting` startup row exists. Multi-agent
+      activity, transcript, and slot metadata updates validate read-only, then use bounded exact-payload
+      compare-and-swap writes; activity updates also require the exact persisted runtime owner in the
+      update predicate. Detachment marking likewise validates lifecycle and exact ownership without
+      waiting for an unrelated writer; a valid mark atomically sets `detached` and advances revision,
+      while stale or foreign ownership rejects without side effects. Repeated identical transitions are
+      idempotent. Concurrent SQLite contenders serialize, repository code reads/increments revision
+      internally, and mismatched process ownership rejects without side effects. Legacy
       artifact tables/columns are not initialized, read, written, or relocated; the legacy
       `multi_agent_counters` table is only migrated into `multi_agent_counters_v2`.
-- [x] Allocate persisted multi-agent agent and message IDs transactionally. Legacy counter rows are
-      merged by maximum value during migration, then the legacy counter and artifact tables are
-      dropped so relocated state cannot be resurrected or reuse IDs.
+- [x] Allocate persisted multi-agent agent and message IDs with one atomic incrementing upsert
+      that returns the allocated value. Legacy counter rows are merged by maximum value during
+      migration, then the legacy counter and artifact tables are dropped so relocated state cannot
+      be resurrected or reuse IDs; concurrent allocators receive unique contiguous values without a
+      read/increment/upsert race.
 - [x] During schema initialization, perform an atomic, durable, one-time cleanup of legacy
       `artifactIds` and `artifactRefs` fields in persisted agent and mailbox payloads, rewrite cleaned
       rows, install schema-versioned SQLite INSERT/UPDATE triggers on both payload tables, and continue
@@ -75,12 +125,24 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       for contextual restore validation.
 - [x] Fence lifecycle writers by control-DB protocol version. A runtime rejects databases with a newer
       schema before initialization. Protocol activation scans listener, health, and exact runtime-owner
-      process identities inside the migration transaction and refuses to upgrade while any verified Pi or
-      detached runner remains active; legacy rows convert only after full runtime quiescence. No
-      connection-local authorization UDF, trigger token, compatibility writer, or fallback mutation path
+      process identities before reserving the writer, refuses to upgrade while any verified Pi or detached
+      runner remains active, then revalidates the exact persisted migration-state snapshot inside the
+      immediate transaction before converting legacy rows. A changed listener, health, owner-table shape,
+      or persisted process-identity set aborts migration for retry; legacy rows convert only after full
+      runtime quiescence. No connection-local authorization UDF, trigger token, compatibility writer, or
+      fallback mutation path
       exists; construction/source-scan tests keep production lifecycle calls behind `LifecycleCoordinator`
       plus the detached runner's narrow exact-owner finalizer from in-memory identity, outcome, and output
-      metadata; output artifacts remain diagnostic only.
+      metadata; output artifacts remain diagnostic only. Migration is an intentional atomic writer fence: legacy payload
+      enumeration, transformation, validation, serialization, and rewrites remain inside the one migration transaction
+      after the quiescence snapshot is revalidated.
+- [x] Stored runtime-mailbox enqueues prepare and validate payloads before writing. Existing duplicate or
+      conflicting rows are handled read-only; absent rows use one conflict-safe insert and validate a
+      concurrent winner without rewriting it.
+- [x] Multi-agent mailbox upserts prepare parent-target authorization, collision validation, and
+      canonical claim-preserving merges from read-only snapshots. Unchanged canonical rows return
+      without reserving the writer lock; changed or inserted rows revalidate the exact parent and
+      mailbox snapshots before one atomic upsert, retrying bounded snapshot conflicts explicitly.
 - [x] Reject conflicting reuse of a persisted mailbox message ID transactionally: updates are allowed
       only when both stored and incoming identities are complete and the sender, recipient, kind,
       thread, and message ID identity match; incomplete or conflicting reuse fails explicitly without
@@ -94,7 +156,16 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       identity; revision is repository-managed and never supplied by tools. Verified administrative restart
       may commit an explicit interruption; confirmed exact owner-process exit commits `failed/lost_runtime`
       from `running` or `aborted/lost_runtime` from `cancelling`, never a direct JSON rewrite or inferred result. Attached, terminal, current-live,
-      and uncertain process-backed rows follow their explicit recovery policy.
+      and uncertain process-backed rows follow their explicit recovery policy. Detached-runtime
+      reconciliation prepares candidate and exact runner-liveness scans without reserving the writer
+      lock, then revalidates each confirmed dead owner and commits one recovery at a time in a short
+      immediate transaction; unrelated candidates remain eligible for later passes. Direct dead-runtime
+      recovery applies the same boundary to one expected owner: supervisor authority, agent, owner,
+      descendant, and process-liveness checks run read-only first. Commit-time CAS revalidates the
+      persisted supervisor/listener authority, exact owner and agent snapshots, and recursive descendant
+      absence before atomically releasing ownership and persisting terminal state, the outbox row, and any
+      prepared detached transport insert. Detached transport JSON and routing are prepared before the
+      transaction; the canonical insert remains coupled to recovery state.
 - [x] A main-thread listener registration persists its exact session path and assertion timestamp,
       atomically retires other main-session bindings for the same PID, marks their matching health
       rows ended and confirms the registered binding `ok`. Listener retirement removes only the
@@ -106,22 +177,27 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       externally observable.
 - [x] Store shared-channel messages and per-recipient cursors in `control.sqlite` so idle
       sessions can catch up from an append-only global coordination log.
-- [x] `multi_agent_mailbox_messages` is the sole per-message runtime-delivery authority: each row owns payload, routing, claim identity, status, failure, and delivery acknowledgment. Runtime listener rows provide address resolution and wakeups only; no per-message runtime transport table exists. Schema migration folds valid legacy routing and terminal status into canonical rows, resets legacy claims to reclaimable pending state, and drops the legacy table without a compatibility path.
+- [x] `multi_agent_mailbox_messages` is the sole per-message runtime-delivery authority: each row owns payload, routing, claim identity, status, failure, and delivery acknowledgment. Runtime listener rows provide address resolution and wakeups only; no per-message runtime transport table exists. Schema migration folds valid legacy routing and terminal status into canonical rows, resets legacy claims to reclaimable pending state, and drops the legacy table without a compatibility path. Dead claimed-row recovery scans authority and claimant liveness without reserving the writer lock, then revalidates each candidate and resets it to `pending` in a short immediate transaction. Runtime routing returns unchanged canonical payloads from read-only state; changed payloads use bounded compare-and-swap retries and fail explicitly if contention prevents routing.
 - [x] A recipient that is not ready for direct active-input delivery leaves canonical mailbox rows
-      `pending` and does not read their payloads into runtime memory. Once ready, one immediate
-      transaction selects eligible pending rows and marks those same rows `delivered`; selected
-      payloads proceed directly to active session input without an intermediate volatile queue.
-      `wait_agents({})` uses the same delivery boundary on a coordination wake and returns all
-      currently pending deliverable runtime-mailbox inputs, preserving sender/body formatting.
-      Restart before this transaction leaves the messages pending and recoverable. If another turn
-      starts while idle delivery waits for the turn-start lock, delivery rechecks the active state
-      under that lock and steers the message instead of attempting a conflicting prompt. Terminal
-      notifications for completed agents and detached jobs interrupt active model thinking after
-      durable delivery, while active tool execution remains uninterrupted.
+      `pending` and does not read their payloads into runtime memory. Once ready, delivery evaluates
+      eligibility without reserving the writer lock. Delivery and runtime-mailbox claim scans then prepare claim/delivery
+      transition payloads before each short transaction, revalidate exact listener/ownership authority and the observed
+      canonical payload, and perform atomic delivery or claim writes; already-claimed or direct terminal status transitions use single-statement compare-and-swap writes guarded by the
+      observed payload and claimant identity. Selected payloads proceed directly to active session
+      input without an intermediate volatile queue. `wait_agents({})`
+      uses the same delivery boundary on a coordination wake and returns all currently pending
+      deliverable runtime-mailbox inputs, preserving sender/body formatting. Restart before a
+      per-message write leaves the messages pending and recoverable. If another turn starts while
+      idle delivery waits for the turn-start lock, delivery rechecks the active state and steers
+      the message instead of attempting a conflicting prompt. Terminal notifications for
+      completed agents and detached jobs interrupt active model thinking after durable delivery,
+      while active tool execution remains uninterrupted.
 - [x] Store prompt history in the control DB so concurrent Pi sessions append
   without overwriting each other's prompt history entries.
 - [x] Migrate legacy JSON prompt history into the control DB when DB prompt
-  history is empty.
+  history is empty. Legacy rows are trimmed and adjacent duplicates are removed read-only; blank input
+  returns without reserving the writer, and nonblank rows use one conditional bulk insert so a concurrent
+  winner leaves the existing history unchanged.
 - [x] `/name <name>` names the current session and `/unname` removes that name.
 - [x] Session restore lists show named sessions first in Current Folder and All
   scopes, including threaded restore mode; Archived scope preserves recent

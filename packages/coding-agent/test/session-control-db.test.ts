@@ -15,6 +15,7 @@ import {
 	bootstrapMultiAgentAgent,
 	claimLatestIncomingMessage,
 	claimMultiAgentTerminalOutbox,
+	claimNextSupervisorRequest,
 	claimPendingArchitectRequests,
 	claimRuntimeMailboxMessages,
 	cleanupMultiAgentTerminalOutbox,
@@ -54,13 +55,16 @@ import {
 	readLastMessage,
 	readMultiAgentRuntimeOwnership,
 	readMultiAgentState,
+	readPromptHistory,
 	readRuntimeMailboxMessage,
 	readSessionGoal,
 	readSessionHealth,
 	readSessionMetadata,
 	readSharedChannelCursor,
+	recordPromptHistoryEntry,
 	recoverDeadMultiAgentRuntime,
 	recoverDeadRuntimeMailboxClaims,
+	recoverSupervisorRequests,
 	registerRuntimeMailboxListener,
 	relocateSessionControlData,
 	removeNamedSession,
@@ -109,6 +113,54 @@ async function stopChildProcess(child: ChildProcess): Promise<void> {
 	await exited;
 }
 
+type WorkerStatusMessage = {
+	claimed?: boolean;
+	consumed?: number;
+	count?: number;
+	delivered?: boolean;
+	entries?: string[];
+	error?: string;
+	id?: number;
+	ok?: boolean;
+	value?: number;
+	paths?: string[];
+	pid?: number;
+	results?: Array<{ error?: string; ok: boolean }>;
+	statuses?: string[];
+	type: string;
+};
+
+type WaitForWorkerStatusOptions = {
+	expectedType: string;
+	ignoredTypes?: readonly string[];
+	timeoutMessage: string;
+	timeoutMs?: number;
+};
+
+function waitForWorkerStatus(worker: Worker, options: WaitForWorkerStatusOptions): Promise<WorkerStatusMessage> {
+	return new Promise((resolve, reject) => {
+		const timeoutMs = options.timeoutMs ?? 5_000;
+		const timer = setTimeout(() => reject(new Error(options.timeoutMessage)), timeoutMs);
+		const cleanup = () => {
+			clearTimeout(timer);
+			worker.off("error", onError);
+			worker.off("message", onMessage);
+		};
+		const onError = (error: Error) => {
+			cleanup();
+			reject(error);
+		};
+		const onMessage = (message: WorkerStatusMessage) => {
+			if (options.ignoredTypes?.includes(message.type)) return;
+			cleanup();
+			if (message.type === options.expectedType) resolve(message);
+			else reject(new Error(message.error ?? `unexpected worker status: ${message.type}`));
+		};
+		worker.on("error", onError);
+		worker.on("message", onMessage);
+	});
+}
+
 function claimTestRuntimeMailboxMessages(
 	controlDbPath: string,
 	recipient: Parameters<typeof claimRuntimeMailboxMessages>[1],
@@ -146,6 +198,229 @@ function enqueueStoredRuntimeMessage(
 		sender: input.sender,
 		storeRef: { messageId, sessionPath },
 	});
+}
+
+type RuntimeMailboxPayloadPreparationOperation = "claim" | "deliver" | "recover";
+
+async function runRuntimeMailboxPayloadPreparationContention(
+	controlDbPath: string,
+	operation: RuntimeMailboxPayloadPreparationOperation,
+	recipient: { agentId: null; sessionId: string },
+	marker: string,
+): Promise<WorkerStatusMessage> {
+	const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+	const workerSource = `
+		import { parentPort, workerData } from "node:worker_threads";
+		import {
+			claimRuntimeMailboxMessages,
+			recoverDeadRuntimeMailboxClaims,
+			registerRuntimeMailboxListener,
+			takeRuntimeMailboxMessagesForDelivery,
+		} from ${JSON.stringify(moduleUrl)};
+
+		const originalStringify = JSON.stringify;
+		JSON.stringify = ((value: unknown) => {
+			const serialized = originalStringify(value);
+			if (typeof serialized === "string" && serialized.includes(workerData.marker)) {
+				parentPort?.postMessage({ type: "serialized" });
+			}
+			return serialized;
+		}) as typeof JSON.stringify;
+
+		try {
+			registerRuntimeMailboxListener(workerData.controlDbPath, workerData.recipient, process.pid);
+			parentPort?.postMessage({ type: "ready" });
+		} catch (error) {
+			parentPort?.postMessage({ error: String(error), type: "error" });
+		}
+
+		parentPort?.once("message", () => {
+			try {
+				if (workerData.operation === "claim") {
+					const messages = claimRuntimeMailboxMessages(workerData.controlDbPath, workerData.recipient);
+					parentPort?.postMessage({ statuses: messages.map((message) => message.status), type: "completed" });
+					return;
+				}
+				if (workerData.operation === "deliver") {
+					const messages = takeRuntimeMailboxMessagesForDelivery(
+						workerData.controlDbPath,
+						workerData.recipient,
+						() => true,
+					);
+					parentPort?.postMessage({ statuses: messages.map((message) => message.status), type: "completed" });
+					return;
+				}
+				const recovered = recoverDeadRuntimeMailboxClaims(workerData.controlDbPath, workerData.recipient);
+				parentPort?.postMessage({ count: recovered, type: "completed" });
+			} catch (error) {
+				parentPort?.postMessage({ error: String(error), type: "completed" });
+			}
+		});
+	`;
+	const worker = new Worker(workerSource, {
+		eval: true,
+		execArgv: ["--experimental-strip-types"],
+		workerData: { controlDbPath, marker, operation, recipient },
+	});
+	const holder = createSqliteDatabase(controlDbPath);
+	configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+	let serializedBeforeRelease: WorkerStatusMessage | undefined;
+	let completed: WorkerStatusMessage | undefined;
+	let blockedBeforeSerialization: unknown;
+	try {
+		await waitForWorkerStatus(worker, {
+			expectedType: "ready",
+			timeoutMessage: `${operation} payload worker did not load`,
+		});
+		holder.exec("BEGIN IMMEDIATE");
+		worker.postMessage("run");
+		try {
+			serializedBeforeRelease = await waitForWorkerStatus(worker, {
+				expectedType: "serialized",
+				timeoutMessage: `${operation} payload serialization waited for the writer lock`,
+				timeoutMs: 1_000,
+			});
+		} catch (error) {
+			blockedBeforeSerialization = error;
+		}
+		holder.exec("ROLLBACK");
+		completed = await waitForWorkerStatus(worker, {
+			expectedType: "completed",
+			ignoredTypes: ["serialized"],
+			timeoutMessage: `${operation} payload worker did not finish after lock release`,
+		});
+	} finally {
+		try {
+			holder.exec("ROLLBACK");
+		} catch {
+			// The holder may already have released its transaction after the assertion.
+		}
+		await worker.terminate();
+		holder.close();
+	}
+
+	expect(blockedBeforeSerialization).toBeUndefined();
+	expect(serializedBeforeRelease).toMatchObject({ type: "serialized" });
+	if (!completed) throw new Error(`${operation} payload worker did not report completion`);
+	expect(completed.error).toBeUndefined();
+	return completed;
+}
+
+type MultiAgentPayloadPreparationOperation = "attached" | "lifecycle" | "steering-delivery" | "steering-mutation";
+
+type WorkerRuntimeMailboxListener = {
+	recipient: { agentId: string | null; sessionId: string };
+	runtimeInstanceId?: string;
+	sessionPath?: string;
+};
+
+async function runMultiAgentPayloadPreparationContention(
+	controlDbPath: string,
+	operation: MultiAgentPayloadPreparationOperation,
+	input: Record<string, unknown>,
+	marker: string,
+	listeners: WorkerRuntimeMailboxListener[] = [],
+): Promise<WorkerStatusMessage> {
+	const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+	const workerSource = `
+		import { parentPort, workerData } from "node:worker_threads";
+		import {
+			acquireAttachedRuntimeOwnership,
+			commitMultiAgentLifecycleMutation,
+			commitMultiAgentSteeringDelivery,
+			commitMultiAgentSteeringMutation,
+			registerRuntimeMailboxListener,
+		} from ${JSON.stringify(moduleUrl)};
+
+		const originalStringify = JSON.stringify;
+		let markerReported = false;
+		JSON.stringify = ((value: unknown) => {
+			const serialized = originalStringify(value);
+			if (!markerReported && typeof serialized === "string" && serialized.includes(workerData.marker)) {
+				markerReported = true;
+				parentPort?.postMessage({ type: "serialized" });
+			}
+			return serialized;
+		}) as typeof JSON.stringify;
+
+		try {
+			for (const listener of workerData.listeners) {
+				registerRuntimeMailboxListener(
+					workerData.controlDbPath,
+					listener.recipient,
+					process.pid,
+					listener.sessionPath,
+					listener.runtimeInstanceId ? { runtimeInstanceId: listener.runtimeInstanceId } : undefined,
+				);
+			}
+			parentPort?.postMessage({ type: "ready" });
+		} catch (error) {
+			parentPort?.postMessage({ error: String(error), type: "error" });
+		}
+
+		parentPort?.once("message", () => {
+			try {
+				const result =
+					workerData.operation === "attached"
+						? acquireAttachedRuntimeOwnership(workerData.controlDbPath, workerData.input)
+						: workerData.operation === "lifecycle"
+							? commitMultiAgentLifecycleMutation(workerData.controlDbPath, workerData.input)
+							: workerData.operation === "steering-delivery"
+								? commitMultiAgentSteeringDelivery(workerData.controlDbPath, workerData.input)
+								: commitMultiAgentSteeringMutation(workerData.controlDbPath, workerData.input);
+				parentPort?.postMessage({ error: result.error, ok: result.ok, type: "completed" });
+			} catch (error) {
+				parentPort?.postMessage({ error: String(error), type: "completed" });
+			}
+		});
+	`;
+	const worker = new Worker(workerSource, {
+		eval: true,
+		execArgv: ["--experimental-strip-types"],
+		workerData: { controlDbPath, input, listeners, marker, operation },
+	});
+	const holder = createSqliteDatabase(controlDbPath);
+	configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+	let serializedBeforeRelease: WorkerStatusMessage | undefined;
+	let completed: WorkerStatusMessage | undefined;
+	let blockedBeforeSerialization: unknown;
+	try {
+		await waitForWorkerStatus(worker, {
+			expectedType: "ready",
+			timeoutMessage: `${operation} payload worker did not load`,
+		});
+		holder.exec("BEGIN IMMEDIATE");
+		worker.postMessage("run");
+		try {
+			serializedBeforeRelease = await waitForWorkerStatus(worker, {
+				expectedType: "serialized",
+				timeoutMessage: `${operation} payload serialization waited for the writer lock`,
+				timeoutMs: 1_000,
+			});
+		} catch (error) {
+			blockedBeforeSerialization = error;
+		}
+		holder.exec("ROLLBACK");
+		completed = await waitForWorkerStatus(worker, {
+			expectedType: "completed",
+			ignoredTypes: ["serialized"],
+			timeoutMessage: `${operation} payload worker did not finish after lock release`,
+		});
+	} finally {
+		try {
+			holder.exec("ROLLBACK");
+		} catch {
+			// The holder may already have released its transaction after the assertion.
+		}
+		await worker.terminate();
+		holder.close();
+	}
+
+	expect(blockedBeforeSerialization).toBeUndefined();
+	expect(serializedBeforeRelease).toMatchObject({ type: "serialized" });
+	if (!completed) throw new Error(`${operation} payload worker did not report completion`);
+	expect(completed.error).toBeUndefined();
+	return completed;
 }
 
 describe("session control DB", () => {
@@ -292,6 +567,68 @@ describe("session control DB", () => {
 		expect(listPendingArchitectRequests(controlDbPath)).toEqual([]);
 	});
 
+	it("returns without a writer lock when no Architect request is claimable", async () => {
+		expect(listPendingArchitectRequests(controlDbPath)).toEqual([]);
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { claimPendingArchitectRequests } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const claimed = claimPendingArchitectRequests(workerData.controlDbPath, "architect-worker");
+						parentPort?.postMessage({ count: claimed.length, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "Architect request worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("claim");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "empty Architect request claim waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "Architect request worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed).toMatchObject({ count: 0, type: "completed" });
+	});
+
 	it("rolls back all Architect claim renewals when one renewal fails", () => {
 		const requestIds = ["first", "second"].map((body) =>
 			postArchitectRequest(controlDbPath, { senderSessionId: "main-session", projectCwd: "/repos/project", body }),
@@ -373,6 +710,39 @@ describe("session control DB", () => {
 		expect(() => renewArchitectRequestClaims(controlDbPath, [requestId], "architect-runtime")).not.toThrow();
 	});
 
+	it("deduplicates Architect claim renewal IDs", () => {
+		const requestId = postArchitectRequest(controlDbPath, {
+			senderSessionId: "main-session",
+			projectCwd: "/repos/project",
+			body: "renew once",
+		});
+		claimPendingArchitectRequests(controlDbPath, "architect-runtime");
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec(`
+				CREATE TABLE architect_renewal_audit (request_id INTEGER PRIMARY KEY);
+				CREATE TRIGGER record_architect_renewal
+				BEFORE UPDATE OF claimed_at ON architect_requests
+				WHEN OLD.id = ${requestId}
+				BEGIN
+					INSERT INTO architect_renewal_audit (request_id) VALUES (OLD.id);
+				END
+			`);
+		} finally {
+			db.close();
+		}
+
+		expect(() =>
+			renewArchitectRequestClaims(controlDbPath, [requestId, requestId], "architect-runtime"),
+		).not.toThrow();
+		const reader = createSqliteDatabase(controlDbPath);
+		try {
+			expect(reader.prepare("SELECT COUNT(*) AS count FROM architect_renewal_audit").get()).toEqual({ count: 1 });
+		} finally {
+			reader.close();
+		}
+	});
+
 	it("rejects mailbox ID reuse without overwriting the existing message", () => {
 		const sessionPath = "/sessions/supervisor.jsonl";
 		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, "message_2", {
@@ -402,6 +772,112 @@ describe("session control DB", () => {
 			expect(JSON.parse(row.data)).toMatchObject({ body: "original", fromAgentId: "agent_3", status: "delivered" });
 		} finally {
 			db.close();
+		}
+	});
+
+	it("rejects conflicting mailbox ID reuse before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/mailbox-collision-contention.jsonl";
+		const messageId = "message-collision-contention";
+		const original = {
+			body: "original",
+			fromAgentId: "agent-original",
+			id: messageId,
+			kind: "system" as const,
+			status: "delivered" as const,
+			toAgentId: "main",
+		};
+		const conflicting = {
+			body: "replacement",
+			fromAgentId: "agent-replacement",
+			id: messageId,
+			kind: "system" as const,
+			status: "pending" as const,
+			toAgentId: "main",
+		};
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, original);
+		const beforeDb = createSqliteDatabase(controlDbPath);
+		const before = beforeDb
+			.prepare("SELECT data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+			.get(sessionPath, messageId) as { data: string; updated_at: string };
+		beforeDb.close();
+
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { upsertMultiAgentMailboxMessage } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						upsertMultiAgentMailboxMessage(
+							workerData.controlDbPath,
+							workerData.sessionPath,
+							workerData.messageId,
+							workerData.conflicting,
+						);
+						parentPort?.postMessage({ type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "completed" });
+					}
+				});
+			`,
+			{
+				eval: true,
+				execArgv: ["--experimental-strip-types"],
+				workerData: { conflicting, controlDbPath, messageId, sessionPath },
+			},
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "mailbox collision worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("upsert");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "mailbox collision validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "mailbox collision worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.error).toContain("Mailbox message ID collision");
+		const afterDb = createSqliteDatabase(controlDbPath);
+		try {
+			const after = afterDb
+				.prepare(
+					"SELECT data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
+				)
+				.get(sessionPath, messageId) as { data: string; updated_at: string };
+			expect(after).toEqual(before);
+		} finally {
+			afterDb.close();
 		}
 	});
 
@@ -736,6 +1212,268 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(result.status, result.stderr || result.stdout).toBe(0);
 	});
 
+	it("rejects invalid failed-child payloads before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/invalid-failed-child-contention.jsonl";
+		const agentId = "agent-invalid-failed-child-contention";
+		const agent = {
+			agentType: "worker",
+			createdAt: "2026-08-09T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Invalid failed child",
+			id: agentId,
+			lifecycle: "running" as const,
+			parentId: "missing-parent",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 2,
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		};
+		const input = { agent, nowIso: agent.updatedAt, sessionPath };
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { createFailedMultiAgentChild } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						createFailedMultiAgentChild(workerData.controlDbPath, workerData.input);
+						parentPort?.postMessage({ type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "completed" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "invalid failed-child worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("create");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "invalid failed-child validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "invalid failed-child worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.error).toContain("Failed child creation requires failed revision 1");
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toBeUndefined();
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			expect(
+				db
+					.prepare(
+						"SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox WHERE session_path = ? AND agent_id = ?",
+					)
+					.get(sessionPath, agentId),
+			).toEqual({ count: 0 });
+		} finally {
+			db.close();
+		}
+	});
+
+	it("rejects process-owned bootstrap rows before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/bootstrap-owner-contention.jsonl";
+		const agentId = "agent-bootstrap-owner-contention";
+		const agent = {
+			createdAt: "2026-08-09T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Bootstrap owner contention",
+			agentType: "worker",
+			id: agentId,
+			lifecycle: "running",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		};
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, agent);
+		const ownership = forceRuntimeOwnership(controlDbPath, {
+			agentId,
+			nowIso: agent.updatedAt,
+			owner: { agentId: null, sessionId: "bootstrap-owner" },
+			processIdentity: CURRENT_PROCESS_IDENTITY,
+			sessionPath,
+		});
+		expect(ownership.ok).toBe(true);
+		const beforeAgent = readMultiAgentState(controlDbPath, sessionPath)?.agents[0];
+		const beforeOwnership = readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId);
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { bootstrapMultiAgentAgent } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						bootstrapMultiAgentAgent(workerData.controlDbPath, workerData.sessionPath, workerData.agentId, workerData.agent);
+						parentPort?.postMessage({ type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "completed" });
+					}
+				});
+			`,
+			{
+				eval: true,
+				execArgv: ["--experimental-strip-types"],
+				workerData: { agent, agentId, controlDbPath, sessionPath },
+			},
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "bootstrap contention worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("bootstrap");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "process-owned bootstrap waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "bootstrap worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.error).toContain("Generic agent upsert cannot mutate process-owned lifecycle row");
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents[0]).toEqual(beforeAgent);
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId)).toEqual(beforeOwnership);
+	});
+
+	it("rejects an invalid attachment payload before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/invalid-attachment-contention.jsonl";
+		const agentId = "agent-invalid-attachment-contention";
+		const input = {
+			agent: {
+				agentType: "worker",
+				createdAt: "2026-08-09T00:00:00.000Z",
+				cwd: "/repo",
+				displayName: "Invalid attachment contention",
+				id: "wrong-agent-id",
+				lifecycle: "waiting_for_input",
+				origin: "attached",
+				permission: { narrowed: true, policy: "on-request" },
+				revision: 1,
+				updatedAt: "2026-08-09T00:00:00.000Z",
+			},
+			agentId,
+			nowIso: "2026-08-09T00:00:01.000Z",
+			sessionPath,
+		};
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { createMultiAgentAttachment } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						createMultiAgentAttachment(workerData.controlDbPath, workerData.input);
+						parentPort?.postMessage({ type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "completed" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "invalid-attachment worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("create");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "invalid attachment validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "invalid-attachment worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.error).toContain("Attached agent payload ID does not match command identity");
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []).toEqual([]);
+	});
+
 	it("rejects a control database created by a newer lifecycle protocol", () => {
 		const db = createSqliteDatabase(controlDbPath);
 		try {
@@ -813,6 +1551,209 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, "agent-child")).toMatchObject({});
 	});
 
+	it("rejects an invalid child payload before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/invalid-child-contention.jsonl";
+		const agentId = "agent-invalid-child-contention";
+		const input = {
+			agent: { id: "wrong-agent-id", lifecycle: "running", revision: 1 },
+			agentId,
+			nowIso: "2026-08-09T00:00:00.000Z",
+			owner: { agentId: null, sessionId: "supervisor" },
+			processIdentity: testProcessIdentity("invalid-child-runtime"),
+			sessionPath,
+		};
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { createMultiAgentChildWithRuntimeOwnership } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						createMultiAgentChildWithRuntimeOwnership(workerData.controlDbPath, workerData.input);
+						parentPort?.postMessage({ ok: true, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "completed" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "invalid-child worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("create");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "invalid-child validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "invalid-child worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.error).toContain("Child agent payload ID does not match runtime ownership identity");
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []).toEqual([]);
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId)).toBeUndefined();
+	});
+
+	it("validates creation parents before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/missing-parent-contention.jsonl";
+		const parentId = "missing-parent";
+		const createdAt = "2026-08-09T00:00:00.000Z";
+		const failedInput = {
+			agent: {
+				agentType: "worker",
+				createdAt,
+				cwd: "/repo",
+				displayName: "Missing-parent failed child",
+				id: "failed-child",
+				lifecycle: "failed",
+				parentId,
+				permission: { narrowed: true, policy: "on-request" },
+				revision: 1,
+				updatedAt: createdAt,
+			},
+			nowIso: createdAt,
+			sessionPath,
+		};
+		const childInput = {
+			agent: {
+				agentType: "worker",
+				createdAt,
+				cwd: "/repo",
+				displayName: "Missing-parent child",
+				id: "running-child",
+				lifecycle: "running",
+				parentId,
+				permission: { narrowed: true, policy: "on-request" },
+				revision: 1,
+				updatedAt: createdAt,
+			},
+			agentId: "running-child",
+			nowIso: createdAt,
+			owner: { agentId: null, sessionId: "supervisor" },
+			processIdentity: testProcessIdentity("missing-parent-child-runtime"),
+			sessionPath,
+		};
+		const attachmentInput = {
+			agent: {
+				agentType: "worker",
+				createdAt,
+				cwd: "/repo",
+				displayName: "Missing-parent attachment",
+				id: "attached-child",
+				lifecycle: "waiting_for_input",
+				origin: "attached",
+				parentId,
+				permission: { narrowed: true, policy: "on-request" },
+				revision: 1,
+				updatedAt: createdAt,
+			},
+			agentId: "attached-child",
+			nowIso: createdAt,
+			sessionPath,
+		};
+		readMultiAgentState(controlDbPath, sessionPath);
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import {
+					createFailedMultiAgentChild,
+					createMultiAgentAttachment,
+					createMultiAgentChildWithRuntimeOwnership,
+				} from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					const results = [
+						createFailedMultiAgentChild(workerData.controlDbPath, workerData.failedInput),
+						createMultiAgentChildWithRuntimeOwnership(workerData.controlDbPath, workerData.childInput),
+						createMultiAgentAttachment(workerData.controlDbPath, workerData.attachmentInput),
+					];
+					parentPort?.postMessage({ results, type: "completed" });
+				});
+			`,
+			{
+				eval: true,
+				execArgv: ["--experimental-strip-types"],
+				workerData: { attachmentInput, childInput, controlDbPath, failedInput },
+			},
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "creation parent validation worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("create");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "creation parent validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "creation parent validation worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.results).toEqual([
+			{ error: "parent_not_found", ok: false },
+			{ error: "parent_not_found", ok: false },
+			{ error: "parent_not_found", ok: false },
+		]);
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []).toEqual([]);
+	});
+
 	it("serializes lifecycle mutation under the complete process ownership predicate", async () => {
 		const sessionPath = "/sessions/lifecycle-cas.jsonl";
 		const agentId = "agent-cas";
@@ -881,6 +1822,211 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
 			{ lifecycle: "waiting_for_input", revision: 1 },
 		]);
+	});
+
+	it("validates lifecycle ownership before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/lifecycle-contention.jsonl";
+		const agentId = "agent-lifecycle-contention";
+		const owner = { agentId: null, sessionId: "supervisor" };
+		const processIdentity = testProcessIdentity("runtime-lifecycle-contention");
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			createdAt: "2026-07-11T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Lifecycle contention agent",
+			agentType: "test",
+			id: agentId,
+			lifecycle: "running",
+			parentId: undefined,
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 0,
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, { agentId, owner, processIdentity, sessionPath });
+		const beforeState = readMultiAgentState(controlDbPath, sessionPath);
+		const input = {
+			agentId,
+			owner: { agentId: null, sessionId: "wrong-owner" },
+			processIdentity,
+			requestedLifecycle: "waiting_for_input",
+			sessionPath,
+			updatedAt: "2026-07-11T00:01:00.000Z",
+		};
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { commitMultiAgentLifecycleMutation } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					const result = commitMultiAgentLifecycleMutation(workerData.controlDbPath, workerData.input);
+					parentPort?.postMessage({ ...result, type: "completed" });
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "lifecycle validation worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("mutate");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "lifecycle validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "lifecycle validation worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed).toMatchObject({ error: "mutation_mismatch", ok: false, type: "completed" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toEqual(beforeState);
+	});
+
+	it("prepares lifecycle payload before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/lifecycle-payload-contention.jsonl";
+		const agentId = "agent-lifecycle-payload-contention";
+		const marker = "lifecycle-payload-contention-marker";
+		const owner = { agentId: null, sessionId: "supervisor-lifecycle-payload-contention" };
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			displayName: marker,
+			id: agentId,
+			lifecycle: "running",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, {
+			agentId,
+			owner,
+			processIdentity: CURRENT_PROCESS_IDENTITY,
+			sessionPath,
+		});
+
+		const result = await runMultiAgentPayloadPreparationContention(
+			controlDbPath,
+			"lifecycle",
+			{
+				agentId,
+				owner,
+				processIdentity: CURRENT_PROCESS_IDENTITY,
+				requestedLifecycle: "waiting_for_input",
+				sessionPath,
+				updatedAt: "2026-08-09T00:01:00.000Z",
+			},
+			marker,
+		);
+
+		expect(result.ok).toBe(true);
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
+			{ displayName: marker, lifecycle: "waiting_for_input", revision: 2 },
+		]);
+	});
+
+	it("validates steering authority before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/steering-contention.jsonl";
+		const agentId = "agent-steering-contention";
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			id: agentId,
+			lifecycle: "running",
+			origin: "spawned",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			transcript: { path: "/sessions/steering-contention-child.jsonl", sessionId: "steering-contention-child" },
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+		const beforeState = readMultiAgentState(controlDbPath, sessionPath);
+		const input = {
+			agentId,
+			body: "Continue",
+			fromAgentId: "supervisor",
+			owner: { agentId: null, sessionId: "supervisor" },
+			processIdentity: testProcessIdentity("missing-steering-owner"),
+			recipient: { agentId, sessionId: "steering-contention-child" },
+			requestedLifecycle: "steering_pending",
+			sessionPath,
+			updatedAt: "2026-07-11T00:01:00.000Z",
+		};
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { commitMultiAgentSteeringMutation } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					const result = commitMultiAgentSteeringMutation(workerData.controlDbPath, workerData.input);
+					parentPort?.postMessage({ ...result, type: "completed" });
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "steering validation worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("steer");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "steering validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "steering validation worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed).toMatchObject({ error: "mutation_mismatch", ok: false, type: "completed" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toEqual(beforeState);
 	});
 
 	it("commits steering lifecycle and durable mailbox payload atomically", () => {
@@ -1149,6 +2295,249 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.counters.nextMessageNumber).toBe(3);
 	});
 
+	it("prepares steering message payload before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/steering-payload-contention.jsonl";
+		const agentId = "agent-steering-payload-contention";
+		const childSessionId = "steering-payload-contention-child";
+		const supervisorSessionId = "steering-payload-contention-supervisor";
+		const marker = "steering-payload-contention-marker";
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			id: agentId,
+			lifecycle: "running",
+			origin: "spawned",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			transcript: { path: "/sessions/steering-payload-child.jsonl", sessionId: childSessionId },
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, {
+			agentId,
+			owner: { agentId: null, sessionId: supervisorSessionId },
+			processIdentity: CURRENT_PROCESS_IDENTITY,
+			sessionPath,
+		});
+
+		const result = await runMultiAgentPayloadPreparationContention(
+			controlDbPath,
+			"steering-mutation",
+			{
+				agentId,
+				body: marker,
+				fromAgentId: "supervisor",
+				owner: { agentId: null, sessionId: supervisorSessionId },
+				processIdentity: CURRENT_PROCESS_IDENTITY,
+				recipient: { agentId, sessionId: childSessionId },
+				requestedLifecycle: "steering_pending",
+				sessionPath,
+				updatedAt: "2026-08-09T00:01:00.000Z",
+			},
+			marker,
+			[
+				{ recipient: { agentId: null, sessionId: supervisorSessionId }, sessionPath },
+				{
+					recipient: { agentId, sessionId: childSessionId },
+					runtimeInstanceId: JSON.stringify(CURRENT_PROCESS_IDENTITY),
+				},
+			],
+		);
+
+		expect(result.ok).toBe(true);
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject({
+			agents: [{ lifecycle: "steering_pending", revision: 2 }],
+			counters: { nextMessageNumber: 2 },
+			mailboxMessages: [{ body: marker, id: "message_1", status: "pending" }],
+		});
+	});
+
+	it("validates steering delivery before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/steering-delivery-contention.jsonl";
+		const agentId = "agent-steering-delivery-contention";
+		const owner = { agentId: null, sessionId: "supervisor" };
+		const processIdentity = testProcessIdentity("runtime-steering-delivery-contention");
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			id: agentId,
+			lifecycle: "steering_pending",
+			origin: "spawned",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 2,
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, { agentId, owner, processIdentity, sessionPath });
+		const beforeState = readMultiAgentState(controlDbPath, sessionPath);
+		const input = {
+			agentId,
+			messageId: "missing-steering-message",
+			owner,
+			processIdentity,
+			requestedLifecycle: "running",
+			sessionPath,
+			updatedAt: "2026-07-11T00:01:00.000Z",
+		};
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { commitMultiAgentSteeringDelivery } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					const result = commitMultiAgentSteeringDelivery(workerData.controlDbPath, workerData.input);
+					parentPort?.postMessage({ ...result, type: "completed" });
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "steering delivery validation worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("deliver");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "steering delivery validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "steering delivery validation worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed).toMatchObject({ error: "message_not_found", ok: false, type: "completed" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toEqual(beforeState);
+	});
+
+	it("prepares steering delivery agent payload before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/steering-delivery-agent-payload.jsonl";
+		const agentId = "agent-steering-delivery-agent-payload";
+		const messageId = "steering-delivery-agent-payload-message";
+		const marker = "steering-delivery-agent-payload-marker";
+		const owner = { agentId: null, sessionId: "steering-delivery-agent-payload-supervisor" };
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			displayName: marker,
+			id: agentId,
+			lifecycle: "steering_pending",
+			origin: "spawned",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 2,
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, {
+			agentId,
+			owner,
+			processIdentity: CURRENT_PROCESS_IDENTITY,
+			sessionPath,
+		});
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: "deliver agent payload",
+			fromAgentId: "supervisor",
+			id: messageId,
+			kind: "steer",
+			status: "pending",
+			toAgentId: agentId,
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+
+		const result = await runMultiAgentPayloadPreparationContention(
+			controlDbPath,
+			"steering-delivery",
+			{
+				agentId,
+				messageId,
+				owner,
+				processIdentity: CURRENT_PROCESS_IDENTITY,
+				requestedLifecycle: "running",
+				sessionPath,
+				updatedAt: "2026-08-09T00:01:00.000Z",
+			},
+			marker,
+		);
+
+		expect(result.ok).toBe(true);
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject({
+			agents: [{ displayName: marker, lifecycle: "running", revision: 3 }],
+			mailboxMessages: [{ id: messageId, status: "delivered" }],
+		});
+	});
+
+	it("prepares steering delivery message payload before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/steering-delivery-message-payload.jsonl";
+		const agentId = "agent-steering-delivery-message-payload";
+		const messageId = "steering-delivery-message-payload-message";
+		const marker = "steering-delivery-message-payload-marker";
+		const owner = { agentId: null, sessionId: "steering-delivery-message-payload-supervisor" };
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			id: agentId,
+			lifecycle: "steering_pending",
+			origin: "spawned",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 2,
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, {
+			agentId,
+			owner,
+			processIdentity: CURRENT_PROCESS_IDENTITY,
+			sessionPath,
+		});
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: marker,
+			fromAgentId: "supervisor",
+			id: messageId,
+			kind: "steer",
+			status: "pending",
+			toAgentId: agentId,
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+
+		const result = await runMultiAgentPayloadPreparationContention(
+			controlDbPath,
+			"steering-delivery",
+			{
+				agentId,
+				messageId,
+				owner,
+				processIdentity: CURRENT_PROCESS_IDENTITY,
+				requestedLifecycle: "running",
+				sessionPath,
+				updatedAt: "2026-08-09T00:01:00.000Z",
+			},
+			marker,
+		);
+
+		expect(result.ok).toBe(true);
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject({
+			agents: [{ lifecycle: "running", revision: 3 }],
+			mailboxMessages: [{ body: marker, id: messageId, status: "delivered" }],
+		});
+	});
+
 	it("rejects steering to a dead recipient without advancing its counter", () => {
 		const sessionPath = "/sessions/dead-steering.jsonl";
 		const agentId = "agent-dead-steer";
@@ -1199,6 +2588,90 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			counters: { nextMessageNumber: 1 },
 			mailboxMessages: [],
 		});
+	});
+
+	it("validates terminal ownership before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/terminal-contention.jsonl";
+		const agentId = "agent-terminal-contention";
+		const owner = { agentId: null, sessionId: "supervisor" };
+		const processIdentity = testProcessIdentity("runtime-terminal-contention");
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			createdAt: "2026-07-11T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Terminal contention agent",
+			agentType: "test",
+			id: agentId,
+			lifecycle: "running",
+			parentId: undefined,
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, { agentId, owner, processIdentity, sessionPath });
+		const beforeState = readMultiAgentState(controlDbPath, sessionPath);
+		const input = {
+			agentId,
+			eventKind: "completed",
+			owner: { agentId: null, sessionId: "wrong-owner" },
+			processIdentity,
+			sessionPath,
+			terminalLifecycle: "completed",
+			updatedAt: "2026-07-11T00:01:00.000Z",
+		};
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { commitMultiAgentTerminalMutation } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					const result = commitMultiAgentTerminalMutation(workerData.controlDbPath, workerData.input);
+					parentPort?.postMessage({ ...result, type: "completed" });
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "terminal validation worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("terminalize");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "terminal validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "terminal validation worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed).toMatchObject({ error: "mutation_mismatch", ok: false, type: "completed" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toEqual(beforeState);
 	});
 
 	it("commits terminal lifecycle state, immutable event, and outbox atomically", () => {
@@ -1376,6 +2849,110 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		});
 	});
 
+	it("rejects mismatched activity ownership before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/activity-owner-contention.jsonl";
+		const agentId = "agent-activity-contention";
+		const persistedIdentity = testProcessIdentity("activity-persisted-owner");
+		const suppliedIdentity = testProcessIdentity("activity-supplied-owner");
+		const agent = {
+			agentType: "test",
+			createdAt: "2026-08-09T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Activity contention agent",
+			id: agentId,
+			lifecycle: "running",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		};
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, agent);
+		forceRuntimeOwnership(controlDbPath, {
+			agentId,
+			nowIso: "2026-08-09T00:00:00.000Z",
+			owner: { agentId: null, sessionId: "supervisor" },
+			processIdentity: persistedIdentity,
+			sessionPath,
+		});
+		const before = readMultiAgentState(controlDbPath, sessionPath)?.agents[0];
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { updateMultiAgentAgentCurrentActivity } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const result = updateMultiAgentAgentCurrentActivity(
+							workerData.controlDbPath,
+							workerData.sessionPath,
+							workerData.agentId,
+							{ phase: "thinking", startedAt: workerData.updatedAt },
+							workerData.updatedAt,
+							workerData.ownership,
+						);
+						parentPort?.postMessage({ type: result === undefined ? "undefined" : "defined" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{
+				eval: true,
+				execArgv: ["--experimental-strip-types"],
+				workerData: {
+					agentId,
+					controlDbPath,
+					ownership: { ownerSessionId: "supervisor", processIdentity: suppliedIdentity },
+					sessionPath,
+					updatedAt: "2026-08-09T00:00:01.000Z",
+				},
+			},
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "activity ownership worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("update");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "undefined",
+					timeoutMessage: "mismatched activity ownership waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "undefined",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "activity ownership worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.type).toBe("undefined");
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents[0]).toEqual(before);
+	});
+
 	it("updates transcript metadata without overwriting a newer lifecycle revision", () => {
 		const sessionPath = "/sessions/transcript-merge.jsonl";
 		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "agent-1", {
@@ -1526,6 +3103,77 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		}
 	});
 
+	it("resolves a missing detached job before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/missing-detached-contention.jsonl";
+		const input = {
+			sessionPath,
+			terminal: {
+				jobId: "missing-detached-job",
+				outcome: { kind: "completed" },
+				output: { label: "Bash output", path: "/tmp/missing-output", sha256: "missing", size: 0 },
+				outputLabel: "Bash output",
+				owner: { agentId: null, sessionId: "runner" },
+				processIdentity: testProcessIdentity("missing-detached-runtime"),
+				terminalAt: "2026-07-11T22:00:00.000Z",
+			},
+		};
+		readMultiAgentState(controlDbPath, sessionPath);
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { finalizeDetachedJob } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					const result = finalizeDetachedJob(workerData.controlDbPath, workerData.input);
+					parentPort?.postMessage({ ...result, type: "completed" });
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "detached lookup worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("finalize");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "detached lookup waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "detached lookup worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed).toMatchObject({ error: "agent_not_found", ok: false, type: "completed" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []).toEqual([]);
+	});
+
 	it("finalizes an attended job without a supervisor mailbox notification", () => {
 		const sessionPath = "/sessions/attended-finalize.jsonl";
 		const agentId = "attended-job";
@@ -1642,6 +3290,100 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				updatedAt: "2026-07-11T23:00:00.000Z",
 			}),
 		).toEqual({ ok: false, error: "invalid_transition" });
+	});
+
+	it("validates detach ownership before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/detach-mark-contention.jsonl";
+		const agentId = "mark-contention-job";
+		const owner = { agentId: null, sessionId: "runner" };
+		const processIdentity = testProcessIdentity("mark-contention-runtime");
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			agentType: "background",
+			createdAt: "2026-07-11T21:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Contention mark job",
+			id: agentId,
+			lifecycle: "running",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			updatedAt: "2026-07-11T21:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, { agentId, owner, processIdentity, sessionPath });
+		const beforeState = readMultiAgentState(controlDbPath, sessionPath);
+		const beforeOwnership = readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId);
+		const input = {
+			agentId,
+			owner: { agentId: null, sessionId: "wrong-owner" },
+			processIdentity,
+			sessionPath,
+			updatedAt: "2026-07-11T21:30:00.000Z",
+		};
+
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { commitMultiAgentDetachMark } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const result = commitMultiAgentDetachMark(workerData.controlDbPath, workerData.input);
+						parentPort?.postMessage({
+							error: result.ok ? undefined : result.error,
+							ok: result.ok,
+							type: "completed",
+						});
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "detach validation worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("detach");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "detach validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "detach validation worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed).toMatchObject({ error: "mutation_mismatch", ok: false, type: "completed" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toEqual(beforeState);
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId)).toEqual(beforeOwnership);
 	});
 
 	it("finalizes a detached job after its session control data relocates", () => {
@@ -1854,6 +3596,262 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			ok: true,
 			agent: { lifecycle: "failed", result: { toolCallId: "tool-dead" }, revision: 2, worker: undefined },
 		});
+	});
+
+	it("does not acquire the writer lock before rejecting a live runtime owner", async () => {
+		const sessionPath = "/sessions/live-runtime-owner-contention.jsonl";
+		const agentId = "agent-live-owner-contention";
+		const supervisorSessionId = "supervisor-live-owner-contention";
+		const processIdentity = CURRENT_PROCESS_IDENTITY;
+		const created = createMultiAgentChildWithRuntimeOwnership(controlDbPath, {
+			agent: {
+				agentType: "worker",
+				createdAt: "2026-08-09T00:00:00.000Z",
+				cwd: "/repo",
+				displayName: "Live owner contention",
+				id: agentId,
+				lifecycle: "running",
+				parentId: "main",
+				permission: { narrowed: true, policy: "on-request" },
+				revision: 1,
+				updatedAt: "2026-08-09T00:00:00.000Z",
+				worker: { adapter: "runtime", handleId: "runner-live", toolCallId: "tool-live" },
+			},
+			agentId,
+			nowIso: "2026-08-09T00:00:00.000Z",
+			owner: { agentId: null, sessionId: supervisorSessionId },
+			processIdentity,
+			sessionPath,
+		});
+		expect(created).toMatchObject({ ok: true });
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: supervisorSessionId },
+			processIdentity.pid,
+			sessionPath,
+			{ runtimeInstanceId: JSON.stringify(processIdentity) },
+		);
+		const beforeAgent = readMultiAgentState(controlDbPath, sessionPath)?.agents[0];
+		const beforeOwnership = readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId);
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const recoveryInput = {
+			expectedOwner: {
+				agentId,
+				owner: { agentId: null, sessionId: supervisorSessionId },
+				processIdentity,
+				sessionPath,
+			},
+			nowIso: "2026-08-09T00:00:01.000Z",
+			supervisor: { processIdentity, sessionId: supervisorSessionId },
+		};
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { recoverDeadMultiAgentRuntime } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const result = recoverDeadMultiAgentRuntime(workerData.controlDbPath, workerData.recoveryInput);
+						parentPort?.postMessage({ ...result, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, recoveryInput } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "live-owner recovery worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("recover");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "live-owner recovery waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "live-owner recovery did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed).toMatchObject({ error: "owner_alive", ok: false, type: "completed" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents[0]).toEqual(beforeAgent);
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId)).toEqual(beforeOwnership);
+	});
+
+	it("prepares attached ownership payload before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/attached-payload-contention.jsonl";
+		const agentId = "agent-attached-payload-contention";
+		const supervisorSessionId = "supervisor-attached-payload-contention";
+		const marker = "attached-payload-contention-marker";
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			displayName: marker,
+			id: agentId,
+			lifecycle: "waiting_for_input",
+			origin: "attached",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+		const input = {
+			agentId,
+			nowIso: "2026-08-09T00:01:00.000Z",
+			owner: { agentId: null, sessionId: supervisorSessionId },
+			processIdentity: testProcessIdentity("attached-payload-new-owner"),
+			sessionPath,
+			supervisor: { processIdentity: CURRENT_PROCESS_IDENTITY, sessionId: supervisorSessionId },
+		};
+
+		const result = await runMultiAgentPayloadPreparationContention(controlDbPath, "attached", input, marker, [
+			{
+				recipient: { agentId: null, sessionId: supervisorSessionId },
+				runtimeInstanceId: JSON.stringify(CURRENT_PROCESS_IDENTITY),
+				sessionPath,
+			},
+		]);
+
+		expect(result.ok).toBe(true);
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
+			{ displayName: marker, revision: 2 },
+		]);
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId)).toMatchObject({
+			agentId,
+			owner: { agentId: null, sessionId: supervisorSessionId },
+			processIdentity: input.processIdentity,
+			sessionPath,
+		});
+	});
+
+	it("returns existing attached ownership before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/attached-owner-contention.jsonl";
+		const agentId = "agent-attached-owner-contention";
+		const supervisorSessionId = "supervisor-attached-owner-contention";
+		const processIdentity = CURRENT_PROCESS_IDENTITY;
+		const owner = { agentId: null, sessionId: supervisorSessionId };
+		const created = createMultiAgentChildWithRuntimeOwnership(controlDbPath, {
+			agent: {
+				agentType: "worker",
+				createdAt: "2026-08-09T00:00:00.000Z",
+				cwd: "/repo",
+				displayName: "Attached owner contention",
+				id: agentId,
+				lifecycle: "running",
+				parentId: "main",
+				permission: { narrowed: true, policy: "on-request" },
+				revision: 1,
+				updatedAt: "2026-08-09T00:00:00.000Z",
+			},
+			agentId,
+			nowIso: "2026-08-09T00:00:00.000Z",
+			owner,
+			processIdentity,
+			sessionPath,
+		});
+		expect(created).toMatchObject({ ok: true });
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: supervisorSessionId },
+			processIdentity.pid,
+			sessionPath,
+			{ runtimeInstanceId: JSON.stringify(processIdentity) },
+		);
+		const beforeAgent = readMultiAgentState(controlDbPath, sessionPath)?.agents[0];
+		const beforeOwnership = readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId);
+		const input = {
+			agentId,
+			nowIso: "2026-08-09T00:00:01.000Z",
+			owner,
+			processIdentity,
+			sessionPath,
+			supervisor: { processIdentity, sessionId: supervisorSessionId },
+		};
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { acquireAttachedRuntimeOwnership } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const result = acquireAttachedRuntimeOwnership(workerData.controlDbPath, workerData.input);
+						parentPort?.postMessage({ ok: result.ok, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "attached ownership worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("acquire");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "attached ownership lookup waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "attached ownership worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed).toMatchObject({ ok: true, type: "completed" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents[0]).toEqual(beforeAgent);
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId)).toEqual(beforeOwnership);
 	});
 
 	it("removes renewable lease columns when migrating version ten ownership rows", () => {
@@ -2087,6 +4085,87 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			offlineDb.close();
 		}
 		expect(readMultiAgentState(controlDbPath, sessionPath)).toBeUndefined();
+	});
+
+	it("checks migration quiescence before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/quiescence-contention.jsonl";
+		readMultiAgentState(controlDbPath, sessionPath);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec("PRAGMA user_version = 2");
+			db.prepare(
+				`INSERT INTO runtime_mailbox_listeners (
+					recipient_session_id, recipient_agent_id_key, pid, runtime_instance_id,
+					session_path, session_path_asserted_at, updated_at
+				) VALUES (?, '', ?, ?, ?, ?, ?)`,
+			).run(
+				"live-quiescence-contention",
+				process.pid,
+				"old-runtime",
+				sessionPath,
+				"2026-07-11T00:00:00.000Z",
+				"2026-07-11T00:00:00.000Z",
+			);
+		} finally {
+			db.close();
+		}
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { readMultiAgentState } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						readMultiAgentState(workerData.controlDbPath, workerData.sessionPath);
+						parentPort?.postMessage({ ok: true, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "completed" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, sessionPath } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "migration quiescence worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("migrate");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "migration quiescence validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "migration quiescence worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.error).toMatch(/stop all pi and detached runner processes/i);
 	});
 
 	it("allows same-PID exec restart to activate a newer lifecycle protocol", () => {
@@ -2791,6 +4870,385 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(listRuntimeMailboxMessages(controlDbPath)).toHaveLength(1);
 	});
 
+	it("returns identical runtime mailbox enqueues before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/identical-enqueue-sender.jsonl";
+		const messageId = "message-identical-enqueue";
+		const recipient = { agentId: null, sessionId: "identical-enqueue-recipient" };
+		const sender = { agentId: null, sessionId: "identical-enqueue-sender" };
+		const timestamp = "2026-08-09T00:00:00.000Z";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: "unchanged payload",
+			createdAt: timestamp,
+			fromAgentId: "main",
+			id: messageId,
+			kind: "message",
+			recipientAgentId: recipient.agentId,
+			recipientSessionId: recipient.sessionId,
+			senderAgentId: sender.agentId,
+			senderSessionId: sender.sessionId,
+			status: "pending",
+			toAgentId: "main",
+			updatedAt: timestamp,
+		});
+		const beforeDb = createSqliteDatabase(controlDbPath);
+		const before = beforeDb
+			.prepare(
+				"SELECT rowid AS id, data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
+			)
+			.get(sessionPath, messageId) as { data: string; id: number; updated_at: string };
+		beforeDb.close();
+		const input = {
+			kind: "message" as const,
+			recipient,
+			sender,
+			storeRef: { messageId, sessionPath },
+		};
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { enqueueRuntimeMailboxMessage } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const id = enqueueRuntimeMailboxMessage(workerData.controlDbPath, workerData.input);
+						parentPort?.postMessage({ id, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "identical-enqueue worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("enqueue");
+			const result = await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				timeoutMessage: "identical runtime mailbox enqueue waited for the writer lock",
+				timeoutMs: 1_000,
+			});
+			expect(result).toMatchObject({ id: before.id, type: "completed" });
+			holder.exec("ROLLBACK");
+
+			const afterDb = createSqliteDatabase(controlDbPath);
+			try {
+				const after = afterDb
+					.prepare(
+						"SELECT rowid AS id, data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
+					)
+					.get(sessionPath, messageId) as { data: string; id: number; updated_at: string };
+				expect(after).toEqual(before);
+			} finally {
+				afterDb.close();
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+	});
+
+	it("returns identical stored runtime mailbox enqueues before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/identical-stored-enqueue-sender.jsonl";
+		const messageId = "message-identical-stored-enqueue";
+		const recipient = { agentId: null, sessionId: "identical-stored-enqueue-recipient" };
+		const sender = { agentId: null, sessionId: "identical-stored-enqueue-sender" };
+		const timestamp = "2026-08-09T00:00:00.000Z";
+		const message = {
+			body: "unchanged stored payload",
+			createdAt: timestamp,
+			fromAgentId: "main",
+			id: messageId,
+			kind: "message" as const,
+			recipientAgentId: recipient.agentId,
+			recipientSessionId: recipient.sessionId,
+			senderAgentId: sender.agentId,
+			senderSessionId: sender.sessionId,
+			status: "pending" as const,
+			toAgentId: "main",
+			updatedAt: timestamp,
+		};
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, message);
+		const beforeDb = createSqliteDatabase(controlDbPath);
+		const before = beforeDb
+			.prepare(
+				"SELECT rowid AS id, data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
+			)
+			.get(sessionPath, messageId) as { data: string; id: number; updated_at: string };
+		beforeDb.close();
+		const input = {
+			kind: message.kind,
+			message,
+			recipient,
+			sender,
+			storeRef: { messageId, sessionPath },
+			updatedAt: timestamp,
+		};
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { enqueueStoredRuntimeMailboxMessage } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const id = enqueueStoredRuntimeMailboxMessage(workerData.controlDbPath, workerData.input);
+						parentPort?.postMessage({ id, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "identical-stored-enqueue worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("enqueue");
+			const result = await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				timeoutMessage: "identical stored runtime mailbox enqueue waited for the writer lock",
+				timeoutMs: 1_000,
+			});
+			expect(result).toMatchObject({ id: before.id, type: "completed" });
+			holder.exec("ROLLBACK");
+
+			const afterDb = createSqliteDatabase(controlDbPath);
+			try {
+				const after = afterDb
+					.prepare(
+						"SELECT rowid AS id, data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
+					)
+					.get(sessionPath, messageId) as { data: string; id: number; updated_at: string };
+				expect(after).toEqual(before);
+			} finally {
+				afterDb.close();
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+	});
+
+	it("prepares claim payload before acquiring the writer lock", async () => {
+		const recipient = { agentId: null, sessionId: "claim-payload-contention" };
+		const sessionPath = "/sessions/claim-payload-contention.jsonl";
+		const messageId = "claim-payload-contention-message";
+		const marker = "claim-payload-contention-marker";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: marker,
+			createdAt: "2026-08-09T00:00:00.000Z",
+			fromAgentId: "main",
+			id: messageId,
+			kind: "message",
+			recipientAgentId: null,
+			recipientSessionId: recipient.sessionId,
+			senderAgentId: null,
+			senderSessionId: "claim-payload-contention-sender",
+			status: "pending",
+			toAgentId: "main",
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+
+		const result = await runRuntimeMailboxPayloadPreparationContention(controlDbPath, "claim", recipient, marker);
+
+		expect(result.statuses).toEqual(["claimed"]);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([
+			expect.objectContaining({ body: marker, status: "claimed", storeRef: { messageId, sessionPath } }),
+		]);
+	});
+
+	it("prepares delivery payload before acquiring the writer lock", async () => {
+		const recipient = { agentId: null, sessionId: "delivery-payload-contention" };
+		const sessionPath = "/sessions/delivery-payload-contention.jsonl";
+		const messageId = "delivery-payload-contention-message";
+		const marker = "delivery-payload-contention-marker";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: marker,
+			createdAt: "2026-08-09T00:00:00.000Z",
+			fromAgentId: "main",
+			id: messageId,
+			kind: "message",
+			recipientAgentId: null,
+			recipientSessionId: recipient.sessionId,
+			senderAgentId: null,
+			senderSessionId: "delivery-payload-contention-sender",
+			status: "pending",
+			toAgentId: "main",
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+
+		const result = await runRuntimeMailboxPayloadPreparationContention(controlDbPath, "deliver", recipient, marker);
+
+		expect(result.statuses).toEqual(["delivered"]);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([
+			expect.objectContaining({ body: marker, status: "delivered", storeRef: { messageId, sessionPath } }),
+		]);
+	});
+
+	it("prepares recovered payload before acquiring the writer lock", async () => {
+		const recipient = { agentId: null, sessionId: "recovery-payload-contention" };
+		const sessionPath = "/sessions/recovery-payload-contention.jsonl";
+		const messageId = "recovery-payload-contention-message";
+		const marker = "recovery-payload-contention-marker";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: marker,
+			claimantProcessIdentity: JSON.stringify(testProcessIdentity("recovery-payload-contention-dead")),
+			claimedAt: "2026-08-09T00:00:00.000Z",
+			createdAt: "2026-08-09T00:00:00.000Z",
+			fromAgentId: "main",
+			id: messageId,
+			kind: "message",
+			recipientAgentId: null,
+			recipientSessionId: recipient.sessionId,
+			senderAgentId: null,
+			senderSessionId: "recovery-payload-contention-sender",
+			status: "claimed",
+			toAgentId: "main",
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+
+		const result = await runRuntimeMailboxPayloadPreparationContention(controlDbPath, "recover", recipient, marker);
+
+		expect(result.count).toBe(1);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([
+			expect.objectContaining({
+				body: marker,
+				claimedAt: undefined,
+				status: "pending",
+				storeRef: { messageId, sessionPath },
+			}),
+		]);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			const row = db
+				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+				.get(sessionPath, messageId) as { data: string };
+			expect(JSON.parse(row.data)).not.toHaveProperty("claimantProcessIdentity");
+		} finally {
+			db.close();
+		}
+	});
+
+	it("runs delivery eligibility before acquiring the writer lock", async () => {
+		const recipient = { agentId: null, sessionId: "delivery-contention-recipient" };
+		const sessionPath = "/sessions/delivery-contention-sender.jsonl";
+		const messageId = "delivery-contention-message";
+		const timestamp = "2026-08-09T00:00:00.000Z";
+		const workerSource = `
+			import { parentPort, workerData } from "node:worker_threads";
+			import {
+				registerRuntimeMailboxListener,
+				takeRuntimeMailboxMessagesForDelivery,
+			} from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href)};
+
+			try {
+				registerRuntimeMailboxListener(workerData.controlDbPath, workerData.recipient, process.pid);
+				parentPort?.postMessage({ type: "ready" });
+			} catch (error) {
+				parentPort?.postMessage({ error: String(error), type: "error" });
+			}
+
+			parentPort?.on("message", (message: string) => {
+				if (message !== "deliver") return;
+				try {
+					const delivered = takeRuntimeMailboxMessagesForDelivery(
+						workerData.controlDbPath,
+						workerData.recipient,
+						(candidate) => {
+							parentPort?.postMessage({ id: candidate.id, type: "eligible" });
+							return true;
+						},
+					);
+					parentPort?.postMessage({ count: delivered.length, statuses: delivered.map((item) => item.status), type: "completed" });
+				} catch (error) {
+					parentPort?.postMessage({ error: String(error), type: "error" });
+				}
+			});
+		`;
+		const worker = new Worker(workerSource, {
+			eval: true,
+			execArgv: ["--experimental-strip-types"],
+			workerData: { controlDbPath, recipient },
+		});
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "delivery worker did not register its listener",
+			});
+
+			upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+				body: "deliver under contention",
+				createdAt: timestamp,
+				fromAgentId: "main",
+				id: messageId,
+				kind: "message",
+				recipientAgentId: null,
+				recipientSessionId: recipient.sessionId,
+				senderAgentId: null,
+				senderSessionId: "delivery-contention-sender",
+				status: "pending",
+				toAgentId: "main",
+				updatedAt: timestamp,
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("deliver");
+
+			const eligible = await waitForWorkerStatus(worker, {
+				expectedType: "eligible",
+				timeoutMessage: "delivery eligibility callback did not run while the writer lock was held",
+				timeoutMs: 1_000,
+			});
+			expect(eligible.id).toBeTypeOf("number");
+
+			holder.exec("ROLLBACK");
+			const result = await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				ignoredTypes: ["eligible"],
+				timeoutMessage: "delivery worker did not complete after lock release",
+			});
+			expect(result).toMatchObject({ count: 1, statuses: ["delivered"] });
+			expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([
+				expect.objectContaining({
+					body: "deliver under contention",
+					status: "delivered",
+					storeRef: { messageId, sessionPath },
+				}),
+			]);
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+	});
+
 	it("does not resurrect relocated legacy counters at the old session path", () => {
 		const oldPath = "/sessions/legacy-counter-old.jsonl";
 		const newPath = "/sessions/legacy-counter-new.jsonl";
@@ -2824,6 +5282,70 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		});
 		expect(readMultiAgentState(controlDbPath, oldPath)).toBeUndefined();
 		expect(allocateMultiAgentCounter(controlDbPath, oldPath, "agent")).toBe(1);
+	});
+
+	it("allocates unique contiguous counter values under concurrent workers", async () => {
+		const sessionPath = "/sessions/concurrent-counter.jsonl";
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toBeUndefined();
+		const workerCount = 8;
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const workerSource = `
+			import { parentPort, workerData } from "node:worker_threads";
+			import { allocateMultiAgentCounter } from ${JSON.stringify(moduleUrl)};
+
+			parentPort?.postMessage({ type: "ready" });
+			parentPort?.once("message", () => {
+				try {
+					const value = allocateMultiAgentCounter(workerData.controlDbPath, workerData.sessionPath, "agent");
+					parentPort?.postMessage({ type: "completed", value });
+				} catch (error) {
+					parentPort?.postMessage({ error: String(error), type: "error" });
+				}
+			});
+		`;
+		const workers = Array.from(
+			{ length: workerCount },
+			() =>
+				new Worker(workerSource, {
+					eval: true,
+					execArgv: ["--experimental-strip-types"],
+					workerData: { controlDbPath, sessionPath },
+				}),
+		);
+		try {
+			await Promise.all(
+				workers.map((worker) =>
+					waitForWorkerStatus(worker, {
+						expectedType: "ready",
+						timeoutMessage: "counter worker did not load",
+					}),
+				),
+			);
+			for (const worker of workers) worker.postMessage("allocate");
+			const results = await Promise.all(
+				workers.map((worker) =>
+					waitForWorkerStatus(worker, {
+						expectedType: "completed",
+						timeoutMessage: "counter worker did not allocate",
+					}),
+				),
+			);
+
+			expect(results.map((result) => result.value).sort((left, right) => (left ?? 0) - (right ?? 0))).toEqual(
+				Array.from({ length: workerCount }, (_, index) => index + 1),
+			);
+			const db = createSqliteDatabase(controlDbPath);
+			try {
+				const row = db
+					.prepare("SELECT next_agent_number FROM multi_agent_counters_v2 WHERE session_path = ?")
+					.get(sessionPath) as { next_agent_number: number };
+				expect(row.next_agent_number).toBe(workerCount + 1);
+			} finally {
+				db.close();
+			}
+		} finally {
+			await Promise.all(workers.map((worker) => worker.terminate()));
+		}
 	});
 
 	it("preserves destination counters when relocating back to a previously used session path", () => {
@@ -3108,6 +5630,48 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(claimLatestIncomingMessage(controlDbPath)).toBeUndefined();
 	});
 
+	it("returns without a writer lock when no incoming message is pending", async () => {
+		expect(claimLatestIncomingMessage(controlDbPath)).toBeUndefined();
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { claimLatestIncomingMessage } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const claimed = claimLatestIncomingMessage(workerData.controlDbPath);
+						parentPort?.postMessage({ claimed: claimed !== undefined, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "incoming-message worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("claim");
+			const result = await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				timeoutMessage: "empty incoming-message claim waited for the writer lock",
+				timeoutMs: 1_000,
+			});
+			expect(result.claimed).toBe(false);
+		} finally {
+			holder.exec("ROLLBACK");
+			await worker.terminate();
+			holder.close();
+		}
+	});
+
 	it("allows claimed incoming messages to be completed", () => {
 		enqueueIncomingMessage(controlDbPath, "run this");
 		const claimed = claimLatestIncomingMessage(controlDbPath);
@@ -3117,6 +5681,237 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 
 		expect(readIncomingMessageStatus(controlDbPath, claimed!.id)).toBe("completed");
 		expect(claimLatestIncomingMessage(controlDbPath)).toBeUndefined();
+	});
+
+	it("returns without a writer lock when no Supervisor request is pending", async () => {
+		expect(claimNextSupervisorRequest(controlDbPath, "initial-claim")).toBeUndefined();
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { claimNextSupervisorRequest } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const claimed = claimNextSupervisorRequest(workerData.controlDbPath, "worker-claim");
+						parentPort?.postMessage({ claimed: claimed !== undefined, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "Supervisor request worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("claim");
+			const result = await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				timeoutMessage: "empty Supervisor claim waited for the writer lock",
+				timeoutMs: 1_000,
+			});
+			expect(result.claimed).toBe(false);
+		} finally {
+			holder.exec("ROLLBACK");
+			await worker.terminate();
+			holder.close();
+		}
+	});
+
+	it("returns without a writer lock when no Supervisor request needs recovery", async () => {
+		recoverSupervisorRequests(controlDbPath);
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { recoverSupervisorRequests } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						recoverSupervisorRequests(workerData.controlDbPath);
+						parentPort?.postMessage({ type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "Supervisor recovery worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("recover");
+			await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				timeoutMessage: "idle Supervisor recovery waited for the writer lock",
+				timeoutMs: 1_000,
+			});
+		} finally {
+			holder.exec("ROLLBACK");
+			await worker.terminate();
+			holder.close();
+		}
+	});
+
+	it("returns without a writer lock when no terminal outbox row is eligible", async () => {
+		expect(
+			claimMultiAgentTerminalOutbox(controlDbPath, "initial-terminal-claim", "2026-08-09T00:00:00.000Z"),
+		).toBeUndefined();
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { claimMultiAgentTerminalOutbox } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const claimed = claimMultiAgentTerminalOutbox(
+							workerData.controlDbPath,
+							"worker-terminal-claim",
+							"2026-08-09T00:00:01.000Z",
+						);
+						parentPort?.postMessage({ claimed: claimed !== undefined, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "terminal-outbox worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("claim");
+			const result = await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				timeoutMessage: "empty terminal-outbox claim waited for the writer lock",
+				timeoutMs: 1_000,
+			});
+			expect(result.claimed).toBe(false);
+		} finally {
+			holder.exec("ROLLBACK");
+			await worker.terminate();
+			holder.close();
+		}
+	});
+
+	it("reads existing prompt history without acquiring the writer lock", async () => {
+		recordPromptHistoryEntry(controlDbPath, "persisted prompt");
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { readOrMigratePromptHistory } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const entries = readOrMigratePromptHistory(workerData.controlDbPath, ["legacy prompt"]);
+						parentPort?.postMessage({ entries, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "prompt-history worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("read");
+			const result = await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				timeoutMessage: "persisted prompt history waited for the writer lock",
+				timeoutMs: 1_000,
+			});
+			expect(result.entries).toEqual(["persisted prompt"]);
+		} finally {
+			holder.exec("ROLLBACK");
+			await worker.terminate();
+			holder.close();
+		}
+	});
+
+	it("skips empty legacy prompt migration before acquiring the writer lock", async () => {
+		readPromptHistory(controlDbPath);
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { readOrMigratePromptHistory } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					const entries = readOrMigratePromptHistory(workerData.controlDbPath, ["   "]);
+					parentPort?.postMessage({ entries, type: "completed" });
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "empty prompt-history worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("migrate");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "empty legacy prompt migration waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "empty prompt-history worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.entries).toEqual(["   "]);
+		expect(readPromptHistory(controlDbPath)).toEqual([]);
 	});
 
 	it("keeps only the latest assistant message", () => {
@@ -3284,6 +6079,70 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		});
 	});
 
+	it("reads completed mailbox state without acquiring the writer lock", async () => {
+		const storeRef = { messageId: "completed-lock-free", sessionPath: "/sessions/completed-lock-free.jsonl" };
+		upsertMultiAgentMailboxMessage(controlDbPath, storeRef.sessionPath, storeRef.messageId, {
+			body: "already delivered",
+			createdAt: "2026-08-09T00:00:00.000Z",
+			fromAgentId: "main",
+			id: storeRef.messageId,
+			kind: "message",
+			status: "delivered",
+			toAgentId: "main",
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+		const messageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			kind: "message",
+			recipient: { agentId: null, sessionId: "completed-recipient" },
+			sender: { agentId: null, sessionId: "completed-sender" },
+			storeRef,
+		});
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import {
+					consumeRuntimeMailboxMessageByStoreRef,
+					deliverRuntimeMailboxMessage,
+					markRuntimeMailboxMessageDelivered,
+				} from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						markRuntimeMailboxMessageDelivered(workerData.controlDbPath, workerData.messageId);
+						const delivered = deliverRuntimeMailboxMessage(workerData.controlDbPath, workerData.messageId);
+						const consumed = consumeRuntimeMailboxMessageByStoreRef(workerData.controlDbPath, workerData.storeRef);
+						parentPort?.postMessage({ consumed, delivered, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, messageId, storeRef } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "completed-mailbox worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("read");
+			const result = await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				timeoutMessage: "completed mailbox reads waited for the writer lock",
+				timeoutMs: 1_000,
+			});
+			expect(result).toMatchObject({ consumed: 0, delivered: true });
+		} finally {
+			holder.exec("ROLLBACK");
+			await worker.terminate();
+			holder.close();
+		}
+	});
+
 	it("claims canonical mailbox rows atomically without a runtime message table", () => {
 		const firstId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "first",
@@ -3320,6 +6179,171 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			expect(canonicalStatuses).toEqual([{ status: "claimed" }, { status: "claimed" }]);
 		} finally {
 			db.close();
+		}
+	});
+
+	it("scans unauthorized canonical mailbox rows without acquiring the writer lock", async () => {
+		const recipient = { agentId: null, sessionId: "claim-contention-no-authority" };
+		const sessionPath = "/sessions/claim-contention-sender.jsonl";
+		const messageId = "claim-contention-message";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: "no current recipient authority",
+			createdAt: "2026-08-09T00:00:00.000Z",
+			fromAgentId: "main",
+			id: messageId,
+			kind: "message",
+			recipientAgentId: null,
+			recipientSessionId: recipient.sessionId,
+			senderAgentId: null,
+			senderSessionId: "claim-contention-sender",
+			status: "pending",
+			toAgentId: "main",
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { claimRuntimeMailboxMessages } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const claimed = claimRuntimeMailboxMessages(workerData.controlDbPath, workerData.recipient);
+						parentPort?.postMessage({ count: claimed.length, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, recipient } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let result: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "claim worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("claim");
+			try {
+				result = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "unauthorized mailbox scan waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!result) {
+				result = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "claim worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(result?.count).toBe(0);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			const row = db
+				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+				.get(sessionPath, messageId) as { data: string };
+			expect(JSON.parse(row.data)).toMatchObject({ status: "pending" });
+		} finally {
+			db.close();
+		}
+	});
+
+	it("reaches listener process-liveness checks while another writer holds the database", async () => {
+		const sessionId = "listener-contention";
+		const nowIso = "2026-08-09T00:00:00.000Z";
+		writeSessionHealth(controlDbPath, {
+			...emptySessionHealth(sessionId, nowIso),
+			checkStatus: "ok",
+			pid: process.pid,
+		});
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { registerRuntimeMailboxListener } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						registerRuntimeMailboxListener(
+							workerData.controlDbPath,
+							workerData.recipient,
+							process.pid,
+							workerData.sessionPath,
+							{
+								isRuntimeProcessAlive: (pid: number) => {
+									parentPort?.postMessage({ pid, type: "callback" });
+									return false;
+								},
+							},
+						);
+						parentPort?.postMessage({ type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{
+				eval: true,
+				execArgv: ["--experimental-strip-types"],
+				workerData: {
+					controlDbPath,
+					recipient: { agentId: null, sessionId },
+					sessionPath: "/sessions/listener-contention.jsonl",
+				},
+			},
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "listener worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("register");
+			const callback = await waitForWorkerStatus(worker, {
+				expectedType: "callback",
+				timeoutMessage:
+					"registerRuntimeMailboxListener did not reach isRuntimeProcessAlive while writer lock was held",
+				timeoutMs: 1_000,
+			});
+			expect(callback.pid).toBe(process.pid);
+			holder.exec("ROLLBACK");
+			await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				ignoredTypes: ["callback"],
+				timeoutMessage: "listener registration did not complete",
+			});
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the callback assertion.
+			}
+			await worker.terminate();
+			holder.close();
 		}
 	});
 
@@ -3467,6 +6491,106 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(recovered).toBe(1);
 		expect(claimed.map((message) => message.id)).toEqual([staleId]);
 		expect(readRuntimeMailboxMessage(controlDbPath, freshId)).toMatchObject({ status: "claimed" });
+	});
+
+	it("scans live canonical mailbox claims without acquiring the writer lock", async () => {
+		const recipient = { agentId: null, sessionId: "recovery-contention-recipient" };
+		const sessionPath = "/sessions/recovery-contention-sender.jsonl";
+		const messageId = "recovery-contention-message";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: "live claim",
+			createdAt: "2026-08-09T00:00:00.000Z",
+			fromAgentId: "main",
+			id: messageId,
+			kind: "message",
+			recipientAgentId: null,
+			recipientSessionId: recipient.sessionId,
+			senderAgentId: null,
+			senderSessionId: "recovery-contention-sender",
+			status: "pending",
+			toAgentId: "main",
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import {
+					claimRuntimeMailboxMessages,
+					recoverDeadRuntimeMailboxClaims,
+					registerRuntimeMailboxListener,
+				} from ${JSON.stringify(moduleUrl)};
+
+				try {
+					registerRuntimeMailboxListener(workerData.controlDbPath, workerData.recipient, process.pid);
+					const claimed = claimRuntimeMailboxMessages(workerData.controlDbPath, workerData.recipient);
+					parentPort?.postMessage({ id: claimed[0]?.id, type: "ready" });
+				} catch (error) {
+					parentPort?.postMessage({ error: String(error), type: "error" });
+				}
+
+				parentPort?.once("message", () => {
+					try {
+						const recovered = recoverDeadRuntimeMailboxClaims(workerData.controlDbPath, workerData.recipient);
+						parentPort?.postMessage({ count: recovered, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, recipient } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			const ready = await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "recovery worker did not claim the mailbox row",
+			});
+			expect(ready.id).toBeTypeOf("number");
+
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("recover");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "live-claim recovery waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "recovery worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.count).toBe(0);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			const row = db
+				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+				.get(sessionPath, messageId) as { data: string };
+			expect(JSON.parse(row.data)).toMatchObject({ status: "claimed" });
+		} finally {
+			db.close();
+		}
 	});
 
 	it("rejects runtime mailbox rows when the referenced store payload is malformed", () => {
@@ -4215,6 +7339,49 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(listArchivedSessionMetadata(controlDbPath).map((session) => session.sessionPath)).toEqual([
 			"/tmp/old.jsonl",
 		]);
+	});
+
+	it("returns without a writer lock when no session is eligible for archival", async () => {
+		const cutoff = "2026-01-02T00:00:00.000Z";
+		expect(archiveSessionsOlderThan(controlDbPath, new Date(cutoff))).toEqual([]);
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { archiveSessionsOlderThan } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const paths = archiveSessionsOlderThan(workerData.controlDbPath, new Date(workerData.cutoff));
+						parentPort?.postMessage({ paths, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, cutoff } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "session-archive worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("archive");
+			const result = await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				timeoutMessage: "empty session archive waited for the writer lock",
+				timeoutMs: 1_000,
+			});
+			expect(result.paths).toEqual([]);
+		} finally {
+			holder.exec("ROLLBACK");
+			await worker.terminate();
+			holder.close();
+		}
 	});
 
 	it("updates existing session metadata without changing its session path", () => {
