@@ -195,6 +195,27 @@ describe("bwrap sandbox backend", () => {
 		}
 	});
 
+	it("mounts and invokes the canonical target for a symlinked runner", () => {
+		const runnerTarget = join(tempDir, "runner", "runner-bin");
+		const runnerLink = join(tempDir, "bin", "pyrun-jsonl");
+		mkdirSync(dirname(runnerTarget), { recursive: true });
+		mkdirSync(dirname(runnerLink), { recursive: true });
+		writeFileSync(runnerTarget, "runner", "utf8");
+		symlinkSync(runnerTarget, runnerLink);
+
+		const runner = createBwrapRunnerCommand({
+			bwrapCommand: "/bin/true",
+			cwd: workspaceDir,
+			profile: "read-only",
+			runnerArgs: [],
+			runnerCommand: runnerLink,
+			runnerEnv: { PATH: "/usr/bin" },
+		});
+
+		expect(runner.args).toEqual(expect.arrayContaining(["--ro-bind", runnerTarget, runnerTarget]));
+		expect(runner.args.at(-1)).toBe(runnerTarget);
+	});
+
 	it("resolves relative PYTHONPATH entries inside the sandbox workspace", () => {
 		const hostLaunchPath = join(process.cwd(), "extensions");
 		const runner = createBwrapRunnerCommand({

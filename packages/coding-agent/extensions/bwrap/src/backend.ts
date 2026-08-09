@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcessByStdio } from "node:child_process";
 import type { Readable } from "node:stream";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
 import type { BashOperations } from "../../../src/index.ts";
 import { createLocalBashOperations } from "../../../src/index.ts";
@@ -160,13 +160,17 @@ export function createBwrapRunnerCommand(options: {
 }
 
 function findRunnerExecutable(command: string, env: NodeJS.ProcessEnv | undefined): string {
-	if (isAbsolute(command)) return command;
+	if (isAbsolute(command)) return resolveRunnerExecutable(command);
 	const searchPath = env?.PATH ?? process.env.PATH ?? DEFAULT_PATH;
 	for (const directory of searchPath.split(delimiter)) {
 		const candidate = join(directory, command);
-		if (existsSync(candidate)) return candidate;
+		if (existsSync(candidate)) return resolveRunnerExecutable(candidate);
 	}
 	return command;
+}
+
+function resolveRunnerExecutable(path: string): string {
+	return existsSync(path) ? realpathSync(path) : path;
 }
 
 function runnerReadOnlyPaths(
