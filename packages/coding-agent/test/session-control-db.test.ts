@@ -15,6 +15,7 @@ import {
 	bootstrapMultiAgentAgent,
 	claimLatestIncomingMessage,
 	claimMultiAgentTerminalOutbox,
+	claimNextSupervisorRequest,
 	claimPendingArchitectRequests,
 	claimRuntimeMailboxMessages,
 	cleanupMultiAgentTerminalOutbox,
@@ -3300,6 +3301,48 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 
 		expect(readIncomingMessageStatus(controlDbPath, claimed!.id)).toBe("completed");
 		expect(claimLatestIncomingMessage(controlDbPath)).toBeUndefined();
+	});
+
+	it("returns without a writer lock when no Supervisor request is pending", async () => {
+		expect(claimNextSupervisorRequest(controlDbPath, "initial-claim")).toBeUndefined();
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { claimNextSupervisorRequest } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const claimed = claimNextSupervisorRequest(workerData.controlDbPath, "worker-claim");
+						parentPort?.postMessage({ claimed: claimed !== undefined, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "Supervisor request worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("claim");
+			const result = await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				timeoutMessage: "empty Supervisor claim waited for the writer lock",
+				timeoutMs: 1_000,
+			});
+			expect(result.claimed).toBe(false);
+		} finally {
+			holder.exec("ROLLBACK");
+			await worker.terminate();
+			holder.close();
+		}
 	});
 
 	it("reads existing prompt history without acquiring the writer lock", async () => {

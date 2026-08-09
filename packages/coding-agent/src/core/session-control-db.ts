@@ -1533,46 +1533,48 @@ export function readSupervisorRequest(controlDbPath: string, requestId: number):
 
 export function claimNextSupervisorRequest(controlDbPath: string, claimToken: string): SupervisorRequest | undefined {
 	return withControlDb(controlDbPath, (db) => {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			const activeClaim = db.prepare("SELECT 1 FROM supervisor_requests WHERE status = 'claimed' LIMIT 1").get();
-			if (activeClaim) {
-				db.exec("COMMIT");
-				return undefined;
-			}
-			const row = db
-				.prepare(
-					`SELECT ${SUPERVISOR_REQUEST_COLUMNS}
-					 FROM supervisor_requests
-					 WHERE status = 'pending'
-					 ORDER BY CASE kind
-						 WHEN 'approval_review' THEN 0
-						 WHEN 'supervisor_advisory' THEN 2
-						 ELSE 1
-					 END, id ASC
-					 LIMIT 1`,
-				)
-				.get() as SupervisorRequestRow | undefined;
-			if (!row) {
-				db.exec("COMMIT");
-				return undefined;
-			}
-			const claimedAt = new Date().toISOString();
-			db.prepare(
-				"UPDATE supervisor_requests SET status = 'claimed', claimed_at = ?, claim_token = ? WHERE id = ? AND status = 'pending'",
-			).run(claimedAt, claimToken, row.id);
-			db.exec("COMMIT");
-			return supervisorRequestFromRow({
-				...row,
-				status: "claimed",
-				claimed_at: claimedAt,
-				claim_token: claimToken,
-			});
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		if (!readNextSupervisorRequestToClaim(db)) return undefined;
+		return withImmediateTransaction(db, () => claimNextSupervisorRequestInTransaction(db, claimToken));
 	});
+}
+
+function claimNextSupervisorRequestInTransaction(
+	db: SqliteDatabase,
+	claimToken: string,
+): SupervisorRequest | undefined {
+	const row = readNextSupervisorRequestToClaim(db);
+	if (!row) return undefined;
+	const claimedAt = new Date().toISOString();
+	const result = db
+		.prepare(
+			"UPDATE supervisor_requests SET status = 'claimed', claimed_at = ?, claim_token = ? WHERE id = ? AND status = 'pending'",
+		)
+		.run(claimedAt, claimToken, row.id);
+	if (result.changes !== 1) return undefined;
+	return supervisorRequestFromRow({
+		...row,
+		status: "claimed",
+		claimed_at: claimedAt,
+		claim_token: claimToken,
+	});
+}
+
+function readNextSupervisorRequestToClaim(db: SqliteDatabase): SupervisorRequestRow | undefined {
+	const activeClaim = db.prepare("SELECT 1 FROM supervisor_requests WHERE status = 'claimed' LIMIT 1").get();
+	if (activeClaim) return undefined;
+	return db
+		.prepare(
+			`SELECT ${SUPERVISOR_REQUEST_COLUMNS}
+			 FROM supervisor_requests
+			 WHERE status = 'pending'
+			 ORDER BY CASE kind
+				 WHEN 'approval_review' THEN 0
+				 WHEN 'supervisor_advisory' THEN 2
+				 ELSE 1
+			 END, id ASC
+			 LIMIT 1`,
+		)
+		.get() as SupervisorRequestRow | undefined;
 }
 
 export function recoverSupervisorRequests(controlDbPath: string): void {
