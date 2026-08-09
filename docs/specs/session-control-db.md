@@ -103,6 +103,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] Stored runtime-mailbox enqueues prepare and validate payloads before writing. Existing duplicate or
       conflicting rows are handled read-only; absent rows use one conflict-safe insert and validate a
       concurrent winner without rewriting it.
+- [x] Multi-agent mailbox upserts prepare parent-target authorization, collision validation, and
+      canonical claim-preserving merges from read-only snapshots. Unchanged canonical rows return
+      without reserving the writer lock; changed or inserted rows revalidate the exact parent and
+      mailbox snapshots before one atomic upsert, retrying bounded snapshot conflicts explicitly.
 - [x] Reject conflicting reuse of a persisted mailbox message ID transactionally: updates are allowed
       only when both stored and incoming identities are complete and the sender, recipient, kind,
       thread, and message ID identity match; incomplete or conflicting reuse fails explicitly without
