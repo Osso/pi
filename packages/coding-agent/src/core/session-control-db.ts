@@ -369,14 +369,17 @@ export function enqueueIncomingMessage(controlDbPath: string, content: string): 
 export function claimLatestIncomingMessage(controlDbPath: string): IncomingControlMessage | undefined {
 	return withControlDb(controlDbPath, (db) => {
 		if (!readLatestPendingIncomingMessage(db)) return undefined;
-		return withImmediateTransaction(db, () => claimLatestIncomingMessageInTransaction(db));
+		const nowIso = new Date().toISOString();
+		return withImmediateTransaction(db, () => claimLatestIncomingMessageInTransaction(db, nowIso));
 	});
 }
 
-function claimLatestIncomingMessageInTransaction(db: SqliteDatabase): IncomingControlMessage | undefined {
+function claimLatestIncomingMessageInTransaction(
+	db: SqliteDatabase,
+	now: string,
+): IncomingControlMessage | undefined {
 	const row = readLatestPendingIncomingMessage(db);
 	if (!row) return undefined;
-	const now = new Date().toISOString();
 	db.prepare(
 		`
 		UPDATE incoming_messages
@@ -1034,6 +1037,7 @@ type RuntimeMailboxRegistrationSnapshot = {
 };
 
 type RuntimeMailboxRegistrationPlan = {
+	nowIso: string;
 	shouldReconcileReplacement: boolean;
 	snapshot: RuntimeMailboxRegistrationSnapshot;
 };
@@ -1078,7 +1082,7 @@ function prepareRuntimeMailboxRegistration(
 		registration.options.reconcileRuntimeReplacement !== false &&
 		runtimeOwnerChanged;
 	if (shouldReconcileReplacement) assertRuntimeReplacementAllowed(db, registration, snapshot);
-	return { shouldReconcileReplacement, snapshot };
+	return { nowIso: new Date().toISOString(), shouldReconcileReplacement, snapshot };
 }
 
 function commitRuntimeMailboxRegistration(
@@ -1089,7 +1093,7 @@ function commitRuntimeMailboxRegistration(
 	return withImmediateTransaction(db, () => {
 		const current = readRuntimeMailboxRegistrationSnapshot(db, registration.recipient);
 		if (!runtimeMailboxRegistrationSnapshotsEqual(plan.snapshot, current)) return false;
-		registerRuntimeMailboxListenerInTransaction(db, registration, plan.shouldReconcileReplacement);
+		registerRuntimeMailboxListenerInTransaction(db, registration, plan.nowIso, plan.shouldReconcileReplacement);
 		return true;
 	});
 }
@@ -1149,9 +1153,9 @@ function sessionHealthRowsEqual(
 function registerRuntimeMailboxListenerInTransaction(
 	db: SqliteDatabase,
 	registration: RuntimeMailboxRegistration,
+	nowIso: string,
 	shouldReconcileReplacement: boolean,
 ): void {
-	const nowIso = new Date().toISOString();
 	const { pid, recipient, runtimeInstanceId, sessionPath } = registration;
 	if (recipient.agentId === null) {
 		retireSupersededMainRuntimeMailboxListeners(db, recipient.sessionId, pid, nowIso);
@@ -1225,8 +1229,9 @@ export function retireRuntimeMailboxListener(
 	recipient: RuntimeMailboxAddress,
 	pid: number,
 ): boolean {
+	const nowIso = new Date().toISOString();
 	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => retireRuntimeMailboxListenerRow(db, recipient, pid, new Date().toISOString())),
+		withImmediateTransaction(db, () => retireRuntimeMailboxListenerRow(db, recipient, pid, nowIso)),
 	);
 }
 
@@ -1458,8 +1463,11 @@ export function claimPendingArchitectRequests(
 	const claimLimit = Math.max(1, Math.floor(limit));
 	return withControlDb(controlDbPath, (db) => {
 		if (!hasArchitectClaimWork(db, nowIso)) return [];
-		return withImmediateTransaction(db, () =>
+		const rows = withImmediateTransaction(db, () =>
 			claimPendingArchitectRequestsInTransaction(db, claimToken, nowIso, claimLimit),
+		);
+		return rows.map((row) =>
+			architectRequestFromRow({ ...row, status: "claimed", claimed_at: nowIso, claim_token: claimToken }),
 		);
 	});
 }
@@ -1469,7 +1477,7 @@ function claimPendingArchitectRequestsInTransaction(
 	claimToken: string,
 	nowIso: string,
 	claimLimit: number,
-): ArchitectRequest[] {
+): ArchitectRequestRow[] {
 	db.prepare(
 		`UPDATE architect_requests
 		 SET status = 'pending', claimed_at = NULL, claim_token = NULL
@@ -1490,9 +1498,7 @@ function claimPendingArchitectRequestsInTransaction(
 		 WHERE id = ? AND status = 'pending'`,
 	);
 	for (const row of rows) claim.run(nowIso, claimToken, row.id);
-	return rows.map((row) =>
-		architectRequestFromRow({ ...row, status: "claimed", claimed_at: nowIso, claim_token: claimToken }),
-	);
+	return rows;
 }
 
 function hasArchitectClaimWork(db: SqliteDatabase, nowIso: string): boolean {
@@ -1622,29 +1628,29 @@ export function readSupervisorRequest(controlDbPath: string, requestId: number):
 export function claimNextSupervisorRequest(controlDbPath: string, claimToken: string): SupervisorRequest | undefined {
 	return withControlDb(controlDbPath, (db) => {
 		if (!readNextSupervisorRequestToClaim(db)) return undefined;
-		return withImmediateTransaction(db, () => claimNextSupervisorRequestInTransaction(db, claimToken));
+		const claimedAt = new Date().toISOString();
+		const row = withImmediateTransaction(db, () =>
+			claimNextSupervisorRequestInTransaction(db, claimToken, claimedAt),
+		);
+		return row ? supervisorRequestFromRow(row) : undefined;
 	});
 }
 
 function claimNextSupervisorRequestInTransaction(
 	db: SqliteDatabase,
 	claimToken: string,
-): SupervisorRequest | undefined {
+	claimedAt: string,
+): SupervisorRequestRow | undefined {
 	const row = readNextSupervisorRequestToClaim(db);
 	if (!row) return undefined;
-	const claimedAt = new Date().toISOString();
-	const result = db
+	return db
 		.prepare(
-			"UPDATE supervisor_requests SET status = 'claimed', claimed_at = ?, claim_token = ? WHERE id = ? AND status = 'pending'",
+			`UPDATE supervisor_requests
+			 SET status = 'claimed', claimed_at = ?, claim_token = ?
+			 WHERE id = ? AND status = 'pending'
+			 RETURNING ${SUPERVISOR_REQUEST_COLUMNS}`,
 		)
-		.run(claimedAt, claimToken, row.id);
-	if (result.changes !== 1) return undefined;
-	return supervisorRequestFromRow({
-		...row,
-		status: "claimed",
-		claimed_at: claimedAt,
-		claim_token: claimToken,
-	});
+		.get(claimedAt, claimToken, row.id) as SupervisorRequestRow | undefined;
 }
 
 function readNextSupervisorRequestToClaim(db: SqliteDatabase): SupervisorRequestRow | undefined {
@@ -3104,7 +3110,7 @@ export function claimMultiAgentTerminalOutbox(
 	const maxAttempts = options.maxAttempts ?? 5;
 	return withControlDb(controlDbPath, (db) => {
 		if (!hasEligibleTerminalOutboxWork(db, maxAttempts, options)) return undefined;
-		return withImmediateTransaction(db, () => {
+		const row = withImmediateTransaction(db, () => {
 			if (options.staleClaimBefore) {
 				recoverStaleTerminalOutboxClaims(db, {
 					maxAttempts,
@@ -3113,9 +3119,9 @@ export function claimMultiAgentTerminalOutbox(
 					staleClaimBefore: options.staleClaimBefore,
 				});
 			}
-			const row = claimNextTerminalOutboxRow(db, claimId, nowIso, maxAttempts, options.sessionPath);
-			return row ? terminalOutboxRecordFromClaimedRow(row, claimId) : undefined;
+			return claimNextTerminalOutboxRow(db, claimId, nowIso, maxAttempts, options.sessionPath);
 		});
+		return row ? terminalOutboxRecordFromClaimedRow(row, claimId) : undefined;
 	});
 }
 
@@ -3991,6 +3997,7 @@ const MULTI_AGENT_TERMINAL_MUTATION_MAX_ATTEMPTS = 3;
 
 type MultiAgentTerminalMutationPlan = {
 	agentData: string;
+	processIdentityData: string;
 	terminalRevision: number;
 	updatedAgentData: string;
 };
@@ -4050,7 +4057,14 @@ function prepareMultiAgentTerminalMutation(
 		revision: terminalRevision,
 		updatedAt: input.updatedAt,
 	};
-	return { plan: { agentData: agentRow.data, terminalRevision, updatedAgentData: JSON.stringify(updatedAgent) } };
+	return {
+		plan: {
+			agentData: agentRow.data,
+			processIdentityData: serializeProcessIdentity(input.processIdentity),
+			terminalRevision,
+			updatedAgentData: JSON.stringify(updatedAgent),
+		},
+	};
 }
 
 function persistMultiAgentTerminalMutation(
@@ -4063,7 +4077,7 @@ function persistMultiAgentTerminalMutation(
 			agentData: plan.agentData,
 			agentId: input.agentId,
 			owner: input.owner,
-			processIdentity: input.processIdentity,
+			processIdentityData: plan.processIdentityData,
 			requireUniqueOwnership: false,
 			sessionPath: input.sessionPath,
 			updatedAgentData: plan.updatedAgentData,
@@ -4084,7 +4098,7 @@ type TerminalAgentCasInput = {
 	agentData: string;
 	agentId: string;
 	owner: { agentId: string | null; sessionId: string };
-	processIdentity: ProcessIdentity;
+	processIdentityData: string;
 	requireUniqueOwnership: boolean;
 	sessionPath: string;
 	updatedAgentData: string;
@@ -4092,7 +4106,6 @@ type TerminalAgentCasInput = {
 };
 
 function updateTerminalAgentIfCurrent(db: SqliteDatabase, input: TerminalAgentCasInput): boolean {
-	const serializedIdentity = serializeProcessIdentity(input.processIdentity);
 	return (
 		db
 			.prepare(
@@ -4140,12 +4153,12 @@ function updateTerminalAgentIfCurrent(db: SqliteDatabase, input: TerminalAgentCa
 				input.agentData,
 				input.sessionPath,
 				input.agentId,
-				serializedIdentity,
+				input.processIdentityData,
 				input.owner.sessionId,
 				input.owner.agentId,
 				input.requireUniqueOwnership ? 1 : 0,
 				input.agentId,
-				serializedIdentity,
+				input.processIdentityData,
 				input.owner.sessionId,
 				input.owner.agentId,
 				input.sessionPath,
@@ -4231,6 +4244,7 @@ type FinalizeDetachedJobPlan = {
 	agentData: string;
 	eventKind: string;
 	ownership: MultiAgentRuntimeOwnershipRow;
+	processIdentityData: string;
 	sessionPath: string;
 	terminalAgent: AgentSnapshot;
 	terminalAgentData: string;
@@ -4335,6 +4349,7 @@ function prepareDetachedJobFinalization(
 			agentData: row.data,
 			eventKind,
 			ownership,
+			processIdentityData: serializeProcessIdentity(terminal.processIdentity),
 			sessionPath,
 			terminalAgent: terminalAgent as unknown as AgentSnapshot,
 			terminalAgentData: JSON.stringify(terminalAgent),
@@ -4405,7 +4420,7 @@ function persistDetachedJobFinalization(
 			agentData: plan.agentData,
 			agentId: terminal.jobId,
 			owner: terminal.owner,
-			processIdentity: terminal.processIdentity,
+			processIdentityData: plan.processIdentityData,
 			requireUniqueOwnership: true,
 			sessionPath: plan.sessionPath,
 			updatedAgentData: plan.terminalAgentData,
@@ -4457,7 +4472,15 @@ function prepareDetachedAgentTerminalTransport(
 }
 
 function persistPreparedTerminalTransport(db: SqliteDatabase, transport: PreparedTerminalTransport): void {
-	persistStoredRuntimeMailboxMessage(db, transport.input, transport.prepared);
+	db.prepare(
+		`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+		 VALUES (?, ?, ?, ?)`,
+	).run(
+		transport.input.storeRef.sessionPath,
+		transport.input.storeRef.messageId,
+		transport.prepared.serialized,
+		transport.prepared.updatedAt,
+	);
 }
 
 function detachedJobAgentDetails(
@@ -4500,6 +4523,7 @@ type SupervisorRecoveryAuthority = {
 
 type DeadRuntimeRecoveryPlan = {
 	agentData: string;
+	processIdentityData: string;
 	terminalRevision: number;
 	terminalTransport?: PreparedTerminalTransport;
 	updatedAgent: Record<string, unknown> & { updatedAt: string };
@@ -4715,6 +4739,7 @@ function prepareDeadRuntimeRecovery(
 			: undefined;
 	return {
 		agentData: recoverable.agentData,
+		processIdentityData: serializeProcessIdentity(expectedOwner.processIdentity),
 		terminalRevision,
 		terminalTransport,
 		updatedAgent,
@@ -4818,7 +4843,7 @@ function releaseDeadRuntimeOwnershipIfCurrent(
 				expectedOwner.sessionPath,
 				expectedOwner.sessionPath,
 				expectedOwner.agentId,
-				serializeProcessIdentity(expectedOwner.processIdentity),
+				plan.processIdentityData,
 				expectedOwner.owner.sessionId,
 				expectedOwner.owner.agentId,
 				expectedOwner.sessionPath,
@@ -5085,10 +5110,20 @@ export function readMultiAgentRuntimeOwnership(
 
 const ATTACHED_RUNTIME_OWNERSHIP_MAX_ATTEMPTS = 3;
 
+type SupervisorSessionAuthoritySnapshot = {
+	listener: {
+		runtime_instance_id: string;
+		session_path: string | null;
+		session_path_asserted_at: string | null;
+	};
+	supervisorAgentData?: string;
+};
+
 type AcquireAttachedRuntimeOwnershipPlan = {
 	agentData: string;
 	ownership: MultiAgentRuntimeOwnershipRow | undefined;
 	processIdentityData: string;
+	supervisorAuthority: SupervisorSessionAuthoritySnapshot;
 	updatedAgent: Record<string, unknown>;
 	updatedAgentData: string;
 };
@@ -5125,9 +5160,8 @@ function prepareAttachedRuntimeOwnershipAcquisition(
 	db: SqliteDatabase,
 	input: AcquireAttachedRuntimeOwnershipInput,
 ): AcquireAttachedRuntimeOwnershipPreflight {
-	if (!registeredSupervisorOwnsSession(db, input.sessionPath, input.supervisor)) {
-		return { result: { ok: false, error: "mutation_mismatch" } };
-	}
+	const supervisorAuthority = readRegisteredSupervisorSessionAuthority(db, input.sessionPath, input.supervisor);
+	if (!supervisorAuthority) return { result: { ok: false, error: "mutation_mismatch" } };
 	const agentRead = readAttachedRuntimeAgent(db, input.sessionPath, input.agentId);
 	if (!agentRead.ok) return { result: agentRead };
 	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
@@ -5157,6 +5191,7 @@ function prepareAttachedRuntimeOwnershipAcquisition(
 			agentData: agentRead.data,
 			ownership,
 			processIdentityData: serializeProcessIdentity(input.processIdentity),
+			supervisorAuthority,
 			updatedAgent,
 			updatedAgentData: JSON.stringify(updatedAgent),
 		},
@@ -5181,7 +5216,7 @@ function commitAttachedRuntimeOwnershipAcquisition(
 	plan: AcquireAttachedRuntimeOwnershipPlan,
 ): AcquireAttachedRuntimeOwnershipResult | undefined {
 	const persisted = withImmediateTransaction(db, () => {
-		if (!persistedSupervisorOwnsSession(db, input.sessionPath, input.supervisor)) {
+		if (!supervisorSessionAuthorityIsCurrent(db, input.sessionPath, input.supervisor, plan.supervisorAuthority)) {
 			return { ok: false, error: "mutation_mismatch" } as const;
 		}
 		const row = db
@@ -5216,54 +5251,90 @@ function persistAttachedRuntimeOwnershipAcquisition(
 	);
 }
 
-function registeredSupervisorOwnsSession(
+function readRegisteredSupervisorSessionAuthority(
 	db: SqliteDatabase,
 	sessionPath: string,
 	supervisor: SupervisorRuntimeOwnership,
-): boolean {
-	return (
-		isProcessIdentityAlive(supervisor.processIdentity) && persistedSupervisorOwnsSession(db, sessionPath, supervisor)
-	);
+): SupervisorSessionAuthoritySnapshot | undefined {
+	if (!isProcessIdentityAlive(supervisor.processIdentity)) return undefined;
+	const authority = readPersistedSupervisorSessionAuthority(db, sessionPath, supervisor);
+	if (!authority) return undefined;
+	try {
+		const listenerIdentity = serializeProcessIdentity(parseProcessIdentity(authority.listener.runtime_instance_id));
+		return listenerIdentity === serializeProcessIdentity(supervisor.processIdentity) ? authority : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
-function persistedSupervisorOwnsSession(
+function readPersistedSupervisorSessionAuthority(
 	db: SqliteDatabase,
 	sessionPath: string,
 	supervisor: SupervisorRuntimeOwnership,
-): boolean {
-	const recipientAgentIdKey = supervisor.agentId ?? "";
+): SupervisorSessionAuthoritySnapshot | undefined {
 	const listener = db
 		.prepare(
 			`SELECT runtime_instance_id, session_path, session_path_asserted_at
 			 FROM runtime_mailbox_listeners
 			 WHERE recipient_session_id = ? AND recipient_agent_id_key = ? AND pid = ?`,
 		)
-		.get(supervisor.sessionId, recipientAgentIdKey, supervisor.processIdentity.pid) as
-		| { runtime_instance_id: string | null; session_path: string | null; session_path_asserted_at: string | null }
+		.get(supervisor.sessionId, supervisor.agentId ?? "", supervisor.processIdentity.pid) as
+		| {
+				runtime_instance_id: string | null;
+				session_path: string | null;
+				session_path_asserted_at: string | null;
+		  }
 		| undefined;
-	if (!listener?.runtime_instance_id) return false;
-	if (supervisor.agentId) {
-		const supervisorAgent = db
-			.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-			.get(sessionPath, supervisor.agentId) as { data: string } | undefined;
-		if (!supervisorAgent) return false;
-		const snapshot = parseStoredJsonObject(
-			supervisorAgent.data,
-			`multi_agent_agents:${sessionPath}#${supervisor.agentId}`,
-		) as unknown as AgentSnapshot;
-		if (snapshot.transcript?.sessionId !== supervisor.sessionId || !isActiveLifecycle(snapshot.lifecycle))
-			return false;
-	} else if (listener.session_path !== sessionPath || listener.session_path_asserted_at === null) {
+	if (!listener?.runtime_instance_id) return undefined;
+	if (!supervisor.agentId) {
+		if (listener.session_path !== sessionPath || listener.session_path_asserted_at === null) return undefined;
+		return { listener: { ...listener, runtime_instance_id: listener.runtime_instance_id } };
+	}
+	const supervisorAgent = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(sessionPath, supervisor.agentId) as { data: string } | undefined;
+	if (!supervisorAgent) return undefined;
+	const snapshot = parseStoredJsonObject(
+		supervisorAgent.data,
+		`multi_agent_agents:${sessionPath}#${supervisor.agentId}`,
+	) as unknown as AgentSnapshot;
+	if (snapshot.transcript?.sessionId !== supervisor.sessionId || !isActiveLifecycle(snapshot.lifecycle)) {
+		return undefined;
+	}
+	return {
+		listener: { ...listener, runtime_instance_id: listener.runtime_instance_id },
+		supervisorAgentData: supervisorAgent.data,
+	};
+}
+
+function supervisorSessionAuthorityIsCurrent(
+	db: SqliteDatabase,
+	sessionPath: string,
+	supervisor: SupervisorRuntimeOwnership,
+	expected: SupervisorSessionAuthoritySnapshot,
+): boolean {
+	const listener = db
+		.prepare(
+			`SELECT runtime_instance_id, session_path, session_path_asserted_at
+			 FROM runtime_mailbox_listeners
+			 WHERE recipient_session_id = ? AND recipient_agent_id_key = ? AND pid = ?`,
+		)
+		.get(supervisor.sessionId, supervisor.agentId ?? "", supervisor.processIdentity.pid) as
+		| SupervisorSessionAuthoritySnapshot["listener"]
+		| undefined;
+	if (
+		!listener ||
+		listener.runtime_instance_id !== expected.listener.runtime_instance_id ||
+		listener.session_path !== expected.listener.session_path ||
+		listener.session_path_asserted_at !== expected.listener.session_path_asserted_at
+	) {
 		return false;
 	}
-	try {
-		return (
-			serializeProcessIdentity(parseProcessIdentity(listener.runtime_instance_id)) ===
-			serializeProcessIdentity(supervisor.processIdentity)
-		);
-	} catch {
-		return false;
-	}
+	if (!supervisor.agentId) return expected.supervisorAgentData === undefined;
+	const supervisorAgent = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(sessionPath, supervisor.agentId) as { data: string } | undefined;
+	return supervisorAgent?.data === expected.supervisorAgentData;
 }
 
 function isRecoverableRuntimeLifecycle(value: unknown): boolean {
@@ -6421,6 +6492,7 @@ function migrateLegacyMultiAgentPayloads(db: SqliteDatabase, selfRestartProcessI
 	if (schemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) return;
 	const migrationState = readLifecycleProtocolMigrationState(db);
 	assertLifecycleProtocolMigrationQuiescent(migrationState, selfRestartProcessId);
+	const migrationTimestamp = new Date().toISOString();
 
 	withImmediateTransaction(db, () => {
 		const currentSchemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
@@ -6435,11 +6507,15 @@ function migrateLegacyMultiAgentPayloads(db: SqliteDatabase, selfRestartProcessI
 		db.exec("DROP TABLE IF EXISTS multi_agent_recovery_leader");
 		migrateTerminalOutboxSchema(db);
 		migrateRuntimeOwnerTable(db);
-		const now = new Date().toISOString();
-		migrateLegacyLifecycleRows(db, now);
-		migrateLegacyMultiAgentPayloadTable(db, "multi_agent_agents", "agent_id", now);
-		migrateLegacyMultiAgentPayloadTable(db, "multi_agent_mailbox_messages", "message_id", now);
-		migrateLegacyRuntimeMailboxMessages(db, now);
+		migrateLegacyLifecycleRows(db, migrationTimestamp);
+		migrateLegacyMultiAgentPayloadTable(db, "multi_agent_agents", "agent_id", migrationTimestamp);
+		migrateLegacyMultiAgentPayloadTable(
+			db,
+			"multi_agent_mailbox_messages",
+			"message_id",
+			migrationTimestamp,
+		);
+		migrateLegacyRuntimeMailboxMessages(db, migrationTimestamp);
 		createLegacyArtifactFieldTriggers(db);
 		db.exec(`PRAGMA user_version = ${CONTROL_DB_SCHEMA_VERSION}`);
 	});
@@ -6511,7 +6587,28 @@ function lifecycleProtocolMigrationStatesEqual(
 	expected: LifecycleProtocolMigrationState,
 	current: LifecycleProtocolMigrationState,
 ): boolean {
-	return JSON.stringify(expected) === JSON.stringify(current);
+	return (
+		lifecycleMigrationOwnerTableStatesEqual(
+			expected.ownerTables.multi_agent_dispatch_leases,
+			current.ownerTables.multi_agent_dispatch_leases,
+		) &&
+		lifecycleMigrationOwnerTableStatesEqual(
+			expected.ownerTables.multi_agent_runtime_owners,
+			current.ownerTables.multi_agent_runtime_owners,
+		) &&
+		arraysEqual(expected.runtimePids, current.runtimePids)
+	);
+}
+
+function lifecycleMigrationOwnerTableStatesEqual(
+	expected: LifecycleMigrationOwnerTableState,
+	current: LifecycleMigrationOwnerTableState,
+): boolean {
+	return expected.kind === current.kind && arraysEqual(expected.processIdentities, current.processIdentities);
+}
+
+function arraysEqual<T>(expected: T[], current: T[]): boolean {
+	return expected.length === current.length && expected.every((value, index) => value === current[index]);
 }
 
 function migrateTerminalOutboxSchema(db: SqliteDatabase): void {
