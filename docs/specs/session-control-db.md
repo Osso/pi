@@ -70,7 +70,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       the same pre-lock boundary to payload/lifecycle/revision/parent-ID validation and serialization,
       while its parent/uniqueness checks and agent/terminal-outbox inserts remain atomic. Success commits
       the child row as `running` revision 1 with ownership, while construction interruption or failure
-      commits `failed` revision 1. No persisted `queued` or `starting` startup row exists. Multi-agent
+      commits `failed` revision 1. Attachment payload, ID, origin, lifecycle, and revision validation
+      plus serialization complete before writer acquisition; attachment uniqueness and parent permission
+      checks plus the insert remain one atomic transaction. No persisted `queued` or `starting` startup
+      row exists. Multi-agent
       activity, transcript, and slot metadata updates validate read-only, then use bounded exact-payload
       compare-and-swap writes; activity updates also require the exact persisted runtime owner in the
       update predicate. Concurrent SQLite contenders serialize, repository code reads/increments revision

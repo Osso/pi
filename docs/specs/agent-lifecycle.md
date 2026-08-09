@@ -78,7 +78,9 @@ Dispatch and graph invariants:
   exact process ownership, `running` lifecycle, and revision 1 commit atomically. Construction interruption
   or failure persists `failed` revision 1 with the construction error; no persisted `queued` or `starting`
   startup row exists. Parent links cannot self-reference or form cycles, and child/attachment creation
-  transactionally rejects a parent that is already terminal.
+  transactionally rejects a parent that is already terminal. Attachment payload, ID, origin, lifecycle,
+  and revision validation plus serialization complete before writer acquisition; uniqueness and parent
+  permission checks remain in the atomic attachment insert transaction.
 - Each main-session and spawned or attached child-agent thinking phase has a 15-minute deadline. Tool execution clears the deadline and remains uncapped; when the last active tool finishes or steering starts another model turn, a fresh thinking deadline begins. Expiry aborts the active turn. Main sessions report `Main session thinking phase exceeded 15 minutes`; child sessions terminalize without waiting for provider cooperation and finalize as `failed` with `Child agent thinking phase exceeded 15 minutes`. Agent end, cancellation, disposal, and restoration replacement clear the prior timer. Observer runtimes are excluded, and the deadline is per thinking phase rather than a total request or turn timeout.
 - Parent cancellation cascades as cancellation intents to active descendants, but each descendant
   reaches a terminal state through its own exact-owner command. An owned child runtime gets a bounded
