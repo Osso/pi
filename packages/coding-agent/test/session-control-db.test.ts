@@ -120,6 +120,7 @@ type WorkerStatusMessage = {
 	entries?: string[];
 	error?: string;
 	id?: number;
+	ok?: boolean;
 	paths?: string[];
 	pid?: number;
 	statuses?: string[];
@@ -1902,6 +1903,113 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			ok: true,
 			agent: { lifecycle: "failed", result: { toolCallId: "tool-dead" }, revision: 2, worker: undefined },
 		});
+	});
+
+	it("does not acquire the writer lock before rejecting a live runtime owner", async () => {
+		const sessionPath = "/sessions/live-runtime-owner-contention.jsonl";
+		const agentId = "agent-live-owner-contention";
+		const supervisorSessionId = "supervisor-live-owner-contention";
+		const processIdentity = CURRENT_PROCESS_IDENTITY;
+		const created = createMultiAgentChildWithRuntimeOwnership(controlDbPath, {
+			agent: {
+				agentType: "worker",
+				createdAt: "2026-08-09T00:00:00.000Z",
+				cwd: "/repo",
+				displayName: "Live owner contention",
+				id: agentId,
+				lifecycle: "running",
+				parentId: "main",
+				permission: { narrowed: true, policy: "on-request" },
+				revision: 1,
+				updatedAt: "2026-08-09T00:00:00.000Z",
+				worker: { adapter: "runtime", handleId: "runner-live", toolCallId: "tool-live" },
+			},
+			agentId,
+			nowIso: "2026-08-09T00:00:00.000Z",
+			owner: { agentId: null, sessionId: supervisorSessionId },
+			processIdentity,
+			sessionPath,
+		});
+		expect(created).toMatchObject({ ok: true });
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: supervisorSessionId },
+			processIdentity.pid,
+			sessionPath,
+			{ runtimeInstanceId: JSON.stringify(processIdentity) },
+		);
+		const beforeAgent = readMultiAgentState(controlDbPath, sessionPath)?.agents[0];
+		const beforeOwnership = readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId);
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const recoveryInput = {
+			expectedOwner: {
+				agentId,
+				owner: { agentId: null, sessionId: supervisorSessionId },
+				processIdentity,
+				sessionPath,
+			},
+			nowIso: "2026-08-09T00:00:01.000Z",
+			supervisor: { processIdentity, sessionId: supervisorSessionId },
+		};
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { recoverDeadMultiAgentRuntime } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const result = recoverDeadMultiAgentRuntime(workerData.controlDbPath, workerData.recoveryInput);
+						parentPort?.postMessage({ ...result, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, recoveryInput } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "live-owner recovery worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("recover");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "live-owner recovery waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "live-owner recovery did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed).toMatchObject({ error: "owner_alive", ok: false, type: "completed" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents[0]).toEqual(beforeAgent);
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId)).toEqual(beforeOwnership);
 	});
 
 	it("removes renewable lease columns when migrating version ten ownership rows", () => {

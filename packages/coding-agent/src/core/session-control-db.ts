@@ -3867,14 +3867,19 @@ export function recoverDeadMultiAgentRuntime(
 	controlDbPath: string,
 	input: RecoverDeadMultiAgentRuntimeInput,
 ): RecoverDeadMultiAgentRuntimeResult {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			if (!registeredSupervisorOwnsSession(db, input.expectedOwner.sessionPath, input.supervisor)) {
+	return withControlDb(controlDbPath, (db) => {
+		if (!registeredSupervisorOwnsSession(db, input.expectedOwner.sessionPath, input.supervisor)) {
+			return { ok: false, error: "mutation_mismatch" };
+		}
+		const preflight = readRecoverableMultiAgentRuntime(db, input.expectedOwner, true);
+		if (!preflight.ok) return preflight;
+		return withImmediateTransaction(db, () => {
+			if (!persistedSupervisorOwnsSession(db, input.expectedOwner.sessionPath, input.supervisor)) {
 				return { ok: false, error: "mutation_mismatch" };
 			}
-			return recoverDeadMultiAgentRuntimeInTransaction(db, input.expectedOwner, input.nowIso);
-		}),
-	);
+			return recoverDeadMultiAgentRuntimeInTransaction(db, input.expectedOwner, input.nowIso, false);
+		});
+	});
 }
 
 interface DeadDetachedRuntimeCandidate {
@@ -3947,12 +3952,17 @@ function hasTerminalOutboxRecord(db: SqliteDatabase, sessionPath: string, agentI
 	);
 }
 
-function recoverDeadMultiAgentRuntimeInTransaction(
+type RecoverDeadMultiAgentRuntimeFailure = Extract<RecoverDeadMultiAgentRuntimeResult, { ok: false }>;
+
+type RecoverableMultiAgentRuntime =
+	| { agent: Record<string, unknown>; ok: true }
+	| RecoverDeadMultiAgentRuntimeFailure;
+
+function readRecoverableMultiAgentRuntime(
 	db: SqliteDatabase,
 	expectedOwner: MultiAgentRuntimeOwnershipIdentity,
-	nowIso: string,
-	verifyOwnerLiveness = true,
-): RecoverDeadMultiAgentRuntimeResult {
+	verifyOwnerLiveness: boolean,
+): RecoverableMultiAgentRuntime {
 	const { agentId, sessionPath } = expectedOwner;
 	const row = db
 		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
@@ -3966,6 +3976,19 @@ function recoverDeadMultiAgentRuntimeInTransaction(
 	if (verifyOwnerLiveness && isProcessIdentityAlive(expectedOwner.processIdentity)) {
 		return { ok: false, error: "owner_alive" };
 	}
+	return { agent, ok: true };
+}
+
+function recoverDeadMultiAgentRuntimeInTransaction(
+	db: SqliteDatabase,
+	expectedOwner: MultiAgentRuntimeOwnershipIdentity,
+	nowIso: string,
+	verifyOwnerLiveness = true,
+): RecoverDeadMultiAgentRuntimeResult {
+	const recoverable = readRecoverableMultiAgentRuntime(db, expectedOwner, verifyOwnerLiveness);
+	if (!recoverable.ok) return recoverable;
+	const { agent } = recoverable;
+	const { agentId, sessionPath } = expectedOwner;
 	const released = db
 		.prepare(
 			`UPDATE multi_agent_runtime_owners
@@ -4224,7 +4247,14 @@ function registeredSupervisorOwnsSession(
 	sessionPath: string,
 	supervisor: SupervisorRuntimeOwnership,
 ): boolean {
-	if (!isProcessIdentityAlive(supervisor.processIdentity)) return false;
+	return isProcessIdentityAlive(supervisor.processIdentity) && persistedSupervisorOwnsSession(db, sessionPath, supervisor);
+}
+
+function persistedSupervisorOwnsSession(
+	db: SqliteDatabase,
+	sessionPath: string,
+	supervisor: SupervisorRuntimeOwnership,
+): boolean {
 	const recipientAgentIdKey = supervisor.agentId ?? "";
 	const listener = db
 		.prepare(
