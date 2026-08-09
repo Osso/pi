@@ -1446,15 +1446,16 @@ export function claimPendingArchitectRequests(
 	claimToken: string,
 	limit = 20,
 ): ArchitectRequest[] {
+	const nowIso = new Date().toISOString();
+	const claimLimit = Math.max(1, Math.floor(limit));
 	return withControlDb(controlDbPath, (db) => {
-		const now = new Date().toISOString();
-		db.exec("BEGIN IMMEDIATE");
-		try {
+		if (!hasArchitectClaimWork(db, nowIso)) return [];
+		return withImmediateTransaction(db, () => {
 			db.prepare(
 				`UPDATE architect_requests
 				 SET status = 'pending', claimed_at = NULL, claim_token = NULL
 				 WHERE status = 'claimed' AND julianday(claimed_at) < julianday(?, '-2 minutes')`,
-			).run(now);
+			).run(nowIso);
 			const rows = db
 				.prepare(
 					`SELECT id, sender_session_id, project_cwd, body, status, created_at, claimed_at, claim_token, completed_at
@@ -1463,23 +1464,32 @@ export function claimPendingArchitectRequests(
 					 ORDER BY id ASC
 					 LIMIT ?`,
 				)
-				.all(Math.max(1, Math.floor(limit))) as ArchitectRequestRow[];
+				.all(claimLimit) as ArchitectRequestRow[];
 			for (const row of rows) {
 				db.prepare(
 					`UPDATE architect_requests
 					 SET status = 'claimed', claimed_at = ?, claim_token = ?
 					 WHERE id = ? AND status = 'pending'`,
-				).run(now, claimToken, row.id);
+				).run(nowIso, claimToken, row.id);
 			}
-			db.exec("COMMIT");
 			return rows.map((row) =>
-				architectRequestFromRow({ ...row, status: "claimed", claimed_at: now, claim_token: claimToken }),
+				architectRequestFromRow({ ...row, status: "claimed", claimed_at: nowIso, claim_token: claimToken }),
 			);
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		});
 	});
+}
+
+function hasArchitectClaimWork(db: SqliteDatabase, nowIso: string): boolean {
+	return Boolean(
+		db
+			.prepare(
+				`SELECT 1 FROM architect_requests
+				 WHERE status = 'pending'
+				 OR (status = 'claimed' AND julianday(claimed_at) < julianday(?, '-2 minutes'))
+				 LIMIT 1`,
+			)
+			.get(nowIso),
+	);
 }
 
 export function renewArchitectRequestClaims(controlDbPath: string, requestIds: number[], claimToken: string): void {

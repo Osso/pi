@@ -341,6 +341,68 @@ describe("session control DB", () => {
 		expect(listPendingArchitectRequests(controlDbPath)).toEqual([]);
 	});
 
+	it("returns without a writer lock when no Architect request is claimable", async () => {
+		expect(listPendingArchitectRequests(controlDbPath)).toEqual([]);
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { claimPendingArchitectRequests } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const claimed = claimPendingArchitectRequests(workerData.controlDbPath, "architect-worker");
+						parentPort?.postMessage({ count: claimed.length, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "Architect request worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("claim");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "empty Architect request claim waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "Architect request worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed).toMatchObject({ count: 0, type: "completed" });
+	});
+
 	it("rolls back all Architect claim renewals when one renewal fails", () => {
 		const requestIds = ["first", "second"].map((body) =>
 			postArchitectRequest(controlDbPath, { senderSessionId: "main-session", projectCwd: "/repos/project", body }),
