@@ -109,7 +109,14 @@ async function stopChildProcess(child: ChildProcess): Promise<void> {
 	await exited;
 }
 
-type WorkerStatusMessage = { error?: string; pid?: number; type: string };
+type WorkerStatusMessage = {
+	count?: number;
+	error?: string;
+	id?: number;
+	pid?: number;
+	statuses?: string[];
+	type: string;
+};
 
 type WaitForWorkerStatusOptions = {
 	expectedType: string;
@@ -2822,6 +2829,104 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 
 		expect(new Set(ids).size).toBe(1);
 		expect(listRuntimeMailboxMessages(controlDbPath)).toHaveLength(1);
+	});
+
+	it("runs delivery eligibility before acquiring the writer lock", async () => {
+		const recipient = { agentId: null, sessionId: "delivery-contention-recipient" };
+		const sessionPath = "/sessions/delivery-contention-sender.jsonl";
+		const messageId = "delivery-contention-message";
+		const timestamp = "2026-08-09T00:00:00.000Z";
+		const workerSource = `
+			import { parentPort, workerData } from "node:worker_threads";
+			import {
+				registerRuntimeMailboxListener,
+				takeRuntimeMailboxMessagesForDelivery,
+			} from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href)};
+
+			try {
+				registerRuntimeMailboxListener(workerData.controlDbPath, workerData.recipient, process.pid);
+				parentPort?.postMessage({ type: "ready" });
+			} catch (error) {
+				parentPort?.postMessage({ error: String(error), type: "error" });
+			}
+
+			parentPort?.on("message", (message: string) => {
+				if (message !== "deliver") return;
+				try {
+					const delivered = takeRuntimeMailboxMessagesForDelivery(
+						workerData.controlDbPath,
+						workerData.recipient,
+						(candidate) => {
+							parentPort?.postMessage({ id: candidate.id, type: "eligible" });
+							return true;
+						},
+					);
+					parentPort?.postMessage({ count: delivered.length, statuses: delivered.map((item) => item.status), type: "completed" });
+				} catch (error) {
+					parentPort?.postMessage({ error: String(error), type: "error" });
+				}
+			});
+		`;
+		const worker = new Worker(workerSource, {
+			eval: true,
+			execArgv: ["--experimental-strip-types"],
+			workerData: { controlDbPath, recipient },
+		});
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "delivery worker did not register its listener",
+			});
+
+			upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+				body: "deliver under contention",
+				createdAt: timestamp,
+				fromAgentId: "main",
+				id: messageId,
+				kind: "message",
+				recipientAgentId: null,
+				recipientSessionId: recipient.sessionId,
+				senderAgentId: null,
+				senderSessionId: "delivery-contention-sender",
+				status: "pending",
+				toAgentId: "main",
+				updatedAt: timestamp,
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("deliver");
+
+			const eligible = await waitForWorkerStatus(worker, {
+				expectedType: "eligible",
+				timeoutMessage: "delivery eligibility callback did not run while the writer lock was held",
+				timeoutMs: 1_000,
+			});
+			expect(eligible.id).toBeTypeOf("number");
+
+			holder.exec("ROLLBACK");
+			const result = await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				ignoredTypes: ["eligible"],
+				timeoutMessage: "delivery worker did not complete after lock release",
+			});
+			expect(result).toMatchObject({ count: 1, statuses: ["delivered"] });
+			expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([
+				expect.objectContaining({
+					body: "deliver under contention",
+					status: "delivered",
+					storeRef: { messageId, sessionPath },
+				}),
+			]);
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
 	});
 
 	it("does not resurrect relocated legacy counters at the old session path", () => {

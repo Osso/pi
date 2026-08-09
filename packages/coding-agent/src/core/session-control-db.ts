@@ -593,30 +593,121 @@ export function recoverDeadRuntimeMailboxClaims(controlDbPath: string, recipient
 	);
 }
 
+type RuntimeMailboxAuthoritySnapshot = {
+	listener: RuntimeMailboxListenerRow | undefined;
+	ownership: MultiAgentRuntimeOwnershipRow | undefined;
+};
+
+type RuntimeMailboxDeliveryCandidate = {
+	authority: RuntimeMailboxAuthoritySnapshot;
+	data: Record<string, unknown>;
+	row: RuntimeMailboxRow;
+};
+
 export function takeRuntimeMailboxMessagesForDelivery(
 	controlDbPath: string,
 	recipient: RuntimeMailboxAddress,
 	isEligible: (message: RuntimeMailboxMessage) => boolean,
 	limit = 20,
 ): RuntimeMailboxMessage[] {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "pending", Number.MAX_SAFE_INTEGER).filter(
-				(row) => canCurrentRuntimeClaimMailboxRow(db, recipient, row),
-			);
-			const now = new Date().toISOString();
-			const deliveredMessages: RuntimeMailboxMessage[] = [];
-			for (const row of rows) {
-				const data = parseCanonicalMailboxPayload(row);
-				const message = runtimeMailboxMessageFromCanonicalRow(row, data);
-				if (!isEligible(message)) continue;
-				const delivered = { ...data, status: "delivered", deliveredAt: now, updatedAt: now };
-				writeCanonicalMailboxPayload(db, row.id, delivered, now);
-				deliveredMessages.push(runtimeMailboxMessageFromCanonicalRow(row, delivered));
-				if (deliveredMessages.length === limit) break;
-			}
-			return deliveredMessages;
-		}),
+	return withControlDb(controlDbPath, (db) => {
+		const candidates = readEligibleRuntimeMailboxDeliveryCandidates(db, recipient, isEligible);
+		return deliverRuntimeMailboxCandidates(db, recipient, candidates, limit, new Date().toISOString());
+	});
+}
+
+function readEligibleRuntimeMailboxDeliveryCandidates(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+	isEligible: (message: RuntimeMailboxMessage) => boolean,
+): RuntimeMailboxDeliveryCandidate[] {
+	const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "pending", Number.MAX_SAFE_INTEGER);
+	return rows.flatMap((row) => {
+		const authority = readRuntimeMailboxAuthoritySnapshot(db, recipient, row.session_path);
+		if (!currentRuntimeOwnsMailboxAuthority(recipient, authority)) return [];
+		const data = parseCanonicalMailboxPayload(row);
+		const message = runtimeMailboxMessageFromCanonicalRow(row, data);
+		return isEligible(message) ? [{ authority, data, row }] : [];
+	});
+}
+
+function deliverRuntimeMailboxCandidates(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+	candidates: RuntimeMailboxDeliveryCandidate[],
+	limit: number,
+	nowIso: string,
+): RuntimeMailboxMessage[] {
+	const deliveredMessages: RuntimeMailboxMessage[] = [];
+	for (const candidate of candidates) {
+		const delivered = deliverRuntimeMailboxCandidate(db, recipient, candidate, nowIso);
+		if (delivered) deliveredMessages.push(delivered);
+		if (deliveredMessages.length === limit) break;
+	}
+	return deliveredMessages;
+}
+
+function deliverRuntimeMailboxCandidate(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+	candidate: RuntimeMailboxDeliveryCandidate,
+	nowIso: string,
+): RuntimeMailboxMessage | undefined {
+	return withImmediateTransaction(db, () => {
+		const currentAuthority = readRuntimeMailboxAuthoritySnapshot(db, recipient, candidate.row.session_path);
+		if (!runtimeMailboxAuthoritySnapshotsEqual(candidate.authority, currentAuthority)) return undefined;
+		const delivered = { ...candidate.data, status: "delivered", deliveredAt: nowIso, updatedAt: nowIso };
+		if (!compareAndWriteCanonicalMailboxPayload(db, candidate.row, delivered, nowIso)) return undefined;
+		return runtimeMailboxMessageFromCanonicalRow(candidate.row, delivered);
+	});
+}
+
+function readRuntimeMailboxAuthoritySnapshot(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+	sessionPath: string,
+): RuntimeMailboxAuthoritySnapshot {
+	return {
+		listener: readRuntimeMailboxListenerRow(db, recipient),
+		ownership: recipient.agentId ? readMultiAgentRuntimeOwnershipRow(db, sessionPath, recipient.agentId) : undefined,
+	};
+}
+
+function currentRuntimeOwnsMailboxAuthority(
+	recipient: RuntimeMailboxAddress,
+	authority: RuntimeMailboxAuthoritySnapshot,
+): boolean {
+	if (
+		authority.listener?.pid === process.pid &&
+		authority.listener.runtime_instance_id === RUNTIME_PROCESS_INSTANCE_ID
+	) {
+		return true;
+	}
+	if (!recipient.agentId) return false;
+	return persistedProcessIdentityIsCurrent(authority.ownership?.process_identity);
+}
+
+function runtimeMailboxAuthoritySnapshotsEqual(
+	expected: RuntimeMailboxAuthoritySnapshot,
+	current: RuntimeMailboxAuthoritySnapshot,
+): boolean {
+	return (
+		runtimeMailboxListenerRowsEqual(expected.listener, current.listener) &&
+		multiAgentRuntimeOwnershipRowsEqual(expected.ownership, current.ownership)
+	);
+}
+
+function multiAgentRuntimeOwnershipRowsEqual(
+	expected: MultiAgentRuntimeOwnershipRow | undefined,
+	current: MultiAgentRuntimeOwnershipRow | undefined,
+): boolean {
+	if (!expected || !current) return expected === current;
+	return (
+		expected.session_path === current.session_path &&
+		expected.agent_id === current.agent_id &&
+		expected.process_identity === current.process_identity &&
+		expected.owner_session_id === current.owner_session_id &&
+		expected.owner_agent_id === current.owner_agent_id
 	);
 }
 
