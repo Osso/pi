@@ -67,9 +67,11 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       transitions are idempotent, and mismatched process ownership rejects without side effects. Legacy
       artifact tables/columns are not initialized, read, written, or relocated; the legacy
       `multi_agent_counters` table is only migrated into `multi_agent_counters_v2`.
-- [x] Allocate persisted multi-agent agent and message IDs transactionally. Legacy counter rows are
-      merged by maximum value during migration, then the legacy counter and artifact tables are
-      dropped so relocated state cannot be resurrected or reuse IDs.
+- [x] Allocate persisted multi-agent agent and message IDs with one atomic incrementing upsert
+      that returns the allocated value. Legacy counter rows are merged by maximum value during
+      migration, then the legacy counter and artifact tables are dropped so relocated state cannot
+      be resurrected or reuse IDs; concurrent allocators receive unique contiguous values without a
+      read/increment/upsert race.
 - [x] During schema initialization, perform an atomic, durable, one-time cleanup of legacy
       `artifactIds` and `artifactRefs` fields in persisted agent and mailbox payloads, rewrite cleaned
       rows, install schema-versioned SQLite INSERT/UPDATE triggers on both payload tables, and continue
