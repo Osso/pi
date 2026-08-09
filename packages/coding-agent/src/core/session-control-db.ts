@@ -1501,31 +1501,33 @@ function hasArchitectClaimWork(db: SqliteDatabase, nowIso: string): boolean {
 }
 
 export function renewArchitectRequestClaims(controlDbPath: string, requestIds: number[], claimToken: string): void {
-	if (requestIds.length === 0) return;
-	withControlDb(controlDbPath, (db) => {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			const now = new Date().toISOString();
-			const renew = db.prepare(
+	const uniqueRequestIds = [...new Set(requestIds)];
+	if (uniqueRequestIds.length === 0) return;
+	const requestIdsJson = JSON.stringify(uniqueRequestIds);
+	const now = new Date().toISOString();
+	withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			db.prepare(
 				`UPDATE architect_requests
 				 SET claimed_at = ?
-				 WHERE id = ? AND status = 'claimed' AND claim_token = ?`,
-			);
-			for (const requestId of requestIds) {
-				const result = renew.run(now, requestId, claimToken);
-				if (result.changes === 1) continue;
-				const row = db.prepare("SELECT status, claim_token FROM architect_requests WHERE id = ?").get(requestId) as
-					| { status: string; claim_token: string | null }
-					| undefined;
+				 WHERE id IN (SELECT CAST(value AS INTEGER) FROM json_each(?))
+				 AND status = 'claimed' AND claim_token = ?`,
+			).run(now, requestIdsJson, claimToken);
+			const rows = db
+				.prepare(
+					`SELECT id, status, claim_token FROM architect_requests
+					 WHERE id IN (SELECT CAST(value AS INTEGER) FROM json_each(?))`,
+				)
+				.all(requestIdsJson) as Array<{ claim_token: string | null; id: number; status: string }>;
+			const rowsById = new Map(rows.map((row) => [row.id, row]));
+			for (const requestId of uniqueRequestIds) {
+				const row = rowsById.get(requestId);
 				if (row?.status === "completed") continue;
+				if (row?.status === "claimed" && row.claim_token === claimToken) continue;
 				throw new Error(`Architect request claim lost: ${requestId}`);
 			}
-			db.exec("COMMIT");
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
-	});
+		}),
+	);
 }
 
 export function completeArchitectRequest(

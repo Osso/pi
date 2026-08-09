@@ -486,6 +486,37 @@ describe("session control DB", () => {
 		expect(() => renewArchitectRequestClaims(controlDbPath, [requestId], "architect-runtime")).not.toThrow();
 	});
 
+	it("deduplicates Architect claim renewal IDs", () => {
+		const requestId = postArchitectRequest(controlDbPath, {
+			senderSessionId: "main-session",
+			projectCwd: "/repos/project",
+			body: "renew once",
+		});
+		claimPendingArchitectRequests(controlDbPath, "architect-runtime");
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec(`
+				CREATE TABLE architect_renewal_audit (request_id INTEGER PRIMARY KEY);
+				CREATE TRIGGER record_architect_renewal
+				BEFORE UPDATE OF claimed_at ON architect_requests
+				WHEN OLD.id = ${requestId}
+				BEGIN
+					INSERT INTO architect_renewal_audit (request_id) VALUES (OLD.id);
+				END
+			`);
+		} finally {
+			db.close();
+		}
+
+		expect(() => renewArchitectRequestClaims(controlDbPath, [requestId, requestId], "architect-runtime")).not.toThrow();
+		const reader = createSqliteDatabase(controlDbPath);
+		try {
+			expect(reader.prepare("SELECT COUNT(*) AS count FROM architect_renewal_audit").get()).toEqual({ count: 1 });
+		} finally {
+			reader.close();
+		}
+	});
+
 	it("rejects mailbox ID reuse without overwriting the existing message", () => {
 		const sessionPath = "/sessions/supervisor.jsonl";
 		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, "message_2", {
