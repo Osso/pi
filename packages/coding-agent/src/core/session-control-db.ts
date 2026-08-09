@@ -6203,14 +6203,29 @@ function migrateLegacyMultiAgentCounters(db: SqliteDatabase): void {
 	db.exec("DROP TABLE IF EXISTS multi_agent_artifacts");
 }
 
+type LifecycleMigrationOwnerTableState = {
+	kind: "missing" | "without_process_identity" | "with_process_identity";
+	processIdentities: string[];
+};
+
+type LifecycleProtocolMigrationState = {
+	ownerTables: Record<"multi_agent_dispatch_leases" | "multi_agent_runtime_owners", LifecycleMigrationOwnerTableState>;
+	runtimePids: number[];
+};
+
 function migrateLegacyMultiAgentPayloads(db: SqliteDatabase, selfRestartProcessId?: number): void {
 	const schemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
 	if (schemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) return;
+	const migrationState = readLifecycleProtocolMigrationState(db);
+	assertLifecycleProtocolMigrationQuiescent(migrationState, selfRestartProcessId);
 
 	withImmediateTransaction(db, () => {
 		const currentSchemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
 		if (currentSchemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) return;
-		assertLifecycleProtocolMigrationQuiescent(db, selfRestartProcessId);
+		const currentMigrationState = readLifecycleProtocolMigrationState(db);
+		if (!lifecycleProtocolMigrationStatesEqual(migrationState, currentMigrationState)) {
+			throw new Error("Lifecycle protocol migration state changed while acquiring the writer lock; retry");
+		}
 
 		migrateLegacyMultiAgentCounters(db);
 		dropLifecycleAccessControlTriggers(db);
@@ -6227,26 +6242,53 @@ function migrateLegacyMultiAgentPayloads(db: SqliteDatabase, selfRestartProcessI
 	});
 }
 
-function assertLifecycleProtocolMigrationQuiescent(db: SqliteDatabase, selfRestartProcessId?: number): void {
-	const rows = db
-		.prepare(
-			`SELECT pid FROM runtime_mailbox_listeners
-			 UNION
-			 SELECT pid FROM session_health WHERE pid IS NOT NULL`,
-		)
-		.all() as Array<{ pid: number }>;
-	const liveRuntimePids = rows.map((row) => row.pid).filter(isPiRuntimeProcessAlive);
-	for (const tableName of ["multi_agent_runtime_owners", "multi_agent_dispatch_leases"] as const) {
-		const tableExists = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName);
-		if (!tableExists) continue;
-		const ownerColumns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
-		if (!ownerColumns.some((column) => column.name === "process_identity")) continue;
-		const owners = db
-			.prepare(`SELECT process_identity FROM ${tableName} WHERE process_identity IS NOT NULL`)
-			.all() as Array<{ process_identity: string }>;
-		for (const owner of owners) {
+function readLifecycleProtocolMigrationState(db: SqliteDatabase): LifecycleProtocolMigrationState {
+	const runtimePids = (
+		db
+			.prepare(
+				`SELECT pid FROM runtime_mailbox_listeners
+				 UNION
+				 SELECT pid FROM session_health WHERE pid IS NOT NULL
+				 ORDER BY pid`,
+			)
+			.all() as Array<{ pid: number }>
+	).map((row) => row.pid);
+	return {
+		ownerTables: {
+			multi_agent_dispatch_leases: readLifecycleMigrationOwnerTableState(db, "multi_agent_dispatch_leases"),
+			multi_agent_runtime_owners: readLifecycleMigrationOwnerTableState(db, "multi_agent_runtime_owners"),
+		},
+		runtimePids,
+	};
+}
+
+function readLifecycleMigrationOwnerTableState(
+	db: SqliteDatabase,
+	tableName: "multi_agent_dispatch_leases" | "multi_agent_runtime_owners",
+): LifecycleMigrationOwnerTableState {
+	const tableExists = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(tableName);
+	if (!tableExists) return { kind: "missing", processIdentities: [] };
+	const ownerColumns = db.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>;
+	if (!ownerColumns.some((column) => column.name === "process_identity")) {
+		return { kind: "without_process_identity", processIdentities: [] };
+	}
+	const processIdentities = (
+		db
+			.prepare(`SELECT process_identity FROM ${tableName} WHERE process_identity IS NOT NULL ORDER BY process_identity`)
+			.all() as Array<{ process_identity: string }>
+	).map((owner) => owner.process_identity);
+	return { kind: "with_process_identity", processIdentities };
+}
+
+function assertLifecycleProtocolMigrationQuiescent(
+	state: LifecycleProtocolMigrationState,
+	selfRestartProcessId?: number,
+): void {
+	const liveRuntimePids = state.runtimePids.filter(isPiRuntimeProcessAlive);
+	for (const tableState of Object.values(state.ownerTables)) {
+		for (const serializedIdentity of tableState.processIdentities) {
 			try {
-				const identity = parseProcessIdentity(owner.process_identity);
+				const identity = parseProcessIdentity(serializedIdentity);
 				if (isProcessIdentityAlive(identity)) liveRuntimePids.push(identity.pid);
 			} catch {
 				// Pre-v11 runtime identities did not contain OS process identity.
@@ -6255,10 +6297,16 @@ function assertLifecycleProtocolMigrationQuiescent(db: SqliteDatabase, selfResta
 	}
 	const uniqueLivePids = [...new Set(liveRuntimePids)].filter((pid) => pid !== selfRestartProcessId);
 	if (uniqueLivePids.length === 0) return;
-
 	throw new Error(
 		`Cannot activate lifecycle protocol version ${CONTROL_DB_SCHEMA_VERSION} while lifecycle owners are active (PIDs: ${uniqueLivePids.join(", ")}). Stop all Pi and detached runner processes, then retry`,
 	);
+}
+
+function lifecycleProtocolMigrationStatesEqual(
+	expected: LifecycleProtocolMigrationState,
+	current: LifecycleProtocolMigrationState,
+): boolean {
+	return JSON.stringify(expected) === JSON.stringify(current);
 }
 
 function migrateTerminalOutboxSchema(db: SqliteDatabase): void {

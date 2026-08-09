@@ -3584,6 +3584,87 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(readMultiAgentState(controlDbPath, sessionPath)).toBeUndefined();
 	});
 
+	it("checks migration quiescence before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/quiescence-contention.jsonl";
+		readMultiAgentState(controlDbPath, sessionPath);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec("PRAGMA user_version = 2");
+			db.prepare(
+				`INSERT INTO runtime_mailbox_listeners (
+					recipient_session_id, recipient_agent_id_key, pid, runtime_instance_id,
+					session_path, session_path_asserted_at, updated_at
+				) VALUES (?, '', ?, ?, ?, ?, ?)`,
+			).run(
+				"live-quiescence-contention",
+				process.pid,
+				"old-runtime",
+				sessionPath,
+				"2026-07-11T00:00:00.000Z",
+				"2026-07-11T00:00:00.000Z",
+			);
+		} finally {
+			db.close();
+		}
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { readMultiAgentState } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						readMultiAgentState(workerData.controlDbPath, workerData.sessionPath);
+						parentPort?.postMessage({ ok: true, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "completed" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, sessionPath } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "migration quiescence worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("migrate");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "migration quiescence validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "migration quiescence worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.error).toMatch(/stop all pi and detached runner processes/i);
+	});
+
 	it("allows same-PID exec restart to activate a newer lifecycle protocol", () => {
 		const sessionPath = "/sessions/self-restart-quiescence.jsonl";
 		readMultiAgentState(controlDbPath, sessionPath);
