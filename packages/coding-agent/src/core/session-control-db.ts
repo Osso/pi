@@ -368,47 +368,44 @@ export function enqueueIncomingMessage(controlDbPath: string, content: string): 
 
 export function claimLatestIncomingMessage(controlDbPath: string): IncomingControlMessage | undefined {
 	return withControlDb(controlDbPath, (db) => {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			const row = db
-				.prepare(
-					`
-					SELECT id, content
-					FROM incoming_messages
-					WHERE status = 'pending'
-					ORDER BY id DESC
-					LIMIT 1
-					`,
-				)
-				.get() as IncomingRow | undefined;
-
-			if (!row) {
-				db.exec("COMMIT");
-				return undefined;
-			}
-
-			const now = new Date().toISOString();
-			db.prepare(
-				`
-				UPDATE incoming_messages
-				SET status = 'superseded', completed_at = ?
-				WHERE status = 'pending' AND id <> ?
-				`,
-			).run(now, row.id);
-			db.prepare(
-				`
-				UPDATE incoming_messages
-				SET status = 'claimed', claimed_at = ?
-				WHERE id = ?
-				`,
-			).run(now, row.id);
-			db.exec("COMMIT");
-			return row;
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		if (!readLatestPendingIncomingMessage(db)) return undefined;
+		return withImmediateTransaction(db, () => claimLatestIncomingMessageInTransaction(db));
 	});
+}
+
+function claimLatestIncomingMessageInTransaction(db: SqliteDatabase): IncomingControlMessage | undefined {
+	const row = readLatestPendingIncomingMessage(db);
+	if (!row) return undefined;
+	const now = new Date().toISOString();
+	db.prepare(
+		`
+		UPDATE incoming_messages
+		SET status = 'superseded', completed_at = ?
+		WHERE status = 'pending' AND id <> ?
+		`,
+	).run(now, row.id);
+	db.prepare(
+		`
+		UPDATE incoming_messages
+		SET status = 'claimed', claimed_at = ?
+		WHERE id = ?
+		`,
+	).run(now, row.id);
+	return row;
+}
+
+function readLatestPendingIncomingMessage(db: SqliteDatabase): IncomingRow | undefined {
+	return db
+		.prepare(
+			`
+			SELECT id, content
+			FROM incoming_messages
+			WHERE status = 'pending'
+			ORDER BY id DESC
+			LIMIT 1
+			`,
+		)
+		.get() as IncomingRow | undefined;
 }
 
 export function completeIncomingMessage(controlDbPath: string, id: number): void {

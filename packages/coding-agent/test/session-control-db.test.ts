@@ -110,6 +110,7 @@ async function stopChildProcess(child: ChildProcess): Promise<void> {
 }
 
 type WorkerStatusMessage = {
+	claimed?: boolean;
 	count?: number;
 	error?: string;
 	id?: number;
@@ -3244,6 +3245,48 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 
 		expect(claimed?.content).toBe("newer prompt");
 		expect(claimLatestIncomingMessage(controlDbPath)).toBeUndefined();
+	});
+
+	it("returns without a writer lock when no incoming message is pending", async () => {
+		expect(claimLatestIncomingMessage(controlDbPath)).toBeUndefined();
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { claimLatestIncomingMessage } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const claimed = claimLatestIncomingMessage(workerData.controlDbPath);
+						parentPort?.postMessage({ claimed: claimed !== undefined, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "incoming-message worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("claim");
+			const result = await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				timeoutMessage: "empty incoming-message claim waited for the writer lock",
+				timeoutMs: 1_000,
+			});
+			expect(result.claimed).toBe(false);
+		} finally {
+			holder.exec("ROLLBACK");
+			await worker.terminate();
+			holder.close();
+		}
 	});
 
 	it("allows claimed incoming messages to be completed", () => {
