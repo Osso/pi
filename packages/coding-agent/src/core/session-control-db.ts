@@ -3393,6 +3393,12 @@ export type CommitMultiAgentDetachMarkResult =
 	| { ok: true; agent: AgentSnapshot }
 	| { ok: false; error: "agent_not_found" | "invalid_transition" | "mutation_mismatch" };
 
+const MULTI_AGENT_DETACH_MARK_MAX_ATTEMPTS = 3;
+
+type MultiAgentDetachMarkPreflight =
+	| { plan: { agentData: string; updatedAgent: AgentSnapshot } }
+	| { result: CommitMultiAgentDetachMarkResult };
+
 /**
  * Mark an owned background job as detached from its waiting tool call.
  * Only detached jobs emit a terminal runtime-mailbox notification; attended
@@ -3402,37 +3408,80 @@ export function commitMultiAgentDetachMark(
 	controlDbPath: string,
 	input: CommitMultiAgentDetachMarkInput,
 ): CommitMultiAgentDetachMarkResult {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const row = db
-				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
-			if (!row) return { ok: false, error: "agent_not_found" };
-			const context = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
-			const agent = parseStoredJsonObject(row.data, context);
-			validatePersistedAgentPayload(agent, context);
-			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			if (!runtimeOwnerMatches(ownership, input)) {
-				return { ok: false, error: "mutation_mismatch" };
-			}
-			if (!isRecoverableRuntimeLifecycle(agent.lifecycle)) {
-				return { ok: false, error: "invalid_transition" };
-			}
-			if (agent.detached === true) {
-				return { ok: true, agent: agent as unknown as AgentSnapshot };
-			}
-			const updated = {
-				...agent,
-				detached: true,
-				revision: Number(agent.revision) + 1,
-				updatedAt: input.updatedAt,
-			};
-			db.prepare(
-				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updated), input.updatedAt, input.sessionPath, input.agentId);
-			validatePersistedAgentPayload(updated, context);
-			return { ok: true, agent: updated as unknown as AgentSnapshot };
-		}),
+	return withControlDb(controlDbPath, (db) => commitMultiAgentDetachMarkWithDb(db, input));
+}
+
+function commitMultiAgentDetachMarkWithDb(
+	db: SqliteDatabase,
+	input: CommitMultiAgentDetachMarkInput,
+): CommitMultiAgentDetachMarkResult {
+	for (let attempt = 1; attempt <= MULTI_AGENT_DETACH_MARK_MAX_ATTEMPTS; attempt += 1) {
+		const preflight = prepareMultiAgentDetachMark(db, input);
+		if ("result" in preflight) return preflight.result;
+		if (compareAndPersistMultiAgentDetachMark(db, input, preflight.plan)) {
+			return { agent: preflight.plan.updatedAgent, ok: true };
+		}
+	}
+	return { ok: false, error: "mutation_mismatch" };
+}
+
+function prepareMultiAgentDetachMark(
+	db: SqliteDatabase,
+	input: CommitMultiAgentDetachMarkInput,
+): MultiAgentDetachMarkPreflight {
+	const row = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(input.sessionPath, input.agentId) as { data: string } | undefined;
+	if (!row) return { result: { ok: false, error: "agent_not_found" } };
+	const context = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
+	const agent = parseStoredJsonObject(row.data, context);
+	validatePersistedAgentPayload(agent, context);
+	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+	if (!runtimeOwnerMatches(ownership, input)) return { result: { ok: false, error: "mutation_mismatch" } };
+	if (!isRecoverableRuntimeLifecycle(agent.lifecycle)) {
+		return { result: { ok: false, error: "invalid_transition" } };
+	}
+	if (agent.detached === true) {
+		return { result: { ok: true, agent: agent as unknown as AgentSnapshot } };
+	}
+	const updatedAgent = {
+		...agent,
+		detached: true,
+		revision: Number(agent.revision) + 1,
+		updatedAt: input.updatedAt,
+	};
+	validatePersistedAgentPayload(updatedAgent, context);
+	return { plan: { agentData: row.data, updatedAgent: updatedAgent as unknown as AgentSnapshot } };
+}
+
+function compareAndPersistMultiAgentDetachMark(
+	db: SqliteDatabase,
+	input: CommitMultiAgentDetachMarkInput,
+	plan: { agentData: string; updatedAgent: AgentSnapshot },
+): boolean {
+	return (
+		db
+			.prepare(
+				`UPDATE multi_agent_agents SET data = ?, updated_at = ?
+				 WHERE session_path = ? AND agent_id = ? AND data = ?
+				 AND EXISTS (
+					SELECT 1 FROM multi_agent_runtime_owners
+					WHERE session_path = ? AND agent_id = ? AND process_identity = ?
+					AND owner_session_id = ? AND owner_agent_id IS ?
+				 )`,
+			)
+			.run(
+				JSON.stringify(plan.updatedAgent),
+				input.updatedAt,
+				input.sessionPath,
+				input.agentId,
+				plan.agentData,
+				input.sessionPath,
+				input.agentId,
+				serializeProcessIdentity(input.processIdentity),
+				input.owner.sessionId,
+				input.owner.agentId,
+			).changes === 1
 	);
 }
 

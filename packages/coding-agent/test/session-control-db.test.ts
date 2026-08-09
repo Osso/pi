@@ -2301,6 +2301,100 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		).toEqual({ ok: false, error: "invalid_transition" });
 	});
 
+	it("validates detach ownership before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/detach-mark-contention.jsonl";
+		const agentId = "mark-contention-job";
+		const owner = { agentId: null, sessionId: "runner" };
+		const processIdentity = testProcessIdentity("mark-contention-runtime");
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			agentType: "background",
+			createdAt: "2026-07-11T21:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Contention mark job",
+			id: agentId,
+			lifecycle: "running",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			updatedAt: "2026-07-11T21:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, { agentId, owner, processIdentity, sessionPath });
+		const beforeState = readMultiAgentState(controlDbPath, sessionPath);
+		const beforeOwnership = readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId);
+		const input = {
+			agentId,
+			owner: { agentId: null, sessionId: "wrong-owner" },
+			processIdentity,
+			sessionPath,
+			updatedAt: "2026-07-11T21:30:00.000Z",
+		};
+
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { commitMultiAgentDetachMark } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const result = commitMultiAgentDetachMark(workerData.controlDbPath, workerData.input);
+						parentPort?.postMessage({
+							error: result.ok ? undefined : result.error,
+							ok: result.ok,
+							type: "completed",
+						});
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "detach validation worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("detach");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "detach validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "detach validation worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed).toMatchObject({ error: "mutation_mismatch", ok: false, type: "completed" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toEqual(beforeState);
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId)).toEqual(beforeOwnership);
+	});
+
 	it("finalizes a detached job after its session control data relocates", () => {
 		const oldSessionPath = "/sessions/detached-old.jsonl";
 		const newSessionPath = "/sessions/detached-new.jsonl";
