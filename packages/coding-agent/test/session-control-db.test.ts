@@ -1436,6 +1436,89 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		]);
 	});
 
+	it("validates lifecycle ownership before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/lifecycle-contention.jsonl";
+		const agentId = "agent-lifecycle-contention";
+		const owner = { agentId: null, sessionId: "supervisor" };
+		const processIdentity = testProcessIdentity("runtime-lifecycle-contention");
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			createdAt: "2026-07-11T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Lifecycle contention agent",
+			agentType: "test",
+			id: agentId,
+			lifecycle: "running",
+			parentId: undefined,
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 0,
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, { agentId, owner, processIdentity, sessionPath });
+		const beforeState = readMultiAgentState(controlDbPath, sessionPath);
+		const input = {
+			agentId,
+			owner: { agentId: null, sessionId: "wrong-owner" },
+			processIdentity,
+			requestedLifecycle: "waiting_for_input",
+			sessionPath,
+			updatedAt: "2026-07-11T00:01:00.000Z",
+		};
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { commitMultiAgentLifecycleMutation } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					const result = commitMultiAgentLifecycleMutation(workerData.controlDbPath, workerData.input);
+					parentPort?.postMessage({ ...result, type: "completed" });
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "lifecycle validation worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("mutate");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "lifecycle validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "lifecycle validation worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed).toMatchObject({ error: "mutation_mismatch", ok: false, type: "completed" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toEqual(beforeState);
+	});
+
 	it("commits steering lifecycle and durable mailbox payload atomically", () => {
 		const sessionPath = "/sessions/steering.jsonl";
 		const agentId = "agent-steer";

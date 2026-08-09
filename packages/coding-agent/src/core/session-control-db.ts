@@ -3545,53 +3545,113 @@ export function commitMultiAgentSteeringDelivery(
 	);
 }
 
+const MULTI_AGENT_LIFECYCLE_MUTATION_MAX_ATTEMPTS = 3;
+
+type DetachedCancellationCommand = { message: string; messageId: string };
+
+type MultiAgentLifecycleMutationPlan = {
+	agentData: string;
+	cancellation?: DetachedCancellationCommand;
+	updatedAgent: AgentSnapshot;
+};
+
+type MultiAgentLifecycleMutationPreflight =
+	| { plan: MultiAgentLifecycleMutationPlan }
+	| { result: CommitMultiAgentLifecycleMutationResult };
+
 export function commitMultiAgentLifecycleMutation(
 	controlDbPath: string,
 	input: CommitMultiAgentLifecycleMutationInput,
 ): CommitMultiAgentLifecycleMutationResult {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const row = db
-				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
-			if (!row) return { ok: false, error: "agent_not_found" };
-			const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
-			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			const matches =
-				ownership?.process_identity === serializeProcessIdentity(input.processIdentity) &&
-				ownership.owner_session_id === input.owner.sessionId &&
-				ownership.owner_agent_id === input.owner.agentId;
-			if (!matches) return { ok: false, error: "mutation_mismatch" };
-			if (agent.lifecycle === input.requestedLifecycle) return { ok: true, agent };
-			if (!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle))
-				return { ok: false, error: "invalid_transition" };
-			const updated = {
-				...agent,
-				lifecycle: input.requestedLifecycle,
-				revision: Number(agent.revision) + 1,
-				updatedAt: input.updatedAt,
-			};
-			db.prepare(
-				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updated), input.updatedAt, input.sessionPath, input.agentId);
-			if (input.detachedCancellation) persistDetachedCancellationCommand(db, input, updated.revision);
-			return { ok: true, agent: updated };
-		}),
-	);
+	return withControlDb(controlDbPath, (db) => commitMultiAgentLifecycleMutationWithDb(db, input));
+}
+
+function commitMultiAgentLifecycleMutationWithDb(
+	db: SqliteDatabase,
+	input: CommitMultiAgentLifecycleMutationInput,
+): CommitMultiAgentLifecycleMutationResult {
+	for (let attempt = 1; attempt <= MULTI_AGENT_LIFECYCLE_MUTATION_MAX_ATTEMPTS; attempt += 1) {
+		const preflight = prepareMultiAgentLifecycleMutation(db, input);
+		if ("result" in preflight) return preflight.result;
+		if (persistMultiAgentLifecycleMutation(db, input, preflight.plan)) {
+			return { agent: preflight.plan.updatedAgent, ok: true };
+		}
+	}
+	return { ok: false, error: "mutation_mismatch" };
+}
+
+function prepareMultiAgentLifecycleMutation(
+	db: SqliteDatabase,
+	input: CommitMultiAgentLifecycleMutationInput,
+): MultiAgentLifecycleMutationPreflight {
+	const row = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(input.sessionPath, input.agentId) as { data: string } | undefined;
+	if (!row) return { result: { ok: false, error: "agent_not_found" } };
+	const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
+	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+	if (!runtimeOwnerMatches(ownership, input)) return { result: { ok: false, error: "mutation_mismatch" } };
+	if (agent.lifecycle === input.requestedLifecycle) {
+		return { result: { ok: true, agent: agent as unknown as AgentSnapshot } };
+	}
+	if (!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle)) {
+		return { result: { ok: false, error: "invalid_transition" } };
+	}
+	const updatedAgent = {
+		...agent,
+		lifecycle: input.requestedLifecycle,
+		revision: Number(agent.revision) + 1,
+		updatedAt: input.updatedAt,
+	} as unknown as AgentSnapshot;
+	const cancellation = input.detachedCancellation
+		? buildDetachedCancellationMessage(input, input.detachedCancellation, updatedAgent.revision)
+		: undefined;
+	return { plan: { agentData: row.data, cancellation, updatedAgent } };
+}
+
+function persistMultiAgentLifecycleMutation(
+	db: SqliteDatabase,
+	input: CommitMultiAgentLifecycleMutationInput,
+	plan: MultiAgentLifecycleMutationPlan,
+): boolean {
+	return withImmediateTransaction(db, () => {
+		const updated = db
+			.prepare(
+				`UPDATE multi_agent_agents SET data = ?, updated_at = ?
+				 WHERE session_path = ? AND agent_id = ? AND data = ?
+				 AND EXISTS (
+					SELECT 1 FROM multi_agent_runtime_owners
+					WHERE session_path = ? AND agent_id = ? AND process_identity = ?
+					AND owner_session_id = ? AND owner_agent_id IS ?
+				 )`,
+			)
+			.run(
+				JSON.stringify(plan.updatedAgent),
+				input.updatedAt,
+				input.sessionPath,
+				input.agentId,
+				plan.agentData,
+				input.sessionPath,
+				input.agentId,
+				serializeProcessIdentity(input.processIdentity),
+				input.owner.sessionId,
+				input.owner.agentId,
+			).changes;
+		if (updated !== 1) return false;
+		if (plan.cancellation) persistDetachedCancellationCommand(db, input, plan.cancellation);
+		return true;
+	});
 }
 
 function persistDetachedCancellationCommand(
 	db: SqliteDatabase,
 	input: CommitMultiAgentLifecycleMutationInput,
-	cancellingRevision: number,
+	command: DetachedCancellationCommand,
 ): void {
-	const cancellation = input.detachedCancellation;
-	if (!cancellation) return;
-	const { message, messageId } = buildDetachedCancellationMessage(input, cancellation, cancellingRevision);
 	db.prepare(
 		`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
 		 VALUES (?, ?, ?, ?)`,
-	).run(input.sessionPath, messageId, message, input.updatedAt);
+	).run(input.sessionPath, command.messageId, command.message, input.updatedAt);
 }
 
 function buildDetachedCancellationMessage(
