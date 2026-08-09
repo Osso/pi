@@ -247,6 +247,7 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 	const existingSession = sessionManager.buildSessionContext();
 	const hasExistingSession = existingSession.messages.length > 0;
 	const persistedSettings = sessionManager.readPersistedSessionSettings();
+	settingsManager.setSessionSandboxProfile(persistedSettings?.sandboxProfile);
 
 	let model = options.model;
 	let modelFallbackMessage: string | undefined;

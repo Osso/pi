@@ -22,6 +22,7 @@ import {
 	type SessionCheckStatus,
 	type SessionHealthRecord,
 } from "./session-health.ts";
+import { isSandboxProfileName, type SandboxProfileName } from "./permissions/presets.ts";
 import { configureSharedSqliteDatabase, createSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
 const CONTROL_DB_SCHEMA_VERSION = 14;
@@ -346,6 +347,11 @@ type TableInfoRow = {
 
 type GoalRow = {
 	goal_json: string | null;
+};
+
+type SessionSandboxProfileRow = {
+	profile: string;
+	session_id: string;
 };
 
 export function getControlDbPath(directory = getUserStateRoot()): string {
@@ -2413,6 +2419,7 @@ export function removeSessionMetadata(controlDbPath: string, sessionPath: string
 		db.exec("BEGIN IMMEDIATE");
 		try {
 			db.prepare("DELETE FROM named_sessions WHERE session_path = ?").run(sessionPath);
+			db.prepare("DELETE FROM session_sandbox_profiles WHERE session_path = ?").run(sessionPath);
 			db.prepare("DELETE FROM session_metadata WHERE session_path = ?").run(sessionPath);
 			db.exec("COMMIT");
 		} catch (error) {
@@ -2456,6 +2463,7 @@ export function relocateSessionControlData(
 		try {
 			relocateSessionPathPrimaryKey(db, "session_metadata", oldSessionPath, newSessionPath, now);
 			relocateSessionPathPrimaryKey(db, "named_sessions", oldSessionPath, newSessionPath, now);
+			relocateSessionPathPrimaryKey(db, "session_sandbox_profiles", oldSessionPath, newSessionPath, now);
 			relocateMultiAgentSessionRows(db, "multi_agent_agents", oldSessionPath, newSessionPath, now);
 			relocateMultiAgentRuntimeOwners(db, oldSessionPath, newSessionPath);
 			relocateMultiAgentSessionRows(db, "multi_agent_terminal_outbox", oldSessionPath, newSessionPath, now);
@@ -2681,6 +2689,68 @@ export function writeSessionThinkingLevel(controlDbPath: string, sessionPath: st
 			 SET thinking_level = ?, updated_at = ?
 			 WHERE session_path = ?`,
 		).run(thinkingLevel, new Date().toISOString(), sessionPath);
+	});
+}
+
+function assertSessionMetadataIdentity(db: SqliteDatabase, sessionPath: string, sessionId: string): void {
+	const row = db.prepare("SELECT id FROM session_metadata WHERE session_path = ?").get(sessionPath) as
+		| { id: string }
+		| undefined;
+	if (!row) {
+		throw new Error(`Session metadata is missing for ${sessionPath}`);
+	}
+	if (row.id !== sessionId) {
+		throw new Error(`Session identity mismatch for ${sessionPath}: expected ${row.id}, received ${sessionId}`);
+	}
+}
+
+export function writeSessionSandboxProfile(
+	controlDbPath: string,
+	sessionPath: string,
+	sessionId: string,
+	profile: SandboxProfileName,
+): void {
+	withControlDb(controlDbPath, (db) => {
+		assertSessionMetadataIdentity(db, sessionPath, sessionId);
+		db.prepare(
+			`INSERT INTO session_sandbox_profiles (session_path, session_id, profile, updated_at)
+			 VALUES (?, ?, ?, ?)
+			 ON CONFLICT(session_path) DO UPDATE SET
+				session_id = excluded.session_id,
+				profile = excluded.profile,
+				updated_at = excluded.updated_at`,
+		).run(sessionPath, sessionId, profile, new Date().toISOString());
+	});
+}
+
+export function clearSessionSandboxProfile(controlDbPath: string, sessionPath: string, sessionId: string): void {
+	withControlDb(controlDbPath, (db) => {
+		assertSessionMetadataIdentity(db, sessionPath, sessionId);
+		db.prepare("DELETE FROM session_sandbox_profiles WHERE session_path = ? AND session_id = ?").run(
+			sessionPath,
+			sessionId,
+		);
+	});
+}
+
+export function readSessionSandboxProfile(
+	controlDbPath: string,
+	sessionPath: string,
+	sessionId: string,
+): SandboxProfileName | undefined {
+	return withControlDb(controlDbPath, (db) => {
+		const row = db
+			.prepare("SELECT session_id, profile FROM session_sandbox_profiles WHERE session_path = ?")
+			.get(sessionPath) as SessionSandboxProfileRow | undefined;
+		if (!row) return undefined;
+		assertSessionMetadataIdentity(db, sessionPath, sessionId);
+		if (row.session_id !== sessionId) {
+			throw new Error(`Session identity mismatch for ${sessionPath}: stored ${row.session_id}, received ${sessionId}`);
+		}
+		if (!isSandboxProfileName(row.profile)) {
+			throw new Error(`Invalid sandbox profile '${row.profile}' for session ${sessionId}`);
+		}
+		return row.profile;
 	});
 }
 
@@ -6286,6 +6356,13 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 
 		CREATE INDEX IF NOT EXISTS session_metadata_name_idx
 		ON session_metadata(name);
+
+		CREATE TABLE IF NOT EXISTS session_sandbox_profiles (
+			session_path TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			profile TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);
 
 		CREATE TABLE IF NOT EXISTS multi_agent_agents (
 			session_path TEXT NOT NULL,

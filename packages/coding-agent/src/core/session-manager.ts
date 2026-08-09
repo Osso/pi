@@ -22,6 +22,7 @@ import { createInterface } from "readline";
 import { StringDecoder } from "string_decoder";
 import { getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
+import type { SandboxProfileName } from "./permissions/presets.ts";
 import {
 	type BashExecutionMessage,
 	type CustomMessage,
@@ -30,17 +31,20 @@ import {
 	createCustomMessage,
 } from "./messages.ts";
 import {
+	clearSessionSandboxProfile as clearPersistedSessionSandboxProfile,
 	listActiveSessionMetadata,
 	listArchivedSessionMetadata,
 	listSessionMetadata,
 	readSessionGoal,
 	readSessionMetadata,
+	readSessionSandboxProfile,
 	relocateSessionControlData,
 	type SessionMetadata,
 	type WritableSessionMetadata,
 	writeSessionGoal,
 	writeSessionMetadata,
 	writeSessionModel,
+	writeSessionSandboxProfile,
 	writeSessionThinkingLevel,
 } from "./session-control-db.ts";
 import { serializeSessionEntryForPersistence } from "./session-tool-output.ts";
@@ -201,6 +205,7 @@ export interface SessionContext {
 
 export interface PersistedSessionSettings {
 	model?: { provider: string; modelId: string };
+	sandboxProfile?: SandboxProfileName;
 	thinkingLevel?: string;
 }
 
@@ -1564,7 +1569,12 @@ export class SessionManager {
 			metadata.modelProvider && metadata.modelId
 				? { provider: metadata.modelProvider, modelId: metadata.modelId }
 				: undefined;
-		return { model, thinkingLevel: metadata.thinkingLevel };
+		const sandboxProfile = readSessionSandboxProfile(
+			this.metadataControlDbPath,
+			this.sessionFile,
+			this.sessionId,
+		);
+		return { model, sandboxProfile, thinkingLevel: metadata.thinkingLevel };
 	}
 
 	isSubagentSession(): boolean {
@@ -1613,6 +1623,17 @@ export class SessionManager {
 		if (!this.metadataControlDbPath || !this.sessionFile) return;
 		this.writeMetadataSnapshot();
 		writeSessionThinkingLevel(this.metadataControlDbPath, this.sessionFile, thinkingLevel);
+	}
+
+	setSessionSandboxProfile(profile: SandboxProfileName | undefined): boolean {
+		if (!this.metadataControlDbPath || !this.sessionFile) return false;
+		this.writeMetadataSnapshot();
+		if (profile) {
+			writeSessionSandboxProfile(this.metadataControlDbPath, this.sessionFile, this.sessionId, profile);
+		} else {
+			clearPersistedSessionSandboxProfile(this.metadataControlDbPath, this.sessionFile, this.sessionId);
+		}
+		return true;
 	}
 
 	setMetadataControlDbPath(

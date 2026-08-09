@@ -310,6 +310,7 @@ export class SettingsManager {
 	private storage: SettingsStorage;
 	private globalSettings: Settings;
 	private projectSettings: Settings;
+	private sessionSandboxProfile: SandboxProfileName | undefined;
 	private settings: Settings;
 	private projectTrusted: boolean;
 	private modifiedFields = new Set<keyof Settings>(); // Track global fields modified during session
@@ -488,7 +489,11 @@ export class SettingsManager {
 	}
 
 	getMergedSettings(): Settings {
-		return structuredClone(this.settings);
+		const settings = structuredClone(this.settings);
+		if (this.sessionSandboxProfile) {
+			settings.sandboxProfile = this.sessionSandboxProfile;
+		}
+		return settings;
 	}
 
 	getAgentProfile(agentType: string): AgentProfileSettings | undefined {
@@ -550,10 +555,21 @@ export class SettingsManager {
 	}
 
 	getExplicitSandboxProfile(): SandboxProfileName | undefined {
+		if (this.sessionSandboxProfile) {
+			return this.sessionSandboxProfile;
+		}
 		if (isSandboxProfileName(this.projectSettings.sandboxProfile)) {
 			return this.projectSettings.sandboxProfile;
 		}
 		return isSandboxProfileName(this.globalSettings.sandboxProfile) ? this.globalSettings.sandboxProfile : undefined;
+	}
+
+	getSessionSandboxProfile(): SandboxProfileName | undefined {
+		return this.sessionSandboxProfile;
+	}
+
+	setSessionSandboxProfile(profileName: SandboxProfileName | undefined): void {
+		this.sessionSandboxProfile = profileName;
 	}
 
 	setSandboxProfile(profileName: SandboxProfileName, scope: SettingsScope = "global"): void {
