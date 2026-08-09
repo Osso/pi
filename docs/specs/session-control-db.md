@@ -106,7 +106,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       externally observable.
 - [x] Store shared-channel messages and per-recipient cursors in `control.sqlite` so idle
       sessions can catch up from an append-only global coordination log.
-- [x] `multi_agent_mailbox_messages` is the sole per-message runtime-delivery authority: each row owns payload, routing, claim identity, status, failure, and delivery acknowledgment. Runtime listener rows provide address resolution and wakeups only; no per-message runtime transport table exists. Schema migration folds valid legacy routing and terminal status into canonical rows, resets legacy claims to reclaimable pending state, and drops the legacy table without a compatibility path.
+- [x] `multi_agent_mailbox_messages` is the sole per-message runtime-delivery authority: each row owns payload, routing, claim identity, status, failure, and delivery acknowledgment. Runtime listener rows provide address resolution and wakeups only; no per-message runtime transport table exists. Schema migration folds valid legacy routing and terminal status into canonical rows, resets legacy claims to reclaimable pending state, and drops the legacy table without a compatibility path. Dead claimed-row recovery scans authority and claimant liveness without reserving the writer lock, then revalidates each candidate and resets it to `pending` in a short immediate transaction.
 - [x] A recipient that is not ready for direct active-input delivery leaves canonical mailbox rows
       `pending` and does not read their payloads into runtime memory. Once ready, delivery evaluates
       eligibility without reserving the writer lock, then revalidates exact listener/ownership
