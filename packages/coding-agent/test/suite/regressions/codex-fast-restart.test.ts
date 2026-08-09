@@ -1,4 +1,6 @@
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
+import { writeFileSync } from "fs";
+import { join } from "path";
 import { expect, it } from "vitest";
 import { type HeadlessPi, withHeadlessPi } from "../headless-pi.ts";
 
@@ -85,5 +87,30 @@ it("preserves Codex fast mode across /restart while a child is live", async () =
 		);
 
 		await expectFastUltraAfterRestart(agent, sessionId, enabledStatusId);
+	}, CODEX_FIXTURE);
+}, 30_000);
+
+it("uses the configured fast default after /restart while a child is live", async () => {
+	await withHeadlessPi(async (agent) => {
+		await spawnLiveChild(agent);
+		const sessionId = agent.sessionId;
+		writeFileSync(
+			join(agent.paths.agentDir, "settings.json"),
+			JSON.stringify({ defaultCodexFastMode: "priority" }, null, 2),
+		);
+
+		void agent.send({ type: "prompt", message: "/restart" }).catch(() => {
+			// Process replacement can close the pending RPC command before it returns a response.
+		});
+
+		expect(agent.sessionId).toBe(sessionId);
+		const configuredStatus = await agent.waitForExtensionUiRequest(
+			(request) =>
+				request.method === "setStatus" && request.statusKey === "codex-fast" && request.statusText === "fast",
+		);
+		expect(configuredStatus).toMatchObject({ statusKey: "codex-fast", statusText: "fast" });
+		expect(agent.readSessionEntries(null)).not.toContainEqual(
+			expect.objectContaining({ type: "custom", customType: "codex-fast-mode" }),
+		);
 	}, CODEX_FIXTURE);
 }, 30_000);
