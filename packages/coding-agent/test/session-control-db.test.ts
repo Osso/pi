@@ -3658,6 +3658,93 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		}
 	});
 
+	it("scans unauthorized canonical mailbox rows without acquiring the writer lock", async () => {
+		const recipient = { agentId: null, sessionId: "claim-contention-no-authority" };
+		const sessionPath = "/sessions/claim-contention-sender.jsonl";
+		const messageId = "claim-contention-message";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: "no current recipient authority",
+			createdAt: "2026-08-09T00:00:00.000Z",
+			fromAgentId: "main",
+			id: messageId,
+			kind: "message",
+			recipientAgentId: null,
+			recipientSessionId: recipient.sessionId,
+			senderAgentId: null,
+			senderSessionId: "claim-contention-sender",
+			status: "pending",
+			toAgentId: "main",
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { claimRuntimeMailboxMessages } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const claimed = claimRuntimeMailboxMessages(workerData.controlDbPath, workerData.recipient);
+						parentPort?.postMessage({ count: claimed.length, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, recipient } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let result: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "claim worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("claim");
+			try {
+				result = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "unauthorized mailbox scan waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!result) {
+				result = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "claim worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(result?.count).toBe(0);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			const row = db
+				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+				.get(sessionPath, messageId) as { data: string };
+			expect(JSON.parse(row.data)).toMatchObject({ status: "pending" });
+		} finally {
+			db.close();
+		}
+	});
+
 	it("reaches listener process-liveness checks while another writer holds the database", async () => {
 		const sessionId = "listener-contention";
 		const nowIso = "2026-08-09T00:00:00.000Z";

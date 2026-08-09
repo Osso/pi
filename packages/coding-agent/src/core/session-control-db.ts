@@ -573,13 +573,7 @@ type RuntimeMailboxAuthoritySnapshot = {
 	ownership: MultiAgentRuntimeOwnershipRow | undefined;
 };
 
-type RuntimeMailboxRecoveryCandidate = {
-	authority: RuntimeMailboxAuthoritySnapshot;
-	data: Record<string, unknown>;
-	row: RuntimeMailboxRow;
-};
-
-type RuntimeMailboxDeliveryCandidate = {
+type RuntimeMailboxCandidate = {
 	authority: RuntimeMailboxAuthoritySnapshot;
 	data: Record<string, unknown>;
 	row: RuntimeMailboxRow;
@@ -599,7 +593,7 @@ export function recoverDeadRuntimeMailboxClaims(controlDbPath: string, recipient
 function readRecoverableRuntimeMailboxClaims(
 	db: SqliteDatabase,
 	recipient: RuntimeMailboxAddress,
-): RuntimeMailboxRecoveryCandidate[] {
+): RuntimeMailboxCandidate[] {
 	const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "claimed", Number.MAX_SAFE_INTEGER);
 	return rows.flatMap((row) => {
 		const authority = readRuntimeMailboxAuthoritySnapshot(db, recipient, row.session_path);
@@ -613,7 +607,7 @@ function readRecoverableRuntimeMailboxClaims(
 function recoverRuntimeMailboxClaim(
 	db: SqliteDatabase,
 	recipient: RuntimeMailboxAddress,
-	candidate: RuntimeMailboxRecoveryCandidate,
+	candidate: RuntimeMailboxCandidate,
 	nowIso: string,
 ): boolean {
 	return withImmediateTransaction(db, () => {
@@ -642,7 +636,7 @@ function readEligibleRuntimeMailboxDeliveryCandidates(
 	db: SqliteDatabase,
 	recipient: RuntimeMailboxAddress,
 	isEligible: (message: RuntimeMailboxMessage) => boolean,
-): RuntimeMailboxDeliveryCandidate[] {
+): RuntimeMailboxCandidate[] {
 	const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "pending", Number.MAX_SAFE_INTEGER);
 	return rows.flatMap((row) => {
 		const authority = readRuntimeMailboxAuthoritySnapshot(db, recipient, row.session_path);
@@ -656,7 +650,7 @@ function readEligibleRuntimeMailboxDeliveryCandidates(
 function deliverRuntimeMailboxCandidates(
 	db: SqliteDatabase,
 	recipient: RuntimeMailboxAddress,
-	candidates: RuntimeMailboxDeliveryCandidate[],
+	candidates: RuntimeMailboxCandidate[],
 	limit: number,
 	nowIso: string,
 ): RuntimeMailboxMessage[] {
@@ -672,7 +666,7 @@ function deliverRuntimeMailboxCandidates(
 function deliverRuntimeMailboxCandidate(
 	db: SqliteDatabase,
 	recipient: RuntimeMailboxAddress,
-	candidate: RuntimeMailboxDeliveryCandidate,
+	candidate: RuntimeMailboxCandidate,
 	nowIso: string,
 ): RuntimeMailboxMessage | undefined {
 	return withImmediateTransaction(db, () => {
@@ -738,38 +732,56 @@ export function claimRuntimeMailboxMessages(
 	recipient: RuntimeMailboxAddress,
 	limit = 20,
 ): RuntimeMailboxMessage[] {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "pending", limit).filter((row) =>
-				canCurrentRuntimeClaimMailboxRow(db, recipient, row),
-			);
-			const now = new Date().toISOString();
-			const claimed: RuntimeMailboxMessage[] = [];
-			for (const row of rows) {
-				const message = parseCanonicalMailboxPayload(row);
-				message.status = "claimed";
-				message.claimedAt = now;
-				message.claimantProcessIdentity = RUNTIME_PROCESS_INSTANCE_ID;
-				message.updatedAt = now;
-				if (compareAndWriteCanonicalMailboxPayload(db, row, message, now)) {
-					claimed.push(runtimeMailboxMessageFromCanonicalRow(row, message));
-				}
-			}
-			return claimed;
-		}),
-	);
+	return withControlDb(controlDbPath, (db) => {
+		const candidates = readClaimableRuntimeMailboxCandidates(db, recipient, limit);
+		return claimRuntimeMailboxCandidates(db, recipient, candidates, new Date().toISOString());
+	});
 }
 
-function canCurrentRuntimeClaimMailboxRow(
+function readClaimableRuntimeMailboxCandidates(
 	db: SqliteDatabase,
 	recipient: RuntimeMailboxAddress,
-	row: RuntimeMailboxRow,
-): boolean {
-	const listener = readRuntimeMailboxListenerRow(db, recipient);
-	if (listener?.pid === process.pid && listener.runtime_instance_id === RUNTIME_PROCESS_INSTANCE_ID) return true;
-	if (!recipient.agentId) return false;
-	const ownership = readMultiAgentRuntimeOwnershipRow(db, row.session_path, recipient.agentId);
-	return persistedProcessIdentityIsCurrent(ownership?.process_identity);
+	limit: number,
+): RuntimeMailboxCandidate[] {
+	const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "pending", limit);
+	return rows.flatMap((row) => {
+		const authority = readRuntimeMailboxAuthoritySnapshot(db, recipient, row.session_path);
+		if (!currentRuntimeOwnsMailboxAuthority(recipient, authority)) return [];
+		return [{ authority, data: parseCanonicalMailboxPayload(row), row }];
+	});
+}
+
+function claimRuntimeMailboxCandidates(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+	candidates: RuntimeMailboxCandidate[],
+	nowIso: string,
+): RuntimeMailboxMessage[] {
+	return candidates.flatMap((candidate) => {
+		const claimed = claimRuntimeMailboxCandidate(db, recipient, candidate, nowIso);
+		return claimed ? [claimed] : [];
+	});
+}
+
+function claimRuntimeMailboxCandidate(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+	candidate: RuntimeMailboxCandidate,
+	nowIso: string,
+): RuntimeMailboxMessage | undefined {
+	return withImmediateTransaction(db, () => {
+		const currentAuthority = readRuntimeMailboxAuthoritySnapshot(db, recipient, candidate.row.session_path);
+		if (!runtimeMailboxAuthoritySnapshotsEqual(candidate.authority, currentAuthority)) return undefined;
+		const claimed = {
+			...candidate.data,
+			claimedAt: nowIso,
+			claimantProcessIdentity: RUNTIME_PROCESS_INSTANCE_ID,
+			status: "claimed",
+			updatedAt: nowIso,
+		};
+		if (!compareAndWriteCanonicalMailboxPayload(db, candidate.row, claimed, nowIso)) return undefined;
+		return runtimeMailboxMessageFromCanonicalRow(candidate.row, claimed);
+	});
 }
 
 function runtimeMailboxClaimantIsLive(
