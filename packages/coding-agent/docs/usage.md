@@ -39,6 +39,7 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/model` | Switch models |
 | `/scoped-models` | Enable/disable models for Ctrl+P cycling |
 | `/settings` | Thinking level, theme, message delivery, transport |
+| `/sandbox [<profile> <scope>]` | Select or set `read-only`, `workspace-write`, `full-access`, or session `inherit` for `session`, `project`, or `global` scope |
 | `/effort [level]` | Choose a supported thinking level (`max`/`ultra` when advertised), or set one directly |
 | `/multi-agent [proactive|explicit]` | Set delegation policy; defaults to proactive and persists in the session branch |
 | `/debug`, `/debug off` | Enable or disable the privileged local live-process JavaScript REPL |
@@ -84,7 +85,7 @@ New-turn submissions appear in the transcript as soon as the accepted, transform
 
 On Windows Terminal, Alt+Enter is fullscreen by default. Remap it as described in [Terminal setup](terminal-setup.md) if you want pi to receive the shortcut.
 
-Configure delivery in [Settings](settings.md) with `steeringMode` and `followUpMode`.
+Configure delivery in [Settings](settings.md) with `steeringMode` and `followUpMode`. Sandbox profiles resolve as session override, project setting, then global setting; use `/sandbox <read-only|workspace-write|full-access|inherit> <session|project|global>` for direct control, with `inherit` valid only for session scope.
 
 ## Sessions
 
@@ -107,6 +108,8 @@ Useful session commands:
 - `/clone` duplicates the current active branch into a new session file.
 - `/compact` summarizes older messages to free context.
 - `/continue` continues from the current transcript without adding a user message.
+
+Session sandbox overrides are stored in the control-session database for the exact persisted session, survive restart/resume, and do not carry into new or forked sessions. Sandboxed Pyrun runners resolve symlinked commands to their canonical executable target before bwrap mounts and invokes them.
 
 See [Sessions](sessions.md) and [Compaction](compaction.md) for details.
 

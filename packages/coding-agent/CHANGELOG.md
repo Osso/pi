@@ -118,11 +118,13 @@
 - Added a first-party `/safe` extension command for session-local tool-call restriction to `web_search` and `ask_questions`.
 - Added `pi.registerToolGate()` for extension-enforced tool-call restrictions that run before approval policy shortcuts.
 - Added a first-party Linux bubblewrap sandbox backend extension for routing file tools, bash, user bash, and default Pyrun runners through explicitly selected sandbox profiles.
+- Added session-local `/sandbox` profiles with session > project > global precedence; session overrides are stored in control SQLite for the exact persisted session, support `/sandbox ... inherit`, survive restart/resume, and remain isolated from new sessions and forks.
 - Added the systemd-deployed Resident Architect service: a 30-second, event-driven `openai-codex/gpt-5.6-sol` advisor with read-only control-SQLite observation and read-only bwrap file/shell/Pyrun workers.
 - Added the public `bash_messages_committed` session event for observing idle or deferred bash messages after they enter session state.
 
 ### Fixed
 
+- Fixed sandboxed Pyrun startup for symlinked external runner commands by resolving and mounting the canonical executable target before invocation.
 - Fixed resident-service deployment to skip rewriting and reloading an unchanged Supervisor unit while always removing Architect, restarting Supervisor, and checking service health.
 - Fixed multi-agent status formatting so only the `multi-agent: ` prefix is dimmed while the `proactive` or `explicit` mode remains normal.
 - Fixed `list_sessions` and its shared broadcast inventory to expose only non-archived main sessions, excluding `archived_at IS NOT NULL` and `is_subagent = 1` rows regardless of `include_ended`; child rows of archived parents are excluded without changing archive write semantics.

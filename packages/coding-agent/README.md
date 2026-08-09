@@ -179,6 +179,7 @@ Type `/` in the editor to trigger commands. [Extensions](#extensions) can regist
 | `/model` | Switch models |
 | `/scoped-models` | Enable/disable models for Ctrl+P cycling |
 | `/settings` | Thinking level, theme, message delivery, transport |
+| `/sandbox [<profile> <scope>]` | Select or set `read-only`, `workspace-write`, `full-access`, or session `inherit` for `session`, `project`, or `global` scope |
 | `/effort [level]` | Choose a supported thinking level (`max`/`ultra` when advertised), or set one directly |
 | `/multi-agent [proactive|explicit]` | Set delegation policy; defaults to proactive and persists in the session branch |
 | `/resume` | Pick from previous sessions |
@@ -310,7 +311,7 @@ Use `/settings` to modify common options, or edit JSON files directly:
 | `~/.pi/agent/settings.json` | Global (all projects) |
 | `.pi/settings.json` | Project (overrides global) |
 
-See [docs/settings.md](docs/settings.md) for all options.
+See [docs/settings.md](docs/settings.md) for all options. Sandbox profiles resolve as session override, project setting, then global setting. Use `/sandbox <read-only|workspace-write|full-access|inherit> <session|project|global>` for direct control; session `inherit` removes the exact session's override. Session overrides live in the control-session database, survive restart/resume, and do not carry into new or forked sessions. Sandboxed Pyrun runners resolve symlinked commands to their canonical executable target before bwrap mounts and invokes them.
 
 ### Project Trust
 

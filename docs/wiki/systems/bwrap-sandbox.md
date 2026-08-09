@@ -14,9 +14,17 @@ For sandbox-required profiles, the backend builds a bubblewrap command that:
 - shares the host network namespace, because this backend currently targets filesystem isolation only;
 - uses `--clearenv` and a filtered environment (`HOME`, `PATH`, locale, terminal hints, `USER`, and only adapter-resolved Pyrun `PYTHONPATH`) instead of inheriting provider keys, arbitrary host `PYTHONPATH`, or host credential variables.
 
-When launching a runtime runner, the backend also read-only mounts its resolved executable, absolute runner arguments, and `PYTHONPATH` entries when they are outside the workspace and not already available from system mounts. This permits the selected runtime to start without broad host mounts.
+When launching a runtime runner, the backend also read-only mounts its resolved executable, absolute runner arguments, and `PYTHONPATH` entries when they are outside the workspace and not already available from system mounts. If the configured runner command is a symlink, the backend resolves it to its canonical target before mounting and invoking it. This permits external runners whose target is outside the usual system paths to start without broad host mounts.
 
 `full-access` and a missing explicit sandbox setting resolve to no sandbox profile, so the extension delegates to local tool and runtime implementations.
+
+## Profile selection and persistence
+
+The effective profile is resolved in this order: session override, project setting, then global setting. A missing session override or session `inherit` clears the session layer and falls back to project/global settings. If no explicit profile remains, the runtime is unsandboxed; `full-access` also explicitly bypasses bwrap.
+
+Use `/sandbox <read-only|workspace-write|full-access|inherit> <session|project|global>` for deterministic changes, or `/sandbox` to open the selector. `inherit` is valid only with `session`; project and global scopes require a concrete profile. Session scope requires a persisted session.
+
+Session overrides are stored in the host's control-session SQLite database, not in session JSONL, keyed by canonical session path and checked against the exact session ID. Restart and resume restore the row before runtime tools are created. New sessions, forks, exports/imports, and unrelated session paths have no override and do not inherit the source session's policy. Project and global selections remain settings-file state.
 
 ## Tool routing
 
@@ -26,6 +34,6 @@ Pyrun remains a default-loaded first-party extension. Under a sandbox-required p
 
 ## Loading
 
-The bwrap and Pyrun packages are default first-party extensions, but enforcement is inactive until `sandboxProfile` is explicitly set in global or project settings. Systems without `bwrap` still start normally unless the user has selected `read-only` or `workspace-write`. Selecting `full-access` explicitly disables bwrap enforcement.
+The bwrap and Pyrun packages are default first-party extensions, but enforcement is inactive until `sandboxProfile` is explicitly set in global or project settings or a session override is selected. Systems without `bwrap` still start normally unless the effective profile is `read-only` or `workspace-write`. Selecting `full-access` explicitly disables bwrap enforcement.
 
 Enabled host-side extension tools and hooks remain trusted capabilities outside this selected worker-routing boundary.
