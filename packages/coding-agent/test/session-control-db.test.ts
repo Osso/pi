@@ -122,6 +122,7 @@ type WorkerStatusMessage = {
 	error?: string;
 	id?: number;
 	ok?: boolean;
+	value?: number;
 	paths?: string[];
 	pid?: number;
 	statuses?: string[];
@@ -3322,6 +3323,69 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		});
 		expect(readMultiAgentState(controlDbPath, oldPath)).toBeUndefined();
 		expect(allocateMultiAgentCounter(controlDbPath, oldPath, "agent")).toBe(1);
+	});
+
+	it("allocates unique contiguous counter values under concurrent workers", async () => {
+		const sessionPath = "/sessions/concurrent-counter.jsonl";
+		const workerCount = 8;
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const workerSource = `
+			import { parentPort, workerData } from "node:worker_threads";
+			import { allocateMultiAgentCounter } from ${JSON.stringify(moduleUrl)};
+
+			parentPort?.postMessage({ type: "ready" });
+			parentPort?.once("message", () => {
+				try {
+					const value = allocateMultiAgentCounter(workerData.controlDbPath, workerData.sessionPath, "agent");
+					parentPort?.postMessage({ type: "completed", value });
+				} catch (error) {
+					parentPort?.postMessage({ error: String(error), type: "error" });
+				}
+			});
+		`;
+		const workers = Array.from(
+			{ length: workerCount },
+			() =>
+				new Worker(workerSource, {
+					eval: true,
+					execArgv: ["--experimental-strip-types"],
+					workerData: { controlDbPath, sessionPath },
+				}),
+		);
+		try {
+			await Promise.all(
+				workers.map((worker) =>
+					waitForWorkerStatus(worker, {
+						expectedType: "ready",
+						timeoutMessage: "counter worker did not load",
+					}),
+				),
+			);
+			for (const worker of workers) worker.postMessage("allocate");
+			const results = await Promise.all(
+				workers.map((worker) =>
+					waitForWorkerStatus(worker, {
+						expectedType: "completed",
+						timeoutMessage: "counter worker did not allocate",
+					}),
+				),
+			);
+
+			expect(results.map((result) => result.value).sort((left, right) => (left ?? 0) - (right ?? 0))).toEqual(
+				Array.from({ length: workerCount }, (_, index) => index + 1),
+			);
+			const db = createSqliteDatabase(controlDbPath);
+			try {
+				const row = db
+					.prepare("SELECT next_agent_number FROM multi_agent_counters_v2 WHERE session_path = ?")
+					.get(sessionPath) as { next_agent_number: number };
+				expect(row.next_agent_number).toBe(workerCount + 1);
+			} finally {
+				db.close();
+			}
+		} finally {
+			await Promise.all(workers.map((worker) => worker.terminate()));
+		}
 	});
 
 	it("preserves destination counters when relocating back to a previously used session path", () => {

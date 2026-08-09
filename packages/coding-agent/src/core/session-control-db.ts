@@ -4824,14 +4824,21 @@ export function writeMultiAgentCounters(
 
 export type MultiAgentCounterName = "agent" | "message";
 
-type MultiAgentCounterRow = {
-	next_agent_number: number;
-	next_message_number: number;
-};
-
-const MULTI_AGENT_COUNTER_COLUMNS: Record<MultiAgentCounterName, keyof MultiAgentCounterRow> = {
-	agent: "next_agent_number",
-	message: "next_message_number",
+const MULTI_AGENT_COUNTER_ALLOCATION_SQL: Record<MultiAgentCounterName, string> = {
+	agent: `INSERT INTO multi_agent_counters_v2
+		(session_path, next_agent_number, next_message_number, updated_at)
+		VALUES (?, 2, 1, ?)
+		ON CONFLICT(session_path) DO UPDATE SET
+			next_agent_number = next_agent_number + 1,
+			updated_at = excluded.updated_at
+		RETURNING next_agent_number - 1 AS value`,
+	message: `INSERT INTO multi_agent_counters_v2
+		(session_path, next_agent_number, next_message_number, updated_at)
+		VALUES (?, 1, 2, ?)
+		ON CONFLICT(session_path) DO UPDATE SET
+			next_message_number = next_message_number + 1,
+			updated_at = excluded.updated_at
+		RETURNING next_message_number - 1 AS value`,
 };
 
 export function allocateMultiAgentCounter(
@@ -4839,35 +4846,13 @@ export function allocateMultiAgentCounter(
 	sessionPath: string,
 	counterName: MultiAgentCounterName,
 ): number {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => allocateMultiAgentCounterInTransaction(db, sessionPath, counterName)),
-	);
-}
-
-function allocateMultiAgentCounterInTransaction(
-	db: SqliteDatabase,
-	sessionPath: string,
-	counterName: MultiAgentCounterName,
-): number {
-	const column = MULTI_AGENT_COUNTER_COLUMNS[counterName];
-	const row = db
-		.prepare("SELECT next_agent_number, next_message_number FROM multi_agent_counters_v2 WHERE session_path = ?")
-		.get(sessionPath) as MultiAgentCounterRow | undefined;
-	const counters = {
-		next_agent_number: row?.next_agent_number ?? 1,
-		next_message_number: row?.next_message_number ?? 1,
-	};
-	const allocated = counters[column];
-	counters[column] = allocated + 1;
-	db.prepare(
-		`INSERT INTO multi_agent_counters_v2 (session_path, next_agent_number, next_message_number, updated_at)
-		 VALUES (?, ?, ?, ?)
-		 ON CONFLICT(session_path) DO UPDATE SET
-		  next_agent_number = excluded.next_agent_number,
-		  next_message_number = excluded.next_message_number,
-		  updated_at = excluded.updated_at`,
-	).run(sessionPath, counters.next_agent_number, counters.next_message_number, new Date().toISOString());
-	return allocated;
+	return withControlDb(controlDbPath, (db) => {
+		const row = db
+			.prepare(MULTI_AGENT_COUNTER_ALLOCATION_SQL[counterName])
+			.get(sessionPath, new Date().toISOString()) as { value: number } | undefined;
+		if (!row) throw new Error(`Multi-agent ${counterName} counter allocation returned no value for ${sessionPath}`);
+		return row.value;
+	});
 }
 
 export function readMultiAgentAgent(
