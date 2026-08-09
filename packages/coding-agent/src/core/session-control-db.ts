@@ -4251,52 +4251,103 @@ export function readMultiAgentRuntimeOwnership(
 	});
 }
 
+const ATTACHED_RUNTIME_OWNERSHIP_MAX_ATTEMPTS = 3;
+
+type AcquireAttachedRuntimeOwnershipPlan = {
+	agent: Record<string, unknown>;
+	agentData: string;
+	ownership: MultiAgentRuntimeOwnershipRow | undefined;
+};
+
+type AcquireAttachedRuntimeOwnershipPreflight =
+	| { plan: AcquireAttachedRuntimeOwnershipPlan }
+	| { result: AcquireAttachedRuntimeOwnershipResult };
+
 export function acquireAttachedRuntimeOwnership(
 	controlDbPath: string,
 	input: AcquireAttachedRuntimeOwnershipInput,
 ): AcquireAttachedRuntimeOwnershipResult {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			if (!registeredSupervisorOwnsSession(db, input.sessionPath, input.supervisor)) {
-				return { ok: false, error: "mutation_mismatch" };
-			}
-			const row = db
-				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
-			if (!row) return { ok: false, error: "agent_not_found" };
-			const context = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
-			const agent = parseStoredJsonObject(row.data, context);
-			validatePersistedAgentPayload(agent, context);
-			if (!isRecoverableRuntimeLifecycle(agent.lifecycle)) return { ok: false, error: "invalid_agent" };
-			const current = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			const currentIdentity = current?.process_identity ? parseProcessIdentity(current.process_identity) : undefined;
-			const currentOwnerAlive = currentIdentity !== undefined && isProcessIdentityAlive(currentIdentity);
-			if (current && currentOwnerAlive && runtimeOwnerMatches(current, input)) {
-				return {
-					agent: agent as unknown as AgentSnapshot,
-					ok: true,
-					ownership: multiAgentRuntimeOwnershipFromRow(current),
-				};
-			}
-			const replacesCurrentIncarnation =
-				currentIdentity !== undefined &&
-				sameProcessWithSupersededIncarnation(currentIdentity, input.processIdentity);
-			if (currentOwnerAlive && !replacesCurrentIncarnation) return { ok: false, error: "ownership_held" };
-			persistAcquiredRuntimeOwnership(db, input);
-			const updatedAgent = { ...agent, revision: Number(agent.revision) + 1, updatedAt: input.nowIso };
-			db.prepare(
-				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updatedAgent), input.nowIso, input.sessionPath, input.agentId);
-			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			if (!ownership)
-				throw new Error(`Attached runtime ownership did not persist ${input.sessionPath}#${input.agentId}`);
-			return {
-				agent: updatedAgent as unknown as AgentSnapshot,
+	return withControlDb(controlDbPath, (db) => acquireAttachedRuntimeOwnershipWithDb(db, input));
+}
+
+function acquireAttachedRuntimeOwnershipWithDb(
+	db: SqliteDatabase,
+	input: AcquireAttachedRuntimeOwnershipInput,
+): AcquireAttachedRuntimeOwnershipResult {
+	for (let attempt = 1; attempt <= ATTACHED_RUNTIME_OWNERSHIP_MAX_ATTEMPTS; attempt += 1) {
+		const preflight = prepareAttachedRuntimeOwnershipAcquisition(db, input);
+		if ("result" in preflight) return preflight.result;
+		const result = commitAttachedRuntimeOwnershipAcquisition(db, input, preflight.plan);
+		if (result) return result;
+	}
+	return { ok: false, error: "mutation_mismatch" };
+}
+
+function prepareAttachedRuntimeOwnershipAcquisition(
+	db: SqliteDatabase,
+	input: AcquireAttachedRuntimeOwnershipInput,
+): AcquireAttachedRuntimeOwnershipPreflight {
+	if (!registeredSupervisorOwnsSession(db, input.sessionPath, input.supervisor)) {
+		return { result: { ok: false, error: "mutation_mismatch" } };
+	}
+	const row = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(input.sessionPath, input.agentId) as { data: string } | undefined;
+	if (!row) return { result: { ok: false, error: "agent_not_found" } };
+	const context = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
+	const agent = parseStoredJsonObject(row.data, context);
+	validatePersistedAgentPayload(agent, context);
+	if (!isRecoverableRuntimeLifecycle(agent.lifecycle)) return { result: { ok: false, error: "invalid_agent" } };
+	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+	const currentIdentity = ownership?.process_identity ? parseProcessIdentity(ownership.process_identity) : undefined;
+	const currentOwnerAlive = currentIdentity !== undefined && isProcessIdentityAlive(currentIdentity);
+	if (ownership && currentOwnerAlive && runtimeOwnerMatches(ownership, input)) {
+		return {
+			result: {
+				agent: agent as unknown as AgentSnapshot,
 				ok: true,
 				ownership: multiAgentRuntimeOwnershipFromRow(ownership),
-			};
-		}),
-	);
+			},
+		};
+	}
+	const replacesCurrentIncarnation =
+		currentIdentity !== undefined && sameProcessWithSupersededIncarnation(currentIdentity, input.processIdentity);
+	if (currentOwnerAlive && !replacesCurrentIncarnation) {
+		return { result: { ok: false, error: "ownership_held" } };
+	}
+	return { plan: { agent, agentData: row.data, ownership } };
+}
+
+function commitAttachedRuntimeOwnershipAcquisition(
+	db: SqliteDatabase,
+	input: AcquireAttachedRuntimeOwnershipInput,
+	plan: AcquireAttachedRuntimeOwnershipPlan,
+): AcquireAttachedRuntimeOwnershipResult | undefined {
+	return withImmediateTransaction(db, () => {
+		if (!persistedSupervisorOwnsSession(db, input.sessionPath, input.supervisor)) {
+			return { ok: false, error: "mutation_mismatch" };
+		}
+		const row = db
+			.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+			.get(input.sessionPath, input.agentId) as { data: string } | undefined;
+		if (!row) return { ok: false, error: "agent_not_found" };
+		if (row.data !== plan.agentData) return undefined;
+		const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+		if (!multiAgentRuntimeOwnershipRowsEqual(plan.ownership, ownership)) return undefined;
+		persistAcquiredRuntimeOwnership(db, input);
+		const updatedAgent = { ...plan.agent, revision: Number(plan.agent.revision) + 1, updatedAt: input.nowIso };
+		db.prepare(
+			"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
+		).run(JSON.stringify(updatedAgent), input.nowIso, input.sessionPath, input.agentId);
+		const acquired = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+		if (!acquired)
+			throw new Error(`Attached runtime ownership did not persist ${input.sessionPath}#${input.agentId}`);
+		return {
+			agent: updatedAgent as unknown as AgentSnapshot,
+			ok: true,
+			ownership: multiAgentRuntimeOwnershipFromRow(acquired),
+		};
+	});
 }
 
 function registeredSupervisorOwnsSession(

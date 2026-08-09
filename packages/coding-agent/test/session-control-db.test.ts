@@ -8,6 +8,7 @@ import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDetachedJobArtifacts, createDetachedJobTerminalInput } from "../src/core/detached-job-runner.ts";
 import {
+	acquireAttachedRuntimeOwnership,
 	advanceSharedChannelCursor,
 	allocateMultiAgentCounter,
 	archiveSession,
@@ -2072,6 +2073,111 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed).toMatchObject({ error: "owner_alive", ok: false, type: "completed" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents[0]).toEqual(beforeAgent);
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId)).toEqual(beforeOwnership);
+	});
+
+	it("returns existing attached ownership before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/attached-owner-contention.jsonl";
+		const agentId = "agent-attached-owner-contention";
+		const supervisorSessionId = "supervisor-attached-owner-contention";
+		const processIdentity = CURRENT_PROCESS_IDENTITY;
+		const owner = { agentId: null, sessionId: supervisorSessionId };
+		const created = createMultiAgentChildWithRuntimeOwnership(controlDbPath, {
+			agent: {
+				agentType: "worker",
+				createdAt: "2026-08-09T00:00:00.000Z",
+				cwd: "/repo",
+				displayName: "Attached owner contention",
+				id: agentId,
+				lifecycle: "running",
+				parentId: "main",
+				permission: { narrowed: true, policy: "on-request" },
+				revision: 1,
+				updatedAt: "2026-08-09T00:00:00.000Z",
+			},
+			agentId,
+			nowIso: "2026-08-09T00:00:00.000Z",
+			owner,
+			processIdentity,
+			sessionPath,
+		});
+		expect(created).toMatchObject({ ok: true });
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: supervisorSessionId },
+			processIdentity.pid,
+			sessionPath,
+			{ runtimeInstanceId: JSON.stringify(processIdentity) },
+		);
+		const beforeAgent = readMultiAgentState(controlDbPath, sessionPath)?.agents[0];
+		const beforeOwnership = readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId);
+		const input = {
+			agentId,
+			nowIso: "2026-08-09T00:00:01.000Z",
+			owner,
+			processIdentity,
+			sessionPath,
+			supervisor: { processIdentity, sessionId: supervisorSessionId },
+		};
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { acquireAttachedRuntimeOwnership } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const result = acquireAttachedRuntimeOwnership(workerData.controlDbPath, workerData.input);
+						parentPort?.postMessage({ ok: result.ok, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "attached ownership worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("acquire");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "attached ownership lookup waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "attached ownership worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed).toMatchObject({ ok: true, type: "completed" });
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents[0]).toEqual(beforeAgent);
 		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId)).toEqual(beforeOwnership);
 	});
