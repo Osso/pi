@@ -243,6 +243,7 @@
 - Fixed dead-detached-runtime reconciliation terminating Pi when another process held the shared SQLite writer lock; transient busy/locked contention now defers to a later reconciliation poll while other failures still surface.
 - Fixed runtime mailbox listener registration holding the shared SQLite writer lock during process-liveness checks; registration now performs the check before a short revalidated listener/health commit.
 - Fixed runtime mailbox delivery eligibility and ownership checks holding the shared SQLite writer lock; delivery now prepares candidates outside the lock and revalidates exact authority and payload state in short per-message commits.
+- Fixed age-based session archival holding the shared SQLite writer lock while collecting candidates; archival now prechecks read-only and uses one atomic update that returns the same modified-time/path ordering.
 - Fixed empty incoming-message claims acquiring the shared `control.sqlite` writer lock; the queue is checked read-only first, with the writer transaction reserved only when a pending message exists.
 - Fixed process self-restart notices to persist exactly once as typed `self_restart` custom messages without being submitted as user prompts or included in session first-message, title-fallback, or search text.
 - Fixed restored interrupted `restart_self` tool batches masking their continuation behind the typed restart notice; `AgentSession.continue` now resumes the same session without a synthetic user prompt.
