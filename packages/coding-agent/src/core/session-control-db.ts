@@ -3070,16 +3070,7 @@ export function claimMultiAgentTerminalOutbox(
 				});
 			}
 			const row = claimNextTerminalOutboxRow(db, claimId, nowIso, maxAttempts, options.sessionPath);
-			if (!row) return undefined;
-			return {
-				agentId: row.agent_id,
-				attemptCount: row.attempt_count,
-				claimId,
-				eventKind: row.event_kind,
-				sessionPath: row.session_path,
-				status: "claimed",
-				terminalRevision: row.terminal_revision,
-			};
+			return row ? terminalOutboxRecordFromClaimedRow(row, claimId) : undefined;
 		});
 	});
 }
@@ -3126,21 +3117,21 @@ function recoverStaleTerminalOutboxClaims(db: SqliteDatabase, input: RecoverStal
 	).run(input.maxAttempts, input.nowIso, input.staleClaimBefore, input.sessionPath ?? null, input.sessionPath ?? null);
 }
 
+type ClaimedTerminalOutboxRow = {
+	agent_id: string;
+	attempt_count: number;
+	event_kind: string;
+	session_path: string;
+	terminal_revision: number;
+};
+
 function claimNextTerminalOutboxRow(
 	db: SqliteDatabase,
 	claimId: string,
 	nowIso: string,
 	maxAttempts: number,
 	sessionPath?: string,
-):
-	| {
-			agent_id: string;
-			attempt_count: number;
-			event_kind: string;
-			session_path: string;
-			terminal_revision: number;
-	  }
-	| undefined {
+): ClaimedTerminalOutboxRow | undefined {
 	return db
 		.prepare(
 			`UPDATE multi_agent_terminal_outbox
@@ -3155,14 +3146,23 @@ function claimNextTerminalOutboxRow(
 			 RETURNING session_path, agent_id, terminal_revision, event_kind, attempt_count`,
 		)
 		.get(claimId, nowIso, nowIso, maxAttempts, sessionPath ?? null, sessionPath ?? null) as
-		| {
-				agent_id: string;
-				attempt_count: number;
-				event_kind: string;
-				session_path: string;
-				terminal_revision: number;
-		  }
+		| ClaimedTerminalOutboxRow
 		| undefined;
+}
+
+function terminalOutboxRecordFromClaimedRow(
+	row: ClaimedTerminalOutboxRow,
+	claimId: string,
+): MultiAgentTerminalOutboxRecord {
+	return {
+		agentId: row.agent_id,
+		attemptCount: row.attempt_count,
+		claimId,
+		eventKind: row.event_kind,
+		sessionPath: row.session_path,
+		status: "claimed",
+		terminalRevision: row.terminal_revision,
+	};
 }
 
 export function failMultiAgentTerminalOutbox(
@@ -4131,27 +4131,29 @@ export function createFailedMultiAgentChild(
 	if (!parentId) return { ok: false, error: "parent_not_found" };
 	const serializedAgent = JSON.stringify(agent);
 	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			if (!hasActiveParent(db, input.sessionPath, parentId)) return { ok: false, error: "parent_not_found" };
-			if (
-				db
-					.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-					.get(input.sessionPath, agent.id)
-			) {
-				return { ok: false, error: "agent_exists" };
-			}
-			db.prepare(
-				"INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
-			).run(input.sessionPath, agent.id, serializedAgent, input.nowIso);
-			db.prepare(
-				`INSERT INTO multi_agent_terminal_outbox (
-					session_path, agent_id, terminal_revision, event_kind, status,
-					claim_id, claimed_at, delivered_at, attempt_count, last_error, updated_at
-				) VALUES (?, ?, 1, 'failed', 'pending', NULL, NULL, NULL, 0, NULL, ?)`,
-			).run(input.sessionPath, agent.id, input.nowIso);
-			return { ok: true, agent };
-		}),
+		withImmediateTransaction(db, () =>
+			createFailedMultiAgentChildInTransaction(db, input, agent, parentId, serializedAgent),
+		),
 	);
+}
+
+function createFailedMultiAgentChildInTransaction(
+	db: SqliteDatabase,
+	input: CreateFailedMultiAgentChildInput,
+	agent: AgentSnapshot & Record<string, unknown>,
+	parentId: string,
+	serializedAgent: string,
+): CreateFailedMultiAgentChildResult {
+	if (!hasActiveParent(db, input.sessionPath, parentId)) return { ok: false, error: "parent_not_found" };
+	if (multiAgentAgentExists(db, input.sessionPath, agent.id)) return { ok: false, error: "agent_exists" };
+	insertMultiAgentAgentRow(db, input.sessionPath, agent.id, serializedAgent, input.nowIso);
+	db.prepare(
+		`INSERT INTO multi_agent_terminal_outbox (
+			session_path, agent_id, terminal_revision, event_kind, status,
+			claim_id, claimed_at, delivered_at, attempt_count, last_error, updated_at
+		) VALUES (?, ?, 1, 'failed', 'pending', NULL, NULL, NULL, 0, NULL, ?)`,
+	).run(input.sessionPath, agent.id, input.nowIso);
+	return { ok: true, agent };
 }
 
 function hasActiveParent(db: SqliteDatabase, sessionPath: string, parentId: string): boolean {
@@ -4163,6 +4165,29 @@ function hasActiveParent(db: SqliteDatabase, sessionPath: string, parentId: stri
 	const parent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${parentId}`);
 	validatePersistedAgentPayload(parent, `multi_agent_agents:${sessionPath}#${parentId}`);
 	return isNonterminalLifecycle(parent.lifecycle);
+}
+
+function multiAgentAgentExists(db: SqliteDatabase, sessionPath: string, agentId: string): boolean {
+	return Boolean(
+		db
+			.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+			.get(sessionPath, agentId),
+	);
+}
+
+function insertMultiAgentAgentRow(
+	db: SqliteDatabase,
+	sessionPath: string,
+	agentId: string,
+	serializedAgent: string,
+	updatedAt: string,
+): void {
+	db.prepare("INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)").run(
+		sessionPath,
+		agentId,
+		serializedAgent,
+		updatedAt,
+	);
 }
 
 export function createMultiAgentChildWithRuntimeOwnership(
@@ -4179,33 +4204,25 @@ export function createMultiAgentChildWithRuntimeOwnership(
 	if (!parentId) return { ok: false, error: "parent_not_found" };
 	const serializedAgent = JSON.stringify(input.agent);
 	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			if (!hasActiveParent(db, input.sessionPath, parentId)) return { ok: false, error: "parent_not_found" };
-			if (
-				db
-					.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-					.get(input.sessionPath, input.agentId)
-			) {
-				return { ok: false, error: "agent_exists" };
-			}
-			db.prepare(
-				"INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
-			).run(input.sessionPath, input.agentId, serializedAgent, input.nowIso);
-			db.prepare(`INSERT INTO multi_agent_runtime_owners (
-			session_path, agent_id, process_identity, owner_session_id, owner_agent_id
-		) VALUES (?, ?, ?, ?, ?)`).run(
-				input.sessionPath,
-				input.agentId,
-				serializeProcessIdentity(input.processIdentity),
-				input.owner.sessionId,
-				input.owner.agentId,
-			);
-			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			if (!ownership)
-				throw new Error(`Child runtime ownership did not persist ${input.sessionPath}#${input.agentId}`);
-			return { ok: true, agent: input.agent, ownership: multiAgentRuntimeOwnershipFromRow(ownership) };
-		}),
+		withImmediateTransaction(db, () =>
+			createMultiAgentChildWithRuntimeOwnershipInTransaction(db, input, parentId, serializedAgent),
+		),
 	);
+}
+
+function createMultiAgentChildWithRuntimeOwnershipInTransaction(
+	db: SqliteDatabase,
+	input: CreateMultiAgentChildWithRuntimeOwnershipInput,
+	parentId: string,
+	serializedAgent: string,
+): CreateMultiAgentChildWithRuntimeOwnershipResult {
+	if (!hasActiveParent(db, input.sessionPath, parentId)) return { ok: false, error: "parent_not_found" };
+	if (multiAgentAgentExists(db, input.sessionPath, input.agentId)) return { ok: false, error: "agent_exists" };
+	insertMultiAgentAgentRow(db, input.sessionPath, input.agentId, serializedAgent, input.nowIso);
+	persistAcquiredRuntimeOwnership(db, input);
+	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+	if (!ownership) throw new Error(`Child runtime ownership did not persist ${input.sessionPath}#${input.agentId}`);
+	return { ok: true, agent: input.agent, ownership: multiAgentRuntimeOwnershipFromRow(ownership) };
 }
 
 export function createMultiAgentAttachment(
@@ -4218,36 +4235,42 @@ export function createMultiAgentAttachment(
 	if (agent.origin !== "attached" || agent.lifecycle !== "waiting_for_input" || agent.revision !== 1) {
 		throw new Error("Attached agent creation requires waiting_for_input revision 1");
 	}
-	const parentId = agent.parentId;
 	const serializedAgent = JSON.stringify(agent);
 	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			if (
-				db
-					.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-					.get(input.sessionPath, input.agentId)
-			) {
-				return { ok: false, error: "agent_exists" };
-			}
-			if (parentId && parentId !== "main") {
-				const parentRow = db
-					.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-					.get(input.sessionPath, parentId) as { data: string } | undefined;
-				if (!parentRow) return { ok: false, error: "parent_not_found" };
-				const parent = parseStoredJsonObject(parentRow.data, `multi_agent_agents:${input.sessionPath}#${parentId}`);
-				validatePersistedAgentPayload(parent, `multi_agent_agents:${input.sessionPath}#${parentId}`);
-				if (!isNonterminalLifecycle(parent.lifecycle)) return { ok: false, error: "parent_not_found" };
-				const parentPermission = parent.permission as AgentSnapshot["permission"];
-				if (!agent.permission.narrowed || agent.permission.policy !== parentPermission.policy) {
-					return { ok: false, error: "permission_broadened" };
-				}
-			}
-			db.prepare(
-				"INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
-			).run(input.sessionPath, input.agentId, serializedAgent, input.nowIso);
-			return { ok: true, agent: input.agent };
-		}),
+		withImmediateTransaction(db, () => createMultiAgentAttachmentInTransaction(db, input, agent, serializedAgent)),
 	);
+}
+
+function createMultiAgentAttachmentInTransaction(
+	db: SqliteDatabase,
+	input: CreateMultiAgentAttachmentInput,
+	agent: AgentSnapshot & Record<string, unknown>,
+	serializedAgent: string,
+): CreateMultiAgentAttachmentResult {
+	if (multiAgentAgentExists(db, input.sessionPath, input.agentId)) return { ok: false, error: "agent_exists" };
+	const parentError = readMultiAgentAttachmentParentError(db, input.sessionPath, agent);
+	if (parentError) return { ok: false, error: parentError };
+	insertMultiAgentAgentRow(db, input.sessionPath, input.agentId, serializedAgent, input.nowIso);
+	return { ok: true, agent: input.agent };
+}
+
+function readMultiAgentAttachmentParentError(
+	db: SqliteDatabase,
+	sessionPath: string,
+	agent: AgentSnapshot & Record<string, unknown>,
+): "parent_not_found" | "permission_broadened" | undefined {
+	const parentId = agent.parentId;
+	if (!parentId || parentId === "main") return undefined;
+	const parentRow = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(sessionPath, parentId) as { data: string } | undefined;
+	if (!parentRow) return "parent_not_found";
+	const parent = parseStoredJsonObject(parentRow.data, `multi_agent_agents:${sessionPath}#${parentId}`);
+	validatePersistedAgentPayload(parent, `multi_agent_agents:${sessionPath}#${parentId}`);
+	if (!isNonterminalLifecycle(parent.lifecycle)) return "parent_not_found";
+	const parentPermission = parent.permission as AgentSnapshot["permission"];
+	const permissionMatches = agent.permission.narrowed && agent.permission.policy === parentPermission.policy;
+	return permissionMatches ? undefined : "permission_broadened";
 }
 
 export function readMultiAgentRuntimeOwnership(
@@ -4582,6 +4605,14 @@ function updateMultiAgentAgentMetadata(
 	});
 }
 
+type MultiAgentMetadataWrite = {
+	agentId: string;
+	previous: MultiAgentAgentMetadataRow;
+	serialized: string;
+	sessionPath: string;
+	updatedAt: string;
+};
+
 function compareAndUpdateMultiAgentAgentMetadata(
 	db: SqliteDatabase,
 	sessionPath: string,
@@ -4590,17 +4621,41 @@ function compareAndUpdateMultiAgentAgentMetadata(
 	updated: AgentSnapshot,
 	activityOwnership?: { ownerSessionId: string; processIdentity: ProcessIdentity },
 ): boolean {
-	const serialized = JSON.stringify(updated);
-	if (!activityOwnership) {
-		return (
-			db
-				.prepare(
-					`UPDATE multi_agent_agents SET data = ?, updated_at = ?
-					 WHERE session_path = ? AND agent_id = ? AND data = ? AND updated_at = ?`,
-				)
-				.run(serialized, updated.updatedAt, sessionPath, agentId, row.data, row.updated_at).changes === 1
-		);
-	}
+	const write: MultiAgentMetadataWrite = {
+		agentId,
+		previous: row,
+		serialized: JSON.stringify(updated),
+		sessionPath,
+		updatedAt: updated.updatedAt,
+	};
+	return activityOwnership
+		? compareAndUpdateOwnedMultiAgentMetadata(db, write, activityOwnership)
+		: compareAndUpdateMultiAgentMetadataSnapshot(db, write);
+}
+
+function compareAndUpdateMultiAgentMetadataSnapshot(db: SqliteDatabase, write: MultiAgentMetadataWrite): boolean {
+	return (
+		db
+			.prepare(
+				`UPDATE multi_agent_agents SET data = ?, updated_at = ?
+				 WHERE session_path = ? AND agent_id = ? AND data = ? AND updated_at = ?`,
+			)
+			.run(
+				write.serialized,
+				write.updatedAt,
+				write.sessionPath,
+				write.agentId,
+				write.previous.data,
+				write.previous.updated_at,
+			).changes === 1
+	);
+}
+
+function compareAndUpdateOwnedMultiAgentMetadata(
+	db: SqliteDatabase,
+	write: MultiAgentMetadataWrite,
+	ownership: { ownerSessionId: string; processIdentity: ProcessIdentity },
+): boolean {
 	return (
 		db
 			.prepare(
@@ -4613,16 +4668,16 @@ function compareAndUpdateMultiAgentAgentMetadata(
 				 )`,
 			)
 			.run(
-				serialized,
-				updated.updatedAt,
-				sessionPath,
-				agentId,
-				row.data,
-				row.updated_at,
-				sessionPath,
-				agentId,
-				activityOwnership.ownerSessionId,
-				serializeProcessIdentity(activityOwnership.processIdentity),
+				write.serialized,
+				write.updatedAt,
+				write.sessionPath,
+				write.agentId,
+				write.previous.data,
+				write.previous.updated_at,
+				write.sessionPath,
+				write.agentId,
+				ownership.ownerSessionId,
+				serializeProcessIdentity(ownership.processIdentity),
 			).changes === 1
 	);
 }
@@ -4634,29 +4689,37 @@ export function bootstrapMultiAgentAgent(controlDbPath: string, sessionPath: str
 	validatePersistedAgentPayload(data as Record<string, unknown>, `multi_agent_agents:${sessionPath}#${id}`);
 	const serialized = JSON.stringify(data);
 	const updatedAt = new Date().toISOString();
-	withControlDb(controlDbPath, (db) => {
-		if (readMultiAgentRuntimeOwnershipRow(db, sessionPath, id)) {
-			throw new Error(`Generic agent upsert cannot mutate process-owned lifecycle row ${sessionPath}#${id}`);
-		}
-		const result = db
-			.prepare(
-				`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
-				 SELECT ?, ?, ?, ?
-				 WHERE NOT EXISTS (
-					SELECT 1 FROM multi_agent_runtime_owners WHERE session_path = ? AND agent_id = ?
-				 )
-				 ON CONFLICT(session_path, agent_id) DO UPDATE SET
-					data = excluded.data,
-					updated_at = excluded.updated_at
-				 WHERE NOT EXISTS (
-					SELECT 1 FROM multi_agent_runtime_owners WHERE session_path = ? AND agent_id = ?
-				 )`,
-			)
-			.run(sessionPath, id, serialized, updatedAt, sessionPath, id, sessionPath, id);
-		if (result.changes !== 1) {
-			throw new Error(`Generic agent upsert cannot mutate process-owned lifecycle row ${sessionPath}#${id}`);
-		}
-	});
+	withControlDb(controlDbPath, (db) => upsertUnownedMultiAgentAgent(db, sessionPath, id, serialized, updatedAt));
+}
+
+function upsertUnownedMultiAgentAgent(
+	db: SqliteDatabase,
+	sessionPath: string,
+	agentId: string,
+	serializedAgent: string,
+	updatedAt: string,
+): void {
+	if (readMultiAgentRuntimeOwnershipRow(db, sessionPath, agentId)) {
+		throw new Error(`Generic agent upsert cannot mutate process-owned lifecycle row ${sessionPath}#${agentId}`);
+	}
+	const result = db
+		.prepare(
+			`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
+			 SELECT ?, ?, ?, ?
+			 WHERE NOT EXISTS (
+				SELECT 1 FROM multi_agent_runtime_owners WHERE session_path = ? AND agent_id = ?
+			 )
+			 ON CONFLICT(session_path, agent_id) DO UPDATE SET
+				data = excluded.data,
+				updated_at = excluded.updated_at
+			 WHERE NOT EXISTS (
+				SELECT 1 FROM multi_agent_runtime_owners WHERE session_path = ? AND agent_id = ?
+			 )`,
+		)
+		.run(sessionPath, agentId, serializedAgent, updatedAt, sessionPath, agentId, sessionPath, agentId);
+	if (result.changes !== 1) {
+		throw new Error(`Generic agent upsert cannot mutate process-owned lifecycle row ${sessionPath}#${agentId}`);
+	}
 }
 
 interface PersistedAgentRow {
