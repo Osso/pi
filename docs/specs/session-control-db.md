@@ -110,16 +110,18 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] A recipient that is not ready for direct active-input delivery leaves canonical mailbox rows
       `pending` and does not read their payloads into runtime memory. Once ready, delivery evaluates
       eligibility without reserving the writer lock, then revalidates exact listener/ownership
-      authority and the observed canonical payload in a short per-message transaction before
-      marking that row `delivered`; selected payloads proceed directly to active session input
-      without an intermediate volatile queue. `wait_agents({})` uses the same delivery boundary
-      on a coordination wake and returns all currently pending deliverable runtime-mailbox inputs,
-      preserving sender/body formatting. Restart before a per-message commit leaves the messages
-      pending and recoverable. If another turn starts while idle delivery waits for the turn-start
-      lock, delivery rechecks the active state and steers the message instead of attempting a
-      conflicting prompt. Terminal notifications for completed agents and detached jobs interrupt
-      active model thinking after durable delivery, while active tool execution remains
-      uninterrupted.
+      authority and the observed canonical payload before an atomic delivery write. Candidate
+      selection uses a short per-message transaction where authority must be revalidated;
+      already-claimed or direct terminal status transitions use single-statement compare-and-swap
+      writes guarded by the observed payload and claimant identity. Selected payloads proceed
+      directly to active session input without an intermediate volatile queue. `wait_agents({})`
+      uses the same delivery boundary on a coordination wake and returns all currently pending
+      deliverable runtime-mailbox inputs, preserving sender/body formatting. Restart before a
+      per-message write leaves the messages pending and recoverable. If another turn starts while
+      idle delivery waits for the turn-start lock, delivery rechecks the active state and steers
+      the message instead of attempting a conflicting prompt. Terminal notifications for
+      completed agents and detached jobs interrupt active model thinking after durable delivery,
+      while active tool execution remains uninterrupted.
 - [x] Store prompt history in the control DB so concurrent Pi sessions append
   without overwriting each other's prompt history entries.
 - [x] Migrate legacy JSON prompt history into the control DB when DB prompt
