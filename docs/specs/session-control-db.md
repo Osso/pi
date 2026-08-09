@@ -24,6 +24,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
   messages.
 - [x] Allow a claimed incoming message to be marked completed after it is
   submitted to the agent.
+- [x] Renew Architect request claims by deduplicating request IDs before persistence,
+  applying one set-based update, and validating every requested row in the same
+  immediate transaction. Completed rows remain acceptable; any missing, foreign,
+  or otherwise lost claim rolls back the entire renewal.
 - [x] Claim, release, fail, and deliver runtime-directed messages only on their canonical `multi_agent_mailbox_messages` row. Claims record exact process identity and are reclaimable only after that exact process dies.
 - [x] Store only the latest assistant message for external readers.
 - [x] Provide `pi control send`, `pi control restart --session-id <session-id>`,
