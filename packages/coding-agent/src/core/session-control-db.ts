@@ -1450,33 +1450,41 @@ export function claimPendingArchitectRequests(
 	const claimLimit = Math.max(1, Math.floor(limit));
 	return withControlDb(controlDbPath, (db) => {
 		if (!hasArchitectClaimWork(db, nowIso)) return [];
-		return withImmediateTransaction(db, () => {
-			db.prepare(
-				`UPDATE architect_requests
-				 SET status = 'pending', claimed_at = NULL, claim_token = NULL
-				 WHERE status = 'claimed' AND julianday(claimed_at) < julianday(?, '-2 minutes')`,
-			).run(nowIso);
-			const rows = db
-				.prepare(
-					`SELECT id, sender_session_id, project_cwd, body, status, created_at, claimed_at, claim_token, completed_at
-					 FROM architect_requests
-					 WHERE status = 'pending'
-					 ORDER BY id ASC
-					 LIMIT ?`,
-				)
-				.all(claimLimit) as ArchitectRequestRow[];
-			for (const row of rows) {
-				db.prepare(
-					`UPDATE architect_requests
-					 SET status = 'claimed', claimed_at = ?, claim_token = ?
-					 WHERE id = ? AND status = 'pending'`,
-				).run(nowIso, claimToken, row.id);
-			}
-			return rows.map((row) =>
-				architectRequestFromRow({ ...row, status: "claimed", claimed_at: nowIso, claim_token: claimToken }),
-			);
-		});
+		return withImmediateTransaction(db, () =>
+			claimPendingArchitectRequestsInTransaction(db, claimToken, nowIso, claimLimit),
+		);
 	});
+}
+
+function claimPendingArchitectRequestsInTransaction(
+	db: SqliteDatabase,
+	claimToken: string,
+	nowIso: string,
+	claimLimit: number,
+): ArchitectRequest[] {
+	db.prepare(
+		`UPDATE architect_requests
+		 SET status = 'pending', claimed_at = NULL, claim_token = NULL
+		 WHERE status = 'claimed' AND julianday(claimed_at) < julianday(?, '-2 minutes')`,
+	).run(nowIso);
+	const rows = db
+		.prepare(
+			`SELECT id, sender_session_id, project_cwd, body, status, created_at, claimed_at, claim_token, completed_at
+			 FROM architect_requests
+			 WHERE status = 'pending'
+			 ORDER BY id ASC
+			 LIMIT ?`,
+		)
+		.all(claimLimit) as ArchitectRequestRow[];
+	const claim = db.prepare(
+		`UPDATE architect_requests
+		 SET status = 'claimed', claimed_at = ?, claim_token = ?
+		 WHERE id = ? AND status = 'pending'`,
+	);
+	for (const row of rows) claim.run(nowIso, claimToken, row.id);
+	return rows.map((row) =>
+		architectRequestFromRow({ ...row, status: "claimed", claimed_at: nowIso, claim_token: claimToken }),
+	);
 }
 
 function hasArchitectClaimWork(db: SqliteDatabase, nowIso: string): boolean {
@@ -4294,6 +4302,10 @@ type AcquireAttachedRuntimeOwnershipPreflight =
 	| { plan: AcquireAttachedRuntimeOwnershipPlan }
 	| { result: AcquireAttachedRuntimeOwnershipResult };
 
+type AttachedRuntimeAgentRead =
+	| { agent: Record<string, unknown>; data: string; ok: true }
+	| { error: "agent_not_found" | "invalid_agent"; ok: false };
+
 export function acquireAttachedRuntimeOwnership(
 	controlDbPath: string,
 	input: AcquireAttachedRuntimeOwnershipInput,
@@ -4321,21 +4333,15 @@ function prepareAttachedRuntimeOwnershipAcquisition(
 	if (!registeredSupervisorOwnsSession(db, input.sessionPath, input.supervisor)) {
 		return { result: { ok: false, error: "mutation_mismatch" } };
 	}
-	const row = db
-		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-		.get(input.sessionPath, input.agentId) as { data: string } | undefined;
-	if (!row) return { result: { ok: false, error: "agent_not_found" } };
-	const context = `multi_agent_agents:${input.sessionPath}#${input.agentId}`;
-	const agent = parseStoredJsonObject(row.data, context);
-	validatePersistedAgentPayload(agent, context);
-	if (!isRecoverableRuntimeLifecycle(agent.lifecycle)) return { result: { ok: false, error: "invalid_agent" } };
+	const agentRead = readAttachedRuntimeAgent(db, input.sessionPath, input.agentId);
+	if (!agentRead.ok) return { result: agentRead };
 	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
 	const currentIdentity = ownership?.process_identity ? parseProcessIdentity(ownership.process_identity) : undefined;
 	const currentOwnerAlive = currentIdentity !== undefined && isProcessIdentityAlive(currentIdentity);
 	if (ownership && currentOwnerAlive && runtimeOwnerMatches(ownership, input)) {
 		return {
 			result: {
-				agent: agent as unknown as AgentSnapshot,
+				agent: agentRead.agent as unknown as AgentSnapshot,
 				ok: true,
 				ownership: multiAgentRuntimeOwnershipFromRow(ownership),
 			},
@@ -4346,7 +4352,19 @@ function prepareAttachedRuntimeOwnershipAcquisition(
 	if (currentOwnerAlive && !replacesCurrentIncarnation) {
 		return { result: { ok: false, error: "ownership_held" } };
 	}
-	return { plan: { agent, agentData: row.data, ownership } };
+	return { plan: { agent: agentRead.agent, agentData: agentRead.data, ownership } };
+}
+
+function readAttachedRuntimeAgent(db: SqliteDatabase, sessionPath: string, agentId: string): AttachedRuntimeAgentRead {
+	const row = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(sessionPath, agentId) as { data: string } | undefined;
+	if (!row) return { ok: false, error: "agent_not_found" };
+	const context = `multi_agent_agents:${sessionPath}#${agentId}`;
+	const agent = parseStoredJsonObject(row.data, context);
+	validatePersistedAgentPayload(agent, context);
+	if (!isRecoverableRuntimeLifecycle(agent.lifecycle)) return { ok: false, error: "invalid_agent" };
+	return { agent, data: row.data, ok: true };
 }
 
 function commitAttachedRuntimeOwnershipAcquisition(
@@ -4365,23 +4383,30 @@ function commitAttachedRuntimeOwnershipAcquisition(
 		if (row.data !== plan.agentData) return undefined;
 		const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
 		if (!multiAgentRuntimeOwnershipRowsEqual(plan.ownership, ownership)) return undefined;
-		persistAcquiredRuntimeOwnership(db, input);
-		const updatedAgent = { ...plan.agent, revision: Number(plan.agent.revision) + 1, updatedAt: input.nowIso };
-		db.prepare("UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?").run(
-			JSON.stringify(updatedAgent),
-			input.nowIso,
-			input.sessionPath,
-			input.agentId,
-		);
-		const acquired = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-		if (!acquired)
-			throw new Error(`Attached runtime ownership did not persist ${input.sessionPath}#${input.agentId}`);
-		return {
-			agent: updatedAgent as unknown as AgentSnapshot,
-			ok: true,
-			ownership: multiAgentRuntimeOwnershipFromRow(acquired),
-		};
+		return persistAttachedRuntimeOwnershipAcquisition(db, input, plan.agent);
 	});
+}
+
+function persistAttachedRuntimeOwnershipAcquisition(
+	db: SqliteDatabase,
+	input: AcquireAttachedRuntimeOwnershipInput,
+	agent: Record<string, unknown>,
+): AcquireAttachedRuntimeOwnershipResult {
+	persistAcquiredRuntimeOwnership(db, input);
+	const updatedAgent = { ...agent, revision: Number(agent.revision) + 1, updatedAt: input.nowIso };
+	db.prepare("UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?").run(
+		JSON.stringify(updatedAgent),
+		input.nowIso,
+		input.sessionPath,
+		input.agentId,
+	);
+	const acquired = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+	if (!acquired) throw new Error(`Attached runtime ownership did not persist ${input.sessionPath}#${input.agentId}`);
+	return {
+		agent: updatedAgent as unknown as AgentSnapshot,
+		ok: true,
+		ownership: multiAgentRuntimeOwnershipFromRow(acquired),
+	};
 }
 
 function registeredSupervisorOwnsSession(
