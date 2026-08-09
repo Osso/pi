@@ -8,7 +8,11 @@ import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai/compat";
 import type { AgentMailboxMessage, AgentSnapshot } from "../../src/core/multi-agent-store.ts";
 import { MultiAgentStore } from "../../src/core/multi-agent-store.ts";
-import { type ApprovalPresetName, findApprovalPreset } from "../../src/core/permissions/presets.ts";
+import {
+	type ApprovalPresetName,
+	findApprovalPreset,
+	type SandboxProfileName,
+} from "../../src/core/permissions/presets.ts";
 import {
 	claimNextSupervisorRequest,
 	completeSupervisorRequest,
@@ -64,6 +68,7 @@ export interface HeadlessPiOptions {
 	env?: Record<string, string>;
 	model?: string | false;
 	provider?: "headless-faux" | "openai-codex";
+	sandboxProfile?: SandboxProfileName;
 }
 
 export interface HeadlessRpcExtensionError {
@@ -877,7 +882,11 @@ async function startHeadlessPi(fixtureOptions: HeadlessPiOptions = {}): Promise<
 	const approval = findApprovalPreset(approvalPreset);
 	writeFileSync(
 		join(paths.agentDir, "settings.json"),
-		JSON.stringify({ approvalPolicy: approval.policy, approvalPreset }),
+		JSON.stringify({
+			approvalPolicy: approval.policy,
+			approvalPreset,
+			sandboxProfile: fixtureOptions.sandboxProfile,
+		}),
 	);
 	const context: HeadlessSessionContext = { mainSessionId: "", sessionFile: "" };
 	const disposeController = new AbortController();

@@ -292,6 +292,33 @@ describe("SettingsManager", () => {
 			expect(settingsManager.getExplicitSandboxProfile()).toBe("full-access");
 		});
 
+		it("lets a session sandbox profile override project and global settings", () => {
+			const storage = new InMemorySettingsStorage();
+			storage.withLock("global", () => JSON.stringify({ sandboxProfile: "full-access" }));
+			storage.withLock("project", () => JSON.stringify({ sandboxProfile: "workspace-write" }));
+			const settingsManager = SettingsManager.fromStorage(storage);
+
+			settingsManager.setSessionSandboxProfile("read-only");
+
+			expect(settingsManager.getSessionSandboxProfile()).toBe("read-only");
+			expect(settingsManager.getConfiguredSandboxProfile()).toBe("workspace-write");
+			expect(settingsManager.getExplicitSandboxProfile()).toBe("read-only");
+			expect(settingsManager.getMergedSettings().sandboxProfile).toBe("read-only");
+		});
+
+		it("returns to project and global precedence when the session override is cleared", () => {
+			const storage = new InMemorySettingsStorage();
+			storage.withLock("global", () => JSON.stringify({ sandboxProfile: "read-only" }));
+			storage.withLock("project", () => JSON.stringify({ sandboxProfile: "workspace-write" }));
+			const settingsManager = SettingsManager.fromStorage(storage);
+
+			settingsManager.setSessionSandboxProfile("full-access");
+			settingsManager.setSessionSandboxProfile(undefined);
+
+			expect(settingsManager.getSessionSandboxProfile()).toBeUndefined();
+			expect(settingsManager.getExplicitSandboxProfile()).toBe("workspace-write");
+		});
+
 		it("persists sandbox profile without changing approval policy", async () => {
 			const settingsPath = join(agentDir, "settings.json");
 			const settingsManager = SettingsManager.create(projectDir, agentDir);

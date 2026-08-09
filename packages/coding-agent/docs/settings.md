@@ -209,6 +209,16 @@ Codex paired-provider quota fallback is separate from these retry settings. When
 
 `npmCommand` is used for all npm package-manager operations, including installs, uninstalls, and dependency installs inside git packages. User-scoped npm packages install under `~/.pi/agent/npm/`; project-scoped npm packages install under `.pi/npm/`. Use argv-style entries exactly as the process should be launched. When `npmCommand` is configured, git package dependency installs use plain `install` to avoid npm-specific flags in wrappers or alternate package managers.
 
+### Sandbox
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `sandboxProfile` | string | - | Explicit profile for global or project settings: `read-only`, `workspace-write`, or `full-access` |
+
+Sandbox profiles resolve by precedence: session override, project setting, then global setting. A missing explicit profile is unsandboxed; `read-only` and `workspace-write` require bubblewrap, while `full-access` bypasses it.
+
+Use `/sandbox <read-only|workspace-write|full-access|inherit> <session|project|global>` for direct control, or `/sandbox` to open the selector. `inherit` is valid only for session scope and removes the session override, falling back to project/global settings. Session overrides are stored in the host control-session database, not session JSONL, for the exact persisted session and survive restart/resume; new sessions, forks, and imported/exported session files do not inherit them.
+
 ### Sessions
 
 | Setting | Type | Default | Description |

@@ -55,6 +55,7 @@ export const SANDBOX_PROFILES = [
 ] as const satisfies ReadonlyArray<SandboxProfile>;
 
 export type SandboxProfileName = (typeof SANDBOX_PROFILES)[number]["name"];
+export type SandboxProfileScope = "global" | "project" | "session";
 
 export function isSandboxProfileName(value: unknown): value is SandboxProfileName {
 	return typeof value === "string" && SANDBOX_PROFILES.some((profile) => profile.name === value);

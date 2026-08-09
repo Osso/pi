@@ -310,6 +310,7 @@ export class SettingsManager {
 	private storage: SettingsStorage;
 	private globalSettings: Settings;
 	private projectSettings: Settings;
+	private sessionSandboxProfile: SandboxProfileName | undefined;
 	private settings: Settings;
 	private projectTrusted: boolean;
 	private modifiedFields = new Set<keyof Settings>(); // Track global fields modified during session
@@ -488,7 +489,11 @@ export class SettingsManager {
 	}
 
 	getMergedSettings(): Settings {
-		return structuredClone(this.settings);
+		const settings = structuredClone(this.settings);
+		if (this.sessionSandboxProfile) {
+			settings.sandboxProfile = this.sessionSandboxProfile;
+		}
+		return settings;
 	}
 
 	getAgentProfile(agentType: string): AgentProfileSettings | undefined {
@@ -549,11 +554,27 @@ export class SettingsManager {
 		return this.getExplicitSandboxProfile() ?? "workspace-write";
 	}
 
-	getExplicitSandboxProfile(): SandboxProfileName | undefined {
+	getConfiguredSandboxProfile(): SandboxProfileName {
+		return this.getExplicitConfiguredSandboxProfile() ?? "workspace-write";
+	}
+
+	private getExplicitConfiguredSandboxProfile(): SandboxProfileName | undefined {
 		if (isSandboxProfileName(this.projectSettings.sandboxProfile)) {
 			return this.projectSettings.sandboxProfile;
 		}
 		return isSandboxProfileName(this.globalSettings.sandboxProfile) ? this.globalSettings.sandboxProfile : undefined;
+	}
+
+	getExplicitSandboxProfile(): SandboxProfileName | undefined {
+		return this.sessionSandboxProfile ?? this.getExplicitConfiguredSandboxProfile();
+	}
+
+	getSessionSandboxProfile(): SandboxProfileName | undefined {
+		return this.sessionSandboxProfile;
+	}
+
+	setSessionSandboxProfile(profileName: SandboxProfileName | undefined): void {
+		this.sessionSandboxProfile = profileName;
 	}
 
 	setSandboxProfile(profileName: SandboxProfileName, scope: SettingsScope = "global"): void {

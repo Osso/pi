@@ -29,18 +29,22 @@ import {
 	createCompactionSummaryMessage,
 	createCustomMessage,
 } from "./messages.ts";
+import type { SandboxProfileName } from "./permissions/presets.ts";
 import {
+	clearSessionSandboxProfile as clearPersistedSessionSandboxProfile,
 	listActiveSessionMetadata,
 	listArchivedSessionMetadata,
 	listSessionMetadata,
 	readSessionGoal,
 	readSessionMetadata,
+	readSessionSandboxProfile,
 	relocateSessionControlData,
 	type SessionMetadata,
 	type WritableSessionMetadata,
 	writeSessionGoal,
 	writeSessionMetadata,
 	writeSessionModel,
+	writeSessionSandboxProfile,
 	writeSessionThinkingLevel,
 } from "./session-control-db.ts";
 import { serializeSessionEntryForPersistence } from "./session-tool-output.ts";
@@ -201,6 +205,7 @@ export interface SessionContext {
 
 export interface PersistedSessionSettings {
 	model?: { provider: string; modelId: string };
+	sandboxProfile?: SandboxProfileName;
 	thinkingLevel?: string;
 }
 
@@ -1558,13 +1563,14 @@ export class SessionManager {
 
 	readPersistedSessionSettings(): PersistedSessionSettings | undefined {
 		if (!this.metadataControlDbPath || !this.sessionFile) return undefined;
+		const sandboxProfile = readSessionSandboxProfile(this.metadataControlDbPath, this.sessionFile, this.sessionId);
 		const metadata = readSessionMetadata(this.metadataControlDbPath, this.sessionFile);
 		if (!metadata) return undefined;
 		const model =
 			metadata.modelProvider && metadata.modelId
 				? { provider: metadata.modelProvider, modelId: metadata.modelId }
 				: undefined;
-		return { model, thinkingLevel: metadata.thinkingLevel };
+		return { model, sandboxProfile, thinkingLevel: metadata.thinkingLevel };
 	}
 
 	isSubagentSession(): boolean {
@@ -1613,6 +1619,18 @@ export class SessionManager {
 		if (!this.metadataControlDbPath || !this.sessionFile) return;
 		this.writeMetadataSnapshot();
 		writeSessionThinkingLevel(this.metadataControlDbPath, this.sessionFile, thinkingLevel);
+	}
+
+	setSessionSandboxProfile(profile: SandboxProfileName | undefined): boolean {
+		if (!this.metadataControlDbPath || !this.sessionFile) return false;
+		this.persistForRecovery();
+		this.writeMetadataSnapshot();
+		if (profile) {
+			writeSessionSandboxProfile(this.metadataControlDbPath, this.sessionFile, this.sessionId, profile);
+		} else {
+			clearPersistedSessionSandboxProfile(this.metadataControlDbPath, this.sessionFile, this.sessionId);
+		}
+		return true;
 	}
 
 	setMetadataControlDbPath(

@@ -217,6 +217,12 @@ export async function createAgentSessionWithInternalOptions(
 	return createAgentSessionInternal(options);
 }
 
+function restorePersistedSessionSettings(sessionManager: SessionManager, settingsManager: SettingsManager) {
+	const persistedSettings = sessionManager.readPersistedSessionSettings();
+	settingsManager.setSessionSandboxProfile(persistedSettings?.sandboxProfile);
+	return persistedSettings;
+}
+
 async function createAgentSessionInternal(options: CreateAgentSessionOptions): Promise<CreateAgentSessionResult> {
 	const cwd = resolvePath(options.cwd ?? options.sessionManager?.getCwd() ?? process.cwd());
 	const agentDir = options.agentDir ? resolvePath(options.agentDir) : getDefaultAgentDir();
@@ -246,7 +252,7 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 	// Check if session has existing data to restore
 	const existingSession = sessionManager.buildSessionContext();
 	const hasExistingSession = existingSession.messages.length > 0;
-	const persistedSettings = sessionManager.readPersistedSessionSettings();
+	const persistedSettings = restorePersistedSessionSettings(sessionManager, settingsManager);
 
 	let model = options.model;
 	let modelFallbackMessage: string | undefined;

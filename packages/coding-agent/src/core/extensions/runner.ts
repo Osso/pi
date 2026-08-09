@@ -10,6 +10,7 @@ import type { ResourceDiagnostic } from "../diagnostics.ts";
 import type { ReadonlyFooterDataProvider } from "../footer-data-provider.ts";
 import type { KeybindingsConfig } from "../keybindings.ts";
 import type { ModelRegistry } from "../model-registry.ts";
+import type { SandboxProfileName, SandboxProfileScope } from "../permissions/presets.ts";
 import type { SessionManager } from "../session-manager.ts";
 import type { SettingsManager } from "../settings-manager.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
@@ -912,6 +913,24 @@ export class ExtensionRunner {
 		};
 	}
 
+	setSandboxProfile(profile: SandboxProfileName | undefined, scope: SandboxProfileScope): void {
+		this.assertActive();
+		const settingsManager = this.settingsManager;
+		if (!settingsManager) throw new Error("Sandbox profile settings are unavailable");
+		if (scope === "session") {
+			const persisted = this.sessionManager.setSessionSandboxProfile(profile);
+			if (!persisted) throw new Error("Session sandbox profiles require a persisted session");
+			settingsManager.setSessionSandboxProfile(profile);
+		} else {
+			if (!profile) throw new Error("Only session sandbox profiles can inherit configured settings");
+			settingsManager.setSandboxProfile(profile, scope);
+		}
+		const effectiveProfile = settingsManager.getExplicitSandboxProfile();
+		const fullAccess = !effectiveProfile || effectiveProfile === "full-access";
+		const statusText = fullAccess ? "bwrap: full access" : `bwrap: ${effectiveProfile}`;
+		this.uiContext.setStatus("bwrap", this.uiContext.theme.fg(fullAccess ? "muted" : "accent", statusText));
+	}
+
 	createCommandContext(): ExtensionCommandContext {
 		// Use property descriptors instead of object spread so the guarded getters from
 		// createContext() stay lazy. A spread would eagerly read them once and freeze the
@@ -928,6 +947,7 @@ export class ExtensionRunner {
 			this.assertActive();
 			this.showSandboxSelectorHandler();
 		};
+		context.setSandboxProfile = (profile, scope) => this.setSandboxProfile(profile, scope);
 		context.getSystemPromptOptions = () => {
 			this.assertActive();
 			return this.getSystemPromptOptionsFn();
