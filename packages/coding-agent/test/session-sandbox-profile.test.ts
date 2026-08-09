@@ -68,6 +68,9 @@ describe("session sandbox profile control state", () => {
 	});
 
 	it("rejects invalid persisted profiles", () => {
+		expect(() =>
+			writeSessionSandboxProfile(controlDbPath, sessionPath, sessionId, "invalid-profile" as never),
+		).toThrow(/invalid sandbox profile/i);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
 			db.prepare(
@@ -78,6 +81,25 @@ describe("session sandbox profile control state", () => {
 		}
 
 		expect(() => readSessionSandboxProfile(controlDbPath, sessionPath, sessionId)).toThrow(/invalid sandbox profile/i);
+	});
+
+	it("rejects orphaned overrides instead of falling back to broader access", () => {
+		const workspaceDir = join(tempDir, "orphan-workspace");
+		const sessionDir = join(tempDir, "orphan-sessions");
+		mkdirSync(workspaceDir, { recursive: true });
+		const session = SessionManager.create(workspaceDir, sessionDir, { id: sessionId });
+		session.setMetadataControlDbPath(controlDbPath);
+		session.setSessionSandboxProfile("read-only");
+		const persistedPath = session.getSessionFile();
+		if (!persistedPath) throw new Error("Expected persisted session file");
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.prepare("DELETE FROM session_metadata WHERE session_path = ?").run(persistedPath);
+		} finally {
+			db.close();
+		}
+
+		expect(() => session.readPersistedSessionSettings()).toThrow(/session metadata is missing/i);
 	});
 
 	it("follows canonical session relocation and cleanup", () => {

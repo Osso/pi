@@ -1563,17 +1563,17 @@ export class SessionManager {
 
 	readPersistedSessionSettings(): PersistedSessionSettings | undefined {
 		if (!this.metadataControlDbPath || !this.sessionFile) return undefined;
+		const sandboxProfile = readSessionSandboxProfile(
+			this.metadataControlDbPath,
+			this.sessionFile,
+			this.sessionId,
+		);
 		const metadata = readSessionMetadata(this.metadataControlDbPath, this.sessionFile);
 		if (!metadata) return undefined;
 		const model =
 			metadata.modelProvider && metadata.modelId
 				? { provider: metadata.modelProvider, modelId: metadata.modelId }
 				: undefined;
-		const sandboxProfile = readSessionSandboxProfile(
-			this.metadataControlDbPath,
-			this.sessionFile,
-			this.sessionId,
-		);
 		return { model, sandboxProfile, thinkingLevel: metadata.thinkingLevel };
 	}
 

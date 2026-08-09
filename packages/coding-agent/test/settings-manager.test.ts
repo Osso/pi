@@ -301,6 +301,7 @@ describe("SettingsManager", () => {
 			settingsManager.setSessionSandboxProfile("read-only");
 
 			expect(settingsManager.getSessionSandboxProfile()).toBe("read-only");
+			expect(settingsManager.getConfiguredSandboxProfile()).toBe("workspace-write");
 			expect(settingsManager.getExplicitSandboxProfile()).toBe("read-only");
 			expect(settingsManager.getMergedSettings().sandboxProfile).toBe("read-only");
 		});

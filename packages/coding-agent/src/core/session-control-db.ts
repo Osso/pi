@@ -2710,6 +2710,9 @@ export function writeSessionSandboxProfile(
 	sessionId: string,
 	profile: SandboxProfileName,
 ): void {
+	if (!isSandboxProfileName(profile)) {
+		throw new Error(`Invalid sandbox profile '${profile}' for session ${sessionId}`);
+	}
 	withControlDb(controlDbPath, (db) => {
 		assertSessionMetadataIdentity(db, sessionPath, sessionId);
 		db.prepare(

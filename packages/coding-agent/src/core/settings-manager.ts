@@ -554,14 +554,19 @@ export class SettingsManager {
 		return this.getExplicitSandboxProfile() ?? "workspace-write";
 	}
 
-	getExplicitSandboxProfile(): SandboxProfileName | undefined {
-		if (this.sessionSandboxProfile) {
-			return this.sessionSandboxProfile;
-		}
+	getConfiguredSandboxProfile(): SandboxProfileName {
+		return this.getExplicitConfiguredSandboxProfile() ?? "workspace-write";
+	}
+
+	private getExplicitConfiguredSandboxProfile(): SandboxProfileName | undefined {
 		if (isSandboxProfileName(this.projectSettings.sandboxProfile)) {
 			return this.projectSettings.sandboxProfile;
 		}
 		return isSandboxProfileName(this.globalSettings.sandboxProfile) ? this.globalSettings.sandboxProfile : undefined;
+	}
+
+	getExplicitSandboxProfile(): SandboxProfileName | undefined {
+		return this.sessionSandboxProfile ?? this.getExplicitConfiguredSandboxProfile();
 	}
 
 	getSessionSandboxProfile(): SandboxProfileName | undefined {

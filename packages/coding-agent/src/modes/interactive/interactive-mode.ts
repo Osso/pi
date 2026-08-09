@@ -5950,7 +5950,7 @@ export class InteractiveMode {
 	private showSandboxSelector(): void {
 		this.showSelector((done) => {
 			const selector = new SandboxSelectorComponent({
-				currentProfile: this.settingsManager.getSandboxProfile(),
+				currentProfile: this.settingsManager.getConfiguredSandboxProfile(),
 				sessionProfile: this.settingsManager.getSessionSandboxProfile(),
 				onSelect: (selection) => {
 					this.session.extensionRunner.setSandboxProfile(selection.profile, selection.scope);
