@@ -4011,9 +4011,7 @@ function hasTerminalOutboxRecord(db: SqliteDatabase, sessionPath: string, agentI
 
 type RecoverDeadMultiAgentRuntimeFailure = Extract<RecoverDeadMultiAgentRuntimeResult, { ok: false }>;
 
-type RecoverableMultiAgentRuntime =
-	| { agent: Record<string, unknown>; ok: true }
-	| RecoverDeadMultiAgentRuntimeFailure;
+type RecoverableMultiAgentRuntime = { agent: Record<string, unknown>; ok: true } | RecoverDeadMultiAgentRuntimeFailure;
 
 function readRecoverableMultiAgentRuntime(
 	db: SqliteDatabase,
@@ -4334,9 +4332,12 @@ function commitAttachedRuntimeOwnershipAcquisition(
 		if (!multiAgentRuntimeOwnershipRowsEqual(plan.ownership, ownership)) return undefined;
 		persistAcquiredRuntimeOwnership(db, input);
 		const updatedAgent = { ...plan.agent, revision: Number(plan.agent.revision) + 1, updatedAt: input.nowIso };
-		db.prepare(
-			"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-		).run(JSON.stringify(updatedAgent), input.nowIso, input.sessionPath, input.agentId);
+		db.prepare("UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?").run(
+			JSON.stringify(updatedAgent),
+			input.nowIso,
+			input.sessionPath,
+			input.agentId,
+		);
 		const acquired = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
 		if (!acquired)
 			throw new Error(`Attached runtime ownership did not persist ${input.sessionPath}#${input.agentId}`);
@@ -4353,7 +4354,9 @@ function registeredSupervisorOwnsSession(
 	sessionPath: string,
 	supervisor: SupervisorRuntimeOwnership,
 ): boolean {
-	return isProcessIdentityAlive(supervisor.processIdentity) && persistedSupervisorOwnsSession(db, sessionPath, supervisor);
+	return (
+		isProcessIdentityAlive(supervisor.processIdentity) && persistedSupervisorOwnsSession(db, sessionPath, supervisor)
+	);
 }
 
 function persistedSupervisorOwnsSession(
@@ -4733,9 +4736,7 @@ function readMultiAgentMailboxRowSnapshot(
 	id: string,
 ): MultiAgentMailboxRowSnapshot | undefined {
 	return db
-		.prepare(
-			"SELECT data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
-		)
+		.prepare("SELECT data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
 		.get(sessionPath, id) as MultiAgentMailboxRowSnapshot | undefined;
 }
 

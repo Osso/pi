@@ -10,7 +10,6 @@ import { createDetachedJobArtifacts, createDetachedJobTerminalInput } from "../s
 import {
 	acquireAttachedRuntimeOwnership,
 	advanceSharedChannelCursor,
-	createMultiAgentAttachment,
 	allocateMultiAgentCounter,
 	archiveSession,
 	archiveSessionsOlderThan,
@@ -29,6 +28,7 @@ import {
 	completeIncomingMessage,
 	consumeRuntimeMailboxMessage,
 	createFailedMultiAgentChild,
+	createMultiAgentAttachment,
 	createMultiAgentChildWithRuntimeOwnership,
 	deliverMultiAgentTerminalOutbox,
 	deliverRuntimeMailboxMessage,
@@ -617,7 +617,9 @@ describe("session control DB", () => {
 		const afterDb = createSqliteDatabase(controlDbPath);
 		try {
 			const after = afterDb
-				.prepare("SELECT data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+				.prepare(
+					"SELECT data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
+				)
 				.get(sessionPath, messageId) as { data: string; updated_at: string };
 			expect(after).toEqual(before);
 		} finally {
@@ -1035,7 +1037,9 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		try {
 			expect(
 				db
-					.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox WHERE session_path = ? AND agent_id = ?")
+					.prepare(
+						"SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox WHERE session_path = ? AND agent_id = ?",
+					)
 					.get(sessionPath, agentId),
 			).toEqual({ count: 0 });
 		} finally {
@@ -4456,7 +4460,9 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 	});
 
 	it("returns without a writer lock when no terminal outbox row is eligible", async () => {
-		expect(claimMultiAgentTerminalOutbox(controlDbPath, "initial-terminal-claim", "2026-08-09T00:00:00.000Z")).toBeUndefined();
+		expect(
+			claimMultiAgentTerminalOutbox(controlDbPath, "initial-terminal-claim", "2026-08-09T00:00:00.000Z"),
+		).toBeUndefined();
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
