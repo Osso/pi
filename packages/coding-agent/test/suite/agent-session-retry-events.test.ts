@@ -163,6 +163,27 @@ describe("AgentSession retry and event characterization", () => {
 		expect(harness.eventsOfType("auto_retry_start")).toEqual([]);
 	});
 
+	it("does not retry the legacy max-output error or consume the next response", async () => {
+		const harness = await createHarness({ settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 } } });
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage("", {
+				stopReason: "error",
+				errorMessage: "Incomplete response returned, reason: max_output_tokens",
+			}),
+			fauxAssistantMessage("", {
+				stopReason: "error",
+				errorMessage: "Incomplete response returned, reason: max_output_tokens",
+			}),
+		]);
+
+		await harness.session.prompt("test");
+
+		expect(harness.faux.state.callCount).toBe(1);
+		expect(harness.getPendingResponseCount()).toBe(1);
+		expect(harness.eventsOfType("auto_retry_start")).toEqual([]);
+	});
+
 	it("cancels retry sleep when abortRetry is called", async () => {
 		const harness = await createHarness({ settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 100 } } });
 		harnesses.push(harness);

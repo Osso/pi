@@ -249,6 +249,7 @@
 - Fixed shared-channel deliveries being persisted and rendered as user messages; they now use the custom-message path with `customType: "shared_channel"` while retaining extension provenance and editor-history exclusion.
 - Fixed consumed shared-channel follow-ups remaining in the pending queue preview after `end_turn`; the preview now clears when the custom continuation starts.
 - Fixed OpenAI Responses early stream endings to trigger automatic retry instead of ending the agent run ([#6727](https://github.com/earendil-works/pi/issues/6727)).
+- Fixed deterministic OpenAI Responses incomplete errors for legacy `max_output_tokens` and `content_filter` reasons to skip automatic retry, preventing repeated attempts of requests that cannot succeed unchanged.
 - Fixed Escape in the branch-summary picker to cancel the picker without interrupting the active turn.
 - Fixed Codex fast mode to hide footer status on unsupported provider switches while retaining its selected runtime tier, and to warn without disabling when a request payload cannot accept the selected service tier.
 - Fixed runtime-mailbox-started turns that deadlocked after a tool call because post-tool coordination awaited the turn's own enclosing prompt drain.

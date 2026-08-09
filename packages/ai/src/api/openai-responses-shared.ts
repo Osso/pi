@@ -536,9 +536,12 @@ export async function processResponsesStream<TApi extends Api>(
 		} else if (event.type === "response.completed") {
 			finalizeResponse(event.response);
 		} else if (event.type === "response.incomplete") {
-			sawTerminalResponseEvent = true;
 			const reason = event.response?.incomplete_details?.reason ?? "unknown";
-			throw new Error(`Incomplete response returned, reason: ${reason}`);
+			if (reason !== "max_output_tokens") {
+				sawTerminalResponseEvent = true;
+				throw new Error(`Incomplete response returned, reason: ${reason}`);
+			}
+			finalizeResponse(event.response);
 		} else if (event.type === "error") {
 			throw new Error(`Error Code ${event.code}: ${event.message}` || "Unknown error");
 		} else if (event.type === "response.failed") {

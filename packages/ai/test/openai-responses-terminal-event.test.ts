@@ -124,14 +124,16 @@ async function* createCompletedEvents(): AsyncIterable<ResponseStreamEvent> {
 	} as ResponseStreamEvent;
 }
 
-async function* createIncompleteEvents(): AsyncIterable<ResponseStreamEvent> {
+async function* createIncompleteEvents(
+	reason: "max_output_tokens" | "content_filter" = "max_output_tokens",
+): AsyncIterable<ResponseStreamEvent> {
 	yield {
 		type: "response.incomplete",
 		sequence_number: 0,
 		response: {
 			id: "resp_incomplete",
 			status: "incomplete",
-			incomplete_details: { reason: "max_output_tokens" },
+			incomplete_details: { reason },
 			usage: {
 				input_tokens: 30,
 				output_tokens: 12,
@@ -204,14 +206,32 @@ describe("OpenAI Responses terminal event handling", () => {
 		});
 	});
 
-	it("rejects incomplete terminal events with the provider reason", async () => {
+	it("finalizes max-output incomplete terminal events as length with terminal metadata", async () => {
 		const model = createModel();
 		const output = createOutput(model);
 		const stream = new AssistantMessageEventStream();
 
-		await expect(processResponsesStream(createIncompleteEvents(), output, stream, model)).rejects.toThrow(
-			"Incomplete response returned, reason: max_output_tokens",
-		);
+		await processResponsesStream(createIncompleteEvents(), output, stream, model);
+
+		expect(output.responseId).toBe("resp_incomplete");
+		expect(output.stopReason).toBe("length");
+		expect(output.errorMessage).toBeUndefined();
+		expect(output.usage).toMatchObject({
+			input: 25,
+			output: 12,
+			cacheRead: 5,
+			totalTokens: 42,
+		});
+	});
+
+	it("rejects content-filter incomplete terminal events with a clear reason", async () => {
+		const model = createModel();
+		const output = createOutput(model);
+		const stream = new AssistantMessageEventStream();
+
+		await expect(
+			processResponsesStream(createIncompleteEvents("content_filter"), output, stream, model),
+		).rejects.toThrow("Incomplete response returned, reason: content_filter");
 	});
 
 	it("rejects failed terminal events with the provider error", async () => {

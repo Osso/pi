@@ -335,7 +335,7 @@ describe("openai-codex streaming", () => {
 		expect(result.stopReason).toBe("stop");
 	});
 
-	it("returns a retryable error for response.incomplete even when the SSE body stays open", async () => {
+	it("returns a length stop for max-output response.incomplete even when the SSE body stays open", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
 		process.env.PI_CODING_AGENT_DIR = tempDir;
 		const token = mockToken();
@@ -392,8 +392,8 @@ describe("openai-codex streaming", () => {
 		]);
 
 		expect(result.content.find((c) => c.type === "text")?.text).toBe("Hello");
-		expect(result.stopReason).toBe("error");
-		expect(result.errorMessage).toBe("Incomplete response returned, reason: max_output_tokens");
+		expect(result.stopReason).toBe("length");
+		expect(result.errorMessage).toBeUndefined();
 	});
 
 	it("aborts SSE fetch after the configured HTTP timeout when response headers do not arrive", async () => {

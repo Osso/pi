@@ -8,7 +8,7 @@ const bedrockExplicitRetryMessage =
 	'{"message":"The system encountered an unexpected error during processing. Try your request again."}';
 
 describe("provider retry classification", () => {
-	it("matches incomplete OpenAI responses", () => {
+	it("does not retry the legacy max-output error but retries generic incomplete responses", () => {
 		expect(
 			isRetryableAssistantError(
 				fauxAssistantMessage("", {
@@ -16,7 +16,26 @@ describe("provider retry classification", () => {
 					errorMessage: "Incomplete response returned, reason: max_output_tokens",
 				}),
 			),
+		).toBe(false);
+		expect(
+			isRetryableAssistantError(
+				fauxAssistantMessage("", {
+					stopReason: "error",
+					errorMessage: "Incomplete response returned, reason: unknown",
+				}),
+			),
 		).toBe(true);
+	});
+
+	it("does not retry content-filter incomplete responses", () => {
+		expect(
+			isRetryableAssistantError(
+				fauxAssistantMessage("", {
+					stopReason: "error",
+					errorMessage: "Incomplete response returned, reason: content_filter",
+				}),
+			),
+		).toBe(false);
 	});
 
 	it("matches OpenAI Responses streams ending before a terminal event", () => {
