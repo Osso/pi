@@ -4157,19 +4157,18 @@ export function createMultiAgentChildWithRuntimeOwnership(
 	controlDbPath: string,
 	input: CreateMultiAgentChildWithRuntimeOwnershipInput,
 ): CreateMultiAgentChildWithRuntimeOwnershipResult {
+	const agent = input.agent as Record<string, unknown>;
+	validatePersistedAgentPayload(agent, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
+	if (agent.id !== input.agentId) throw new Error("Child agent payload ID does not match runtime ownership identity");
+	if (agent.lifecycle !== "running" || agent.revision !== 1) {
+		throw new Error("Child runtime ownership requires running revision 1");
+	}
+	const parentId = typeof agent.parentId === "string" ? agent.parentId : undefined;
+	if (!parentId) return { ok: false, error: "parent_not_found" };
+	const serializedAgent = JSON.stringify(input.agent);
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
-			const agent = input.agent as Record<string, unknown>;
-			validatePersistedAgentPayload(agent, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
-			if (agent.id !== input.agentId)
-				throw new Error("Child agent payload ID does not match runtime ownership identity");
-			if (agent.lifecycle !== "running" || agent.revision !== 1) {
-				throw new Error("Child runtime ownership requires running revision 1");
-			}
-			const parentId = typeof agent.parentId === "string" ? agent.parentId : undefined;
-			if (!parentId || !hasActiveParent(db, input.sessionPath, parentId)) {
-				return { ok: false, error: "parent_not_found" };
-			}
+			if (!hasActiveParent(db, input.sessionPath, parentId)) return { ok: false, error: "parent_not_found" };
 			if (
 				db
 					.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
@@ -4179,7 +4178,7 @@ export function createMultiAgentChildWithRuntimeOwnership(
 			}
 			db.prepare(
 				"INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
-			).run(input.sessionPath, input.agentId, JSON.stringify(input.agent), input.nowIso);
+			).run(input.sessionPath, input.agentId, serializedAgent, input.nowIso);
 			db.prepare(`INSERT INTO multi_agent_runtime_owners (
 			session_path, agent_id, process_identity, owner_session_id, owner_agent_id
 		) VALUES (?, ?, ?, ?, ?)`).run(
