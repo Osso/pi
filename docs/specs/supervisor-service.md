@@ -13,6 +13,7 @@ The resident Supervisor is a systemd-supervised peer-unblocking policy engine th
 - [x] Preserve one global Supervisor model transcript across requests and service restarts. Proactively compact the shared context before a bounded request when usage reaches 75%, preserving prior decisions, project-specific policies, and reusable approval rationale rather than resetting history. Invalidate provider continuation state after compaction so the next request starts from the compacted local context rather than the pre-compaction remote chain.
 - [x] Process requests through an event-driven request/response queue rather than polling sessions.
 - [x] Remain local-only without web access.
+- [x] During deployment, compare the loaded base `pi-supervisor.service` content with the rendered desired unit; skip the protected file rewrite and daemon reload when identical, but rewrite and reload when changed. Always remove Architect, enable/restart Supervisor, and run service health checks.
 
 ### Resident console
 
@@ -142,6 +143,7 @@ The resident Supervisor is a systemd-supervised peer-unblocking policy engine th
 - `packages/coding-agent/extensions/goal/src/goal-scheduling.ts` — cancellable agent waits, pending-decision handoff, timed review, identity rechecks, and visible scheduling failures.
 - `packages/coding-agent/extensions/goal/src/rendering.ts` — durable Supervisor status entries and tagged continuation rendering.
 - `packages/coding-agent/systemd/pi-supervisor.service` / `deploy.sh` — installed Bun-compiled Pi binary service lifecycle.
+- `scripts/configure-resident-services.sh` — compares the loaded Supervisor unit before optional rewrite/reload, then always applies Architect removal, Supervisor enable/restart, and health checks.
 
 ## Tests asserting this spec
 
@@ -157,6 +159,7 @@ The resident Supervisor is a systemd-supervised peer-unblocking policy engine th
 - `packages/coding-agent/test/resident-console-command.test.ts`
 - `packages/coding-agent/test/resident-console-client.test.ts`
 - `packages/coding-agent/test/supervisor-resident-console.test.ts`
+- `packages/coding-agent/test/architect-service.test.ts` — resident-service deployment rewrite/reload skip and lifecycle-action contract.
 
 ## Known gaps (current cycle)
 

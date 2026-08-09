@@ -121,6 +121,7 @@
 
 ### Fixed
 
+- Fixed resident-service deployment to skip rewriting and reloading an unchanged Supervisor unit while always removing Architect, restarting Supervisor, and checking service health.
 - Fixed multi-agent status formatting so only the `multi-agent: ` prefix is dimmed while the `proactive` or `explicit` mode remains normal.
 - Fixed `list_sessions` and its shared broadcast inventory to expose only non-archived main sessions, excluding `archived_at IS NOT NULL` and `is_subagent = 1` rows regardless of `include_ended`; child rows of archived parents are excluded without changing archive write semantics.
 - Fixed child-runtime authorization after reopening a historical subagent transcript: live child runtimes cannot restart Pi, explicit current runtime child identity remains authoritative, and `is_subagent` transcript provenance alone no longer blocks a session opened as the main orchestrator from main-thread controls.

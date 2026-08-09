@@ -6,6 +6,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	statSync,
 	symlinkSync,
 	writeFileSync,
 } from "node:fs";
@@ -38,7 +39,8 @@ import { SUPERVISOR_ONLY_TOOL_NAMES } from "../src/core/tool-capabilities.ts";
 const residentServicesScript = fileURLToPath(
 	new URL("../../../scripts/configure-resident-services.sh", import.meta.url),
 );
-const serviceUnit = fileURLToPath(new URL("../systemd/pi-architect.service", import.meta.url));
+const architectServiceUnit = fileURLToPath(new URL("../systemd/pi-architect.service", import.meta.url));
+const supervisorServiceUnit = fileURLToPath(new URL("../systemd/pi-supervisor.service", import.meta.url));
 const systemdPathValidator = fileURLToPath(new URL("../../../scripts/validate-systemd-exec-path.mjs", import.meta.url));
 
 describe("resident architect service", () => {
@@ -473,8 +475,9 @@ const { appendFileSync, existsSync, writeFileSync } = require("node:fs");
 const args = process.argv.slice(2);
 appendFileSync(process.env.PI_TEST_SYSTEMCTL_LOG, args.join(" ") + "\\n");
 const command = args[1];
-const unit = args.at(-1);
+const unit = args.find((arg) => arg.endsWith(".service"));
 if (command === "cat" && unit === "pi-architect.service") process.exit(0);
+if (command === "cat" && unit === "pi-supervisor.service") process.exit(1);
 if (command === "disable" && unit === "pi-architect.service") {
   writeFileSync(process.env.PI_TEST_ARCHITECT_DISABLED, "disabled");
   process.exit(0);
@@ -500,7 +503,7 @@ process.exit(0);
 			});
 
 			expect(result.status, result.stderr).toBe(0);
-			expect(readFileSync(serviceUnit, "utf8")).toContain("ExecStart=@PI_ARCHITECT_BINARY@ architect");
+			expect(readFileSync(architectServiceUnit, "utf8")).toContain("ExecStart=@PI_ARCHITECT_BINARY@ architect");
 			expect(existsSync(join(systemdUserDir, "pi-architect.service"))).toBe(false);
 			expect(readFileSync(join(systemdUserDir, "pi-supervisor.service"), "utf8")).toContain(
 				"ExecStart=/home/osso/.local/bin/pi supervisor",
@@ -508,7 +511,73 @@ process.exit(0);
 			expect(readFileSync(systemctlLog, "utf8").trim().split("\n")).toEqual([
 				"--user cat pi-architect.service",
 				"--user disable --now pi-architect.service",
+				"--user cat pi-supervisor.service --no-pager",
 				"--user daemon-reload",
+				"--user is-active --quiet pi-architect.service",
+				"--user is-enabled --quiet pi-architect.service",
+				"--user enable --now pi-supervisor.service",
+				"--user restart pi-supervisor.service",
+				"--user is-active --quiet pi-supervisor.service",
+			]);
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
+	it("skips rewriting an identical loaded Supervisor unit while preserving lifecycle actions", () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-resident-services-identical-"));
+		try {
+			const fakeBinDir = join(tempDir, "bin");
+			const configHome = join(tempDir, "config");
+			const systemdUserDir = join(configHome, "systemd", "user");
+			const systemctlLog = join(tempDir, "systemctl.log");
+			const supervisorUnit = join(systemdUserDir, "pi-supervisor.service");
+			const fakeSystemctl = join(fakeBinDir, "systemctl");
+			const expectedUnit = readFileSync(supervisorServiceUnit, "utf8").replace(
+				"@PI_SUPERVISOR_BINARY@",
+				"/home/osso/.local/bin/pi",
+			);
+			mkdirSync(fakeBinDir, { recursive: true });
+			mkdirSync(systemdUserDir, { recursive: true });
+			writeFileSync(supervisorUnit, expectedUnit);
+			chmodSync(supervisorUnit, 0o444);
+			writeFileSync(
+				fakeSystemctl,
+				`#!/usr/bin/env node
+const { appendFileSync, readFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(process.env.PI_TEST_SYSTEMCTL_LOG, args.join(" ") + "\\n");
+const command = args[1];
+const unit = args.find((arg) => arg.endsWith(".service"));
+if (command === "cat" && unit === "pi-architect.service") process.exit(1);
+if (command === "cat" && unit === "pi-supervisor.service") {
+  process.stdout.write("# " + process.env.PI_TEST_SUPERVISOR_UNIT + "\\n" + readFileSync(process.env.PI_TEST_SUPERVISOR_UNIT, "utf8"));
+  process.exit(0);
+}
+if ((command === "is-active" || command === "is-enabled") && unit === "pi-architect.service") process.exit(1);
+process.exit(0);
+`,
+			);
+			chmodSync(fakeSystemctl, 0o755);
+
+			const result = spawnSync(residentServicesScript, ["/home/osso/.local/bin/pi"], {
+				encoding: "utf8",
+				env: {
+					...process.env,
+					HOME: join(tempDir, "home"),
+					PATH: `${fakeBinDir}:${process.env.PATH ?? ""}`,
+					PI_TEST_SUPERVISOR_UNIT: supervisorUnit,
+					PI_TEST_SYSTEMCTL_LOG: systemctlLog,
+					XDG_CONFIG_HOME: configHome,
+				},
+			});
+
+			expect(result.status, result.stderr).toBe(0);
+			expect(readFileSync(supervisorUnit, "utf8")).toBe(expectedUnit);
+			expect(statSync(supervisorUnit).mode & 0o777).toBe(0o444);
+			expect(readFileSync(systemctlLog, "utf8").trim().split("\n")).toEqual([
+				"--user cat pi-architect.service",
+				"--user cat pi-supervisor.service --no-pager",
 				"--user is-active --quiet pi-architect.service",
 				"--user is-enabled --quiet pi-architect.service",
 				"--user enable --now pi-supervisor.service",
