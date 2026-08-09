@@ -14,7 +14,7 @@ For sandbox-required profiles, the backend builds a bubblewrap command that:
 - shares the host network namespace, because this backend currently targets filesystem isolation only;
 - uses `--clearenv` and a filtered environment (`HOME`, `PATH`, locale, terminal hints, `USER`, and only adapter-resolved Pyrun `PYTHONPATH`) instead of inheriting provider keys, arbitrary host `PYTHONPATH`, or host credential variables.
 
-When launching a runtime runner, the backend also read-only mounts its resolved executable, absolute runner arguments, and `PYTHONPATH` entries when they are outside the workspace and not already available from system mounts. This permits the selected runtime to start without broad host mounts.
+When launching a runtime runner, the backend also read-only mounts its resolved executable, absolute shebang interpreter, Python virtual-environment metadata/site-packages, external base-runtime paths, absolute runner arguments, and `PYTHONPATH` entries when they are outside the workspace and not already available from system mounts. It keeps the original runner command unchanged and permits the selected runtime to start without broad host mounts.
 
 `full-access` and a missing explicit sandbox setting resolve to no sandbox profile, so the extension delegates to local tool and runtime implementations.
 

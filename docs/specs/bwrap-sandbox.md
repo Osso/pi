@@ -16,7 +16,7 @@ The bubblewrap sandbox backend is a Linux extension that routes selected Pi tool
 
 - [x] Mount required host runtime paths read-only (`/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/etc`, and `/nix` when present) without mounting host `/`, `/home`, `/syncthing`, `/run`, or `/var`.
 - [x] Mount the active workspace read-only for `read-only` and writable for `workspace-write`.
-- [x] Mount runtime executables, explicit runner arguments, and adapter-resolved `PYTHONPATH` entries outside the workspace read-only when a sandboxed runtime requires them; never propagate arbitrary inherited `PYTHONPATH` entries.
+- [x] Mount resolved runtime executables, absolute shebang interpreters, Python virtual-environment metadata/site-packages, external base-runtime paths, explicit runner arguments, and adapter-resolved `PYTHONPATH` entries outside the workspace read-only when a sandboxed runtime requires them; never propagate arbitrary inherited `PYTHONPATH` entries.
 - [x] Provide sandbox-local `HOME`, `TMPDIR`, and `XDG_CONFIG_HOME`.
 - [x] Use `--clearenv` and an explicit filtered environment so provider keys and other host credentials are not passed into sandboxed workers by default.
 - [x] Reject file-worker paths and symlinks that escape the active workspace.

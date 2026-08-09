@@ -123,6 +123,7 @@
 
 ### Fixed
 
+- Fixed read-only and workspace-write bwrap runner startup for symlinked script launchers with external absolute shebang interpreters by mounting the interpreter, Python virtual-environment metadata/site-packages, and external base-runtime paths read-only without rewriting the runner command.
 - Fixed resident-service deployment to skip rewriting and reloading an unchanged Supervisor unit while always removing Architect, restarting Supervisor, and checking service health.
 - Fixed multi-agent status formatting so only the `multi-agent: ` prefix is dimmed while the `proactive` or `explicit` mode remains normal.
 - Fixed `list_sessions` and its shared broadcast inventory to expose only non-archived main sessions, excluding `archived_at IS NOT NULL` and `is_subagent = 1` rows regardless of `include_ended`; child rows of archived parents are excluded without changing archive write semantics.
