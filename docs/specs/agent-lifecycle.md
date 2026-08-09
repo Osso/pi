@@ -71,6 +71,10 @@ incarnation identifies one loaded Pi runtime and changes across an exec-in-place
 PID and `startTimeTicks` stay unchanged. Repository code reads
 and increments revision inside the SQLite transaction; callers never supply it. A terminal retry is
 valid only when it is an idempotent replay of the same committed terminal row and notification.
+Detachment marking validates lifecycle and exact ownership without waiting for an unrelated SQLite
+writer; a valid mark then commits the detached flag and revision atomically, while stale or foreign
+ownership is rejected without side effects. Repeating an already committed mark returns the existing
+agent state.
 
 Dispatch and graph invariants:
 

@@ -76,9 +76,11 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       row exists. Multi-agent
       activity, transcript, and slot metadata updates validate read-only, then use bounded exact-payload
       compare-and-swap writes; activity updates also require the exact persisted runtime owner in the
-      update predicate. Concurrent SQLite contenders serialize, repository code reads/increments revision
-      internally, repeated identical transitions are idempotent, and mismatched process ownership rejects
-      without side effects. Legacy
+      update predicate. Detachment marking likewise validates lifecycle and exact ownership without
+      waiting for an unrelated writer; a valid mark atomically sets `detached` and advances revision,
+      while stale or foreign ownership rejects without side effects. Repeated identical transitions are
+      idempotent. Concurrent SQLite contenders serialize, repository code reads/increments revision
+      internally, and mismatched process ownership rejects without side effects. Legacy
       artifact tables/columns are not initialized, read, written, or relocated; the legacy
       `multi_agent_counters` table is only migrated into `multi_agent_counters_v2`.
 - [x] Allocate persisted multi-agent agent and message IDs with one atomic incrementing upsert
