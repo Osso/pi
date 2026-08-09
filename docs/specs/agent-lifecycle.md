@@ -197,7 +197,10 @@ Detached runner recovery does not reconstruct terminal state from artifacts. The
 finalizes from its in-memory identity, outcome, and output metadata. The output artifact is diagnostic
 only. If the runner dies before its terminal commit, dead-owner recovery uses the exact persisted
 process identity to mark a `running` agent `failed/lost_runtime`; it does not replay or infer a terminal
-result from the output file. If the persisted lifecycle already recorded a cancellation intent
+result from the output file. Recovery preflights supervisor authority, exact owner/liveness, and recursive
+descendant state read-only; commit-time CAS revalidates persisted authority, ownership, the agent snapshot,
+and descendant absence, then atomically releases ownership and persists terminal state, its outbox row,
+and any detached transport notification. If the persisted lifecycle already recorded a cancellation intent
 (`cancelling`), dead-owner recovery settles that intent as `aborted/lost_runtime` — still without replaying
 or inferring a result. A cancellation committed before a pending natural-result
 finalizer still wins by transaction order; outside dead-owner recovery, `aborted` requires the exact

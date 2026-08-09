@@ -142,9 +142,11 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       reconciliation prepares candidate and exact runner-liveness scans without reserving the writer
       lock, then revalidates each confirmed dead owner and commits one recovery at a time in a short
       immediate transaction; unrelated candidates remain eligible for later passes. Direct dead-runtime
-      recovery applies the same boundary to one expected owner: supervisor, agent, owner, descendant,
-      and process-liveness checks run read-only first, then persisted supervisor and agent ownership are
-      revalidated before the ownership release and terminal rows commit.
+      recovery applies the same boundary to one expected owner: supervisor authority, agent, owner,
+      descendant, and process-liveness checks run read-only first. Commit-time CAS revalidates the
+      persisted supervisor/listener authority, exact owner and agent snapshots, and recursive descendant
+      absence before atomically releasing ownership and persisting terminal state, the outbox row, and any
+      detached transport notification.
 - [x] A main-thread listener registration persists its exact session path and assertion timestamp,
       atomically retires other main-session bindings for the same PID, marks their matching health
       rows ended and confirms the registered binding `ok`. Listener retirement removes only the
