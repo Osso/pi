@@ -447,37 +447,33 @@ export function readIncomingMessageStatus(controlDbPath: string, id: number): st
 	});
 }
 
+const RUNTIME_MAILBOX_ROUTING_MAX_ATTEMPTS = 3;
+
 export function enqueueRuntimeMailboxMessage(controlDbPath: string, input: EnqueueRuntimeMailboxMessageInput): number {
-	const result = withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const row = readCanonicalMailboxRowByStoreRef(db, input.storeRef);
-			if (!row) {
-				throw new Error(
-					`Runtime mailbox store reference does not exist: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`,
-				);
-			}
-			const context = `multi_agent_mailbox_messages:${input.storeRef.sessionPath}#${input.storeRef.messageId}`;
-			const message = parseStoredJsonObject(row.data, context);
-			validateMailboxPayload(message, context);
-			const routed = addRuntimeMailboxRouting(message, input);
-			const serialized = JSON.stringify(routed);
-			const changed = serialized !== row.data;
-			if (changed) {
-				const now = new Date().toISOString();
-				db.prepare("UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ? WHERE rowid = ?").run(
-					serialized,
-					now,
-					row.id,
-				);
-			}
-			return {
-				id: row.id,
-				listener: changed ? readRuntimeMailboxListenerRow(db, input.recipient) : undefined,
-			};
-		}),
-	);
+	const result = withControlDb(controlDbPath, (db) => routeRuntimeMailboxMessage(db, input));
 	notifyRuntimeMailboxListener(result.listener);
 	return result.id;
+}
+
+function routeRuntimeMailboxMessage(db: SqliteDatabase, input: EnqueueRuntimeMailboxMessageInput) {
+	for (let attempt = 1; attempt <= RUNTIME_MAILBOX_ROUTING_MAX_ATTEMPTS; attempt += 1) {
+		const row = readCanonicalMailboxRowByStoreRef(db, input.storeRef);
+		if (!row) {
+			throw new Error(
+				`Runtime mailbox store reference does not exist: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`,
+			);
+		}
+		const context = `multi_agent_mailbox_messages:${input.storeRef.sessionPath}#${input.storeRef.messageId}`;
+		const message = parseStoredJsonObject(row.data, context);
+		validateMailboxPayload(message, context);
+		const routed = addRuntimeMailboxRouting(message, input);
+		if (JSON.stringify(routed) === row.data) return { id: row.id, listener: undefined };
+		if (!compareAndWriteCanonicalMailboxPayload(db, row, routed, new Date().toISOString())) continue;
+		return { id: row.id, listener: readRuntimeMailboxListenerRow(db, input.recipient) };
+	}
+	throw new Error(
+		`Runtime mailbox row changed while routing: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`,
+	);
 }
 
 export function enqueueStoredRuntimeMailboxMessage(

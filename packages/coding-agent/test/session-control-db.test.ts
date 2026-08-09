@@ -2838,6 +2838,95 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(listRuntimeMailboxMessages(controlDbPath)).toHaveLength(1);
 	});
 
+	it("returns identical runtime mailbox enqueues before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/identical-enqueue-sender.jsonl";
+		const messageId = "message-identical-enqueue";
+		const recipient = { agentId: null, sessionId: "identical-enqueue-recipient" };
+		const sender = { agentId: null, sessionId: "identical-enqueue-sender" };
+		const timestamp = "2026-08-09T00:00:00.000Z";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: "unchanged payload",
+			createdAt: timestamp,
+			fromAgentId: "main",
+			id: messageId,
+			kind: "message",
+			recipientAgentId: recipient.agentId,
+			recipientSessionId: recipient.sessionId,
+			senderAgentId: sender.agentId,
+			senderSessionId: sender.sessionId,
+			status: "pending",
+			toAgentId: "main",
+			updatedAt: timestamp,
+		});
+		const beforeDb = createSqliteDatabase(controlDbPath);
+		const before = beforeDb
+			.prepare(
+				"SELECT rowid AS id, data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
+			)
+			.get(sessionPath, messageId) as { data: string; id: number; updated_at: string };
+		beforeDb.close();
+		const input = {
+			kind: "message" as const,
+			recipient,
+			sender,
+			storeRef: { messageId, sessionPath },
+		};
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { enqueueRuntimeMailboxMessage } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const id = enqueueRuntimeMailboxMessage(workerData.controlDbPath, workerData.input);
+						parentPort?.postMessage({ id, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "identical-enqueue worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("enqueue");
+			const result = await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				timeoutMessage: "identical runtime mailbox enqueue waited for the writer lock",
+				timeoutMs: 1_000,
+			});
+			expect(result).toMatchObject({ id: before.id, type: "completed" });
+			holder.exec("ROLLBACK");
+
+			const afterDb = createSqliteDatabase(controlDbPath);
+			try {
+				const after = afterDb
+					.prepare(
+						"SELECT rowid AS id, data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
+					)
+					.get(sessionPath, messageId) as { data: string; id: number; updated_at: string };
+				expect(after).toEqual(before);
+			} finally {
+				afterDb.close();
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+	});
+
 	it("runs delivery eligibility before acquiring the writer lock", async () => {
 		const recipient = { agentId: null, sessionId: "delivery-contention-recipient" };
 		const sessionPath = "/sessions/delivery-contention-sender.jsonl";
