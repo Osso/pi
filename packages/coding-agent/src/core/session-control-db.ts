@@ -3268,6 +3268,7 @@ type MultiAgentSteeringMutationPlan = {
 	recipientListener: RuntimeMailboxListenerRow;
 	senderListener: RuntimeMailboxListenerRow;
 	updatedAgent: AgentSnapshot;
+	updatedAgentData: string;
 };
 
 type MultiAgentSteeringMutationPreflight =
@@ -3294,8 +3295,7 @@ function commitMultiAgentSteeringMutationWithDb(
 	for (let attempt = 1; attempt <= MULTI_AGENT_STEERING_MUTATION_MAX_ATTEMPTS; attempt += 1) {
 		const preflight = prepareMultiAgentSteeringMutation(db, input);
 		if ("result" in preflight) return preflight.result;
-		const mailbox = allocateAndPrepareSteeringMailboxMessage(db, input);
-		const result = persistMultiAgentSteeringMutation(db, input, preflight.plan, mailbox);
+		const result = persistMultiAgentSteeringMutation(db, input, preflight.plan);
 		if (result) return result;
 	}
 	return { ok: false, error: "mutation_mismatch" };
@@ -3329,7 +3329,15 @@ function prepareMultiAgentSteeringMutation(
 		revision: agentRow.agent.revision + 1,
 		updatedAt: input.updatedAt,
 	};
-	return { plan: { agentData: agentRow.data, recipientListener, senderListener, updatedAgent } };
+	return {
+		plan: {
+			agentData: agentRow.data,
+			recipientListener,
+			senderListener,
+			updatedAgent,
+			updatedAgentData: JSON.stringify(updatedAgent),
+		},
+	};
 }
 
 function readSteeringMutationAgent(
@@ -3373,10 +3381,10 @@ function persistMultiAgentSteeringMutation(
 	db: SqliteDatabase,
 	input: CommitMultiAgentSteeringMutationInput,
 	plan: MultiAgentSteeringMutationPlan,
-	mailbox: PreparedSteeringMailboxMessage,
 ): CommitMultiAgentSteeringMutationResult | undefined {
 	return withImmediateTransaction(db, () => {
 		if (!compareAndPersistSteeringAgent(db, input, plan)) return undefined;
+		const mailbox = allocateAndPrepareSteeringMailboxMessage(db, input);
 		persistStoredRuntimeMailboxMessage(db, mailbox.input, mailbox.prepared);
 		return { agent: plan.updatedAgent, message: mailbox.message, ok: true };
 	});
@@ -3411,7 +3419,7 @@ function compareAndPersistSteeringAgent(
 				 )`,
 			)
 			.run(
-				JSON.stringify(plan.updatedAgent),
+				plan.updatedAgentData,
 				input.updatedAt,
 				input.sessionPath,
 				input.agentId,
@@ -4153,6 +4161,7 @@ type FinalizeDetachedJobPlan = {
 	ownership: MultiAgentRuntimeOwnershipRow;
 	sessionPath: string;
 	terminalAgent: AgentSnapshot;
+	terminalAgentData: string;
 	terminalRevision: number;
 	terminalTransport?: PreparedTerminalTransport;
 };
@@ -4256,6 +4265,7 @@ function prepareDetachedJobFinalization(
 			ownership,
 			sessionPath,
 			terminalAgent: terminalAgent as unknown as AgentSnapshot,
+			terminalAgentData: JSON.stringify(terminalAgent),
 			terminalRevision,
 			terminalTransport,
 		},
@@ -4326,7 +4336,7 @@ function persistDetachedJobFinalization(
 			processIdentity: terminal.processIdentity,
 			requireUniqueOwnership: true,
 			sessionPath: plan.sessionPath,
-			updatedAgentData: JSON.stringify(plan.terminalAgent),
+			updatedAgentData: plan.terminalAgentData,
 			updatedAt: terminal.terminalAt,
 		});
 		if (!agentUpdated) return undefined;
@@ -4421,6 +4431,7 @@ type DeadRuntimeRecoveryPlan = {
 	terminalRevision: number;
 	terminalTransport?: PreparedTerminalTransport;
 	updatedAgent: AgentSnapshot;
+	updatedAgentData: string;
 };
 
 export function recoverDeadMultiAgentRuntime(
@@ -4630,7 +4641,13 @@ function prepareDeadRuntimeRecovery(
 					nowIso,
 				)
 			: undefined;
-	return { agentData: recoverable.agentData, terminalRevision, terminalTransport, updatedAgent };
+	return {
+		agentData: recoverable.agentData,
+		terminalRevision,
+		terminalTransport,
+		updatedAgent,
+		updatedAgentData: JSON.stringify(updatedAgent),
+	};
 }
 
 function persistDeadRuntimeRecovery(
@@ -4647,7 +4664,7 @@ function persistDeadRuntimeRecovery(
 				 WHERE session_path = ? AND agent_id = ? AND data = ?`,
 			)
 			.run(
-				JSON.stringify(plan.updatedAgent),
+				plan.updatedAgentData,
 				plan.updatedAgent.updatedAt,
 				expectedOwner.sessionPath,
 				expectedOwner.agentId,
