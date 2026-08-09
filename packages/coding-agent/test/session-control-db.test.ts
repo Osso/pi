@@ -10,6 +10,7 @@ import { createDetachedJobArtifacts, createDetachedJobTerminalInput } from "../s
 import {
 	acquireAttachedRuntimeOwnership,
 	advanceSharedChannelCursor,
+	createMultiAgentAttachment,
 	allocateMultiAgentCounter,
 	archiveSession,
 	archiveSessionsOlderThan,
@@ -1028,6 +1029,87 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(completed?.error).toContain("Generic agent upsert cannot mutate process-owned lifecycle row");
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents[0]).toEqual(beforeAgent);
 		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId)).toEqual(beforeOwnership);
+	});
+
+	it("rejects an invalid attachment payload before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/invalid-attachment-contention.jsonl";
+		const agentId = "agent-invalid-attachment-contention";
+		const input = {
+			agent: {
+				agentType: "worker",
+				createdAt: "2026-08-09T00:00:00.000Z",
+				cwd: "/repo",
+				displayName: "Invalid attachment contention",
+				id: "wrong-agent-id",
+				lifecycle: "waiting_for_input",
+				origin: "attached",
+				permission: { narrowed: true, policy: "on-request" },
+				revision: 1,
+				updatedAt: "2026-08-09T00:00:00.000Z",
+			},
+			agentId,
+			nowIso: "2026-08-09T00:00:01.000Z",
+			sessionPath,
+		};
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { createMultiAgentAttachment } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						createMultiAgentAttachment(workerData.controlDbPath, workerData.input);
+						parentPort?.postMessage({ type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "completed" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "invalid-attachment worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("create");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "invalid attachment validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "invalid-attachment worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.error).toContain("Attached agent payload ID does not match command identity");
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []).toEqual([]);
 	});
 
 	it("rejects a control database created by a newer lifecycle protocol", () => {

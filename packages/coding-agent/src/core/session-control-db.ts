@@ -4200,14 +4200,16 @@ export function createMultiAgentAttachment(
 	controlDbPath: string,
 	input: CreateMultiAgentAttachmentInput,
 ): CreateMultiAgentAttachmentResult {
+	const agent = input.agent as AgentSnapshot & Record<string, unknown>;
+	validatePersistedAgentPayload(agent, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
+	if (agent.id !== input.agentId) throw new Error("Attached agent payload ID does not match command identity");
+	if (agent.origin !== "attached" || agent.lifecycle !== "waiting_for_input" || agent.revision !== 1) {
+		throw new Error("Attached agent creation requires waiting_for_input revision 1");
+	}
+	const parentId = agent.parentId;
+	const serializedAgent = JSON.stringify(agent);
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
-			const agent = input.agent as AgentSnapshot & Record<string, unknown>;
-			validatePersistedAgentPayload(agent, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
-			if (agent.id !== input.agentId) throw new Error("Attached agent payload ID does not match command identity");
-			if (agent.origin !== "attached" || agent.lifecycle !== "waiting_for_input" || agent.revision !== 1) {
-				throw new Error("Attached agent creation requires waiting_for_input revision 1");
-			}
 			if (
 				db
 					.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
@@ -4215,16 +4217,13 @@ export function createMultiAgentAttachment(
 			) {
 				return { ok: false, error: "agent_exists" };
 			}
-			if (agent.parentId && agent.parentId !== "main") {
+			if (parentId && parentId !== "main") {
 				const parentRow = db
 					.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-					.get(input.sessionPath, agent.parentId) as { data: string } | undefined;
+					.get(input.sessionPath, parentId) as { data: string } | undefined;
 				if (!parentRow) return { ok: false, error: "parent_not_found" };
-				const parent = parseStoredJsonObject(
-					parentRow.data,
-					`multi_agent_agents:${input.sessionPath}#${agent.parentId}`,
-				);
-				validatePersistedAgentPayload(parent, `multi_agent_agents:${input.sessionPath}#${agent.parentId}`);
+				const parent = parseStoredJsonObject(parentRow.data, `multi_agent_agents:${input.sessionPath}#${parentId}`);
+				validatePersistedAgentPayload(parent, `multi_agent_agents:${input.sessionPath}#${parentId}`);
 				if (!isNonterminalLifecycle(parent.lifecycle)) return { ok: false, error: "parent_not_found" };
 				const parentPermission = parent.permission as AgentSnapshot["permission"];
 				if (!agent.permission.narrowed || agent.permission.policy !== parentPermission.policy) {
@@ -4233,7 +4232,7 @@ export function createMultiAgentAttachment(
 			}
 			db.prepare(
 				"INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
-			).run(input.sessionPath, input.agentId, JSON.stringify(agent), input.nowIso);
+			).run(input.sessionPath, input.agentId, serializedAgent, input.nowIso);
 			return { ok: true, agent: input.agent };
 		}),
 	);
