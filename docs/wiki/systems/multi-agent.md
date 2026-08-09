@@ -11,7 +11,7 @@ committed agent/mailbox state for tools and UI. Detached Bash and Pyrun runners 
 in-memory identity, outcome, and output metadata; output artifacts are diagnostic only. Child-session
 dispatch, attached-session recovery, cancellation, steering, and waits use the same repository authority.
 
-The first-party agent extensions expose `agent_viewer`, `spawn_agent`, `list_agents`, `wait_agents`,
+The first-party agent extensions expose `agent_viewer`, `spawn_agent`, `list_agents`, `wait_agent`,
 `cancel_agent`, `contact_parent`, `send_agent_message`, and `steer_agent`. Orchestration-capable
 main runtimes must receive an issued execution capability before these tools or main-runtime listeners
 are exposed. `spawn_agent` constructs executable child work before persistence: success stores `running`
@@ -23,7 +23,7 @@ current direct parent, parentless runtimes are rejected, and the tool cannot tar
 or an arbitrary sibling. The old `contact_supervisor` name has no compatibility alias.
 Mailbox messages can carry validated absolute `fileRefs` entries with
 optional labels, so logs and diffs remain direct file references rather than registry records.
-`wait_agents({})` consumes every pending terminal notification already waiting, then queries current agent
+`wait_agent({})` consumes every pending terminal notification already waiting, then queries current agent
 rows for agents active at invocation until one is terminal. Steering accepted for a snapshotted active agent emits a
 transient process-local `wake_up` only to the live wait. Accepted ordinary main-session steering emits
 `steering_message_queued` after entering the AgentSession queue; interactive mode forwards it to the same process-local
@@ -72,7 +72,7 @@ applicable command and artifact verification checks form one proof union.
 The supervisor is the only orchestration authority. Child runtimes register only their agent-address
 mailbox listener, never a same-PID main listener, and never run supervisor-wide persisted-store
 reconciliation. Their initialized session-start hook reconciles only direct persisted descendants through
-coordinator recovery. They also reject direct `spawn_agent`, `attach_session_agent`, and `wait_agents`
+coordinator recovery. They also reject direct `spawn_agent`, `attach_session_agent`, and `wait_agent`
 calls, the equivalent Pyrun bridge methods, and `/bg`; production child sessions exclude
 those tools as a second boundary.
 
@@ -115,7 +115,7 @@ Startup reconciliation scans persisted detached runtimes after listener/path bin
 dead runners whose logical parent session remains live. Attached-session rows retain the transcript-backed
 resume path; attached rows already waiting for input remain idle.
 
-`wait_agents({})` takes no agent ID. Each invocation snapshots active agents and consumes every pending terminal
+`wait_agent({})` takes no agent ID. Each invocation snapshots active agents and consumes every pending terminal
 notification already waiting, then polls authoritative control-DB agent rows until one snapshot member is terminal.
 A coordination wake returns and consumes all currently pending deliverable runtime-mailbox and shared-channel inputs,
 preserving sender/body formatting; mailbox rows become `delivered` and the shared-channel cursor advances. Each
@@ -157,7 +157,7 @@ resume, close, interrupt, or otherwise advance a child.
 Steering is a mailbox command for child agents, not an edit to a live input buffer. Core records pending, accepted,
 rejected, and delivered states. Children consume steering only at safe checkpoints: before the next model call, after a
 tool result, or while waiting for input. Ordinary accepted main-session steering enters the AgentSession queue,
-emits `steering_message_queued`, and wakes only live process-local `wait_agents` invocations through interactive mode.
+emits `steering_message_queued`, and wakes only live process-local `wait_agent` invocations through interactive mode.
 
 Accounts own resource policy only: model/account choice, provider fallback, token budgets,
 concurrency caps, and rate limits. Agent-type profiles are a lightweight local policy for selecting

@@ -344,7 +344,7 @@ describe("InteractiveMode startup input", () => {
 		expect(context.pendingUserInputs).toEqual([]);
 	});
 
-	it("wakes wait_agents only after ordinary streaming steering is accepted", async () => {
+	it("wakes wait_agent only after ordinary streaming steering is accepted", async () => {
 		let acceptPrompt: (() => void) | undefined;
 		const promptAccepted = new Promise<void>((resolve) => {
 			acceptPrompt = resolve;

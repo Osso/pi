@@ -1088,9 +1088,9 @@ describe("runtime SQLite mailbox delivery", () => {
 			desktopNotifier: () => ({ close }),
 		});
 		const spawnAgent = tools.get("spawn_agent");
-		const waitAgents = tools.get("wait_agents");
+		const waitAgents = tools.get("wait_agent");
 		if (!spawnAgent || !waitAgents) {
-			throw new Error("expected spawn_agent and wait_agents tools");
+			throw new Error("expected spawn_agent and wait_agent tools");
 		}
 
 		await spawnAgent.execute(
@@ -1283,7 +1283,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "delivered" }]);
 	});
 
-	it("wait_agents observes the mirrored completion notification", async () => {
+	it("wait_agent observes the mirrored completion notification", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -1296,9 +1296,9 @@ describe("runtime SQLite mailbox delivery", () => {
 		}));
 		const tools = collectMultiAgentTools(store, { createChildSession });
 		const spawnAgent = tools.get("spawn_agent");
-		const waitAgents = tools.get("wait_agents");
+		const waitAgents = tools.get("wait_agent");
 		if (!spawnAgent || !waitAgents) {
-			throw new Error("expected spawn_agent and wait_agents tools");
+			throw new Error("expected spawn_agent and wait_agent tools");
 		}
 		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 
@@ -1323,16 +1323,16 @@ describe("runtime SQLite mailbox delivery", () => {
 		]);
 	});
 
-	it("wait_agents observes a failed detached Pyrun notification with duration details", async () => {
+	it("wait_agent observes a failed detached Pyrun notification with duration details", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
-		const waitAgents = collectMultiAgentTools(store).get("wait_agents");
+		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
 		if (!waitAgents) {
-			throw new Error("expected wait_agents tool");
+			throw new Error("expected wait_agent tool");
 		}
 		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
@@ -1372,16 +1372,16 @@ describe("runtime SQLite mailbox delivery", () => {
 		]);
 	});
 
-	it("wait_agents observes a detached Pyrun failure after waiting starts", async () => {
+	it("wait_agent observes a detached Pyrun failure after waiting starts", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
-		const waitAgents = collectMultiAgentTools(store).get("wait_agents");
+		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
 		if (!waitAgents) {
-			throw new Error("expected wait_agents tool");
+			throw new Error("expected wait_agent tool");
 		}
 		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
@@ -1424,7 +1424,7 @@ describe("runtime SQLite mailbox delivery", () => {
 	});
 
 	it.skipIf(process.platform === "win32")(
-		"wait_agents wakes for a deliverable runtime mailbox message without consuming transport delivery",
+		"wait_agent wakes for a deliverable runtime mailbox message without consuming transport delivery",
 		async () => {
 			vi.useFakeTimers();
 			tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
@@ -1434,8 +1434,8 @@ describe("runtime SQLite mailbox delivery", () => {
 			const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 			store.setPersistenceSessionManager(parentSession);
 			const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo");
-			const waitAgents = collectMultiAgentTools(store).get("wait_agents");
-			if (!waitAgents) throw new Error("expected wait_agents tool");
+			const waitAgents = collectMultiAgentTools(store).get("wait_agent");
+			if (!waitAgents) throw new Error("expected wait_agent tool");
 			registerRuntimeMailboxListener(
 				controlDbPath,
 				{ agentId: null, sessionId: parentSession.getSessionId() },
@@ -1482,7 +1482,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		},
 	);
 
-	it("wakes an active wait_agents naturally after successful steering", async () => {
+	it("wakes an active wait_agent naturally after successful steering", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -1512,7 +1512,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		);
 		const tools = collectMultiAgentTools(store);
 		const steerAgent = tools.get("steer_agent");
-		const waitAgents = tools.get("wait_agents");
+		const waitAgents = tools.get("wait_agent");
 		if (!steerAgent || !waitAgents) throw new Error("expected steering and wait tools");
 		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 		const controller = new AbortController();
@@ -1535,7 +1535,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			const waited = await Promise.race([
 				waiting,
 				delay(100).then(() => {
-					throw new Error("wait_agents did not wake after steering");
+					throw new Error("wait_agent did not wake after steering");
 				}),
 			]);
 			expect(controller.signal.aborted).toBe(false);
@@ -1721,7 +1721,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		);
 		const tools = collectMultiAgentTools(store);
 		const steerAgent = tools.get("steer_agent");
-		const waitAgents = tools.get("wait_agents");
+		const waitAgents = tools.get("wait_agent");
 		if (!steerAgent || !waitAgents) throw new Error("expected steering and wait tools");
 		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 
@@ -1769,7 +1769,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			const waited = await Promise.race([
 				waiting,
 				delay(100).then(() => {
-					throw new Error("wait_agents did not wake for steering emitted during the active wait");
+					throw new Error("wait_agent did not wake for steering emitted during the active wait");
 				}),
 			]);
 			expect(waited.content).toEqual([{ type: "text", text: "Woken after steering Verifier." }]);
@@ -1779,7 +1779,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		}
 	});
 
-	it("preserves completion when steering wakes wait_agents during a terminal race", async () => {
+	it("preserves completion when steering wakes wait_agent during a terminal race", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -1809,7 +1809,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		);
 		const tools = collectMultiAgentTools(store);
 		const steerAgent = tools.get("steer_agent");
-		const waitAgents = tools.get("wait_agents");
+		const waitAgents = tools.get("wait_agent");
 		if (!steerAgent || !waitAgents) throw new Error("expected steering and wait tools");
 		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 		const firstWait = waitAgents.execute("wait-race", {}, undefined, undefined, context);
@@ -1884,7 +1884,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		);
 		const tools = collectMultiAgentTools(store);
 		const steerAgent = tools.get("steer_agent");
-		const waitAgents = tools.get("wait_agents");
+		const waitAgents = tools.get("wait_agent");
 		if (!steerAgent || !waitAgents) throw new Error("expected steering and wait tools");
 		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 		const waiting = waitAgents.execute("wait-terminal-precedence", {}, undefined, undefined, context);
@@ -1931,7 +1931,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		}
 	});
 
-	it("wait_agents ignores pending terminal transport rows until actionable coordination arrives", async () => {
+	it("wait_agent ignores pending terminal transport rows until actionable coordination arrives", async () => {
 		vi.useFakeTimers();
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
@@ -1940,8 +1940,8 @@ describe("runtime SQLite mailbox delivery", () => {
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo");
-		const waitAgents = collectMultiAgentTools(store).get("wait_agents");
-		if (!waitAgents) throw new Error("expected wait_agents tool");
+		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
+		if (!waitAgents) throw new Error("expected wait_agent tool");
 		registerRuntimeMailboxListener(
 			controlDbPath,
 			{ agentId: null, sessionId: parentSession.getSessionId() },
@@ -1983,15 +1983,15 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(waited.content[0]).toMatchObject({ text: expect.stringContaining("Need parent review") });
 	});
 
-	it("wait_agents returns coordination input when no agents are active", async () => {
+	it("wait_agent returns coordination input when no agents are active", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
-		const waitAgents = collectMultiAgentTools(store).get("wait_agents");
-		if (!waitAgents) throw new Error("expected wait_agents tool");
+		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
+		if (!waitAgents) throw new Error("expected wait_agent tool");
 		registerRuntimeMailboxListener(
 			controlDbPath,
 			{ agentId: null, sessionId: parentSession.getSessionId() },
@@ -2017,7 +2017,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
 	});
 
-	it("wait_agents returns each distinct coordination message exactly once", async () => {
+	it("wait_agent returns each distinct coordination message exactly once", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
@@ -2025,8 +2025,8 @@ describe("runtime SQLite mailbox delivery", () => {
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo");
-		const waitAgents = collectMultiAgentTools(store).get("wait_agents");
-		if (!waitAgents) throw new Error("expected wait_agents tool");
+		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
+		if (!waitAgents) throw new Error("expected wait_agent tool");
 		registerRuntimeMailboxListener(
 			controlDbPath,
 			{ agentId: null, sessionId: parentSession.getSessionId() },
@@ -2058,15 +2058,15 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, secondId)).toMatchObject({ status: "delivered" });
 	});
 
-	it("wait_agents returns every coordination message pending at wake", async () => {
+	it("wait_agent returns every coordination message pending at wake", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
-		const waitAgents = collectMultiAgentTools(store).get("wait_agents");
-		if (!waitAgents) throw new Error("expected wait_agents tool");
+		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
+		if (!waitAgents) throw new Error("expected wait_agent tool");
 		const recipient = { agentId: null, sessionId: parentSession.getSessionId() };
 		registerRuntimeMailboxListener(controlDbPath, recipient, process.pid, parentSession.getSessionFile());
 		const messageIds = Array.from({ length: 21 }, (_, index) =>
@@ -2092,7 +2092,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		}
 	});
 
-	it("wait_agents returns an eligible shared-channel message and advances its cursor", async () => {
+	it("wait_agent returns an eligible shared-channel message and advances its cursor", async () => {
 		vi.useFakeTimers();
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
@@ -2101,8 +2101,8 @@ describe("runtime SQLite mailbox delivery", () => {
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
 		createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo");
-		const waitAgents = collectMultiAgentTools(store).get("wait_agents");
-		if (!waitAgents) throw new Error("expected wait_agents tool");
+		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
+		if (!waitAgents) throw new Error("expected wait_agent tool");
 		const recipient = { agentId: null, sessionId: parentSession.getSessionId() };
 		registerRuntimeMailboxListener(controlDbPath, recipient, process.pid, parentSession.getSessionFile());
 		const initialCursor = initializeSharedChannelCursorAtTail(controlDbPath, recipient);
@@ -2127,16 +2127,16 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(messageId).toBeGreaterThan(initialCursor);
 	});
 
-	it("wait_agents observes failed agents with result file references", async () => {
+	it("wait_agent observes failed agents with result file references", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
 		parentSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		store.setPersistenceSessionManager(parentSession);
-		const waitAgents = collectMultiAgentTools(store).get("wait_agents");
+		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
 		if (!waitAgents) {
-			throw new Error("expected wait_agents tool");
+			throw new Error("expected wait_agent tool");
 		}
 
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {

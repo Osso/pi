@@ -72,6 +72,6 @@ describe("agent notification waiting", () => {
 		const wake = await waitNotifications(store);
 		const result = consumeNotifications(store, wake);
 
-		expect(result.content).toEqual([{ text: "wait_agents requires a persisted supervisor session.", type: "text" }]);
+		expect(result.content).toEqual([{ text: "wait_agent requires a persisted supervisor session.", type: "text" }]);
 	});
 });

@@ -20,7 +20,7 @@ Pyrun console streaming exposes evaluated Python stdout and stderr through incre
 - [x] Durable foreground evaluations use the same visible progress formatter and console accumulator as direct foreground evaluations.
 - [x] Durable foreground artifact readers consume append-only JSONL bytes in bounded chunks, retaining an incomplete line once rather than rereading the growing artifact on every poll.
 - [x] Dense durable console records are coalesced before live tool updates while the append-only artifact retains every original record.
-- [x] Large newline-free console records remain memory-bounded across exec restart, restored child execution, and a parent blocked in `wait_agents`.
+- [x] Large newline-free console records remain memory-bounded across exec restart, restored child execution, and a parent blocked in `wait_agent`.
 - [x] Detached success and failure results retain duration from the original foreground tool invocation.
 - [x] Detached completion and failure notifications render the persisted duration consistently.
 

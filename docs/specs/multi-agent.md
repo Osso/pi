@@ -47,9 +47,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Only the supervisor runtime can orchestrate or inspect agents. Current runtime role and explicit
       child identity determine this authorization; historical `is_subagent` transcript provenance does not
       classify a session opened as the main orchestrator. Child/subagent runtimes reject
-      `spawn_agent`, `attach_session_agent`, `wait_agents`, `/bg`, and the Pyrun `agents.spawn`,
+      `spawn_agent`, `attach_session_agent`, `wait_agent`, `/bg`, and the Pyrun `agents.spawn`,
       `agents.attachSession`, and `agents.wait` bridge methods before rows are created. Production child
-      and attached sessions also exclude `spawn_agent`, `attach_session_agent`, `wait_agents`,
+      and attached sessions also exclude `spawn_agent`, `attach_session_agent`, `wait_agent`,
       `list_agents`, `agent_viewer`, `steer_agent`, and `cancel_agent` as defense in depth, while retaining
       direct child communication through `contact_parent` and `send_agent_message`.
 - [x] Child runtimes register only their agent-address mailbox listener and never run supervisor-wide
@@ -158,7 +158,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       admissions, invalidates local dispatches, and locally aborts session runtimes without inventing state.
 - [x] Agent notification waiting and consumption are separate operations: waiting returns when terminal or persisted
       coordination input is available, or when transient steering wakes a live wait, without changing notification delivery
-      state. Explicit consumption drains every pending terminal notification. `wait_agents({})` composes both operations,
+      state. Explicit consumption drains every pending terminal notification. `wait_agent({})` composes both operations,
       snapshots agents active at invocation, and queries current agent rows until any snapshot member is terminal. Terminal
       notifications only wake the query. Accepted ordinary main-session steering also wakes a live wait through the
       process-local AgentSession event path; neither wake changes notification delivery. Persisted coordination polling
@@ -289,7 +289,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   confirmed abort.
 - Each terminal transition updates the agent row and enqueues exactly one pending completion or failure
   notification in the same SQLite transaction. The agent row is terminal truth; the outbox is only a
-  delivery queue. Redelivery and retries affect terminal-notification delivery only. `wait_agents` consumes every
+  delivery queue. Redelivery and retries affect terminal-notification delivery only. `wait_agent` consumes every
   pending terminal notification already waiting and queries the current agent rows for agents active at invocation;
   terminal notifications only wake that query, while child steering and accepted ordinary main-session steering wake
   only a live wait. Ordinary steering emits `steering_message_queued` after entering the AgentSession queue; interactive
@@ -323,7 +323,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       heartbeat refresh, and retirement use that exact address; a subagent never creates or
       retires a main-thread binding.
 - [x] Separate agent sessions can send completion and coordination messages to another session's
-      main thread without requiring the receiver to call `wait_agents`.
+      main thread without requiring the receiver to call `wait_agent`.
 - [ ] Same-session subagents may address the main thread or another subagent by agent ID, but the
       default common path is child/separate-session to main-thread delivery.
 - [ ] Messages addressed to terminal agents are allowed and must either wake/resume that agent when
@@ -367,12 +367,12 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Multi-agent messaging requires a store persisted to the session control DB. There is no
       in-memory delivery mode: an unpersisted sender cannot enqueue transport rows, and the
       failure is reported explicitly rather than silently falling back.
-- [x] `wait_agents({})` consumes every pending terminal notification already waiting and queries agent rows for agents
+- [x] `wait_agent({})` consumes every pending terminal notification already waiting and queries agent rows for agents
       active at invocation until one reaches a terminal state. Terminal notifications only wake the query; child
       steering and accepted ordinary main-session steering wake only a live wait. Persisted coordination polling
       returns and consumes all currently pending deliverable runtime-mailbox and shared-channel inputs; Pyrun uses the
       same operation.
-- [x] A live `wait_agents({})` invocation receives a transient `wake_up` when steering is accepted for one of its
+- [x] A live `wait_agent({})` invocation receives a transient `wake_up` when steering is accepted for one of its
       snapshotted active agents. Accepted ordinary main-session steering emits `steering_message_queued` after it enters
       the AgentSession queue; interactive mode forwards that event to the same process-local wait wake path. Both wakes
       are scoped to the live invocation, are never persisted or replayed after it ends, and do not use SIGUSR2 or
@@ -547,7 +547,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   auto-prompt them again, idle waiting agents are not auto-prompted, child runtimes do not run supervisor
   recovery, shutdown aborts live child handles, and old dispatch completions cannot mutate a newly rebound store. It also asserts
   the production child factory and configured agent profiles select child model/thinking settings for
-  `agentType: "explore"`, `agentType: "documentation-update"`, and `agentType: "implement"`; `wait_agents({})`
+  `agentType: "explore"`, `agentType: "documentation-update"`, and `agentType: "implement"`; `wait_agent({})`
   supports simultaneous and late completion waiters while returning and consuming coordination delivery. Failed
   agents expose their failure message and `fileRefs`. `list_agents` always returns
   active agents, can scope them below a parent without TUI state, and exposes no terminal-agent option. `contact_parent` derives the caller's exact agent runtime identity from session context and routes child messages only to the current direct parent with validated absolute
@@ -585,7 +585,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   `list_agents` exclusion of the terminal child after `restart_self`.
 - [`packages/coding-agent/test/runtime-mailbox.test.ts`](../../packages/coding-agent/test/runtime-mailbox.test.ts)
   verifies canonical runtime mailbox delivery for child completion, waiting-for-input,
-  steering, and failed detached Pyrun notifications, including `wait_agents({})` delivery marking.
+  steering, and failed detached Pyrun notifications, including `wait_agent({})` delivery marking.
 - [`packages/coding-agent/test/wait-agent-notifications.test.ts`](../../packages/coding-agent/test/wait-agent-notifications.test.ts)
   verifies waiting observes terminal notifications without consuming them and explicit consumption performs delivery.
 - [`packages/coding-agent/test/suite/agent-session-child-activity.test.ts`](../../packages/coding-agent/test/suite/agent-session-child-activity.test.ts)
@@ -612,16 +612,16 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Implement extension-facing spawn/list/wait/cancel/steer tools over coordinator commands and store
       projections, update `docs/specs/multi-agent.md`, run targeted tests and `npm run check`.
 - [x] Add coordinator-backed executable child-dispatch tests behind `spawn_agent` plus agent-row
-      `wait_agents({})` behavior without TUI coupling.
+      `wait_agent({})` behavior without TUI coupling.
 - [x] Add and implement real child `AgentSession` factory tests behind `spawn_agent` and
-      terminal-state `wait_agents({})` behavior without TUI coupling.
+      terminal-state `wait_agent({})` behavior without TUI coupling.
 - [x] Implement production child `AgentSession` factory wiring for `spawn_agent` using existing
       session primitives, without real provider calls in tests.
 - [x] Add and implement descendant-scoped `list_agents` coverage so parent sessions can list child
       trees without TUI state.
 - [x] Add and implement child-to-parent mailbox contact without sibling access.
 - [x] Add and implement mailbox and completion `fileRefs` with absolute-path validation.
-- [x] Add and implement `wait_agents({})` behavior draining every pending terminal notification already
+- [x] Add and implement `wait_agent({})` behavior draining every pending terminal notification already
       waiting before agent-row queries; simultaneous and late waiters observe current terminal rows without
       consuming runtime-mailbox delivery as terminal truth.
 - [x] Add focused tests for stable agent metadata, optional pinned slots, and remaining lifecycle
@@ -663,7 +663,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Move mailbox transport out of JSONL-backed `MultiAgentStore` snapshots and into a runtime
       SQLite mailbox keyed by `(session_id, agent_id)`.
 - [x] Add idle polling and end-of-turn draining for the SQLite runtime mailbox so receivers wake
-      without requiring `wait_agents`.
+      without requiring `wait_agent`.
 - [x] Add atomic claim/deliver/fail transitions for runtime mailbox rows and regression tests for
       duplicate delivery prevention across concurrent receivers.
 - [x] Replace eager runtime-mailbox claim and volatile follow-up enqueue with readiness-boundary

@@ -16,7 +16,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - [x] Unfinished foreground Pyrun recovery replays complete terminal result/error records; a dead runner without one returns explicit `lost_runtime`, preserves `launch.json`, `script.py`, and `output.log`, and never reruns submitted code. Incomplete trailing JSONL is ignored; malformed complete JSONL fails explicitly.
 - [x] Normal full-access detached Pyrun preserves the parent process environment without serializing inherited variables into `launch.json`; `inheritEnv: false` remains isolated to explicit `runnerOptions.env`.
 - [x] Detached Bash and Pyrun allocation exclusively reserves each artifact directory; retained collisions advance allocation to a new ID without deleting or reusing retained evidence.
-- [x] `wait_agents({})` consumes every pending terminal notification already waiting before querying detached
+- [x] `wait_agent({})` consumes every pending terminal notification already waiting before querying detached
       tool jobs active at invocation for a terminal agent row. Persisted coordination is detected by the waiter's
       three-second polling loop and returns with all currently pending deliverable runtime-mailbox and shared-channel
       inputs consumed, preserving sender/body formatting; mailbox rows become `delivered` and the shared-channel
@@ -38,7 +38,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 
 - See [multi-agent](multi-agent.md) for background job storage and lifecycle tracking.
 - The shared detach registry owns the auto-detach timer so the behavior is available to API and interactive execution paths whenever the session exposes a registry.
-- `wait_agents({})` snapshots active background jobs and consumes every pending terminal notification already
+- `wait_agent({})` snapshots active background jobs and consumes every pending terminal notification already
   waiting, then queries current agent rows until the first snapshot member is terminal. Persisted coordination input
   is detected by the waiter's three-second polling loop and returns with all currently pending deliverable
   runtime-mailbox and shared-channel inputs consumed, preserving sender/body formatting, marking mailbox rows

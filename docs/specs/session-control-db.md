@@ -184,7 +184,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       transition payloads before each short transaction, revalidate exact listener/ownership authority and the observed
       canonical payload, and perform atomic delivery or claim writes; already-claimed or direct terminal status transitions use single-statement compare-and-swap writes guarded by the
       observed payload and claimant identity. Selected payloads proceed directly to active session
-      input without an intermediate volatile queue. `wait_agents({})`
+      input without an intermediate volatile queue. `wait_agent({})`
       uses the same delivery boundary on a coordination wake and returns all currently pending
       deliverable runtime-mailbox inputs, preserving sender/body formatting. Restart before a
       per-message write leaves the messages pending and recoverable. If another turn starts while

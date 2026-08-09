@@ -604,7 +604,7 @@ async function backgroundCommand(
 	background.ownerships.set(created.agent.id, runtime);
 	const agent = startBackgroundDispatch(background, runtime, prompt, ctx, childSession);
 	ctx.ui.setEditorText("");
-	ctx.ui.notify(`Background job ${agent.id} started. Use /jobs to inspect it or wait_agents to wait for any completion.`, "info");
+	ctx.ui.notify(`Background job ${agent.id} started. Use /jobs to inspect it or wait_agent to wait for any completion.`, "info");
 }
 
 function jobsCommand(store: MultiAgentStore, ctx: ExtensionCommandContext): void {
@@ -2437,7 +2437,7 @@ export async function waitNotifications(
 	if (ctx) mirrorPendingLifecycleRuntimeMailboxMessages(store, ctx);
 	const persistence = store.getPersistenceTarget();
 	if (!persistence) {
-		return { kind: "unavailable", message: "wait_agents requires a persisted supervisor session." };
+		return { kind: "unavailable", message: "wait_agent requires a persisted supervisor session." };
 	}
 	const pending = listPendingTerminalNotifications(store, persistence.controlDbPath, persistence.sessionPath);
 	if (pending.length > 0) return { agent: pending[0].agent, kind: "agent" };
@@ -3392,15 +3392,15 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 
 	pi.registerTool(
 		defineTool({
-			name: "wait_agents",
-			label: "Wait Agents",
+			name: "wait_agent",
+			label: "Wait Agent",
 			description:
 				"Wait until an active agent terminates, steering wakes the wait, or persisted coordination polling finds input. Terminal wakes consume pending terminal notifications.",
 			approvalRequired: false,
 			parameters: waitAgentsSchema,
 			execute: async (_toolCallId, params, signal, _onUpdate, ctx) => {
 				runtimeLifecycleMirror.bind(ctx);
-				assertNoWaitAgentsParams(params, "wait_agents");
+				assertNoWaitAgentsParams(params, "wait_agent");
 				return waitAgents(store, runtimeHandles, signal, ctx);
 			},
 		}),

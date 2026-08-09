@@ -471,7 +471,7 @@ async function waitForTerminalAgent(
 	harness: ReturnType<typeof createMultiAgentHarness>,
 	agentId: string,
 ): Promise<AgentSnapshot> {
-	const waited = await harness.call<WaitAgentsDetails>("wait_agents", {});
+	const waited = await harness.call<WaitAgentsDetails>("wait_agent", {});
 	expect(waited.details).toEqual(expect.any(Object));
 	const agent = harness.store.getAgent(agentId);
 	if (!agent || isActiveLifecycle(agent.lifecycle)) {
@@ -591,6 +591,7 @@ describe("multi-agent extension tools", () => {
 	it("registers spawn/list/cancel/steer/contact/viewer tools", () => {
 		const harness = createMultiAgentHarness();
 
+		expect(harness.tools.has("wait_agents")).toBe(false);
 		expect([...harness.tools.keys()].sort()).toEqual([
 			"agent_viewer",
 			"attach_session_agent",
@@ -600,10 +601,10 @@ describe("multi-agent extension tools", () => {
 			"send_agent_message",
 			"spawn_agent",
 			"steer_agent",
-			"wait_agents",
+			"wait_agent",
 		]);
-		const waitTool = harness.tools.get("wait_agents");
-		if (!waitTool) throw new Error("expected wait_agents tool");
+		const waitTool = harness.tools.get("wait_agent");
+		if (!waitTool) throw new Error("expected wait_agent tool");
 		const waitParameters = waitTool.parameters as { properties: Record<string, unknown>; required?: string[] };
 		expect(Object.keys(waitParameters.properties)).toEqual([]);
 		expect(waitParameters.required).toBeUndefined();
@@ -627,7 +628,7 @@ describe("multi-agent extension tools", () => {
 			["send_agent_message", false],
 			["spawn_agent", false],
 			["steer_agent", false],
-			["wait_agents", false],
+			["wait_agent", false],
 		]);
 	});
 
@@ -643,7 +644,7 @@ describe("multi-agent extension tools", () => {
 			"send_agent_message",
 			"spawn_agent",
 			"steer_agent",
-			"wait_agents",
+			"wait_agent",
 		]);
 
 		const spawned = spawnStoreFixture(harness.store, {
@@ -797,7 +798,7 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
-	it("reports attached session completion through wait_agents and the runtime mailbox", async () => {
+	it("reports attached session completion through wait_agent and the runtime mailbox", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-complete-attached-session-"));
 		try {
 			const savedSessionId = "019f29f4-0000-7000-8000-000000000004";
@@ -1448,7 +1449,7 @@ describe("multi-agent extension tools", () => {
 		});
 		const running = { ok: true as const, agent: spawned.agent };
 
-		const waited = harness.call<WaitAgentsDetails>("wait_agents", {});
+		const waited = harness.call<WaitAgentsDetails>("wait_agent", {});
 		expect(await resolvesWithin(waited, 10)).toBe(false);
 
 		const current = store.getAgent(running.agent.id);
@@ -1791,7 +1792,7 @@ describe("multi-agent extension tools", () => {
 			"list_agents",
 			"spawn_agent",
 			"steer_agent",
-			"wait_agents",
+			"wait_agent",
 		]);
 		expect(collectTools((pi) => agentViewerExtension(pi, { store }))).toEqual(["agent_viewer"]);
 		expect(collectTools((pi) => agentsMailboxExtension(pi, { store }))).toEqual([
@@ -1831,7 +1832,7 @@ describe("multi-agent extension tools", () => {
 		expect(notifications[0]?.message).toContain(agent.id);
 
 		childPrompt.resolve();
-		await harness.call<WaitAgentsDetails>("wait_agents", {});
+		await harness.call<WaitAgentsDetails>("wait_agent", {});
 		expect(harness.store.getAgent(agent.id)).toMatchObject({ lifecycle: "completed" });
 	});
 
@@ -2132,8 +2133,8 @@ describe("multi-agent extension tools", () => {
 		await expect(handler({ method: "agents.wait", params: { agentId: "agent_1" } }, ctx, undefined)).rejects.toThrow(
 			"pi.agents.wait does not accept parameters",
 		);
-		await expect(harness.call<WaitAgentsDetails>("wait_agents", { agentId: "agent_1" })).rejects.toThrow(
-			"wait_agents does not accept parameters",
+		await expect(harness.call<WaitAgentsDetails>("wait_agent", { agentId: "agent_1" })).rejects.toThrow(
+			"wait_agent does not accept parameters",
 		);
 	});
 
@@ -2143,7 +2144,7 @@ describe("multi-agent extension tools", () => {
 		for (const [toolName, params] of [
 			["spawn_agent", { context: "fresh", displayName: "Nested", prompt: "do work" }],
 			["attach_session_agent", { sessionId: "saved-session" }],
-			["wait_agents", {}],
+			["wait_agent", {}],
 		] as const) {
 			const result = await harness.call<Record<string, unknown>>(toolName, params);
 			expect(result.content).toMatchObject([
@@ -2187,7 +2188,7 @@ describe("multi-agent extension tools", () => {
 		expect(harness.store.listAgents()).toEqual([]);
 	});
 
-	it("lets tool wait_agents observe Pi request handler dispatches through shared runtime handles", async () => {
+	it("lets tool wait_agent observe Pi request handler dispatches through shared runtime handles", async () => {
 		const finishGate = deferred<void>();
 		const sessionManager = createControlDbSession();
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
@@ -2214,7 +2215,7 @@ describe("multi-agent extension tools", () => {
 			ctx,
 			undefined,
 		)) as SpawnAgentDetails;
-		const waitPromise = harness.call<WaitAgentsDetails>("wait_agents", {});
+		const waitPromise = harness.call<WaitAgentsDetails>("wait_agent", {});
 		const didResolveBeforeFinish = await resolvesWithin(waitPromise, 20);
 		finishGate.resolve(undefined);
 		const waited = await waitPromise;
@@ -2957,10 +2958,10 @@ describe("multi-agent extension tools", () => {
 		expect(cancelled.details.reason).toBe("user stopped it");
 	});
 
-	it("wait_agents returns immediately when no agents are active", async () => {
+	it("wait_agent returns immediately when no agents are active", async () => {
 		const harness = createMultiAgentHarness();
 
-		const waited = await harness.call<WaitAgentsDetails>("wait_agents", {});
+		const waited = await harness.call<WaitAgentsDetails>("wait_agent", {});
 
 		expect(waited).toEqual({ content: [], details: {} });
 	});
@@ -3232,7 +3233,7 @@ describe("multi-agent extension tools", () => {
 		expect(completedParent).toMatchObject({ lifecycle: "completed", result: { summary: "Parent done" } });
 	});
 
-	it("wait_agents drains every terminal notification already waiting in the mailbox", async () => {
+	it("wait_agent drains every terminal notification already waiting in the mailbox", async () => {
 		const finishGate = deferred<void>();
 		const createChildSession = createTranscriptBackedFauxSessionFactory(async ({ agent }) => {
 			await finishGate.promise;
@@ -3255,7 +3256,7 @@ describe("multi-agent extension tools", () => {
 			waitForAgentLifecycle(harness, first.details.agent.id, "completed"),
 			waitForAgentLifecycle(harness, second.details.agent.id, "completed"),
 		]);
-		const waited = await harness.call<WaitAgentsDetails>("wait_agents", {});
+		const waited = await harness.call<WaitAgentsDetails>("wait_agent", {});
 
 		expect(waited.content).toEqual([
 			{ text: "First completed: First done\nSecond completed: Second done", type: "text" },
@@ -3315,7 +3316,7 @@ describe("multi-agent extension tools", () => {
 		harness.store.publishLifecycleCoordinatorSnapshot(created.agent as AgentSnapshot);
 
 		const waitAbort = new AbortController();
-		const waitPromise = harness.call<WaitAgentsDetails>("wait_agents", {}, waitAbort.signal);
+		const waitPromise = harness.call<WaitAgentsDetails>("wait_agent", {}, waitAbort.signal);
 		const didResolve = await resolvesWithin(waitPromise, 250);
 		if (!didResolve) waitAbort.abort();
 		expect(didResolve).toBe(true);
@@ -3333,7 +3334,7 @@ describe("multi-agent extension tools", () => {
 		});
 		expect(completedParent).toMatchObject({ lifecycle: "completed", result: { summary: "Parent done" } });
 	});
-	it("wait_agents returns when any active agent reaches a terminal state", async () => {
+	it("wait_agent returns when any active agent reaches a terminal state", async () => {
 		const firstGate = deferred<void>();
 		const secondGate = deferred<void>();
 		const createChildSession = createTranscriptBackedFauxSessionFactory(async ({ agent }) => {
@@ -3352,7 +3353,7 @@ describe("multi-agent extension tools", () => {
 			prompt: "Second task",
 		});
 
-		const waitPromise = harness.call<WaitAgentsDetails>("wait_agents", {});
+		const waitPromise = harness.call<WaitAgentsDetails>("wait_agent", {});
 		const didResolveBeforeCompletion = await resolvesWithin(waitPromise, 20);
 		secondGate.resolve(undefined);
 		const waited = await waitPromise;
@@ -3468,11 +3469,11 @@ describe("multi-agent extension tools", () => {
 			displayName: "Worker",
 			prompt: "Complete for every waiter",
 		});
-		const first = harness.call<WaitAgentsDetails>("wait_agents", {});
-		const second = harness.call<WaitAgentsDetails>("wait_agents", {});
+		const first = harness.call<WaitAgentsDetails>("wait_agent", {});
+		const second = harness.call<WaitAgentsDetails>("wait_agent", {});
 		finishGate.resolve(undefined);
 		const [firstResult, secondResult] = await Promise.all([first, second]);
-		const lateResult = await harness.call<WaitAgentsDetails>("wait_agents", {});
+		const lateResult = await harness.call<WaitAgentsDetails>("wait_agent", {});
 
 		const completedWaits = [firstResult, secondResult].filter((waited) => waited.details.message !== undefined);
 		const statusWaits = [firstResult, secondResult].filter((waited) => waited.details.message === undefined);
@@ -3487,7 +3488,7 @@ describe("multi-agent extension tools", () => {
 		expect(lateResult.content).toEqual([]);
 	});
 
-	it("wait_agents waits for a dispatched agent to complete and consumes the parent completion mailbox message", async () => {
+	it("wait_agent waits for a dispatched agent to complete and consumes the parent completion mailbox message", async () => {
 		const idleGate = deferred<void>();
 		const finishGate = deferred<void>();
 		const idleState = deferred<void>();
@@ -3534,7 +3535,7 @@ describe("multi-agent extension tools", () => {
 			prompt: "Need input before finishing",
 		});
 
-		const waitPromise = harness.call<WaitAgentsDetails>("wait_agents", {});
+		const waitPromise = harness.call<WaitAgentsDetails>("wait_agent", {});
 		const didResolveBeforeIdle = await resolvesWithin(waitPromise, 20);
 		idleGate.resolve(undefined);
 		await idleState.promise;
@@ -3670,7 +3671,7 @@ describe("multi-agent extension tools", () => {
 		expect(waited).toMatchObject({ id: spawned.details.agent.id, lifecycle: "completed" });
 	});
 
-	it("returns the consumed completion message after wait_agents observes completion", async () => {
+	it("returns the consumed completion message after wait_agent observes completion", async () => {
 		const createChildSession = createTranscriptBackedFauxSessionFactory(async () => ({
 			lifecycle: "completed",
 			result: { summary: "Committed 18125d44 feat: add local deploy script" },
@@ -3682,7 +3683,7 @@ describe("multi-agent extension tools", () => {
 			displayName: "commit workflow",
 			prompt: "Commit current changes",
 		});
-		const waited = await harness.call<Record<string, unknown>>("wait_agents", {});
+		const waited = await harness.call<Record<string, unknown>>("wait_agent", {});
 
 		expectWaitCompletionMessage(
 			waited,
@@ -3690,7 +3691,7 @@ describe("multi-agent extension tools", () => {
 		);
 	});
 
-	it("returns failed wait_agents notifications from transcript-backed sessions", async () => {
+	it("returns failed wait_agent notifications from transcript-backed sessions", async () => {
 		const createChildSession = createTranscriptBackedFauxSessionFactory(async () => ({
 			lifecycle: "failed",
 			error: { message: "Pyrun evaluation failed." },
@@ -3702,7 +3703,7 @@ describe("multi-agent extension tools", () => {
 			displayName: "failing workflow",
 			prompt: "Run the failing job",
 		});
-		const waited = await harness.call<WaitAgentsDetails>("wait_agents", {});
+		const waited = await harness.call<WaitAgentsDetails>("wait_agent", {});
 
 		expect(waited.content).toEqual([{ text: "failing workflow failed: Pyrun evaluation failed.", type: "text" }]);
 		expect(waited.details).toMatchObject({
@@ -3900,7 +3901,7 @@ describe("multi-agent extension tools", () => {
 				"list_agents",
 				"spawn_agent",
 				"steer_agent",
-				"wait_agents",
+				"wait_agent",
 				"manage_goal",
 			],
 			model: parentHarness.getModel(),
@@ -4148,7 +4149,7 @@ describe("multi-agent extension tools", () => {
 				"list_agents",
 				"spawn_agent",
 				"steer_agent",
-				"wait_agents",
+				"wait_agent",
 				"manage_goal",
 			],
 			multiAgentAgentId: spawned.details.agent.id,
@@ -4713,7 +4714,7 @@ describe("multi-agent extension tools", () => {
 				"list_agents",
 				"spawn_agent",
 				"steer_agent",
-				"wait_agents",
+				"wait_agent",
 				"manage_goal",
 			],
 			multiAgentStore: store,
@@ -5328,7 +5329,7 @@ describe("historical subagent runtime provenance", () => {
 	it("treats historical subagent metadata as main-thread orchestration state", async () => {
 		const harness = createMultiAgentHarness({ ctx: { sessionManager: createHistoricalSubagentSession() } });
 
-		const waited = await harness.call<WaitAgentsDetails>("wait_agents", {});
+		const waited = await harness.call<WaitAgentsDetails>("wait_agent", {});
 
 		expect(waited.content).toEqual([]);
 		expect(waited.details).toEqual({});

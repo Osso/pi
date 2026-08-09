@@ -38,7 +38,7 @@ and are persisted as `completionReason` only after a `complete` decision. Applie
 that review. Supervisor instructions are not included because the resident
 Supervisor already owns them in its persistent transcript. `continue` leaves the
 goal running and queues a concrete next action. `complete` marks it complete.
-`wait` appends durable Supervisor status, starts cancellable background `wait_agents`
+`wait` appends durable Supervisor status, starts cancellable background `wait_agent`
 when agents are active, and re-reviews after wake or after five minutes without
 active agents, including when progress depends on an external condition that can be
 rechecked. `pause` is reserved for required user action or input that cannot advance

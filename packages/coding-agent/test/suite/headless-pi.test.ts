@@ -471,7 +471,7 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
-	it("wait_agents returns after an active subagent processes pending steering", async () => {
+	it("wait_agent returns after an active subagent processes pending steering", async () => {
 		await withHeadlessPi(async (agent) => {
 			await agent.send({ type: "prompt", message: "Spawn a reviewer, then steer it" });
 			const initialMainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
@@ -513,12 +513,12 @@ describe("headless Pi fixture", () => {
 			const waitToolCallId = "wait-for-steered-reviewer";
 			agent.respondToLlmRequest(
 				mainAfterSteer.id,
-				fauxAssistantMessage({ ...fauxToolCall("wait_agents", {}), id: waitToolCallId }, { stopReason: "toolUse" }),
+				fauxAssistantMessage({ ...fauxToolCall("wait_agent", {}), id: waitToolCallId }, { stopReason: "toolUse" }),
 			);
 			await agent.waitForEvent(
 				(event) =>
 					event.type === "tool_execution_start" &&
-					event.toolName === "wait_agents" &&
+					event.toolName === "wait_agent" &&
 					event.toolCallId === waitToolCallId,
 			);
 
@@ -554,18 +554,18 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
-	it("wakes wait_agents when signal-driven shared-channel draining advances its cursor first", async () => {
+	it("wakes wait_agent when signal-driven shared-channel draining advances its cursor first", async () => {
 		await withHeadlessPi(async (agent) => {
 			const { childRequest, mainAfterSpawn } = await spawnPendingHeadlessChild(agent, "Waiting worker");
 			const waitToolCallId = "wait-for-signal-drained-channel";
 			agent.respondToLlmRequest(
 				mainAfterSpawn.id,
-				fauxAssistantMessage({ ...fauxToolCall("wait_agents", {}), id: waitToolCallId }, { stopReason: "toolUse" }),
+				fauxAssistantMessage({ ...fauxToolCall("wait_agent", {}), id: waitToolCallId }, { stopReason: "toolUse" }),
 			);
 			await agent.waitForEvent(
 				(event) =>
 					event.type === "tool_execution_start" &&
-					event.toolName === "wait_agents" &&
+					event.toolName === "wait_agent" &&
 					event.toolCallId === waitToolCallId,
 			);
 
@@ -890,10 +890,10 @@ describe("headless Pi fixture", () => {
 				);
 				agent.respondToLlmRequest(
 					afterDetach.id,
-					fauxAssistantMessage(fauxToolCall("wait_agents", {}), { stopReason: "toolUse" }),
+					fauxAssistantMessage(fauxToolCall("wait_agent", {}), { stopReason: "toolUse" }),
 				);
 				await agent.waitForEvent(
-					(event) => event.type === "tool_execution_start" && event.toolName === "wait_agents",
+					(event) => event.type === "tool_execution_start" && event.toolName === "wait_agent",
 				);
 				writeFileSync(releasePath, "release");
 				await agent.waitForAgent(
@@ -902,9 +902,7 @@ describe("headless Pi fixture", () => {
 				expect(agent.listAgents().find((candidate) => candidate.id === detachedJob.id)?.result?.toolCallId).toBe(
 					toolCallId,
 				);
-				await agent.waitForEvent(
-					(event) => event.type === "tool_execution_end" && event.toolName === "wait_agents",
-				);
+				await agent.waitForEvent((event) => event.type === "tool_execution_end" && event.toolName === "wait_agent");
 				const completionRequest = await agent.waitForLlmRequest(
 					(candidate) => candidate.agentId === null && JSON.stringify(candidate.messages).includes(detachedJob.id),
 				);

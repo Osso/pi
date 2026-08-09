@@ -145,7 +145,7 @@ Every terminal transition updates the agent row and revision and enqueues exactl
 or failure notification in the same SQLite transaction. The agent row is terminal truth; the outbox is
 only a delivery queue. Notification delivery may retry or expire, but it never creates or replaces
 terminal state. Runtime transport uses one session-bound lifecycle mirror shared by direct tools and
-Pyrun handlers. `wait_agents` snapshots active agents and consumes every pending terminal notification
+Pyrun handlers. `wait_agent` snapshots active agents and consumes every pending terminal notification
 already waiting, then queries current agent rows. A coordination wake instead returns and consumes all
 currently pending deliverable runtime-mailbox and shared-channel inputs, preserving sender/body formatting;
 mailbox rows become `delivered` and the shared-channel cursor advances so each distinct message is visible
@@ -265,7 +265,7 @@ folder from reading stale manifests or output belonging to another supervisor.
 - [x] Child agent runtimes register only their agent-address mailbox listener; they never register a
       same-PID main listener or run supervisor-wide recovery. Their session-start hook may reconcile only direct
       persisted descendants through the normal coordinator recovery path.
-- [x] `wait_agents({})` snapshots active agents at invocation and consumes every pending terminal
+- [x] `wait_agent({})` snapshots active agents at invocation and consumes every pending terminal
       notification already waiting, then queries current agent rows until one snapshot member is terminal. A coordination
       wake returns and consumes all currently pending deliverable runtime-mailbox and shared-channel inputs, preserving
       sender/body formatting; mailbox rows become `delivered` and the shared-channel cursor advances. Each distinct

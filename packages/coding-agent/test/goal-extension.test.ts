@@ -1231,7 +1231,7 @@ describe("goal extension", () => {
 		await harness.runAgentEnd();
 
 		expect(harness.callTool).toHaveBeenNthCalledWith(1, "list_agents", { parentId: "main" });
-		expect(harness.callTool.mock.calls[1]?.slice(0, 2)).toEqual(["wait_agents", {}]);
+		expect(harness.callTool.mock.calls[1]?.slice(0, 2)).toEqual(["wait_agent", {}]);
 		expect(harness.callTool.mock.calls[1]?.[2]).toBeInstanceOf(AbortSignal);
 		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
 			message: "Waiting: child still running",
@@ -1247,7 +1247,7 @@ describe("goal extension", () => {
 		});
 	});
 
-	it("passes wait_agents visible coordination content into goal re-review", async () => {
+	it("passes wait_agent visible coordination content into goal re-review", async () => {
 		let finishWait: (() => void) | undefined;
 		const waitFinished = new Promise<void>((resolve) => {
 			finishWait = resolve;
@@ -1381,7 +1381,7 @@ describe("goal extension", () => {
 		}
 	});
 
-	it("falls back to timed review when wait_agents returns an error result", async () => {
+	it("falls back to timed review when wait_agent returns an error result", async () => {
 		vi.useFakeTimers();
 		try {
 			vi.setSystemTime(new Date("2026-07-28T12:00:00.000Z"));
@@ -1393,7 +1393,7 @@ describe("goal extension", () => {
 				callTool: async (name) => {
 					if (name === "list_agents") return { content: [], details: { activeCount: 1 } };
 					return {
-						content: [{ type: "text", text: "wait_agents unavailable" }],
+						content: [{ type: "text", text: "wait_agent unavailable" }],
 						details: {},
 						isError: true,
 					};
@@ -1404,7 +1404,7 @@ describe("goal extension", () => {
 			await harness.runAgentEnd();
 			await Promise.resolve();
 			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-				message: "Goal wait failed: wait_agents unavailable",
+				message: "Goal wait failed: wait_agent unavailable",
 			});
 			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
 				message: "Waiting: child running",

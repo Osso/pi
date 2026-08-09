@@ -73,9 +73,9 @@ describe("post-restart Pyrun memory", () => {
 
 			pi.respondToLlmRequest(
 				restoredMain.id,
-				fauxAssistantMessage(fauxToolCall("wait_agents", {}), { stopReason: "toolUse" }),
+				fauxAssistantMessage(fauxToolCall("wait_agent", {}), { stopReason: "toolUse" }),
 			);
-			await pi.waitForEvent((event) => event.type === "tool_execution_start" && event.toolName === "wait_agents");
+			await pi.waitForEvent((event) => event.type === "tool_execution_start" && event.toolName === "wait_agent");
 			pi.respondToLlmRequest(
 				restoredChild.id,
 				fauxAssistantMessage(fauxToolCall("pyrun_eval", { code: `print('x' * ${LARGE_OUTPUT_BYTES})` }), {

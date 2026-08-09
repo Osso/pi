@@ -268,9 +268,9 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		terminalTurn: TerminalTurn,
 		controller: AbortController,
 	): Promise<void> {
-		const waitResult = await this.options.pi.callTool("wait_agents", {}, controller.signal);
+		const waitResult = await this.options.pi.callTool("wait_agent", {}, controller.signal);
 		if (controller.signal.aborted) return;
-		const waitError = toolError(waitResult, "wait_agents");
+		const waitError = toolError(waitResult, "wait_agent");
 		if (waitError) throw waitError;
 		this.waitControllers.delete(ctx.sessionManager.getSessionId());
 		await this.reviewAndApply(ctx, goal, terminalTurn, waitWakeEvidence(waitResult));

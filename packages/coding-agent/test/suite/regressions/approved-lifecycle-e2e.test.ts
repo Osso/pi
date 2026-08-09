@@ -229,7 +229,7 @@ describe("approved multi-agent lifecycle e2e", () => {
 		);
 	});
 
-	it("returns one pending completion from wait_agents, then no active agents", async () => {
+	it("returns one pending completion from wait_agent, then no active agents", async () => {
 		const childStarted = deferred<void>();
 		const releaseChildResponse = deferred<void>();
 		let fixture!: SupervisorFixture;
@@ -257,28 +257,28 @@ describe("approved multi-agent lifecycle e2e", () => {
 		await childStarted.promise;
 
 		fixture.harness.setResponses([
-			fauxAssistantMessage(fauxToolCall("wait_agents", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage(fauxToolCall("wait_agent", {}), { stopReason: "toolUse" }),
 			fauxAssistantMessage("wait returned"),
 		]);
 		const waitPrompt = fixture.harness.session.prompt("wait");
 		await eventually(
-			() => fixture.harness.eventsOfType("tool_execution_start").some((event) => event.toolName === "wait_agents"),
-			"wait_agents to start",
+			() => fixture.harness.eventsOfType("tool_execution_start").some((event) => event.toolName === "wait_agent"),
+			"wait_agent to start",
 		);
 		releaseChildResponse.resolve();
 		await waitPrompt;
-		const firstWait = latestToolResult(fixture.harness, "wait_agents");
+		const firstWait = latestToolResult(fixture.harness, "wait_agent");
 		expect(firstWait?.content).toEqual([expect.objectContaining({ type: "text" })]);
 		expect(firstWait?.details).toMatchObject({ message: { status: "pending" } });
 
 		fixture.harness.setResponses([
-			fauxAssistantMessage(fauxToolCall("wait_agents", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage(fauxToolCall("wait_agent", {}), { stopReason: "toolUse" }),
 			fauxAssistantMessage("nothing else running"),
 		]);
 		await fixture.harness.session.prompt("wait again");
 		const waitResults = fixture.harness
 			.eventsOfType("tool_execution_end")
-			.filter((event) => event.toolName === "wait_agents")
+			.filter((event) => event.toolName === "wait_agent")
 			.map((event) => event.result);
 		expect(waitResults).toHaveLength(2);
 		expect(waitResults[1]).toEqual({ content: [], details: {} });
