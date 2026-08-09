@@ -81,6 +81,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       exists; construction/source-scan tests keep production lifecycle calls behind `LifecycleCoordinator`
       plus the detached runner's narrow exact-owner finalizer from in-memory identity, outcome, and output
       metadata; output artifacts remain diagnostic only.
+- [x] Stored runtime-mailbox enqueues prepare and validate payloads before writing. Existing duplicate or
+      conflicting rows are handled read-only; absent rows use one conflict-safe insert and validate a
+      concurrent winner without rewriting it.
 - [x] Reject conflicting reuse of a persisted mailbox message ID transactionally: updates are allowed
       only when both stored and incoming identities are complete and the sender, recipient, kind,
       thread, and message ID identity match; incomplete or conflicting reuse fails explicitly without
