@@ -58,7 +58,12 @@ After successful live compaction, the transcript shows exactly one enriched gene
 
 ### Editing persisted compaction summaries
 
-In `/tree`, selecting a compaction entry loads its summary into the normal message editor, including when that entry is the current leaf. Submitting non-command text updates only that persisted summary in place; all other entry fields and the leaf remain unchanged. Pi refreshes the active LLM context and transcript without dropping live token, duration, or remote-result metadata, and the edited summary remains after reopening the session. Slash commands and `!` commands retain their normal handling.
+`/tree` supports two compaction-entry edit paths:
+
+- **Plaintext compaction:** selecting the entry loads its complete persisted summary into the normal message editor, including when it is the current leaf.
+- **OpenAI-native compaction:** the entry's visible summary is only a synthetic placeholder; its usable context is an encrypted provider-native checkpoint. Before the editor opens, Pi makes one materialization call with the active model only when its provider/API exactly matches the checkpoint and the format is `openai.responses.input`. Pi does not substitute another provider or model.
+
+Materialization does not persist anything. Escape cancels the request; cancellation or materialization failure leaves the entry and editor unchanged. After materialization, submitting non-command text updates only the selected summary. Saving a native entry atomically replaces the summary with plaintext and removes its `providerNative` checkpoint and OpenAI remote-compaction details. Entry identity, tree position, leaf, and token/duration metadata remain unchanged; active context and transcript rebuild from the edited plaintext, which also survives reopening. A newer plaintext compaction prevents future remote compaction from reusing older native replacement history. Slash commands and `!` commands retain their normal handling.
 
 ```
 Before compaction:

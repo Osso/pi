@@ -7,7 +7,15 @@
 
 import type { AgentMessage, StreamFn, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ProviderNativeContext } from "@earendil-works/pi-ai";
-import type { AssistantMessage, Context, Model, SimpleStreamOptions, Usage } from "@earendil-works/pi-ai/compat";
+import type {
+	Api,
+	AssistantMessage,
+	Context,
+	Message,
+	Model,
+	SimpleStreamOptions,
+	Usage,
+} from "@earendil-works/pi-ai/compat";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
 import {
 	convertToLlm,
@@ -646,6 +654,12 @@ Use this EXACT format:
 
 Keep each section concise. Preserve exact file paths, function names, and error messages.`;
 
+const COMPACTION_MATERIALIZATION_PROMPT = `Write the complete plaintext continuation summary represented by the preceding compaction checkpoint.
+
+Return only the summary text. Preserve all context needed to continue the work, including goals, constraints, completed progress, in-progress work, decisions, next steps, and critical file or error details.
+
+Do not mention this request, encryption, or provider-native storage.`;
+
 function createSummarizationOptions(
 	maxTokens: number,
 	apiKey: string | undefined,
@@ -670,6 +684,78 @@ async function completeSummarization(
 }
 
 /**
+ * Result of materializing a provider-native compaction checkpoint into plaintext.
+ */
+export type MaterializeCompactionSummaryResult = { aborted: true } | { aborted: false; summary: string };
+
+export interface MaterializeCompactionSummaryOptions {
+	reserveTokens: number;
+	apiKey?: string;
+	headers?: Record<string, string>;
+	env?: Record<string, string>;
+	signal?: AbortSignal;
+	streamFn?: StreamFn;
+}
+
+function getSummarizationMaxTokens(model: Model<Api>, reserveTokens: number): number {
+	const modelLimit = model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY;
+	return Math.min(Math.floor(0.8 * reserveTokens), modelLimit);
+}
+
+function buildCompactionMaterializationMessages(entry: CompactionEntry): Message[] {
+	const checkpoint = createCompactionSummaryMessage(entry.summary, entry.tokensBefore, entry.timestamp, {
+		durationMs: entry.durationMs,
+		providerNative: entry.providerNative,
+	});
+	const request: AgentMessage = {
+		role: "user",
+		content: [{ type: "text", text: COMPACTION_MATERIALIZATION_PROMPT }],
+		timestamp: Date.now(),
+	};
+	return convertToLlm([checkpoint, request]);
+}
+
+function readCompactionMaterializationResponse(response: AssistantMessage): MaterializeCompactionSummaryResult {
+	if (response.stopReason === "aborted") return { aborted: true };
+	if (response.stopReason === "error") {
+		throw new Error(
+			`Compaction summary materialization failed: ${response.errorMessage || "Unknown provider error"}`,
+		);
+	}
+	const summary = response.content
+		.filter((content): content is { type: "text"; text: string } => content.type === "text")
+		.map((content) => content.text)
+		.filter((text) => text.trim().length > 0)
+		.join("\n");
+	if (!summary) throw new Error("Compaction summary materialization returned no text");
+	return { aborted: false, summary };
+}
+
+/** Materialize a provider-native compaction checkpoint without mutating session state. */
+export async function materializeCompactionSummary(
+	entry: CompactionEntry,
+	model: Model<Api>,
+	options: MaterializeCompactionSummaryOptions,
+): Promise<MaterializeCompactionSummaryResult> {
+	if (!entry.providerNative) {
+		throw new Error(`Compaction entry ${entry.id} has no provider-native checkpoint`);
+	}
+	const response = await completeSummarization(
+		model,
+		{ systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: buildCompactionMaterializationMessages(entry) },
+		createSummarizationOptions(
+			getSummarizationMaxTokens(model, options.reserveTokens),
+			options.apiKey,
+			options.headers,
+			options.env,
+			options.signal,
+		),
+		options.streamFn,
+	);
+	return readCompactionMaterializationResponse(response);
+}
+
+/**
  * Generate a summary of the conversation using the LLM.
  * If previousSummary is provided, uses the update prompt to merge.
  */
@@ -686,10 +772,7 @@ export async function generateSummary(
 	streamFn?: StreamFn,
 	env?: Record<string, string>,
 ): Promise<string> {
-	const maxTokens = Math.min(
-		Math.floor(0.8 * reserveTokens),
-		model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY,
-	);
+	const maxTokens = getSummarizationMaxTokens(model, reserveTokens);
 
 	// Use update prompt if we have a previous summary, otherwise initial prompt
 	let basePrompt = previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;

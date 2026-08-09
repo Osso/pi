@@ -130,9 +130,10 @@ Selecting a user or custom message:
 
 Selecting a compaction summary:
 
-1. Loads the summary into the normal message editor, even when it is the current leaf.
-2. Lets you submit non-command text to update only that persisted summary.
-3. Preserves every other entry field and the leaf while refreshing active LLM context and transcript without dropping live compaction metadata; the edit survives reopening the session.
+1. Loads the complete persisted plaintext summary into the normal message editor, even when it is the current leaf.
+2. For an OpenAI-native entry, materializes plaintext through one call using the active model only when its provider/API exactly matches the saved native checkpoint; no fallback provider or model is selected.
+3. Does not persist during materialization. Escape or materialization failure leaves the entry unchanged.
+4. Lets you submit non-command text to update only that persisted summary. Saving a native entry atomically removes its provider-native checkpoint and native details, preserves identity, tree position, leaf, and token/duration metadata, rebuilds active context and transcript from the edited plaintext, and survives reopening.
 
 Selecting an assistant, tool, or other non-user entry:
 

@@ -300,7 +300,12 @@ type CompactionQueuedMessage = {
 	mode: "steer" | "followUp";
 };
 
-type PromptActivitySource = "bash" | "branch-summary" | "compaction" | "retry";
+type PromptActivitySource = "bash" | "branch-summary" | "compaction" | "retry" | "summary-materialization";
+
+type CompactionSummaryMaterializationOutcome =
+	| { kind: "loaded"; summary: string }
+	| { kind: "cancelled" }
+	| { kind: "failed"; message: string };
 
 const PARTIAL_UPDATE_RENDER_THROTTLE_MS = 50;
 const DEFAULT_WORKING_INDICATOR: LoaderIndicatorOptions = { frames: [] };
@@ -3537,41 +3542,45 @@ export class InteractiveMode {
 		this.selectedAgentBanner.invalidate();
 	}
 
+	private handleEmptyEditorEscape(): void {
+		const action = this.settingsManager.getDoubleEscapeAction();
+		if (action === "none") return;
+		const now = Date.now();
+		if (now - this.lastEscapeTime >= 500) {
+			this.lastEscapeTime = now;
+			return;
+		}
+		if (action === "tree") this.showTreeSelector(undefined, "user-only");
+		else this.showUserMessageSelector();
+		this.lastEscapeTime = 0;
+	}
+
+	private handleEditorEscape(): void {
+		if (InteractiveMode.prototype.cancelPendingCompactionSummaryEdit.call(this)) return;
+		if (this.cancelSelectedAgentTurn()) return;
+		if (this.session.isStreaming) {
+			void Promise.resolve(this.cancelStreamingAndSubmitQueuedMessages()).catch((error: unknown) => {
+				this.showError(error instanceof Error ? error.message : String(error));
+			});
+			return;
+		}
+		if (this.session.isBashRunning) {
+			this.session.abortBash();
+			return;
+		}
+		if (this.isBashMode) {
+			this.editor.setText("");
+			this.isBashMode = false;
+			this.updateEditorBorderColor();
+			return;
+		}
+		if (!this.editor.getText().trim()) InteractiveMode.prototype.handleEmptyEditorEscape.call(this);
+	}
+
 	private setupKeyHandlers(): void {
 		// Set up handlers on defaultEditor - they use this.editor for text access
 		// so they work correctly regardless of which editor is active
-		this.defaultEditor.onEscape = () => {
-			if (this.cancelSelectedAgentTurn()) {
-				return;
-			}
-			if (this.session.isStreaming) {
-				void Promise.resolve(this.cancelStreamingAndSubmitQueuedMessages()).catch((error: unknown) => {
-					this.showError(error instanceof Error ? error.message : String(error));
-				});
-			} else if (this.session.isBashRunning) {
-				this.session.abortBash();
-			} else if (this.isBashMode) {
-				this.editor.setText("");
-				this.isBashMode = false;
-				this.updateEditorBorderColor();
-			} else if (!this.editor.getText().trim()) {
-				// Double-escape with empty editor triggers /tree, /fork, or nothing based on setting
-				const action = this.settingsManager.getDoubleEscapeAction();
-				if (action !== "none") {
-					const now = Date.now();
-					if (now - this.lastEscapeTime < 500) {
-						if (action === "tree") {
-							this.showTreeSelector(undefined, "user-only");
-						} else {
-							this.showUserMessageSelector();
-						}
-						this.lastEscapeTime = 0;
-					} else {
-						this.lastEscapeTime = now;
-					}
-				}
-			}
-		};
+		this.defaultEditor.onEscape = () => InteractiveMode.prototype.handleEditorEscape.call(this);
 
 		// Register app action handlers
 		this.defaultEditor.onAction("app.clear", () => this.handleCtrlC());
@@ -3724,13 +3733,22 @@ export class InteractiveMode {
 		this.editor.addToHistory?.(text);
 	}
 
-	private startCompactionSummaryEdit(entry: CompactionEntry): void {
+	private cancelPendingCompactionSummaryEdit(): boolean {
+		if (!this.pendingCompactionSummaryEditId) return false;
+		this.pendingCompactionSummaryEditId = undefined;
+		this.editor.setText("");
+		this.showStatus("Compaction summary edit cancelled");
+		this.ui.requestRender();
+		return true;
+	}
+
+	private startCompactionSummaryEdit(entry: CompactionEntry, summary = entry.summary): void {
 		if (this.editor.getText().trim()) {
 			this.showWarning("Clear the editor before editing a compaction summary");
 			return;
 		}
 		this.pendingCompactionSummaryEditId = entry.id;
-		this.editor.setText(entry.summary);
+		this.editor.setText(summary);
 		this.showStatus("Editing compaction summary");
 		this.ui.requestRender();
 	}
@@ -6071,11 +6089,71 @@ export class InteractiveMode {
 		}
 	}
 
-	private handleTreeSelectionWithoutNavigation(entryId: string, leafId: string | null, done: () => void): boolean {
+	private async requestCompactionSummaryMaterialization(
+		entry: CompactionEntry,
+	): Promise<CompactionSummaryMaterializationOutcome> {
+		try {
+			const result = await this.session.materializeCompactionSummary(entry.id);
+			return result.aborted ? { kind: "cancelled" } : { kind: "loaded", summary: result.summary };
+		} catch (error: unknown) {
+			return { kind: "failed", message: error instanceof Error ? error.message : String(error) };
+		}
+	}
+
+	private handleCompactionSummaryMaterializationOutcome(
+		entry: CompactionEntry,
+		initialFilterMode: FilterMode,
+		outcome: CompactionSummaryMaterializationOutcome,
+	): void {
+		if (outcome.kind === "loaded") {
+			this.startCompactionSummaryEdit(entry, outcome.summary);
+			return;
+		}
+		if (outcome.kind === "failed") this.showError(outcome.message);
+		else this.showStatus("Compaction summary loading cancelled");
+		this.showTreeSelector(entry.id, initialFilterMode);
+	}
+
+	private async materializeCompactionSummaryForEdit(
+		entry: CompactionEntry,
+		initialFilterMode: FilterMode,
+	): Promise<void> {
+		const originalOnEscape = this.defaultEditor.onEscape;
+		this.defaultEditor.onEscape = () => this.session.abortCompactionSummaryMaterialization();
+		this.statusContainer.clear();
+		const loader = new Loader(
+			this.ui,
+			(spinner) => theme.fg("accent", spinner),
+			(text) => theme.fg("muted", text),
+			`Loading compaction summary... (${keyText("app.interrupt")} to cancel)`,
+			DEFAULT_WORKING_INDICATOR,
+		);
+		this.statusContainer.addChild(loader);
+		this.setPromptActivity("summary-materialization", true);
+		this.ui.requestRender();
+
+		const outcome = await this.requestCompactionSummaryMaterialization(entry);
+		loader.stop();
+		this.statusContainer.clear();
+		this.setPromptActivity("summary-materialization", false);
+		this.defaultEditor.onEscape = originalOnEscape;
+		this.handleCompactionSummaryMaterializationOutcome(entry, initialFilterMode, outcome);
+	}
+
+	private async handleTreeSelectionWithoutNavigation(
+		entryId: string,
+		leafId: string | null,
+		done: () => void,
+		initialFilterMode: FilterMode,
+	): Promise<boolean> {
 		const selectedEntry = this.sessionManager.getEntry(entryId);
 		if (selectedEntry?.type === "compaction") {
 			done();
-			this.startCompactionSummaryEdit(selectedEntry);
+			if (selectedEntry.providerNative) {
+				await this.materializeCompactionSummaryForEdit(selectedEntry, initialFilterMode);
+			} else {
+				this.startCompactionSummaryEdit(selectedEntry);
+			}
 			return true;
 		}
 		if (entryId !== leafId) return false;
@@ -6101,7 +6179,13 @@ export class InteractiveMode {
 				this.ui.terminal.rows,
 				async (entryId) => {
 					if (
-						InteractiveMode.prototype.handleTreeSelectionWithoutNavigation.call(this, entryId, realLeafId, done)
+						await InteractiveMode.prototype.handleTreeSelectionWithoutNavigation.call(
+							this,
+							entryId,
+							realLeafId,
+							done,
+							initialFilterMode,
+						)
 					) {
 						return;
 					}

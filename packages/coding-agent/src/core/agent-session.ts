@@ -29,6 +29,7 @@ import type {
 	ThinkingLevel,
 } from "@earendil-works/pi-agent-core";
 import type {
+	Api,
 	AssistantMessage,
 	ImageContent,
 	Message,
@@ -67,6 +68,8 @@ import {
 	estimateContextTokens,
 	estimateTokens,
 	generateBranchSummary,
+	type MaterializeCompactionSummaryResult,
+	materializeCompactionSummary as materializeProviderNativeCompactionSummary,
 	prepareCompaction,
 	shouldCompact,
 } from "./compaction/index.ts";
@@ -748,6 +751,7 @@ export class AgentSession {
 	private _compactionAbortController: AbortController | undefined = undefined;
 	private _autoCompactionAbortController: AbortController | undefined = undefined;
 	private _backgroundCompactionCache: BackgroundCompactionCache | undefined = undefined;
+	private _compactionSummaryMaterializationAbortController: AbortController | undefined = undefined;
 	private _overflowRecoveryAttempted = false;
 	private _lengthRecoveryAttempted = false;
 
@@ -1981,6 +1985,7 @@ export class AgentSession {
 		try {
 			this.abortRetry();
 			this.abortCompaction();
+			this.abortCompactionSummaryMaterialization();
 			this.abortBranchSummary();
 			this.abortBash();
 			this.agent.abort();
@@ -2191,11 +2196,12 @@ export class AgentSession {
 		this.agent.state.systemPrompt = this._systemPromptOverride ?? this._baseSystemPrompt;
 	}
 
-	/** Whether compaction or branch summarization is currently running */
+	/** Whether compaction, summary materialization, or branch summarization is currently running */
 	get isCompacting(): boolean {
 		return (
 			this._autoCompactionAbortController !== undefined ||
 			this._compactionAbortController !== undefined ||
+			this._compactionSummaryMaterializationAbortController !== undefined ||
 			this._branchSummaryAbortController !== undefined
 		);
 	}
@@ -4194,6 +4200,11 @@ export class AgentSession {
 		cache.promise = this._generateBackgroundCompaction(cache, model);
 	}
 
+	/** Cancel in-progress compaction-summary materialization. */
+	abortCompactionSummaryMaterialization(): void {
+		this._compactionSummaryMaterializationAbortController?.abort();
+	}
+
 	/**
 	 * Cancel in-progress branch summarization.
 	 */
@@ -5345,6 +5356,51 @@ export class AgentSession {
 	updateCompactionSummary(entryId: string, summary: string): void {
 		this.sessionManager.updateCompactionSummary(entryId, summary);
 		this.agent.state.messages = this.sessionManager.buildSessionContext().messages;
+	}
+
+	private requireCompactionSummaryMaterializationTarget(entryId: string): {
+		entry: CompactionEntry;
+		model: Model<Api>;
+	} {
+		const entry = this.sessionManager.getEntry(entryId);
+		if (!entry) throw new Error(`Entry ${entryId} not found`);
+		if (entry.type !== "compaction") throw new Error(`Entry ${entryId} is not a compaction`);
+		const checkpoint = entry.providerNative;
+		if (!checkpoint) throw new Error(`Compaction entry ${entryId} has no provider-native checkpoint`);
+		const model = this.model;
+		if (!model) throw new Error("No model available for compaction summary materialization");
+		const matchingProvider = checkpoint.provider === model.provider;
+		const matchingApi = checkpoint.api === model.api;
+		const supportedFormat = checkpoint.format === "openai.responses.input" && Array.isArray(checkpoint.value);
+		if (!matchingProvider || !matchingApi || !supportedFormat) {
+			throw new Error(
+				`Compaction summary materialization requires an active ${checkpoint.provider}/${checkpoint.api} model`,
+			);
+		}
+		return { entry, model };
+	}
+
+	async materializeCompactionSummary(entryId: string): Promise<MaterializeCompactionSummaryResult> {
+		const { entry, model } = this.requireCompactionSummaryMaterializationTarget(entryId);
+		if (this._compactionSummaryMaterializationAbortController) {
+			throw new Error("Compaction summary materialization is already running");
+		}
+		const abortController = new AbortController();
+		this._compactionSummaryMaterializationAbortController = abortController;
+		try {
+			const { apiKey, headers, env } = await this._getRequiredRequestAuth(model);
+			const settings = this.settingsManager.getCompactionSettings();
+			return await materializeProviderNativeCompactionSummary(entry, model, {
+				apiKey,
+				env,
+				headers,
+				reserveTokens: settings.reserveTokens,
+				signal: abortController.signal,
+				streamFn: this.agent.streamFn,
+			});
+		} finally {
+			this._compactionSummaryMaterializationAbortController = undefined;
+		}
 	}
 
 	// =========================================================================

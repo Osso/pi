@@ -659,6 +659,84 @@ describe("openai remote compact extension", () => {
 		});
 	});
 
+	it("does not reuse older native history across a newer plaintext compaction", async () => {
+		let requestPayload: unknown;
+		globalThis.fetch = (async (_url, init) => {
+			requestPayload = JSON.parse(String(init?.body));
+			return new Response(
+				JSON.stringify({
+					output: [
+						{ role: "user", content: [{ type: "input_text", text: "new" }] },
+						{ type: "compaction", encrypted_content: "new-encrypted" },
+					],
+				}),
+				{ status: 200, headers: { "content-type": "application/json" } },
+			);
+		}) as typeof fetch;
+		const model = createOpenAIResponsesModel();
+		const preparation: CompactionPreparation = {
+			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			firstKeptEntryId: "kept-2",
+			isSplitTurn: false,
+			messagesToSummarize: [{ role: "user", content: "new", timestamp: 1 }],
+			settings: { enabled: true, keepRecentTokens: 1, reserveTokens: 1 },
+			tokensBefore: 1234,
+			turnPrefixMessages: [],
+		};
+		const priorNativeCompaction = {
+			type: "compaction" as const,
+			id: "compact-native",
+			parentId: null,
+			timestamp: "2026-01-01T00:00:00Z",
+			summary: OPENAI_REMOTE_COMPACTION_SUMMARY,
+			firstKeptEntryId: "kept-1",
+			tokensBefore: 1000,
+			details: {
+				type: "openai-remote-compaction",
+				version: 1,
+				provider: "openai",
+				api: "openai-responses",
+				model: model.id,
+				endpoint: "https://api.openai.com/v1/responses/compact",
+				replacementHistory: [{ type: "compaction", encrypted_content: "stale-native-history" }],
+				replacementHistoryBytes: 64,
+				replacementHistoryTokens: 16,
+			},
+		};
+		const newerPlaintextCompaction = {
+			type: "compaction" as const,
+			id: "compact-plaintext",
+			parentId: priorNativeCompaction.id,
+			timestamp: "2026-01-02T00:00:00Z",
+			summary: "edited plaintext summary",
+			firstKeptEntryId: "kept-2",
+			tokensBefore: 1100,
+		};
+		const event = {
+			type: "compaction",
+			preparation,
+			branchEntries: [priorNativeCompaction, newerPlaintextCompaction],
+			reason: "manual",
+			willRetry: false,
+			signal: new AbortController().signal,
+		} satisfies CompactionEvent;
+		const ctx = {
+			model,
+			getSystemPrompt: () => "system prompt",
+			modelRegistry: {
+				getApiKeyAndHeaders: async () => ({ ok: true as const, apiKey: "key", headers: undefined }),
+			},
+			ui: { notify: () => undefined },
+		} as unknown as ExtensionContext;
+
+		await handleCompaction(event, ctx);
+
+		expect(requestPayload).toMatchObject({
+			input: [{ role: "user", content: [{ type: "input_text", text: "new" }] }],
+		});
+		expect(JSON.stringify(requestPayload)).not.toContain("stale-native-history");
+	});
+
 	it("does not prepend incompatible prior native replacement history", async () => {
 		let requestPayload: unknown;
 		globalThis.fetch = (async (_url, init) => {

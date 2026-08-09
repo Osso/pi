@@ -307,7 +307,8 @@ function findLatestOpenAIReplacementHistory(
 function findLatestOpenAIReplacementHistoryDetails(entries: SessionEntry[]): OpenAIRemoteCompactionDetails | undefined {
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const entry = entries[i];
-		if (entry.type === "compaction" && isOpenAIRemoteCompactionDetails(entry.details)) return entry.details;
+		if (entry.type !== "compaction") continue;
+		return isOpenAIRemoteCompactionDetails(entry.details) ? entry.details : undefined;
 	}
 	return undefined;
 }

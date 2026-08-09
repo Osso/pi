@@ -88,7 +88,7 @@
 - Added an `externalEditor` settings.json override for Ctrl+G external editor commands, with default fallbacks to Notepad on Windows and `nano` elsewhere ([#6122](https://github.com/earendil-works/pi/issues/6122)).
 - Added first-party OpenAI remote compaction through `/responses/compact` for OpenAI and OpenAI Codex Responses models.
 - Added `pi.compact(...)` to Pyrun's Pi runtime bridge for triggering session compaction.
-- Added `/tree` compaction-summary editing: selecting a summary loads it into the normal message editor even at the current leaf; non-command text updates only that persisted summary, preserving all other entry fields, leaf, and live compaction metadata while refreshing active context/transcript and surviving reopen.
+- Added `/tree` compaction-summary editing: plaintext summaries load directly, while OpenAI-native entries are materialized through one current provider/API-matching model call with no fallback; materialization is non-persistent, Escape/failure leaves the entry unchanged, and saving replaces native context with plaintext while preserving entry identity, leaf, and token/duration metadata.
 - Added `pi.restart(...)` to Pyrun's Pi runtime bridge for restarting and resuming the current session.
 - Added compaction duration tracking to compaction results and rendered compaction summaries.
 - Added trusted repo-local `.codex/skills/` and `.claude/skills/` auto-discovery with canonical path deduplication.

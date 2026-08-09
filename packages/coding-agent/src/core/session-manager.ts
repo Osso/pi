@@ -1783,7 +1783,7 @@ export class SessionManager {
 		return entry.id;
 	}
 
-	/** Update a compaction summary without changing the entry's tree position or metadata. */
+	/** Update a compaction summary without changing its tree position or core metadata. */
 	updateCompactionSummary(entryId: string, summary: string): void {
 		const entry = this.byId.get(entryId);
 		if (!entry) {
@@ -1796,12 +1796,22 @@ export class SessionManager {
 		if (!trimmedSummary) {
 			throw new Error("Compaction summary must be non-empty");
 		}
-		const previousSummary = entry.summary;
+		const previous = {
+			details: entry.details,
+			providerNative: entry.providerNative,
+			summary: entry.summary,
+		};
 		entry.summary = trimmedSummary;
+		if (entry.providerNative) {
+			entry.details = undefined;
+			entry.providerNative = undefined;
+		}
 		try {
 			this._rewriteFile();
 		} catch (error: unknown) {
-			entry.summary = previousSummary;
+			entry.details = previous.details;
+			entry.providerNative = previous.providerNative;
+			entry.summary = previous.summary;
 			throw error;
 		}
 	}
