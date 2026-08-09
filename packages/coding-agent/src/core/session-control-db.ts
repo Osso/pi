@@ -4169,9 +4169,7 @@ function hasActiveParent(db: SqliteDatabase, sessionPath: string, parentId: stri
 
 function multiAgentAgentExists(db: SqliteDatabase, sessionPath: string, agentId: string): boolean {
 	return Boolean(
-		db
-			.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-			.get(sessionPath, agentId),
+		db.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?").get(sessionPath, agentId),
 	);
 }
 
