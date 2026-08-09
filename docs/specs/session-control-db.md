@@ -109,12 +109,12 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] `multi_agent_mailbox_messages` is the sole per-message runtime-delivery authority: each row owns payload, routing, claim identity, status, failure, and delivery acknowledgment. Runtime listener rows provide address resolution and wakeups only; no per-message runtime transport table exists. Schema migration folds valid legacy routing and terminal status into canonical rows, resets legacy claims to reclaimable pending state, and drops the legacy table without a compatibility path. Dead claimed-row recovery scans authority and claimant liveness without reserving the writer lock, then revalidates each candidate and resets it to `pending` in a short immediate transaction.
 - [x] A recipient that is not ready for direct active-input delivery leaves canonical mailbox rows
       `pending` and does not read their payloads into runtime memory. Once ready, delivery evaluates
-      eligibility without reserving the writer lock, then revalidates exact listener/ownership
-      authority and the observed canonical payload before an atomic delivery write. Candidate
-      selection uses a short per-message transaction where authority must be revalidated;
-      already-claimed or direct terminal status transitions use single-statement compare-and-swap
-      writes guarded by the observed payload and claimant identity. Selected payloads proceed
-      directly to active session input without an intermediate volatile queue. `wait_agents({})`
+      eligibility without reserving the writer lock. Delivery and runtime-mailbox claim scans then
+      revalidate exact listener/ownership authority and the observed canonical payload in short
+      per-message transactions before atomic delivery or claim writes; already-claimed or direct
+      terminal status transitions use single-statement compare-and-swap writes guarded by the
+      observed payload and claimant identity. Selected payloads proceed directly to active session
+      input without an intermediate volatile queue. `wait_agents({})`
       uses the same delivery boundary on a coordination wake and returns all currently pending
       deliverable runtime-mailbox inputs, preserving sender/body formatting. Restart before a
       per-message write leaves the messages pending and recoverable. If another turn starts while
