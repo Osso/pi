@@ -22,7 +22,6 @@ import { createInterface } from "readline";
 import { StringDecoder } from "string_decoder";
 import { getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
-import type { SandboxProfileName } from "./permissions/presets.ts";
 import {
 	type BashExecutionMessage,
 	type CustomMessage,
@@ -30,6 +29,7 @@ import {
 	createCompactionSummaryMessage,
 	createCustomMessage,
 } from "./messages.ts";
+import type { SandboxProfileName } from "./permissions/presets.ts";
 import {
 	clearSessionSandboxProfile as clearPersistedSessionSandboxProfile,
 	listActiveSessionMetadata,
@@ -1563,11 +1563,7 @@ export class SessionManager {
 
 	readPersistedSessionSettings(): PersistedSessionSettings | undefined {
 		if (!this.metadataControlDbPath || !this.sessionFile) return undefined;
-		const sandboxProfile = readSessionSandboxProfile(
-			this.metadataControlDbPath,
-			this.sessionFile,
-			this.sessionId,
-		);
+		const sandboxProfile = readSessionSandboxProfile(this.metadataControlDbPath, this.sessionFile, this.sessionId);
 		const metadata = readSessionMetadata(this.metadataControlDbPath, this.sessionFile);
 		if (!metadata) return undefined;
 		const model =

@@ -81,8 +81,16 @@ describe("approval slash commands", () => {
 
 		expect(setSandboxProfile).toHaveBeenCalledOnce();
 		expect(setSandboxProfile).toHaveBeenCalledWith("full-access", "global");
-		expect(notify).toHaveBeenNthCalledWith(2, "Usage: /sandbox [read-only|workspace-write|full-access|inherit] [session|project|global]", "warning");
-		expect(notify).toHaveBeenNthCalledWith(3, "Usage: /sandbox [read-only|workspace-write|full-access|inherit] [session|project|global]", "warning");
+		expect(notify).toHaveBeenNthCalledWith(
+			2,
+			"Usage: /sandbox [read-only|workspace-write|full-access|inherit] [session|project|global]",
+			"warning",
+		);
+		expect(notify).toHaveBeenNthCalledWith(
+			3,
+			"Usage: /sandbox [read-only|workspace-write|full-access|inherit] [session|project|global]",
+			"warning",
+		);
 	});
 
 	it("keeps approval presets distinct from sandbox profiles", () => {

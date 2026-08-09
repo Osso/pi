@@ -133,7 +133,9 @@ it.skipIf(!canExecuteBwrap)(
 					const originalSessionId = agent.sessionId;
 					const originalSessionFile = agent.sessionFile;
 					const controlDbPath = getControlDbPath(agent.paths.agentDir);
-					expect(readSessionSandboxProfile(controlDbPath, originalSessionFile, originalSessionId)).toBe("read-only");
+					expect(readSessionSandboxProfile(controlDbPath, originalSessionFile, originalSessionId)).toBe(
+						"read-only",
+					);
 
 					await agent.restart();
 					await agent.waitForExtensionUiRequest(
@@ -142,7 +144,9 @@ it.skipIf(!canExecuteBwrap)(
 							request.statusKey === "bwrap" &&
 							request.statusText?.includes("read-only") === true,
 					);
-					expect(readSessionSandboxProfile(controlDbPath, originalSessionFile, originalSessionId)).toBe("read-only");
+					expect(readSessionSandboxProfile(controlDbPath, originalSessionFile, originalSessionId)).toBe(
+						"read-only",
+					);
 
 					const blockedWrite = await callTool(agent, {
 						args: { content: "blocked", path: "read-only-probe.txt" },
@@ -176,8 +180,12 @@ it.skipIf(!canExecuteBwrap)(
 					if (!liveSession) throw new Error("New live session was not registered");
 					const [newMetadata] = findActiveSessionMetadataById(controlDbPath, liveSession.sessionId);
 					if (!newMetadata) throw new Error("New session metadata was not registered");
-					expect(readSessionSandboxProfile(controlDbPath, newMetadata.sessionPath, liveSession.sessionId)).toBeUndefined();
-					expect(readSessionSandboxProfile(controlDbPath, originalSessionFile, originalSessionId)).toBe("read-only");
+					expect(
+						readSessionSandboxProfile(controlDbPath, newMetadata.sessionPath, liveSession.sessionId),
+					).toBeUndefined();
+					expect(readSessionSandboxProfile(controlDbPath, originalSessionFile, originalSessionId)).toBe(
+						"read-only",
+					);
 
 					const allowedWrite = await callTool(agent, {
 						args: { content: "allowed", path: "full-access-probe.txt" },

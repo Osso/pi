@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getModel } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createAgentSession } from "../src/core/sdk.ts";
 import {
 	clearSessionSandboxProfile,
 	getControlDbPath,
@@ -12,7 +13,6 @@ import {
 	writeSessionMetadata,
 	writeSessionSandboxProfile,
 } from "../src/core/session-control-db.ts";
-import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
@@ -64,7 +64,9 @@ describe("session sandbox profile control state", () => {
 
 		writeSessionSandboxProfile(controlDbPath, sessionPath, sessionId, "read-only");
 		expect(() => readSessionSandboxProfile(controlDbPath, sessionPath, "other-session")).toThrow(/session identity/i);
-		expect(() => clearSessionSandboxProfile(controlDbPath, sessionPath, "other-session")).toThrow(/session identity/i);
+		expect(() => clearSessionSandboxProfile(controlDbPath, sessionPath, "other-session")).toThrow(
+			/session identity/i,
+		);
 	});
 
 	it("rejects invalid persisted profiles", () => {
@@ -80,7 +82,9 @@ describe("session sandbox profile control state", () => {
 			db.close();
 		}
 
-		expect(() => readSessionSandboxProfile(controlDbPath, sessionPath, sessionId)).toThrow(/invalid sandbox profile/i);
+		expect(() => readSessionSandboxProfile(controlDbPath, sessionPath, sessionId)).toThrow(
+			/invalid sandbox profile/i,
+		);
 	});
 
 	it("rejects orphaned overrides instead of falling back to broader access", () => {

@@ -51,8 +51,8 @@ import type { KeybindingsManager } from "../keybindings.ts";
 import type { CustomMessage } from "../messages.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type { ScopedModel } from "../model-resolver.ts";
-import type { SandboxProfileName, SandboxProfileScope } from "../permissions/presets.ts";
 import type { MultiAgentStore } from "../multi-agent-store.ts";
+import type { SandboxProfileName, SandboxProfileScope } from "../permissions/presets.ts";
 import type { RuntimeMailboxMessage } from "../session-control-db.ts";
 import type {
 	BranchSummaryEntry,

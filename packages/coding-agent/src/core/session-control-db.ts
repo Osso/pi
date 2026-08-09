@@ -9,6 +9,7 @@ import {
 	type AgentSnapshot,
 	isActiveLifecycle,
 } from "./multi-agent-store.ts";
+import { isSandboxProfileName, type SandboxProfileName } from "./permissions/presets.ts";
 import {
 	isPiRuntimeProcessAlive,
 	isProcessIdentityAlive,
@@ -22,7 +23,6 @@ import {
 	type SessionCheckStatus,
 	type SessionHealthRecord,
 } from "./session-health.ts";
-import { isSandboxProfileName, type SandboxProfileName } from "./permissions/presets.ts";
 import { configureSharedSqliteDatabase, createSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
 const CONTROL_DB_SCHEMA_VERSION = 14;
@@ -2748,7 +2748,9 @@ export function readSessionSandboxProfile(
 		if (!row) return undefined;
 		assertSessionMetadataIdentity(db, sessionPath, sessionId);
 		if (row.session_id !== sessionId) {
-			throw new Error(`Session identity mismatch for ${sessionPath}: stored ${row.session_id}, received ${sessionId}`);
+			throw new Error(
+				`Session identity mismatch for ${sessionPath}: stored ${row.session_id}, received ${sessionId}`,
+			);
 		}
 		if (!isSandboxProfileName(row.profile)) {
 			throw new Error(`Invalid sandbox profile '${row.profile}' for session ${sessionId}`);
