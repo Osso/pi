@@ -4515,14 +4515,13 @@ function multiAgentActivityOwnershipMatches(
 	);
 }
 
-function permitsMultiAgentCurrentActivity(
-	agent: Record<string, unknown>,
-	metadata:
-		| Pick<AgentSnapshot, "currentActivity">
-		| Pick<AgentSnapshot, "lastActivity">
-		| Pick<AgentSnapshot, "slot">
-		| Pick<AgentSnapshot, "transcript">,
-): boolean {
+type MultiAgentAgentMetadata =
+	| Pick<AgentSnapshot, "currentActivity">
+	| Pick<AgentSnapshot, "lastActivity">
+	| Pick<AgentSnapshot, "slot">
+	| Pick<AgentSnapshot, "transcript">;
+
+function permitsMultiAgentCurrentActivity(agent: Record<string, unknown>, metadata: MultiAgentAgentMetadata): boolean {
 	return (
 		!("currentActivity" in metadata) ||
 		metadata.currentActivity === undefined ||
@@ -4531,36 +4530,85 @@ function permitsMultiAgentCurrentActivity(
 	);
 }
 
+const MULTI_AGENT_METADATA_UPDATE_MAX_ATTEMPTS = 3;
+
+type MultiAgentAgentMetadataRow = {
+	data: string;
+	updated_at: string;
+};
+
 function updateMultiAgentAgentMetadata(
 	controlDbPath: string,
 	sessionPath: string,
 	agentId: string,
-	metadata:
-		| Pick<AgentSnapshot, "currentActivity">
-		| Pick<AgentSnapshot, "lastActivity">
-		| Pick<AgentSnapshot, "slot">
-		| Pick<AgentSnapshot, "transcript">,
+	metadata: MultiAgentAgentMetadata,
 	updatedAt: string,
 	activityOwnership?: { ownerSessionId: string; processIdentity: ProcessIdentity },
 ): AgentSnapshot | undefined {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
+	return withControlDb(controlDbPath, (db) => {
+		for (let attempt = 1; attempt <= MULTI_AGENT_METADATA_UPDATE_MAX_ATTEMPTS; attempt += 1) {
 			const row = db
-				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-				.get(sessionPath, agentId) as { data: string } | undefined;
+				.prepare("SELECT data, updated_at FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+				.get(sessionPath, agentId) as MultiAgentAgentMetadataRow | undefined;
 			if (!row) return undefined;
-			const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${agentId}`);
-			validatePersistedAgentPayload(agent, `multi_agent_agents:${sessionPath}#${agentId}`);
+			const context = `multi_agent_agents:${sessionPath}#${agentId}`;
+			const agent = parseStoredJsonObject(row.data, context);
+			validatePersistedAgentPayload(agent, context);
 			if (activityOwnership && !multiAgentActivityOwnershipMatches(db, sessionPath, agentId, activityOwnership)) {
 				return undefined;
 			}
 			if (!permitsMultiAgentCurrentActivity(agent, metadata)) return undefined;
 			const updated = { ...agent, ...metadata, updatedAt } as AgentSnapshot;
-			db.prepare(
-				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updated), updatedAt, sessionPath, agentId);
-			return updated;
-		}),
+			if (compareAndUpdateMultiAgentAgentMetadata(db, sessionPath, agentId, row, updated, activityOwnership)) {
+				return updated;
+			}
+		}
+		throw new Error(`Multi-agent metadata changed repeatedly while updating ${sessionPath}#${agentId}`);
+	});
+}
+
+function compareAndUpdateMultiAgentAgentMetadata(
+	db: SqliteDatabase,
+	sessionPath: string,
+	agentId: string,
+	row: MultiAgentAgentMetadataRow,
+	updated: AgentSnapshot,
+	activityOwnership?: { ownerSessionId: string; processIdentity: ProcessIdentity },
+): boolean {
+	const serialized = JSON.stringify(updated);
+	if (!activityOwnership) {
+		return (
+			db
+				.prepare(
+					`UPDATE multi_agent_agents SET data = ?, updated_at = ?
+					 WHERE session_path = ? AND agent_id = ? AND data = ? AND updated_at = ?`,
+				)
+				.run(serialized, updated.updatedAt, sessionPath, agentId, row.data, row.updated_at).changes === 1
+		);
+	}
+	return (
+		db
+			.prepare(
+				`UPDATE multi_agent_agents SET data = ?, updated_at = ?
+				 WHERE session_path = ? AND agent_id = ? AND data = ? AND updated_at = ?
+				 AND EXISTS (
+					SELECT 1 FROM multi_agent_runtime_owners
+					WHERE session_path = ? AND agent_id = ? AND owner_session_id = ?
+					AND owner_agent_id IS NULL AND process_identity = ?
+				 )`,
+			)
+			.run(
+				serialized,
+				updated.updatedAt,
+				sessionPath,
+				agentId,
+				row.data,
+				row.updated_at,
+				sessionPath,
+				agentId,
+				activityOwnership.ownerSessionId,
+				serializeProcessIdentity(activityOwnership.processIdentity),
+			).changes === 1
 	);
 }
 

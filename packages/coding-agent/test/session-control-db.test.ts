@@ -1582,6 +1582,110 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		});
 	});
 
+	it("rejects mismatched activity ownership before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/activity-owner-contention.jsonl";
+		const agentId = "agent-activity-contention";
+		const persistedIdentity = testProcessIdentity("activity-persisted-owner");
+		const suppliedIdentity = testProcessIdentity("activity-supplied-owner");
+		const agent = {
+			agentType: "test",
+			createdAt: "2026-08-09T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Activity contention agent",
+			id: agentId,
+			lifecycle: "running",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		};
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, agent);
+		forceRuntimeOwnership(controlDbPath, {
+			agentId,
+			nowIso: "2026-08-09T00:00:00.000Z",
+			owner: { agentId: null, sessionId: "supervisor" },
+			processIdentity: persistedIdentity,
+			sessionPath,
+		});
+		const before = readMultiAgentState(controlDbPath, sessionPath)?.agents[0];
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { updateMultiAgentAgentCurrentActivity } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const result = updateMultiAgentAgentCurrentActivity(
+							workerData.controlDbPath,
+							workerData.sessionPath,
+							workerData.agentId,
+							{ phase: "thinking", startedAt: workerData.updatedAt },
+							workerData.updatedAt,
+							workerData.ownership,
+						);
+						parentPort?.postMessage({ type: result === undefined ? "undefined" : "defined" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{
+				eval: true,
+				execArgv: ["--experimental-strip-types"],
+				workerData: {
+					agentId,
+					controlDbPath,
+					ownership: { ownerSessionId: "supervisor", processIdentity: suppliedIdentity },
+					sessionPath,
+					updatedAt: "2026-08-09T00:00:01.000Z",
+				},
+			},
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "activity ownership worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("update");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "undefined",
+					timeoutMessage: "mismatched activity ownership waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "undefined",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "activity ownership worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.type).toBe("undefined");
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents[0]).toEqual(before);
+	});
+
 	it("updates transcript metadata without overwriting a newer lifecycle revision", () => {
 		const sessionPath = "/sessions/transcript-merge.jsonl";
 		bootstrapMultiAgentAgent(controlDbPath, sessionPath, "agent-1", {
