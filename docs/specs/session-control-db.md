@@ -50,7 +50,11 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       selects the session's rows. Runtime ownership acquisition is transactional and stores the exact Linux
       process identity `(pid, /proc/<pid>/stat startTimeTicks)`; a live exact owner rejects replacement,
       while a dead identity permits takeover without timers, heartbeats, expiry, renewal, lease IDs, or
-      fencing counters. Session-owned agents recover through the registered owning supervisor; startup also
+      fencing counters. Attached ownership acquisition preflights supervisor, agent, ownership, and
+      process-liveness state read-only, returns an unchanged exact existing ownership without reserving the
+      writer lock, and revalidates the supervisor, agent payload snapshot, and ownership snapshot before
+      atomically taking over ownership and advancing the agent revision. Session-owned agents recover through
+      the registered owning supervisor; startup also
       globally reconciles exact dead detached runners without a recovery-leader lease. Lifecycle transactions read revision internally, verify session/agent/
       process ownership, update the agent row, and enqueue one pending completion notification in the same
       immediate SQLite transaction. The agent row is terminal truth; the outbox is only a delivery queue.
