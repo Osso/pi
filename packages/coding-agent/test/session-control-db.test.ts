@@ -3729,19 +3729,13 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			supervisor: { processIdentity: CURRENT_PROCESS_IDENTITY, sessionId: supervisorSessionId },
 		};
 
-		const result = await runMultiAgentPayloadPreparationContention(
-			controlDbPath,
-			"attached",
-			input,
-			marker,
-			[
-				{
-					recipient: { agentId: null, sessionId: supervisorSessionId },
-					runtimeInstanceId: JSON.stringify(CURRENT_PROCESS_IDENTITY),
-					sessionPath,
-				},
-			],
-		);
+		const result = await runMultiAgentPayloadPreparationContention(controlDbPath, "attached", input, marker, [
+			{
+				recipient: { agentId: null, sessionId: supervisorSessionId },
+				runtimeInstanceId: JSON.stringify(CURRENT_PROCESS_IDENTITY),
+				sessionPath,
+			},
+		]);
 
 		expect(result.ok).toBe(true);
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents).toMatchObject([
@@ -5077,12 +5071,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			updatedAt: "2026-08-09T00:00:00.000Z",
 		});
 
-		const result = await runRuntimeMailboxPayloadPreparationContention(
-			controlDbPath,
-			"claim",
-			recipient,
-			marker,
-		);
+		const result = await runRuntimeMailboxPayloadPreparationContention(controlDbPath, "claim", recipient, marker);
 
 		expect(result.statuses).toEqual(["claimed"]);
 		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([
@@ -5110,12 +5099,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			updatedAt: "2026-08-09T00:00:00.000Z",
 		});
 
-		const result = await runRuntimeMailboxPayloadPreparationContention(
-			controlDbPath,
-			"deliver",
-			recipient,
-			marker,
-		);
+		const result = await runRuntimeMailboxPayloadPreparationContention(controlDbPath, "deliver", recipient, marker);
 
 		expect(result.statuses).toEqual(["delivered"]);
 		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([
@@ -5145,12 +5129,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			updatedAt: "2026-08-09T00:00:00.000Z",
 		});
 
-		const result = await runRuntimeMailboxPayloadPreparationContention(
-			controlDbPath,
-			"recover",
-			recipient,
-			marker,
-		);
+		const result = await runRuntimeMailboxPayloadPreparationContention(controlDbPath, "recover", recipient, marker);
 
 		expect(result.count).toBe(1);
 		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([

@@ -374,10 +374,7 @@ export function claimLatestIncomingMessage(controlDbPath: string): IncomingContr
 	});
 }
 
-function claimLatestIncomingMessageInTransaction(
-	db: SqliteDatabase,
-	now: string,
-): IncomingControlMessage | undefined {
+function claimLatestIncomingMessageInTransaction(db: SqliteDatabase, now: string): IncomingControlMessage | undefined {
 	const row = readLatestPendingIncomingMessage(db);
 	if (!row) return undefined;
 	db.prepare(
@@ -3810,13 +3807,7 @@ function persistMultiAgentSteeringDelivery(
 				`UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ?
 				 WHERE session_path = ? AND message_id = ? AND data = ?`,
 			)
-			.run(
-				plan.updatedMessageData,
-				input.updatedAt,
-				input.sessionPath,
-				input.messageId,
-				plan.messageData,
-			).changes;
+			.run(plan.updatedMessageData, input.updatedAt, input.sessionPath, input.messageId, plan.messageData).changes;
 		if (messageUpdated !== 1) {
 			throw new Error(`Steering message changed during delivery ${input.sessionPath}#${input.messageId}`);
 		}
@@ -6509,12 +6500,7 @@ function migrateLegacyMultiAgentPayloads(db: SqliteDatabase, selfRestartProcessI
 		migrateRuntimeOwnerTable(db);
 		migrateLegacyLifecycleRows(db, migrationTimestamp);
 		migrateLegacyMultiAgentPayloadTable(db, "multi_agent_agents", "agent_id", migrationTimestamp);
-		migrateLegacyMultiAgentPayloadTable(
-			db,
-			"multi_agent_mailbox_messages",
-			"message_id",
-			migrationTimestamp,
-		);
+		migrateLegacyMultiAgentPayloadTable(db, "multi_agent_mailbox_messages", "message_id", migrationTimestamp);
 		migrateLegacyRuntimeMailboxMessages(db, migrationTimestamp);
 		createLegacyArtifactFieldTriggers(db);
 		db.exec(`PRAGMA user_version = ${CONTROL_DB_SCHEMA_VERSION}`);
