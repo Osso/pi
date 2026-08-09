@@ -66,9 +66,12 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       immediate transaction, and the pending-row selection plus claim is one atomic `UPDATE ... RETURNING`.
       Child construction occurs before persistence: success commits
       the child row as `running` revision 1 with ownership, while construction interruption or failure
-      commits `failed` revision 1. No persisted `queued` or `starting` startup row exists. Concurrent
-      SQLite contenders serialize, repository code reads/increments revision internally, repeated identical
-      transitions are idempotent, and mismatched process ownership rejects without side effects. Legacy
+      commits `failed` revision 1. No persisted `queued` or `starting` startup row exists. Multi-agent
+      activity, transcript, and slot metadata updates validate read-only, then use bounded exact-payload
+      compare-and-swap writes; activity updates also require the exact persisted runtime owner in the
+      update predicate. Concurrent SQLite contenders serialize, repository code reads/increments revision
+      internally, repeated identical transitions are idempotent, and mismatched process ownership rejects
+      without side effects. Legacy
       artifact tables/columns are not initialized, read, written, or relocated; the legacy
       `multi_agent_counters` table is only migrated into `multi_agent_counters_v2`.
 - [x] Allocate persisted multi-agent agent and message IDs with one atomic incrementing upsert
