@@ -3980,6 +3980,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 
 	it("allocates unique contiguous counter values under concurrent workers", async () => {
 		const sessionPath = "/sessions/concurrent-counter.jsonl";
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toBeUndefined();
 		const workerCount = 8;
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const workerSource = `

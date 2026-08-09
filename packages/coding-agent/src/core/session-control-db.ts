@@ -3281,7 +3281,7 @@ function persistSteeringMutation(
 	agent: AgentSnapshot,
 	input: CommitMultiAgentSteeringMutationInput,
 ): CommitMultiAgentSteeringMutationResult {
-	const messageNumber = allocateMultiAgentCounterInTransaction(db, input.sessionPath, "message");
+	const messageNumber = allocateMultiAgentCounterWithDb(db, input.sessionPath, "message");
 	const message: AgentMailboxMessage = {
 		body: input.body,
 		createdAt: input.updatedAt,
@@ -5037,13 +5037,19 @@ export function allocateMultiAgentCounter(
 	sessionPath: string,
 	counterName: MultiAgentCounterName,
 ): number {
-	return withControlDb(controlDbPath, (db) => {
-		const row = db
-			.prepare(MULTI_AGENT_COUNTER_ALLOCATION_SQL[counterName])
-			.get(sessionPath, new Date().toISOString()) as { value: number } | undefined;
-		if (!row) throw new Error(`Multi-agent ${counterName} counter allocation returned no value for ${sessionPath}`);
-		return row.value;
-	});
+	return withControlDb(controlDbPath, (db) => allocateMultiAgentCounterWithDb(db, sessionPath, counterName));
+}
+
+function allocateMultiAgentCounterWithDb(
+	db: SqliteDatabase,
+	sessionPath: string,
+	counterName: MultiAgentCounterName,
+): number {
+	const row = db
+		.prepare(MULTI_AGENT_COUNTER_ALLOCATION_SQL[counterName])
+		.get(sessionPath, new Date().toISOString()) as { value: number } | undefined;
+	if (!row) throw new Error(`Multi-agent ${counterName} counter allocation returned no value for ${sessionPath}`);
+	return row.value;
 }
 
 export function readMultiAgentAgent(
