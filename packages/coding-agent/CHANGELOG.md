@@ -239,6 +239,7 @@
 - Fixed `change_working_directory` leaving its in-flight tool call without a terminal result when changing directories; the result is now emitted and persisted before the change takes effect.
 - Fixed unsandboxed bwrap file-tool overrides retaining process startup cwd after session relocation or restart instead of resolving relative paths from current extension-context cwd.
 - Fixed idle terminal-outbox claims acquiring the shared `control.sqlite` writer lock; claims now probe eligibility read-only, recover stale claims only inside the write transaction, and atomically select and claim pending rows with `UPDATE ... RETURNING`.
+- Fixed idle Architect request polling acquiring the shared `control.sqlite` writer lock; polling now probes pending or stale-claimed work read-only, while stale recovery and bounded batch claiming remain one immediate transaction.
 - Fixed resident Architect and Supervisor metadata rewrites growing without bound and holding the shared `control.sqlite` writer lock long enough to disrupt terminal-outbox delivery.
 - Fixed reopening a source session whose restored pending assistant tool-call batch contains any `resume_session` call to treat that batch as a completed terminal switch without appending a `toolResult`; ordinary batches without `resume_session` still continue.
 - Fixed dead-detached-runtime reconciliation terminating Pi when another process held the shared SQLite writer lock; transient busy/locked contention now defers to a later reconciliation poll while other failures still surface.
