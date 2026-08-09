@@ -455,7 +455,7 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			);
 			pi.respondToLlmRequest(
 				afterSpawn.id,
-				fauxAssistantMessage(fauxToolCall("cancel_agent", { agentId: spawned.id }), { stopReason: "toolUse" }),
+				fauxAssistantMessage(fauxToolCall("close_agent", { agentId: spawned.id }), { stopReason: "toolUse" }),
 			);
 			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "aborted");
 			const record = await waitForParentAgentRecord(pi.sessionFile, "agent_complete", spawned.id);

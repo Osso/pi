@@ -358,7 +358,7 @@ interface AgentViewerTranscript {
 interface AgentViewerCommand {
 	agentId: string;
 	command: "stop" | "steer";
-	tool: "cancel_agent" | "steer_agent";
+	tool: "close_agent" | "steer_agent";
 }
 
 interface SendAgentMessageToolDetails {
@@ -2070,7 +2070,7 @@ function viewTranscript(agent: AgentSnapshot): AgentViewerTranscript | undefined
 
 function listViewerCommands(agents: AgentSnapshot[]): AgentViewerCommand[] {
 	return agents.flatMap((agent) => [
-		{ agentId: agent.id, command: "stop", tool: "cancel_agent" },
+		{ agentId: agent.id, command: "stop", tool: "close_agent" },
 		{ agentId: agent.id, command: "steer", tool: "steer_agent" },
 	]);
 }
@@ -3408,9 +3408,9 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 
 	pi.registerTool(
 		defineTool({
-			name: "cancel_agent",
-			label: "Cancel Agent",
-			description: "Cancel an agent through the multi-agent store using the current store revision.",
+			name: "close_agent",
+			label: "Close Agent",
+			description: "Close an agent through the multi-agent store using the current store revision.",
 			approvalRequired: false,
 			parameters: cancelAgentSchema,
 			execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) =>

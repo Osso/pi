@@ -12,7 +12,7 @@ in-memory identity, outcome, and output metadata; output artifacts are diagnosti
 dispatch, attached-session recovery, cancellation, steering, and waits use the same repository authority.
 
 The first-party agent extensions expose `agent_viewer`, `spawn_agent`, `list_agents`, `wait_agent`,
-`cancel_agent`, `contact_parent`, `send_agent_message`, and `steer_agent`. Orchestration-capable
+`close_agent`, `contact_parent`, `send_agent_message`, and `steer_agent`. Orchestration-capable
 main runtimes must receive an issued execution capability before these tools or main-runtime listeners
 are exposed. `spawn_agent` constructs executable child work before persistence: success stores `running`
 revision 1, while construction interruption or failure stores `failed` revision 1. Promptless saved-session
@@ -94,7 +94,7 @@ recovery commands while preserving agent and transcript identity.
 Runtime ownership is the exact Linux process identity `(pid, /proc/<pid>/stat startTimeTicks)`; recovery
 occurs only after that exact identity is gone and never rewrites lifecycle JSON directly. A `restart_self`
 recovery may replace a prior runtime incarnation when PID and `startTimeTicks` are unchanged, preserving the
-live logical child and its queued steering through rebinding. After rebinding, exact-owner `cancel_agent` can
+live logical child and its queued steering through rebinding. After rebinding, exact-owner `close_agent` can
 commit `aborted`, and model-facing `list_agents` omits the terminal child. The one registered supervisor binding
 persists that exact process identity for its asserted session path.
 If a new Pi runtime reuses the same PID, registration advances the inventory-only session health generation
@@ -226,7 +226,7 @@ inline child output is excluded from core snapshots and UI projections.
 ### Revisions
 
 Every lifecycle mutation increments the target agent revision inside the repository transaction.
-Coordinator and model-facing commands never accept an expected revision. `cancel_agent` commits from
+Coordinator and model-facing commands never accept an expected revision. `close_agent` commits from
 current durable state before invoking abort, and `send_agent_message` derives its sender from the current
 session. Read commands do not require revision. Pinned-slot metadata may still return a current projection
 for UI conflict resolution; it is not lifecycle authority.

@@ -1399,7 +1399,7 @@ describe("headless Pi fixture", () => {
 				await vi.waitFor(() => expect(() => process.kill(runnerPid, 0)).toThrow());
 				agent.respondToLlmRequest(
 					afterDetach.id,
-					fauxAssistantMessage(fauxToolCall("cancel_agent", { agentId: runner.id, reason: "test cancellation" }), {
+					fauxAssistantMessage(fauxToolCall("close_agent", { agentId: runner.id, reason: "test cancellation" }), {
 						stopReason: "toolUse",
 					}),
 				);
@@ -1472,7 +1472,7 @@ describe("headless Pi fixture", () => {
 				await vi.waitFor(() => expect(() => process.kill(runnerPid, 0)).toThrow());
 				agent.respondToLlmRequest(
 					afterDetach.id,
-					fauxAssistantMessage(fauxToolCall("cancel_agent", { agentId: runner.id, reason: "test cancellation" }), {
+					fauxAssistantMessage(fauxToolCall("close_agent", { agentId: runner.id, reason: "test cancellation" }), {
 						stopReason: "toolUse",
 					}),
 				);

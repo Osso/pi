@@ -16,7 +16,7 @@ stateDiagram-v2
     [*] --> waiting_for_input: attach_session_agent (idle attached session)
     running --> waiting_for_input: turn ends needing input
     running --> steering_pending: steer_agent
-    running --> cancelling: cancel_agent
+    running --> cancelling: close_agent
     running --> completed
     running --> failed
     running --> aborted
@@ -310,7 +310,7 @@ folder from reading stale manifests or output belonging to another supervisor.
 - [ ] Add `interrupted`: persisted state for agents deliberately paused by the user — a policy
       difference (never auto-restarted) that cannot be derived, unlike crash detachment.
       Blocked on a hand-interruption surface existing (today the only manual stop is
-      `cancel_agent`).
+      `close_agent`).
 
 ## Out of scope
 

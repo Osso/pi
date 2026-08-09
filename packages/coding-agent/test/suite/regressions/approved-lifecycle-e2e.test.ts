@@ -324,7 +324,7 @@ describe("approved multi-agent lifecycle e2e", () => {
 		if (!agent) throw new Error("expected spawned agent");
 
 		fixture.harness.setResponses([
-			fauxAssistantMessage(fauxToolCall("cancel_agent", { agentId: agent.id, reason: "stop" }), {
+			fauxAssistantMessage(fauxToolCall("close_agent", { agentId: agent.id, reason: "stop" }), {
 				stopReason: "toolUse",
 			}),
 			fauxAssistantMessage("cancel requested"),
@@ -335,7 +335,7 @@ describe("approved multi-agent lifecycle e2e", () => {
 		await cancellation;
 		await eventually(() => fixture.store.getAgent(agent.id)?.lifecycle === "aborted", "cancellation acknowledgement");
 		expect(fixture.store.getAgent(agent.id)).toMatchObject({ lifecycle: "aborted" });
-		expect(latestToolResult(fixture.harness, "cancel_agent")?.content).toEqual([
+		expect(latestToolResult(fixture.harness, "close_agent")?.content).toEqual([
 			{ text: "Cancelled Worker.", type: "text" },
 		]);
 	});

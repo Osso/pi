@@ -50,7 +50,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `spawn_agent`, `attach_session_agent`, `wait_agent`, `/bg`, and the Pyrun `agents.spawn`,
       `agents.attachSession`, and `agents.wait` bridge methods before rows are created. Production child
       and attached sessions also exclude `spawn_agent`, `attach_session_agent`, `wait_agent`,
-      `list_agents`, `agent_viewer`, `steer_agent`, and `cancel_agent` as defense in depth, while retaining
+      `list_agents`, `agent_viewer`, `steer_agent`, and `close_agent` as defense in depth, while retaining
       direct child communication through `contact_parent` and `send_agent_message`.
 - [x] Child runtimes register only their agent-address mailbox listener and never run supervisor-wide
       persisted-store reconciliation or lifecycle-notification mirroring. Their bound session-start hook
@@ -150,7 +150,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       coordinator/repository commands using exact path assertion and `(pid, startTimeTicks, incarnation)` identity.
       A changed incarnation with unchanged PID and start time identifies a prior exec-restarted runtime and permits
       ownership replacement for active `steering_pending` recovery; queued steering remains deliverable, and
-      post-rebind `cancel_agent` can commit `aborted` while model-facing `list_agents` excludes the terminal child.
+      post-rebind `close_agent` can commit `aborted` while model-facing `list_agents` excludes the terminal child.
       Confirmed owner-process exit resolves as `failed/lost_runtime` from `running` or `aborted/lost_runtime`
       from `cancelling`, never direct JSON rewrite or inferred result. Transient SQLite busy/locked contention
       defers dead-detached-runtime reconciliation to a later poll without terminating Pi; other database,
@@ -269,7 +269,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   nonterminal until attached-session ownership is reacquired or resolved as lost. Cancelling a parent
   issues cancellation intents to active
   descendants deepest-first, while each descendant still terminalizes through its own owned command.
-  `cancel_agent`, selected-agent Escape, and reserved-runtime shutdown call this same operation. SQLite
+  `close_agent`, selected-agent Escape, and reserved-runtime shutdown call this same operation. SQLite
   rejects any parent terminal mutation while a persisted descendant remains nonterminal; the coordinator resolves cancellation or exact owner-process loss
   for descendants before terminalizing the parent.
 - Externally visible child effects use a deterministic operation identity derived from the durable

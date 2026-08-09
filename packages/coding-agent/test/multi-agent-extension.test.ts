@@ -588,14 +588,15 @@ describe("multi-agent extension tools", () => {
 		expect(notify).toHaveBeenCalledWith("Multi-agent mode is controlled by the main thread", "warning");
 	});
 
-	it("registers spawn/list/cancel/steer/contact/viewer tools", () => {
+	it("registers spawn/list/close/steer/contact/viewer tools", () => {
 		const harness = createMultiAgentHarness();
 
+		expect(harness.tools.has("cancel_agent")).toBe(false);
 		expect(harness.tools.has("wait_agents")).toBe(false);
 		expect([...harness.tools.keys()].sort()).toEqual([
 			"agent_viewer",
 			"attach_session_agent",
-			"cancel_agent",
+			"close_agent",
 			"contact_parent",
 			"list_agents",
 			"send_agent_message",
@@ -609,8 +610,8 @@ describe("multi-agent extension tools", () => {
 		expect(Object.keys(waitParameters.properties)).toEqual([]);
 		expect(waitParameters.required).toBeUndefined();
 		expect(waitParameters).toMatchObject({ additionalProperties: false });
-		const cancelTool = harness.tools.get("cancel_agent");
-		if (!cancelTool) throw new Error("expected cancel_agent tool");
+		const cancelTool = harness.tools.get("close_agent");
+		if (!cancelTool) throw new Error("expected close_agent tool");
 		const cancelParameters = cancelTool.parameters as { properties: Record<string, unknown>; required?: string[] };
 		expect(Object.keys(cancelParameters.properties)).toEqual(["agentId", "reason"]);
 		expect(cancelParameters.required).toEqual(["agentId"]);
@@ -622,7 +623,7 @@ describe("multi-agent extension tools", () => {
 		expect([...harness.tools.values()].map((tool) => [tool.name, tool.approvalRequired]).sort()).toEqual([
 			["agent_viewer", false],
 			["attach_session_agent", false],
-			["cancel_agent", false],
+			["close_agent", false],
 			["contact_parent", false],
 			["list_agents", false],
 			["send_agent_message", false],
@@ -638,7 +639,7 @@ describe("multi-agent extension tools", () => {
 		expect([...harness.tools.keys()].sort()).toEqual([
 			"agent_viewer",
 			"attach_session_agent",
-			"cancel_agent",
+			"close_agent",
 			"contact_parent",
 			"list_agents",
 			"send_agent_message",
@@ -700,7 +701,7 @@ describe("multi-agent extension tools", () => {
 			});
 			const agentBeforeCancel = harness.store.getAgent(attached.details.agent.id);
 			if (!agentBeforeCancel) throw new Error("expected attached agent");
-			const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+			const cancelled = await harness.call<CancelAgentDetails>("close_agent", {
 				agentId: attached.details.agent.id,
 				reason: "stop saved work",
 			});
@@ -783,7 +784,7 @@ describe("multi-agent extension tools", () => {
 				prompt: "Continue saved work",
 			});
 			const running = await waitForAgentLifecycle(harness, attached.details.agent.id, "running");
-			const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+			const cancelled = await harness.call<CancelAgentDetails>("close_agent", {
 				agentId: running.id,
 				reason: "user requested",
 			});
@@ -1788,7 +1789,7 @@ describe("multi-agent extension tools", () => {
 
 		expect(collectTools((pi) => agentsCoreExtension(pi, { store }))).toEqual([
 			"attach_session_agent",
-			"cancel_agent",
+			"close_agent",
 			"list_agents",
 			"spawn_agent",
 			"steer_agent",
@@ -1849,7 +1850,7 @@ describe("multi-agent extension tools", () => {
 		await harness.command("bg", "sleep 100");
 		await Promise.resolve();
 		const [agent] = harness.store.listAgents();
-		await harness.call<CancelAgentDetails>("cancel_agent", {
+		await harness.call<CancelAgentDetails>("close_agent", {
 			agentId: agent.id,
 			reason: "user requested",
 		});
@@ -1875,7 +1876,7 @@ describe("multi-agent extension tools", () => {
 		});
 		await Promise.resolve();
 
-		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+		const cancelled = await harness.call<CancelAgentDetails>("close_agent", {
 			agentId: spawned.details.agent.id,
 			reason: "user requested",
 		});
@@ -1904,7 +1905,7 @@ describe("multi-agent extension tools", () => {
 		if (!current) {
 			throw new Error("expected spawned agent");
 		}
-		await harness.call<CancelAgentDetails>("cancel_agent", {
+		await harness.call<CancelAgentDetails>("close_agent", {
 			agentId: current.id,
 			reason: "user requested",
 		});
@@ -1942,7 +1943,7 @@ describe("multi-agent extension tools", () => {
 		});
 		await Promise.resolve();
 
-		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+		const cancelled = await harness.call<CancelAgentDetails>("close_agent", {
 			agentId: parent.details.agent.id,
 			reason: "cascade",
 		});
@@ -1982,7 +1983,7 @@ describe("multi-agent extension tools", () => {
 		slowChildAgentId = child.details.agent.id;
 		await Promise.resolve();
 
-		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+		const cancelled = await harness.call<CancelAgentDetails>("close_agent", {
 			agentId: parent.details.agent.id,
 			reason: "cascade",
 		});
@@ -2011,7 +2012,7 @@ describe("multi-agent extension tools", () => {
 		});
 		await Promise.resolve();
 
-		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+		const cancelled = await harness.call<CancelAgentDetails>("close_agent", {
 			agentId: spawned.details.agent.id,
 			reason: "user requested",
 		});
@@ -2264,7 +2265,7 @@ describe("multi-agent extension tools", () => {
 		}
 		const current = store.getAgent(spawned.agent.id);
 		if (!current) throw new Error("expected spawned agent");
-		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+		const cancelled = await harness.call<CancelAgentDetails>("close_agent", {
 			agentId: current.id,
 			reason: "stop pyrun bridge child",
 		});
@@ -2319,7 +2320,7 @@ describe("multi-agent extension tools", () => {
 			await delay(1);
 		}
 		expect(harness.store.getAgent(spawned.details.agent.id)?.transcript).toBeDefined();
-		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+		const cancelled = await harness.call<CancelAgentDetails>("close_agent", {
 			agentId: spawned.details.agent.id,
 			reason: "user requested",
 		});
@@ -2343,7 +2344,7 @@ describe("multi-agent extension tools", () => {
 		await harness.command("bg", "sleep 100");
 		await Promise.resolve();
 		const [agent] = harness.store.listAgents();
-		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+		const cancelled = await harness.call<CancelAgentDetails>("close_agent", {
 			agentId: agent.id,
 			reason: "user requested",
 		});
@@ -2631,7 +2632,7 @@ describe("multi-agent extension tools", () => {
 		});
 		expect(viewed.details.commands).toEqual(
 			expect.arrayContaining([
-				{ agentId: child.agent.id, command: "stop", tool: "cancel_agent" },
+				{ agentId: child.agent.id, command: "stop", tool: "close_agent" },
 				{ agentId: child.agent.id, command: "steer", tool: "steer_agent" },
 			]),
 		);
@@ -2924,7 +2925,7 @@ describe("multi-agent extension tools", () => {
 		if (!created.ok) throw new Error("expected child ownership");
 		harness.store.publishLifecycleCoordinatorSnapshot(created.agent);
 
-		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+		const cancelled = await harness.call<CancelAgentDetails>("close_agent", {
 			agentId,
 			reason: "stop evaluation",
 		});
@@ -2946,7 +2947,7 @@ describe("multi-agent extension tools", () => {
 		});
 		const agent = spawned.details.agent;
 
-		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+		const cancelled = await harness.call<CancelAgentDetails>("close_agent", {
 			agentId: agent.id,
 			reason: "user stopped it",
 		});
@@ -3093,7 +3094,7 @@ describe("multi-agent extension tools", () => {
 		});
 		await dispatchStarted.promise;
 
-		const cancelled = await harness.call<CancelAgentDetails>("cancel_agent", {
+		const cancelled = await harness.call<CancelAgentDetails>("close_agent", {
 			agentId: spawned.details.agent.id,
 			reason: "stop child session",
 		});
@@ -3897,7 +3898,7 @@ describe("multi-agent extension tools", () => {
 			excludeTools: [
 				"agent_viewer",
 				"attach_session_agent",
-				"cancel_agent",
+				"close_agent",
 				"list_agents",
 				"spawn_agent",
 				"steer_agent",
@@ -4145,7 +4146,7 @@ describe("multi-agent extension tools", () => {
 			excludeTools: [
 				"agent_viewer",
 				"attach_session_agent",
-				"cancel_agent",
+				"close_agent",
 				"list_agents",
 				"spawn_agent",
 				"steer_agent",
@@ -4710,7 +4711,7 @@ describe("multi-agent extension tools", () => {
 			excludeTools: [
 				"agent_viewer",
 				"attach_session_agent",
-				"cancel_agent",
+				"close_agent",
 				"list_agents",
 				"spawn_agent",
 				"steer_agent",

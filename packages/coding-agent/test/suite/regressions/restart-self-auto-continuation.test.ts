@@ -342,11 +342,11 @@ it("recovers and cancels a compacted logical child after restart_self changes th
 		pi.respondToLlmRequest(
 			mainAfterRestart.id,
 			fauxAssistantMessage(
-				fauxToolCall("cancel_agent", { agentId: child.id, reason: "Verify recovered cancellation" }),
+				fauxToolCall("close_agent", { agentId: child.id, reason: "Verify recovered cancellation" }),
 				{ stopReason: "toolUse" },
 			),
 		);
-		const cancelResult = await waitForMainToolResult(pi, "cancel_agent");
+		const cancelResult = await waitForMainToolResult(pi, "close_agent");
 		expect(JSON.stringify(cancelResult)).toContain("Cancelled");
 		await waitForAgentLifecycle(pi, child.id, "aborted");
 

@@ -109,8 +109,8 @@ function registerCancelAgentTool(store: MultiAgentStore): RegisteredTool {
 		},
 	} as unknown as ExtensionAPI;
 	registerAgentsCoreTools(pi, { store });
-	const tool = tools.get("cancel_agent");
-	if (!tool) throw new Error("cancel_agent was not registered");
+	const tool = tools.get("close_agent");
+	if (!tool) throw new Error("close_agent was not registered");
 	return tool;
 }
 
@@ -281,7 +281,7 @@ describe("bash tool background detach", () => {
 		expect(store.getAgent(job.id)?.result?.summary).toBe("Detached Bash command timed out");
 	});
 
-	it("routes cancel_agent through detached Bash runtime mailbox control", async () => {
+	it("routes close_agent through detached Bash runtime mailbox control", async () => {
 		const cwd = await createTempDir();
 		const markerPath = join(cwd, "still-running");
 		const scriptPath = join(cwd, "long-running.mjs");
