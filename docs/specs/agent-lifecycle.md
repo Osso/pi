@@ -121,7 +121,9 @@ revalidates the exact agent snapshot and owner predicate and atomically persists
 cancellation command. Steering authority validation likewise reads the agent, exact ownership, sender and
 recipient listener identities, and transition legality before reserving the writer; the commit revalidates
 those snapshots and atomically updates the agent, allocates its message counter, and persists the mailbox
-payload. Steering enqueue, lifecycle transition, and terminal mutation serialize through immediate SQLite
+payload. Steering delivery likewise validates the agent, exact ownership, transition, and canonical message
+payload before reserving the writer; the commit revalidates both payload snapshots and atomically updates the
+agent and message rows. Steering enqueue, lifecycle transition, and terminal mutation serialize through immediate SQLite
 transactions: steering that commits first keeps the agent active until delivery is acknowledged back to
 `running`; only then may it become idle or terminal. Steering attempted after a terminal commit receives
 an explicit inactive-agent rejection rather than being silently dropped.
