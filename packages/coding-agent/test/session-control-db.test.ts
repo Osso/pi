@@ -8,7 +8,6 @@ import { Worker } from "node:worker_threads";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDetachedJobArtifacts, createDetachedJobTerminalInput } from "../src/core/detached-job-runner.ts";
 import {
-	acquireAttachedRuntimeOwnership,
 	advanceSharedChannelCursor,
 	allocateMultiAgentCounter,
 	archiveSession,
@@ -27,14 +26,11 @@ import {
 	completeArchitectRequest,
 	completeIncomingMessage,
 	consumeRuntimeMailboxMessage,
-	createFailedMultiAgentChild,
-	createMultiAgentAttachment,
 	createMultiAgentChildWithRuntimeOwnership,
 	deliverMultiAgentTerminalOutbox,
 	deliverRuntimeMailboxMessage,
 	enqueueIncomingMessage,
 	enqueueRuntimeMailboxMessage,
-	enqueueStoredRuntimeMailboxMessage,
 	failMultiAgentTerminalOutbox,
 	failRuntimeMailboxMessage,
 	finalizeDetachedJob,

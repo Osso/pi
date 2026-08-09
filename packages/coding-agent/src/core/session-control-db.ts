@@ -5045,9 +5045,9 @@ function allocateMultiAgentCounterWithDb(
 	sessionPath: string,
 	counterName: MultiAgentCounterName,
 ): number {
-	const row = db
-		.prepare(MULTI_AGENT_COUNTER_ALLOCATION_SQL[counterName])
-		.get(sessionPath, new Date().toISOString()) as { value: number } | undefined;
+	const row = db.prepare(MULTI_AGENT_COUNTER_ALLOCATION_SQL[counterName]).get(sessionPath, new Date().toISOString()) as
+		| { value: number }
+		| undefined;
 	if (!row) throw new Error(`Multi-agent ${counterName} counter allocation returned no value for ${sessionPath}`);
 	return row.value;
 }
