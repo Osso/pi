@@ -59,7 +59,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       validate the agent, exact process ownership, and requested transition from read-only snapshots, and
       prepare any detached-cancellation payload before reserving the writer; the commit revalidates the exact
       agent snapshot and owner predicate, then atomically updates lifecycle state and persists the cancellation
-      command. Lifecycle transactions read revision internally, verify session/agent/process ownership, update
+      command. Steering mutations likewise validate the agent, exact ownership, transition, and sender/
+      recipient listener identities before reserving the writer; the commit revalidates those snapshots and
+      atomically updates the agent, allocates the message counter, and persists the canonical mailbox payload.
+      Lifecycle transactions read revision internally, verify session/agent/process ownership, update
       the agent row, and enqueue one pending completion notification in the same immediate SQLite transaction.
       The agent row is terminal truth; the outbox is only a delivery queue.
       Exact retries return the committed terminal revision without rewriting rows; conflicting predicates fail

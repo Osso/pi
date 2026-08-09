@@ -118,10 +118,13 @@ A runtime cannot commit `waiting_for_input` or natural `completed` while lifecyc
 `steering_pending`. Lifecycle ownership and transition validation, including detached-cancellation
 payload preparation, run before the writer transaction so unrelated writers are not blocked; the commit
 revalidates the exact agent snapshot and owner predicate and atomically persists the lifecycle update plus
-cancellation command. Steering enqueue, lifecycle transition, and terminal mutation serialize through
-immediate SQLite transactions: steering that commits first keeps the agent active until delivery is
-acknowledged back to `running`; only then may it become idle or terminal. Steering attempted after a
-terminal commit receives an explicit inactive-agent rejection rather than being silently dropped.
+cancellation command. Steering authority validation likewise reads the agent, exact ownership, sender and
+recipient listener identities, and transition legality before reserving the writer; the commit revalidates
+those snapshots and atomically updates the agent, allocates its message counter, and persists the mailbox
+payload. Steering enqueue, lifecycle transition, and terminal mutation serialize through immediate SQLite
+transactions: steering that commits first keeps the agent active until delivery is acknowledged back to
+`running`; only then may it become idle or terminal. Steering attempted after a terminal commit receives
+an explicit inactive-agent rejection rather than being silently dropped.
 
 Every terminal transition updates the agent row and revision and enqueues exactly one pending completion
 or failure notification in the same SQLite transaction. The agent row is terminal truth; the outbox is
