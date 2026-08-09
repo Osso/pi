@@ -121,9 +121,11 @@ A runtime cannot commit `waiting_for_input` or natural `completed` while lifecyc
 payload preparation, run before the writer transaction so unrelated writers are not blocked; the commit
 revalidates the exact agent snapshot and owner predicate and atomically persists the lifecycle update plus
 cancellation command. Steering authority validation likewise reads the agent, exact ownership, sender and
-recipient listener identities, and transition legality before reserving the writer; the commit revalidates
-those snapshots and atomically updates the agent, allocates its message counter, and persists the mailbox
-payload. Steering delivery likewise validates the agent, exact ownership, transition, and canonical message
+recipient listener identities, and transition legality before reserving the writer; agent serialization and
+mailbox JSON/routing preparation run read-only before the coupled transaction. Message-counter allocation
+remains inside that transaction so rollback preserves numbering and agent/mailbox atomicity. The commit
+revalidates those snapshots and atomically updates the agent and persists the prepared mailbox payload.
+Steering delivery likewise validates the agent, exact ownership, transition, and canonical message
 payload before reserving the writer; the commit revalidates both payload snapshots and atomically updates the
 agent and message rows. Terminal mutation preflights exact ownership, replay identity, transition legality,
 and descendant state read-only; its commit revalidates the agent snapshot and owner predicate, recursively
@@ -132,7 +134,9 @@ outbox row. Detached-job finalization resolves the candidate session path from e
 preflights path uniqueness, replay identity, terminal payload, lifecycle, ownership, and descendant state
 read-only. Its commit revalidates unique ownership, the agent snapshot, and recursive descendant absence in
 one CAS fence, then atomically persists the terminal agent, outbox row, and optional detached transport
-notification. Exact replays return the existing terminal result without reserving the writer. Steering enqueue, lifecycle transition, and terminal mutation serialize through immediate SQLite
+insert. Detached terminal/recovery transport JSON and routing are prepared before the transaction; only the
+prepared canonical insert is coupled to terminal state. Exact replays return the existing terminal result
+without reserving the writer. Steering enqueue, lifecycle transition, and terminal mutation serialize through immediate SQLite
 transactions: steering that commits first keeps the agent active until delivery is acknowledged back to
 `running`; only then may it become idle or terminal. Steering attempted after a terminal commit receives
 an explicit inactive-agent rejection rather than being silently dropped.
@@ -202,7 +206,8 @@ process identity to mark a `running` agent `failed/lost_runtime`; it does not re
 result from the output file. Recovery preflights supervisor authority, exact owner/liveness, and recursive
 descendant state read-only; commit-time CAS revalidates persisted authority, ownership, the agent snapshot,
 and descendant absence, then atomically releases ownership and persists terminal state, its outbox row,
-and any detached transport notification. If the persisted lifecycle already recorded a cancellation intent
+and any prepared detached transport insert. Detached transport JSON and routing are prepared before the
+transaction; the canonical insert remains coupled to recovery state. If the persisted lifecycle already recorded a cancellation intent
 (`cancelling`), dead-owner recovery settles that intent as `aborted/lost_runtime` — still without replaying
 or inferring a result. A cancellation committed before a pending natural-result
 finalizer still wins by transaction order; outside dead-owner recovery, `aborted` requires the exact

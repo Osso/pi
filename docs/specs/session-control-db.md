@@ -64,8 +64,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       prepare any detached-cancellation payload before reserving the writer; the commit revalidates the exact
       agent snapshot and owner predicate, then atomically updates lifecycle state and persists the cancellation
       command. Steering mutations likewise validate the agent, exact ownership, transition, and sender/
-      recipient listener identities before reserving the writer; the commit revalidates those snapshots and
-      atomically updates the agent, allocates the message counter, and persists the canonical mailbox payload.
+      recipient listener identities before reserving the writer; agent serialization plus mailbox JSON and routing
+      preparation run read-only before the coupled transaction. Message-counter allocation remains inside that
+      transaction so rollback preserves numbering and agent/mailbox atomicity. The commit revalidates those
+      snapshots and atomically updates the agent and persists the prepared canonical mailbox payload.
       Steering delivery validates the agent, exact ownership, transition, and canonical message payload before
       reserving the writer; the commit revalidates both payload snapshots and atomically updates the agent and
       message rows. Terminal mutation preflights exact ownership, replay identity, transition legality, and
@@ -75,7 +77,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       preflights path uniqueness, replay identity, terminal payload, lifecycle, ownership, and descendant state
       read-only. Its commit revalidates unique ownership, the agent snapshot, and recursive descendant absence in
       one CAS fence, then atomically persists the terminal agent, outbox row, and optional detached transport
-      notification. Exact replays return the existing terminal result without reserving the writer. Lifecycle transactions read revision internally, verify session/agent/process ownership, update
+      insert. Detached terminal/recovery transport JSON and routing are prepared before the transaction; only the
+      prepared canonical insert is coupled to terminal state. Exact replays return the existing terminal result
+      without reserving the writer. Lifecycle transactions read revision internally, verify session/agent/process ownership, update
       the agent row, and enqueue one pending completion notification in the same immediate SQLite transaction.
       The agent row is terminal truth; the outbox is only a delivery queue.
       Exact retries return the committed terminal revision without rewriting rows; conflicting predicates fail
@@ -154,7 +158,8 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       descendant, and process-liveness checks run read-only first. Commit-time CAS revalidates the
       persisted supervisor/listener authority, exact owner and agent snapshots, and recursive descendant
       absence before atomically releasing ownership and persisting terminal state, the outbox row, and any
-      detached transport notification.
+      prepared detached transport insert. Detached transport JSON and routing are prepared before the
+      transaction; the canonical insert remains coupled to recovery state.
 - [x] A main-thread listener registration persists its exact session path and assertion timestamp,
       atomically retires other main-session bindings for the same PID, marks their matching health
       rows ended and confirms the registered binding `ok`. Listener retirement removes only the
@@ -185,7 +190,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] Store prompt history in the control DB so concurrent Pi sessions append
   without overwriting each other's prompt history entries.
 - [x] Migrate legacy JSON prompt history into the control DB when DB prompt
-  history is empty.
+  history is empty. Legacy rows are trimmed and adjacent duplicates are removed read-only; blank input
+  returns without reserving the writer, and nonblank rows use one conditional bulk insert so a concurrent
+  winner leaves the existing history unchanged.
 - [x] `/name <name>` names the current session and `/unname` removes that name.
 - [x] Session restore lists show named sessions first in Current Folder and All
   scopes, including threaded restore mode; Archived scope preserves recent
