@@ -1,7 +1,7 @@
 import { spawn, spawnSync, type ChildProcessByStdio } from "node:child_process";
 import type { Readable } from "node:stream";
-import { existsSync, realpathSync } from "node:fs";
-import { delimiter, isAbsolute, join, resolve } from "node:path";
+import { closeSync, existsSync, openSync, readSync, realpathSync } from "node:fs";
+import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import type { BashOperations } from "../../../src/index.ts";
 import { createLocalBashOperations } from "../../../src/index.ts";
 import type { SandboxProfileName } from "../../../src/core/permissions/presets.ts";
@@ -27,6 +27,8 @@ export interface BwrapInvocation {
 const SANDBOX_HOME = "/tmp/pi-home";
 const DEFAULT_LANG = "C.UTF-8";
 const DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/bin:/bin";
+const SHEBANG_PREFIX_BYTES = 4096;
+const PYTHON_LIBRARY_DIRECTORIES = ["lib", "lib64"];
 const READ_ONLY_SYSTEM_PATHS = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/nix"];
 
 export function resolveBwrapSandboxProfile(profile: SandboxProfileName): BwrapSandboxProfile | undefined {
@@ -173,6 +175,45 @@ function resolveRunnerExecutable(path: string): string {
 	return existsSync(path) ? realpathSync(path) : path;
 }
 
+function readRunnerRuntimePaths(command: string): string[] {
+	const interpreter = readAbsoluteShebangInterpreter(command);
+	if (!interpreter || !existsSync(interpreter)) return [];
+
+	const interpreterTarget = realpathSync(interpreter);
+	const interpreterMountPath = interpreterTarget === interpreter ? interpreter : dirname(interpreter);
+	const virtualEnvironmentRoot = dirname(dirname(interpreter));
+	const virtualEnvironmentConfig = join(virtualEnvironmentRoot, "pyvenv.cfg");
+	if (!existsSync(virtualEnvironmentConfig)) return [interpreterMountPath, interpreterTarget];
+
+	const runtimeRoot = dirname(dirname(interpreterTarget));
+	return [
+		interpreterMountPath,
+		virtualEnvironmentConfig,
+		...PYTHON_LIBRARY_DIRECTORIES.map((directory) => join(virtualEnvironmentRoot, directory)),
+		interpreterTarget,
+		...PYTHON_LIBRARY_DIRECTORIES.map((directory) => join(runtimeRoot, directory)),
+	];
+}
+
+function readAbsoluteShebangInterpreter(path: string): string | undefined {
+	let fileDescriptor: number;
+	try {
+		fileDescriptor = openSync(path, "r");
+	} catch {
+		return undefined;
+	}
+
+	try {
+		const prefix = Buffer.alloc(SHEBANG_PREFIX_BYTES);
+		const bytesRead = readSync(fileDescriptor, prefix, 0, prefix.length, 0);
+		return /^#![ \t]*(\/[^ \t\r\n]+)/.exec(prefix.toString("utf8", 0, bytesRead))?.[1];
+	} catch {
+		return undefined;
+	} finally {
+		closeSync(fileDescriptor);
+	}
+}
+
 function runnerReadOnlyPaths(
 	command: string,
 	args: string[],
@@ -181,6 +222,7 @@ function runnerReadOnlyPaths(
 ): string[] {
 	const workspace = resolve(cwd);
 	const candidatePaths = [
+		...readRunnerRuntimePaths(command),
 		...(isAbsolute(command) ? [command] : []),
 		...args.filter(isAbsolute),
 		...(env?.PYTHONPATH?.split(delimiter) ?? []).filter(Boolean),
@@ -188,7 +230,10 @@ function runnerReadOnlyPaths(
 	const resolvedPaths = candidatePaths
 		.map((path) => resolveSandboxPath(path, workspace))
 		.filter((path) => !isSandboxMountUnnecessary(path, workspace));
-	return [...new Set(resolvedPaths)];
+	const uniquePaths = [...new Set(resolvedPaths)];
+	return uniquePaths.filter(
+		(path) => !uniquePaths.some((parent) => parent !== path && path.startsWith(`${parent}/`)),
+	);
 }
 
 function resolveSandboxPath(path: string, workspace: string): string {

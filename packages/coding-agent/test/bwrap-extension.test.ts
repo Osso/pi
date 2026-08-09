@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -215,6 +215,74 @@ describe("bwrap sandbox backend", () => {
 		expect(runner.args).toEqual(expect.arrayContaining(["--ro-bind", runnerTarget, runnerTarget]));
 		expect(runner.args.at(-1)).toBe(runnerTarget);
 	});
+
+	it.skipIf(!canExecuteBwrap)(
+		"executes a symlinked Python launcher with its external virtual-environment runtime closure",
+		() => {
+			const pythonResult = spawnSync(
+				"python3",
+				[
+					"-c",
+					"import json, os, sys, sysconfig; print(json.dumps({'executable': os.path.realpath(sys.executable), 'stdlib': sysconfig.get_path('stdlib'), 'version': f'{sys.version_info.major}.{sys.version_info.minor}'}))",
+				],
+				{ encoding: "utf8" },
+			);
+			expect(pythonResult.status, pythonResult.stderr).toBe(0);
+			const pythonInfo = JSON.parse(pythonResult.stdout) as {
+				executable: string;
+				stdlib: string;
+				version: string;
+			};
+			const pythonRuntimeDir = join(tempDir, "uv-python", "cpython-test");
+			const pythonBinDir = join(pythonRuntimeDir, "bin");
+			const pythonLibDir = join(pythonRuntimeDir, "lib");
+			const pythonExecutable = join(pythonBinDir, "python");
+			const venvDir = join(tempDir, "uv-tool", "pyrun");
+			const venvBinDir = join(venvDir, "bin");
+			const sitePackagesDir = join(venvDir, "lib", `python${pythonInfo.version}`, "site-packages");
+			const runnerTarget = join(venvBinDir, "pyrun-jsonl");
+			const runnerLink = join(tempDir, "bin", "pyrun-jsonl");
+			mkdirSync(pythonBinDir, { recursive: true });
+			mkdirSync(pythonLibDir, { recursive: true });
+			mkdirSync(venvBinDir, { recursive: true });
+			mkdirSync(sitePackagesDir, { recursive: true });
+			mkdirSync(dirname(runnerLink), { recursive: true });
+			copyFileSync(pythonInfo.executable, pythonExecutable);
+			chmodSync(pythonExecutable, 0o755);
+			symlinkSync(pythonInfo.stdlib, join(pythonLibDir, `python${pythonInfo.version}`));
+			writeFileSync(
+				join(venvDir, "pyvenv.cfg"),
+				`home = ${pythonBinDir}\ninclude-system-site-packages = false\nversion = ${pythonInfo.version}\n`,
+				"utf8",
+			);
+			writeFileSync(join(sitePackagesDir, "uv_runtime_marker.py"), `VALUE = ${JSON.stringify(venvDir)}\n`, "utf8");
+			symlinkSync(pythonExecutable, join(venvBinDir, "python"));
+			writeFileSync(
+				runnerTarget,
+				`#!${join(venvBinDir, "python")}\nimport json\nimport sys\nimport uv_runtime_marker\n\nexpected_prefix = ${JSON.stringify(venvDir)}\nexpected_base_prefix = ${JSON.stringify(pythonRuntimeDir)}\nif sys.prefix != expected_prefix:\n    raise SystemExit(f"unexpected virtual environment prefix: {sys.prefix}")\nif sys.base_prefix != expected_base_prefix:\n    raise SystemExit(f"unexpected base runtime prefix: {sys.base_prefix}")\nif uv_runtime_marker.VALUE != expected_prefix:\n    raise SystemExit("virtual environment site-packages were not loaded")\nprint(json.dumps({"basePrefix": sys.base_prefix, "marker": uv_runtime_marker.VALUE, "prefix": sys.prefix}))\n`,
+				"utf8",
+			);
+			chmodSync(runnerTarget, 0o755);
+			symlinkSync(runnerTarget, runnerLink);
+
+			const runner = createBwrapRunnerCommand({
+				bwrapCommand: "bwrap",
+				cwd: workspaceDir,
+				profile: "read-only",
+				runnerArgs: [],
+				runnerCommand: runnerLink,
+				runnerEnv: { PATH: "/usr/bin" },
+			});
+			const result = spawnSync(runner.command, runner.args, { encoding: "utf8", env: runner.env });
+
+			expect(result.status, result.stderr).toBe(0);
+			expect(JSON.parse(result.stdout)).toEqual({
+				basePrefix: pythonRuntimeDir,
+				marker: venvDir,
+				prefix: venvDir,
+			});
+		},
+	);
 
 	it("resolves relative PYTHONPATH entries inside the sandbox workspace", () => {
 		const hostLaunchPath = join(process.cwd(), "extensions");
