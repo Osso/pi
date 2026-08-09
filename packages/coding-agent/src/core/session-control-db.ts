@@ -887,13 +887,11 @@ function updateClaimedCanonicalMailboxMessage(
 	error?: string,
 ): boolean {
 	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () =>
-			updateClaimedCanonicalMailboxMessageInTransaction(db, id, expectedPayloadData, status, error),
-		),
+		updateClaimedCanonicalMailboxMessageRow(db, id, expectedPayloadData, status, error),
 	);
 }
 
-function updateClaimedCanonicalMailboxMessageInTransaction(
+function updateClaimedCanonicalMailboxMessageRow(
 	db: SqliteDatabase,
 	id: number,
 	expectedPayloadData: string | undefined,
@@ -919,24 +917,22 @@ export function consumeRuntimeMailboxMessageByStoreRef(
 	controlDbPath: string,
 	storeRef: RuntimeMailboxStoreRef,
 ): number {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const row = readCanonicalMailboxRowByStoreRef(db, storeRef);
-			if (!row) return 0;
-			const message = parseCanonicalMailboxPayload(row);
-			if (message.status === "delivered") return 0;
-			const now = new Date().toISOString();
-			const delivered: Record<string, unknown> = {
-				...message,
-				status: "delivered",
-				deliveredAt: now,
-				updatedAt: now,
-			};
-			delete delivered.claimedAt;
-			delete delivered.claimantProcessIdentity;
-			return compareAndWriteCanonicalMailboxPayload(db, row, delivered, now) ? 1 : 0;
-		}),
-	);
+	return withControlDb(controlDbPath, (db) => {
+		const row = readCanonicalMailboxRowByStoreRef(db, storeRef);
+		if (!row) return 0;
+		const message = parseCanonicalMailboxPayload(row);
+		if (message.status === "delivered") return 0;
+		const now = new Date().toISOString();
+		const delivered: Record<string, unknown> = {
+			...message,
+			status: "delivered",
+			deliveredAt: now,
+			updatedAt: now,
+		};
+		delete delivered.claimedAt;
+		delete delivered.claimantProcessIdentity;
+		return compareAndWriteCanonicalMailboxPayload(db, row, delivered, now) ? 1 : 0;
+	});
 }
 
 function withImmediateTransaction<T>(db: SqliteDatabase, operation: () => T): T {
@@ -1995,24 +1991,22 @@ function notifyRuntimeMailboxListener(listener: RuntimeMailboxListenerRow | unde
 }
 
 export function markRuntimeMailboxMessageDelivered(controlDbPath: string, id: number): void {
-	withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const row = readCanonicalMailboxRowById(db, id);
-			if (!row) return;
-			const message = parseCanonicalMailboxPayload(row);
-			if (message.status === "delivered") return;
-			const now = new Date().toISOString();
-			const delivered: Record<string, unknown> = {
-				...message,
-				status: "delivered",
-				deliveredAt: now,
-				updatedAt: now,
-			};
-			delete delivered.claimedAt;
-			delete delivered.claimantProcessIdentity;
-			compareAndWriteCanonicalMailboxPayload(db, row, delivered, now);
-		}),
-	);
+	withControlDb(controlDbPath, (db) => {
+		const row = readCanonicalMailboxRowById(db, id);
+		if (!row) return;
+		const message = parseCanonicalMailboxPayload(row);
+		if (message.status === "delivered") return;
+		const now = new Date().toISOString();
+		const delivered: Record<string, unknown> = {
+			...message,
+			status: "delivered",
+			deliveredAt: now,
+			updatedAt: now,
+		};
+		delete delivered.claimedAt;
+		delete delivered.claimantProcessIdentity;
+		compareAndWriteCanonicalMailboxPayload(db, row, delivered, now);
+	});
 }
 
 export function releaseRuntimeMailboxMessageClaim(controlDbPath: string, id: number): void {

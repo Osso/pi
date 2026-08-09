@@ -113,7 +113,9 @@ async function stopChildProcess(child: ChildProcess): Promise<void> {
 
 type WorkerStatusMessage = {
 	claimed?: boolean;
+	consumed?: number;
 	count?: number;
+	delivered?: boolean;
 	entries?: string[];
 	error?: string;
 	id?: number;
@@ -3551,6 +3553,70 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(readRuntimeMailboxMessage(controlDbPath, runtimeId)).toMatchObject({
 			body: "stored supervisor request",
 		});
+	});
+
+	it("reads completed mailbox state without acquiring the writer lock", async () => {
+		const storeRef = { messageId: "completed-lock-free", sessionPath: "/sessions/completed-lock-free.jsonl" };
+		upsertMultiAgentMailboxMessage(controlDbPath, storeRef.sessionPath, storeRef.messageId, {
+			body: "already delivered",
+			createdAt: "2026-08-09T00:00:00.000Z",
+			fromAgentId: "main",
+			id: storeRef.messageId,
+			kind: "message",
+			status: "delivered",
+			toAgentId: "main",
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+		const messageId = enqueueRuntimeMailboxMessage(controlDbPath, {
+			kind: "message",
+			recipient: { agentId: null, sessionId: "completed-recipient" },
+			sender: { agentId: null, sessionId: "completed-sender" },
+			storeRef,
+		});
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import {
+					consumeRuntimeMailboxMessageByStoreRef,
+					deliverRuntimeMailboxMessage,
+					markRuntimeMailboxMessageDelivered,
+				} from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						markRuntimeMailboxMessageDelivered(workerData.controlDbPath, workerData.messageId);
+						const delivered = deliverRuntimeMailboxMessage(workerData.controlDbPath, workerData.messageId);
+						const consumed = consumeRuntimeMailboxMessageByStoreRef(workerData.controlDbPath, workerData.storeRef);
+						parentPort?.postMessage({ consumed, delivered, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, messageId, storeRef } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "completed-mailbox worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("read");
+			const result = await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				timeoutMessage: "completed mailbox reads waited for the writer lock",
+				timeoutMs: 1_000,
+			});
+			expect(result).toMatchObject({ consumed: 0, delivered: true });
+		} finally {
+			holder.exec("ROLLBACK");
+			await worker.terminate();
+			holder.close();
+		}
 	});
 
 	it("claims canonical mailbox rows atomically without a runtime message table", () => {
