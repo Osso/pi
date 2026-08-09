@@ -2187,24 +2187,18 @@ export function readPromptHistory(controlDbPath: string, limit = 100): string[] 
 
 export function readOrMigratePromptHistory(controlDbPath: string, legacyEntries: string[], limit = 100): string[] {
 	return withControlDb(controlDbPath, (db) => {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			const existingEntries = readPromptHistoryRows(db, limit);
-			if (existingEntries.length > 0) {
-				db.exec("COMMIT");
-				return existingEntries;
-			}
-
-			for (const entry of [...legacyEntries].reverse()) {
-				insertPromptHistoryEntry(db, entry);
-			}
-			db.exec("COMMIT");
-			return legacyEntries.slice(0, limit);
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		const existingEntries = readPromptHistoryRows(db, limit);
+		if (existingEntries.length > 0) return existingEntries;
+		if (legacyEntries.length === 0) return [];
+		return withImmediateTransaction(db, () => migratePromptHistoryInTransaction(db, legacyEntries, limit));
 	});
+}
+
+function migratePromptHistoryInTransaction(db: SqliteDatabase, legacyEntries: string[], limit: number): string[] {
+	const existingEntries = readPromptHistoryRows(db, limit);
+	if (existingEntries.length > 0) return existingEntries;
+	for (const entry of [...legacyEntries].reverse()) insertPromptHistoryEntry(db, entry);
+	return legacyEntries.slice(0, limit);
 }
 
 function readPromptHistoryRows(db: SqliteDatabase, limit: number): string[] {

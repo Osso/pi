@@ -59,6 +59,7 @@ import {
 	readSessionHealth,
 	readSessionMetadata,
 	readSharedChannelCursor,
+	recordPromptHistoryEntry,
 	recoverDeadMultiAgentRuntime,
 	recoverDeadRuntimeMailboxClaims,
 	registerRuntimeMailboxListener,
@@ -112,6 +113,7 @@ async function stopChildProcess(child: ChildProcess): Promise<void> {
 type WorkerStatusMessage = {
 	claimed?: boolean;
 	count?: number;
+	entries?: string[];
 	error?: string;
 	id?: number;
 	pid?: number;
@@ -3298,6 +3300,48 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 
 		expect(readIncomingMessageStatus(controlDbPath, claimed!.id)).toBe("completed");
 		expect(claimLatestIncomingMessage(controlDbPath)).toBeUndefined();
+	});
+
+	it("reads existing prompt history without acquiring the writer lock", async () => {
+		recordPromptHistoryEntry(controlDbPath, "persisted prompt");
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { readOrMigratePromptHistory } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const entries = readOrMigratePromptHistory(workerData.controlDbPath, ["legacy prompt"]);
+						parentPort?.postMessage({ entries, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "prompt-history worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("read");
+			const result = await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				timeoutMessage: "persisted prompt history waited for the writer lock",
+				timeoutMs: 1_000,
+			});
+			expect(result.entries).toEqual(["persisted prompt"]);
+		} finally {
+			holder.exec("ROLLBACK");
+			await worker.terminate();
+			holder.close();
+		}
 	});
 
 	it("keeps only the latest assistant message", () => {
