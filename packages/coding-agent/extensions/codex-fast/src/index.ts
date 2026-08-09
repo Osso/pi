@@ -68,13 +68,21 @@ function parsePersistedServiceTier(data: unknown): FastServiceTier | null | unde
 	return undefined;
 }
 
-function readPersistedFastMode(ctx: ExtensionContext): FastServiceTier | undefined {
+function readPersistedFastMode(ctx: ExtensionContext): FastServiceTier | null | undefined {
 	const branch = ctx.sessionManager.getBranch();
 	for (let index = branch.length - 1; index >= 0; index--) {
 		const entry = branch[index];
 		if (entry.type !== "custom" || entry.customType !== FAST_MODE_ENTRY) continue;
 		const persistedTier = parsePersistedServiceTier(entry.data);
-		if (persistedTier !== undefined) return persistedTier ?? undefined;
+		if (persistedTier !== undefined) return persistedTier;
+	}
+	return undefined;
+}
+
+function readConfiguredFastMode(ctx: ExtensionContext): FastServiceTier | undefined {
+	const configuredMode = ctx.settingsManager?.getMergedSettings().defaultCodexFastMode;
+	if (configuredMode === PRIORITY_SERVICE_TIER || configuredMode === ULTRAFAST_SERVICE_TIER) {
+		return configuredMode;
 	}
 	return undefined;
 }
@@ -120,7 +128,10 @@ export default function codexFastExtension(pi: ExtensionAPI, options?: CodexFast
 		handler: (args, ctx) => handleFastCommand(args, ctx, pi, authority),
 	});
 	pi.on("session_start", (_event, ctx) => {
-		if (!isChildRuntime(ctx)) authority.serviceTier = readPersistedFastMode(ctx);
+		if (!isChildRuntime(ctx)) {
+			const persistedMode = readPersistedFastMode(ctx);
+			authority.serviceTier = persistedMode === undefined ? readConfiguredFastMode(ctx) : (persistedMode ?? undefined);
+		}
 		updateFastStatus(ctx, authority);
 	});
 	pi.on("model_select", (event, ctx) => {

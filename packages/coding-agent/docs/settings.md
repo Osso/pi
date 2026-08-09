@@ -30,6 +30,7 @@ Use `/trust` in interactive mode to save a project trust decision for future ses
 | `defaultProvider` | string | - | Default provider (e.g., `"anthropic"`, `"openai"`) |
 | `defaultModel` | string | - | Default model ID |
 | `defaultThinkingLevel` | string | - | `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, `"ultra"` (when supported by the selected model) |
+| `defaultCodexFastMode` | string | `"off"` | Default `/fast` mode: `"off"`, `"priority"`, or `"ultrafast"` |
 | `hideThinkingBlock` | boolean | `false` | Hide thinking blocks in output |
 | `thinkingBudgets` | object | - | Custom token budgets per token-budget thinking level |
 
@@ -47,6 +48,14 @@ Use `/trust` in interactive mode to save a project trust decision for future ses
 ```
 
 `defaultThinkingLevel` controls reasoning only; delegation mode is not a global settings value. Sessions start in proactive mode, `/multi-agent explicit` changes the current session branch to explicit mode, and the selected delegation mode is restored on reload and branch navigation.
+
+`defaultCodexFastMode` accepts exactly `"off"`, `"priority"`, or `"ultrafast"`; omission and `"off"` disable fast mode. The merged global/project setting is only a fallback when the session branch has no valid persisted `codex-fast-mode` entry. A persisted explicit off or tier wins, and merely opening a session does not persist the configured default.
+
+```json
+{
+  "defaultCodexFastMode": "priority"
+}
+```
 
 ### UI & Display
 

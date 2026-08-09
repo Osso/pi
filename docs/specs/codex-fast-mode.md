@@ -23,10 +23,13 @@ Codex fast mode provides a main-thread-owned runtime `/fast` authority that sele
 - [x] Leave provider request payloads unchanged while fast mode is disabled or the active provider is unsupported.
 - [x] Warn and leave a non-object Codex provider payload unchanged for that request while preserving fast mode for the next valid request until explicit `/fast off`.
 
-### Lifetime
+### Configuration and lifetime
 
+- [x] Accept `defaultCodexFastMode` in merged global/project settings with exactly `"off"`, `"priority"`, and `"ultrafast"` values; omitted or `"off"` means disabled.
+- [x] Use the merged `defaultCodexFastMode` only as a fallback when the session branch has no valid persisted `codex-fast-mode` entry; a persisted explicit off or tier always wins.
+- [x] Do not persist the configured default merely by opening a session.
 - [x] Persist each accepted main-thread `/fast` change as a non-LLM `codex-fast-mode` custom session entry, including explicit off.
-- [x] Restore the latest valid fast-mode entry when the main runtime opens the same session; child session startup must not overwrite the shared authority, and sessions without a fast-mode entry start disabled.
+- [x] Restore the latest valid fast-mode entry when the main runtime opens the same session; child session startup must not overwrite the shared authority.
 - [x] Preserve the selected tier and session identity across process `/restart`, including before the first assistant response when pending session entries are flushed before handoff.
 
 ## How it works
@@ -37,12 +40,13 @@ Codex fast mode provides a main-thread-owned runtime `/fast` authority that sele
 
 - `packages/coding-agent/extensions/codex-fast/src/index.ts` — handles `/fast`, persists and restores session state, prevents child mutation, and reads shared authority for footer status and Codex request payload mutation.
 - `packages/coding-agent/src/main.ts` — creates one authority per main runtime and passes it to spawned and attached child extension runtimes.
+- `packages/coding-agent/src/core/settings-manager.ts` — defines the `defaultCodexFastMode` settings value in the merged global/project settings type.
 - `packages/coding-agent/src/core/agent-session-runtime.ts` — flushes pending session entries before process restart handoff.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/codex-fast-extension.test.ts` — command, persistence, provider, payload, footer, child-authority, and runtime-recreation behavior.
-- `packages/coding-agent/test/suite/regressions/codex-fast-restart.test.ts` — real-process `/restart` preservation before the first assistant response and with a live child.
+- `packages/coding-agent/test/codex-fast-extension.test.ts` — command, configuration fallback, persisted-state precedence, provider, payload, footer, child-authority, and runtime-recreation behavior.
+- `packages/coding-agent/test/suite/regressions/codex-fast-restart.test.ts` — real-process configured-default activation after `/restart`, persisted-state preservation before the first assistant response, and live-child recovery.
 - `packages/coding-agent/test/suite/agent-session-runtime.test.ts` — runtime restart flush behavior.
 - `packages/coding-agent/test/cli-runtime-inventory.test.ts` — first-party extension registration.
 

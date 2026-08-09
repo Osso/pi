@@ -28,6 +28,7 @@ interface FastHarnessOptions {
 	authority?: FastModeAuthority;
 	branch?: FastStateEntry[];
 	child?: boolean;
+	defaultCodexFastMode?: "priority" | "ultrafast";
 	historicalSubagent?: boolean;
 	provider?: string;
 }
@@ -68,6 +69,9 @@ function createHarness(options: FastHarnessOptions = {}) {
 		sessionManager: {
 			getBranch: () => options.branch ?? [],
 			isSubagentSession: () => options.historicalSubagent === true,
+		},
+		settingsManager: {
+			getMergedSettings: () => ({ defaultCodexFastMode: options.defaultCodexFastMode }),
 		},
 		ui: { notify, setEditorText, setStatus },
 	} as unknown as ExtensionCommandContext;
@@ -238,7 +242,9 @@ describe("Codex fast mode extension", () => {
 		expect(authority.serviceTier).toBe("priority");
 		expect(main.notify).toHaveBeenLastCalledWith("Fast mode: on", "info");
 	});
+});
 
+describe("Codex fast mode session startup", () => {
 	it("restores the latest persisted fast mode on main session startup", () => {
 		const authority: FastModeAuthority = { serviceTier: undefined };
 		const branch: FastStateEntry[] = [
@@ -255,6 +261,38 @@ describe("Codex fast mode extension", () => {
 		main.sessionStart({ reason: "startup", type: "session_start" }, main.ctx);
 		expect(authority.serviceTier).toBe("ultrafast");
 		expect(main.setStatus).toHaveBeenLastCalledWith("codex-fast", "fast ultra");
+	});
+
+	it.each(["priority", "ultrafast"] as const)(
+		"applies configured %s default on main session startup without persisted fast mode",
+		(serviceTier) => {
+			const main = createHarness({ branch: [], defaultCodexFastMode: serviceTier });
+			if (!main.sessionStart) throw new Error("session_start handler was not registered");
+			main.sessionStart({ reason: "startup", type: "session_start" }, main.ctx);
+			const event = {
+				payload: { model: "test-model" },
+				type: "before_provider_request",
+			} as BeforeProviderRequestEvent;
+
+			expect(main.authority.serviceTier).toBe(serviceTier);
+			expect(main.beforeProviderRequest(event, main.ctx)).toEqual({
+				model: "test-model",
+				service_tier: serviceTier,
+			});
+		},
+	);
+
+	it("lets a persisted explicit-off entry override a configured enabled default", () => {
+		const main = createHarness({
+			branch: [{ type: "custom", customType: "codex-fast-mode", data: { serviceTier: null } }],
+			defaultCodexFastMode: "priority",
+		});
+		if (!main.sessionStart) throw new Error("session_start handler was not registered");
+		main.sessionStart({ reason: "startup", type: "session_start" }, main.ctx);
+		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
+
+		expect(main.authority.serviceTier).toBeUndefined();
+		expect(main.beforeProviderRequest(event, main.ctx)).toBeUndefined();
 	});
 
 	it("starts disabled when the opened session has no persisted fast mode", async () => {
