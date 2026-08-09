@@ -27,6 +27,7 @@ import {
 	completeArchitectRequest,
 	completeIncomingMessage,
 	consumeRuntimeMailboxMessage,
+	createFailedMultiAgentChild,
 	createMultiAgentChildWithRuntimeOwnership,
 	deliverMultiAgentTerminalOutbox,
 	deliverRuntimeMailboxMessage,
@@ -848,6 +849,93 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 
 		const result = spawnSync("bun", [scriptPath, controlDbPath], { encoding: "utf8" });
 		expect(result.status, result.stderr || result.stdout).toBe(0);
+	});
+
+	it("rejects invalid failed-child payloads before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/invalid-failed-child-contention.jsonl";
+		const agentId = "agent-invalid-failed-child-contention";
+		const agent = {
+			agentType: "worker",
+			createdAt: "2026-08-09T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Invalid failed child",
+			id: agentId,
+			lifecycle: "running" as const,
+			parentId: "missing-parent",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 2,
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		};
+		const input = { agent, nowIso: agent.updatedAt, sessionPath };
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { createFailedMultiAgentChild } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						createFailedMultiAgentChild(workerData.controlDbPath, workerData.input);
+						parentPort?.postMessage({ type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "completed" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "invalid failed-child worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("create");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "invalid failed-child validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "invalid failed-child worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.error).toContain("Failed child creation requires failed revision 1");
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toBeUndefined();
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			expect(
+				db
+					.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox WHERE session_path = ? AND agent_id = ?")
+					.get(sessionPath, agentId),
+			).toEqual({ count: 0 });
+		} finally {
+			db.close();
+		}
 	});
 
 	it("rejects process-owned bootstrap rows before acquiring the writer lock", async () => {

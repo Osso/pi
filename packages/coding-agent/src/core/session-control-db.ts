@@ -4110,17 +4110,17 @@ export function createFailedMultiAgentChild(
 	controlDbPath: string,
 	input: CreateFailedMultiAgentChildInput,
 ): CreateFailedMultiAgentChildResult {
+	const agent = input.agent as AgentSnapshot & Record<string, unknown>;
+	validatePersistedAgentPayload(agent, `multi_agent_agents:${input.sessionPath}#${agent.id}`);
+	if (agent.lifecycle !== "failed" || agent.revision !== 1) {
+		throw new Error("Failed child creation requires failed revision 1");
+	}
+	const parentId = agent.parentId;
+	if (!parentId) return { ok: false, error: "parent_not_found" };
+	const serializedAgent = JSON.stringify(agent);
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
-			const agent = input.agent as AgentSnapshot & Record<string, unknown>;
-			validatePersistedAgentPayload(agent, `multi_agent_agents:${input.sessionPath}#${agent.id}`);
-			if (agent.lifecycle !== "failed" || agent.revision !== 1) {
-				throw new Error("Failed child creation requires failed revision 1");
-			}
-			const parentId = agent.parentId;
-			if (!parentId || !hasActiveParent(db, input.sessionPath, parentId)) {
-				return { ok: false, error: "parent_not_found" };
-			}
+			if (!hasActiveParent(db, input.sessionPath, parentId)) return { ok: false, error: "parent_not_found" };
 			if (
 				db
 					.prepare("SELECT 1 FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
@@ -4130,7 +4130,7 @@ export function createFailedMultiAgentChild(
 			}
 			db.prepare(
 				"INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
-			).run(input.sessionPath, agent.id, JSON.stringify(agent), input.nowIso);
+			).run(input.sessionPath, agent.id, serializedAgent, input.nowIso);
 			db.prepare(
 				`INSERT INTO multi_agent_terminal_outbox (
 					session_path, agent_id, terminal_revision, event_kind, status,
