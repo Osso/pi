@@ -54,6 +54,7 @@ import {
 	readIncomingMessageStatus,
 	readLastMessage,
 	readMultiAgentRuntimeOwnership,
+	readPromptHistory,
 	readMultiAgentState,
 	readRuntimeMailboxMessage,
 	readSessionGoal,
@@ -5281,6 +5282,64 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			await worker.terminate();
 			holder.close();
 		}
+	});
+
+	it("skips empty legacy prompt migration before acquiring the writer lock", async () => {
+		readPromptHistory(controlDbPath);
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { readOrMigratePromptHistory } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					const entries = readOrMigratePromptHistory(workerData.controlDbPath, ["   "]);
+					parentPort?.postMessage({ entries, type: "completed" });
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "empty prompt-history worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("migrate");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "empty legacy prompt migration waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "empty prompt-history worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.entries).toEqual(["   "]);
+		expect(readPromptHistory(controlDbPath)).toEqual([]);
 	});
 
 	it("keeps only the latest assistant message", () => {

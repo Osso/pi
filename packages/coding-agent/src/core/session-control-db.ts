@@ -2272,20 +2272,45 @@ export function readPromptHistory(controlDbPath: string, limit = 100): string[] 
 	return withControlDb(controlDbPath, (db) => readPromptHistoryRows(db, limit));
 }
 
+type PromptHistoryMigrationRow = { content: string; createdAt: string };
+
 export function readOrMigratePromptHistory(controlDbPath: string, legacyEntries: string[], limit = 100): string[] {
 	return withControlDb(controlDbPath, (db) => {
 		const existingEntries = readPromptHistoryRows(db, limit);
 		if (existingEntries.length > 0) return existingEntries;
 		if (legacyEntries.length === 0) return [];
-		return withImmediateTransaction(db, () => migratePromptHistoryInTransaction(db, legacyEntries, limit));
+		const preparedRows = preparePromptHistoryMigrationRows(legacyEntries);
+		if (preparedRows.length === 0) return legacyEntries.slice(0, limit);
+		const inserted = insertPromptHistoryMigrationRows(db, preparedRows);
+		if (inserted === preparedRows.length) return legacyEntries.slice(0, limit);
+		if (inserted === 0) return readPromptHistoryRows(db, limit);
+		throw new Error(`Prompt history migration inserted ${inserted} of ${preparedRows.length} prepared rows`);
 	});
 }
 
-function migratePromptHistoryInTransaction(db: SqliteDatabase, legacyEntries: string[], limit: number): string[] {
-	const existingEntries = readPromptHistoryRows(db, limit);
-	if (existingEntries.length > 0) return existingEntries;
-	for (const entry of [...legacyEntries].reverse()) insertPromptHistoryEntry(db, entry);
-	return legacyEntries.slice(0, limit);
+function preparePromptHistoryMigrationRows(legacyEntries: string[]): PromptHistoryMigrationRow[] {
+	const createdAt = new Date().toISOString();
+	const rows: PromptHistoryMigrationRow[] = [];
+	let previousContent: string | undefined;
+	for (let index = legacyEntries.length - 1; index >= 0; index -= 1) {
+		const content = legacyEntries[index]?.trim();
+		if (!content || content === previousContent) continue;
+		rows.push({ content, createdAt });
+		previousContent = content;
+	}
+	return rows;
+}
+
+function insertPromptHistoryMigrationRows(db: SqliteDatabase, rows: PromptHistoryMigrationRow[]): number {
+	return db
+		.prepare(
+			`INSERT INTO prompt_history (content, created_at)
+			 SELECT json_extract(value, '$.content'), json_extract(value, '$.createdAt')
+			 FROM json_each(?)
+			 WHERE NOT EXISTS (SELECT 1 FROM prompt_history)
+			 ORDER BY CAST(key AS INTEGER)`,
+		)
+		.run(JSON.stringify(rows)).changes;
 }
 
 function readPromptHistoryRows(db: SqliteDatabase, limit: number): string[] {
