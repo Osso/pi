@@ -55,9 +55,13 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       writer lock, and revalidates the supervisor, agent payload snapshot, and ownership snapshot before
       atomically taking over ownership and advancing the agent revision. Session-owned agents recover through
       the registered owning supervisor; startup also
-      globally reconciles exact dead detached runners without a recovery-leader lease. Lifecycle transactions read revision internally, verify session/agent/
-      process ownership, update the agent row, and enqueue one pending completion notification in the same
-      immediate SQLite transaction. The agent row is terminal truth; the outbox is only a delivery queue.
+      globally reconciles exact dead detached runners without a recovery-leader lease. Lifecycle mutations
+      validate the agent, exact process ownership, and requested transition from read-only snapshots, and
+      prepare any detached-cancellation payload before reserving the writer; the commit revalidates the exact
+      agent snapshot and owner predicate, then atomically updates lifecycle state and persists the cancellation
+      command. Lifecycle transactions read revision internally, verify session/agent/process ownership, update
+      the agent row, and enqueue one pending completion notification in the same immediate SQLite transaction.
+      The agent row is terminal truth; the outbox is only a delivery queue.
       Exact retries return the committed terminal revision without rewriting rows; conflicting predicates fail
       without creating another notification. Outbox rows use atomic single-claim delivery; failures return
       the same row to pending with an incremented attempt count and retained error, while successful delivery

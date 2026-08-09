@@ -115,7 +115,10 @@ wall-clock time, or mailbox delivery:
    the ownership predicate and cannot rewrite the agent row or notification identity.
 
 A runtime cannot commit `waiting_for_input` or natural `completed` while lifecycle is
-`steering_pending`. Steering enqueue, lifecycle transition, and terminal mutation serialize through
+`steering_pending`. Lifecycle ownership and transition validation, including detached-cancellation
+payload preparation, run before the writer transaction so unrelated writers are not blocked; the commit
+revalidates the exact agent snapshot and owner predicate and atomically persists the lifecycle update plus
+cancellation command. Steering enqueue, lifecycle transition, and terminal mutation serialize through
 immediate SQLite transactions: steering that commits first keeps the agent active until delivery is
 acknowledged back to `running`; only then may it become idle or terminal. Steering attempted after a
 terminal commit receives an explicit inactive-agent rejection rather than being silently dropped.
