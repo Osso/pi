@@ -27,7 +27,8 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] Renew Architect request claims by deduplicating request IDs before persistence,
   applying one set-based update, and validating every requested row in the same
   immediate transaction. Completed rows remain acceptable; any missing, foreign,
-  or otherwise lost claim rolls back the entire renewal.
+  or otherwise lost claim rolls back the entire renewal. Architect and Supervisor claim result rows are mapped to
+  public request objects after the transaction releases the writer slot.
 - [x] Claim, release, fail, and deliver runtime-directed messages only on their canonical `multi_agent_mailbox_messages` row. Claims record exact process identity and are reclaimable only after that exact process dies.
 - [x] Store only the latest assistant message for external readers.
 - [x] Provide `pi control send`, `pi control restart --session-id <session-id>`,
@@ -65,8 +66,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       agent snapshot and owner predicate, then atomically updates lifecycle state and persists the cancellation
       command. Steering mutations likewise validate the agent, exact ownership, transition, and sender/
       recipient listener identities before reserving the writer; agent serialization plus mailbox JSON and routing
-      preparation run read-only before the coupled transaction. Message-counter allocation remains inside that
-      transaction so rollback preserves numbering and agent/mailbox atomicity. The commit revalidates those
+      preparation run read-only before the coupled transaction. The prepared mailbox uses a validated generated-ID
+      template; message-counter allocation remains inside that transaction, where the allocated ID is spliced into
+      the template, so rollback preserves numbering and agent/mailbox atomicity. The commit revalidates those
       snapshots and atomically updates the agent and persists the prepared canonical mailbox payload.
       Steering delivery validates the agent, exact ownership, transition, and canonical message payload before
       reserving the writer; the commit revalidates both payload snapshots and atomically updates the agent and
@@ -77,8 +79,8 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       preflights path uniqueness, replay identity, terminal payload, lifecycle, ownership, and descendant state
       read-only. Its commit revalidates unique ownership, the agent snapshot, and recursive descendant absence in
       one CAS fence, then atomically persists the terminal agent, outbox row, and optional detached transport
-      insert. Detached terminal/recovery transport JSON and routing are prepared before the transaction; only the
-      prepared canonical insert is coupled to terminal state. Exact replays return the existing terminal result
+      insert. Detached terminal/recovery transport JSON and routing are prepared before the transaction; only the direct insert of the prepared canonical
+      transport payload is coupled to terminal state. Exact replays return the existing terminal result
       without reserving the writer. Lifecycle transactions read revision internally, verify session/agent/process ownership, update
       the agent row, and enqueue one pending completion notification in the same immediate SQLite transaction.
       The agent row is terminal truth; the outbox is only a delivery queue.
@@ -88,7 +90,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       finalizes only notification transport. An idle outbox claim performs a read-only eligibility probe and
       returns without reserving the writer lock; when stale claims need recovery, that recovery remains in the
       immediate transaction, and the pending-row selection plus claim is one atomic `UPDATE ... RETURNING`.
-      Child construction occurs before persistence: pure child payload, ID, lifecycle, parent-ID
+      Runtime-mailbox claim, delivery, and dead-claim recovery prepare and serialize transition payloads before
+      each short transaction; the transaction revalidates authority and performs the exact-payload compare-and-swap,
+      while public message mapping occurs after commit. Child construction occurs before persistence: pure child payload, ID, lifecycle, parent-ID
       validation, and serialization complete before writer acquisition; parent lifecycle validation and
       uniqueness run as read-only preflight, while the commit revalidates the exact parent snapshot and
       atomically inserts the child and ownership rows. Failed-child persistence applies the same pre-lock
@@ -129,7 +133,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       fallback mutation path
       exists; construction/source-scan tests keep production lifecycle calls behind `LifecycleCoordinator`
       plus the detached runner's narrow exact-owner finalizer from in-memory identity, outcome, and output
-      metadata; output artifacts remain diagnostic only.
+      metadata; output artifacts remain diagnostic only. Migration is an intentional atomic writer fence: legacy payload
+      enumeration, transformation, validation, serialization, and rewrites remain inside the one migration transaction
+      after the quiescence snapshot is revalidated.
 - [x] Stored runtime-mailbox enqueues prepare and validate payloads before writing. Existing duplicate or
       conflicting rows are handled read-only; absent rows use one conflict-safe insert and validate a
       concurrent winner without rewriting it.
@@ -174,10 +180,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] `multi_agent_mailbox_messages` is the sole per-message runtime-delivery authority: each row owns payload, routing, claim identity, status, failure, and delivery acknowledgment. Runtime listener rows provide address resolution and wakeups only; no per-message runtime transport table exists. Schema migration folds valid legacy routing and terminal status into canonical rows, resets legacy claims to reclaimable pending state, and drops the legacy table without a compatibility path. Dead claimed-row recovery scans authority and claimant liveness without reserving the writer lock, then revalidates each candidate and resets it to `pending` in a short immediate transaction. Runtime routing returns unchanged canonical payloads from read-only state; changed payloads use bounded compare-and-swap retries and fail explicitly if contention prevents routing.
 - [x] A recipient that is not ready for direct active-input delivery leaves canonical mailbox rows
       `pending` and does not read their payloads into runtime memory. Once ready, delivery evaluates
-      eligibility without reserving the writer lock. Delivery and runtime-mailbox claim scans then
-      revalidate exact listener/ownership authority and the observed canonical payload in short
-      per-message transactions before atomic delivery or claim writes; already-claimed or direct
-      terminal status transitions use single-statement compare-and-swap writes guarded by the
+      eligibility without reserving the writer lock. Delivery and runtime-mailbox claim scans then prepare claim/delivery
+      transition payloads before each short transaction, revalidate exact listener/ownership authority and the observed
+      canonical payload, and perform atomic delivery or claim writes; already-claimed or direct terminal status transitions use single-statement compare-and-swap writes guarded by the
       observed payload and claimant identity. Selected payloads proceed directly to active session
       input without an intermediate volatile queue. `wait_agents({})`
       uses the same delivery boundary on a coordination wake and returns all currently pending
