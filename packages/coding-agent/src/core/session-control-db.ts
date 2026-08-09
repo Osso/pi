@@ -1647,27 +1647,35 @@ function readNextSupervisorRequestToClaim(db: SqliteDatabase): SupervisorRequest
 }
 
 export function recoverSupervisorRequests(controlDbPath: string): void {
+	const nowIso = new Date().toISOString();
 	withControlDb(controlDbPath, (db) => {
-		const now = new Date().toISOString();
+		if (!hasSupervisorRecoveryWork(db, nowIso)) return;
 		const errorResponse = JSON.stringify({ kind: "error", reason: "Supervisor request deadline expired" });
-		db.exec("BEGIN IMMEDIATE");
-		try {
+		withImmediateTransaction(db, () => {
 			db.prepare(
 				`UPDATE supervisor_requests
 				 SET status = 'completed', completed_at = ?, response_json = ?, claim_token = NULL
 				 WHERE status IN ('pending', 'claimed') AND deadline_at <= ?`,
-			).run(now, errorResponse, now);
+			).run(nowIso, errorResponse, nowIso);
 			db.prepare(
 				`UPDATE supervisor_requests
 				 SET status = 'pending', claimed_at = NULL, claim_token = NULL
 				 WHERE status = 'claimed'`,
 			).run();
-			db.exec("COMMIT");
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		});
 	});
+}
+
+function hasSupervisorRecoveryWork(db: SqliteDatabase, nowIso: string): boolean {
+	return Boolean(
+		db
+			.prepare(
+				`SELECT 1 FROM supervisor_requests
+				 WHERE status = 'claimed' OR (status = 'pending' AND deadline_at <= ?)
+				 LIMIT 1`,
+			)
+			.get(nowIso),
+	);
 }
 
 export function hasPendingSupervisorApprovalRequest(controlDbPath: string): boolean {

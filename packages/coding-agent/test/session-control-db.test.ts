@@ -64,6 +64,7 @@ import {
 	recordPromptHistoryEntry,
 	recoverDeadMultiAgentRuntime,
 	recoverDeadRuntimeMailboxClaims,
+	recoverSupervisorRequests,
 	registerRuntimeMailboxListener,
 	relocateSessionControlData,
 	removeNamedSession,
@@ -3693,6 +3694,47 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				timeoutMs: 1_000,
 			});
 			expect(result.claimed).toBe(false);
+		} finally {
+			holder.exec("ROLLBACK");
+			await worker.terminate();
+			holder.close();
+		}
+	});
+
+	it("returns without a writer lock when no Supervisor request needs recovery", async () => {
+		recoverSupervisorRequests(controlDbPath);
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { recoverSupervisorRequests } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						recoverSupervisorRequests(workerData.controlDbPath);
+						parentPort?.postMessage({ type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "Supervisor recovery worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("recover");
+			await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				timeoutMessage: "idle Supervisor recovery waited for the writer lock",
+				timeoutMs: 1_000,
+			});
 		} finally {
 			holder.exec("ROLLBACK");
 			await worker.terminate();
