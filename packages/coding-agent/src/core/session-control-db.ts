@@ -3760,7 +3760,7 @@ type DetachedCancellationCommand = { message: string; messageId: string };
 type MultiAgentLifecycleMutationPlan = {
 	agentData: string;
 	cancellation?: DetachedCancellationCommand;
-	updatedAgent: AgentSnapshot;
+	updatedAgent: Record<string, unknown>;
 };
 
 type MultiAgentLifecycleMutationPreflight =
@@ -3800,7 +3800,7 @@ function prepareMultiAgentLifecycleMutation(
 	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
 	if (!runtimeOwnerMatches(ownership, input)) return { result: { ok: false, error: "mutation_mismatch" } };
 	if (agent.lifecycle === input.requestedLifecycle) {
-		return { result: { ok: true, agent: agent as unknown as AgentSnapshot } };
+		return { result: { ok: true, agent } };
 	}
 	if (!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle)) {
 		return { result: { ok: false, error: "invalid_transition" } };
@@ -3810,7 +3810,7 @@ function prepareMultiAgentLifecycleMutation(
 		lifecycle: input.requestedLifecycle,
 		revision: Number(agent.revision) + 1,
 		updatedAt: input.updatedAt,
-	} as unknown as AgentSnapshot;
+	};
 	const cancellation = input.detachedCancellation
 		? buildDetachedCancellationMessage(input, input.detachedCancellation, updatedAgent.revision)
 		: undefined;
@@ -4426,7 +4426,7 @@ type DeadRuntimeRecoveryPlan = {
 	agentData: string;
 	terminalRevision: number;
 	terminalTransport?: PreparedTerminalTransport;
-	updatedAgent: AgentSnapshot;
+	updatedAgent: Record<string, unknown> & { updatedAt: string };
 	updatedAgentData: string;
 };
 
@@ -4625,7 +4625,7 @@ function prepareDeadRuntimeRecovery(
 		revision: terminalRevision,
 		updatedAt: nowIso,
 		worker: undefined,
-	} as unknown as AgentSnapshot;
+	};
 	const terminalTransport =
 		agent.detached === true
 			? prepareDetachedAgentTerminalTransport(
