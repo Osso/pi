@@ -241,6 +241,7 @@
 - Fixed resident Architect and Supervisor metadata rewrites growing without bound and holding the shared `control.sqlite` writer lock long enough to disrupt terminal-outbox delivery.
 - Fixed reopening a source session whose restored pending assistant tool-call batch contains any `resume_session` call to treat that batch as a completed terminal switch without appending a `toolResult`; ordinary batches without `resume_session` still continue.
 - Fixed dead-detached-runtime reconciliation terminating Pi when another process held the shared SQLite writer lock; transient busy/locked contention now defers to a later reconciliation poll while other failures still surface.
+- Fixed runtime mailbox listener registration holding the shared SQLite writer lock during process-liveness checks; registration now performs the check before a short revalidated listener/health commit.
 - Fixed process self-restart notices to persist exactly once as typed `self_restart` custom messages without being submitted as user prompts or included in session first-message, title-fallback, or search text.
 - Fixed restored interrupted `restart_self` tool batches masking their continuation behind the typed restart notice; `AgentSession.continue` now resumes the same session without a synthetic user prompt.
 - Fixed `restart_self` recovery when the persisted session cwd was deleted; the same session now reopens at the nearest existing parent of the current cwd, preserving the typed notice and automatic continuation without a synthetic user prompt.
