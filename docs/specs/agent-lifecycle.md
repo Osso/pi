@@ -128,8 +128,10 @@ transaction and cannot rewrite lifecycle or revision from a stale in-memory proj
 writes its runtime-only worker-handle cleanup back to lifecycle storage. Mailbox/contact activity metadata
 uses the same merge rule and no longer advances the lifecycle revision token. Pinned-slot metadata follows
 the same rule, including clear operations. Generic full-row agent upsert is limited to unowned
-bootstrap/migration rows through the explicitly named `bootstrapMultiAgentAgent` API and rejects
-every row after runtime ownership exists. Repository transactions read current revision internally and
+bootstrap/migration rows through the explicitly named `bootstrapMultiAgentAgent` API. It validates
+process-owned-row rejection from read-only state, then uses one ownership-guarded upsert for an
+unowned row; the same guard rejects ownership appearing between preflight and write. Repository
+transactions read current revision internally and
 re-check exact session/agent/process ownership before lifecycle writes; callers never supply revision.
 Schema-version startup checks reject incompatible runtimes. A source-scan test checks the allowlisted
 production call sites for lifecycle writers; it is a static guard, not the runtime authority boundary.
