@@ -113,9 +113,12 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       for contextual restore validation.
 - [x] Fence lifecycle writers by control-DB protocol version. A runtime rejects databases with a newer
       schema before initialization. Protocol activation scans listener, health, and exact runtime-owner
-      process identities inside the migration transaction and refuses to upgrade while any verified Pi or
-      detached runner remains active; legacy rows convert only after full runtime quiescence. No
-      connection-local authorization UDF, trigger token, compatibility writer, or fallback mutation path
+      process identities before reserving the writer, refuses to upgrade while any verified Pi or detached
+      runner remains active, then revalidates the exact persisted migration-state snapshot inside the
+      immediate transaction before converting legacy rows. A changed listener, health, owner-table shape,
+      or persisted process-identity set aborts migration for retry; legacy rows convert only after full
+      runtime quiescence. No connection-local authorization UDF, trigger token, compatibility writer, or
+      fallback mutation path
       exists; construction/source-scan tests keep production lifecycle calls behind `LifecycleCoordinator`
       plus the detached runner's narrow exact-owner finalizer from in-memory identity, outcome, and output
       metadata; output artifacts remain diagnostic only.
