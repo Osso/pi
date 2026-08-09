@@ -179,7 +179,9 @@ Attribution:
 ## Deployment
 
 - Merge feature and fix branches into `main` before deploying. Deploy a non-`main` revision only when the user explicitly designates it as a special deployment.
-- After deployment, post one shared-channel message directing all live sessions to run `restart_self` onto the deployed runtime. Do not request acknowledgments, run per-session preflight, restart sessions individually, or poll sessions. Include the installed path or version; preserve launchers: installed `pi` sessions re-exec the deployed binary, while `pi-dev` sessions remain `pi-dev`. Never migrate `pi-dev` to installed `pi`.
+- After deployment, enumerate eligible live Pi sessions once, recording launcher, PID/start identity, and executable or source revision. Force-restart every runtime still using the superseded artifact without additional confirmation; do not restart current runtimes.
+- Preserve launchers: installed `pi` sessions re-exec the deployed binary, while `pi-dev` sessions re-exec from canonical source. Never migrate `pi-dev` to installed `pi`.
+- After replacements, run one bounded final identity and health inventory. Do not poll repeatedly.
 
 ## Releasing
 
