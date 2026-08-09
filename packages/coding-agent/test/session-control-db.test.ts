@@ -2513,6 +2513,76 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		}
 	});
 
+	it("resolves a missing detached job before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/missing-detached-contention.jsonl";
+		const input = {
+			sessionPath,
+			terminal: {
+				jobId: "missing-detached-job",
+				outcome: { kind: "completed" },
+				output: { label: "Bash output", path: "/tmp/missing-output", sha256: "missing", size: 0 },
+				outputLabel: "Bash output",
+				owner: { agentId: null, sessionId: "runner" },
+				processIdentity: testProcessIdentity("missing-detached-runtime"),
+				terminalAt: "2026-07-11T22:00:00.000Z",
+			},
+		};
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { finalizeDetachedJob } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					const result = finalizeDetachedJob(workerData.controlDbPath, workerData.input);
+					parentPort?.postMessage({ ...result, type: "completed" });
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "detached lookup worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("finalize");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "detached lookup waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "detached lookup worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed).toMatchObject({ error: "agent_not_found", ok: false, type: "completed" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []).toEqual([]);
+	});
+
 	it("finalizes an attended job without a supervisor mailbox notification", () => {
 		const sessionPath = "/sessions/attended-finalize.jsonl";
 		const agentId = "attended-job";

@@ -3940,7 +3940,16 @@ function persistMultiAgentTerminalMutation(
 	plan: MultiAgentTerminalMutationPlan,
 ): CommitMultiAgentTerminalMutationResult | undefined {
 	return withImmediateTransaction(db, () => {
-		const agentUpdated = updateTerminalAgentIfCurrent(db, input, plan);
+		const agentUpdated = updateTerminalAgentIfCurrent(db, {
+			agentData: plan.agentData,
+			agentId: input.agentId,
+			owner: input.owner,
+			processIdentity: input.processIdentity,
+			requireUniqueOwnership: false,
+			sessionPath: input.sessionPath,
+			updatedAgentData: plan.updatedAgentData,
+			updatedAt: input.updatedAt,
+		});
 		if (!agentUpdated) return undefined;
 		db.prepare(
 			`INSERT INTO multi_agent_terminal_outbox (
@@ -3952,11 +3961,19 @@ function persistMultiAgentTerminalMutation(
 	});
 }
 
-function updateTerminalAgentIfCurrent(
-	db: SqliteDatabase,
-	input: CommitMultiAgentTerminalMutationInput,
-	plan: MultiAgentTerminalMutationPlan,
-): boolean {
+type TerminalAgentCasInput = {
+	agentData: string;
+	agentId: string;
+	owner: { agentId: string | null; sessionId: string };
+	processIdentity: ProcessIdentity;
+	requireUniqueOwnership: boolean;
+	sessionPath: string;
+	updatedAgentData: string;
+	updatedAt: string;
+};
+
+function updateTerminalAgentIfCurrent(db: SqliteDatabase, input: TerminalAgentCasInput): boolean {
+	const serializedIdentity = serializeProcessIdentity(input.processIdentity);
 	return (
 		db
 			.prepare(
@@ -3977,6 +3994,11 @@ function updateTerminalAgentIfCurrent(
 					WHERE session_path = ? AND agent_id = ? AND process_identity = ?
 					AND owner_session_id = ? AND owner_agent_id IS ?
 				)
+				AND (? = 0 OR (
+					SELECT COUNT(*) FROM multi_agent_runtime_owners AS matching_owner
+					WHERE matching_owner.agent_id = ? AND matching_owner.process_identity = ?
+					AND matching_owner.owner_session_id = ? AND matching_owner.owner_agent_id IS ?
+				) = 1)
 				AND NOT EXISTS (
 					SELECT 1 FROM multi_agent_agents
 					WHERE session_path = ? AND NOT json_valid(data)
@@ -3992,14 +4014,19 @@ function updateTerminalAgentIfCurrent(
 				input.sessionPath,
 				input.agentId,
 				input.sessionPath,
-				plan.updatedAgentData,
+				input.updatedAgentData,
 				input.updatedAt,
 				input.sessionPath,
 				input.agentId,
-				plan.agentData,
+				input.agentData,
 				input.sessionPath,
 				input.agentId,
-				serializeProcessIdentity(input.processIdentity),
+				serializedIdentity,
+				input.owner.sessionId,
+				input.owner.agentId,
+				input.requireUniqueOwnership ? 1 : 0,
+				input.agentId,
+				serializedIdentity,
 				input.owner.sessionId,
 				input.owner.agentId,
 				input.sessionPath,
@@ -4074,14 +4101,33 @@ function runtimeOwnershipMatchesTerminalMutation(
 	return runtimeOwnerMatches(ownership, input);
 }
 
+const FINALIZE_DETACHED_JOB_MAX_ATTEMPTS = 3;
+
+type FinalizeDetachedJobPlan = {
+	agentData: string;
+	eventKind: string;
+	ownership: MultiAgentRuntimeOwnershipRow;
+	sessionPath: string;
+	terminalAgent: AgentSnapshot;
+	terminalRevision: number;
+};
+
+type FinalizeDetachedJobPreflight =
+	| { plan: FinalizeDetachedJobPlan }
+	| { result: FinalizeDetachedJobResult };
+
 export function finalizeDetachedJob(controlDbPath: string, input: FinalizeDetachedJobInput): FinalizeDetachedJobResult {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const sessionPath = findDetachedJobSessionPath(db, input);
-			if (!sessionPath) return detachedJobLookupFailure(db, input);
-			return finalizeDetachedJobTransaction(db, sessionPath, input.terminal);
-		}),
-	);
+	return withControlDb(controlDbPath, (db) => finalizeDetachedJobWithDb(db, input));
+}
+
+function finalizeDetachedJobWithDb(db: SqliteDatabase, input: FinalizeDetachedJobInput): FinalizeDetachedJobResult {
+	for (let attempt = 1; attempt <= FINALIZE_DETACHED_JOB_MAX_ATTEMPTS; attempt += 1) {
+		const preflight = prepareDetachedJobFinalization(db, input);
+		if ("result" in preflight) return preflight.result;
+		const result = persistDetachedJobFinalization(db, input.terminal, preflight.plan);
+		if (result) return result;
+	}
+	return { ok: false, error: "mutation_mismatch" };
 }
 
 function findDetachedJobSessionPath(db: SqliteDatabase, input: FinalizeDetachedJobInput): string | undefined {
@@ -4107,55 +4153,78 @@ function detachedJobLookupFailure(db: SqliteDatabase, input: FinalizeDetachedJob
 	return agent ? { ok: false, error: "mutation_mismatch" } : { ok: false, error: "agent_not_found" };
 }
 
-function finalizeDetachedJobTransaction(
+function prepareDetachedJobFinalization(
 	db: SqliteDatabase,
-	sessionPath: string,
-	terminal: DetachedJobTerminalInput,
-): FinalizeDetachedJobResult {
+	input: FinalizeDetachedJobInput,
+): FinalizeDetachedJobPreflight {
+	const sessionPath = findDetachedJobSessionPath(db, input);
+	if (!sessionPath) return { result: detachedJobLookupFailure(db, input) };
+	const terminal = input.terminal;
 	const row = db
 		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
 		.get(sessionPath, terminal.jobId) as { data: string } | undefined;
-	if (!row) return { ok: false, error: "agent_not_found" };
-	const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${terminal.jobId}`);
-	const persistedLifecycle = typeof agent.lifecycle === "string" ? agent.lifecycle : undefined;
-	const terminalLifecycle =
-		persistedLifecycle === "completed" || persistedLifecycle === "failed" || persistedLifecycle === "aborted"
-			? persistedLifecycle
-			: persistedLifecycle === "cancelling"
-				? "aborted"
-				: terminal.outcome.kind;
+	if (!row) return { result: { ok: false, error: "agent_not_found" } };
+	const context = `multi_agent_agents:${sessionPath}#${terminal.jobId}`;
+	const agent = parseStoredJsonObject(row.data, context);
+	const terminalLifecycle = resolveDetachedJobTerminalLifecycle(agent.lifecycle, terminal);
 	const eventKind = `detached_job_${terminalLifecycle}`;
 	const ownership = readMultiAgentRuntimeOwnershipRow(db, sessionPath, terminal.jobId);
-	if (
-		!ownership ||
-		!runtimeOwnerMatches(ownership, {
-			agentId: terminal.jobId,
-			owner: terminal.owner,
-			processIdentity: terminal.processIdentity,
-			sessionPath,
-		})
-	) {
-		return { ok: false, error: "mutation_mismatch" };
+	if (!ownership || !detachedJobOwnershipMatches(ownership, sessionPath, terminal)) {
+		return { result: { ok: false, error: "mutation_mismatch" } };
 	}
 	if (agent.lifecycle === terminalLifecycle) {
-		return detachedJobReplayResult(db, sessionPath, terminal, agent, Number(agent.revision), eventKind);
+		return {
+			result: detachedJobReplayResult(db, sessionPath, terminal, agent, Number(agent.revision), eventKind),
+		};
 	}
 	const terminalRevision = Number(agent.revision) + 1;
 	const canFinalize = agent.lifecycle === "running" || agent.lifecycle === "cancelling";
 	if (!canFinalize || hasActivePersistedDescendant(db, sessionPath, terminal.jobId)) {
-		return { ok: false, error: "invalid_transition" };
+		return { result: { ok: false, error: "invalid_transition" } };
 	}
-	const terminalAgent = persistDetachedJobTerminal(
-		db,
+	const terminalAgent = {
+		...agent,
+		...detachedJobAgentDetails(agent, terminal, terminalLifecycle),
+		currentActivity: undefined,
+		lifecycle: terminalLifecycle,
+		revision: terminalRevision,
+		updatedAt: terminal.terminalAt,
+		worker: undefined,
+	};
+	validatePersistedAgentPayload(terminalAgent, context);
+	return {
+		plan: {
+			agentData: row.data,
+			eventKind,
+			ownership,
+			sessionPath,
+			terminalAgent: terminalAgent as unknown as AgentSnapshot,
+			terminalRevision,
+		},
+	};
+}
+
+function resolveDetachedJobTerminalLifecycle(
+	persistedLifecycle: unknown,
+	terminal: DetachedJobTerminalInput,
+): "aborted" | "completed" | "failed" {
+	if (persistedLifecycle === "completed" || persistedLifecycle === "failed" || persistedLifecycle === "aborted") {
+		return persistedLifecycle;
+	}
+	return persistedLifecycle === "cancelling" ? "aborted" : terminal.outcome.kind;
+}
+
+function detachedJobOwnershipMatches(
+	ownership: MultiAgentRuntimeOwnershipRow,
+	sessionPath: string,
+	terminal: DetachedJobTerminalInput,
+): boolean {
+	return runtimeOwnerMatches(ownership, {
+		agentId: terminal.jobId,
+		owner: terminal.owner,
+		processIdentity: terminal.processIdentity,
 		sessionPath,
-		terminal,
-		agent,
-		ownership,
-		terminalLifecycle,
-		terminalRevision,
-		eventKind,
-	);
-	return { ok: true, terminalAgent, terminalRevision };
+	});
 }
 
 function detachedJobReplayResult(
@@ -4186,43 +4255,42 @@ function detachedJobReplayResult(
 	return { ok: true, terminalAgent: terminalAgent as unknown as AgentSnapshot, terminalRevision };
 }
 
-function persistDetachedJobTerminal(
+function persistDetachedJobFinalization(
 	db: SqliteDatabase,
-	sessionPath: string,
 	terminal: DetachedJobTerminalInput,
-	agent: Record<string, unknown>,
-	ownership: MultiAgentRuntimeOwnershipRow,
-	terminalLifecycle: "completed" | "failed" | "aborted",
-	terminalRevision: number,
-	eventKind: string,
-): AgentSnapshot {
-	const updated = {
-		...agent,
-		...detachedJobAgentDetails(agent, terminal, terminalLifecycle),
-		currentActivity: undefined,
-		lifecycle: terminalLifecycle,
-		revision: terminalRevision,
-		updatedAt: terminal.terminalAt,
-		worker: undefined,
-	};
-	db.prepare("UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?").run(
-		JSON.stringify(updated),
-		terminal.terminalAt,
-		sessionPath,
-		terminal.jobId,
-	);
-	db.prepare(
-		`INSERT INTO multi_agent_terminal_outbox
-			(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
-		 VALUES (?, ?, ?, ?, 'pending', 0, ?)`,
-	).run(sessionPath, terminal.jobId, terminalRevision, eventKind, terminal.terminalAt);
-	// Attended jobs deliver their result in-band through the waiting tool call;
-	// only jobs explicitly detached from their tool call notify the supervisor.
-	if (agent.detached === true) {
-		persistDetachedJobTerminalTransport(db, sessionPath, terminal, ownership, terminalRevision, eventKind);
-	}
-	validatePersistedAgentPayload(updated, `multi_agent_agents:${sessionPath}#${terminal.jobId}`);
-	return updated as unknown as AgentSnapshot;
+	plan: FinalizeDetachedJobPlan,
+): FinalizeDetachedJobResult | undefined {
+	return withImmediateTransaction(db, () => {
+		const agentUpdated = updateTerminalAgentIfCurrent(db, {
+			agentData: plan.agentData,
+			agentId: terminal.jobId,
+			owner: terminal.owner,
+			processIdentity: terminal.processIdentity,
+			requireUniqueOwnership: true,
+			sessionPath: plan.sessionPath,
+			updatedAgentData: JSON.stringify(plan.terminalAgent),
+			updatedAt: terminal.terminalAt,
+		});
+		if (!agentUpdated) return undefined;
+		db.prepare(
+			`INSERT INTO multi_agent_terminal_outbox
+				(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
+			 VALUES (?, ?, ?, ?, 'pending', 0, ?)`,
+		).run(plan.sessionPath, terminal.jobId, plan.terminalRevision, plan.eventKind, terminal.terminalAt);
+		// Attended jobs deliver their result in-band through the waiting tool call;
+		// only jobs explicitly detached from their tool call notify the supervisor.
+		if (plan.terminalAgent.detached === true) {
+			persistDetachedJobTerminalTransport(
+				db,
+				plan.sessionPath,
+				terminal,
+				plan.ownership,
+				plan.terminalRevision,
+				plan.eventKind,
+			);
+		}
+		return { ok: true, terminalAgent: plan.terminalAgent, terminalRevision: plan.terminalRevision };
+	});
 }
 
 function persistDetachedJobTerminalTransport(
