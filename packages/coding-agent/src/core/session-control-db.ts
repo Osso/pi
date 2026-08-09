@@ -634,13 +634,14 @@ function recoverRuntimeMailboxClaim(
 	candidate: RuntimeMailboxCandidate,
 	nowIso: string,
 ): boolean {
+	const pending: Record<string, unknown> = { ...candidate.data, status: "pending", updatedAt: nowIso };
+	delete pending.claimedAt;
+	delete pending.claimantProcessIdentity;
+	const serialized = JSON.stringify(pending);
 	return withImmediateTransaction(db, () => {
 		const currentAuthority = readRuntimeMailboxAuthoritySnapshot(db, recipient, candidate.row.session_path);
 		if (!runtimeMailboxAuthoritySnapshotsEqual(candidate.authority, currentAuthority)) return false;
-		const pending: Record<string, unknown> = { ...candidate.data, status: "pending", updatedAt: nowIso };
-		delete pending.claimedAt;
-		delete pending.claimantProcessIdentity;
-		return compareAndWriteCanonicalMailboxPayload(db, candidate.row, pending, nowIso);
+		return compareAndWriteSerializedCanonicalMailboxPayload(db, candidate.row, serialized, nowIso);
 	});
 }
 
@@ -693,13 +694,14 @@ function deliverRuntimeMailboxCandidate(
 	candidate: RuntimeMailboxCandidate,
 	nowIso: string,
 ): RuntimeMailboxMessage | undefined {
-	return withImmediateTransaction(db, () => {
+	const delivered = { ...candidate.data, status: "delivered", deliveredAt: nowIso, updatedAt: nowIso };
+	const serialized = JSON.stringify(delivered);
+	const updated = withImmediateTransaction(db, () => {
 		const currentAuthority = readRuntimeMailboxAuthoritySnapshot(db, recipient, candidate.row.session_path);
-		if (!runtimeMailboxAuthoritySnapshotsEqual(candidate.authority, currentAuthority)) return undefined;
-		const delivered = { ...candidate.data, status: "delivered", deliveredAt: nowIso, updatedAt: nowIso };
-		if (!compareAndWriteCanonicalMailboxPayload(db, candidate.row, delivered, nowIso)) return undefined;
-		return runtimeMailboxMessageFromCanonicalRow(candidate.row, delivered);
+		if (!runtimeMailboxAuthoritySnapshotsEqual(candidate.authority, currentAuthority)) return false;
+		return compareAndWriteSerializedCanonicalMailboxPayload(db, candidate.row, serialized, nowIso);
 	});
+	return updated ? runtimeMailboxMessageFromCanonicalRow(candidate.row, delivered) : undefined;
 }
 
 function readRuntimeMailboxAuthoritySnapshot(
@@ -793,19 +795,20 @@ function claimRuntimeMailboxCandidate(
 	candidate: RuntimeMailboxCandidate,
 	nowIso: string,
 ): RuntimeMailboxMessage | undefined {
-	return withImmediateTransaction(db, () => {
+	const claimed = {
+		...candidate.data,
+		claimedAt: nowIso,
+		claimantProcessIdentity: RUNTIME_PROCESS_INSTANCE_ID,
+		status: "claimed",
+		updatedAt: nowIso,
+	};
+	const serialized = JSON.stringify(claimed);
+	const updated = withImmediateTransaction(db, () => {
 		const currentAuthority = readRuntimeMailboxAuthoritySnapshot(db, recipient, candidate.row.session_path);
-		if (!runtimeMailboxAuthoritySnapshotsEqual(candidate.authority, currentAuthority)) return undefined;
-		const claimed = {
-			...candidate.data,
-			claimedAt: nowIso,
-			claimantProcessIdentity: RUNTIME_PROCESS_INSTANCE_ID,
-			status: "claimed",
-			updatedAt: nowIso,
-		};
-		if (!compareAndWriteCanonicalMailboxPayload(db, candidate.row, claimed, nowIso)) return undefined;
-		return runtimeMailboxMessageFromCanonicalRow(candidate.row, claimed);
+		if (!runtimeMailboxAuthoritySnapshotsEqual(candidate.authority, currentAuthority)) return false;
+		return compareAndWriteSerializedCanonicalMailboxPayload(db, candidate.row, serialized, nowIso);
 	});
+	return updated ? runtimeMailboxMessageFromCanonicalRow(candidate.row, claimed) : undefined;
 }
 
 function runtimeMailboxClaimantIsLive(
@@ -901,12 +904,21 @@ function compareAndWriteCanonicalMailboxPayload(
 	message: Record<string, unknown>,
 	updatedAt: string,
 ): boolean {
+	return compareAndWriteSerializedCanonicalMailboxPayload(db, row, JSON.stringify(message), updatedAt);
+}
+
+function compareAndWriteSerializedCanonicalMailboxPayload(
+	db: SqliteDatabase,
+	row: RuntimeMailboxRow,
+	serialized: string,
+	updatedAt: string,
+): boolean {
 	const updated = db
 		.prepare(
 			`UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ?
 			 WHERE rowid = ? AND session_path = ? AND message_id = ? AND data = ? AND updated_at = ?`,
 		)
-		.run(JSON.stringify(message), updatedAt, row.id, row.session_path, row.message_id, row.data, row.updated_at);
+		.run(serialized, updatedAt, row.id, row.session_path, row.message_id, row.data, row.updated_at);
 	return updated.changes === 1;
 }
 

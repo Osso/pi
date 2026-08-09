@@ -200,6 +200,112 @@ function enqueueStoredRuntimeMessage(
 	});
 }
 
+type RuntimeMailboxPayloadPreparationOperation = "claim" | "deliver" | "recover";
+
+async function runRuntimeMailboxPayloadPreparationContention(
+	controlDbPath: string,
+	operation: RuntimeMailboxPayloadPreparationOperation,
+	recipient: { agentId: null; sessionId: string },
+	marker: string,
+): Promise<WorkerStatusMessage> {
+	const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+	const workerSource = `
+		import { parentPort, workerData } from "node:worker_threads";
+		import {
+			claimRuntimeMailboxMessages,
+			recoverDeadRuntimeMailboxClaims,
+			registerRuntimeMailboxListener,
+			takeRuntimeMailboxMessagesForDelivery,
+		} from ${JSON.stringify(moduleUrl)};
+
+		const originalStringify = JSON.stringify;
+		JSON.stringify = ((value: unknown) => {
+			const serialized = originalStringify(value);
+			if (typeof serialized === "string" && serialized.includes(workerData.marker)) {
+				parentPort?.postMessage({ type: "serialized" });
+			}
+			return serialized;
+		}) as typeof JSON.stringify;
+
+		try {
+			registerRuntimeMailboxListener(workerData.controlDbPath, workerData.recipient, process.pid);
+			parentPort?.postMessage({ type: "ready" });
+		} catch (error) {
+			parentPort?.postMessage({ error: String(error), type: "error" });
+		}
+
+		parentPort?.once("message", () => {
+			try {
+				if (workerData.operation === "claim") {
+					const messages = claimRuntimeMailboxMessages(workerData.controlDbPath, workerData.recipient);
+					parentPort?.postMessage({ statuses: messages.map((message) => message.status), type: "completed" });
+					return;
+				}
+				if (workerData.operation === "deliver") {
+					const messages = takeRuntimeMailboxMessagesForDelivery(
+						workerData.controlDbPath,
+						workerData.recipient,
+						() => true,
+					);
+					parentPort?.postMessage({ statuses: messages.map((message) => message.status), type: "completed" });
+					return;
+				}
+				const recovered = recoverDeadRuntimeMailboxClaims(workerData.controlDbPath, workerData.recipient);
+				parentPort?.postMessage({ count: recovered, type: "completed" });
+			} catch (error) {
+				parentPort?.postMessage({ error: String(error), type: "completed" });
+			}
+		});
+	`;
+	const worker = new Worker(workerSource, {
+		eval: true,
+		execArgv: ["--experimental-strip-types"],
+		workerData: { controlDbPath, marker, operation, recipient },
+	});
+	const holder = createSqliteDatabase(controlDbPath);
+	configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+	let serializedBeforeRelease: WorkerStatusMessage | undefined;
+	let completed: WorkerStatusMessage | undefined;
+	let blockedBeforeSerialization: unknown;
+	try {
+		await waitForWorkerStatus(worker, {
+			expectedType: "ready",
+			timeoutMessage: `${operation} payload worker did not load`,
+		});
+		holder.exec("BEGIN IMMEDIATE");
+		worker.postMessage("run");
+		try {
+			serializedBeforeRelease = await waitForWorkerStatus(worker, {
+				expectedType: "serialized",
+				timeoutMessage: `${operation} payload serialization waited for the writer lock`,
+				timeoutMs: 1_000,
+			});
+		} catch (error) {
+			blockedBeforeSerialization = error;
+		}
+		holder.exec("ROLLBACK");
+		completed = await waitForWorkerStatus(worker, {
+			expectedType: "completed",
+			ignoredTypes: ["serialized"],
+			timeoutMessage: `${operation} payload worker did not finish after lock release`,
+		});
+	} finally {
+		try {
+			holder.exec("ROLLBACK");
+		} catch {
+			// The holder may already have released its transaction after the assertion.
+		}
+		await worker.terminate();
+		holder.close();
+	}
+
+	expect(blockedBeforeSerialization).toBeUndefined();
+	expect(serializedBeforeRelease).toMatchObject({ type: "serialized" });
+	if (!completed) throw new Error(`${operation} payload worker did not report completion`);
+	expect(completed.error).toBeUndefined();
+	return completed;
+}
+
 describe("session control DB", () => {
 	it("shares one runtime process incarnation across module initializers", () => {
 		const first = getRuntimeProcessInstanceId();
@@ -4578,6 +4684,121 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			}
 			await worker.terminate();
 			holder.close();
+		}
+	});
+
+	it("prepares claim payload before acquiring the writer lock", async () => {
+		const recipient = { agentId: null, sessionId: "claim-payload-contention" };
+		const sessionPath = "/sessions/claim-payload-contention.jsonl";
+		const messageId = "claim-payload-contention-message";
+		const marker = "claim-payload-contention-marker";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: marker,
+			createdAt: "2026-08-09T00:00:00.000Z",
+			fromAgentId: "main",
+			id: messageId,
+			kind: "message",
+			recipientAgentId: null,
+			recipientSessionId: recipient.sessionId,
+			senderAgentId: null,
+			senderSessionId: "claim-payload-contention-sender",
+			status: "pending",
+			toAgentId: "main",
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+
+		const result = await runRuntimeMailboxPayloadPreparationContention(
+			controlDbPath,
+			"claim",
+			recipient,
+			marker,
+		);
+
+		expect(result.statuses).toEqual(["claimed"]);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([
+			expect.objectContaining({ body: marker, status: "claimed", storeRef: { messageId, sessionPath } }),
+		]);
+	});
+
+	it("prepares delivery payload before acquiring the writer lock", async () => {
+		const recipient = { agentId: null, sessionId: "delivery-payload-contention" };
+		const sessionPath = "/sessions/delivery-payload-contention.jsonl";
+		const messageId = "delivery-payload-contention-message";
+		const marker = "delivery-payload-contention-marker";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: marker,
+			createdAt: "2026-08-09T00:00:00.000Z",
+			fromAgentId: "main",
+			id: messageId,
+			kind: "message",
+			recipientAgentId: null,
+			recipientSessionId: recipient.sessionId,
+			senderAgentId: null,
+			senderSessionId: "delivery-payload-contention-sender",
+			status: "pending",
+			toAgentId: "main",
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+
+		const result = await runRuntimeMailboxPayloadPreparationContention(
+			controlDbPath,
+			"deliver",
+			recipient,
+			marker,
+		);
+
+		expect(result.statuses).toEqual(["delivered"]);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([
+			expect.objectContaining({ body: marker, status: "delivered", storeRef: { messageId, sessionPath } }),
+		]);
+	});
+
+	it("prepares recovered payload before acquiring the writer lock", async () => {
+		const recipient = { agentId: null, sessionId: "recovery-payload-contention" };
+		const sessionPath = "/sessions/recovery-payload-contention.jsonl";
+		const messageId = "recovery-payload-contention-message";
+		const marker = "recovery-payload-contention-marker";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: marker,
+			claimantProcessIdentity: JSON.stringify(testProcessIdentity("recovery-payload-contention-dead")),
+			claimedAt: "2026-08-09T00:00:00.000Z",
+			createdAt: "2026-08-09T00:00:00.000Z",
+			fromAgentId: "main",
+			id: messageId,
+			kind: "message",
+			recipientAgentId: null,
+			recipientSessionId: recipient.sessionId,
+			senderAgentId: null,
+			senderSessionId: "recovery-payload-contention-sender",
+			status: "claimed",
+			toAgentId: "main",
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+
+		const result = await runRuntimeMailboxPayloadPreparationContention(
+			controlDbPath,
+			"recover",
+			recipient,
+			marker,
+		);
+
+		expect(result.count).toBe(1);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([
+			expect.objectContaining({
+				body: marker,
+				claimedAt: undefined,
+				status: "pending",
+				storeRef: { messageId, sessionPath },
+			}),
+		]);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			const row = db
+				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+				.get(sessionPath, messageId) as { data: string };
+			expect(JSON.parse(row.data)).not.toHaveProperty("claimantProcessIdentity");
+		} finally {
+			db.close();
 		}
 	});
 
