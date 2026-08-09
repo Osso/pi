@@ -3868,50 +3868,143 @@ function canPersistLifecycleTransition(current: unknown, requested: string): boo
 		: transitions[current]?.includes(requested) === true;
 }
 
+const MULTI_AGENT_TERMINAL_MUTATION_MAX_ATTEMPTS = 3;
+
+type MultiAgentTerminalMutationPlan = {
+	agentData: string;
+	terminalRevision: number;
+	updatedAgentData: string;
+};
+
+type MultiAgentTerminalMutationPreflight =
+	| { plan: MultiAgentTerminalMutationPlan }
+	| { result: CommitMultiAgentTerminalMutationResult };
+
 export function commitMultiAgentTerminalMutation(
 	controlDbPath: string,
 	input: CommitMultiAgentTerminalMutationInput,
 ): CommitMultiAgentTerminalMutationResult {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const agentRow = db
-				.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-				.get(input.sessionPath, input.agentId) as { data: string } | undefined;
-			if (!agentRow) return { ok: false, error: "agent_not_found" };
-			const agent = parseStoredJsonObject(agentRow.data, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
-			const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-			if (!runtimeOwnershipMatchesTerminalMutation(ownership, input))
-				return { ok: false, error: "mutation_mismatch" };
-			if (agent.lifecycle === input.terminalLifecycle) {
-				return terminalMutationReplayResult(db, input, agent, Number(agent.revision));
-			}
-			const terminalRevision = Number(agent.revision) + 1;
-			if (!canPersistTerminalTransition(agent.lifecycle, input.terminalLifecycle)) {
-				return { ok: false, error: "invalid_transition" };
-			}
-			if (hasActivePersistedDescendant(db, input.sessionPath, input.agentId)) {
-				return { ok: false, error: "invalid_transition" };
-			}
+	return withControlDb(controlDbPath, (db) => commitMultiAgentTerminalMutationWithDb(db, input));
+}
 
-			const updatedAgent = {
-				...agent,
-				...input.agentDetails,
-				currentActivity: undefined,
-				lifecycle: input.terminalLifecycle,
-				revision: terminalRevision,
-				updatedAt: input.updatedAt,
-			};
-			db.prepare(
-				"UPDATE multi_agent_agents SET data = ?, updated_at = ? WHERE session_path = ? AND agent_id = ?",
-			).run(JSON.stringify(updatedAgent), input.updatedAt, input.sessionPath, input.agentId);
-			db.prepare(
-				`INSERT INTO multi_agent_terminal_outbox (
-					session_path, agent_id, terminal_revision, event_kind, status,
-					claim_id, claimed_at, delivered_at, attempt_count, last_error, updated_at
-				) VALUES (?, ?, ?, ?, 'pending', NULL, NULL, NULL, 0, NULL, ?)`,
-			).run(input.sessionPath, input.agentId, terminalRevision, input.eventKind, input.updatedAt);
-			return { ok: true, terminalRevision };
-		}),
+function commitMultiAgentTerminalMutationWithDb(
+	db: SqliteDatabase,
+	input: CommitMultiAgentTerminalMutationInput,
+): CommitMultiAgentTerminalMutationResult {
+	for (let attempt = 1; attempt <= MULTI_AGENT_TERMINAL_MUTATION_MAX_ATTEMPTS; attempt += 1) {
+		const preflight = prepareMultiAgentTerminalMutation(db, input);
+		if ("result" in preflight) return preflight.result;
+		const result = persistMultiAgentTerminalMutation(db, input, preflight.plan);
+		if (result) return result;
+	}
+	return { ok: false, error: "mutation_mismatch" };
+}
+
+function prepareMultiAgentTerminalMutation(
+	db: SqliteDatabase,
+	input: CommitMultiAgentTerminalMutationInput,
+): MultiAgentTerminalMutationPreflight {
+	const agentRow = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(input.sessionPath, input.agentId) as { data: string } | undefined;
+	if (!agentRow) return { result: { ok: false, error: "agent_not_found" } };
+	const agent = parseStoredJsonObject(agentRow.data, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
+	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
+	if (!runtimeOwnershipMatchesTerminalMutation(ownership, input)) {
+		return { result: { ok: false, error: "mutation_mismatch" } };
+	}
+	if (agent.lifecycle === input.terminalLifecycle) {
+		return { result: terminalMutationReplayResult(db, input, agent, Number(agent.revision)) };
+	}
+	const terminalRevision = Number(agent.revision) + 1;
+	if (!canPersistTerminalTransition(agent.lifecycle, input.terminalLifecycle)) {
+		return { result: { ok: false, error: "invalid_transition" } };
+	}
+	if (hasActivePersistedDescendant(db, input.sessionPath, input.agentId)) {
+		return { result: { ok: false, error: "invalid_transition" } };
+	}
+	const updatedAgent = {
+		...agent,
+		...input.agentDetails,
+		currentActivity: undefined,
+		lifecycle: input.terminalLifecycle,
+		revision: terminalRevision,
+		updatedAt: input.updatedAt,
+	};
+	return { plan: { agentData: agentRow.data, terminalRevision, updatedAgentData: JSON.stringify(updatedAgent) } };
+}
+
+function persistMultiAgentTerminalMutation(
+	db: SqliteDatabase,
+	input: CommitMultiAgentTerminalMutationInput,
+	plan: MultiAgentTerminalMutationPlan,
+): CommitMultiAgentTerminalMutationResult | undefined {
+	return withImmediateTransaction(db, () => {
+		const agentUpdated = updateTerminalAgentIfCurrent(db, input, plan);
+		if (!agentUpdated) return undefined;
+		db.prepare(
+			`INSERT INTO multi_agent_terminal_outbox (
+				session_path, agent_id, terminal_revision, event_kind, status,
+				claim_id, claimed_at, delivered_at, attempt_count, last_error, updated_at
+			) VALUES (?, ?, ?, ?, 'pending', NULL, NULL, NULL, 0, NULL, ?)`,
+		).run(input.sessionPath, input.agentId, plan.terminalRevision, input.eventKind, input.updatedAt);
+		return { ok: true, terminalRevision: plan.terminalRevision };
+	});
+}
+
+function updateTerminalAgentIfCurrent(
+	db: SqliteDatabase,
+	input: CommitMultiAgentTerminalMutationInput,
+	plan: MultiAgentTerminalMutationPlan,
+): boolean {
+	return (
+		db
+			.prepare(
+				`WITH RECURSIVE descendants(agent_id) AS (
+					SELECT agent_id FROM multi_agent_agents
+					WHERE session_path = ? AND json_valid(data)
+					AND json_extract(data, '$.parentId') = ?
+					UNION
+					SELECT child.agent_id FROM multi_agent_agents AS child
+					JOIN descendants AS parent
+						ON json_valid(child.data) AND json_extract(child.data, '$.parentId') = parent.agent_id
+					WHERE child.session_path = ?
+				)
+				UPDATE multi_agent_agents SET data = ?, updated_at = ?
+				WHERE session_path = ? AND agent_id = ? AND data = ?
+				AND EXISTS (
+					SELECT 1 FROM multi_agent_runtime_owners
+					WHERE session_path = ? AND agent_id = ? AND process_identity = ?
+					AND owner_session_id = ? AND owner_agent_id IS ?
+				)
+				AND NOT EXISTS (
+					SELECT 1 FROM multi_agent_agents
+					WHERE session_path = ? AND NOT json_valid(data)
+				)
+				AND NOT EXISTS (
+					SELECT 1 FROM multi_agent_agents AS active
+					JOIN descendants ON descendants.agent_id = active.agent_id
+					WHERE active.session_path = ?
+					AND json_extract(active.data, '$.lifecycle') NOT IN ('completed', 'failed', 'aborted')
+				)`,
+			)
+			.run(
+				input.sessionPath,
+				input.agentId,
+				input.sessionPath,
+				plan.updatedAgentData,
+				input.updatedAt,
+				input.sessionPath,
+				input.agentId,
+				plan.agentData,
+				input.sessionPath,
+				input.agentId,
+				serializeProcessIdentity(input.processIdentity),
+				input.owner.sessionId,
+				input.owner.agentId,
+				input.sessionPath,
+				input.sessionPath,
+			).changes === 1
 	);
 }
 

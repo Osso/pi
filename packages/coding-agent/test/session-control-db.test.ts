@@ -2000,6 +2000,90 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		});
 	});
 
+	it("validates terminal ownership before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/terminal-contention.jsonl";
+		const agentId = "agent-terminal-contention";
+		const owner = { agentId: null, sessionId: "supervisor" };
+		const processIdentity = testProcessIdentity("runtime-terminal-contention");
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, {
+			createdAt: "2026-07-11T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Terminal contention agent",
+			agentType: "test",
+			id: agentId,
+			lifecycle: "running",
+			parentId: undefined,
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			updatedAt: "2026-07-11T00:00:00.000Z",
+		});
+		forceRuntimeOwnership(controlDbPath, { agentId, owner, processIdentity, sessionPath });
+		const beforeState = readMultiAgentState(controlDbPath, sessionPath);
+		const input = {
+			agentId,
+			eventKind: "completed",
+			owner: { agentId: null, sessionId: "wrong-owner" },
+			processIdentity,
+			sessionPath,
+			terminalLifecycle: "completed",
+			updatedAt: "2026-07-11T00:01:00.000Z",
+		};
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { commitMultiAgentTerminalMutation } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					const result = commitMultiAgentTerminalMutation(workerData.controlDbPath, workerData.input);
+					parentPort?.postMessage({ ...result, type: "completed" });
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "terminal validation worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("terminalize");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "terminal validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "terminal validation worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed).toMatchObject({ error: "mutation_mismatch", ok: false, type: "completed" });
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toEqual(beforeState);
+	});
+
 	it("commits terminal lifecycle state, immutable event, and outbox atomically", () => {
 		const sessionPath = "/sessions/terminal-commit.jsonl";
 		const agentId = "agent-1";
