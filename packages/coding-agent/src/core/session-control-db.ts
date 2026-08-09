@@ -3273,6 +3273,12 @@ type MultiAgentSteeringMutationPreflight =
 	| { plan: MultiAgentSteeringMutationPlan }
 	| { result: CommitMultiAgentSteeringMutationResult };
 
+type PreparedSteeringMailboxMessage = {
+	input: EnqueueStoredRuntimeMailboxMessageInput;
+	message: AgentMailboxMessage;
+	prepared: PreparedStoredRuntimeMailboxMessage;
+};
+
 export function commitMultiAgentSteeringMutation(
 	controlDbPath: string,
 	input: CommitMultiAgentSteeringMutationInput,
@@ -3287,7 +3293,8 @@ function commitMultiAgentSteeringMutationWithDb(
 	for (let attempt = 1; attempt <= MULTI_AGENT_STEERING_MUTATION_MAX_ATTEMPTS; attempt += 1) {
 		const preflight = prepareMultiAgentSteeringMutation(db, input);
 		if ("result" in preflight) return preflight.result;
-		const result = persistMultiAgentSteeringMutation(db, input, preflight.plan);
+		const mailbox = allocateAndPrepareSteeringMailboxMessage(db, input);
+		const result = persistMultiAgentSteeringMutation(db, input, preflight.plan, mailbox);
 		if (result) return result;
 	}
 	return { ok: false, error: "mutation_mismatch" };
@@ -3365,11 +3372,12 @@ function persistMultiAgentSteeringMutation(
 	db: SqliteDatabase,
 	input: CommitMultiAgentSteeringMutationInput,
 	plan: MultiAgentSteeringMutationPlan,
+	mailbox: PreparedSteeringMailboxMessage,
 ): CommitMultiAgentSteeringMutationResult | undefined {
 	return withImmediateTransaction(db, () => {
 		if (!compareAndPersistSteeringAgent(db, input, plan)) return undefined;
-		const message = persistSteeringMailboxMessage(db, input);
-		return { agent: plan.updatedAgent, message, ok: true };
+		persistStoredRuntimeMailboxMessage(db, mailbox.input, mailbox.prepared);
+		return { agent: plan.updatedAgent, message: mailbox.message, ok: true };
 	});
 }
 
@@ -3430,10 +3438,10 @@ function compareAndPersistSteeringAgent(
 	);
 }
 
-function persistSteeringMailboxMessage(
+function allocateAndPrepareSteeringMailboxMessage(
 	db: SqliteDatabase,
 	input: CommitMultiAgentSteeringMutationInput,
-): AgentMailboxMessage {
+): PreparedSteeringMailboxMessage {
 	const messageNumber = allocateMultiAgentCounterWithDb(db, input.sessionPath, "message");
 	const message: AgentMailboxMessage = {
 		body: input.body,
@@ -3448,16 +3456,15 @@ function persistSteeringMailboxMessage(
 		toAgentId: input.agentId,
 		updatedAt: input.updatedAt,
 	};
-	validateMailboxPayload(message, `multi_agent_mailbox_messages:${input.sessionPath}#${message.id}`);
-	persistImmutableMailboxPayload(db, {
+	const mailboxInput: EnqueueStoredRuntimeMailboxMessageInput = {
 		kind: message.kind,
 		message,
 		recipient: input.recipient,
 		sender: input.owner,
 		storeRef: { messageId: message.id, sessionPath: input.sessionPath },
 		updatedAt: input.updatedAt,
-	});
-	return message;
+	};
+	return { input: mailboxInput, message, prepared: prepareStoredRuntimeMailboxMessage(mailboxInput) };
 }
 
 function runtimeListenerMatchesProcessIdentity(
