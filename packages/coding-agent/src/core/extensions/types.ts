@@ -51,6 +51,7 @@ import type { KeybindingsManager } from "../keybindings.ts";
 import type { CustomMessage } from "../messages.ts";
 import type { ModelRegistry } from "../model-registry.ts";
 import type { ScopedModel } from "../model-resolver.ts";
+import type { SandboxProfileName, SandboxProfileScope } from "../permissions/presets.ts";
 import type { MultiAgentStore } from "../multi-agent-store.ts";
 import type { RuntimeMailboxMessage } from "../session-control-db.ts";
 import type {
@@ -410,6 +411,9 @@ export interface ExtensionCommandContext extends ExtensionContext {
 
 	/** Show the first-party sandbox profile selector. */
 	showSandboxSelector(): void;
+
+	/** Persist a sandbox profile at the requested scope. Undefined means inherit for session scope. */
+	setSandboxProfile(profile: SandboxProfileName | undefined, scope: SandboxProfileScope): void;
 
 	/** Get the current base system-prompt construction options. */
 	getSystemPromptOptions(): BuildSystemPromptOptions;

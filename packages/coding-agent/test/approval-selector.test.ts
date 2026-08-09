@@ -77,4 +77,39 @@ describe("approval and sandbox selectors", () => {
 
 		expect(onSelect).toHaveBeenCalledWith({ profile: "full-access", scope: "global" });
 	});
+
+	it("shows and selects inherited settings for session scope", () => {
+		const onSelect = vi.fn();
+		const selector = new SandboxSelectorComponent({
+			currentProfile: "full-access",
+			onCancel: () => {},
+			onSelect,
+			sessionProfile: undefined,
+		});
+
+		selector.handleInput("\t");
+		selector.handleInput("\t");
+		const output = stripAnsi(selector.render(120).join("\n"));
+		selector.handleInput("\n");
+
+		expect(output).toContain("Save scope: session");
+		expect(output).toContain("Inherit global/project ✓");
+		expect(onSelect).toHaveBeenCalledWith({ profile: undefined, scope: "session" });
+	});
+
+	it("marks the active session override independently from the configured profile", () => {
+		const selector = new SandboxSelectorComponent({
+			currentProfile: "full-access",
+			onCancel: () => {},
+			onSelect: () => {},
+			sessionProfile: "read-only",
+		});
+
+		selector.handleInput("\t");
+		selector.handleInput("\t");
+		const output = stripAnsi(selector.render(120).join("\n"));
+
+		expect(output).toContain("Read Only ✓");
+		expect(output).not.toContain("Inherit global/project ✓");
+	});
 });

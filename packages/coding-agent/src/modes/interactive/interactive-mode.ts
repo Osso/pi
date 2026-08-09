@@ -5951,11 +5951,13 @@ export class InteractiveMode {
 		this.showSelector((done) => {
 			const selector = new SandboxSelectorComponent({
 				currentProfile: this.settingsManager.getSandboxProfile(),
+				sessionProfile: this.settingsManager.getSessionSandboxProfile(),
 				onSelect: (selection) => {
-					this.settingsManager.setSandboxProfile(selection.profile, selection.scope);
+					this.session.extensionRunner.setSandboxProfile(selection.profile, selection.scope);
 					done();
 					this.updateBwrapStatusForSandboxProfile();
-					this.showStatus(`Saved sandbox profile to ${selection.scope} settings.`);
+					const savedProfile = selection.profile ?? "inherit";
+					this.showStatus(`Saved sandbox profile ${savedProfile} to ${selection.scope} scope.`);
 				},
 				onCancel: () => {
 					done();

@@ -10,13 +10,17 @@ The bubblewrap sandbox backend is a Linux extension that routes selected Pi tool
 
 - [x] Treat explicit `read-only` and `workspace-write` settings as sandbox-required profiles.
 - [x] Treat `full-access` and missing explicit sandbox settings as unsandboxed/bypass mode.
+- [x] Apply sandbox profile precedence as session override, then project setting, then global setting.
+- [x] Persist session overrides in the control-session database so restart/resume retains the exact session policy without affecting new, forked, or unrelated sessions.
+- [x] Let `/sandbox` select global, project, or session scope; session scope can explicitly inherit project/global settings.
+- [x] Support deterministic `/sandbox <profile|inherit> <scope>` arguments for live-session control.
 - [x] Fail closed when a sandbox-required profile is active and `bwrap` is unavailable.
 
 ### Filesystem and environment isolation
 
 - [x] Mount required host runtime paths read-only (`/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/etc`, and `/nix` when present) without mounting host `/`, `/home`, `/syncthing`, `/run`, or `/var`.
 - [x] Mount the active workspace read-only for `read-only` and writable for `workspace-write`.
-- [x] Mount runtime executables, explicit runner arguments, and adapter-resolved `PYTHONPATH` entries outside the workspace read-only when a sandboxed runtime requires them; never propagate arbitrary inherited `PYTHONPATH` entries.
+- [x] Mount runtime executables, explicit runner arguments, and adapter-resolved `PYTHONPATH` entries outside the workspace read-only when a sandboxed runtime requires them; resolve symlinked runner commands to their canonical target and never propagate arbitrary inherited `PYTHONPATH` entries.
 - [x] Provide sandbox-local `HOME`, `TMPDIR`, and `XDG_CONFIG_HOME`.
 - [x] Use `--clearenv` and an explicit filtered environment so provider keys and other host credentials are not passed into sandboxed workers by default.
 - [x] Reject file-worker paths and symlinks that escape the active workspace.
@@ -38,11 +42,19 @@ The bubblewrap sandbox backend is a Linux extension that routes selected Pi tool
 
 - `packages/coding-agent/extensions/bwrap/src/backend.ts` — builds bubblewrap invocations for sandbox-required profiles, including runner commands.
 - `packages/coding-agent/extensions/bwrap/src/index.ts` — extension entry point; routes file tools and bash/user_bash.
+- `packages/coding-agent/extensions/approval-controls/src/index.ts` — exposes selector and deterministic `/sandbox` profile/scope arguments.
+- `packages/coding-agent/src/core/session-control-db.ts` — persists one validated sandbox override per canonical session path.
+- `packages/coding-agent/src/core/settings-manager.ts` — resolves session, project, and global profile precedence.
+- `packages/coding-agent/src/modes/interactive/components/sandbox-selector.ts` — selects profile and persistence scope, including session inheritance.
 - `packages/coding-agent/extensions/pyrun/src/index.ts` — default-loaded Pyrun extension; selects local or bwrap runner execution by profile.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/bwrap-extension.test.ts` — bwrap invocation shape, profile mapping, fail-closed availability checks, environment filtering, runner-path validation, file-worker workspace containment, and real bwrap read-only/workspace-write enforcement when bubblewrap is executable.
+- `packages/coding-agent/test/bwrap-extension.test.ts` — bwrap invocation shape, profile mapping, fail-closed availability checks, environment filtering, canonical runner-path validation, file-worker workspace containment, and real bwrap read-only/workspace-write enforcement when bubblewrap is executable.
+- `packages/coding-agent/test/session-sandbox-profile.test.ts` — control-DB persistence, validation, relocation, cleanup, runtime restoration, precedence, and new-session isolation.
+- `packages/coding-agent/test/settings-manager.test.ts` — session/project/global sandbox-profile precedence.
+- `packages/coding-agent/test/approval-selector.test.ts` — session scope and inheritance visibility/selection.
+- `packages/coding-agent/test/approval-slash-commands.test.ts` — deterministic profile/scope arguments and inherit validation.
 - `packages/coding-agent/test/pyrun-extension.test.ts` — sandboxed Pyrun runner and disabled Pi bridge.
 - `packages/coding-agent/test/suite/change-working-directory-tool.test.ts` — unsandboxed file-tool cwd after relocation and process restart.
 
