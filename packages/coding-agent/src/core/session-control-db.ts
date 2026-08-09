@@ -5504,22 +5504,53 @@ function commitMultiAgentMailboxUpsert(
 	id: string,
 	plan: MultiAgentMailboxUpsertPlan,
 ): boolean {
-	return withImmediateTransaction(db, () => {
-		const parentTarget = plan.parentTarget
-			? readParentRequestTargetRow(db, sessionPath, plan.parentTarget.agentId)
-			: undefined;
-		if (!parentRequestTargetSnapshotsEqual(plan.parentTarget, parentTarget)) return false;
-		const existing = readMultiAgentMailboxRowSnapshot(db, sessionPath, id);
-		if (!multiAgentMailboxRowSnapshotsEqual(plan.existing, existing)) return false;
-		db.prepare(
-			`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
-			 VALUES (?, ?, ?, ?)
-			 ON CONFLICT(session_path, message_id) DO UPDATE SET
-				data = excluded.data,
-				updated_at = excluded.updated_at`,
-		).run(sessionPath, id, plan.serialized, new Date().toISOString());
-		return true;
-	});
+	const hasParentTarget = plan.parentTarget ? 1 : 0;
+	const hasExisting = plan.existing ? 1 : 0;
+	return (
+		db
+			.prepare(
+				`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+				 SELECT ?, ?, ?, ?
+				 WHERE (? = 0 OR EXISTS (
+					SELECT 1 FROM multi_agent_agents
+					WHERE session_path = ? AND agent_id = ? AND data = ?
+				 ))
+				 AND ((? = 0 AND NOT EXISTS (
+					SELECT 1 FROM multi_agent_mailbox_messages
+					WHERE session_path = ? AND message_id = ?
+				 )) OR (? = 1 AND EXISTS (
+					SELECT 1 FROM multi_agent_mailbox_messages
+					WHERE session_path = ? AND message_id = ? AND data = ? AND updated_at = ?
+				 )))
+				 ON CONFLICT(session_path, message_id) DO UPDATE SET
+					data = excluded.data,
+					updated_at = excluded.updated_at
+				 WHERE ? = 1
+				 AND multi_agent_mailbox_messages.data = ?
+				 AND multi_agent_mailbox_messages.updated_at = ?`,
+			)
+			.run(
+				sessionPath,
+				id,
+				plan.serialized,
+				new Date().toISOString(),
+				hasParentTarget,
+				sessionPath,
+				plan.parentTarget?.agentId ?? null,
+				plan.parentTarget?.data ?? null,
+				hasExisting,
+				sessionPath,
+				id,
+				hasExisting,
+				sessionPath,
+				id,
+				plan.existing?.data ?? null,
+				plan.existing?.updated_at ?? null,
+				hasExisting,
+				plan.existing?.data ?? null,
+				plan.existing?.updated_at ?? null,
+			).changes === 1
+	);
 }
 
 function readMultiAgentMailboxRowSnapshot(
@@ -5530,14 +5561,6 @@ function readMultiAgentMailboxRowSnapshot(
 	return db
 		.prepare("SELECT data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
 		.get(sessionPath, id) as MultiAgentMailboxRowSnapshot | undefined;
-}
-
-function multiAgentMailboxRowSnapshotsEqual(
-	expected: MultiAgentMailboxRowSnapshot | undefined,
-	current: MultiAgentMailboxRowSnapshot | undefined,
-): boolean {
-	if (!expected || !current) return expected === current;
-	return expected.data === current.data && expected.updated_at === current.updated_at;
 }
 
 function mergeCanonicalMailboxUpdate(
@@ -5673,14 +5696,6 @@ function readParentRequestTargetRow(
 		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
 		.get(sessionPath, agentId) as { data: string } | undefined;
 	return row ? { agentId, data: row.data } : undefined;
-}
-
-function parentRequestTargetSnapshotsEqual(
-	expected: ParentRequestTargetSnapshot | undefined,
-	current: ParentRequestTargetSnapshot | undefined,
-): boolean {
-	if (!expected || !current) return expected === current;
-	return expected.agentId === current.agentId && expected.data === current.data;
 }
 
 function validateMailboxPayload(data: unknown, context: string): void {
