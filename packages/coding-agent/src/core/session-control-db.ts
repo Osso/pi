@@ -3117,22 +3117,13 @@ type RecoverStaleTerminalOutboxClaimsInput = {
 	staleClaimBefore: string;
 };
 
-function recoverStaleTerminalOutboxClaims(
-	db: SqliteDatabase,
-	input: RecoverStaleTerminalOutboxClaimsInput,
-): void {
+function recoverStaleTerminalOutboxClaims(db: SqliteDatabase, input: RecoverStaleTerminalOutboxClaimsInput): void {
 	db.prepare(
 		`UPDATE multi_agent_terminal_outbox
 		 SET status = CASE WHEN attempt_count >= ? THEN 'poisoned' ELSE 'pending' END,
 		 claim_id = NULL, claimed_at = NULL, last_error = 'claim lease expired', updated_at = ?
 		 WHERE status = 'claimed' AND claimed_at < ? AND (? IS NULL OR session_path = ?)`,
-	).run(
-		input.maxAttempts,
-		input.nowIso,
-		input.staleClaimBefore,
-		input.sessionPath ?? null,
-		input.sessionPath ?? null,
-	);
+	).run(input.maxAttempts, input.nowIso, input.staleClaimBefore, input.sessionPath ?? null, input.sessionPath ?? null);
 }
 
 function claimNextTerminalOutboxRow(
