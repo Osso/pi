@@ -81,15 +81,16 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       returns without reserving the writer lock; when stale claims need recovery, that recovery remains in the
       immediate transaction, and the pending-row selection plus claim is one atomic `UPDATE ... RETURNING`.
       Child construction occurs before persistence: pure child payload, ID, lifecycle, parent-ID
-      validation, and serialization complete before writer acquisition; parent activity and uniqueness
-      checks plus the agent/ownership inserts remain one atomic commit. Failed-child persistence applies
-      the same pre-lock boundary to payload/lifecycle/revision/parent-ID validation and serialization,
-      while its parent/uniqueness checks and agent/terminal-outbox inserts remain atomic. Success commits
-      the child row as `running` revision 1 with ownership, while construction interruption or failure
-      commits `failed` revision 1. Attachment payload, ID, origin, lifecycle, and revision validation
-      plus serialization complete before writer acquisition; attachment uniqueness and parent permission
-      checks plus the insert remain one atomic transaction. No persisted `queued` or `starting` startup
-      row exists. Multi-agent
+      validation, and serialization complete before writer acquisition; parent lifecycle validation and
+      uniqueness run as read-only preflight, while the commit revalidates the exact parent snapshot and
+      atomically inserts the child and ownership rows. Failed-child persistence applies the same pre-lock
+      boundary to payload/lifecycle/revision/parent-ID validation and serialization; its commit revalidates
+      the exact parent snapshot and uniqueness before atomically inserting the failed child and terminal
+      outbox rows. Success commits the child row as `running` revision 1 with ownership, while construction
+      interruption or failure commits `failed` revision 1. Attachment payload, ID, origin, lifecycle,
+      revision, and serialization complete before writer acquisition; parent lifecycle and permission
+      validation plus uniqueness run read-only, while the commit revalidates the exact parent snapshot and
+      atomically inserts the attachment. No persisted `queued` or `starting` startup row exists. Multi-agent
       activity, transcript, and slot metadata updates validate read-only, then use bounded exact-payload
       compare-and-swap writes; activity updates also require the exact persisted runtime owner in the
       update predicate. Detachment marking likewise validates lifecycle and exact ownership without
