@@ -11,7 +11,7 @@ The resident Supervisor is a systemd-supervised peer-unblocking policy engine th
 - [x] Run as one resident systemd-supervised SDK service, separate from the resident Architect.
 - [x] Use `openai-codex/gpt-5.6-sol` with low thinking effort.
 - [x] Preserve one global Supervisor model transcript across requests and service restarts. Proactively compact the shared context before a bounded request when usage reaches 75%, preserving prior decisions, project-specific policies, and reusable approval rationale rather than resetting history. Invalidate provider continuation state after compaction so the next request starts from the compacted local context rather than the pre-compaction remote chain.
-- [x] Process requests through an event-driven request/response queue rather than polling sessions.
+- [x] Process requests through an event-driven request/response queue rather than polling sessions. Idle recovery probes the Supervisor request queue read-only for expired pending or claimed work; when recovery is needed, expired requests are completed and remaining claimed requests are requeued in one immediate transaction.
 - [x] Remain local-only without web access.
 - [x] During deployment, compare the loaded base `pi-supervisor.service` content with the rendered desired unit; skip the protected file rewrite and daemon reload when identical, but rewrite and reload when changed. Always remove Architect, enable/restart Supervisor, and run service health checks.
 
