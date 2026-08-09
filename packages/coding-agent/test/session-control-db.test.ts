@@ -3882,6 +3882,106 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(readRuntimeMailboxMessage(controlDbPath, freshId)).toMatchObject({ status: "claimed" });
 	});
 
+	it("scans live canonical mailbox claims without acquiring the writer lock", async () => {
+		const recipient = { agentId: null, sessionId: "recovery-contention-recipient" };
+		const sessionPath = "/sessions/recovery-contention-sender.jsonl";
+		const messageId = "recovery-contention-message";
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			body: "live claim",
+			createdAt: "2026-08-09T00:00:00.000Z",
+			fromAgentId: "main",
+			id: messageId,
+			kind: "message",
+			recipientAgentId: null,
+			recipientSessionId: recipient.sessionId,
+			senderAgentId: null,
+			senderSessionId: "recovery-contention-sender",
+			status: "pending",
+			toAgentId: "main",
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		});
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import {
+					claimRuntimeMailboxMessages,
+					recoverDeadRuntimeMailboxClaims,
+					registerRuntimeMailboxListener,
+				} from ${JSON.stringify(moduleUrl)};
+
+				try {
+					registerRuntimeMailboxListener(workerData.controlDbPath, workerData.recipient, process.pid);
+					const claimed = claimRuntimeMailboxMessages(workerData.controlDbPath, workerData.recipient);
+					parentPort?.postMessage({ id: claimed[0]?.id, type: "ready" });
+				} catch (error) {
+					parentPort?.postMessage({ error: String(error), type: "error" });
+				}
+
+				parentPort?.once("message", () => {
+					try {
+						const recovered = recoverDeadRuntimeMailboxClaims(workerData.controlDbPath, workerData.recipient);
+						parentPort?.postMessage({ count: recovered, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, recipient } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			const ready = await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "recovery worker did not claim the mailbox row",
+			});
+			expect(ready.id).toBeTypeOf("number");
+
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("recover");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "live-claim recovery waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "recovery worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.count).toBe(0);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			const row = db
+				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+				.get(sessionPath, messageId) as { data: string };
+			expect(JSON.parse(row.data)).toMatchObject({ status: "claimed" });
+		} finally {
+			db.close();
+		}
+	});
+
 	it("rejects runtime mailbox rows when the referenced store payload is malformed", () => {
 		const messageId = enqueueStoredRuntimeMessage(controlDbPath, {
 			body: "bad file metadata",

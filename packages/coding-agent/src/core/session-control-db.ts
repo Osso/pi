@@ -568,31 +568,15 @@ function stripRuntimeMailboxDeliveryState(serialized: string): string {
 	return JSON.stringify(identity);
 }
 
-export function recoverDeadRuntimeMailboxClaims(controlDbPath: string, recipient: RuntimeMailboxAddress): number {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "claimed", Number.MAX_SAFE_INTEGER).filter(
-				(row) => canCurrentRuntimeClaimMailboxRow(db, recipient, row),
-			);
-			let recovered = 0;
-			const now = new Date().toISOString();
-			for (const row of rows) {
-				const message = parseCanonicalMailboxPayload(row);
-				const claimant = requireStringField(message, "claimantProcessIdentity", "runtime_mailbox_claim");
-				if (canonicalMailboxClaimantIsLive(db, recipient, claimant)) continue;
-				const pending: Record<string, unknown> = { ...message, status: "pending", updatedAt: now };
-				delete pending.claimedAt;
-				delete pending.claimantProcessIdentity;
-				if (compareAndWriteCanonicalMailboxPayload(db, row, pending, now)) recovered += 1;
-			}
-			return recovered;
-		}),
-	);
-}
-
 type RuntimeMailboxAuthoritySnapshot = {
 	listener: RuntimeMailboxListenerRow | undefined;
 	ownership: MultiAgentRuntimeOwnershipRow | undefined;
+};
+
+type RuntimeMailboxRecoveryCandidate = {
+	authority: RuntimeMailboxAuthoritySnapshot;
+	data: Record<string, unknown>;
+	row: RuntimeMailboxRow;
 };
 
 type RuntimeMailboxDeliveryCandidate = {
@@ -600,6 +584,47 @@ type RuntimeMailboxDeliveryCandidate = {
 	data: Record<string, unknown>;
 	row: RuntimeMailboxRow;
 };
+
+export function recoverDeadRuntimeMailboxClaims(controlDbPath: string, recipient: RuntimeMailboxAddress): number {
+	return withControlDb(controlDbPath, (db) => {
+		const candidates = readRecoverableRuntimeMailboxClaims(db, recipient);
+		const nowIso = new Date().toISOString();
+		return candidates.reduce(
+			(recovered, candidate) => recovered + Number(recoverRuntimeMailboxClaim(db, recipient, candidate, nowIso)),
+			0,
+		);
+	});
+}
+
+function readRecoverableRuntimeMailboxClaims(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+): RuntimeMailboxRecoveryCandidate[] {
+	const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "claimed", Number.MAX_SAFE_INTEGER);
+	return rows.flatMap((row) => {
+		const authority = readRuntimeMailboxAuthoritySnapshot(db, recipient, row.session_path);
+		if (!currentRuntimeOwnsMailboxAuthority(recipient, authority)) return [];
+		const data = parseCanonicalMailboxPayload(row);
+		const claimant = requireStringField(data, "claimantProcessIdentity", "runtime_mailbox_claim");
+		return runtimeMailboxClaimantIsLive(authority.listener, claimant) ? [] : [{ authority, data, row }];
+	});
+}
+
+function recoverRuntimeMailboxClaim(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+	candidate: RuntimeMailboxRecoveryCandidate,
+	nowIso: string,
+): boolean {
+	return withImmediateTransaction(db, () => {
+		const currentAuthority = readRuntimeMailboxAuthoritySnapshot(db, recipient, candidate.row.session_path);
+		if (!runtimeMailboxAuthoritySnapshotsEqual(candidate.authority, currentAuthority)) return false;
+		const pending: Record<string, unknown> = { ...candidate.data, status: "pending", updatedAt: nowIso };
+		delete pending.claimedAt;
+		delete pending.claimantProcessIdentity;
+		return compareAndWriteCanonicalMailboxPayload(db, candidate.row, pending, nowIso);
+	});
+}
 
 export function takeRuntimeMailboxMessagesForDelivery(
 	controlDbPath: string,
@@ -747,12 +772,10 @@ function canCurrentRuntimeClaimMailboxRow(
 	return persistedProcessIdentityIsCurrent(ownership?.process_identity);
 }
 
-function canonicalMailboxClaimantIsLive(
-	db: SqliteDatabase,
-	recipient: RuntimeMailboxAddress,
+function runtimeMailboxClaimantIsLive(
+	listener: RuntimeMailboxListenerRow | undefined,
 	claimantProcessIdentity: string,
 ): boolean {
-	const listener = readRuntimeMailboxListenerRow(db, recipient);
 	if (listener) return listener.runtime_instance_id === claimantProcessIdentity;
 	return persistedProcessIdentityIsLive(claimantProcessIdentity);
 }
