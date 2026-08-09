@@ -850,6 +850,98 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(result.status, result.stderr || result.stdout).toBe(0);
 	});
 
+	it("rejects process-owned bootstrap rows before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/bootstrap-owner-contention.jsonl";
+		const agentId = "agent-bootstrap-owner-contention";
+		const agent = {
+			createdAt: "2026-08-09T00:00:00.000Z",
+			cwd: "/repo",
+			displayName: "Bootstrap owner contention",
+			agentType: "worker",
+			id: agentId,
+			lifecycle: "running",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+			revision: 1,
+			updatedAt: "2026-08-09T00:00:00.000Z",
+		};
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, agentId, agent);
+		const ownership = forceRuntimeOwnership(controlDbPath, {
+			agentId,
+			nowIso: agent.updatedAt,
+			owner: { agentId: null, sessionId: "bootstrap-owner" },
+			processIdentity: CURRENT_PROCESS_IDENTITY,
+			sessionPath,
+		});
+		expect(ownership.ok).toBe(true);
+		const beforeAgent = readMultiAgentState(controlDbPath, sessionPath)?.agents[0];
+		const beforeOwnership = readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId);
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { bootstrapMultiAgentAgent } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						bootstrapMultiAgentAgent(workerData.controlDbPath, workerData.sessionPath, workerData.agentId, workerData.agent);
+						parentPort?.postMessage({ type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "completed" });
+					}
+				});
+			`,
+			{
+				eval: true,
+				execArgv: ["--experimental-strip-types"],
+				workerData: { agent, agentId, controlDbPath, sessionPath },
+			},
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "bootstrap contention worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("bootstrap");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "process-owned bootstrap waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "bootstrap worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.error).toContain("Generic agent upsert cannot mutate process-owned lifecycle row");
+		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents[0]).toEqual(beforeAgent);
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, sessionPath, agentId)).toEqual(beforeOwnership);
+	});
+
 	it("rejects a control database created by a newer lifecycle protocol", () => {
 		const db = createSqliteDatabase(controlDbPath);
 		try {
