@@ -4818,7 +4818,9 @@ function commitFailedMultiAgentChild(
 	parent: ActiveParentSnapshot,
 ): CreateFailedMultiAgentChildResult | undefined {
 	return withImmediateTransaction(db, () => {
-		if (!insertMultiAgentAgentIfParentCurrent(db, input.sessionPath, agent.id, serializedAgent, input.nowIso, parent)) {
+		if (
+			!insertMultiAgentAgentIfParentCurrent(db, input.sessionPath, agent.id, serializedAgent, input.nowIso, parent)
+		) {
 			return undefined;
 		}
 		db.prepare(
