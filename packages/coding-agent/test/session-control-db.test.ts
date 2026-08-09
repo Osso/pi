@@ -521,6 +521,110 @@ describe("session control DB", () => {
 		}
 	});
 
+	it("rejects conflicting mailbox ID reuse before acquiring the writer lock", async () => {
+		const sessionPath = "/sessions/mailbox-collision-contention.jsonl";
+		const messageId = "message-collision-contention";
+		const original = {
+			body: "original",
+			fromAgentId: "agent-original",
+			id: messageId,
+			kind: "system" as const,
+			status: "delivered" as const,
+			toAgentId: "main",
+		};
+		const conflicting = {
+			body: "replacement",
+			fromAgentId: "agent-replacement",
+			id: messageId,
+			kind: "system" as const,
+			status: "pending" as const,
+			toAgentId: "main",
+		};
+		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, original);
+		const beforeDb = createSqliteDatabase(controlDbPath);
+		const before = beforeDb
+			.prepare("SELECT data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+			.get(sessionPath, messageId) as { data: string; updated_at: string };
+		beforeDb.close();
+
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { upsertMultiAgentMailboxMessage } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						upsertMultiAgentMailboxMessage(
+							workerData.controlDbPath,
+							workerData.sessionPath,
+							workerData.messageId,
+							workerData.conflicting,
+						);
+						parentPort?.postMessage({ type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "completed" });
+					}
+				});
+			`,
+			{
+				eval: true,
+				execArgv: ["--experimental-strip-types"],
+				workerData: { conflicting, controlDbPath, messageId, sessionPath },
+			},
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "mailbox collision worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("upsert");
+			try {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					timeoutMessage: "mailbox collision validation waited for the writer lock",
+					timeoutMs: 1_000,
+				});
+			} catch (error) {
+				blockedBeforeRelease = error;
+			}
+			holder.exec("ROLLBACK");
+			if (!completed) {
+				completed = await waitForWorkerStatus(worker, {
+					expectedType: "completed",
+					ignoredTypes: ["ready"],
+					timeoutMessage: "mailbox collision worker did not finish after lock release",
+				});
+			}
+		} finally {
+			try {
+				holder.exec("ROLLBACK");
+			} catch {
+				// The holder may already have released its transaction after the assertion.
+			}
+			await worker.terminate();
+			holder.close();
+		}
+
+		expect(blockedBeforeRelease).toBeUndefined();
+		expect(completed?.error).toContain("Mailbox message ID collision");
+		const afterDb = createSqliteDatabase(controlDbPath);
+		try {
+			const after = afterDb
+				.prepare("SELECT data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
+				.get(sessionPath, messageId) as { data: string; updated_at: string };
+			expect(after).toEqual(before);
+		} finally {
+			afterDb.close();
+		}
+	});
+
 	it("rejects conflicting duplicate runtime mailbox enqueues", () => {
 		const input = {
 			kind: "message" as const,

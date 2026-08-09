@@ -4648,6 +4648,24 @@ interface PersistedAgentRow {
 	data: string;
 }
 
+const MULTI_AGENT_MAILBOX_UPSERT_MAX_ATTEMPTS = 3;
+
+type ParentRequestTargetSnapshot = {
+	agentId: string;
+	data: string;
+};
+
+type MultiAgentMailboxRowSnapshot = {
+	data: string;
+	updated_at: string;
+};
+
+type MultiAgentMailboxUpsertPlan = {
+	existing: MultiAgentMailboxRowSnapshot | undefined;
+	parentTarget: ParentRequestTargetSnapshot | undefined;
+	serialized: string;
+};
+
 export function upsertMultiAgentMailboxMessage(
 	controlDbPath: string,
 	sessionPath: string,
@@ -4656,36 +4674,77 @@ export function upsertMultiAgentMailboxMessage(
 ): void {
 	validateMailboxPayload(data, `multi_agent_mailbox_messages:${sessionPath}#${id}`);
 	withControlDb(controlDbPath, (db) => {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			validateParentRequestTarget(db, sessionPath, data);
-			let serialized = JSON.stringify(data);
-			const existing = db
-				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
-				.get(sessionPath, id) as { data: string } | undefined;
-			if (existing) {
-				const previous = parseJsonObject(existing.data);
-				const next = parseJsonObject(serialized);
-				if (!previous || !next || !sameMailboxMessageIdentity(previous, next, id)) {
-					throw new Error(`Mailbox message ID collision: ${sessionPath}#${id}`);
-				}
-				serialized = JSON.stringify(mergeCanonicalMailboxUpdate(previous, next));
-			}
-			db.prepare(
-				`
-				INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
-				VALUES (?, ?, ?, ?)
-				ON CONFLICT(session_path, message_id) DO UPDATE SET
-					data = excluded.data,
-					updated_at = excluded.updated_at
-				`,
-			).run(sessionPath, id, serialized, new Date().toISOString());
-			db.exec("COMMIT");
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
+		for (let attempt = 1; attempt <= MULTI_AGENT_MAILBOX_UPSERT_MAX_ATTEMPTS; attempt += 1) {
+			const plan = prepareMultiAgentMailboxUpsert(db, sessionPath, id, data);
+			if (plan.existing?.data === plan.serialized) return;
+			if (commitMultiAgentMailboxUpsert(db, sessionPath, id, plan)) return;
 		}
+		throw new Error(`Mailbox message changed repeatedly while updating ${sessionPath}#${id}`);
 	});
+}
+
+function prepareMultiAgentMailboxUpsert(
+	db: SqliteDatabase,
+	sessionPath: string,
+	id: string,
+	data: unknown,
+): MultiAgentMailboxUpsertPlan {
+	const parentTarget = readParentRequestTargetSnapshot(db, sessionPath, data);
+	const existing = readMultiAgentMailboxRowSnapshot(db, sessionPath, id);
+	let serialized = JSON.stringify(data);
+	if (existing) {
+		const previous = parseJsonObject(existing.data);
+		const next = parseJsonObject(serialized);
+		if (!previous || !next || !sameMailboxMessageIdentity(previous, next, id)) {
+			throw new Error(`Mailbox message ID collision: ${sessionPath}#${id}`);
+		}
+		serialized = JSON.stringify(mergeCanonicalMailboxUpdate(previous, next));
+	}
+	return { existing, parentTarget, serialized };
+}
+
+function commitMultiAgentMailboxUpsert(
+	db: SqliteDatabase,
+	sessionPath: string,
+	id: string,
+	plan: MultiAgentMailboxUpsertPlan,
+): boolean {
+	return withImmediateTransaction(db, () => {
+		const parentTarget = plan.parentTarget
+			? readParentRequestTargetRow(db, sessionPath, plan.parentTarget.agentId)
+			: undefined;
+		if (!parentRequestTargetSnapshotsEqual(plan.parentTarget, parentTarget)) return false;
+		const existing = readMultiAgentMailboxRowSnapshot(db, sessionPath, id);
+		if (!multiAgentMailboxRowSnapshotsEqual(plan.existing, existing)) return false;
+		db.prepare(
+			`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+			 VALUES (?, ?, ?, ?)
+			 ON CONFLICT(session_path, message_id) DO UPDATE SET
+				data = excluded.data,
+				updated_at = excluded.updated_at`,
+		).run(sessionPath, id, plan.serialized, new Date().toISOString());
+		return true;
+	});
+}
+
+function readMultiAgentMailboxRowSnapshot(
+	db: SqliteDatabase,
+	sessionPath: string,
+	id: string,
+): MultiAgentMailboxRowSnapshot | undefined {
+	return db
+		.prepare(
+			"SELECT data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
+		)
+		.get(sessionPath, id) as MultiAgentMailboxRowSnapshot | undefined;
+}
+
+function multiAgentMailboxRowSnapshotsEqual(
+	expected: MultiAgentMailboxRowSnapshot | undefined,
+	current: MultiAgentMailboxRowSnapshot | undefined,
+): boolean {
+	if (!expected || !current) return expected === current;
+	return expected.data === current.data && expected.updated_at === current.updated_at;
 }
 
 function mergeCanonicalMailboxUpdate(
@@ -4794,19 +4853,41 @@ function updateMultiAgentMailboxMessageStatus(
 	});
 }
 
-function validateParentRequestTarget(db: SqliteDatabase, sessionPath: string, data: unknown): void {
-	if (!data || typeof data !== "object" || Array.isArray(data)) return;
+function readParentRequestTargetSnapshot(
+	db: SqliteDatabase,
+	sessionPath: string,
+	data: unknown,
+): ParentRequestTargetSnapshot | undefined {
+	if (!data || typeof data !== "object" || Array.isArray(data)) return undefined;
 	const payload = data as Record<string, unknown>;
-	if (payload.kind !== "parent_request") return;
+	if (payload.kind !== "parent_request") return undefined;
 	const fromAgentId = requireStringField(payload, "fromAgentId", "parent_request");
 	const toAgentId = requireStringField(payload, "toAgentId", "parent_request");
-	const row = db
-		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
-		.get(sessionPath, fromAgentId) as { data: string } | undefined;
+	const row = readParentRequestTargetRow(db, sessionPath, fromAgentId);
 	const sender = row ? parseJsonObject(row.data) : undefined;
 	if (!sender || sender.parentId !== toAgentId) {
 		throw new Error(`Invalid parent request target at ${sessionPath}#${fromAgentId}`);
 	}
+	return row;
+}
+
+function readParentRequestTargetRow(
+	db: SqliteDatabase,
+	sessionPath: string,
+	agentId: string,
+): ParentRequestTargetSnapshot | undefined {
+	const row = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(sessionPath, agentId) as { data: string } | undefined;
+	return row ? { agentId, data: row.data } : undefined;
+}
+
+function parentRequestTargetSnapshotsEqual(
+	expected: ParentRequestTargetSnapshot | undefined,
+	current: ParentRequestTargetSnapshot | undefined,
+): boolean {
+	if (!expected || !current) return expected === current;
+	return expected.agentId === current.agentId && expected.data === current.data;
 }
 
 function validateMailboxPayload(data: unknown, context: string): void {
