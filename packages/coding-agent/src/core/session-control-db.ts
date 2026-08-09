@@ -1513,19 +1513,20 @@ export function renewArchitectRequestClaims(controlDbPath: string, requestIds: n
 				 WHERE id IN (SELECT CAST(value AS INTEGER) FROM json_each(?))
 				 AND status = 'claimed' AND claim_token = ?`,
 			).run(now, requestIdsJson, claimToken);
-			const rows = db
+			const lost = db
 				.prepare(
-					`SELECT id, status, claim_token FROM architect_requests
-					 WHERE id IN (SELECT CAST(value AS INTEGER) FROM json_each(?))`,
+					`SELECT CAST(request_ids.value AS INTEGER) AS id
+					 FROM json_each(?) AS request_ids
+					 LEFT JOIN architect_requests AS requests
+					 ON requests.id = CAST(request_ids.value AS INTEGER)
+					 WHERE requests.status IS NULL
+					 OR (requests.status <> 'completed'
+						AND (requests.status <> 'claimed' OR requests.claim_token <> ?))
+					 ORDER BY CAST(request_ids.key AS INTEGER)
+					 LIMIT 1`,
 				)
-				.all(requestIdsJson) as Array<{ claim_token: string | null; id: number; status: string }>;
-			const rowsById = new Map(rows.map((row) => [row.id, row]));
-			for (const requestId of uniqueRequestIds) {
-				const row = rowsById.get(requestId);
-				if (row?.status === "completed") continue;
-				if (row?.status === "claimed" && row.claim_token === claimToken) continue;
-				throw new Error(`Architect request claim lost: ${requestId}`);
-			}
+				.get(requestIdsJson, claimToken) as { id: number } | undefined;
+			if (lost) throw new Error(`Architect request claim lost: ${lost.id}`);
 		}),
 	);
 }
