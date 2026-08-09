@@ -3034,51 +3034,103 @@ export function claimMultiAgentTerminalOutbox(
 	nowIso: string,
 	options: ClaimMultiAgentTerminalOutboxOptions = {},
 ): MultiAgentTerminalOutboxRecord | undefined {
-	return withControlDb(controlDbPath, (db) =>
-		withImmediateTransaction(db, () => {
-			const maxAttempts = options.maxAttempts ?? 5;
-			if (options.staleClaimBefore) {
-				db.prepare(
-					`UPDATE multi_agent_terminal_outbox
-					 SET status = CASE WHEN attempt_count >= ? THEN 'poisoned' ELSE 'pending' END,
-					 claim_id = NULL, claimed_at = NULL, last_error = 'claim lease expired', updated_at = ?
-					 WHERE status = 'claimed' AND claimed_at < ? AND (? IS NULL OR session_path = ?)`,
-				).run(
-					maxAttempts,
-					nowIso,
-					options.staleClaimBefore,
-					options.sessionPath ?? null,
-					options.sessionPath ?? null,
-				);
-			}
-			const row = db
-				.prepare(
-					`SELECT session_path, agent_id, terminal_revision, event_kind
-					 FROM multi_agent_terminal_outbox
-					 WHERE status = 'pending' AND attempt_count < ? AND (? IS NULL OR session_path = ?)
-					 ORDER BY updated_at LIMIT 1`,
-				)
-				.get(maxAttempts, options.sessionPath ?? null, options.sessionPath ?? null) as
-				| { session_path: string; agent_id: string; terminal_revision: number; event_kind: string }
-				| undefined;
+	const maxAttempts = options.maxAttempts ?? 5;
+	return withControlDb(controlDbPath, (db) => {
+		if (!hasEligibleTerminalOutboxWork(db, maxAttempts, options)) return undefined;
+		return withImmediateTransaction(db, () => {
+			if (options.staleClaimBefore) recoverStaleTerminalOutboxClaims(db, nowIso, maxAttempts, options);
+			const row = claimNextTerminalOutboxRow(db, claimId, nowIso, maxAttempts, options.sessionPath);
 			if (!row) return undefined;
-			const result = db
-				.prepare(
-					`UPDATE multi_agent_terminal_outbox SET status = 'claimed', claim_id = ?, claimed_at = ?, attempt_count = attempt_count + 1, updated_at = ? WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ? AND status = 'pending'`,
-				)
-				.run(claimId, nowIso, nowIso, row.session_path, row.agent_id, row.terminal_revision, row.event_kind);
-			if (result.changes !== 1) return undefined;
 			return {
 				agentId: row.agent_id,
-				attemptCount: readTerminalOutboxAttempt(db, row),
+				attemptCount: row.attempt_count,
 				claimId,
 				eventKind: row.event_kind,
 				sessionPath: row.session_path,
 				status: "claimed",
 				terminalRevision: row.terminal_revision,
 			};
-		}),
+		});
+	});
+}
+
+function hasEligibleTerminalOutboxWork(
+	db: SqliteDatabase,
+	maxAttempts: number,
+	options: ClaimMultiAgentTerminalOutboxOptions,
+): boolean {
+	return Boolean(
+		db
+			.prepare(
+				`SELECT 1 FROM multi_agent_terminal_outbox
+				 WHERE (? IS NULL OR session_path = ?)
+				 AND (
+					(status = 'pending' AND attempt_count < ?)
+					OR (? IS NOT NULL AND status = 'claimed' AND claimed_at < ?)
+				 )
+				 LIMIT 1`,
+			)
+			.get(
+				options.sessionPath ?? null,
+				options.sessionPath ?? null,
+				maxAttempts,
+				options.staleClaimBefore ?? null,
+				options.staleClaimBefore ?? null,
+			),
 	);
+}
+
+function recoverStaleTerminalOutboxClaims(
+	db: SqliteDatabase,
+	nowIso: string,
+	maxAttempts: number,
+	options: ClaimMultiAgentTerminalOutboxOptions,
+): void {
+	db.prepare(
+		`UPDATE multi_agent_terminal_outbox
+		 SET status = CASE WHEN attempt_count >= ? THEN 'poisoned' ELSE 'pending' END,
+		 claim_id = NULL, claimed_at = NULL, last_error = 'claim lease expired', updated_at = ?
+		 WHERE status = 'claimed' AND claimed_at < ? AND (? IS NULL OR session_path = ?)`,
+	).run(maxAttempts, nowIso, options.staleClaimBefore, options.sessionPath ?? null, options.sessionPath ?? null);
+}
+
+function claimNextTerminalOutboxRow(
+	db: SqliteDatabase,
+	claimId: string,
+	nowIso: string,
+	maxAttempts: number,
+	sessionPath?: string,
+):
+	| {
+			agent_id: string;
+			attempt_count: number;
+			event_kind: string;
+			session_path: string;
+			terminal_revision: number;
+	  }
+	| undefined {
+	return db
+		.prepare(
+			`UPDATE multi_agent_terminal_outbox
+			 SET status = 'claimed', claim_id = ?, claimed_at = ?,
+			 attempt_count = attempt_count + 1, updated_at = ?
+			 WHERE rowid = (
+				SELECT rowid FROM multi_agent_terminal_outbox
+				WHERE status = 'pending' AND attempt_count < ? AND (? IS NULL OR session_path = ?)
+				ORDER BY updated_at LIMIT 1
+			 )
+			 AND status = 'pending'
+			 RETURNING session_path, agent_id, terminal_revision, event_kind, attempt_count`,
+		)
+		.get(claimId, nowIso, nowIso, maxAttempts, sessionPath ?? null, sessionPath ?? null) as
+		| {
+				agent_id: string;
+				attempt_count: number;
+				event_kind: string;
+				session_path: string;
+				terminal_revision: number;
+		  }
+		| undefined;
 }
 
 export function failMultiAgentTerminalOutbox(
@@ -3139,19 +3191,6 @@ export function cleanupMultiAgentTerminalOutbox(controlDbPath: string, olderThan
 				)
 				.run(olderThan).changes,
 	);
-}
-
-function readTerminalOutboxAttempt(
-	db: SqliteDatabase,
-	row: { session_path: string; agent_id: string; terminal_revision: number; event_kind: string },
-): number {
-	return (
-		db
-			.prepare(
-				`SELECT attempt_count FROM multi_agent_terminal_outbox WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ?`,
-			)
-			.get(row.session_path, row.agent_id, row.terminal_revision, row.event_kind) as { attempt_count: number }
-	).attempt_count;
 }
 
 export function commitMultiAgentSteeringMutation(

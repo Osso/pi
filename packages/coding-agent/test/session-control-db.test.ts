@@ -3638,6 +3638,52 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		}
 	});
 
+	it("returns without a writer lock when no terminal outbox row is eligible", async () => {
+		expect(claimMultiAgentTerminalOutbox(controlDbPath, "initial-terminal-claim", "2026-08-09T00:00:00.000Z")).toBeUndefined();
+		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+		const worker = new Worker(
+			`
+				import { parentPort, workerData } from "node:worker_threads";
+				import { claimMultiAgentTerminalOutbox } from ${JSON.stringify(moduleUrl)};
+
+				parentPort?.postMessage({ type: "ready" });
+				parentPort?.once("message", () => {
+					try {
+						const claimed = claimMultiAgentTerminalOutbox(
+							workerData.controlDbPath,
+							"worker-terminal-claim",
+							"2026-08-09T00:00:01.000Z",
+						);
+						parentPort?.postMessage({ claimed: claimed !== undefined, type: "completed" });
+					} catch (error) {
+						parentPort?.postMessage({ error: String(error), type: "error" });
+					}
+				});
+			`,
+			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
+		);
+		const holder = createSqliteDatabase(controlDbPath);
+		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+		try {
+			await waitForWorkerStatus(worker, {
+				expectedType: "ready",
+				timeoutMessage: "terminal-outbox worker did not load",
+			});
+			holder.exec("BEGIN IMMEDIATE");
+			worker.postMessage("claim");
+			const result = await waitForWorkerStatus(worker, {
+				expectedType: "completed",
+				timeoutMessage: "empty terminal-outbox claim waited for the writer lock",
+				timeoutMs: 1_000,
+			});
+			expect(result.claimed).toBe(false);
+		} finally {
+			holder.exec("ROLLBACK");
+			await worker.terminate();
+			holder.close();
+		}
+	});
+
 	it("reads existing prompt history without acquiring the writer lock", async () => {
 		recordPromptHistoryEntry(controlDbPath, "persisted prompt");
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
