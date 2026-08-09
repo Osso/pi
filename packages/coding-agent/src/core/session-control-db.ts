@@ -4141,6 +4141,11 @@ function runtimeOwnershipMatchesTerminalMutation(
 
 const FINALIZE_DETACHED_JOB_MAX_ATTEMPTS = 3;
 
+type PreparedTerminalTransport = {
+	input: EnqueueStoredRuntimeMailboxMessageInput;
+	prepared: PreparedStoredRuntimeMailboxMessage;
+};
+
 type FinalizeDetachedJobPlan = {
 	agentData: string;
 	eventKind: string;
@@ -4148,6 +4153,7 @@ type FinalizeDetachedJobPlan = {
 	sessionPath: string;
 	terminalAgent: AgentSnapshot;
 	terminalRevision: number;
+	terminalTransport?: PreparedTerminalTransport;
 };
 
 type FinalizeDetachedJobPreflight = { plan: FinalizeDetachedJobPlan } | { result: FinalizeDetachedJobResult };
@@ -4228,6 +4234,20 @@ function prepareDetachedJobFinalization(
 		worker: undefined,
 	};
 	validatePersistedAgentPayload(terminalAgent, context);
+	const terminalTransport =
+		agent.detached === true
+			? prepareDetachedAgentTerminalTransport(
+					sessionPath,
+					terminal.jobId,
+					{
+						agentId: ownership.owner_agent_id,
+						sessionId: ownership.owner_session_id ?? undefined,
+					},
+					terminalRevision,
+					eventKind,
+					terminal.terminalAt,
+				)
+			: undefined;
 	return {
 		plan: {
 			agentData: row.data,
@@ -4236,6 +4256,7 @@ function prepareDetachedJobFinalization(
 			sessionPath,
 			terminalAgent: terminalAgent as unknown as AgentSnapshot,
 			terminalRevision,
+			terminalTransport,
 		},
 	};
 }
@@ -4315,56 +4336,24 @@ function persistDetachedJobFinalization(
 		).run(plan.sessionPath, terminal.jobId, plan.terminalRevision, plan.eventKind, terminal.terminalAt);
 		// Attended jobs deliver their result in-band through the waiting tool call;
 		// only jobs explicitly detached from their tool call notify the supervisor.
-		if (plan.terminalAgent.detached === true) {
-			persistDetachedJobTerminalTransport(
-				db,
-				plan.sessionPath,
-				terminal,
-				plan.ownership,
-				plan.terminalRevision,
-				plan.eventKind,
-			);
-		}
+		if (plan.terminalTransport) persistPreparedTerminalTransport(db, plan.terminalTransport);
 		return { ok: true, terminalAgent: plan.terminalAgent, terminalRevision: plan.terminalRevision };
 	});
 }
 
-function persistDetachedJobTerminalTransport(
-	db: SqliteDatabase,
-	sessionPath: string,
-	terminal: DetachedJobTerminalInput,
-	ownership: MultiAgentRuntimeOwnershipRow,
-	terminalRevision: number,
-	eventKind: string,
-): void {
-	persistDetachedAgentTerminalTransport(
-		db,
-		sessionPath,
-		terminal.jobId,
-		{
-			agentId: ownership.owner_agent_id,
-			sessionId: ownership.owner_session_id ?? undefined,
-		},
-		terminalRevision,
-		eventKind,
-		terminal.terminalAt,
-	);
-}
-
-function persistDetachedAgentTerminalTransport(
-	db: SqliteDatabase,
+function prepareDetachedAgentTerminalTransport(
 	sessionPath: string,
 	agentId: string,
 	owner: { agentId: string | null; sessionId?: string },
 	terminalRevision: number,
 	eventKind: string,
 	terminalAt: string,
-): void {
+): PreparedTerminalTransport {
 	const ownerSessionId = owner.sessionId;
 	if (!ownerSessionId) throw new Error(`Detached job ${agentId} ownership has no owner session`);
 	const messageId = `terminal:${agentId}:${terminalRevision}:${eventKind}`;
 	const body = JSON.stringify({ agentId, eventKind, terminalRevision, type: "multi_agent_terminal" });
-	persistImmutableMailboxPayload(db, {
+	const input: EnqueueStoredRuntimeMailboxMessageInput = {
 		kind: "system",
 		message: {
 			body,
@@ -4380,7 +4369,12 @@ function persistDetachedAgentTerminalTransport(
 		sender: { agentId, sessionId: ownerSessionId },
 		storeRef: { messageId, sessionPath },
 		updatedAt: terminalAt,
-	});
+	};
+	return { input, prepared: prepareStoredRuntimeMailboxMessage(input) };
+}
+
+function persistPreparedTerminalTransport(db: SqliteDatabase, transport: PreparedTerminalTransport): void {
+	persistStoredRuntimeMailboxMessage(db, transport.input, transport.prepared);
 }
 
 function detachedJobAgentDetails(
@@ -4424,6 +4418,7 @@ type SupervisorRecoveryAuthority = {
 type DeadRuntimeRecoveryPlan = {
 	agentData: string;
 	terminalRevision: number;
+	terminalTransport?: PreparedTerminalTransport;
 	updatedAgent: AgentSnapshot;
 };
 
@@ -4447,7 +4442,7 @@ function recoverDeadMultiAgentRuntimeWithDb(
 		if (!supervisorAuthority) return { ok: false, error: "mutation_mismatch" };
 		const recoverable = readRecoverableMultiAgentRuntime(db, input.expectedOwner, true);
 		if (!recoverable.ok) return recoverable;
-		const plan = prepareDeadRuntimeRecovery(recoverable, input.nowIso);
+		const plan = prepareDeadRuntimeRecovery(recoverable, input.expectedOwner, input.nowIso);
 		const result = persistDeadRuntimeRecovery(db, input.expectedOwner, plan, supervisorAuthority);
 		if (result) return result;
 	}
@@ -4519,7 +4514,7 @@ function reconcileDeadDetachedAgentRuntime(
 	for (let attempt = 1; attempt <= DEAD_RUNTIME_RECOVERY_MAX_ATTEMPTS; attempt += 1) {
 		const recoverable = readRecoverableMultiAgentRuntime(db, expectedOwner, false);
 		if (!recoverable.ok) return 0;
-		const plan = prepareDeadRuntimeRecovery(recoverable, nowIso);
+		const plan = prepareDeadRuntimeRecovery(recoverable, expectedOwner, nowIso);
 		const result = persistDeadRuntimeRecovery(db, expectedOwner, plan);
 		if (result) return result.ok ? 1 : 0;
 	}
@@ -4597,7 +4592,11 @@ function readRecoverableMultiAgentRuntime(
 	return { agent, agentData: row.data, ok: true };
 }
 
-function prepareDeadRuntimeRecovery(recoverable: Extract<RecoverableMultiAgentRuntime, { ok: true }>, nowIso: string) {
+function prepareDeadRuntimeRecovery(
+	recoverable: Extract<RecoverableMultiAgentRuntime, { ok: true }>,
+	expectedOwner: MultiAgentRuntimeOwnershipIdentity,
+	nowIso: string,
+): DeadRuntimeRecoveryPlan {
 	const { agent } = recoverable;
 	const terminalRevision = Number(agent.revision) + 1;
 	const cancelling = agent.lifecycle === "cancelling";
@@ -4619,7 +4618,18 @@ function prepareDeadRuntimeRecovery(recoverable: Extract<RecoverableMultiAgentRu
 		updatedAt: nowIso,
 		worker: undefined,
 	} as unknown as AgentSnapshot;
-	return { agentData: recoverable.agentData, terminalRevision, updatedAgent };
+	const terminalTransport =
+		agent.detached === true
+			? prepareDetachedAgentTerminalTransport(
+					expectedOwner.sessionPath,
+					expectedOwner.agentId,
+					expectedOwner.owner,
+					terminalRevision,
+					"lost_runtime",
+					nowIso,
+				)
+			: undefined;
+	return { agentData: recoverable.agentData, terminalRevision, terminalTransport, updatedAgent };
 }
 
 function persistDeadRuntimeRecovery(
@@ -4652,17 +4662,7 @@ function persistDeadRuntimeRecovery(
 				(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
 			 VALUES (?, ?, ?, 'lost_runtime', 'pending', 0, ?)`,
 		).run(expectedOwner.sessionPath, expectedOwner.agentId, plan.terminalRevision, plan.updatedAgent.updatedAt);
-		if (plan.updatedAgent.detached === true) {
-			persistDetachedAgentTerminalTransport(
-				db,
-				expectedOwner.sessionPath,
-				expectedOwner.agentId,
-				expectedOwner.owner,
-				plan.terminalRevision,
-				"lost_runtime",
-				plan.updatedAgent.updatedAt,
-			);
-		}
+		if (plan.terminalTransport) persistPreparedTerminalTransport(db, plan.terminalTransport);
 		return { agent: plan.updatedAgent, ok: true, terminalRevision: plan.terminalRevision };
 	});
 }
