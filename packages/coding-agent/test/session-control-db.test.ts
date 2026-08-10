@@ -7172,6 +7172,11 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			import { writeSessionMetadata } from ${JSON.stringify(moduleUrl)};
 			const messageText = "x".repeat(workerData.messageBytes);
 			parentPort?.postMessage("starting");
+			await new Promise<void>((resolve) => {
+				parentPort?.once("message", (message: string) => {
+					if (message === "start") resolve();
+				});
+			});
 			for (let iteration = 0; iteration < workerData.iterations; iteration += 1) {
 				writeSessionMetadata(workerData.controlDbPath, {
 					sessionPath: workerData.sessionPath,
@@ -7188,6 +7193,8 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			parentPort?.postMessage("done");
 		`;
 		const measureContention = async (indexMessageText: boolean): Promise<number> => {
+			const contender = createSqliteDatabase(controlDbPath);
+			configureSharedSqliteDatabase(contender, { busyTimeoutMs: 0 });
 			const worker = new Worker(workerSource, {
 				eval: true,
 				execArgv: ["--experimental-strip-types"],
@@ -7214,13 +7221,12 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				if (message === "done") finishWorker?.();
 			});
 			await started;
-			const contender = createSqliteDatabase(controlDbPath);
-			configureSharedSqliteDatabase(contender, { busyTimeoutMs: 0 });
 			let contentionCount = 0;
 			let workerFinished = false;
 			void finished.then(() => {
 				workerFinished = true;
 			});
+			worker.postMessage("start");
 			try {
 				while (!workerFinished) {
 					try {
