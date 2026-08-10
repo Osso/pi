@@ -1583,7 +1583,7 @@ describe("headless Pi fixture", () => {
 			expectSingleToolResult(restoredRequest, "live-runner-output");
 			agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Live runner restored"));
 			await agent.waitForEvent((event) => event.type === "agent_end");
-		});
+		}, { autoDetachTools: true });
 	});
 
 	it("reattaches a live Pyrun runner when restoring its unfinished JSONL tool call", async () => {
@@ -1946,7 +1946,7 @@ describe("headless Pi fixture", () => {
 			expectSingleToolResult(restoredRequest, "rerun-output");
 			agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Dead runner rerun"));
 			await agent.waitForEvent((event) => event.type === "agent_end");
-		});
+		}, { autoDetachTools: true });
 	});
 
 	it("waits for production RPC events and removes files after success", async () => {
