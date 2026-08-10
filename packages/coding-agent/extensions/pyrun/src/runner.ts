@@ -43,10 +43,10 @@ export type CanonicalPyrunRunnerMessage = CanonicalPyrunEvalResult | CanonicalPy
 export type PyrunPiRequestHandler = (request: { method: string; params: unknown }) => Promise<unknown>;
 
 interface RunnerGeneration {
-	buffer: string;
 	child: ChildProcessWithoutNullStreams;
 	generation: number;
 	stderr: string[];
+	stdoutFragments: string[];
 }
 
 interface PendingRequest {
@@ -197,10 +197,10 @@ export class PyrunRunnerClient {
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 		const generation: RunnerGeneration = {
-			buffer: "",
 			child,
 			generation: ++this.nextGeneration,
 			stderr: [],
+			stdoutFragments: [],
 		};
 		this.process = generation;
 		child.stdout.setEncoding("utf8");
@@ -226,15 +226,19 @@ export class PyrunRunnerClient {
 	}
 
 	private handleStdout(generation: RunnerGeneration, chunk: string): void {
-		generation.buffer += chunk;
-		const lines = generation.buffer.split("\n");
-		generation.buffer = lines.pop() ?? "";
-		for (const line of lines) {
-			if (line.trim().length === 0) {
-				continue;
-			}
+		let start = 0;
+		for (;;) {
+			const newline = chunk.indexOf("\n", start);
+			if (newline === -1) break;
+			const fragment = chunk.slice(start, newline);
+			const line =
+				generation.stdoutFragments.length === 0 ? fragment : generation.stdoutFragments.join("") + fragment;
+			generation.stdoutFragments.length = 0;
+			start = newline + 1;
+			if (line.length === 0 || /^\s+$/.test(line)) continue;
 			this.resolveNext(generation, line);
 		}
+		if (start < chunk.length) generation.stdoutFragments.push(chunk.slice(start));
 	}
 
 	private resolveNext(generation: RunnerGeneration, line: string): void {
