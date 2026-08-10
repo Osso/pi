@@ -275,6 +275,7 @@ describe("AgentSession queue characterization", () => {
 		const waiting = await createWaitingHarness();
 		const { harness, waitForToolStart, promptPromise, releaseToolExecution } = waiting;
 		harnesses.push(harness);
+		harness.session.setActiveToolsByName(["wait"]);
 
 		harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
@@ -296,6 +297,7 @@ describe("AgentSession queue characterization", () => {
 		const waiting = await createWaitingHarness();
 		const { harness, waitForToolStart, promptPromise, releaseToolExecution } = waiting;
 		harnesses.push(harness);
+		harness.session.setActiveToolsByName(["wait"]);
 
 		harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
@@ -323,6 +325,7 @@ describe("AgentSession queue characterization", () => {
 		const waiting = await createWaitingHarness();
 		const { harness, waitForToolStart, promptPromise, releaseToolExecution } = waiting;
 		harnesses.push(harness);
+		harness.session.setActiveToolsByName(["wait"]);
 		harness.session.setSteeringMode("all");
 		let batchedUserMessages: string[] = [];
 
@@ -350,6 +353,7 @@ describe("AgentSession queue characterization", () => {
 		const waiting = await createWaitingHarness();
 		const { harness, waitForToolStart, promptPromise, releaseToolExecution } = waiting;
 		harnesses.push(harness);
+		harness.session.setActiveToolsByName(["wait"]);
 		harness.session.setFollowUpMode("all");
 		let batchedUserMessages: string[] = [];
 
@@ -411,20 +415,12 @@ describe("AgentSession queue characterization", () => {
 		const waiting = await createWaitingHarness();
 		const { harness, waitForToolStart, promptPromise, releaseToolExecution } = waiting;
 		harnesses.push(harness);
-		let sawCustomMessage = false;
+		harness.session.setActiveToolsByName(["wait"]);
 
 		harness.setResponses([
 			fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
 			fauxAssistantMessage("original turn complete"),
-			(context) => {
-				sawCustomMessage = context.messages.some(
-					(message) =>
-						message.role === "user" &&
-						typeof message.content !== "string" &&
-						message.content.some((part) => part.type === "text" && part.text === "follow-up custom"),
-				);
-				return fauxAssistantMessage("done");
-			},
+			fauxAssistantMessage("done"),
 		]);
 
 		await waitForToolStart;
@@ -435,15 +431,20 @@ describe("AgentSession queue characterization", () => {
 		releaseToolExecution();
 		await promptPromise;
 
-		expect(sawCustomMessage).toBe(true);
-		expect(
-			harness.session.messages.some((message) => message.role === "custom" && message.customType === "queue-test"),
-		).toBe(true);
+		expect(harness.session.messages).toContainEqual(
+			expect.objectContaining({
+				role: "custom",
+				customType: "queue-test",
+				content: "follow-up custom",
+				display: true,
+			}),
+		);
 	});
 
 	it("injects nextTurn custom messages into the next prompt", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
+		harness.session.setActiveToolsByName([]);
 		let sawCustomMessage = false;
 
 		await harness.session.sendCustomMessage(
