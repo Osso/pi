@@ -1471,6 +1471,16 @@ function dispatchReservedAttachedChildSession(
 ): Promise<AgentSnapshot> {
 	const factory = (dispatchInput: ChildAgentDispatchInput) =>
 		createAttachedSession({ ...dispatchInput, sessionPath: input.target.transcript?.path ?? "" });
+	if (reservedRuntime.lifecycle.agent.lifecycle === "waiting_for_input") {
+		return dispatchReservedAgentSession(
+			input.store,
+			factory,
+			reservedRuntime,
+			input.prompt,
+			input.ctx,
+			input.handles,
+		);
+	}
 	return runAgentSession(
 		input.store,
 		factory,
