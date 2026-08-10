@@ -163,6 +163,12 @@ function readTextContent(content: Array<{ type: string; text?: string }>): strin
 		.join("\n");
 }
 
+function fauxCompletedAssistantMessage(text: string): ReturnType<typeof fauxAssistantMessage> {
+	return fauxAssistantMessage([{ type: "text", text }, fauxToolCall("end_turn", { reason: text })], {
+		stopReason: "toolUse",
+	});
+}
+
 function findHeadlessSessionFile(agent: HeadlessPi, cwd: string): string {
 	const session = listSessionMetadata(getControlDbPath(agent.paths.agentDir)).find(
 		(candidate) => candidate.id === agent.sessionId && candidate.cwd === cwd,
@@ -548,7 +554,7 @@ describe("change_working_directory process restart", () => {
 			const spawnFollowUp = await agent.waitForLlmRequest(
 				(request) => request.agentId === null && request.id !== spawnRequest.id,
 			);
-			agent.respondToLlmRequest(spawnFollowUp.id, fauxAssistantMessage("Child remains active"));
+			agent.respondToLlmRequest(spawnFollowUp.id, fauxCompletedAssistantMessage("Child remains active"));
 			await agent.waitForSessionEntry(
 				null,
 				(entry) =>
@@ -577,7 +583,7 @@ describe("change_working_directory process restart", () => {
 			const settledRequest = await agent.waitForLlmRequest(
 				(request) => request.agentId === null && request.id !== changeRequest.id,
 			);
-			agent.respondToLlmRequest(settledRequest.id, fauxAssistantMessage("replacement runtime settled"));
+			agent.respondToLlmRequest(settledRequest.id, fauxCompletedAssistantMessage("replacement runtime settled"));
 			await agent.waitForSessionEntry(
 				null,
 				(entry) =>
@@ -607,7 +613,7 @@ describe("change_working_directory process restart", () => {
 			const readFollowUp = await agent.waitForLlmRequest((request) => request.id !== readRequest.id);
 
 			expect(JSON.stringify(readFollowUp.messages)).toContain("cwd survived process restart");
-			agent.respondToLlmRequest(readFollowUp.id, fauxAssistantMessage("restart read complete"));
+			agent.respondToLlmRequest(readFollowUp.id, fauxCompletedAssistantMessage("restart read complete"));
 			await agent.waitForSessionEntry(
 				null,
 				(entry) =>
