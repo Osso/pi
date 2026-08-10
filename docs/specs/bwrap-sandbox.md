@@ -19,6 +19,7 @@ The bubblewrap sandbox backend is a Linux extension that routes selected Pi tool
 ### Filesystem and environment isolation
 
 - [x] Mount required host runtime paths read-only (`/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/etc`, and `/nix` when present) without mounting host `/`, `/home`, `/syncthing`, `/run`, or `/var`.
+- [x] Keep `/etc/resolv.conf` usable when its canonical target lies outside mounted system roots by mounting only that target file read-only, never broad `/run`.
 - [x] Mount the active workspace read-only for `read-only` and writable for `workspace-write`.
 - [x] Mount resolved runtime executables, including canonical targets of symlinked runner commands, absolute shebang interpreters, Python virtual-environment metadata/site-packages, external base-runtime paths, explicit runner arguments, and adapter-resolved `PYTHONPATH` entries outside the workspace read-only when a sandboxed runtime requires them; never propagate arbitrary inherited `PYTHONPATH` entries.
 - [x] Provide sandbox-local `HOME`, `TMPDIR`, and `XDG_CONFIG_HOME`.
@@ -56,7 +57,7 @@ The bubblewrap sandbox backend is a Linux extension that routes selected Pi tool
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/bwrap-extension.test.ts` — bwrap invocation shape, profile mapping, fail-closed availability checks, environment filtering, canonical runner-path validation, file-worker workspace containment, and real bwrap read-only/workspace-write enforcement when bubblewrap is executable.
+- `packages/coding-agent/test/bwrap-extension.test.ts` — bwrap invocation shape, profile mapping, fail-closed availability checks, environment filtering, canonical runner/resolver target validation, file-worker workspace containment, and real bwrap read-only/workspace-write enforcement when bubblewrap is executable.
 - `packages/coding-agent/test/session-sandbox-profile.test.ts` — control-DB persistence, validation, relocation, cleanup, runtime restoration, precedence, and new/forked-session isolation.
 - `packages/coding-agent/test/settings-manager.test.ts` — session/project/global sandbox-profile precedence.
 - `packages/coding-agent/test/approval-selector.test.ts` — session scope and inheritance visibility/selection.

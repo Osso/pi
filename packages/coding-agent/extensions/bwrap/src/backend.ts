@@ -30,6 +30,7 @@ const DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/bin:/bin";
 const SHEBANG_PREFIX_BYTES = 4096;
 const PYTHON_LIBRARY_DIRECTORIES = ["lib", "lib64"];
 const READ_ONLY_SYSTEM_PATHS = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/nix"];
+const REQUIRED_SYSTEM_SYMLINKS = ["/etc/resolv.conf"];
 
 export function resolveBwrapSandboxProfile(profile: SandboxProfileName): BwrapSandboxProfile | undefined {
 	return profile === "full-access" ? undefined : profile;
@@ -63,6 +64,9 @@ function buildBwrapArguments(options: BwrapInvocationOptions, cwd: string, sandb
 	const systemPathArguments = READ_ONLY_SYSTEM_PATHS.flatMap((systemPath) =>
 		existsSync(systemPath) ? ["--ro-bind", systemPath, systemPath] : [],
 	);
+	const systemSymlinkTargetArguments = REQUIRED_SYSTEM_SYMLINKS.flatMap((path) =>
+		buildResolvedReadOnlyMountArguments(path, cwd),
+	);
 	const readOnlyPathArguments = (options.extraReadOnlyPaths ?? []).flatMap((path) =>
 		buildReadOnlyMountArguments(path, cwd),
 	);
@@ -72,6 +76,7 @@ function buildBwrapArguments(options: BwrapInvocationOptions, cwd: string, sandb
 		...buildBwrapBaseArguments(),
 		...environmentArguments,
 		...systemPathArguments,
+		...systemSymlinkTargetArguments,
 		...readOnlyPathArguments,
 		...workspaceArguments,
 		"--chdir",
@@ -244,6 +249,13 @@ function isSandboxMountUnnecessary(path: string, workspace: string): boolean {
 	if (!existsSync(path)) return true;
 	if (path === workspace || path.startsWith(`${workspace}/`)) return true;
 	return READ_ONLY_SYSTEM_PATHS.some((systemPath) => path === systemPath || path.startsWith(`${systemPath}/`));
+}
+
+function buildResolvedReadOnlyMountArguments(path: string, workspace: string): string[] {
+	if (!existsSync(path)) return [];
+	const target = realpathSync(path);
+	if (isSandboxMountUnnecessary(target, workspace)) return [];
+	return buildReadOnlyMountArguments(target, workspace);
 }
 
 function buildReadOnlyMountArguments(path: string, workspace: string): string[] {

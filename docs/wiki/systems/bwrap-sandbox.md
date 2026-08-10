@@ -7,6 +7,7 @@ The bwrap sandbox backend lives under `packages/coding-agent/extensions/bwrap/`.
 For sandbox-required profiles, the backend builds a bubblewrap command that:
 
 - bind-mounts only required runtime paths (`/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/etc`, and `/nix` when present) plus explicit language/runtime support paths read-only;
+- mounts only the canonical `/etc/resolv.conf` target file when that symlink resolves outside the mounted system roots, preserving DNS without exposing its broader parent tree;
 - does not bind host `/`, `/home`, `/syncthing`, `/run`, or `/var` into the sandbox by default;
 - overlays `/tmp` with a tmpfs;
 - creates `/tmp/pi-home` and sets `HOME`, `TMPDIR`, and `XDG_CONFIG_HOME` to sandbox-local paths;

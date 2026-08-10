@@ -124,6 +124,7 @@
 
 ### Fixed
 
+- Fixed read-only and workspace-write bwrap DNS when `/etc/resolv.conf` targets an otherwise unmounted path by mounting only its canonical target file read-only, without broad `/run` exposure.
 - Fixed read-only and workspace-write bwrap runner startup for symlinked script launchers with external absolute shebang interpreters by mounting the interpreter, Python virtual-environment metadata/site-packages, and external base-runtime paths read-only without rewriting the resolved launcher command.
 - Fixed sandboxed Pyrun startup for symlinked external runner commands by resolving and mounting the canonical executable target before invocation.
 - Fixed resident-service deployment to skip rewriting and reloading an unchanged Supervisor unit while always removing Architect, restarting Supervisor, and checking service health.

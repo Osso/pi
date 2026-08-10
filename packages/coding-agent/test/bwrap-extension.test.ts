@@ -1,5 +1,17 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	copyFileSync,
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -47,6 +59,23 @@ const canExecuteBwrap =
 		{ encoding: "utf8" },
 	).status === 0;
 
+const RESOLV_CONF_PATH = "/etc/resolv.conf";
+const READ_ONLY_SYSTEM_ROOTS = ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/nix"];
+
+function findExternalResolvConfTarget(): string | undefined {
+	try {
+		if (!lstatSync(RESOLV_CONF_PATH).isSymbolicLink()) return undefined;
+		const target = realpathSync(RESOLV_CONF_PATH);
+		if (!existsSync(target)) return undefined;
+		if (READ_ONLY_SYSTEM_ROOTS.some((root) => target === root || target.startsWith(`${root}/`))) return undefined;
+		return target;
+	} catch {
+		return undefined;
+	}
+}
+
+const canExerciseResolvConfClosure = canExecuteBwrap && findExternalResolvConfTarget() !== undefined;
+
 function createBwrapHarness(bwrapCommand = "/definitely/missing/bwrap") {
 	const toolGates: ToolGate[] = [];
 	const api = {
@@ -73,6 +102,12 @@ function createToolCallEvent(toolName: string = "read"): ToolCallEvent {
 		toolName,
 		type: "tool_call",
 	};
+}
+
+function hasMount(arguments_: string[], mode: "--bind" | "--ro-bind", path: string): boolean {
+	return arguments_.some(
+		(argument, index) => argument === mode && arguments_[index + 1] === path && arguments_[index + 2] === path,
+	);
 }
 
 describe("bwrap sandbox backend", () => {
@@ -127,8 +162,8 @@ describe("bwrap sandbox backend", () => {
 			]),
 		);
 		for (const forbiddenPath of ["/home", "/syncthing", "/run", "/var"]) {
-			expect(invocation.argv).not.toEqual(expect.arrayContaining(["--ro-bind", forbiddenPath, forbiddenPath]));
-			expect(invocation.argv).not.toEqual(expect.arrayContaining(["--bind", forbiddenPath, forbiddenPath]));
+			expect(hasMount(invocation.argv, "--ro-bind", forbiddenPath)).toBe(false);
+			expect(hasMount(invocation.argv, "--bind", forbiddenPath)).toBe(false);
 		}
 		expect(invocation.argv.slice(-3)).toEqual(["/bin/sh", "-lc", "true"]);
 	});
@@ -297,6 +332,31 @@ describe("bwrap sandbox backend", () => {
 
 		expect(runner.args).not.toEqual(expect.arrayContaining(["--ro-bind", hostLaunchPath, hostLaunchPath]));
 	});
+
+	it.skipIf(!canExerciseResolvConfClosure)(
+		"reads a symlinked /etc/resolv.conf target without broadly mounting /run",
+		() => {
+			const invocation = buildBwrapInvocation({
+				bwrapCommand: "bwrap",
+				cwd: workspaceDir,
+				profile: "read-only",
+				command: [
+					process.execPath,
+					"-e",
+					"process.stdout.write(require('node:fs').readFileSync('/etc/resolv.conf', 'utf8'))",
+				],
+			});
+			const hostContent = readFileSync(RESOLV_CONF_PATH, "utf8");
+
+			expect(hasMount(invocation.argv, "--ro-bind", "/run")).toBe(false);
+			expect(hasMount(invocation.argv, "--bind", "/run")).toBe(false);
+
+			const result = spawnSync(invocation.command, invocation.argv, { encoding: "utf8", env: invocation.env });
+
+			expect(result.status, result.stderr).toBe(0);
+			expect(result.stdout).toBe(hostContent);
+		},
+	);
 
 	it.skipIf(!canExecuteBwrap)("executes runtime workers with real bwrap profile enforcement", () => {
 		const runnerPath = join(workspaceDir, "runtime-probe.mjs");
