@@ -179,6 +179,7 @@ describe("AgentSession bash and persistence characterization", () => {
 			},
 		};
 		const harness = await createHarness({ tools: [echoTool] });
+		harness.session.setActiveToolsByName(["echo"]);
 		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
