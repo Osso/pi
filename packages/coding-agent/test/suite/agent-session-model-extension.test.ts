@@ -1059,6 +1059,7 @@ describe("AgentSession model and extension characterization", () => {
 			tools: [echoTool],
 		});
 		harnesses.push(harness);
+		harness.session.setActiveToolsByName(["echo"]);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("echo", { text: "first" })], { stopReason: "toolUse" }),
 			fauxAssistantMessage("first done"),
