@@ -8,6 +8,7 @@ type ResumeContext = {
 		session: {
 			messages: Array<{ role: string }>;
 			continue: () => Promise<void>;
+			consumeResumeContinuationRequest: () => boolean;
 			modelRegistry: { getError: () => string | undefined };
 			prompt: (text: string) => Promise<void>;
 		};
@@ -54,6 +55,7 @@ function createResumeContext(lastRole: string): ResumeContext {
 			session: {
 				messages: [lastMessage],
 				continue: vi.fn(async () => {}),
+				consumeResumeContinuationRequest: vi.fn(() => false),
 				modelRegistry: { getError: () => undefined },
 				prompt: vi.fn(async () => {}),
 			},

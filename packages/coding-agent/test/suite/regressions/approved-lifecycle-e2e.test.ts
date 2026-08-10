@@ -185,6 +185,7 @@ describe("approved multi-agent lifecycle e2e", () => {
 					},
 					fauxAssistantMessage("steering applied"),
 				]);
+				child.session.setActiveToolsByName([]);
 			});
 		fixture = await createSupervisorFixture({ createChildSession });
 		fixture.harness.setResponses([

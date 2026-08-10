@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ENV_AGENT_DIR } from "../src/config.ts";
+import { SettingsManager } from "../src/core/settings-manager.ts";
+import { createTestResourceLoader } from "./utilities.ts";
 
 const startupMocks = vi.hoisted(() => {
 	class ExitError extends Error {
@@ -54,23 +56,6 @@ describe("worktree startup", () => {
 	let originalCwd: string;
 	let originalAgentDir: string | undefined;
 
-	const fakeSettingsManager = {
-		drainErrors: () => [],
-		getDefaultModel: () => undefined,
-		getDefaultProvider: () => undefined,
-		getEnabledModels: () => undefined,
-		getGlobalSettings: () => ({}),
-		getHttpIdleTimeoutMs: () => undefined,
-	};
-
-	const fakeResourceLoader = {
-		getExtensions: () => ({
-			errors: [],
-			extensions: [],
-			runtime: { pendingProviderRegistrations: [] },
-		}),
-	};
-
 	beforeEach(() => {
 		vi.clearAllMocks();
 		tempDir = join(tmpdir(), `pi-worktree-startup-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -98,9 +83,9 @@ describe("worktree startup", () => {
 				authStorage: options.authStorage,
 				cwd: options.cwd,
 				diagnostics: [],
-				modelRegistry: {},
-				resourceLoader: fakeResourceLoader,
-				settingsManager: fakeSettingsManager,
+				modelRegistry: { getAvailable: () => [] },
+				resourceLoader: createTestResourceLoader(),
+				settingsManager: SettingsManager.inMemory(),
 			};
 		});
 		startupMocks.createAgentSessionFromServices.mockResolvedValue({

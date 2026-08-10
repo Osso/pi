@@ -61,7 +61,7 @@ describe("issue #5217 compaction reason on extension events", () => {
 
 		expect(recorded).toEqual([
 			{ type: "compaction", reason: "manual", willRetry: false },
-			{ type: "session_compact", reason: "manual", willRetry: false },
+			{ type: "session_compact", reason: "manual", willRetry: true },
 		]);
 	});
 

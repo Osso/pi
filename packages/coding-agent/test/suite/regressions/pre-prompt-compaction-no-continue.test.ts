@@ -40,6 +40,7 @@ describe("pre-prompt compaction regression", () => {
 				},
 			],
 		});
+		harness.session.setActiveToolsByName([]);
 		harnesses.push(harness);
 
 		const now = Date.now();

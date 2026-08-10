@@ -78,13 +78,15 @@ describe("regression #2860: replaced session callbacks", () => {
 					noThemes: true,
 				},
 			});
+			const sessionResult = await createAgentSessionFromServices({
+				services,
+				sessionManager,
+				sessionStartEvent,
+				model: faux.getModel(),
+			});
+			sessionResult.session.setActiveToolsByName([]);
 			return {
-				...(await createAgentSessionFromServices({
-					services,
-					sessionManager,
-					sessionStartEvent,
-					model: faux.getModel(),
-				})),
+				...sessionResult,
 				services,
 				diagnostics: services.diagnostics,
 			};
