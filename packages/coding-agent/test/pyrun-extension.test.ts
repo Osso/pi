@@ -98,6 +98,7 @@ const temporaryHarnessDirectories: string[] = [];
 
 type PyrunTool = {
 	name: string;
+	prepareExecution?: ToolDefinition["prepareExecution"];
 	execute: (
 		toolCallId: string,
 		params: PyrunEvalParams,
@@ -209,16 +210,20 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 		selectedModels,
 		switchedSessions,
 		toolDefinition: pyrunDefinition,
-		evaluate: (
+		evaluate: async (
 			params: PyrunEvalParams,
 			onUpdate?: (result: AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>) => void,
 			signal?: AbortSignal,
 			contextOverrides: Record<string, unknown> = {},
-		) =>
-			registeredPyrunTool.execute(`pyrun-test-call-${++toolCallIndex}`, params, signal, onUpdate, {
-				...ctx,
-				...contextOverrides,
-			} as ExtensionContext),
+		) => {
+			const toolCallId = `pyrun-test-call-${++toolCallIndex}`;
+			const executionContext = { ...ctx, ...contextOverrides } as ExtensionContext;
+			const execution = await registeredPyrunTool.prepareExecution?.(toolCallId, signal, executionContext);
+			return registeredPyrunTool.execute(toolCallId, params, signal, onUpdate, {
+				...executionContext,
+				toolExecutionAgentId: execution?.agentId,
+			} as ExtensionContext);
+		},
 	};
 }
 
