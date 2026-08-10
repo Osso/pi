@@ -58,6 +58,7 @@ type AgentEndContext = {
 	cancelPartialUpdateRender(): void;
 	checkShutdownRequested(): Promise<void>;
 	clearPendingToolComponents(): void;
+	discardStreamingComponent(): void;
 	editor: EditorComponent;
 	executingToolNames: Map<string, string>;
 	executingToolStartedAt: Map<string, number>;
@@ -69,6 +70,7 @@ type AgentEndContext = {
 	settingsManager: { getShowTerminalProgress(): boolean };
 	stopThinkingTimer(): void;
 	stopToolWaitingTimerIfIdle(): void;
+	stopChildActivityTimer(): void;
 	stopWorkingLoader(): void;
 	streamingComponent: undefined;
 	thinkingFollowsTool: boolean;
@@ -256,6 +258,7 @@ describe("InteractiveMode working editor", () => {
 			cancelPartialUpdateRender: vi.fn(),
 			checkShutdownRequested: async () => {},
 			clearPendingToolComponents: vi.fn(),
+			discardStreamingComponent: vi.fn(),
 			editor,
 			executingToolNames: new Map(),
 			executingToolStartedAt: new Map(),
@@ -267,6 +270,7 @@ describe("InteractiveMode working editor", () => {
 			settingsManager: { getShowTerminalProgress: () => false },
 			stopThinkingTimer: vi.fn(),
 			stopToolWaitingTimerIfIdle: vi.fn(),
+			stopChildActivityTimer: vi.fn(),
 			stopWorkingLoader: vi.fn(),
 			streamingComponent: undefined,
 			thinkingFollowsTool: true,

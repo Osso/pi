@@ -31,6 +31,9 @@ function createBaseToolDefinition(name = "custom_tool"): ToolDefinition {
 function createFakeTui(requestRender: () => void = () => {}): TUI {
 	return {
 		requestRender,
+		addInterval: (_callback: () => void, _intervalMs: number) => ({ dispose: () => {} }),
+		removeInterval: () => {},
+		requestComponentRender: () => false,
 	} as unknown as TUI;
 }
 

@@ -17,6 +17,8 @@ type HandleBashCommandThis = {
 	footer: { invalidate(): void };
 	pendingBashComponents: unknown[];
 	pendingMessagesContainer: Container;
+	promptActivitySources: Set<string>;
+	syncWorkingEditorState(): void;
 	runtimeHost: {
 		session: {
 			extensionRunner: { emitUserBash(): Promise<{ result: BashResult } | undefined> };
@@ -54,6 +56,8 @@ function createHarness(intercepted: boolean, isStreaming = false): HandleBashCom
 		footer: { invalidate: vi.fn() },
 		pendingBashComponents: [],
 		pendingMessagesContainer: new Container(),
+		promptActivitySources: new Set(),
+		syncWorkingEditorState: vi.fn(),
 		runtimeHost: {
 			session: {
 				extensionRunner: { emitUserBash: vi.fn(async () => (intercepted ? { result: RESULT } : undefined)) },
@@ -64,7 +68,7 @@ function createHarness(intercepted: boolean, isStreaming = false): HandleBashCom
 			},
 		},
 		showError: vi.fn(),
-		ui: { requestRender: vi.fn() },
+		ui: { requestComponentRender: vi.fn(), requestRender: vi.fn() },
 	});
 }
 
