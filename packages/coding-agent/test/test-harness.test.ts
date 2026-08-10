@@ -27,8 +27,16 @@ describe("test harness", () => {
 		expect(assistantMessages).toHaveLength(1);
 
 		const msg = assistantMessages[0] as AssistantMessage;
-		expect(msg.content).toEqual([{ type: "text", text: "hello world" }]);
-		expect(msg.stopReason).toBe("stop");
+		expect(msg.content).toEqual([
+			{ type: "text", text: "hello world" },
+			{
+				type: "toolCall",
+				id: expect.any(String),
+				name: "end_turn",
+				arguments: { reason: "Faux response completed" },
+			},
+		]);
+		expect(msg.stopReason).toBe("toolUse");
 	});
 
 	it("response sequence", async () => {
@@ -72,7 +80,7 @@ describe("test harness", () => {
 		expect(harness.faux.callCount).toBe(2);
 
 		const toolResults = harness.session.messages.filter((m) => m.role === "toolResult");
-		expect(toolResults).toHaveLength(1);
+		expect(toolResults.map((result) => result.toolName)).toEqual(["echo", "end_turn"]);
 	});
 
 	it("error response", async () => {
@@ -108,7 +116,13 @@ describe("test harness", () => {
 
 	it("custom usage numbers", async () => {
 		harness = createHarness({
-			responses: [{ text: "big response", usage: { input: 100000, output: 5000 } }],
+			responses: [
+				{
+					text: "big response",
+					toolCalls: [{ name: "end_turn", args: { reason: "Faux response completed" } }],
+					usage: { input: 100000, output: 5000 },
+				},
+			],
 		});
 
 		await harness.session.prompt("hi");
@@ -176,7 +190,13 @@ describe("test harness", () => {
 
 	it("streams thinking deltas", async () => {
 		harness = createHarness({
-			responses: [{ thinking: "let me think about this", text: "answer" }],
+			responses: [
+				{
+					thinking: "let me think about this",
+					text: "answer",
+					toolCalls: [{ name: "end_turn", args: { reason: "Faux response completed" } }],
+				},
+			],
 		});
 
 		await harness.session.prompt("hi");
@@ -216,9 +236,9 @@ describe("test harness", () => {
 		const toolcallDeltas = updates.filter((e) => e.assistantMessageEvent.type === "toolcall_delta");
 		const toolcallEnds = updates.filter((e) => e.assistantMessageEvent.type === "toolcall_end");
 
-		expect(toolcallStarts).toHaveLength(1);
+		expect(toolcallStarts).toHaveLength(2);
 		expect(toolcallDeltas.length).toBeGreaterThan(0);
-		expect(toolcallEnds).toHaveLength(1);
+		expect(toolcallEnds).toHaveLength(2);
 	});
 
 	it("streams thinking then text then tool call in order", async () => {

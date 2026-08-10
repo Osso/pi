@@ -65,7 +65,7 @@ export const fauxModel: Model<typeof FAUX_API> = {
 // ============================================================================
 
 export interface FauxResponse {
-	/** Text content blocks. String shorthand becomes a single text block. */
+	/** Text content block. */
 	text?: string;
 	/** Tool calls to include in the response. */
 	toolCalls?: Array<{ id?: string; name: string; args: Record<string, unknown> }>;
@@ -83,7 +83,7 @@ export interface FauxResponse {
 	model?: { provider?: string; id?: string };
 }
 
-/** Shorthand: a string becomes a simple text response. */
+/** Shorthand: a string becomes a completed text response using `end_turn`. */
 export type FauxResponseInput = FauxResponse | string;
 
 // ============================================================================
@@ -92,7 +92,7 @@ export type FauxResponseInput = FauxResponse | string;
 
 function normalizeResponse(input: FauxResponseInput): FauxResponse {
 	if (typeof input === "string") {
-		return { text: input };
+		return { text: input, toolCalls: [{ name: "end_turn", args: { reason: "Faux response completed" } }] };
 	}
 	return input;
 }
@@ -318,7 +318,7 @@ export function createFauxStreamFn(responses: FauxResponseInput[]): {
 // ============================================================================
 
 export interface HarnessOptions {
-	/** Response sequence for the faux provider. Default: single "ok" response. */
+	/** Response sequence for the faux provider. String entries complete with `end_turn`. Default: single "ok" response. */
 	responses?: FauxResponseInput[];
 	/** Model to use. Default: fauxModel. */
 	model?: Model<any>;
