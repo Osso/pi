@@ -9,6 +9,7 @@ import { Type } from "typebox";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
 import agentsCoreExtension from "../extensions/agents-core/src/index.ts";
+import { appendParentAgentStart } from "../extensions/agents-core/src/parent-agent-journal.ts";
 import {
 	createMultiAgentPiRequestHandler,
 	createMultiAgentRuntimeHandles,
@@ -55,6 +56,7 @@ import {
 	createMultiAgentChildWithRuntimeOwnership,
 	enqueueRuntimeMailboxMessage,
 	getControlDbPath,
+	getRuntimeProcessInstanceId,
 	listRuntimeMailboxMessages,
 	readMultiAgentAgent,
 	registerRuntimeMailboxListener,
@@ -93,6 +95,12 @@ function completeAgent(store: MultiAgentStore, agent: AgentSnapshot): AgentSnaps
 	expect(completed.ok).toBe(true);
 	if (!completed.ok) throw new Error("expected completed transition");
 	return completed.agent;
+}
+
+function fauxCompletedAssistantMessage(text: string): ReturnType<typeof fauxAssistantMessage> {
+	return fauxAssistantMessage([{ type: "text", text }, fauxToolCall("end_turn", { reason: text })], {
+		stopReason: "toolUse",
+	});
 }
 
 const managedTempDirs: string[] = [];
@@ -1125,7 +1133,7 @@ describe("multi-agent extension tools", () => {
 			controlDbPath: persistence.controlDbPath,
 			createAgentId: () => source.allocateAgentIdForLifecycleCoordinator(),
 			now: () => "2026-06-21T00:00:00.000Z",
-			processIdentity: CURRENT_PROCESS_IDENTITY,
+			processIdentity: JSON.parse(getRuntimeProcessInstanceId()),
 			sessionPath: persistence.sessionPath,
 		});
 		const prepared = coordinator.prepareChild({
@@ -1135,10 +1143,11 @@ describe("multi-agent extension tools", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			transcript: { path: "/sessions/missing-runtime.jsonl", sessionId: "missing-runtime-session" },
 		});
-		const created = coordinator.commitRunningChild(prepared, persistence.sessionPath);
+		const created = coordinator.commitRunningChild(prepared, session.getSessionId());
 		expect(created.ok).toBe(true);
 		if (!created.ok) throw new Error("expected running child");
 		source.publishLifecycleCoordinatorSnapshot(created.agent);
+		appendParentAgentStart(createTestEntryWriter(session), created.agent);
 		const prompts: string[] = [];
 		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:01.000Z" });
 		const harness = createMultiAgentHarness({
@@ -1149,6 +1158,7 @@ describe("multi-agent extension tools", () => {
 				},
 				transcript: agent.transcript,
 			}),
+			ctx: { sessionManager: session },
 			store,
 		});
 
@@ -3405,8 +3415,8 @@ describe("multi-agent extension tools", () => {
 				fauxToolCall("spawn_agent", { context: "fresh", displayName: "Worker", prompt: "child work" }),
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage("parent idle"),
-			fauxAssistantMessage("parent woke"),
+			fauxCompletedAssistantMessage("parent idle"),
+			fauxCompletedAssistantMessage("parent woke"),
 		]);
 
 		await harness.session.prompt("start child");
@@ -3788,7 +3798,7 @@ describe("multi-agent extension tools", () => {
 			createChildSession: async () => {
 				childHarness = await createHarness();
 				childHarnesses.push(childHarness);
-				childHarness.setResponses([fauxAssistantMessage("child done")]);
+				childHarness.setResponses([fauxCompletedAssistantMessage("child done")]);
 				return childHarness.session;
 			},
 		});
@@ -3898,7 +3908,7 @@ describe("multi-agent extension tools", () => {
 					sessionOptions = options;
 					childHarness = await createHarness();
 					childHarnesses.push(childHarness);
-					childHarness.setResponses([fauxAssistantMessage("factory child done")]);
+					childHarness.setResponses([fauxCompletedAssistantMessage("factory child done")]);
 					return { session: childHarness.session };
 				},
 			}),
@@ -3922,6 +3932,7 @@ describe("multi-agent extension tools", () => {
 				"spawn_agent",
 				"steer_agent",
 				"wait_agent",
+				"ask_supervisor",
 				"manage_goal",
 			],
 			model: parentHarness.getModel(),
@@ -4170,6 +4181,7 @@ describe("multi-agent extension tools", () => {
 				"spawn_agent",
 				"steer_agent",
 				"wait_agent",
+				"ask_supervisor",
 				"manage_goal",
 			],
 			multiAgentAgentId: spawned.details.agent.id,
@@ -4294,10 +4306,10 @@ describe("multi-agent extension tools", () => {
 					(message) => message.role === "user" && getMessageText(message) === "Child assignment",
 				)
 			) {
-				return fauxAssistantMessage("Child completed");
+				return fauxCompletedAssistantMessage("Child completed");
 			}
 			if (context.messages.some((message) => message.role === "toolResult")) {
-				return fauxAssistantMessage("Parent completed");
+				return fauxCompletedAssistantMessage("Parent completed");
 			}
 			return fauxAssistantMessage(
 				fauxToolCall("spawn_agent", {
@@ -4314,7 +4326,11 @@ describe("multi-agent extension tools", () => {
 		if (!childSession) throw new Error("expected child session");
 		await childSession.agent.waitForIdle();
 
-		expect(childSession.messages.map(getMessageText)).toEqual(["Child assignment", "Child completed"]);
+		expect(childSession.messages.map(getMessageText)).toEqual([
+			"Child assignment",
+			"Child completed",
+			"Turn ended: Child completed",
+		]);
 	});
 
 	it("inherits context through a real tool loop without copying the active spawn call", async () => {
@@ -4364,14 +4380,14 @@ describe("multi-agent extension tools", () => {
 		parentHarness.session.agent.state.messages = parentHarness.sessionManager.buildSessionContext().messages;
 		const response = (context: { messages: Array<{ role: string; content?: unknown }> }) => {
 			if (context.messages.some((message) => message.role === "toolResult")) {
-				return fauxAssistantMessage("Parent completed");
+				return fauxCompletedAssistantMessage("Parent completed");
 			}
 			if (
 				context.messages.some(
 					(message) => message.role === "user" && getMessageText(message) === "Child assignment",
 				)
 			) {
-				return fauxAssistantMessage("Child completed");
+				return fauxCompletedAssistantMessage("Child completed");
 			}
 			return fauxAssistantMessage(
 				[
@@ -4397,6 +4413,7 @@ describe("multi-agent extension tools", () => {
 			"Completed parent response",
 			"Child assignment",
 			"Child completed",
+			"Turn ended: Child completed",
 		]);
 		expect(childSession.messages).not.toEqual(
 			expect.arrayContaining([
@@ -4603,12 +4620,10 @@ describe("multi-agent extension tools", () => {
 
 		expect(viewedSetModel).not.toHaveBeenCalled();
 		expect(viewedSetThinkingLevel).not.toHaveBeenCalled();
-		expect(attachedSession.sessionManager.getEntries()).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ type: "model_change", modelId: "faux-2" }),
-				expect.objectContaining({ type: "thinking_level_change", thinkingLevel: "high" }),
-			]),
-		);
+		expect(attachedSession.sessionManager.readPersistedSessionSettings()).toMatchObject({
+			model: { provider: "faux", modelId: "faux-2" },
+			thinkingLevel: "high",
+		});
 	});
 
 	it("propagates custom main extension factories into production child sessions", async () => {
@@ -4735,6 +4750,7 @@ describe("multi-agent extension tools", () => {
 				"spawn_agent",
 				"steer_agent",
 				"wait_agent",
+				"ask_supervisor",
 				"manage_goal",
 			],
 			multiAgentStore: store,
