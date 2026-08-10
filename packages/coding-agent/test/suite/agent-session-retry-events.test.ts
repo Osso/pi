@@ -32,6 +32,7 @@ describe("AgentSession retry and event characterization", () => {
 
 	it("retries after a transient error and succeeds", async () => {
 		const harness = await createHarness({ settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 } } });
+		harness.session.setActiveToolsByName([]);
 		harnesses.push(harness);
 		const retryEvents: string[] = [];
 		harness.session.subscribe((event) => {
@@ -69,6 +70,7 @@ describe("AgentSession retry and event characterization", () => {
 
 	it("retries multiple transient failures and succeeds on the final attempt", async () => {
 		const harness = await createHarness({ settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 } } });
+		harness.session.setActiveToolsByName([]);
 		harnesses.push(harness);
 		const retryEvents: string[] = [];
 		const retryDelays: number[] = [];
@@ -129,6 +131,7 @@ describe("AgentSession retry and event characterization", () => {
 				},
 			],
 		});
+		harness.session.setActiveToolsByName([]);
 		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" }),
@@ -225,6 +228,7 @@ describe("AgentSession retry and event characterization", () => {
 			tools: [echoTool],
 			settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 } },
 		});
+		harness.session.setActiveToolsByName(["echo"]);
 		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" }),
@@ -255,6 +259,7 @@ describe("AgentSession retry and event characterization", () => {
 				},
 			],
 		});
+		harness.session.setActiveToolsByName([]);
 		harnesses.push(harness);
 		harness.session.subscribe((event) => {
 			if (event.type === "message_start" || event.type === "message_end") {
@@ -279,6 +284,7 @@ describe("AgentSession retry and event characterization", () => {
 
 	it("emits the expected event order for a single prompt", async () => {
 		const harness = await createHarness();
+		harness.session.setActiveToolsByName([]);
 		harnesses.push(harness);
 		harness.setResponses([fauxAssistantMessage("hello")]);
 
@@ -313,6 +319,7 @@ describe("AgentSession retry and event characterization", () => {
 			},
 		};
 		const harness = await createHarness({ tools: [echoTool] });
+		harness.session.setActiveToolsByName(["echo"]);
 		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
