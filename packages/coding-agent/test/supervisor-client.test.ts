@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	claimNextSupervisorRequest,
 	completeSupervisorRequest,
@@ -21,6 +21,7 @@ describe("Supervisor client", () => {
 	});
 
 	afterEach(() => {
+		vi.useRealTimers();
 		rmSync(tempDir, { force: true, recursive: true });
 	});
 
@@ -43,6 +44,7 @@ describe("Supervisor client", () => {
 	});
 
 	it("retries a timed-out request before returning a later durable response", async () => {
+		vi.useFakeTimers();
 		const decision = requestSupervisorDecision({
 			controlDbPath,
 			kind: "goal_idle_review",
@@ -56,12 +58,10 @@ describe("Supervisor client", () => {
 			timeoutMs: 100,
 		});
 
-		let retriedRequestRecord = readSupervisorRequest(controlDbPath, 2);
-		for (let attempts = 0; !retriedRequestRecord && attempts < 250; attempts++) {
-			await new Promise((resolve) => setTimeout(resolve, 1));
-			retriedRequestRecord = readSupervisorRequest(controlDbPath, 2);
-		}
-		if (!retriedRequestRecord) throw new Error("expected retried request record");
+		await vi.advanceTimersByTimeAsync(100);
+		await vi.advanceTimersByTimeAsync(1);
+		if (!readSupervisorRequest(controlDbPath, 2)) throw new Error("expected retried request record");
+
 		recoverSupervisorRequests(controlDbPath);
 		const retriedRequest = claimNextSupervisorRequest(controlDbPath, "runtime");
 		if (!retriedRequest) throw new Error("expected claimable retried request");
@@ -71,6 +71,7 @@ describe("Supervisor client", () => {
 			reason: "recovered",
 		});
 
+		await vi.advanceTimersByTimeAsync(1);
 		await expect(decision).resolves.toEqual({
 			instructions: "Continue the goal.",
 			kind: "continue",
