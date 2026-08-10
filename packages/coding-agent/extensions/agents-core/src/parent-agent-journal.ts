@@ -98,6 +98,7 @@ export function restoreCompactedParentAgentRecords(
 	store: MultiAgentStore,
 	ctx: ExtensionContext,
 ): void {
+	if (!ctx.sessionManager) return;
 	const journaledAgentIds = readActiveParentAgentIds(ctx);
 	const missingJournalAgents = listDirectActiveAgents(store, ctx).filter((agent) => !journaledAgentIds.has(agent.id));
 	if (missingJournalAgents.length === 0) return;

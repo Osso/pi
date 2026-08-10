@@ -1384,6 +1384,21 @@ describe("multi-agent extension tools", () => {
 			expect(agent.id).toBe(interrupted.agent.id);
 			expect(sessionPath).toBe("/sessions/spawned-child.jsonl");
 			return {
+				drainRuntimeCoordination: async () => {
+					const message = store
+						.listMailboxMessages()
+						.find((candidate) => candidate.kind === "steer" && candidate.toAgentId === agent.id);
+					if (!message) throw new Error("Expected pending recovery steering message");
+					const current = store.getAgent(agent.id);
+					if (!current) throw new Error("Expected active recovered agent");
+					const delivered = legacyMultiAgentStore(store).ackSteering(
+						agent.id,
+						current.revision,
+						message.id,
+						"delivered",
+					);
+					if (!delivered.ok) throw new Error(`Expected recovery steering delivery: ${delivered.error}`);
+				},
 				messages: [fauxAssistantMessage("spawned recovery complete")],
 				prompt: async (prompt) => {
 					prompts.push(prompt);
@@ -1398,6 +1413,10 @@ describe("multi-agent extension tools", () => {
 
 		expect(prompts).toHaveLength(1);
 		expect(prompts[0]).toContain("Continue the conversation from where it left off");
+		expect(store.listMailboxMessages()).toEqual([
+			expect.objectContaining({ body: "Continue after recovery", status: "delivered" }),
+			expect.objectContaining({ kind: "system", status: "delivered" }),
+		]);
 		expect(recovered).toMatchObject({
 			lifecycle: "completed",
 			result: { summary: "spawned recovery complete" },
