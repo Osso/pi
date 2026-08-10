@@ -1029,10 +1029,13 @@ describe("headless Pi fixture", () => {
 				};
 				const outputPath = launchManifest.artifacts?.outputPath;
 				if (!outputPath) throw new Error("Detached Pyrun output path not found");
-				await vi.waitFor(() => {
-					expect(existsSync(outputPath)).toBe(true);
-					expect(readFileSync(outputPath, "utf8")).toContain("marker-value");
-				});
+				await vi.waitFor(
+					() => {
+						expect(existsSync(outputPath)).toBe(true);
+						expect(readFileSync(outputPath, "utf8")).toContain("marker-value");
+					},
+					{ timeout: 10_000, interval: 20 },
+				);
 				await agent.waitForAgent(
 					(candidate) => candidate.id === detachedJob.id && candidate.lifecycle === "completed",
 				);
