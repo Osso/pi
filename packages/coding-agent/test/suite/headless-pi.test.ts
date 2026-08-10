@@ -133,11 +133,7 @@ async function selectHeadlessView(
 			candidate.message.toolCallId === selectionToolCallId,
 	);
 	if (selectionEntry.type !== "message") throw new Error("Expected Pyrun selection result entry");
-	const afterSelection = await agent
-		.waitForLlmRequest((candidate) => candidate.agentId === null && candidate.id !== request.id)
-		.catch((error: unknown) => {
-			throw new Error(`Selection did not continue: ${error instanceof Error ? error.message : String(error)}`);
-		});
+	const afterSelection = await agent.waitForLlmRequest((candidate) => candidate.id !== request.id);
 	agent.respondToLlmRequest(afterSelection.id, fauxCompletedAssistantMessage("Selection complete"));
 	await agent.waitForEvent((event) => event.type === "agent_end");
 	return selectionEntry;
