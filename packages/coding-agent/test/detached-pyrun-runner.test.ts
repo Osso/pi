@@ -21,6 +21,8 @@ import {
 	writeDetachedPyrunActivation,
 	writeDetachedPyrunLaunchManifest,
 } from "../extensions/pyrun/src/detached-runner.ts";
+import { enqueueDetachedJobStatusRequest } from "../src/core/detached-job-control.ts";
+import type { DetachedJobOwnershipIdentity } from "../src/core/detached-job-runner.ts";
 import { createDetachedJobLifecycleController } from "../src/core/detached-job-lifecycle.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
@@ -220,6 +222,8 @@ describe("detached Pyrun runner", () => {
 				processIdentity: readProcessIdentity(runnerPid),
 				workerHandleId: String(runnerPid),
 			});
+			const supervisorAddress = { agentId: null, sessionId: "main" };
+			registerRuntimeMailboxListener(controlDbPath, supervisorAddress, process.pid, sessionPath);
 			writeDetachedPyrunLaunchManifest(manifestPath, {
 				activationPath,
 				artifacts,
@@ -267,6 +271,26 @@ describe("detached Pyrun runner", () => {
 				samples.push(readOpenControlDbDescriptors(runnerPid, controlDbPath));
 				await new Promise((resolve) => setTimeout(resolve, 5));
 			}
+
+			await requestAndAssertDetachedPyrunStatus({
+				controlDbPath,
+				expectedOutputPath: artifacts.outputPath,
+				identity: ownership.identity,
+				requestId: "status-1",
+				requesterAddress: supervisorAddress,
+				runnerAddress: { agentId: jobId, sessionId: "main" },
+				sessionPath,
+			});
+			await requestAndAssertDetachedPyrunStatus({
+				controlDbPath,
+				expectedOutputPath: artifacts.outputPath,
+				identity: ownership.identity,
+				requestId: "status-2",
+				requesterAddress: supervisorAddress,
+				runnerAddress: { agentId: jobId, sessionId: "main" },
+				sessionPath,
+			});
+
 			await waitFor(() => {
 				const agent = readMultiAgentState(controlDbPath, sessionPath)?.agents[0] as
 					| { lifecycle?: unknown }
@@ -279,6 +303,61 @@ describe("detached Pyrun runner", () => {
 		},
 	);
 });
+
+async function requestAndAssertDetachedPyrunStatus(input: {
+	controlDbPath: string;
+	expectedOutputPath: string;
+	identity: DetachedJobOwnershipIdentity;
+	requestId: string;
+	requesterAddress: { agentId: string | null; sessionId: string };
+	runnerAddress: { agentId: string | null; sessionId: string };
+	sessionPath: string;
+}): Promise<void> {
+	enqueueDetachedJobStatusRequest({
+		controlDbPath: input.controlDbPath,
+		identity: input.identity,
+		requesterAddress: input.requesterAddress,
+		requestId: input.requestId,
+		runnerAddress: input.runnerAddress,
+		sessionPath: input.sessionPath,
+	});
+	await waitFor(() =>
+		listRuntimeMailboxMessages(input.controlDbPath).some((message) => {
+			if (
+				message.recipient.agentId !== null ||
+				message.recipient.sessionId !== input.requesterAddress.sessionId ||
+				message.status !== "pending"
+			) {
+				return false;
+			}
+			try {
+				const body = JSON.parse(message.body) as { command?: unknown; requestId?: unknown };
+				return body.command === "respond" && body.requestId === input.requestId;
+			} catch {
+				return false;
+			}
+		}),
+	);
+	const responses = claimRuntimeMailboxMessages(input.controlDbPath, input.requesterAddress);
+	if (responses.length !== 1) throw new Error(`Expected one response for ${input.requestId}`);
+	const response = responses[0];
+	if (!response) throw new Error(`Missing response for ${input.requestId}`);
+	const body = JSON.parse(response.body) as {
+		command?: unknown;
+		identity?: unknown;
+		requestId?: unknown;
+		result?: { outputPath?: unknown; pendingRequestCount?: unknown; state?: unknown };
+	};
+	expect(body.command).toBe("respond");
+	expect(body.requestId).toBe(input.requestId);
+	expect(body.identity).toEqual(input.identity);
+	expect(body.result).toEqual({
+		outputPath: input.expectedOutputPath,
+		pendingRequestCount: 0,
+		state: "running",
+	});
+	expect(listRuntimeMailboxMessages(input.controlDbPath).filter((message) => message.status === "pending")).toHaveLength(0);
+}
 
 function readOpenControlDbDescriptors(pid: number, controlDbPath: string): Record<string, string> {
 	const targets = new Set([controlDbPath, `${controlDbPath}-wal`, `${controlDbPath}-shm`]);
