@@ -90,6 +90,24 @@ describe("AgentSession prompt characterization", () => {
 		expect(harness.getPendingResponseCount()).toBe(0);
 	});
 
+	it("delivers agent_start to listeners added after a self-unsubscribing listener", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		harness.setResponses([fauxEndTurn("listener characterization complete")]);
+
+		const unsubscribe = harness.session.subscribe((event) => {
+			if (event.type === "agent_start") unsubscribe();
+		});
+		let secondListenerReceivedStart = false;
+		harness.session.subscribe((event) => {
+			if (event.type === "agent_start") secondListenerReceivedStart = true;
+		});
+
+		await harness.session.prompt("listener test");
+
+		expect(secondListenerReceivedStart).toBe(true);
+	});
+
 	it("steers the model to end_turn after consecutive identical assistant turns without persisting the instruction", async () => {
 		const harness = await createHarness({ initialActiveToolNames: ["end_turn"] });
 		harnesses.push(harness);

@@ -126,6 +126,7 @@
 
 ### Fixed
 
+- Fixed AgentSession event delivery so every listener registered when an event begins receives it, even if an earlier listener unsubscribes during its callback.
 - Fixed unfinished Bash restore to wait for a matching persisted live detached runner instead of launching a duplicate; only terminal `lost_runtime` permits one replacement, while completed, ordinary failed, cancelling, and aborted jobs replay terminal results without rerun.
 - Fixed Envoy HTTP 507 request-buffer failures to use oversized-request overflow recovery: compact the context and retry once, without ordinary transient retry or repeated retries of the unchanged request.
 - Fixed `AgentSession` continuation after a terminal tool-result tail to process messages queued by `agent_end` handlers before issuing a blank continuation.

@@ -1304,8 +1304,8 @@ export class AgentSession {
 
 	/** Emit an event to all listeners */
 	private _emit(event: AgentSessionEvent): void {
-		for (const l of this._eventListeners) {
-			l(event);
+		for (const listener of [...this._eventListeners]) {
+			listener(event);
 		}
 	}
 
