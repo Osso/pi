@@ -267,6 +267,7 @@ function collectMultiAgentTools(
 function createRuntimeMailboxContext(input: {
 	controlDbPath: string;
 	multiAgentAgentId?: string;
+	multiAgentParentSessionId?: string;
 	sessionManager: SessionManager;
 }): ExtensionContext {
 	return {
@@ -276,6 +277,7 @@ function createRuntimeMailboxContext(input: {
 		isIdle: () => true,
 		mode: "print",
 		multiAgentAgentId: input.multiAgentAgentId,
+		multiAgentParentSessionId: input.multiAgentParentSessionId,
 		sessionManager: input.sessionManager,
 	} as unknown as ExtensionContext;
 }
@@ -517,6 +519,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			createRuntimeMailboxContext({
 				controlDbPath,
 				multiAgentAgentId: child.agent.id,
+				multiAgentParentSessionId: parentSession.getSessionId(),
 				sessionManager: childSession,
 			}),
 		);
