@@ -2,7 +2,12 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import * as path from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { type AutocompleteProvider, CombinedAutocompleteProvider, Text } from "@earendil-works/pi-tui";
+import {
+	type AutocompleteProvider,
+	CombinedAutocompleteProvider,
+	type LoaderIndicatorOptions,
+	Text,
+} from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { type Component, Container, type Focusable, TUI } from "../../tui/src/tui.ts";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
@@ -155,8 +160,9 @@ interface InteractiveModeKeyHandlerInternals {
 	addMessageToChat(this: unknown, message: unknown, options?: { populateHistory?: boolean }): void;
 	clearChildAgentView(this: unknown): void;
 	createExtensionUIContext(this: unknown): ExtensionUIContext;
-	createWorkingLoader(this: unknown): Component & { stop(): void };
+	createWorkingLoader(this: unknown, indicator?: LoaderIndicatorOptions): Component & { stop(): void };
 	currentFooter(this: unknown): Component & { dispose?(): void };
+	getWorkingLoaderIndicator(this: unknown, view: "main" | "child"): LoaderIndicatorOptions;
 	getUserMessageText(this: unknown, message: unknown): string;
 	isViewingAgentSession(this: unknown): boolean;
 	registerAgentSlotKeyHandlers(this: unknown): void;
@@ -279,6 +285,7 @@ type TranscriptSwitchFixture = {
 		startChildActivityTimer: typeof interactiveModeKeyHandlers.startChildActivityTimer;
 		stopChildActivityTimer: typeof interactiveModeKeyHandlers.stopChildActivityTimer;
 		settingsManager: { getImageWidthCells: () => number; getShowImages: () => boolean };
+		syncWorkingEditorState: ReturnType<typeof vi.fn>;
 		syncWorkingLoaderVisibility: typeof interactiveModeKeyHandlers.syncWorkingLoaderVisibility;
 		showStatus: ReturnType<typeof vi.fn>;
 		statusContainer: Container;
@@ -352,6 +359,7 @@ function createTranscriptSwitchFixture(options: {
 		loadingAnimation: undefined,
 		getMarkdownThemeWithSettings: () => undefined,
 		getRegisteredToolDefinition: () => undefined,
+		getWorkingLoaderIndicator: interactiveModeKeyHandlers.getWorkingLoaderIndicator,
 		getUserMessageText: interactiveModeKeyHandlers.getUserMessageText,
 		isViewingAgentSession: interactiveModeKeyHandlers.isViewingAgentSession,
 		multiAgentStore: store,
@@ -393,6 +401,7 @@ function createTranscriptSwitchFixture(options: {
 		startChildActivityTimer: interactiveModeKeyHandlers.startChildActivityTimer,
 		stopChildActivityTimer: interactiveModeKeyHandlers.stopChildActivityTimer,
 		settingsManager: { getImageWidthCells: () => 80, getShowImages: () => false },
+		syncWorkingEditorState: vi.fn(),
 		syncWorkingLoaderVisibility: interactiveModeKeyHandlers.syncWorkingLoaderVisibility,
 		isSelectedChildWorking: interactiveModeKeyHandlers.isSelectedChildWorking,
 		subscribeToMultiAgentStore: interactiveModeKeyHandlers.subscribeToMultiAgentStore,
@@ -1886,38 +1895,36 @@ describe("InteractiveMode agent view state", () => {
 
 describe("InteractiveMode footer ownership", () => {
 	test("custom footers override default footers and clearing custom restores default", () => {
-		const added: Component[] = [];
-		const removed: Component[] = [];
 		const builtIn = { invalidate() {}, render: () => ["built-in"] };
 		const defaultFooter = { invalidate() {}, render: () => ["default"] };
 		const customFooter = { invalidate() {}, render: () => ["custom"] };
+		const footerContainer = new Container();
+		footerContainer.addChild(builtIn);
 		const fakeThis = {
 			currentFooter: interactiveModeKeyHandlers.currentFooter,
 			customFooter: undefined,
 			defaultExtensionFooter: undefined,
 			footer: builtIn,
+			footerContainer,
 			footerDataProvider: {},
-			ui: {
-				addChild: (component: Component) => added.push(component),
-				removeChild: (component: Component) => removed.push(component),
-				requestRender: vi.fn(),
-			},
+			ui: { requestRender: vi.fn() },
 		};
 
 		interactiveModeKeyHandlers.setDefaultExtensionFooter.call(fakeThis, () => defaultFooter);
+		expect(footerContainer.children).toEqual([defaultFooter]);
 		interactiveModeKeyHandlers.setExtensionFooter.call(fakeThis, () => customFooter);
+		expect(footerContainer.children).toEqual([customFooter]);
 		interactiveModeKeyHandlers.setExtensionFooter.call(fakeThis, undefined);
 
-		expect(removed).toEqual([builtIn, defaultFooter, customFooter]);
-		expect(added).toEqual([defaultFooter, customFooter, defaultFooter]);
+		expect(footerContainer.children).toEqual([defaultFooter]);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(3);
 	});
 
 	test("reset disposes default extension footer before session invalidation", () => {
-		const added: Component[] = [];
-		const removed: Component[] = [];
 		const builtIn = { invalidate: vi.fn(), render: () => ["built-in"] };
 		const defaultFooter = { dispose: vi.fn(), invalidate() {}, render: () => ["default"] };
+		const footerContainer = new Container();
+		footerContainer.addChild(defaultFooter);
 		const fakeThis = {
 			autocompleteProviderWrappers: [],
 			clearExtensionTerminalInputListeners: vi.fn(),
@@ -1930,6 +1937,7 @@ describe("InteractiveMode footer ownership", () => {
 			extensionInput: undefined,
 			extensionSelector: undefined,
 			footer: builtIn,
+			footerContainer,
 			footerDataProvider: { clearExtensionStatuses: vi.fn() },
 			hideExtensionEditor: vi.fn(),
 			hideExtensionInput: vi.fn(),
@@ -1943,9 +1951,7 @@ describe("InteractiveMode footer ownership", () => {
 			setWorkingIndicator: vi.fn(),
 			setupAutocompleteProvider: vi.fn(),
 			ui: {
-				addChild: (component: Component) => added.push(component),
 				hideOverlay: vi.fn(),
-				removeChild: (component: Component) => removed.push(component),
 				requestRender: vi.fn(),
 			},
 			updateTerminalTitle: vi.fn(),
@@ -1957,6 +1963,7 @@ describe("InteractiveMode footer ownership", () => {
 		expect(defaultFooter.dispose).toHaveBeenCalledTimes(1);
 		expect(fakeThis.defaultExtensionFooter).toBeUndefined();
 		expect(interactiveModeKeyHandlers.currentFooter.call(fakeThis)).toBe(builtIn);
+		expect(footerContainer.children).toEqual([builtIn]);
 	});
 
 	test("reset restores the current main working status", () => {
