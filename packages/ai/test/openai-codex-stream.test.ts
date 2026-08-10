@@ -1458,28 +1458,11 @@ describe("openai-codex streaming", () => {
 		expect(global.fetch).not.toHaveBeenCalled();
 	});
 
-	it("falls back to SSE when websocket connect does not open before the connect timeout", async () => {
+	it("surfaces websocket connect timeout without falling back to SSE", async () => {
 		vi.useFakeTimers();
 		const token = mockToken();
-		const encoder = new TextEncoder();
-		const sse = buildSSEPayload({ status: "completed" });
 
-		const fetchMock = vi.fn(async (input: string | URL) => {
-			const url = typeof input === "string" ? input : input.toString();
-			if (url !== "https://chatgpt.com/backend-api/codex/responses") {
-				throw new Error(`Unexpected URL: ${url}`);
-			}
-
-			return new Response(
-				new ReadableStream<Uint8Array>({
-					start(controller) {
-						controller.enqueue(encoder.encode(sse));
-						controller.close();
-					},
-				}),
-				{ status: 200, headers: { "content-type": "text/event-stream" } },
-			);
-		});
+		const fetchMock = vi.fn(async () => new Response("unexpected fetch", { status: 500 }));
 		vi.stubGlobal("fetch", fetchMock);
 
 		class MockWebSocket {
@@ -1535,12 +1518,10 @@ describe("openai-codex streaming", () => {
 		await vi.advanceTimersByTimeAsync(50);
 
 		const result = await resultPromise;
-		expect(result.content.find((content) => content.type === "text")?.text).toBe("Hello");
-		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(result.errorMessage).toBe("WebSocket connect timeout after 50ms");
+		expect(fetchMock).not.toHaveBeenCalled();
 		expect(getOpenAICodexWebSocketDebugStats("ws-connect-timeout")).toMatchObject({
 			websocketFailures: 1,
-			sseFallbacks: 1,
-			websocketFallbackActive: true,
 			lastWebSocketError: "WebSocket connect timeout after 50ms",
 		});
 	});
@@ -1607,29 +1588,12 @@ describe("openai-codex streaming", () => {
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
-	it("falls back to SSE when a websocket is idle before the first event", async () => {
+	it("surfaces websocket idle timeout before the first event without falling back to SSE", async () => {
 		vi.useFakeTimers();
 		const token = mockToken();
 		const sentBodies: unknown[] = [];
-		const encoder = new TextEncoder();
-		const sse = buildSSEPayload({ status: "completed" });
 
-		const fetchMock = vi.fn(async (input: string | URL) => {
-			const url = typeof input === "string" ? input : input.toString();
-			if (url !== "https://chatgpt.com/backend-api/codex/responses") {
-				throw new Error(`Unexpected URL: ${url}`);
-			}
-
-			return new Response(
-				new ReadableStream<Uint8Array>({
-					start(controller) {
-						controller.enqueue(encoder.encode(sse));
-						controller.close();
-					},
-				}),
-				{ status: 200, headers: { "content-type": "text/event-stream" } },
-			);
-		});
+		const fetchMock = vi.fn(async () => new Response("unexpected fetch", { status: 500 }));
 		vi.stubGlobal("fetch", fetchMock);
 
 		class MockWebSocket {
@@ -1700,12 +1664,11 @@ describe("openai-codex streaming", () => {
 		await vi.advanceTimersByTimeAsync(50);
 
 		const result = await resultPromise;
-		expect(result.content.find((content) => content.type === "text")?.text).toBe("Hello");
-		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(result.errorMessage).toBe("WebSocket idle timeout after 50ms");
+		expect(fetchMock).not.toHaveBeenCalled();
 		expect(getOpenAICodexWebSocketDebugStats("ws-idle-before-start")).toMatchObject({
 			websocketFailures: 1,
-			sseFallbacks: 1,
-			websocketFallbackActive: true,
+			lastWebSocketError: "WebSocket idle timeout after 50ms",
 		});
 	});
 

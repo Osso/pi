@@ -270,12 +270,8 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			const httpTimeoutMs = normalizeTimeoutMs(options?.timeoutMs);
 			const websocketConnectTimeoutMs = normalizeTimeoutMs(options?.websocketConnectTimeoutMs);
 			const transport = options?.transport || "auto";
-			const websocketDisabledForSession = transport !== "sse" && isWebSocketSseFallbackActive(options?.sessionId);
-			if (websocketDisabledForSession) {
-				recordWebSocketSseFallback(options?.sessionId);
-			}
 
-			if (transport !== "sse" && !websocketDisabledForSession) {
+			if (transport !== "sse") {
 				let websocketStarted = false;
 				let retriedWebSocketConnectionLimit = false;
 				while (true) {
@@ -324,26 +320,13 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 							output,
 							createAssistantMessageDiagnostic("provider_transport_failure", error, {
 								configuredTransport: transport,
-								fallbackTransport: websocketStarted ? undefined : "sse",
 								eventsEmitted: websocketStarted,
 								phase: websocketStarted ? "after_message_stream_start" : "before_message_stream_start",
 								requestBytes: new TextEncoder().encode(bodyJson).byteLength,
 							}),
 						);
 						recordWebSocketFailure(options?.sessionId, error);
-						if (websocketStarted) {
-							throw error;
-						}
-						recordWebSocketSseFallback(options?.sessionId);
-						options?.onRetry?.(
-							{
-								attempt: 1,
-								reason: error instanceof Error ? error.message : String(error),
-								fallbackTransport: "sse",
-							},
-							model,
-						);
-						break;
+						throw error;
 					}
 				}
 			}
@@ -868,14 +851,11 @@ export interface OpenAICodexWebSocketDebugStats {
 	lastDeltaInputItems?: number;
 	lastPreviousResponseId?: string;
 	websocketFailures: number;
-	sseFallbacks: number;
-	websocketFallbackActive?: boolean;
 	lastWebSocketError?: string;
 }
 
 const websocketSessionCache = new Map<string, CachedWebSocketConnection>();
 const websocketDebugStats = new Map<string, OpenAICodexWebSocketDebugStats>();
-const websocketSseFallbackSessions = new Set<string>();
 
 function getOrCreateWebSocketDebugStats(sessionId: string): OpenAICodexWebSocketDebugStats {
 	let stats = websocketDebugStats.get(sessionId);
@@ -890,7 +870,6 @@ function getOrCreateWebSocketDebugStats(sessionId: string): OpenAICodexWebSocket
 			deltaRequests: 0,
 			lastInputItems: 0,
 			websocketFailures: 0,
-			sseFallbacks: 0,
 		};
 		websocketDebugStats.set(sessionId, stats);
 	}
@@ -905,11 +884,9 @@ export function getOpenAICodexWebSocketDebugStats(sessionId: string): OpenAICode
 export function resetOpenAICodexWebSocketDebugStats(sessionId?: string): void {
 	if (sessionId) {
 		websocketDebugStats.delete(sessionId);
-		websocketSseFallbackSessions.delete(sessionId);
 		return;
 	}
 	websocketDebugStats.clear();
-	websocketSseFallbackSessions.clear();
 }
 
 export function closeOpenAICodexWebSocketSessions(sessionId?: string): void {
@@ -931,25 +908,11 @@ export function closeOpenAICodexWebSocketSessions(sessionId?: string): void {
 
 registerSessionResourceCleanup(closeOpenAICodexWebSocketSessions);
 
-function isWebSocketSseFallbackActive(sessionId: string | undefined): boolean {
-	return sessionId ? websocketSseFallbackSessions.has(sessionId) : false;
-}
-
-function recordWebSocketSseFallback(sessionId: string | undefined): void {
-	if (!sessionId) return;
-	const stats = getOrCreateWebSocketDebugStats(sessionId);
-	stats.sseFallbacks++;
-	stats.websocketFallbackActive = isWebSocketSseFallbackActive(sessionId);
-}
-
 function recordWebSocketFailure(sessionId: string | undefined, error: unknown): void {
 	if (!sessionId) return;
-	websocketSseFallbackSessions.add(sessionId);
-
 	const stats = getOrCreateWebSocketDebugStats(sessionId);
 	stats.websocketFailures++;
 	stats.lastWebSocketError = formatThrownValue(error);
-	stats.websocketFallbackActive = true;
 }
 
 type WebSocketConstructor = new (
