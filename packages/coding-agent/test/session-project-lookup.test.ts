@@ -21,6 +21,23 @@ function runGit(cwd: string, ...args: string[]): void {
 
 type CliResult = { code: number | null; output: string; timedOut: boolean };
 
+function buildSessionLookupCliArgs(sessionId: string): string[] {
+	return [
+		"-ne",
+		"-ns",
+		"-np",
+		"--no-themes",
+		"-nc",
+		"-nt",
+		"--session",
+		sessionId,
+		"--model",
+		"missing-model",
+		"-p",
+		"hi",
+	];
+}
+
 async function runCli(args: string[], cwd: string, agentDir: string, input: string): Promise<CliResult> {
 	return new Promise((resolvePromise, reject) => {
 		let output = "";
@@ -102,7 +119,7 @@ describe("--session project lookup", () => {
 		});
 
 		const result = await runCli(
-			["-ne", "--session", sessionId, "--model", "missing-model", "-p", "hi"],
+			buildSessionLookupCliArgs(sessionId),
 			currentProject,
 			agentDir,
 			"n\n",
@@ -150,7 +167,7 @@ describe("--session project lookup", () => {
 		});
 
 		const result = await runCli(
-			["-ne", "--session", sessionId, "--model", "missing-model", "-p", "hi"],
+			buildSessionLookupCliArgs(sessionId),
 			currentProject,
 			agentDir,
 			"y\n",
