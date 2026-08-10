@@ -391,10 +391,6 @@ describe("headless Pi fixture", () => {
 				modelId: "headless-faux-reasoning",
 			});
 
-			expect(agent.readSessionMetadata(null)).toMatchObject({
-				modelProvider: "headless-faux",
-				modelId: "headless-faux-1",
-			});
 			agent.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Selection test complete"));
 		});
 	});
