@@ -41,6 +41,12 @@ async function startToolCall(
 	return toolExecuted;
 }
 
+function fauxCompletedAssistantMessage(text: string): ReturnType<typeof fauxAssistantMessage> {
+	return fauxAssistantMessage([{ type: "text", text }, fauxToolCall("end_turn", { reason: text })], {
+		stopReason: "toolUse",
+	});
+}
+
 function expectRunningGoal(goal: Record<string, unknown> | undefined): void {
 	expect(goal).toMatchObject({ objective: RUNNING_GOAL });
 	expect(goal?.completedAt).toBeUndefined();
@@ -49,7 +55,6 @@ function expectRunningGoal(goal: Record<string, unknown> | undefined): void {
 describe("headless Supervisor advisory tool", () => {
 	it("returns a bounded durable advisory response to the main session", async () => {
 		await withHeadlessPi(async (agent) => {
-			const startedAt = Date.now();
 			await agent.send({ type: "prompt", message: "Ask Supervisor for scoped advice" });
 			const initial = await agent.waitForLlmRequest();
 			agent.respondToLlmRequest(
@@ -68,7 +73,7 @@ describe("headless Supervisor advisory tool", () => {
 				context: "Only AGENTS.md changed; remote ref equals HEAD.",
 				question: "Is the AGENTS.md evidence complete?",
 			});
-			const deadlineMs = Date.parse(advisory.deadlineAt) - startedAt;
+			const deadlineMs = Date.parse(advisory.deadlineAt) - Date.parse(advisory.createdAt);
 			expect(deadlineMs).toBeGreaterThanOrEqual(179_000);
 			expect(deadlineMs).toBeLessThanOrEqual(181_000);
 			agent.respondToSupervisorRequest(advisory, {
@@ -137,7 +142,7 @@ describe("headless Supervisor goal system", () => {
 			agent.respondToSupervisorRequest(review, { kind: "complete", reason: "verified" });
 			const afterTool = await agent.waitForLlmRequest();
 			expect(JSON.stringify(afterTool.messages)).toContain("Goal marked complete: all proof passed");
-			agent.respondToLlmRequest(afterTool.id, fauxAssistantMessage("Goal complete"));
+			agent.respondToLlmRequest(afterTool.id, fauxCompletedAssistantMessage("Goal complete"));
 			await agent.waitForEvent((event) => event.type === "agent_end");
 
 			expect(agent.readGoal()).toMatchObject({ objective: RUNNING_GOAL, completedAt: expect.any(String) });
@@ -165,7 +170,7 @@ describe("headless Supervisor goal system", () => {
 			const afterTool = await agent.waitForLlmRequest();
 			expect(JSON.stringify(afterTool.messages)).toContain("Goal remains active: proof missing");
 			expectRunningGoal(agent.readGoal());
-			agent.respondToLlmRequest(afterTool.id, fauxAssistantMessage("Waiting for follow-up"));
+			agent.respondToLlmRequest(afterTool.id, fauxCompletedAssistantMessage("Waiting for follow-up"));
 			const continuation = await agent.waitForLlmRequest();
 			expect(continuation.userMessages).toContain(
 				"<supervisor-instruction>\nRun the missing headless proof.\n</supervisor-instruction>",
@@ -187,7 +192,7 @@ describe("headless Supervisor goal system", () => {
 			);
 			const afterTool = await agent.waitForLlmRequest();
 			expect(agent.countSupervisorRequests("goal_idle_review")).toBe(0);
-			agent.respondToLlmRequest(afterTool.id, fauxAssistantMessage("Tool turn finished"));
+			agent.respondToLlmRequest(afterTool.id, fauxCompletedAssistantMessage("Tool turn finished"));
 
 			const review = await agent.waitForSupervisorRequest("goal_idle_review");
 			agent.respondToSupervisorRequest(review, {
@@ -208,7 +213,7 @@ describe("headless Supervisor goal system", () => {
 			agent.writeRunningGoal(RUNNING_GOAL);
 			await agent.send({ type: "prompt", message: "Finish normally" });
 			const initial = await agent.waitForLlmRequest();
-			agent.respondToLlmRequest(initial.id, fauxAssistantMessage("Finished normally"));
+			agent.respondToLlmRequest(initial.id, fauxCompletedAssistantMessage("Finished normally"));
 			const review = await agent.waitForSupervisorRequest("goal_idle_review");
 			agent.respondToSupervisorRequest(review, { kind: "complete", reason: "objective verified" });
 			await agent.waitForEvent((event) => event.type === "agent_end");
@@ -221,7 +226,7 @@ describe("headless Supervisor goal system", () => {
 			agent.writeRunningGoal(RUNNING_GOAL);
 			await agent.send({ type: "prompt", message: "Reach a blocked state" });
 			const initial = await agent.waitForLlmRequest();
-			agent.respondToLlmRequest(initial.id, fauxAssistantMessage("Blocked on user input"));
+			agent.respondToLlmRequest(initial.id, fauxCompletedAssistantMessage("Blocked on user input"));
 			const review = await agent.waitForSupervisorRequest("goal_idle_review");
 			agent.respondToSupervisorRequest(review, { kind: "wait", reason: "waiting for background work" });
 			const status = await agent.waitForSessionEntry(
@@ -317,7 +322,7 @@ describe("headless Supervisor goal system", () => {
 			agent.writeRunningGoal(RUNNING_GOAL);
 			await agent.send({ type: "prompt", message: "Reach idle" });
 			const initial = await agent.waitForLlmRequest();
-			agent.respondToLlmRequest(initial.id, fauxAssistantMessage("Reached idle"));
+			agent.respondToLlmRequest(initial.id, fauxCompletedAssistantMessage("Reached idle"));
 			const review = await agent.waitForSupervisorRequest("goal_idle_review");
 			agent.respondToSupervisorRequest(review, { kind: "error", reason: "service failed" });
 			const status = await agent.waitForSessionEntry(
