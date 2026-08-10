@@ -2243,13 +2243,18 @@ describe("runtime SQLite mailbox delivery", () => {
 		await activePrompt;
 
 		expect(queued).toBe(false);
-		expect(getUserTexts(harness)).toEqual([
-			"User turn",
-			[
-				sharedChannelPrompt("First shared status?", "sender-session-a"),
-				sharedChannelPrompt("Second shared status?", "sender-session-b"),
-			].join("\n\n"),
-		]);
+		expect(getUserTexts(harness)).toEqual(["User turn"]);
+		expect(harness.session.messages).toContainEqual(
+			expect.objectContaining({
+				role: "custom",
+				customType: "shared_channel",
+				content: [
+					sharedChannelPrompt("First shared status?", "sender-session-a"),
+					sharedChannelPrompt("Second shared status?", "sender-session-b"),
+				].join("\n\n"),
+				display: true,
+			}),
+		);
 		expect(
 			readSharedChannelCursor(controlDbPath, { agentId: null, sessionId: harness.sessionManager.getSessionId() }),
 		).toBe(messageId);
@@ -2269,9 +2274,15 @@ describe("runtime SQLite mailbox delivery", () => {
 		await activePrompt;
 
 		expect(queued).toBe(true);
-		expect(getUserTexts(harness)).toEqual(["User turn", sharedPrompt]);
-		const userMessages = harness.session.messages.filter((message) => message.role === "user");
-		expect(userMessages[1]).toMatchObject({ inputSource: "extension" });
+		expect(getUserTexts(harness)).toEqual(["User turn"]);
+		expect(harness.session.messages).toContainEqual(
+			expect.objectContaining({
+				role: "custom",
+				customType: "shared_channel",
+				content: sharedPrompt,
+				display: true,
+			}),
+		);
 	});
 
 	it("batches every unread shared channel message across database pages into one idle agent turn", async () => {
@@ -2311,9 +2322,17 @@ describe("runtime SQLite mailbox delivery", () => {
 		await harness.session.agent.waitForIdle();
 
 		expect(queued).toBe(false);
-		expect(getUserTexts(harness)).toEqual([
-			deliverableBodies.map((body, index) => sharedChannelPrompt(body, `sender-session-${index + 1}`)).join("\n\n"),
-		]);
+		expect(getUserTexts(harness)).toEqual([]);
+		expect(harness.session.messages).toContainEqual(
+			expect.objectContaining({
+				role: "custom",
+				customType: "shared_channel",
+				content: deliverableBodies
+					.map((body, index) => sharedChannelPrompt(body, `sender-session-${index + 1}`))
+					.join("\n\n"),
+				display: true,
+			}),
+		);
 		expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(lastMessageId);
 	});
 
@@ -2332,7 +2351,9 @@ describe("runtime SQLite mailbox delivery", () => {
 				sender: { agentId: null, sessionId: `sender-session-${index + 1}` },
 			});
 		}
-		const prompt = vi.spyOn(harness.session, "prompt").mockRejectedValue(new Error("channel delivery failed"));
+		const sendCustomMessage = vi
+			.spyOn(harness.session, "sendCustomMessage")
+			.mockRejectedValue(new Error("channel delivery failed"));
 		const drainableSession = harness.session as unknown as {
 			_drainSharedChannelMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
 		};
@@ -2342,14 +2363,22 @@ describe("runtime SQLite mailbox delivery", () => {
 		);
 		expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(initialCursor);
 
-		prompt.mockRestore();
+		sendCustomMessage.mockRestore();
 		harness.setResponses([fauxAssistantMessage("channel reply")]);
 		await drainableSession._drainSharedChannelMessages({ triggerIfIdle: true });
 		await harness.session.agent.waitForIdle();
 
-		expect(getUserTexts(harness)).toEqual([
-			deliverableBodies.map((body, index) => sharedChannelPrompt(body, `sender-session-${index + 1}`)).join("\n\n"),
-		]);
+		expect(getUserTexts(harness)).toEqual([]);
+		expect(harness.session.messages).toContainEqual(
+			expect.objectContaining({
+				role: "custom",
+				customType: "shared_channel",
+				content: deliverableBodies
+					.map((body, index) => sharedChannelPrompt(body, `sender-session-${index + 1}`))
+					.join("\n\n"),
+				display: true,
+			}),
+		);
 		expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(initialCursor + deliverableBodies.length);
 	});
 
@@ -2368,8 +2397,8 @@ describe("runtime SQLite mailbox delivery", () => {
 				sender: { agentId: null, sessionId: `sender-session-${index + 1}` },
 			});
 		}
-		const prompt = vi
-			.spyOn(harness.session, "prompt")
+		const sendCustomMessage = vi
+			.spyOn(harness.session, "sendCustomMessage")
 			.mockRejectedValue(
 				new Error(
 					"Agent is already processing a prompt. Use steer() or followUp() to queue messages, or wait for completion.",
@@ -2382,14 +2411,22 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(await drainableSession._drainSharedChannelMessages({ triggerIfIdle: true })).toBe(false);
 		expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(initialCursor);
 
-		prompt.mockRestore();
+		sendCustomMessage.mockRestore();
 		harness.setResponses([fauxAssistantMessage("channel reply")]);
 		await drainableSession._drainSharedChannelMessages({ triggerIfIdle: true });
 		await harness.session.agent.waitForIdle();
 
-		expect(getUserTexts(harness)).toEqual([
-			deliverableBodies.map((body, index) => sharedChannelPrompt(body, `sender-session-${index + 1}`)).join("\n\n"),
-		]);
+		expect(getUserTexts(harness)).toEqual([]);
+		expect(harness.session.messages).toContainEqual(
+			expect.objectContaining({
+				role: "custom",
+				customType: "shared_channel",
+				content: deliverableBodies
+					.map((body, index) => sharedChannelPrompt(body, `sender-session-${index + 1}`))
+					.join("\n\n"),
+				display: true,
+			}),
+		);
 		expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(initialCursor + deliverableBodies.length);
 	});
 
