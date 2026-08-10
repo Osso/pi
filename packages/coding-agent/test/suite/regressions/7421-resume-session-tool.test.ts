@@ -34,6 +34,12 @@ function getText(message: AgentSession["messages"][number]): string {
 		.join("");
 }
 
+function fauxCompletedAssistantMessage(text: string): ReturnType<typeof fauxAssistantMessage> {
+	return fauxAssistantMessage([{ type: "text", text }, fauxToolCall("end_turn", { reason: text })], {
+		stopReason: "toolUse",
+	});
+}
+
 const cleanups: Array<() => Promise<void> | void> = [];
 
 function buildInteractivePiArguments(sessionFile: string, initialMessage?: string): string[] {
@@ -160,7 +166,7 @@ async function createRuntimeForTest(responses: string[], extensionFactory?: Exte
 	const faux = registerFauxProvider({
 		models: [{ id: "faux-1", reasoning: false }],
 	});
-	faux.setResponses(responses.map((response) => fauxAssistantMessage(response)));
+	faux.setResponses(responses.map((response) => fauxCompletedAssistantMessage(response)));
 
 	const authStorage = AuthStorage.inMemory();
 	authStorage.setRuntimeApiKey(faux.getModel().provider, "faux-key");
@@ -407,7 +413,7 @@ describe("resume_session first-party tool", () => {
 			expect(JSON.stringify(afterRejection.messages)).toContain("open in another Pi process");
 			expect(readRuntimeMailboxListener(controlDbPath, callerRecipient)?.sessionPath).toBe(caller.sessionFile);
 
-			caller.respondToLlmRequest(afterRejection.id, fauxAssistantMessage("Caller remains active"));
+			caller.respondToLlmRequest(afterRejection.id, fauxCompletedAssistantMessage("Caller remains active"));
 			await caller.waitForEvent((event) => event.type === "agent_end");
 		});
 	});
@@ -700,8 +706,10 @@ describe("resume_session first-party tool", () => {
 		expect(runtime.session.messages.map((message) => `${message.role}:${getText(message)}`)).toEqual([
 			"user:target",
 			"assistant:target reply",
+			"toolResult:Turn ended: target reply",
 			"user:continue in target",
 			"assistant:starter reply",
+			"toolResult:Turn ended: starter reply",
 		]);
 	});
 
@@ -736,6 +744,7 @@ describe("resume_session first-party tool", () => {
 		expect(runtime.session.messages.map((message) => `${message.role}:${getText(message)}`)).toEqual([
 			"user:target",
 			"assistant:target reply",
+			"toolResult:Turn ended: target reply",
 		]);
 	});
 });
