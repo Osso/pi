@@ -25,6 +25,12 @@ import {
 	withHeadlessPi,
 } from "./headless-pi.ts";
 
+function fauxCompletedAssistantMessage(text: string): ReturnType<typeof fauxAssistantMessage> {
+	return fauxAssistantMessage([{ type: "text", text }, fauxToolCall("end_turn", { reason: text })], {
+		stopReason: "toolUse",
+	});
+}
+
 async function waitForFileContent(path: string, expected: string): Promise<void> {
 	const deadline = Date.now() + 10_000;
 	while (Date.now() < deadline) {
@@ -132,7 +138,7 @@ async function selectHeadlessView(
 		.catch((error: unknown) => {
 			throw new Error(`Selection did not continue: ${error instanceof Error ? error.message : String(error)}`);
 		});
-	agent.respondToLlmRequest(afterSelection.id, fauxAssistantMessage("Selection complete"));
+	agent.respondToLlmRequest(afterSelection.id, fauxCompletedAssistantMessage("Selection complete"));
 	await agent.waitForEvent((event) => event.type === "agent_end");
 	return selectionEntry;
 }
@@ -269,7 +275,7 @@ describe("headless Pi fixture", () => {
 					.readSessionEntries(null)
 					.some((entry) => entry.type === "thinking_level_change" && entry.thinkingLevel === "high"),
 			).toBe(false);
-			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Child complete"));
+			agent.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Child complete"));
 		});
 	});
 
@@ -306,7 +312,7 @@ describe("headless Pi fixture", () => {
 			const mainAfterCommand = await agent.waitForLlmRequest(
 				(request) => request.agentId === null && request.id !== initialMainRequest.id,
 			);
-			agent.respondToLlmRequest(mainAfterCommand.id, fauxAssistantMessage("Command child complete"));
+			agent.respondToLlmRequest(mainAfterCommand.id, fauxCompletedAssistantMessage("Command child complete"));
 			await agent.waitForEvent((event) => event.type === "agent_end");
 
 			expect(
@@ -319,14 +325,14 @@ describe("headless Pi fixture", () => {
 					expect.objectContaining({ type: "model_change", modelId: "headless-faux-reasoning" }),
 				]),
 			);
-			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Selected child complete"));
+			agent.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Selected child complete"));
 		});
 	});
 
 	it("rejects a completed selected target persistently without mutating main", async () => {
 		await withHeadlessPi(async (agent) => {
 			const { childRequest, mainAfterSpawn, spawned } = await spawnPendingHeadlessChild(agent, "Completed target");
-			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Completed"));
+			agent.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Completed"));
 			await agent.waitForAgent((candidate) => candidate.id === spawned.id && candidate.lifecycle === "completed");
 
 			await selectAndRunHeadlessCommand(agent, mainAfterSpawn, spawned.id, "/effort high");
@@ -387,7 +393,7 @@ describe("headless Pi fixture", () => {
 				null,
 				(entry) => entry.type === "model_change" && entry.modelId === "headless-faux-1",
 			);
-			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Selection test complete"));
+			agent.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Selection test complete"));
 		});
 	});
 
@@ -413,7 +419,7 @@ describe("headless Pi fixture", () => {
 					.readSessionEntries(null)
 					.some((entry) => entry.type === "thinking_level_change" && entry.thinkingLevel === "high"),
 			).toBe(false);
-			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Detached child complete"));
+			agent.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Detached child complete"));
 		});
 	});
 
@@ -439,12 +445,12 @@ describe("headless Pi fixture", () => {
 
 			const childRequest = await agent.waitForLlmRequest((request) => request.agentId === spawned.id);
 			expect(childRequest.userMessages).toContain("Inspect the authentication flow");
-			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Authentication flow inspected"));
+			agent.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Authentication flow inspected"));
 
 			const mainAfterSpawn = await agent.waitForLlmRequest(
 				(request) => request.agentId === null && request.id !== initialMainRequest.id,
 			);
-			agent.respondToLlmRequest(mainAfterSpawn.id, fauxAssistantMessage("Worker started"));
+			agent.respondToLlmRequest(mainAfterSpawn.id, fauxCompletedAssistantMessage("Worker started"));
 
 			const completion = await agent.waitForMailboxMessage(
 				(message) =>
@@ -471,7 +477,10 @@ describe("headless Pi fixture", () => {
 			const postToolRequest = await agent.waitForLlmRequest(
 				(request) => request.agentId === null && request.id !== completionRequest.id,
 			);
-			agent.respondToLlmRequest(postToolRequest.id, fauxAssistantMessage("Completion handled after tool result"));
+			agent.respondToLlmRequest(
+				postToolRequest.id,
+				fauxCompletedAssistantMessage("Completion handled after tool result"),
+			);
 		});
 	});
 
@@ -526,7 +535,7 @@ describe("headless Pi fixture", () => {
 					event.toolCallId === waitToolCallId,
 			);
 
-			agent.respondToLlmRequest(initialChildRequest.id, fauxAssistantMessage("Initial review complete"));
+			agent.respondToLlmRequest(initialChildRequest.id, fauxCompletedAssistantMessage("Initial review complete"));
 			const steeredChildRequest = await agent.waitForLlmRequest(
 				(request) => request.agentId === spawned.id && request.id !== initialChildRequest.id,
 			);
@@ -544,7 +553,10 @@ describe("headless Pi fixture", () => {
 					),
 			).toBe(false);
 
-			agent.respondToLlmRequest(steeredChildRequest.id, fauxAssistantMessage("Cancellation races reviewed"));
+			agent.respondToLlmRequest(
+				steeredChildRequest.id,
+				fauxCompletedAssistantMessage("Cancellation races reviewed"),
+			);
 			await agent.waitForAgent((candidate) => candidate.id === spawned.id && candidate.lifecycle === "completed");
 			const mainAfterWait = await agent.waitForLlmRequest(
 				(request) =>
@@ -554,7 +566,7 @@ describe("headless Pi fixture", () => {
 					request.id !== mainAfterSteer.id,
 			);
 			expect(JSON.stringify(mainAfterWait.messages)).toContain("Cancellation races reviewed");
-			agent.respondToLlmRequest(mainAfterWait.id, fauxAssistantMessage("Steered reviewer completed"));
+			agent.respondToLlmRequest(mainAfterWait.id, fauxCompletedAssistantMessage("Steered reviewer completed"));
 		});
 	});
 
@@ -593,7 +605,7 @@ describe("headless Pi fixture", () => {
 			);
 			expect(JSON.stringify(waitResult)).toContain("Restart onto the deployed runtime");
 
-			agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Worker complete"));
+			agent.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Worker complete"));
 			await agent.waitForAgent(
 				(candidate) => candidate.displayName === "Waiting worker" && candidate.lifecycle === "completed",
 			);
@@ -601,7 +613,7 @@ describe("headless Pi fixture", () => {
 				(request) => request.agentId === null && request.id !== mainAfterSpawn.id,
 			);
 			const mainEnded = agent.waitForEvent((event) => event.type === "agent_end");
-			agent.respondToLlmRequest(mainAfterWait.id, fauxAssistantMessage("Shared-channel message handled"));
+			agent.respondToLlmRequest(mainAfterWait.id, fauxCompletedAssistantMessage("Shared-channel message handled"));
 			await mainEnded;
 		});
 	});
@@ -610,7 +622,7 @@ describe("headless Pi fixture", () => {
 		await withHeadlessPi(async (agent) => {
 			await agent.send({ type: "prompt", message: "Finish the initial turn" });
 			const initialRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
-			agent.respondToLlmRequest(initialRequest.id, fauxAssistantMessage("Initial turn complete"));
+			agent.respondToLlmRequest(initialRequest.id, fauxCompletedAssistantMessage("Initial turn complete"));
 			await agent.waitForEvent((event) => event.type === "agent_end");
 
 			const controlDbPath = getControlDbPath(agent.paths.agentDir);
@@ -633,7 +645,7 @@ describe("headless Pi fixture", () => {
 			if (channelEntry.type !== "custom_message") throw new Error("Expected shared-channel custom message");
 			expect(channelEntry.content).toContain("Restart onto the deployed runtime");
 
-			agent.respondToLlmRequest(channelRequest.id, fauxAssistantMessage("Shared-channel message handled"));
+			agent.respondToLlmRequest(channelRequest.id, fauxCompletedAssistantMessage("Shared-channel message handled"));
 		});
 	});
 
@@ -652,7 +664,7 @@ describe("headless Pi fixture", () => {
 				(request) => request.agentId === null && request.id !== initialRequest.id,
 			);
 			expectSingleToolResult(postToolRequest, "pyrun-race-complete");
-			agent.respondToLlmRequest(postToolRequest.id, fauxAssistantMessage("Pyrun turn complete"));
+			agent.respondToLlmRequest(postToolRequest.id, fauxCompletedAssistantMessage("Pyrun turn complete"));
 			await agent.waitForEvent((event) => event.type === "agent_end");
 
 			await agent.send({ type: "steer", message: "Handle steering queued at the completion boundary" });
@@ -661,7 +673,10 @@ describe("headless Pi fixture", () => {
 					request.agentId === null && request.id !== initialRequest.id && request.id !== postToolRequest.id,
 			);
 			expect(steeredRequest.userMessages).toContain("Handle steering queued at the completion boundary");
-			agent.respondToLlmRequest(steeredRequest.id, fauxAssistantMessage("Completion-boundary steering handled"));
+			agent.respondToLlmRequest(
+				steeredRequest.id,
+				fauxCompletedAssistantMessage("Completion-boundary steering handled"),
+			);
 		});
 	});
 
@@ -677,7 +692,7 @@ describe("headless Pi fixture", () => {
 				(request) => request.agentId === null && request.id !== interruptedRequest.id,
 			);
 			expect(resumedRequest.userMessages).toContain("Preserve this steering after interrupt");
-			agent.respondToLlmRequest(resumedRequest.id, fauxAssistantMessage("Steering preserved"));
+			agent.respondToLlmRequest(resumedRequest.id, fauxCompletedAssistantMessage("Steering preserved"));
 		});
 	});
 
@@ -709,13 +724,13 @@ describe("headless Pi fixture", () => {
 				(request) => request.agentId === spawned.id && request.id !== interruptedRequest.id,
 			);
 			const restoredMainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
-			agent.respondToLlmRequest(restoredMainRequest.id, fauxAssistantMessage("Supervisor resumed"));
+			agent.respondToLlmRequest(restoredMainRequest.id, fauxCompletedAssistantMessage("Supervisor resumed"));
 			expect(restoredRequest.userMessages).toContain("Review until the supervisor restarts");
 			expect(restoredRequest.userMessages).toContainEqual(expect.stringContaining("Continue the conversation"));
 			expect(agent.listAgents().find((candidate) => candidate.id === spawned.id)?.transcript).toEqual(
 				originalTranscript,
 			);
-			agent.respondToLlmRequest(restoredRequest.id, fauxAssistantMessage("Recovered review complete"));
+			agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Recovered review complete"));
 			await expect(
 				agent.waitForAgent((candidate) => candidate.id === spawned.id && candidate.lifecycle === "completed"),
 			).resolves.toMatchObject({ id: spawned.id, lifecycle: "completed" });
@@ -769,14 +784,17 @@ describe("headless Pi fixture", () => {
 			await agent.waitForAgent(
 				(candidate) => candidate.id === spawned.id && candidate.lifecycle === "steering_pending",
 			);
-			agent.respondToLlmRequest(restoredChildRequest.id, fauxAssistantMessage("Initial restored turn complete"));
+			agent.respondToLlmRequest(
+				restoredChildRequest.id,
+				fauxCompletedAssistantMessage("Initial restored turn complete"),
+			);
 			const steeredChildRequest = await agent.waitForLlmRequest(
 				(request) => request.agentId === spawned.id && request.id !== restoredChildRequest.id,
 			);
 			expect(steeredChildRequest.userMessages).toContainEqual(
 				expect.stringContaining("Use the restored main session identity"),
 			);
-			agent.respondToLlmRequest(steeredChildRequest.id, fauxAssistantMessage("Restored steering complete"));
+			agent.respondToLlmRequest(steeredChildRequest.id, fauxCompletedAssistantMessage("Restored steering complete"));
 		});
 	});
 
@@ -910,7 +928,10 @@ describe("headless Pi fixture", () => {
 				const completionRequest = await agent.waitForLlmRequest(
 					(candidate) => candidate.agentId === null && JSON.stringify(candidate.messages).includes(detachedJob.id),
 				);
-				agent.respondToLlmRequest(completionRequest.id, fauxAssistantMessage("Detached completion recorded"));
+				agent.respondToLlmRequest(
+					completionRequest.id,
+					fauxCompletedAssistantMessage("Detached completion recorded"),
+				);
 				await agent.waitForMailboxMessage(
 					(message) =>
 						message.fromAgentId === detachedJob.id &&
@@ -1031,7 +1052,7 @@ describe("headless Pi fixture", () => {
 			async (agent) => {
 				await agent.send({ type: "prompt", message: "Completed parent prefix" });
 				const prefixRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
-				agent.respondToLlmRequest(prefixRequest.id, fauxAssistantMessage("Completed parent response"));
+				agent.respondToLlmRequest(prefixRequest.id, fauxCompletedAssistantMessage("Completed parent response"));
 				await agent.waitForEvent((event) => event.type === "agent_end");
 
 				const toolCallId = "auto-detached-inherit-call";
@@ -1074,7 +1095,7 @@ describe("headless Pi fixture", () => {
 				const afterDetach = await agent.waitForLlmRequest(
 					(candidate) => candidate.agentId === null && candidate.id !== pyrunRequest.id,
 				);
-				agent.respondToLlmRequest(afterDetach.id, fauxAssistantMessage("Parent turn complete"));
+				agent.respondToLlmRequest(afterDetach.id, fauxCompletedAssistantMessage("Parent turn complete"));
 				await agent.waitForEvent((event) => event.type === "agent_end");
 
 				const child = await agent
@@ -1096,7 +1117,7 @@ describe("headless Pi fixture", () => {
 				expect(JSON.stringify(childRequest.messages)).not.toContain("Run the detached inherited spawn");
 				expect(JSON.stringify(childRequest.messages)).not.toContain(toolCallId);
 				expect(JSON.stringify(childRequest.messages)).not.toContain("detached-result-marker");
-				agent.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Child complete"));
+				agent.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Child complete"));
 			},
 			{ autoDetachTools: true },
 		);
@@ -1177,7 +1198,10 @@ describe("headless Pi fixture", () => {
 				});
 				expect(runtimeMessages.some((message) => message.recipient.agentId === null)).toBe(false);
 
-				agent.respondToLlmRequest(callerAfterDetach.id, fauxAssistantMessage("Detached child work started"));
+				agent.respondToLlmRequest(
+					callerAfterDetach.id,
+					fauxCompletedAssistantMessage("Detached child work started"),
+				);
 				const completionRequest = await agent.waitForLlmRequest(
 					(request) => request.agentId === caller.id && request.id !== callerAfterDetach.id,
 				);
@@ -1219,7 +1243,10 @@ describe("headless Pi fixture", () => {
 						),
 				).toBe(false);
 
-				agent.respondToLlmRequest(completionRequest.id, fauxAssistantMessage("Detached child work complete"));
+				agent.respondToLlmRequest(
+					completionRequest.id,
+					fauxCompletedAssistantMessage("Detached child work complete"),
+				);
 			},
 			{ autoDetachTools: true },
 		);
@@ -1245,7 +1272,7 @@ describe("headless Pi fixture", () => {
 				(request) => request.id !== interruptedRequest.id && request.agentId === null,
 			);
 			expect(restoredRequest.messages.some((message) => message.role === "toolResult")).toBe(true);
-			agent.respondToLlmRequest(restoredRequest.id, fauxAssistantMessage("Restored summary"));
+			agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Restored summary"));
 			await expect(agent.waitForEvent((event) => event.type === "agent_end")).resolves.toMatchObject({
 				type: "agent_end",
 			});
@@ -1283,7 +1310,7 @@ describe("headless Pi fixture", () => {
 					.listAgents()
 					.filter((candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running"),
 			).toHaveLength(0);
-			agent.respondToLlmRequest(restoredRequest.id, fauxAssistantMessage("Failure explained"));
+			agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Failure explained"));
 			await agent.waitForEvent((event) => event.type === "agent_end");
 		});
 	});
@@ -1324,7 +1351,7 @@ describe("headless Pi fixture", () => {
 						(candidate) => candidate.displayName === "Pyrun evaluation" && candidate.lifecycle === "running",
 					),
 			).toHaveLength(0);
-			agent.respondToLlmRequest(restoredRequest.id, fauxAssistantMessage("Pyrun failure explained"));
+			agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Pyrun failure explained"));
 			await agent.waitForEvent((event) => event.type === "agent_end");
 		});
 	});
@@ -1546,7 +1573,7 @@ describe("headless Pi fixture", () => {
 			writeFileSync(releasePath, "release");
 			const restoredRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
 			expectSingleToolResult(restoredRequest, "live-runner-output");
-			agent.respondToLlmRequest(restoredRequest.id, fauxAssistantMessage("Live runner restored"));
+			agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Live runner restored"));
 			await agent.waitForEvent((event) => event.type === "agent_end");
 		});
 	});
@@ -1909,7 +1936,7 @@ describe("headless Pi fixture", () => {
 			writeFileSync(releasePath, "release");
 			const restoredRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
 			expectSingleToolResult(restoredRequest, "rerun-output");
-			agent.respondToLlmRequest(restoredRequest.id, fauxAssistantMessage("Dead runner rerun"));
+			agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Dead runner rerun"));
 			await agent.waitForEvent((event) => event.type === "agent_end");
 		});
 	});
@@ -1923,7 +1950,7 @@ describe("headless Pi fixture", () => {
 			await expect(agent.waitForEvent((event) => event.type === "agent_start")).resolves.toMatchObject({
 				type: "agent_start",
 			});
-			agent.respondToLlmRequest(request.id, fauxAssistantMessage("Done"));
+			agent.respondToLlmRequest(request.id, fauxCompletedAssistantMessage("Done"));
 		});
 		expect(existsSync(tempDir)).toBe(false);
 	});
