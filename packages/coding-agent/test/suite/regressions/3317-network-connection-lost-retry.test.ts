@@ -1,6 +1,12 @@
-import { fauxAssistantMessage } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, getAssistantTexts, type Harness } from "../harness.ts";
+
+function fauxCompletedAssistantMessage(text: string): ReturnType<typeof fauxAssistantMessage> {
+	return fauxAssistantMessage([{ type: "text", text }, fauxToolCall("end_turn", { reason: text })], {
+		stopReason: "toolUse",
+	});
+}
 
 describe("issue #3317 network connection lost retry", () => {
 	const harnesses: Harness[] = [];
@@ -18,7 +24,7 @@ describe("issue #3317 network connection lost retry", () => {
 		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage("", { stopReason: "error", errorMessage: "Network connection lost." }),
-			fauxAssistantMessage("recovered after reconnect"),
+			fauxCompletedAssistantMessage("recovered after reconnect"),
 		]);
 
 		await harness.session.prompt("test");
