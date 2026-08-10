@@ -19,6 +19,7 @@ import {
 } from "../../../src/core/detached-job-runner.ts";
 import {
 	finalizeDetachedJob,
+	retainControlDbConnection,
 	type RuntimeMailboxAddress,
 } from "../../../src/core/session-control-db.ts";
 import { finalizeDetachedJobWithRetry } from "../../../src/core/detached-bash-runner.ts";
@@ -126,15 +127,20 @@ export function launchDetachedPyrunRunner(manifestPath: string, options?: { entr
 
 export async function runDetachedPyrunRunner(manifestPath: string): Promise<{ terminalRevision?: number }> {
 	const manifest = await waitForDetachedPyrunLaunchManifest(manifestPath);
-	const runner = new PyrunRunnerClient({ ...manifest.runnerOptions, detached: false });
+	const releaseControlDb = retainControlDbConnection(manifest.controlDbPath);
 	try {
-		const settlement = await waitForDetachedPyrunSettlement(manifest, runner);
-		appendPyrunSettlementRecord(manifest, settlement);
-		const identity = settlement.identity ?? (await waitForPyrunOwnershipDecision(manifest));
-		if (!identity) return {};
-		return finalizeDetachedPyrunSettlement(manifest, { ...settlement, identity });
+		const runner = new PyrunRunnerClient({ ...manifest.runnerOptions, detached: false });
+		try {
+			const settlement = await waitForDetachedPyrunSettlement(manifest, runner);
+			appendPyrunSettlementRecord(manifest, settlement);
+			const identity = settlement.identity ?? (await waitForPyrunOwnershipDecision(manifest));
+			if (!identity) return {};
+			return finalizeDetachedPyrunSettlement(manifest, { ...settlement, identity });
+		} finally {
+			runner.dispose();
+		}
 	} finally {
-		runner.dispose();
+		releaseControlDb();
 	}
 }
 

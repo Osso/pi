@@ -360,6 +360,7 @@
 - Fixed detached tools started by subagents so terminal notifications route only to their direct parent agent rather than the main thread.
 - Fixed supervisor restarts leaving spawned agents stuck `running` by authorizing recovery against the process identity embedded in the registered mailbox listener.
 - Fixed detached Pyrun cleanup leaving an orphaned `pyrun-jsonl` process by keeping the inner runner in its durable wrapper's process group.
+- Fixed detached Pyrun runners reopening, configuring, and schema-checking `control.sqlite` on every 25 ms runtime-command poll; each runner now retains one process-local connection for its lifetime and releases it on exit without changing command or cancellation latency or lifecycle semantics.
 - Fixed interactive Escape cancellation of a detached Bash/Pyrun agent always failing with `runtime_ownership_unavailable`; the persisted-detached cancel path no longer requires an `ExtensionContext` (which the lifecycle coordinator never used), so cancellation reaches the durable runner and settles.
 - Fixed restored RPC and interactive sessions leaving interrupted post-tool model turns idle; session startup now continues from existing JSONL, and agent-loop continuation resumes a trailing unfinished tool call before requesting the model.
 - Fixed restored Bash and Pyrun tool calls starting duplicate work: live durable runners are reattached, while dead runners cause the unfinished JSONL tool call to run again without recovery-specific persisted state.
