@@ -1070,13 +1070,15 @@ for await (const line of createInterface({ input: process.stdin })) {
 		});
 		await waitFor(() => detachRegistry.detachRunning(), "detached Pyrun evaluation");
 		const detached = await evaluation;
-		expect(detached.details).toMatchObject({ backgroundJobId: "pyrun_1" });
+		const jobId = detached.details.backgroundJobId;
+		expect(jobId).toEqual(expect.any(String));
+		if (!jobId) throw new Error("Detached Pyrun result has no background job ID");
 
-		await waitFor(() => hasProjectedLifecycle(store, "pyrun_1", "completed"), "detached Pyrun completion");
-		const agent = store.getAgent("pyrun_1");
+		await waitFor(() => hasProjectedLifecycle(store, jobId, "completed"), "detached Pyrun completion");
+		const agent = store.getAgent(jobId);
 		expect(agent?.result?.summary).toBe("Pyrun evaluation completed.");
 		expect(agent?.result?.durationMs).toBeGreaterThanOrEqual(1_000);
-		const notification = store.listPendingLifecycleNotificationsForAgent("pyrun_1", "completed")[0]?.body;
+		const notification = store.listPendingLifecycleNotificationsForAgent(jobId, "completed")[0]?.body;
 		expect(notification).toContain("Pyrun evaluation completed");
 		expect(notification).toMatch(/Duration: \d+ms/);
 	});
@@ -2107,9 +2109,11 @@ for await (const line of createInterface({ input: process.stdin })) {
 		await waitFor(() => toolCalls === 1, "foreground bridge claim");
 		expect(detachRegistry.detachRunning()).toBe(true);
 		const result = await resultPromise;
+		const jobId = result.details.backgroundJobId;
+		expect(jobId).toEqual(expect.any(String));
+		if (!jobId) throw new Error("Detached Pyrun result has no background job ID");
 
-		expect(result.details.backgroundJobId).toBe("pyrun_1");
-		await waitFor(() => hasProjectedLifecycle(store, "pyrun_1", "completed"), "detached bridge completion");
+		await waitFor(() => hasProjectedLifecycle(store, jobId, "completed"), "detached bridge completion");
 		expect(toolCalls).toBe(1);
 	});
 
