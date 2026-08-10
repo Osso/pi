@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
@@ -264,7 +264,10 @@ function writeHistoricalLaunchManifest(input: CompletedHistoryProbeInput): strin
 		params: createCanonicalPyrunEvalParams({ code: "historical completed code" }, input.ctx, false),
 		runnerAddress: { agentId: "historical-completed-agent", sessionId: input.ctx.sessionManager.getSessionId() },
 		runnerOptions: { command: "unused" },
-		runnerProcessIdentity: { ...CURRENT_PROCESS_IDENTITY, startTimeTicks: CURRENT_PROCESS_IDENTITY.startTimeTicks + 1 },
+		runnerProcessIdentity: {
+			...CURRENT_PROCESS_IDENTITY,
+			startTimeTicks: CURRENT_PROCESS_IDENTITY.startTimeTicks + 1,
+		},
 		sessionPath: input.sessionPath,
 		startedAt: 1,
 		supervisorProcessIdentity: CURRENT_PROCESS_IDENTITY,
@@ -349,11 +352,7 @@ describe("resuming durable Pyrun artifacts", () => {
 				sessionManager,
 				toolExecutionStartedAt: Date.now(),
 			} as unknown as ExtensionContext;
-			const artifactRoot = join(
-				dirname(sessionPath),
-				"detached-jobs",
-				basename(sessionPath, extname(sessionPath)),
-			);
+			const artifactRoot = join(dirname(sessionPath), "detached-jobs", basename(sessionPath, extname(sessionPath)));
 			mkdirSync(artifactRoot, { recursive: true });
 			const probe = createCompletedHistoryReadProbe({ artifactRoot, controlDbPath, ctx, sessionPath });
 
