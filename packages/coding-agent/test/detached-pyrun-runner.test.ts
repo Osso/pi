@@ -22,8 +22,8 @@ import {
 	writeDetachedPyrunLaunchManifest,
 } from "../extensions/pyrun/src/detached-runner.ts";
 import { enqueueDetachedJobStatusRequest } from "../src/core/detached-job-control.ts";
-import type { DetachedJobOwnershipIdentity } from "../src/core/detached-job-runner.ts";
 import { createDetachedJobLifecycleController } from "../src/core/detached-job-lifecycle.ts";
+import type { DetachedJobOwnershipIdentity } from "../src/core/detached-job-runner.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { readProcessIdentity } from "../src/core/runtime-process.ts";
@@ -356,7 +356,9 @@ async function requestAndAssertDetachedPyrunStatus(input: {
 		pendingRequestCount: 0,
 		state: "running",
 	});
-	expect(listRuntimeMailboxMessages(input.controlDbPath).filter((message) => message.status === "pending")).toHaveLength(0);
+	expect(
+		listRuntimeMailboxMessages(input.controlDbPath).filter((message) => message.status === "pending"),
+	).toHaveLength(0);
 }
 
 function readOpenControlDbDescriptors(pid: number, controlDbPath: string): Record<string, string> {

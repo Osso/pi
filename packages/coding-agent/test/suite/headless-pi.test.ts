@@ -101,10 +101,13 @@ function removeLeafToolResult(sessionFile: string, toolCallId: string): void {
 	const lines = readFileSync(sessionFile, "utf8").trimEnd().split("\n");
 	const toolResultIndex = lines.findIndex((line) => {
 		const entry = JSON.parse(line) as Partial<SessionMessageEntry>;
-		return entry.type === "message" && entry.message?.role === "toolResult" && entry.message.toolCallId === toolCallId;
+		return (
+			entry.type === "message" && entry.message?.role === "toolResult" && entry.message.toolCallId === toolCallId
+		);
 	});
 	if (toolResultIndex === -1) throw new Error(`Missing persisted tool result ${toolCallId}`);
-	if (toolResultIndex !== lines.length - 1) throw new Error(`Persisted tool result ${toolCallId} is not the session leaf`);
+	if (toolResultIndex !== lines.length - 1)
+		throw new Error(`Persisted tool result ${toolCallId} is not the session leaf`);
 	writeFileSync(sessionFile, `${lines.slice(0, toolResultIndex).join("\n")}\n`);
 }
 
@@ -1416,61 +1419,64 @@ describe("headless Pi fixture", () => {
 	});
 
 	it("does not resume a cancelling Bash tool when restoring its session", async () => {
-		await withHeadlessPi(async (agent) => {
-			const attemptPath = join(agent.paths.workspaceDir, "attempts-cancelling-bash");
-			const releasePath = join(agent.paths.workspaceDir, "release-cancelling-bash");
-			await agent.send({ type: "prompt", message: "Run the cancellable command" });
-			const initialRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
-			agent.respondToLlmRequest(
-				initialRequest.id,
-				fauxAssistantMessage(
-					fauxToolCall("bash", {
-						command: `printf x >> '${attemptPath}'; while [ ! -f '${releasePath}' ]; do sleep 0.05; done`,
+		await withHeadlessPi(
+			async (agent) => {
+				const attemptPath = join(agent.paths.workspaceDir, "attempts-cancelling-bash");
+				const releasePath = join(agent.paths.workspaceDir, "release-cancelling-bash");
+				await agent.send({ type: "prompt", message: "Run the cancellable command" });
+				const initialRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+				agent.respondToLlmRequest(
+					initialRequest.id,
+					fauxAssistantMessage(
+						fauxToolCall("bash", {
+							command: `printf x >> '${attemptPath}'; while [ ! -f '${releasePath}' ]; do sleep 0.05; done`,
+						}),
+						{ stopReason: "toolUse" },
+					),
+				);
+				await agent.waitForEvent((event) => event.type === "tool_execution_start");
+				await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("x"));
+				const runner = await agent.waitForAgent(
+					(candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running",
+				);
+				const runnerPid = agent.getRunnerPid(runner.id);
+				if (!runnerPid) throw new Error(`Cancelling Bash runner has no PID: ${JSON.stringify(runner)}`);
+
+				const afterDetach = await agent.waitForLlmRequest(
+					(request) => request.agentId === null && request.id !== initialRequest.id,
+				);
+				agent.respondToLlmRequest(
+					afterDetach.id,
+					fauxAssistantMessage(fauxToolCall("close_agent", { agentId: runner.id, reason: "test cancellation" }), {
+						stopReason: "toolUse",
 					}),
-					{ stopReason: "toolUse" },
-				),
-			);
-			await agent.waitForEvent((event) => event.type === "tool_execution_start");
-			await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("x"));
-			const runner = await agent.waitForAgent(
-				(candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running",
-			);
-			const runnerPid = agent.getRunnerPid(runner.id);
-			if (!runnerPid) throw new Error(`Cancelling Bash runner has no PID: ${JSON.stringify(runner)}`);
+				);
+				await agent.waitForAgent((candidate) => candidate.id === runner.id && candidate.lifecycle === "cancelling");
+				await agent.crash();
+				await agent.restart();
 
-			const afterDetach = await agent.waitForLlmRequest(
-				(request) => request.agentId === null && request.id !== initialRequest.id,
-			);
-			agent.respondToLlmRequest(
-				afterDetach.id,
-				fauxAssistantMessage(
-					fauxToolCall("close_agent", { agentId: runner.id, reason: "test cancellation" }),
-					{ stopReason: "toolUse" },
-				),
-			);
-			await agent.waitForAgent((candidate) => candidate.id === runner.id && candidate.lifecycle === "cancelling");
-			await agent.crash();
-			await agent.restart();
-
-			const settledRunner = await agent
-				.waitForAgent(
-					(candidate) =>
-						candidate.id === runner.id && (candidate.lifecycle === "aborted" || candidate.lifecycle === "failed"),
-				)
-				.catch((error: unknown) => {
-					throw new Error(
-						`Cancelling Bash runner did not settle: ${String(error)} alive=${isProcessAlive(runnerPid)} agents=${JSON.stringify(agent.listAgents())} entries=${JSON.stringify(agent.readSessionEntries(null).slice(-8))}`,
-					);
-				});
-			expect(settledRunner.lifecycle).toBe("aborted");
-			expect(isProcessAlive(runnerPid)).toBe(false);
-			expect(readFileSync(attemptPath, "utf8")).toBe("x");
-			expect(
-				agent
-					.listAgents()
-					.filter((candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running"),
-			).toHaveLength(0);
-		}, { autoDetachTools: true });
+				const settledRunner = await agent
+					.waitForAgent(
+						(candidate) =>
+							candidate.id === runner.id &&
+							(candidate.lifecycle === "aborted" || candidate.lifecycle === "failed"),
+					)
+					.catch((error: unknown) => {
+						throw new Error(
+							`Cancelling Bash runner did not settle: ${String(error)} alive=${isProcessAlive(runnerPid)} agents=${JSON.stringify(agent.listAgents())} entries=${JSON.stringify(agent.readSessionEntries(null).slice(-8))}`,
+						);
+					});
+				expect(settledRunner.lifecycle).toBe("aborted");
+				expect(isProcessAlive(runnerPid)).toBe(false);
+				expect(readFileSync(attemptPath, "utf8")).toBe("x");
+				expect(
+					agent
+						.listAgents()
+						.filter((candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running"),
+				).toHaveLength(0);
+			},
+			{ autoDetachTools: true },
+		);
 	});
 
 	it("reconciles a cancelling Pyrun tool when another session starts", async () => {
@@ -1876,7 +1882,9 @@ describe("headless Pi fixture", () => {
 					await agent.restart();
 					if (descriptorMapping) {
 						await vi.waitFor(() => {
-							expect(readControlDbDescriptorMapping(exactRunnerIdentity, controlDbPath)).toEqual(descriptorMapping);
+							expect(readControlDbDescriptorMapping(exactRunnerIdentity, controlDbPath)).toEqual(
+								descriptorMapping,
+							);
 						});
 					}
 					const restoredJob = await agent.waitForAgent(

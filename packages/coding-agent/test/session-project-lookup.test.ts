@@ -118,12 +118,7 @@ describe("--session project lookup", () => {
 			allMessagesText: "",
 		});
 
-		const result = await runCli(
-			buildSessionLookupCliArgs(sessionId),
-			currentProject,
-			agentDir,
-			"n\n",
-		);
+		const result = await runCli(buildSessionLookupCliArgs(sessionId), currentProject, agentDir, "n\n");
 
 		expect(result.timedOut).toBe(false);
 		expect(result.code).toBe(1);
@@ -166,12 +161,7 @@ describe("--session project lookup", () => {
 			allMessagesText: "",
 		});
 
-		const result = await runCli(
-			buildSessionLookupCliArgs(sessionId),
-			currentProject,
-			agentDir,
-			"y\n",
-		);
+		const result = await runCli(buildSessionLookupCliArgs(sessionId), currentProject, agentDir, "y\n");
 
 		expect(result.timedOut).toBe(false);
 		expect(result.code).toBe(1);
