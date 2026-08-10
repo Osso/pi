@@ -21,6 +21,7 @@ import {
 	type RuntimeMailboxMessage,
 	readMultiAgentRuntimeOwnership,
 	readSessionGoal,
+	readSessionMetadata,
 	type SupervisorRequest,
 	type SupervisorRequestKind,
 	type SupervisorResponse,
@@ -103,6 +104,11 @@ export interface HeadlessPi {
 	listMailboxMessages(): AgentMailboxMessage[];
 	listRuntimeMailboxMessages(): RuntimeMailboxMessage[];
 	readSessionEntries(agentId: string | null): SessionEntry[];
+	readSessionMetadata(agentId: string | null): {
+		modelProvider?: string;
+		modelId?: string;
+		thinkingLevel?: string;
+	};
 	readTerminalOutboxStatuses(agentId: string): string[];
 	writeRunningGoal(objective: string): void;
 	readGoal(): Record<string, unknown> | undefined;
@@ -775,6 +781,18 @@ function createHeadlessRuntime(options: {
 			readHeadlessStore(options.paths.agentDir, options.context.sessionFile).listMailboxMessages(),
 		listRuntimeMailboxMessages: () => listRuntimeMailboxMessages(getControlDbPath(options.paths.agentDir)),
 		readSessionEntries: (agentId) => SessionManager.open(resolveHeadlessSessionFile(options, agentId)).getEntries(),
+		readSessionMetadata: (agentId) => {
+			const metadata = readSessionMetadata(
+				getControlDbPath(options.paths.agentDir),
+				resolveHeadlessSessionFile(options, agentId),
+			);
+			if (!metadata) throw new Error(`No metadata for headless agent ${agentId ?? "main"}`);
+			return {
+				modelProvider: metadata.modelProvider,
+				modelId: metadata.modelId,
+				thinkingLevel: metadata.thinkingLevel,
+			};
+		},
 		readTerminalOutboxStatuses(agentId) {
 			const db = createSqliteDatabase(getControlDbPath(options.paths.agentDir));
 			try {
@@ -877,6 +895,38 @@ async function startHeadlessPi(fixtureOptions: HeadlessPiOptions = {}): Promise<
 	const paths = createHeadlessPaths(defaultHeadlessPathOperations, fixtureOptions.provider);
 	const testExtensionDir = join(paths.agentDir, "extensions");
 	mkdirSync(testExtensionDir, { recursive: true });
+	writeFileSync(
+		join(testExtensionDir, "selected-runtime-target.ts"),
+		`import { Type } from "typebox";
+export default function(pi) {
+	pi.registerCommand("model", {
+		description: "Set model through the selected runtime target command context",
+		handler: async (_args, ctx) => {
+			await ctx.setModel({
+				api: "headless-faux",
+				id: "headless-faux-reasoning",
+				name: "Headless Faux Reasoning",
+				provider: "headless-faux",
+				reasoning: true,
+				input: ["text"],
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				contextWindow: 128000,
+				maxTokens: 16384,
+			});
+			ctx.setThinkingLevel("high");
+		},
+	});
+	pi.registerTool({
+		name: "test_set_viewed_model",
+		description: "Set model through the selected runtime target adapter",
+		parameters: Type.Object({}),
+		execute: async () => {
+			await pi.callCommand("model");
+			return { content: [{ type: "text", text: "model and effort set" }], details: {} };
+		},
+	});
+}`,
+	);
 
 	const approvalPreset = fixtureOptions.approvalPreset ?? "auto-approve";
 	const approval = findApprovalPreset(approvalPreset);
@@ -886,6 +936,7 @@ async function startHeadlessPi(fixtureOptions: HeadlessPiOptions = {}): Promise<
 			approvalPolicy: approval.policy,
 			approvalPreset,
 			sandboxProfile: fixtureOptions.sandboxProfile,
+			agents: { background: { context: "fresh" } },
 		}),
 	);
 	const context: HeadlessSessionContext = { mainSessionId: "", sessionFile: "" };

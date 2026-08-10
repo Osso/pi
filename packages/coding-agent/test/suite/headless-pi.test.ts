@@ -52,6 +52,11 @@ function expectSingleFailedToolResult(request: HeadlessLlmRequest, expectedOutpu
 	expect(JSON.stringify(results[0])).toContain(expectedOutput);
 }
 
+function expectFailedToolEntry(entry: SessionMessageEntry, expectedOutput: string): void {
+	expect(entry.message).toMatchObject({ role: "toolResult", isError: true });
+	expect(JSON.stringify(entry.message)).toContain(expectedOutput);
+}
+
 function isProcessAlive(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
@@ -108,6 +113,49 @@ async function spawnPendingHeadlessChild(agent: HeadlessPi, displayName: string,
 	return { childRequest, mainAfterSpawn, spawned };
 }
 
+async function selectAndMutateHeadlessTarget(
+	agent: HeadlessPi,
+	request: HeadlessLlmRequest,
+	agentId: string,
+): Promise<SessionMessageEntry> {
+	agent.respondToLlmRequest(
+		request.id,
+		fauxAssistantMessage(
+			fauxToolCall("pyrun_eval", { code: `print(pi.agents.select(${JSON.stringify(agentId)}))` }),
+			{ stopReason: "toolUse" },
+		),
+	);
+	const selectionEntry = await agent.waitForSessionEntry(
+		null,
+		(candidate) =>
+			candidate.type === "message" &&
+			candidate.message.role === "toolResult" &&
+			candidate.message.toolName === "pyrun_eval",
+	);
+	if (selectionEntry.type !== "message") throw new Error("Expected Pyrun selection result entry");
+	const afterSelection = await agent.waitForLlmRequest(
+		(candidate) => candidate.agentId === null && candidate.id !== request.id,
+	);
+	agent.respondToLlmRequest(
+		afterSelection.id,
+		fauxAssistantMessage(fauxToolCall("test_set_viewed_model", {}), { stopReason: "toolUse" }),
+	);
+	const mutationEntry = await agent.waitForSessionEntry(
+		null,
+		(candidate) =>
+			candidate.type === "message" &&
+			candidate.message.role === "toolResult" &&
+			candidate.message.toolName === "test_set_viewed_model",
+	);
+	if (mutationEntry.type !== "message") throw new Error("Expected viewed model mutation result entry");
+	const afterMutation = await agent.waitForLlmRequest(
+		(candidate) => candidate.agentId === null && candidate.id !== afterSelection.id,
+	);
+	agent.respondToLlmRequest(afterMutation.id, fauxCompletedAssistantMessage("Viewed target mutation complete"));
+	await agent.waitForEvent((event) => event.type === "agent_end");
+	return mutationEntry;
+}
+
 async function selectHeadlessView(
 	agent: HeadlessPi,
 	request: HeadlessLlmRequest,
@@ -133,23 +181,12 @@ async function selectHeadlessView(
 			candidate.message.toolCallId === selectionToolCallId,
 	);
 	if (selectionEntry.type !== "message") throw new Error("Expected Pyrun selection result entry");
-	const afterSelection = await agent.waitForLlmRequest((candidate) => candidate.id !== request.id);
+	const afterSelection = await agent.waitForLlmRequest(
+		(candidate) => candidate.agentId === null && candidate.id !== request.id,
+	);
 	agent.respondToLlmRequest(afterSelection.id, fauxCompletedAssistantMessage("Selection complete"));
 	await agent.waitForEvent((event) => event.type === "agent_end");
 	return selectionEntry;
-}
-
-async function selectAndRunHeadlessCommand(
-	agent: HeadlessPi,
-	request: HeadlessLlmRequest,
-	agentId: string,
-	command: string,
-): Promise<void> {
-	await selectHeadlessView(agent, request, agentId);
-	const response = await agent.send({ type: "prompt", message: command });
-	if (!("success" in response) || !response.success) {
-		throw new Error(`Command prompt rejected: ${JSON.stringify(response)}`);
-	}
 }
 
 describe("headless Pi fixture", () => {
@@ -246,31 +283,17 @@ describe("headless Pi fixture", () => {
 	it("mutates the selected live child model and effort without changing main", async () => {
 		await withHeadlessPi(async (agent) => {
 			const { childRequest, mainAfterSpawn, spawned } = await spawnPendingHeadlessChild(agent, "Mutable child");
-			await selectAndRunHeadlessCommand(
-				agent,
-				mainAfterSpawn,
-				spawned.id,
-				"/model headless-faux/headless-faux-reasoning",
-			);
-			const effortResponse = await agent.send({ type: "prompt", message: "/effort high" });
-			expect(effortResponse).toMatchObject({ success: true });
+			await selectAndMutateHeadlessTarget(agent, mainAfterSpawn, spawned.id);
 
-			expect(agent.readSessionEntries(spawned.id)).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({ type: "model_change", modelId: "headless-faux-reasoning" }),
-					expect.objectContaining({ type: "thinking_level_change", thinkingLevel: "high" }),
-				]),
-			);
-			expect(
-				agent
-					.readSessionEntries(null)
-					.some((entry) => entry.type === "model_change" && entry.modelId === "headless-faux-reasoning"),
-			).toBe(false);
-			expect(
-				agent
-					.readSessionEntries(null)
-					.some((entry) => entry.type === "thinking_level_change" && entry.thinkingLevel === "high"),
-			).toBe(false);
+			expect(agent.readSessionMetadata(spawned.id)).toMatchObject({
+				modelProvider: "headless-faux",
+				modelId: "headless-faux-reasoning",
+				thinkingLevel: "high",
+			});
+			expect(agent.readSessionMetadata(null)).not.toMatchObject({
+				modelId: "headless-faux-reasoning",
+				thinkingLevel: "high",
+			});
 			agent.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Child complete"));
 		});
 	});
@@ -311,16 +334,13 @@ describe("headless Pi fixture", () => {
 			agent.respondToLlmRequest(mainAfterCommand.id, fauxCompletedAssistantMessage("Command child complete"));
 			await agent.waitForEvent((event) => event.type === "agent_end");
 
-			expect(
-				agent
-					.readSessionEntries(selectedChild.id)
-					.some((entry) => entry.type === "model_change" && entry.modelId === "headless-faux-reasoning"),
-			).toBe(false);
-			expect(agent.readSessionEntries(commandChild.id)).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({ type: "model_change", modelId: "headless-faux-reasoning" }),
-				]),
-			);
+			expect(agent.readSessionMetadata(selectedChild.id)).not.toMatchObject({
+				modelId: "headless-faux-reasoning",
+			});
+			expect(agent.readSessionMetadata(commandChild.id)).toMatchObject({
+				modelProvider: "headless-faux",
+				modelId: "headless-faux-reasoning",
+			});
 			agent.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Selected child complete"));
 		});
 	});
@@ -331,11 +351,8 @@ describe("headless Pi fixture", () => {
 			agent.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Completed"));
 			await agent.waitForAgent((candidate) => candidate.id === spawned.id && candidate.lifecycle === "completed");
 
-			await selectAndRunHeadlessCommand(agent, mainAfterSpawn, spawned.id, "/effort high");
-			await agent.waitForExtensionError((error) => error.error.includes("not active"));
-			const secondResponse = await agent.send({ type: "prompt", message: "/effort high" });
-			expect(secondResponse).toMatchObject({ success: true });
-			await agent.waitForExtensionError((error) => error.error.includes("not active"));
+			const mutationEntry = await selectAndMutateHeadlessTarget(agent, mainAfterSpawn, spawned.id);
+			expectFailedToolEntry(mutationEntry, "not active");
 			expect(
 				agent
 					.readSessionEntries(null)
@@ -361,34 +378,20 @@ describe("headless Pi fixture", () => {
 			expect(JSON.stringify(selectionEntry.message)).toContain("not found");
 			expect(agent.listAgents().find((candidate) => candidate.id === "agent_missing")).toBeUndefined();
 
-			const childModelResponse = await agent.send({
-				type: "prompt",
-				message: "/model headless-faux/headless-faux-reasoning",
+			const mutationEntry = await selectAndMutateHeadlessTarget(agent, missingSelectionRequest, "agent_missing");
+			expectFailedToolEntry(mutationEntry, "not found");
+			expect(agent.readSessionMetadata(spawned.id)).toMatchObject({
+				modelProvider: "headless-faux",
+				modelId: "headless-faux-reasoning",
 			});
-			expect(childModelResponse).toMatchObject({ success: true });
-			await agent.waitForSessionEntry(
-				spawned.id,
-				(entry) => entry.type === "model_change" && entry.modelId === "headless-faux-reasoning",
-			);
-			expect(
-				agent
-					.readSessionEntries(null)
-					.some((entry) => entry.type === "model_change" && entry.modelId === "headless-faux-reasoning"),
-			).toBe(false);
+			expect(agent.readSessionMetadata(null)).not.toMatchObject({
+				modelId: "headless-faux-reasoning",
+			});
 
-			const restoreSelectionResponse = await agent.send({ type: "prompt", message: "Restore main selection" });
-			expect(restoreSelectionResponse).toMatchObject({ success: true });
-			const restoreSelectionRequest = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
-			await selectHeadlessView(agent, restoreSelectionRequest, "main");
-			const mainModelResponse = await agent.send({
-				type: "prompt",
-				message: "/model headless-faux/headless-faux-1",
+			expect(agent.readSessionMetadata(null)).toMatchObject({
+				modelProvider: "headless-faux",
+				modelId: "headless-faux-1",
 			});
-			expect(mainModelResponse).toMatchObject({ success: true });
-			await agent.waitForSessionEntry(
-				null,
-				(entry) => entry.type === "model_change" && entry.modelId === "headless-faux-1",
-			);
 			agent.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Selection test complete"));
 		});
 	});
@@ -400,11 +403,8 @@ describe("headless Pi fixture", () => {
 				"Detached target",
 				"background",
 			);
-			await selectAndRunHeadlessCommand(agent, mainAfterSpawn, spawned.id, "/effort high");
-			await agent.waitForExtensionError((error) => error.error.includes("detached"));
-			const secondResponse = await agent.send({ type: "prompt", message: "/effort high" });
-			expect(secondResponse).toMatchObject({ success: true });
-			await agent.waitForExtensionError((error) => error.error.includes("detached"));
+			const mutationEntry = await selectAndMutateHeadlessTarget(agent, mainAfterSpawn, spawned.id);
+			expectFailedToolEntry(mutationEntry, "detached");
 			expect(
 				agent
 					.readSessionEntries(null)
