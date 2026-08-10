@@ -1,3 +1,4 @@
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
@@ -221,7 +222,146 @@ async function replayInterruptedCall(
 	});
 }
 
+function writeImmediatePyrunRunner(root: string): string {
+	const runnerPath = join(root, "immediate-pyrun.mjs");
+	writeFileSync(
+		runnerPath,
+		[
+			"#!/usr/bin/env node",
+			"import { createInterface } from 'node:readline';",
+			"const lines = createInterface({ input: process.stdin });",
+			"for await (const line of lines) {",
+			"  const request = JSON.parse(line);",
+			"  process.stdout.write(JSON.stringify({ type: 'completed', executed: request.code, value: 42 }) + '\\n');",
+			"}",
+		].join("\n"),
+	);
+	chmodSync(runnerPath, 0o700);
+	return runnerPath;
+}
+
+function createCompletedHistoryReadProbe(input: {
+	artifactRoot: string;
+	controlDbPath: string;
+	ctx: ExtensionContext;
+	sessionPath: string;
+}): { helper: ChildProcess; markerPath: string } {
+	const templatePath = join(dirname(input.artifactRoot), "historical-launch.json");
+	const historicalArtifacts = {
+		directory: join(dirname(input.artifactRoot), "historical-artifacts"),
+		outputPath: join(dirname(input.artifactRoot), "historical-output.log"),
+	};
+	writeDetachedPyrunLaunchManifest(templatePath, {
+		activationPath: join(dirname(input.artifactRoot), "historical-activation.json"),
+		artifacts: historicalArtifacts,
+		bridgeRequestPath: join(dirname(input.artifactRoot), "historical-bridge-requests.jsonl"),
+		bridgeResponsePath: join(dirname(input.artifactRoot), "historical-bridge-responses.jsonl"),
+		controlDbPath: input.controlDbPath,
+		foregroundCompletionPath: join(dirname(input.artifactRoot), "historical-foreground-completed"),
+		params: createCanonicalPyrunEvalParams({ code: "historical completed code" }, input.ctx, false),
+		runnerAddress: { agentId: "historical-completed-agent", sessionId: input.ctx.sessionManager.getSessionId() },
+		runnerOptions: { command: "unused" },
+		runnerProcessIdentity: { ...CURRENT_PROCESS_IDENTITY, startTimeTicks: CURRENT_PROCESS_IDENTITY.startTimeTicks + 1 },
+		sessionPath: input.sessionPath,
+		startedAt: 1,
+		supervisorProcessIdentity: CURRENT_PROCESS_IDENTITY,
+		toolCallId: "historical-completed-call",
+	});
+	const manifest = readFileSync(templatePath, "utf8");
+	for (let index = 0; index < 2_047; index += 1) {
+		const directory = join(input.artifactRoot, `completed-${index.toString().padStart(4, "0")}`);
+		mkdirSync(directory, { recursive: true });
+		writeFileSync(join(directory, "foreground-completed"), "completed\n");
+		writeFileSync(join(directory, "launch.json"), manifest);
+	}
+
+	const sentinelDirectory = join(input.artifactRoot, "completed-sentinel");
+	mkdirSync(sentinelDirectory, { recursive: true });
+	writeFileSync(join(sentinelDirectory, "foreground-completed"), "completed\n");
+	const sentinelManifestPath = join(sentinelDirectory, "launch.json");
+	const mkfifo = spawnSync("mkfifo", [sentinelManifestPath], { encoding: "utf8" });
+	if (mkfifo.status !== 0) throw new Error(`Could not create history read probe: ${mkfifo.stderr}`);
+	const markerPath = join(dirname(input.artifactRoot), "historical-launch-read");
+	const helperPath = join(dirname(input.artifactRoot), "historical-launch-writer.mjs");
+	writeFileSync(
+		helperPath,
+		[
+			'import { closeSync, openSync, writeFileSync, writeSync } from "node:fs";',
+			"const [fifoPath, markerPath, encodedManifest] = process.argv.slice(2);",
+			'const descriptor = openSync(fifoPath, "w");',
+			'writeSync(descriptor, Buffer.from(encodedManifest, "base64"));',
+			"closeSync(descriptor);",
+			'writeFileSync(markerPath, "read\\n");',
+		].join("\n"),
+	);
+	const helper = spawn(process.execPath, [helperPath, sentinelManifestPath, markerPath, Buffer.from(manifest).toString("base64")], {
+		stdio: "ignore",
+	});
+	return { helper, markerPath };
+}
+
+async function stopHistoryReadProbe(helper: ChildProcess): Promise<void> {
+	if (helper.exitCode !== null || helper.signalCode !== null) return;
+	const exited = new Promise<void>((resolve) => helper.once("exit", () => resolve()));
+	helper.kill("SIGKILL");
+	await exited;
+}
+
 describe("resuming durable Pyrun artifacts", () => {
+	it.skipIf(process.platform === "win32")(
+		"opens only the known agent artifact when thousands of completed jobs exist",
+		async () => {
+			const root = mkdtempSync(join(tmpdir(), "pi-pyrun-direct-agent-id-"));
+			temporaryDirectories.push(root);
+			const sessionManager = SessionManager.create(root, join(root, "sessions"));
+			const controlDbPath = getControlDbPath(root);
+			sessionManager.setMetadataControlDbPath(controlDbPath);
+			const sessionPath = sessionManager.getSessionFile();
+			if (!sessionPath) throw new Error("Expected persisted Pyrun test session");
+			const store = new MultiAgentStore();
+			store.setPersistenceSessionManager(sessionManager);
+			const ctx = {
+				controlDbPath,
+				cwd: root,
+				footerData: undefined,
+				getContextUsage: () => undefined,
+				model: undefined,
+				sessionManager,
+				toolExecutionStartedAt: Date.now(),
+			} as unknown as ExtensionContext;
+			const artifactRoot = join(
+				dirname(sessionPath),
+				"detached-jobs",
+				basename(sessionPath, extname(sessionPath)),
+			);
+			mkdirSync(artifactRoot, { recursive: true });
+			const probe = createCompletedHistoryReadProbe({ artifactRoot, controlDbPath, ctx, sessionPath });
+
+			try {
+				const result = await runDurableDetachablePyrunEvaluation({
+					agentId: "fresh-direct-agent",
+					ctx,
+					detachRegistry: new ToolDetachRegistry(),
+					dispatchPiRequest: () => {
+						throw new Error("Pi bridge disabled");
+					},
+					params: { code: "6 * 7" },
+					piBridgeEnabled: false,
+					runnerOptions: { command: writeImmediatePyrunRunner(root) },
+					store,
+					toolCallId: "fresh-direct-call",
+				});
+				await new Promise((resolve) => setTimeout(resolve, 50));
+
+				expect(result).toMatchObject({ details: { type: "completed", value: 42 } });
+				expect(existsSync(probe.markerPath)).toBe(false);
+				expect(existsSync(join(artifactRoot, "fresh-direct-agent", "launch.json"))).toBe(true);
+			} finally {
+				await stopHistoryReadProbe(probe.helper);
+			}
+		},
+		15_000,
+	);
 	it("replays a complete terminal result without launching replacement code", async () => {
 		const output = [
 			JSON.stringify({ kind: "progress", update: { stream: "stdout", text: "streamed output\n", type: "console" } }),
