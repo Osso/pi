@@ -4,7 +4,7 @@
 
 ### Breaking Changes
 
-- Changed OpenAI Codex `auto` transport to surface WebSocket failures instead of falling back to SSE; explicit `transport: "sse"` remains available. Removed the fallback-only `sseFallbacks` and `websocketFallbackActive` fields from `OpenAICodexWebSocketDebugStats`.
+- Changed OpenAI Codex `auto`, `websocket`, and `websocket-cached` transports to surface WebSocket failures instead of falling back to SSE; explicit `transport: "sse"` remains available. Removed the fallback-only `sseFallbacks` and `websocketFallbackActive` fields from `OpenAICodexWebSocketDebugStats`.
 
 ### Changed
 
