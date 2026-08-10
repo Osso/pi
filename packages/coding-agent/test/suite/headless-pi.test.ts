@@ -378,7 +378,10 @@ describe("headless Pi fixture", () => {
 			expect(JSON.stringify(selectionEntry.message)).toContain("not found");
 			expect(agent.listAgents().find((candidate) => candidate.id === "agent_missing")).toBeUndefined();
 
-			const mutationEntry = await selectAndMutateHeadlessTarget(agent, missingSelectionRequest, "agent_missing");
+			const mutationPromptResponse = await agent.send({ type: "prompt", message: "Mutate the selected target" });
+			expect(mutationPromptResponse).toMatchObject({ success: true });
+			const mutationRequest = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
+			const mutationEntry = await selectAndMutateHeadlessTarget(agent, mutationRequest, "agent_missing");
 			expectFailedToolEntry(mutationEntry, "not found");
 			expect(agent.readSessionMetadata(spawned.id)).toMatchObject({
 				modelProvider: "headless-faux",
