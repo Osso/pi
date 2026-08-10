@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it, vi } from "vitest";
@@ -29,6 +29,46 @@ function fauxCompletedAssistantMessage(text: string): ReturnType<typeof fauxAssi
 	return fauxAssistantMessage([{ type: "text", text }, fauxToolCall("end_turn", { reason: text })], {
 		stopReason: "toolUse",
 	});
+}
+
+type ControlDbDescriptorMapping = Readonly<Record<string, string>>;
+
+function readDetachedPyrunManifest(sessionDir: string, agentId: string): DetachedPyrunLaunchManifest | undefined {
+	const manifestPaths = readdirSync(sessionDir, { recursive: true })
+		.filter((path): path is string => typeof path === "string" && path.endsWith("launch.json"))
+		.map((path) => join(sessionDir, path));
+	for (const manifestPath of manifestPaths) {
+		const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as DetachedPyrunLaunchManifest;
+		if (manifest.runnerAddress.agentId === agentId) return manifest;
+	}
+	return undefined;
+}
+
+function readControlDbDescriptorMapping(
+	identity: ProcessIdentity,
+	controlDbPath: string,
+): ControlDbDescriptorMapping | undefined {
+	if (process.platform !== "linux" || !isProcessIdentityAlive(identity)) return undefined;
+	const expectedPaths = [controlDbPath, `${controlDbPath}-wal`, `${controlDbPath}-shm`];
+	const expectedPathSet = new Set(expectedPaths);
+	let descriptors: string[];
+	try {
+		descriptors = readdirSync(`/proc/${identity.pid}/fd`);
+	} catch {
+		return undefined;
+	}
+	const mapping: Record<string, string> = {};
+	for (const descriptor of descriptors) {
+		let target: string;
+		try {
+			target = readlinkSync(`/proc/${identity.pid}/fd/${descriptor}`);
+		} catch {
+			continue;
+		}
+		if (expectedPathSet.has(target)) mapping[target] = descriptor;
+	}
+	const hasCompleteDescriptorMapping = expectedPaths.every((path) => mapping[path] !== undefined);
+	return hasCompleteDescriptorMapping ? mapping : undefined;
 }
 
 async function waitForFileContent(path: string, expected: string): Promise<void> {
@@ -1807,31 +1847,26 @@ describe("headless Pi fixture", () => {
 					);
 					await waitForFileContent(beforePath, "before-restart\n");
 
-					let outputPath: string | undefined;
+					let manifest: DetachedPyrunLaunchManifest | undefined;
 					await vi.waitFor(() => {
-						const foundManifest = readdirSync(agent.paths.sessionDir, { recursive: true })
-							.filter((path): path is string => typeof path === "string" && path.endsWith("launch.json"))
-							.map((path) => join(agent.paths.sessionDir, path))
-							.some((path) => {
-								const manifest = JSON.parse(readFileSync(path, "utf8")) as {
-									artifacts?: { outputPath?: string };
-									runnerAddress?: { agentId?: string };
-									runnerProcessIdentity?: ProcessIdentity;
-								};
-								if (manifest.runnerAddress?.agentId !== backgroundJobId) return false;
-								outputPath = manifest.artifacts?.outputPath;
-								runnerIdentity = manifest.runnerProcessIdentity;
-								return outputPath !== undefined && runnerIdentity !== undefined;
-							});
-						expect(foundManifest).toBe(true);
+						manifest = readDetachedPyrunManifest(agent.paths.sessionDir, backgroundJobId);
+						expect(manifest).toBeDefined();
 					});
-					if (!outputPath) throw new Error("Detached Pyrun output path not found");
-					if (!runnerIdentity) throw new Error("Detached Pyrun runner identity not found");
-					const exactOutputPath = outputPath;
-					const exactRunnerIdentity = runnerIdentity;
+					if (!manifest) throw new Error("Detached Pyrun launch manifest not found");
+					const exactOutputPath = manifest.artifacts.outputPath;
+					const exactRunnerIdentity = manifest.runnerProcessIdentity;
+					const controlDbPath = manifest.controlDbPath;
+					runnerIdentity = exactRunnerIdentity;
 					const runnerPid = exactRunnerIdentity.pid;
 					expect(agent.getRunnerPid(backgroundJobId)).toBe(runnerPid);
 					expect(isProcessIdentityAlive(exactRunnerIdentity)).toBe(true);
+					let descriptorMapping: ControlDbDescriptorMapping | undefined;
+					if (process.platform === "linux") {
+						await vi.waitFor(() => {
+							descriptorMapping = readControlDbDescriptorMapping(exactRunnerIdentity, controlDbPath);
+							expect(descriptorMapping).toBeDefined();
+						});
+					}
 					await vi.waitFor(() => {
 						expect(readFileSync(exactOutputPath, "utf8")).toContain("before-restart");
 					});
@@ -1839,6 +1874,11 @@ describe("headless Pi fixture", () => {
 					await agent.crash();
 					expect(isProcessIdentityAlive(exactRunnerIdentity)).toBe(true);
 					await agent.restart();
+					if (descriptorMapping) {
+						await vi.waitFor(() => {
+							expect(readControlDbDescriptorMapping(exactRunnerIdentity, controlDbPath)).toEqual(descriptorMapping);
+						});
+					}
 					const restoredJob = await agent.waitForAgent(
 						(candidate) => candidate.id === backgroundJobId && candidate.lifecycle === "running",
 					);
@@ -1875,6 +1915,9 @@ describe("headless Pi fixture", () => {
 					await vi.waitFor(() => {
 						expect(isProcessIdentityAlive(exactRunnerIdentity)).toBe(false);
 					});
+					if (descriptorMapping) {
+						expect(readControlDbDescriptorMapping(exactRunnerIdentity, controlDbPath)).toBeUndefined();
+					}
 				} finally {
 					const cleanupIdentity = runnerIdentity;
 					if (cleanupIdentity && isProcessIdentityAlive(cleanupIdentity)) {
