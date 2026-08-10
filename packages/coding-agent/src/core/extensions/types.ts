@@ -539,8 +539,8 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 	/** Prepare durable execution metadata before the assistant tool call is persisted. */
 	prepareExecution?(
 		toolCallId: string,
+		signal: AbortSignal | undefined,
 		ctx: ExtensionContext,
-		signal?: AbortSignal,
 	): ToolCallExecution | undefined | Promise<ToolCallExecution | undefined>;
 
 	/**

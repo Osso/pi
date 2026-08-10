@@ -1633,9 +1633,11 @@ describe("headless Pi fixture", () => {
 
 			await agent.crash();
 			await agent.restart();
-			await agent.waitForEvent((event) => event.type === "tool_execution_start").catch((error: unknown) => {
-				throw new Error(`Timed out waiting for restored Pyrun execution start: ${String(error)}`);
-			});
+			await agent
+				.waitForEvent((event) => event.type === "tool_execution_start")
+				.catch((error: unknown) => {
+					throw new Error(`Timed out waiting for restored Pyrun execution start: ${String(error)}`);
+				});
 			await new Promise((resolve) => setTimeout(resolve, 200));
 			expect(readFileSync(attemptPath, "utf8")).toBe("x");
 			expect(agent.getPyrunRunnerPids()).toContain(originalPid);
@@ -1659,9 +1661,11 @@ describe("headless Pi fixture", () => {
 					{ stopReason: "toolUse" },
 				),
 			);
-			await agent.waitForEvent((event) => event.type === "agent_end").catch((error: unknown) => {
-				throw new Error(`Timed out waiting for restored Pyrun agent end: ${String(error)}`);
-			});
+			await agent
+				.waitForEvent((event) => event.type === "agent_end")
+				.catch((error: unknown) => {
+					throw new Error(`Timed out waiting for restored Pyrun agent end: ${String(error)}`);
+				});
 		});
 	});
 

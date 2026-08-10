@@ -57,7 +57,7 @@ describe("wrapToolDefinition", () => {
 				label: "Execution agent",
 				description: "Reads execution identity",
 				parameters: Type.Object({}),
-				prepareExecution(_toolCallId, ctx) {
+				prepareExecution(_toolCallId, _signal, ctx) {
 					preparationContext = ctx;
 					return { agentId: "known-agent" };
 				},

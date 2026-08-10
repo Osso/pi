@@ -106,7 +106,7 @@ export function wrapToolDefinition<TParams extends TSchema, TDetails = unknown>(
 		...(definition.prepareExecution
 			? {
 					prepareExecution: (toolCallId: string, signal?: AbortSignal) =>
-						definition.prepareExecution?.(toolCallId, createToolContext(ctxFactory), signal),
+						definition.prepareExecution?.(toolCallId, signal, createToolContext(ctxFactory)),
 				}
 			: {}),
 		executionMode: definition.executionMode,
@@ -147,7 +147,7 @@ export function createToolDefinitionFromAgentTool<TParams extends TSchema>(
 		prepareArguments: tool.prepareArguments,
 		...(tool.prepareExecution
 			? {
-					prepareExecution: (toolCallId: string, _ctx: ExtensionContext, signal?: AbortSignal) =>
+					prepareExecution: (toolCallId: string, signal: AbortSignal | undefined, _ctx: ExtensionContext) =>
 						tool.prepareExecution?.(toolCallId, signal),
 				}
 			: {}),
