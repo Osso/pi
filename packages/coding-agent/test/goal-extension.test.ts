@@ -231,6 +231,7 @@ function createGoalHarness(
 			getSubagentName: () => options?.subagentName,
 		},
 		isIdle: () => (typeof options?.idle === "function" ? options.idle() : (options?.idle ?? true)),
+		hasActiveRetry: () => false,
 		hasPendingMessages: () =>
 			typeof options?.hasPendingMessages === "function"
 				? options.hasPendingMessages()
