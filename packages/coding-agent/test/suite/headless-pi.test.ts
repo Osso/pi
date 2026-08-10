@@ -600,16 +600,26 @@ describe("headless Pi fixture", () => {
 			);
 			expect(JSON.stringify(waitResult)).toContain("Restart onto the deployed runtime");
 
-			agent.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Worker complete"));
-			await agent.waitForAgent(
-				(candidate) => candidate.displayName === "Waiting worker" && candidate.lifecycle === "completed",
-			);
 			const mainAfterWait = await agent.waitForLlmRequest(
-				(request) => request.agentId === null && request.id !== mainAfterSpawn.id,
+				(request) =>
+					request.agentId === null &&
+					request.id !== mainAfterSpawn.id &&
+					JSON.stringify(request.messages).includes("Restart onto the deployed runtime"),
 			);
 			const mainEnded = agent.waitForEvent((event) => event.type === "agent_end");
 			agent.respondToLlmRequest(mainAfterWait.id, fauxCompletedAssistantMessage("Shared-channel message handled"));
 			await mainEnded;
+
+			agent.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Worker complete"));
+			await agent.waitForAgent(
+				(candidate) => candidate.displayName === "Waiting worker" && candidate.lifecycle === "completed",
+			);
+			const completionRequest = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && JSON.stringify(request.messages).includes("Worker complete"),
+			);
+			const completionEnded = agent.waitForEvent((event) => event.type === "agent_end");
+			agent.respondToLlmRequest(completionRequest.id, fauxCompletedAssistantMessage("Worker report handled"));
+			await completionEnded;
 		});
 	});
 
