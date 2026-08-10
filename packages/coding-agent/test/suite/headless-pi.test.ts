@@ -1,4 +1,15 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	readlinkSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { createConnection, type Socket } from "node:net";
+import { tmpdir } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it, vi } from "vitest";
@@ -19,6 +30,7 @@ import {
 	cleanupHeadlessPiResources,
 	cleanupHeadlessRuntimeResources,
 	createHeadlessPaths,
+	createProviderServer,
 	type HeadlessLlmRequest,
 	type HeadlessPi,
 	runWithCleanup,
@@ -244,6 +256,36 @@ async function selectHeadlessView(
 }
 
 describe("headless Pi fixture", () => {
+	it("does not throw when a provider socket emits an expected ECONNRESET teardown error", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-headless-provider-error-"));
+		const socketPath = join(tempDir, "provider.sock");
+		let provider: Awaited<ReturnType<typeof createProviderServer>> | undefined;
+		let client: Socket | undefined;
+		try {
+			provider = await createProviderServer(socketPath, () => {});
+			const connectedClient = createConnection(socketPath);
+			client = connectedClient;
+			await new Promise<void>((resolve, reject) => {
+				connectedClient.once("connect", resolve);
+				connectedClient.once("error", reject);
+			});
+			const providerSocket = provider.getSocket();
+			if (!providerSocket) throw new Error("Provider server did not accept the test connection");
+			const resetError = Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
+			expect(() => providerSocket.emit("error", resetError)).not.toThrow();
+		} finally {
+			provider?.getSocket()?.destroy();
+			client?.destroy();
+			if (provider) {
+				const providerServer = provider.server;
+				await new Promise<void>((resolve, reject) => {
+					providerServer.close((error) => (error ? reject(error) : resolve()));
+				});
+			}
+			rmSync(tempDir, { recursive: true, force: true });
+		}
+	});
+
 	it("removes partial fixture state when path setup fails", () => {
 		const removeTempDir = vi.fn();
 		expect(() =>

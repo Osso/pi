@@ -248,7 +248,11 @@ interface ProviderServerControl {
 	getSocket: () => Socket | undefined;
 }
 
-async function createProviderServer(
+function throwUnexpectedProviderSocketError(error: Error): void {
+	if ((error as NodeJS.ErrnoException).code !== "ECONNRESET") throw error;
+}
+
+export async function createProviderServer(
 	socketPath: string,
 	recordRequest: (request: WireLlmRequest) => void,
 ): Promise<ProviderServerControl> {
@@ -256,6 +260,7 @@ async function createProviderServer(
 	let inputBuffer = "";
 	const server = createServer((socket) => {
 		providerSocket = socket;
+		socket.on("error", throwUnexpectedProviderSocketError);
 		socket.setEncoding("utf8");
 		socket.on("data", (chunk: string) => {
 			inputBuffer += chunk;
