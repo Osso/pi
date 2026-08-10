@@ -7,11 +7,16 @@ import { createHarness, getUserTexts, type Harness } from "./harness.ts";
 
 function goalTestExtension(pi: ExtensionAPI): void {
 	goalExtension(pi, {
-		reviewGoal: async ({ payload }) => ({
-			instructions: `Continue working toward this objective until it is achieved: ${String(payload.objective)}`,
-			kind: "continue",
-			reason: "test continuation",
-		}),
+		reviewGoal: async ({ kind, payload }) => {
+			if (kind === "goal_set_review") {
+				return { kind: "set", objective: String(payload.proposedObjective), reason: "test approval" };
+			}
+			return {
+				instructions: `Continue working toward this objective until it is achieved: ${String(payload.objective)}`,
+				kind: "continue",
+				reason: "test continuation",
+			};
+		},
 	});
 }
 
@@ -21,9 +26,15 @@ function readStoredGoal(harness: Harness): { objective: string; pausedAt?: strin
 	return JSON.parse(goalJson) as { objective: string };
 }
 
+function fauxCompletedAssistantMessage(text: string): ReturnType<typeof fauxAssistantMessage> {
+	return fauxAssistantMessage([{ type: "text", text }, fauxToolCall("end_turn", { reason: text })], {
+		stopReason: "toolUse",
+	});
+}
+
 function createUiContext(): ExtensionUIContext {
 	return {
-		select: async () => undefined,
+		select: async () => "Allow once",
 		confirm: async () => false,
 		input: async () => undefined,
 		notify: () => {},
@@ -78,18 +89,33 @@ describe("goal extension runtime", () => {
 	it("continues a goal from agent_end without another user prompt", async () => {
 		const harness = await createHarness({ extensionFactories: [goalTestExtension], uiContext: createUiContext() });
 		harnesses.push(harness);
+		let continuedRequestMessages: unknown[] = [];
+		let markContinuedRequestStarted: (() => void) | undefined;
+		const continuedRequestStarted = new Promise<void>((resolve) => {
+			markContinuedRequestStarted = resolve;
+		});
 		harness.setResponses([
-			...Array.from({ length: 8 }, (_, index) => fauxAssistantMessage(`round ${index + 1}`)),
-			fauxAssistantMessage("   "),
+			fauxCompletedAssistantMessage("round 1"),
+			async (context, options) => {
+				continuedRequestMessages = context.messages;
+				markContinuedRequestStarted?.();
+				await new Promise<void>((resolve) => {
+					options?.signal?.addEventListener("abort", () => resolve(), { once: true });
+				});
+				return fauxAssistantMessage("Interrupted", { stopReason: "aborted" });
+			},
 		]);
 
 		await harness.session.prompt("/goal set say hello twice in two different rounds");
-		await waitForProviderCalls(harness, 9);
-
-		expect(harness.faux.state.callCount).toBe(9);
-		expect(JSON.stringify(harness.session.messages)).toContain(
-			"Continue working toward this objective until it is achieved: say hello twice in two different rounds",
-		);
+		await continuedRequestStarted;
+		try {
+			expect(harness.faux.state.callCount).toBe(2);
+			expect(JSON.stringify(continuedRequestMessages)).toContain(
+				"Continue working toward this objective until it is achieved: say hello twice in two different rounds",
+			);
+		} finally {
+			await harness.session.abort();
+		}
 	});
 
 	it("persists the reason when Supervisor pauses continuation for user input", async () => {
@@ -104,7 +130,7 @@ describe("goal extension runtime", () => {
 		harness.sessionManager.setSessionGoalJson(
 			JSON.stringify({ objective: "wait visibly", branch: "test", createdAt: new Date().toISOString() }),
 		);
-		harness.setResponses([fauxAssistantMessage("Guest sync resumed successfully.")]);
+		harness.setResponses([fauxCompletedAssistantMessage("Guest sync resumed successfully.")]);
 
 		await harness.session.prompt("resume guest sync");
 
@@ -216,7 +242,7 @@ describe("goal extension runtime", () => {
 		);
 		harness.setResponses([
 			fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" }),
-			fauxAssistantMessage("recovered"),
+			fauxCompletedAssistantMessage("recovered"),
 		]);
 
 		await harness.session.prompt("retry work");
@@ -324,9 +350,9 @@ describe("goal extension runtime", () => {
 			JSON.stringify({ objective: "keep going", branch: "test", createdAt: new Date().toISOString() }),
 		);
 		harness.setResponses([
-			fauxAssistantMessage("", { stopReason: "stop" }),
-			fauxAssistantMessage("interactive response"),
-			fauxAssistantMessage("stale timer continuation"),
+			fauxAssistantMessage("", { stopReason: "length" }),
+			fauxCompletedAssistantMessage("interactive response"),
+			fauxCompletedAssistantMessage("stale timer continuation"),
 		]);
 
 		await harness.session.prompt("initial work");

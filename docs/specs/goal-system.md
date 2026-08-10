@@ -50,7 +50,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] Running-goal idle reviews receive ordered exact user input and successful `end_turn` reasons as `conversationEvents`, omit `terminalTurn`, and consume the sent evidence before the next review.
 - [x] Explicitly paused goals accumulate ordered conversation events for review after resume; extension-generated input and failed `end_turn` calls are excluded.
 - [x] Conversation evidence survives Supervisor errors and stale or canceled reviews, and goal replacement, completion, or clear removes it.
-- [x] Deferred error status is canceled by a new agent turn or pending input; retry exhaustion or cancellation emits one durable reason after the session becomes idle.
+- [x] Deferred error status is canceled by a new agent turn or pending input; `ExtensionContext.hasActiveRetry()` remains true from retry start through settlement, so no terminal skip is reported while retry is active; retry exhaustion or cancellation emits one durable reason after the session becomes idle.
 - [x] Empty-response continuation polling is canceled by goal changes, pending input, and session shutdown.
 - [x] Agent aborts never persist paused state, including restart teardown and steering replacement; only explicit `/goal pause` or `manage_goal pause` actions may pause a goal.
 - [x] Goal continuation rechecks queued steering and follow-up input before and after asynchronous Supervisor review; initial transient pending state retries review after input drains, while input queued during review runs before any later continuation, does not increment the continuation counter, and preserves the reviewed decision until the session becomes idle or the schedule is canceled.
@@ -102,7 +102,8 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - `packages/coding-agent/test/goal-extension.test.ts` — regression coverage for first-party extension delivery, explicit `/goal set`, bare-objective rejection, reserved control-word rejection, `manage_goal`, paused-goal completion, view/pause/resume/clear, per-session goal isolation, replacement, objective length cap, context injection, continuation prompt state, footer status, start-on-set behavior, resume/reload/fork notification, running-goal resume continuation requests, corrupt/malformed goal state handling, completed-goal inactivity, `agent_end` continuation, ordered running and paused Supervisor conversation evidence, extension-generated and failed-event filtering, stale/error evidence preservation, lifecycle clearing, queued steering and aborts preserving the running goal, queued input arriving during Supervisor review, busy and pending-input guards, error-stop suppression, no numeric turn cap, empty-response retry eligibility and shutdown cancellation, budget flag rejection, legacy budget field ignorance, and removed replacement flag rejection.
 - `packages/coding-agent/test/default-footer-extension.test.ts` — default-footer rendering coverage for a dedicated goal status line and grouped non-goal statuses.
 - `packages/coding-agent/test/footer-width.test.ts` — core `FooterComponent` fallback coverage for a dedicated goal status line and grouped non-goal statuses.
-- `packages/coding-agent/test/suite/goal-extension-runtime.test.ts` — runtime coverage that setting a goal through `manage_goal` during an active turn queues and starts the required follow-up round.
+- `packages/coding-agent/test/suite/goal-extension-runtime.test.ts` — runtime coverage for active-turn goal replacement, agent-end continuation ordering, and retry-success cancellation of deferred error status.
+- `packages/coding-agent/test/goal-error-status-scheduling.test.ts` — deterministic timer coverage that active retry settlement gates terminal error status.
 - `packages/coding-agent/test/suite/headless-supervisor-systems.test.ts` — real-process coverage that active goals remain active across restart and Supervisor wait decisions while explicit paused state and accumulated conversation evidence survive restart byte-for-byte.
 - `packages/coding-agent/test/suite/resume-continuation-request.test.ts` — real-process coverage for one-shot extension-requested continuation.
 - `packages/coding-agent/test/suite/regressions/goal-messages-prompt-history.test.ts` — extension-origin goal messages remain excluded from editor prompt-history population.
@@ -116,6 +117,8 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - `packages/coding-agent/test/architect-service.test.ts` — resident Architect supervisor-only tool exclusion policy.
 - `packages/coding-agent/test/session-control-db.test.ts` — control SQLite metadata coverage for `goal_json`, `is_subagent`, and `subagent_name` columns.
 - `packages/coding-agent/test/supervisor-service.test.ts` — additive `goal_set_review` response parsing and Supervisor prompt contract.
+- `packages/coding-agent/test/goal-error-status-scheduling.test.ts` — active-retry gating for deferred terminal error status.
+- `packages/coding-agent/test/suite/goal-extension-runtime.test.ts` — agent-end continuation ordering and retry-success status cancellation.
 
 ## Known gaps (current cycle)
 

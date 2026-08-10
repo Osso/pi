@@ -142,6 +142,8 @@ import type { ProcessIdentity } from "./runtime-process.ts";
 const BUILT_IN_COMPACTION_DISABLED_MESSAGE =
 	"Built-in compaction is disabled; enable compaction or configure a compaction extension";
 
+type PostAgentRunContinuation = "normal" | "queued";
+
 function findLastUserText(messages: unknown[]): string | undefined {
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const message = messages[index];
@@ -1793,9 +1795,13 @@ export class AgentSession {
 		}
 	}
 
-	private async _continueAgentWithThinkingTimeout(): Promise<void> {
+	private async _continueAgentWithThinkingTimeout(processQueuedMessagesFirst = false): Promise<void> {
 		try {
-			await this.agent.continue();
+			if (processQueuedMessagesFirst) {
+				await this.agent.continue({ processQueuedMessagesFirst: true });
+			} else {
+				await this.agent.continue();
+			}
 		} catch (error) {
 			throw this._consumeThinkingPhaseTimeoutError() ?? error;
 		}
@@ -1804,8 +1810,10 @@ export class AgentSession {
 	}
 
 	private async _continuePostAgentRunsWhileHoldingTurnStartLock(): Promise<void> {
-		while (await this._handlePostAgentRun()) {
-			await this._continueAgentWithThinkingTimeout();
+		while (true) {
+			const continuationKind = await this._handlePostAgentRun();
+			if (continuationKind === undefined) return;
+			await this._continueAgentWithThinkingTimeout(continuationKind === "queued");
 		}
 	}
 
@@ -2402,10 +2410,11 @@ export class AgentSession {
 		if (this._disposed) return;
 		while (
 			await this._withTurnStartLock(async (release) => {
-				if (!(await this._handlePostAgentRun())) {
+				const continuationKind = await this._handlePostAgentRun();
+				if (continuationKind === undefined) {
 					return false;
 				}
-				const continuation = this._continueAgentWithThinkingTimeout();
+				const continuation = this._continueAgentWithThinkingTimeout(continuationKind === "queued");
 				release();
 				await continuation;
 				return true;
@@ -2435,43 +2444,38 @@ export class AgentSession {
 		throw new Error(formatNoApiKeyFoundMessage(this.model.provider));
 	}
 
-	private async _handlePostAgentRun(): Promise<boolean> {
-		if (this._disposed) return false;
-		const msg = this._lastAssistantMessage;
-		this._lastAssistantMessage = undefined;
-		if (!msg) {
-			return false;
-		}
+	private _finishExhaustedRetry(message: AssistantMessage): void {
+		if (message.stopReason !== "error" || this._retryAttempt === 0) return;
+		this._emit({
+			type: "auto_retry_end",
+			success: false,
+			attempt: this._retryAttempt,
+			finalError: message.errorMessage,
+		});
+		this._retryAttempt = 0;
+	}
 
-		if (await this._prepareQuotaFallback(msg)) {
-			return true;
-		}
-
-		if (this._isRetryableError(msg) && (await this._prepareRetry(msg))) {
-			return true;
-		}
-
-		if (msg.stopReason === "error" && this._retryAttempt > 0) {
-			this._emit({
-				type: "auto_retry_end",
-				success: false,
-				attempt: this._retryAttempt,
-				finalError: msg.errorMessage,
-			});
-			this._retryAttempt = 0;
-		}
-
-		if (await this._checkCompaction(msg)) {
-			return true;
-		}
-
+	private async _selectPostAgentRunContinuation(): Promise<PostAgentRunContinuation | undefined> {
 		// The agent loop drains both queues before emitting agent_end. Any messages
 		// here were queued by agent_end extension handlers and need a continuation.
-		if (this.agent.hasQueuedMessages()) {
-			return true;
-		}
+		if (this.agent.hasQueuedMessages()) return "queued";
+		const coordinationMessageReady = await this._drainRuntimeCoordinationMessages({
+			checkpoint: "next_model_call",
+			triggerIfIdle: false,
+		});
+		return coordinationMessageReady ? "normal" : undefined;
+	}
 
-		return this._drainRuntimeCoordinationMessages({ checkpoint: "next_model_call", triggerIfIdle: false });
+	private async _handlePostAgentRun(): Promise<PostAgentRunContinuation | undefined> {
+		if (this._disposed) return undefined;
+		const message = this._lastAssistantMessage;
+		this._lastAssistantMessage = undefined;
+		if (!message) return undefined;
+		if (await this._prepareQuotaFallback(message)) return "normal";
+		if (this._isRetryableError(message) && (await this._prepareRetry(message))) return "normal";
+		this._finishExhaustedRetry(message);
+		if (await this._checkCompaction(message)) return "normal";
+		return this._selectPostAgentRunContinuation();
 	}
 
 	/**
@@ -4836,6 +4840,7 @@ export class AgentSession {
 				getScopedModels: () => this.scopedModels,
 				getFooterData: () => this._extensionFooterData,
 				isIdle: () => !this.isStreaming,
+				hasActiveRetry: () => this.hasActiveRetry,
 				isProjectTrusted: () => this.settingsManager.isProjectTrusted(),
 				getSignal: () => this.agent.signal,
 				abort: () => {
@@ -5191,7 +5196,12 @@ export class AgentSession {
 		this._emit({ type: "provider_stream_retry", retry });
 	}
 
-	/** Whether auto-retry is currently in progress */
+	/** Whether an automatic retry attempt has started and has not yet settled. */
+	get hasActiveRetry(): boolean {
+		return this._retryAttempt > 0;
+	}
+
+	/** Whether auto-retry backoff sleep is currently in progress. */
 	get isRetrying(): boolean {
 		return this._retryAbortController !== undefined;
 	}

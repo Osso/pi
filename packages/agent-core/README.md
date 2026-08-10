@@ -132,14 +132,17 @@ When you use the `Agent` class, assistant `message_end` processing is treated as
 
 ### continue() Event Sequence
 
-`continue()` resumes from existing context without adding a new message. Use it for retries after errors.
+`continue()` resumes from existing context without adding a new message. Use it for retries after errors or to continue after a terminal tool-result tail. When an `agent_end` handler may have queued steering or follow-up messages, pass `processQueuedMessagesFirst: true` so those messages are processed before any blank continuation.
 
 ```typescript
 // After an error, retry from current state
 await agent.continue();
+
+// After agent_end handlers queued work, drain it before continuing blank
+await agent.continue({ processQueuedMessagesFirst: true });
 ```
 
-The last message in context must be `user` or `toolResult` (not `assistant`).
+`processQueuedMessagesFirst` changes only queue ordering; without queued messages, `continue()` resumes from the current transcript as before.
 
 ### Event Types
 

@@ -307,6 +307,7 @@ export class ExtensionRunner {
 	private getModel: () => Model<any> | undefined = () => undefined;
 	private getThinkingLevelFn: () => ThinkingLevel = () => "off";
 	private isIdleFn: () => boolean = () => true;
+	private hasActiveRetryFn: () => boolean = () => false;
 	private isProjectTrustedFn: () => boolean = () => true;
 	private getSignalFn: () => AbortSignal | undefined = () => undefined;
 	private waitForIdleFn: () => Promise<void> = async () => {};
@@ -401,6 +402,7 @@ export class ExtensionRunner {
 		this.getThinkingLevelFn = contextActions.getThinkingLevel ?? (() => "off");
 		this.getFooterData = contextActions.getFooterData ?? (() => undefined);
 		this.isIdleFn = contextActions.isIdle;
+		this.hasActiveRetryFn = contextActions.hasActiveRetry;
 		this.isProjectTrustedFn = contextActions.isProjectTrusted;
 		this.getSignalFn = contextActions.getSignal;
 		this.abortFn = contextActions.abort;
@@ -868,6 +870,10 @@ export class ExtensionRunner {
 			isIdle: () => {
 				runner.assertActive();
 				return runner.isIdleFn();
+			},
+			hasActiveRetry: () => {
+				runner.assertActive();
+				return runner.hasActiveRetryFn();
 			},
 			isProjectTrusted: () => {
 				runner.assertActive();

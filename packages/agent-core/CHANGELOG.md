@@ -13,6 +13,7 @@
 - Added an `onRetry` agent option forwarded to the stream function, mirroring `onPayload`/`onResponse`, so hosts can observe provider-internal retries.
 - Extended optional tool execution context with durable `agentId` metadata alongside the `startedAt` timestamp emitted by tool lifecycle events.
 - Added optional `AgentTool.prepareExecution` for preparing durable execution metadata before the assistant tool call is persisted.
+- Added optional `processQueuedMessagesFirst` handling to `Agent.continue()` so callers can drain steering and follow-up messages queued by `agent_end` handlers before a blank continuation.
 
 ### Fixed
 

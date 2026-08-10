@@ -369,6 +369,8 @@ export interface ExtensionContext {
 	getScopedModels?: () => ReadonlyArray<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 	/** Whether the agent is idle (not streaming) */
 	isIdle(): boolean;
+	/** Whether an automatic provider retry has started and has not yet settled. */
+	hasActiveRetry(): boolean;
 	/** Whether project-local trust is active for this context. */
 	isProjectTrusted(): boolean;
 	/** The current abort signal, or undefined when the agent is not streaming. */
@@ -1822,6 +1824,7 @@ export interface ExtensionContextActions {
 	getScopedModels?: () => ReadonlyArray<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 	getFooterData?: () => ReadonlyFooterDataProvider | undefined;
 	isIdle: () => boolean;
+	hasActiveRetry: () => boolean;
 	isProjectTrusted: () => boolean;
 	getSignal: () => AbortSignal | undefined;
 	abort: () => void;

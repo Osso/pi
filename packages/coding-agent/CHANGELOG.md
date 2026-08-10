@@ -55,6 +55,7 @@
 - Added an explicitly enabled privileged live-process JavaScript REPL: `/debug` opens an owner-only Unix socket, `pi debug attach <session-id>` attaches from another terminal, `/debug off` closes it, and the live `pi` root follows session replacement without captured stale runtime state.
 - Added `pi control restart --session-id <session-id>` to resolve a live session through the control DB and request an immediate same-session `SIGHUP` restart without manually finding its PID.
 - Added the systemd-supervised resident Supervisor service with durable priority requests, approval preemption, bounded project evidence, KB-backed project-family memory, and typed approval/goal decisions.
+- Added public `ExtensionContext.hasActiveRetry()`, which stays true from automatic retry start through retry settlement.
 - Added main-session-only `ask_supervisor` advisory requests with durable `supervisor_advisory` text responses, 4,000-character questions, optional 8,000-character context, a three-minute deadline, and lower priority than approval and goal reviews.
 - Added visible provider-internal retry and transport-fallback notices: a new `provider_stream_retry` session event is emitted when the provider retries a request or falls back to another transport, and interactive mode renders the attempt count, delay, and reason instead of an unchanged `Thinking...` spinner.
 - Added speculative background compaction caching at 70% context; generation is cache-only, normal compaction preserves later entries, rejects stale session identity, prevents overlap, and retains synchronous threshold/overflow fallback.
@@ -126,6 +127,8 @@
 ### Fixed
 
 - Fixed Envoy HTTP 507 request-buffer failures to use oversized-request overflow recovery: compact the context and retry once, without ordinary transient retry or repeated retries of the unchanged request.
+- Fixed `AgentSession` continuation after a terminal tool-result tail to process messages queued by `agent_end` handlers before issuing a blank continuation.
+- Fixed goal error-status scheduling to avoid reporting a terminal continuation skip while `ExtensionContext.hasActiveRetry()` is true; retry exhaustion or cancellation reports the settled reason instead.
 - Fixed resident Supervisor approval reviews reusing a prior user request for later tool calls; each review now reads the current agent-loop context.
 - Fixed read-only and workspace-write bwrap DNS when `/etc/resolv.conf` targets an otherwise unmounted path by mounting only its canonical target file read-only, without broad `/run` exposure.
 - Fixed read-only and workspace-write bwrap runner startup for symlinked script launchers with external absolute shebang interpreters by mounting the interpreter, Python virtual-environment metadata/site-packages, and external base-runtime paths read-only without rewriting the resolved launcher command.

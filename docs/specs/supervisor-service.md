@@ -86,7 +86,7 @@ The resident Supervisor is a systemd-supervised peer-unblocking policy engine th
 ### Goal idle review
 
 - [x] Preserve the goal extension's existing `agent_end` trigger and all existing guards exactly: the event already occurs after the tool loop reaches a terminal response with no further tool calls, and no redundant tool-call check may be added.
-- [x] Trigger `goal_idle_review` only at the current continuation point for a running goal, after pending-message, abort, error-stop, and empty-response handling.
+- [x] Trigger `goal_idle_review` only at the current continuation point for a running goal, after pending-message, abort, error-stop, and empty-response handling; deferred error status remains suppressed while `ExtensionContext.hasActiveRetry()` is true, and a terminal skip is reported only after retry settlement.
 - [x] Send ordered unconsumed user and successful `end_turn` conversation events to idle review without sending `terminalTurn`; explicitly paused goals retain their ordered events until review after resume.
 - [x] Exclude extension-generated input and failed `end_turn` calls, preserve conversation evidence across Supervisor errors and stale or canceled reviews, and consume it after an applied idle-review decision.
 - [x] Keep the goal running when queued interactive input interrupts the current turn; only an abort without pending input pauses it.
@@ -153,8 +153,10 @@ The resident Supervisor is a systemd-supervised peer-unblocking policy engine th
 - `packages/coding-agent/test/supervisor-service.test.ts` — advisory response contract and validation.
 - `packages/coding-agent/test/supervisor-approval-reviewer.test.ts`
 - `packages/coding-agent/test/list-sessions-broadcast-tools.test.ts` — main-session-only tool registration and access.
-- `packages/coding-agent/test/suite/headless-supervisor-systems.test.ts` — real-process advisory tool flow.
+- `packages/coding-agent/test/suite/headless-supervisor-systems.test.ts` — real-process advisory flow and Supervisor continuation delivery after terminal tool results.
 - `packages/coding-agent/test/goal-extension.test.ts` — ordered idle/completion conversation evidence, paused accumulation, filtering, preservation, consumption, and lifecycle clearing.
+- `packages/coding-agent/test/goal-error-status-scheduling.test.ts` — active-retry gating for deferred terminal error status.
+- `packages/coding-agent/test/suite/goal-extension-runtime.test.ts` — retry-success cancellation and agent-end continuation ordering.
 - `packages/coding-agent/test/suite/agent-session-model-extension.test.ts`
 - `packages/coding-agent/test/resident-console-command.test.ts`
 - `packages/coding-agent/test/resident-console-client.test.ts`

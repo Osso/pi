@@ -1019,9 +1019,16 @@ pi.on("tool_result", async (event, ctx) => {
 });
 ```
 
-### ctx.isIdle() / ctx.abort() / ctx.hasPendingMessages()
+### ctx.isIdle() / ctx.hasActiveRetry() / ctx.abort() / ctx.hasPendingMessages()
 
-Control flow helpers.
+Control flow helpers:
+
+- `ctx.isIdle()` reports whether the session is not streaming.
+- `ctx.hasActiveRetry()` reports whether an automatic provider retry has started and has not settled. It remains `true` from retry start through success, exhaustion, or cancellation.
+- `ctx.hasPendingMessages()` reports queued steering or follow-up input.
+- `ctx.abort()` interrupts the current agent operation.
+
+Use `ctx.hasActiveRetry()` when deferring terminal error status: do not report a retry-skippable terminal status while the retry is still active.
 
 ### ctx.shutdown()
 
