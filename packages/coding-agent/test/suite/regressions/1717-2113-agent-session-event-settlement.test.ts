@@ -39,6 +39,7 @@ describe("regressions #1717/#2113: agent session event settlement", () => {
 				},
 			],
 		});
+		harness.session.setActiveToolsByName(["echo"]);
 		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("echo", { text: "one" }), fauxToolCall("echo", { text: "two" })], {
@@ -82,6 +83,7 @@ describe("regressions #1717/#2113: agent session event settlement", () => {
 				},
 			],
 		});
+		harness.session.setActiveToolsByName(["echo"]);
 		harnesses.push(harness);
 		harness.setResponses([
 			fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
