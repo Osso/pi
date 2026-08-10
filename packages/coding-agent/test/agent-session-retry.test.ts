@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agent, type AgentEvent, type AgentTool } from "@earendil-works/pi-agent-core";
+import { fauxToolCall } from "@earendil-works/pi-ai";
 import { type AssistantMessage, type AssistantMessageEvent, EventStream, getModel } from "@earendil-works/pi-ai/compat";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -44,6 +45,14 @@ function createAssistantMessage(text: string, overrides?: Partial<AssistantMessa
 		timestamp: Date.now(),
 		...overrides,
 	};
+}
+
+function createCompletedAssistantMessage(text: string, overrides?: Partial<AssistantMessage>): AssistantMessage {
+	return createAssistantMessage(text, {
+		...overrides,
+		content: [{ type: "text", text }, fauxToolCall("end_turn", { reason: text })],
+		stopReason: "toolUse",
+	});
 }
 
 type SessionWithExtensionEmitHook = {
@@ -90,9 +99,9 @@ describe("AgentSession retry", () => {
 						stream.push({ type: "start", partial: msg });
 						stream.push({ type: "error", reason: "error", error: msg });
 					} else {
-						const msg = createAssistantMessage("Success");
+						const msg = createCompletedAssistantMessage("Success");
 						stream.push({ type: "start", partial: msg });
-						stream.push({ type: "done", reason: "stop", message: msg });
+						stream.push({ type: "done", reason: "toolUse", message: msg });
 					}
 				});
 				return stream;
@@ -187,9 +196,9 @@ describe("AgentSession retry", () => {
 					return;
 				}
 
-				const msg = createAssistantMessage("Recovered after retry");
+				const msg = createCompletedAssistantMessage("Recovered after retry");
 				stream.push({ type: "start", partial: msg });
-				stream.push({ type: "done", reason: "stop", message: msg });
+				stream.push({ type: "done", reason: "toolUse", message: msg });
 			});
 			return stream;
 		};
@@ -277,9 +286,9 @@ describe("AgentSession retry", () => {
 						stream.push({ type: "done", reason: "toolUse", message: msg });
 					} else {
 						// Third call (after tool result): final response
-						const msg = createAssistantMessage("Final answer.");
+						const msg = createCompletedAssistantMessage("Final answer.");
 						stream.push({ type: "start", partial: msg });
-						stream.push({ type: "done", reason: "stop", message: msg });
+						stream.push({ type: "done", reason: "toolUse", message: msg });
 					}
 				});
 				return stream;
@@ -339,13 +348,13 @@ describe("AgentSession retry", () => {
 						return;
 					}
 
-					const msg = createAssistantMessage("Recovered with paired account", {
+					const msg = createCompletedAssistantMessage("Recovered with paired account", {
 						api: "openai-codex-responses",
 						provider: activeModel.provider,
 						model: activeModel.id,
 					});
 					stream.push({ type: "start", partial: msg });
-					stream.push({ type: "done", reason: "stop", message: msg });
+					stream.push({ type: "done", reason: "toolUse", message: msg });
 				});
 				return stream;
 			},
