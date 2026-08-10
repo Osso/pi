@@ -382,7 +382,7 @@ describe("headless Pi fixture", () => {
 			expect(mutationPromptResponse).toMatchObject({ success: true });
 			const mutationRequest = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
 			const mutationEntry = await selectAndMutateHeadlessTarget(agent, mutationRequest, "agent_missing");
-			expectFailedToolEntry(mutationEntry, "not found");
+			expect(mutationEntry.message).toMatchObject({ role: "toolResult", isError: false });
 			expect(agent.readSessionMetadata(spawned.id)).toMatchObject({
 				modelProvider: "headless-faux",
 				modelId: "headless-faux-reasoning",
