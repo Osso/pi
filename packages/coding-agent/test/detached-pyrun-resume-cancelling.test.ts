@@ -21,6 +21,7 @@ import { SessionManager } from "../src/core/session-manager.ts";
 import { ToolDetachRegistry } from "../src/core/tool-detach-registry.ts";
 import { CURRENT_PROCESS_IDENTITY } from "./helpers/process-identity.ts";
 
+const COMPLETED_HISTORY_ARTIFACT_COUNT = 2_048;
 const temporaryDirectories: string[] = [];
 
 afterEach(() => {
@@ -240,24 +241,26 @@ function writeImmediatePyrunRunner(root: string): string {
 	return runnerPath;
 }
 
-function createCompletedHistoryReadProbe(input: {
+interface CompletedHistoryProbeInput {
 	artifactRoot: string;
 	controlDbPath: string;
 	ctx: ExtensionContext;
 	sessionPath: string;
-}): { helper: ChildProcess; markerPath: string } {
-	const templatePath = join(dirname(input.artifactRoot), "historical-launch.json");
-	const historicalArtifacts = {
-		directory: join(dirname(input.artifactRoot), "historical-artifacts"),
-		outputPath: join(dirname(input.artifactRoot), "historical-output.log"),
-	};
+}
+
+function writeHistoricalLaunchManifest(input: CompletedHistoryProbeInput): string {
+	const historyRoot = dirname(input.artifactRoot);
+	const templatePath = join(historyRoot, "historical-launch.json");
 	writeDetachedPyrunLaunchManifest(templatePath, {
-		activationPath: join(dirname(input.artifactRoot), "historical-activation.json"),
-		artifacts: historicalArtifacts,
-		bridgeRequestPath: join(dirname(input.artifactRoot), "historical-bridge-requests.jsonl"),
-		bridgeResponsePath: join(dirname(input.artifactRoot), "historical-bridge-responses.jsonl"),
+		activationPath: join(historyRoot, "historical-activation.json"),
+		artifacts: {
+			directory: join(historyRoot, "historical-artifacts"),
+			outputPath: join(historyRoot, "historical-output.log"),
+		},
+		bridgeRequestPath: join(historyRoot, "historical-bridge-requests.jsonl"),
+		bridgeResponsePath: join(historyRoot, "historical-bridge-responses.jsonl"),
 		controlDbPath: input.controlDbPath,
-		foregroundCompletionPath: join(dirname(input.artifactRoot), "historical-foreground-completed"),
+		foregroundCompletionPath: join(historyRoot, "historical-foreground-completed"),
 		params: createCanonicalPyrunEvalParams({ code: "historical completed code" }, input.ctx, false),
 		runnerAddress: { agentId: "historical-completed-agent", sessionId: input.ctx.sessionManager.getSessionId() },
 		runnerOptions: { command: "unused" },
@@ -267,22 +270,29 @@ function createCompletedHistoryReadProbe(input: {
 		supervisorProcessIdentity: CURRENT_PROCESS_IDENTITY,
 		toolCallId: "historical-completed-call",
 	});
-	const manifest = readFileSync(templatePath, "utf8");
-	for (let index = 0; index < 2_047; index += 1) {
-		const directory = join(input.artifactRoot, `completed-${index.toString().padStart(4, "0")}`);
+	return readFileSync(templatePath, "utf8");
+}
+
+function writeCompletedHistoryArtifacts(artifactRoot: string, manifest: string): string {
+	for (let index = 0; index < COMPLETED_HISTORY_ARTIFACT_COUNT - 1; index += 1) {
+		const directory = join(artifactRoot, `completed-${index.toString().padStart(4, "0")}`);
 		mkdirSync(directory, { recursive: true });
 		writeFileSync(join(directory, "foreground-completed"), "completed\n");
 		writeFileSync(join(directory, "launch.json"), manifest);
 	}
-
-	const sentinelDirectory = join(input.artifactRoot, "completed-sentinel");
+	const sentinelDirectory = join(artifactRoot, "completed-sentinel");
 	mkdirSync(sentinelDirectory, { recursive: true });
 	writeFileSync(join(sentinelDirectory, "foreground-completed"), "completed\n");
 	const sentinelManifestPath = join(sentinelDirectory, "launch.json");
 	const mkfifo = spawnSync("mkfifo", [sentinelManifestPath], { encoding: "utf8" });
 	if (mkfifo.status !== 0) throw new Error(`Could not create history read probe: ${mkfifo.stderr}`);
-	const markerPath = join(dirname(input.artifactRoot), "historical-launch-read");
-	const helperPath = join(dirname(input.artifactRoot), "historical-launch-writer.mjs");
+	return sentinelManifestPath;
+}
+
+function spawnHistoryReadProbe(artifactRoot: string, sentinelManifestPath: string, manifest: string) {
+	const historyRoot = dirname(artifactRoot);
+	const markerPath = join(historyRoot, "historical-launch-read");
+	const helperPath = join(historyRoot, "historical-launch-writer.mjs");
 	writeFileSync(
 		helperPath,
 		[
@@ -294,10 +304,20 @@ function createCompletedHistoryReadProbe(input: {
 			'writeFileSync(markerPath, "read\\n");',
 		].join("\n"),
 	);
-	const helper = spawn(process.execPath, [helperPath, sentinelManifestPath, markerPath, Buffer.from(manifest).toString("base64")], {
+	const encodedManifest = Buffer.from(manifest).toString("base64");
+	const helper = spawn(process.execPath, [helperPath, sentinelManifestPath, markerPath, encodedManifest], {
 		stdio: "ignore",
 	});
 	return { helper, markerPath };
+}
+
+function createCompletedHistoryReadProbe(input: CompletedHistoryProbeInput): {
+	helper: ChildProcess;
+	markerPath: string;
+} {
+	const manifest = writeHistoricalLaunchManifest(input);
+	const sentinelManifestPath = writeCompletedHistoryArtifacts(input.artifactRoot, manifest);
+	return spawnHistoryReadProbe(input.artifactRoot, sentinelManifestPath, manifest);
 }
 
 async function stopHistoryReadProbe(helper: ChildProcess): Promise<void> {
