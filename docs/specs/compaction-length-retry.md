@@ -33,6 +33,10 @@ works is described in [compaction](../../packages/coding-agent/docs/compaction.m
   truncated turn; the incoming prompt supersedes it (`willRetry: false`).
 - [x] At most one length-recovery attempt runs per truncated turn: a second consecutive
   `"length"`-stopped turn over the threshold compacts without resuming.
+- [x] Envoy HTTP 507 errors containing `exceeded request buffer limit while retrying upstream`
+  are classified as oversized-request overflow, not ordinary transient provider errors.
+  Overflow recovery compacts and retries the request once through the existing bounded
+  overflow path; a repeated 507 ends recovery without retrying the unchanged request again.
 - [x] The recovery attempt guard resets when an assistant message arrives with any stop reason
   other than `"length"` (including mid-turn tool-call messages), and on the next user prompt.
 - [ ] `"length"`-stopped turns with zero output tokens near the full context window are
@@ -61,8 +65,10 @@ works is described in [compaction](../../packages/coding-agent/docs/compaction.m
   - rejects content-filter incomplete events with their provider reason.
 - `packages/ai/test/openai-codex-stream.test.ts`
   - returns a `length` stop for max-output incomplete SSE responses.
+- `packages/ai/test/overflow.test.ts`
+  - classifies Envoy HTTP 507 retry-buffer exhaustion as oversized-request overflow.
 - `packages/ai/test/retry.test.ts`
-  - keeps legacy max-output and content-filter incomplete errors non-retryable while unknown incomplete errors remain retryable.
+  - keeps legacy max-output, content-filter incomplete, and HTTP 507 retry-buffer errors out of ordinary transient retry while unknown incomplete errors remain retryable.
 - `packages/coding-agent/test/suite/agent-session-retry-events.test.ts`
   - does not retry the legacy max-output error or consume the next response.
 - `packages/coding-agent/test/suite/agent-session-compaction.test.ts`
@@ -71,6 +77,7 @@ works is described in [compaction](../../packages/coding-agent/docs/compaction.m
   - "compacts and resumes a length-truncated turn"
   - "does not resume a second consecutive length-truncated turn"
   - "resets the length-recovery guard on the next user prompt"
+  - "compacts and retries request-buffer overflow without ordinary auto-retry"
 
 ## Known gaps (current cycle)
 

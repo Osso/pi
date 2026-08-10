@@ -73,6 +73,17 @@ describe("provider retry classification", () => {
 		).toBe(true);
 	});
 
+	it("does not retry upstream request buffer limit overflow errors", () => {
+		expect(
+			isRetryableAssistantError(
+				fauxAssistantMessage("", {
+					stopReason: "error",
+					errorMessage: "Error: exceeded request buffer limit while retrying upstream",
+				}),
+			),
+		).toBe(false);
+	});
+
 	it("keeps provider limit errors non-retryable", () => {
 		expect(
 			isRetryableAssistantError(

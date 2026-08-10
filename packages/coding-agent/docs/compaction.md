@@ -38,6 +38,8 @@ By default, `reserveTokens` is 16384 tokens (configurable in `~/.pi/agent/settin
 
 You can also trigger manually with `/compact [instructions]`, where optional instructions focus the summary.
 
+Overflow recovery treats Envoy HTTP 507 errors containing `exceeded request buffer limit while retrying upstream` as oversized-request overflow. Pi compacts the context and retries the interrupted request once through the bounded overflow path instead of ordinary transient-error retry; a repeated 507 is reported without retrying the unchanged request again.
+
 ### Disabling built-in compaction
 
 Set `compaction.enabled` to `false` in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json` to disable Pi's built-in local summarizer. The default is `true`, preserving the normal behavior.

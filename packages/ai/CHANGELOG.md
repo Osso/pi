@@ -13,6 +13,7 @@
 
 ### Fixed
 
+- Fixed Envoy HTTP 507 errors containing `exceeded request buffer limit while retrying upstream` to classify as oversized-request overflow instead of ordinary transient provider errors, allowing coding-agent to compact before its bounded retry.
 - Fixed OpenAI server processing errors to enter the normal transient-error retry path.
 - Fixed OpenAI Responses early stream endings to be classified as retryable provider errors ([#6727](https://github.com/earendil-works/pi/issues/6727)).
 - Fixed OpenAI Responses and Codex `response.incomplete` events with `incomplete_details.reason: "max_output_tokens"` to finalize as `stopReason: "length"` while preserving terminal response metadata instead of surfacing the legacy incomplete-response error.
