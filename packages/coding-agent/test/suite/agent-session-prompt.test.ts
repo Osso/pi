@@ -17,6 +17,8 @@ function fauxEndTurn(reason: string): ReturnType<typeof fauxAssistantMessage> {
 	return fauxAssistantMessage(fauxToolCall("end_turn", { reason }), { stopReason: "toolUse" });
 }
 
+const DUPLICATE_TURN_GUARD_TEXT = "You repeated the same response.";
+
 describe("AgentSession prompt characterization", () => {
 	const harnesses: Harness[] = [];
 	const tempDirs: string[] = [];
@@ -98,7 +100,7 @@ describe("AgentSession prompt characterization", () => {
 			fauxAssistantMessage("same response"),
 			(context) => {
 				const guardMessage = context.messages.find(
-					(message) => message.role === "user" && getMessageText(message).includes("end_turn"),
+					(message) => message.role === "user" && getMessageText(message).includes(DUPLICATE_TURN_GUARD_TEXT),
 				);
 				guardPrompt = guardMessage ? getMessageText(guardMessage) : "";
 				return fauxAssistantMessage(fauxToolCall("end_turn", { reason: "duplicate response detected" }), {
@@ -175,7 +177,7 @@ describe("AgentSession prompt characterization", () => {
 			fauxAssistantMessage("same response"),
 			(context) => {
 				sawGuard = context.messages.some(
-					(message) => message.role === "user" && getMessageText(message).includes("end_turn"),
+					(message) => message.role === "user" && getMessageText(message).includes(DUPLICATE_TURN_GUARD_TEXT),
 				);
 				return fauxAssistantMessage("child recovered");
 			},
@@ -203,7 +205,7 @@ describe("AgentSession prompt characterization", () => {
 			fauxAssistantMessage("same response"),
 			(context) => {
 				sawGuard = context.messages.some(
-					(message) => message.role === "user" && getMessageText(message).includes("end_turn"),
+					(message) => message.role === "user" && getMessageText(message).includes(DUPLICATE_TURN_GUARD_TEXT),
 				);
 				return fauxAssistantMessage("recovered");
 			},
@@ -230,7 +232,7 @@ describe("AgentSession prompt characterization", () => {
 			fauxAssistantMessage("second"),
 			(context) => {
 				sawGuard = context.messages.some(
-					(message) => message.role === "user" && getMessageText(message).includes("end_turn"),
+					(message) => message.role === "user" && getMessageText(message).includes(DUPLICATE_TURN_GUARD_TEXT),
 				);
 				return fauxAssistantMessage("third");
 			},
@@ -265,7 +267,7 @@ describe("AgentSession prompt characterization", () => {
 			fauxAssistantMessage(fauxToolCall("echo", { text: "tool output" }), { stopReason: "toolUse" }),
 			(context) => {
 				sawGuard = context.messages.some(
-					(message) => message.role === "user" && getMessageText(message).includes("end_turn"),
+					(message) => message.role === "user" && getMessageText(message).includes(DUPLICATE_TURN_GUARD_TEXT),
 				);
 				return fauxAssistantMessage("same response");
 			},
@@ -287,7 +289,7 @@ describe("AgentSession prompt characterization", () => {
 			fauxAssistantMessage("same response"),
 			(context) => {
 				sawGuard = context.messages.some(
-					(message) => message.role === "user" && getMessageText(message).includes("end_turn"),
+					(message) => message.role === "user" && getMessageText(message).includes(DUPLICATE_TURN_GUARD_TEXT),
 				);
 				return fauxAssistantMessage("same response");
 			},
