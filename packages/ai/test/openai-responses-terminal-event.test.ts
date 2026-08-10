@@ -156,6 +156,99 @@ async function* createFailedEvents(): AsyncIterable<ResponseStreamEvent> {
 	} as ResponseStreamEvent;
 }
 
+const RAW_CITATION_MARKER = "citeturn2search1";
+
+interface TextEventOptions {
+	text: string;
+	deltas: string[];
+	withWebSearchCall?: boolean;
+}
+
+interface ResponseTextResult {
+	streamedText: string;
+	finalText: string;
+}
+
+async function* createTextEvents(options: TextEventOptions): AsyncIterable<ResponseStreamEvent> {
+	let sequenceNumber = 0;
+	const messageOutputIndex = options.withWebSearchCall === false ? 0 : 1;
+
+	if (options.withWebSearchCall !== false) {
+		yield {
+			type: "response.output_item.added",
+			sequence_number: sequenceNumber++,
+			output_index: 0,
+			item: {
+				type: "web_search_call",
+				id: "ws_citation",
+				status: "completed",
+				action: { type: "search", query: "citation test" },
+			},
+		} as ResponseStreamEvent;
+	}
+
+	yield {
+		type: "response.output_item.added",
+		sequence_number: sequenceNumber++,
+		output_index: messageOutputIndex,
+		item: { type: "message", id: "msg_citation", role: "assistant", status: "in_progress", content: [] },
+	} as ResponseStreamEvent;
+
+	for (const delta of options.deltas) {
+		yield {
+			type: "response.output_text.delta",
+			sequence_number: sequenceNumber++,
+			output_index: messageOutputIndex,
+			content_index: 0,
+			item_id: "msg_citation",
+			delta,
+		} as ResponseStreamEvent;
+	}
+
+	yield {
+		type: "response.output_item.done",
+		sequence_number: sequenceNumber++,
+		output_index: messageOutputIndex,
+		item: {
+			type: "message",
+			id: "msg_citation",
+			role: "assistant",
+			status: "completed",
+			content: [{ type: "output_text", text: options.text, annotations: [] }],
+		},
+	} as ResponseStreamEvent;
+	yield {
+		type: "response.completed",
+		sequence_number: sequenceNumber,
+		response: { id: "resp_citation", status: "completed" },
+	} as ResponseStreamEvent;
+}
+
+async function collectResponseText(events: AsyncIterable<ResponseStreamEvent>): Promise<ResponseTextResult> {
+	const model = createModel();
+	const output = createOutput(model);
+	const stream = new AssistantMessageEventStream();
+	const streamedEvents: AssistantMessageEvent[] = [];
+	const consumeEvents = (async () => {
+		for await (const event of stream) streamedEvents.push(event);
+	})();
+
+	await processResponsesStream(events, output, stream, model);
+	stream.end();
+	await consumeEvents;
+
+	const textBlock = output.content.find((content) => content.type === "text");
+	if (!textBlock || textBlock.type !== "text") throw new Error("Expected a text response");
+
+	return {
+		streamedText: streamedEvents
+			.filter((event) => event.type === "text_delta")
+			.map((event) => event.delta)
+			.join(""),
+		finalText: textBlock.text,
+	};
+}
+
 describe("OpenAI Responses terminal event handling", () => {
 	it("rejects streams that end before a terminal response event", async () => {
 		const model = createModel();
@@ -242,5 +335,83 @@ describe("OpenAI Responses terminal event handling", () => {
 		await expect(processResponsesStream(createFailedEvents(), output, stream, model)).rejects.toThrow(
 			"server_error: boom",
 		);
+	});
+
+	it("removes a raw hosted-search citation marker from streamed and finalized text", async () => {
+		const readableText =
+			"Niri’s cursor setting also establishes XCURSOR_THEME and XCURSOR_SIZE for launched applications.";
+		const rawText = `${readableText} ${RAW_CITATION_MARKER}`;
+		const result = await collectResponseText(
+			createTextEvents({
+				text: rawText,
+				deltas: [`${readableText} `, "citeturn2search", "1"],
+			}),
+		);
+
+		expect(result.streamedText).toBe(readableText);
+		expect(result.finalText).toBe(readableText);
+	});
+
+	it("removes a citation marker split at every delta boundary", async () => {
+		const expectedText = "Before after.";
+		for (let splitIndex = 1; splitIndex < RAW_CITATION_MARKER.length; splitIndex++) {
+			const result = await collectResponseText(
+				createTextEvents({
+					text: `Before ${RAW_CITATION_MARKER} after.`,
+					deltas: [
+						`Before ${RAW_CITATION_MARKER.slice(0, splitIndex)}`,
+						`${RAW_CITATION_MARKER.slice(splitIndex)} after.`,
+					],
+				}),
+			);
+
+			expect(result.streamedText, `stream split at ${splitIndex}`).toBe(expectedText);
+			expect(result.finalText, `final split at ${splitIndex}`).toBe(expectedText);
+		}
+	});
+
+	it("preserves readable spacing around multiple and adjacent citation markers", async () => {
+		const rawText = `One.${RAW_CITATION_MARKER}${RAW_CITATION_MARKER}Two, ${RAW_CITATION_MARKER}three${RAW_CITATION_MARKER}four.`;
+		const result = await collectResponseText(createTextEvents({ text: rawText, deltas: [rawText] }));
+
+		expect(result.streamedText).toBe("One. Two, three four.");
+		expect(result.finalText).toBe("One. Two, three four.");
+	});
+
+	it("preserves incomplete, malformed, unrelated, and literal marker text", async () => {
+		const cases: Array<TextEventOptions & { name: string }> = [
+			{
+				name: "incomplete citation",
+				text: "Keep citeturn2search1",
+				deltas: ["Keep citeturn2", "search1"],
+			},
+			{
+				name: "malformed citation payload",
+				text: "Keep citenot-a-turn",
+				deltas: ["Keep citenot-a-turn"],
+			},
+			{
+				name: "URL citation payload",
+				text: "Keep citehttps://example.com",
+				deltas: ["Keep citehttps://example.com"],
+			},
+			{
+				name: "unrelated annotation",
+				text: "Keep noteturn2search1",
+				deltas: ["Keep noteturn2search1"],
+			},
+			{
+				name: "literal citation without hosted search",
+				text: `Keep ${RAW_CITATION_MARKER}`,
+				deltas: [`Keep ${RAW_CITATION_MARKER}`],
+				withWebSearchCall: false,
+			},
+		];
+
+		for (const testCase of cases) {
+			const result = await collectResponseText(createTextEvents(testCase));
+			expect(result.streamedText, `${testCase.name} streamed text`).toBe(testCase.text);
+			expect(result.finalText, `${testCase.name} final text`).toBe(testCase.text);
+		}
 	});
 });

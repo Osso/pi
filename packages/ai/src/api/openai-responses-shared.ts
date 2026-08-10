@@ -63,6 +63,146 @@ function parseTextSignature(
 	return { id: signature };
 }
 
+const RAW_ANNOTATION_START = "";
+const RAW_ANNOTATION_END = "";
+const RAW_ANNOTATION_SEPARATOR = "";
+const RAW_ANNOTATION_PATTERN = /[^]*/gu;
+const RAW_CITATION_PREFIX = `${RAW_ANNOTATION_START}cite${RAW_ANNOTATION_SEPARATOR}`;
+const RAW_CITATION_REFERENCE = /^turn\d+[A-Za-z][A-Za-z0-9_-]*\d+$/u;
+const NO_SPACE_BEFORE = new Set([".", ",", ";", ":", "!", "?", ")", "]", "}"]);
+const NO_SPACE_AFTER = new Set(["(", "[", "{"]);
+
+interface CitationTextState {
+	markerBuffer: string;
+	pendingWhitespace: string;
+	removedCitation: boolean;
+	lastCharacter?: string;
+}
+
+interface NormalizedCitationText {
+	state: CitationTextState;
+	text: string;
+}
+
+function createCitationTextState(lastCharacter?: string): CitationTextState {
+	return { markerBuffer: "", pendingWhitespace: "", removedCitation: false, lastCharacter };
+}
+
+function isRawHostedSearchCitation(marker: string): boolean {
+	if (!marker.startsWith(RAW_CITATION_PREFIX) || !marker.endsWith(RAW_ANNOTATION_END)) return false;
+	const payload = marker.slice(RAW_CITATION_PREFIX.length, -RAW_ANNOTATION_END.length);
+	const references = payload.split(RAW_ANNOTATION_SEPARATOR);
+	return references.length > 0 && references.every((reference) => RAW_CITATION_REFERENCE.test(reference));
+}
+
+function getCitationBoundarySeparator(lastCharacter: string | undefined, nextCharacter: string): string {
+	if (!lastCharacter || /\s/u.test(lastCharacter) || /\s/u.test(nextCharacter)) return "";
+	if (NO_SPACE_AFTER.has(lastCharacter) || NO_SPACE_BEFORE.has(nextCharacter)) return "";
+	return " ";
+}
+
+function appendVisibleCitationText(state: CitationTextState, text: string): NormalizedCitationText {
+	let pendingWhitespace = state.pendingWhitespace;
+	let removedCitation = state.removedCitation;
+	let lastCharacter = state.lastCharacter;
+	let normalizedText = "";
+
+	for (const character of text) {
+		if (character === " " || character === "\t") {
+			pendingWhitespace += character;
+			continue;
+		}
+
+		normalizedText += removedCitation ? getCitationBoundarySeparator(lastCharacter, character) : pendingWhitespace;
+		normalizedText += character;
+		pendingWhitespace = "";
+		removedCitation = false;
+		lastCharacter = character;
+	}
+
+	return {
+		state: { markerBuffer: state.markerBuffer, pendingWhitespace, removedCitation, lastCharacter },
+		text: normalizedText,
+	};
+}
+
+function findTrailingCitationBufferStart(text: string): number | undefined {
+	const markerStartIndex = text.lastIndexOf(RAW_ANNOTATION_START);
+	if (markerStartIndex === -1) return undefined;
+
+	const markerCandidate = text.slice(markerStartIndex);
+	if (markerCandidate.includes(RAW_ANNOTATION_END)) return undefined;
+
+	const couldBeCitation =
+		RAW_CITATION_PREFIX.startsWith(markerCandidate) || markerCandidate.startsWith(RAW_CITATION_PREFIX);
+	return couldBeCitation ? markerStartIndex : undefined;
+}
+
+function normalizeClosedCitationMarkers(state: CitationTextState, text: string): NormalizedCitationText {
+	let currentState = state;
+	let normalizedText = "";
+	let textOffset = 0;
+
+	for (const match of text.matchAll(RAW_ANNOTATION_PATTERN)) {
+		const markerStartIndex = match.index;
+		if (markerStartIndex === undefined) continue;
+
+		const visible = appendVisibleCitationText(currentState, text.slice(textOffset, markerStartIndex));
+		currentState = visible.state;
+		normalizedText += visible.text;
+
+		const marker = match[0];
+		if (isRawHostedSearchCitation(marker)) {
+			currentState = { ...currentState, removedCitation: true };
+		} else {
+			const preservedMarker = appendVisibleCitationText(currentState, marker);
+			currentState = preservedMarker.state;
+			normalizedText += preservedMarker.text;
+		}
+		textOffset = markerStartIndex + marker.length;
+	}
+
+	const trailingText = appendVisibleCitationText(currentState, text.slice(textOffset));
+	return { state: trailingText.state, text: normalizedText + trailingText.text };
+}
+
+function normalizeCitationTextDelta(state: CitationTextState, delta: string): NormalizedCitationText {
+	const combinedText = state.markerBuffer + delta;
+	const markerBufferStart = findTrailingCitationBufferStart(combinedText);
+	const stableText = markerBufferStart === undefined ? combinedText : combinedText.slice(0, markerBufferStart);
+	const markerBuffer = markerBufferStart === undefined ? "" : combinedText.slice(markerBufferStart);
+	const normalized = normalizeClosedCitationMarkers({ ...state, markerBuffer: "" }, stableText);
+	return { state: { ...normalized.state, markerBuffer }, text: normalized.text };
+}
+
+function finishCitationText(state: CitationTextState): NormalizedCitationText {
+	let currentState = { ...state, markerBuffer: "" };
+	let normalizedText = "";
+
+	if (state.markerBuffer.length > 0) {
+		const preservedBuffer = appendVisibleCitationText(currentState, state.markerBuffer);
+		currentState = preservedBuffer.state;
+		normalizedText = preservedBuffer.text;
+	}
+
+	if (currentState.removedCitation) {
+		return {
+			state: { ...currentState, pendingWhitespace: "", removedCitation: false },
+			text: normalizedText,
+		};
+	}
+
+	return {
+		state: { ...currentState, pendingWhitespace: "" },
+		text: normalizedText + currentState.pendingWhitespace,
+	};
+}
+
+function normalizeCitationText(text: string): string {
+	const normalized = normalizeCitationTextDelta(createCitationTextState(), text);
+	return normalized.text + finishCitationText(normalized.state).text;
+}
+
 export interface OpenAIResponsesStreamOptions {
 	serviceTier?: ResponseCreateParamsStreaming["service_tier"];
 	resolveServiceTier?: (
@@ -303,7 +443,7 @@ type StreamingToolCall = ToolCall & { partialJson: string };
 
 type ResponsesOutputSlot =
 	| { type: "thinking"; block: ThinkingContent; contentIndex: number }
-	| { type: "text"; block: TextContent; contentIndex: number }
+	| { type: "text"; block: TextContent; contentIndex: number; citationState?: CitationTextState }
 	| { type: "toolCall"; block: StreamingToolCall; contentIndex: number };
 
 export async function processResponsesStream<TApi extends Api>(
@@ -314,6 +454,7 @@ export async function processResponsesStream<TApi extends Api>(
 	options?: OpenAIResponsesStreamOptions,
 ): Promise<void> {
 	let sawTerminalResponseEvent = false;
+	let sawHostedWebSearchCall = false;
 	const outputSlots = new Map<number, ResponsesOutputSlot>();
 	const getSlot = <TType extends ResponsesOutputSlot["type"]>(
 		outputIndex: number,
@@ -366,6 +507,27 @@ export async function processResponsesStream<TApi extends Api>(
 	const getOrCreateSlot = (outputIndex: number, item: ResponseOutputItem): ResponsesOutputSlot | undefined => {
 		return outputSlots.get(outputIndex) ?? createSlot(outputIndex, item);
 	};
+	const emitTextDelta = (slot: Extract<ResponsesOutputSlot, { type: "text" }>, delta: string): void => {
+		if (delta.length === 0) return;
+		slot.block.text += delta;
+		stream.push({
+			type: "text_delta",
+			contentIndex: slot.contentIndex,
+			delta,
+			partial: output,
+		});
+	};
+	const appendProviderTextDelta = (slot: Extract<ResponsesOutputSlot, { type: "text" }>, delta: string): void => {
+		if (!sawHostedWebSearchCall) {
+			emitTextDelta(slot, delta);
+			return;
+		}
+
+		const citationState = slot.citationState ?? createCitationTextState(slot.block.text.at(-1));
+		const normalized = normalizeCitationTextDelta(citationState, delta);
+		slot.citationState = normalized.state;
+		emitTextDelta(slot, normalized.text);
+	};
 	const finalizeResponse = (
 		response: Extract<ResponseStreamEvent, { type: "response.completed" | "response.incomplete" }>["response"],
 	): void => {
@@ -410,6 +572,7 @@ export async function processResponsesStream<TApi extends Api>(
 		if (event.type === "response.created") {
 			output.responseId = event.response.id;
 		} else if (event.type === "response.output_item.added") {
+			if (event.item.type === "web_search_call") sawHostedWebSearchCall = true;
 			createSlot(event.output_index, event.item);
 		} else if (event.type === "response.reasoning_summary_text.delta") {
 			const slot = getSlot(event.output_index, "thinking");
@@ -444,23 +607,11 @@ export async function processResponsesStream<TApi extends Api>(
 		} else if (event.type === "response.output_text.delta") {
 			const slot = getSlot(event.output_index, "text");
 			if (!slot) continue;
-			slot.block.text += event.delta;
-			stream.push({
-				type: "text_delta",
-				contentIndex: slot.contentIndex,
-				delta: event.delta,
-				partial: output,
-			});
+			appendProviderTextDelta(slot, event.delta);
 		} else if (event.type === "response.refusal.delta") {
 			const slot = getSlot(event.output_index, "text");
 			if (!slot) continue;
-			slot.block.text += event.delta;
-			stream.push({
-				type: "text_delta",
-				contentIndex: slot.contentIndex,
-				delta: event.delta,
-				partial: output,
-			});
+			appendProviderTextDelta(slot, event.delta);
 		} else if (event.type === "response.function_call_arguments.delta") {
 			const slot = getSlot(event.output_index, "toolCall");
 			if (!slot) continue;
@@ -494,6 +645,7 @@ export async function processResponsesStream<TApi extends Api>(
 			output.imageGenerationResult = { type: "image", data: event.partial_image_b64, mimeType: "image/png" };
 		} else if (event.type === "response.output_item.done") {
 			const item = event.item;
+			if (item.type === "web_search_call") sawHostedWebSearchCall = true;
 			const slot = getOrCreateSlot(event.output_index, item);
 
 			if (item.type === "image_generation_call" && item.status === "completed" && item.result) {
@@ -511,7 +663,13 @@ export async function processResponsesStream<TApi extends Api>(
 				});
 				outputSlots.delete(event.output_index);
 			} else if (item.type === "message" && slot?.type === "text") {
-				slot.block.text = item.content?.map((c) => (c.type === "output_text" ? c.text : c.refusal)).join("") || "";
+				const providerText =
+					item.content?.map((c) => (c.type === "output_text" ? c.text : c.refusal)).join("") || "";
+				const completedText = sawHostedWebSearchCall ? normalizeCitationText(providerText) : providerText;
+				if (completedText.startsWith(slot.block.text)) {
+					emitTextDelta(slot, completedText.slice(slot.block.text.length));
+				}
+				slot.block.text = completedText;
 				slot.block.textSignature = encodeTextSignatureV1(item.id, item.phase ?? undefined);
 				stream.push({
 					type: "text_end",
