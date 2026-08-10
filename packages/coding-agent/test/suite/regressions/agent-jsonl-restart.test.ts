@@ -6,7 +6,17 @@ import {
 	readMultiAgentRuntimeOwnership,
 	readRuntimeMailboxListener,
 } from "../../../src/core/session-control-db.ts";
-import { withHeadlessPi } from "../headless-pi.ts";
+import { type HeadlessPi, withHeadlessPi } from "../headless-pi.ts";
+
+function fauxCompletedAssistantMessage(text: string): ReturnType<typeof fauxAssistantMessage> {
+	return fauxAssistantMessage([{ type: "text", text }, fauxToolCall("end_turn", { reason: text })], {
+		stopReason: "toolUse",
+	});
+}
+
+async function waitForGoalIdleReviewRequest(pi: HeadlessPi): Promise<void> {
+	await vi.waitFor(() => expect(pi.countSupervisorRequests("goal_idle_review")).toBe(1));
+}
 
 interface ParentAgentRecord {
 	type: "custom";
@@ -17,6 +27,14 @@ interface ParentAgentRecord {
 		lifecycle?: string;
 		transcriptPath?: string;
 	};
+}
+
+interface SessionLineRecord extends Record<string, unknown> {
+	id?: string;
+	parentId?: string | null;
+	type?: string;
+	customType?: string;
+	data?: { agentId?: string };
 }
 
 function readParentAgentRecord(
@@ -45,14 +63,26 @@ function readParentAgentRecord(
 }
 
 function removeParentAgentRecords(sessionFile: string, agentId: string): void {
-	const retained = readFileSync(sessionFile, "utf8")
+	const entries = readFileSync(sessionFile, "utf8")
 		.trimEnd()
 		.split("\n")
-		.filter((line) => {
-			const entry = JSON.parse(line) as Partial<ParentAgentRecord>;
-			return !(entry.type === "custom" && entry.data?.agentId === agentId);
+		.map((line) => JSON.parse(line) as SessionLineRecord);
+	const removedParents = new Map<string, string | null>();
+	for (const entry of entries) {
+		if (entry.type === "custom" && entry.data?.agentId === agentId && entry.id) {
+			removedParents.set(entry.id, entry.parentId ?? null);
+		}
+	}
+	const retained = entries
+		.filter((entry) => !(entry.type === "custom" && entry.data?.agentId === agentId))
+		.map((entry) => {
+			let parentId = entry.parentId;
+			while (typeof parentId === "string" && removedParents.has(parentId)) {
+				parentId = removedParents.get(parentId) ?? null;
+			}
+			return parentId === entry.parentId ? entry : { ...entry, parentId };
 		});
-	writeFileSync(sessionFile, `${retained.join("\n")}\n`, "utf8");
+	writeFileSync(sessionFile, `${retained.map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf8");
 }
 
 async function waitForParentAgentRecord(
@@ -114,9 +144,9 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			const mainAfterList = await pi.waitForLlmRequest(
 				(request) => request.agentId === null && request.id !== mainAfterSpawn.id,
 			);
-			pi.respondToLlmRequest(mainAfterList.id, fauxAssistantMessage("Child remains visible"));
+			pi.respondToLlmRequest(mainAfterList.id, fauxCompletedAssistantMessage("Child remains visible"));
 
-			pi.respondToLlmRequest(childRequest.id, fauxAssistantMessage("visibility complete"));
+			pi.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("visibility complete"));
 			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "completed");
 			await vi.waitFor(() => expect(readRuntimeMailboxListener(controlDbPath, childRecipient)).toBeUndefined());
 			expect(readRuntimeMailboxListener(controlDbPath, parentRecipient)).toBeDefined();
@@ -127,7 +157,7 @@ describe("sub-agent parent JSONL restart recovery", () => {
 					request.userMessages.some((message) => message.includes("visibility complete")),
 			);
 			expect(completionRequest.userMessages).toContainEqual(expect.stringContaining("visibility complete"));
-			pi.respondToLlmRequest(completionRequest.id, fauxAssistantMessage("Completion report received"));
+			pi.respondToLlmRequest(completionRequest.id, fauxCompletedAssistantMessage("Completion report received"));
 		});
 	});
 
@@ -172,14 +202,14 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			);
 			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "steering_pending");
 			expect(readRuntimeMailboxListener(controlDbPath, recipient)).toBeDefined();
-			pi.respondToLlmRequest(initialChildRequest.id, fauxAssistantMessage("Initial child turn complete"));
+			pi.respondToLlmRequest(initialChildRequest.id, fauxCompletedAssistantMessage("Initial child turn complete"));
 			const steeredRequest = await pi.waitForLlmRequest(
 				(request) => request.agentId === spawned.id && request.id !== initialChildRequest.id,
 			);
 			expect(steeredRequest.userMessages).toContainEqual(
 				expect.stringContaining("Apply this live steering message"),
 			);
-			pi.respondToLlmRequest(steeredRequest.id, fauxAssistantMessage("Steering delivered"));
+			pi.respondToLlmRequest(steeredRequest.id, fauxCompletedAssistantMessage("Steering delivered"));
 		});
 	});
 
@@ -210,7 +240,7 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			expect(pi.listAgents().find((agent) => agent.id === spawned.id)?.lifecycle).toBe("running");
 			expect(readRuntimeMailboxListener(controlDbPath, recipient)).toBeDefined();
 
-			pi.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Completed before steering"));
+			pi.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Completed before steering"));
 			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "completed");
 			expect(pi.listAgents().find((agent) => agent.id === spawned.id)?.lifecycle).toBe("completed");
 			await vi.waitFor(() => expect(readRuntimeMailboxListener(controlDbPath, recipient)).toBeUndefined());
@@ -283,7 +313,8 @@ describe("sub-agent parent JSONL restart recovery", () => {
 				.catch((error: unknown) => {
 					throw new Error(`Main turn did not continue after steering: ${String(error)}`);
 				});
-			pi.respondToLlmRequest(mainAfterSteer.id, fauxAssistantMessage("Waiting for the reviewer"));
+			pi.respondToLlmRequest(mainAfterSteer.id, fauxCompletedAssistantMessage("Waiting for the reviewer"));
+			await waitForGoalIdleReviewRequest(pi);
 			void pi.send({ type: "prompt", message: "/restart" }).catch(() => undefined);
 
 			const restoredChildRequest = await pi
@@ -301,14 +332,14 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			});
 			expect(ownershipAfter?.processIdentity?.incarnation).not.toBe(ownershipBefore.processIdentity.incarnation);
 
-			pi.respondToLlmRequest(restoredChildRequest.id, fauxAssistantMessage("Recovery turn complete"));
+			pi.respondToLlmRequest(restoredChildRequest.id, fauxCompletedAssistantMessage("Recovery turn complete"));
 			const steeredChildRequest = await pi.waitForLlmRequest(
 				(request) => request.agentId === spawned.id && request.id !== restoredChildRequest.id,
 			);
 			expect(steeredChildRequest.userMessages).toContainEqual(
 				expect.stringContaining("Finish the review after restart"),
 			);
-			pi.respondToLlmRequest(steeredChildRequest.id, fauxAssistantMessage("Recovered review complete"));
+			pi.respondToLlmRequest(steeredChildRequest.id, fauxCompletedAssistantMessage("Recovered review complete"));
 			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "completed");
 			const review = await pi.waitForSupervisorRequest("goal_idle_review");
 			expect(review.kind).toBe("goal_idle_review");
@@ -359,8 +390,8 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			});
 
 			const restoredMainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
-			pi.respondToLlmRequest(restoredMainRequest.id, fauxAssistantMessage("Supervisor restored"));
-			pi.respondToLlmRequest(restoredRequest.id, fauxAssistantMessage("Recovered review complete"));
+			pi.respondToLlmRequest(restoredMainRequest.id, fauxCompletedAssistantMessage("Supervisor restored"));
+			pi.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Recovered review complete"));
 			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "completed");
 
 			const completionRecord = await waitForParentAgentRecord(pi.sessionFile, "agent_complete", spawned.id);
@@ -391,6 +422,13 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			const spawned = await pi.waitForAgent((agent) => agent.displayName === "Unjournaled child");
 			await waitForParentAgentRecord(pi.sessionFile, "agent_start", spawned.id);
 			await pi.waitForLlmRequest((request) => request.agentId === spawned.id);
+			await pi.waitForSessionEntry(
+				null,
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "toolResult" &&
+					entry.message.toolName === "spawn_agent",
+			);
 			await pi.crash();
 			removeParentAgentRecords(pi.sessionFile, spawned.id);
 			await pi.restart();
@@ -480,14 +518,14 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			);
 			const spawned = await pi.waitForAgent((agent) => agent.displayName === "Completed child");
 			const childRequest = await pi.waitForLlmRequest((request) => request.agentId === spawned.id);
-			pi.respondToLlmRequest(childRequest.id, fauxAssistantMessage("Done before restart"));
+			pi.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Done before restart"));
 			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "completed");
 			await waitForParentAgentRecord(pi.sessionFile, "agent_complete", spawned.id);
 
 			await pi.crash();
 			await pi.restart();
 			const restoredMainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
-			pi.respondToLlmRequest(restoredMainRequest.id, fauxAssistantMessage("Supervisor restored"));
+			pi.respondToLlmRequest(restoredMainRequest.id, fauxCompletedAssistantMessage("Supervisor restored"));
 			expect(pi.listAgents().find((agent) => agent.id === spawned.id)?.lifecycle).toBe("completed");
 			const recovered = await Promise.race([
 				pi
