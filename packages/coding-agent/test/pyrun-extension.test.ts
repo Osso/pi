@@ -1631,15 +1631,19 @@ for await (const line of createInterface({ input: process.stdin })) {
 		},
 	);
 
-	it("rejects Pyrun pi.agents.spawn requests without context through the multi-agent handler", async () => {
+	it("inherits context for Pyrun pi.agents.spawn requests without an explicit context", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-30T00:00:00.000Z" });
 		const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
 		sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
 		store.setPersistenceSessionManager(sessionManager);
-		const createChildSession = vi.fn(async () => ({
-			messages: [fauxAssistantMessage("done")],
-			prompt: async () => {},
-		}));
+		const contexts: string[] = [];
+		const createChildSession = vi.fn(async ({ context }: { context: string }) => {
+			contexts.push(context);
+			return {
+				messages: [fauxAssistantMessage("done")],
+				prompt: async () => {},
+			};
+		});
 		const harness = createPyrunHarness({
 			piRequestHandlers: [
 				createMultiAgentPiRequestHandler({ createChildSession, store }, {
@@ -1650,10 +1654,9 @@ for await (const line of createInterface({ input: process.stdin })) {
 
 		const result = await harness.evaluate({ code: "pi.agents.spawn({'prompt': 'inspect X'})" });
 
-		expect(result.isError).toBe(true);
-		expect(result.details.error).toContain("context");
-		expect(createChildSession).not.toHaveBeenCalled();
-		expect(store.listAgents()).toEqual([]);
+		expect(result.isError).toBe(false);
+		expect(contexts).toEqual(["inherit"]);
+		expect(store.listAgents()).toHaveLength(1);
 	});
 
 	it("rejects Pyrun pi.agents.spawn requests with invalid context through the multi-agent handler", async () => {
