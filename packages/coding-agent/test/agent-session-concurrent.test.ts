@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agent } from "@earendil-works/pi-agent-core";
+import { fauxToolCall } from "@earendil-works/pi-ai";
 import {
 	type AssistantMessage,
 	type AssistantMessageEvent,
@@ -66,6 +67,14 @@ function createAssistantMessage(text: string): AssistantMessage {
 	};
 }
 
+function createCompletedAssistantMessage(text: string): AssistantMessage {
+	return {
+		...createAssistantMessage(text),
+		content: [{ type: "text", text }, fauxToolCall("end_turn", { reason: text })],
+		stopReason: "toolUse",
+	};
+}
+
 describe("AgentSession concurrent prompt guard", () => {
 	let session: AgentSession;
 	let tempDir: string;
@@ -107,7 +116,8 @@ describe("AgentSession concurrent prompt guard", () => {
 					);
 					if (userTexts.includes("Steering message") || userTexts.includes("Follow-up message")) {
 						stream.push({ type: "start", partial: createAssistantMessage("") });
-						stream.push({ type: "done", reason: "stop", message: createAssistantMessage("Queued") });
+						const message = createCompletedAssistantMessage("Queued");
+						stream.push({ type: "done", reason: "toolUse", message });
 						return;
 					}
 
@@ -248,7 +258,8 @@ describe("AgentSession concurrent prompt guard", () => {
 
 					if (userTexts.includes("Steer from extension")) {
 						stream.push({ type: "start", partial: createAssistantMessage("") });
-						stream.push({ type: "done", reason: "stop", message: createAssistantMessage("Steered") });
+						const message = createCompletedAssistantMessage("Steered");
+						stream.push({ type: "done", reason: "toolUse", message });
 						return;
 					}
 
@@ -600,6 +611,7 @@ describe("AgentSession concurrent prompt guard", () => {
 					systemPrompt: string,
 					systemPromptOptions: BuildSystemPromptOptions,
 				) => Promise<undefined>;
+				hasPreparedToolResultRelocation: () => boolean;
 				invalidate: (message?: string) => void;
 			};
 		};
@@ -614,6 +626,7 @@ describe("AgentSession concurrent prompt guard", () => {
 			},
 			emitInput: async () => ({ action: "continue" }),
 			emitBeforeAgentStart: async () => undefined,
+			hasPreparedToolResultRelocation: () => false,
 			invalidate: () => {},
 		};
 
