@@ -975,7 +975,7 @@ export class AgentSession {
 	 * happens here instead of in wrappers.
 	 */
 	private _installAgentToolHooks(): void {
-		this.agent.beforeToolCall = async ({ toolCall, args }) => {
+		this.agent.beforeToolCall = async ({ toolCall, args, context }) => {
 			const runner = this._extensionRunner;
 			const event = {
 				type: "tool_call",
@@ -1004,7 +1004,7 @@ export class AgentSession {
 				approvalRequired,
 				hookReviewer: this._createToolApprovalHookReviewer(event, runner),
 				reviewer: this._createToolApprovalHumanReviewer(event, runner),
-				llmReviewer: this._createToolApprovalLlmReviewer(event),
+				llmReviewer: this._createToolApprovalLlmReviewer(event, findLastUserText(context.messages)),
 			});
 		};
 
@@ -1217,7 +1217,10 @@ export class AgentSession {
 			});
 	}
 
-	private _createToolApprovalLlmReviewer(event: ToolCallEvent): ApprovalReviewer | undefined {
+	private _createToolApprovalLlmReviewer(
+		event: ToolCallEvent,
+		currentUserRequest: string | undefined,
+	): ApprovalReviewer | undefined {
 		const approvalPreset = this.settingsManager.getApprovalPreset();
 		if (approvalPreset !== "llm-approved-deny" && approvalPreset !== "llm-approved-ask") return undefined;
 		const approvalKind = this._toolDefinitions.get(event.toolName)?.definition.approvalKind;
@@ -1234,7 +1237,7 @@ export class AgentSession {
 						kind: "approval_review",
 						payload: {
 							activeGoal: this.sessionManager.getSessionGoalJson(),
-							currentUserRequest: findLastUserText(this.agent.state.messages),
+							currentUserRequest,
 							input: event.input,
 							preset: approvalPreset,
 							toolCallId: event.toolCallId,
