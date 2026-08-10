@@ -369,13 +369,15 @@ async function waitForRestoredBashJob(options: {
 }): Promise<BashRunnerResult | undefined> {
 	if (!options.toolCallId) return undefined;
 	const restoredJob = options.lifecycle.findBashJobByToolCallId(options.toolCallId);
-	if (!restoredJob || (restoredJob.lifecycle !== "cancelling" && restoredJob.lifecycle !== "aborted"))
-		return undefined;
+	if (!restoredJob) return undefined;
 
 	let restoredState = restoredJob;
 	while (isActiveLifecycle(restoredState.lifecycle)) {
 		restoredState = options.lifecycle.observe(restoredState.id) ?? restoredState;
 		if (isActiveLifecycle(restoredState.lifecycle)) await new Promise((resolve) => setTimeout(resolve, 25));
+	}
+	if (restoredState.lifecycle === "failed" && restoredState.error?.code === "lost_runtime") {
+		return undefined;
 	}
 	const outputPath = restoredState.result?.fileRefs?.find((fileRef) => fileRef.label === "Bash output")?.path;
 	if (outputPath && existsSync(outputPath)) options.onData(readFileSync(outputPath));

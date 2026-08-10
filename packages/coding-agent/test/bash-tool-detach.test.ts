@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -279,6 +279,192 @@ describe("bash tool background detach", () => {
 			return store.getAgent(job.id)?.lifecycle === "failed";
 		}, "detached timeout failure");
 		expect(store.getAgent(job.id)?.result?.summary).toBe("Detached Bash command timed out");
+	});
+
+	it("restores an unfinished Bash call onto its live detached runner", async () => {
+		const cwd = await createTempDir();
+		const attemptsPath = join(cwd, "attempts.log");
+		const releasePath = join(cwd, "release");
+		const scriptPath = join(cwd, "restore-live-runner.mjs");
+		writeFileSync(
+			scriptPath,
+			[
+				"import { appendFileSync, existsSync } from 'node:fs';",
+				`const attemptsPath = ${JSON.stringify(attemptsPath)};`,
+				`const releasePath = ${JSON.stringify(releasePath)};`,
+				"appendFileSync(attemptsPath, 'attempt\\n');",
+				"const timer = setInterval(() => {",
+				"  if (!existsSync(releasePath)) return;",
+				"  console.log('restored output');",
+				"  clearInterval(timer);",
+				"  process.exit(0);",
+				"}, 10);",
+			].join("\n"),
+		);
+
+		const toolCallId = "tool-bash-restore-live";
+		const originalStore = new MultiAgentStore();
+		const originalDetachRegistry = new BashToolDetachRegistry();
+		const originalBackgroundJobs = createBackgroundJobs(cwd, originalStore);
+		const originalTool = createBashToolDefinition(cwd, {
+			backgroundJobs: originalBackgroundJobs,
+			detachRegistry: originalDetachRegistry,
+		});
+		const command = `${quotePath(process.execPath)} ${quotePath(scriptPath)}`;
+		const originalResultPromise = originalTool.execute(toolCallId, { command }, undefined, undefined, {} as never);
+
+		await waitFor(() => existsSync(attemptsPath), "initial Bash command attempt");
+		expect(originalDetachRegistry.detachRunning()).toBe(true);
+		const originalResult = await originalResultPromise;
+		expect(textFrom(originalResult)).toContain("Detached bash command as background job");
+		const [originalJob] = originalStore.listAgents();
+		expect(originalJob?.worker?.toolCallId).toBe(toolCallId);
+		expect(originalJob?.lifecycle).toBe("running");
+
+		const restoredStore = new MultiAgentStore();
+		const restoredBackgroundJobs = createBackgroundJobs(cwd, restoredStore);
+		const restoredTool = createBashToolDefinition(cwd, {
+			backgroundJobs: restoredBackgroundJobs,
+			detachRegistry: new BashToolDetachRegistry(),
+		});
+		expect(restoredBackgroundJobs.lifecycle?.findBashJobByToolCallId(toolCallId)).toMatchObject({
+			lifecycle: "running",
+		});
+
+		const restoredResultPromise = restoredTool.execute(toolCallId, { command }, undefined, undefined, {} as never);
+		try {
+			await delay(0);
+			expect(readdirSync(join(cwd, "detached-jobs", "session"))).toHaveLength(1);
+			expect(readFileSync(attemptsPath, "utf8").trim().split("\n")).toEqual(["attempt"]);
+		} finally {
+			writeFileSync(releasePath, "release\n");
+			await Promise.allSettled([originalResultPromise, restoredResultPromise]);
+		}
+
+		const restoredResult = await restoredResultPromise;
+		expect(textFrom(restoredResult)).toContain("restored output");
+		await waitFor(() => {
+			originalBackgroundJobs.lifecycle?.observe(originalJob.id);
+			return originalStore.getAgent(originalJob.id)?.lifecycle === "completed";
+		}, "original detached runner completion");
+	});
+
+	it("replays a completed detached Bash result without rerunning the same tool call", async () => {
+		const cwd = await createTempDir();
+		const attemptsPath = join(cwd, "attempts.log");
+		const releasePath = join(cwd, "release");
+		const scriptPath = join(cwd, "restore-completed-runner.mjs");
+		writeFileSync(
+			scriptPath,
+			[
+				"import { appendFileSync, existsSync } from 'node:fs';",
+				`appendFileSync(${JSON.stringify(attemptsPath)}, 'attempt\\n');`,
+				`const releasePath = ${JSON.stringify(releasePath)};`,
+				"const timer = setInterval(() => {",
+				"  if (!existsSync(releasePath)) return;",
+				"  console.log('persisted completed output');",
+				"  clearInterval(timer);",
+				"  process.exit(0);",
+				"}, 10);",
+			].join("\n"),
+		);
+
+		const toolCallId = "tool-bash-restore-completed";
+		const originalStore = new MultiAgentStore();
+		const originalDetachRegistry = new BashToolDetachRegistry();
+		const originalBackgroundJobs = createBackgroundJobs(cwd, originalStore);
+		const originalTool = createBashToolDefinition(cwd, {
+			backgroundJobs: originalBackgroundJobs,
+			detachRegistry: originalDetachRegistry,
+		});
+		const command = `${quotePath(process.execPath)} ${quotePath(scriptPath)}`;
+		const originalResultPromise = originalTool.execute(toolCallId, { command }, undefined, undefined, {} as never);
+
+		await waitFor(() => existsSync(attemptsPath), "completed Bash command attempt");
+		expect(originalDetachRegistry.detachRunning()).toBe(true);
+		const originalResult = await originalResultPromise;
+		expect(textFrom(originalResult)).toContain("Detached bash command as background job");
+		const [originalJob] = originalStore.listAgents();
+		if (!originalJob) throw new Error("Missing completed detached Bash job");
+		writeFileSync(releasePath, "release\n");
+		await waitFor(() => {
+			originalBackgroundJobs.lifecycle?.observe(originalJob.id);
+			return originalStore.getAgent(originalJob.id)?.lifecycle === "completed";
+		}, "completed detached Bash job");
+
+		const restoredStore = new MultiAgentStore();
+		const restoredBackgroundJobs = createBackgroundJobs(cwd, restoredStore);
+		const restoredTool = createBashToolDefinition(cwd, {
+			backgroundJobs: restoredBackgroundJobs,
+			detachRegistry: new BashToolDetachRegistry(),
+		});
+		const restoredResult = await restoredTool.execute(toolCallId, { command }, undefined, undefined, {} as never);
+
+		expect(textFrom(restoredResult)).toContain("persisted completed output");
+		expect(readFileSync(attemptsPath, "utf8").trim().split("\n")).toEqual(["attempt"]);
+		expect(readdirSync(join(cwd, "detached-jobs", "session"))).toHaveLength(1);
+	});
+
+	it("restores an aborted detached Bash job without rerunning the same tool call", async () => {
+		const cwd = await createTempDir();
+		const attemptsPath = join(cwd, "attempts.log");
+		const scriptPath = join(cwd, "restore-aborted-runner.mjs");
+		writeFileSync(
+			scriptPath,
+			[
+				"import { appendFileSync } from 'node:fs';",
+				`appendFileSync(${JSON.stringify(attemptsPath)}, 'attempt\\n');`,
+				"console.log('persisted aborted output');",
+				"setInterval(() => {}, 20);",
+			].join("\n"),
+		);
+
+		const toolCallId = "tool-bash-restore-aborted";
+		const originalStore = new MultiAgentStore();
+		const originalDetachRegistry = new BashToolDetachRegistry();
+		const originalBackgroundJobs = createBackgroundJobs(cwd, originalStore);
+		const originalTool = createBashToolDefinition(cwd, {
+			backgroundJobs: originalBackgroundJobs,
+			detachRegistry: originalDetachRegistry,
+		});
+		const command = `${quotePath(process.execPath)} ${quotePath(scriptPath)}`;
+		const originalResultPromise = originalTool.execute(toolCallId, { command }, undefined, undefined, {} as never);
+
+		await waitFor(() => existsSync(attemptsPath), "aborted Bash command attempt");
+		expect(originalDetachRegistry.detachRunning()).toBe(true);
+		const originalResult = await originalResultPromise;
+		expect(textFrom(originalResult)).toContain("Detached bash command as background job");
+		const [originalJob] = originalStore.listAgents();
+		if (!originalJob) throw new Error("Missing aborted detached Bash job");
+
+		const cancelAgent = registerCancelAgentTool(originalStore);
+		await cancelAgent.execute(
+			"cancel-restored-aborted-bash",
+			{ agentId: originalJob.id, reason: "test" },
+			undefined,
+			undefined,
+			{ cwd, hasUI: false, mode: "print" } as ExtensionContext,
+		);
+		const pid = Number(originalJob.worker?.handleId);
+		if (!Number.isInteger(pid)) throw new Error("Aborted detached Bash job has no runner PID");
+		await waitFor(() => !isProcessAlive(pid), "aborted detached Bash process");
+		await waitFor(() => {
+			originalBackgroundJobs.lifecycle?.observe(originalJob.id);
+			return originalStore.getAgent(originalJob.id)?.lifecycle === "aborted";
+		}, "aborted detached Bash job");
+
+		const restoredStore = new MultiAgentStore();
+		const restoredBackgroundJobs = createBackgroundJobs(cwd, restoredStore);
+		const restoredTool = createBashToolDefinition(cwd, {
+			backgroundJobs: restoredBackgroundJobs,
+			detachRegistry: new BashToolDetachRegistry(),
+		});
+		await expect(restoredTool.execute(toolCallId, { command }, undefined, undefined, {} as never)).rejects.toThrow(
+			"Command aborted",
+		);
+
+		expect(readFileSync(attemptsPath, "utf8").trim().split("\n")).toEqual(["attempt"]);
+		expect(readdirSync(join(cwd, "detached-jobs", "session"))).toHaveLength(1);
 	});
 
 	it("routes close_agent through detached Bash runtime mailbox control", async () => {

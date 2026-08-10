@@ -57,6 +57,17 @@ function expectFailedToolEntry(entry: SessionMessageEntry, expectedOutput: strin
 	expect(JSON.stringify(entry.message)).toContain(expectedOutput);
 }
 
+function removeLeafToolResult(sessionFile: string, toolCallId: string): void {
+	const lines = readFileSync(sessionFile, "utf8").trimEnd().split("\n");
+	const toolResultIndex = lines.findIndex((line) => {
+		const entry = JSON.parse(line) as Partial<SessionMessageEntry>;
+		return entry.type === "message" && entry.message?.role === "toolResult" && entry.message.toolCallId === toolCallId;
+	});
+	if (toolResultIndex === -1) throw new Error(`Missing persisted tool result ${toolCallId}`);
+	if (toolResultIndex !== lines.length - 1) throw new Error(`Persisted tool result ${toolCallId} is not the session leaf`);
+	writeFileSync(sessionFile, `${lines.slice(0, toolResultIndex).join("\n")}\n`);
+}
+
 function isProcessAlive(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
@@ -1384,26 +1395,42 @@ describe("headless Pi fixture", () => {
 			const runner = await agent.waitForAgent(
 				(candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running",
 			);
+			const runnerPid = agent.getRunnerPid(runner.id);
+			if (!runnerPid) throw new Error(`Cancelling Bash runner has no PID: ${JSON.stringify(runner)}`);
 
-			const abort = agent.send({ type: "abort" });
+			const afterDetach = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.id !== initialRequest.id,
+			);
+			agent.respondToLlmRequest(
+				afterDetach.id,
+				fauxAssistantMessage(
+					fauxToolCall("close_agent", { agentId: runner.id, reason: "test cancellation" }),
+					{ stopReason: "toolUse" },
+				),
+			);
 			await agent.waitForAgent((candidate) => candidate.id === runner.id && candidate.lifecycle === "cancelling");
 			await agent.crash();
-			await abort.catch(() => undefined);
 			await agent.restart();
 
-			const settledRunner = await agent.waitForAgent(
-				(candidate) =>
-					candidate.id === runner.id && (candidate.lifecycle === "aborted" || candidate.lifecycle === "failed"),
-			);
+			const settledRunner = await agent
+				.waitForAgent(
+					(candidate) =>
+						candidate.id === runner.id && (candidate.lifecycle === "aborted" || candidate.lifecycle === "failed"),
+				)
+				.catch((error: unknown) => {
+					throw new Error(
+						`Cancelling Bash runner did not settle: ${String(error)} alive=${isProcessAlive(runnerPid)} agents=${JSON.stringify(agent.listAgents())} entries=${JSON.stringify(agent.readSessionEntries(null).slice(-8))}`,
+					);
+				});
 			expect(settledRunner.lifecycle).toBe("aborted");
-			await agent.waitForEvent((event) => event.type === "tool_execution_end" && event.toolName === "bash");
+			expect(isProcessAlive(runnerPid)).toBe(false);
 			expect(readFileSync(attemptPath, "utf8")).toBe("x");
 			expect(
 				agent
 					.listAgents()
 					.filter((candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running"),
 			).toHaveLength(0);
-		});
+		}, { autoDetachTools: true });
 	});
 
 	it("reconciles a cancelling Pyrun tool when another session starts", async () => {
@@ -1551,14 +1578,18 @@ describe("headless Pi fixture", () => {
 			async (agent) => {
 				const attemptPath = join(agent.paths.workspaceDir, "attempts-bash");
 				const releasePath = join(agent.paths.workspaceDir, "release-bash");
+				const toolCallId = "live-bash-restore-call";
 				await agent.send({ type: "prompt", message: "Wait for the release marker" });
 				const initialRequest = await agent.waitForLlmRequest();
 				agent.respondToLlmRequest(
 					initialRequest.id,
 					fauxAssistantMessage(
-						fauxToolCall("bash", {
-							command: `printf x >> '${attemptPath}'; while [ ! -f '${releasePath}' ]; do sleep 0.05; done; printf live-runner-output`,
-						}),
+						{
+							...fauxToolCall("bash", {
+								command: `printf x >> '${attemptPath}'; while [ ! -f '${releasePath}' ]; do sleep 0.05; done; printf live-runner-output`,
+							}),
+							id: toolCallId,
+						},
 						{ stopReason: "toolUse" },
 					),
 				);
@@ -1567,11 +1598,15 @@ describe("headless Pi fixture", () => {
 				await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("x"));
 				const originalPid = agent.getRunnerPid(originalRunner.id);
 				if (!originalPid) throw new Error(`Bash runner has no PID: ${JSON.stringify(originalRunner)}`);
+				const afterDetach = await agent.waitForLlmRequest(
+					(request) => request.agentId === null && request.id !== initialRequest.id,
+				);
+				expectSingleToolResult(afterDetach, "Command moved to background");
 
 				await agent.crash();
+				removeLeafToolResult(agent.sessionFile, toolCallId);
 				expect(() => process.kill(originalPid, 0)).not.toThrow();
 				await agent.restart();
-				await agent.waitForEvent((event) => event.type === "tool_execution_start");
 				expect(readFileSync(attemptPath, "utf8")).toBe("x");
 
 				const activeBashRunners = agent
@@ -1580,10 +1615,22 @@ describe("headless Pi fixture", () => {
 				expect(activeBashRunners.map((candidate) => candidate.id)).toEqual([originalRunner.id]);
 
 				writeFileSync(releasePath, "release");
-				const restoredRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+				const restoredRequest = await agent
+					.waitForLlmRequest((request) => request.agentId === null, 10_000)
+					.catch((error: unknown) => {
+						throw new Error(
+							`Live Bash runner completed without restoring the tool turn: ${String(error)} alive=${isProcessAlive(originalPid)} agents=${JSON.stringify(agent.listAgents())} entries=${JSON.stringify(agent.readSessionEntries(null).slice(-8))}`,
+						);
+					});
 				expectSingleToolResult(restoredRequest, "live-runner-output");
 				agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Live runner restored"));
-				await agent.waitForEvent((event) => event.type === "agent_end");
+				await agent
+					.waitForEvent((event) => event.type === "agent_end")
+					.catch((error: unknown) => {
+						throw new Error(
+							`Live Bash restore did not reach agent_end: ${String(error)} agents=${JSON.stringify(agent.listAgents())} entries=${JSON.stringify(agent.readSessionEntries(null).slice(-8))}`,
+						);
+					});
 			},
 			{ autoDetachTools: true },
 		);
@@ -1917,14 +1964,18 @@ describe("headless Pi fixture", () => {
 			async (agent) => {
 				const attemptPath = join(agent.paths.workspaceDir, "attempts-dead-bash");
 				const releasePath = join(agent.paths.workspaceDir, "release-dead-bash");
+				const toolCallId = "dead-bash-restore-call";
 				await agent.send({ type: "prompt", message: "Wait for the release marker" });
 				const initialRequest = await agent.waitForLlmRequest();
 				agent.respondToLlmRequest(
 					initialRequest.id,
 					fauxAssistantMessage(
-						fauxToolCall("bash", {
-							command: `printf x >> '${attemptPath}'; while [ ! -f '${releasePath}' ]; do sleep 0.05; done; printf rerun-output`,
-						}),
+						{
+							...fauxToolCall("bash", {
+								command: `printf x >> '${attemptPath}'; while [ ! -f '${releasePath}' ]; do sleep 0.05; done; printf rerun-output`,
+							}),
+							id: toolCallId,
+						},
 						{ stopReason: "toolUse" },
 					),
 				);
@@ -1933,15 +1984,23 @@ describe("headless Pi fixture", () => {
 				await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("x"));
 				const originalPid = agent.getRunnerPid(originalRunner.id);
 				if (!originalPid) throw new Error(`Bash runner has no PID: ${JSON.stringify(originalRunner)}`);
+				const afterDetach = await agent.waitForLlmRequest(
+					(request) => request.agentId === null && request.id !== initialRequest.id,
+				);
+				expectSingleToolResult(afterDetach, "Command moved to background");
 
 				await agent.crash();
+				removeLeafToolResult(agent.sessionFile, toolCallId);
 				killProcessGroup(originalPid);
 				await vi.waitFor(() => expect(() => process.kill(originalPid, 0)).toThrow());
 				await agent.restart();
-				await agent.waitForEvent((event) => event.type === "tool_execution_start");
-				const replacementRunner = await agent.waitForAgent(
-					(candidate) => candidate.id !== originalRunner.id && candidate.lifecycle === "running",
-				);
+				const replacementRunner = await agent
+					.waitForAgent((candidate) => candidate.id !== originalRunner.id && candidate.lifecycle === "running")
+					.catch((error: unknown) => {
+						throw new Error(
+							`Dead Bash runner was not replaced: ${String(error)} agents=${JSON.stringify(agent.listAgents())} entries=${JSON.stringify(agent.readSessionEntries(null).slice(-8))} attempts=${readFileSync(attemptPath, "utf8")}`,
+						);
+					});
 				expect(agent.getRunnerPid(replacementRunner.id)).not.toBe(originalPid);
 				await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("xx"));
 
