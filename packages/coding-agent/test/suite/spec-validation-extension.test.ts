@@ -45,7 +45,16 @@ describe("spec validation extension integration", () => {
 				request.messages.some((message) => message.role === "toolResult"),
 			);
 			expect(continuationRequest.userMessages).toEqual([SPEC_VALIDATION_PROMPT]);
-			pi.respondToLlmRequest(continuationRequest.id, fauxAssistantMessage("PASS: docs/specs/example.md"));
+			pi.respondToLlmRequest(
+				continuationRequest.id,
+				fauxAssistantMessage(
+					[
+						{ type: "text", text: "PASS: docs/specs/example.md" },
+						fauxToolCall("end_turn", { reason: "Spec validation complete" }),
+					],
+					{ stopReason: "toolUse" },
+				),
+			);
 
 			await pi.waitForEvent((event) => event.type === "agent_end");
 		});

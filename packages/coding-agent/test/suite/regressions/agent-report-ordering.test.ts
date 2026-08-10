@@ -32,7 +32,13 @@ describe("sub-agent completion report ordering", () => {
 			const mainAfterSpawn = await pi.waitForLlmRequest(
 				(request) => request.agentId === null && request.id !== mainRequest.id,
 			);
-			pi.respondToLlmRequest(childRequest.id, fauxAssistantMessage("trace complete"));
+			pi.respondToLlmRequest(
+				childRequest.id,
+				fauxAssistantMessage(
+					[{ type: "text", text: "trace complete" }, fauxToolCall("end_turn", { reason: "Trace complete" })],
+					{ stopReason: "toolUse" },
+				),
+			);
 			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "completed");
 			pi.respondToLlmRequest(
 				mainAfterSpawn.id,
