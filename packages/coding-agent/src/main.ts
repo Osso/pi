@@ -19,6 +19,7 @@ import agentsCoreExtension, {
 	createProductionChildAgentSessionFactory,
 	requestInteractiveAgentSteering,
 	resolveSelectedSessionMutationTarget,
+	wakeWaitAgentsAfterCoordination,
 	wakeWaitAgentsAfterSteering,
 } from "../extensions/agents-core/src/index.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
@@ -626,6 +627,8 @@ const firstPartyMultiAgentStore = new MultiAgentStore();
 const firstPartyMultiAgentRuntimeHandles = createMultiAgentRuntimeHandles();
 const resolveFirstPartySessionMutationTarget = () =>
 	resolveSelectedSessionMutationTarget(firstPartyMultiAgentStore, firstPartyMultiAgentRuntimeHandles);
+const wakeWaitAgentsFromSharedChannel = (prompt: string) =>
+	wakeWaitAgentsAfterCoordination(firstPartyMultiAgentRuntimeHandles, prompt);
 let interactiveAgentViewSelector: ((agentId: string) => boolean) | undefined;
 
 function createFirstPartyExtensionFactories(
@@ -1041,6 +1044,7 @@ export async function main(args: string[], options?: MainOptions) {
 			excludeTools: sessionOptions.excludeTools,
 			noTools: sessionOptions.noTools,
 			permissionPromptTool: sessionOptions.permissionPromptTool,
+			onSharedChannelMessageDelivered: wakeWaitAgentsFromSharedChannel,
 			multiAgentStore: firstPartyMultiAgentStore,
 			customTools: sessionOptions.customTools,
 		});

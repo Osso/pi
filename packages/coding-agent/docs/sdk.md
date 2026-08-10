@@ -345,6 +345,20 @@ session.subscribe((event) => {
 
 ## Options Reference
 
+### Shared-channel wait wake callback
+
+`CreateAgentSessionOptions.onSharedChannelMessageDelivered` is an advanced runtime integration hook:
+
+```typescript
+const { session } = await createAgentSession({
+  onSharedChannelMessageDelivered: (prompt) => {
+    // `prompt` is the exact formatted shared-channel input.
+  },
+});
+```
+
+The callback runs only after a main-session shared-channel prompt is accepted and the recipient cursor advances. It receives the exact prompt delivered to the agent, is not called for an undelivered batch, and does not persist or consume messages itself. The built-in main runtime uses this hook to wake an active `wait_agent({})` immediately; terminal agent notifications take precedence when both are ready.
+
 ### Directories
 
 ```typescript

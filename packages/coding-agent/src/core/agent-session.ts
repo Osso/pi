@@ -446,6 +446,8 @@ export interface AgentSessionConfig {
 	multiAgentRequiresAgentId?: boolean;
 	/** Disable inbound runtime mailbox and shared-channel delivery for dedicated observer runtimes. */
 	disableRuntimeCoordinationInbound?: boolean;
+	/** Notify an active wait_agent after signal-driven shared-channel delivery advances its cursor. */
+	onSharedChannelMessageDelivered?: (prompt: string) => void;
 	/** Global settings directory used for persistent permission rule writes. */
 	agentDir?: string;
 	/** Override resident Supervisor transport for isolated tests. */
@@ -846,6 +848,7 @@ export class AgentSession {
 	private _thinkingPhaseTimer: ReturnType<typeof setTimeout> | undefined;
 	private _thinkingPhaseTimeoutError: Error | undefined;
 	private _disableRuntimeCoordinationInbound: boolean;
+	private readonly _onSharedChannelMessageDelivered?: (prompt: string) => void;
 	private _systemPromptOverride?: string;
 
 	constructor(config: AgentSessionConfig) {
@@ -869,6 +872,7 @@ export class AgentSession {
 		this._multiAgentRequiresAgentId = config.multiAgentRequiresAgentId ?? false;
 		this._thinkingPhaseTimeoutMs = config.thinkingPhaseTimeoutMs ?? THINKING_PHASE_TIMEOUT_MS;
 		this._disableRuntimeCoordinationInbound = config.disableRuntimeCoordinationInbound ?? false;
+		this._onSharedChannelMessageDelivered = config.onSharedChannelMessageDelivered;
 		this._multiAgentStore = config.multiAgentStore;
 		this._agentDir = config.agentDir ?? getAgentDir();
 		this._controlDbPath = this.sessionManager.getMetadataControlDbPath() ?? getControlDbPath();
@@ -3185,6 +3189,7 @@ export class AgentSession {
 			const prompt = formatSharedChannelPrompt(deliverableMessages, recipient.sessionId);
 			const queued = await this._sendSharedChannelPrompt(prompt, options);
 			advanceSharedChannelCursor(controlDbPath, recipient, lastMessageId);
+			this._onSharedChannelMessageDelivered?.(prompt);
 			return queued;
 		} catch (error) {
 			if (isSessionBusyPromptError(error)) {

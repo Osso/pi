@@ -74,6 +74,7 @@ import {
 	requestAgentSteering,
 	requestInteractiveAgentSteering,
 	waitNotifications,
+	wakeWaitAgentsAfterCoordination,
 	wakeWaitAgentsAfterSteering,
 } from "../extensions/agents-core/src/runtime.ts";
 import multiAgentExtension, {
@@ -1622,6 +1623,25 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		expect(waited.content).toEqual([{ type: "text", text: "Woken after supervisor steering." }]);
 		expect(waited.details).toEqual({ wakeUp: { kind: "steering" } });
+	});
+
+	it("wakes an active wait with a signal-drained shared-channel prompt", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
+		createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo");
+		const runtimeHandles = createMultiAgentRuntimeHandles();
+		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+		const waiting = waitNotifications(store, runtimeHandles, undefined, context);
+		await Promise.resolve();
+
+		wakeWaitAgentsAfterCoordination(runtimeHandles, "From shared channel:\n\nMessage:\nRestart now");
+		const waited = consumeNotifications(store, await waiting, context);
+
+		expect(waited.content).toEqual([{ type: "text", text: "From shared channel:\n\nMessage:\nRestart now" }]);
 	});
 
 	it("does not wake for steering accepted after the active-agent snapshot", async () => {

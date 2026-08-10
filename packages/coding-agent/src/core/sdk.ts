@@ -96,6 +96,8 @@ export interface CreateAgentSessionOptions {
 	multiAgentRequiresAgentId?: boolean;
 	/** Disable inbound runtime mailbox and shared-channel delivery for dedicated observer runtimes. */
 	disableRuntimeCoordinationInbound?: boolean;
+	/** Notify an active wait_agent after signal-driven shared-channel delivery advances its cursor. */
+	onSharedChannelMessageDelivered?: (prompt: string) => void;
 	/** Custom tools to register (in addition to built-in tools). */
 	customTools?: ToolDefinition[];
 
@@ -443,6 +445,7 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 		multiAgentParentSessionId: options.multiAgentParentSessionId,
 		multiAgentRequiresAgentId: options.multiAgentRequiresAgentId,
 		disableRuntimeCoordinationInbound: options.disableRuntimeCoordinationInbound,
+		onSharedChannelMessageDelivered: options.onSharedChannelMessageDelivered,
 		multiAgentStore: options.multiAgentStore,
 		multiAgentRuntimeRole: options.multiAgentRuntimeRole,
 		multiAgentExecutionCapability: options.multiAgentExecutionCapability,

@@ -119,6 +119,7 @@ await session.prompt("Hello");
 | `resourceLoader` | DefaultResourceLoader | Resource loader for extensions, skills, prompts, themes |
 | `sessionManager` | `SessionManager.create(cwd)` | Persistence |
 | `settingsManager` | `SettingsManager.create(cwd, agentDir)` | Settings overrides |
+| `onSharedChannelMessageDelivered` | unset | Advanced callback after a main-session shared-channel prompt is accepted and its cursor advances; receives the exact formatted prompt |
 
 ## Events
 

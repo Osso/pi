@@ -32,6 +32,9 @@ once needed.
 - [x] When `wait_agent({})` wakes on coordination input for a main-thread recipient, it returns and consumes all
       currently pending deliverable shared-channel inputs, preserving each sender/body format and advancing the
       recipient cursor so each distinct channel message is visible exactly once.
+- [x] Signal-driven main-thread delivery invokes the runtime wake callback only after the shared-channel prompt is
+      accepted and the recipient cursor advances; an active `wait_agent({})` receives the exact formatted prompt,
+      while a terminal agent notification takes precedence if both arrive together.
 
 ### Tool surface
 

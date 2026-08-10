@@ -320,7 +320,8 @@ interface ContactParentToolDetails {
 
 interface WaitAgentsWakeUp {
 	agentId?: string;
-	kind: "steering";
+	kind: "coordination" | "steering";
+	coordinationPrompt?: string;
 }
 
 interface WaitAgentsToolDetails {
@@ -2279,7 +2280,7 @@ function formatSentMessageTarget(message: AgentMailboxMessage, toSessionId: stri
 export type WaitNotificationsWake =
 	| { kind: "agent"; agent: AgentSnapshot }
 	| { kind: "cancelled" }
-	| { kind: "coordination" }
+	| { kind: "coordination"; prompt?: string }
 	| { kind: "error"; error: unknown }
 	| { kind: "none" }
 	| { kind: "unavailable"; message: string }
@@ -2350,7 +2351,15 @@ class WaitAgentsWakeWatcher {
 		const onWakeUp = (wakeUp: WaitAgentsWakeUp) => {
 			if (wakeUp.agentId && !trackedAgentIds.has(wakeUp.agentId)) return;
 			const terminal = readTrackedTerminal();
-			this.finish(terminal ? { agent: terminal, kind: "agent" } : { kind: "wake_up", wakeUp });
+			if (terminal) {
+				this.finish({ agent: terminal, kind: "agent" });
+				return;
+			}
+			if (wakeUp.kind === "coordination") {
+				this.finish({ kind: "coordination", prompt: wakeUp.coordinationPrompt });
+				return;
+			}
+			this.finish({ kind: "wake_up", wakeUp });
 		};
 		this.waitWakeListeners.add(onWakeUp);
 		this.unsubscribeWakeUp = () => this.waitWakeListeners.delete(onWakeUp);
@@ -2468,7 +2477,7 @@ export function consumeNotifications(
 ): AgentToolResult<WaitAgentsToolDetails> {
 	if (wake.kind === "cancelled") return errorResult("Wait cancelled.", {});
 	if (wake.kind === "coordination") {
-		const coordination = takePendingWaitCoordination(store, runtimeCoordinationRecipient(ctx));
+		const coordination = wake.prompt ?? takePendingWaitCoordination(store, runtimeCoordinationRecipient(ctx));
 		return coordination ? result(coordination, {}) : result("Coordination input changed before delivery.", {});
 	}
 	if (wake.kind === "error") {
@@ -2786,6 +2795,12 @@ export interface AgentSteeringRequest {
 export type AgentSteeringRequestResult =
 	| { ok: true; agent: AgentSnapshot; message: AgentMailboxMessage }
 	| { ok: false; agent: AgentSnapshot; message: AgentMailboxMessage; error: string };
+
+export function wakeWaitAgentsAfterCoordination(runtimeHandles: MultiAgentRuntimeHandles, prompt: string): void {
+	for (const listener of runtimeHandles.waitWakeListeners) {
+		listener({ coordinationPrompt: prompt, kind: "coordination" });
+	}
+}
 
 export function wakeWaitAgentsAfterSteering(runtimeHandles: MultiAgentRuntimeHandles): void {
 	for (const listener of runtimeHandles.waitWakeListeners) listener({ kind: "steering" });
