@@ -8,12 +8,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS } from "../src/core/desktop-notification.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
-import { readProcessIdentity } from "../src/core/runtime-process.ts";
 import {
 	claimRuntimeMailboxMessages,
 	consumeRuntimeMailboxMessageByStoreRef,
 	enqueueRuntimeMailboxMessage,
 	getControlDbPath,
+	getRuntimeProcessInstanceId,
 	initializeSharedChannelCursorAtTail,
 	listRuntimeMailboxListeners,
 	listRuntimeMailboxMessages,
@@ -189,7 +189,7 @@ function createReservedRuntimeAgent(
 		controlDbPath: persistence.controlDbPath,
 		createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
 		now: () => new Date().toISOString(),
-		processIdentity: readProcessIdentity(process.pid),
+		processIdentity: JSON.parse(getRuntimeProcessInstanceId()),
 		sessionPath: persistence.sessionPath,
 	});
 	const prepared = coordinator.prepareChild({
@@ -2923,6 +2923,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			multiAgentStore: store,
 			persistedSession: true,
 		});
+		harness.session.setActiveToolsByName([]);
 		harnesses.push(harness);
 		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
 		store.setPersistenceSessionManager(harness.sessionManager);
@@ -2960,6 +2961,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			multiAgentStore: store,
 			persistedSession: true,
 		});
+		harness.session.setActiveToolsByName([]);
 		harnesses.push(harness);
 		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
 		store.setPersistenceSessionManager(harness.sessionManager);
@@ -3002,6 +3004,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			multiAgentStore: store,
 			persistedSession: true,
 		});
+		harness.session.setActiveToolsByName([]);
 		harnesses.push(harness);
 		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
 		store.setPersistenceSessionManager(harness.sessionManager);
