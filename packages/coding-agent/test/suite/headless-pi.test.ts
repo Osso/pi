@@ -1547,43 +1547,46 @@ describe("headless Pi fixture", () => {
 	});
 
 	it("reattaches a live Bash runner when restoring its unfinished JSONL tool call", async () => {
-		await withHeadlessPi(async (agent) => {
-			const attemptPath = join(agent.paths.workspaceDir, "attempts-bash");
-			const releasePath = join(agent.paths.workspaceDir, "release-bash");
-			await agent.send({ type: "prompt", message: "Wait for the release marker" });
-			const initialRequest = await agent.waitForLlmRequest();
-			agent.respondToLlmRequest(
-				initialRequest.id,
-				fauxAssistantMessage(
-					fauxToolCall("bash", {
-						command: `printf x >> '${attemptPath}'; while [ ! -f '${releasePath}' ]; do sleep 0.05; done; printf live-runner-output`,
-					}),
-					{ stopReason: "toolUse" },
-				),
-			);
-			await agent.waitForEvent((event) => event.type === "tool_execution_start");
-			const originalRunner = await agent.waitForAgent((candidate) => candidate.lifecycle === "running");
-			await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("x"));
-			const originalPid = agent.getRunnerPid(originalRunner.id);
-			if (!originalPid) throw new Error(`Bash runner has no PID: ${JSON.stringify(originalRunner)}`);
+		await withHeadlessPi(
+			async (agent) => {
+				const attemptPath = join(agent.paths.workspaceDir, "attempts-bash");
+				const releasePath = join(agent.paths.workspaceDir, "release-bash");
+				await agent.send({ type: "prompt", message: "Wait for the release marker" });
+				const initialRequest = await agent.waitForLlmRequest();
+				agent.respondToLlmRequest(
+					initialRequest.id,
+					fauxAssistantMessage(
+						fauxToolCall("bash", {
+							command: `printf x >> '${attemptPath}'; while [ ! -f '${releasePath}' ]; do sleep 0.05; done; printf live-runner-output`,
+						}),
+						{ stopReason: "toolUse" },
+					),
+				);
+				await agent.waitForEvent((event) => event.type === "tool_execution_start");
+				const originalRunner = await agent.waitForAgent((candidate) => candidate.lifecycle === "running");
+				await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("x"));
+				const originalPid = agent.getRunnerPid(originalRunner.id);
+				if (!originalPid) throw new Error(`Bash runner has no PID: ${JSON.stringify(originalRunner)}`);
 
-			await agent.crash();
-			expect(() => process.kill(originalPid, 0)).not.toThrow();
-			await agent.restart();
-			await agent.waitForEvent((event) => event.type === "tool_execution_start");
-			expect(readFileSync(attemptPath, "utf8")).toBe("x");
+				await agent.crash();
+				expect(() => process.kill(originalPid, 0)).not.toThrow();
+				await agent.restart();
+				await agent.waitForEvent((event) => event.type === "tool_execution_start");
+				expect(readFileSync(attemptPath, "utf8")).toBe("x");
 
-			const activeBashRunners = agent
-				.listAgents()
-				.filter((candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running");
-			expect(activeBashRunners.map((candidate) => candidate.id)).toEqual([originalRunner.id]);
+				const activeBashRunners = agent
+					.listAgents()
+					.filter((candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running");
+				expect(activeBashRunners.map((candidate) => candidate.id)).toEqual([originalRunner.id]);
 
-			writeFileSync(releasePath, "release");
-			const restoredRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
-			expectSingleToolResult(restoredRequest, "live-runner-output");
-			agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Live runner restored"));
-			await agent.waitForEvent((event) => event.type === "agent_end");
-		}, { autoDetachTools: true });
+				writeFileSync(releasePath, "release");
+				const restoredRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+				expectSingleToolResult(restoredRequest, "live-runner-output");
+				agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Live runner restored"));
+				await agent.waitForEvent((event) => event.type === "agent_end");
+			},
+			{ autoDetachTools: true },
+		);
 	});
 
 	it("reattaches a live Pyrun runner when restoring its unfinished JSONL tool call", async () => {
@@ -1910,43 +1913,46 @@ describe("headless Pi fixture", () => {
 	});
 
 	it("reruns an unfinished Bash JSONL tool call when its original runner is dead", async () => {
-		await withHeadlessPi(async (agent) => {
-			const attemptPath = join(agent.paths.workspaceDir, "attempts-dead-bash");
-			const releasePath = join(agent.paths.workspaceDir, "release-dead-bash");
-			await agent.send({ type: "prompt", message: "Wait for the release marker" });
-			const initialRequest = await agent.waitForLlmRequest();
-			agent.respondToLlmRequest(
-				initialRequest.id,
-				fauxAssistantMessage(
-					fauxToolCall("bash", {
-						command: `printf x >> '${attemptPath}'; while [ ! -f '${releasePath}' ]; do sleep 0.05; done; printf rerun-output`,
-					}),
-					{ stopReason: "toolUse" },
-				),
-			);
-			await agent.waitForEvent((event) => event.type === "tool_execution_start");
-			const originalRunner = await agent.waitForAgent((candidate) => candidate.lifecycle === "running");
-			await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("x"));
-			const originalPid = agent.getRunnerPid(originalRunner.id);
-			if (!originalPid) throw new Error(`Bash runner has no PID: ${JSON.stringify(originalRunner)}`);
+		await withHeadlessPi(
+			async (agent) => {
+				const attemptPath = join(agent.paths.workspaceDir, "attempts-dead-bash");
+				const releasePath = join(agent.paths.workspaceDir, "release-dead-bash");
+				await agent.send({ type: "prompt", message: "Wait for the release marker" });
+				const initialRequest = await agent.waitForLlmRequest();
+				agent.respondToLlmRequest(
+					initialRequest.id,
+					fauxAssistantMessage(
+						fauxToolCall("bash", {
+							command: `printf x >> '${attemptPath}'; while [ ! -f '${releasePath}' ]; do sleep 0.05; done; printf rerun-output`,
+						}),
+						{ stopReason: "toolUse" },
+					),
+				);
+				await agent.waitForEvent((event) => event.type === "tool_execution_start");
+				const originalRunner = await agent.waitForAgent((candidate) => candidate.lifecycle === "running");
+				await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("x"));
+				const originalPid = agent.getRunnerPid(originalRunner.id);
+				if (!originalPid) throw new Error(`Bash runner has no PID: ${JSON.stringify(originalRunner)}`);
 
-			await agent.crash();
-			killProcessGroup(originalPid);
-			await vi.waitFor(() => expect(() => process.kill(originalPid, 0)).toThrow());
-			await agent.restart();
-			await agent.waitForEvent((event) => event.type === "tool_execution_start");
-			const replacementRunner = await agent.waitForAgent(
-				(candidate) => candidate.id !== originalRunner.id && candidate.lifecycle === "running",
-			);
-			expect(agent.getRunnerPid(replacementRunner.id)).not.toBe(originalPid);
-			await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("xx"));
+				await agent.crash();
+				killProcessGroup(originalPid);
+				await vi.waitFor(() => expect(() => process.kill(originalPid, 0)).toThrow());
+				await agent.restart();
+				await agent.waitForEvent((event) => event.type === "tool_execution_start");
+				const replacementRunner = await agent.waitForAgent(
+					(candidate) => candidate.id !== originalRunner.id && candidate.lifecycle === "running",
+				);
+				expect(agent.getRunnerPid(replacementRunner.id)).not.toBe(originalPid);
+				await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("xx"));
 
-			writeFileSync(releasePath, "release");
-			const restoredRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
-			expectSingleToolResult(restoredRequest, "rerun-output");
-			agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Dead runner rerun"));
-			await agent.waitForEvent((event) => event.type === "agent_end");
-		}, { autoDetachTools: true });
+				writeFileSync(releasePath, "release");
+				const restoredRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+				expectSingleToolResult(restoredRequest, "rerun-output");
+				agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Dead runner rerun"));
+				await agent.waitForEvent((event) => event.type === "agent_end");
+			},
+			{ autoDetachTools: true },
+		);
 	});
 
 	it("waits for production RPC events and removes files after success", async () => {
