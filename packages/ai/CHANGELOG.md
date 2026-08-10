@@ -29,6 +29,7 @@
 
 ### Added
 
+- Added optional persisted `ToolCall.execution.agentId` metadata for application-owned durable tool execution identity; provider adapters ignore it.
 - Added GPT-5.6 Sol `max` and `ultra` effort metadata; both serialize as provider maximum reasoning effort (`reasoning.effort: "max"`). Coding-agent layers proactive delegation onto `ultra`; the Codex adapter does not send Responses multi-agent beta fields or headers.
 - Added `AssistantMessage.imageGenerationResult` and OpenAI Responses parsing for completed hosted `image_generation_call` results as PNG image content.
 - Added `EventStream.fail(error)` so producers can reject both final results and active async iterators instead of leaving consumers pending.

@@ -363,11 +363,18 @@ export interface ImageContent {
 	mimeType: string; // e.g., "image/jpeg", "image/png"
 }
 
+export interface ToolCallExecution {
+	/** Durable application-owned identity for a tool execution that can outlive the foreground call. */
+	agentId: string;
+}
+
 export interface ToolCall {
 	type: "toolCall";
 	id: string;
 	name: string;
 	arguments: Record<string, any>;
+	/** Application-owned execution metadata. Provider adapters must ignore this field. */
+	execution?: ToolCallExecution;
 	thoughtSignature?: string; // Google-specific: opaque signature for reusing thought context
 }
 

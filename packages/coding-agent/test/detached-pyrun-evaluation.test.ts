@@ -62,6 +62,7 @@ describe("durable detached Pyrun evaluation", () => {
 		);
 		const detachRegistry = new ToolDetachRegistry();
 		const evaluation = runDurableDetachablePyrunEvaluation({
+			agentId: "pyrun_1",
 			ctx: {
 				controlDbPath,
 				cwd: root,
@@ -150,6 +151,7 @@ describe("durable detached Pyrun evaluation", () => {
 		const detachRegistry = new ToolDetachRegistry();
 
 		await runDurableDetachablePyrunEvaluation({
+			agentId: "pyrun_1",
 			ctx: {
 				controlDbPath,
 				cwd: root,
@@ -205,6 +207,7 @@ describe("durable detached Pyrun evaluation", () => {
 		if (!sessionPath) throw new Error("Expected persisted Pyrun test session");
 		const detachRegistry = new ToolDetachRegistry();
 		const evaluation = runDurableDetachablePyrunEvaluation({
+			agentId: "pyrun_1",
 			ctx: {
 				controlDbPath,
 				cwd: root,

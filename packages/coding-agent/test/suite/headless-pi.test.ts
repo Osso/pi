@@ -1,7 +1,11 @@
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, extname, join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it, vi } from "vitest";
+import {
+	type DetachedPyrunLaunchManifest,
+	writeDetachedPyrunLaunchManifest,
+} from "../../extensions/pyrun/src/detached-runner.ts";
 import { isProcessIdentityAlive, type ProcessIdentity, readProcessIdentity } from "../../src/core/runtime-process.ts";
 import {
 	getControlDbPath,
@@ -1551,6 +1555,14 @@ describe("headless Pi fixture", () => {
 		await withHeadlessPi(async (agent) => {
 			const attemptPath = join(agent.paths.workspaceDir, "attempts-pyrun");
 			const releasePath = join(agent.paths.workspaceDir, "release-pyrun");
+			const toolCallId = "live-pyrun-restore-call";
+			const artifactRoot = join(
+				dirname(agent.sessionFile),
+				"detached-jobs",
+				basename(agent.sessionFile, extname(agent.sessionFile)),
+			);
+			const collisionDirectory = join(artifactRoot, "pyrun_0-collision");
+			mkdirSync(collisionDirectory, { recursive: true });
 			const code = [
 				"from pathlib import Path",
 				"import time",
@@ -1564,7 +1576,10 @@ describe("headless Pi fixture", () => {
 			const initialRequest = await agent.waitForLlmRequest();
 			agent.respondToLlmRequest(
 				initialRequest.id,
-				fauxAssistantMessage(fauxToolCall("pyrun_eval", { code }), { stopReason: "toolUse" }),
+				fauxAssistantMessage(
+					{ ...fauxToolCall("pyrun_eval", { code }), id: toolCallId },
+					{ stopReason: "toolUse" },
+				),
 			);
 			await agent.waitForEvent((event) => event.type === "tool_execution_start");
 			await Promise.race([
@@ -1576,17 +1591,77 @@ describe("headless Pi fixture", () => {
 					}),
 			]);
 
+			let originalManifestPath: string | undefined;
+			await vi.waitFor(() => {
+				originalManifestPath = readdirSync(agent.paths.sessionDir, { recursive: true })
+					.filter((path): path is string => typeof path === "string" && path.endsWith("launch.json"))
+					.map((path) => join(agent.paths.sessionDir, path))
+					.find((path) => {
+						const manifest = JSON.parse(readFileSync(path, "utf8")) as { toolCallId?: string };
+						return manifest.toolCallId === toolCallId;
+					});
+				expect(originalManifestPath).toBeDefined();
+			});
+			if (!originalManifestPath) throw new Error("Original Pyrun launch manifest not found");
+			const originalManifest = JSON.parse(readFileSync(originalManifestPath, "utf8")) as DetachedPyrunLaunchManifest;
+			const originalAgentId = originalManifest.runnerAddress.agentId;
+			const originalPid = originalManifest.runnerProcessIdentity.pid;
+			expect(originalAgentId).toBeTruthy();
+			expect(originalPid).toBeGreaterThan(0);
+			const persistedToolCall = agent
+				.readSessionEntries(null)
+				.filter((entry): entry is SessionMessageEntry => entry.type === "message")
+				.flatMap((entry) => (entry.message.role === "assistant" ? entry.message.content : []))
+				.find((content) => content.type === "toolCall" && content.id === toolCallId);
+			expect(persistedToolCall).toMatchObject({ execution: { agentId: originalAgentId } });
+			const { checksum, version, ...manifestData } = originalManifest;
+			void checksum;
+			void version;
+			const collisionIdentity: ProcessIdentity = { pid: 999_999_999, startTimeTicks: 1 };
+			writeDetachedPyrunLaunchManifest(join(collisionDirectory, "launch.json"), {
+				...manifestData,
+				activationPath: join(collisionDirectory, "activation.json"),
+				artifacts: { directory: collisionDirectory, outputPath: join(collisionDirectory, "output.log") },
+				bridgeRequestPath: join(collisionDirectory, "foreground-bridge-requests.jsonl"),
+				bridgeResponsePath: join(collisionDirectory, "foreground-bridge-responses.jsonl"),
+				foregroundCompletionPath: join(collisionDirectory, "foreground-completed"),
+				params: { ...manifestData.params, code: `${manifestData.params.code}\nprint("unrelated")` },
+				runnerAddress: { ...manifestData.runnerAddress, agentId: "pyrun_collision" },
+				runnerProcessIdentity: collisionIdentity,
+				supervisorProcessIdentity: collisionIdentity,
+			});
+
 			await agent.crash();
 			await agent.restart();
-			await agent.waitForEvent((event) => event.type === "tool_execution_start");
+			await agent.waitForEvent((event) => event.type === "tool_execution_start").catch((error: unknown) => {
+				throw new Error(`Timed out waiting for restored Pyrun execution start: ${String(error)}`);
+			});
 			await new Promise((resolve) => setTimeout(resolve, 200));
 			expect(readFileSync(attemptPath, "utf8")).toBe("x");
+			expect(agent.getPyrunRunnerPids()).toContain(originalPid);
+			expect(isProcessAlive(originalPid)).toBe(true);
+			expect(originalAgentId).toBe(originalManifest.runnerAddress.agentId);
 
 			writeFileSync(releasePath, "release");
-			const restoredRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+			const restoredRequest = await agent
+				.waitForLlmRequest((request) => request.agentId === null)
+				.catch((error: unknown) => {
+					throw new Error(`Timed out waiting for restored Pyrun tool result: ${String(error)}`);
+				});
 			expectSingleToolResult(restoredRequest, "live-pyrun-output");
-			agent.respondToLlmRequest(restoredRequest.id, fauxAssistantMessage("Live Pyrun restored"));
-			await agent.waitForEvent((event) => event.type === "agent_end");
+			agent.respondToLlmRequest(
+				restoredRequest.id,
+				fauxAssistantMessage(
+					[
+						{ type: "text", text: "Live Pyrun restored" },
+						fauxToolCall("end_turn", { reason: "Live Pyrun restored" }),
+					],
+					{ stopReason: "toolUse" },
+				),
+			);
+			await agent.waitForEvent((event) => event.type === "agent_end").catch((error: unknown) => {
+				throw new Error(`Timed out waiting for restored Pyrun agent end: ${String(error)}`);
+			});
 		});
 	});
 

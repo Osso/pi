@@ -375,6 +375,8 @@ export type AgentToolUpdateCallback<T = any> = (partialResult: AgentToolResult<T
 export interface AgentToolExecutionContext {
 	/** Wall-clock timestamp captured before the tool start event is emitted. */
 	startedAt: number;
+	/** Durable agent identity prepared before the assistant tool call is persisted. */
+	agentId?: string;
 }
 
 /** Tool definition used by the agent runtime. */
@@ -386,6 +388,11 @@ export interface AgentTool<TParameters extends TSchema = TSchema, TDetails = any
 	 * Must return an object that matches `TParameters`.
 	 */
 	prepareArguments?: (args: unknown) => Static<TParameters>;
+	/** Prepare durable execution metadata before the assistant tool call is persisted. */
+	prepareExecution?: (
+		toolCallId: string,
+		signal?: AbortSignal,
+	) => AgentToolCall["execution"] | undefined | Promise<AgentToolCall["execution"] | undefined>;
 	/** Execute the tool call. Throw on failure instead of encoding errors in `content`. */
 	execute: (
 		toolCallId: string,

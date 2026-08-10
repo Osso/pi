@@ -108,6 +108,10 @@ function createUserMessage(text: string): UserMessage {
 	};
 }
 
+type PreparedToolCall = Extract<AssistantMessage["content"][number], { type: "toolCall" }> & {
+	execution?: { agentId: string };
+};
+
 // Simple identity converter for tests - just passes through standard messages
 function identityConverter(messages: AgentMessage[]): Message[] {
 	return messages.filter((m) => m.role === "user" || m.role === "assistant" || m.role === "toolResult") as Message[];
@@ -642,6 +646,76 @@ describe("agentLoop with AgentMessage", () => {
 		}
 
 		expect(executed).toEqual([[{ oldText: "before", newText: "after" }]]);
+	});
+
+	it("persists prepared agentId on assistant tool calls and passes it to execution", async () => {
+		const toolSchema = Type.Object({ value: Type.String() });
+		const executedAgentIds: string[] = [];
+		let preparationCompleted = false;
+		const tool: AgentTool<typeof toolSchema, undefined> = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo tool",
+			parameters: toolSchema,
+			async prepareExecution() {
+				preparationCompleted = true;
+				return { agentId: "known-agent" };
+			},
+			async execute(_toolCallId, params, _signal, _onUpdate, execution) {
+				executedAgentIds.push(execution?.agentId ?? "missing-agent");
+				return { content: [{ type: "text", text: params.value }], details: undefined };
+			},
+		};
+		const context: AgentContext = { systemPrompt: "", messages: [], tools: [tool] };
+		const config: AgentLoopConfig = {
+			model: createModel(),
+			convertToLlm: identityConverter,
+		};
+		let llmCalls = 0;
+		const stream = agentLoop([createUserMessage("echo")], context, config, undefined, () => {
+			const mockStream = new MockAssistantStream();
+			queueMicrotask(() => {
+				if (llmCalls++ === 0) {
+					mockStream.push({
+						type: "done",
+						reason: "toolUse",
+						message: createAssistantMessage(
+							[{ type: "toolCall", id: "provider-call", name: "echo", arguments: { value: "hello" } }],
+							"toolUse",
+						),
+					});
+				} else {
+					mockStream.push({
+						type: "done",
+						reason: "stop",
+						message: createAssistantMessage([{ type: "text", text: "done" }]),
+					});
+				}
+			});
+			return mockStream;
+		});
+
+		const events: AgentEvent[] = [];
+		for await (const event of stream) {
+			events.push(event);
+			if (event.type !== "message_end" || event.message.role !== "assistant") continue;
+			const toolCall = event.message.content.find((content) => content.type === "toolCall") as
+				| PreparedToolCall
+				| undefined;
+			if (toolCall) {
+				expect(preparationCompleted).toBe(true);
+				expect(toolCall).toMatchObject({ execution: { agentId: "known-agent" } });
+			}
+		}
+		const messages = await stream.result();
+		const persistedToolCall = messages
+			.filter((message): message is AssistantMessage => message.role === "assistant")
+			.flatMap((message) => message.content)
+			.find((content) => content.type === "toolCall") as PreparedToolCall | undefined;
+
+		expect(persistedToolCall).toMatchObject({ execution: { agentId: "known-agent" } });
+		expect(executedAgentIds).toEqual(["known-agent"]);
+		expect(events.some((event) => event.type === "message_end" && event.message.role === "assistant")).toBe(true);
 	});
 
 	it("should emit tool_execution_end in completion order but persist tool results in source order", async () => {
@@ -1555,6 +1629,61 @@ describe("agentLoopContinue with AgentMessage", () => {
 		expect(executed).toEqual(["restored"]);
 		expect(messages.map((message) => message.role)).toEqual(["toolResult", "assistant"]);
 		expect(events.filter((event) => event.type === "tool_execution_start")).toHaveLength(1);
+	});
+
+	it("reuses a persisted agentId when continuing an interrupted tool call", async () => {
+		const toolSchema = Type.Object({ value: Type.String() });
+		const executedAgentIds: string[] = [];
+		let preparationCalls = 0;
+		const tool: AgentTool<typeof toolSchema, undefined> = {
+			name: "echo",
+			label: "Echo",
+			description: "Echo tool",
+			parameters: toolSchema,
+			async prepareExecution() {
+				preparationCalls++;
+				return { agentId: "new-agent" };
+			},
+			async execute(_toolCallId, params, _signal, _onUpdate, execution) {
+				executedAgentIds.push(execution?.agentId ?? "missing-agent");
+				return { content: [{ type: "text", text: params.value }], details: undefined };
+			},
+		};
+		const persistedToolCall = {
+			type: "toolCall" as const,
+			id: "provider-call",
+			execution: { agentId: "known-agent" },
+			name: "echo",
+			arguments: { value: "restored" },
+		} as PreparedToolCall;
+		const context: AgentContext = {
+			systemPrompt: "You are helpful.",
+			messages: [createUserMessage("Echo this"), createAssistantMessage([persistedToolCall], "toolUse")],
+			tools: [tool],
+		};
+		const config: AgentLoopConfig = {
+			model: createModel(),
+			convertToLlm: identityConverter,
+		};
+		const stream = agentLoopContinue(context, config, undefined, () => {
+			const mockStream = new MockAssistantStream();
+			queueMicrotask(() => {
+				mockStream.push({
+					type: "done",
+					reason: "stop",
+					message: createAssistantMessage([{ type: "text", text: "Done" }]),
+				});
+			});
+			return mockStream;
+		});
+
+		for await (const _event of stream) {
+			// Consume restored execution events.
+		}
+		await stream.result();
+
+		expect(preparationCalls).toBe(0);
+		expect(executedAgentIds).toEqual(["known-agent"]);
 	});
 
 	it("restarts only unfinished tool calls when restored JSONL contains an earlier result", async () => {

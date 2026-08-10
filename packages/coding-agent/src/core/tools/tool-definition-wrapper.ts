@@ -66,6 +66,32 @@ function capToolResultOutput<TDetails>(
 	};
 }
 
+function createToolContext(ctxFactory: (() => ExtensionContext) | undefined): ExtensionContext {
+	return ctxFactory?.() ?? (undefined as unknown as ExtensionContext);
+}
+
+function createToolExecutionContext(
+	ctxFactory: (() => ExtensionContext) | undefined,
+	execution: AgentToolExecutionContext | undefined,
+): ExtensionContext {
+	const baseContext = createToolContext(ctxFactory);
+	if (!ctxFactory) return baseContext;
+	const context = Object.defineProperties({}, Object.getOwnPropertyDescriptors(baseContext)) as ExtensionContext;
+	Object.defineProperties(context, {
+		toolExecutionAgentId: {
+			configurable: true,
+			enumerable: true,
+			value: execution?.agentId,
+		},
+		toolExecutionStartedAt: {
+			configurable: true,
+			enumerable: true,
+			value: execution?.startedAt,
+		},
+	});
+	return context;
+}
+
 /** Wrap a ToolDefinition into an AgentTool for the core runtime. */
 export function wrapToolDefinition<TParams extends TSchema, TDetails = unknown>(
 	definition: ToolDefinition<TParams, TDetails>,
@@ -77,23 +103,19 @@ export function wrapToolDefinition<TParams extends TSchema, TDetails = unknown>(
 		description: definition.description,
 		parameters: definition.parameters,
 		prepareArguments: definition.prepareArguments,
+		...(definition.prepareExecution
+			? {
+					prepareExecution: (toolCallId: string, signal?: AbortSignal) =>
+						definition.prepareExecution?.(toolCallId, createToolContext(ctxFactory), signal),
+				}
+			: {}),
 		executionMode: definition.executionMode,
 		execute: async (toolCallId, params, signal, onUpdate, execution: AgentToolExecutionContext | undefined) => {
 			const spill: ToolOutputSpill = {};
 			const cappedUpdate = onUpdate
 				? (partial: AgentToolResult<TDetails>) => onUpdate(capToolResultOutput(partial, spill))
 				: undefined;
-			const baseContext = ctxFactory?.();
-			const context = baseContext
-				? (Object.defineProperties({}, Object.getOwnPropertyDescriptors(baseContext)) as ExtensionContext)
-				: (undefined as unknown as ExtensionContext);
-			if (baseContext) {
-				Object.defineProperty(context, "toolExecutionStartedAt", {
-					configurable: true,
-					enumerable: true,
-					value: execution?.startedAt,
-				});
-			}
+			const context = createToolExecutionContext(ctxFactory, execution);
 			const result = await definition.execute(toolCallId, params, signal, cappedUpdate, context);
 			return capToolResultOutput(result, spill);
 		},
@@ -123,6 +145,12 @@ export function createToolDefinitionFromAgentTool<TParams extends TSchema>(
 		description: tool.description,
 		parameters: tool.parameters,
 		prepareArguments: tool.prepareArguments,
+		...(tool.prepareExecution
+			? {
+					prepareExecution: (toolCallId: string, _ctx: ExtensionContext, signal?: AbortSignal) =>
+						tool.prepareExecution?.(toolCallId, signal),
+				}
+			: {}),
 		executionMode: tool.executionMode,
 		execute: async (toolCallId, params, signal, onUpdate) => tool.execute(toolCallId, params, signal, onUpdate),
 	};

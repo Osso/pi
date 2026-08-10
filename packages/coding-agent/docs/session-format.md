@@ -61,11 +61,19 @@ interface ThinkingContent {
   thinking: string;
 }
 
+interface ToolCallExecution {
+  /** Durable application-owned identity for work that can outlive the foreground call. */
+  agentId: string;
+}
+
 interface ToolCall {
   type: "toolCall";
+  /** Call/result correlation ID used by the immediate provider exchange. */
   id: string;
   name: string;
   arguments: Record<string, any>;
+  /** Application-owned metadata persisted with the assistant tool call; provider adapters ignore it. */
+  execution?: ToolCallExecution;
 }
 ```
 

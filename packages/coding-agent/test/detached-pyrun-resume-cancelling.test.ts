@@ -69,6 +69,7 @@ async function wedgeCancellingPyrunJob(toolCallId: string): Promise<PyrunEvaluat
 	);
 	const detachRegistry = new ToolDetachRegistry();
 	const evalInput = {
+		agentId: "pyrun_1",
 		ctx: {
 			controlDbPath,
 			cwd: root,
@@ -139,6 +140,7 @@ function createRestorablePyrunArtifact(toolCallId: string, output: string): Rest
 	} as unknown as ExtensionContext;
 	const params = { code: "original code" };
 	const evalInput = {
+		agentId: "pyrun_1",
 		ctx,
 		detachRegistry: new ToolDetachRegistry(),
 		dispatchPiRequest: () => {

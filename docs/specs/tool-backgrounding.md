@@ -14,6 +14,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - [x] The live-agent TUI view renders the detached Pyrun script and output log without fabricating a child transcript.
 - [x] Detached Pyrun completion and failure notifications include the recorded duration as `Duration: Nms`.
 - [x] Unfinished foreground Pyrun recovery replays complete terminal result/error records; a dead runner without one returns explicit `lost_runtime`, preserves `launch.json`, `script.py`, and `output.log`, and never reruns submitted code. Incomplete trailing JSONL is ignored; malformed complete JSONL fails explicitly.
+- [x] Detachable tools may prepare durable application-owned execution metadata before the assistant tool call is persisted. Pyrun stores its `agentId` there, reuses it during interrupted replay, opens only `detached-jobs/<session>/<agentId>/launch.json`, validates the manifest identity and tool-call correlation, and never scans historical job manifests. The provider tool-call ID remains separate for immediate call/result correlation.
 - [x] Normal full-access detached Pyrun preserves the parent process environment without serializing inherited variables into `launch.json`; `inheritEnv: false` remains isolated to explicit `runnerOptions.env`.
 - [x] Detached Bash and Pyrun allocation exclusively reserves each artifact directory; retained collisions advance allocation to a new ID without deleting or reusing retained evidence.
 - [x] `wait_agent({})` consumes every pending terminal notification already waiting before querying detached
@@ -53,6 +54,8 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - `packages/coding-agent/src/core/agent-session-runtime.ts` — runs cleanup during initial runtime startup.
 - `packages/coding-agent/src/core/lifecycle-coordinator.ts` — reruns cleanup after dead detached runtimes become terminal.
 - `packages/coding-agent/src/core/terminal-outbox-delivery.ts` — runs cleanup after terminal completion delivery.
+- `packages/agent-core/src/agent-loop.ts` and `packages/agent-core/src/types.ts` — prepare and carry durable tool execution metadata through assistant tool calls and execution.
+- `packages/coding-agent/src/core/extensions/types.ts` and `packages/coding-agent/src/core/tools/tool-definition-wrapper.ts` — expose pre-persistence execution preparation and pass the prepared agent identity into tools.
 - `packages/coding-agent/src/core/tool-detach-registry.ts` — shared in-flight tool detach registry.
 - `packages/coding-agent/src/core/agent-session.ts` — owns the session detach registry and exposes it to base tools and extensions.
 - `packages/coding-agent/src/core/tools/bash.ts` — registers bash commands as detachable and tracks detached subprocesses.
@@ -62,6 +65,9 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/bash-tool-detach.test.ts`
+- `packages/agent-core/test/agent-loop.test.ts` — prepared agent identity persistence and execution propagation.
+- `packages/coding-agent/test/tool-definition-wrapper.test.ts` — extension preparation and execution-context propagation.
+- `packages/coding-agent/test/suite/headless-pi.test.ts` — interrupted Pyrun replay uses the original agent identity and ignores an unrelated historical manifest.
 - `packages/coding-agent/test/pyrun-extension.test.ts` — detached Pyrun script/output persistence, completion/failure regressions, elapsed `durationMs`, and duration-bearing lifecycle notifications.
 - `packages/coding-agent/test/interactive-mode-status.test.ts` — live detached Pyrun script/output rendering without a transcript.
 - `packages/coding-agent/test/runtime-mailbox.test.ts` — explicit runtime mailbox delivery plus

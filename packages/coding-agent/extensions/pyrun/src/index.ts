@@ -1,5 +1,5 @@
 import { existsSync, statSync } from "node:fs";
-import type { AgentToolResult } from "@earendil-works/pi-agent-core";
+import { type AgentToolResult, uuidv7 } from "@earendil-works/pi-agent-core";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -490,6 +490,7 @@ export function createPyrunToolDefinition(
 		promptGuidelines: options.promptGuidelines ?? PYRUN_PROMPT_GUIDELINES,
 		approvalRequired: true,
 		parameters: pyrunEvalSchema,
+		prepareExecution: () => ({ agentId: uuidv7() }),
 		renderCall(args, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
 			const sessionId = readStringArg(args, "session_id");
@@ -604,7 +605,10 @@ export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtension
 			if (!store || !detachRegistry) {
 				return activeExecutor.evaluate(params, ctx, typedOnUpdate, signal, toolCallId);
 			}
+			const agentId = ctx.toolExecutionAgentId;
+			if (!agentId) throw new Error("Detached Pyrun requires a persisted tool execution agent ID");
 			return runDurableDetachablePyrunEvaluation({
+				agentId,
 				ctx,
 				toolCallId,
 				detachRegistry,

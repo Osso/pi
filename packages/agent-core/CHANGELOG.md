@@ -11,7 +11,8 @@
 
 - Added authoritative `AgentState.isModelRequestActive` state for distinguishing model requests from tool execution.
 - Added an `onRetry` agent option forwarded to the stream function, mirroring `onPayload`/`onResponse`, so hosts can observe provider-internal retries.
-- Added optional tool execution context carrying the same `startedAt` timestamp emitted by tool lifecycle events.
+- Extended optional tool execution context with durable `agentId` metadata alongside the `startedAt` timestamp emitted by tool lifecycle events.
+- Added optional `AgentTool.prepareExecution` for preparing durable execution metadata before the assistant tool call is persisted.
 
 ### Fixed
 

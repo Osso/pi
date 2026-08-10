@@ -26,6 +26,7 @@ import type {
 	OAuthLoginCallbacks,
 	SimpleStreamOptions,
 	TextContent,
+	ToolCallExecution,
 	ToolResultMessage,
 } from "@earendil-works/pi-ai";
 import type {
@@ -334,6 +335,8 @@ export interface ExtensionContext {
 	cwd: string;
 	/** Wall-clock start timestamp for the current tool invocation, when called from a tool definition. */
 	toolExecutionStartedAt?: number;
+	/** Durable agent identity prepared for the current tool invocation, when available. */
+	toolExecutionAgentId?: string;
 	/** Session manager (read-only) */
 	sessionManager: ReadonlySessionManager;
 	/** Model registry for API key resolution */
@@ -532,6 +535,13 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 
 	/** Optional compatibility shim to prepare raw tool call arguments before schema validation. Must return an object conforming to TParams. */
 	prepareArguments?: (args: unknown) => Static<TParams>;
+
+	/** Prepare durable execution metadata before the assistant tool call is persisted. */
+	prepareExecution?(
+		toolCallId: string,
+		ctx: ExtensionContext,
+		signal?: AbortSignal,
+	): ToolCallExecution | undefined | Promise<ToolCallExecution | undefined>;
 
 	/**
 	 * Per-tool execution mode override.

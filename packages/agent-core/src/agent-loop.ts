@@ -416,6 +416,36 @@ async function* iterateWithAbort<T>(source: AsyncIterable<T>, signal: AbortSigna
 	}
 }
 
+async function prepareAssistantToolExecutions(
+	message: AssistantMessage,
+	tools: AgentTool<any>[] | undefined,
+	signal: AbortSignal | undefined,
+): Promise<AssistantMessage> {
+	if (!tools || tools.length === 0) return message;
+	const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
+	let changed = false;
+	const content: AssistantMessage["content"] = [];
+	for (const block of message.content) {
+		if (block.type !== "toolCall" || block.execution) {
+			content.push(block);
+			continue;
+		}
+		const prepareExecution = toolsByName.get(block.name)?.prepareExecution;
+		if (!prepareExecution) {
+			content.push(block);
+			continue;
+		}
+		const execution = await awaitWithAbort(prepareExecution(block.id, signal), signal);
+		if (!execution) {
+			content.push(block);
+			continue;
+		}
+		changed = true;
+		content.push({ ...block, execution });
+	}
+	return changed ? { ...message, content } : message;
+}
+
 /**
  * Stream an assistant response from the LLM.
  * This is where AgentMessage[] gets transformed to Message[] for the LLM.
@@ -494,7 +524,8 @@ async function streamAssistantResponse(
 
 			case "done":
 			case "error": {
-				const finalMessage = await awaitWithAbort(response.result(), signal);
+				const providerMessage = await awaitWithAbort(response.result(), signal);
+				const finalMessage = await prepareAssistantToolExecutions(providerMessage, context.tools, signal);
 				if (addedPartial) {
 					context.messages[context.messages.length - 1] = finalMessage;
 				} else {
@@ -509,7 +540,8 @@ async function streamAssistantResponse(
 		}
 	}
 
-	const finalMessage = await awaitWithAbort(response.result(), signal);
+	const providerMessage = await awaitWithAbort(response.result(), signal);
+	const finalMessage = await prepareAssistantToolExecutions(providerMessage, context.tools, signal);
 	if (addedPartial) {
 		context.messages[context.messages.length - 1] = finalMessage;
 	} else {
@@ -780,6 +812,7 @@ async function executePreparedToolCall(
 	let acceptingUpdates = true;
 
 	try {
+		const execution = { ...prepared.toolCall.execution, startedAt };
 		const result = await awaitWithAbort(
 			prepared.tool.execute(
 				prepared.toolCall.id,
@@ -799,7 +832,7 @@ async function executePreparedToolCall(
 						),
 					);
 				},
-				{ startedAt },
+				execution,
 			),
 			signal,
 		);

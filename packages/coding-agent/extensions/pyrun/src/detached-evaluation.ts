@@ -6,7 +6,6 @@ import {
 	openSync,
 	readFileSync,
 	readSync,
-	readdirSync,
 	renameSync,
 	writeFileSync,
 } from "node:fs";
@@ -42,6 +41,7 @@ const DENSE_CONSOLE_RECORD_THRESHOLD = 100;
 const FOREGROUND_RUNNER_LIVENESS_POLL_MS = 3_000;
 
 export async function runDurableDetachablePyrunEvaluation(input: {
+	agentId: string;
 	ctx: ExtensionContext;
 	detachRegistry: ToolDetachRegistry;
 	dispatchPiRequest: PyrunPiRequestDispatcher;
@@ -120,11 +120,7 @@ interface PyrunManifestCandidate {
 function readPyrunManifestCandidate(directory: string): PyrunManifestCandidate | undefined {
 	const manifestPath = join(directory, "launch.json");
 	if (!existsSync(manifestPath)) return undefined;
-	try {
-		return { directory, manifest: readDetachedPyrunLaunchManifest(manifestPath), manifestPath };
-	} catch {
-		return undefined;
-	}
+	return { directory, manifest: readDetachedPyrunLaunchManifest(manifestPath), manifestPath };
 }
 
 async function settleCancelledPyrunCandidate(
@@ -178,21 +174,25 @@ async function restoreForegroundPyrunRunner(
 	input: Parameters<typeof runDurableDetachablePyrunEvaluation>[0],
 	persistence: NonNullable<ReturnType<MultiAgentStore["getPersistenceTarget"]>>,
 ): Promise<PyrunResumeDecision | undefined> {
-	const artifactRoot = pyrunArtifactRoot(persistence.sessionPath);
-	if (!existsSync(artifactRoot)) return undefined;
-	const expectedParams = createCanonicalPyrunEvalParams(input.params, input.ctx, input.piBridgeEnabled);
-	for (const entry of readdirSync(artifactRoot, { withFileTypes: true })) {
-		if (!entry.isDirectory()) continue;
-		const candidate = readPyrunManifestCandidate(join(artifactRoot, entry.name));
-		if (!candidate) continue;
-		const jobId = candidate.manifest.runnerAddress.agentId;
-		if (!jobId) throw new Error(`Pyrun launch manifest has no job ID: ${candidate.manifestPath}`);
-		const cancelled = await settleCancelledPyrunCandidate(persistence, candidate, input.toolCallId, jobId);
-		if (cancelled) return cancelled;
-		if (candidate.manifest.toolCallId !== input.toolCallId) continue;
-		return restorePyrunCandidate(candidate, expectedParams, input.toolCallId, jobId);
+	const directory = join(pyrunArtifactRoot(persistence.sessionPath), input.agentId);
+	const candidate = readPyrunManifestCandidate(directory);
+	if (!candidate) return undefined;
+	const manifestAgentId = candidate.manifest.runnerAddress.agentId;
+	if (manifestAgentId !== input.agentId) {
+		throw new Error(`Pyrun launch manifest agent ID mismatch: ${candidate.manifestPath}`);
 	}
-	return undefined;
+	const cancelled = await settleCancelledPyrunCandidate(
+		persistence,
+		candidate,
+		input.toolCallId,
+		input.agentId,
+	);
+	if (cancelled) return cancelled;
+	if (candidate.manifest.toolCallId !== input.toolCallId) {
+		throw new Error(`Pyrun tool-call artifact collision for ${input.toolCallId}`);
+	}
+	const expectedParams = createCanonicalPyrunEvalParams(input.params, input.ctx, input.piBridgeEnabled);
+	return restorePyrunCandidate(candidate, expectedParams, input.toolCallId, input.agentId);
 }
 
 /**
@@ -313,7 +313,8 @@ function launchForegroundPyrunRunner(
 	controller: ReturnType<typeof createDetachedJobLifecycleController>,
 	startedAt: number,
 ) {
-	const { artifacts, jobId } = controller.reserveJob("pyrun");
+	const jobId = input.agentId;
+	const artifacts = controller.createArtifacts(jobId);
 	const activationPath = join(artifacts.directory, "activation.json");
 	const bridgeRequestPath = join(artifacts.directory, "foreground-bridge-requests.jsonl");
 	const bridgeResponsePath = join(artifacts.directory, "foreground-bridge-responses.jsonl");

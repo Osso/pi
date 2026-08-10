@@ -47,6 +47,36 @@ describe("wrapToolDefinition", () => {
 		expect(observedStartedAt).toBe(1_234);
 	});
 
+	it("prepares and passes the durable agentId through extension context", async () => {
+		let preparationContext: ExtensionContext | undefined;
+		let observedAgentId: string | undefined;
+		const baseContext = {} as ExtensionContext;
+		const tool = wrapToolDefinition(
+			defineTool({
+				name: "execution_agent",
+				label: "Execution agent",
+				description: "Reads execution identity",
+				parameters: Type.Object({}),
+				prepareExecution(_toolCallId, ctx) {
+					preparationContext = ctx;
+					return { agentId: "known-agent" };
+				},
+				async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+					observedAgentId = ctx.toolExecutionAgentId;
+					return { content: [{ type: "text" as const, text: "done" }], details: {} };
+				},
+			}),
+			() => baseContext,
+		);
+
+		const prepared = await tool.prepareExecution?.("provider-call");
+		await tool.execute("provider-call", {}, undefined, undefined, { startedAt: 1_234, ...prepared });
+
+		expect(preparationContext).toBe(baseContext);
+		expect(prepared).toEqual({ agentId: "known-agent" });
+		expect(observedAgentId).toBe("known-agent");
+	});
+
 	it("preserves lazy extension context property descriptors", async () => {
 		let cwdReads = 0;
 		const observedCwds: string[] = [];
