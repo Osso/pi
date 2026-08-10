@@ -1,4 +1,6 @@
+import { once } from "node:events";
 import { readFileSync } from "node:fs";
+import { Worker } from "node:worker_threads";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
 import { getControlDbPath, readMultiAgentRuntimeOwnership } from "../../../src/core/session-control-db.ts";
@@ -12,6 +14,78 @@ function readRssKiB(pid: number): number {
 	const match = readFileSync(`/proc/${pid}/status`, "utf8").match(/^VmRSS:\s+(\d+)\s+kB$/m);
 	if (!match) throw new Error(`Missing VmRSS for process ${pid}`);
 	return Number(match[1]);
+}
+
+const RSS_SAMPLER_SOURCE = `
+const { parentPort, workerData } = require("node:worker_threads");
+const { readFileSync } = require("node:fs");
+
+function readRssKiB(pid) {
+  const match = readFileSync("/proc/" + pid + "/status", "utf8").match(/^VmRSS:\\s+(\\d+)\\s+kB$/m);
+  if (!match) throw new Error("Missing VmRSS for process " + pid);
+  return Number(match[1]);
+}
+
+function readPeaks(pids, previousPeaks) {
+  const peaks = { ...previousPeaks };
+  for (const pid of pids) {
+    const key = String(pid);
+    peaks[key] = Math.max(peaks[key] ?? 0, readRssKiB(pid));
+  }
+  return peaks;
+}
+
+let peakRssKiBByPid = readPeaks(workerData.pids, {});
+const timer = setInterval(() => {
+  peakRssKiBByPid = readPeaks(workerData.pids, peakRssKiBByPid);
+}, workerData.intervalMs);
+
+parentPort.postMessage({ type: "ready" });
+parentPort.on("message", (message) => {
+  if (message !== "stop") return;
+  clearInterval(timer);
+  peakRssKiBByPid = readPeaks(workerData.pids, peakRssKiBByPid);
+  parentPort.postMessage({ peakRssKiBByPid, type: "stopped" });
+  parentPort.close();
+});
+`;
+
+type RssPeaks = Record<string, number>;
+type RssSamplerMessage = { type: "ready" } | { peakRssKiBByPid: RssPeaks; type: "stopped" };
+
+async function waitForRssSamplerMessage(worker: Worker): Promise<RssSamplerMessage> {
+	const [message] = (await once(worker, "message")) as [RssSamplerMessage];
+	return message;
+}
+
+function startWorkerRssSampler(pids: number[]): {
+	ready: Promise<void>;
+	stop: () => Promise<RssPeaks>;
+} {
+	const worker = new Worker(RSS_SAMPLER_SOURCE, {
+		eval: true,
+		workerData: { intervalMs: 5, pids },
+	});
+	const ready = waitForRssSamplerMessage(worker).then((message) => {
+		if (message.type !== "ready") throw new Error(`Expected RSS sampler ready message, received ${message.type}`);
+	});
+	return {
+		ready,
+		stop: async () => {
+			try {
+				await ready;
+				const stopped = waitForRssSamplerMessage(worker);
+				worker.postMessage("stop");
+				const message = await stopped;
+				if (message.type !== "stopped") {
+					throw new Error(`Expected RSS sampler stopped message, received ${message.type}`);
+				}
+				return message.peakRssKiBByPid;
+			} finally {
+				await worker.terminate();
+			}
+		},
+	};
 }
 
 function readMainRuntimeInstanceId(controlDbPath: string, sessionId: string): string {
@@ -54,7 +128,7 @@ describe("post-restart Pyrun memory", () => {
 			const controlDbPath = getControlDbPath(pi.paths.agentDir);
 			const beforeRestart = readMultiAgentRuntimeOwnership(controlDbPath, pi.sessionFile, child.id);
 			if (!beforeRestart?.processIdentity?.pid) throw new Error("Missing pre-restart child ownership");
-			const pid = beforeRestart.processIdentity.pid;
+			const restoredChildProcessId = beforeRestart.processIdentity.pid;
 			const beforeRuntimeInstanceId = readMainRuntimeInstanceId(controlDbPath, pi.sessionId);
 
 			pi.respondToLlmRequest(
@@ -68,7 +142,7 @@ describe("post-restart Pyrun memory", () => {
 			const restoredMain = await pi.waitForLlmRequest((request) => request.agentId === null);
 			const afterRestart = readMultiAgentRuntimeOwnership(controlDbPath, pi.sessionFile, child.id);
 			const afterRuntimeInstanceId = readMainRuntimeInstanceId(controlDbPath, pi.sessionId);
-			expect(afterRestart?.processIdentity?.pid).toBe(pid);
+			expect(afterRestart?.processIdentity?.pid).toBe(restoredChildProcessId);
 			expect(afterRuntimeInstanceId).not.toBe(beforeRuntimeInstanceId);
 
 			pi.respondToLlmRequest(
@@ -83,29 +157,35 @@ describe("post-restart Pyrun memory", () => {
 				}),
 			);
 
-			const baselineRssKiB = readRssKiB(pid);
-			let peakRssKiB = baselineRssKiB;
-			let completed = false;
-			const monitor = (async () => {
-				while (!completed) {
-					peakRssKiB = Math.max(peakRssKiB, readRssKiB(pid));
-					await new Promise((resolve) => setTimeout(resolve, 25));
-				}
-			})();
-			let afterPyrun: HeadlessLlmRequest;
+			const baselineRssKiBByPid = {
+				[String(process.pid)]: readRssKiB(process.pid),
+				[String(restoredChildProcessId)]: readRssKiB(restoredChildProcessId),
+			};
+			const workerRssSampler = startWorkerRssSampler([process.pid, restoredChildProcessId]);
+			let afterPyrun: HeadlessLlmRequest | undefined;
+			let peakRssKiBByPid: RssPeaks | undefined;
 			try {
+				await workerRssSampler.ready;
 				afterPyrun = await pi.waitForLlmRequest(
 					(request) => request.agentId === child.id && request.id !== restoredChild.id,
 					30_000,
 				);
 			} finally {
-				completed = true;
-				await monitor;
+				peakRssKiBByPid = await workerRssSampler.stop();
+			}
+			if (!peakRssKiBByPid) {
+				throw new Error("RSS sampler completed without recording process peaks");
+			}
+			const restoredChildRssGrowthKiB =
+				peakRssKiBByPid[String(restoredChildProcessId)] - baselineRssKiBByPid[String(restoredChildProcessId)];
+			const testWorkerRssGrowthKiB = peakRssKiBByPid[String(process.pid)] - baselineRssKiBByPid[String(process.pid)];
+			if (!afterPyrun) {
+				throw new Error("RSS sampler completed without a Pyrun continuation request");
 			}
 			pi.respondToLlmRequest(afterPyrun.id, fauxAssistantMessage("Large output complete"));
 
-			const growthKiB = peakRssKiB - baselineRssKiB;
-			expect(growthKiB).toBeLessThan(MAX_RSS_GROWTH_KIB);
+			expect(restoredChildRssGrowthKiB).toBeLessThan(MAX_RSS_GROWTH_KIB);
+			expect(testWorkerRssGrowthKiB).toBeLessThan(MAX_RSS_GROWTH_KIB);
 		});
 	}, 60_000);
 });
