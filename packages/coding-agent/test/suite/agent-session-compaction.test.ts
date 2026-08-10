@@ -938,6 +938,100 @@ describe("AgentSession compaction characterization", () => {
 		expect(getAssistantTexts(harness)).toContain("recovered after request-buffer overflow");
 	});
 
+	it("compacts once and reports bounded failure after repeated request-buffer overflow", async () => {
+		let compactionCalls = 0;
+		const harness = await createHarness({
+			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 5_000 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("compaction", async (event) => {
+						compactionCalls++;
+						return {
+							compaction: {
+								summary: "repeated request-buffer overflow summary",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								tokensBefore: event.preparation.tokensBefore,
+								details: {},
+							},
+						};
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		harness.setResponses([
+			async () =>
+				fauxAssistantMessage("", {
+					stopReason: "error",
+					errorMessage: "Error: exceeded request buffer limit while retrying upstream",
+				}),
+			async () =>
+				fauxAssistantMessage("", {
+					stopReason: "error",
+					errorMessage: "Error: exceeded request buffer limit while retrying upstream",
+				}),
+		]);
+
+		const boundedFailureReported = new Promise<void>((resolve) => {
+			const unsubscribe = harness.session.subscribe((event) => {
+				if (event.type === "compaction_end" && event.reason === "overflow" && event.willRetry === false) {
+					unsubscribe();
+					resolve();
+				}
+			});
+		});
+		await expect(harness.session.prompt("trigger repeated request-buffer overflow")).resolves.toBeUndefined();
+		await boundedFailureReported;
+
+		const compactionEntries = harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction");
+		const compactionEnds = harness.eventsOfType("compaction_end");
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(compactionCalls).toBe(1);
+		expect(compactionEntries).toHaveLength(1);
+		expect(compactionEntries[0]).toMatchObject({ summary: "repeated request-buffer overflow summary" });
+		expect(harness.eventsOfType("auto_retry_start")).toHaveLength(0);
+		expect(harness.eventsOfType("auto_retry_end")).toHaveLength(0);
+		expect(compactionEnds.at(-1)).toMatchObject({
+			reason: "overflow",
+			result: undefined,
+			aborted: false,
+			willRetry: false,
+			errorMessage:
+				"Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.",
+		});
+	});
+
+	it("surfaces request-buffer compaction failure without issuing a retry", async () => {
+		const harness = await createHarness({
+			settings: { compaction: { enabled: false, keepRecentTokens: 1, reserveTokens: 5_000 } },
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		harness.setResponses([
+			fauxAssistantMessage("", {
+				stopReason: "error",
+				errorMessage: "Error: exceeded request buffer limit while retrying upstream",
+			}),
+		]);
+
+		await expect(harness.session.prompt("trigger failed request-buffer compaction")).resolves.toBeUndefined();
+
+		const compactionEnds = harness.eventsOfType("compaction_end");
+		expect(harness.faux.state.callCount).toBe(1);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(0);
+		expect(harness.eventsOfType("auto_retry_start")).toHaveLength(0);
+		expect(harness.eventsOfType("auto_retry_end")).toHaveLength(0);
+		expect(compactionEnds.at(-1)).toMatchObject({
+			reason: "overflow",
+			result: undefined,
+			aborted: false,
+			willRetry: false,
+			errorMessage:
+				"Context overflow recovery failed: Built-in compaction is disabled; enable compaction or configure a compaction extension",
+		});
+	});
+
 	it("compacts and retries overflow after repeated small tool results fill one turn", async () => {
 		const smallResultText = "x".repeat(4_000);
 		const repeatedResultTool: AgentTool = {
