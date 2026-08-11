@@ -10,7 +10,7 @@ The probe identity is accepted only when the console snapshot explicitly include
 
 ## Deployment
 
-`deploy.sh` defaults to Pi-managed lazy Supervisor startup. On Linux it invokes `scripts/configure-resident-services.sh <pi-binary> autostart`, which stops, disables, and removes obsolete Architect and Supervisor user units; on Darwin it skips systemd configuration and rejects the systemd opt-in explicitly. `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1 ./deploy.sh` selects systemd mode, while the direct one-argument `scripts/configure-resident-services.sh <pi-binary>` form remains an explicit systemd installer.
+`deploy.sh` defaults to Pi-managed lazy Supervisor startup. On Linux it keeps `pi-architect.service` under systemd and invokes `scripts/configure-resident-services.sh <pi-binary> autostart`, which stops, disables, and removes only `pi-supervisor.service`; on Darwin it skips systemd configuration. `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1 ./deploy.sh` additionally configures Supervisor under systemd, while the direct one-argument `scripts/configure-resident-services.sh <pi-binary>` form configures both systemd services.
 
 ## Request flow
 

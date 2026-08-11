@@ -96,12 +96,11 @@ case "$(uname -s)-$(uname -m)" in
 		;;
 esac
 
-if [[ "$SUPERVISOR_SERVICE_MODE" == "systemd" ]]; then
-	if [[ "$PLATFORM" != linux-* ]]; then
-		echo "PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1 requires Linux systemd" >&2
-		exit 1
-	fi
+if [[ "$PLATFORM" == linux-* ]]; then
 	node "$ROOT_DIR/scripts/validate-systemd-exec-path.mjs" "$BIN_DIR/pi"
+elif [[ "$SUPERVISOR_SERVICE_MODE" == "systemd" ]]; then
+	echo "PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1 requires Linux systemd" >&2
+	exit 1
 fi
 
 npm run check
