@@ -1211,8 +1211,13 @@ describe("session control DB", () => {
 			db.close();
 		}
 
-		expect(readMultiAgentAgents(controlDbPath, sessionPath, ["missing", second.id, first.id])).toEqual([second, first]);
-		expect(() => readMultiAgentAgents(controlDbPath, sessionPath, ["agent-invalid"])).toThrow(/path must be absolute/i);
+		expect(readMultiAgentAgents(controlDbPath, sessionPath, ["missing", second.id, first.id])).toEqual([
+			second,
+			first,
+		]);
+		expect(() => readMultiAgentAgents(controlDbPath, sessionPath, ["agent-invalid"])).toThrow(
+			/path must be absolute/i,
+		);
 	});
 
 	it("queries detached artifact agents through an inclusive update cutoff without reading unrelated state", () => {
