@@ -13,6 +13,7 @@ import {
 	findApprovalPreset,
 	type SandboxProfileName,
 } from "../../src/core/permissions/presets.ts";
+import { isProcessIdentityAlive, type ProcessIdentity } from "../../src/core/runtime-process.ts";
 import {
 	claimNextSupervisorRequest,
 	completeSupervisorRequest,
@@ -28,7 +29,6 @@ import {
 	writeSessionGoal,
 } from "../../src/core/session-control-db.ts";
 import { type SessionEntry, SessionManager } from "../../src/core/session-manager.ts";
-import { isProcessIdentityAlive, type ProcessIdentity } from "../../src/core/runtime-process.ts";
 import { createSqliteDatabase } from "../../src/core/sqlite.ts";
 import { RpcClient, type RpcCommandBody } from "../../src/modes/rpc/rpc-client.ts";
 import type { RpcExtensionUIRequest, RpcResponse } from "../../src/modes/rpc/rpc-types.ts";
@@ -570,10 +570,7 @@ async function terminateHeadlessDetachedRunners(paths: HeadlessRuntimePaths, ses
 	const captured = collectHeadlessDetachedIdentities(paths, sessionFile);
 	for (const payload of captured.payloads) killHeadlessProcessGroup(payload, payload.pgid);
 	for (const runner of captured.runners) killHeadlessProcessGroup(runner, runner.pid);
-	await waitForHeadlessProcessExit([
-		...captured.runners,
-		...captured.payloads,
-	]);
+	await waitForHeadlessProcessExit([...captured.runners, ...captured.payloads]);
 }
 
 function cleanupHeadlessStartup(

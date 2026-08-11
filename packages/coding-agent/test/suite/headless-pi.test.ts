@@ -1505,13 +1505,7 @@ describe("headless Pi fixture", () => {
 			expect(isProcessAlive(shellPid as number)).toBe(false);
 		} finally {
 			if (runnerPid !== undefined && isProcessAlive(runnerPid)) killProcessGroup(runnerPid);
-			if (shellPid !== undefined && isProcessAlive(shellPid)) {
-				try {
-					process.kill(shellPid, "SIGKILL");
-				} catch (error) {
-					if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-				}
-			}
+			if (shellPid !== undefined && isProcessAlive(shellPid)) killProcessGroup(shellPid);
 		}
 	});
 
