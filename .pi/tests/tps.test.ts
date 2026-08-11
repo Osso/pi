@@ -1,7 +1,8 @@
-// .pi is outside every package's vitest root, so run this explicitly:
+// Lives outside .pi/extensions because pi loads every .ts file there as an extension.
+// .pi is also outside every package's vitest root, so run this explicitly:
 //   npx --prefix packages/coding-agent vitest run --dir "$PWD/.pi"
 import { describe, expect, it } from "vitest";
-import registerTps, { formatStats, type LoopStats, type Span, unionMs } from "./tps.ts";
+import registerTps, { formatStats, type LoopStats, type Span, unionMs } from "../extensions/tps.ts";
 
 function loopStats(overrides: Partial<LoopStats>): LoopStats {
 	return { elapsedMs: 0, requests: [], toolSpans: [], input: 0, output: 0, totalTokens: 0, ...overrides };
