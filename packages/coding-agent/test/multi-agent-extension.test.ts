@@ -1983,43 +1983,51 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("bounds parent cancellation when a slow descendant ignores abort", async () => {
-		const rejectPromptByAgent = new Map<string, (error: Error) => void>();
-		let slowChildAgentId: string | undefined;
-		const harness = createMultiAgentHarness({
-			createChildSession: async ({ agent }) => {
-				const prompt = new Promise<void>((_resolve, reject) => rejectPromptByAgent.set(agent.id, reject));
-				return {
-					abort: () => {
-						if (agent.id === slowChildAgentId) return;
-						rejectPromptByAgent.get(agent.id)?.(new Error("parent aborted"));
-					},
-					messages: [],
-					prompt: async () => prompt,
-				};
-			},
-		});
-		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
-			context: "fresh",
-			displayName: "Slow parent",
-			prompt: "parent",
-		});
-		const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
-			context: "fresh",
-			displayName: "Slow child",
-			parentId: parent.details.agent.id,
-			prompt: "child",
-		});
-		slowChildAgentId = child.details.agent.id;
-		await Promise.resolve();
+		vi.useFakeTimers();
+		try {
+			const rejectPromptByAgent = new Map<string, (error: Error) => void>();
+			let slowChildAgentId: string | undefined;
+			const harness = createMultiAgentHarness({
+				createChildSession: async ({ agent }) => {
+					const prompt = new Promise<void>((_resolve, reject) => rejectPromptByAgent.set(agent.id, reject));
+					return {
+						abort: () => {
+							if (agent.id === slowChildAgentId) return;
+							rejectPromptByAgent.get(agent.id)?.(new Error("parent aborted"));
+						},
+						messages: [],
+						prompt: async () => prompt,
+					};
+				},
+			});
+			const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
+				context: "fresh",
+				displayName: "Slow parent",
+				prompt: "parent",
+			});
+			const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
+				context: "fresh",
+				displayName: "Slow child",
+				parentId: parent.details.agent.id,
+				prompt: "child",
+			});
+			slowChildAgentId = child.details.agent.id;
+			await Promise.resolve();
 
-		const cancelled = await harness.call<CancelAgentDetails>("close_agent", {
-			agentId: parent.details.agent.id,
-			reason: "cascade",
-		});
+			const cancellation = harness.call<CancelAgentDetails>("close_agent", {
+				agentId: parent.details.agent.id,
+				reason: "cascade",
+			});
+			await vi.advanceTimersByTimeAsync(5_000);
+			await vi.advanceTimersByTimeAsync(5_000);
+			const cancelled = await cancellation;
 
-		expect(harness.store.getAgent(child.details.agent.id)).toMatchObject({ lifecycle: "cancelling" });
-		expect(harness.store.getAgent(parent.details.agent.id)).toMatchObject({ lifecycle: "cancelling" });
-		expect(cancelled.details.agent).toMatchObject({ lifecycle: "cancelling" });
+			expect(harness.store.getAgent(child.details.agent.id)).toMatchObject({ lifecycle: "cancelling" });
+			expect(harness.store.getAgent(parent.details.agent.id)).toMatchObject({ lifecycle: "cancelling" });
+			expect(cancelled.details.agent).toMatchObject({ lifecycle: "cancelling" });
+		} finally {
+			vi.useRealTimers();
+		}
 	}, 12_000);
 
 	it("terminalizes cancellation only after the child runtime exits", async () => {
