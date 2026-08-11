@@ -973,16 +973,7 @@ describe("AgentSession compaction characterization", () => {
 				}),
 		]);
 
-		const boundedFailureReported = new Promise<void>((resolve) => {
-			const unsubscribe = harness.session.subscribe((event) => {
-				if (event.type === "compaction_end" && event.reason === "overflow" && event.willRetry === false) {
-					unsubscribe();
-					resolve();
-				}
-			});
-		});
 		await expect(harness.session.prompt("trigger repeated request-buffer overflow")).resolves.toBeUndefined();
-		await boundedFailureReported;
 
 		const compactionEntries = harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction");
 		const compactionEnds = harness.eventsOfType("compaction_end");

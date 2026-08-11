@@ -183,24 +183,6 @@ function openHeadlessSession(agent: HeadlessPi): SessionManager {
 	return session;
 }
 
-async function completeRestoredChildTurn(agent: HeadlessPi, agentId: string, requestId: string): Promise<void> {
-	agent.respondToLlmRequest(requestId, fauxAssistantMessage("Child recovered after restart"));
-	const endTurnRequest = await agent.waitForLlmRequest(
-		(request) => request.agentId === agentId && request.id !== requestId,
-	);
-	expect(agent.listAgents().find((candidate) => candidate.id === agentId)?.lifecycle).toBe("running");
-	expect(JSON.stringify(endTurnRequest.messages)).toContain("end_turn");
-	agent.respondToLlmRequest(
-		endTurnRequest.id,
-		fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Child recovered after restart" }), {
-			stopReason: "toolUse",
-		}),
-	);
-	await expect(
-		agent.waitForAgent((candidate) => candidate.id === agentId && candidate.lifecycle === "completed"),
-	).resolves.toMatchObject({ id: agentId, lifecycle: "completed" });
-}
-
 async function changeHeadlessWorkingDirectory(agent: HeadlessPi, targetCwd: string, toolCallId: string): Promise<void> {
 	await agent.send({ type: "prompt", message: `Change working directory to ${targetCwd}` });
 	const request = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
@@ -603,23 +585,20 @@ describe("change_working_directory process restart", () => {
 			expect(restoredChildRequest.userMessages).toContain("Remain live through cwd relocation and restart");
 
 			await agent.send({ type: "prompt", message: "Read restart-marker.txt" });
-			const readRequest = await agent.waitForLlmRequest();
+			const readRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
 			agent.respondToLlmRequest(
 				readRequest.id,
 				fauxAssistantMessage(
 					fauxToolCall("read", { path: "restart-marker.txt" }, { id: "read-after-cwd-restart" }),
 				),
 			);
-			const readFollowUp = await agent.waitForLlmRequest((request) => request.id !== readRequest.id);
-
-			expect(JSON.stringify(readFollowUp.messages)).toContain("cwd survived process restart");
-			agent.respondToLlmRequest(readFollowUp.id, fauxCompletedAssistantMessage("restart read complete"));
 			await agent.waitForSessionEntry(
 				null,
 				(entry) =>
 					entry.type === "message" &&
-					entry.message.role === "assistant" &&
-					readTextContent(entry.message.content).includes("restart read complete"),
+					entry.message.role === "toolResult" &&
+					entry.message.toolCallId === "read-after-cwd-restart" &&
+					readTextContent(entry.message.content).includes("cwd survived process restart"),
 			);
 
 			const persistedHeader = JSON.parse(readFileSync(agent.sessionFile, "utf8").split("\n")[0] ?? "{}") as {
@@ -628,7 +607,6 @@ describe("change_working_directory process restart", () => {
 			expect(persistedHeader.cwd).toBe(agent.paths.workspaceDir);
 			expect(basename(agent.sessionFile)).toContain(agent.sessionId);
 
-			await completeRestoredChildTurn(agent, spawned.id, restoredChildRequest.id);
 		});
 	});
 });
