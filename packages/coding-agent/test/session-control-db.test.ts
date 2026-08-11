@@ -53,6 +53,7 @@ import {
 	prepareControlDbForSelfRestart,
 	readIncomingMessageStatus,
 	readLastMessage,
+	readMultiAgentAgents,
 	readMultiAgentRuntimeOwnership,
 	readMultiAgentState,
 	readPromptHistory,
@@ -1184,6 +1185,34 @@ describe("session control DB", () => {
 				storeRef: { messageId: "missing", sessionPath: "/sessions/missing.jsonl" },
 			}),
 		).toThrow("Runtime mailbox store reference does not exist");
+	});
+
+	it("reads requested agents in caller order and validates returned payloads", () => {
+		const sessionPath = "/sessions/read-agents.jsonl";
+		const first = { id: "agent-first", lifecycle: "completed", revision: 1 };
+		const second = { id: "agent-second", lifecycle: "failed", revision: 2 };
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, first.id, first);
+		bootstrapMultiAgentAgent(controlDbPath, sessionPath, second.id, second);
+
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.prepare(
+				"INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at) VALUES (?, ?, ?, ?)",
+			).run("/sessions/unrelated-mailbox.jsonl", "unrelated", "not-json", "2026-08-09T00:00:00.000Z");
+			db.prepare(
+				"INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
+			).run(
+				sessionPath,
+				"agent-invalid",
+				JSON.stringify({ id: "agent-invalid", result: { fileRefs: [{ path: 42 }] } }),
+				"2026-08-09T00:00:00.000Z",
+			);
+		} finally {
+			db.close();
+		}
+
+		expect(readMultiAgentAgents(controlDbPath, sessionPath, ["missing", second.id, first.id])).toEqual([second, first]);
+		expect(() => readMultiAgentAgents(controlDbPath, sessionPath, ["agent-invalid"])).toThrow(/path must be absolute/i);
 	});
 
 	it("queries detached artifact agents through an inclusive update cutoff without reading unrelated state", () => {

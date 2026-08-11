@@ -50,6 +50,7 @@ import {
 	listRuntimeMailboxMessages,
 	listSessionMetadata,
 	listSharedChannelMessagesAfter,
+	readMultiAgentAgents,
 	readMultiAgentRuntimeOwnership,
 	readMultiAgentState,
 	readSharedChannelCursor,
@@ -2341,8 +2342,8 @@ class WaitAgentsWakeWatcher {
 			return;
 		}
 		const readTrackedTerminal = (): AgentSnapshot | undefined => {
-			const agents = (readMultiAgentState(this.controlDbPath, this.sessionPath)?.agents ?? []) as AgentSnapshot[];
-			return agents.find((agent) => trackedAgentIds.has(agent.id) && !isActiveLifecycle(agent.lifecycle));
+			const agents = readMultiAgentAgents(this.controlDbPath, this.sessionPath, [...trackedAgentIds]);
+			return agents.find((agent) => !isActiveLifecycle(agent.lifecycle));
 		};
 		this.unsubscribeAgentTransitions = this.store.subscribeAgentTransitions(() => {
 			const terminal = readTrackedTerminal();

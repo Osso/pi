@@ -16,6 +16,7 @@ import {
 	type ParentAgentJournalWriter,
 	requestAgentSteering,
 	resolveSelectedSessionMutationTarget,
+	waitNotifications,
 } from "../extensions/agents-core/src/runtime.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
 import browserCliExtension, { type BrowserCliCommandRunner } from "../extensions/browser-cli/src/index.ts";
@@ -2994,6 +2995,66 @@ describe("multi-agent extension tools", () => {
 		]);
 		expect(cancelled.details.agent).toMatchObject({ id: agent.id, lifecycle: "running", revision: agent.revision });
 		expect(cancelled.details.reason).toBe("user stopped it");
+	});
+
+	it("waitNotifications polls the tracked persisted agent without validating unrelated mailbox rows", async () => {
+		vi.useFakeTimers();
+		try {
+			const session = createControlDbSession();
+			const sourceStore = new MultiAgentStore({ now: () => "2026-08-11T00:00:00.000Z" });
+			sourceStore.setPersistenceSessionManager(session);
+			const spawned = legacyMultiAgentStore(sourceStore).spawnAgent({
+				agentType: "worker",
+				cwd: "/repo",
+				displayName: "Persisted worker",
+				permission: { narrowed: true, policy: "on-request" },
+			});
+			const waitingStore = MultiAgentStore.fromSessionManager(session, {
+				now: () => "2026-08-11T00:00:00.000Z",
+			});
+			const completionStore = MultiAgentStore.fromSessionManager(session, {
+				now: () => "2026-08-11T00:00:00.000Z",
+			});
+			const persistence = waitingStore.getPersistenceTarget();
+			if (!persistence) throw new Error("expected persisted wait store");
+
+			const waiting = waitNotifications(waitingStore);
+			await Promise.resolve();
+			expect(waitingStore.getAgent(spawned.agent.id)).toMatchObject({ lifecycle: "running" });
+
+			const current = completionStore.getAgent(spawned.agent.id);
+			if (!current) throw new Error("expected independently restored agent");
+			const completed = legacyMultiAgentStore(completionStore).transitionAgent(
+				current.id,
+				current.revision,
+				"completed",
+				{ result: { summary: "persisted completion" } },
+			);
+			expect(completed.ok).toBe(true);
+			if (!completed.ok) throw new Error("expected persisted completion");
+
+			const db = createSqliteDatabase(persistence.controlDbPath);
+			try {
+				db.prepare(
+					`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+					 VALUES (?, ?, ?, ?)`,
+				).run(persistence.sessionPath, "malformed-wait-poll", "not-json", "2026-08-11T00:00:00.000Z");
+			} finally {
+				db.close();
+			}
+
+			await vi.advanceTimersByTimeAsync(3_000);
+			await expect(waiting).resolves.toMatchObject({
+				agent: {
+					id: spawned.agent.id,
+					lifecycle: "completed",
+					result: { summary: "persisted completion" },
+				},
+				kind: "agent",
+			});
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("wait_agent returns immediately when no agents are active", async () => {

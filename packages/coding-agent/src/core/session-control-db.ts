@@ -6135,6 +6135,24 @@ export function readMultiAgentAgent(
 	});
 }
 
+export function readMultiAgentAgents(
+	controlDbPath: string,
+	sessionPath: string,
+	agentIds: readonly string[],
+): AgentSnapshot[] {
+	return withControlDb(controlDbPath, (db) => {
+		const readAgent = db.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?");
+		return agentIds.flatMap((agentId) => {
+			const row = readAgent.get(sessionPath, agentId) as { data: string } | undefined;
+			if (!row) return [];
+			const context = `multi_agent_agents:${sessionPath}#${agentId}`;
+			const agent = parseStoredJsonObject(row.data, context);
+			validatePersistedAgentPayload(agent, context);
+			return [agent as unknown as AgentSnapshot];
+		});
+	});
+}
+
 export function listDetachedArtifactAgentsUpdatedAtOrBefore(
 	controlDbPath: string,
 	updatedAtCutoff: string,
@@ -6379,6 +6397,13 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 
 		CREATE INDEX IF NOT EXISTS multi_agent_agents_agent_updated_at_idx
 		ON multi_agent_agents(CASE WHEN json_valid(data) THEN json_extract(data, '$.updatedAt') END);
+
+		CREATE INDEX IF NOT EXISTS multi_agent_agents_detached_lifecycle_idx
+		ON multi_agent_agents(
+			json_extract(data, '$.detached'),
+			json_extract(data, '$.lifecycle')
+		)
+		WHERE json_valid(data);
 
 		CREATE TABLE IF NOT EXISTS multi_agent_runtime_owners (
 			session_path TEXT NOT NULL,
