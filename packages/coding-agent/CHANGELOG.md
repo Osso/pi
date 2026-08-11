@@ -475,6 +475,7 @@
 - Fixed the edit tool schema to allow model-invented extra replacement fields instead of rejecting otherwise valid edits ([#6278](https://github.com/earendil-works/pi/issues/6278)).
 - Fixed Pyrun evaluation output to omit noisy `Result:` labels and null result values.
 - Fixed Pyrun error tool output to omit the redundant `Session: default` label.
+- Fixed `wait_agent({})` polling to read only agent IDs active when the wait began instead of restoring unrelated agent and mailbox rows; dead detached-runtime candidate lookup is indexed for the recurring check.
 - Fixed `wait_agent({})` to observe terminal transitions from detached tool jobs that update the multi-agent store without a child dispatch.
 - Fixed Escape while viewing an active child agent to cancel that child turn instead of only checking the main thread.
 - Fixed runtime mailbox delivery races: when an idle delivery attempt races with an already-active prompt on the recipient, the claimed transport row is released back to pending for bounded redelivery instead of being marked failed. Added regression test `test/runtime-mailbox.test.ts` to prevent regressions.

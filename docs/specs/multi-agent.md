@@ -159,8 +159,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Agent notification waiting and consumption are separate operations: waiting returns when terminal or persisted
       coordination input is available, or when transient steering wakes a live wait, without changing notification delivery
       state. Explicit consumption drains every pending terminal notification. `wait_agent({})` composes both operations,
-      snapshots agents active at invocation, and queries current agent rows until any snapshot member is terminal. Terminal
-      notifications only wake the query. Accepted ordinary main-session steering also wakes a live wait through the
+      snapshots agents active at invocation, reads only those persisted agent IDs on each recurring terminal check
+      without restoring unrelated agent or mailbox rows, and queries current agent rows until any snapshot member is
+      terminal. Terminal notifications only wake the query. Accepted ordinary main-session steering also wakes a live wait through the
       process-local AgentSession event path; neither wake changes notification delivery. Persisted coordination polling
       consumes all currently pending deliverable runtime-mailbox and shared-channel inputs so each message is visible
       exactly once. Restore clears transient `runtime` worker metadata without rewriting durable lifecycle.

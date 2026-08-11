@@ -60,7 +60,8 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       writer lock, and revalidates the supervisor, agent payload snapshot, and ownership snapshot before
       atomically taking over ownership and advancing the agent revision. Session-owned agents recover through
       the registered owning supervisor; startup also
-      globally reconciles exact dead detached runners without a recovery-leader lease. Lifecycle mutations
+      globally reconciles exact dead detached runners without a recovery-leader lease. Dead detached-runtime candidate
+      lookup uses the persisted detached/lifecycle index before exact owner and liveness validation. Lifecycle mutations
       validate the agent, exact process ownership, and requested transition from read-only snapshots, and
       prepare any detached-cancellation payload before reserving the writer; the commit revalidates the exact
       agent snapshot and owner predicate, then atomically updates lifecycle state and persists the cancellation
