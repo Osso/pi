@@ -14,7 +14,7 @@ import { createDetachedJobArtifacts } from "../../src/core/detached-job-runner.t
 import { allocateMultiAgentCounter, getControlDbPath, listSessionMetadata } from "../../src/core/session-control-db.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
 import type { ExtensionAPI, ExtensionCommandContextActions } from "../../src/index.ts";
-import { type HeadlessPi, withHeadlessPi } from "./headless-pi.ts";
+import { type HeadlessPi, requireHeadlessAgentSessionId, withHeadlessPi } from "./headless-pi.ts";
 
 interface RelocateCommandContextActions extends ExtensionCommandContextActions {
 	relocate(targetCwd: string): Promise<void>;
@@ -532,7 +532,8 @@ describe("change_working_directory process restart", () => {
 				),
 			);
 			const spawned = await agent.waitForAgent((candidate) => candidate.displayName === "Relocation restart child");
-			const interruptedChildRequest = await agent.waitForLlmRequest((request) => request.agentId === spawned.id);
+			const childSessionId = requireHeadlessAgentSessionId(spawned);
+			await agent.waitForLlmRequest((request) => request.sessionId === childSessionId);
 			const spawnFollowUp = await agent.waitForLlmRequest(
 				(request) => request.agentId === null && request.id !== spawnRequest.id,
 			);
@@ -579,9 +580,7 @@ describe("change_working_directory process restart", () => {
 			await agent.restart();
 			expect(openHeadlessSession(agent).getCwd()).toBe(targetCwd);
 
-			const restoredChildRequest = await agent.waitForLlmRequest(
-				(request) => request.agentId === spawned.id && request.id !== interruptedChildRequest.id,
-			);
+			const restoredChildRequest = await agent.waitForLlmRequest((request) => request.sessionId === childSessionId);
 			expect(restoredChildRequest.userMessages).toContain("Remain live through cwd relocation and restart");
 
 			await agent.send({ type: "prompt", message: "Read restart-marker.txt" });

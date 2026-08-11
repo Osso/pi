@@ -6,7 +6,7 @@ import {
 	readMultiAgentRuntimeOwnership,
 	readRuntimeMailboxListener,
 } from "../../../src/core/session-control-db.ts";
-import { type HeadlessPi, withHeadlessPi } from "../headless-pi.ts";
+import { type HeadlessPi, requireHeadlessAgentSessionId, withHeadlessPi } from "../headless-pi.ts";
 
 function fauxCompletedAssistantMessage(text: string): ReturnType<typeof fauxAssistantMessage> {
 	return fauxAssistantMessage([{ type: "text", text }, fauxToolCall("end_turn", { reason: text })], {
@@ -285,8 +285,9 @@ describe("sub-agent parent JSONL restart recovery", () => {
 				),
 			);
 			const spawned = await pi.waitForAgent((agent) => agent.displayName === "In-place restart reviewer");
-			const initialChildRequest = await pi
-				.waitForLlmRequest((request) => request.agentId === spawned.id)
+			const childSessionId = requireHeadlessAgentSessionId(spawned);
+			await pi
+				.waitForLlmRequest((request) => request.sessionId === childSessionId)
 				.catch((error: unknown) => {
 					throw new Error(
 						`Initial child request missing: ${String(error)} agents=${JSON.stringify(pi.listAgents())}`,
@@ -318,7 +319,7 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			void pi.send({ type: "prompt", message: "/restart" }).catch(() => undefined);
 
 			const restoredChildRequest = await pi
-				.waitForLlmRequest((request) => request.agentId === spawned.id && request.id !== initialChildRequest.id)
+				.waitForLlmRequest((request) => request.sessionId === childSessionId)
 				.catch((error: unknown) => {
 					throw new Error(
 						`Child recovery did not resume: ${String(error)} agents=${JSON.stringify(pi.listAgents())} entries=${JSON.stringify(pi.readSessionEntries(null).slice(-5))}`,
@@ -364,9 +365,8 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			);
 
 			const spawned = await pi.waitForAgent((agent) => agent.displayName === "Restart-persisted reviewer");
-			const childSessionId = spawned.transcript?.sessionId;
+			const childSessionId = requireHeadlessAgentSessionId(spawned);
 			const transcriptPath = spawned.transcript?.path;
-			expect(childSessionId).toBeDefined();
 			expect(transcriptPath).toBeDefined();
 			const startRecord = await waitForParentAgentRecord(pi.sessionFile, "agent_start", spawned.id);
 			expect(startRecord.data).toMatchObject({
@@ -376,13 +376,11 @@ describe("sub-agent parent JSONL restart recovery", () => {
 				transcriptPath,
 			});
 
-			const interruptedRequest = await pi.waitForLlmRequest((request) => request.agentId === spawned.id);
+			await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);
 			await pi.crash();
 			await pi.restart();
 
-			const restoredRequest = await pi.waitForLlmRequest(
-				(request) => request.agentId === spawned.id && request.id !== interruptedRequest.id,
-			);
+			const restoredRequest = await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);
 			const restored = pi.listAgents().find((agent) => agent.id === spawned.id);
 			expect(restored).toMatchObject({
 				id: spawned.id,

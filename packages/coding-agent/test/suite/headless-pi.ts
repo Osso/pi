@@ -134,6 +134,12 @@ interface HeadlessPiRuntime extends HeadlessPi {
 	dispose(): Promise<void>;
 }
 
+export function requireHeadlessAgentSessionId(agent: AgentSnapshot): string {
+	const sessionId = agent.transcript?.sessionId;
+	if (!sessionId) throw new Error(`Agent ${agent.id} has no transcript session ID`);
+	return sessionId;
+}
+
 function createHeadlessModelConfig(id: string, name: string, reasoning = false) {
 	return {
 		id,

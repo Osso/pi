@@ -33,6 +33,7 @@ import {
 	createProviderServer,
 	type HeadlessLlmRequest,
 	type HeadlessPi,
+	requireHeadlessAgentSessionId,
 	runWithCleanup,
 	withHeadlessPi,
 } from "./headless-pi.ts";
@@ -813,17 +814,16 @@ describe("headless Pi fixture", () => {
 				),
 			);
 			const spawned = await agent.waitForAgent((candidate) => candidate.displayName === "Interrupted reviewer");
+			const childSessionId = requireHeadlessAgentSessionId(spawned);
 			const originalTranscript = spawned.transcript;
 			expect(originalTranscript?.path).toContain(originalTranscript?.sessionId);
 			expect(existsSync(originalTranscript?.path ?? "")).toBe(true);
-			const interruptedRequest = await agent.waitForLlmRequest((request) => request.agentId === spawned.id);
+			await agent.waitForLlmRequest((request) => request.sessionId === childSessionId);
 
 			await agent.crash();
 			await agent.restart();
 
-			const restoredRequest = await agent.waitForLlmRequest(
-				(request) => request.agentId === spawned.id && request.id !== interruptedRequest.id,
-			);
+			const restoredRequest = await agent.waitForLlmRequest((request) => request.sessionId === childSessionId);
 			const restoredMainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
 			agent.respondToLlmRequest(restoredMainRequest.id, fauxCompletedAssistantMessage("Supervisor resumed"));
 			expect(restoredRequest.userMessages).toContain("Review until the supervisor restarts");
@@ -863,14 +863,13 @@ describe("headless Pi fixture", () => {
 				),
 			);
 			const spawned = await agent.waitForAgent((candidate) => candidate.displayName === "Restarted steering target");
-			const interruptedChildRequest = await agent.waitForLlmRequest((request) => request.agentId === spawned.id);
+			const childSessionId = requireHeadlessAgentSessionId(spawned);
+			await agent.waitForLlmRequest((request) => request.sessionId === childSessionId);
 
 			await agent.crash();
 			await agent.restart();
 
-			const restoredChildRequest = await agent.waitForLlmRequest(
-				(request) => request.agentId === spawned.id && request.id !== interruptedChildRequest.id,
-			);
+			const restoredChildRequest = await agent.waitForLlmRequest((request) => request.sessionId === childSessionId);
 			const restoredMainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
 			agent.respondToLlmRequest(
 				restoredMainRequest.id,
@@ -920,7 +919,8 @@ describe("headless Pi fixture", () => {
 				const caller = await agent.waitForAgent(
 					(candidate) => candidate.displayName === "Interrupted detached caller",
 				);
-				const callerRequest = await agent.waitForLlmRequest((request) => request.agentId === caller.id);
+				const callerSessionId = requireHeadlessAgentSessionId(caller);
+				const callerRequest = await agent.waitForLlmRequest((request) => request.sessionId === callerSessionId);
 				const code = [
 					"from pathlib import Path",
 					"import time",
@@ -934,7 +934,7 @@ describe("headless Pi fixture", () => {
 					fauxAssistantMessage(fauxToolCall("pyrun_eval", { code }), { stopReason: "toolUse" }),
 				);
 				await agent.waitForLlmRequest(
-					(request) => request.agentId === caller.id && request.id !== callerRequest.id,
+					(request) => request.sessionId === callerSessionId && request.id !== callerRequest.id,
 				);
 				await waitForFileContent(attemptPath, "started");
 				const detachedJob = await agent.waitForAgent(
@@ -947,9 +947,7 @@ describe("headless Pi fixture", () => {
 				killProcessGroup(runnerPid);
 				await vi.waitFor(() => expect(() => process.kill(runnerPid, 0)).toThrow());
 				await agent.restart();
-				await agent.waitForLlmRequest(
-					(request) => request.agentId === caller.id && request.id !== callerRequest.id,
-				);
+				await agent.waitForLlmRequest((request) => request.sessionId === callerSessionId);
 
 				await expect(
 					agent.waitForAgent((candidate) => candidate.id === detachedJob.id && candidate.lifecycle === "failed"),
@@ -1366,14 +1364,12 @@ describe("headless Pi fixture", () => {
 					stopReason: "toolUse",
 				}),
 			);
-			const interruptedRequest = await agent.waitForLlmRequest(
-				(request) => request.id !== initialRequest.id && request.agentId === null,
-			);
+			await agent.waitForLlmRequest((request) => request.id !== initialRequest.id && request.agentId === null);
 
 			await agent.restart();
 
 			const restoredRequest = await agent.waitForLlmRequest(
-				(request) => request.id !== interruptedRequest.id && request.agentId === null,
+				(request) => request.agentId === null && request.sessionId === agent.sessionId,
 			);
 			expect(restoredRequest.messages.some((message) => message.role === "toolResult")).toBe(true);
 			agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Restored summary"));
@@ -1404,7 +1400,7 @@ describe("headless Pi fixture", () => {
 			await agent.restart();
 
 			const restoredRequest = await agent.waitForLlmRequest(
-				(request) => request.agentId === null && request.id !== interruptedRequest.id,
+				(request) => request.agentId === null && request.sessionId === agent.sessionId,
 			);
 			expectSingleToolResult(restoredRequest, "failed-output");
 			await new Promise((resolve) => setTimeout(resolve, 200));
@@ -1444,7 +1440,7 @@ describe("headless Pi fixture", () => {
 			await agent.restart();
 
 			const restoredRequest = await agent.waitForLlmRequest(
-				(request) => request.agentId === null && request.id !== interruptedRequest.id,
+				(request) => request.agentId === null && request.sessionId === agent.sessionId,
 			);
 			expectSingleFailedToolResult(restoredRequest, "failed-pyrun-output");
 			expect(readFileSync(attemptPath, "utf8")).toBe("x");

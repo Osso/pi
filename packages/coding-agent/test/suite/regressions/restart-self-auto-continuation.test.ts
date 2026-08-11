@@ -3,7 +3,12 @@ import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { expect, it } from "vitest";
 import { getControlDbPath, readMultiAgentRuntimeOwnership } from "../../../src/core/session-control-db.ts";
-import { type HeadlessLlmRequest, type HeadlessPi, withHeadlessPi } from "../headless-pi.ts";
+import {
+	type HeadlessLlmRequest,
+	type HeadlessPi,
+	requireHeadlessAgentSessionId,
+	withHeadlessPi,
+} from "../headless-pi.ts";
 
 async function persistCompletedEndTurn(pi: HeadlessPi): Promise<void> {
 	await pi.send({ type: "prompt", message: "Finish this turn before process restart" });
@@ -228,7 +233,8 @@ it("continues a completed running goal after restart while a child remains live"
 			),
 		);
 		const child = await pi.waitForAgent((agent) => agent.displayName === "Resume policy child");
-		const initialChildRequest = await pi.waitForLlmRequest((request) => request.agentId === child.id);
+		const childSessionId = requireHeadlessAgentSessionId(child);
+		await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);
 		const mainAfterSpawn = await pi.waitForLlmRequest(
 			(request) => request.agentId === null && request.id !== mainRequest.id,
 		);
@@ -249,7 +255,7 @@ it("continues a completed running goal after restart while a child remains live"
 
 		const continuation = await pi.waitForLlmRequest((request) => request.agentId === null, 10_000);
 		const restoredChildRequest = await pi.waitForLlmRequest(
-			(request) => request.agentId === child.id && request.id !== initialChildRequest.id,
+			(request) => request.sessionId === childSessionId,
 			10_000,
 		);
 		expect(continuation.sessionId).toBe(pi.sessionId);

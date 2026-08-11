@@ -5,15 +5,10 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat
 import { describe, expect, it } from "vitest";
 import { getControlDbPath, readMultiAgentRuntimeOwnership } from "../../../src/core/session-control-db.ts";
 import { createSqliteDatabase } from "../../../src/core/sqlite.ts";
-import { type HeadlessLlmRequest, withHeadlessPi } from "../headless-pi.ts";
+import { type HeadlessLlmRequest, requireHeadlessAgentSessionId, withHeadlessPi } from "../headless-pi.ts";
 
 const LARGE_OUTPUT_BYTES = 64 * 1024 * 1024;
 const MAX_RSS_GROWTH_KIB = 512 * 1024;
-
-function requireSessionId(sessionId: string | undefined): string {
-	if (!sessionId) throw new Error("Spawned child has no session ID");
-	return sessionId;
-}
 
 function readRssKiB(pid: number): number {
 	const match = readFileSync(`/proc/${pid}/status`, "utf8").match(/^VmRSS:\s+(\d+)\s+kB$/m);
@@ -126,7 +121,7 @@ describe("post-restart Pyrun memory", () => {
 				),
 			);
 			const child = await pi.waitForAgent((agent) => agent.displayName === "post-restart-memory-child");
-			const childSessionId = requireSessionId(child.transcript?.sessionId);
+			const childSessionId = requireHeadlessAgentSessionId(child);
 			await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);
 			const mainAfterSpawn = await pi.waitForLlmRequest(
 				(request) => request.agentId === null && request.id !== initialMain.id,
