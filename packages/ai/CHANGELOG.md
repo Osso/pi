@@ -20,6 +20,7 @@
 - Fixed retry classification for the legacy `Incomplete response returned, reason: max_output_tokens` error and `content_filter` incomplete errors; early EOF and unknown incomplete errors remain retryable.
 - Fixed Anthropic message replay to normalize invalid persisted tool IDs even for same-model history, avoiding `tool_result.tool_use_id` request validation errors after restart.
 - Fixed OpenAI Responses context conversion to drop orphaned tool results, avoiding `No tool call found for function call output` errors after compaction keeps a tool result without its original tool call.
+- Fixed OpenAI Responses hosted-search output to strip raw internal citation markers before emitting text, preventing citation metadata from leaking into transcripts and user-visible output.
 - Fixed GitHub Copilot device-code login polling to wait before the first token poll, avoiding incorrect device-code failures for some users after browser authorization ([#6187](https://github.com/earendil-works/pi/issues/6187)).
 - Fixed OAuth device-code polling to honor the server-provided `slow_down` interval instead of only applying the RFC 8628 5-second increment, so GitHub Copilot login recovers instead of appearing to hang when polls arrive early (e.g. WSL/VM clock drift) ([#6187](https://github.com/earendil-works/pi/issues/6187)).
 - Fixed OpenAI Codex user-agent construction to synchronously load Node OS metadata, avoiding a startup race that could report `pi (browser)` in Node/Bun.
