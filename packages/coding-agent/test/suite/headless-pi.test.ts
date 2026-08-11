@@ -1460,6 +1460,61 @@ describe("headless Pi fixture", () => {
 		});
 	});
 
+	it("cleans up a detached Bash runner and shell after callback returns", async () => {
+		let runnerPid: number | undefined;
+		let shellPid: number | undefined;
+		try {
+			await withHeadlessPi(
+				async (agent) => {
+					const shellPidPath = join(agent.paths.workspaceDir, "detached-bash-shell.pid");
+					await agent.send({ type: "prompt", message: "Run a detached Bash command" });
+					const request = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
+					agent.respondToLlmRequest(
+						request.id,
+						fauxAssistantMessage(
+							fauxToolCall("bash", {
+								command: `printf '%s\\n' "$$" > '${shellPidPath}'; while :; do sleep 0.05; done`,
+							}),
+							{ stopReason: "toolUse" },
+						),
+					);
+					await agent.waitForEvent((event) => event.type === "tool_execution_start");
+					const runner = await agent.waitForAgent(
+						(candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running",
+					);
+					runnerPid = agent.getRunnerPid(runner.id);
+					if (!runnerPid) throw new Error(`Detached Bash runner has no PID: ${JSON.stringify(runner)}`);
+					await vi.waitFor(
+						() => {
+							expect(isProcessAlive(runnerPid as number)).toBe(true);
+							expect(existsSync(shellPidPath)).toBe(true);
+							shellPid = Number(readFileSync(shellPidPath, "utf8"));
+							expect(Number.isInteger(shellPid)).toBe(true);
+							expect(shellPid).not.toBe(runnerPid);
+							expect(isProcessAlive(shellPid)).toBe(true);
+						},
+						{ timeout: 10_000, interval: 20 },
+					);
+				},
+				{ autoDetachTools: true },
+			);
+
+			expect(runnerPid).toBeDefined();
+			expect(shellPid).toBeDefined();
+			expect(isProcessAlive(runnerPid as number)).toBe(false);
+			expect(isProcessAlive(shellPid as number)).toBe(false);
+		} finally {
+			if (runnerPid !== undefined && isProcessAlive(runnerPid)) killProcessGroup(runnerPid);
+			if (shellPid !== undefined && isProcessAlive(shellPid)) {
+				try {
+					process.kill(shellPid, "SIGKILL");
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+				}
+			}
+		}
+	});
+
 	it("does not resume a cancelling Bash tool when restoring its session", async () => {
 		await withHeadlessPi(
 			async (agent) => {

@@ -28,6 +28,7 @@ import {
 	writeSessionGoal,
 } from "../../src/core/session-control-db.ts";
 import { type SessionEntry, SessionManager } from "../../src/core/session-manager.ts";
+import { isProcessIdentityAlive, type ProcessIdentity } from "../../src/core/runtime-process.ts";
 import { createSqliteDatabase } from "../../src/core/sqlite.ts";
 import { RpcClient, type RpcCommandBody } from "../../src/modes/rpc/rpc-client.ts";
 import type { RpcExtensionUIRequest, RpcResponse } from "../../src/modes/rpc/rpc-types.ts";
@@ -318,7 +319,7 @@ function createHeadlessRpcClient(
 
 interface HeadlessPiCleanupOperations {
 	stopClient: () => Promise<void>;
-	terminateDetachedRunners?: () => void;
+	terminateDetachedRunners?: () => void | Promise<void>;
 	destroyProviderSocket: () => void;
 	closeProviderServer: () => Promise<void>;
 	removeTempDir: () => void;
@@ -345,7 +346,9 @@ export async function cleanupHeadlessPiResources(operations: HeadlessPiCleanupOp
 	const errors: unknown[] = [];
 	for (const cleanup of [
 		operations.stopClient,
-		async () => operations.terminateDetachedRunners?.(),
+		async () => {
+			await operations.terminateDetachedRunners?.();
+		},
 		async () => operations.destroyProviderSocket(),
 		operations.closeProviderServer,
 		async () => operations.removeTempDir(),
@@ -457,40 +460,120 @@ function createStorePoller(options: {
 	};
 }
 
-function killHeadlessProcessGroup(pid: number): void {
+interface DetachedPayloadIdentity extends ProcessIdentity {
+	pgid: number;
+}
+
+interface CapturedDetachedIdentities {
+	runners: ProcessIdentity[];
+	payloads: DetachedPayloadIdentity[];
+}
+
+function parseProcessIdentity(value: unknown): ProcessIdentity | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const record = value as Record<string, unknown>;
+	const pid = record.pid;
+	const startTimeTicks = record.startTimeTicks;
+	if (!Number.isSafeInteger(pid) || pid <= 0 || !Number.isSafeInteger(startTimeTicks) || startTimeTicks <= 0) {
+		return undefined;
+	}
+	return { pid, startTimeTicks };
+}
+
+function parseDetachedPayloadIdentity(value: unknown): DetachedPayloadIdentity | undefined {
+	if (typeof value !== "object" || value === null) return undefined;
+	const identity = parseProcessIdentity(value);
+	const pgid = (value as Record<string, unknown>).pgid;
+	if (!identity || !Number.isSafeInteger(pgid) || pgid <= 0) return undefined;
+	return { ...identity, pgid };
+}
+
+function identityKey(identity: ProcessIdentity): string {
+	return `${identity.pid}:${identity.startTimeTicks}`;
+}
+
+function readHeadlessDetachedIdentityFile(path: string): Record<string, unknown> | undefined {
 	try {
-		process.kill(-pid, "SIGKILL");
+		const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+		return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : undefined;
+	} catch {
+		// Partial launch manifests and identity files have no reliable process identity to terminate.
+		return undefined;
+	}
+}
+
+function collectHeadlessDetachedIdentityFiles(
+	root: string,
+	addRunner: (identity: ProcessIdentity | undefined) => void,
+	addPayload: (identity: DetachedPayloadIdentity | undefined) => void,
+): void {
+	for (const relativePath of readdirSync(root, { recursive: true })) {
+		if (typeof relativePath !== "string") continue;
+		const isLaunchManifest = relativePath.endsWith("launch.json");
+		const isPayloadIdentity = relativePath.endsWith("payload.json");
+		if (!isLaunchManifest && !isPayloadIdentity) continue;
+		const data = readHeadlessDetachedIdentityFile(join(root, relativePath));
+		if (!data) continue;
+		if (isLaunchManifest) addRunner(parseProcessIdentity(data.runnerProcessIdentity));
+		else addPayload(parseDetachedPayloadIdentity(data));
+	}
+}
+
+function collectHeadlessDetachedIdentities(
+	paths: HeadlessRuntimePaths,
+	sessionFile: string,
+): CapturedDetachedIdentities {
+	const runners = new Map<string, ProcessIdentity>();
+	const payloads = new Map<string, DetachedPayloadIdentity>();
+	const addRunner = (identity: ProcessIdentity | undefined): void => {
+		if (identity) runners.set(identityKey(identity), identity);
+	};
+	const addPayload = (identity: DetachedPayloadIdentity | undefined): void => {
+		if (identity) payloads.set(identityKey(identity), identity);
+	};
+	for (const agent of readHeadlessStore(paths.agentDir, sessionFile).listAgents()) {
+		const ownership = readMultiAgentRuntimeOwnership(getControlDbPath(paths.agentDir), sessionFile, agent.id);
+		addRunner(parseProcessIdentity(ownership?.processIdentity));
+	}
+	collectHeadlessDetachedIdentityFiles(paths.agentDir, addRunner, addPayload);
+	collectHeadlessDetachedIdentityFiles(paths.sessionDir, addRunner, addPayload);
+	return { runners: [...runners.values()], payloads: [...payloads.values()] };
+}
+
+function killHeadlessProcessGroup(identity: ProcessIdentity, pgid: number): void {
+	if (!isProcessIdentityAlive(identity)) return;
+	try {
+		process.kill(-pgid, "SIGKILL");
 		return;
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
 	}
 	try {
-		process.kill(pid, "SIGKILL");
+		process.kill(identity.pid, "SIGKILL");
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
 	}
 }
 
-function terminateHeadlessDetachedRunners(paths: HeadlessRuntimePaths, sessionFile: string): void {
-	const pids = new Set<number>();
-	for (const agent of readHeadlessStore(paths.agentDir, sessionFile).listAgents()) {
-		const pid = readMultiAgentRuntimeOwnership(getControlDbPath(paths.agentDir), sessionFile, agent.id)
-			?.processIdentity?.pid;
-		if (pid) pids.add(pid);
-	}
-	for (const root of [paths.agentDir, paths.sessionDir]) {
-		for (const path of readdirSync(root, { recursive: true })) {
-			if (typeof path !== "string" || !path.endsWith("launch.json")) continue;
-			try {
-				const manifest = JSON.parse(readFileSync(join(root, path), "utf8")) as Record<string, unknown>;
-				const pid = (manifest.runnerProcessIdentity as { pid?: number } | undefined)?.pid;
-				if (pid) pids.add(pid);
-			} catch {
-				// A partial launch manifest has no reliable process identity to terminate.
-			}
+async function waitForHeadlessProcessExit(identities: ProcessIdentity[]): Promise<void> {
+	const deadline = Date.now() + DEFAULT_TIMEOUT_MS;
+	while (identities.some((identity) => isProcessIdentityAlive(identity))) {
+		if (Date.now() >= deadline) {
+			const active = identities.filter((identity) => isProcessIdentityAlive(identity));
+			throw new Error(`Timed out waiting for detached processes: ${active.map(identityKey).join(", ")}`);
 		}
+		await new Promise((resolve) => setTimeout(resolve, 10));
 	}
-	for (const pid of pids) killHeadlessProcessGroup(pid);
+}
+
+async function terminateHeadlessDetachedRunners(paths: HeadlessRuntimePaths, sessionFile: string): Promise<void> {
+	const captured = collectHeadlessDetachedIdentities(paths, sessionFile);
+	for (const payload of captured.payloads) killHeadlessProcessGroup(payload, payload.pgid);
+	for (const runner of captured.runners) killHeadlessProcessGroup(runner, runner.pid);
+	await waitForHeadlessProcessExit([
+		...captured.runners,
+		...captured.payloads,
+	]);
 }
 
 function cleanupHeadlessStartup(
