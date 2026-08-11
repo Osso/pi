@@ -292,16 +292,18 @@ user sends prompt ────────────────────�
   ├─► (skill/template expansion if not handled)            │
   ├─► before_agent_start (can inject message, modify system prompt)
   ├─► agent_start                                          │
-  ├─► message_start / message_update / message_end         │
   │                                                        │
   │   ┌─── turn (repeats while LLM calls tools) ───┐       │
   │   │                                            │       │
   │   ├─► turn_start                               │       │
+  │   ├─► model_request_start                      │       │
   │   ├─► context (can modify messages)            │       │
   │   ├─► before_provider_request (can inspect or replace payload)
   │   ├─► after_provider_response (status + headers, before stream consume)
+  │   ├─► message_start / message_update / message_end     │
+  │   ├─► model_request_end                        │       │
   │   │                                            │       │
-  │   │   LLM responds, may call tools:            │       │
+  │   │   LLM may call tools:                      │       │
   │   │     ├─► tool_execution_start               │       │
   │   │     ├─► tool_call (can block)              │       │
   │   │     ├─► tool_execution_update              │       │
@@ -580,6 +582,22 @@ pi.on("agent_end", async (event, ctx) => {
   // continues after Pi rebuilds the runtime; defer idle/completion behavior.
 });
 ```
+
+#### model_request_start / model_request_end
+
+Fired around each foreground model request. The pair covers the complete request, including provider prefill and time-to-first-token, but excludes later tool execution.
+
+```typescript
+pi.on("model_request_start", async (_event, ctx) => {
+  // Start request-scoped timing or state.
+});
+
+pi.on("model_request_end", async (_event, ctx) => {
+  // Finalize request-scoped timing or state.
+});
+```
+
+A request emits `model_request_start` before its assistant message lifecycle events and `model_request_end` after the request completes. Use `turn_start`/`turn_end` for the larger response-plus-tools turn boundary.
 
 #### turn_start / turn_end
 

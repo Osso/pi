@@ -28,6 +28,7 @@
 - Temporarily disabled the resident Architect service and removed the `ask_architect` built-in tool while retaining the implementation and service template for rework; deployment now stops/removes Architect and keeps Supervisor active.
 - Changed Supervisor goal reviews from routine step direction to exception-based peer unblocking: competent progress receives the generic active-goal reminder, while specific corrective instructions are reserved for evidence-backed omissions, repeated failed or circular work, lost objective scope, or missing completion proof; the full original objective remains authoritative over narrower subtasks.
 - Changed `manage_goal set` to require resident Supervisor review; the returned objective preserves the active goal's requirements and completion criteria while adding the proposed scope, and failed or stale reviews leave goal state unchanged.
+- Changed the TPS extension to report generated tokens over complete foreground model-request wall time, including TTFT; removed the decode-only rate from the output.
 
 ### Added
 
@@ -38,6 +39,7 @@
 - Added the default first-party `codex-image-generation` extension with an `image_gen` function tool for Codex models; it uses OpenAI Responses hosted image generation only inside its private one-shot request, and successful calls persist a uniquely named PNG in the active working directory and report its path.
 - Added a live `Next review in M:SS` countdown to timed Supervisor wait statuses, with persisted deadlines, `Review due…` expiry state, restored rendering, and redraw-only cancellation that does not duplicate reviews or transcript entries.
 - Added `ExtensionUIContext.requestRender()` so interactive extensions can request lightweight redraws while RPC and print modes safely ignore the request.
+- Added `model_request_start` and `model_request_end` ExtensionAPI events around foreground model requests, allowing extensions to measure request lifecycle separately from tool execution.
 - Added built-in `change_working_directory` for persistently changing the current session cwd by direct path or another session's recorded cwd without switching session identity.
 - Added built-in `end_turn` as a default active tool requiring one nonblank free-form reason; normal coding-agent model turns continue after assistant text without a tool call until a terminating `end_turn` batch, while errors, aborts, and existing explicit termination remain terminal.
 - Added one-shot `ExtensionAPI.requestResumeContinuation()` for extensions to request one continuation after session startup or resume; InteractiveMode and RPC consume the request once.

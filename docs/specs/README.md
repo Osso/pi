@@ -46,6 +46,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | Prompt / context injection | [`prompt-context-hooks.md`](prompt-context-hooks.md) | **NATIVE** | `before_agent_start` / `context` / `before_provider_request` / `session_start`. |
 | PreToolUse command rewrites | [`pre-tool-use-rewrites.md`](pre-tool-use-rewrites.md) | **NATIVE** | `tool_call` mutates `input` in place + `{block}`; `tool_result`. |
 | Session lifecycle hooks | [`session-lifecycle-hooks.md`](session-lifecycle-hooks.md) | **NATIVE** | 8 session events + `resources_discover` + `project_trust`, with cancel/replace semantics. |
+| Model-request extension events | [`model-request-extension-events.md`](model-request-extension-events.md) | **NATIVE** | `model_request_start`/`model_request_end` ExtensionAPI hooks and complete foreground-request TPS instrumentation. |
 | Resume session tool (`resume_session`) | [`resume-session-tool.md`](resume-session-tool.md) | **BUILD** (done) | Built-in tool for explicit main-thread session replacement with optional caller-provided instructions. |
 | Change working directory tool (`change_working_directory`) | [`change-working-directory-tool.md`](change-working-directory-tool.md) | **BUILD** (done) | Built-in tool for persistent cwd changes by path or another session's recorded cwd without switching session identity. |
 | End-turn tool (`end_turn`) | [`end-turn-tool.md`](end-turn-tool.md) | **BUILD** (done) | Built-in default tool requiring a nonblank reason; text-only model responses continue until a terminating tool batch. |
