@@ -19,7 +19,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - [x] Preserve one global Supervisor model transcript across requests and service restarts. Proactively compact the shared context before a bounded request when usage reaches 75%, preserving prior decisions, project-specific policies, and reusable approval rationale rather than resetting history. Invalidate provider continuation state after compaction so the next request starts from the compacted local context rather than the pre-compaction remote chain.
 - [x] Process requests through an event-driven request/response queue rather than polling sessions. Idle recovery probes the Supervisor request queue read-only for expired pending or claimed work; when recovery is needed, expired requests are completed and remaining claimed requests are requeued in one immediate transaction.
 - [x] Remain local-only without web access.
-- [x] Default deployment to Pi-managed lazy Supervisor startup: on Linux, invoke `scripts/configure-resident-services.sh <pi-binary> autostart` to stop, disable, and remove only `pi-supervisor.service`, while Architect remains under its systemd user service. On Darwin, skip systemd configuration and reject the systemd opt-in explicitly. Select systemd mode for Supervisor only with `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1 ./deploy.sh`; direct one-argument `scripts/configure-resident-services.sh <pi-binary>` configures both systemd services.
+- [x] Default deployment to Pi-managed lazy Supervisor startup: on Linux, invoke `scripts/configure-resident-services.sh <pi-binary> autostart` to stop, disable, and remove obsolete Architect and Supervisor user units; on Darwin, skip systemd configuration and reject the systemd opt-in explicitly. Select systemd mode only with `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1 ./deploy.sh`; direct one-argument `scripts/configure-resident-services.sh <pi-binary>` remains an explicit systemd installer.
 
 ### Resident console
 
@@ -149,8 +149,8 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - `packages/coding-agent/extensions/goal/src/goal-review-evidence.ts` — supplies ordered unconsumed conversation events to goal reviews and consumes them after applied decisions.
 - `packages/coding-agent/extensions/goal/src/goal-scheduling.ts` — cancellable agent waits, pending-decision handoff, timed review, identity rechecks, and visible scheduling failures.
 - `packages/coding-agent/extensions/goal/src/rendering.ts` — durable Supervisor status entries and tagged continuation rendering.
-- `packages/coding-agent/systemd/pi-supervisor.service` / `deploy.sh` — optional Supervisor systemd template and default lazy-start deployment lifecycle.
-- `scripts/configure-resident-services.sh` — direct one-argument systemd configuration for both resident services and deployment-mode Supervisor-only cleanup.
+- `packages/coding-agent/systemd/pi-supervisor.service` / `deploy.sh` — optional systemd service template and default lazy-start deployment lifecycle.
+- `scripts/configure-resident-services.sh` — explicit systemd installation or deployment-mode cleanup of Architect and Supervisor user units.
 
 ## Tests asserting this spec
 
@@ -170,8 +170,8 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - `packages/coding-agent/test/resident-console-command.test.ts`
 - `packages/coding-agent/test/resident-console-client.test.ts`
 - `packages/coding-agent/test/supervisor-resident-console.test.ts`
-- `packages/coding-agent/test/deploy-resident-services.test.ts` — Supervisor-only autostart cleanup, Architect preservation, explicit systemd mode, and Darwin skip.
-- `packages/coding-agent/test/architect-service.test.ts` — Architect systemd lifecycle and explicit systemd rewrite/reload contract.
+- `packages/coding-agent/test/deploy-resident-services.test.ts` — deployment mode selection and default systemd-unit cleanup.
+- `packages/coding-agent/test/architect-service.test.ts` — explicit systemd rewrite/reload skip and lifecycle-action contract.
 
 ## Known gaps (current cycle)
 

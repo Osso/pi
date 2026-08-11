@@ -7,7 +7,6 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
-	statSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,8 +18,6 @@ const deployScript = fileURLToPath(new URL("../../../deploy.sh", import.meta.url
 const residentServicesScript = fileURLToPath(
 	new URL("../../../scripts/configure-resident-services.sh", import.meta.url),
 );
-const architectServiceUnit = fileURLToPath(new URL("../systemd/pi-architect.service", import.meta.url));
-const supervisorServiceUnit = fileURLToPath(new URL("../systemd/pi-supervisor.service", import.meta.url));
 
 interface DeployFixture {
 	binDir: string;
@@ -38,7 +35,6 @@ interface DeployRunOptions {
 }
 
 interface ResidentServiceFixture {
-	architectUnit: string;
 	configHome: string;
 	fakeBinDir: string;
 	supervisorUnit: string;
@@ -83,32 +79,20 @@ const args = process.argv.slice(2);
 const command = args[1];
 const unit = args.find((arg) => arg.endsWith(".service"));
 const statePath = process.env.PI_TEST_SYSTEMCTL_STATE;
-const state = existsSync(statePath) ? JSON.parse(readFileSync(statePath, "utf8")) : {};
-const saveState = () => writeFileSync(statePath, JSON.stringify(state));
-const unitPath = unit === "pi-architect.service" ? process.env.PI_TEST_ARCHITECT_UNIT : process.env.PI_TEST_SUPERVISOR_UNIT;
+const disabledUnits = new Set(existsSync(statePath) ? readFileSync(statePath, "utf8").split("\\n").filter(Boolean) : []);
+const saveState = () => writeFileSync(statePath, [...disabledUnits].join("\\n"));
 appendFileSync(process.env.PI_TEST_SYSTEMCTL_LOG, args.join(" ") + "\\n");
-if (command === "cat") {
-  if (!unitPath || !existsSync(unitPath)) process.exit(1);
-  process.stdout.write("# " + unitPath + "\\n" + readFileSync(unitPath, "utf8"));
+if (command === "cat" && unit === "pi-architect.service") process.exit(0);
+if (command === "cat" && unit === "pi-supervisor.service") {
+  process.stdout.write("# " + process.env.PI_TEST_SUPERVISOR_UNIT + "\\n" + readFileSync(process.env.PI_TEST_SUPERVISOR_UNIT, "utf8"));
   process.exit(0);
 }
 if (command === "disable" && unit) {
-  state[unit] = { active: false, enabled: false };
+  disabledUnits.add(unit);
   saveState();
   process.exit(0);
 }
-if (command === "enable" && unit) {
-  state[unit] = { active: args.includes("--now"), enabled: true };
-  saveState();
-  process.exit(0);
-}
-if (command === "restart" && unit) {
-  state[unit] = { active: true, enabled: state[unit]?.enabled ?? true };
-  saveState();
-  process.exit(0);
-}
-if (command === "is-active" && unit) process.exit(state[unit]?.active ? 0 : 1);
-if (command === "is-enabled" && unit) process.exit(state[unit]?.enabled ? 0 : 1);
+if ((command === "is-active" || command === "is-enabled") && unit) process.exit(disabledUnits.has(unit) ? 1 : 0);
 process.exit(0);
 `;
 
@@ -171,7 +155,6 @@ function createResidentServiceFixture(parentDir: string): ResidentServiceFixture
 	const systemdUserDir = join(configHome, "systemd", "user");
 	const fakeBinDir = join(parentDir, "systemctl-bin");
 	const fixture = {
-		architectUnit: join(systemdUserDir, "pi-architect.service"),
 		configHome,
 		fakeBinDir,
 		supervisorUnit: join(systemdUserDir, "pi-supervisor.service"),
@@ -181,35 +164,10 @@ function createResidentServiceFixture(parentDir: string): ResidentServiceFixture
 	};
 	mkdirSync(fakeBinDir, { recursive: true });
 	mkdirSync(systemdUserDir, { recursive: true });
-	writeFileSync(fixture.architectUnit, "previous architect unit");
+	writeFileSync(join(systemdUserDir, "pi-architect.service"), "previous architect unit");
 	writeFileSync(fixture.supervisorUnit, "previous supervisor unit");
-	writeFileSync(
-		fixture.systemctlState,
-		JSON.stringify({
-			"pi-architect.service": { active: true, enabled: true },
-			"pi-supervisor.service": { active: true, enabled: true },
-		}),
-	);
 	writeExecutable(join(fakeBinDir, "systemctl"), SYSTEMCTL_STUB);
 	return fixture;
-}
-
-function runResidentServices(fixture: ResidentServiceFixture, mode?: "autostart" | "systemd") {
-	const args = ["/home/osso/.local/bin/pi"];
-	if (mode) args.push(mode);
-	return spawnSync(residentServicesScript, args, {
-		encoding: "utf8",
-		env: {
-			...process.env,
-			HOME: join(fixture.configHome, "home"),
-			PATH: `${fixture.fakeBinDir}:${process.env.PATH ?? ""}`,
-			PI_TEST_ARCHITECT_UNIT: fixture.architectUnit,
-			PI_TEST_SUPERVISOR_UNIT: fixture.supervisorUnit,
-			PI_TEST_SYSTEMCTL_LOG: fixture.systemctlLog,
-			PI_TEST_SYSTEMCTL_STATE: fixture.systemctlState,
-			XDG_CONFIG_HOME: fixture.configHome,
-		},
-	});
 }
 
 describe("resident service deployment", () => {
@@ -256,84 +214,38 @@ describe("resident service deployment", () => {
 		expect(readFileSync(fixture.configureLog, "utf8")).toBe("");
 	});
 
-	it("autostart mode keeps Architect systemd-owned and removes only Supervisor", () => {
+	it("autostart mode disables every resident systemd unit without starting Supervisor", () => {
 		const fixture = createResidentServiceFixture(tempDir);
-		const result = runResidentServices(fixture, "autostart");
+		const result = spawnSync(residentServicesScript, ["/home/osso/.local/bin/pi", "autostart"], {
+			encoding: "utf8",
+			env: {
+				...process.env,
+				HOME: join(tempDir, "home"),
+				PATH: `${fixture.fakeBinDir}:${process.env.PATH ?? ""}`,
+				PI_TEST_SUPERVISOR_UNIT: fixture.supervisorUnit,
+				PI_TEST_SYSTEMCTL_LOG: fixture.systemctlLog,
+				PI_TEST_SYSTEMCTL_STATE: fixture.systemctlState,
+				XDG_CONFIG_HOME: fixture.configHome,
+			},
+		});
 
 		expect(result.status, result.stderr).toBe(0);
-		expect(readFileSync(fixture.architectUnit, "utf8")).toContain("ExecStart=/home/osso/.local/bin/pi architect");
-		expect(existsSync(fixture.architectUnit)).toBe(true);
+		expect(existsSync(join(fixture.systemdUserDir, "pi-architect.service"))).toBe(false);
 		expect(existsSync(fixture.supervisorUnit)).toBe(false);
-		expect(JSON.parse(readFileSync(fixture.systemctlState, "utf8"))).toEqual({
-			"pi-architect.service": { active: true, enabled: true },
-			"pi-supervisor.service": { active: false, enabled: false },
-		});
+		expect(readFileSync(fixture.systemctlState, "utf8").trim().split("\n").sort()).toEqual([
+			"pi-architect.service",
+			"pi-supervisor.service",
+		]);
 		expect(readFileSync(fixture.systemctlLog, "utf8").trim().split("\n")).toEqual([
-			"--user cat pi-architect.service --no-pager",
+			"--user cat pi-architect.service",
+			"--user disable --now pi-architect.service",
 			"--user cat pi-supervisor.service --no-pager",
 			"--user disable --now pi-supervisor.service",
 			"--user daemon-reload",
-			"--user enable --now pi-architect.service",
-			"--user restart pi-architect.service",
 			"--user is-active --quiet pi-architect.service",
 			"--user is-enabled --quiet pi-architect.service",
 			"--user is-active --quiet pi-supervisor.service",
 			"--user is-enabled --quiet pi-supervisor.service",
 		]);
-	});
-
-	it("direct systemd mode configures both resident services", () => {
-		const fixture = createResidentServiceFixture(tempDir);
-		rmSync(fixture.architectUnit);
-		rmSync(fixture.supervisorUnit);
-		writeFileSync(fixture.systemctlState, "{}");
-
-		const result = runResidentServices(fixture);
-
-		expect(result.status, result.stderr).toBe(0);
-		expect(readFileSync(fixture.architectUnit, "utf8")).toContain("ExecStart=/home/osso/.local/bin/pi architect");
-		expect(readFileSync(fixture.supervisorUnit, "utf8")).toContain("ExecStart=/home/osso/.local/bin/pi supervisor");
-		expect(JSON.parse(readFileSync(fixture.systemctlState, "utf8"))).toEqual({
-			"pi-architect.service": { active: true, enabled: true },
-			"pi-supervisor.service": { active: true, enabled: true },
-		});
-		expect(readFileSync(fixture.systemctlLog, "utf8").trim().split("\n")).toEqual([
-			"--user cat pi-architect.service --no-pager",
-			"--user cat pi-supervisor.service --no-pager",
-			"--user daemon-reload",
-			"--user enable --now pi-architect.service",
-			"--user restart pi-architect.service",
-			"--user is-active --quiet pi-architect.service",
-			"--user is-enabled --quiet pi-architect.service",
-			"--user enable --now pi-supervisor.service",
-			"--user restart pi-supervisor.service",
-			"--user is-active --quiet pi-supervisor.service",
-			"--user is-enabled --quiet pi-supervisor.service",
-		]);
-	});
-
-	it("does not rewrite identical loaded resident units", () => {
-		const fixture = createResidentServiceFixture(tempDir);
-		const expectedArchitectUnit = readFileSync(architectServiceUnit, "utf8").replace(
-			"@PI_ARCHITECT_BINARY@",
-			"/home/osso/.local/bin/pi",
-		);
-		const expectedSupervisorUnit = readFileSync(supervisorServiceUnit, "utf8").replace(
-			"@PI_SUPERVISOR_BINARY@",
-			"/home/osso/.local/bin/pi",
-		);
-		writeFileSync(fixture.architectUnit, expectedArchitectUnit);
-		writeFileSync(fixture.supervisorUnit, expectedSupervisorUnit);
-		chmodSync(fixture.architectUnit, 0o444);
-		chmodSync(fixture.supervisorUnit, 0o444);
-
-		const result = runResidentServices(fixture);
-
-		expect(result.status, result.stderr).toBe(0);
-		expect(readFileSync(fixture.architectUnit, "utf8")).toBe(expectedArchitectUnit);
-		expect(readFileSync(fixture.supervisorUnit, "utf8")).toBe(expectedSupervisorUnit);
-		expect(statSync(fixture.architectUnit).mode & 0o777).toBe(0o444);
-		expect(statSync(fixture.supervisorUnit).mode & 0o777).toBe(0o444);
-		expect(readFileSync(fixture.systemctlLog, "utf8")).not.toContain("daemon-reload");
 	});
 });
