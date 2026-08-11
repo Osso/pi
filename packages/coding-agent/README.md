@@ -255,7 +255,7 @@ systemctl --user enable --now pi-supervisor.service
 systemctl --user is-active pi-supervisor.service   # verify
 ```
 
-Deployments that build pi from source can instead run `scripts/configure-resident-services.sh <pi-binary>`, which performs the unit substitution and `enable --now` automatically. Pi reuses a compatible systemd-managed resident instead of starting another process. To run the service in the foreground, use `pi supervisor`.
+Deployments that build pi from source default to Pi-managed lazy startup. On Linux, `deploy.sh` invokes `scripts/configure-resident-services.sh <pi-binary> autostart` to stop, disable, and remove obsolete Architect and Supervisor user units; on Darwin it skips systemd configuration. Set `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1` for systemd mode; Darwin rejects that opt-in. The direct one-argument `scripts/configure-resident-services.sh <pi-binary>` form remains an explicit systemd installer. To run the service in the foreground, use `pi supervisor`.
 
 ## Sessions
 

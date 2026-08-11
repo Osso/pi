@@ -22,8 +22,6 @@ import {
 } from "../src/supervisor/main.ts";
 import { buildSupervisorPrompt, parseSupervisorResponse, runSupervisorRequest } from "../src/supervisor/service.ts";
 
-const deployScript = fileURLToPath(new URL("../../../deploy.sh", import.meta.url));
-const serviceUnit = fileURLToPath(new URL("../systemd/pi-supervisor.service", import.meta.url));
 const supervisorMain = fileURLToPath(new URL("../src/supervisor/main.ts", import.meta.url));
 
 describe("resident Supervisor service", () => {
@@ -117,18 +115,6 @@ describe("resident Supervisor service", () => {
 		expect(
 			blockSupervisorFileAccess(kbDir, { input: { path: join(kbDir, "capture'.txt") }, toolName: "read" }),
 		).toMatchObject({ block: true });
-	});
-
-	it("deploys the installed Bun binary as a resident systemd service", () => {
-		const deploy = readFileSync(deployScript, "utf8");
-		const unit = readFileSync(serviceUnit, "utf8");
-
-		expect(unit).toContain("ExecStart=@PI_SUPERVISOR_BINARY@ supervisor");
-		expect(deploy).not.toContain("@PI_SUPERVISOR_BINARY@");
-		expect(deploy).not.toContain("@PI_NODE_LAUNCHER@");
-		expect(deploy).not.toContain("@PI_TSCONFIG@");
-		expect(deploy).not.toContain("@PI_CLI_SOURCE@");
-		expect(deploy).toContain('"$ROOT_DIR/scripts/configure-resident-services.sh" "$BIN_DIR/pi"');
 	});
 
 	it("accepts only response kinds valid for the request", () => {

@@ -6,7 +6,11 @@ The Supervisor runs as `pi supervisor`, either as a Pi-started detached process 
 
 Before posting a typed request on Linux or macOS, the client probes the owner-only resident-console socket without claiming writable console ownership. A compatible resident is reused. If none is available, callers serialize through an atomic state-directory lock, recheck after acquiring it, launch the current Bun binary or Node CLI entrypoint as detached `pi supervisor`, and wait up to the bounded startup deadline for a compatible identity.
 
-The probe identity is accepted only when the console snapshot explicitly includes `ready: true`, alongside Pi version, PID, executable, optional CLI entrypoint, a unique service-start instance ID, and whether Pi or an external service manager owns the process. Pi may terminate and replace only a verified incompatible Pi-managed resident. An incompatible systemd- or otherwise externally managed resident returns an explicit restart error instead of creating a competing service. The existing systemd deployment remains available for boot/login startup and automatic failure restart; it is not required for ordinary Linux or macOS use.
+The probe identity is accepted only when the console snapshot explicitly includes `ready: true`, alongside Pi version, PID, executable, optional CLI entrypoint, a unique service-start instance ID, and whether Pi or an external service manager owns the process. Pi may terminate and replace only a verified incompatible Pi-managed resident. An incompatible systemd- or otherwise externally managed resident returns an explicit restart error instead of creating a competing service. Lazy startup is the default on Linux and macOS; systemd remains optional.
+
+## Deployment
+
+`deploy.sh` defaults to Pi-managed lazy Supervisor startup. On Linux it invokes `scripts/configure-resident-services.sh <pi-binary> autostart`, which stops, disables, and removes obsolete Architect and Supervisor user units; on Darwin it skips systemd configuration and rejects the systemd opt-in explicitly. `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1 ./deploy.sh` selects systemd mode, while the direct one-argument `scripts/configure-resident-services.sh <pi-binary>` form remains an explicit systemd installer.
 
 ## Request flow
 

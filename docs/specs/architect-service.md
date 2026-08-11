@@ -2,7 +2,7 @@
 
 Module boundary: core resident SDK service.
 
-The resident Architect is a retained but temporarily disabled systemd-supervised Sol advisor. Its implementation and transcript format remain available for rework, but deployment does not install or start the service and Pi does not expose `ask_architect`. When re-enabled, it preserves a dedicated cross-session transcript and sends advisory hypotheses about evidence-backed coordination issues only to the affected session. Implementation details live in [../wiki/systems/architect-service.md](../wiki/systems/architect-service.md).
+The resident Architect is a retained but temporarily disabled Sol advisor. Its implementation and transcript format remain available for rework, but deployment does not install or start the service and Pi does not expose `ask_architect`. When re-enabled, it preserves a dedicated cross-session transcript and sends advisory hypotheses about evidence-backed coordination issues only to the affected session. Implementation details live in [../wiki/systems/architect-service.md](../wiki/systems/architect-service.md).
 
 ## What it must do
 
@@ -39,9 +39,9 @@ The resident Architect is a retained but temporarily disabled systemd-supervised
 
 ### Service lifecycle
 
-- [x] Run the installed Bun-compiled Pi binary as a systemd user service using `openai-codex/gpt-5.6-sol`.
+- [x] Retain the installed Bun-compiled systemd template for optional Architect re-enable using `openai-codex/gpt-5.6-sol`; default deployment does not install or start it.
 - [x] Preserve a dedicated Architect session transcript across service restarts while reading normal shared Pi state; persist its metadata with `archived_at` set.
-- [x] Install the compiled `pi` binary while deployment disables and stops any existing Architect user service, removes its installed unit, and keeps the Supervisor service active.
+- [x] Install the compiled `pi` binary while default deployment disables and removes Architect and Supervisor user units on Linux, skips systemd configuration on Darwin, and leaves Supervisor to Pi-managed lazy startup.
 
 ## How it works
 
@@ -61,14 +61,15 @@ The resident Architect is a retained but temporarily disabled systemd-supervised
 - `packages/coding-agent/src/main.ts` — early dispatch for resident-console flags without changing service commands.
 - `packages/coding-agent/systemd/pi-architect.service` — user-service template for the installed Bun-compiled Pi binary.
 - `deploy.sh` — compiled binary installation and resident-service configuration.
-- `scripts/configure-resident-services.sh` — disables/removes Architect and configures the Supervisor unit.
+- `scripts/configure-resident-services.sh` — explicit systemd installation or deployment-mode cleanup of Architect and Supervisor units.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/architect-observer.test.ts` — initial/material snapshots, completed-goal stability, current-main-session selection, deterministic metadata deduplication, subagent/self exclusion, and explicit main-session architect-request filtering.
 - `packages/coding-agent/test/session-directory.test.ts` — regression proving Architect and global
   inventory retain only the current main-session binding.
-- `packages/coding-agent/test/architect-service.test.ts` — retained Architect policy and regression coverage proving deployment disables/removes its installed unit while configuring Supervisor.
+- `packages/coding-agent/test/architect-service.test.ts` — retained Architect policy and explicit systemd Supervisor configuration.
+- `packages/coding-agent/test/deploy-resident-services.test.ts` — default removal of both resident units and deploy-mode selection.
 - `packages/coding-agent/test/list-sessions-broadcast-tools.test.ts` — explicit directory persistence and canonicalization, cwd defaulting, and empty, relative, missing, or non-directory path rejection.
 - `packages/coding-agent/test/session-control-db.test.ts` — durable request persistence, claims, completion, and project-cwd projection.
 - `packages/coding-agent/test/architect-service.test.ts` — console wake, prompt serialization, exact branch snapshot, and lifecycle ownership.
@@ -79,7 +80,7 @@ The resident Architect is a retained but temporarily disabled systemd-supervised
 
 - [x] `architect-observer.test.ts` covers initial/material snapshots, current-main-session selection, deterministic metadata deduplication, subagent/self exclusion, read-only missing-DB behavior, and self-message suppression.
 - [x] `architect-service.test.ts` covers event-driven prompting, bounded shutdown, the read-only profile, global-fanout and broadcast blocking, and deployment lifecycle commands.
-- [x] Deployment disables/removes the Architect unit and verifies it is inactive/disabled while Supervisor health is verified.
+- [x] Default deployment disables/removes both resident units and verifies them inactive/disabled; explicit systemd mode verifies Supervisor health.
 
 ## Out of scope
 
