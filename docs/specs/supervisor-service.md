@@ -12,7 +12,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - [x] Before posting a Supervisor request on Linux or macOS, probe for a compatible resident and automatically connect or spawn the current Pi launcher as a detached `pi supervisor` process.
 - [x] Serialize concurrent startup through an atomic state-directory lock, recheck readiness after acquiring it, recover stale startup locks, and launch exactly one resident.
 - [x] Preserve Bun-binary launches directly and Node development or installed launches through the active CLI entrypoint and runtime flags.
-- [x] Expose read-only resident identity containing Pi version, PID, executable, optional entrypoint, unique service-start instance ID, and Pi-versus-external ownership without claiming writable console ownership.
+- [x] Expose read-only resident identity only when the console snapshot explicitly includes `ready: true`, alongside Pi version, PID, executable, optional entrypoint, unique service-start instance ID, and Pi-versus-external ownership without claiming writable console ownership.
 - [x] Reuse compatible externally managed residents, replace only verified incompatible Pi-managed residents, and report an explicit restart requirement for incompatible externally managed residents.
 - [x] Bound startup/readiness failures and return them through the typed Supervisor error path without posting an unserviceable durable request.
 - [x] Use `openai-codex/gpt-5.6-sol` with low thinking effort.

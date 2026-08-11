@@ -156,6 +156,7 @@ export function createSupervisorConsoleSnapshot(input: {
 			...(process.argv[1] ? { entrypoint: process.argv[1] } : {}),
 			instanceId: SUPERVISOR_INSTANCE_ID,
 			managedBy: input.managedBy,
+			ready: true,
 		},
 		branch: input.session.sessionManager.getBranch(),
 	};

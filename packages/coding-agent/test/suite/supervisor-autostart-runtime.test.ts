@@ -74,7 +74,13 @@ describe("Supervisor automatic startup runtime", () => {
 		]);
 		startedSupervisors.push(first);
 
-		expect(first).toMatchObject({ version: VERSION, managedBy: "pi" });
+		expect(first).toMatchObject({
+			version: VERSION,
+			pid: expect.any(Number),
+			instanceId: expect.any(String),
+			managedBy: "pi",
+			ready: true,
+		});
 		expect(second.pid).toBe(first.pid);
 		expect(second.instanceId).toBe(first.instanceId);
 		await expect(ensureSupervisorRunning({ controlDbPath, launchInvocation })).resolves.toMatchObject({

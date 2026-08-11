@@ -18,6 +18,7 @@ const runningSupervisor = {
 	executable: "/usr/local/bin/pi",
 	instanceId: "supervisor-instance",
 	managedBy: "pi" as const,
+	ready: true as const,
 };
 const runningDependencies = { ensureRunning: async () => runningSupervisor };
 

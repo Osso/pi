@@ -12,6 +12,7 @@ export interface ResidentConsoleIdentity {
 	entrypoint?: string;
 	instanceId: string;
 	managedBy: "external" | "pi";
+	ready: true;
 }
 
 export interface ResidentConsoleSnapshot<Entry> {
@@ -381,6 +382,7 @@ function readResidentConsoleIdentity(value: unknown): ResidentConsoleIdentity | 
 		typeof value.executable !== "string" ||
 		typeof value.instanceId !== "string" ||
 		(value.managedBy !== "external" && value.managedBy !== "pi") ||
+		value.ready !== true ||
 		(value.entrypoint !== undefined && typeof value.entrypoint !== "string")
 	) {
 		return undefined;
@@ -392,6 +394,7 @@ function readResidentConsoleIdentity(value: unknown): ResidentConsoleIdentity | 
 		...(value.entrypoint !== undefined ? { entrypoint: value.entrypoint } : {}),
 		instanceId: value.instanceId,
 		managedBy: value.managedBy,
+		ready: true,
 	};
 }
 

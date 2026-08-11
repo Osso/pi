@@ -63,6 +63,7 @@ describe("Supervisor resident console", () => {
 				executable: process.execPath,
 				instanceId: expect.any(String),
 				managedBy: "external",
+				ready: true,
 			},
 			branch,
 		});

@@ -27,6 +27,7 @@ function identity(overrides: Partial<ResidentConsoleIdentity> = {}): ResidentCon
 		entrypoint: "/usr/local/lib/node_modules/pi/dist/cli.js",
 		instanceId: "supervisor-instance",
 		managedBy: "pi",
+		ready: true,
 		...overrides,
 	};
 }

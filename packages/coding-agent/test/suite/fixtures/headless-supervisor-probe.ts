@@ -23,6 +23,7 @@ export async function startHeadlessSupervisorProbe(controlDbPath: string): Promi
 				...(process.argv[1] ? { entrypoint: process.argv[1] } : {}),
 				instanceId,
 				managedBy: "external",
+				ready: true,
 			},
 			branch: [],
 		}),

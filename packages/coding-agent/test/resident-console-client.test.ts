@@ -37,6 +37,7 @@ function snapshot(): ResidentConsoleSnapshot<{ value: string }> {
 			entrypoint: "/usr/local/bin/pi",
 			instanceId: "service-instance-1",
 			managedBy: "pi",
+			ready: true,
 		},
 		branch: [{ value: "existing" }],
 	};
@@ -58,6 +59,25 @@ describe("ResidentConsoleClient", () => {
 		resources.push(client);
 
 		expect(client.snapshot).toEqual(snapshot());
+	});
+
+	it("rejects identities without explicit readiness", async () => {
+		const invalidSnapshot = snapshot();
+		if (!invalidSnapshot.identity) throw new Error("expected resident identity");
+		delete (invalidSnapshot.identity as { ready?: true }).ready;
+		const server = new ResidentConsoleServer({
+			socketPath: socketPath(),
+			service: "supervisor",
+			getSnapshot: () => invalidSnapshot,
+			enqueuePrompt: () => {},
+			subscribe: () => () => {},
+		});
+		resources.push(server);
+		await server.start();
+
+		await expect(probeResidentConsole({ socketPath: server.socketPath, service: "supervisor" })).rejects.toThrow(
+			"Invalid resident console identity",
+		);
 	});
 
 	it("probes identity without claiming the writable console owner", async () => {

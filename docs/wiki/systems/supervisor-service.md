@@ -6,7 +6,7 @@ The Supervisor runs as `pi supervisor`, either as a Pi-started detached process 
 
 Before posting a typed request on Linux or macOS, the client probes the owner-only resident-console socket without claiming writable console ownership. A compatible resident is reused. If none is available, callers serialize through an atomic state-directory lock, recheck after acquiring it, launch the current Bun binary or Node CLI entrypoint as detached `pi supervisor`, and wait up to the bounded startup deadline for a compatible identity.
 
-The probe identity includes Pi version, PID, executable, optional CLI entrypoint, a unique service-start instance ID, and whether Pi or an external service manager owns the process. Pi may terminate and replace only a verified incompatible Pi-managed resident. An incompatible systemd- or otherwise externally managed resident returns an explicit restart error instead of creating a competing service. The existing systemd deployment remains available for boot/login startup and automatic failure restart; it is not required for ordinary Linux or macOS use.
+The probe identity is accepted only when the console snapshot explicitly includes `ready: true`, alongside Pi version, PID, executable, optional CLI entrypoint, a unique service-start instance ID, and whether Pi or an external service manager owns the process. Pi may terminate and replace only a verified incompatible Pi-managed resident. An incompatible systemd- or otherwise externally managed resident returns an explicit restart error instead of creating a competing service. The existing systemd deployment remains available for boot/login startup and automatic failure restart; it is not required for ordinary Linux or macOS use.
 
 ## Request flow
 
