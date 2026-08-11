@@ -1595,7 +1595,10 @@ describe("headless Pi fixture", () => {
 				const runner = await agent.waitForAgent(
 					(candidate) => candidate.displayName === "Pyrun evaluation" && candidate.lifecycle === "running",
 				);
-				await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("x"));
+				await agent.waitForEvent(
+					(event) => event.type === "tool_execution_start" && event.toolName === "pyrun_eval",
+				);
+				await waitForFileContent(attemptPath, "x");
 				const [runnerPid] = agent.getPyrunRunnerPids();
 				if (!runnerPid) throw new Error("Pyrun runner has no PID");
 				killProcessGroup(runnerPid);
@@ -1668,7 +1671,10 @@ describe("headless Pi fixture", () => {
 				const runner = await agent.waitForAgent(
 					(candidate) => candidate.displayName === "Pyrun evaluation" && candidate.lifecycle === "running",
 				);
-				await vi.waitFor(() => expect(readFileSync(attemptPath, "utf8")).toBe("x"));
+				await agent.waitForEvent(
+					(event) => event.type === "tool_execution_start" && event.toolName === "pyrun_eval",
+				);
+				await waitForFileContent(attemptPath, "x");
 				const [runnerPid] = agent.getPyrunRunnerPids();
 				if (!runnerPid) throw new Error("Pyrun runner has no PID");
 				killProcessGroup(runnerPid);
