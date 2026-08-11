@@ -106,6 +106,8 @@ export type {
 	LsToolCallEvent,
 	MessageRenderer,
 	MessageRenderOptions,
+	ModelRequestEndEvent,
+	ModelRequestStartEvent,
 	ProjectTrustContext,
 	ProjectTrustEvent,
 	ProjectTrustEventDecision,

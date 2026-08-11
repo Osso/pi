@@ -1,11 +1,45 @@
 // Lives outside .pi/extensions because pi loads every .ts file there as an extension.
 // .pi is also outside every package's vitest root, so run this explicitly:
 //   npx --prefix packages/coding-agent vitest run --dir "$PWD/.pi"
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import registerTps, { formatStats, type LoopStats, type Span, unionMs } from "../extensions/tps.ts";
 
 function loopStats(overrides: Partial<LoopStats>): LoopStats {
 	return { elapsedMs: 0, requests: [], toolSpans: [], input: 0, output: 0, totalTokens: 0, ...overrides };
+}
+
+interface TestEvent {
+	type: string;
+	[key: string]: unknown;
+}
+
+interface TestContext {
+	hasUI: boolean;
+	ui: { notify: (message: string) => void };
+}
+
+type TestHandler = (event: TestEvent, ctx: TestContext) => void;
+
+function createEventHarness(): {
+	fire: (event: string, payload?: Record<string, unknown>) => void;
+	notices: string[];
+} {
+	const handlers = new Map<string, TestHandler>();
+	const notices: string[] = [];
+	const ctx: TestContext = { hasUI: true, ui: { notify: (message) => notices.push(message) } };
+	const api = {
+		on: (event: string, handler: unknown) => handlers.set(event, handler as TestHandler),
+	} as unknown as ExtensionAPI;
+	registerTps(api);
+	return {
+		fire: (event, payload = {}) => handlers.get(event)?.({ type: event, ...payload }, ctx),
+		notices,
+	};
+}
+
+function assistant(output: number) {
+	return { role: "assistant", usage: { input: 1_000, output, totalTokens: 1_000 + output } };
 }
 
 describe("unionMs", () => {
@@ -28,7 +62,7 @@ describe("unionMs", () => {
 });
 
 describe("formatStats", () => {
-	it("reports TPS over full request time and decode over the stream window", () => {
+	it("reports TPS over full request time", () => {
 		const stats = loopStats({
 			elapsedMs: 45_000,
 			// Two requests: 2s to first token, then 4s of streaming, 400 tokens each.
@@ -42,33 +76,15 @@ describe("formatStats", () => {
 			totalTokens: 2_800,
 		});
 
-		// TPS 800 tok / 12s of requests; decode 800 tok / 8s of streaming.
+		// TPS 800 tok / 12s of requests.
 		expect(formatStats(stats)).toBe(
-			"TPS 66.7 tok/s (800 tok in 12.0s of requests) · TTFT p50 2.0s max 2.0s · decode 100.0 tok/s · " +
+			"TPS 66.7 tok/s (800 tok in 12.0s of requests) · TTFT p50 2.0s max 2.0s · " +
 				// other = 45.0s loop - 12.0s requests - 30.0s tools, i.e. the 1.0s and 2.0s gaps.
 				"tools 30.0s · other 3.0s · 2 req · out 800, in 2,000, total 2,800 · loop 45.0s",
 		);
 	});
 
-	it("keeps concurrent provider requests from exceeding loop wall time", () => {
-		const stats = loopStats({
-			elapsedMs: 16_400,
-			// A background request overlaps the foreground one; summing would give 17.9s > loop.
-			requests: [
-				{ startMs: 0, firstTokenAtMs: 3_600, endMs: 10_000, outputTokens: 300 },
-				{ startMs: 5_000, firstTokenAtMs: 10_100, endMs: 15_000, outputTokens: 310 },
-			],
-			input: 35_367,
-			output: 610,
-			totalTokens: 81_801,
-		});
-
-		// Union of requests is 15.0s, not 10.0s + 10.0s.
-		expect(formatStats(stats)).toContain("TPS 40.7 tok/s (610 tok in 15.0s of requests)");
-		expect(formatStats(stats)).toContain("loop 16.4s");
-	});
-
-	it("omits decode, tools and overhead when there is nothing to report", () => {
+	it("omits unavailable optional metrics, tools and overhead when there is nothing to report", () => {
 		const stats = loopStats({
 			elapsedMs: 6_000,
 			requests: [{ startMs: 0, endMs: 6_000, outputTokens: 120 }],
@@ -83,27 +99,20 @@ describe("formatStats", () => {
 });
 
 describe("event wiring", () => {
-	it("measures a loop from provider and tool events", () => {
-		const handlers = new Map<string, (event: any, ctx: any) => void>();
-		const notices: string[] = [];
-		const ctx = { hasUI: true, ui: { notify: (message: string) => notices.push(message) } };
-
+	it("measures a loop from model and tool events", () => {
+		const { fire, notices } = createEventHarness();
 		let now = 1_000;
 		const realNow = Date.now;
 		Date.now = () => now;
 
 		try {
-			registerTps({ on: (event: string, handler: any) => handlers.set(event, handler) } as any);
-			const fire = (event: string, payload: Record<string, unknown> = {}) =>
-				handlers.get(event)?.({ type: event, ...payload }, ctx);
-			const assistant = (output: number) => ({ role: "assistant", usage: { input: 1_000, output, totalTokens: 1_000 + output } });
-
 			fire("agent_start");
-			fire("before_provider_request");
+			fire("model_request_start");
 			now += 2_000;
 			fire("message_update", { assistantMessageEvent: { type: "text_delta" } });
 			now += 4_000;
 			fire("message_end", { message: assistant(400) });
+			fire("model_request_end");
 
 			// Two overlapping tools spanning 10s of wall time in total.
 			fire("tool_execution_start", { toolCallId: "a" });
@@ -119,8 +128,35 @@ describe("event wiring", () => {
 		}
 
 		expect(notices).toEqual([
-			"TPS 66.7 tok/s (400 tok in 6.0s of requests) · TTFT p50 2.0s max 2.0s · decode 100.0 tok/s · " +
+			"TPS 66.7 tok/s (400 tok in 6.0s of requests) · TTFT p50 2.0s max 2.0s · " +
 				"tools 10.0s · 1 req · out 400, in 1,000, total 1,400 · loop 16.0s",
+		]);
+	});
+
+	it("preserves foreground timing when a background request has no completion", () => {
+		const { fire, notices } = createEventHarness();
+		let now = 1_000;
+		const realNow = Date.now;
+		Date.now = () => now;
+
+		try {
+			fire("agent_start");
+			fire("model_request_start"); // Foreground request starts at 1.0s.
+			now += 2_000;
+			fire("message_update", { assistantMessageEvent: { type: "text_delta" } }); // First token at 3.0s.
+			now += 1_000;
+			fire("before_provider_request"); // Background request starts at 4.0s; it has no message_end.
+			now += 3_000;
+			fire("message_end", { message: assistant(400) }); // Foreground request completes at 7.0s.
+			fire("model_request_end");
+			fire("agent_end", { messages: [assistant(400)] });
+		} finally {
+			Date.now = realNow;
+		}
+
+		expect(notices).toEqual([
+			"TPS 66.7 tok/s (400 tok in 6.0s of requests) · TTFT p50 2.0s max 2.0s · " +
+				"1 req · out 400, in 1,000, total 1,400 · loop 6.0s",
 		]);
 	});
 });

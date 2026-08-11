@@ -92,6 +92,8 @@ import {
 	type MessageEndEvent,
 	type MessageStartEvent,
 	type MessageUpdateEvent,
+	type ModelRequestEndEvent,
+	type ModelRequestStartEvent,
 	type ReplacedSessionContext,
 	type SessionBeforeTreeResult,
 	type SessionStartEvent,
@@ -1883,6 +1885,12 @@ export class AgentSession {
 		if (event.type === "agent_start") {
 			this._turnIndex = 0;
 			await this._extensionRunner.emit({ type: "agent_start" });
+		} else if (event.type === "model_request_start") {
+			const extensionEvent: ModelRequestStartEvent = { type: "model_request_start" };
+			await this._extensionRunner.emit(extensionEvent);
+		} else if (event.type === "model_request_end") {
+			const extensionEvent: ModelRequestEndEvent = { type: "model_request_end" };
+			await this._extensionRunner.emit(extensionEvent);
 		} else if (event.type === "agent_end") {
 			await this._extensionRunner.emit({ type: "agent_end", messages: event.messages, sessionContinuation });
 		} else if (event.type === "turn_start") {

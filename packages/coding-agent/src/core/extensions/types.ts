@@ -811,6 +811,16 @@ export interface AgentStartEvent {
 	type: "agent_start";
 }
 
+/** Fired immediately before each model request */
+export interface ModelRequestStartEvent {
+	type: "model_request_start";
+}
+
+/** Fired after each model request completes */
+export interface ModelRequestEndEvent {
+	type: "model_request_end";
+}
+
 export type AgentEndSessionContinuation = "cwd_relocation";
 
 /** Fired when an agent loop ends */
@@ -1199,6 +1209,8 @@ export type ExtensionEvent =
 	| AfterProviderResponseEvent
 	| BeforeAgentStartEvent
 	| AgentStartEvent
+	| ModelRequestStartEvent
+	| ModelRequestEndEvent
 	| AgentEndEvent
 	| TurnStartEvent
 	| TurnEndEvent
@@ -1384,6 +1396,8 @@ export interface ExtensionAPI {
 	on(event: "after_provider_response", handler: ExtensionHandler<AfterProviderResponseEvent>): void;
 	on(event: "before_agent_start", handler: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>): void;
 	on(event: "agent_start", handler: ExtensionHandler<AgentStartEvent>): void;
+	on(event: "model_request_start", handler: ExtensionHandler<ModelRequestStartEvent>): void;
+	on(event: "model_request_end", handler: ExtensionHandler<ModelRequestEndEvent>): void;
 	on(event: "agent_end", handler: ExtensionHandler<AgentEndEvent>): void;
 	on(event: "turn_start", handler: ExtensionHandler<TurnStartEvent>): void;
 	on(event: "turn_end", handler: ExtensionHandler<TurnEndEvent>): void;

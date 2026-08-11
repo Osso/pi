@@ -57,6 +57,8 @@ export {
 	type ExtensionUIContext,
 	type LoadExtensionsResult,
 	type MessageRenderer,
+	type ModelRequestEndEvent,
+	type ModelRequestStartEvent,
 	type RegisteredCommand,
 	type SessionBeforeCompactEvent,
 	type SessionBeforeForkEvent,

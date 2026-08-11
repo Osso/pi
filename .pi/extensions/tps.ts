@@ -3,13 +3,12 @@
  *
  * Reports throughput for an agent loop.
  *
- * `TPS` is end-to-end provider throughput: generated tokens over the wall time of the
- * provider requests, prefill and time-to-first-token included. `decode` is the
- * secondary diagnostic that isolates the streaming window. `loop` is the total
- * user-visible wall time.
+ * `TPS` is end-to-end foreground model-request throughput: generated tokens over the
+ * full request wall time, including prefill and time-to-first-token. `loop` is the
+ * total user-visible wall time.
  *
- * All spans are unioned rather than summed, because pi can run provider requests and
- * tools concurrently and summing overlapping spans overstates the denominator.
+ * Foreground model requests are serialized. Tool spans are unioned because tools can
+ * run concurrently.
  */
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -44,10 +43,30 @@ export interface LoopStats {
 	totalTokens: number;
 }
 
+interface UsageTotals {
+	input: number;
+	output: number;
+	totalTokens: number;
+}
+
 function isAssistantMessage(message: unknown): message is AssistantMessage {
 	if (!message || typeof message !== "object") return false;
 	const role = (message as { role?: unknown }).role;
 	return role === "assistant";
+}
+
+function summarizeAssistantUsage(messages: readonly unknown[]): UsageTotals {
+	return messages.reduce<UsageTotals>(
+		(usage, message) => {
+			if (!isAssistantMessage(message)) return usage;
+			return {
+				input: usage.input + (message.usage.input || 0),
+				output: usage.output + (message.usage.output || 0),
+				totalTokens: usage.totalTokens + (message.usage.totalTokens || 0),
+			};
+		},
+		{ input: 0, output: 0, totalTokens: 0 },
+	);
 }
 
 /** Wall time covered by at least one span. Overlapping spans are counted once. */
@@ -88,46 +107,30 @@ function requestSpans(requests: RequestTiming[]): Span[] {
 	return completedRequests(requests).map((request) => ({ startMs: request.startMs, endMs: request.endMs }));
 }
 
-function streamSpans(requests: RequestTiming[]): Span[] {
-	return completedRequests(requests)
-		.filter((request) => request.firstTokenAtMs !== undefined)
-		.map((request) => ({ startMs: request.firstTokenAtMs as number, endMs: request.endMs }));
-}
-
 function formatRate(tokens: number, ms: number): string | undefined {
 	if (tokens <= 0 || ms <= 0) return undefined;
 	return `${(tokens / (ms / 1000)).toFixed(1)} tok/s`;
 }
 
-/** End-to-end provider throughput: everything from request sent to stream finished. */
+/** End-to-end throughput across complete foreground model requests. */
 function formatThroughput(stats: LoopStats): string {
-	const requestMs = unionMs(requestSpans(stats.requests));
+	const requestMs = requestSpans(stats.requests).reduce((total, span) => total + span.endMs - span.startMs, 0);
 	const tokens = completedRequests(stats.requests).reduce((total, request) => total + request.outputTokens, 0);
 	const rate = formatRate(tokens, requestMs);
 	if (!rate) return "TPS n/a";
 	return `TPS ${rate} (${tokens.toLocaleString()} tok in ${formatSeconds(requestMs)} of requests)`;
 }
 
-/** Streaming window only. Diagnostic: separates decode speed from prefill and queueing. */
-function formatDecodeRate(requests: RequestTiming[]): string | undefined {
-	const spans = streamSpans(requests);
-	const tokens = completedRequests(requests)
-		.filter((request) => request.firstTokenAtMs !== undefined)
-		.reduce((total, request) => total + request.outputTokens, 0);
-	const rate = formatRate(tokens, unionMs(spans));
-	return rate ? `decode ${rate}` : undefined;
-}
-
 function formatTimeToFirstToken(requests: RequestTiming[]): string | undefined {
-	const values = requests
-		.filter((request) => request.firstTokenAtMs !== undefined)
-		.map((request) => (request.firstTokenAtMs as number) - request.startMs);
+	const values = requests.flatMap((request) =>
+		request.firstTokenAtMs === undefined ? [] : [request.firstTokenAtMs - request.startMs],
+	);
 	const p50 = median(values);
 	if (p50 === undefined) return undefined;
 	return `TTFT p50 ${formatSeconds(p50)} max ${formatSeconds(Math.max(...values))}`;
 }
 
-/** Loop time spent neither in a provider request nor in a tool: hooks, rendering, approvals. */
+/** Loop time spent neither in a foreground model request nor in a tool. */
 function formatOverhead(stats: LoopStats): string | undefined {
 	const busyMs = unionMs([...requestSpans(stats.requests), ...stats.toolSpans]);
 	const otherMs = stats.elapsedMs - busyMs;
@@ -140,7 +143,6 @@ export function formatStats(stats: LoopStats): string {
 	const parts = [
 		formatThroughput(stats),
 		formatTimeToFirstToken(stats.requests),
-		formatDecodeRate(stats.requests),
 		toolMs > 0 ? `tools ${formatSeconds(toolMs)}` : undefined,
 		formatOverhead(stats),
 		`${stats.requests.length} req`,
@@ -165,8 +167,7 @@ export default function (pi: ExtensionAPI) {
 		toolStartMs.clear();
 	});
 
-	// Retries fire this again for the same message; the latest attempt is the one measured.
-	pi.on("before_provider_request", () => {
+	pi.on("model_request_start", () => {
 		pending = { startMs: Date.now(), outputTokens: 0 };
 	});
 
@@ -178,8 +179,12 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("message_end", (event) => {
 		if (!pending || !isAssistantMessage(event.message)) return;
-		pending.endMs = Date.now();
 		pending.outputTokens = event.message.usage.output || 0;
+	});
+
+	pi.on("model_request_end", () => {
+		if (!pending) return;
+		pending.endMs = Date.now();
 		requests.push(pending);
 		pending = null;
 	});
@@ -203,19 +208,9 @@ export default function (pi: ExtensionAPI) {
 		agentStartMs = null;
 		if (elapsedMs <= 0) return;
 
-		let input = 0;
-		let output = 0;
-		let totalTokens = 0;
+		const usage = summarizeAssistantUsage(event.messages);
+		if (usage.output <= 0) return;
 
-		for (const message of event.messages) {
-			if (!isAssistantMessage(message)) continue;
-			input += message.usage.input || 0;
-			output += message.usage.output || 0;
-			totalTokens += message.usage.totalTokens || 0;
-		}
-
-		if (output <= 0) return;
-
-		ctx.ui.notify(formatStats({ elapsedMs, requests, toolSpans, input, output, totalTokens }), "info");
+		ctx.ui.notify(formatStats({ elapsedMs, requests, toolSpans, ...usage }), "info");
 	});
 }

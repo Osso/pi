@@ -101,6 +101,8 @@ export type {
 	MessageRenderOptions,
 	MessageStartEvent,
 	MessageUpdateEvent,
+	ModelRequestEndEvent,
+	ModelRequestStartEvent,
 	ModelSelectEvent,
 	ModelSelectSource,
 	ProjectTrustContext,
