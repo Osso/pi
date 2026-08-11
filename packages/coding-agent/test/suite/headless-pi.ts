@@ -1029,6 +1029,7 @@ export default function(pi) {
 			approvalPreset,
 			sandboxProfile: fixtureOptions.sandboxProfile,
 			agents: { background: { context: "fresh" } },
+			disabledExtensions: ["claude-memory-enrich"],
 		}),
 	);
 	const context: HeadlessSessionContext = { mainSessionId: "", sessionFile: "" };
