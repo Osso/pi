@@ -1,11 +1,15 @@
 /**
  * TPS Extension
  *
- * Reports throughput for an agent loop, split into the parts that move independently:
- * time-to-first-token, streaming rate, and tool wall time.
+ * Reports throughput for an agent loop.
  *
- * The blended `output / loop wall time` rate is kept last and labelled, because on its
- * own it conflates generation speed with prefill and tool execution.
+ * `TPS` is end-to-end provider throughput: generated tokens over the wall time of the
+ * provider requests, prefill and time-to-first-token included. `decode` is the
+ * secondary diagnostic that isolates the streaming window. `loop` is the total
+ * user-visible wall time.
+ *
+ * All spans are unioned rather than summed, because pi can run provider requests and
+ * tools concurrently and summing overlapping spans overstates the denominator.
  */
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -14,22 +18,27 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 /** Stream events carrying generated content; the first one marks first token. */
 const CONTENT_DELTA_EVENTS = new Set(["text_delta", "thinking_delta", "toolcall_delta"]);
 
-interface RequestTiming {
+/** Overhead below this is noise, not a finding. */
+const OVERHEAD_FLOOR_MS = 500;
+
+export interface Span {
 	startMs: number;
-	/** Response headers received, before the stream is consumed. */
-	headersMs?: number;
-	/** First content delta, measured from headers received. */
-	firstTokenMs?: number;
-	/** First content delta until message end. */
-	streamMs?: number;
+	endMs: number;
+}
+
+export interface RequestTiming {
+	startMs: number;
+	/** Absolute time of the first content delta, when the request produced one. */
+	firstTokenAtMs?: number;
+	endMs?: number;
 	/** Generated tokens for this request, reasoning included. */
 	outputTokens: number;
 }
 
-interface LoopStats {
+export interface LoopStats {
 	elapsedMs: number;
 	requests: RequestTiming[];
-	toolMs: number;
+	toolSpans: Span[];
 	input: number;
 	output: number;
 	totalTokens: number;
@@ -39,6 +48,25 @@ function isAssistantMessage(message: unknown): message is AssistantMessage {
 	if (!message || typeof message !== "object") return false;
 	const role = (message as { role?: unknown }).role;
 	return role === "assistant";
+}
+
+/** Wall time covered by at least one span. Overlapping spans are counted once. */
+export function unionMs(spans: Span[]): number {
+	const sorted = [...spans].filter((span) => span.endMs > span.startMs).sort((a, b) => a.startMs - b.startMs);
+	let total = 0;
+	let windowStart = 0;
+	let windowEnd = -1;
+	for (const span of sorted) {
+		if (span.startMs > windowEnd) {
+			if (windowEnd > windowStart) total += windowEnd - windowStart;
+			windowStart = span.startMs;
+			windowEnd = span.endMs;
+			continue;
+		}
+		windowEnd = Math.max(windowEnd, span.endMs);
+	}
+	if (windowEnd > windowStart) total += windowEnd - windowStart;
+	return total;
 }
 
 function median(values: number[]): number | undefined {
@@ -52,22 +80,48 @@ function formatSeconds(ms: number): string {
 	return `${(ms / 1000).toFixed(1)}s`;
 }
 
-/**
- * Streaming rate over the summed stream windows only. Excludes prefill, queueing, and
- * tool execution, so this is the number a provider service tier should move.
- */
-function formatStreamRate(requests: RequestTiming[]): string | undefined {
-	const streamed = requests.filter((request) => request.streamMs !== undefined);
-	const streamMs = streamed.reduce((total, request) => total + (request.streamMs ?? 0), 0);
-	const tokens = streamed.reduce((total, request) => total + request.outputTokens, 0);
-	if (streamMs <= 0 || tokens <= 0) return undefined;
-	return `gen ${(tokens / (streamMs / 1000)).toFixed(1)} tok/s (${tokens.toLocaleString()} tok in ${formatSeconds(streamMs)})`;
+function completedRequests(requests: RequestTiming[]): Array<RequestTiming & { endMs: number }> {
+	return requests.filter((request): request is RequestTiming & { endMs: number } => request.endMs !== undefined);
+}
+
+function requestSpans(requests: RequestTiming[]): Span[] {
+	return completedRequests(requests).map((request) => ({ startMs: request.startMs, endMs: request.endMs }));
+}
+
+function streamSpans(requests: RequestTiming[]): Span[] {
+	return completedRequests(requests)
+		.filter((request) => request.firstTokenAtMs !== undefined)
+		.map((request) => ({ startMs: request.firstTokenAtMs as number, endMs: request.endMs }));
+}
+
+function formatRate(tokens: number, ms: number): string | undefined {
+	if (tokens <= 0 || ms <= 0) return undefined;
+	return `${(tokens / (ms / 1000)).toFixed(1)} tok/s`;
+}
+
+/** End-to-end provider throughput: everything from request sent to stream finished. */
+function formatThroughput(stats: LoopStats): string {
+	const requestMs = unionMs(requestSpans(stats.requests));
+	const tokens = completedRequests(stats.requests).reduce((total, request) => total + request.outputTokens, 0);
+	const rate = formatRate(tokens, requestMs);
+	if (!rate) return "TPS n/a";
+	return `TPS ${rate} (${tokens.toLocaleString()} tok in ${formatSeconds(requestMs)} of requests)`;
+}
+
+/** Streaming window only. Diagnostic: separates decode speed from prefill and queueing. */
+function formatDecodeRate(requests: RequestTiming[]): string | undefined {
+	const spans = streamSpans(requests);
+	const tokens = completedRequests(requests)
+		.filter((request) => request.firstTokenAtMs !== undefined)
+		.reduce((total, request) => total + request.outputTokens, 0);
+	const rate = formatRate(tokens, unionMs(spans));
+	return rate ? `decode ${rate}` : undefined;
 }
 
 function formatTimeToFirstToken(requests: RequestTiming[]): string | undefined {
 	const values = requests
-		.map((request) => (request.firstTokenMs === undefined ? undefined : (request.headersMs ?? 0) + request.firstTokenMs))
-		.filter((value): value is number => value !== undefined);
+		.filter((request) => request.firstTokenAtMs !== undefined)
+		.map((request) => (request.firstTokenAtMs as number) - request.startMs);
 	const p50 = median(values);
 	if (p50 === undefined) return undefined;
 	return `TTFT p50 ${formatSeconds(p50)} max ${formatSeconds(Math.max(...values))}`;
@@ -75,43 +129,40 @@ function formatTimeToFirstToken(requests: RequestTiming[]): string | undefined {
 
 /** Loop time spent neither in a provider request nor in a tool: hooks, rendering, approvals. */
 function formatOverhead(stats: LoopStats): string | undefined {
-	const requestMs = stats.requests.reduce(
-		(total, request) => total + (request.headersMs ?? 0) + (request.firstTokenMs ?? 0) + (request.streamMs ?? 0),
-		0,
-	);
-	const otherMs = stats.elapsedMs - requestMs - stats.toolMs;
-	if (otherMs < 500) return undefined;
+	const busyMs = unionMs([...requestSpans(stats.requests), ...stats.toolSpans]);
+	const otherMs = stats.elapsedMs - busyMs;
+	if (otherMs < OVERHEAD_FLOOR_MS) return undefined;
 	return `other ${formatSeconds(otherMs)}`;
 }
 
-function formatStats(stats: LoopStats): string {
-	const blendedRate = stats.output / (stats.elapsedMs / 1000);
+export function formatStats(stats: LoopStats): string {
+	const toolMs = unionMs(stats.toolSpans);
 	const parts = [
-		formatStreamRate(stats.requests),
+		formatThroughput(stats),
 		formatTimeToFirstToken(stats.requests),
-		stats.toolMs > 0 ? `tools ${formatSeconds(stats.toolMs)}` : undefined,
+		formatDecodeRate(stats.requests),
+		toolMs > 0 ? `tools ${formatSeconds(toolMs)}` : undefined,
 		formatOverhead(stats),
 		`${stats.requests.length} req`,
 		`out ${stats.output.toLocaleString()}, in ${stats.input.toLocaleString()}, total ${stats.totalTokens.toLocaleString()}`,
-		`loop ${formatSeconds(stats.elapsedMs)} (${blendedRate.toFixed(1)} tok/s blended)`,
+		`loop ${formatSeconds(stats.elapsedMs)}`,
 	];
-	return `TPS ${parts.filter((part) => part !== undefined).join(" · ")}`;
+	return parts.filter((part) => part !== undefined).join(" · ");
 }
 
 export default function (pi: ExtensionAPI) {
 	let agentStartMs: number | null = null;
 	let requests: RequestTiming[] = [];
 	let pending: RequestTiming | null = null;
-	let toolMs = 0;
-	let activeTools = 0;
-	let toolWindowStartMs = 0;
+	let toolSpans: Span[] = [];
+	const toolStartMs = new Map<string, number>();
 
 	pi.on("agent_start", () => {
 		agentStartMs = Date.now();
 		requests = [];
 		pending = null;
-		toolMs = 0;
-		activeTools = 0;
+		toolSpans = [];
+		toolStartMs.clear();
 	});
 
 	// Retries fire this again for the same message; the latest attempt is the one measured.
@@ -119,37 +170,29 @@ export default function (pi: ExtensionAPI) {
 		pending = { startMs: Date.now(), outputTokens: 0 };
 	});
 
-	pi.on("after_provider_response", () => {
-		if (!pending) return;
-		pending.headersMs = Date.now() - pending.startMs;
-	});
-
 	pi.on("message_update", (event) => {
-		if (!pending || pending.firstTokenMs !== undefined) return;
+		if (!pending || pending.firstTokenAtMs !== undefined) return;
 		if (!CONTENT_DELTA_EVENTS.has(event.assistantMessageEvent.type)) return;
-		pending.firstTokenMs = Date.now() - pending.startMs - (pending.headersMs ?? 0);
+		pending.firstTokenAtMs = Date.now();
 	});
 
 	pi.on("message_end", (event) => {
 		if (!pending || !isAssistantMessage(event.message)) return;
-		if (pending.firstTokenMs !== undefined) {
-			pending.streamMs = Date.now() - pending.startMs - (pending.headersMs ?? 0) - pending.firstTokenMs;
-		}
+		pending.endMs = Date.now();
 		pending.outputTokens = event.message.usage.output || 0;
 		requests.push(pending);
 		pending = null;
 	});
 
-	// Tools can run concurrently, so accumulate the union of their spans, not the sum.
-	pi.on("tool_execution_start", () => {
-		if (activeTools === 0) toolWindowStartMs = Date.now();
-		activeTools += 1;
+	pi.on("tool_execution_start", (event) => {
+		toolStartMs.set(event.toolCallId, Date.now());
 	});
 
-	pi.on("tool_execution_end", () => {
-		if (activeTools === 0) return;
-		activeTools -= 1;
-		if (activeTools === 0) toolMs += Date.now() - toolWindowStartMs;
+	pi.on("tool_execution_end", (event) => {
+		const startMs = toolStartMs.get(event.toolCallId);
+		if (startMs === undefined) return;
+		toolStartMs.delete(event.toolCallId);
+		toolSpans.push({ startMs, endMs: Date.now() });
 	});
 
 	pi.on("agent_end", (event, ctx) => {
@@ -173,6 +216,6 @@ export default function (pi: ExtensionAPI) {
 
 		if (output <= 0) return;
 
-		ctx.ui.notify(formatStats({ elapsedMs, requests, toolMs, input, output, totalTokens }), "info");
+		ctx.ui.notify(formatStats({ elapsedMs, requests, toolSpans, input, output, totalTokens }), "info");
 	});
 }
