@@ -474,7 +474,14 @@ function parseProcessIdentity(value: unknown): ProcessIdentity | undefined {
 	const record = value as Record<string, unknown>;
 	const pid = record.pid;
 	const startTimeTicks = record.startTimeTicks;
-	if (!Number.isSafeInteger(pid) || pid <= 0 || !Number.isSafeInteger(startTimeTicks) || startTimeTicks <= 0) {
+	if (
+		typeof pid !== "number" ||
+		!Number.isSafeInteger(pid) ||
+		pid <= 0 ||
+		typeof startTimeTicks !== "number" ||
+		!Number.isSafeInteger(startTimeTicks) ||
+		startTimeTicks <= 0
+	) {
 		return undefined;
 	}
 	return { pid, startTimeTicks };
@@ -484,7 +491,7 @@ function parseDetachedPayloadIdentity(value: unknown): DetachedPayloadIdentity |
 	if (typeof value !== "object" || value === null) return undefined;
 	const identity = parseProcessIdentity(value);
 	const pgid = (value as Record<string, unknown>).pgid;
-	if (!identity || !Number.isSafeInteger(pgid) || pgid <= 0) return undefined;
+	if (!identity || typeof pgid !== "number" || !Number.isSafeInteger(pgid) || pgid <= 0) return undefined;
 	return { ...identity, pgid };
 }
 
