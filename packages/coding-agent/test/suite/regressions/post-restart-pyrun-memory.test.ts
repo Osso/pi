@@ -10,6 +10,11 @@ import { type HeadlessLlmRequest, withHeadlessPi } from "../headless-pi.ts";
 const LARGE_OUTPUT_BYTES = 64 * 1024 * 1024;
 const MAX_RSS_GROWTH_KIB = 512 * 1024;
 
+function requireSessionId(sessionId: string | undefined): string {
+	if (!sessionId) throw new Error("Spawned child has no session ID");
+	return sessionId;
+}
+
 function readRssKiB(pid: number): number {
 	const match = readFileSync(`/proc/${pid}/status`, "utf8").match(/^VmRSS:\s+(\d+)\s+kB$/m);
 	if (!match) throw new Error(`Missing VmRSS for process ${pid}`);
@@ -121,7 +126,8 @@ describe("post-restart Pyrun memory", () => {
 				),
 			);
 			const child = await pi.waitForAgent((agent) => agent.displayName === "post-restart-memory-child");
-			const initialChild = await pi.waitForLlmRequest((request) => request.agentId === child.id);
+			const childSessionId = requireSessionId(child.transcript?.sessionId);
+			await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);
 			const mainAfterSpawn = await pi.waitForLlmRequest(
 				(request) => request.agentId === null && request.id !== initialMain.id,
 			);
@@ -135,10 +141,6 @@ describe("post-restart Pyrun memory", () => {
 				mainAfterSpawn.id,
 				fauxAssistantMessage(fauxToolCall("restart_self", {}), { stopReason: "toolUse" }),
 			);
-			const restoredChild = await pi.waitForLlmRequest(
-				(request) => request.agentId === child.id && request.id !== initialChild.id,
-			);
-			await pi.send({ type: "prompt", message: "Wait for the restored child" });
 			const restoredMain = await pi.waitForLlmRequest((request) => request.agentId === null);
 			const afterRestart = readMultiAgentRuntimeOwnership(controlDbPath, pi.sessionFile, child.id);
 			const afterRuntimeInstanceId = readMainRuntimeInstanceId(controlDbPath, pi.sessionId);
@@ -150,6 +152,7 @@ describe("post-restart Pyrun memory", () => {
 				fauxAssistantMessage(fauxToolCall("wait_agent", {}), { stopReason: "toolUse" }),
 			);
 			await pi.waitForEvent((event) => event.type === "tool_execution_start" && event.toolName === "wait_agent");
+			const restoredChild = await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);
 			pi.respondToLlmRequest(
 				restoredChild.id,
 				fauxAssistantMessage(fauxToolCall("pyrun_eval", { code: `print('x' * ${LARGE_OUTPUT_BYTES})` }), {
@@ -166,10 +169,7 @@ describe("post-restart Pyrun memory", () => {
 			let peakRssKiBByPid: RssPeaks | undefined;
 			try {
 				await workerRssSampler.ready;
-				afterPyrun = await pi.waitForLlmRequest(
-					(request) => request.agentId === child.id && request.id !== restoredChild.id,
-					30_000,
-				);
+				afterPyrun = await pi.waitForLlmRequest((request) => request.sessionId === childSessionId, 30_000);
 			} finally {
 				peakRssKiBByPid = await workerRssSampler.stop();
 			}
