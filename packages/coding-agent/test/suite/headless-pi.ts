@@ -32,6 +32,7 @@ import { type SessionEntry, SessionManager } from "../../src/core/session-manage
 import { createSqliteDatabase } from "../../src/core/sqlite.ts";
 import { RpcClient, type RpcCommandBody } from "../../src/modes/rpc/rpc-client.ts";
 import type { RpcExtensionUIRequest, RpcResponse } from "../../src/modes/rpc/rpc-types.ts";
+import { type HeadlessSupervisorProbe, startHeadlessSupervisorProbe } from "./fixtures/headless-supervisor-probe.ts";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -328,6 +329,7 @@ interface HeadlessPiCleanupOperations {
 	terminateDetachedRunners?: () => void | Promise<void>;
 	destroyProviderSocket: () => void;
 	closeProviderServer: () => Promise<void>;
+	closeSupervisorProbe?: () => Promise<void>;
 	removeTempDir: () => void;
 }
 
@@ -357,6 +359,7 @@ export async function cleanupHeadlessPiResources(operations: HeadlessPiCleanupOp
 		},
 		async () => operations.destroyProviderSocket(),
 		operations.closeProviderServer,
+		async () => operations.closeSupervisorProbe?.(),
 		async () => operations.removeTempDir(),
 	]) {
 		try {
@@ -590,11 +593,13 @@ function cleanupHeadlessStartup(
 	paths: HeadlessRuntimePaths,
 	client: RpcClient | undefined,
 	provider: ProviderServerControl | undefined,
+	supervisorProbe: HeadlessSupervisorProbe | undefined,
 ): Promise<void> {
 	return cleanupHeadlessPiResources({
 		stopClient: () => client?.stop() ?? Promise.resolve(),
 		destroyProviderSocket: () => provider?.getSocket()?.destroy(),
 		closeProviderServer: () => (provider ? closeServer(provider.server) : Promise.resolve()),
+		closeSupervisorProbe: () => supervisorProbe?.close() ?? Promise.resolve(),
 		removeTempDir: () => rmSync(paths.tempDir, { recursive: true, force: true }),
 	});
 }
@@ -771,6 +776,7 @@ function createHeadlessRuntime(options: {
 	requests: HeadlessLlmRequest[];
 	requestListeners: Set<() => void>;
 	context: HeadlessSessionContext;
+	supervisorProbe: HeadlessSupervisorProbe;
 }): HeadlessPiRuntime {
 	const waitForEvent = (predicate: (event: AgentEvent) => boolean): Promise<AgentEvent> =>
 		waitForBufferedItem({
@@ -982,6 +988,7 @@ function createHeadlessRuntime(options: {
 							terminateHeadlessDetachedRunners(options.paths, options.context.sessionFile),
 						destroyProviderSocket: () => options.provider.getSocket()?.destroy(),
 						closeProviderServer: () => closeServer(options.provider.server),
+						closeSupervisorProbe: () => options.supervisorProbe.close(),
 						removeTempDir: () => rmSync(options.paths.tempDir, { recursive: true, force: true }),
 					}),
 			);
@@ -1058,9 +1065,11 @@ export default function(pi) {
 	};
 	const recordRequest = createRequestRecorder({ requests, listeners: requestListeners, resolveAgentId });
 	let provider: ProviderServerControl | undefined;
+	let supervisorProbe: HeadlessSupervisorProbe | undefined;
 	let client: RpcClient | undefined;
 	let unsubscribeEvents = (): void => {};
 	try {
+		supervisorProbe = await startHeadlessSupervisorProbe(getControlDbPath(paths.agentDir));
 		provider = await createProviderServer(paths.socketPath, recordRequest);
 		client = createHeadlessRpcClient(paths, fixtureOptions);
 		unsubscribeEvents = subscribeHeadlessRpcOutput(client, {
@@ -1078,7 +1087,7 @@ export default function(pi) {
 			async () => {
 				throw error;
 			},
-			() => cleanupHeadlessStartup(paths, client, provider),
+			() => cleanupHeadlessStartup(paths, client, provider, supervisorProbe),
 		);
 	}
 
@@ -1098,6 +1107,7 @@ export default function(pi) {
 		requests,
 		requestListeners,
 		context,
+		supervisorProbe,
 	});
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { VERSION } from "../src/config.ts";
 import type { SupervisorRequest } from "../src/core/session-control-db.ts";
 import {
 	createSupervisorConsoleSnapshot,
@@ -36,21 +37,37 @@ describe("Supervisor resident console", () => {
 		expect(result.content).toEqual([{ type: "text", text: "Hello." }]);
 	});
 
-	it("exposes the exact resident branch identity", () => {
+	it("exposes the exact resident branch and process identity", () => {
 		const branch = [{ type: "custom" as const, id: "entry", parentId: null, timestamp: "now", customType: "test" }];
-		expect(
-			createSupervisorConsoleSnapshot({
-				cwd: "/fixed/supervisor",
-				generation: 42,
-				session: { sessionId: "supervisor", sessionManager: { getBranch: () => branch, getLeafId: () => null } },
-			}),
-		).toEqual({
+		const snapshot = createSupervisorConsoleSnapshot({
+			cwd: "/fixed/supervisor",
+			generation: 42,
+			managedBy: "external",
+			session: { sessionId: "supervisor", sessionManager: { getBranch: () => branch, getLeafId: () => null } },
+		});
+		const secondSnapshot = createSupervisorConsoleSnapshot({
+			cwd: "/fixed/supervisor",
+			generation: 43,
+			managedBy: "external",
+			session: { sessionId: "supervisor", sessionManager: { getBranch: () => branch, getLeafId: () => null } },
+		});
+
+		expect(snapshot).toMatchObject({
 			service: "supervisor",
 			sessionId: "supervisor",
 			cwd: "/fixed/supervisor",
 			generation: 42,
+			identity: {
+				version: VERSION,
+				pid: process.pid,
+				executable: process.execPath,
+				instanceId: expect.any(String),
+				managedBy: "external",
+			},
 			branch,
 		});
+		if (process.argv[1]) expect(snapshot.identity?.entrypoint).toBe(process.argv[1]);
+		expect(secondSnapshot.identity?.instanceId).toBe(snapshot.identity?.instanceId);
 	});
 
 	it("processes typed requests before queued console prompts without interleaving", async () => {

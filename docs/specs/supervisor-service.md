@@ -2,13 +2,19 @@
 
 Module boundary: core resident SDK policy service.
 
-The resident Supervisor is a systemd-supervised peer-unblocking policy engine that evaluates synchronous approval and goal decisions for Pi sessions. It preserves one global model transcript, reads and writes durable project memories in the shared KB, and returns typed decisions to the calling subsystem. It does not coordinate work across sessions or mutate supervised sessions directly. Implementation details belong in [../wiki/systems/supervisor-service.md](../wiki/systems/supervisor-service.md).
+The resident Supervisor is a peer-unblocking policy engine that evaluates synchronous approval and goal decisions for Pi sessions. Pi can own it as a detached resident, while systemd remains an optional external owner. It preserves one global model transcript, reads and writes durable project memories in the shared KB, and returns typed decisions to the calling subsystem. It does not coordinate work across sessions or mutate supervised sessions directly. Implementation details belong in [../wiki/systems/supervisor-service.md](../wiki/systems/supervisor-service.md).
 
 ## What it must do
 
 ### Service lifecycle and model
 
-- [x] Run as one resident systemd-supervised SDK service, separate from the resident Architect.
+- [x] Run as one resident SDK service, separate from the resident Architect; systemd ownership is optional.
+- [x] Before posting a Supervisor request on Linux or macOS, probe for a compatible resident and automatically connect or spawn the current Pi launcher as a detached `pi supervisor` process.
+- [x] Serialize concurrent startup through an atomic state-directory lock, recheck readiness after acquiring it, recover stale startup locks, and launch exactly one resident.
+- [x] Preserve Bun-binary launches directly and Node development or installed launches through the active CLI entrypoint and runtime flags.
+- [x] Expose read-only resident identity containing Pi version, PID, executable, optional entrypoint, unique service-start instance ID, and Pi-versus-external ownership without claiming writable console ownership.
+- [x] Reuse compatible externally managed residents, replace only verified incompatible Pi-managed residents, and report an explicit restart requirement for incompatible externally managed residents.
+- [x] Bound startup/readiness failures and return them through the typed Supervisor error path without posting an unserviceable durable request.
 - [x] Use `openai-codex/gpt-5.6-sol` with low thinking effort.
 - [x] Preserve one global Supervisor model transcript across requests and service restarts. Proactively compact the shared context before a bounded request when usage reaches 75%, preserving prior decisions, project-specific policies, and reusable approval rationale rather than resetting history. Invalidate provider continuation state after compaction so the next request starts from the compacted local context rather than the pre-compaction remote chain.
 - [x] Process requests through an event-driven request/response queue rather than polling sessions. Idle recovery probes the Supervisor request queue read-only for expired pending or claimed work; when recovery is needed, expired requests are completed and remaining claimed requests are requeued in one immediate transaction.
@@ -128,7 +134,8 @@ The resident Supervisor is a systemd-supervised peer-unblocking policy engine th
 
 - `packages/coding-agent/src/supervisor/main.ts` — resident Sol SDK service, restricted tool surface, persistent transcript, and request loop.
 - `packages/coding-agent/src/supervisor/service.ts` — bounded prompts, typed response validation, deadlines, and approval preemption.
-- `packages/coding-agent/src/supervisor/client.ts` — durable synchronous caller transport.
+- `packages/coding-agent/src/supervisor/client.ts` — ensures resident readiness, then performs durable synchronous caller transport.
+- `packages/coding-agent/src/supervisor/ensure-running.ts` — cross-platform probe, singleton startup lock, detached launch, compatibility checks, and Pi-managed replacement.
 - `packages/coding-agent/src/supervisor/request-wake.ts` — owner-only Unix-socket wake notification for the durable request queue.
 - `packages/coding-agent/src/core/resident-console-transport.ts` — owner-only attach protocol, branch snapshot, live events, and single-client prompt transport.
 - `packages/coding-agent/src/cli/resident-console-command.ts` — `--supervisor` console client and optional initial prompt handling.
@@ -150,6 +157,8 @@ The resident Supervisor is a systemd-supervised peer-unblocking policy engine th
 - `packages/coding-agent/test/supervisor-request-repository.test.ts`
 - `packages/coding-agent/test/supervisor-project-resolver.test.ts`
 - `packages/coding-agent/test/supervisor-client.test.ts`
+- `packages/coding-agent/test/supervisor-ensure-running.test.ts`
+- `packages/coding-agent/test/suite/supervisor-autostart-runtime.test.ts` — real-process detached startup and concurrent reuse.
 - `packages/coding-agent/test/supervisor-service.test.ts` — advisory response contract and validation.
 - `packages/coding-agent/test/supervisor-approval-reviewer.test.ts`
 - `packages/coding-agent/test/list-sessions-broadcast-tools.test.ts` — main-session-only tool registration and access.

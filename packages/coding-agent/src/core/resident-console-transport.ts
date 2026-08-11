@@ -5,11 +5,21 @@ import { dirname } from "node:path";
 export const RESIDENT_CONSOLE_PROTOCOL_VERSION = 1;
 export type ResidentConsoleService = "architect" | "supervisor";
 
+export interface ResidentConsoleIdentity {
+	version: string;
+	pid: number;
+	executable: string;
+	entrypoint?: string;
+	instanceId: string;
+	managedBy: "external" | "pi";
+}
+
 export interface ResidentConsoleSnapshot<Entry> {
 	service: ResidentConsoleService;
 	sessionId: string;
 	cwd: string;
 	generation: number;
+	identity?: ResidentConsoleIdentity;
 	branch: Entry[];
 }
 
@@ -23,6 +33,7 @@ export interface ResidentConsoleServerOptions<Entry, Event> {
 
 type ClientMessage =
 	| { type: "attach"; version: number; service: ResidentConsoleService }
+	| { type: "probe"; version: number; service: ResidentConsoleService }
 	| { type: "prompt"; id: string; text: string }
 	| { type: "disconnect" };
 
@@ -94,6 +105,10 @@ export class ResidentConsoleServer<Entry, Event> {
 			this.attach(socket, message);
 			return;
 		}
+		if (message.type === "probe") {
+			this.probe(socket, message);
+			return;
+		}
 		if (this.owner !== socket) {
 			this.sendError(socket, "missing_attach", "Resident console attach is required");
 			return;
@@ -110,14 +125,7 @@ export class ResidentConsoleServer<Entry, Event> {
 	}
 
 	private attach(socket: Socket, message: Extract<ClientMessage, { type: "attach" }>): void {
-		if (message.version !== RESIDENT_CONSOLE_PROTOCOL_VERSION) {
-			this.sendError(socket, "version_mismatch", "Resident console protocol version mismatch");
-			return;
-		}
-		if (message.service !== this.options.service) {
-			this.sendError(socket, "service_mismatch", "Resident console service mismatch");
-			return;
-		}
+		if (!this.validateRequest(socket, message)) return;
 		if (this.owner) {
 			const previousOwner = this.owner;
 			this.releaseOwner();
@@ -130,6 +138,23 @@ export class ResidentConsoleServer<Entry, Event> {
 			this.sequence += 1;
 			this.write(socket, { type: "event", sequence: this.sequence, event });
 		});
+	}
+
+	private probe(socket: Socket, message: Extract<ClientMessage, { type: "probe" }>): void {
+		if (!this.validateRequest(socket, message)) return;
+		this.write(socket, { type: "probed", version: RESIDENT_CONSOLE_PROTOCOL_VERSION, ...this.options.getSnapshot() });
+	}
+
+	private validateRequest(socket: Socket, message: Extract<ClientMessage, { type: "attach" | "probe" }>): boolean {
+		if (message.version !== RESIDENT_CONSOLE_PROTOCOL_VERSION) {
+			this.sendError(socket, "version_mismatch", "Resident console protocol version mismatch");
+			return false;
+		}
+		if (message.service !== this.options.service) {
+			this.sendError(socket, "service_mismatch", "Resident console service mismatch");
+			return false;
+		}
+		return true;
 	}
 
 	private async enqueuePrompt(socket: Socket, id: string, text: string): Promise<void> {
@@ -196,7 +221,7 @@ export class ResidentConsoleClient<Entry, Event> {
 		if (process.platform === "win32") throw new Error("Resident console requires Unix domain sockets");
 		const socket = await connectResidentConsole(options.socketPath);
 		try {
-			const attached = await attachResidentConsole<Entry>(socket, options.service);
+			const attached = await readResidentConsoleSnapshot<Entry>(socket, options.service, "attach");
 			return new ResidentConsoleClient<Entry, Event>(socket, attached.snapshot, attached.remainingBuffer);
 		} catch (error) {
 			socket.destroy();
@@ -288,17 +313,44 @@ export class ResidentConsoleClient<Entry, Event> {
 	}
 }
 
-async function attachResidentConsole<Entry>(
+export async function probeResidentConsole<Entry>(options: {
+	socketPath: string;
+	service: ResidentConsoleService;
+}): Promise<ResidentConsoleSnapshot<Entry>> {
+	if (process.platform === "win32") throw new Error("Resident console requires Unix domain sockets");
+	const socket = await connectResidentConsole(options.socketPath);
+	try {
+		const probed = await readResidentConsoleSnapshot<Entry>(socket, options.service, "probe");
+		return probed.snapshot;
+	} finally {
+		socket.destroy();
+	}
+}
+
+async function readResidentConsoleSnapshot<Entry>(
 	socket: Socket,
 	service: ResidentConsoleService,
+	type: "attach" | "probe",
 ): Promise<{ snapshot: ResidentConsoleSnapshot<Entry>; remainingBuffer: string }> {
-	socket.write(`${JSON.stringify({ type: "attach", version: RESIDENT_CONSOLE_PROTOCOL_VERSION, service })}\n`);
+	socket.write(`${JSON.stringify({ type, version: RESIDENT_CONSOLE_PROTOCOL_VERSION, service })}\n`);
 	const response = await readResidentConsoleLine(socket);
-	const message = response.message;
-	if (message.type === "error")
-		throw new Error(typeof message.message === "string" ? message.message : "Resident attach failed");
+	if (response.message.type === "error") {
+		throw new Error(
+			typeof response.message.message === "string" ? response.message.message : "Resident console request failed",
+		);
+	}
+	return {
+		snapshot: parseResidentConsoleSnapshot<Entry>(response.message, service),
+		remainingBuffer: response.remainingBuffer,
+	};
+}
+
+function parseResidentConsoleSnapshot<Entry>(
+	message: Record<string, unknown>,
+	service: ResidentConsoleService,
+): ResidentConsoleSnapshot<Entry> {
 	if (
-		message.type !== "attached" ||
+		(message.type !== "attached" && message.type !== "probed") ||
 		message.version !== RESIDENT_CONSOLE_PROTOCOL_VERSION ||
 		message.service !== service ||
 		typeof message.sessionId !== "string" ||
@@ -306,18 +358,45 @@ async function attachResidentConsole<Entry>(
 		typeof message.generation !== "number" ||
 		!Array.isArray(message.branch)
 	) {
-		throw new Error("Invalid resident console attach response");
+		throw new Error("Invalid resident console response");
+	}
+	const identity = readResidentConsoleIdentity(message.identity);
+	if (message.identity !== undefined && !identity) throw new Error("Invalid resident console identity");
+	return {
+		service,
+		sessionId: message.sessionId,
+		cwd: message.cwd,
+		generation: message.generation,
+		...(identity ? { identity } : {}),
+		branch: message.branch as Entry[],
+	};
+}
+
+function readResidentConsoleIdentity(value: unknown): ResidentConsoleIdentity | undefined {
+	if (value === undefined) return undefined;
+	if (!isRecord(value)) return undefined;
+	if (
+		typeof value.version !== "string" ||
+		typeof value.pid !== "number" ||
+		typeof value.executable !== "string" ||
+		typeof value.instanceId !== "string" ||
+		(value.managedBy !== "external" && value.managedBy !== "pi") ||
+		(value.entrypoint !== undefined && typeof value.entrypoint !== "string")
+	) {
+		return undefined;
 	}
 	return {
-		snapshot: {
-			service,
-			sessionId: message.sessionId,
-			cwd: message.cwd,
-			generation: message.generation,
-			branch: message.branch as Entry[],
-		},
-		remainingBuffer: response.remainingBuffer,
+		version: value.version,
+		pid: value.pid,
+		executable: value.executable,
+		...(value.entrypoint !== undefined ? { entrypoint: value.entrypoint } : {}),
+		instanceId: value.instanceId,
+		managedBy: value.managedBy,
 	};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
 }
 
 function readResidentConsoleLine(

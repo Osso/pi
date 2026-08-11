@@ -235,13 +235,15 @@ Configure delivery in [settings](docs/settings.md): `steeringMode` and `followUp
 
 ## Supervisor Service
 
-The Supervisor is a separate resident process that backs the `ask_supervisor` tool (bounded, advisory guidance from a persistent supervisor context). It is enabled by default in every session but is not required for normal pi use; it only powers `ask_supervisor`.
+The Supervisor is a separate resident process that backs `ask_supervisor` plus configured approval and goal reviews. It preserves one shared Supervisor context across requests.
 
-If the Supervisor is not running, an `ask_supervisor` call is queued in the control database, waits for up to three minutes, and then reports `Supervisor request timed out`.
+On Linux and macOS, the first Supervisor-backed request automatically connects to a compatible resident or starts the current Pi launcher as one detached `pi supervisor` process. Concurrent Pi sessions serialize startup and reuse the same resident. The detached process survives terminal exit; after a reboot, the next Supervisor-backed request starts it again.
 
-### Running on Linux (systemd user service)
+Pi replaces an incompatible resident only when Pi started that process. A version mismatch with an externally managed service fails explicitly so its service manager retains ownership.
 
-A ready-made unit ships with the source tree at `packages/coding-agent/systemd/pi-supervisor.service`. Point its `@PI_SUPERVISOR_BINARY@` placeholder at your `pi` binary, install the unit, and enable it:
+### Optional Linux systemd user service
+
+Use systemd when the Supervisor must start before the first Pi request or restart automatically after failure. A ready-made unit ships with the source tree at `packages/coding-agent/systemd/pi-supervisor.service`. Point its `@PI_SUPERVISOR_BINARY@` placeholder at your `pi` binary, install the unit, and enable it:
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -253,7 +255,7 @@ systemctl --user enable --now pi-supervisor.service
 systemctl --user is-active pi-supervisor.service   # verify
 ```
 
-Deployments that build pi from source can instead run `scripts/configure-resident-services.sh <pi-binary>`, which performs the unit substitution and `enable --now` automatically. To run the service without systemd, start `pi supervisor` in the foreground.
+Deployments that build pi from source can instead run `scripts/configure-resident-services.sh <pi-binary>`, which performs the unit substitution and `enable --now` automatically. Pi reuses a compatible systemd-managed resident instead of starting another process. To run the service in the foreground, use `pi supervisor`.
 
 ## Sessions
 

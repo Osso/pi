@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	probeResidentConsole,
 	ResidentConsoleClient,
 	ResidentConsoleServer,
 	type ResidentConsoleSnapshot,
@@ -29,6 +30,14 @@ function snapshot(): ResidentConsoleSnapshot<{ value: string }> {
 		sessionId: "supervisor",
 		cwd: "/resident",
 		generation: 9,
+		identity: {
+			version: "0.80.3",
+			pid: 1234,
+			executable: "/usr/local/bin/pi",
+			entrypoint: "/usr/local/bin/pi",
+			instanceId: "service-instance-1",
+			managedBy: "pi",
+		},
 		branch: [{ value: "existing" }],
 	};
 }
@@ -49,6 +58,35 @@ describe("ResidentConsoleClient", () => {
 		resources.push(client);
 
 		expect(client.snapshot).toEqual(snapshot());
+	});
+
+	it("probes identity without claiming the writable console owner", async () => {
+		let subscriptions = 0;
+		const prompts: string[] = [];
+		const server = new ResidentConsoleServer({
+			socketPath: socketPath(),
+			service: "supervisor",
+			getSnapshot: snapshot,
+			enqueuePrompt: (text) => {
+				prompts.push(text);
+			},
+			subscribe: () => {
+				subscriptions += 1;
+				return () => {};
+			},
+		});
+		resources.push(server);
+		await server.start();
+		const client = await ResidentConsoleClient.connect({ socketPath: server.socketPath, service: "supervisor" });
+		resources.push(client);
+
+		await expect(probeResidentConsole({ socketPath: server.socketPath, service: "supervisor" })).resolves.toEqual(
+			snapshot(),
+		);
+		await client.prompt("prompt-1", "still owner");
+
+		expect(prompts).toEqual(["still owner"]);
+		expect(subscriptions).toBe(1);
 	});
 
 	it("submits prompts and receives monotonic resident events", async () => {

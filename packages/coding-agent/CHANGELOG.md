@@ -169,6 +169,7 @@
 - Highlighted the default footer's context percentage and total active `agents N` count while retaining dim styling for surrounding statistics.
 - Changed Pyrun `cli.*` command guidance to use forwarding, exit-code-only `.run()` by default and explicit `.capture().run()` when structured stdout/stderr inspection is required.
 - Resident Architect and Supervisor systemd services now run the installed Bun-compiled Pi binary.
+- Changed Supervisor request clients on Linux and macOS to connect-or-spawn one detached resident automatically, serialize concurrent startup, reuse compatible externally managed services, and replace only incompatible Pi-managed residents; systemd remains optional.
 - Resident Supervisor goal reviews now have a three-minute deadline, its file tools are limited to read/edit/write access inside the configured KB, and Bash/Pyrun remain unavailable.
 - Changed built-in `read` and `grep` tools to skip generic approval prompts; Ask Me (`on-request`) now prompts only for approval-required tools.
 - Resident Supervisor now awaits reload of its caller-provided resource loader before `createAgentSession`; with `noExtensions: true`, the explicit extension allowlist contains only the Supervisor mutation gate and first-party OpenAI remote compaction, so both are active and persistent Codex transcript overflow recovers through normal AgentSession compact-and-retry.

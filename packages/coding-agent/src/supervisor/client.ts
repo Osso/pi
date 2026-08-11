@@ -4,6 +4,7 @@ import {
 	type SupervisorRequestKind,
 	type SupervisorResponse,
 } from "../core/session-control-db.ts";
+import { ensureSupervisorRunning } from "./ensure-running.ts";
 import { notifySupervisorRequest } from "./request-wake.ts";
 
 export interface RequestSupervisorDecisionInput {
@@ -19,9 +20,22 @@ export interface RequestSupervisorDecisionInput {
 	retryJitterRatio?: number;
 }
 
+export interface SupervisorClientDependencies {
+	ensureRunning?: (input: { controlDbPath: string }) => Promise<unknown>;
+}
+
 async function requestSupervisorDecisionAttempt(
 	input: RequestSupervisorDecisionInput,
+	dependencies: Required<SupervisorClientDependencies>,
 ): Promise<SupervisorResponse | undefined> {
+	try {
+		await dependencies.ensureRunning({ controlDbPath: input.controlDbPath });
+	} catch (error) {
+		return {
+			kind: "error",
+			reason: `Supervisor startup failed: ${error instanceof Error ? error.message : String(error)}`,
+		};
+	}
 	const deadline = Date.now() + input.timeoutMs;
 	const requestId = postSupervisorRequest(input.controlDbPath, {
 		deadlineAt: new Date(deadline).toISOString(),
@@ -47,10 +61,14 @@ function retryDelay(input: RequestSupervisorDecisionInput, attempt: number): num
 	return exponentialDelayMs * (1 - jitterRatio + Math.random() * jitterRatio * 2);
 }
 
-export async function requestSupervisorDecision(input: RequestSupervisorDecisionInput): Promise<SupervisorResponse> {
+export async function requestSupervisorDecision(
+	input: RequestSupervisorDecisionInput,
+	dependencies: SupervisorClientDependencies = {},
+): Promise<SupervisorResponse> {
+	const resolvedDependencies = { ensureRunning: dependencies.ensureRunning ?? ensureSupervisorRunning };
 	const maxAttempts = input.maxAttempts ?? 1;
 	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-		const response = await requestSupervisorDecisionAttempt(input);
+		const response = await requestSupervisorDecisionAttempt(input, resolvedDependencies);
 		if (response) return response;
 		if (attempt < maxAttempts) await delay(retryDelay(input, attempt));
 	}

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { type AssistantMessage, cleanupSessionResources } from "@earendil-works/pi-ai/compat";
 import openAIRemoteCompactExtension from "../../extensions/openai-remote-compact/src/index.ts";
-import { getAgentDir } from "../config.ts";
+import { getAgentDir, VERSION } from "../config.ts";
 import type { AgentSessionEvent } from "../core/agent-session.ts";
 import { AuthStorage } from "../core/auth-storage.ts";
 import type { LoadExtensionsResult } from "../core/extensions/types.ts";
@@ -22,6 +22,7 @@ import {
 import { type SessionEntry, SessionManager } from "../core/session-manager.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
 import { resolveReadPath, resolveToCwd } from "../core/tools/path-utils.ts";
+import { SUPERVISOR_AUTOSTART_ENV } from "./ensure-running.ts";
 import { DEFAULT_SUPERVISOR_KB_DIR } from "./project-resolver.ts";
 import { notifySupervisorRequest, SupervisorRequestWakeServer } from "./request-wake.ts";
 import { createSupervisorResponseTool, SUPERVISOR_RESPONSE_TOOL_NAME } from "./response-tool.ts";
@@ -29,6 +30,7 @@ import { runSupervisorRequest } from "./service.ts";
 
 const SUPERVISOR_SESSION_ID = "supervisor";
 const SUPERVISOR_COMPACTION_PERCENT = 75;
+const SUPERVISOR_INSTANCE_ID = randomUUID();
 
 interface SupervisorSession {
 	abort(): Promise<void>;
@@ -139,6 +141,7 @@ export function blockSupervisorFileAccess(
 export function createSupervisorConsoleSnapshot(input: {
 	cwd: string;
 	generation: number;
+	managedBy: "external" | "pi";
 	session: Pick<SupervisorSession, "sessionId" | "sessionManager">;
 }): ResidentConsoleSnapshot<SessionEntry> {
 	return {
@@ -146,6 +149,14 @@ export function createSupervisorConsoleSnapshot(input: {
 		sessionId: input.session.sessionId ?? SUPERVISOR_SESSION_ID,
 		cwd: input.cwd,
 		generation: input.generation,
+		identity: {
+			version: VERSION,
+			pid: process.pid,
+			executable: process.execPath,
+			...(process.argv[1] ? { entrypoint: process.argv[1] } : {}),
+			instanceId: SUPERVISOR_INSTANCE_ID,
+			managedBy: input.managedBy,
+		},
 		branch: input.session.sessionManager.getBranch(),
 	};
 }
@@ -158,10 +169,11 @@ export async function runSupervisorService(): Promise<void> {
 	const session = await createSupervisorAgentSession(agentDir, kbDir, sessionManager);
 	const wakeServer = new SupervisorRequestWakeServer(controlDbPath);
 	const consolePrompts = new SupervisorConsolePromptQueue();
+	const managedBy = process.env[SUPERVISOR_AUTOSTART_ENV] === "1" ? "pi" : "external";
 	const consoleServer = new ResidentConsoleServer<SessionEntry, AgentSessionEvent>({
 		socketPath: `${controlDbPath}.supervisor-console.sock`,
 		service: "supervisor",
-		getSnapshot: () => createSupervisorConsoleSnapshot({ cwd: kbDir, generation: process.pid, session }),
+		getSnapshot: () => createSupervisorConsoleSnapshot({ cwd: kbDir, generation: process.pid, managedBy, session }),
 		enqueuePrompt: (text, id) => {
 			consolePrompts.enqueue(text, id);
 			notifySupervisorRequest(controlDbPath);
