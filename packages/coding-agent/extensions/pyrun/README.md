@@ -16,7 +16,7 @@ tool, contributes model-facing instructions, and delegates evaluation to a Pyrun
 
 ## Runner Configuration
 
-By default the adapter starts the installed `pyrun-jsonl` with no arguments. A local checkout is never selected implicitly.
+By default the adapter starts the installed `pyrun-jsonl` with no arguments. `pyrun_eval` is registered only when the selected runner command is executable; missing runners are non-fatal and Pi never installs them. Availability is re-evaluated when the runtime is rebuilt or reloaded. A local checkout is never selected implicitly.
 
 For local development or tests, override the runner process:
 

@@ -135,6 +135,7 @@ export {
 } from "./write.ts";
 
 import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { isExecutableAvailable } from "../../utils/executable.ts";
 import type { ToolDefinition } from "../extensions/types.ts";
 import { createAskQuestionsToolDefinition } from "./ask-questions.ts";
 import { createAskSupervisorToolDefinition } from "./ask-supervisor.ts";
@@ -372,6 +373,17 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		ask_questions: createAskQuestionsToolDefinition(),
 		ask_supervisor: createAskSupervisorToolDefinition(),
 	};
+}
+
+export function createToolDefinitionsForAvailableExecutables(
+	cwd: string,
+	options?: ToolsOptions,
+): Record<string, ToolDef> {
+	const definitions: Record<string, ToolDef> = createAllToolDefinitions(cwd, options);
+	if (options?.codeIndex?.operations || isExecutableAvailable("code-index")) return definitions;
+
+	const codeIndexToolNames = new Set(["outline", "symbol", "references"]);
+	return Object.fromEntries(Object.entries(definitions).filter(([name]) => !codeIndexToolNames.has(name)));
 }
 
 export function createCodingTools(cwd: string, options?: ToolsOptions): Tool[] {

@@ -12,6 +12,7 @@ import { type SessionInfo, SessionManager } from "../../../src/core/session-mana
 import { highlightCode, type Theme } from "../../../src/modes/interactive/theme/theme.ts";
 import type { MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
 import type { ToolDetachRegistry } from "../../../src/core/tool-detach-registry.ts";
+import { isExecutableAvailable } from "../../../src/utils/executable.ts";
 import { resolvePath } from "../../../src/utils/paths.ts";
 import {
 	createBwrapRunnerCommand,
@@ -30,6 +31,7 @@ import {
 	type CanonicalPyrunEvalResult,
 	type CanonicalPyrunProgressUpdate,
 	type PyrunRunnerOptions,
+	resolvePyrunRunnerCommand,
 	resolvePyrunRunnerOptions,
 } from "./runner.ts";
 
@@ -576,6 +578,8 @@ async function respondToDetachedPyrunBridgeRequest(input: {
 }
 
 export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtensionOptions = {}) {
+	if (!isExecutableAvailable(resolvePyrunRunnerCommand())) return;
+
 	const dispatchPiRequest = createPyrunPiDispatcher(pi, options);
 	pi.on("runtime_mailbox", (event, ctx) => handleDetachedPyrunBridgeRequest(event, ctx, dispatchPiRequest));
 	const bwrapCommand = options.bwrapCommand ?? process.env.PI_BWRAP_COMMAND ?? "bwrap";

@@ -108,6 +108,19 @@ type PyrunTool = {
 	) => Promise<AgentToolResult<PyrunEvalDetails>>;
 };
 
+function captureRegisteredPyrunToolName(): string | undefined {
+	let registeredToolName: string | undefined;
+	const pi = {
+		on: () => {},
+		registerTool(tool: ToolDefinition) {
+			registeredToolName = tool.name;
+		},
+	} as unknown as ExtensionAPI;
+
+	pyrunExtension(pi);
+	return registeredToolName;
+}
+
 function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 	persistBackgroundStore(options.backgroundJobs?.store);
 	let pyrunTool: PyrunTool | undefined;
@@ -687,6 +700,18 @@ describe("pyrun extension", () => {
 			process.env.PI_PYRUN_RUNNER_ARGS = previousRunnerArgs;
 		}
 		rmSync(tempDir, { force: true, recursive: true });
+	});
+
+	it("does not register pyrun_eval when the configured runner is unavailable", () => {
+		process.env.PI_PYRUN_RUNNER_COMMAND = join(tempDir, "missing-pyrun-runner");
+
+		expect(captureRegisteredPyrunToolName()).toBeUndefined();
+	});
+
+	it("registers pyrun_eval when the configured runner is available", () => {
+		process.env.PI_PYRUN_RUNNER_COMMAND = process.execPath;
+
+		expect(captureRegisteredPyrunToolName()).toBe("pyrun_eval");
 	});
 
 	it("disposes Pi request handlers during session shutdown", async () => {

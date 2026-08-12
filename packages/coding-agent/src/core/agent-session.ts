@@ -208,7 +208,11 @@ export { type ParsedSkillBlock, parseSkillBlock } from "./skill-block.ts";
 import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.ts";
 import { ToolDetachRegistry } from "./tool-detach-registry.ts";
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
-import { createAllToolDefinitions, createEndTurnToolDefinition, DEFAULT_ACTIVE_TOOL_NAMES } from "./tools/index.ts";
+import {
+	createEndTurnToolDefinition,
+	createToolDefinitionsForAvailableExecutables,
+	DEFAULT_ACTIVE_TOOL_NAMES,
+} from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
 
 const MCP_TOOL_NAME_PATTERN = /^mcp__[^_]+(?:_[^_]+)*__[^_]+(?:_[^_]+)*$/;
@@ -5014,7 +5018,7 @@ export class AgentSession {
 					),
 					end_turn: createEndTurnToolDefinition(),
 				}
-			: createAllToolDefinitions(this._cwd, {
+			: createToolDefinitionsForAvailableExecutables(this._cwd, {
 					read: { autoResizeImages },
 					bash: {
 						backgroundJobs: this._multiAgentStore

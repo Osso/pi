@@ -1,5 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 import { spawnProcess, waitForChildProcess } from "../../../src/utils/child-process.ts";
+import { isExecutableAvailable } from "../../../src/utils/executable.ts";
 import type { AgentToolResult, ExtensionAPI, ToolDefinition } from "../../../src/core/extensions/types.ts";
 import { Type, type Static } from "typebox";
 
@@ -52,6 +53,7 @@ const browserCliSchema = Type.Object({
 type BrowserCliInput = Static<typeof browserCliSchema>;
 
 export default function browserCliExtension(pi: ExtensionAPI, options: BrowserCliExtensionOptions = {}): void {
+	if (!isExecutableAvailable(BROWSER_CLI_EXECUTABLE)) return;
 	pi.registerTool(createBrowserCliToolDefinition(options));
 }
 

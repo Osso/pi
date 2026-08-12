@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import type { ExtensionAPI, ToolCallEvent } from "@earendil-works/pi-coding-agent";
+import { isExecutableAvailable } from "../../../src/utils/executable.ts";
 
 const DEFAULT_HOOK_PATH = "/home/osso/.cargo/bin/claude-bash-hook";
 const HOOK_TIMEOUT_MS = 30_000;
@@ -23,6 +24,9 @@ type ClaudeBashHookReviewResult =
 	| { action: "unavailable" };
 
 export default function claudeBashHookExtension(pi: ExtensionAPI): void {
+	const hookCommand = readClaudeBashHookCommand();
+	if (!hookCommand || !isExecutableAvailable(hookCommand)) return;
+
 	pi.registerApprovalReviewer(async (event, ctx) => {
 		const result = await reviewToolWithClaudeBashHook(event, ctx.cwd);
 		if (result.action === "unavailable") {

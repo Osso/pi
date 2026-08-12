@@ -2,8 +2,8 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { reviewToolWithClaudeBashHook } from "../extensions/claude-bash-hook/src/index.ts";
-import type { ToolCallEvent } from "../src/core/extensions/types.ts";
+import claudeBashHookExtension, { reviewToolWithClaudeBashHook } from "../extensions/claude-bash-hook/src/index.ts";
+import type { ExtensionAPI, ToolCallEvent } from "../src/core/extensions/types.ts";
 
 function makeToolCallEvent(toolName: string, input: Record<string, unknown>): ToolCallEvent {
 	return {
@@ -13,6 +13,18 @@ function makeToolCallEvent(toolName: string, input: Record<string, unknown>): To
 		bypassPermissions: false,
 		input,
 	} as ToolCallEvent;
+}
+
+function captureApprovalReviewerRegistration(): unknown {
+	let reviewer: unknown;
+	const pi = {
+		registerApprovalReviewer(registeredReviewer: unknown) {
+			reviewer = registeredReviewer;
+		},
+	} as unknown as ExtensionAPI;
+
+	claudeBashHookExtension(pi);
+	return reviewer;
 }
 
 function writeFakeHook(tempDir: string): string {
@@ -56,6 +68,16 @@ describe("claude-bash-hook extension", () => {
 			process.env.PI_CLAUDE_BASH_HOOK = previousHook;
 		}
 		rmSync(tempDir, { force: true, recursive: true });
+	});
+
+	it("does not register an approval reviewer when the configured hook is unavailable", () => {
+		process.env.PI_CLAUDE_BASH_HOOK = join(tempDir, "missing-claude-bash-hook");
+
+		expect(captureApprovalReviewerRegistration()).toBeUndefined();
+	});
+
+	it("registers an approval reviewer when the configured hook is available", () => {
+		expect(captureApprovalReviewerRegistration()).toBeDefined();
 	});
 
 	it("reviews pyrun_eval code with claude-bash-hook", async () => {

@@ -90,7 +90,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Agent-type profiles can select a child model, thinking level, default context, and optional `tools`
       allowlist; the built-in `browser` profile uses fresh context and `tools: ["browser-cli"]`, while
       `explore`, `verifier`, `documentation-update`, `implement`, and `reviewer` provide the other defaults.
-      When a profile specifies `tools`, production child and attached sessions expose only those registered tool
+      If an allowlisted optional tool is not registered because its executable is unavailable, the child exposes
+      the remaining registered tools only. When a profile specifies `tools`, production child and attached sessions expose only those registered tool
       names plus `contact_parent`, `send_agent_message`, and `end_turn`. `spawn_agent` rejects a non-empty explicit
       `agentType` when `SettingsManager` finds no matching built-in or configured profile, and the error lists
       configured profile keys; omitted or blank `agentType` still defaults to `default` and inherits the parent model.

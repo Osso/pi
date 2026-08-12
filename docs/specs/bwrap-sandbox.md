@@ -30,7 +30,7 @@ The bubblewrap sandbox backend is a Linux extension that routes selected Pi tool
 
 - [x] Route built-in `read`, `write`, `edit`, `ls`, `find`, and `grep` through the bwrap backend when sandboxed.
 - [x] Route built-in `bash` and interactive `user_bash` through the bwrap backend when sandboxed.
-- [x] Keep default-loaded `pyrun_eval` available: run its runner inside bwrap for sandbox-required profiles, with the Pi bridge disabled.
+- [x] When `pyrun_eval` is registered, keep it available: run its runner inside bwrap for sandbox-required profiles, with the Pi bridge disabled. If its configured runner is unavailable, the tool is omitted by the external-executable availability contract.
 - [x] Do not hard-block Pyrun merely because a sandbox-required profile is active.
 - [x] Register a hard tool gate so sandbox-required profiles cannot silently proceed unsandboxed when `bwrap` is unavailable.
 - [x] In unsandboxed mode, resolve each local file-tool execution from current extension-context cwd rather than process startup cwd.

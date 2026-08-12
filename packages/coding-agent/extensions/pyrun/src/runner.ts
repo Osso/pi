@@ -83,14 +83,15 @@ function parseRunnerArgs(value: string | undefined): string[] | undefined {
 	return parsed;
 }
 
+export function resolvePyrunRunnerCommand(resolution: PyrunRunnerResolutionOptions = {}): string {
+	const env = resolution.env ?? process.env;
+	return env.PI_PYRUN_RUNNER_COMMAND ?? env.PI_PYRUN_RUNNER ?? "pyrun-jsonl";
+}
+
 export function resolvePyrunRunnerOptions(resolution: PyrunRunnerResolutionOptions = {}): ResolvedPyrunRunnerOptions {
 	const env = resolution.env ?? process.env;
 	const args = parseRunnerArgs(env.PI_PYRUN_RUNNER_ARGS);
-	const commandOverride = env.PI_PYRUN_RUNNER_COMMAND ?? env.PI_PYRUN_RUNNER;
-	if (commandOverride) {
-		return { args: args ?? [], command: commandOverride, env: {} };
-	}
-	return { args: args ?? [], command: "pyrun-jsonl", env: {} };
+	return { args: args ?? [], command: resolvePyrunRunnerCommand({ env }), env: {} };
 }
 
 function signalProcessGroup(pid: number, signal: NodeJS.Signals): boolean {

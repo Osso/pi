@@ -1,8 +1,57 @@
-import { describe, expect, it, vi } from "vitest";
-import { type BrowserCliCommandRunner, createBrowserCliToolDefinition } from "../extensions/browser-cli/src/index.ts";
-import type { ExtensionContext } from "../src/core/extensions/types.ts";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import browserCliExtension, {
+	type BrowserCliCommandRunner,
+	createBrowserCliToolDefinition,
+} from "../extensions/browser-cli/src/index.ts";
+import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 
 describe("browser-cli extension", () => {
+	let previousPath: string | undefined;
+	const temporaryDirectories: string[] = [];
+
+	afterEach(() => {
+		if (previousPath === undefined) delete process.env.PATH;
+		else process.env.PATH = previousPath;
+		for (const directory of temporaryDirectories.splice(0)) {
+			rmSync(directory, { force: true, recursive: true });
+		}
+	});
+
+	it("does not register browser-cli when the executable is unavailable", () => {
+		previousPath = process.env.PATH;
+		const emptyPath = mkdtempSync(join(tmpdir(), "pi-browser-cli-empty-path-"));
+		temporaryDirectories.push(emptyPath);
+		process.env.PATH = emptyPath;
+		const registeredTools: string[] = [];
+
+		browserCliExtension({
+			registerTool: (tool: ToolDefinition) => registeredTools.push(tool.name),
+		} as unknown as ExtensionAPI);
+
+		expect(registeredTools).not.toContain("browser-cli");
+	});
+
+	it("registers browser-cli when the executable is available", () => {
+		previousPath = process.env.PATH;
+		const pathDirectory = mkdtempSync(join(tmpdir(), "pi-browser-cli-path-"));
+		temporaryDirectories.push(pathDirectory);
+		const executableName = process.platform === "win32" ? "browser-cli.CMD" : "browser-cli";
+		const executablePath = join(pathDirectory, executableName);
+		writeFileSync(executablePath, process.platform === "win32" ? "@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n");
+		if (process.platform !== "win32") chmodSync(executablePath, 0o755);
+		process.env.PATH = pathDirectory;
+		const registeredTools: string[] = [];
+
+		browserCliExtension({
+			registerTool: (tool: ToolDefinition) => registeredTools.push(tool.name),
+		} as unknown as ExtensionAPI);
+
+		expect(registeredTools).toContain("browser-cli");
+	});
+
 	it("runs an ordered browser-cli command batch and returns every result", async () => {
 		const runCommand = vi
 			.fn<BrowserCliCommandRunner>()

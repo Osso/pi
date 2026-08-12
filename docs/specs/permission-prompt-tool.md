@@ -29,8 +29,9 @@ in `docs/wiki/systems/permission-prompt-tool.md` (stub — not yet written).
   the native `ui.confirm` prompt.
 - [x] When Bash approval reaches Pi and no MCP permission-prompt tool is
   available, route the Bash call through the local `claude-bash-hook` adapter
-  before native approval: `allow` runs without Pi's modal, `ask` falls back to
-  Pi's native approval prompt, and `deny`/`block` prevents execution.
+  when that optional reviewer is registered; otherwise continue through native
+  approval. `allow` runs without Pi's modal, `ask` falls back to Pi's native
+  approval prompt, and `deny`/`block` prevents execution.
 - [x] When no `permissionPromptTool` is configured, discover loaded MCP tools
   that implement the permission-prompt protocol and use the single unambiguous
   match as the default approval reviewer before falling through to native

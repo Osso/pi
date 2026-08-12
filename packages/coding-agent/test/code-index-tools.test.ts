@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	type CodeIndexOperations,
 	createAllToolDefinitions,
@@ -8,6 +11,7 @@ import {
 	createSymbolToolDefinition,
 	DEFAULT_ACTIVE_TOOL_NAMES,
 } from "../src/core/tools/index.ts";
+import { createHarness, type Harness } from "./suite/harness.ts";
 
 function textOutput(result: { content: Array<{ type: string; text?: string }> }): string {
 	return result.content
@@ -15,6 +19,30 @@ function textOutput(result: { content: Array<{ type: string; text?: string }> })
 		.map((block) => block.text ?? "")
 		.join("\n");
 }
+
+const harnesses: Harness[] = [];
+const tempDirectories: string[] = [];
+let previousPath: string | undefined;
+
+function createPathDirectory(withCodeIndex: boolean): string {
+	const directory = mkdtempSync(join(tmpdir(), "pi-code-index-path-"));
+	tempDirectories.push(directory);
+	if (withCodeIndex) {
+		const executableName = process.platform === "win32" ? "code-index.CMD" : "code-index";
+		const executable = join(directory, executableName);
+		writeFileSync(executable, process.platform === "win32" ? "@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n");
+		if (process.platform !== "win32") chmodSync(executable, 0o755);
+	}
+	return directory;
+}
+
+afterEach(() => {
+	for (const harness of harnesses.splice(0)) harness.cleanup();
+	for (const directory of tempDirectories.splice(0)) rmSync(directory, { force: true, recursive: true });
+	if (previousPath === undefined) delete process.env.PATH;
+	else process.env.PATH = previousPath;
+	previousPath = undefined;
+});
 
 describe("code-index backed tools", () => {
 	it("registers outline, symbol, and references as default read-only built-in tools", () => {
@@ -25,6 +53,32 @@ describe("code-index backed tools", () => {
 		expect(Object.keys(createAllToolDefinitions(process.cwd()))).toEqual(
 			expect.arrayContaining(["outline", "symbol", "references"]),
 		);
+	});
+
+	it("omits code-index tools from a runtime when the executable is unavailable", async () => {
+		previousPath = process.env.PATH;
+		process.env.PATH = createPathDirectory(false);
+		const harness = await createHarness();
+		harnesses.push(harness);
+
+		const allToolNames = harness.session.getAllTools().map((tool) => tool.name);
+		expect(allToolNames).not.toEqual(expect.arrayContaining(["outline", "symbol", "references"]));
+		expect(harness.session.getActiveToolNames()).not.toEqual(
+			expect.arrayContaining(["outline", "symbol", "references"]),
+		);
+		expect(harness.session.systemPrompt).not.toContain("- outline:");
+	});
+
+	it("keeps code-index tools in a runtime when the executable is available", async () => {
+		previousPath = process.env.PATH;
+		process.env.PATH = createPathDirectory(true);
+		const harness = await createHarness();
+		harnesses.push(harness);
+
+		expect(harness.session.getAllTools().map((tool) => tool.name)).toEqual(
+			expect.arrayContaining(["outline", "symbol", "references"]),
+		);
+		expect(harness.session.getActiveToolNames()).toEqual(expect.arrayContaining(["outline", "symbol", "references"]));
 	});
 
 	it("runs outline through code-index with optional flags", async () => {
