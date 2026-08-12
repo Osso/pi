@@ -605,9 +605,7 @@ describe("SessionManager custom flat session directory", () => {
 
 		expect(current.map((entry) => entry.path)).toEqual([currentMain]);
 		expect(new Set(all.map((entry) => entry.path))).toEqual(new Set([currentMain, otherMain]));
-		expect(new Set(archived.map((entry) => entry.path))).toEqual(
-			new Set([currentArchivedMain, otherArchivedMain]),
-		);
+		expect(new Set(archived.map((entry) => entry.path))).toEqual(new Set([currentArchivedMain, otherArchivedMain]));
 
 		for (const listed of [...current, ...all, ...archived]) {
 			expect(listed.path).not.toBe(currentSubagent);
