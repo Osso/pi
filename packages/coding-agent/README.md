@@ -89,7 +89,7 @@ pi
 /login  # Then select provider
 ```
 
-Then just talk to pi. By default, pi gives the model file, command, and structural code tools including `read`, `write`, `edit`, and `bash`; `outline`, `symbol`, and `references` are included when the local `code-index` CLI is available on `PATH`. The structural code tools use `code-index` to inspect unfamiliar files before reading full contents, jump to known symbols, and find symbol references. Pi does not install missing tools at runtime. Add capabilities via [skills](#skills), [prompt templates](#prompt-templates), [extensions](#extensions), or [pi packages](#pi-packages).
+Then just talk to pi. By default, pi gives the model file, command, and structural code tools including `read`, `write`, `edit`, and `bash`; `outline`, `symbol`, and `references` are included when the local `code-index` CLI is available on `PATH`. The structural code tools use `code-index` to inspect unfamiliar files before reading full contents, jump to known symbols, and find symbol references. Pi does not install missing tools at runtime. First-party binary-backed extensions load only when their executables are available at startup; restart Pi after installing or removing one. Add capabilities via [skills](#skills), [prompt templates](#prompt-templates), [extensions](#extensions), or [pi packages](#pi-packages).
 
 **Platform notes:** [Windows](docs/windows.md) | [Termux (Android)](docs/termux.md) | [tmux](docs/tmux.md) | [Terminal setup](docs/terminal-setup.md) | [Shell aliases](docs/shell-aliases.md)
 

@@ -27,7 +27,7 @@ import approvalControlsExtension from "../extensions/approval-controls/src/index
 import askSecretExtension from "../extensions/ask-secret/src/index.ts";
 import browserCliExtension from "../extensions/browser-cli/src/index.ts";
 import bwrapExtension from "../extensions/bwrap/src/index.ts";
-import claudeBashHookExtension from "../extensions/claude-bash-hook/src/index.ts";
+import claudeBashHookExtension, { resolveClaudeBashHookCommand } from "../extensions/claude-bash-hook/src/index.ts";
 import claudeMemoryEnrichExtension from "../extensions/claude-memory-enrich/src/index.ts";
 import claudeMemorySessionEndExtension from "../extensions/claude-memory-session-end/src/index.ts";
 import codexFastExtension, { type FastModeAuthority } from "../extensions/codex-fast/src/index.ts";
@@ -42,6 +42,7 @@ import goalExtension from "../extensions/goal/src/index.ts";
 import loopExtension from "../extensions/loop/src/index.ts";
 import openAIRemoteCompactExtension from "../extensions/openai-remote-compact/src/index.ts";
 import pyrunExtension from "../extensions/pyrun/src/index.ts";
+import { resolvePyrunRunnerCommand } from "../extensions/pyrun/src/runner.ts";
 import runPlanExtension from "../extensions/run-plan/src/index.ts";
 import safeExtension from "../extensions/safe/src/index.ts";
 import selfRestartExtension from "../extensions/self-restart/src/index.ts";
@@ -115,6 +116,7 @@ import { bindInteractiveModeSessionMutationTargetResolver } from "./modes/intera
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
 import { runSupervisorService } from "./supervisor/main.ts";
+import { isExecutableAvailable } from "./utils/executable.ts";
 import { readGitCommonDirectory } from "./utils/git-project.ts";
 import { resolveWorktree, WorktreeStartupError } from "./utils/git-worktree.ts";
 import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
@@ -623,6 +625,14 @@ function firstPartyExtensionFactory(name: string, factory: ExtensionFactory): Ex
 	return namedFactory;
 }
 
+function optionalFirstPartyExtensionFactory(
+	name: string,
+	command: string | undefined,
+	factory: ExtensionFactory,
+): ExtensionFactory[] {
+	return command && isExecutableAvailable(command) ? [firstPartyExtensionFactory(name, factory)] : [];
+}
+
 const firstPartyMultiAgentStore = new MultiAgentStore();
 const firstPartyMultiAgentRuntimeHandles = createMultiAgentRuntimeHandles();
 const resolveFirstPartySessionMutationTarget = () =>
@@ -630,6 +640,25 @@ const resolveFirstPartySessionMutationTarget = () =>
 const wakeWaitAgentsFromSharedChannel = (prompt: string) =>
 	wakeWaitAgentsAfterCoordination(firstPartyMultiAgentRuntimeHandles, prompt);
 let interactiveAgentViewSelector: ((agentId: string) => boolean) | undefined;
+
+function createPyrunFirstPartyExtensionFactory(
+	createAttachedSession: ReturnType<typeof createProductionAttachedSessionFactory>,
+	createChildSession: ReturnType<typeof createProductionChildAgentSessionFactory>,
+): ExtensionFactory {
+	return (pi) => {
+		const multiAgentPiRequestHandler = createMultiAgentPiRequestHandler(
+			{
+				createAttachedSession,
+				createChildSession,
+				runtimeHandles: firstPartyMultiAgentRuntimeHandles,
+				selectAgentView: (agentId) => interactiveAgentViewSelector?.(agentId),
+				store: firstPartyMultiAgentStore,
+			},
+			pi,
+		);
+		pyrunExtension(pi, { piRequestHandlers: [multiAgentPiRequestHandler] });
+	};
+}
 
 function createFirstPartyExtensionFactories(
 	getRuntimeExtensionFactories: () => ExtensionFactory[],
@@ -649,11 +678,16 @@ function createFirstPartyExtensionFactories(
 		extensionFactories: getRuntimeExtensionFactories,
 		multiAgentStore: firstPartyMultiAgentStore,
 	});
+	const pyrunFactory = createPyrunFirstPartyExtensionFactory(attachedSessionFactory, childAgentSessionFactory);
 	return [
 		firstPartyExtensionFactory("approval-controls", approvalControlsExtension),
 		firstPartyExtensionFactory("ask-secret", askSecretExtension),
-		firstPartyExtensionFactory("browser-cli", browserCliExtension),
-		firstPartyExtensionFactory("claude-bash-hook", claudeBashHookExtension),
+		...optionalFirstPartyExtensionFactory("browser-cli", "browser-cli", browserCliExtension),
+		...optionalFirstPartyExtensionFactory(
+			"claude-bash-hook",
+			resolveClaudeBashHookCommand(),
+			claudeBashHookExtension,
+		),
 		firstPartyExtensionFactory("claude-memory-enrich", claudeMemoryEnrichExtension),
 		firstPartyExtensionFactory("claude-memory-session-end", claudeMemorySessionEndExtension),
 		firstPartyExtensionFactory("codex-fast", (pi) => codexFastExtension(pi, { authority: fastModeAuthority })),
@@ -682,19 +716,7 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("effort", effortExtension),
 		firstPartyExtensionFactory("goal", goalExtension),
 		firstPartyExtensionFactory("bwrap", bwrapExtension),
-		firstPartyExtensionFactory("pyrun", (pi) => {
-			const multiAgentPiRequestHandler = createMultiAgentPiRequestHandler(
-				{
-					createAttachedSession: attachedSessionFactory,
-					createChildSession: childAgentSessionFactory,
-					runtimeHandles: firstPartyMultiAgentRuntimeHandles,
-					selectAgentView: (agentId) => interactiveAgentViewSelector?.(agentId),
-					store: firstPartyMultiAgentStore,
-				},
-				pi,
-			);
-			pyrunExtension(pi, { piRequestHandlers: [multiAgentPiRequestHandler] });
-		}),
+		...optionalFirstPartyExtensionFactory("pyrun", resolvePyrunRunnerCommand(), pyrunFactory),
 		firstPartyExtensionFactory("loop", loopExtension),
 		firstPartyExtensionFactory("openai-remote-compact", openAIRemoteCompactExtension),
 		firstPartyExtensionFactory("run-plan", runPlanExtension),

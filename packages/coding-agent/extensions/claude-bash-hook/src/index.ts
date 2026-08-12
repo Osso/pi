@@ -24,7 +24,7 @@ type ClaudeBashHookReviewResult =
 	| { action: "unavailable" };
 
 export default function claudeBashHookExtension(pi: ExtensionAPI): void {
-	const hookCommand = readClaudeBashHookCommand();
+	const hookCommand = resolveClaudeBashHookCommand();
 	if (!hookCommand || !isExecutableAvailable(hookCommand)) return;
 
 	pi.registerApprovalReviewer(async (event, ctx) => {
@@ -45,7 +45,7 @@ export async function reviewToolWithClaudeBashHook(
 		return { action: "unavailable" };
 	}
 
-	const hookCommand = readClaudeBashHookCommand();
+	const hookCommand = resolveClaudeBashHookCommand();
 	if (!hookCommand) {
 		return { action: "unavailable" };
 	}
@@ -103,7 +103,7 @@ function mapHookOutput(hookOutput: HookSpecificOutput): ClaudeBashHookReviewResu
 	return { action: "unavailable" };
 }
 
-function readClaudeBashHookCommand(): string | undefined {
+export function resolveClaudeBashHookCommand(): string | undefined {
 	const configuredCommand = process.env.PI_CLAUDE_BASH_HOOK;
 	if (configuredCommand) {
 		return configuredCommand;

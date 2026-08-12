@@ -129,7 +129,7 @@
 ### Fixed
 
 - Fixed concurrent agent enrichment consuming the 15-second subprocess budget under local embedding contention; first-party `claude-memory-enrich` subprocesses are now queued per Pi runtime.
-- Fixed optional binary-backed tools and approval hooks registering when their external executables are unavailable; affected surfaces now skip registration and re-evaluate availability on runtime rebuild or reload.
+- Fixed optional binary-backed tools and approval hooks registering when their external executables are unavailable; affected first-party extensions are now absent from startup inventory, while built-in structural tools are filtered from each runtime registry.
 - Fixed AgentSession event delivery so every listener registered when an event begins receives it, even if an earlier listener unsubscribes during its callback.
 - Fixed unfinished Bash restore to wait for a matching persisted live detached runner instead of launching a duplicate; only terminal `lost_runtime` permits one replacement, while completed, ordinary failed, cancelling, and aborted jobs replay terminal results without rerun.
 - Fixed Envoy HTTP 507 request-buffer failures to use oversized-request overflow recovery: compact the context and retry once, without ordinary transient retry or repeated retries of the unchanged request.

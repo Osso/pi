@@ -10,8 +10,12 @@ integrations. It must never install or download those dependencies at runtime.
       has execute permission. Honor Windows executable extensions during PATH lookup.
 - [x] Omit the affected surface instead of registering a tool or reviewer that
       will fail immediately when its executable is unavailable.
-- [x] Re-evaluate availability on each runtime build and extension reload; do not
-      retain a process-global available/unavailable result.
+- [x] Re-evaluate `code-index` availability on each runtime build and reload,
+      and guard explicitly loaded binary-backed extension factories each time
+      they load.
+- [x] Select first-party `browser-cli`, Pyrun, and `claude-bash-hook` extension
+      inventory at process startup; installing or removing those executables
+      requires a Pi restart.
 - [x] Leave unrelated tools, extensions, approval flow, and child-session
       behavior unchanged when one optional dependency is missing.
 - [x] Never install, download, or bootstrap an unavailable dependency at runtime.
@@ -37,6 +41,7 @@ integrations. It must never install or download those dependencies at runtime.
 - `packages/coding-agent/src/utils/executable.ts` — shared PATH and explicit-command executable resolution.
 - `packages/coding-agent/src/core/tools/index.ts` — filters code-index tool definitions by availability.
 - `packages/coding-agent/src/core/agent-session.ts` — rebuilds the filtered built-in tool registry for each runtime.
+- `packages/coding-agent/src/main.ts` — excludes unavailable first-party binary-backed factories from startup inventory.
 - `packages/coding-agent/extensions/browser-cli/src/index.ts` — skips `browser-cli` registration when unavailable.
 - `packages/coding-agent/extensions/pyrun/src/runner.ts` — resolves the configured/default Pyrun runner command.
 - `packages/coding-agent/extensions/pyrun/src/index.ts` — skips `pyrun_eval` and its handlers when the runner is unavailable.
@@ -50,7 +55,8 @@ integrations. It must never install or download those dependencies at runtime.
 - `packages/coding-agent/test/pyrun-extension.test.ts` — present and missing configured Pyrun runner registration.
 - `packages/coding-agent/test/claude-bash-hook-extension.test.ts` — present and missing configured hook reviewer registration.
 - `packages/coding-agent/test/tools-manager.test.ts` — system-only `fd`/`rg` lookup and no-download behavior.
-- `packages/coding-agent/test/suite/regressions/extension-factory-cache.test.ts` — extension factories rerun during reload instead of retaining factory registration state.
+- `packages/coding-agent/test/first-party-extension-availability.test.ts` — real-process present and missing first-party startup extension inventories.
+- `packages/coding-agent/test/suite/regressions/extension-factory-cache.test.ts` — explicitly loaded extension factories rerun during reload instead of retaining factory registration state.
 
 ## Known gaps (current cycle)
 
