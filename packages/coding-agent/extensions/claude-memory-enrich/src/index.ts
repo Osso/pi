@@ -124,6 +124,18 @@ function runEnrich(command: string, prompt: string, signal?: AbortSignal): Promi
 	});
 }
 
+// Ollama may serialize embedding requests, so start one timed enrich process at a time.
+let enrichQueue: Promise<void> = Promise.resolve();
+
+function queueEnrich(command: string, prompt: string, signal?: AbortSignal): Promise<string | undefined> {
+	const enrichment = enrichQueue.then(() => runEnrich(command, prompt, signal));
+	enrichQueue = enrichment.then(
+		() => undefined,
+		() => undefined,
+	);
+	return enrichment;
+}
+
 function appendEnrichment(systemPrompt: string, additionalContext: string): string {
 	if (systemPrompt.includes(SECTION_START)) {
 		return systemPrompt;
@@ -145,7 +157,7 @@ export default function claudeMemoryEnrichExtension(pi: ExtensionAPI): void {
 		}
 
 		try {
-			const additionalContext = await runEnrich(command, prompt, ctx.signal);
+			const additionalContext = await queueEnrich(command, prompt, ctx.signal);
 			if (!additionalContext) {
 				return;
 			}
