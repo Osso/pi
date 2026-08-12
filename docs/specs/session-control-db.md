@@ -49,6 +49,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       snapshots cannot overwrite newer active, paused, or completed state. Resident Architect and
       Supervisor transcripts omit accumulated message-search text from metadata because they are
       archived service histories, not resume-picker search targets; this prevents unbounded shared-DB rewrites.
+- [x] Resume lists treat a nonempty `session_metadata` table as authoritative: Current Folder,
+      All, and Archived return only main-session rows matching archive state, cwd, and configured
+      session-directory scope; transcript scanning/indexing runs only when the table is empty.
 - [x] Store multi-agent state as per-entity rows keyed by session path
       (`multi_agent_agents`, `multi_agent_runtime_owners`, `multi_agent_terminal_outbox`,
       `multi_agent_mailbox_messages`, `multi_agent_counters_v2`): one row upsert per mutation, restore

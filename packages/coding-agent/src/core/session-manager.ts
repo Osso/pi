@@ -17,7 +17,7 @@ import {
 	writeFileSync,
 } from "fs";
 import { readdir, stat } from "fs/promises";
-import { basename, join, resolve } from "path";
+import { basename, join, resolve, sep } from "path";
 import { createInterface } from "readline";
 import { StringDecoder } from "string_decoder";
 import { getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.ts";
@@ -32,8 +32,7 @@ import {
 import type { SandboxProfileName } from "./permissions/presets.ts";
 import {
 	clearSessionSandboxProfile as clearPersistedSessionSandboxProfile,
-	listActiveSessionMetadata,
-	listArchivedSessionMetadata,
+	listResumeSessionMetadata,
 	listSessionMetadata,
 	readSessionGoal,
 	readSessionMetadata,
@@ -1162,30 +1161,6 @@ function sessionInfoFromMetadata(metadata: SessionMetadata): SessionInfo {
 	};
 }
 
-function metadataMatchesSessionDir(metadata: SessionMetadata, dir: string): boolean {
-	return normalizePath(metadata.sessionPath).startsWith(`${normalizePath(dir)}/`);
-}
-
-function listScopedSessionMetadata(
-	controlDbPath: string,
-	options: { cwd?: string; dir?: string; archived?: boolean } = {},
-): SessionMetadata[] {
-	const resolvedCwd = options.cwd ? resolvePath(options.cwd) : undefined;
-	const sessions =
-		options.archived === true
-			? listArchivedSessionMetadata(controlDbPath)
-			: options.archived === false
-				? listActiveSessionMetadata(controlDbPath)
-				: listSessionMetadata(controlDbPath);
-	return sessions
-		.filter((metadata) => !options.dir || metadataMatchesSessionDir(metadata, options.dir))
-		.filter((metadata) => !resolvedCwd || sessionCwdMatches(metadata.cwd, resolvedCwd));
-}
-
-function listResumeSessionsFromMetadata(metadataSessions: SessionMetadata[]): SessionInfo[] {
-	return metadataSessions.filter((metadata) => !metadata.isSubagent).map(sessionInfoFromMetadata);
-}
-
 function excludeKnownSubagentSessions(controlDbPath: string | undefined, sessions: SessionInfo[]): SessionInfo[] {
 	if (!controlDbPath) return sessions;
 	const subagentSessionPaths = new Set(
@@ -1206,14 +1181,18 @@ function cacheSessionMetadata(controlDbPath: string | undefined, sessions: Sessi
 
 function listMetadataSessions(
 	controlDbPath: string | undefined,
-	options: { cwd?: string; dir?: string; archived?: boolean },
+	options: { cwd?: string; dir?: string; archived: boolean },
 ): SessionInfo[] | undefined {
 	if (!controlDbPath) return undefined;
-	if (listSessionMetadata(controlDbPath).length === 0) return undefined;
-
-	const metadataSessions = listScopedSessionMetadata(controlDbPath, options);
-	const resumeSessions = listResumeSessionsFromMetadata(metadataSessions);
-	return resumeSessions.length > 0 ? resumeSessions : undefined;
+	const resolvedCwd = options.cwd ? resolvePath(options.cwd) : undefined;
+	const normalizedDir = options.dir ? normalizePath(options.dir) : undefined;
+	const sessionPathPrefix =
+		normalizedDir && !normalizedDir.endsWith(sep) ? `${normalizedDir}${sep}` : normalizedDir;
+	return listResumeSessionMetadata(controlDbPath, {
+		archived: options.archived,
+		cwd: resolvedCwd,
+		sessionPathPrefix,
+	})?.map(sessionInfoFromMetadata);
 }
 
 async function listDefaultSessionRoot(progress: SessionListProgress | undefined): Promise<SessionInfo[]> {

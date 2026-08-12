@@ -187,6 +187,12 @@ export type WritableSessionMetadata = Omit<SessionMetadata, "goalJson" | "update
 	indexMessageText?: boolean;
 };
 
+export interface ResumeSessionMetadataOptions {
+	archived: boolean;
+	cwd?: string;
+	sessionPathPrefix?: string;
+}
+
 type IncomingRow = {
 	id: number;
 	content: string;
@@ -2836,6 +2842,56 @@ export function listActiveSessionMetadata(controlDbPath: string): SessionMetadat
 
 export function listArchivedSessionMetadata(controlDbPath: string): SessionMetadata[] {
 	return listSessionMetadataByArchiveState(controlDbPath, true);
+}
+
+export function listResumeSessionMetadata(
+	controlDbPath: string,
+	options: ResumeSessionMetadataOptions,
+): SessionMetadata[] | undefined {
+	return withControlDb(controlDbPath, (db) => {
+		if (!db.prepare("SELECT 1 FROM session_metadata LIMIT 1").get()) return undefined;
+
+		const predicates = [options.archived ? "archived_at IS NOT NULL" : "archived_at IS NULL", "is_subagent = 0"];
+		const values: string[] = [];
+		if (options.cwd) {
+			predicates.push("cwd = ?");
+			values.push(options.cwd);
+		}
+		if (options.sessionPathPrefix) {
+			predicates.push("substr(session_path, 1, length(?)) = ?");
+			values.push(options.sessionPathPrefix, options.sessionPathPrefix);
+		}
+
+		const rows = db
+			.prepare(
+				`
+				SELECT
+					session_path,
+					id,
+					cwd,
+					name,
+					parent_session_path,
+					archived_at,
+					goal_json,
+					is_subagent,
+					subagent_name,
+					model_provider,
+					model_id,
+					thinking_level,
+					created_at,
+					modified_at,
+					message_count,
+					first_message,
+					all_messages_text,
+					updated_at
+				FROM session_metadata
+				WHERE ${predicates.join(" AND ")}
+				ORDER BY modified_at DESC, updated_at DESC, session_path DESC
+				`,
+			)
+			.all(...values) as SessionMetadataRow[];
+		return rows.map(sessionMetadataFromRow);
+	});
 }
 
 export function findActiveSessionMetadataById(controlDbPath: string, id: string): SessionMetadata[] {
