@@ -114,6 +114,8 @@ When the result is ready:
 
 Only one speculative cache may exist per session, and it does not overlap another speculative or real compaction. If the cache is stale, canceled, unavailable, or not ready when threshold or overflow recovery is required, Pi uses synchronous compaction instead.
 
+If background generation fails before cancellation, Pi marks the cache failed and reports one concise diagnostic line without changing the active turn or appending a compaction entry. Later threshold or overflow recovery continues through synchronous compaction; canceled background generation produces no failure diagnostic.
+
 ### Split Turns
 
 A "turn" starts with a user message and includes all assistant responses and tool calls until the next user message. Compaction normally cuts at turn boundaries and keeps the active turn whole when older compactable history exists.
