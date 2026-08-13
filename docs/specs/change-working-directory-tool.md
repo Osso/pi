@@ -47,6 +47,7 @@ The `change_working_directory` tool changes the current Pi session's working dir
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/suite/change-working-directory-tool.test.ts`
+- `packages/coding-agent/test/suite/change-working-directory-mixed-batch.test.ts`
 - `packages/coding-agent/test/suite/agent-session-runtime.test.ts`
 - `packages/coding-agent/test/session-manager/file-operations.test.ts`
 
