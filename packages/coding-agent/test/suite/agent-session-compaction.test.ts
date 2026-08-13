@@ -1406,35 +1406,63 @@ describe("AgentSession compaction characterization", () => {
 
 	it("reports a failed background compaction without starting foreground compaction", async () => {
 		const overloadError = "Codex error: Our servers are currently overloaded. Please try again later.";
-		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		const backgroundFailureObserved = createDeferred<void>();
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => backgroundFailureObserved.resolve());
+		let compactionCalls = 0;
+		const compactableTool: AgentTool = {
+			name: "compactable_tool",
+			label: "Compactable Tool",
+			description: "Wait for background compaction to fail, then return a small result",
+			parameters: Type.Object({}),
+			execute: async () => {
+				await backgroundFailureObserved.promise;
+				return { content: [{ type: "text", text: "tool completed" }], details: {} };
+			},
+		};
 		const harness = await createHarness({
-			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 0 } },
-			models: [{ id: "faux-1", contextWindow: 100, maxTokens: 100 }],
+			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 200 } },
+			models: [{ id: "faux-1", contextWindow: 1_000, maxTokens: 100 }],
+			tools: [compactableTool],
 			extensionFactories: [
 				(pi) => {
 					pi.on("compaction", async () => {
+						compactionCalls++;
 						throw new Error(overloadError);
 					});
 				},
 			],
 		});
 		harnesses.push(harness);
-		seedCompactableSession(harness);
-		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
-		expect(sessionInternals._extensionRunner.hasHandlers("compaction")).toBe(true);
-		vi.spyOn(sessionInternals._extensionRunner, "emit").mockRejectedValue(new Error(overloadError));
+		const historyTimestamp = Date.now() - 1_000;
+		harness.sessionManager.appendMessage({
+			role: "user",
+			content: [{ type: "text", text: "older turn to compact" }],
+			timestamp: historyTimestamp,
+		});
+		const historyAssistant = createAssistant(harness, {
+			stopReason: "stop",
+			totalTokens: 60,
+			timestamp: historyTimestamp + 1,
+		});
+		historyAssistant.content = [{ type: "text", text: "older response to compact" }];
+		harness.sessionManager.appendMessage(historyAssistant);
+		harness.session.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("compactable_tool", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: overloadError }),
+			fauxAssistantMessage(fauxToolCall("compactable_tool", {}), { stopReason: "toolUse" }),
+			fauxCompletedTurn("completed after background failure"),
+		]);
 
-		await expect(
-			sessionInternals._checkCompaction(
-				createAssistant(harness, { stopReason: "stop", totalTokens: 70, timestamp: Date.now() }),
-			),
-		).resolves.toBe(false);
-		await vi.waitFor(() => expect(errorSpy).toHaveBeenCalledTimes(1));
-
-		expect(errorSpy).toHaveBeenCalledWith(`Background compaction cache generation failed: ${overloadError}`);
+		await expect(harness.session.prompt("run multiple tool cycles")).resolves.toBeUndefined();
+		expect(compactionCalls).toBe(1);
+		expect(errorSpy).toHaveBeenCalledTimes(1);
+		expect(errorSpy).toHaveBeenCalledWith(`Background compaction cache generation failed: Turn prefix summarization failed: ${overloadError}`);
 		expect(harness.eventsOfType("compaction_start")).toHaveLength(0);
 		expect(harness.eventsOfType("compaction_end")).toHaveLength(0);
 		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(0);
+		expect(harness.faux.state.callCount).toBe(4);
+		expect(harness.getPendingResponseCount()).toBe(0);
 	});
 
 	it("starts speculative compaction during a multi-cycle turn and consumes it at safe end", async () => {
