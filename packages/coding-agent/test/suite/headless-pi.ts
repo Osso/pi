@@ -68,6 +68,7 @@ export interface HeadlessPiOptions {
 	approvalPreset?: ApprovalPresetName;
 	autoDetachTools?: boolean;
 	deleteCwdBeforeSelfRestart?: boolean;
+	enableMemoryEnrichment?: boolean;
 	env?: Record<string, string>;
 	model?: string | false;
 	provider?: "headless-faux" | "openai-codex";
@@ -1042,7 +1043,7 @@ export default function(pi) {
 			approvalPreset,
 			sandboxProfile: fixtureOptions.sandboxProfile,
 			agents: { background: { context: "fresh" } },
-			disabledExtensions: ["claude-memory-enrich"],
+			disabledExtensions: fixtureOptions.enableMemoryEnrichment ? [] : ["claude-memory-enrich"],
 		}),
 	);
 	const context: HeadlessSessionContext = { mainSessionId: "", sessionFile: "" };

@@ -18,6 +18,8 @@ type BeforeAgentStartHandler = (
 	ctx: { signal: AbortSignal },
 ) => Promise<{ systemPrompt: string } | undefined>;
 
+type SessionShutdownHandler = (event: { type: "session_shutdown"; reason: "restart" }) => Promise<void>;
+
 type FakeChild = EventEmitter & {
 	stdin: { end: ReturnType<typeof vi.fn> };
 	stdout: EventEmitter & { setEncoding: ReturnType<typeof vi.fn> };
@@ -44,6 +46,24 @@ function registerBeforeAgentStartHandler(): BeforeAgentStartHandler {
 	claudeMemoryEnrichExtension(pi);
 	if (!handler) throw new Error("before_agent_start handler not registered");
 	return handler;
+}
+
+function registerEnrichHandlers(): {
+	beforeAgentStart: BeforeAgentStartHandler;
+	sessionShutdown: SessionShutdownHandler;
+} {
+	let beforeAgentStart: BeforeAgentStartHandler | undefined;
+	let sessionShutdown: SessionShutdownHandler | undefined;
+	const pi = {
+		on(event: string, registeredHandler: BeforeAgentStartHandler | SessionShutdownHandler) {
+			if (event === "before_agent_start") beforeAgentStart = registeredHandler as BeforeAgentStartHandler;
+			if (event === "session_shutdown") sessionShutdown = registeredHandler as SessionShutdownHandler;
+		},
+	} as unknown as ExtensionAPI;
+	claudeMemoryEnrichExtension(pi);
+	if (!beforeAgentStart) throw new Error("before_agent_start handler not registered");
+	if (!sessionShutdown) throw new Error("session_shutdown handler not registered");
+	return { beforeAgentStart, sessionShutdown };
 }
 
 function completeSuccessfully(child: FakeChild, context = "{}"): void {
@@ -84,6 +104,30 @@ describe("claude-memory enrich extension", () => {
 		expect(secondChild.stdin.end).toHaveBeenCalledWith('{"prompt":"second prompt"}\n');
 		completeSuccessfully(secondChild);
 		await expect(Promise.all([firstResult, secondResult])).resolves.toEqual([undefined, undefined]);
+	});
+
+	it("waits for active child close during session shutdown", async () => {
+		const child = fakeChild();
+		spawnMock.mockReturnValue(child);
+		const { beforeAgentStart, sessionShutdown } = registerEnrichHandlers();
+		const result = beforeAgentStart(
+			{ prompt: "restart while enriching", systemPrompt: "system" },
+			{ signal: new AbortController().signal },
+		);
+
+		await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
+		let shutdownSettled = false;
+		const shutdown = sessionShutdown({ type: "session_shutdown", reason: "restart" }).then(() => {
+			shutdownSettled = true;
+		});
+		await Promise.resolve();
+
+		expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+		expect(shutdownSettled).toBe(false);
+
+		child.emit("close", null);
+		await shutdown;
+		await expect(result).resolves.toBeUndefined();
 	});
 
 	it("allows enrichment to finish after the original fifteen-second deadline", async () => {

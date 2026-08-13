@@ -64,37 +64,67 @@ function parseAdditionalContext(stdout: string): string | undefined {
 	return context && context.length > 0 ? context : undefined;
 }
 
+type EnrichTerminationReason = "abort" | "shutdown" | "timeout";
+
 type EnrichProcessState = {
 	settled: boolean;
-	timedOut: boolean;
+	terminationReason?: EnrichTerminationReason;
+	error?: unknown;
 	timeout?: ReturnType<typeof setTimeout>;
 	graceTimeout?: ReturnType<typeof setTimeout>;
+	removeAbortListener?: () => void;
 };
 
-function clearEnrichTimers(state: EnrichProcessState): void {
-	if (state.timeout) clearTimeout(state.timeout);
-	if (state.graceTimeout) clearTimeout(state.graceTimeout);
+type ActiveEnrichProcess = {
+	child: ReturnType<typeof spawn>;
+	state: EnrichProcessState;
+	closed: Promise<void>;
+	resolveClosed: () => void;
+};
+
+type EnrichRuntime = {
+	activeProcesses: Set<ActiveEnrichProcess>;
+	queue: Promise<void>;
+	shuttingDown: boolean;
+};
+
+function createEnrichRuntime(): EnrichRuntime {
+	return { activeProcesses: new Set(), queue: Promise.resolve(), shuttingDown: false };
 }
 
-function requestEnrichTermination(child: ReturnType<typeof spawn>, state: EnrichProcessState): void {
-	if (state.settled || state.timedOut) return;
-	state.timedOut = true;
-	child.kill("SIGTERM");
-	state.graceTimeout = setTimeout(() => {
-		if (!state.settled) child.kill("SIGKILL");
+function clearEnrichProcessResources(state: EnrichProcessState): void {
+	if (state.timeout) clearTimeout(state.timeout);
+	if (state.graceTimeout) clearTimeout(state.graceTimeout);
+	state.removeAbortListener?.();
+}
+
+function requestEnrichTermination(
+	process: ActiveEnrichProcess,
+	reason: EnrichTerminationReason,
+	error?: unknown,
+): void {
+	if (process.state.settled || process.state.terminationReason) return;
+	process.state.terminationReason = reason;
+	if (error !== undefined) process.state.error = error;
+	process.child.kill("SIGTERM");
+	process.state.graceTimeout = setTimeout(() => {
+		if (!process.state.settled) process.child.kill("SIGKILL");
 	}, ENRICH_KILL_GRACE_MS);
 }
 
 function settleEnrichProcess(
-	state: EnrichProcessState,
+	runtime: EnrichRuntime,
+	process: ActiveEnrichProcess,
 	resolve: (context: string | undefined) => void,
 	reject: (error: unknown) => void,
 	error?: unknown,
 	context?: string,
 ): void {
-	if (state.settled) return;
-	state.settled = true;
-	clearEnrichTimers(state);
+	if (process.state.settled) return;
+	process.state.settled = true;
+	clearEnrichProcessResources(process.state);
+	runtime.activeProcesses.delete(process);
+	process.resolveClosed();
 	if (error !== undefined) {
 		reject(error);
 		return;
@@ -102,35 +132,77 @@ function settleEnrichProcess(
 	resolve(context);
 }
 
-function runEnrich(command: string, prompt: string, signal?: AbortSignal): Promise<string | undefined> {
+function runEnrich(
+	runtime: EnrichRuntime,
+	command: string,
+	prompt: string,
+	signal?: AbortSignal,
+): Promise<string | undefined> {
+	if (signal?.aborted) {
+		return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error("operation aborted"));
+	}
+
 	return new Promise((resolve, reject) => {
-		const child = spawn(command, ["enrich"], { stdio: ["pipe", "pipe", "pipe"], signal });
-		const state: EnrichProcessState = { settled: false, timedOut: false };
+		const child = spawn(command, ["enrich"], { stdio: ["pipe", "pipe", "pipe"] });
+		const state: EnrichProcessState = { settled: false };
+		let resolveClosed = (): void => {};
+		const process: ActiveEnrichProcess = {
+			child,
+			state,
+			closed: new Promise((closed) => {
+				resolveClosed = closed;
+			}),
+			resolveClosed: () => resolveClosed(),
+		};
 		let stdout = "";
 		let stderr = "";
 
+		runtime.activeProcesses.add(process);
 		child.stdout.setEncoding("utf8");
 		child.stderr.setEncoding("utf8");
 		child.stdout.on("data", (chunk: string) => (stdout += chunk));
 		child.stderr.on("data", (chunk: string) => (stderr += chunk));
-		state.timeout = setTimeout(() => requestEnrichTermination(child, state), ENRICH_TIMEOUT_MS);
+		state.timeout = setTimeout(() => requestEnrichTermination(process, "timeout"), ENRICH_TIMEOUT_MS);
+
+		if (signal) {
+			const abort = (): void => {
+				requestEnrichTermination(process, "abort", new Error("operation aborted"));
+			};
+			signal.addEventListener("abort", abort, { once: true });
+			state.removeAbortListener = () => signal.removeEventListener("abort", abort);
+			if (signal.aborted) abort();
+		}
 
 		child.once("error", (error) => {
-			if (!state.timedOut) settleEnrichProcess(state, resolve, reject, error);
+			if (state.error === undefined) state.error = error;
 		});
 		child.once("close", (code) => {
-			if (state.timedOut) {
+			if (state.terminationReason === "shutdown") {
+				settleEnrichProcess(runtime, process, resolve, reject);
+				return;
+			}
+			if (state.terminationReason === "timeout") {
 				settleEnrichProcess(
-					state,
+					runtime,
+					process,
 					resolve,
 					reject,
 					new Error(`claude-memory enrich timed out after ${ENRICH_TIMEOUT_MS}ms`),
 				);
 				return;
 			}
+			if (state.terminationReason === "abort") {
+				settleEnrichProcess(runtime, process, resolve, reject, state.error ?? new Error("operation aborted"));
+				return;
+			}
+			if (state.error !== undefined) {
+				settleEnrichProcess(runtime, process, resolve, reject, state.error);
+				return;
+			}
 			if (code !== 0) {
 				settleEnrichProcess(
-					state,
+					runtime,
+					process,
 					resolve,
 					reject,
 					new Error(`claude-memory enrich exited with ${code}: ${stderr.trim()}`),
@@ -138,9 +210,9 @@ function runEnrich(command: string, prompt: string, signal?: AbortSignal): Promi
 				return;
 			}
 			try {
-				settleEnrichProcess(state, resolve, reject, undefined, parseAdditionalContext(stdout));
+				settleEnrichProcess(runtime, process, resolve, reject, undefined, parseAdditionalContext(stdout));
 			} catch (error) {
-				settleEnrichProcess(state, resolve, reject, error);
+				settleEnrichProcess(runtime, process, resolve, reject, error);
 			}
 		});
 
@@ -149,15 +221,28 @@ function runEnrich(command: string, prompt: string, signal?: AbortSignal): Promi
 }
 
 // Ollama may serialize embedding requests, so start one timed enrich process at a time.
-let enrichQueue: Promise<void> = Promise.resolve();
-
-function queueEnrich(command: string, prompt: string, signal?: AbortSignal): Promise<string | undefined> {
-	const enrichment = enrichQueue.then(() => runEnrich(command, prompt, signal));
-	enrichQueue = enrichment.then(
+function queueEnrich(
+	runtime: EnrichRuntime,
+	command: string,
+	prompt: string,
+	signal?: AbortSignal,
+): Promise<string | undefined> {
+	const enrichment = runtime.queue.then(() =>
+		runtime.shuttingDown ? undefined : runEnrich(runtime, command, prompt, signal),
+	);
+	runtime.queue = enrichment.then(
 		() => undefined,
 		() => undefined,
 	);
 	return enrichment;
+}
+
+async function shutdownEnrichRuntime(runtime: EnrichRuntime): Promise<void> {
+	runtime.shuttingDown = true;
+	const activeProcesses = [...runtime.activeProcesses];
+	for (const process of activeProcesses) requestEnrichTermination(process, "shutdown");
+	await Promise.all(activeProcesses.map((process) => process.closed));
+	await runtime.queue;
 }
 
 function appendEnrichment(systemPrompt: string, additionalContext: string): string {
@@ -169,6 +254,11 @@ function appendEnrichment(systemPrompt: string, additionalContext: string): stri
 }
 
 export default function claudeMemoryEnrichExtension(pi: ExtensionAPI): void {
+	const runtime = createEnrichRuntime();
+
+	pi.on("session_shutdown", async () => {
+		await shutdownEnrichRuntime(runtime);
+	});
 	pi.on("before_agent_start", async (event, ctx) => {
 		const prompt = event.prompt.trim();
 		if (!prompt) {
@@ -181,7 +271,7 @@ export default function claudeMemoryEnrichExtension(pi: ExtensionAPI): void {
 		}
 
 		try {
-			const additionalContext = await queueEnrich(command, prompt, ctx.signal);
+			const additionalContext = await queueEnrich(runtime, command, prompt, ctx.signal);
 			if (!additionalContext) {
 				return;
 			}
