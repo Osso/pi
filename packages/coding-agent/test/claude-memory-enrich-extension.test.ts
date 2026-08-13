@@ -139,4 +139,86 @@ describe("claude-memory enrich extension", () => {
 		completeSuccessfully(secondChild);
 		await expect(secondResult).resolves.toBeUndefined();
 	});
+
+	it("logs a child error once and advances the FIFO after close", async () => {
+		const firstChild = fakeChild();
+		const secondChild = fakeChild();
+		spawnMock.mockReturnValueOnce(firstChild).mockReturnValueOnce(secondChild);
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		const handler = registerBeforeAgentStartHandler();
+		const context = { signal: new AbortController().signal };
+
+		const firstResult = handler({ prompt: "erroring prompt", systemPrompt: "system" }, context);
+		const secondResult = handler({ prompt: "next prompt", systemPrompt: "system" }, context);
+
+		await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
+		firstChild.emit("error", new Error("spawn failed"));
+		firstChild.emit("close", 1);
+
+		await expect(firstResult).resolves.toBeUndefined();
+		expect(errorSpy).toHaveBeenCalledTimes(1);
+		expect(errorSpy).toHaveBeenCalledWith("claude-memory-enrich: spawn failed");
+		await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2));
+		completeSuccessfully(secondChild);
+		await expect(secondResult).resolves.toBeUndefined();
+	});
+
+	it("logs stderr once for a nonzero child exit", async () => {
+		const child = fakeChild();
+		spawnMock.mockReturnValue(child);
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		const handler = registerBeforeAgentStartHandler();
+		const result = handler(
+			{ prompt: "nonzero prompt", systemPrompt: "system" },
+			{ signal: new AbortController().signal },
+		);
+
+		await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
+		child.stderr.emit("data", "backend failed\n");
+		child.emit("close", 7);
+
+		await expect(result).resolves.toBeUndefined();
+		expect(errorSpy).toHaveBeenCalledTimes(1);
+		expect(errorSpy).toHaveBeenCalledWith("claude-memory-enrich: claude-memory enrich exited with 7: backend failed");
+	});
+
+	it("logs one parse failure for malformed JSON", async () => {
+		const child = fakeChild();
+		spawnMock.mockReturnValue(child);
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		const handler = registerBeforeAgentStartHandler();
+		const result = handler(
+			{ prompt: "malformed prompt", systemPrompt: "system" },
+			{ signal: new AbortController().signal },
+		);
+
+		await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
+		child.stdout.emit("data", "{malformed\n");
+		child.emit("close", 0);
+
+		await expect(result).resolves.toBeUndefined();
+		expect(errorSpy).toHaveBeenCalledTimes(1);
+		expect(errorSpy).toHaveBeenCalledWith(expect.stringMatching(/^claude-memory-enrich: .*JSON/i));
+	});
+
+	it("logs caller abort once when abort error is followed by close", async () => {
+		const child = fakeChild();
+		spawnMock.mockReturnValue(child);
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		const handler = registerBeforeAgentStartHandler();
+		const controller = new AbortController();
+		const result = handler(
+			{ prompt: "aborted prompt", systemPrompt: "system" },
+			{ signal: controller.signal },
+		);
+
+		await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
+		controller.abort();
+		child.emit("error", Object.assign(new Error("operation aborted"), { name: "AbortError" }));
+		child.emit("close", null);
+
+		await expect(result).resolves.toBeUndefined();
+		expect(errorSpy).toHaveBeenCalledTimes(1);
+		expect(errorSpy).toHaveBeenCalledWith("claude-memory-enrich: operation aborted");
+	});
 });
