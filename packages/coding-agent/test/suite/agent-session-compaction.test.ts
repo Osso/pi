@@ -1131,7 +1131,10 @@ describe("AgentSession compaction characterization", () => {
 		});
 		harnesses.push(harness);
 		seedCompactableSession(harness);
-		harness.setResponses([fauxCompletedTurn("completed answer")]);
+		harness.session.setActiveToolsByName([]);
+		const successfulOverflow = createAssistant(harness, { stopReason: "stop", totalTokens: 2 });
+		successfulOverflow.content = [{ type: "text", text: "completed answer" }];
+		harness.setResponses([successfulOverflow]);
 
 		await expect(harness.session.prompt("hello")).resolves.toBeUndefined();
 

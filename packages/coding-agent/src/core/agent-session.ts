@@ -260,11 +260,11 @@ async function waitForHeadlessSessionStartRelease(env: NodeJS.ProcessEnv = proce
 	}
 }
 
-function assistantMessagePrecedesLatestCompaction(
+function assistantMessagePrecedesCompaction(
 	entries: SessionEntry[],
 	assistantMessage: AssistantMessage,
+	compactionEntry: CompactionEntry | null,
 ): boolean {
-	const compactionEntry = getLatestCompactionEntry(entries);
 	if (!compactionEntry) return false;
 	const compactionIndex = entries.lastIndexOf(compactionEntry);
 	const assistantIndex = entries.findLastIndex(
@@ -4305,9 +4305,9 @@ export class AgentSession {
 		// Skip compaction checks if this assistant message precedes the latest
 		// compaction boundary. Persisted branch order disambiguates messages that
 		// share the boundary timestamp; synthetic checks fall back to timestamps.
-		if (assistantMessagePrecedesLatestCompaction(this.sessionManager.getBranch(), assistantMessage)) {
-			return false;
-		}
+		const branchEntries = this.sessionManager.getBranch();
+		const compactionEntry = getLatestCompactionEntry(branchEntries);
+		if (assistantMessagePrecedesCompaction(branchEntries, assistantMessage, compactionEntry)) return false;
 
 		// Case 1: Overflow - LLM returned context overflow error, or reported usage exceeded
 		// the configured window. A successful response over the configured window should compact
