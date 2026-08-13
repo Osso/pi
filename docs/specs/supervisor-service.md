@@ -118,6 +118,8 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 
 ### Failure handling
 
+- [x] Caller cancellation stops polling and retries, atomically moves a sender-owned pending or claimed request to terminal `cancelled`, wakes the resident, aborts active evaluation, and prevents later claim or completion.
+- [x] Interactive Escape reaches an active goal review through global input even when the caller is idle and the wait loader owns focus, then clears the loader without applying a stale decision.
 - [x] Return generic `error` for service, transport, timeout, model, tool, or response-validation failures.
 - [x] Retry resident goal-review request timeouts up to three attempts with bounded exponential backoff and jitter before returning generic `error`; other request kinds retain single-attempt timeout behavior.
 - [x] Fail approval reviews to human escalation.
@@ -133,8 +135,8 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 ## Implementation inventory
 
 - `packages/coding-agent/src/supervisor/main.ts` — resident Sol SDK service, restricted tool surface, persistent transcript, and request loop.
-- `packages/coding-agent/src/supervisor/service.ts` — bounded prompts, typed response validation, deadlines, and approval preemption.
-- `packages/coding-agent/src/supervisor/client.ts` — ensures resident readiness, then performs durable synchronous caller transport.
+- `packages/coding-agent/src/supervisor/service.ts` — bounded prompts, typed response validation, deadlines, approval preemption, and active-evaluation cancellation.
+- `packages/coding-agent/src/supervisor/client.ts` — ensures resident readiness, performs durable synchronous caller transport, and propagates caller cancellation.
 - `packages/coding-agent/src/supervisor/ensure-running.ts` — cross-platform probe, singleton startup lock, detached launch, compatibility checks, and Pi-managed replacement.
 - `packages/coding-agent/src/supervisor/request-wake.ts` — owner-only Unix-socket wake notification for the durable request queue.
 - `packages/coding-agent/src/core/resident-console-transport.ts` — owner-only attach protocol, branch snapshot, live events, and single-client prompt transport.
@@ -144,7 +146,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - `packages/coding-agent/src/supervisor/approval-reviewer.ts` — approval decision enforcement and human escalation.
 - `packages/coding-agent/src/core/session-control-db.ts` — durable `supervisor_requests` repository.
 - `packages/coding-agent/src/core/tools/ask-supervisor.ts` — main-session-only bounded advisory tool.
-- `packages/coding-agent/src/core/agent-session.ts` — LLM-approved preset integration.
+- `packages/coding-agent/src/core/agent-session.ts` / `packages/coding-agent/src/modes/interactive/interactive-mode.ts` — active-review cancellation registration and global Escape routing.
 - `packages/coding-agent/extensions/goal/src/index.ts` — completion and existing `agent_end` continuation gates.
 - `packages/coding-agent/extensions/goal/src/goal-review-evidence.ts` — supplies ordered unconsumed conversation events to goal reviews and consumes them after applied decisions.
 - `packages/coding-agent/extensions/goal/src/goal-scheduling.ts` — cancellable agent waits, pending-decision handoff, timed review, identity rechecks, and visible scheduling failures.
@@ -159,7 +161,8 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - `packages/coding-agent/test/supervisor-client.test.ts`
 - `packages/coding-agent/test/supervisor-ensure-running.test.ts`
 - `packages/coding-agent/test/suite/supervisor-autostart-runtime.test.ts` — real-process detached startup and concurrent reuse.
-- `packages/coding-agent/test/supervisor-service.test.ts` — advisory response contract and validation.
+- `packages/coding-agent/test/supervisor-service.test.ts` — advisory response contract, validation, and claimed-request evaluation cancellation.
+- `packages/coding-agent/test/interactive-mode-status.test.ts` — editor and global-input Escape routing while Supervisor review is active.
 - `packages/coding-agent/test/supervisor-approval-reviewer.test.ts`
 - `packages/coding-agent/test/list-sessions-broadcast-tools.test.ts` — main-session-only tool registration and access.
 - `packages/coding-agent/test/suite/headless-supervisor-systems.test.ts` — real-process advisory flow and Supervisor continuation delivery after terminal tool results.

@@ -29,6 +29,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
   immediate transaction. Completed rows remain acceptable; any missing, foreign,
   or otherwise lost claim rolls back the entire renewal. Architect and Supervisor claim result rows are mapped to
   public request objects after the transaction releases the writer slot.
+- [x] A Supervisor caller can atomically cancel only its own pending or claimed request; cancellation stores terminal `cancelled` state and a typed error response, clears claim authority, excludes the row from future claims and recovery, and makes late completion fail closed.
 - [x] Claim, release, fail, and deliver runtime-directed messages only on their canonical `multi_agent_mailbox_messages` row. Claims record exact process identity and are reclaimable only after that exact process dies.
 - [x] Store only the latest assistant message for external readers.
 - [x] Provide `pi control send`, `pi control restart --session-id <session-id>`,
@@ -240,6 +241,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/session-control-db.test.ts`
+- `packages/coding-agent/test/supervisor-request-repository.test.ts` — pending/claimed cancellation, claim exclusion, and late-completion fencing.
 - `packages/coding-agent/test/control-command.test.ts`
 - `packages/coding-agent/test/custom-editor-history.test.ts`
 - `packages/coding-agent/test/session-selector-rename.test.ts`

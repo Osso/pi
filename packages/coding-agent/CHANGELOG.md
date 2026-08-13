@@ -132,6 +132,7 @@
 
 ### Fixed
 
+- Fixed Escape failing during `Waiting for Supervisor…` and Supervisor `Thinking...`: global interrupt routing now cancels pending or claimed durable reviews, stops client retries, aborts resident evaluation, clears the loader, and fences late decisions.
 - Fixed concurrent agent enrichment consuming the 15-second subprocess budget under local embedding contention; first-party `claude-memory-enrich` subprocesses are now queued per Pi runtime.
 - Fixed optional binary-backed tools and approval hooks registering when their external executables are unavailable; affected first-party extensions are now absent from startup inventory, while built-in structural tools are filtered from each runtime registry.
 - Fixed AgentSession event delivery so every listener registered when an event begins receives it, even if an earlier listener unsubscribes during its callback.
