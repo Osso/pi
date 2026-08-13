@@ -639,6 +639,38 @@ describe("InteractiveMode key handlers", () => {
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
 	});
 
+	test("global interrupt cancels an idle Supervisor review while the loader owns focus", () => {
+		let inputListener: ((data: string) => { consume?: boolean } | undefined) | undefined;
+		const cancelSupervisorReview = vi.fn(() => true);
+		const fakeThis = {
+			cancelStreamingAndSubmitQueuedMessages: vi.fn(),
+			clearStatusIndicator: vi.fn(),
+			extensionSelector: undefined,
+			keybindings: { matches: (_data: string, action: string) => action === "app.interrupt" },
+			session: { cancelSupervisorReview, isStreaming: false },
+			showError: vi.fn(),
+			stopWorkingLoader: vi.fn(),
+			ui: {
+				addInputListener: vi.fn((listener: typeof inputListener) => {
+					inputListener = listener;
+					return vi.fn();
+				}),
+				requestRender: vi.fn(),
+			},
+			unregisterInterruptInputHandler: undefined,
+		};
+
+		interactiveModeKeyHandlers.registerGlobalInterruptInputHandler.call(fakeThis);
+		const result = inputListener?.("\u001b");
+
+		expect(result).toEqual({ consume: true });
+		expect(cancelSupervisorReview).toHaveBeenCalledTimes(1);
+		expect(fakeThis.stopWorkingLoader).toHaveBeenCalledTimes(1);
+		expect(fakeThis.clearStatusIndicator).toHaveBeenCalledTimes(1);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+		expect(fakeThis.cancelStreamingAndSubmitQueuedMessages).not.toHaveBeenCalled();
+	});
+
 	test("escape while idle cancels an active Supervisor review and clears its loader", () => {
 		const actions = new Map<string, () => void>();
 		const cancelSupervisorReview = vi.fn(() => true);

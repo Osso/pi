@@ -3196,9 +3196,15 @@ export class InteractiveMode {
 		this.unregisterInterruptInputHandler?.();
 		this.unregisterInterruptInputHandler = this.ui.addInputListener((data) => {
 			const selectorHandlesCancel = this.extensionSelector && this.keybindings.matches(data, "tui.select.cancel");
-			if (selectorHandlesCancel || !this.session.isStreaming || !this.keybindings.matches(data, "app.interrupt")) {
-				return undefined;
+			const matchesInterrupt = this.keybindings.matches(data, "app.interrupt");
+			if (selectorHandlesCancel || !matchesInterrupt) return undefined;
+			if (this.session.cancelSupervisorReview?.() === true) {
+				this.stopWorkingLoader();
+				this.clearStatusIndicator();
+				this.ui.requestRender();
+				return { consume: true };
 			}
+			if (!this.session.isStreaming) return undefined;
 			void Promise.resolve(this.cancelStreamingAndSubmitQueuedMessages()).catch((error: unknown) => {
 				this.showError(error instanceof Error ? error.message : String(error));
 			});
