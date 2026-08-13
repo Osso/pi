@@ -132,6 +132,7 @@
 
 ### Fixed
 
+- Fixed `change_working_directory` in mixed tool-call batches relocating persisted session state while the active runtime and multi-agent store remained on the previous cwd and session path, which could make later `wait_agent` calls resolve missing store references.
 - Fixed active tool cards triggering recurring global transcript redraws for elapsed timing; live elapsed time now updates through the partial working-status region, while completed tool cards retain final duration.
 - Fixed Escape failing during `Waiting for Supervisor…` and Supervisor `Thinking...`: global interrupt routing now cancels pending or claimed durable reviews, stops client retries, aborts resident evaluation, clears the loader, and fences late decisions.
 - Fixed concurrent agent enrichment consuming the 15-second subprocess budget under local embedding contention; first-party `claude-memory-enrich` subprocesses are now queued per Pi runtime.

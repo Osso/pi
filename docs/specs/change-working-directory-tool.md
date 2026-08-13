@@ -22,6 +22,7 @@ The `change_working_directory` tool changes the current Pi session's working dir
 - [x] Cwd-bound services, resources, extension contexts, and built-in tools are rebuilt for the changed directory.
 - [x] The terminal tool result is emitted and persisted before the directory change takes effect.
 - [x] Changing cwd during an active agent turn continues that turn without requiring another user prompt.
+- [x] When the relocation tool shares a batch with nonterminating tools, Pi completes the batch, ends the old agent loop, and activates the relocated runtime before another model request.
 - [x] The intermediate `agent_end` boundary is marked as a cwd-relocation continuation so idle extensions defer until the continued turn settles.
 - [x] Subsequent relative tool paths resolve from the changed cwd.
 - [x] A real process restart restores the changed cwd and relative tool behavior from the current `session_metadata.cwd` value in control SQLite; the JSONL transcript remains the persisted history of the session's cwd-related entries and is not rewritten or trimmed during relocation.

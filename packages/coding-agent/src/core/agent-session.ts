@@ -919,7 +919,7 @@ export class AgentSession {
 		this._unsubscribeAgent = this.agent.subscribe(this._handleAgentEvent);
 		this._installAgentToolHooks();
 		this._installAgentNextTurnRefresh();
-		this._installDuplicateTurnStop();
+		this._installAgentTurnStop();
 
 		this._buildRuntime({
 			activeToolNames: this._initialActiveToolNames,
@@ -1320,10 +1320,12 @@ export class AgentSession {
 		};
 	}
 
-	private _installDuplicateTurnStop(): void {
+	private _installAgentTurnStop(): void {
 		const previousShouldStopAfterTurn = this.agent.shouldStopAfterTurn;
 		this.agent.shouldStopAfterTurn = async (turn) =>
-			this._duplicateTurnLoopDetected || ((await previousShouldStopAfterTurn?.(turn)) ?? false);
+			this._extensionRunner.hasPreparedToolResultRelocation() ||
+			this._duplicateTurnLoopDetected ||
+			((await previousShouldStopAfterTurn?.(turn)) ?? false);
 	}
 
 	// =========================================================================
