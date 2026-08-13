@@ -260,6 +260,14 @@ async function waitForHeadlessSessionStartRelease(env: NodeJS.ProcessEnv = proce
 	}
 }
 
+function findAssistantMessageEntryIndex(entries: SessionEntry[], assistantMessage: AssistantMessage): number {
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index];
+		if (entry.type === "message" && entry.message === assistantMessage) return index;
+	}
+	return -1;
+}
+
 function assistantMessagePrecedesCompaction(
 	entries: SessionEntry[],
 	assistantMessage: AssistantMessage,
@@ -267,9 +275,7 @@ function assistantMessagePrecedesCompaction(
 ): boolean {
 	if (!compactionEntry) return false;
 	const compactionIndex = entries.lastIndexOf(compactionEntry);
-	const assistantIndex = entries.findLastIndex(
-		(entry) => entry.type === "message" && entry.message === assistantMessage,
-	);
+	const assistantIndex = findAssistantMessageEntryIndex(entries, assistantMessage);
 	if (assistantIndex !== -1) return assistantIndex < compactionIndex;
 	return assistantMessage.timestamp <= new Date(compactionEntry.timestamp).getTime();
 }
