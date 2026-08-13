@@ -207,10 +207,7 @@ describe("claude-memory enrich extension", () => {
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const handler = registerBeforeAgentStartHandler();
 		const controller = new AbortController();
-		const result = handler(
-			{ prompt: "aborted prompt", systemPrompt: "system" },
-			{ signal: controller.signal },
-		);
+		const result = handler({ prompt: "aborted prompt", systemPrompt: "system" }, { signal: controller.signal });
 
 		await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(1));
 		controller.abort();
