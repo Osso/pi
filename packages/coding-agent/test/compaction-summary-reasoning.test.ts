@@ -50,6 +50,17 @@ const mockSummaryResponse: AssistantMessage = {
 
 const messages: AgentMessage[] = [{ role: "user", content: "Summarize this.", timestamp: Date.now() }];
 
+function getSummarizationPrompt(callIndex = 0): string {
+	const context = completeSimpleMock.mock.calls[callIndex]?.[1] as { messages?: AgentMessage[] } | undefined;
+	const message = context?.messages?.[0];
+	if (!message || message.role !== "user") throw new Error("Expected a summarization user message");
+	if (typeof message.content === "string") return message.content;
+	return message.content
+		.filter((part): part is { type: "text"; text: string } => part.type === "text")
+		.map((part) => part.text)
+		.join("\n");
+}
+
 describe("generateSummary reasoning options", () => {
 	beforeEach(() => {
 		completeSimpleMock.mockReset();
@@ -150,5 +161,98 @@ describe("generateSummary reasoning options", () => {
 		await compact(preparation, createModel(false, 128000), "test-key");
 
 		expect(completeSimpleMock.mock.calls.map((call) => call[2]?.maxTokens)).toEqual([128000, 128000]);
+	});
+
+	it("uses the active model and continuation-focused compaction guidance", async () => {
+		const model = createModel(false);
+
+		await generateSummary(
+			messages,
+			model,
+			2000,
+			"test-key",
+			undefined,
+			undefined,
+			"Prioritize exact deployment proof.",
+		);
+
+		expect(completeSimpleMock.mock.calls[0]?.[0]).toBe(model);
+		const prompt = getSummarizationPrompt();
+		expect(prompt).toContain("Deduplicate repeated or semantically equivalent content");
+		expect(prompt).toContain("Prefer the latest confirmed state over superseded state");
+		expect(prompt).toContain("Record unresolved contradictions explicitly");
+		expect(prompt).toContain(
+			"Do not invent completion, evidence, file changes, commands, test results, or deployment state",
+		);
+		expect(prompt).toContain(
+			"Additional compaction focus requested by the user:\nPrioritize exact deployment proof.",
+		);
+	});
+
+	it("updates prior summaries instead of blindly preserving superseded information", async () => {
+		await generateSummary(
+			messages,
+			createModel(false),
+			2000,
+			"test-key",
+			undefined,
+			undefined,
+			undefined,
+			"stale previous summary",
+		);
+
+		const prompt = getSummarizationPrompt();
+		expect(prompt).toContain("<previous-summary>\nstale previous summary\n</previous-summary>");
+		expect(prompt).toContain("Prefer the latest confirmed state over superseded state");
+		expect(prompt).not.toContain("PRESERVE all existing information from the previous summary");
+	});
+
+	it("applies custom compaction focus to a split-turn prefix-only summary", async () => {
+		const preparation: CompactionPreparation = {
+			firstKeptEntryId: "entry-keep",
+			messagesToSummarize: [],
+			turnPrefixMessages: messages,
+			isSplitTurn: true,
+			tokensBefore: 100,
+			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
+		};
+
+		await compact(
+			preparation,
+			createModel(false),
+			"test-key",
+			undefined,
+			"Prioritize relocation ordering.",
+		);
+
+		expect(getSummarizationPrompt()).toContain(
+			"Additional compaction focus requested by the user:\nPrioritize relocation ordering.",
+		);
+	});
+
+	it("rejects an empty compaction summary", async () => {
+		completeSimpleMock.mockResolvedValue({ ...mockSummaryResponse, content: [] });
+
+		await expect(generateSummary(messages, createModel(false), 2000, "test-key")).rejects.toThrow(
+			"Compaction summarization returned no text",
+		);
+	});
+
+	it("rejects an empty split-turn prefix summary", async () => {
+		completeSimpleMock.mockResolvedValue({ ...mockSummaryResponse, content: [] });
+		const preparation: CompactionPreparation = {
+			firstKeptEntryId: "entry-keep",
+			messagesToSummarize: [],
+			turnPrefixMessages: messages,
+			isSplitTurn: true,
+			tokensBefore: 100,
+			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
+		};
+
+		await expect(compact(preparation, createModel(false), "test-key")).rejects.toThrow(
+			"Turn prefix summarization returned no text",
+		);
 	});
 });

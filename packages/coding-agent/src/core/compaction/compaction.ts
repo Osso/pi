@@ -618,41 +618,56 @@ Keep each section concise. Preserve exact file paths, function names, and error 
 const UPDATE_SUMMARIZATION_PROMPT = `The messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.
 
 Update the existing structured summary with new information. RULES:
-- PRESERVE all existing information from the previous summary
-- ADD new progress, decisions, and context from the new messages
-- UPDATE the Progress section: move items from "In Progress" to "Done" when completed
-- UPDATE "Next Steps" based on what was accomplished
-- PRESERVE exact file paths, function names, and error messages
-- If something is no longer relevant, you may remove it
+- Retain still-current goals, constraints, decisions, and context from the previous summary
+- Add new progress, decisions, and context from the new messages
+- Move completed work from "In Progress" to "Done"
+- Remove resolved blockers and superseded state unless needed to explain the current state
+- Update "Next Steps" based on what remains
 
 Use this EXACT format:
 
 ## Goal
-[Preserve existing goals, add new ones if the task expanded]
+[Retain current goals and add new ones if the task expanded]
 
 ## Constraints & Preferences
-- [Preserve existing, add new ones discovered]
+- [Retain current constraints and add newly discovered ones]
 
 ## Progress
 ### Done
-- [x] [Include previously done items AND newly completed items]
+- [x] [Previously and newly completed items]
 
 ### In Progress
-- [ ] [Current work - update based on progress]
+- [ ] [Current work only]
 
 ### Blocked
-- [Current blockers - remove if resolved]
+- [Current blockers only]
 
 ## Key Decisions
-- **[Decision]**: [Brief rationale] (preserve all previous, add new)
+- **[Decision]**: [Brief rationale for each still-relevant decision]
 
 ## Next Steps
 1. [Update based on current state]
 
 ## Critical Context
-- [Preserve important context, add new if needed]
+- [Retain context still needed to continue]
 
 Keep each section concise. Preserve exact file paths, function names, and error messages.`;
+
+const CONTINUATION_SUMMARIZATION_GUIDANCE = `Continuation rules:
+- Deduplicate repeated or semantically equivalent content. Represent each fact, message, and tool result once.
+- Preserve the active goal, user-stated constraints, decisions and reasons, completed work, current status, unresolved blockers, next steps, and exact artifacts needed to continue.
+- Prefer the latest confirmed state over superseded state. Record unresolved contradictions explicitly.
+- Do not invent completion, evidence, file changes, commands, test results, or deployment state.
+- Prioritize the current task, then parked tasks, then only earlier history needed to continue.`;
+
+function buildCompactionInstructions(basePrompt: string, customInstructions?: string): string {
+	const sections = [basePrompt, CONTINUATION_SUMMARIZATION_GUIDANCE];
+	const customFocus = customInstructions?.trim();
+	if (customFocus) {
+		sections.push(`Additional compaction focus requested by the user:\n${customFocus}`);
+	}
+	return sections.join("\n\n");
+}
 
 const COMPACTION_MATERIALIZATION_PROMPT = `Write the complete plaintext continuation summary represented by the preceding compaction checkpoint.
 
@@ -681,6 +696,23 @@ async function completeSummarization(
 	}
 	const stream = await streamFn(model, context, options);
 	return stream.result();
+}
+
+function readSummarizationText(
+	response: AssistantMessage,
+	failurePrefix: string,
+	emptyResponseMessage: string,
+): string {
+	if (response.stopReason === "error") {
+		throw new Error(`${failurePrefix}: ${response.errorMessage || "Unknown error"}`);
+	}
+	const summary = response.content
+		.filter((content): content is { type: "text"; text: string } => content.type === "text")
+		.map((content) => content.text)
+		.filter((text) => text.trim().length > 0)
+		.join("\n");
+	if (!summary) throw new Error(emptyResponseMessage);
+	return summary;
 }
 
 /**
@@ -774,11 +806,10 @@ export async function generateSummary(
 ): Promise<string> {
 	const maxTokens = getSummarizationMaxTokens(model, reserveTokens);
 
-	// Use update prompt if we have a previous summary, otherwise initial prompt
-	let basePrompt = previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT;
-	if (customInstructions) {
-		basePrompt = `${basePrompt}\n\nAdditional focus: ${customInstructions}`;
-	}
+	const basePrompt = buildCompactionInstructions(
+		previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT,
+		customInstructions,
+	);
 
 	// Serialize conversation to text so model doesn't try to continue it
 	// Convert to LLM messages first (handles custom types like bashExecution, custom, etc.)
@@ -809,16 +840,11 @@ export async function generateSummary(
 		streamFn,
 	);
 
-	if (response.stopReason === "error") {
-		throw new Error(`Summarization failed: ${response.errorMessage || "Unknown error"}`);
-	}
-
-	const textContent = response.content
-		.filter((c): c is { type: "text"; text: string } => c.type === "text")
-		.map((c) => c.text)
-		.join("\n");
-
-	return textContent;
+	return readSummarizationText(
+		response,
+		"Summarization failed",
+		"Compaction summarization returned no text",
+	);
 }
 
 // ============================================================================
@@ -999,6 +1025,7 @@ export async function compact(
 			settings.reserveTokens,
 			apiKey,
 			headers,
+			customInstructions,
 			env,
 			signal,
 			thinkingLevel,
@@ -1050,6 +1077,7 @@ async function generateTurnPrefixSummary(
 	reserveTokens: number,
 	apiKey: string | undefined,
 	headers?: Record<string, string>,
+	customInstructions?: string,
 	env?: Record<string, string>,
 	signal?: AbortSignal,
 	_thinkingLevel?: ThinkingLevel,
@@ -1061,7 +1089,8 @@ async function generateTurnPrefixSummary(
 	); // Smaller budget for turn prefix
 	const llmMessages = convertToLlm(messages);
 	const conversationText = serializeConversation(llmMessages);
-	const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`;
+	const instructions = buildCompactionInstructions(TURN_PREFIX_SUMMARIZATION_PROMPT, customInstructions);
+	const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${instructions}`;
 	const summarizationMessages = [
 		{
 			role: "user" as const,
@@ -1077,12 +1106,9 @@ async function generateTurnPrefixSummary(
 		streamFn,
 	);
 
-	if (response.stopReason === "error") {
-		throw new Error(`Turn prefix summarization failed: ${response.errorMessage || "Unknown error"}`);
-	}
-
-	return response.content
-		.filter((c): c is { type: "text"; text: string } => c.type === "text")
-		.map((c) => c.text)
-		.join("\n");
+	return readSummarizationText(
+		response,
+		"Turn prefix summarization failed",
+		"Turn prefix summarization returned no text",
+	);
 }
