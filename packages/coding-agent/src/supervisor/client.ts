@@ -51,7 +51,14 @@ async function requestSupervisorDecisionAttempt(
 		senderSessionId: input.senderSessionId,
 	});
 	const cancelRequest = (): void => {
-		if (cancelSupervisorRequest(input.controlDbPath, requestId, input.senderSessionId, SUPERVISOR_REQUEST_CANCELLED_REASON)) {
+		if (
+			cancelSupervisorRequest(
+				input.controlDbPath,
+				requestId,
+				input.senderSessionId,
+				SUPERVISOR_REQUEST_CANCELLED_REASON,
+			)
+		) {
 			notifySupervisorRequest(input.controlDbPath);
 		}
 	};
@@ -68,7 +75,11 @@ async function requestSupervisorDecisionAttempt(
 			const request = readSupervisorRequest(input.controlDbPath, requestId);
 			if (request?.status === "completed" && request.response) return request.response;
 			if (request?.status === "cancelled") {
-				return { kind: "error", reason: request.response?.kind === "error" ? request.response.reason : SUPERVISOR_REQUEST_CANCELLED_REASON };
+				return {
+					kind: "error",
+					reason:
+						request.response?.kind === "error" ? request.response.reason : SUPERVISOR_REQUEST_CANCELLED_REASON,
+				};
 			}
 			if (!(await delay(pollIntervalMs, input.signal))) {
 				cancelRequest();

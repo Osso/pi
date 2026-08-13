@@ -141,7 +141,7 @@ async function waitForEvaluation(
 	input: RunSupervisorRequestInput,
 	evaluation: Promise<unknown>,
 	abortController: AbortController,
- ): Promise<"completed" | "expired" | "preempted" | "cancelled"> {
+): Promise<"completed" | "expired" | "preempted" | "cancelled"> {
 	const pollIntervalMs = input.pollIntervalMs ?? 50;
 	let evaluationSettled = false;
 	void evaluation.then(
