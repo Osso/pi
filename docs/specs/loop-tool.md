@@ -27,15 +27,17 @@ The loop tool lets the agent or user schedule a recurring prompt that is injecte
 ### Runtime behavior
 
 - [x] Inject the configured prompt only after the first full interval elapses, not immediately on start.
-- [x] Inject recurring prompts as follow-up user messages in the current session.
-- [x] Stop injecting prompts after the active loop is stopped.
+- [x] Inject recurring prompts as follow-up messages in the current session without changing the prompt body.
+- [x] Coalesce interval ticks while other work is active into at most one deferred loop follow-up, and skip further ticks while that loop follow-up is in progress so no backlog forms.
+- [x] Preserve `loop` provenance when loop-origin follow-ups are delivered and rendered.
+- [x] Stop injecting prompts after the active loop is stopped, replaced, or shut down, including deferred delivery.
 - [x] Clear the active timer when the session shuts down.
 - [ ] Expose only one active loop per session.
 - [ ] Keep loop state session-local; do not persist loops across process restarts or restored sessions.
 
 ## How it works
 
-- Runtime design: [`docs/wiki/systems/loop-tool.md`](../wiki/systems/loop-tool.md) (stub).
+- Runtime design: [`docs/wiki/systems/loop-tool.md`](../wiki/systems/loop-tool.md).
 - Extension API and injected messages: [`docs/specs/prompt-context-hooks.md`](prompt-context-hooks.md).
 - First-party extension loading: [`docs/specs/runtime-inventory.md`](runtime-inventory.md).
 
@@ -43,13 +45,14 @@ The loop tool lets the agent or user schedule a recurring prompt that is injecte
 
 - `packages/coding-agent/extensions/loop/src/index.ts` — first-party loop extension; registers the `loop` tool, `/loop` command, timer lifecycle, and injected follow-up prompts.
 - `packages/coding-agent/src/main.ts` — loads the first-party loop extension into the coding-agent runtime.
-- `packages/coding-agent/src/core/extensions/types.ts` — defines the extension tool, command, event, and `sendUserMessage` API surface used by the loop extension.
-- `packages/coding-agent/src/core/extensions/runner.ts` — binds extension `sendUserMessage` calls to the active agent session runtime.
-- `packages/coding-agent/src/core/agent-session.ts` — delivers extension-injected user messages as follow-up or steering messages.
+- `packages/coding-agent/src/core/extensions/types.ts` — defines the extension tool, command, lifecycle-event, and custom-message API surface used by the loop extension.
+- `packages/coding-agent/src/core/extensions/runner.ts` — binds extension custom-message calls to the active agent session runtime.
+- `packages/coding-agent/src/core/agent-session.ts` — delivers extension-injected custom messages as follow-up or steering messages.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/loop-extension.test.ts` — asserts registration, approval requirement, slash-command interval injection, tool start/stop behavior, stopped loops, and session shutdown cleanup.
+- `packages/coding-agent/test/loop-extension.test.ts` — asserts registration, approval requirement, interval injection, busy-tick coalescing, deferred-delivery cancellation, provenance, tool start/stop behavior, and session shutdown cleanup.
+- `packages/coding-agent/test/suite/loop-extension-runtime.test.ts` — proves with a real Pi process that multiple ticks during an active model turn produce one loop follow-up and no queued user-message backlog.
 
 ## Known gaps (current cycle)
 

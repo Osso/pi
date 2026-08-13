@@ -30,6 +30,7 @@
 - Changed Supervisor goal reviews from routine step direction to exception-based peer unblocking: competent progress receives the generic active-goal reminder, while specific corrective instructions are reserved for evidence-backed omissions, repeated failed or circular work, lost objective scope, or missing completion proof; the full original objective remains authoritative over narrower subtasks.
 - Changed `manage_goal set` to require resident Supervisor review; the returned objective preserves the active goal's requirements and completion criteria while adding the proposed scope, and failed or stale reviews leave goal state unchanged.
 - Changed the TPS extension to report generated tokens over complete foreground model-request wall time, including TTFT; removed the decode-only rate from the output.
+- Changed recurring loop delivery to coalesce missed interval ticks while other work is busy, release at most one deferred follow-up after that run, skip ticks while the loop prompt itself is in progress, cancel deferred delivery on stop/replacement/shutdown, and preserve `loop` provenance.
 
 ### Added
 

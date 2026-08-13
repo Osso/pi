@@ -1,16 +1,27 @@
-import type { AgentToolResult } from "@earendil-works/pi-agent-core";
+import type { AgentMessage, AgentToolResult } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 const intervalPattern = /^(\d+(?:\.\d+)?)(ms|s|m|h)?$/;
 const minimumIntervalMs = 1_000;
+const loopMessageType = "loop";
 
 type LoopAction = "start" | "stop" | "status";
+type LoopRuntimeContext = Pick<ExtensionContext, "hasPendingMessages" | "isIdle" | "sessionManager">;
 
 interface ActiveLoop {
+	deferred: boolean;
+	generation: number;
+	inFlight: boolean;
 	intervalMs: number;
 	prompt: string;
+	sessionId: string;
 	timer: ReturnType<typeof setInterval>;
+}
+
+interface LoopMessageDetails {
+	generation: number;
+	sessionId: string;
 }
 
 interface LoopToolDetails {
@@ -48,29 +59,89 @@ function textResult(text: string, details: LoopToolDetails): AgentToolResult<Loo
 	};
 }
 
-function createLoopController(pi: ExtensionAPI) {
-	let activeLoop: ActiveLoop | undefined;
+class LoopController {
+	private activeLoop: ActiveLoop | undefined;
+	private nextGeneration = 0;
+	private readonly pi: ExtensionAPI;
 
-	const stop = (): boolean => {
-		if (!activeLoop) return false;
-		clearInterval(activeLoop.timer);
-		activeLoop = undefined;
+	constructor(pi: ExtensionAPI) {
+		this.pi = pi;
+	}
+
+	start(intervalMs: number, prompt: string, ctx: LoopRuntimeContext): ActiveLoop {
+		this.stop();
+		const generation = ++this.nextGeneration;
+		const sessionId = ctx.sessionManager.getSessionId();
+		const timer = setInterval(() => this.handleInterval(generation, ctx), intervalMs);
+		this.activeLoop = {
+			deferred: false,
+			generation,
+			inFlight: false,
+			intervalMs,
+			prompt,
+			sessionId,
+			timer,
+		};
+		return this.activeLoop;
+	}
+
+	stop(): boolean {
+		if (!this.activeLoop) return false;
+		clearInterval(this.activeLoop.timer);
+		this.activeLoop = undefined;
 		return true;
-	};
+	}
 
-	const start = (intervalMs: number, prompt: string): ActiveLoop => {
-		stop();
-		const timer = setInterval(() => {
-			pi.sendUserMessage(prompt, { deliverAs: "followUp" });
-		}, intervalMs);
+	status(): ActiveLoop | undefined {
+		return this.activeLoop;
+	}
 
-		activeLoop = { intervalMs, prompt, timer };
-		return activeLoop;
-	};
+	handleAgentEnd(messages: AgentMessage[], ctx: LoopRuntimeContext): void {
+		const loop = this.activeLoop;
+		if (!loop || loop.sessionId !== ctx.sessionManager.getSessionId()) return;
+		if (this.includesLoopPrompt(messages, loop)) loop.inFlight = false;
+		if (!loop.deferred) return;
+		if (loop.inFlight) return;
+		if (ctx.hasPendingMessages()) return;
+		this.sendLoopPrompt(loop);
+	}
 
-	const status = (): ActiveLoop | undefined => activeLoop;
+	private currentLoop(generation: number, ctx: LoopRuntimeContext): ActiveLoop | undefined {
+		if (this.activeLoop?.generation !== generation) return undefined;
+		return this.activeLoop.sessionId === ctx.sessionManager.getSessionId() ? this.activeLoop : undefined;
+	}
 
-	return { start, status, stop };
+	private handleInterval(generation: number, ctx: LoopRuntimeContext): void {
+		const loop = this.currentLoop(generation, ctx);
+		if (!loop || loop.inFlight) return;
+		if (!ctx.isIdle() || ctx.hasPendingMessages()) {
+			loop.deferred = true;
+			return;
+		}
+		this.sendLoopPrompt(loop);
+	}
+
+	private includesLoopPrompt(messages: AgentMessage[], loop: ActiveLoop): boolean {
+		return messages.some((message) => {
+			if (message.role !== "custom" || message.customType !== loopMessageType) return false;
+			const details = message.details as Partial<LoopMessageDetails> | undefined;
+			return details?.generation === loop.generation && details.sessionId === loop.sessionId;
+		});
+	}
+
+	private sendLoopPrompt(loop: ActiveLoop): void {
+		loop.deferred = false;
+		loop.inFlight = true;
+		this.pi.sendMessage(
+			{
+				customType: loopMessageType,
+				content: loop.prompt,
+				display: true,
+				details: { generation: loop.generation, sessionId: loop.sessionId } satisfies LoopMessageDetails,
+			},
+			{ deliverAs: "followUp", triggerTurn: true },
+		);
+	}
 }
 
 function parseLoopCommand(
@@ -100,10 +171,14 @@ function describeLoop(loop: ActiveLoop | undefined): string {
 }
 
 export default function loopExtension(pi: ExtensionAPI) {
-	const loop = createLoopController(pi);
+	const loop = new LoopController(pi);
 
 	pi.on("session_shutdown", () => {
 		loop.stop();
+	});
+	pi.on("agent_end", (event, ctx) => {
+		if (event.sessionContinuation) return;
+		loop.handleAgentEnd(event.messages, ctx);
 	});
 
 	pi.registerTool({
@@ -150,7 +225,7 @@ export default function loopExtension(pi: ExtensionAPI) {
 				return textResult("Prompt is required for action=start.", { action: "start", active: false });
 			}
 
-			const active = loop.start(intervalMs, prompt);
+			const active = loop.start(intervalMs, prompt, _ctx);
 			return textResult(`Loop started every ${formatInterval(active.intervalMs)}: ${prompt}`, {
 				action: "start",
 				active: true,
@@ -180,7 +255,7 @@ export default function loopExtension(pi: ExtensionAPI) {
 			}
 
 			if (parsedArgs.action === "start") {
-				const active = loop.start(parsedArgs.intervalMs, parsedArgs.prompt);
+				const active = loop.start(parsedArgs.intervalMs, parsedArgs.prompt, ctx);
 				ctx.ui.notify(`Loop started every ${formatInterval(active.intervalMs)}`, "info");
 				ctx.ui.setEditorText("");
 			}
