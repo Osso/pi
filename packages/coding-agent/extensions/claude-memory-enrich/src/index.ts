@@ -3,7 +3,8 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 
 const DEFAULT_CLAUDE_MEMORY = "/home/osso/.cargo/bin/claude-memory";
-const TIMEOUT_MS = 15_000;
+const ENRICH_TIMEOUT_MS = 75_000;
+const ENRICH_KILL_GRACE_MS = 1_000;
 const SECTION_START = "<claude_memory_enrich>";
 const SECTION_END = "</claude_memory_enrich>";
 
@@ -63,60 +64,83 @@ function parseAdditionalContext(stdout: string): string | undefined {
 	return context && context.length > 0 ? context : undefined;
 }
 
+type EnrichProcessState = {
+	settled: boolean;
+	timedOut: boolean;
+	timeout?: ReturnType<typeof setTimeout>;
+	graceTimeout?: ReturnType<typeof setTimeout>;
+};
+
+function clearEnrichTimers(state: EnrichProcessState): void {
+	if (state.timeout) clearTimeout(state.timeout);
+	if (state.graceTimeout) clearTimeout(state.graceTimeout);
+}
+
+function requestEnrichTermination(child: ReturnType<typeof spawn>, state: EnrichProcessState): void {
+	if (state.settled || state.timedOut) return;
+	state.timedOut = true;
+	child.kill("SIGTERM");
+	state.graceTimeout = setTimeout(() => {
+		if (!state.settled) child.kill("SIGKILL");
+	}, ENRICH_KILL_GRACE_MS);
+}
+
+function settleEnrichProcess(
+	state: EnrichProcessState,
+	resolve: (context: string | undefined) => void,
+	reject: (error: unknown) => void,
+	error?: unknown,
+	context?: string,
+): void {
+	if (state.settled) return;
+	state.settled = true;
+	clearEnrichTimers(state);
+	if (error !== undefined) {
+		reject(error);
+		return;
+	}
+	resolve(context);
+}
+
 function runEnrich(command: string, prompt: string, signal?: AbortSignal): Promise<string | undefined> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(command, ["enrich"], {
-			stdio: ["pipe", "pipe", "pipe"],
-			signal,
-		});
-
+		const child = spawn(command, ["enrich"], { stdio: ["pipe", "pipe", "pipe"], signal });
+		const state: EnrichProcessState = { settled: false, timedOut: false };
 		let stdout = "";
 		let stderr = "";
-		let settled = false;
-
-		const timeout = setTimeout(() => {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			child.kill("SIGTERM");
-			reject(new Error(`claude-memory enrich timed out after ${TIMEOUT_MS}ms`));
-		}, TIMEOUT_MS);
 
 		child.stdout.setEncoding("utf8");
 		child.stderr.setEncoding("utf8");
-		child.stdout.on("data", (chunk: string) => {
-			stdout += chunk;
-		});
-		child.stderr.on("data", (chunk: string) => {
-			stderr += chunk;
-		});
+		child.stdout.on("data", (chunk: string) => (stdout += chunk));
+		child.stderr.on("data", (chunk: string) => (stderr += chunk));
+		state.timeout = setTimeout(() => requestEnrichTermination(child, state), ENRICH_TIMEOUT_MS);
 
 		child.once("error", (error) => {
-			if (settled) {
-				return;
-			}
-			settled = true;
-			clearTimeout(timeout);
-			reject(error);
+			if (!state.timedOut) settleEnrichProcess(state, resolve, reject, error);
 		});
-
 		child.once("close", (code) => {
-			if (settled) {
+			if (state.timedOut) {
+				settleEnrichProcess(
+					state,
+					resolve,
+					reject,
+					new Error(`claude-memory enrich timed out after ${ENRICH_TIMEOUT_MS}ms`),
+				);
 				return;
 			}
-			settled = true;
-			clearTimeout(timeout);
-
 			if (code !== 0) {
-				reject(new Error(`claude-memory enrich exited with ${code}: ${stderr.trim()}`));
+				settleEnrichProcess(
+					state,
+					resolve,
+					reject,
+					new Error(`claude-memory enrich exited with ${code}: ${stderr.trim()}`),
+				);
 				return;
 			}
-
 			try {
-				resolve(parseAdditionalContext(stdout));
+				settleEnrichProcess(state, resolve, reject, undefined, parseAdditionalContext(stdout));
 			} catch (error) {
-				reject(error);
+				settleEnrichProcess(state, resolve, reject, error);
 			}
 		});
 
