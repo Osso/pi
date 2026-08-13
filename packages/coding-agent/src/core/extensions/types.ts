@@ -377,6 +377,8 @@ export interface ExtensionContext {
 	signal: AbortSignal | undefined;
 	/** Abort the current agent operation */
 	abort(): void;
+	/** Register cancellation for an active resident Supervisor review. */
+	registerSupervisorReviewCancellation?: (handler: () => void) => () => void;
 	/** Whether there are queued messages waiting */
 	hasPendingMessages(): boolean;
 	/** Gracefully shutdown pi and exit. Available in all contexts. */
@@ -1842,6 +1844,7 @@ export interface ExtensionContextActions {
 	isProjectTrusted: () => boolean;
 	getSignal: () => AbortSignal | undefined;
 	abort: () => void;
+	registerSupervisorReviewCancellation?: (handler: () => void) => () => void;
 	hasPendingMessages: () => boolean;
 	shutdown: () => void;
 	restart: (options?: { notice?: string; process?: boolean }) => Promise<void>;

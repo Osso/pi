@@ -323,6 +323,9 @@ export class ExtensionRunner {
 	private getDetachedJobLifecycleFn: ExtensionContextActions["getDetachedJobLifecycle"] = () => undefined;
 	private getMultiAgentStoreFn: ExtensionContextActions["getMultiAgentStore"] = () => undefined;
 	private getToolDetachRegistryFn: ExtensionContextActions["getToolDetachRegistry"] = () => undefined;
+	private registerSupervisorReviewCancellationFn: NonNullable<
+		ExtensionContextActions["registerSupervisorReviewCancellation"]
+	> = () => () => {};
 	private compactFn: (options?: CompactOptions) => void = () => {};
 	private getSystemPromptFn: () => string = () => "";
 	private getSystemPromptOptionsFn: () => BuildSystemPromptOptions = () => ({ cwd: this.cwd });
@@ -418,6 +421,8 @@ export class ExtensionRunner {
 		this.getDetachedJobLifecycleFn = contextActions.getDetachedJobLifecycle ?? (() => undefined);
 		this.getMultiAgentStoreFn = contextActions.getMultiAgentStore ?? (() => undefined);
 		this.getToolDetachRegistryFn = contextActions.getToolDetachRegistry ?? (() => undefined);
+		this.registerSupervisorReviewCancellationFn =
+			contextActions.registerSupervisorReviewCancellation ?? (() => () => {});
 		this.compactFn = contextActions.compact;
 		this.getSystemPromptFn = contextActions.getSystemPrompt;
 		this.getSystemPromptOptionsFn = contextActions.getSystemPromptOptions ?? (() => ({ cwd: this.cwd }));
@@ -886,6 +891,10 @@ export class ExtensionRunner {
 			abort: () => {
 				runner.assertActive();
 				runner.abortFn();
+			},
+			registerSupervisorReviewCancellation: (handler) => {
+				runner.assertActive();
+				return runner.registerSupervisorReviewCancellationFn(handler);
 			},
 			hasPendingMessages: () => {
 				runner.assertActive();

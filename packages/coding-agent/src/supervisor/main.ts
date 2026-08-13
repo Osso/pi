@@ -16,6 +16,7 @@ import {
 	claimNextSupervisorRequest,
 	completeSupervisorRequest,
 	getControlDbPath,
+	readSupervisorRequest,
 	recoverSupervisorRequests,
 	type SupervisorRequest,
 } from "../core/session-control-db.ts";
@@ -320,10 +321,16 @@ export async function processSupervisorRequest(
 			request,
 		});
 	} catch (error) {
-		completeSupervisorRequest(controlDbPath, request.id, requiredClaimToken(request), {
-			kind: "error",
-			reason: error instanceof Error ? error.message : String(error),
-		});
+		if (readSupervisorRequest(controlDbPath, request.id)?.status === "cancelled") return;
+		try {
+			completeSupervisorRequest(controlDbPath, request.id, requiredClaimToken(request), {
+				kind: "error",
+				reason: error instanceof Error ? error.message : String(error),
+			});
+		} catch (completionError) {
+			if (readSupervisorRequest(controlDbPath, request.id)?.status === "cancelled") return;
+			throw completionError;
+		}
 	}
 }
 

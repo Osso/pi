@@ -1,6 +1,9 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getControlDbPath } from "../../../src/core/session-control-db.ts";
-import { requestSupervisorDecision } from "../../../src/supervisor/client.ts";
+import {
+	requestSupervisorDecision,
+	SUPERVISOR_REQUEST_CANCELLED_REASON,
+} from "../../../src/supervisor/client.ts";
 import {
 	DEFAULT_SUPERVISOR_KB_DIR,
 	resolveSupervisorProjectForCwd,
@@ -26,7 +29,11 @@ export function withSupervisorReviewStatus(
 	return async (input) => {
 		appendStatus(input.ctx, WAITING_FOR_SUPERVISOR_STATUS);
 		try {
-			return await reviewGoal(input);
+			const result = await reviewGoal(input);
+			if (result.kind === "error" && result.reason === SUPERVISOR_REQUEST_CANCELLED_REASON) {
+				appendStatus(input.ctx, "Supervisor review cancelled.");
+			}
+			return result;
 		} catch (error) {
 			return { kind: "error", reason: supervisorReviewErrorReason(error) };
 		}
@@ -39,17 +46,23 @@ export async function reviewGoalWithResidentSupervisor(input: {
 	ctx: ExtensionContext;
 }): Promise<GoalSupervisorResponse> {
 	const kbDir = process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR;
-	const response = await requestSupervisorDecision({
+	const cancellationController = new AbortController();
+	const unregisterCancellation = input.ctx.registerSupervisorReviewCancellation?.(() =>
+		cancellationController.abort(),
+	);
+	try {
+		const response = await requestSupervisorDecision({
 		controlDbPath: getControlDbPath(),
 		kind: input.kind,
 		maxAttempts: GOAL_REVIEW_MAX_ATTEMPTS,
 		payload: input.payload,
 		projectId: resolveSupervisorProjectForCwd(input.ctx.cwd, kbDir),
 		retryDelayMs: GOAL_REVIEW_RETRY_DELAY_MS,
-		senderSessionId: input.ctx.sessionManager.getSessionId(),
-		timeoutMs: GOAL_REVIEW_TIMEOUT_MS,
-	});
-	switch (response.kind) {
+			senderSessionId: input.ctx.sessionManager.getSessionId(),
+			signal: cancellationController.signal,
+			timeoutMs: GOAL_REVIEW_TIMEOUT_MS,
+		});
+		switch (response.kind) {
 		case "complete":
 		case "continue":
 		case "pause":
@@ -59,5 +72,8 @@ export async function reviewGoalWithResidentSupervisor(input: {
 			return response;
 		default:
 			return { kind: "error", reason: `Invalid goal review response: ${response.kind}` };
+		}
+	} finally {
+		unregisterCancellation?.();
 	}
 }

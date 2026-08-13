@@ -639,6 +639,63 @@ describe("InteractiveMode key handlers", () => {
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
 	});
 
+	test("escape while idle cancels an active Supervisor review and clears its loader", () => {
+		const actions = new Map<string, () => void>();
+		const cancelSupervisorReview = vi.fn(() => true);
+		const fakeThis = {
+			defaultEditor: {
+				onEscape: undefined as (() => void) | undefined,
+				onAction: (action: string, handler: () => void) => actions.set(action, handler),
+			},
+			editor: { getText: () => "", setText: vi.fn() },
+			multiAgentStore: undefined,
+			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
+			registerGlobalAgentSlotInputHandler: vi.fn(),
+			registerGlobalInterruptInputHandler: vi.fn(),
+			session: {
+				abortBash: vi.fn(),
+				cancelSupervisorReview,
+				isBashRunning: false,
+				isStreaming: false,
+			},
+			settingsManager: { getDoubleEscapeAction: () => "none" },
+			ui: { onDebug: undefined, requestRender: vi.fn() },
+			cancelSelectedAgentTurn: vi.fn(() => false),
+			cancelStreamingAndSubmitQueuedMessages: vi.fn(),
+			clearStatusIndicator: vi.fn(),
+			cycleModel: vi.fn(),
+			cycleThinkingLevel: vi.fn(),
+			handleClearCommand: vi.fn(),
+			handleCtrlC: vi.fn(),
+			handleCtrlD: vi.fn(),
+			handleCtrlZ: vi.fn(),
+			handleDebugCommand: vi.fn(),
+			handleDequeue: vi.fn(),
+			handleFollowUp: vi.fn(),
+			handleClipboardImagePaste: vi.fn(),
+			openExternalEditor: vi.fn(),
+			restoreQueuedMessagesToEditor: vi.fn(),
+			showModelSelector: vi.fn(),
+			showSessionSelector: vi.fn(),
+			showStatus: vi.fn(),
+			showTreeSelector: vi.fn(),
+			showUserMessageSelector: vi.fn(),
+			stopWorkingLoader: vi.fn(),
+			toggleThinkingBlockVisibility: vi.fn(),
+			toggleToolOutputExpansion: vi.fn(),
+			updateEditorBorderColor: vi.fn(),
+		};
+
+		interactiveModeKeyHandlers.setupKeyHandlers.call(fakeThis);
+		fakeThis.defaultEditor.onEscape?.();
+
+		expect(cancelSupervisorReview).toHaveBeenCalledTimes(1);
+		expect(fakeThis.stopWorkingLoader).toHaveBeenCalledTimes(1);
+		expect(fakeThis.clearStatusIndicator).toHaveBeenCalledTimes(1);
+		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+		expect(fakeThis.cancelStreamingAndSubmitQueuedMessages).not.toHaveBeenCalled();
+	});
+
 	test("escape while streaming cancels and submits queued messages", () => {
 		const actions = new Map<string, () => void>();
 		const fakeThis = {

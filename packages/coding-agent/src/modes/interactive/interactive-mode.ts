@@ -3634,6 +3634,12 @@ export class InteractiveMode {
 	private handleEditorEscape(): void {
 		if (InteractiveMode.prototype.cancelPendingCompactionSummaryEdit.call(this)) return;
 		if (this.cancelSelectedAgentTurn()) return;
+		if (this.session.cancelSupervisorReview?.() === true) {
+			this.stopWorkingLoader();
+			this.clearStatusIndicator();
+			this.ui.requestRender();
+			return;
+		}
 		if (this.session.isStreaming) {
 			void Promise.resolve(this.cancelStreamingAndSubmitQueuedMessages()).catch((error: unknown) => {
 				this.showError(error instanceof Error ? error.message : String(error));

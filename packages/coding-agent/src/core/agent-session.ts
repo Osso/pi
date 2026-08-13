@@ -807,6 +807,7 @@ export class AgentSession {
 	private _extensionControlDbPath?: string;
 	private _extensionCommandContextActions?: ExtensionCommandContextActions;
 	private _extensionAbortHandler?: () => void;
+	private _supervisorReviewCancellationHandler?: () => void;
 	private _extensionShutdownHandler?: ShutdownHandler;
 	private _extensionErrorListener?: ExtensionErrorListener;
 	private _extensionErrorUnsubscriber?: () => void;
@@ -3609,6 +3610,23 @@ export class AgentSession {
 		await this.agent.waitForIdle();
 	}
 
+	registerSupervisorReviewCancellation(handler: () => void): () => void {
+		this._supervisorReviewCancellationHandler = handler;
+		return () => {
+			if (this._supervisorReviewCancellationHandler === handler) {
+				this._supervisorReviewCancellationHandler = undefined;
+			}
+		};
+	}
+
+	cancelSupervisorReview(): boolean {
+		const handler = this._supervisorReviewCancellationHandler;
+		if (!handler) return false;
+		this._supervisorReviewCancellationHandler = undefined;
+		handler();
+		return true;
+	}
+
 	// =========================================================================
 	// Model Management
 	// =========================================================================
@@ -4867,6 +4885,7 @@ export class AgentSession {
 					}
 					void this.abort();
 				},
+				registerSupervisorReviewCancellation: (handler) => this.registerSupervisorReviewCancellation(handler),
 				hasPendingMessages: () => this.hasPendingMessages(),
 				shutdown: () => {
 					this._extensionShutdownHandler?.();
