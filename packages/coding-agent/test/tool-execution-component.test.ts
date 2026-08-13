@@ -54,31 +54,28 @@ describe("ToolExecutionComponent parity", () => {
 		expect(formatElapsedDuration(3_660_000)).toBe("1h 01m");
 	});
 
-	test("shows live and final elapsed time for tool executions", () => {
+	test("does not globally redraw an active tool card as elapsed time advances", async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(0);
+		const requestRender = vi.fn();
 		const component = new ToolExecutionComponent(
 			"custom_tool",
 			"tool-timer",
 			{},
 			{},
 			createBaseToolDefinition(),
-			createFakeTui(),
+			createFakeTui(requestRender),
 			process.cwd(),
 		);
 
 		component.markExecutionStarted(0);
-		vi.setSystemTime(84);
-		component.updateResult({ content: [{ type: "text", text: "failed" }], details: {}, isError: true }, false);
-		expect(stripAnsi(component.render(120).join("\n"))).toContain("Elapsed: 84ms");
+		const rendersAfterStart = requestRender.mock.calls.length;
+		await vi.advanceTimersByTimeAsync(2_100);
 
-		component.markExecutionStarted(0);
-		vi.setSystemTime(2_100);
-		component.invalidate();
-		expect(stripAnsi(component.render(120).join("\n"))).toContain("Elapsed: 2s");
+		expect(requestRender).toHaveBeenCalledTimes(rendersAfterStart);
+		expect(stripAnsi(component.render(120).join("\n"))).not.toContain("Elapsed:");
 
-		vi.setSystemTime(3_250);
-		component.updateResult({ content: [{ type: "text", text: "done" }], details: {}, isError: false }, false);
+		component.updateResult({ content: [{ type: "text", text: "done" }], details: {}, isError: false }, false, 3_250);
 		vi.setSystemTime(10_000);
 		component.invalidate();
 		expect(stripAnsi(component.render(120).join("\n"))).toContain("Elapsed: 3s");

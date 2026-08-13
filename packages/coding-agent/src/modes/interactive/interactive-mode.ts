@@ -2238,11 +2238,7 @@ export class InteractiveMode {
 			return "Working...";
 		}
 		if (activity.phase === "tool") {
-			return this.getToolWaitingMessage(
-				activity.toolName,
-				startedAt,
-				!this.toolComponentOwnsElapsed(activity.toolCallId),
-			);
+			return this.getToolWaitingMessage(activity.toolName, startedAt);
 		}
 		return `${this.defaultWorkingMessage} ${formatElapsedDuration(Date.now() - startedAt)}`;
 	}
@@ -2318,10 +2314,6 @@ export class InteractiveMode {
 		}
 	}
 
-	private toolComponentOwnsElapsed(toolCallId: string): boolean {
-		return this.pendingTools.get(toolCallId)?.hasElapsedTiming() === true;
-	}
-
 	private setWorkingMessageForActiveTools(): void {
 		const nextToolEntry = this.executingToolNames.entries().next().value;
 		if (!nextToolEntry) {
@@ -2330,13 +2322,7 @@ export class InteractiveMode {
 		}
 
 		const [toolCallId, toolName] = nextToolEntry;
-		this.setDefaultWorkingMessage(
-			this.getToolWaitingMessage(
-				toolName,
-				this.executingToolStartedAt.get(toolCallId),
-				!this.toolComponentOwnsElapsed(toolCallId),
-			),
-		);
+		this.setDefaultWorkingMessage(this.getToolWaitingMessage(toolName, this.executingToolStartedAt.get(toolCallId)));
 	}
 
 	private startToolWaitingTimer(): void {
@@ -4141,9 +4127,6 @@ export class InteractiveMode {
 	}
 
 	private clearPendingToolComponents(): void {
-		for (const component of this.pendingTools.values()) {
-			component.dispose();
-		}
 		this.pendingTools.clear();
 	}
 

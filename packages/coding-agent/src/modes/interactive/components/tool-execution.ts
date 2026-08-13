@@ -6,7 +6,6 @@ import { convertToPng } from "../../../utils/image-convert.ts";
 import { theme } from "../theme/theme.ts";
 import { formatElapsedDuration } from "./elapsed-time.ts";
 
-const TOOL_TIMER_INTERVAL_MS = 1000;
 const MAX_TOOL_OUTPUT_LINES = 100;
 
 type ToolResultContentItem = { type: string; text?: string; data?: string; mimeType?: string };
@@ -75,7 +74,6 @@ export class ToolExecutionComponent extends Container {
 	private executionStarted = false;
 	private executionStartedAt: number | undefined;
 	private executionFinishedAt: number | undefined;
-	private timerInterval: ReturnType<typeof setInterval> | undefined;
 	private argsComplete = false;
 	private result?: {
 		content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
@@ -190,12 +188,11 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private formatTimerText(): string | undefined {
-		if (this.executionStartedAt === undefined) {
+		if (this.executionStartedAt === undefined || this.executionFinishedAt === undefined) {
 			return undefined;
 		}
 
-		const finishedAt = this.executionFinishedAt ?? Date.now();
-		const elapsedMs = finishedAt - this.executionStartedAt;
+		const elapsedMs = this.executionFinishedAt - this.executionStartedAt;
 		return `Elapsed: ${formatElapsedDuration(elapsedMs)}`;
 	}
 
@@ -212,15 +209,10 @@ export class ToolExecutionComponent extends Container {
 		this.updateDisplay();
 	}
 
-	hasElapsedTiming(): boolean {
-		return this.executionStartedAt !== undefined;
-	}
-
 	markExecutionStarted(startedAt: number): void {
 		this.executionStarted = true;
 		this.executionStartedAt = startedAt;
 		this.executionFinishedAt = undefined;
-		this.startTimer();
 		this.updateDisplay();
 		this.ui.requestRender();
 	}
@@ -244,30 +236,9 @@ export class ToolExecutionComponent extends Container {
 		this.isPartial = isPartial;
 		if (!isPartial && this.executionStartedAt !== undefined) {
 			this.executionFinishedAt = finishedAt ?? Date.now();
-			this.stopTimer();
 		}
 		this.updateDisplay();
 		this.maybeConvertImagesForKitty();
-	}
-
-	private startTimer(): void {
-		if (this.timerInterval) {
-			return;
-		}
-
-		this.timerInterval = setInterval(() => {
-			this.updateDisplay();
-			this.ui.requestRender();
-		}, TOOL_TIMER_INTERVAL_MS);
-	}
-
-	private stopTimer(): void {
-		if (!this.timerInterval) {
-			return;
-		}
-
-		clearInterval(this.timerInterval);
-		this.timerInterval = undefined;
 	}
 
 	private maybeConvertImagesForKitty(): void {
@@ -306,10 +277,6 @@ export class ToolExecutionComponent extends Container {
 	setImageWidthCells(width: number): void {
 		this.imageWidthCells = Math.max(1, Math.floor(width));
 		this.updateDisplay();
-	}
-
-	dispose(): void {
-		this.stopTimer();
 	}
 
 	override invalidate(): void {
