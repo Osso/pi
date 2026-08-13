@@ -2,7 +2,7 @@
 
 Interactive mode starts an elapsed-duration ticker at each model request. It updates the default `Thinking...` working label once per second until visible assistant output begins or the request ends.
 
-Tool-wait messages take precedence while tools are active, so the thinking ticker leaves that row unchanged until the tool wait clears.
+Tool-wait messages take precedence while tools are active. Their live elapsed time updates through the footer's partial status region, not through recurring tool-card renders; completed cards retain final duration.
 
 ## Thinking-phase deadline
 

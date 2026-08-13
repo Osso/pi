@@ -149,6 +149,45 @@ describe("edit tool TUI rendering", () => {
 		expect(settledRender).not.toContain("Successfully replaced");
 	});
 
+	it("does not full-redraw when an offscreen active tool timer interval passes", async () => {
+		const terminal = new FakeTerminal();
+		const tui = new TUI(terminal);
+		const root = new Container();
+		const component = new ToolExecutionComponent(
+			"edit",
+			"tool-call-offscreen-timer",
+			{ path: "README.md", oldText: "before", newText: "after" },
+			{},
+			createEditToolDefinition(process.cwd()),
+			tui,
+			process.cwd(),
+		);
+		root.addChild(component);
+		for (let index = 0; index < 200; index++) {
+			root.addChild(new Text(`later history ${index}`, 0, 0));
+		}
+		tui.addChild(root);
+		tui.start();
+		await waitForRender();
+
+		component.markExecutionStarted(Date.now());
+		await waitForRender();
+		await waitForRender();
+		const redrawsBeforeTimer = tui.fullRedraws;
+		const clearsBeforeTimer = terminal.fullClearCount;
+
+		try {
+			await new Promise((resolve) => setTimeout(resolve, 1_200));
+			await waitForRender();
+
+			expect(tui.fullRedraws).toBe(redrawsBeforeTimer);
+			expect(terminal.fullClearCount).toBe(clearsBeforeTimer);
+		} finally {
+			component.updateResult({ content: [{ type: "text", text: "done" }], details: {}, isError: false }, false);
+			tui.stop();
+		}
+	});
+
 	it("reconstructs the boxed preview from a settled result without argsComplete", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "pi-edit-replay-"));
 		tempDirs.push(dir);

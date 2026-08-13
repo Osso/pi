@@ -17,8 +17,8 @@ Module boundary: core subsystem. The interactive-mode default working indicator 
 ### Tool waits
 
 - [x] While an active tool controls the working row, the thinking-duration timer must not replace its tool-wait message (`packages/coding-agent/test/interactive-mode-thinking-timer.test.ts`).
-- [x] A pending tool component owns elapsed rendering only after its execution timing is hydrated; before hydration, the working row retains the footer elapsed duration. Both main-session and selected-child footer paths use this same ownership predicate (`packages/coding-agent/test/interactive-mode-tool-timing.test.ts`).
-- [x] Once timing is hydrated, the pending tool component remains the sole elapsed renderer and places the timer below the compact or expanded call content (`packages/coding-agent/src/modes/interactive/components/tool-execution.ts`).
+- [x] While a pending tool runs, the footer's partial working-status region renders live elapsed time for both main-session and selected-child views (`packages/coding-agent/test/interactive-mode-tool-timing.test.ts`).
+- [x] Active tool cards do not own recurring timers or trigger global transcript redraws; completed cards render final elapsed duration below compact or expanded call content (`packages/coding-agent/test/edit-tool-no-full-redraw.test.ts`, `packages/coding-agent/test/tool-execution-component.test.ts`).
 - [x] When a model turn follows a completed tool and emits another tool call, render the completed interval as `Thought for <duration>` between the two tool rows; intervals shorter than one second remain hidden (`packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts`).
 
 ### Steering
@@ -34,7 +34,7 @@ Module boundary: core subsystem. The interactive-mode default working indicator 
 ## Implementation inventory
 
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts` — owns the default working label, thinking-duration timer, tool-wait precedence, and shared footer ownership predicate.
-- `packages/coding-agent/src/modes/interactive/components/tool-execution.ts` — owns hydrated tool elapsed rendering below compact or expanded call content.
+- `packages/coding-agent/src/modes/interactive/components/tool-execution.ts` — renders final completed-tool duration below compact or expanded call content.
 
 ## Tests asserting this spec
 
@@ -42,6 +42,7 @@ Module boundary: core subsystem. The interactive-mode default working indicator 
 - `packages/coding-agent/test/interactive-mode-thinking-timer.test.ts` — elapsed formatting, response-end shutdown, and tool-wait precedence.
 - `packages/coding-agent/test/interactive-mode-tool-timing.test.ts` — hydrated versus unhydrated pending-tool ownership across footer paths.
 - `packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts` — completed model-turn duration placement between consecutive tools.
+- `packages/coding-agent/test/edit-tool-no-full-redraw.test.ts` — real-TUI proof that offscreen active tool timing does not clear or redraw transcript scrollback.
 - `packages/coding-agent/test/suite/agent-session-child-activity.test.ts` — main/child per-phase deadlines, tool exclusion, continuation propagation, observer exclusion, and lifecycle cleanup.
 - `packages/coding-agent/test/multi-agent-extension.test.ts` — real spawned and attached child timeout terminalization.
 
