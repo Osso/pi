@@ -40,7 +40,6 @@ import docsTreeContextExtension from "../extensions/docs-tree-context/src/index.
 import effortExtension from "../extensions/effort/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
 import loopExtension from "../extensions/loop/src/index.ts";
-import openAIRemoteCompactExtension from "../extensions/openai-remote-compact/src/index.ts";
 import pyrunExtension from "../extensions/pyrun/src/index.ts";
 import { resolvePyrunRunnerCommand } from "../extensions/pyrun/src/runner.ts";
 import runPlanExtension from "../extensions/run-plan/src/index.ts";
@@ -718,7 +717,6 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("bwrap", bwrapExtension),
 		...optionalFirstPartyExtensionFactory("pyrun", resolvePyrunRunnerCommand(), pyrunFactory),
 		firstPartyExtensionFactory("loop", loopExtension),
-		firstPartyExtensionFactory("openai-remote-compact", openAIRemoteCompactExtension),
 		firstPartyExtensionFactory("run-plan", runPlanExtension),
 		firstPartyExtensionFactory("safe", safeExtension),
 		firstPartyExtensionFactory("spec-validation", specValidationExtension),

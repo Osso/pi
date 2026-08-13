@@ -80,6 +80,7 @@ describe("first-party extension executable availability", () => {
 		expect(output).not.toMatch(/built-in\s+browser-cli\s/);
 		expect(output).not.toMatch(/built-in\s+claude-bash-hook\s/);
 		expect(output).not.toMatch(/built-in\s+pyrun\s/);
+		expect(output).not.toMatch(/built-in\s+openai-remote-compact\s/);
 		expect(output).toMatch(/built-in\s+goal\s/);
 	});
 

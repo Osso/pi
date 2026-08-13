@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { type AssistantMessage, cleanupSessionResources } from "@earendil-works/pi-ai/compat";
-import openAIRemoteCompactExtension from "../../extensions/openai-remote-compact/src/index.ts";
 import { getAgentDir, VERSION } from "../config.ts";
 import type { AgentSessionEvent } from "../core/agent-session.ts";
 import { AuthStorage } from "../core/auth-storage.ts";
@@ -111,7 +110,6 @@ export async function createSupervisorResourceLoader(
 			(pi) => {
 				pi.registerToolGate((event) => blockSupervisorFileAccess(kbDir, event));
 			},
-			openAIRemoteCompactExtension,
 		],
 		noContextFiles: true,
 		noExtensions: true,

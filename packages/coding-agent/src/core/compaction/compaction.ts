@@ -840,11 +840,7 @@ export async function generateSummary(
 		streamFn,
 	);
 
-	return readSummarizationText(
-		response,
-		"Summarization failed",
-		"Compaction summarization returned no text",
-	);
+	return readSummarizationText(response, "Summarization failed", "Compaction summarization returned no text");
 }
 
 // ============================================================================

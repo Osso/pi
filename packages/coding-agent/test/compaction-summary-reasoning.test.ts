@@ -218,13 +218,7 @@ describe("generateSummary reasoning options", () => {
 			settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
 		};
 
-		await compact(
-			preparation,
-			createModel(false),
-			"test-key",
-			undefined,
-			"Prioritize relocation ordering.",
-		);
+		await compact(preparation, createModel(false), "test-key", undefined, "Prioritize relocation ordering.");
 
 		expect(getSummarizationPrompt()).toContain(
 			"Additional compaction focus requested by the user:\nPrioritize relocation ordering.",

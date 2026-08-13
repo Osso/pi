@@ -84,14 +84,14 @@ describe("resident Supervisor service", () => {
 		expect(source).not.toContain('"web_search"');
 	});
 
-	it("loads only the explicit Supervisor extension allowlist", async () => {
+	it("loads only the Supervisor mutation gate extension", async () => {
 		const settingsManager = createSupervisorSettingsManager();
 		const resourceLoader = await createSupervisorResourceLoader(tempDir, tempDir, settingsManager);
 
 		const extensions = resourceLoader.getExtensions().extensions;
-		expect(extensions).toHaveLength(2);
-		expect(extensions.some((extension) => extension.handlers.has("compaction"))).toBe(true);
-		expect(extensions.some((extension) => extension.toolGates.length > 0)).toBe(true);
+		expect(extensions).toHaveLength(1);
+		expect(extensions.some((extension) => extension.handlers.has("compaction"))).toBe(false);
+		expect(extensions[0]?.toolGates.length).toBeGreaterThan(0);
 	});
 
 	it("rejects extension diagnostics before the Supervisor session starts", () => {
