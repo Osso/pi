@@ -4174,7 +4174,7 @@ export class AgentSession {
 		} catch (error) {
 			if (cache.abortController.signal.aborted) return;
 			cache.state = "failed";
-			console.error("Background compaction cache generation failed:", error);
+			console.error(`Background compaction cache generation failed: ${errorMessage(error)}`);
 		}
 	}
 

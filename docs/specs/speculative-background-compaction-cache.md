@@ -21,6 +21,7 @@ Speculative background compaction prepares a compaction result before normal com
 - [x] Reject a cache whose session, branch ancestry, model, compaction settings, or system prompt no longer matches the current session.
 - [x] Prevent speculative generation from overlapping another speculative or real compaction.
 - [x] Retain synchronous threshold and overflow compaction when the cache is unavailable, stale, canceled, or not ready.
+- [x] Report non-aborted background cache-generation failures as one concise diagnostic line without changing cache lifecycle or foreground fallback.
 
 ## How it works
 

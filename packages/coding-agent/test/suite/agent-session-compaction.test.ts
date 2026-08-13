@@ -10,11 +10,13 @@ import {
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { estimateTokens, findCutPoint } from "../../src/core/compaction/index.ts";
+import type { ExtensionRunner } from "../../src/core/extensions/index.ts";
 import type { SessionMessageEntry } from "../../src/core/session-manager.ts";
 import { createHarness, getAssistantTexts, getUserTexts, type Harness } from "./harness.ts";
 
 type SessionWithCompactionInternals = {
 	_checkCompaction: (assistantMessage: AssistantMessage, postRunCheck?: boolean) => Promise<boolean>;
+	_extensionRunner: ExtensionRunner;
 	_runAutoCompaction: (reason: "overflow" | "threshold", willRetry: boolean) => Promise<boolean>;
 	_lengthRecoveryAttempted?: boolean;
 };
@@ -1400,6 +1402,40 @@ describe("AgentSession compaction characterization", () => {
 		expect(compactionEnds.at(-1)).toMatchObject({ reason: "threshold", willRetry: false });
 		expect(harness.faux.state.callCount).toBe(2);
 		expect(harness.getPendingResponseCount()).toBe(1);
+	});
+
+	it("reports a failed background compaction without starting foreground compaction", async () => {
+		const overloadError =
+			"Codex error: Our servers are currently overloaded. Please try again later.";
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		const harness = await createHarness({
+			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 0 } },
+			models: [{ id: "faux-1", contextWindow: 100, maxTokens: 100 }],
+			extensionFactories: [
+				(pi) => {
+					pi.on("compaction", async () => {
+						throw new Error(overloadError);
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+		expect(sessionInternals._extensionRunner.hasHandlers("compaction")).toBe(true);
+		vi.spyOn(sessionInternals._extensionRunner, "emit").mockRejectedValue(new Error(overloadError));
+
+		await expect(
+			sessionInternals._checkCompaction(
+				createAssistant(harness, { stopReason: "stop", totalTokens: 70, timestamp: Date.now() }),
+			),
+		).resolves.toBe(false);
+		await vi.waitFor(() => expect(errorSpy).toHaveBeenCalledTimes(1));
+
+		expect(errorSpy).toHaveBeenCalledWith(`Background compaction cache generation failed: ${overloadError}`);
+		expect(harness.eventsOfType("compaction_start")).toHaveLength(0);
+		expect(harness.eventsOfType("compaction_end")).toHaveLength(0);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(0);
 	});
 
 	it("starts speculative compaction during a multi-cycle turn and consumes it at safe end", async () => {
