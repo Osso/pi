@@ -259,6 +259,21 @@ async function waitForHeadlessSessionStartRelease(env: NodeJS.ProcessEnv = proce
 		await new Promise((resolve) => setTimeout(resolve, 10));
 	}
 }
+
+function assistantMessagePrecedesLatestCompaction(
+	entries: SessionEntry[],
+	assistantMessage: AssistantMessage,
+): boolean {
+	const compactionEntry = getLatestCompactionEntry(entries);
+	if (!compactionEntry) return false;
+	const compactionIndex = entries.lastIndexOf(compactionEntry);
+	const assistantIndex = entries.findLastIndex(
+		(entry) => entry.type === "message" && entry.message === assistantMessage,
+	);
+	if (assistantIndex !== -1) return assistantIndex < compactionIndex;
+	return assistantMessage.timestamp <= new Date(compactionEntry.timestamp).getTime();
+}
+
 const CODEX_PROVIDER_PAIRS = new Map([
 	["openai-codex", "openai-codex-gc"],
 	["openai-codex-gc", "openai-codex"],
@@ -4287,13 +4302,10 @@ export class AgentSession {
 		// shouldn't trigger compaction for the new model.
 		const sameModel = model && assistantMessage.provider === model.provider && assistantMessage.model === model.id;
 
-		// Skip compaction checks if this assistant message is older than the latest
-		// compaction boundary. This prevents a stale pre-compaction usage/error
-		// from retriggering compaction on the first prompt after compaction.
-		const compactionEntry = getLatestCompactionEntry(this.sessionManager.getBranch());
-		const assistantIsFromBeforeCompaction =
-			compactionEntry !== null && assistantMessage.timestamp <= new Date(compactionEntry.timestamp).getTime();
-		if (assistantIsFromBeforeCompaction) {
+		// Skip compaction checks if this assistant message precedes the latest
+		// compaction boundary. Persisted branch order disambiguates messages that
+		// share the boundary timestamp; synthetic checks fall back to timestamps.
+		if (assistantMessagePrecedesLatestCompaction(this.sessionManager.getBranch(), assistantMessage)) {
 			return false;
 		}
 

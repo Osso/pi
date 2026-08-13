@@ -11,7 +11,7 @@ import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { estimateTokens, findCutPoint } from "../../src/core/compaction/index.ts";
 import type { ExtensionRunner } from "../../src/core/extensions/index.ts";
-import type { SessionMessageEntry } from "../../src/core/session-manager.ts";
+import { getLatestCompactionEntry, type SessionMessageEntry } from "../../src/core/session-manager.ts";
 import { createHarness, getAssistantTexts, getUserTexts, type Harness } from "./harness.ts";
 
 type SessionWithCompactionInternals = {
@@ -968,11 +968,15 @@ describe("AgentSession compaction characterization", () => {
 					stopReason: "error",
 					errorMessage: "Error: exceeded request buffer limit while retrying upstream",
 				}),
-			async () =>
-				fauxAssistantMessage("", {
+			async () => {
+				const compactionEntry = getLatestCompactionEntry(harness.sessionManager.getBranch());
+				if (!compactionEntry) throw new Error("Expected first overflow compaction before retry");
+				return fauxAssistantMessage("", {
 					stopReason: "error",
 					errorMessage: "Error: exceeded request buffer limit while retrying upstream",
-				}),
+					timestamp: new Date(compactionEntry.timestamp).getTime(),
+				});
+			},
 		]);
 
 		await expect(harness.session.prompt("trigger repeated request-buffer overflow")).resolves.toBeUndefined();
