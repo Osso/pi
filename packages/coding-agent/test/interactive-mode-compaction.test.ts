@@ -48,14 +48,14 @@ describe("InteractiveMode compaction events", () => {
 		);
 	});
 
-	test("shows local source in the in-progress compaction label", () => {
+	test("does not label generic compaction as local", () => {
 		expect(
 			formatCompactionStartLabel(
 				"threshold",
 				{ type: "local", provider: "anthropic", model: "claude-sonnet-4-5" },
 				"(escape to cancel)",
 			),
-		).toBe("Auto-compacting locally... (escape to cancel)");
+		).toBe("Auto-compacting... (escape to cancel)");
 	});
 
 	test("shows remote source without periodically rerendering the compaction label", async () => {
@@ -250,7 +250,7 @@ describe("InteractiveMode compaction events", () => {
 		).toContain("Original error: Turn prefix summarization failed: Request timed out.");
 	});
 
-	test("logs local compaction source when no remote endpoint was used", async () => {
+	test("shows the active model when no remote endpoint was used", async () => {
 		const fakeThis = {
 			isInitialized: true,
 			isViewingAgentSession: () => false,
@@ -301,6 +301,6 @@ describe("InteractiveMode compaction events", () => {
 			willRetry: false,
 		});
 
-		expect(fakeThis.showStatus).toHaveBeenCalledWith("Compaction completed locally (anthropic/claude-sonnet-4-5)");
+		expect(fakeThis.showStatus).toHaveBeenCalledWith("Compaction completed (anthropic/claude-sonnet-4-5)");
 	});
 });

@@ -20,6 +20,7 @@
 
 - Changed Claude-memory enrichment to allow 75-second subprocess execution and reap timed-out children after bounded SIGTERM/SIGKILL escalation.
 - Changed speculative background compaction failures to report one concise non-fatal diagnostic line while preserving foreground fallback.
+- Changed generic compaction status messages to avoid implying that summarization runs on-device; in-progress messages no longer say “locally”, and completion messages identify the active model when available.
 - Changed resume listing to treat nonempty control-DB session metadata as authoritative, pushing archive, main-session, cwd, and session-directory filters into the query and scanning transcripts only when metadata is empty.
 - Changed project context discovery to scan the global agent directory and all cwd ancestors for AGENTS-family instruction files first; if any load successfully anywhere, CLAUDE-family paths are not accessed anywhere, and only when none load across the hierarchy are CLAUDE-family files loaded.
 - Changed all built-in coding-agent cosmetic loaders and exported status indicators to static status text: compatible main and selected-child editors animate active work through the prompt fixed cell, while compaction, retry, branch summarization, local bash, bordered loaders, exported status indicators, and incompatible or hidden custom editors avoid recurring spinner renders. Dynamic tool/countdown layouts and non-streaming transcript mutations still use normal renders.

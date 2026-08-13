@@ -7698,10 +7698,6 @@ function formatCompactionSourceProgressSuffix(source: CompactionSourceInfo | und
 		return ` via OpenAI remote endpoint (${source.provider}/${source.model}${endpointSuffix})`;
 	}
 
-	if (source?.type === "local") {
-		return " locally";
-	}
-
 	return "";
 }
 
@@ -7762,8 +7758,8 @@ function formatCompactionSourceLogMessage(source: CompactionSourceInfo | undefin
 	}
 
 	if (source?.type === "local") {
-		return `Compaction completed locally (${source.provider}/${source.model})`;
+		return `Compaction completed (${source.provider}/${source.model})`;
 	}
 
-	return "Compaction completed locally";
+	return "Compaction completed";
 }
