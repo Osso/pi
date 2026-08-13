@@ -1405,8 +1405,7 @@ describe("AgentSession compaction characterization", () => {
 	});
 
 	it("reports a failed background compaction without starting foreground compaction", async () => {
-		const overloadError =
-			"Codex error: Our servers are currently overloaded. Please try again later.";
+		const overloadError = "Codex error: Our servers are currently overloaded. Please try again later.";
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const harness = await createHarness({
 			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 0 } },

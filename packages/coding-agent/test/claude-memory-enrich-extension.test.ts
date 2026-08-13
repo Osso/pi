@@ -1,7 +1,7 @@
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ExtensionAPI } from "../src/core/extensions/types.ts";
 import claudeMemoryEnrichExtension from "../extensions/claude-memory-enrich/src/index.ts";
+import type { ExtensionAPI } from "../src/core/extensions/types.ts";
 
 const spawnMock = vi.hoisted(() => vi.fn());
 
@@ -133,9 +133,7 @@ describe("claude-memory enrich extension", () => {
 		firstChild.emit("close", null);
 		await expect(firstResult).resolves.toBeUndefined();
 		expect(errorSpy).toHaveBeenCalledTimes(1);
-		expect(errorSpy).toHaveBeenCalledWith(
-			"claude-memory-enrich: claude-memory enrich timed out after 75000ms",
-		);
+		expect(errorSpy).toHaveBeenCalledWith("claude-memory-enrich: claude-memory enrich timed out after 75000ms");
 
 		await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2));
 		completeSuccessfully(secondChild);
