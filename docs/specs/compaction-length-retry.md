@@ -37,6 +37,8 @@ works is described in [compaction](../../packages/coding-agent/docs/compaction.m
   are classified as oversized-request overflow, not ordinary transient provider errors.
   Overflow recovery compacts and retries the request once through the existing bounded
   overflow path; a repeated 507 ends recovery without retrying the unchanged request again.
+- [x] Stale compaction checks use persisted session-branch order when the assistant message
+  is present there, so a post-compaction 507 sharing the compaction millisecond is not discarded.
 - [x] The recovery attempt guard resets when an assistant message arrives with any stop reason
   other than `"length"` (including mid-turn tool-call messages), and on the next user prompt.
 - [ ] `"length"`-stopped turns with zero output tokens near the full context window are
@@ -52,9 +54,10 @@ works is described in [compaction](../../packages/coding-agent/docs/compaction.m
 - `packages/ai/src/api/openai-responses-shared.ts` — finalizes OpenAI Responses/Codex max-output incomplete events as `stopReason: "length"` and rejects other incomplete reasons.
 - `packages/ai/src/utils/retry.ts` — excludes deterministic legacy max-output and content-filter incomplete errors from transient retry classification.
 - `packages/agent-core/src/agent-loop.ts` — treats provider `"length"` truncation as terminal so the host receives `agent_end` and can run post-turn compaction.
-- `packages/coding-agent/src/core/agent-session.ts` — `_checkCompaction` decides
-  `willRetry` for threshold compactions; `_runAutoCompaction` strips the truncated trailing
-  assistant message before the continuation; `_lengthRecoveryAttempted` guard state.
+- `packages/coding-agent/src/core/agent-session.ts` — `_checkCompaction` orders stale checks
+  by persisted branch position with timestamp fallback, decides `willRetry` for threshold
+  compactions, and `_runAutoCompaction` strips the truncated trailing assistant message before
+  continuation; `_lengthRecoveryAttempted` guard state.
 - `packages/ai/src/utils/overflow.ts` — `isContextOverflow` boundary that separates
   overflow recovery from threshold length-retry.
 
@@ -78,6 +81,7 @@ works is described in [compaction](../../packages/coding-agent/docs/compaction.m
   - "does not resume a second consecutive length-truncated turn"
   - "resets the length-recovery guard on the next user prompt"
   - "compacts and retries request-buffer overflow without ordinary auto-retry"
+  - "compacts once and reports bounded failure after repeated request-buffer overflow"
 
 ## Known gaps (current cycle)
 
