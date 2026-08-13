@@ -997,6 +997,10 @@ function createHeadlessRuntime(options: {
 	};
 }
 
+function selectHeadlessDisabledExtensions(enableMemoryEnrichment: boolean | undefined): string[] {
+	return enableMemoryEnrichment ? [] : ["claude-memory-enrich"];
+}
+
 async function startHeadlessPi(fixtureOptions: HeadlessPiOptions = {}): Promise<HeadlessPiRuntime> {
 	const paths = createHeadlessPaths(defaultHeadlessPathOperations, fixtureOptions.provider);
 	const testExtensionDir = join(paths.agentDir, "extensions");
@@ -1043,7 +1047,7 @@ export default function(pi) {
 			approvalPreset,
 			sandboxProfile: fixtureOptions.sandboxProfile,
 			agents: { background: { context: "fresh" } },
-			disabledExtensions: fixtureOptions.enableMemoryEnrichment ? [] : ["claude-memory-enrich"],
+			disabledExtensions: selectHeadlessDisabledExtensions(fixtureOptions.enableMemoryEnrichment),
 		}),
 	);
 	const context: HeadlessSessionContext = { mainSessionId: "", sessionFile: "" };
