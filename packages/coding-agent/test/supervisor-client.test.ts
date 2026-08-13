@@ -142,6 +142,35 @@ describe("Supervisor client", () => {
 		});
 	});
 
+	it("cancels polling, retries, and the durable request when its signal aborts", async () => {
+		const controller = new AbortController();
+		const decision = requestSupervisorDecision(
+			{
+				controlDbPath,
+				kind: "goal_idle_review",
+				maxAttempts: 3,
+				payload: { objective: "keep active" },
+				pollIntervalMs: 10_000,
+				projectId: "pi",
+				retryDelayMs: 10_000,
+				senderSessionId: "goal-session",
+				signal: controller.signal,
+				timeoutMs: 60_000,
+			},
+			runningDependencies,
+		);
+
+		await vi.waitFor(() => expect(readSupervisorRequest(controlDbPath, 1)).toBeDefined());
+		controller.abort();
+
+		await expect(decision).resolves.toEqual({ kind: "error", reason: "Supervisor request cancelled" });
+		expect(readSupervisorRequest(controlDbPath, 1)).toMatchObject({
+			status: "cancelled",
+			response: { kind: "error", reason: "Supervisor request cancelled" },
+		});
+		expect(readSupervisorRequest(controlDbPath, 2)).toBeUndefined();
+	});
+
 	it("returns error when all request attempts expire without a service response", async () => {
 		await expect(
 			requestSupervisorDecision(

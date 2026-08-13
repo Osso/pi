@@ -101,7 +101,7 @@ export type SupervisorRequestKind =
 	| "goal_set_review"
 	| "supervisor_advisory";
 
-export type SupervisorRequestStatus = "pending" | "claimed" | "completed";
+export type SupervisorRequestStatus = "pending" | "claimed" | "completed" | "cancelled";
 
 export type SupervisorResponse =
 	| { kind: "approve" | "reject"; reason: string }
@@ -1632,6 +1632,27 @@ export function readSupervisorRequest(controlDbPath: string, requestId: number):
 			.get(requestId) as SupervisorRequestRow | undefined;
 		return row ? supervisorRequestFromRow(row) : undefined;
 	});
+}
+
+export function cancelSupervisorRequest(
+	controlDbPath: string,
+	requestId: number,
+	senderSessionId: string,
+	reason: string,
+): boolean {
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const response: SupervisorResponse = { kind: "error", reason };
+			const result = db
+				.prepare(
+					`UPDATE supervisor_requests
+					 SET status = 'cancelled', completed_at = ?, claim_token = NULL, response_json = ?
+					 WHERE id = ? AND sender_session_id = ? AND status IN ('pending', 'claimed')`,
+				)
+				.run(new Date().toISOString(), JSON.stringify(response), requestId, senderSessionId);
+			return result.changes === 1;
+		}),
+	);
 }
 
 export function claimNextSupervisorRequest(controlDbPath: string, claimToken: string): SupervisorRequest | undefined {

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	cancelSupervisorRequest,
 	claimNextSupervisorRequest,
 	completeSupervisorRequest,
 	getControlDbPath,
@@ -215,6 +216,44 @@ describe("Supervisor request repository", () => {
 			}),
 		).toThrow("Invalid Supervisor response kind pause for approval_review");
 		expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({ status: "claimed" });
+	});
+
+	it("cancels pending and claimed requests without allowing claim or late completion", () => {
+		const pendingId = postSupervisorRequest(controlDbPath, {
+			deadlineAt: "2026-08-13T12:03:00.000Z",
+			kind: "goal_idle_review",
+			payload: { objective: "keep active" },
+			projectId: "pi",
+			senderSessionId: "goal-session",
+		});
+
+		expect(cancelSupervisorRequest(controlDbPath, pendingId, "goal-session", "Escape pressed")).toBe(true);
+		expect(readSupervisorRequest(controlDbPath, pendingId)).toMatchObject({
+			status: "cancelled",
+			response: { kind: "error", reason: "Escape pressed" },
+		});
+		expect(claimNextSupervisorRequest(controlDbPath, "runtime")).toBeUndefined();
+		expect(cancelSupervisorRequest(controlDbPath, pendingId, "goal-session", "again")).toBe(false);
+
+		const claimedId = postSupervisorRequest(controlDbPath, {
+			deadlineAt: "2026-08-13T12:03:00.000Z",
+			kind: "goal_idle_review",
+			payload: { objective: "keep active" },
+			projectId: "pi",
+			senderSessionId: "goal-session",
+		});
+		const claimed = claimNextSupervisorRequest(controlDbPath, "runtime");
+		if (!claimed?.claimToken) throw new Error("expected claimed request");
+
+		expect(cancelSupervisorRequest(controlDbPath, claimedId, "goal-session", "Escape pressed")).toBe(true);
+		expect(() =>
+			completeSupervisorRequest(controlDbPath, claimedId, claimed.claimToken as string, {
+				kind: "continue",
+				instructions: "stale",
+				reason: "late",
+			}),
+		).toThrow(`Supervisor request claim lost: ${claimedId}`);
+		expect(readSupervisorRequest(controlDbPath, claimedId)).toMatchObject({ status: "cancelled" });
 	});
 
 	it("persists a typed response for the waiting caller", () => {

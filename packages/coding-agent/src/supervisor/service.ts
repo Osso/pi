@@ -1,6 +1,7 @@
 import {
 	completeSupervisorRequest,
 	hasPendingSupervisorApprovalRequest,
+	readSupervisorRequest,
 	requeueSupervisorRequest,
 	type SupervisorRequest,
 	type SupervisorRequestKind,
@@ -110,11 +111,14 @@ function parseAdvisoryResponse(response: Record<string, unknown>): SupervisorRes
 	return response.answer.trim() ? { answer: response.answer, kind: "advisory" } : undefined;
 }
 
-export async function runSupervisorRequest(input: RunSupervisorRequestInput): Promise<"completed" | "preempted"> {
+export async function runSupervisorRequest(
+	input: RunSupervisorRequestInput,
+): Promise<"completed" | "preempted" | "cancelled"> {
 	const abortController = new AbortController();
 	const evaluation = input.evaluate(buildSupervisorPrompt(input.request), abortController.signal);
 	const waitResult = await waitForEvaluation(input, evaluation, abortController);
 	if (waitResult === "preempted") return "preempted";
+	if (waitResult === "cancelled") return "cancelled";
 	if (waitResult === "expired") {
 		completeSupervisorRequest(input.controlDbPath, input.request.id, requiredClaimToken(input.request), {
 			kind: "error",
@@ -122,7 +126,9 @@ export async function runSupervisorRequest(input: RunSupervisorRequestInput): Pr
 		});
 		return "completed";
 	}
+	if (readSupervisorRequest(input.controlDbPath, input.request.id)?.status === "cancelled") return "cancelled";
 	const rawResponse = await evaluation;
+	if (readSupervisorRequest(input.controlDbPath, input.request.id)?.status === "cancelled") return "cancelled";
 	const response = parseSupervisorResponse(input.request.kind, rawResponse) ?? {
 		kind: "error" as const,
 		reason: "Supervisor returned an invalid response",
@@ -135,7 +141,7 @@ async function waitForEvaluation(
 	input: RunSupervisorRequestInput,
 	evaluation: Promise<unknown>,
 	abortController: AbortController,
-): Promise<"completed" | "expired" | "preempted"> {
+ ): Promise<"completed" | "expired" | "preempted" | "cancelled"> {
 	const pollIntervalMs = input.pollIntervalMs ?? 50;
 	let evaluationSettled = false;
 	void evaluation.then(
@@ -148,6 +154,11 @@ async function waitForEvaluation(
 	);
 	while (!evaluationSettled) {
 		await delay(Math.min(pollIntervalMs, remainingMilliseconds(input.request.deadlineAt)));
+		if (readSupervisorRequest(input.controlDbPath, input.request.id)?.status === "cancelled") {
+			abortController.abort();
+			await evaluation.catch(() => undefined);
+			return "cancelled";
+		}
 		if (Date.now() >= Date.parse(input.request.deadlineAt)) {
 			abortController.abort();
 			await evaluation.catch(() => undefined);

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	cancelSupervisorRequest,
 	claimNextSupervisorRequest,
 	getControlDbPath,
 	postSupervisorRequest,
@@ -35,6 +36,44 @@ describe("resident Supervisor service", () => {
 
 	afterEach(() => {
 		rmSync(tempDir, { force: true, recursive: true });
+	});
+
+	it("aborts an active evaluation after caller cancellation without writing a response", async () => {
+		const requestId = postSupervisorRequest(controlDbPath, {
+			deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+			kind: "goal_idle_review",
+			payload: { objective: "keep active" },
+			projectId: "pi",
+			senderSessionId: "goal-session",
+		});
+		const request = claimNextSupervisorRequest(controlDbPath, "runtime");
+		if (!request) throw new Error("expected claimed request");
+		let evaluationSignal: AbortSignal | undefined;
+		let releaseEvaluation!: () => void;
+		const evaluationFinished = new Promise<void>((resolve) => {
+			releaseEvaluation = resolve;
+		});
+
+		const run = runSupervisorRequest({
+			controlDbPath,
+			evaluate: async (_prompt, signal) => {
+				evaluationSignal = signal;
+				await evaluationFinished;
+				throw new Error("evaluation aborted");
+			},
+			pollIntervalMs: 1,
+			request,
+		});
+
+		await vi.waitFor(() => expect(evaluationSignal).toBeDefined());
+		expect(cancelSupervisorRequest(controlDbPath, requestId, "goal-session", "Supervisor request cancelled")).toBe(
+			true,
+		);
+		releaseEvaluation();
+
+		expect(await run).toBe("cancelled");
+		expect(evaluationSignal?.aborted).toBe(true);
+		expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({ status: "cancelled" });
 	});
 
 	it("uses the fixed local Sol model with low effort and no web tool", () => {
