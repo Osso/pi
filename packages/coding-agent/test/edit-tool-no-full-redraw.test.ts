@@ -2,7 +2,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Container, type Terminal, Text, TUI } from "@earendil-works/pi-tui";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { createPyrunToolDefinition } from "../extensions/pyrun/src/index.ts";
 import { createEditToolDefinition } from "../src/core/tools/edit.ts";
 import { computeEditsDiff, type Edit } from "../src/core/tools/edit-diff.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
@@ -36,6 +37,10 @@ class FakeTerminal implements Terminal {
 
 async function waitForRender(): Promise<void> {
 	await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function flushFakeTuiRender(): Promise<void> {
+	await vi.advanceTimersByTimeAsync(20);
 }
 
 async function waitForRenderedText(
@@ -149,16 +154,21 @@ describe("edit tool TUI rendering", () => {
 		expect(settledRender).not.toContain("Successfully replaced");
 	});
 
-	it("does not full-redraw when an offscreen active tool timer interval passes", async () => {
+	it("does not clear scrollback when silent pyrun elapsed time advances above the viewport", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(0);
 		const terminal = new FakeTerminal();
 		const tui = new TUI(terminal);
 		const root = new Container();
+		const pyrunDefinition = createPyrunToolDefinition(async () => {
+			throw new Error("test evaluator must not run");
+		});
 		const component = new ToolExecutionComponent(
-			"edit",
-			"tool-call-offscreen-timer",
-			{ path: "README.md", oldText: "before", newText: "after" },
+			"pyrun_eval",
+			"tool-call-silent-pyrun",
+			{ code: "import time\\ntime.sleep(10)" },
 			{},
-			createEditToolDefinition(process.cwd()),
+			pyrunDefinition,
 			tui,
 			process.cwd(),
 		);
@@ -168,23 +178,25 @@ describe("edit tool TUI rendering", () => {
 		}
 		tui.addChild(root);
 		tui.start();
-		await waitForRender();
+		await flushFakeTuiRender();
 
-		component.markExecutionStarted(Date.now());
-		await waitForRender();
-		await waitForRender();
-		const redrawsBeforeTimer = tui.fullRedraws;
-		const clearsBeforeTimer = terminal.fullClearCount;
+		component.markExecutionStarted(0);
+		await flushFakeTuiRender();
+		terminal.writes = [];
+		const redrawsBeforeElapsed = tui.fullRedraws;
+		const clearsBeforeElapsed = terminal.fullClearCount;
 
 		try {
-			await new Promise((resolve) => setTimeout(resolve, 1_200));
-			await waitForRender();
+			await vi.advanceTimersByTimeAsync(1_000);
+			await flushFakeTuiRender();
 
-			expect(tui.fullRedraws).toBe(redrawsBeforeTimer);
-			expect(terminal.fullClearCount).toBe(clearsBeforeTimer);
+			expect(tui.fullRedraws).toBe(redrawsBeforeElapsed);
+			expect(terminal.fullClearCount).toBe(clearsBeforeElapsed);
+			expect(terminal.writes.join("")).not.toContain("\x1b[2J\x1b[H\x1b[3J");
 		} finally {
-			component.updateResult({ content: [{ type: "text", text: "done" }], details: {}, isError: false }, false);
+			component.updateResult({ content: [], details: {}, isError: false }, false, 10_000);
 			tui.stop();
+			vi.useRealTimers();
 		}
 	});
 
