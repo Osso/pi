@@ -52,12 +52,12 @@ export async function reviewGoalWithResidentSupervisor(input: {
 	);
 	try {
 		const response = await requestSupervisorDecision({
-		controlDbPath: getControlDbPath(),
-		kind: input.kind,
-		maxAttempts: GOAL_REVIEW_MAX_ATTEMPTS,
-		payload: input.payload,
-		projectId: resolveSupervisorProjectForCwd(input.ctx.cwd, kbDir),
-		retryDelayMs: GOAL_REVIEW_RETRY_DELAY_MS,
+			controlDbPath: getControlDbPath(),
+			kind: input.kind,
+			maxAttempts: GOAL_REVIEW_MAX_ATTEMPTS,
+			payload: input.payload,
+			projectId: resolveSupervisorProjectForCwd(input.ctx.cwd, kbDir),
+			retryDelayMs: GOAL_REVIEW_RETRY_DELAY_MS,
 			senderSessionId: input.ctx.sessionManager.getSessionId(),
 			signal: cancellationController.signal,
 			timeoutMs: GOAL_REVIEW_TIMEOUT_MS,
