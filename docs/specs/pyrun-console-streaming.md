@@ -19,7 +19,7 @@ Pyrun console streaming exposes evaluated Python stdout and stderr through incre
 - [x] Foreground results, including immediate failures, render elapsed durations below one second in milliseconds.
 - [x] Durable foreground evaluations use the same visible progress formatter and console accumulator as direct foreground evaluations.
 - [x] Durable foreground artifact readers consume append-only JSONL bytes in bounded chunks, retaining an incomplete line once rather than rereading the growing artifact on every poll.
-- [x] Durable artifact observation wakes on artifact-directory activity with a one-second fallback check; dense durable console records are batched before live tool updates while the append-only artifact retains every original record.
+- [x] Durable artifact observation wakes on artifact-directory activity, drains remaining bounded chunks before waiting again, and retains a one-second fallback check; dense durable console records are batched before live tool updates while the append-only artifact retains every original record.
 - [x] Large newline-free console records remain memory-bounded across exec restart, restored child execution, and a parent blocked in `wait_agent`.
 - [x] Detached success and failure results retain duration from the original foreground tool invocation.
 - [x] Detached completion and failure notifications render the persisted duration consistently.
@@ -36,7 +36,7 @@ Pyrun console streaming exposes evaluated Python stdout and stderr through incre
 - `packages/agent-core/src/agent-loop.ts` — captures one invocation start timestamp and passes it through lifecycle events and tool execution context.
 - `packages/coding-agent/src/core/tools/tool-definition-wrapper.ts` — exposes the shared invocation start timestamp to extension tool context.
 - `packages/coding-agent/extensions/pyrun/src/index.ts` — registers `pyrun_eval` and renders live and final tool output.
-- `packages/coding-agent/extensions/pyrun/src/detached-evaluation.ts` — carries the foreground invocation timestamp into durable runner launch metadata, wakes artifact observation from filesystem activity with a one-second fallback, and incrementally parses append-only artifact JSONL without rereading partial records.
+- `packages/coding-agent/extensions/pyrun/src/detached-evaluation.ts` — carries the foreground invocation timestamp into durable runner launch metadata, wakes artifact observation from filesystem activity with a one-second fallback, drains unread bounded chunks, and incrementally parses append-only artifact JSONL without rereading partial records.
 - `packages/coding-agent/extensions/pyrun/src/detached-progress.ts` — batches durable console progress updates while preserving complete artifact records.
 - `packages/coding-agent/extensions/pyrun/src/detached-runner.ts` — computes one terminal duration for detached success, failure, and cancellation settlement.
 

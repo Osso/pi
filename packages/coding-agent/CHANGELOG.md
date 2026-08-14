@@ -35,7 +35,7 @@
 - Changed the TPS extension to report generated tokens over complete foreground model-request wall time, including TTFT; removed the decode-only rate from the output.
 - Changed recurring loop delivery to coalesce missed interval ticks while other work is busy, release at most one deferred follow-up after that run, skip ticks while the loop prompt itself is in progress, cancel deferred delivery on stop/replacement/shutdown, and preserve `loop` provenance.
 - Replaced 1-second stat polling for Git reftable metadata in `FooterDataProvider` with native `fs.watch` event handling on the reftable directory and `tables.list`.
-- Changed durable Pyrun artifact observation to wake on filesystem activity with a one-second fallback and batch dense console progress before live updates, reducing polling and update overhead while retaining complete artifact records.
+- Changed durable Pyrun artifact observation to wake on filesystem activity, drain remaining bounded artifact chunks before waiting again, and retain a one-second fallback while batching dense console progress before live updates; complete artifact records remain preserved.
 
 ### Added
 
