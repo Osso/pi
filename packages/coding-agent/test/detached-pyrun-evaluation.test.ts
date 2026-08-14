@@ -93,8 +93,8 @@ describe("durable detached Pyrun evaluation", () => {
 			},
 		});
 		await waitFor(() => detachRegistry.hasRunning());
-		const launchManifestPath = readdirSync(root, { recursive: true }).find(
-			(path) => typeof path === "string" && path.endsWith("launch.json"),
+		const launchManifestPath = readdirSync(root, { recursive: true, encoding: "utf8" }).find((path) =>
+			path.endsWith("launch.json"),
 		);
 		if (!launchManifestPath) throw new Error("Expected durable Pyrun launch manifest");
 		const runnerIdentity = readDetachedPyrunLaunchManifest(join(root, launchManifestPath)).runnerProcessIdentity;
