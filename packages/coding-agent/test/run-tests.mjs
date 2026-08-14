@@ -7,11 +7,16 @@ const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const vitestCliPath = fileURLToPath(new URL("../node_modules/vitest/vitest.mjs", import.meta.url));
 const defaultVitestArgs = ["--run", "--maxWorkers=2"];
 const sessionControlDbTestPath = "test/session-control-db.test.ts";
+const writerStarvationSkipEnv = "PI_SKIP_WRITER_STARVATION_TEST";
 
-function runVitest(args) {
+function createChildEnv(skipWriterStarvationTest) {
+	return { ...process.env, [writerStarvationSkipEnv]: skipWriterStarvationTest ? "1" : "0" };
+}
+
+function runVitest(args, childEnv) {
 	const result = spawnSync(process.execPath, [vitestCliPath, ...args], {
 		cwd: packageRoot,
-		env: process.env,
+		env: childEnv,
 		stdio: "inherit",
 	});
 
@@ -31,11 +36,24 @@ function runVitest(args) {
 }
 
 function runAllTests() {
-	const mainExitCode = runVitest([...defaultVitestArgs, "--exclude", sessionControlDbTestPath]);
+	const mainExitCode = runVitest(defaultVitestArgs, createChildEnv(true));
 	if (mainExitCode !== 0) return mainExitCode;
-	return runVitest(["--run", "--maxWorkers=1", "--fileParallelism=false", sessionControlDbTestPath]);
+	return runVitest(
+		[
+			"--run",
+			"--maxWorkers=1",
+			"--fileParallelism=false",
+			sessionControlDbTestPath,
+			"-t",
+			"avoids prolonged writer starvation when resident message indexing is disabled",
+		],
+		createChildEnv(false),
+	);
 }
 
 const cliArgs = process.argv.slice(2);
-const exitCode = cliArgs.length === 0 ? runAllTests() : runVitest([...defaultVitestArgs, ...cliArgs]);
+const exitCode =
+	cliArgs.length === 0
+		? runAllTests()
+		: runVitest([...defaultVitestArgs, ...cliArgs], createChildEnv(false));
 process.exitCode = exitCode;

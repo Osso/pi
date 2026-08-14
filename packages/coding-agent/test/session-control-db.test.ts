@@ -425,7 +425,8 @@ async function runMultiAgentPayloadPreparationContention(
 }
 
 const WRITER_LOCK_WAIT_TIMEOUT_MS = 5_000;
-const WRITER_MESSAGE_BYTES = 64 * 1024 * 1024;
+const WRITER_MESSAGE_BYTES = 256 * 1024 * 1024;
+const WRITER_STARVATION_SKIP_ENV = "PI_SKIP_WRITER_STARVATION_TEST";
 const MINIMUM_INDEXED_WAIT_MS = 100;
 const MINIMUM_INDEXED_WAIT_RATIO = 5;
 
@@ -7337,18 +7338,22 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(sessions[0].updatedAt).toEqual(expect.any(String));
 	});
 
-	it("avoids prolonged writer starvation when resident message indexing is disabled", async () => {
-		const indexedControlDbPath = join(tempDir, "indexed-control.sqlite");
-		const unindexedControlDbPath = join(tempDir, "unindexed-control.sqlite");
-		readMultiAgentState(indexedControlDbPath, "/tmp/indexed-schema-initialization.jsonl");
-		readMultiAgentState(unindexedControlDbPath, "/tmp/unindexed-schema-initialization.jsonl");
-		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const indexedWaitMs = await measureWriterWaitMs(indexedControlDbPath, moduleUrl, true);
-		const unindexedWaitMs = await measureWriterWaitMs(unindexedControlDbPath, moduleUrl, false);
+	it.skipIf(process.env[WRITER_STARVATION_SKIP_ENV] === "1")(
+		"avoids prolonged writer starvation when resident message indexing is disabled",
+		async () => {
+			const indexedControlDbPath = join(tempDir, "indexed-control.sqlite");
+			const unindexedControlDbPath = join(tempDir, "unindexed-control.sqlite");
+			readMultiAgentState(indexedControlDbPath, "/tmp/indexed-schema-initialization.jsonl");
+			readMultiAgentState(unindexedControlDbPath, "/tmp/unindexed-schema-initialization.jsonl");
+			const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
+			const indexedWaitMs = await measureWriterWaitMs(indexedControlDbPath, moduleUrl, true);
+			const unindexedWaitMs = await measureWriterWaitMs(unindexedControlDbPath, moduleUrl, false);
 
-		expect(indexedWaitMs).toBeGreaterThan(MINIMUM_INDEXED_WAIT_MS);
-		expect(indexedWaitMs).toBeGreaterThan(unindexedWaitMs * MINIMUM_INDEXED_WAIT_RATIO);
-	}, 30_000);
+			expect(indexedWaitMs).toBeGreaterThan(MINIMUM_INDEXED_WAIT_MS);
+			expect(indexedWaitMs).toBeGreaterThan(unindexedWaitMs * MINIMUM_INDEXED_WAIT_RATIO);
+		},
+		30_000,
+	);
 
 	it("omits message search text when metadata indexing is disabled", () => {
 		writeSessionMetadata(controlDbPath, {
