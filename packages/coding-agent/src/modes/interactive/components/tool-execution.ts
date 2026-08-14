@@ -192,7 +192,8 @@ export class ToolExecutionComponent extends Container {
 			return undefined;
 		}
 
-		const finishedAt = this.executionFinishedAt ?? (this.isPartial ? Date.now() : undefined);
+		const liveFinishedAt = this.isPartial && this.result ? Date.now() : undefined;
+		const finishedAt = this.executionFinishedAt ?? liveFinishedAt;
 		if (finishedAt === undefined) {
 			return undefined;
 		}
