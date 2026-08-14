@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { type Dirent, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -528,20 +528,47 @@ function readHeadlessDetachedIdentityFile(path: string): Record<string, unknown>
 	}
 }
 
+function isMissingDirectoryError(error: unknown): boolean {
+	if (typeof error !== "object" || error === null || !("code" in error)) return false;
+	return error.code === "ENOENT";
+}
+
+function readHeadlessDirectoryEntries(directory: string): Dirent[] {
+	try {
+		return readdirSync(directory, { encoding: "utf8", withFileTypes: true });
+	} catch (error) {
+		if (isMissingDirectoryError(error)) return [];
+		throw error;
+	}
+}
+
+function addHeadlessDetachedIdentityFromFile(
+	path: string,
+	name: string,
+	addRunner: (identity: ProcessIdentity | undefined) => void,
+	addPayload: (identity: DetachedPayloadIdentity | undefined) => void,
+): void {
+	const isLaunchManifest = name.endsWith("launch.json");
+	const isPayloadIdentity = name.endsWith("payload.json");
+	if (!isLaunchManifest && !isPayloadIdentity) return;
+	const data = readHeadlessDetachedIdentityFile(path);
+	if (!data) return;
+	if (isLaunchManifest) addRunner(parseProcessIdentity(data.runnerProcessIdentity));
+	else addPayload(parseDetachedPayloadIdentity(data));
+}
+
 function collectHeadlessDetachedIdentityFiles(
 	root: string,
 	addRunner: (identity: ProcessIdentity | undefined) => void,
 	addPayload: (identity: DetachedPayloadIdentity | undefined) => void,
 ): void {
-	for (const relativePath of readdirSync(root, { recursive: true })) {
-		if (typeof relativePath !== "string") continue;
-		const isLaunchManifest = relativePath.endsWith("launch.json");
-		const isPayloadIdentity = relativePath.endsWith("payload.json");
-		if (!isLaunchManifest && !isPayloadIdentity) continue;
-		const data = readHeadlessDetachedIdentityFile(join(root, relativePath));
-		if (!data) continue;
-		if (isLaunchManifest) addRunner(parseProcessIdentity(data.runnerProcessIdentity));
-		else addPayload(parseDetachedPayloadIdentity(data));
+	for (const entry of readHeadlessDirectoryEntries(root)) {
+		const path = join(root, entry.name);
+		if (entry.isDirectory()) {
+			collectHeadlessDetachedIdentityFiles(path, addRunner, addPayload);
+			continue;
+		}
+		addHeadlessDetachedIdentityFromFile(path, entry.name, addRunner, addPayload);
 	}
 }
 
