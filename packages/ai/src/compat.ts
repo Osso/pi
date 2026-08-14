@@ -223,6 +223,7 @@ function withEnvApiKey<TOptions extends StreamOptions>(
 }
 
 function shouldUseBuiltinModels(model: Model<Api>): boolean {
+	if (!model?.provider || !model?.id) return false;
 	const builtin = compatModels.getModel(model.provider, model.id);
 	return builtin?.api === model.api && getApiProvider(model.api) === builtinApiProviderInstances.get(model.api);
 }

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -e
 
+if [ -d "/dev/shm" ] && [ -w "/dev/shm" ] && [ -z "$TMPDIR" ]; then
+    export TMPDIR="/dev/shm"
+fi
+
 TEST_AGENT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pi-test-agent.XXXXXX")"
 cleanup() {
     rm -rf "$TEST_AGENT_DIR"

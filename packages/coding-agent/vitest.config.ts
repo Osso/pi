@@ -15,7 +15,7 @@ export default defineConfig({
 		testTimeout: 30000,
 		server: {
 			deps: {
-				external: [/@silvia-odwyer\/photon-node/],
+				external: [/node_modules/],
 			},
 		},
 	},
