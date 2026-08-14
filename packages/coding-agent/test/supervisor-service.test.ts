@@ -211,9 +211,19 @@ describe("resident Supervisor service", () => {
 			status: "claimed",
 		});
 
-		expect(prompt).toContain("preserve every requirement and completion criterion in currentObjective");
-		expect(prompt).toContain("add proposedObjective without narrowing existing scope");
 		expect(prompt).toContain("Use kind set with a non-empty reason and objective");
+		expect(prompt).toContain(
+			"Treat currentObjective and proposedObjective as current claims, not automatically as the full scope",
+		);
+		expect(prompt).toContain(
+			"Preserve currentObjective and any known unfinished parent objective from shared Supervisor context or KB memory",
+		);
+		expect(prompt).toContain("Only an explicit user instruction may reset or narrow that parent");
+		expect(prompt).not.toContain("Only an explicit user instruction may reset, narrow, or complete that parent");
+		expect(prompt).not.toContain("complete that parent");
+		expect(prompt).toContain(
+			"When currentObjective and any known unfinished parent are both absent, return proposedObjective unchanged",
+		);
 	});
 
 	it("frames goal reviews as exception-based peer unblocking", () => {
@@ -231,12 +241,36 @@ describe("resident Supervisor service", () => {
 		});
 
 		expect(prompt).toContain("resident peer unblocker and policy engine");
-		expect(prompt).toContain("Treat payload.objective as the authoritative full goal");
-		expect(prompt).toContain("a completed subtask must not replace broader scope");
+		expect(prompt).toContain(
+			"Evaluate this bounded request against the cumulative objective from shared Supervisor context and KB memory; avoid routine task management.",
+		);
+		expect(prompt).not.toContain("Evaluate only this bounded request");
+		expect(prompt).toContain(
+			"Primary responsibility: maintain cumulative big-picture consistency across requests, not routine task decomposition",
+		);
+		expect(prompt).toContain(
+			"Treat payload.objective and any current claims as claims about the active goal, not automatically as the full scope",
+		);
+		expect(prompt).toContain(
+			"Preserve any known unfinished parent objective from shared Supervisor context or KB memory",
+		);
+		expect(prompt).toContain("Only an explicit user instruction may reset or narrow that parent");
+		expect(prompt).toContain(
+			"Return complete only when evidence proves every requirement and completion criterion of the full parent objective",
+		);
+		expect(prompt).toContain(
+			"A child-slice completion that lacks that proof must return continue with the smallest corrective instruction",
+		);
+		expect(prompt).toContain("narrowed or lost goals");
+		expect(prompt).toContain("dropped requirements, exclusions, or completion criteria");
+		expect(prompt).toContain("contradictions between claims and evidence");
+		expect(prompt).toContain("repeated or circular work");
+		expect(prompt).toContain("missing completion proof");
 		expect(prompt).toContain('instructions exactly "Continue working toward the active goal."');
-		expect(prompt).toContain("unhandled pagination or a required omitted element");
-		expect(prompt).toContain("repeated failed or circular work");
-		expect(prompt).toContain("Do not restate the plan, prescribe routine steps, or invent oversight");
+		expect(prompt).toContain("Use different continue instructions only when evidence identifies a concrete omission");
+		expect(prompt).toContain(
+			"Do not prescribe routine decomposition, sequencing, implementation details, or oversight",
+		);
 		expect(prompt).toContain("Use wait when progress is already underway asynchronously");
 		expect(prompt).toContain("or depends on an external condition that can be rechecked");
 		expect(prompt).toContain("Use pause only when progress requires user action");

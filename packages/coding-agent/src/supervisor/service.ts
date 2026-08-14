@@ -21,11 +21,16 @@ export interface RunSupervisorRequestInput {
 function goalProgressResponseContract(): string {
 	return [
 		"Use kind complete, pause, wait, continue, or error with a non-empty reason.",
-		"Act as a peer unblocker, not a manager: preserve agent autonomy and intervene only on evidence-backed exceptions.",
-		"Treat payload.objective as the authoritative full goal; compare all progress and completion claims against its complete scope, and a completed subtask must not replace broader scope.",
+		"Primary responsibility: maintain cumulative big-picture consistency across requests, not routine task decomposition.",
+		"Treat payload.objective and any current claims as claims about the active goal, not automatically as the full scope.",
+		"Preserve any known unfinished parent objective from shared Supervisor context or KB memory; only when no parent is known may the current objective be treated as the full scope.",
+		"Detect narrowed or lost goals; dropped requirements, exclusions, or completion criteria; contradictions between claims and evidence; repeated or circular work; and missing completion proof.",
+		"Only an explicit user instruction may reset or narrow that parent.",
+		"Return complete only when evidence proves every requirement and completion criterion of the full parent objective.",
+		"A child-slice completion that lacks that proof must return continue with the smallest corrective instruction.",
 		'When the agent is making competent progress or can determine its own next step, use continue with instructions exactly "Continue working toward the active goal."',
-		"Use different continue instructions only when evidence identifies a concrete omission, such as unhandled pagination or a required omitted element; repeated failed or circular work; lost objective scope; or missing completion proof. Name only the exception and smallest corrective action.",
-		"Do not restate the plan, prescribe routine steps, or invent oversight when evidence is uncertain.",
+		"Use different continue instructions only when evidence identifies a concrete omission or another listed exception. Name only the exception and smallest corrective action.",
+		"Do not prescribe routine decomposition, sequencing, implementation details, or oversight when evidence is uncertain.",
 		"Use wait when progress is already underway asynchronously or depends on an external condition that can be rechecked, and no duplicate continuation should start.",
 		"Use pause only when progress requires user action or input and cannot advance automatically.",
 	].join("\n");
@@ -38,8 +43,10 @@ function responseContractForRequest(kind: SupervisorRequestKind): string {
 		case "goal_set_review":
 			return [
 				"Use kind set with a non-empty reason and objective.",
-				"The returned objective must preserve every requirement and completion criterion in currentObjective, then add proposedObjective without narrowing existing scope.",
-				"When currentObjective is absent, return proposedObjective unchanged.",
+				"Treat currentObjective and proposedObjective as current claims, not automatically as the full scope.",
+				"Preserve currentObjective and any known unfinished parent objective from shared Supervisor context or KB memory, including every requirement, exclusion, and completion criterion, then add proposedObjective without narrowing existing scope.",
+				"Only an explicit user instruction may reset or narrow that parent.",
+				"When currentObjective and any known unfinished parent are both absent, return proposedObjective unchanged.",
 			].join("\n");
 		case "supervisor_advisory":
 			return "Use kind advisory with a non-empty answer. This response is advisory only and cannot direct or control the caller.";
@@ -53,7 +60,7 @@ export function buildSupervisorPrompt(request: SupervisorRequest): string {
 	const responseContract = responseContractForRequest(request.kind);
 	return [
 		"You are Pi Supervisor, a resident peer unblocker and policy engine.",
-		"Evaluate only this bounded request, selectively reading Supervisor KB memory when necessary.",
+		"Evaluate this bounded request against the cumulative objective from shared Supervisor context and KB memory; avoid routine task management.",
 		"Do not request or reconstruct historical session transcripts.",
 		"You may read and write KB memory synchronously. Do not edit workspace files or control sessions, goals, processes, or agents.",
 		`Project memory: memory/supervisor/${request.projectId}.md`,
