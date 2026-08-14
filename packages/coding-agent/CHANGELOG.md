@@ -38,6 +38,7 @@
 - Replaced 1-second stat polling for Git reftable metadata in `FooterDataProvider` with native `fs.watch` event handling on the reftable directory and `tables.list`.
 - Changed durable Pyrun artifact observation to wake on filesystem activity, drain remaining bounded artifact chunks before waiting again, and retain a one-second fallback while batching dense console progress before live updates; complete artifact records remain preserved.
 - Changed `AssistantMessageComponent` streaming updates to retain child component identity, avoiding per-chunk component allocation and preserving Markdown instance caches.
+- Changed `send_agent_message` tool description, parameter schema descriptions, and prompt guidelines to document cross-session mailbox messaging via `toSessionId` and `toAgentId: "main"`.
 
 ### Added
 
