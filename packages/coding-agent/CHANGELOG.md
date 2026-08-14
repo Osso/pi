@@ -439,6 +439,7 @@
 - Fixed cached session-derived footer statistics staying stale after context-recorded interactive `!` bash results.
 - Fixed queued agent and shared-channel follow-up previews to show `Follow-up from <agent>: <first body line up to 50 chars>` instead of the raw `Follow-up: From:` wrapper.
 - Fixed active tool elapsed timers disappearing when pending tool components are reconstructed.
+- Fixed reconstructed pending child-tool cards showing a frozen elapsed duration; restored cards now continue from their persisted start time until completion.
 - Fixed concurrent `./test.sh` runs destroying global Pi OAuth credentials by isolating each run with a unique temporary `PI_CODING_AGENT_DIR` instead of moving `auth.json` through a shared backup path.
 - Fixed `/goal` terminal-turn handling: aborted or error turns leave the active goal intact without queuing a continuation and append durable Supervisor status explaining why; an aborted turn with pending input reports that continuation is deferred because pending input runs next.
 - Fixed `/goal` continuation after an assistant error: it now leaves the active goal intact without queuing a follow-up or showing the empty-response warning; skipped-status output is deferred until idle, canceled by retry start or pending input, and emitted once after retry exhaustion or cancellation.

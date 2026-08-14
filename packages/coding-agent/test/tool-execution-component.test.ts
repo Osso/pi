@@ -81,6 +81,30 @@ describe("ToolExecutionComponent parity", () => {
 		expect(stripAnsi(component.render(120).join("\n"))).toContain("Elapsed: 3s");
 	});
 
+	test("shows live elapsed time for restored pending child tools and freezes it on completion", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(0);
+		const component = new ToolExecutionComponent(
+			"custom_tool",
+			"tool-restored-child",
+			{},
+			{},
+			createBaseToolDefinition(),
+			createFakeTui(),
+			process.cwd(),
+		);
+
+		component.markExecutionStarted(0, { showLiveElapsed: true });
+		vi.setSystemTime(1_250);
+		component.invalidate();
+		expect(stripAnsi(component.render(120).join("\n"))).toContain("Elapsed: 1s");
+
+		component.updateResult({ content: [{ type: "text", text: "done" }], details: {}, isError: false }, false, 3_250);
+		vi.setSystemTime(10_000);
+		component.invalidate();
+		expect(stripAnsi(component.render(120).join("\n"))).toContain("Elapsed: 3s");
+	});
+
 	test("shows live and final elapsed time for interactive bash executions", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(0);
