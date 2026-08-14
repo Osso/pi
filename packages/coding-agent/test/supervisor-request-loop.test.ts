@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupervisorRequest } from "../src/core/session-control-db.ts";
-import { requestSupervisorDecision } from "../src/supervisor/client.ts";
+import { DEFAULT_SUPERVISOR_POLL_INTERVAL_MS, requestSupervisorDecision } from "../src/supervisor/client.ts";
 import { runSupervisorService } from "../src/supervisor/main.ts";
 
 const mocks = vi.hoisted(() => {
@@ -118,7 +118,7 @@ async function flushSocketEvents(): Promise<void> {
 }
 
 async function stopService(service: Promise<void>): Promise<void> {
-	await vi.advanceTimersByTimeAsync(50);
+	await vi.advanceTimersByTimeAsync(DEFAULT_SUPERVISOR_POLL_INTERVAL_MS);
 	const stopHandler = process.listeners("SIGTERM").find((handler) => !initialSigtermListeners.has(handler));
 	if (!stopHandler) throw new Error("Supervisor service did not install its SIGTERM handler");
 	stopHandler("SIGTERM");

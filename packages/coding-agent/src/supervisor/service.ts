@@ -7,6 +7,7 @@ import {
 	type SupervisorRequestKind,
 	type SupervisorResponse,
 } from "../core/session-control-db.ts";
+import { DEFAULT_SUPERVISOR_POLL_INTERVAL_MS } from "./client.ts";
 
 export type SupervisorEvaluator = (prompt: string, signal: AbortSignal) => Promise<unknown>;
 
@@ -142,7 +143,7 @@ async function waitForEvaluation(
 	evaluation: Promise<unknown>,
 	abortController: AbortController,
 ): Promise<"completed" | "expired" | "preempted" | "cancelled"> {
-	const pollIntervalMs = input.pollIntervalMs ?? 50;
+	const pollIntervalMs = input.pollIntervalMs ?? DEFAULT_SUPERVISOR_POLL_INTERVAL_MS;
 	let evaluationSettled = false;
 	void evaluation.then(
 		() => {

@@ -9,6 +9,7 @@ import { ensureSupervisorRunning } from "./ensure-running.ts";
 import { notifySupervisorRequest } from "./request-wake.ts";
 
 export const SUPERVISOR_REQUEST_CANCELLED_REASON = "Supervisor request cancelled";
+export const DEFAULT_SUPERVISOR_POLL_INTERVAL_MS = 300;
 
 export interface RequestSupervisorDecisionInput {
 	controlDbPath: string;
@@ -66,7 +67,7 @@ async function requestSupervisorDecisionAttempt(
 	input.signal?.addEventListener("abort", onAbort, { once: true });
 	try {
 		notifySupervisorRequest(input.controlDbPath);
-		const pollIntervalMs = input.pollIntervalMs ?? 50;
+		const pollIntervalMs = input.pollIntervalMs ?? DEFAULT_SUPERVISOR_POLL_INTERVAL_MS;
 		while (Date.now() < deadline) {
 			if (input.signal?.aborted) {
 				cancelRequest();
