@@ -353,6 +353,16 @@ export class FooterDataProvider {
 		if (!this.gitPaths) return;
 
 		const pollGitHead = shouldPollGitHead(this.gitPaths.repoDir);
+		this.setupHeadWatcher(pollGitHead);
+		if (!this.headWatcher && !pollGitHead) {
+			return;
+		}
+
+		this.setupReftableWatcher();
+	}
+
+	private setupHeadWatcher(pollGitHead: boolean): void {
+		if (!this.gitPaths) return;
 
 		// Watch the directory containing HEAD, not HEAD itself.
 		// Git uses atomic writes (write temp, rename over HEAD), which changes the inode.
@@ -383,35 +393,38 @@ export class FooterDataProvider {
 				this.headWatchFileListener,
 			);
 		}
-		if (!this.headWatcher && !pollGitHead) {
-			return;
-		}
+	}
+
+	private setupReftableWatcher(): void {
+		if (!this.gitPaths) return;
 
 		// In reftable repos, branch switches update files in the reftable directory
 		// instead of HEAD. Watch it separately so the footer picks up those changes.
 		const reftableDir = join(this.gitPaths.commonGitDir, "reftable");
-		if (existsSync(reftableDir)) {
-			this.reftableWatcher = watchWithErrorHandler(
-				reftableDir,
+		if (!existsSync(reftableDir)) {
+			return;
+		}
+
+		this.reftableWatcher = watchWithErrorHandler(
+			reftableDir,
+			() => {
+				this.scheduleRefresh();
+			},
+			() => this.handleGitWatcherError(),
+		);
+		if (!this.reftableWatcher) {
+			return;
+		}
+
+		const tablesListPath = join(reftableDir, "tables.list");
+		if (existsSync(tablesListPath)) {
+			this.reftableTablesListWatcher = watchWithErrorHandler(
+				tablesListPath,
 				() => {
 					this.scheduleRefresh();
 				},
 				() => this.handleGitWatcherError(),
 			);
-			if (!this.reftableWatcher) {
-				return;
-			}
-
-			const tablesListPath = join(reftableDir, "tables.list");
-			if (existsSync(tablesListPath)) {
-				this.reftableTablesListWatcher = watchWithErrorHandler(
-					tablesListPath,
-					() => {
-						this.scheduleRefresh();
-					},
-					() => this.handleGitWatcherError(),
-				);
-			}
 		}
 	}
 }
