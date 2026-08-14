@@ -32,7 +32,8 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 
 ### Authority boundary
 
-- [x] Act as a peer-unblocking policy engine, not a manager: preserve agent autonomy and intervene only on evidence-backed exceptions; the calling subsystem enforces the typed response.
+- [x] Act as a peer-unblocking policy engine, not a routine task manager: preserve agent autonomy, maintain cumulative parent-goal consistency across requests, and intervene only on evidence-backed exceptions; the calling subsystem enforces the typed response.
+- [x] Detect narrowed or lost goals, dropped requirements, exclusions, or completion criteria, contradictions between claims and evidence, repeated or circular work, and missing completion proof without prescribing routine decomposition; only an explicit user instruction may reset or narrow a known parent objective.
 - [x] Read and write only inside the configured shared KB root.
 - [x] Keep Bash and Pyrun unavailable to the Supervisor.
 - [x] Never edit workspace files, dispatch agents, control processes or sessions, mutate goals directly, or change approval policy directly.
@@ -86,7 +87,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - [x] On `wait`, append a durable Supervisor status entry; if agents are active, start a cancellable background `wait_agent` and re-review after wake, otherwise schedule the five-minute countdown and re-review, including when progress depends on an external condition that can be rechecked.
 - [x] On `error`, append durable status and keep the completion request unresolved without scheduling automatic re-review; rejected completion reports remain visible with the Supervisor's reason in durable status.
 - [x] Leave the goal active without another continuation only when required user action or input is needed and no automatic recheck can advance progress; the caller receives `pause` only for that manual stop condition.
-- [x] Treat the supplied objective as the authoritative full scope when judging completion, so completing one subtask cannot replace a broader objective.
+- [x] Treat supplied objectives and current progress claims as claims about the active goal; preserve any known unfinished parent objective from Supervisor context or KB memory when judging completion, so a child slice cannot replace the broader objective.
 - [x] Require the Supervisor to make its best judgment between `complete`, autonomous or corrective `continue`, scheduled `wait` for recheckable asynchronous or external progress, and manual-only `pause` from the supplied report; uncertainty alone uses generic continuation rather than invented oversight, the caller must provide a nonblank report, and the system never infers completion evidence automatically.
 
 ### Goal idle review
@@ -102,7 +103,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - [x] Submit exactly `Continue working toward the active goal.` when competent progress can continue without help; submit a specific corrective prompt only for an evidence-backed omission such as unhandled pagination or an omitted required element, repeated failed or circular work, lost objective scope, or missing completion proof, naming only the exception and smallest corrective action.
 - [x] Keep the goal active on `wait`, append a durable status entry, and re-run review after agent wake or the scheduled five-minute countdown, including for external conditions that can be rechecked.
 - [x] Leave the goal active without another continuation when the caller receives `pause` because required user action or input is needed and no automatic recheck can advance progress.
-- [x] Preserve the full objective as authoritative scope throughout continuation review; a current subtask never replaces remaining requirements.
+- [x] Preserve the cumulative unfinished parent objective throughout continuation review; a bounded request or current subtask never replaces remaining requirements, exclusions, or completion criteria.
 - [x] Require best judgment between `complete`, autonomous or corrective `continue`, scheduled `wait` for recheckable asynchronous or external progress, and manual-only `pause`; do not restate plans, prescribe routine steps, or invent oversight when the agent can determine how to continue.
 - [x] On goal `error`, keep the goal running, append visible durable error status without requiring human approval, and use the same agent-wake or five-minute re-review path as `wait`; rejected scheduled work remains visibly durable.
 - [x] Retry before review when pending input is transient, preserve reviewed decisions when input becomes pending during review, and cancel in-flight reviews, deferred decisions, waits, discovery calls, and timers on input, new turns, goal lifecycle changes, and shutdown; recheck cancellation generation and goal identity before applying an asynchronous decision.
