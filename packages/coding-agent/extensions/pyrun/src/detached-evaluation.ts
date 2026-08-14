@@ -505,6 +505,15 @@ function checkForegroundRunnerLiveness(
 	return now + FOREGROUND_RUNNER_LIVENESS_POLL_MS;
 }
 
+function checkForegroundOwnershipLiveness(
+	input: DetachablePyrunInput,
+	ownership: PyrunOwnership | undefined,
+	nextCheckAt: number,
+): number {
+	if (ownership) return nextCheckAt;
+	return checkForegroundRunnerLiveness(input.runner.processIdentity, nextCheckAt, Date.now());
+}
+
 async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Promise<AgentToolResult<unknown>> {
 	const bridgeRequestCursor = createJsonLineReadCursor();
 	let nextForegroundRunnerLivenessCheckAt = 0;
@@ -526,13 +535,11 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 			const ownership = control.getOwnership();
 			const foregroundResult = settleForegroundEvaluation(input, artifactRead.values, result, ownership);
 			if (foregroundResult) return foregroundResult;
-			if (!ownership) {
-				nextForegroundRunnerLivenessCheckAt = checkForegroundRunnerLiveness(
-					input.runner.processIdentity,
-					nextForegroundRunnerLivenessCheckAt,
-					Date.now(),
-				);
-			}
+			nextForegroundRunnerLivenessCheckAt = checkForegroundOwnershipLiveness(
+				input,
+				ownership,
+				nextForegroundRunnerLivenessCheckAt,
+			);
 			if (ownership) terminalAgent = input.controller.observe(ownership.agent.id);
 			if (terminalAgent && !isActiveLifecycle(terminalAgent.lifecycle)) break;
 			if (ownership && control.isActivated()) {
