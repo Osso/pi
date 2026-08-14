@@ -1459,4 +1459,85 @@ bar`,
 			assert.strictEqual(partial.render(80).length, complete.render(80).length);
 		});
 	});
+
+	describe("Token caching", () => {
+		it("reuses unchanged prefix token output while the tail changes", () => {
+			let headingCalls = 0;
+			let highlightCalls = 0;
+			const theme = {
+				...defaultMarkdownTheme,
+				heading: (text: string) => {
+					headingCalls++;
+					return defaultMarkdownTheme.heading(text);
+				},
+				highlightCode: (code: string, lang?: string) => {
+					highlightCalls++;
+					return defaultMarkdownTheme.highlightCode?.(code, lang) ?? [];
+				},
+			};
+			const markdown = new Markdown("# Stable\n\n```ts\nconst x = 1;\n```", 0, 0, theme);
+
+			markdown.render(80);
+			const initialHeadingCalls = headingCalls;
+			const initialHighlightCalls = highlightCalls;
+
+			markdown.setText("# Stable\n\n```ts\nconst x = 2;\n```");
+			markdown.render(80);
+
+			assert.strictEqual(headingCalls, initialHeadingCalls);
+			assert.strictEqual(highlightCalls, initialHighlightCalls + 1);
+		});
+
+		it("invalidate forces all token output to be rendered again", () => {
+			let headingCalls = 0;
+			const theme = {
+				...defaultMarkdownTheme,
+				heading: (text: string) => {
+					headingCalls++;
+					return defaultMarkdownTheme.heading(text);
+				},
+			};
+			const markdown = new Markdown("# Heading", 0, 0, theme);
+
+			markdown.render(80);
+			const initialHeadingCalls = headingCalls;
+			markdown.invalidate();
+			markdown.render(80);
+
+			assert.ok(headingCalls > initialHeadingCalls);
+		});
+
+		it("matches a fresh renderer across mixed markdown features", () => {
+			const initial = [
+				"# Heading",
+				"",
+				"paragraph with **bold** text",
+				"",
+				"- list item",
+				"",
+				"> quoted text",
+				"",
+				"| A | B |",
+				"| --- | --- |",
+				"| 1 | 2 |",
+				"",
+				"---",
+				"",
+				"<span>html</span>",
+				"",
+				"```ts",
+				"const value = 1;",
+				"```",
+			].join("\n");
+			const updated = `${initial}\n\nfinal paragraph`;
+			const cached = new Markdown(initial, 1, 0, defaultMarkdownTheme);
+
+			cached.render(48);
+			cached.setText(updated);
+			const cachedLines = cached.render(48);
+			const freshLines = new Markdown(updated, 1, 0, defaultMarkdownTheme).render(48);
+
+			assert.deepStrictEqual(cachedLines, freshLines);
+		});
+	});
 });
