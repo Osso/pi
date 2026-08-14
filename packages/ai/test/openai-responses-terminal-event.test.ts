@@ -352,6 +352,21 @@ describe("OpenAI Responses terminal event handling", () => {
 		expect(result.finalText).toBe(readableText);
 	});
 
+	it("removes a valid citation marker without a hosted-search event", async () => {
+		const readableText = "External web-search response.";
+		const rawText = `${readableText} ${RAW_CITATION_MARKER}`;
+		const result = await collectResponseText(
+			createTextEvents({
+				text: rawText,
+				deltas: [rawText],
+				withWebSearchCall: false,
+			}),
+		);
+
+		expect(result.streamedText).toBe(readableText);
+		expect(result.finalText).toBe(readableText);
+	});
+
 	it("removes a citation marker split at every delta boundary", async () => {
 		const expectedText = "Before after.";
 		for (let splitIndex = 1; splitIndex < RAW_CITATION_MARKER.length; splitIndex++) {
@@ -378,7 +393,7 @@ describe("OpenAI Responses terminal event handling", () => {
 		expect(result.finalText).toBe("One. Two, three four.");
 	});
 
-	it("preserves incomplete, malformed, unrelated, and literal marker text", async () => {
+	it("preserves incomplete, malformed, and unrelated marker text", async () => {
 		const cases: Array<TextEventOptions & { name: string }> = [
 			{
 				name: "incomplete citation",
@@ -399,12 +414,6 @@ describe("OpenAI Responses terminal event handling", () => {
 				name: "unrelated annotation",
 				text: "Keep noteturn2search1",
 				deltas: ["Keep noteturn2search1"],
-			},
-			{
-				name: "literal citation without hosted search",
-				text: `Keep ${RAW_CITATION_MARKER}`,
-				deltas: [`Keep ${RAW_CITATION_MARKER}`],
-				withWebSearchCall: false,
 			},
 		];
 
