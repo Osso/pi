@@ -1,3 +1,4 @@
+import type { TUI } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import type { ToolDefinition } from "../src/core/extensions/types.ts";
@@ -6,7 +7,6 @@ import { formatElapsedDuration } from "../src/modes/interactive/components/elaps
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
-import type { TUI } from "@earendil-works/pi-tui";
 
 function createBaseToolDefinition(name = "custom_tool"): ToolDefinition {
 	return {
