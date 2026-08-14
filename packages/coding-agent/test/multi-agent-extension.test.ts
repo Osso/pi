@@ -1986,11 +1986,12 @@ describe("multi-agent extension tools", () => {
 		expect(cancelled.details.agent).toMatchObject({ lifecycle: "aborted" });
 	});
 
-	it("bounds parent cancellation when a slow descendant ignores abort", async () => {
+	it("uses the five-second production settlement timeout for each slow cancellation", async () => {
 		vi.useFakeTimers();
 		try {
 			const rejectPromptByAgent = new Map<string, (error: Error) => void>();
 			let slowChildAgentId: string | undefined;
+			const runtimeHandles = createMultiAgentRuntimeHandles();
 			const harness = createMultiAgentHarness({
 				createChildSession: async ({ agent }) => {
 					const prompt = new Promise<void>((_resolve, reject) => rejectPromptByAgent.set(agent.id, reject));
@@ -2003,7 +2004,9 @@ describe("multi-agent extension tools", () => {
 						prompt: async () => prompt,
 					};
 				},
+				runtimeHandles,
 			});
+			runtimeHandles.cancellationSettlementTimeoutMs = undefined;
 			const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
 				context: "fresh",
 				displayName: "Slow parent",
@@ -2018,13 +2021,28 @@ describe("multi-agent extension tools", () => {
 			slowChildAgentId = child.details.agent.id;
 			await Promise.resolve();
 
+			let cancellationSettled = false;
 			const cancellation = harness.call<CancelAgentDetails>("close_agent", {
 				agentId: parent.details.agent.id,
 				reason: "cascade",
 			});
-			await vi.advanceTimersByTimeAsync(5_000);
-			await vi.advanceTimersByTimeAsync(5_000);
+			void cancellation.then(
+				() => {
+					cancellationSettled = true;
+				},
+				() => {
+					cancellationSettled = true;
+				},
+			);
+			await vi.advanceTimersByTimeAsync(4_999);
+			expect(cancellationSettled).toBe(false);
+			await vi.advanceTimersByTimeAsync(1);
+			expect(cancellationSettled).toBe(false);
+			await vi.advanceTimersByTimeAsync(4_999);
+			expect(cancellationSettled).toBe(false);
+			await vi.advanceTimersByTimeAsync(1);
 			const cancelled = await cancellation;
+			expect(cancellationSettled).toBe(true);
 
 			expect(harness.store.getAgent(child.details.agent.id)).toMatchObject({ lifecycle: "cancelling" });
 			expect(harness.store.getAgent(parent.details.agent.id)).toMatchObject({ lifecycle: "cancelling" });
