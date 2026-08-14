@@ -192,7 +192,7 @@ describe("durable detached Pyrun evaluation", () => {
 				"for await (const line of lines) {",
 				"  const request = JSON.parse(line);",
 				"  process.stdout.write(JSON.stringify({ type: 'progress', message: 'started' }) + '\\n');",
-				"  await new Promise((resolve) => setTimeout(resolve, 150));",
+				"  await new Promise((resolve) => setTimeout(resolve, 3_000));",
 				"  process.stdout.write(JSON.stringify({ type: 'completed', executed: request.code, value: 42 }) + '\\n');",
 				"}",
 			].join("\n"),

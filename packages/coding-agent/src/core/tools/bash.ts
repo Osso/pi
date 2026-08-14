@@ -28,6 +28,7 @@ import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult
 
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const MAX_TIMEOUT_SECONDS = MAX_TIMEOUT_MS / 1000;
+const DURABLE_OUTPUT_POLL_MS = 1_000;
 
 function resolveTimeoutMs(timeout: number | undefined): number | undefined {
 	if (timeout === undefined) return undefined;
@@ -168,7 +169,7 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
 				onData(output.subarray(outputOffset));
 				outputOffset = output.length;
 			};
-			if (detach?.artifacts) outputTail = setInterval(pollDurableOutput, 25);
+			if (detach?.artifacts) outputTail = setInterval(pollDurableOutput, DURABLE_OUTPUT_POLL_MS);
 			let removeDetachListener: (() => void) | undefined;
 
 			try {

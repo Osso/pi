@@ -35,7 +35,7 @@ import {
 } from "./detached-runner.ts";
 import type { CanonicalPyrunEvalResult, CanonicalPyrunProgressUpdate, PyrunRunnerOptions } from "./runner.ts";
 
-const ARTIFACT_POLL_MS = 25;
+const ARTIFACT_POLL_MS = 1_000;
 const ARTIFACT_READ_BYTE_LIMIT = 1_048_576;
 const DENSE_CONSOLE_RECORD_THRESHOLD = 100;
 const FOREGROUND_RUNNER_LIVENESS_POLL_MS = 3_000;

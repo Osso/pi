@@ -34,7 +34,7 @@ import {
 
 export const DETACHED_PYRUN_RUNNER_MODE = "--internal-detached-pyrun-runner";
 const DETACHED_PYRUN_LAUNCH_VERSION = 3;
-const CONTROL_POLL_MS = 25;
+const CONTROL_POLL_MS = 1_000;
 const LAUNCH_MANIFEST_POLL_MS = 10;
 const LAUNCH_MANIFEST_TIMEOUT_MS = 30_000;
 
