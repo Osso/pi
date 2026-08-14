@@ -53,20 +53,15 @@ async function runCli(
 	}
 
 	return await new Promise((resolvePromise, reject) => {
-		const child = spawn(
-			process.execPath,
-			[resolve(__dirname, "../../../node_modules/tsx/dist/cli.mjs"), cliPath, ...args],
-			{
-				cwd: projectDir,
-				env: {
-					...process.env,
-					[ENV_AGENT_DIR]: agentDir,
-					PI_OFFLINE: "1",
-					TSX_TSCONFIG_PATH: resolve(__dirname, "../../../tsconfig.json"),
-				},
-				stdio: ["ignore", "pipe", "pipe"],
+		const child = spawn(process.execPath, ["--experimental-strip-types", cliPath, ...args], {
+			cwd: projectDir,
+			env: {
+				...process.env,
+				[ENV_AGENT_DIR]: agentDir,
+				PI_OFFLINE: "1",
 			},
-		);
+			stdio: ["ignore", "pipe", "pipe"],
+		});
 
 		let stdout = "";
 		let stderr = "";
