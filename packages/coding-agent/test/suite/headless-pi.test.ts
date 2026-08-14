@@ -2013,9 +2013,12 @@ describe("headless Pi fixture", () => {
 							.filter((candidate) => candidate.displayName === "Pyrun evaluation")
 							.map((candidate) => candidate.id),
 					).toEqual([backgroundJobId]);
-					await vi.waitFor(() => {
-						expect(isProcessIdentityAlive(exactRunnerIdentity)).toBe(false);
-					});
+					await vi.waitFor(
+						() => {
+							expect(isProcessIdentityAlive(exactRunnerIdentity)).toBe(false);
+						},
+						{ timeout: 5000 },
+					);
 					if (descriptorMapping) {
 						expect(readControlDbDescriptorMapping(exactRunnerIdentity, controlDbPath)).toBeUndefined();
 					}

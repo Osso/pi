@@ -315,8 +315,7 @@ function createHeadlessRpcClient(
 		provider: selectedProvider,
 		model: options.model === false ? undefined : (options.model ?? defaultModel),
 		nodeArgs: [
-			"--import",
-			import.meta.resolve("tsx"),
+			"--experimental-strip-types",
 			"--import",
 			pathToFileURL(preloadPath).href,
 			...(options.deleteCwdBeforeSelfRestart ? ["--import", pathToFileURL(deleteCwdPreloadPath).href] : []),

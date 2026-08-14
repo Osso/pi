@@ -56,7 +56,7 @@ describe("Supervisor automatic startup runtime", () => {
 		const cliPath = join(import.meta.dirname, "..", "..", "src", "cli.ts");
 		const launchInvocation = {
 			command: process.execPath,
-			args: ["--import", import.meta.resolve("tsx"), cliPath, "supervisor"],
+			args: ["--experimental-strip-types", cliPath, "supervisor"],
 			cwd: join(import.meta.dirname, "..", ".."),
 			env: {
 				...process.env,

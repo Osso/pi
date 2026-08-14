@@ -47,8 +47,7 @@ function buildInteractivePiArguments(sessionFile: string, initialMessage?: strin
 	const providerPreload = join(import.meta.dirname, "../fixtures/headless-pi-provider-preload.ts");
 	const ttyPreload = join(import.meta.dirname, "../fixtures/headless-pi-tty-preload.mjs");
 	return [
-		"--import",
-		import.meta.resolve("tsx"),
+		"--experimental-strip-types",
 		"--import",
 		pathToFileURL(providerPreload).href,
 		"--import",
