@@ -302,12 +302,17 @@ describe("headless Pi fixture", () => {
 		expect(removeTempDir).toHaveBeenCalledWith("/tmp/pi-headless-setup-failure");
 	});
 
-	it("removes fixture state even when process and server cleanup fail", async () => {
+	it("terminates detached runners before stopping the client and removes state after cleanup failures", async () => {
+		const cleanupOrder: string[] = [];
 		const removeTempDir = vi.fn();
 		await expect(
 			cleanupHeadlessPiResources({
 				stopClient: async () => {
+					cleanupOrder.push("stop-client");
 					throw new Error("stop failed");
+				},
+				terminateDetachedRunners: async () => {
+					cleanupOrder.push("terminate-detached");
 				},
 				destroyProviderSocket: () => {},
 				closeProviderServer: async () => {
@@ -316,6 +321,7 @@ describe("headless Pi fixture", () => {
 				removeTempDir,
 			}),
 		).rejects.toThrow(AggregateError);
+		expect(cleanupOrder).toEqual(["terminate-detached", "stop-client"]);
 		expect(removeTempDir).toHaveBeenCalledOnce();
 	});
 

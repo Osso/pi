@@ -353,10 +353,10 @@ export async function cleanupHeadlessRuntimeResources(
 export async function cleanupHeadlessPiResources(operations: HeadlessPiCleanupOperations): Promise<void> {
 	const errors: unknown[] = [];
 	for (const cleanup of [
-		operations.stopClient,
 		async () => {
 			await operations.terminateDetachedRunners?.();
 		},
+		operations.stopClient,
 		async () => operations.destroyProviderSocket(),
 		operations.closeProviderServer,
 		async () => operations.closeSupervisorProbe?.(),
