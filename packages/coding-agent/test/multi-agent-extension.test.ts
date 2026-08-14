@@ -4763,8 +4763,8 @@ describe("multi-agent extension tools", () => {
 				fauxToolCall("spawn_agent", { context: "fresh", displayName: "Child", prompt: "child prompt" }),
 				{ stopReason: "toolUse" },
 			),
-			fauxAssistantMessage("child done"),
-			fauxAssistantMessage("parent done"),
+			fauxCompletedAssistantMessage("child done"),
+			fauxCompletedAssistantMessage("parent done"),
 		]);
 
 		try {
