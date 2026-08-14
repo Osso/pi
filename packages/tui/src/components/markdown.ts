@@ -120,6 +120,15 @@ interface InlineStyleContext {
 	stylePrefix: string;
 }
 
+interface TokenRenderCache {
+	raw: string;
+	type: string;
+	nextTokenType?: string;
+	width: number;
+	fingerprint: string;
+	wrappedLines: string[];
+}
+
 export class Markdown implements Component {
 	private text: string;
 	private paddingX: number; // Left/right padding
@@ -133,6 +142,8 @@ export class Markdown implements Component {
 	private cachedText?: string;
 	private cachedWidth?: number;
 	private cachedLines?: string[];
+	private previousTokens: Token[] = [];
+	private previousTokenCaches: TokenRenderCache[] = [];
 
 	constructor(
 		text: string,
@@ -151,7 +162,35 @@ export class Markdown implements Component {
 	}
 
 	setText(text: string): void {
+		if (this.text === text) {
+			return;
+		}
+
 		this.text = text;
+		this.cachedText = undefined;
+		this.cachedWidth = undefined;
+		this.cachedLines = undefined;
+	}
+
+	setPadding(paddingX: number, paddingY: number): void {
+		if (this.paddingX === paddingX && this.paddingY === paddingY) {
+			return;
+		}
+
+		this.paddingX = paddingX;
+		this.paddingY = paddingY;
+		this.cachedText = undefined;
+		this.cachedWidth = undefined;
+		this.cachedLines = undefined;
+	}
+
+	setTheme(theme: MarkdownTheme): void {
+		if (this.theme === theme) {
+			return;
+		}
+
+		this.theme = theme;
+		this.defaultStylePrefix = undefined;
 		this.invalidate();
 	}
 
@@ -159,6 +198,8 @@ export class Markdown implements Component {
 		this.cachedText = undefined;
 		this.cachedWidth = undefined;
 		this.cachedLines = undefined;
+		this.previousTokens = [];
+		this.previousTokenCaches = [];
 	}
 
 	render(width: number): string[] {
@@ -187,29 +228,8 @@ export class Markdown implements Component {
 		const tokens = markdownParser.lexer(normalizedText);
 		trimPartialClosingFences(tokens);
 
-		// Convert tokens to styled terminal output
-		const renderedLines: string[] = [];
-
-		for (let i = 0; i < tokens.length; i++) {
-			const token = tokens[i];
-			const nextToken = tokens[i + 1];
-			const tokenLines = this.renderToken(token, contentWidth, nextToken?.type);
-			for (const tokenLine of tokenLines) {
-				renderedLines.push(tokenLine);
-			}
-		}
-
-		// Wrap lines (NO padding, NO background yet)
-		const wrappedLines: string[] = [];
-		for (const line of renderedLines) {
-			if (isImageLine(line)) {
-				wrappedLines.push(line);
-			} else {
-				for (const wrappedLine of wrapTextWithAnsi(line, contentWidth)) {
-					wrappedLines.push(wrappedLine);
-				}
-			}
-		}
+		// Render and wrap each top-level token, reusing unchanged token output.
+		const wrappedLines = this.renderCachedTokens(tokens, contentWidth);
 
 		// Add margins and background to each wrapped line
 		const leftMargin = " ".repeat(this.paddingX);
@@ -252,6 +272,58 @@ export class Markdown implements Component {
 		this.cachedLines = result;
 
 		return result.length > 0 ? result : [""];
+	}
+
+	private renderCachedTokens(tokens: Token[], width: number): string[] {
+		const wrappedLines: string[] = [];
+		const newTokenCaches: TokenRenderCache[] = [];
+
+		for (let i = 0; i < tokens.length; i++) {
+			const token = tokens[i];
+			const nextTokenType = tokens[i + 1]?.type;
+			const fingerprint = JSON.stringify(token);
+			const previousToken = this.previousTokens[i];
+			const previousCache = this.previousTokenCaches[i];
+			const canReuse =
+				previousToken?.raw === token.raw &&
+				previousToken?.type === token.type &&
+				previousCache?.nextTokenType === nextTokenType &&
+				previousCache?.width === width &&
+				previousCache.fingerprint === fingerprint;
+			const tokenWrappedLines = canReuse
+				? previousCache.wrappedLines
+				: this.renderAndWrapToken(token, width, nextTokenType);
+
+			newTokenCaches.push({
+				raw: token.raw,
+				type: token.type,
+				nextTokenType,
+				width,
+				fingerprint,
+				wrappedLines: tokenWrappedLines,
+			});
+			wrappedLines.push(...tokenWrappedLines);
+		}
+
+		this.previousTokens = tokens;
+		this.previousTokenCaches = newTokenCaches;
+		return wrappedLines;
+	}
+
+	private renderAndWrapToken(token: Token, width: number, nextTokenType?: string): string[] {
+		const renderedLines = this.renderToken(token, width, nextTokenType);
+		const wrappedLines: string[] = [];
+
+		for (const line of renderedLines) {
+			if (isImageLine(line)) {
+				wrappedLines.push(line);
+				continue;
+			}
+
+			wrappedLines.push(...wrapTextWithAnsi(line, width));
+		}
+
+		return wrappedLines;
 	}
 
 	/**

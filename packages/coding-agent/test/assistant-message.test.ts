@@ -1,4 +1,5 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
+import { Container } from "@earendil-works/pi-tui";
 import { describe, expect, test } from "vitest";
 import { AssistantMessageComponent } from "../src/modes/interactive/components/assistant-message.ts";
 import { UserMessageComponent } from "../src/modes/interactive/components/user-message.ts";
@@ -8,6 +9,12 @@ import { stripAnsi } from "../src/utils/ansi.ts";
 const OSC133_ZONE_START = "\x1b]133;A\x07";
 const OSC133_ZONE_END = "\x1b]133;B\x07";
 const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
+
+function getContentChildren(component: AssistantMessageComponent): Container["children"] {
+	const contentContainer = component.children[0];
+	expect(contentContainer).toBeInstanceOf(Container);
+	return (contentContainer as Container).children;
+}
 
 function createAssistantMessage(
 	content: AssistantMessage["content"],
@@ -108,5 +115,116 @@ describe("AssistantMessageComponent", () => {
 		const unpaddedComponent = new UserMessageComponent("hello", undefined, 0);
 		const unpaddedLines = unpaddedComponent.render(40).map((line) => stripAnsi(line));
 		expect(unpaddedLines.some((line) => line.startsWith("hello"))).toBe(true);
+	});
+
+	test("retains markdown component identity while streamed text grows", () => {
+		initTheme("dark");
+
+		const component = new AssistantMessageComponent(createAssistantMessage([{ type: "text", text: "hello" }]));
+		const initialChildren = getContentChildren(component);
+		const markdown = initialChildren[1];
+
+		component.updateContent(createAssistantMessage([{ type: "text", text: "hello world" }]));
+		const updatedChildren = getContentChildren(component);
+
+		expect(updatedChildren[1]).toBe(markdown);
+		expect(
+			component
+				.render(40)
+				.map((line) => stripAnsi(line).trimEnd())
+				.join("\n"),
+		).toContain("hello world");
+	});
+
+	test("retains thinking markdown and inserts a spacer when text follows", () => {
+		initTheme("dark");
+
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([{ type: "thinking", thinking: "reasoning" }]),
+		);
+		const initialChildren = getContentChildren(component);
+		const thinkingMarkdown = initialChildren[1];
+
+		component.updateContent(
+			createAssistantMessage([
+				{ type: "thinking", thinking: "reasoning continues" },
+				{ type: "text", text: "answer" },
+			]),
+		);
+		const updatedChildren = getContentChildren(component);
+
+		expect(updatedChildren[1]).toBe(thinkingMarkdown);
+		expect(updatedChildren).toHaveLength(4);
+		expect(
+			component
+				.render(60)
+				.map((line) => stripAnsi(line))
+				.join("\n"),
+		).toContain("answer");
+	});
+
+	test("swaps hidden thinking text when visibility changes", () => {
+		initTheme("dark");
+
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([{ type: "thinking", thinking: "reasoning" }]),
+		);
+		const visibleMarkdown = getContentChildren(component)[1];
+
+		component.setHideThinkingBlock(true);
+		const hiddenText = getContentChildren(component)[1];
+
+		expect(hiddenText).not.toBe(visibleMarkdown);
+		expect(
+			component
+				.render(60)
+				.map((line) => stripAnsi(line))
+				.join("\n"),
+		).toContain("Thinking...");
+
+		component.setHideThinkingBlock(false);
+		expect(getContentChildren(component)[1]).not.toBe(hiddenText);
+	});
+
+	test("reconciles shrinking and content type changes", () => {
+		initTheme("dark");
+
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([
+				{ type: "thinking", thinking: "reasoning" },
+				{ type: "text", text: "answer" },
+			]),
+		);
+
+		component.updateContent(createAssistantMessage([{ type: "text", text: "replacement" }]));
+		const children = getContentChildren(component);
+
+		expect(children).toHaveLength(2);
+		expect(
+			component
+				.render(60)
+				.map((line) => stripAnsi(line))
+				.join("\n"),
+		).not.toContain("reasoning");
+		expect(
+			component
+				.render(60)
+				.map((line) => stripAnsi(line))
+				.join("\n"),
+		).toContain("replacement");
+	});
+
+	test("retained components render correctly after a width change", () => {
+		initTheme("dark");
+
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([{ type: "text", text: "one two three four five six" }]),
+		);
+		const markdown = getContentChildren(component)[1];
+		const narrowLines = component.render(20);
+		const wideLines = component.render(60);
+
+		expect(getContentChildren(component)[1]).toBe(markdown);
+		expect(narrowLines.length).toBeGreaterThan(wideLines.length);
 	});
 });
