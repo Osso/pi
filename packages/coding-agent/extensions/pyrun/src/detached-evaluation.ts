@@ -111,6 +111,11 @@ function createArtifactWakeup(directory: string): ArtifactWakeup {
 	return new ArtifactWakeupController(directory);
 }
 
+async function waitForArtifactActivity(artifactWakeup: ArtifactWakeup, hasUnreadBytes: boolean): Promise<void> {
+	if (hasUnreadBytes) return;
+	await artifactWakeup.wait();
+}
+
 export async function runDurableDetachablePyrunEvaluation(input: {
 	agentId: string;
 	ctx: ExtensionContext;
@@ -516,10 +521,10 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 	try {
 		for (;;) {
 			await respondToPendingForegroundBridgeRequests(input, bridgeRequestCursor, control.getOwnership() !== undefined);
-			const records = readNewArtifactRecords(input.runner.artifacts.outputPath, outputCursor);
-			result = progressAccumulator.consume(records) ?? result;
+			const artifactRead = readNewArtifactRecords(input.runner.artifacts.outputPath, outputCursor);
+			result = progressAccumulator.consume(artifactRead.values) ?? result;
 			const ownership = control.getOwnership();
-			const foregroundResult = settleForegroundEvaluation(input, records, result, ownership);
+			const foregroundResult = settleForegroundEvaluation(input, artifactRead.values, result, ownership);
 			if (foregroundResult) return foregroundResult;
 			if (!ownership) {
 				nextForegroundRunnerLivenessCheckAt = checkForegroundRunnerLiveness(
@@ -533,7 +538,7 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 			if (ownership && control.isActivated()) {
 				return detachedResult(input.params, ownership.agent.id, ownership.artifacts.outputPath);
 			}
-			await artifactWakeup.wait();
+			await waitForArtifactActivity(artifactWakeup, artifactRead.hasUnreadBytes);
 		}
 		if (result) return formatCanonicalPyrunEvalResult(input.params, result);
 		if (!terminalAgent) throw new Error("Detached Pyrun job terminal state is unavailable");
@@ -631,18 +636,30 @@ function createJsonLineReadCursor(): JsonLineReadCursor {
 	return { fragments: [], fragmentBytes: 0, offset: 0 };
 }
 
-function readNewJsonLines<T>(path: string, cursor: JsonLineReadCursor, byteLimit?: number): T[] {
-	if (!existsSync(path)) return [];
+interface JsonLineReadResult<T> {
+	hasUnreadBytes: boolean;
+	values: T[];
+}
+
+function readNewJsonLines<T>(path: string, cursor: JsonLineReadCursor): T[] {
+	return readJsonLineChunk<T>(path, cursor).values;
+}
+
+function readJsonLineChunk<T>(path: string, cursor: JsonLineReadCursor, byteLimit?: number): JsonLineReadResult<T> {
+	if (!existsSync(path)) return { hasUnreadBytes: false, values: [] };
 	const descriptor = openSync(path, "r");
 	try {
 		const size = fstatSync(descriptor).size;
-		if (size <= cursor.offset) return [];
+		if (size <= cursor.offset) return { hasUnreadBytes: false, values: [] };
 		const unreadBytes = size - cursor.offset;
 		const bytesToRead = byteLimit === undefined ? unreadBytes : Math.min(unreadBytes, byteLimit);
 		const data = Buffer.allocUnsafe(bytesToRead);
 		const bytesRead = readSync(descriptor, data, 0, data.length, cursor.offset);
 		cursor.offset += bytesRead;
-		return consumeJsonLineBytes<T>(cursor, data.subarray(0, bytesRead));
+		return {
+			hasUnreadBytes: cursor.offset < size,
+			values: consumeJsonLineBytes<T>(cursor, data.subarray(0, bytesRead)),
+		};
 	} finally {
 		closeSync(descriptor);
 	}
@@ -672,8 +689,11 @@ function consumeJsonLineBytes<T>(cursor: JsonLineReadCursor, data: Buffer): T[] 
 	return values;
 }
 
-function readNewArtifactRecords(path: string, cursor: JsonLineReadCursor): PyrunArtifactRecord[] {
-	return readNewJsonLines<PyrunArtifactRecord>(path, cursor, ARTIFACT_READ_BYTE_LIMIT);
+function readNewArtifactRecords(
+	path: string,
+	cursor: JsonLineReadCursor,
+): JsonLineReadResult<PyrunArtifactRecord> {
+	return readJsonLineChunk<PyrunArtifactRecord>(path, cursor, ARTIFACT_READ_BYTE_LIMIT);
 }
 
 function detachedResult(params: PyrunEvalParams, jobId: string, logPath: string): AgentToolResult<unknown> {
