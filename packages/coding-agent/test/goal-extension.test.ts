@@ -31,6 +31,8 @@ import {
 	readSupervisorRequest,
 } from "../src/core/session-control-db.ts";
 
+vi.mock("../src/supervisor/ensure-running.ts", () => ({ ensureSupervisorRunning: async () => ({}) }));
+
 type RegisteredGoalCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
 type GoalTool = ToolDefinition;
 type GoalEvent =
@@ -744,11 +746,8 @@ describe("goal extension", () => {
 			await harness.runCommand("set verify resident deadline");
 			const review = harness.runAgentEnd();
 			const controlDbPath = getControlDbPath();
-			let request = readSupervisorRequest(controlDbPath, 1);
-			for (let attempts = 0; !request && attempts < 20; attempts++) {
-				await new Promise((resolve) => setTimeout(resolve, 10));
-				request = readSupervisorRequest(controlDbPath, 1);
-			}
+			await vi.waitFor(() => expect(readSupervisorRequest(controlDbPath, 1)).toBeDefined());
+			const request = readSupervisorRequest(controlDbPath, 1);
 			if (!request) throw new Error("expected resident Supervisor request");
 			const deadlineMs = Date.parse(request.deadlineAt) - Date.parse(request.createdAt);
 			const claimed = claimNextSupervisorRequest(controlDbPath, "test-runtime");

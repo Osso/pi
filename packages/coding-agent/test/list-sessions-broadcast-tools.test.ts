@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	archiveSession,
 	claimNextSupervisorRequest,
@@ -19,6 +19,8 @@ import { createAskSupervisorToolDefinition } from "../src/core/tools/ask-supervi
 import { createChannelPostToolDefinition } from "../src/core/tools/channel-post.ts";
 import { createAllToolDefinitions, DEFAULT_ACTIVE_TOOL_NAMES } from "../src/core/tools/index.ts";
 import { createListSessionsToolDefinition } from "../src/core/tools/list-sessions.ts";
+
+vi.mock("../src/supervisor/ensure-running.ts", () => ({ ensureSupervisorRunning: async () => ({}) }));
 
 describe("session coordination tools", () => {
 	it("registers active session coordination tools while Architect requests are disabled", () => {
@@ -211,7 +213,11 @@ describe("historical subagent session authorization", () => {
 					isSubagentSession: () => true,
 				},
 			} as Parameters<typeof tool.execute>[4]);
-			const request = claimNextSupervisorRequest(controlDbPath, "test-runtime");
+			let request: ReturnType<typeof claimNextSupervisorRequest>;
+			await vi.waitFor(() => {
+				request = claimNextSupervisorRequest(controlDbPath, "test-runtime");
+				expect(request).toBeDefined();
+			});
 			if (!request) throw new Error("expected persisted Supervisor advisory request");
 			expect(request).toMatchObject({
 				kind: "supervisor_advisory",
