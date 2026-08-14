@@ -198,17 +198,13 @@ describe("FooterDataProvider reftable branch detection", () => {
 		}
 	});
 
-	it("polls reftable tables.list at the idle-safe git polling cadence", () => {
-		const { worktreeDir, reftableDir } = createReftableWorktree(tempDir);
+	it("uses native fs.watch instead of watchFile polling for reftables", () => {
+		const { worktreeDir } = createReftableWorktree(tempDir);
 		process.chdir(worktreeDir);
 
 		const provider = new FooterDataProvider(worktreeDir);
 		try {
-			expect(vi.mocked(watchFile)).toHaveBeenCalledWith(
-				join(reftableDir, "tables.list"),
-				{ interval: 1000 },
-				expect.any(Function),
-			);
+			expect(vi.mocked(watchFile)).not.toHaveBeenCalled();
 		} finally {
 			provider.dispose();
 		}
@@ -281,7 +277,7 @@ describe("FooterDataProvider reftable branch detection", () => {
 		}
 	});
 
-	it("retries git watchers 5 seconds after an async fs.watch error", async () => {
+	it("retries git watchers 5 seconds after an async fs.watch error on HEAD", async () => {
 		vi.useFakeTimers();
 		const repoDir = createPlainRepo(tempDir);
 		process.chdir(repoDir);
@@ -304,6 +300,37 @@ describe("FooterDataProvider reftable branch detection", () => {
 			await vi.advanceTimersByTimeAsync(1);
 			expect(providerWithInternals.headWatcher).not.toBeNull();
 			expect(providerWithInternals.headWatcher).not.toBe(originalWatcher);
+		} finally {
+			provider.dispose();
+			vi.useRealTimers();
+		}
+	});
+
+	it("retries git watchers 5 seconds after an async fs.watch error on reftable", async () => {
+		vi.useFakeTimers();
+		const { worktreeDir } = createReftableWorktree(tempDir);
+		process.chdir(worktreeDir);
+
+		const provider = new FooterDataProvider(worktreeDir);
+		try {
+			const providerWithInternals = provider as unknown as {
+				reftableWatcher: FSWatcher | null;
+				reftableTablesListWatcher: FSWatcher | null;
+			};
+			const originalWatcher = providerWithInternals.reftableWatcher;
+			expect(originalWatcher).not.toBeNull();
+			expect(originalWatcher?.listenerCount("error")).toBeGreaterThan(0);
+
+			originalWatcher?.emit("error", new Error("simulated EMFILE"));
+			expect(providerWithInternals.reftableWatcher).toBeNull();
+			expect(providerWithInternals.reftableTablesListWatcher).toBeNull();
+
+			await vi.advanceTimersByTimeAsync(4999);
+			expect(providerWithInternals.reftableWatcher).toBeNull();
+
+			await vi.advanceTimersByTimeAsync(1);
+			expect(providerWithInternals.reftableWatcher).not.toBeNull();
+			expect(providerWithInternals.reftableWatcher).not.toBe(originalWatcher);
 		} finally {
 			provider.dispose();
 			vi.useRealTimers();

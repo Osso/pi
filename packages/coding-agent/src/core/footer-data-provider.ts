@@ -139,7 +139,6 @@ export class FooterDataProvider {
 	private headWatchFileListener: ((current: Stats, previous: Stats) => void) | null = null;
 	private reftableWatcher: FSWatcher | null = null;
 	private reftableTablesListWatcher: FSWatcher | null = null;
-	private reftableTablesListPath: string | null = null;
 	private branchChangeCallbacks = new Set<() => void>();
 	private availableProviderCount = 0;
 	private refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -327,10 +326,6 @@ export class FooterDataProvider {
 		this.reftableWatcher = null;
 		closeWatcher(this.reftableTablesListWatcher);
 		this.reftableTablesListWatcher = null;
-		if (this.reftableTablesListPath) {
-			unwatchFile(this.reftableTablesListPath);
-			this.reftableTablesListPath = null;
-		}
 		if (this.gitWatcherRetryTimer) {
 			clearTimeout(this.gitWatcherRetryTimer);
 			this.gitWatcherRetryTimer = null;
@@ -358,6 +353,16 @@ export class FooterDataProvider {
 		if (!this.gitPaths) return;
 
 		const pollGitHead = shouldPollGitHead(this.gitPaths.repoDir);
+		this.setupHeadWatcher(pollGitHead);
+		if (!this.headWatcher && !pollGitHead) {
+			return;
+		}
+
+		this.setupReftableWatcher();
+	}
+
+	private setupHeadWatcher(pollGitHead: boolean): void {
+		if (!this.gitPaths) return;
 
 		// Watch the directory containing HEAD, not HEAD itself.
 		// Git uses atomic writes (write temp, rename over HEAD), which changes the inode.
@@ -372,68 +377,55 @@ export class FooterDataProvider {
 			() => this.handleGitWatcherError(),
 		);
 		if (pollGitHead) {
-			this.headWatchFilePath = this.gitPaths.headPath;
-			this.headWatchFileListener = (current, previous) => {
-				if (
-					current.mtimeMs !== previous.mtimeMs ||
-					current.ctimeMs !== previous.ctimeMs ||
-					current.size !== previous.size
-				) {
-					this.scheduleRefresh();
-				}
-			};
-			watchFile(
-				this.headWatchFilePath,
-				{ interval: FooterDataProvider.GIT_FILE_POLL_INTERVAL_MS },
-				this.headWatchFileListener,
-			);
+			this.setupHeadPollWatcher();
 		}
-		if (!this.headWatcher && !pollGitHead) {
-			return;
-		}
+	}
+
+	private setupHeadPollWatcher(): void {
+		if (!this.gitPaths) return;
+		this.headWatchFilePath = this.gitPaths.headPath;
+		this.headWatchFileListener = (current, previous) => {
+			if (
+				current.mtimeMs !== previous.mtimeMs ||
+				current.ctimeMs !== previous.ctimeMs ||
+				current.size !== previous.size
+			) {
+				this.scheduleRefresh();
+			}
+		};
+		watchFile(
+			this.headWatchFilePath,
+			{ interval: FooterDataProvider.GIT_FILE_POLL_INTERVAL_MS },
+			this.headWatchFileListener,
+		);
+	}
+
+	private setupReftableWatcher(): void {
+		if (!this.gitPaths) return;
 
 		// In reftable repos, branch switches update files in the reftable directory
 		// instead of HEAD. Watch it separately so the footer picks up those changes.
 		const reftableDir = join(this.gitPaths.commonGitDir, "reftable");
-		if (existsSync(reftableDir)) {
-			this.reftableWatcher = watchWithErrorHandler(
-				reftableDir,
-				() => {
-					this.scheduleRefresh();
-				},
+		if (!existsSync(reftableDir)) {
+			return;
+		}
+
+		this.reftableWatcher = watchWithErrorHandler(
+			reftableDir,
+			() => this.scheduleRefresh(),
+			() => this.handleGitWatcherError(),
+		);
+		if (!this.reftableWatcher) {
+			return;
+		}
+
+		const tablesListPath = join(reftableDir, "tables.list");
+		if (existsSync(tablesListPath)) {
+			this.reftableTablesListWatcher = watchWithErrorHandler(
+				tablesListPath,
+				() => this.scheduleRefresh(),
 				() => this.handleGitWatcherError(),
 			);
-			if (!this.reftableWatcher) {
-				return;
-			}
-
-			const tablesListPath = join(reftableDir, "tables.list");
-			if (existsSync(tablesListPath)) {
-				this.reftableTablesListPath = tablesListPath;
-				this.reftableTablesListWatcher = watchWithErrorHandler(
-					tablesListPath,
-					() => {
-						this.scheduleRefresh();
-					},
-					() => this.handleGitWatcherError(),
-				);
-				if (!this.reftableTablesListWatcher) {
-					return;
-				}
-				watchFile(
-					tablesListPath,
-					{ interval: FooterDataProvider.GIT_FILE_POLL_INTERVAL_MS },
-					(current, previous) => {
-						if (
-							current.mtimeMs !== previous.mtimeMs ||
-							current.ctimeMs !== previous.ctimeMs ||
-							current.size !== previous.size
-						) {
-							this.scheduleRefresh();
-						}
-					},
-				);
-			}
 		}
 	}
 }
