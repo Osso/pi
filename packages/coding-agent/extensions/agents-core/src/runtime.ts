@@ -147,11 +147,15 @@ const agentViewerSchema = Type.Object({
 });
 
 const sendAgentMessageSchema = Type.Object({
-	fileRefs: Type.Optional(Type.Array(fileReferenceSchema)),
-	message: Type.String(),
-	threadId: Type.Optional(Type.String()),
-	toAgentId: Type.String(),
-	toSessionId: Type.Optional(Type.String()),
+	fileRefs: Type.Optional(Type.Array(fileReferenceSchema, { description: "Optional file references to attach." })),
+	message: Type.String({ description: "Message body to send." }),
+	threadId: Type.Optional(Type.String({ description: "Optional thread identifier for conversation correlation." })),
+	toAgentId: Type.String({
+		description: "Target agent ID, or 'main' when sending to another session's main thread.",
+	}),
+	toSessionId: Type.Optional(
+		Type.String({ description: "Optional target session ID for direct cross-session mailbox delivery." }),
+	),
 });
 
 type SpawnAgentParams = Static<typeof spawnAgentSchema>;
@@ -3481,7 +3485,11 @@ export function registerAgentsMailboxTools(pi: ExtensionAPI, options: MultiAgent
 		defineTool({
 			name: "send_agent_message",
 			label: "Send Agent Message",
-			description: "Send a sibling-safe direct mailbox message across a parent-child agent relationship.",
+			description:
+				"Send a direct mailbox message to a local child or sibling agent, or to another session via toSessionId (with toAgentId 'main' for its main thread).",
+			promptGuidelines: [
+				"Use send_agent_message for direct mailbox messaging to local agents, or across sessions via toSessionId (with toAgentId='main' for the main thread).",
+			],
 			approvalRequired: false,
 			parameters: sendAgentMessageSchema,
 			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
