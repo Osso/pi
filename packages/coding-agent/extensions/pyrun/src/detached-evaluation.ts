@@ -514,6 +514,16 @@ function checkForegroundOwnershipLiveness(
 	return checkForegroundRunnerLiveness(input.runner.processIdentity, nextCheckAt, Date.now());
 }
 
+function formatCompletedPyrunObservation(
+	params: PyrunEvalParams,
+	result: CanonicalPyrunEvalResult | undefined,
+	terminalAgent: AgentSnapshot | undefined,
+): AgentToolResult<unknown> {
+	if (result) return formatCanonicalPyrunEvalResult(params, result);
+	if (!terminalAgent) throw new Error("Detached Pyrun job terminal state is unavailable");
+	return formatTerminalAgentError(params, terminalAgent);
+}
+
 async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Promise<AgentToolResult<unknown>> {
 	const bridgeRequestCursor = createJsonLineReadCursor();
 	let nextForegroundRunnerLivenessCheckAt = 0;
@@ -547,9 +557,7 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 			}
 			await waitForArtifactActivity(artifactWakeup, artifactRead.hasUnreadBytes);
 		}
-		if (result) return formatCanonicalPyrunEvalResult(input.params, result);
-		if (!terminalAgent) throw new Error("Detached Pyrun job terminal state is unavailable");
-		return formatTerminalAgentError(input.params, terminalAgent);
+		return formatCompletedPyrunObservation(input.params, result, terminalAgent);
 	} finally {
 		progressAccumulator.close();
 		artifactWakeup.close();
