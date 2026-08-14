@@ -188,11 +188,16 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private formatTimerText(): string | undefined {
-		if (this.executionStartedAt === undefined || this.executionFinishedAt === undefined) {
+		if (this.executionStartedAt === undefined) {
 			return undefined;
 		}
 
-		const elapsedMs = this.executionFinishedAt - this.executionStartedAt;
+		const finishedAt = this.executionFinishedAt ?? (this.isPartial ? Date.now() : undefined);
+		if (finishedAt === undefined) {
+			return undefined;
+		}
+
+		const elapsedMs = finishedAt - this.executionStartedAt;
 		return `Elapsed: ${formatElapsedDuration(elapsedMs)}`;
 	}
 
