@@ -426,8 +426,48 @@ async function runMultiAgentPayloadPreparationContention(
 
 const WRITER_LOCK_WAIT_TIMEOUT_MS = 5_000;
 const WRITER_MESSAGE_BYTES = 64 * 1024 * 1024;
+const WRITER_SAMPLE_COUNT = 3;
 const MINIMUM_INDEXED_WAIT_MS = 100;
 const MINIMUM_INDEXED_WAIT_RATIO = 5;
+
+type WriterContentionSamplePaths = {
+	indexedControlDbPath: string;
+	indexedSessionPath: string;
+	unindexedControlDbPath: string;
+	unindexedSessionPath: string;
+};
+
+function calculateMedian(values: readonly number[]): number {
+	if (values.length === 0) throw new Error("Cannot calculate a median from no values");
+	const sortedValues = [...values].sort((left, right) => left - right);
+	const middleIndex = Math.floor(sortedValues.length / 2);
+	if (sortedValues.length % 2 === 1) return sortedValues[middleIndex];
+	return (sortedValues[middleIndex - 1] + sortedValues[middleIndex]) / 2;
+}
+
+function createWriterContentionSamplePaths(tempDir: string, sampleNumber: number): WriterContentionSamplePaths {
+	return {
+		indexedControlDbPath: join(tempDir, `indexed-control-${sampleNumber}.sqlite`),
+		indexedSessionPath: join(tempDir, `indexed-${sampleNumber}.jsonl`),
+		unindexedControlDbPath: join(tempDir, `unindexed-control-${sampleNumber}.sqlite`),
+		unindexedSessionPath: join(tempDir, `unindexed-${sampleNumber}.jsonl`),
+	};
+}
+
+function removeWriterContentionSampleFiles(paths: WriterContentionSamplePaths): void {
+	for (const path of [
+		paths.indexedControlDbPath,
+		`${paths.indexedControlDbPath}-wal`,
+		`${paths.indexedControlDbPath}-shm`,
+		paths.indexedSessionPath,
+		paths.unindexedControlDbPath,
+		`${paths.unindexedControlDbPath}-wal`,
+		`${paths.unindexedControlDbPath}-shm`,
+		paths.unindexedSessionPath,
+	]) {
+		rmSync(path, { force: true });
+	}
+}
 
 function createWriterContentionWorkerSource(moduleUrl: string): string {
 	return `
@@ -466,6 +506,7 @@ function createWriterContentionWorker(
 	moduleUrl: string,
 	controlDbPath: string,
 	indexMessageText: boolean,
+	sessionPath: string,
 ): {
 	worker: Worker;
 	phase: Int32Array;
@@ -483,7 +524,7 @@ function createWriterContentionWorker(
 			iterations: 2,
 			messageBytes: WRITER_MESSAGE_BYTES,
 			phaseBuffer: phase.buffer,
-			sessionPath: indexMessageText ? "/tmp/indexed.jsonl" : "/tmp/unindexed.jsonl",
+			sessionPath,
 		},
 	});
 	let startWorker: (() => void) | undefined;
@@ -540,12 +581,13 @@ async function measureWriterWaitMs(
 	controlDbPath: string,
 	moduleUrl: string,
 	indexMessageText: boolean,
+	sessionPath: string,
 ): Promise<number> {
 	const probe = createSqliteDatabase(controlDbPath);
 	const waiter = createSqliteDatabase(controlDbPath);
 	configureSharedSqliteDatabase(probe, { busyTimeoutMs: 0 });
 	configureSharedSqliteDatabase(waiter, { busyTimeoutMs: WRITER_LOCK_WAIT_TIMEOUT_MS });
-	const contentionWorker = createWriterContentionWorker(moduleUrl, controlDbPath, indexMessageText);
+	const contentionWorker = createWriterContentionWorker(moduleUrl, controlDbPath, indexMessageText, sessionPath);
 	await contentionWorker.started;
 	contentionWorker.worker.postMessage("start");
 	try {
@@ -7338,16 +7380,40 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 	});
 
 	it("avoids prolonged writer starvation when resident message indexing is disabled", async () => {
-		const indexedControlDbPath = join(tempDir, "indexed-control.sqlite");
-		const unindexedControlDbPath = join(tempDir, "unindexed-control.sqlite");
-		readMultiAgentState(indexedControlDbPath, "/tmp/indexed-schema-initialization.jsonl");
-		readMultiAgentState(unindexedControlDbPath, "/tmp/unindexed-schema-initialization.jsonl");
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const indexedWaitMs = await measureWriterWaitMs(indexedControlDbPath, moduleUrl, true);
-		const unindexedWaitMs = await measureWriterWaitMs(unindexedControlDbPath, moduleUrl, false);
+		const indexedWaits: number[] = [];
+		const unindexedWaits: number[] = [];
 
-		expect(indexedWaitMs).toBeGreaterThan(MINIMUM_INDEXED_WAIT_MS);
-		expect(indexedWaitMs).toBeGreaterThan(unindexedWaitMs * MINIMUM_INDEXED_WAIT_RATIO);
+		for (let sampleNumber = 0; sampleNumber < WRITER_SAMPLE_COUNT; sampleNumber += 1) {
+			const samplePaths = createWriterContentionSamplePaths(tempDir, sampleNumber);
+			try {
+				readMultiAgentState(samplePaths.indexedControlDbPath, samplePaths.indexedSessionPath);
+				readMultiAgentState(samplePaths.unindexedControlDbPath, samplePaths.unindexedSessionPath);
+				indexedWaits.push(
+					await measureWriterWaitMs(
+						samplePaths.indexedControlDbPath,
+						moduleUrl,
+						true,
+						samplePaths.indexedSessionPath,
+					),
+				);
+				unindexedWaits.push(
+					await measureWriterWaitMs(
+						samplePaths.unindexedControlDbPath,
+						moduleUrl,
+						false,
+						samplePaths.unindexedSessionPath,
+					),
+				);
+			} finally {
+				removeWriterContentionSampleFiles(samplePaths);
+			}
+		}
+
+		const indexedMedianWaitMs = calculateMedian(indexedWaits);
+		const unindexedMedianWaitMs = calculateMedian(unindexedWaits);
+		expect(indexedMedianWaitMs).toBeGreaterThan(MINIMUM_INDEXED_WAIT_MS);
+		expect(indexedMedianWaitMs).toBeGreaterThan(unindexedMedianWaitMs * MINIMUM_INDEXED_WAIT_RATIO);
 	}, 30_000);
 
 	it("omits message search text when metadata indexing is disabled", () => {
