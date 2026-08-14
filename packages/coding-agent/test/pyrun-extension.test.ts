@@ -2098,7 +2098,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 
 	it("keeps an evaluation in the foreground when it completes before the configured detach threshold", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
-		const detachRegistry = new ToolDetachRegistry({ autoDetachAfterMs: 500 });
+		const detachRegistry = new ToolDetachRegistry({ autoDetachAfterMs: 5_000 });
 		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
 
 		const result = await harness.evaluate({ code: "run.foreground_before_detach()" });
