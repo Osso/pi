@@ -377,22 +377,27 @@ export class FooterDataProvider {
 			() => this.handleGitWatcherError(),
 		);
 		if (pollGitHead) {
-			this.headWatchFilePath = this.gitPaths.headPath;
-			this.headWatchFileListener = (current, previous) => {
-				if (
-					current.mtimeMs !== previous.mtimeMs ||
-					current.ctimeMs !== previous.ctimeMs ||
-					current.size !== previous.size
-				) {
-					this.scheduleRefresh();
-				}
-			};
-			watchFile(
-				this.headWatchFilePath,
-				{ interval: FooterDataProvider.GIT_FILE_POLL_INTERVAL_MS },
-				this.headWatchFileListener,
-			);
+			this.setupHeadPollWatcher();
 		}
+	}
+
+	private setupHeadPollWatcher(): void {
+		if (!this.gitPaths) return;
+		this.headWatchFilePath = this.gitPaths.headPath;
+		this.headWatchFileListener = (current, previous) => {
+			if (
+				current.mtimeMs !== previous.mtimeMs ||
+				current.ctimeMs !== previous.ctimeMs ||
+				current.size !== previous.size
+			) {
+				this.scheduleRefresh();
+			}
+		};
+		watchFile(
+			this.headWatchFilePath,
+			{ interval: FooterDataProvider.GIT_FILE_POLL_INTERVAL_MS },
+			this.headWatchFileListener,
+		);
 	}
 
 	private setupReftableWatcher(): void {
@@ -407,9 +412,7 @@ export class FooterDataProvider {
 
 		this.reftableWatcher = watchWithErrorHandler(
 			reftableDir,
-			() => {
-				this.scheduleRefresh();
-			},
+			() => this.scheduleRefresh(),
 			() => this.handleGitWatcherError(),
 		);
 		if (!this.reftableWatcher) {
@@ -420,9 +423,7 @@ export class FooterDataProvider {
 		if (existsSync(tablesListPath)) {
 			this.reftableTablesListWatcher = watchWithErrorHandler(
 				tablesListPath,
-				() => {
-					this.scheduleRefresh();
-				},
+				() => this.scheduleRefresh(),
 				() => this.handleGitWatcherError(),
 			);
 		}
