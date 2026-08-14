@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, Message } from "@earendil-works/pi-ai/compat";
+import { inject } from "vitest";
 import type { AgentMailboxMessage, AgentSnapshot } from "../../src/core/multi-agent-store.ts";
 import { MultiAgentStore } from "../../src/core/multi-agent-store.ts";
 import {
@@ -35,6 +36,13 @@ import type { RpcExtensionUIRequest, RpcResponse } from "../../src/modes/rpc/rpc
 import { type HeadlessSupervisorProbe, startHeadlessSupervisorProbe } from "./fixtures/headless-supervisor-probe.ts";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+
+function readHeadlessCompileCacheDir(): string {
+	const compileCacheRoot = inject("headlessCompileCacheRoot");
+	const workerId = process.env.VITEST_WORKER_ID;
+	if (workerId === undefined) throw new Error("VITEST_WORKER_ID is required for headless compile cache isolation");
+	return join(compileCacheRoot, `worker-${workerId}`);
+}
 
 interface WireLlmRequest {
 	type: "request";
@@ -300,10 +308,12 @@ function createHeadlessRpcClient(
 	if (sessionFile) args.push("--session", sessionFile);
 	const selectedProvider = options.provider ?? "headless-faux";
 	const defaultModel = selectedProvider === "openai-codex" ? "headless-faux-codex" : "headless-faux-1";
+	const compileCacheDir = readHeadlessCompileCacheDir();
 	return new RpcClient({
 		cliPath,
 		cwd: paths.workspaceDir,
 		env: {
+			NODE_COMPILE_CACHE: compileCacheDir,
 			PI_CODING_AGENT_DIR: paths.agentDir,
 			PI_CODING_AGENT_STATE_DIR: paths.agentDir,
 			PI_CODING_AGENT_SESSION_DIR: paths.sessionDir,
