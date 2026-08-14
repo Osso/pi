@@ -4891,7 +4891,7 @@ export class InteractiveMode {
 		for (const [toolCallId, component] of renderedPendingTools) {
 			const startedAt = this.getPendingToolStartedAt(toolCallId);
 			if (startedAt !== undefined) {
-				component.markExecutionStarted(startedAt);
+				component.markExecutionStarted(startedAt, { showLiveElapsed: true });
 			}
 			this.pendingTools.set(toolCallId, component);
 		}

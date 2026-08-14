@@ -51,6 +51,10 @@ export interface ToolExecutionOptions {
 	imageWidthCells?: number;
 }
 
+export interface ToolExecutionStartOptions {
+	showLiveElapsed?: boolean;
+}
+
 export class ToolExecutionComponent extends Container {
 	private contentBox: Box;
 	private contentText: Text;
@@ -72,6 +76,7 @@ export class ToolExecutionComponent extends Container {
 	private ui: TUI;
 	private cwd: string;
 	private executionStarted = false;
+	private showLiveElapsed = false;
 	private executionStartedAt: number | undefined;
 	private executionFinishedAt: number | undefined;
 	private argsComplete = false;
@@ -192,7 +197,7 @@ export class ToolExecutionComponent extends Container {
 			return undefined;
 		}
 
-		const liveFinishedAt = this.isPartial && this.result ? Date.now() : undefined;
+		const liveFinishedAt = this.isPartial && (this.result || this.showLiveElapsed) ? Date.now() : undefined;
 		const finishedAt = this.executionFinishedAt ?? liveFinishedAt;
 		if (finishedAt === undefined) {
 			return undefined;
@@ -215,8 +220,9 @@ export class ToolExecutionComponent extends Container {
 		this.updateDisplay();
 	}
 
-	markExecutionStarted(startedAt: number): void {
+	markExecutionStarted(startedAt: number, options: ToolExecutionStartOptions = {}): void {
 		this.executionStarted = true;
+		this.showLiveElapsed = options.showLiveElapsed ?? false;
 		this.executionStartedAt = startedAt;
 		this.executionFinishedAt = undefined;
 		this.updateDisplay();
