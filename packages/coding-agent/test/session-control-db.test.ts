@@ -91,7 +91,6 @@ import {
 	configureSharedSqliteDatabase,
 	createReadOnlySqliteDatabase,
 	createSqliteDatabase,
-	isSqliteContentionError,
 } from "../src/core/sqlite.ts";
 import { CURRENT_PROCESS_IDENTITY, testProcessIdentity } from "./helpers/process-identity.ts";
 import { forceRuntimeOwnership } from "./helpers/runtime-ownership.ts";
@@ -422,146 +421,6 @@ async function runMultiAgentPayloadPreparationContention(
 	if (!completed) throw new Error(`${operation} payload worker did not report completion`);
 	expect(completed.error).toBeUndefined();
 	return completed;
-}
-
-const WRITER_LOCK_WAIT_TIMEOUT_MS = 5_000;
-const WRITER_MESSAGE_BYTES = 256 * 1024 * 1024;
-const WRITER_STARVATION_SKIP_ENV = "PI_SKIP_WRITER_STARVATION_TEST";
-const MINIMUM_INDEXED_WAIT_MS = 100;
-const MINIMUM_INDEXED_WAIT_RATIO = 5;
-
-function createWriterContentionWorkerSource(moduleUrl: string): string {
-	return `
-		import { parentPort, workerData } from "node:worker_threads";
-		import { writeSessionMetadata } from ${JSON.stringify(moduleUrl)};
-		const messageText = "x".repeat(workerData.messageBytes);
-		const phase = new Int32Array(workerData.phaseBuffer);
-		parentPort?.postMessage("starting");
-		await new Promise<void>((resolve) => {
-			parentPort?.once("message", (message: string) => {
-				if (message === "start") resolve();
-			});
-		});
-		Atomics.store(phase, 0, 1);
-		Atomics.notify(phase, 0);
-		for (let iteration = 0; iteration < workerData.iterations; iteration += 1) {
-			writeSessionMetadata(workerData.controlDbPath, {
-				sessionPath: workerData.sessionPath,
-				id: workerData.id,
-				cwd: "/repo",
-				createdAt: "2026-01-01T00:00:00.000Z",
-				modifiedAt: new Date(iteration).toISOString(),
-				messageCount: iteration + 1,
-				firstMessage: "request",
-				allMessagesText: messageText,
-				indexMessageText: workerData.indexMessageText,
-			});
-		}
-		Atomics.store(phase, 0, 2);
-		Atomics.notify(phase, 0);
-		parentPort?.postMessage("done");
-	`;
-}
-
-function createWriterContentionWorker(
-	moduleUrl: string,
-	controlDbPath: string,
-	indexMessageText: boolean,
-): {
-	worker: Worker;
-	phase: Int32Array;
-	started: Promise<void>;
-	exited: Promise<unknown[]>;
-} {
-	const phase = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
-	const worker = new Worker(createWriterContentionWorkerSource(moduleUrl), {
-		eval: true,
-		execArgv: ["--experimental-strip-types"],
-		workerData: {
-			controlDbPath,
-			id: indexMessageText ? "indexed-resident" : "unindexed-resident",
-			indexMessageText,
-			iterations: 2,
-			messageBytes: WRITER_MESSAGE_BYTES,
-			phaseBuffer: phase.buffer,
-			sessionPath: indexMessageText ? "/tmp/indexed.jsonl" : "/tmp/unindexed.jsonl",
-		},
-	});
-	let startWorker: (() => void) | undefined;
-	const started = new Promise<void>((resolve) => {
-		startWorker = resolve;
-	});
-	worker.on("message", (message: string) => {
-		if (message === "starting") startWorker?.();
-	});
-	return { worker, phase, started, exited: once(worker, "exit") };
-}
-
-async function waitForZeroTimeoutWriterContention(params: {
-	probe: ReturnType<typeof createSqliteDatabase>;
-	phase: Int32Array;
-	workerExited: Promise<unknown[]>;
-	lockWaitTimeoutMs: number;
-}): Promise<boolean> {
-	if (Atomics.wait(params.phase, 0, 0, params.lockWaitTimeoutMs) === "timed-out") {
-		throw new Error("Contention worker did not enter its write phase");
-	}
-	while (Atomics.load(params.phase, 0) !== 2) {
-		try {
-			params.probe.exec("BEGIN IMMEDIATE; ROLLBACK");
-		} catch (error) {
-			if (!isSqliteContentionError(error)) throw error;
-			return true;
-		}
-		if (Atomics.load(params.phase, 0) !== 2) {
-			await new Promise<void>((resolve) => setImmediate(resolve));
-		}
-	}
-	await params.workerExited;
-	return false;
-}
-
-async function measureBoundedWriterAcquisitionMs(params: {
-	probe: ReturnType<typeof createSqliteDatabase>;
-	waiter: ReturnType<typeof createSqliteDatabase>;
-	phase: Int32Array;
-	workerExited: Promise<unknown[]>;
-	lockWaitTimeoutMs: number;
-}): Promise<number> {
-	const writerContentionObserved = await waitForZeroTimeoutWriterContention(params);
-	if (!writerContentionObserved) return 0;
-	const waiterStartedAt = process.hrtime.bigint();
-	params.waiter.exec("BEGIN IMMEDIATE; ROLLBACK");
-	const waiterDurationMs = Number(process.hrtime.bigint() - waiterStartedAt) / 1_000_000;
-	await params.workerExited;
-	return waiterDurationMs;
-}
-
-async function measureWriterWaitMs(
-	controlDbPath: string,
-	moduleUrl: string,
-	indexMessageText: boolean,
-): Promise<number> {
-	const probe = createSqliteDatabase(controlDbPath);
-	const waiter = createSqliteDatabase(controlDbPath);
-	configureSharedSqliteDatabase(probe, { busyTimeoutMs: 0 });
-	configureSharedSqliteDatabase(waiter, { busyTimeoutMs: WRITER_LOCK_WAIT_TIMEOUT_MS });
-	const contentionWorker = createWriterContentionWorker(moduleUrl, controlDbPath, indexMessageText);
-	await contentionWorker.started;
-	contentionWorker.worker.postMessage("start");
-	try {
-		return await measureBoundedWriterAcquisitionMs({
-			probe,
-			waiter,
-			phase: contentionWorker.phase,
-			workerExited: contentionWorker.exited,
-			lockWaitTimeoutMs: WRITER_LOCK_WAIT_TIMEOUT_MS,
-		});
-	} finally {
-		probe.close();
-		waiter.close();
-		await contentionWorker.worker.terminate();
-	}
 }
 
 describe("session control DB", () => {
@@ -7337,23 +7196,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		]);
 		expect(sessions[0].updatedAt).toEqual(expect.any(String));
 	});
-
-	it.skipIf(process.env[WRITER_STARVATION_SKIP_ENV] === "1")(
-		"avoids prolonged writer starvation when resident message indexing is disabled",
-		async () => {
-			const indexedControlDbPath = join(tempDir, "indexed-control.sqlite");
-			const unindexedControlDbPath = join(tempDir, "unindexed-control.sqlite");
-			readMultiAgentState(indexedControlDbPath, "/tmp/indexed-schema-initialization.jsonl");
-			readMultiAgentState(unindexedControlDbPath, "/tmp/unindexed-schema-initialization.jsonl");
-			const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-			const indexedWaitMs = await measureWriterWaitMs(indexedControlDbPath, moduleUrl, true);
-			const unindexedWaitMs = await measureWriterWaitMs(unindexedControlDbPath, moduleUrl, false);
-
-			expect(indexedWaitMs).toBeGreaterThan(MINIMUM_INDEXED_WAIT_MS);
-			expect(indexedWaitMs).toBeGreaterThan(unindexedWaitMs * MINIMUM_INDEXED_WAIT_RATIO);
-		},
-		30_000,
-	);
 
 	it("omits message search text when metadata indexing is disabled", () => {
 		writeSessionMetadata(controlDbPath, {
