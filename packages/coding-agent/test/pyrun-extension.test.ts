@@ -26,7 +26,7 @@ import { PyrunRunnerClient, resolvePyrunRunnerOptions } from "../extensions/pyru
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
-import { isProcessIdentityAlive, type ProcessIdentity } from "../src/core/runtime-process.ts";
+import { isProcessIdentityAlive } from "../src/core/runtime-process.ts";
 import {
 	getControlDbPath,
 	readMultiAgentAgent,
@@ -39,6 +39,7 @@ import { ToolDetachRegistry } from "../src/core/tool-detach-registry.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
+import { terminateDetachedPyrunTestProcesses } from "./helpers/detached-process-cleanup.ts";
 import { writeFakeBwrap } from "./helpers/fake-bwrap.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
 import { testProcessIdentity } from "./helpers/process-identity.ts";
@@ -96,7 +97,6 @@ type PyrunHarnessOptions = PyrunExtensionOptions & {
 };
 
 const temporaryHarnessDirectories: string[] = [];
-const trackedBackgroundStores = new Set<MultiAgentStore>();
 
 type PyrunTool = {
 	name: string;
@@ -243,52 +243,12 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 }
 
 function persistBackgroundStore(store: MultiAgentStore | undefined): void {
-	if (!store) return;
-	trackedBackgroundStores.add(store);
-	if (store.getPersistenceTarget()) return;
+	if (!store || store.getPersistenceTarget()) return;
 	const root = mkdtempSync(join(tmpdir(), "pi-pyrun-store-"));
 	temporaryHarnessDirectories.push(root);
 	const sessionManager = SessionManager.create(root, join(root, "sessions"));
 	sessionManager.setMetadataControlDbPath(getControlDbPath(root));
 	store.setPersistenceSessionManager(sessionManager);
-}
-
-function terminateTrackedPyrunProcess(identity: ProcessIdentity): void {
-	if (!isProcessIdentityAlive(identity)) return;
-	try {
-		process.kill(-identity.pid, "SIGKILL");
-		return;
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-	}
-	try {
-		process.kill(identity.pid, "SIGKILL");
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-	}
-}
-
-async function terminateTrackedPyrunRunners(): Promise<void> {
-	const identities = new Map<string, ProcessIdentity>();
-	for (const store of trackedBackgroundStores) {
-		const persistence = store.getPersistenceTarget();
-		if (!persistence) continue;
-		for (const agent of store.listAgents()) {
-			const ownership = readMultiAgentRuntimeOwnership(
-				persistence.controlDbPath,
-				persistence.sessionPath,
-				agent.id,
-			);
-			const identity = ownership?.processIdentity;
-			if (identity) identities.set(`${identity.pid}:${identity.startTimeTicks}`, identity);
-		}
-	}
-	trackedBackgroundStores.clear();
-	for (const identity of identities.values()) terminateTrackedPyrunProcess(identity);
-	await waitFor(
-		() => [...identities.values()].every((identity) => !isProcessIdentityAlive(identity)),
-		"tracked Pyrun runner cleanup",
-	);
 }
 
 function hasProjectedLifecycle(store: MultiAgentStore, agentId: string, lifecycle: string): boolean {
@@ -724,7 +684,7 @@ describe("pyrun extension", () => {
 	afterEach(async () => {
 		vi.useRealTimers();
 		try {
-			await terminateTrackedPyrunRunners();
+			await terminateDetachedPyrunTestProcesses(temporaryHarnessDirectories);
 		} finally {
 			for (const directory of temporaryHarnessDirectories.splice(0)) {
 				rmSync(directory, { force: true, recursive: true });
@@ -2371,7 +2331,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		if (!ownership?.processIdentity) throw new Error("Expected detached Pyrun process identity");
 		expect(isProcessIdentityAlive(ownership.processIdentity)).toBe(true);
 
-		await terminateTrackedPyrunRunners();
+		await terminateDetachedPyrunTestProcesses(temporaryHarnessDirectories);
 
 		expect(isProcessIdentityAlive(ownership.processIdentity)).toBe(false);
 	});

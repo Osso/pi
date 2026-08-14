@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
@@ -9,8 +9,10 @@ import {
 	type ParentAgentJournalWriter,
 } from "../extensions/agents-core/src/runtime.ts";
 import { runDurableDetachablePyrunEvaluation } from "../extensions/pyrun/src/detached-evaluation.ts";
+import { readDetachedPyrunLaunchManifest } from "../extensions/pyrun/src/detached-runner.ts";
 import type { ExtensionContext } from "../src/core/extensions/types.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { isProcessIdentityAlive } from "../src/core/runtime-process.ts";
 import {
 	getControlDbPath,
 	readMultiAgentState,
@@ -19,12 +21,17 @@ import {
 import { SessionManager } from "../src/core/session-manager.ts";
 import { deliverTerminalOutboxProjections } from "../src/core/terminal-outbox-delivery.ts";
 import { ToolDetachRegistry } from "../src/core/tool-detach-registry.ts";
+import { terminateDetachedPyrunTestProcesses } from "./helpers/detached-process-cleanup.ts";
 import { CURRENT_PROCESS_IDENTITY } from "./helpers/process-identity.ts";
 
 const temporaryDirectories: string[] = [];
 
-afterEach(() => {
-	for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { force: true, recursive: true });
+afterEach(async () => {
+	try {
+		await terminateDetachedPyrunTestProcesses(temporaryDirectories);
+	} finally {
+		for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { force: true, recursive: true });
+	}
 });
 
 describe("durable detached Pyrun evaluation", () => {
@@ -86,11 +93,18 @@ describe("durable detached Pyrun evaluation", () => {
 			},
 		});
 		await waitFor(() => detachRegistry.hasRunning());
+		const launchManifestPath = readdirSync(root, { recursive: true }).find(
+			(path) => typeof path === "string" && path.endsWith("launch.json"),
+		);
+		if (!launchManifestPath) throw new Error("Expected durable Pyrun launch manifest");
+		const runnerIdentity = readDetachedPyrunLaunchManifest(join(root, launchManifestPath)).runnerProcessIdentity;
+		expect(isProcessIdentityAlive(runnerIdentity)).toBe(true);
 
 		expect(detachRegistry.detachRunning()).toBe(false);
 		const result = await evaluation;
 		expect(result).toMatchObject({ isError: true });
 		expect(store.listAgents()).toMatchObject([{ lifecycle: "failed", revision: 2 }]);
+		await waitFor(() => !isProcessIdentityAlive(runnerIdentity));
 	});
 
 	it("excludes the active durable Pyrun turn when spawning an inherited child", async () => {
