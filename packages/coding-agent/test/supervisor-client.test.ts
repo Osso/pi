@@ -10,7 +10,7 @@ import {
 	readSupervisorRequest,
 	recoverSupervisorRequests,
 } from "../src/core/session-control-db.ts";
-import { requestSupervisorDecision } from "../src/supervisor/client.ts";
+import { DEFAULT_SUPERVISOR_POLL_INTERVAL_MS, requestSupervisorDecision } from "../src/supervisor/client.ts";
 
 const runningSupervisor = {
 	version: VERSION,
@@ -169,6 +169,10 @@ describe("Supervisor client", () => {
 			response: { kind: "error", reason: "Supervisor request cancelled" },
 		});
 		expect(readSupervisorRequest(controlDbPath, 2)).toBeUndefined();
+	});
+
+	it("exports a 300ms default polling interval", () => {
+		expect(DEFAULT_SUPERVISOR_POLL_INTERVAL_MS).toBe(300);
 	});
 
 	it("returns error when all request attempts expire without a service response", async () => {

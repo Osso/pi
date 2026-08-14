@@ -454,7 +454,6 @@ export async function processResponsesStream<TApi extends Api>(
 	options?: OpenAIResponsesStreamOptions,
 ): Promise<void> {
 	let sawTerminalResponseEvent = false;
-	let sawHostedWebSearchCall = false;
 	const outputSlots = new Map<number, ResponsesOutputSlot>();
 	const getSlot = <TType extends ResponsesOutputSlot["type"]>(
 		outputIndex: number,
@@ -518,11 +517,6 @@ export async function processResponsesStream<TApi extends Api>(
 		});
 	};
 	const appendProviderTextDelta = (slot: Extract<ResponsesOutputSlot, { type: "text" }>, delta: string): void => {
-		if (!sawHostedWebSearchCall) {
-			emitTextDelta(slot, delta);
-			return;
-		}
-
 		const citationState = slot.citationState ?? createCitationTextState(slot.block.text.at(-1));
 		const normalized = normalizeCitationTextDelta(citationState, delta);
 		slot.citationState = normalized.state;
@@ -572,7 +566,6 @@ export async function processResponsesStream<TApi extends Api>(
 		if (event.type === "response.created") {
 			output.responseId = event.response.id;
 		} else if (event.type === "response.output_item.added") {
-			if (event.item.type === "web_search_call") sawHostedWebSearchCall = true;
 			createSlot(event.output_index, event.item);
 		} else if (event.type === "response.reasoning_summary_text.delta") {
 			const slot = getSlot(event.output_index, "thinking");
@@ -645,7 +638,6 @@ export async function processResponsesStream<TApi extends Api>(
 			output.imageGenerationResult = { type: "image", data: event.partial_image_b64, mimeType: "image/png" };
 		} else if (event.type === "response.output_item.done") {
 			const item = event.item;
-			if (item.type === "web_search_call") sawHostedWebSearchCall = true;
 			const slot = getOrCreateSlot(event.output_index, item);
 
 			if (item.type === "image_generation_call" && item.status === "completed" && item.result) {
@@ -665,7 +657,7 @@ export async function processResponsesStream<TApi extends Api>(
 			} else if (item.type === "message" && slot?.type === "text") {
 				const providerText =
 					item.content?.map((c) => (c.type === "output_text" ? c.text : c.refusal)).join("") || "";
-				const completedText = sawHostedWebSearchCall ? normalizeCitationText(providerText) : providerText;
+				const completedText = normalizeCitationText(providerText);
 				if (completedText.startsWith(slot.block.text)) {
 					emitTextDelta(slot, completedText.slice(slot.block.text.length));
 				}

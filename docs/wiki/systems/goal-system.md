@@ -75,11 +75,13 @@ removes both pause fields. Completion evidence is never inferred automatically.
 
 `manage_goal set` is reviewed by the resident Supervisor before state changes. The
 request includes the current objective when one exists and the proposed objective.
-The Supervisor must return a `set` decision whose objective preserves every
-requirement and completion criterion from the current objective, then adds the
-proposal. Before persistence, the extension collapses exact repeated copies of
+The Supervisor also preserves any known unfinished parent objective from shared
+Supervisor context or KB memory. It must return a `set` decision whose objective
+preserves every requirement, exclusion, and completion criterion from those parent
+claims, then adds the proposal; only an explicit user instruction may reset or
+narrow that parent. Before persistence, the extension collapses exact repeated copies of
 the current objective so successive additive updates remain idempotent. Without
-a current objective, it returns the proposal unchanged. A review error or stale
+a current or known parent objective, it returns the proposal unchanged. A review error or stale
 review leaves the existing goal state unchanged.
 
 `manage_goal` is supervisor-only. The SDK denylist removes that capability from
@@ -129,7 +131,7 @@ never seed or copy goal metadata; any existing target `goal_json` remains inert.
 
 ## Automatic Continuation
 
-The extension listens for `agent_end`. If a goal is active, incomplete, and there are no pending messages, a non-empty response requests `goal_idle_review` from the resident Supervisor. Before awaiting the decision, Pi appends `Waiting for Supervisor…`; resident reviews expire after 60 seconds. Each goal review receives the goal's unconsumed `reviewEvidence` as ordered `conversationEvents`; the legacy `terminalTurn` payload is not sent. Non-extension interactive or RPC user text and successful `end_turn` reasons are appended while the goal is running or explicitly paused. Failed `end_turn` calls, generated goal/Supervisor messages, other tool results, and status messages are excluded. Evidence remains stored through review errors, stale decisions, and cancellation, then is consumed only after an applied `complete`, `continue`, `wait`, or `pause` decision. `reviewEvidence` is cleared when a goal is replaced, completed, or cleared. Thrown review failures and timeout responses become durable reason-bearing status instead of ending silently. `continue` increments `continuationTurns` and submits the returned actionable instructions. `complete` closes the goal. `wait` appends a durable Supervisor status entry, starts a cancellable background `wait_agent` when agents are active, and re-reviews after wake; without active agents it schedules the five-minute countdown and re-reviews, including when progress depends on an external condition that can be rechecked. `pause` is reserved for required user action or input that cannot advance automatically; it leaves the goal active without another turn and appends the reason. An aborted turn leaves the goal active and queues no continuation. An error turn schedules durable skipped-status output after the session becomes idle; a retry start or pending input cancels it, while retry exhaustion or cancellation emits it once. Aborted turns report `Goal continuation deferred: pending input will run next.` when pending input exists; otherwise they report `Goal continuation skipped: the model turn was aborted.`
+The extension listens for `agent_end`. If a goal is active, incomplete, and there are no pending messages, a non-empty response requests `goal_idle_review` from the resident Supervisor. Before awaiting the decision, Pi appends `Waiting for Supervisor…`; resident reviews expire after 60 seconds. Each goal review receives the goal's unconsumed `reviewEvidence` as ordered `conversationEvents`; the legacy `terminalTurn` payload is not sent. Non-extension interactive or RPC user text and successful `end_turn` reasons are appended while the goal is running or explicitly paused. Failed `end_turn` calls, generated goal/Supervisor messages, other tool results, and status messages are excluded. Evidence remains stored through review errors, stale decisions, and cancellation, then is consumed only after an applied `complete`, `continue`, `wait`, or `pause` decision. `reviewEvidence` is cleared when a goal is replaced, completed, or cleared. Thrown review failures and timeout responses become durable reason-bearing status instead of ending silently. `continue` increments `continuationTurns` and submits the generic active-goal reminder when the agent can determine its own next step; it submits returned specific corrective instructions only for an evidence-backed omission, lost or narrowed scope, contradiction, repeated or circular work, or missing completion proof. `complete` closes the goal only when the full unfinished parent objective is proven; bounded objectives and progress reports are claims, not replacements for that parent. `wait` appends a durable Supervisor status entry, starts a cancellable background `wait_agent` when agents are active, and re-reviews after wake; without active agents it schedules the five-minute countdown and re-reviews, including when progress depends on an external condition that can be rechecked. `pause` is reserved for required user action or input that cannot advance automatically; it leaves the goal active without another turn and appends the reason. An aborted turn leaves the goal active and queues no continuation. An error turn schedules durable skipped-status output after the session becomes idle; a retry start or pending input cancels it, while retry exhaustion or cancellation emits it once. Aborted turns report `Goal continuation deferred: pending input will run next.` when pending input exists; otherwise they report `Goal continuation skipped: the model turn was aborted.`
 
 A non-error empty assistant response no longer stops an active goal or emits the empty-response warning. It schedules a continuation check after 1 second and polls at 1-second intervals until the same goal remains active, the session is idle, and no messages are pending. Goal changes, pending input, and session shutdown cancel the polling.
 
@@ -158,8 +160,9 @@ persistent transcript. Missing or blank reports fail locally without creating a
 Supervisor request. Pi appends `Waiting for Supervisor…` while the review is in
 flight and passes the report verbatim; wait/re-review preserves the same report and
 conversation evidence. `complete` writes `completedAt` and that report as
-`completionReason`; `continue` keeps the goal active and submits actionable
-instructions; `wait` appends durable status and schedules agent wake or five-minute
+`completionReason`; `continue` keeps the goal active and submits the generic
+active-goal reminder unless an evidence-backed exception requires a specific
+corrective instruction; `wait` appends durable status and schedules agent wake or five-minute
 re-review, including when progress depends on an external condition that can be
 rechecked; `pause` is reserved for required user action or input that cannot advance
 automatically, leaves the goal active without another continuation, and appends

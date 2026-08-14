@@ -30,12 +30,14 @@
 - Changed the built-in `end_turn` instruction to keep working while actionable task work remains and only end after completion, when progress requires user input, or when the user explicitly asks it to stop.
 - Increased the maximum `/goal` objective and production child prompt length from 4,000 to 10,000 characters.
 - Temporarily disabled the resident Architect service and removed the `ask_architect` built-in tool while retaining the implementation and service template for rework; default deployment now uses Pi-managed lazy Supervisor startup, cleans up Architect and Supervisor user units on Linux, skips systemd configuration on Darwin, rejects the systemd opt-in there, and leaves systemd opt-in via `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1`.
-- Changed Supervisor goal reviews from routine step direction to exception-based peer unblocking: competent progress receives the generic active-goal reminder, while specific corrective instructions are reserved for evidence-backed omissions, repeated failed or circular work, lost objective scope, or missing completion proof; the full original objective remains authoritative over narrower subtasks.
+- Changed Supervisor goal reviews to preserve unfinished cumulative parent objectives across requests: request objectives are claims, child-slice completion cannot complete a parent, and reviews detect narrowed or lost scope, dropped requirements, exclusions, or completion criteria, contradictions, circular work, and missing proof while keeping routine progress guidance generic.
 - Changed `manage_goal set` to require resident Supervisor review; the returned objective preserves the active goal's requirements and completion criteria while adding the proposed scope, and failed or stale reviews leave goal state unchanged.
+- Reduced the default Supervisor client and in-flight evaluation SQLite polling interval from 50ms to 300ms while preserving explicit per-request overrides.
 - Changed the TPS extension to report generated tokens over complete foreground model-request wall time, including TTFT; removed the decode-only rate from the output.
 - Changed recurring loop delivery to coalesce missed interval ticks while other work is busy, release at most one deferred follow-up after that run, skip ticks while the loop prompt itself is in progress, cancel deferred delivery on stop/replacement/shutdown, and preserve `loop` provenance.
 - Replaced 1-second stat polling for Git reftable metadata in `FooterDataProvider` with native `fs.watch` event handling on the reftable directory and `tables.list`.
 - Changed durable Pyrun artifact observation to wake on filesystem activity, drain remaining bounded artifact chunks before waiting again, and retain a one-second fallback while batching dense console progress before live updates; complete artifact records remain preserved.
+- Changed `AssistantMessageComponent` streaming updates to retain child component identity, avoiding per-chunk component allocation and preserving Markdown instance caches.
 
 ### Added
 

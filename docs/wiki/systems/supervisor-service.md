@@ -16,7 +16,7 @@ The probe identity is accepted only when the console snapshot explicitly include
 
 `supervisor_requests` stores request identity, sender session, canonical project family, request kind, bounded JSON evidence, original deadline, claim ownership, and typed response. Idle and completion goal requests carry the goal's ordered unconsumed `conversationEvents`; they no longer carry `terminalTurn`. After ensuring the resident is ready and inserting a request, the caller sends a best-effort wake notification through the owner-only Unix socket. The Supervisor claims pending rows from SQLite at startup and after every wake, so a missed notification leaves the request durable for the next wake or service restart. Approval requests sort ahead of goal requests. If an approval arrives during a goal evaluation, the service aborts the model turn, requeues the unchanged goal request and its evidence, evaluates the approval, then later resumes the goal request within its original deadline.
 
-Callers poll only their durable request row. Approval requests use a 30-second deadline; goal requests use three minutes. Approval failure escalates through the existing human reviewer. Goal failure keeps the goal running, displays an error, and does not continue automatically.
+Callers poll only their durable request row, using a 300ms interval by default for client completion checks and in-flight evaluation cancellation, deadline, and approval-preemption checks; explicit per-request intervals remain available. Approval requests use a 30-second deadline; goal requests use three minutes. Approval failure escalates through the existing human reviewer. Goal failure keeps the goal running, displays an error, and does not continue automatically.
 
 Caller cancellation atomically moves its pending or claimed row to terminal `cancelled`, stores a typed cancellation response, clears claim authority, and wakes the resident. The client stops polling and retry delays. A resident evaluating the claimed request observes the row, aborts the model turn, and cannot overwrite cancellation with a late response. Interactive Escape invokes this path through a global input listener, so cancellation still works after `agent_end` while the caller is idle and the wait loader owns focus.
 
@@ -49,7 +49,13 @@ and are persisted as `completionReason` only after a `complete` decision. Applie
 `complete`, `continue`, `wait`, or `pause` decisions consume the events included in
 that review. Supervisor instructions are not included because the resident
 Supervisor already owns them in its persistent transcript. `continue` leaves the
-goal running and queues a concrete next action. `complete` marks it complete.
+goal running and queues the generic active-goal reminder when the agent can
+determine its own next step; it queues a specific corrective instruction only
+for an evidence-backed omission, lost or narrowed scope, contradiction, repeated
+or circular work, or missing completion proof. `complete` marks the goal complete
+only after the full unfinished parent objective is proven. Bounded request
+objectives and progress reports are claims, not replacements for that parent
+objective; only an explicit user instruction may reset or narrow it.
 `wait` appends durable Supervisor status, starts cancellable background `wait_agent`
 when agents are active, and re-reviews after wake or after five minutes without
 active agents, including when progress depends on an external condition that can be
@@ -59,3 +65,7 @@ rejected report and the Supervisor's reason remain visible in durable status;
 completion evidence is never inferred automatically.
 
 Idle review remains inside the existing `agent_end` handler after its pending-message, abort, error-stop, and empty-response retry handling. Pending interactive input takes precedence over abort handling; a reviewed decision is retained if pending state drains without a turn. The request contains ordered unconsumed user text and successful `end_turn` reasons as `conversationEvents`; extension-generated messages and failed `end_turn` calls are excluded, and `terminalTurn` is not sent. This evidence is accumulated for running and explicitly paused goals, preserved through errors, stale decisions, and cancellation, and consumed only after an applied decision. Input, new turns, goal lifecycle changes, and shutdown cancel deferred decisions, wait operations, and timers. Goal identity is rechecked after asynchronous review before applying any decision. Scheduling and review failures append durable `supervisor-status` errors while leaving the goal active. A non-error empty assistant response schedules one continuation after a 1-second bounded delay only if the same goal remains active, the session is idle, and no messages are pending. `agent_end` already means the tool loop reached a terminal response with no further tool calls; no additional tool-call check exists or is needed. The previous unconditional continuation message is replaced by `goal_idle_review`.
+Goal reviews evaluate each bounded request against the cumulative unfinished parent
+objective from shared Supervisor context and KB memory, detect narrowed or lost
+scope, dropped requirements, exclusions, or completion criteria, contradictions,
+repeated or circular work, and missing proof, and avoid routine task decomposition.
