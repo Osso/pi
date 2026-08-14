@@ -163,6 +163,27 @@ describe("AssistantMessageComponent", () => {
 		).toContain("answer");
 	});
 
+	test("retains thinking spacer while following content streams", () => {
+		initTheme("dark");
+
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([
+				{ type: "thinking", thinking: "reasoning" },
+				{ type: "text", text: "answer" },
+			]),
+		);
+		const initialSpacer = getContentChildren(component)[2];
+
+		component.updateContent(
+			createAssistantMessage([
+				{ type: "thinking", thinking: "reasoning continues" },
+				{ type: "text", text: "answer continues" },
+			]),
+		);
+
+		expect(getContentChildren(component)[2]).toBe(initialSpacer);
+	});
+
 	test("swaps hidden thinking text when visibility changes", () => {
 		initTheme("dark");
 
@@ -212,6 +233,23 @@ describe("AssistantMessageComponent", () => {
 				.map((line) => stripAnsi(line))
 				.join("\n"),
 		).toContain("replacement");
+	});
+
+	test("removes thinking spacing when following visible content disappears", () => {
+		initTheme("dark");
+
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([
+				{ type: "thinking", thinking: "reasoning" },
+				{ type: "text", text: "answer" },
+			]),
+		);
+
+		expect(component.render(60).map((line) => stripAnsi(line).trim())).toEqual(["", "reasoning", "", "answer"]);
+
+		component.updateContent(createAssistantMessage([{ type: "thinking", thinking: "reasoning" }]));
+
+		expect(component.render(60).map((line) => stripAnsi(line).trim())).toEqual(["", "reasoning"]);
 	});
 
 	test("retained components render correctly after a width change", () => {

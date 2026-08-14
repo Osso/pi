@@ -7,11 +7,10 @@ const OSC133_ZONE_END = "\x1b]133;B\x07";
 const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
 
 type ContentSlot = {
-	contentIndex: number;
 	contentType: AssistantMessage["content"][number]["type"];
 	component?: Markdown | Text;
 	trailingSpacer?: Spacer;
-	trailingText: string;
+	componentText: string;
 	visible: boolean;
 	hiddenThinking: boolean;
 };
@@ -102,7 +101,7 @@ export class AssistantMessageComponent extends Container {
 	updateContent(message: AssistantMessage): void {
 		this.lastMessage = message;
 		this.contentSlots = message.content.map((content, contentIndex) =>
-			this.reconcileContentSlot(this.contentSlots[contentIndex], contentIndex, content),
+			this.reconcileContentSlot(this.contentSlots[contentIndex], content),
 		);
 		this.updateThinkingSpacers();
 
@@ -113,27 +112,25 @@ export class AssistantMessageComponent extends Container {
 
 	private reconcileContentSlot(
 		existing: ContentSlot | undefined,
-		contentIndex: number,
 		content: AssistantMessage["content"][number],
 	): ContentSlot {
 		if (content.type === "text") {
-			return this.reconcileTextSlot(existing, contentIndex, content.text.trim());
+			return this.reconcileTextSlot(existing, content.text.trim());
 		}
 
 		if (content.type === "thinking") {
-			return this.reconcileThinkingSlot(existing, contentIndex, content.thinking.trim());
+			return this.reconcileThinkingSlot(existing, content.thinking.trim());
 		}
 
 		return {
-			contentIndex,
 			contentType: "toolCall",
-			trailingText: "",
+			componentText: "",
 			visible: false,
 			hiddenThinking: false,
 		};
 	}
 
-	private reconcileTextSlot(existing: ContentSlot | undefined, contentIndex: number, text: string): ContentSlot {
+	private reconcileTextSlot(existing: ContentSlot | undefined, text: string): ContentSlot {
 		const markdown =
 			existing?.contentType === "text" && existing.component instanceof Markdown
 				? existing.component
@@ -143,34 +140,29 @@ export class AssistantMessageComponent extends Container {
 
 		if (markdown) {
 			markdown.setPadding(this.outputPad, 0);
-			if (existing?.trailingText !== text) {
+			if (existing?.componentText !== text) {
 				markdown.setText(text);
 			}
 		}
 
 		return {
-			contentIndex,
 			contentType: "text",
 			component: markdown,
-			trailingText: text,
+			componentText: text,
 			visible: text.length > 0,
 			hiddenThinking: false,
 		};
 	}
 
-	private reconcileThinkingSlot(existing: ContentSlot | undefined, contentIndex: number, text: string): ContentSlot {
+	private reconcileThinkingSlot(existing: ContentSlot | undefined, text: string): ContentSlot {
 		if (this.hideThinkingBlock) {
-			return this.reconcileHiddenThinkingSlot(existing, contentIndex, text);
+			return this.reconcileHiddenThinkingSlot(existing, text);
 		}
 
-		return this.reconcileVisibleThinkingSlot(existing, contentIndex, text);
+		return this.reconcileVisibleThinkingSlot(existing, text);
 	}
 
-	private reconcileHiddenThinkingSlot(
-		existing: ContentSlot | undefined,
-		contentIndex: number,
-		text: string,
-	): ContentSlot {
+	private reconcileHiddenThinkingSlot(existing: ContentSlot | undefined, text: string): ContentSlot {
 		const label = theme.italic(theme.fg("thinkingText", this.hiddenThinkingLabel));
 		const existingText =
 			existing?.contentType === "thinking" && existing.hiddenThinking && existing.component instanceof Text
@@ -180,26 +172,22 @@ export class AssistantMessageComponent extends Container {
 
 		if (hiddenText) {
 			hiddenText.setPadding(this.outputPad, 0);
-			if (existing?.trailingText !== label) {
+			if (existing?.componentText !== label) {
 				hiddenText.setText(label);
 			}
 		}
 
 		return {
-			contentIndex,
 			contentType: "thinking",
 			component: hiddenText,
-			trailingText: label,
+			trailingSpacer: existing?.contentType === "thinking" ? existing.trailingSpacer : undefined,
+			componentText: label,
 			visible: text.length > 0,
 			hiddenThinking: true,
 		};
 	}
 
-	private reconcileVisibleThinkingSlot(
-		existing: ContentSlot | undefined,
-		contentIndex: number,
-		text: string,
-	): ContentSlot {
+	private reconcileVisibleThinkingSlot(existing: ContentSlot | undefined, text: string): ContentSlot {
 		const existingMarkdown =
 			existing?.contentType === "thinking" && !existing.hiddenThinking && existing.component instanceof Markdown
 				? existing.component
@@ -215,16 +203,16 @@ export class AssistantMessageComponent extends Container {
 
 		if (markdown) {
 			markdown.setPadding(this.outputPad, 0);
-			if (existing?.trailingText !== text) {
+			if (existing?.componentText !== text) {
 				markdown.setText(text);
 			}
 		}
 
 		return {
-			contentIndex,
 			contentType: "thinking",
 			component: markdown,
-			trailingText: text,
+			trailingSpacer: existing?.contentType === "thinking" ? existing.trailingSpacer : undefined,
+			componentText: text,
 			visible: text.length > 0,
 			hiddenThinking: false,
 		};
@@ -238,8 +226,11 @@ export class AssistantMessageComponent extends Container {
 				continue;
 			}
 
-			if (slot.contentType === "thinking" && slot.visible && hasVisibleContentAfter) {
+			const needsTrailingSpacer = slot.contentType === "thinking" && slot.visible && hasVisibleContentAfter;
+			if (needsTrailingSpacer) {
 				slot.trailingSpacer ??= new Spacer(1);
+			} else {
+				slot.trailingSpacer = undefined;
 			}
 
 			if (slot.visible) {

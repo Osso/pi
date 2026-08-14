@@ -121,8 +121,6 @@ interface InlineStyleContext {
 }
 
 interface TokenRenderCache {
-	raw: string;
-	type: string;
 	nextTokenType?: string;
 	width: number;
 	fingerprint: string;
@@ -142,7 +140,6 @@ export class Markdown implements Component {
 	private cachedText?: string;
 	private cachedWidth?: number;
 	private cachedLines?: string[];
-	private previousTokens: Token[] = [];
 	private previousTokenCaches: TokenRenderCache[] = [];
 
 	constructor(
@@ -198,7 +195,6 @@ export class Markdown implements Component {
 		this.cachedText = undefined;
 		this.cachedWidth = undefined;
 		this.cachedLines = undefined;
-		this.previousTokens = [];
 		this.previousTokenCaches = [];
 	}
 
@@ -282,11 +278,8 @@ export class Markdown implements Component {
 			const token = tokens[i];
 			const nextTokenType = tokens[i + 1]?.type;
 			const fingerprint = JSON.stringify(token);
-			const previousToken = this.previousTokens[i];
 			const previousCache = this.previousTokenCaches[i];
 			const canReuse =
-				previousToken?.raw === token.raw &&
-				previousToken?.type === token.type &&
 				previousCache?.nextTokenType === nextTokenType &&
 				previousCache?.width === width &&
 				previousCache.fingerprint === fingerprint;
@@ -295,8 +288,6 @@ export class Markdown implements Component {
 				: this.renderAndWrapToken(token, width, nextTokenType);
 
 			newTokenCaches.push({
-				raw: token.raw,
-				type: token.type,
 				nextTokenType,
 				width,
 				fingerprint,
@@ -305,7 +296,6 @@ export class Markdown implements Component {
 			wrappedLines.push(...tokenWrappedLines);
 		}
 
-		this.previousTokens = tokens;
 		this.previousTokenCaches = newTokenCaches;
 		return wrappedLines;
 	}
