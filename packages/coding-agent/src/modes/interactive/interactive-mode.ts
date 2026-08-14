@@ -307,7 +307,7 @@ type CompactionSummaryMaterializationOutcome =
 	| { kind: "cancelled" }
 	| { kind: "failed"; message: string };
 
-const PARTIAL_UPDATE_RENDER_THROTTLE_MS = 50;
+const PARTIAL_UPDATE_RENDER_THROTTLE_MS = 250;
 const DEFAULT_WORKING_INDICATOR: LoaderIndicatorOptions = { frames: [] };
 
 function resolveEnabledModelsPersistTarget(

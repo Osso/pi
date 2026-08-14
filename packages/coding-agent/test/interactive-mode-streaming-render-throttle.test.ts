@@ -282,7 +282,7 @@ describe("InteractiveMode streaming render throttling", () => {
 		await handleEvent.call(fakeThis, { type: "message_start", message: initialMessage });
 		vi.mocked(fakeThis.ui.requestRender).mockClear();
 		await handleEvent.call(fakeThis, createHiddenThinkingUpdate(initialMessage));
-		await vi.advanceTimersByTimeAsync(50);
+		await vi.advanceTimersByTimeAsync(250);
 
 		expect(fakeThis.ui.requestRender).not.toHaveBeenCalled();
 	});
@@ -342,7 +342,7 @@ describe("InteractiveMode streaming render throttling", () => {
 
 		await handleEvent.call(fakeThis, { type: "message_start", message: initialMessage });
 		await handleEvent.call(fakeThis, createMessageUpdate(createAssistantMessage("h")));
-		await vi.advanceTimersByTimeAsync(50);
+		await vi.advanceTimersByTimeAsync(250);
 
 		expect(fakeThis.transcriptTailRegion.requestRender).toHaveBeenCalledTimes(2);
 		expect(fakeThis.ui.requestRender).not.toHaveBeenCalled();
@@ -381,7 +381,7 @@ describe("InteractiveMode streaming render throttling", () => {
 
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
 
-		await vi.advanceTimersByTimeAsync(49);
+		await vi.advanceTimersByTimeAsync(249);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
 
 		await vi.advanceTimersByTimeAsync(1);
@@ -401,7 +401,7 @@ describe("InteractiveMode streaming render throttling", () => {
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(2);
 		expect(fakeThis.footer.invalidate).toHaveBeenCalledTimes(1);
 
-		await vi.advanceTimersByTimeAsync(50);
+		await vi.advanceTimersByTimeAsync(250);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(2);
 	});
 
@@ -461,7 +461,7 @@ describe("InteractiveMode streaming render throttling", () => {
 
 		await handleEvent.call(fakeThis, { type: "message_start", message: initialMessage });
 		await handleEvent.call(fakeThis, createToolCallUpdate(createToolCallMessage("git di"), "git di"));
-		await vi.advanceTimersByTimeAsync(50);
+		await vi.advanceTimersByTimeAsync(250);
 
 		expect(fakeThis.chatContainer.render(80).join("\n")).not.toContain("git di");
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
@@ -509,7 +509,7 @@ describe("InteractiveMode streaming render throttling", () => {
 			true,
 		);
 
-		await vi.advanceTimersByTimeAsync(49);
+		await vi.advanceTimersByTimeAsync(249);
 		expect(fakeThis.ui.requestRender).not.toHaveBeenCalled();
 		await vi.advanceTimersByTimeAsync(1);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
@@ -548,7 +548,7 @@ describe("InteractiveMode streaming render throttling", () => {
 			2_000,
 		);
 
-		await vi.advanceTimersByTimeAsync(50);
+		await vi.advanceTimersByTimeAsync(250);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
 	});
 
