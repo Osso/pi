@@ -7338,10 +7338,13 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 	});
 
 	it("avoids prolonged writer starvation when resident message indexing is disabled", async () => {
-		readMultiAgentState(controlDbPath, "/tmp/schema-initialization.jsonl");
+		const indexedControlDbPath = join(tempDir, "indexed-control.sqlite");
+		const unindexedControlDbPath = join(tempDir, "unindexed-control.sqlite");
+		readMultiAgentState(indexedControlDbPath, "/tmp/indexed-schema-initialization.jsonl");
+		readMultiAgentState(unindexedControlDbPath, "/tmp/unindexed-schema-initialization.jsonl");
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
-		const indexedWaitMs = await measureWriterWaitMs(controlDbPath, moduleUrl, true);
-		const unindexedWaitMs = await measureWriterWaitMs(controlDbPath, moduleUrl, false);
+		const indexedWaitMs = await measureWriterWaitMs(indexedControlDbPath, moduleUrl, true);
+		const unindexedWaitMs = await measureWriterWaitMs(unindexedControlDbPath, moduleUrl, false);
 
 		expect(indexedWaitMs).toBeGreaterThan(MINIMUM_INDEXED_WAIT_MS);
 		expect(indexedWaitMs).toBeGreaterThan(unindexedWaitMs * MINIMUM_INDEXED_WAIT_RATIO);
