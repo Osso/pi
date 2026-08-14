@@ -40,7 +40,6 @@ import type { CanonicalPyrunEvalResult, CanonicalPyrunProgressUpdate, PyrunRunne
 
 const ARTIFACT_POLL_MS = 1_000;
 const ARTIFACT_READ_BYTE_LIMIT = 1_048_576;
-const DENSE_CONSOLE_RECORD_THRESHOLD = 100;
 const FOREGROUND_RUNNER_LIVENESS_POLL_MS = 3_000;
 
 interface ArtifactWakeup {
@@ -48,61 +47,68 @@ interface ArtifactWakeup {
 	close(): void;
 }
 
-function createArtifactWakeup(directory: string): ArtifactWakeup {
-	let watcher: FSWatcher | null = null;
-	let pendingResolve: (() => void) | undefined;
-	let fallbackTimer: NodeJS.Timeout | undefined;
-	let wakePending = false;
-	let closed = false;
+class ArtifactWakeupController implements ArtifactWakeup {
+	private watcher: FSWatcher | null;
+	private pendingResolve: (() => void) | undefined;
+	private fallbackTimer: NodeJS.Timeout | undefined;
+	private wakePending = false;
+	private closed = false;
 
-	const clearFallbackTimer = (): void => {
-		if (!fallbackTimer) return;
-		clearTimeout(fallbackTimer);
-		fallbackTimer = undefined;
-	};
+	constructor(directory: string) {
+		this.watcher = watchWithErrorHandler(
+			directory,
+			() => this.handleActivity(),
+			() => this.handleWatchError(),
+		);
+	}
 
-	const resolvePendingWait = (): void => {
-		const resolve = pendingResolve;
-		pendingResolve = undefined;
-		clearFallbackTimer();
+	wait(): Promise<void> {
+		if (this.closed || this.wakePending) {
+			this.wakePending = false;
+			return Promise.resolve();
+		}
+		return new Promise<void>((resolve) => this.startWait(resolve));
+	}
+
+	close(): void {
+		if (this.closed) return;
+		this.closed = true;
+		closeWatcher(this.watcher);
+		this.watcher = null;
+		this.resolvePendingWait();
+	}
+
+	private startWait(resolve: () => void): void {
+		this.pendingResolve = resolve;
+		this.fallbackTimer = setTimeout(() => this.resolvePendingWait(), ARTIFACT_POLL_MS);
+	}
+
+	private handleActivity(): void {
+		this.wakePending = true;
+		this.resolvePendingWait();
+	}
+
+	private handleWatchError(): void {
+		closeWatcher(this.watcher);
+		this.watcher = null;
+	}
+
+	private resolvePendingWait(): void {
+		const resolve = this.pendingResolve;
+		this.pendingResolve = undefined;
+		this.clearFallbackTimer();
 		resolve?.();
-	};
+	}
 
-	const onActivity = (): void => {
-		wakePending = true;
-		resolvePendingWait();
-	};
+	private clearFallbackTimer(): void {
+		if (!this.fallbackTimer) return;
+		clearTimeout(this.fallbackTimer);
+		this.fallbackTimer = undefined;
+	}
+}
 
-	const onWatchError = (): void => {
-		closeWatcher(watcher);
-		watcher = null;
-	};
-
-	watcher = watchWithErrorHandler(directory, onActivity, onWatchError);
-
-	return {
-		wait: () => {
-			if (closed || wakePending) {
-				wakePending = false;
-				return Promise.resolve();
-			}
-			return new Promise<void>((resolve) => {
-				pendingResolve = resolve;
-				fallbackTimer = setTimeout(() => {
-					pendingResolve = undefined;
-					fallbackTimer = undefined;
-					resolve();
-				}, ARTIFACT_POLL_MS);
-			});
-		},
-		close: () => {
-			if (closed) return;
-			closed = true;
-			closeWatcher(watcher);
-			watcher = null;
-			resolvePendingWait();
-		},
-	};
+function createArtifactWakeup(directory: string): ArtifactWakeup {
+	return new ArtifactWakeupController(directory);
 }
 
 export async function runDurableDetachablePyrunEvaluation(input: {
