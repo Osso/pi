@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as piAiCompat from "@earendil-works/pi-ai/compat";
 import { registerOAuthProvider } from "@earendil-works/pi-ai/oauth";
 import lockfile from "proper-lockfile";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -36,6 +37,31 @@ describe("AuthStorage", () => {
 	}
 
 	describe("API key resolution", () => {
+		test("startup availability skips ambient lookup for stored providers", () => {
+			const getEnvApiKeySpy = vi.spyOn(piAiCompat, "getEnvApiKey");
+			writeAuthJson({
+				"google-vertex": { type: "api_key", key: "stored-google-vertex-key" },
+				openrouter: { type: "api_key", key: "stored-openrouter-key" },
+			});
+
+			authStorage = AuthStorage.create(authJsonPath);
+
+			expect(authStorage.hasAuth("google-vertex")).toBe(true);
+			expect(authStorage.hasAuth("openrouter")).toBe(true);
+			expect(getEnvApiKeySpy).not.toHaveBeenCalled();
+		});
+
+		test("startup availability uses ambient lookup when provider auth is absent", () => {
+			const getEnvApiKeySpy = vi.spyOn(piAiCompat, "getEnvApiKey").mockReturnValue("ambient-api-key");
+			writeAuthJson({});
+			authStorage = AuthStorage.create(authJsonPath);
+
+			expect(authStorage.hasAuth("google-vertex")).toBe(true);
+			expect(authStorage.hasAuth("openrouter")).toBe(true);
+			expect(getEnvApiKeySpy).toHaveBeenCalledWith("google-vertex");
+			expect(getEnvApiKeySpy).toHaveBeenCalledWith("openrouter");
+		});
+
 		test("literal API key is returned directly", async () => {
 			writeAuthJson({
 				anthropic: { type: "api_key", key: "sk-ant-literal-key" },

@@ -7,14 +7,20 @@ const VERTEX_ADC_PATH = "~/.config/gcloud/application_default_credentials.json";
 
 /**
  * Vertex accepts an explicit API key or Application Default Credentials
- * (`gcloud auth application-default login`). ADC additionally requires
- * project and location env vars, which the implementation reads itself.
+ * (`gcloud auth application-default login`). A stored credential owns the
+ * provider, so ADC is considered only when no credential exists. ADC additionally
+ * requires project and location env vars, which the implementation reads itself.
  */
 const vertexAuth: ApiKeyAuth = {
 	name: "Google Cloud credentials",
 	resolve: async ({ ctx, credential }) => {
-		const key = credential?.key ?? (await ctx.env("GOOGLE_CLOUD_API_KEY"));
-		if (key) return { auth: { apiKey: key }, source: credential?.key ? "stored credential" : "GOOGLE_CLOUD_API_KEY" };
+		if (credential) {
+			if (credential.key) return { auth: { apiKey: credential.key }, source: "stored credential" };
+			return undefined;
+		}
+
+		const key = await ctx.env("GOOGLE_CLOUD_API_KEY");
+		if (key) return { auth: { apiKey: key }, source: "GOOGLE_CLOUD_API_KEY" };
 
 		const adcPath = await ctx.env("GOOGLE_APPLICATION_CREDENTIALS");
 		const hasCredentials = await ctx.fileExists(adcPath ?? VERTEX_ADC_PATH);

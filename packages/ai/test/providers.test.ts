@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { InMemoryCredentialStore } from "../src/auth/credential-store.ts";
 import { envApiKeyAuth } from "../src/auth/helpers.ts";
 import type { AuthContext } from "../src/auth/types.ts";
 import { createModels, createProvider } from "../src/models.ts";
@@ -9,6 +10,7 @@ import { cloudflareAIGatewayProvider } from "../src/providers/cloudflare-ai-gate
 import { cloudflareWorkersAIProvider } from "../src/providers/cloudflare-workers-ai.ts";
 import { fauxAssistantMessage, fauxProvider } from "../src/providers/faux.ts";
 import { googleVertexProvider } from "../src/providers/google-vertex.ts";
+import { openrouterProvider } from "../src/providers/openrouter.ts";
 import type { Api, Context, Model, ProviderStreams } from "../src/types.ts";
 import { AssistantMessageEventStream } from "../src/utils/event-stream.ts";
 
@@ -188,6 +190,115 @@ describe("builtin providers", () => {
 		const keyed = createModels({ authContext: fakeAuthContext({ GOOGLE_CLOUD_API_KEY: "vertex-key" }) });
 		keyed.setProvider(googleVertexProvider());
 		expect((await keyed.getAuth(model))?.auth.apiKey).toBe("vertex-key");
+	});
+
+	it("does not probe Vertex ADC when a stored key exists", async () => {
+		const envReads: string[] = [];
+		const fileReads: string[] = [];
+		const credentials = new InMemoryCredentialStore();
+		const models = createModels({
+			credentials,
+			authContext: {
+				env: async (name) => {
+					envReads.push(name);
+					return {
+						GOOGLE_APPLICATION_CREDENTIALS: "/unreachable/adc.json",
+						GOOGLE_CLOUD_PROJECT: "proj",
+						GOOGLE_CLOUD_LOCATION: "us-central1",
+					}[name];
+				},
+				fileExists: async (path) => {
+					fileReads.push(path);
+					return true;
+				},
+			},
+		});
+		models.setProvider(googleVertexProvider());
+		await credentials.modify("google-vertex", async () => ({ type: "api_key", key: "stored-vertex-key" }));
+
+		const model = models.getModels("google-vertex")[0];
+		expect(await models.getAuth(model)).toEqual({
+			auth: { apiKey: "stored-vertex-key" },
+			source: "stored credential",
+		});
+		expect(envReads).toEqual([]);
+		expect(fileReads).toEqual([]);
+	});
+
+	it("does not probe Vertex ambient auth when a stored key is empty", async () => {
+		const envReads: string[] = [];
+		const fileReads: string[] = [];
+		const credentials = new InMemoryCredentialStore();
+		const models = createModels({
+			credentials,
+			authContext: {
+				env: async (name) => {
+					envReads.push(name);
+					return "ambient-value";
+				},
+				fileExists: async (path) => {
+					fileReads.push(path);
+					return true;
+				},
+			},
+		});
+		models.setProvider(googleVertexProvider());
+		await credentials.modify("google-vertex", async () => ({ type: "api_key", key: "" }));
+
+		const model = models.getModels("google-vertex")[0];
+		expect(await models.getAuth(model)).toBeUndefined();
+		expect(envReads).toEqual([]);
+		expect(fileReads).toEqual([]);
+	});
+
+	it("does not read OpenRouter environment auth when a stored key exists", async () => {
+		const envReads: string[] = [];
+		const credentials = new InMemoryCredentialStore();
+		const models = createModels({
+			credentials,
+			authContext: {
+				env: async (name) => {
+					envReads.push(name);
+					return name === "OPENROUTER_API_KEY" ? "ambient-openrouter-key" : undefined;
+				},
+				fileExists: async () => false,
+			},
+		});
+		models.setProvider(openrouterProvider());
+		await credentials.modify("openrouter", async () => ({ type: "api_key", key: "stored-openrouter-key" }));
+
+		const model = models.getModels("openrouter")[0];
+		expect(await models.getAuth(model)).toEqual({
+			auth: { apiKey: "stored-openrouter-key" },
+			source: "stored credential",
+		});
+		expect(envReads).toEqual([]);
+	});
+
+	it("does not read OpenRouter environment auth when a stored key is empty", async () => {
+		const envReads: string[] = [];
+		const fileReads: string[] = [];
+		const credentials = new InMemoryCredentialStore();
+		const models = createModels({
+			credentials,
+			authContext: {
+				env: async (name) => {
+					envReads.push(name);
+					return "ambient-openrouter-key";
+				},
+				fileExists: async (path) => {
+					fileReads.push(path);
+					return false;
+				},
+			},
+		});
+		models.setProvider(openrouterProvider());
+		await credentials.modify("openrouter", async () => ({ type: "api_key", key: "" }));
+
+		const model = models.getModels("openrouter")[0];
+		expect(await models.getAuth(model)).toBeUndefined();
+		expect(envReads).toEqual([]);
+		expect(fileReads).toEqual([]);
 	});
 });
 

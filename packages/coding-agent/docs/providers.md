@@ -237,7 +237,7 @@ Pi automatically sets `x-session-affinity` for [prefix caching](https://develope
 
 ### Google Vertex AI
 
-Uses Application Default Credentials:
+For the default gcloud setup, use Application Default Credentials:
 
 ```bash
 gcloud auth application-default login
@@ -245,7 +245,23 @@ export GOOGLE_CLOUD_PROJECT=your-project
 export GOOGLE_CLOUD_LOCATION=us-central1
 ```
 
-Or set `GOOGLE_APPLICATION_CREDENTIALS` to a service account key file.
+For coding-agent, you can keep the credential explicit and avoid probing the default `~/.config/gcloud/application_default_credentials.json` path. Store a Vertex auth entry with the `gcp-vertex-credentials` marker and provider-scoped project, location, and service-account-file settings:
+
+```json
+{
+  "google-vertex": {
+    "type": "api_key",
+    "key": "gcp-vertex-credentials",
+    "env": {
+      "GOOGLE_APPLICATION_CREDENTIALS": "/path/to/service-account.json",
+      "GOOGLE_CLOUD_PROJECT": "your-project",
+      "GOOGLE_CLOUD_LOCATION": "us-central1"
+    }
+  }
+}
+```
+
+Set the service-account JSON file to user-only permissions. A stored provider entry owns Vertex authentication: coding-agent does not consult `GOOGLE_CLOUD_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, or default gcloud ADC discovery outside the explicit provider-scoped configuration. An empty stored key also disables ambient fallback.
 
 ## Custom Providers
 
@@ -261,3 +277,5 @@ When resolving credentials for a provider:
 2. `auth.json` entry (API key or OAuth token)
 3. Environment variable
 4. Custom provider keys from `models.json`
+
+Once an `auth.json` entry exists, it owns that provider, even if its API-key value is empty or unresolved. Ambient environment and credential-file fallback is used only when no entry exists.

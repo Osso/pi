@@ -13,6 +13,7 @@
 
 ### Fixed
 
+- Fixed stored API-key credentials to own their provider even when the key is empty, preventing ambient environment and credential-file fallback; this includes OpenRouter environment auth and Google Vertex API-key, explicit ADC, and default gcloud ADC probes.
 - Fixed Envoy HTTP 507 errors containing `exceeded request buffer limit while retrying upstream` to classify as oversized-request overflow instead of ordinary transient provider errors, allowing coding-agent to compact before its bounded retry.
 - Fixed OpenAI server processing errors to enter the normal transient-error retry path.
 - Fixed OpenAI Responses early stream endings to be classified as retryable provider errors ([#6727](https://github.com/earendil-works/pi/issues/6727)).
