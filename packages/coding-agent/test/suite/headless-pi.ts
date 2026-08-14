@@ -35,6 +35,10 @@ import type { RpcExtensionUIRequest, RpcResponse } from "../../src/modes/rpc/rpc
 import { type HeadlessSupervisorProbe, startHeadlessSupervisorProbe } from "./fixtures/headless-supervisor-probe.ts";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+const HEADLESS_NODE_COMPILE_CACHE_DIR = join(
+	tmpdir(),
+	`pi-headless-node-compile-cache-${process.getuid?.() ?? "user"}`,
+);
 
 interface WireLlmRequest {
 	type: "request";
@@ -307,6 +311,7 @@ function createHeadlessRpcClient(
 			PI_CODING_AGENT_DIR: paths.agentDir,
 			PI_CODING_AGENT_STATE_DIR: paths.agentDir,
 			PI_CODING_AGENT_SESSION_DIR: paths.sessionDir,
+			NODE_COMPILE_CACHE: HEADLESS_NODE_COMPILE_CACHE_DIR,
 			PI_HEADLESS_PROVIDER_SOCKET: providerSocketPath,
 			...(options.autoDetachTools ? { PI_HEADLESS_TOOL_AUTO_DETACH_MS: "50" } : {}),
 			...(options.env ?? {}),
