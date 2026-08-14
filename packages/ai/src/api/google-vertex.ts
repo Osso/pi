@@ -517,6 +517,9 @@ function getDisabledThinkingConfig(model: Model<"google-vertex">): ThinkingConfi
 	if (isGemini3ProModel(geminiModel)) {
 		return { thinkingLevel: ThinkingLevel.LOW };
 	}
+	if (geminiModel.id === "gemini-3.7-flash") {
+		return { thinkingLevel: ThinkingLevel.LOW };
+	}
 	if (isGemini3FlashModel(geminiModel)) {
 		return { thinkingLevel: ThinkingLevel.MINIMAL };
 	}

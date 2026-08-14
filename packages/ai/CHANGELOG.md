@@ -32,6 +32,7 @@
 - Fixed retry classification to treat Bun/undici fetch socket-close messages (for example: "The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()") as retryable, avoiding misclassification of transport-level socket closes.
 - Fixed OpenAI Codex streams to time out stalled SSE body reads and use native WebSocket pings when available, avoiding hung sessions after sleep or dropped connections.
 - Fixed GPT-5.6 Sol, Luna, and Terra context-window metadata to 372,000 tokens, matching the observed effective input budget so the footer and auto-compaction threshold are accurate.
+- Fixed disabled reasoning for Gemini 3.7 Flash to fall back to LOW instead of sending the unsupported MINIMAL thinking level for Google AI Studio and Google Vertex.
 
 ### Added
 
@@ -47,6 +48,7 @@
 - Refreshed generated model catalogs from models.dev, adding newly listed models including Kimi K2.7 Code for GitHub Copilot and Fable 5 to several providers ([#6256](https://github.com/earendil-works/pi/issues/6256)).
 - Added Claude Sonnet 5 to the GitHub Copilot model catalog ([#6200](https://github.com/earendil-works/pi/issues/6200)).
 - Added zstd request-body compression for the OpenAI Codex Responses SSE transport. Requests are sent with `Content-Encoding: zstd` when Node/Bun zstd support is available; the WebSocket transport is unchanged.
+- Added built-in `gemini-3.7-flash` metadata for Google AI Studio and Google Vertex, including 1,048,576-token context, 65,536-token maximum output, current pricing, and low/medium/high thinking levels.
 
 ## [0.80.3] - 2026-06-30
 

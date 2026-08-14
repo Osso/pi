@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { stream as streamGoogleGenerativeAi } from "../src/api/google-generative-ai.ts";
+import { stream as streamGoogleVertex } from "../src/api/google-vertex.ts";
 import { getModel, streamSimple } from "../src/compat.ts";
 import type { Api, Context, Model, SimpleStreamOptions } from "../src/types.ts";
 
@@ -16,6 +18,94 @@ interface DisableExpectations {
 	requestOptions?: SimpleOptionsWithExtras;
 	minPongs?: number;
 	maxOutputTokens?: number;
+}
+
+interface GoogleThinkingPayload {
+	config?: {
+		thinkingConfig?: {
+			includeThoughts?: boolean;
+			thinkingLevel?: string;
+		};
+	};
+}
+
+class PayloadCaptured extends Error {
+	constructor() {
+		super("payload captured");
+		this.name = "PayloadCaptured";
+	}
+}
+
+function makeGoogleAiModel(id: string): Model<"google-generative-ai"> {
+	return {
+		id,
+		name: id,
+		api: "google-generative-ai",
+		provider: "google",
+		baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+		reasoning: true,
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 1048576,
+		maxTokens: 65536,
+	};
+}
+
+function makeVertexModel(id: string): Model<"google-vertex"> {
+	return {
+		id,
+		name: id,
+		api: "google-vertex",
+		provider: "google-vertex",
+		baseUrl: "https://us-central1-aiplatform.googleapis.com",
+		reasoning: true,
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: 1048576,
+		maxTokens: 65536,
+	};
+}
+
+function makePayloadCaptureContext(): Context {
+	return {
+		messages: [{ role: "user", content: "Hello", timestamp: Date.now() }],
+	};
+}
+
+async function captureGoogleAiPayload(model: Model<"google-generative-ai">): Promise<GoogleThinkingPayload> {
+	let capturedPayload: GoogleThinkingPayload | undefined;
+	const request = streamGoogleGenerativeAi(model, makePayloadCaptureContext(), {
+		apiKey: "fake-key",
+		thinking: { enabled: false },
+		onPayload: (payload) => {
+			capturedPayload = payload as GoogleThinkingPayload;
+			throw new PayloadCaptured();
+		},
+	});
+
+	await request.result();
+	if (!capturedPayload) {
+		throw new Error("Expected payload to be captured before request failure");
+	}
+	return capturedPayload;
+}
+
+async function captureVertexPayload(model: Model<"google-vertex">): Promise<GoogleThinkingPayload> {
+	let capturedPayload: GoogleThinkingPayload | undefined;
+	const request = streamGoogleVertex(model, makePayloadCaptureContext(), {
+		apiKey: "fake-key",
+		thinking: { enabled: false },
+		onPayload: (payload) => {
+			capturedPayload = payload as GoogleThinkingPayload;
+			throw new PayloadCaptured();
+		},
+	});
+
+	await request.result();
+	if (!capturedPayload) {
+		throw new Error("Expected payload to be captured before request failure");
+	}
+	return capturedPayload;
 }
 
 function makeContext(): Context {
@@ -88,6 +178,32 @@ async function expectThinkingDisabledE2E<TApi extends Api>(model: Model<TApi>, e
 		expect(result.outputTokens).toBeLessThan(expectations.maxOutputTokens);
 	}
 }
+
+describe("Google thinking disable payload", () => {
+	it("uses LOW for disabled reasoning on Gemini 3.7 Flash in Google AI Studio", async () => {
+		const payload = await captureGoogleAiPayload(makeGoogleAiModel("gemini-3.7-flash"));
+
+		expect(payload.config?.thinkingConfig?.thinkingLevel).toBe("LOW");
+	});
+
+	it("keeps MINIMAL for older Gemini 3 Flash variants in Google AI Studio", async () => {
+		const payload = await captureGoogleAiPayload(makeGoogleAiModel("gemini-3-flash-preview"));
+
+		expect(payload.config?.thinkingConfig?.thinkingLevel).toBe("MINIMAL");
+	});
+
+	it("uses LOW for disabled reasoning on Gemini 3.7 Flash in Vertex", async () => {
+		const payload = await captureVertexPayload(makeVertexModel("gemini-3.7-flash"));
+
+		expect(payload.config?.thinkingConfig?.thinkingLevel).toBe("LOW");
+	});
+
+	it("keeps MINIMAL for older Gemini 3 Flash variants in Vertex", async () => {
+		const payload = await captureVertexPayload(makeVertexModel("gemini-3-flash-preview"));
+
+		expect(payload.config?.thinkingConfig?.thinkingLevel).toBe("MINIMAL");
+	});
+});
 
 describe.skipIf(!process.env.ANTHROPIC_API_KEY)("Anthropic thinking disable E2E", () => {
 	it("disables thinking for budget-based reasoning models", { retry: 2, timeout: 30000 }, async () => {

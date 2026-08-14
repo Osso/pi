@@ -2,6 +2,7 @@ import {
 	type GenerateContentConfig,
 	type GenerateContentParameters,
 	GoogleGenAI,
+	ThinkingLevel as GoogleThinkingLevelEnum,
 	type ThinkingConfig,
 } from "@google/genai";
 import { calculateCost, clampThinkingLevel } from "../models.ts";
@@ -420,13 +421,16 @@ function getDisabledThinkingConfig(model: Model<"google-generative-ai">): Thinki
 	// do not support full thinking-off either. For Gemini 3 models, use the lowest supported
 	// thinkingLevel without includeThoughts so hidden thinking remains invisible to pi.
 	if (isGemini3ProModel(model)) {
-		return { thinkingLevel: "LOW" as any };
+		return { thinkingLevel: GoogleThinkingLevelEnum.LOW };
+	}
+	if (model.id === "gemini-3.7-flash") {
+		return { thinkingLevel: GoogleThinkingLevelEnum.LOW };
 	}
 	if (isGemini3FlashModel(model)) {
-		return { thinkingLevel: "MINIMAL" as any };
+		return { thinkingLevel: GoogleThinkingLevelEnum.MINIMAL };
 	}
 	if (isGemma4Model(model)) {
-		return { thinkingLevel: "MINIMAL" as any };
+		return { thinkingLevel: GoogleThinkingLevelEnum.MINIMAL };
 	}
 
 	// Gemini 2.x supports disabling via thinkingBudget = 0.

@@ -130,6 +130,7 @@
 - Added session-local `/sandbox` profiles with session > project > global precedence; session overrides are stored in control SQLite for the exact persisted session, support `/sandbox ... inherit`, survive restart/resume, and remain isolated from new sessions and forks.
 - Added the systemd-deployed Resident Architect service: a 30-second, event-driven `openai-codex/gpt-5.6-sol` advisor with read-only control-SQLite observation and read-only bwrap file/shell/Pyrun workers.
 - Added the public `bash_messages_committed` session event for observing idle or deferred bash messages after they enter session state.
+- Added built-in `gemini-3.7-flash` availability for Google AI Studio and Google Vertex, with 1,048,576-token context, 65,536-token maximum output, current pricing, and low/medium/high thinking levels.
 
 ### Fixed
 
@@ -499,6 +500,7 @@
 - Fixed detached Pyrun jobs to record elapsed duration in `durationMs`, include `Duration: Nms` in completion/failure notifications, and made direct `wait_agent({})` consume pending completion notifications and pending failure notifications for detached Pyrun jobs, return the winning agent and message in `details`, and mark the matching runtime mailbox transport row delivered; non-Pyrun failure waits retain their existing behavior.
 - Fixed speculative compaction waiting until `agent_end` to notice long tool-heavy turns crossing 70% context; persisted assistant tool-call responses now start cache generation during the active turn so the ready result is consumed at the existing safe end without a second compaction request.
 - Fixed new-turn user messages waiting for slow extension preflight before appearing in the interactive transcript; the display now uses the authoritative transformed message once prepared, reconciles the later message event without duplication, and cleans up safely across transcript rebuilds and child-agent views.
+- Fixed disabled reasoning for Gemini 3.7 Flash to use LOW instead of the unsupported MINIMAL thinking level on Google AI Studio and Google Vertex.
 
 ### Removed
 
