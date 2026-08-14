@@ -26,6 +26,7 @@ import { PyrunRunnerClient, resolvePyrunRunnerOptions } from "../extensions/pyru
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { isProcessIdentityAlive, type ProcessIdentity } from "../src/core/runtime-process.ts";
 import {
 	getControlDbPath,
 	readMultiAgentAgent,
@@ -95,6 +96,7 @@ type PyrunHarnessOptions = PyrunExtensionOptions & {
 };
 
 const temporaryHarnessDirectories: string[] = [];
+const trackedBackgroundStores = new Set<MultiAgentStore>();
 
 type PyrunTool = {
 	name: string;
@@ -241,12 +243,52 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 }
 
 function persistBackgroundStore(store: MultiAgentStore | undefined): void {
-	if (!store || store.getPersistenceTarget()) return;
+	if (!store) return;
+	trackedBackgroundStores.add(store);
+	if (store.getPersistenceTarget()) return;
 	const root = mkdtempSync(join(tmpdir(), "pi-pyrun-store-"));
 	temporaryHarnessDirectories.push(root);
 	const sessionManager = SessionManager.create(root, join(root, "sessions"));
 	sessionManager.setMetadataControlDbPath(getControlDbPath(root));
 	store.setPersistenceSessionManager(sessionManager);
+}
+
+function terminateTrackedPyrunProcess(identity: ProcessIdentity): void {
+	if (!isProcessIdentityAlive(identity)) return;
+	try {
+		process.kill(-identity.pid, "SIGKILL");
+		return;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+	}
+	try {
+		process.kill(identity.pid, "SIGKILL");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+	}
+}
+
+async function terminateTrackedPyrunRunners(): Promise<void> {
+	const identities = new Map<string, ProcessIdentity>();
+	for (const store of trackedBackgroundStores) {
+		const persistence = store.getPersistenceTarget();
+		if (!persistence) continue;
+		for (const agent of store.listAgents()) {
+			const ownership = readMultiAgentRuntimeOwnership(
+				persistence.controlDbPath,
+				persistence.sessionPath,
+				agent.id,
+			);
+			const identity = ownership?.processIdentity;
+			if (identity) identities.set(`${identity.pid}:${identity.startTimeTicks}`, identity);
+		}
+	}
+	trackedBackgroundStores.clear();
+	for (const identity of identities.values()) terminateTrackedPyrunProcess(identity);
+	await waitFor(
+		() => [...identities.values()].every((identity) => !isProcessIdentityAlive(identity)),
+		"tracked Pyrun runner cleanup",
+	);
 }
 
 function hasProjectedLifecycle(store: MultiAgentStore, agentId: string, lifecycle: string): boolean {
@@ -679,27 +721,31 @@ describe("pyrun extension", () => {
 		process.env.PI_PYRUN_RUNNER_ARGS = JSON.stringify([writeFakePyrunRunner(tempDir)]);
 	});
 
-	afterEach(() => {
+	afterEach(async () => {
 		vi.useRealTimers();
-		for (const directory of temporaryHarnessDirectories.splice(0)) {
-			rmSync(directory, { force: true, recursive: true });
+		try {
+			await terminateTrackedPyrunRunners();
+		} finally {
+			for (const directory of temporaryHarnessDirectories.splice(0)) {
+				rmSync(directory, { force: true, recursive: true });
+			}
+			if (previousRunnerCommand === undefined) {
+				delete process.env.PI_PYRUN_RUNNER_COMMAND;
+			} else {
+				process.env.PI_PYRUN_RUNNER_COMMAND = previousRunnerCommand;
+			}
+			if (previousRunner === undefined) {
+				delete process.env.PI_PYRUN_RUNNER;
+			} else {
+				process.env.PI_PYRUN_RUNNER = previousRunner;
+			}
+			if (previousRunnerArgs === undefined) {
+				delete process.env.PI_PYRUN_RUNNER_ARGS;
+			} else {
+				process.env.PI_PYRUN_RUNNER_ARGS = previousRunnerArgs;
+			}
+			rmSync(tempDir, { force: true, recursive: true });
 		}
-		if (previousRunnerCommand === undefined) {
-			delete process.env.PI_PYRUN_RUNNER_COMMAND;
-		} else {
-			process.env.PI_PYRUN_RUNNER_COMMAND = previousRunnerCommand;
-		}
-		if (previousRunner === undefined) {
-			delete process.env.PI_PYRUN_RUNNER;
-		} else {
-			process.env.PI_PYRUN_RUNNER = previousRunner;
-		}
-		if (previousRunnerArgs === undefined) {
-			delete process.env.PI_PYRUN_RUNNER_ARGS;
-		} else {
-			process.env.PI_PYRUN_RUNNER_ARGS = previousRunnerArgs;
-		}
-		rmSync(tempDir, { force: true, recursive: true });
 	});
 
 	it("does not register pyrun_eval when the configured runner is unavailable", () => {
@@ -2305,6 +2351,29 @@ for await (const line of createInterface({ input: process.stdin })) {
 		await waitFor(() => hasProjectedLifecycle(store, job.id, "aborted"), "detached Pyrun cancellation");
 		expect(store.getAgent(job.id)?.result?.fileRefs).toEqual(runningFileRefs);
 		expect(store.abortAgentHandle(job.id)).toBe(false);
+	});
+
+	it("terminates active detached runners during harness cleanup", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const detachRegistry = new ToolDetachRegistry();
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
+
+		const resultPromise = harness.evaluate({ code: "run.never()" }, (update) => updates.push(update));
+		await waitFor(() => updates.some((update) => update.details.type === "status"), "Pyrun progress before detach");
+		expect(detachRegistry.detachRunning()).toBe(true);
+		await resultPromise;
+
+		const [job] = store.listAgents();
+		const persistence = store.getPersistenceTarget();
+		if (!persistence) throw new Error("Expected persisted multi-agent store");
+		const ownership = readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, job.id);
+		if (!ownership?.processIdentity) throw new Error("Expected detached Pyrun process identity");
+		expect(isProcessIdentityAlive(ownership.processIdentity)).toBe(true);
+
+		await terminateTrackedPyrunRunners();
+
+		expect(isProcessIdentityAlive(ownership.processIdentity)).toBe(false);
 	});
 
 	it.skipIf(process.platform === "win32")("can inherit the caller process group", async () => {
