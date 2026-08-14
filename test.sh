@@ -2,12 +2,14 @@
 set -e
 
 TEST_AGENT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pi-test-agent.XXXXXX")"
+TEST_NODE_COMPILE_CACHE_DIR="${TEST_AGENT_DIR}.node-compile-cache"
 cleanup() {
-    rm -rf "$TEST_AGENT_DIR"
+    rm -rf "$TEST_AGENT_DIR" "$TEST_NODE_COMPILE_CACHE_DIR"
 }
 trap cleanup EXIT
 export PI_CODING_AGENT_DIR="$TEST_AGENT_DIR"
 export PI_CODING_AGENT_STATE_DIR="$TEST_AGENT_DIR/state"
+export NODE_COMPILE_CACHE="$TEST_NODE_COMPILE_CACHE_DIR"
 
 # Skip local LLM tests (ollama, lmstudio)
 export PI_NO_LOCAL_LLM=1
