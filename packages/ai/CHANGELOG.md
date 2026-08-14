@@ -34,6 +34,7 @@
 - Fixed OpenAI Codex streams to time out stalled SSE body reads and use native WebSocket pings when available, avoiding hung sessions after sleep or dropped connections.
 - Fixed GPT-5.6 Sol, Luna, and Terra context-window metadata to 372,000 tokens, matching the observed effective input budget so the footer and auto-compaction threshold are accurate.
 - Fixed disabled reasoning for Gemini 3.7 Flash to fall back to LOW instead of sending the unsupported MINIMAL thinking level for Google AI Studio and Google Vertex.
+- Fixed missing thought signature error (HTTP 400) when replaying unsigned tool calls on Google Generative AI thinking models by sending the `skip_thought_signature_validator` sentinel.
 
 ### Added
 
