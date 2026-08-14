@@ -579,10 +579,13 @@ describe("multi-agent extension tools", () => {
 	const childSessions: Harness["session"][] = [];
 
 	afterEach(async () => {
-		for (const session of childSessions.splice(0)) session.dispose();
 		const completedHarnesses = childHarnesses.splice(0);
-		for (const harness of completedHarnesses) harness.session.dispose();
-		await delay(100);
+		const completedSessions = new Set([
+			...childSessions.splice(0),
+			...completedHarnesses.map((harness) => harness.session),
+		]);
+		await Promise.all([...completedSessions].map((session) => session.abort()));
+		for (const session of completedSessions) session.dispose();
 		for (const harness of completedHarnesses) harness.cleanup();
 	});
 
