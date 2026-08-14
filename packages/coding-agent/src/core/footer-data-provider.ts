@@ -139,7 +139,6 @@ export class FooterDataProvider {
 	private headWatchFileListener: ((current: Stats, previous: Stats) => void) | null = null;
 	private reftableWatcher: FSWatcher | null = null;
 	private reftableTablesListWatcher: FSWatcher | null = null;
-	private reftableTablesListPath: string | null = null;
 	private branchChangeCallbacks = new Set<() => void>();
 	private availableProviderCount = 0;
 	private refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -327,10 +326,6 @@ export class FooterDataProvider {
 		this.reftableWatcher = null;
 		closeWatcher(this.reftableTablesListWatcher);
 		this.reftableTablesListWatcher = null;
-		if (this.reftableTablesListPath) {
-			unwatchFile(this.reftableTablesListPath);
-			this.reftableTablesListPath = null;
-		}
 		if (this.gitWatcherRetryTimer) {
 			clearTimeout(this.gitWatcherRetryTimer);
 			this.gitWatcherRetryTimer = null;
@@ -409,29 +404,12 @@ export class FooterDataProvider {
 
 			const tablesListPath = join(reftableDir, "tables.list");
 			if (existsSync(tablesListPath)) {
-				this.reftableTablesListPath = tablesListPath;
 				this.reftableTablesListWatcher = watchWithErrorHandler(
 					tablesListPath,
 					() => {
 						this.scheduleRefresh();
 					},
 					() => this.handleGitWatcherError(),
-				);
-				if (!this.reftableTablesListWatcher) {
-					return;
-				}
-				watchFile(
-					tablesListPath,
-					{ interval: FooterDataProvider.GIT_FILE_POLL_INTERVAL_MS },
-					(current, previous) => {
-						if (
-							current.mtimeMs !== previous.mtimeMs ||
-							current.ctimeMs !== previous.ctimeMs ||
-							current.size !== previous.size
-						) {
-							this.scheduleRefresh();
-						}
-					},
 				);
 			}
 		}
