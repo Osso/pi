@@ -7,6 +7,7 @@ import {
 	readFileSync,
 	readSync,
 	renameSync,
+	type FSWatcher,
 	writeFileSync,
 } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
@@ -18,7 +19,9 @@ import { LifecycleCoordinator } from "../../../src/core/lifecycle-coordinator.ts
 import { isActiveLifecycle, type AgentSnapshot, type MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
 import { isProcessIdentityAlive, readProcessIdentity } from "../../../src/core/runtime-process.ts";
 import { finalizeDetachedJob, readMultiAgentAgent } from "../../../src/core/session-control-db.ts";
+import { closeWatcher, watchWithErrorHandler } from "../../../src/utils/fs-watch.ts";
 import type { ToolDetachRegistry } from "../../../src/core/tool-detach-registry.ts";
+import { createArtifactProgressAccumulator, type PyrunArtifactRecord } from "./detached-progress.ts";
 import {
 	createCanonicalPyrunEvalParams,
 	createPyrunProgressReporter,
@@ -39,6 +42,68 @@ const ARTIFACT_POLL_MS = 1_000;
 const ARTIFACT_READ_BYTE_LIMIT = 1_048_576;
 const DENSE_CONSOLE_RECORD_THRESHOLD = 100;
 const FOREGROUND_RUNNER_LIVENESS_POLL_MS = 3_000;
+
+interface ArtifactWakeup {
+	wait(): Promise<void>;
+	close(): void;
+}
+
+function createArtifactWakeup(directory: string): ArtifactWakeup {
+	let watcher: FSWatcher | null = null;
+	let pendingResolve: (() => void) | undefined;
+	let fallbackTimer: NodeJS.Timeout | undefined;
+	let wakePending = false;
+	let closed = false;
+
+	const clearFallbackTimer = (): void => {
+		if (!fallbackTimer) return;
+		clearTimeout(fallbackTimer);
+		fallbackTimer = undefined;
+	};
+
+	const resolvePendingWait = (): void => {
+		const resolve = pendingResolve;
+		pendingResolve = undefined;
+		clearFallbackTimer();
+		resolve?.();
+	};
+
+	const onActivity = (): void => {
+		wakePending = true;
+		resolvePendingWait();
+	};
+
+	const onWatchError = (): void => {
+		closeWatcher(watcher);
+		watcher = null;
+	};
+
+	watcher = watchWithErrorHandler(directory, onActivity, onWatchError);
+
+	return {
+		wait: () => {
+			if (closed || wakePending) {
+				wakePending = false;
+				return Promise.resolve();
+			}
+			return new Promise<void>((resolve) => {
+				pendingResolve = resolve;
+				fallbackTimer = setTimeout(() => {
+					pendingResolve = undefined;
+					fallbackTimer = undefined;
+					resolve();
+				}, ARTIFACT_POLL_MS);
+			});
+		},
+		close: () => {
+			if (closed) return;
+			closed = true;
+			closeWatcher(watcher);
+			watcher = null;
+			resolvePendingWait();
+		},
+	};
+}
 
 export async function runDurableDetachablePyrunEvaluation(input: {
 	agentId: string;
@@ -436,7 +501,9 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 	let result: CanonicalPyrunEvalResult | undefined;
 	let terminalAgent: AgentSnapshot | undefined;
 	const reportProgress = createPyrunProgressReporter(input.onUpdate);
+	const progressAccumulator = createArtifactProgressAccumulator(reportProgress, ARTIFACT_POLL_MS);
 	const control = createPyrunDetachControl(input);
+	const artifactWakeup = createArtifactWakeup(input.runner.artifacts.directory);
 	const unregister = input.detachRegistry.register({ detach: control.detach });
 	const cancel = control.cancel;
 	input.signal?.addEventListener("abort", cancel, { once: true });
@@ -444,7 +511,7 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 		for (;;) {
 			await respondToPendingForegroundBridgeRequests(input, bridgeRequestCursor, control.getOwnership() !== undefined);
 			const records = readNewArtifactRecords(input.runner.artifacts.outputPath, outputCursor);
-			result = consumeArtifactRecords(records, reportProgress) ?? result;
+			result = progressAccumulator.consume(records) ?? result;
 			const ownership = control.getOwnership();
 			const foregroundResult = settleForegroundEvaluation(input, records, result, ownership);
 			if (foregroundResult) return foregroundResult;
@@ -460,12 +527,14 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 			if (ownership && control.isActivated()) {
 				return detachedResult(input.params, ownership.agent.id, ownership.artifacts.outputPath);
 			}
-			await new Promise((resolve) => setTimeout(resolve, ARTIFACT_POLL_MS));
+			await artifactWakeup.wait();
 		}
 		if (result) return formatCanonicalPyrunEvalResult(input.params, result);
 		if (!terminalAgent) throw new Error("Detached Pyrun job terminal state is unavailable");
 		return formatTerminalAgentError(input.params, terminalAgent);
 	} finally {
+		progressAccumulator.close();
+		artifactWakeup.close();
 		unregister();
 		input.signal?.removeEventListener("abort", cancel);
 	}
@@ -537,87 +606,6 @@ function terminateForegroundRunner(pid: number, signal: NodeJS.Signals = "SIGTER
 	}
 }
 
-interface ConsoleProgressBatch {
-	text: string[];
-	update?: CanonicalPyrunProgressUpdate;
-}
-
-function hasDenseConsoleProgress(records: PyrunArtifactRecord[]): boolean {
-	let consoleRecordCount = 0;
-	for (const record of records) {
-		if (record.kind !== "progress" || record.update.type !== "console") continue;
-		consoleRecordCount += 1;
-		if (consoleRecordCount >= DENSE_CONSOLE_RECORD_THRESHOLD) return true;
-	}
-	return false;
-}
-
-function consumeArtifactRecords(
-	records: PyrunArtifactRecord[],
-	reportProgress: (update: CanonicalPyrunProgressUpdate) => void,
-): CanonicalPyrunEvalResult | undefined {
-	return hasDenseConsoleProgress(records)
-		? consumeDenseArtifactRecords(records, reportProgress)
-		: consumeIndividualArtifactRecords(records, reportProgress);
-}
-
-function consumeIndividualArtifactRecords(
-	records: PyrunArtifactRecord[],
-	reportProgress: (update: CanonicalPyrunProgressUpdate) => void,
-): CanonicalPyrunEvalResult | undefined {
-	let result: CanonicalPyrunEvalResult | undefined;
-	for (const record of records) {
-		if (record.kind === "progress") reportProgress(record.update);
-		else if (record.kind === "result") result = record.result;
-	}
-	return result;
-}
-
-function consumeDenseArtifactRecords(
-	records: PyrunArtifactRecord[],
-	reportProgress: (update: CanonicalPyrunProgressUpdate) => void,
-): CanonicalPyrunEvalResult | undefined {
-	const batch: ConsoleProgressBatch = { text: [] };
-	let result: CanonicalPyrunEvalResult | undefined;
-	for (const record of records) {
-		if (record.kind === "progress") {
-			consumeDenseProgressUpdate(record.update, batch, reportProgress);
-			continue;
-		}
-		flushConsoleProgress(batch, reportProgress);
-		if (record.kind === "result") result = record.result;
-	}
-	flushConsoleProgress(batch, reportProgress);
-	return result;
-}
-
-function consumeDenseProgressUpdate(
-	update: CanonicalPyrunProgressUpdate,
-	batch: ConsoleProgressBatch,
-	reportProgress: (update: CanonicalPyrunProgressUpdate) => void,
-): void {
-	if (update.type !== "console" || typeof update.text !== "string") {
-		flushConsoleProgress(batch, reportProgress);
-		reportProgress(update);
-		return;
-	}
-	if (batch.update && batch.update.stream !== update.stream) {
-		flushConsoleProgress(batch, reportProgress);
-	}
-	batch.update = update;
-	batch.text.push(update.text);
-}
-
-function flushConsoleProgress(
-	batch: ConsoleProgressBatch,
-	reportProgress: (update: CanonicalPyrunProgressUpdate) => void,
-): void {
-	if (!batch.update) return;
-	reportProgress({ ...batch.update, text: batch.text.join("") });
-	batch.update = undefined;
-	batch.text.length = 0;
-}
-
 function formatTerminalAgentError(params: PyrunEvalParams, agent: AgentSnapshot): AgentToolResult<unknown> {
 	const error = agent.error?.message ?? agent.result?.summary ?? `Pyrun evaluation ${agent.lifecycle}`;
 	return {
@@ -677,11 +665,6 @@ function consumeJsonLineBytes<T>(cursor: JsonLineReadCursor, data: Buffer): T[] 
 	}
 	return values;
 }
-
-type PyrunArtifactRecord =
-	| { error: string; kind: "error" }
-	| { kind: "progress"; update: CanonicalPyrunProgressUpdate }
-	| { kind: "result"; result: CanonicalPyrunEvalResult };
 
 function readNewArtifactRecords(path: string, cursor: JsonLineReadCursor): PyrunArtifactRecord[] {
 	return readNewJsonLines<PyrunArtifactRecord>(path, cursor, ARTIFACT_READ_BYTE_LIMIT);

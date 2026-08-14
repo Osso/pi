@@ -481,10 +481,10 @@ async function resultFor(request) {
     await new Promise((resolve) => setTimeout(resolve, 140));
     return { type: "completed", executed: request.code, value: "auto-detached-done" };
   }
-  if (request.code === "run.foreground_30s()") {
-    process.stdout.write(JSON.stringify({ type: "status", message: "30-second foreground started" }) + "\\n");
-    await new Promise((resolve) => setTimeout(resolve, 30000));
-    return { type: "completed", executed: request.code, value: "foreground-30s-done" };
+  if (request.code === "run.foreground_before_detach()") {
+    process.stdout.write(JSON.stringify({ type: "status", message: "foreground started" }) + "\\n");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return { type: "completed", executed: request.code, value: "foreground-done" };
   }
   if (request.code === "run.slow_detachable()") {
     process.stdout.write(JSON.stringify({ type: "status", message: "slow detachable started" }) + "\\n");
@@ -2096,16 +2096,16 @@ for await (const line of createInterface({ input: process.stdin })) {
 		expect(store.listAgents()).toEqual([]);
 	});
 
-	it("keeps a 30-second evaluation in the foreground before the configured detach threshold", async () => {
+	it("keeps an evaluation in the foreground when it completes before the configured detach threshold", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
-		const detachRegistry = new ToolDetachRegistry({ autoDetachAfterMs: 35_000 });
+		const detachRegistry = new ToolDetachRegistry({ autoDetachAfterMs: 500 });
 		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
 
-		const result = await harness.evaluate({ code: "run.foreground_30s()" });
+		const result = await harness.evaluate({ code: "run.foreground_before_detach()" });
 
-		expect(result.details.value).toBe("foreground-30s-done");
+		expect(result.details.value).toBe("foreground-done");
 		expect(store.listAgents()).toEqual([]);
-	}, 35_000);
+	});
 
 	it("does not detach an evaluation that already completed in the foreground runner", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });

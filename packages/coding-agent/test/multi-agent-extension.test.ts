@@ -391,10 +391,13 @@ function createMultiAgentHarness(
 		},
 	} as unknown as ExtensionAPI;
 
+	const runtimeHandles = Object.assign(options.runtimeHandles ?? createMultiAgentRuntimeHandles(), {
+		cancellationSettlementTimeoutMs: 50,
+	});
 	const extensionOptions = {
 		createAttachedSession: options.createAttachedSession,
 		createChildSession: ensureTranscriptBackedFactory(options.createChildSession),
-		runtimeHandles: options.runtimeHandles,
+		runtimeHandles,
 		store,
 		...(options.legacyDispatcher ? { dispatcher: options.legacyDispatcher } : {}),
 	} as MultiAgentExtensionOptions;
@@ -2274,7 +2277,9 @@ describe("multi-agent extension tools", () => {
 		const sessionManager = createControlDbSession();
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		store.setPersistenceSessionManager(sessionManager);
-		const runtimeHandles = createMultiAgentRuntimeHandles();
+		const runtimeHandles = Object.assign(createMultiAgentRuntimeHandles(), {
+			cancellationSettlementTimeoutMs: 50,
+		});
 		const createChildSession: ChildAgentSessionFactory = async ({ agent }) => ({
 			abort,
 			messages: [],
@@ -2303,11 +2308,16 @@ describe("multi-agent extension tools", () => {
 		}
 		const current = store.getAgent(spawned.agent.id);
 		if (!current) throw new Error("expected spawned agent");
-		const cancelled = await harness.call<CancelAgentDetails>("close_agent", {
-			agentId: current.id,
-			reason: "stop pyrun bridge child",
-		});
+		const cancelled = await Promise.race([
+			harness.call<CancelAgentDetails>("close_agent", {
+				agentId: current.id,
+				reason: "stop pyrun bridge child",
+			}),
+			delay(750).then(() => undefined),
+		]);
 
+		expect(cancelled).toBeDefined();
+		if (!cancelled) throw new Error("close_agent did not honor the configured cancellation settlement timeout");
 		expect(abort).toHaveBeenCalledOnce();
 		expect(cancelled.details.agent).toMatchObject({ id: spawned.agent.id, lifecycle: "cancelling" });
 		expect(store.getAgent(spawned.agent.id)).toMatchObject({ id: spawned.agent.id, lifecycle: "cancelling" });

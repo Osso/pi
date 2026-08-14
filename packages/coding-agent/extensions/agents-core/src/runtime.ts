@@ -383,6 +383,7 @@ interface OwnedAgentRuntime {
 }
 
 export interface MultiAgentRuntimeHandles {
+	cancellationSettlementTimeoutMs?: number;
 	dispatches: ActiveAgentDispatches;
 	ownerships: Map<string, OwnedAgentRuntime>;
 	sessions: BackgroundSessionHandles;
@@ -2678,9 +2679,10 @@ async function cancelOneOwnedAgentRuntime(
 	abortAgentHandleSafely(store, agentId);
 	const dispatch = runtimeHandles.dispatches.get(agentId);
 	if (dispatch) {
+		const timeoutMs = runtimeHandles.cancellationSettlementTimeoutMs ?? CANCELLATION_SETTLEMENT_TIMEOUT_MS;
 		const settledBeforeTimeout = await Promise.race([
 			dispatch.then(() => true),
-			new Promise<false>((resolve) => setTimeout(() => resolve(false), CANCELLATION_SETTLEMENT_TIMEOUT_MS)),
+			new Promise<false>((resolve) => setTimeout(() => resolve(false), timeoutMs)),
 		]);
 	}
 	const settled = store.getAgent(agentId) ?? cancelling.agent;
