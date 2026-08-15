@@ -11,7 +11,11 @@ vi.mock("node:child_process", () => ({ spawn: spawnMock }));
 
 type ShutdownHandler = (
 	event: { reason: "quit" },
-	ctx: { sessionManager: { getSessionFile(): string | undefined } },
+	ctx: {
+		sessionManager: { getSessionFile(): string | undefined };
+		multiAgentAgentId?: string;
+		multiAgentRequiresAgentId?: boolean;
+	},
 ) => void | Promise<void>;
 
 function fakeChild(): EventEmitter & { unref: ReturnType<typeof vi.fn> } {
@@ -99,6 +103,20 @@ describe("claude-memory session-end extension", () => {
 
 		const log = readFileSync(join(cacheDirectory, "claude-memory/pi-index.log"), "utf8");
 		expect(log).toContain(`failed to launch index-file for session ${transcriptPath}: simulated spawn failure`);
+	});
+
+	it("does not index child-agent sessions", async () => {
+		const shutdownHandler = await registerShutdownHandler();
+		const transcriptPath = "/tmp/pi fixture/child.jsonl";
+
+		for (const childContext of [{ multiAgentAgentId: "agent_1" }, { multiAgentRequiresAgentId: true }]) {
+			await shutdownHandler(
+				{ reason: "quit" },
+				{ sessionManager: { getSessionFile: () => transcriptPath }, ...childContext },
+			);
+		}
+
+		expect(spawnMock).not.toHaveBeenCalled();
 	});
 
 	it("does nothing for ephemeral sessions", async () => {

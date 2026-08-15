@@ -51,6 +51,8 @@ function launchIndex(sessionPath: string): void {
 
 export default function claudeMemorySessionEndExtension(pi: ExtensionAPI): void {
 	pi.on("session_shutdown", (_event, ctx) => {
+		if (ctx.multiAgentAgentId !== undefined || ctx.multiAgentRequiresAgentId === true) return;
+
 		const sessionFile = ctx.sessionManager.getSessionFile();
 		if (!sessionFile) {
 			return;
