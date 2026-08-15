@@ -27,6 +27,7 @@ import { providerHeadersToRecord } from "../utils/headers.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import type { GoogleThinkingLevel } from "./google-shared.ts";
 import {
+	clampGoogleMaxOutputTokens,
 	convertMessages,
 	convertTools,
 	isThinkingPart,
@@ -353,7 +354,7 @@ function buildParams(
 		generationConfig.temperature = options.temperature;
 	}
 	if (options.maxTokens !== undefined) {
-		generationConfig.maxOutputTokens = options.maxTokens;
+		generationConfig.maxOutputTokens = clampGoogleMaxOutputTokens(options.maxTokens);
 	}
 
 	const config: GenerateContentConfig = {

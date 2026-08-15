@@ -9,6 +9,13 @@ import { transformMessages } from "./transform-messages.ts";
 
 type GoogleApiType = "google-generative-ai" | "google-vertex";
 
+/** Google APIs accept maxOutputTokens below 65536, making 65535 the highest valid value. */
+export const GOOGLE_MAX_OUTPUT_TOKENS = 65535;
+
+export function clampGoogleMaxOutputTokens(maxTokens: number): number {
+	return Math.min(maxTokens, GOOGLE_MAX_OUTPUT_TOKENS);
+}
+
 /**
  * Thinking level for Gemini 3 models.
  * Mirrors Google's ThinkingLevel enum values.
