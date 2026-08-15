@@ -145,7 +145,6 @@
 - Fixed Escape failing during `Waiting for Supervisor…` and Supervisor `Thinking...`: global interrupt routing now cancels pending or claimed durable reviews, stops client retries, aborts resident evaluation, clears the loader, and fences late decisions.
 - Fixed concurrent agent enrichment consuming the 15-second subprocess budget under local embedding contention; first-party `claude-memory-enrich` subprocesses are now queued per Pi runtime.
 - Fixed active Claude-memory enrichment surviving session shutdown/restart and becoming direct-child zombies; shutdown now terminates active children and waits for close before process replacement.
-- Fixed spawned child-agent shutdown launching detached Claude-memory full-session indexing after `end_turn`; session-end indexing now runs only for main sessions.
 - Fixed stale overflow checks discarding a post-compaction Envoy 507 response when it shared the compaction millisecond; persisted session-branch order now takes precedence over timestamp ties, while repeated 507 recovery remains bounded to one retry.
 - Fixed optional binary-backed tools and approval hooks registering when their external executables are unavailable; affected first-party extensions are now absent from startup inventory, while built-in structural tools are filtered from each runtime registry.
 - Fixed AgentSession event delivery so every listener registered when an event begins receives it, even if an earlier listener unsubscribes during its callback.
