@@ -35,6 +35,7 @@
 - Fixed GPT-5.6 Sol, Luna, and Terra context-window metadata to 372,000 tokens, matching the observed effective input budget so the footer and auto-compaction threshold are accurate.
 - Fixed disabled reasoning for Gemini 3.7 Flash to fall back to LOW instead of sending the unsupported MINIMAL thinking level for Google AI Studio and Google Vertex.
 - Fixed Google maxOutputTokens serialization at the exclusive 65536 boundary by clamping requests to 65535 for Google AI Studio and Vertex.
+- Fixed Gemini latest aliases sending unsupported explicit thinking configuration by omitting `thinkingConfig` for `gemini-flash-latest` on Google AI Studio and Vertex.
 - Fixed missing thought signature error (HTTP 400) when replaying unsigned tool calls on Google Generative AI thinking models by sending the `skip_thought_signature_validator` sentinel.
 
 ### Added

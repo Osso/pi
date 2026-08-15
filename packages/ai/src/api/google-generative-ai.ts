@@ -34,6 +34,7 @@ import {
 	mapStopReason,
 	mapToolChoice,
 	retainThoughtSignature,
+	usesServerManagedThinking,
 } from "./google-shared.ts";
 import { buildBaseOptions } from "./simple-options.ts";
 
@@ -373,17 +374,9 @@ function buildParams(
 		config.toolConfig = undefined;
 	}
 
-	if (options.thinking?.enabled && model.reasoning) {
-		const thinkingConfig: ThinkingConfig = { includeThoughts: true };
-		if (options.thinking.level !== undefined) {
-			// Cast to any since our GoogleThinkingLevel mirrors Google's ThinkingLevel enum values
-			thinkingConfig.thinkingLevel = options.thinking.level as any;
-		} else if (options.thinking.budgetTokens !== undefined) {
-			thinkingConfig.thinkingBudget = options.thinking.budgetTokens;
-		}
+	const thinkingConfig = buildThinkingConfig(model, options);
+	if (thinkingConfig) {
 		config.thinkingConfig = thinkingConfig;
-	} else if (model.reasoning && options.thinking && !options.thinking.enabled) {
-		config.thinkingConfig = getDisabledThinkingConfig(model);
 	}
 
 	if (options.signal) {
@@ -400,6 +393,24 @@ function buildParams(
 	};
 
 	return params;
+}
+
+function buildThinkingConfig(model: Model<"google-generative-ai">, options: GoogleOptions): ThinkingConfig | undefined {
+	if (usesServerManagedThinking(model.id)) return undefined;
+	if (options.thinking?.enabled && model.reasoning) {
+		const thinkingConfig: ThinkingConfig = { includeThoughts: true };
+		if (options.thinking.level !== undefined) {
+			// Cast to any since our GoogleThinkingLevel mirrors Google's ThinkingLevel enum values
+			thinkingConfig.thinkingLevel = options.thinking.level as any;
+		} else if (options.thinking.budgetTokens !== undefined) {
+			thinkingConfig.thinkingBudget = options.thinking.budgetTokens;
+		}
+		return thinkingConfig;
+	}
+	if (model.reasoning && options.thinking && !options.thinking.enabled) {
+		return getDisabledThinkingConfig(model);
+	}
+	return undefined;
 }
 
 type ClampedThinkingLevel = Exclude<ThinkingLevel, "xhigh" | "max" | "ultra">;

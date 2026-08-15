@@ -17,6 +17,13 @@ export function clampGoogleMaxOutputTokens(maxTokens: number): number {
 }
 
 /**
+ * Gemini's latest alias uses server-managed thinking and rejects explicit thinkingConfig payloads.
+ */
+export function usesServerManagedThinking(modelId: string): boolean {
+	return modelId.toLowerCase() === "gemini-flash-latest";
+}
+
+/**
  * Thinking level for Gemini 3 models.
  * Mirrors Google's ThinkingLevel enum values.
  */
