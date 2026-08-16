@@ -34,6 +34,9 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] A `manage_goal` tool can set, pause, resume, complete, clear, and view the active objective for tool-capability parity with `/goal` lifecycle actions; pause requires a non-empty reason and persists/displays it, completion accepts paused active goals without requiring resume, and set rejects reserved goal-control words such as `continue`.
 - [x] The `manage_goal` tool exposes an action parameter plus optional objective, pause-only reason, and completionReport parameters; `complete` requires a nonblank free-form Markdown completionReport.
 - [x] `manage_goal set` sends the current and proposed objectives to the resident Supervisor; the returned objective preserves every requirement, exclusion, and completion criterion from the current objective and any known unfinished parent objective while adding the proposed scope, only an explicit user instruction may reset or narrow that parent, collapses exact repeated copies of the current objective before persistence, returns the proposal unchanged only when no current or known parent objective exists, and leaves goal state unchanged when review fails or becomes stale.
+- [x] Automatic non-generic `continue.instructions` returned by idle or completion review pass through a separate stateless veto gate before delivery; the gate receives only the raw instruction message, returns `ACCEPT` or one of five predefined refusal tokens, and has no goal, evidence, transcript, project, workspace, memory, or prior-decision context.
+- [x] The exact generic `Continue working toward the active goal.` reminder bypasses the veto gate; accepted non-generic instructions are preserved, while rejected, invalid, or failed veto evaluations replace them with that exact generic reminder without retrying the first-level review at the same boundary.
+- [x] Veto policy feedback is hidden from the main agent: actual refusal reasons produce deterministic hidden feedback in resident Supervisor context, invalid or failed evaluations produce fixed hidden failure feedback, and compaction preserves both feedback types.
 - [x] Supervisor-only capability filtering removes every tool named `manage_goal` from production `spawn_agent`, `attach_session_agent`, and `/bg` runtimes even when an external extension registers it; the supervisor retains the tool.
 - [x] Calls to denied `manage_goal` tools fail as inactive, including calls issued through the Pyrun `pi.tools.call` bridge.
 
@@ -42,6 +45,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] Before each agent turn, the active objective is injected into the system prompt through `before_agent_start`.
 - [x] The injected block tells the model to keep working toward the objective until achieved, and to report blockers instead of stopping silently.
 - [x] Goal context includes the current continuation state when autonomous continuation is active.
+- [x] Veto evaluation remains within the originating goal-review request deadline, caller-cancellation boundary, and approval-preemption/requeue boundary.
 
 ### Starting and continuing work
 
@@ -84,7 +88,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - `packages/coding-agent/extensions/goal/src/goal-review-evidence.ts` — records ordered user/end-turn evidence, attaches it to goal reviews, and consumes applied-review evidence.
 - `packages/coding-agent/extensions/goal/src/supervisor-review.ts` — applies the 60-second resident-review deadline, registers caller cancellation, and wraps every goal review with visible waiting and reason-bearing failure status, including `goal_set_review`.
 - `packages/coding-agent/src/core/agent-session.ts` / `packages/coding-agent/src/modes/interactive/interactive-mode.ts` — own the active-review cancellation callback and route Escape through global input before streaming-only handling.
-- `packages/coding-agent/src/supervisor/client.ts` / `packages/coding-agent/src/supervisor/service.ts` — cancel durable requests and polling, abort resident evaluation, fence late completion, and preserve typed Supervisor decisions.
+- `packages/coding-agent/src/supervisor/client.ts` / `packages/coding-agent/src/supervisor/service.ts` — cancel durable requests and polling, abort resident evaluation, fence late completion, preserve typed Supervisor decisions, and define the closed veto contract.
 - `packages/coding-agent/src/supervisor/response-tool.ts` — exposes typed decisions, additive objectives, and bounded continuation guidance to the resident Supervisor.
 - `packages/coding-agent/extensions/goal/src/goal-scheduling.ts` — preserves decisions across transient pending input, waits for active agents, and schedules five-minute Supervisor re-review from the persisted deadline.
 - `packages/coding-agent/extensions/goal/src/wait-countdown.ts` — owns redraw-only, deadline-aligned countdown refresh timers and cancellation.
@@ -119,6 +123,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - `packages/coding-agent/test/architect-service.test.ts` — resident Architect supervisor-only tool exclusion policy.
 - `packages/coding-agent/test/session-control-db.test.ts` — control SQLite metadata coverage for `goal_json`, `is_subagent`, and `subagent_name` columns.
 - `packages/coding-agent/test/supervisor-service.test.ts` — additive `goal_set_review` response parsing and Supervisor prompt contract.
+- `packages/coding-agent/test/supervisor-instruction-veto.test.ts` — automatic continuation veto classification, fail-closed generic replacement, hidden feedback, compaction preservation, and approval preemption.
 - `packages/coding-agent/test/goal-error-status-scheduling.test.ts` — active-retry gating for deferred terminal error status.
 - `packages/coding-agent/test/suite/goal-extension-runtime.test.ts` — agent-end continuation ordering and retry-success status cancellation.
 - `packages/coding-agent/test/interactive-mode-status.test.ts` — editor and global-input Escape routing while Supervisor review is idle or streaming.

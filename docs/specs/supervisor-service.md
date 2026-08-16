@@ -32,8 +32,13 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 
 ### Authority boundary
 
-- [x] Act as a peer-unblocking policy engine, not a routine task manager: preserve agent autonomy, maintain cumulative parent-goal consistency across requests, and intervene only on evidence-backed exceptions; the calling subsystem enforces the typed response.
+- [x] Keep the resident Supervisor as the first-level goal and completion reviewer: it remains a peer-unblocking policy engine, not a routine task manager, preserves agent autonomy and cumulative parent-goal consistency across requests, and intervenes only on evidence-backed exceptions; the calling subsystem enforces the typed response.
 - [x] Detect narrowed or lost goals, dropped requirements, exclusions, or completion criteria, contradictions between claims and evidence, repeated or circular work, and missing completion proof without prescribing routine decomposition; only an explicit user instruction may reset or narrow a known parent objective.
+- [x] Audit every automatic non-generic `continue.instructions` from goal idle and completion review through a separate stateless veto gate before delivery; the gate receives only the raw instruction message and has no goal, project, evidence, transcript, workspace, memory, or prior-decision context.
+- [x] Run each veto evaluation as one fresh direct low-effort call to the configured Supervisor Sol model under one fixed system policy, with one raw instructions user message, no tools, and no inherited transcript context.
+- [x] Restrict veto output to `ACCEPT`, `REJECT_TASK_ASSIGNMENT`, `REJECT_IMPLEMENTATION_PRESCRIPTION`, `REJECT_SEQUENCING_INSTRUCTION`, `REJECT_AGENT_OR_TOOL_DIRECTION`, or `REJECT_PLAN_OVERRIDE`; any extra or invalid output is rejected.
+- [x] Preserve accepted instructions; replace rejected, invalid, or failed evaluations with exactly `Continue working toward the active goal.` without retrying the first-level review at that boundary.
+- [x] Append deterministic hidden feedback for actual policy rejections and fixed hidden failure feedback for invalid or failed evaluations to resident Supervisor context; neither rejected instructions nor feedback reaches the main agent, and compaction preserves the feedback.
 - [x] Read and write only inside the configured shared KB root.
 - [x] Keep Bash and Pyrun unavailable to the Supervisor.
 - [x] Never edit workspace files, dispatch agents, control processes or sessions, mutate goals directly, or change approval policy directly.
@@ -55,6 +60,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - [x] Never provide historical session transcripts or allow the Supervisor to request additional transcript slices.
 - [x] Let the Supervisor consult KB memory when current request evidence is insufficient.
 - [x] Require the model to call the terminating structured `supervisor_response` tool exactly once as the final action for each request; do not ask it to emit JSON text, markdown, or `end_turn` around that call. Extract only that current-request structured response, reject strict JSON text with trailing prose or malformed/partial content, and never reuse historical response text.
+- [x] Keep veto evaluation inside the original goal-review request deadline, caller-cancellation boundary, and approval-preemption/requeue boundary.
 
 ### Supervisor advisory
 
@@ -84,6 +90,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - [x] Mark the goal complete only when the caller receives `complete`, persisting the verbatim completionReport as completionReason.
 - [x] Clear stored goal-review conversation evidence when completion is applied.
 - [x] Keep the goal running when the caller receives `continue`; use exactly `Continue working toward the active goal.` when the agent can continue autonomously, and reserve specific Supervisor instructions for an evidence-backed omission, repeated failed or circular work, lost objective scope, or missing completion proof, naming only the exception and smallest corrective action.
+- [x] Audit every non-generic completion-review `continue.instructions` through the stateless veto gate before delivery; accepted instructions are preserved, while rejected, invalid, or failed evaluations use the exact generic continuation and do not retry the first-level review at that boundary.
 - [x] On `wait`, append a durable Supervisor status entry; if agents are active, start a cancellable background `wait_agent` and re-review after wake, otherwise schedule the five-minute countdown and re-review, including when progress depends on an external condition that can be rechecked.
 - [x] On `error`, append durable status and keep the completion request unresolved without scheduling automatic re-review; rejected completion reports remain visible with the Supervisor's reason in durable status.
 - [x] Leave the goal active without another continuation only when required user action or input is needed and no automatic recheck can advance progress; the caller receives `pause` only for that manual stop condition.
@@ -101,6 +108,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - [x] Return exactly `complete`, `continue`, `wait`, `pause`, or generic `error` for goal idle review.
 - [x] Mark the goal complete when the caller receives `complete`.
 - [x] Submit exactly `Continue working toward the active goal.` when competent progress can continue without help; submit a specific corrective prompt only for an evidence-backed omission such as unhandled pagination or an omitted required element, repeated failed or circular work, lost objective scope, or missing completion proof, naming only the exception and smallest corrective action.
+- [x] Audit every non-generic idle-review `continue.instructions` through the stateless veto gate before delivery; accepted instructions are preserved, while rejected, invalid, or failed evaluations use the exact generic continuation and do not retry the first-level review at that boundary.
 - [x] Keep the goal active on `wait`, append a durable status entry, and re-run review after agent wake or the scheduled five-minute countdown, including for external conditions that can be rechecked.
 - [x] Leave the goal active without another continuation when the caller receives `pause` because required user action or input is needed and no automatic recheck can advance progress.
 - [x] Preserve the cumulative unfinished parent objective throughout continuation review; a bounded request or current subtask never replaces remaining requirements, exclusions, or completion criteria.
@@ -122,6 +130,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - [x] Caller cancellation stops polling and retries, atomically moves a sender-owned pending or claimed request to terminal `cancelled`, wakes the resident, aborts active evaluation, and prevents later claim or completion.
 - [x] Interactive Escape reaches an active goal review through global input even when the caller is idle and the wait loader owns focus, then clears the loader without applying a stale decision.
 - [x] Return generic `error` for service, transport, timeout, model, tool, or response-validation failures.
+- [x] Fail non-generic instruction vetoes closed: invalid output or evaluation failure suppresses the proposed instruction, appends fixed hidden failure feedback, and delivers exactly the generic continuation without retrying the first-level review at that boundary.
 - [x] Retry resident goal-review request timeouts up to three attempts with bounded exponential backoff and jitter before returning generic `error`; other request kinds retain single-attempt timeout behavior.
 - [x] Fail approval reviews to human escalation.
 - [x] Fail goal reviews visibly without completing the goal or invoking human approval; idle-review errors enter bounded wake/re-review scheduling, while completion-review errors remain unresolved until another explicit completion attempt.
@@ -135,8 +144,8 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 
 ## Implementation inventory
 
-- `packages/coding-agent/src/supervisor/main.ts` — resident Sol SDK service, restricted tool surface, persistent transcript, and request loop.
-- `packages/coding-agent/src/supervisor/service.ts` — bounded prompts, typed response validation, deadlines, approval preemption, and active-evaluation cancellation.
+- `packages/coding-agent/src/supervisor/main.ts` — resident Sol SDK service, restricted tool surface, persistent transcript, stateless instruction-veto evaluation, hidden policy feedback, and request loop.
+- `packages/coding-agent/src/supervisor/service.ts` — bounded prompts, typed response validation, veto tokens and policy contract, deadlines, approval preemption, and active-evaluation cancellation.
 - `packages/coding-agent/src/supervisor/client.ts` — ensures resident readiness, performs durable synchronous caller transport, and propagates caller cancellation.
 - `packages/coding-agent/src/supervisor/ensure-running.ts` — cross-platform probe, singleton startup lock, detached launch, compatibility checks, and Pi-managed replacement.
 - `packages/coding-agent/src/supervisor/request-wake.ts` — owner-only Unix-socket wake notification for the durable request queue.
@@ -163,6 +172,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - `packages/coding-agent/test/supervisor-ensure-running.test.ts`
 - `packages/coding-agent/test/suite/supervisor-autostart-runtime.test.ts` — real-process detached startup and concurrent reuse.
 - `packages/coding-agent/test/supervisor-service.test.ts` — advisory response contract, validation, and claimed-request evaluation cancellation.
+- `packages/coding-agent/test/supervisor-instruction-veto.test.ts` — stateless veto classification, closed output, fail-closed replacement, hidden feedback, compaction preservation, and approval preemption during veto evaluation.
 - `packages/coding-agent/test/interactive-mode-status.test.ts` — editor and global-input Escape routing while Supervisor review is active.
 - `packages/coding-agent/test/supervisor-approval-reviewer.test.ts`
 - `packages/coding-agent/test/list-sessions-broadcast-tools.test.ts` — main-session-only tool registration and access.
@@ -191,6 +201,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 ## Out of scope
 
 - Cross-session work coordination, checkout ownership, duplicate-work detection, or incompatible-goal detection.
+- Goal merging, broader orchestration, or any change to first-level goal/completion review authority; the veto gate only filters automatic continuation instructions.
 - Full or on-demand historical transcript delivery.
 - Automatic web research.
 - Workspace mutation, autonomous remediation, agent dispatch, or direct session/goal mutation by the Supervisor.
