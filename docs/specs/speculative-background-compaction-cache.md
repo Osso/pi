@@ -13,8 +13,9 @@ Speculative background compaction prepares a compaction result before normal com
 
 ### Safe installation
 
-- [x] When the cache is ready and the session has not advanced beyond its snapshot, trigger normal compaction immediately when idle.
-- [x] When the session advances during generation, defer normal compaction until the active turn reaches its safe end point.
+- [x] When the cache is ready and the session is idle, trigger normal compaction immediately when the snapshot remains an ancestor of the active branch, even if the leaf advanced.
+- [x] When the cache becomes ready during an active multi-cycle run, commit it at the existing `prepareNextTurnWithContext` boundary after current tool results and before the next provider request.
+- [x] Build the next request from the cached compacted prefix plus every message and tool result appended after the snapshot.
 - [x] Preserve every entry appended after the cache snapshot verbatim when normal compaction commits.
 
 ### Validity and fallback
@@ -46,10 +47,10 @@ Speculative background compaction prepares a compaction result before normal com
 
 - `packages/coding-agent/test/suite/agent-session-compaction.test.ts`
   - speculative trigger and single-flight behavior
-  - mid-turn tool cycles start generation before `agent_end` and consume it at the safe turn end
+  - mid-turn tool cycles start generation before `agent_end` and consume it at the `prepareNextTurnWithContext` boundary before the next provider request
   - no active-context mutation while generation is pending
-  - idle cache consumption
-  - post-snapshot entry preservation
+  - idle cache consumption with an advanced but ancestry-valid leaf
+  - post-snapshot message and tool-result preservation
   - stale branch rejection
   - synchronous fallback without overlapping compactions
   - background-compaction lifecycle event pairing and terminal outcomes

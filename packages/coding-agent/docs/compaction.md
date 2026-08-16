@@ -103,13 +103,13 @@ On repeated compactions, the summarized span starts at the previous compaction's
 
 ### Speculative background compaction cache
 
-At 70% of the model context window, Pi may start one cache-only compaction for the current session. Tool-heavy turns can start generation between tool calls as soon as a persisted assistant response crosses that boundary; Pi still waits for the normal safe turn end before installing the result. Background generation does not append a session entry or replace active agent messages. It only prepares a result for the next real compaction.
+At 70% of the model context window, Pi may start one cache-only compaction for the current session. Tool-heavy turns can start generation between tool calls as soon as a persisted assistant response crosses that boundary. Background generation does not append a session entry or replace active agent messages. It only prepares a result for the next real compaction.
 
 When the result is ready:
 
-- If the session is idle and its snapshot is still current, Pi immediately runs normal compaction using the cached result.
-- If the session advanced while generation was running, Pi waits for the active turn's safe end point before running normal compaction.
-- Entries appended after the snapshot remain on the active branch verbatim.
+- If the session is idle and the snapshot remains an ancestor of the active branch, Pi immediately runs normal compaction using the cached result, even when the leaf advanced.
+- If the cache becomes ready during an active multi-cycle run, Pi commits it at the existing `prepareNextTurnWithContext` boundary after current tool results and before the next provider request.
+- The next request receives the cached compacted prefix plus every message and tool result appended after the snapshot.
 - A cache is discarded when its session, branch ancestry, model, compaction settings, or system prompt no longer matches.
 
 Only one speculative cache may exist per session, and it does not overlap another speculative or real compaction. If the cache is stale, canceled, unavailable, or not ready when threshold or overflow recovery is required, Pi uses synchronous compaction instead.

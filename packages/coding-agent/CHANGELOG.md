@@ -20,6 +20,7 @@
 
 - Changed Claude-memory enrichment to allow 75-second subprocess execution and reap timed-out children after bounded SIGTERM/SIGKILL escalation.
 - Changed speculative background compaction failures to report one concise non-fatal diagnostic line while preserving foreground fallback.
+- Changed ready speculative background compaction caches to install at the safe `prepareNextTurnWithContext` boundary after current tool results and before the next provider request, combining the cached compacted prefix with all post-snapshot messages and tool results while retaining ancestry-based invalidation and synchronous fallback.
 - Changed generic compaction status messages to avoid implying that summarization runs on-device; in-progress messages no longer say “locally”, and completion messages identify the active model when available.
 - Changed resume listing to treat nonempty control-DB session metadata as authoritative, pushing archive, main-session, cwd, and session-directory filters into the query and scanning transcripts only when metadata is empty.
 - Changed project context discovery to scan the global agent directory and all cwd ancestors for AGENTS-family instruction files first; if any load successfully anywhere, CLAUDE-family paths are not accessed anywhere, and only when none load across the hierarchy are CLAUDE-family files loaded.

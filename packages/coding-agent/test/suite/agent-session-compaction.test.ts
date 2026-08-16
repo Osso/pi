@@ -1099,14 +1099,16 @@ describe("AgentSession compaction characterization", () => {
 				),
 			),
 		).toBe(true);
-		expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({
-			reason: "overflow",
-			aborted: false,
-			willRetry: true,
-		});
-		expect(compactionEntries).toHaveLength(1);
-		expect(compactionEntries[0]).toMatchObject({ summary: "repeated-results overflow summary" });
-		expect(compactionCalls).toBe(1);
+		expect(harness.eventsOfType("compaction_end")).toEqual([
+			expect.objectContaining({ reason: "threshold", aborted: false, willRetry: false }),
+			expect.objectContaining({ reason: "overflow", aborted: false, willRetry: true }),
+		]);
+		expect(compactionEntries).toHaveLength(2);
+		expect(compactionEntries).toEqual([
+			expect.objectContaining({ summary: "repeated-results overflow summary" }),
+			expect.objectContaining({ summary: "repeated-results overflow summary" }),
+		]);
+		expect(compactionCalls).toBe(2);
 		expect(retryContextChecked).toBe(true);
 		expect(harness.faux.state.callCount).toBe(toolCycles.length + 2);
 		expect(getAssistantTexts(harness)).toContain("recovered after repeated results overflow");
@@ -1533,9 +1535,9 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.getPendingResponseCount()).toBe(0);
 	});
 
-	it("starts speculative compaction during a multi-cycle turn and consumes it at safe end", async () => {
-		const contextWindow = 1000;
-		const reserveTokens = 200;
+	it("commits ready speculative compaction before the next request in a multi-cycle turn", async () => {
+		const contextWindow = 6000;
+		const reserveTokens = 1000;
 		const backgroundTriggerTokens = contextWindow * 0.7;
 		const compactionThresholdTokens = contextWindow - reserveTokens;
 		const releaseCompaction = createDeferred<void>();
@@ -1585,7 +1587,7 @@ describe("AgentSession compaction characterization", () => {
 		const historyTimestamp = Date.now() - 1000;
 		harness.sessionManager.appendMessage({
 			role: "user",
-			content: [{ type: "text", text: "older turn to compact" }],
+			content: [{ type: "text", text: "x".repeat(15_000) }],
 			timestamp: historyTimestamp,
 		});
 		const historyAssistant = createAssistant(harness, {
@@ -1598,10 +1600,23 @@ describe("AgentSession compaction characterization", () => {
 		harness.session.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
 
 		const firstResponse = fauxAssistantMessage(fauxToolCall("blocked_tool", {}), { stopReason: "toolUse" });
-		const secondResponse = fauxAssistantMessage(fauxToolCall("second_tool", {}), { stopReason: "toolUse" });
 		harness.setResponses([
 			firstResponse,
-			secondResponse,
+			async (context) => {
+				expect(harness.eventsOfType("agent_end")).toHaveLength(0);
+				expect(harness.sessionManager.getBranch().filter((entry) => entry.type === "compaction")).toHaveLength(1);
+				const receivedCompactedSummary = context.messages.some(
+					(message) =>
+						message.role === "user" &&
+						Array.isArray(message.content) &&
+						message.content.some(
+							(block) => block.type === "text" && block.text.includes("mid-turn cached summary"),
+						),
+				);
+				expect(receivedCompactedSummary).toBe(true);
+				expect(expectToolResultsToFollowCalls(context.messages, "blocked_tool")).toBe(1);
+				return fauxAssistantMessage(fauxToolCall("second_tool", {}), { stopReason: "toolUse" });
+			},
 			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "completed" }), { stopReason: "toolUse" }),
 		]);
 
@@ -1703,7 +1718,7 @@ describe("AgentSession compaction characterization", () => {
 		expect(compactionCalls).toBe(1);
 	});
 
-	it("installs a completed background compaction cache as real threshold compaction while idle", async () => {
+	it("installs a completed background compaction cache while idle after the branch advances", async () => {
 		const releaseCompaction = createDeferred<void>();
 		let compactionCalls = 0;
 		const harness = await createHarness({
@@ -1735,6 +1750,12 @@ describe("AgentSession compaction characterization", () => {
 		);
 		try {
 			await vi.waitFor(() => expect(compactionCalls).toBe(1), { timeout: 100 });
+			harness.sessionManager.appendMessage({
+				role: "user",
+				content: [{ type: "text", text: "post-snapshot idle message" }],
+				timestamp: Date.now(),
+			});
+			harness.session.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
 			releaseCompaction.resolve();
 			await vi.waitFor(() => expect(harness.eventsOfType("compaction_end")).toHaveLength(1), { timeout: 100 });
 
@@ -1745,6 +1766,7 @@ describe("AgentSession compaction characterization", () => {
 				result: { summary: "completed background summary" },
 			});
 			expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(1);
+			expect(getUserTexts(harness)).toContain("post-snapshot idle message");
 			expect(compactionCalls).toBe(1);
 		} finally {
 			releaseCompaction.resolve();

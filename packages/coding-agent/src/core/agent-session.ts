@@ -1291,6 +1291,17 @@ export class AgentSession {
 		};
 	}
 
+	private async _installReadyBackgroundCompactionForNextTurn(
+		turn: PrepareNextTurnContext,
+	): Promise<PrepareNextTurnContext> {
+		if (!this._hasReadyBackgroundCompaction()) return turn;
+		await this._runAutoCompaction("threshold", false);
+		return {
+			...turn,
+			context: { ...turn.context, messages: this.agent.state.messages.slice() },
+		};
+	}
+
 	private _installAgentNextTurnRefresh(): void {
 		const previousPrepareNextTurnWithContext =
 			this.agent.prepareNextTurnWithContext ??
@@ -1298,8 +1309,9 @@ export class AgentSession {
 				? async (_turn: PrepareNextTurnContext, signal?: AbortSignal) => await this.agent.prepareNextTurn?.(signal)
 				: undefined);
 		this.agent.prepareNextTurnWithContext = async (turn, signal) => {
-			const previousSnapshot = await previousPrepareNextTurnWithContext?.(turn, signal);
-			const previousContext = previousSnapshot?.context ?? turn.context;
+			const currentTurn = await this._installReadyBackgroundCompactionForNextTurn(turn);
+			const previousSnapshot = await previousPrepareNextTurnWithContext?.(currentTurn, signal);
+			const previousContext = previousSnapshot?.context ?? currentTurn.context;
 			if (turn.toolResults.length > 0) {
 				await this._drainRuntimeCoordinationMessages({
 					checkpoint: "after_tool_result",
@@ -4145,14 +4157,8 @@ export class AgentSession {
 				if (this._backgroundCompactionCache === cache) this._backgroundCompactionCache = undefined;
 				return;
 			}
-			const sessionAdvancedSinceSnapshot = this.sessionManager.getLeafId() !== cache.snapshotLeafId;
 			const agentRunNeedsPostProcessing = this.isStreaming || this._lastAssistantMessage !== undefined;
-			if (
-				this._backgroundCompactionCache !== cache ||
-				cache.state !== "ready" ||
-				sessionAdvancedSinceSnapshot ||
-				agentRunNeedsPostProcessing
-			) {
+			if (this._backgroundCompactionCache !== cache || cache.state !== "ready" || agentRunNeedsPostProcessing) {
 				return;
 			}
 			await this._runAutoCompaction("threshold", false);
