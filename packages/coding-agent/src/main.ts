@@ -46,6 +46,7 @@ import runPlanExtension from "../extensions/run-plan/src/index.ts";
 import safeExtension from "../extensions/safe/src/index.ts";
 import selfRestartExtension from "../extensions/self-restart/src/index.ts";
 import sessionArchiveExtension from "../extensions/session-archive/src/index.ts";
+import sessionAutonameExtension from "../extensions/session-autoname/src/index.ts";
 import sessionIdExtension from "../extensions/session-id/src/index.ts";
 import specValidationExtension from "../extensions/spec-validation/src/index.ts";
 import { runArchitectService } from "./architect/main.ts";
@@ -721,6 +722,7 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("safe", safeExtension),
 		firstPartyExtensionFactory("spec-validation", specValidationExtension),
 		firstPartyExtensionFactory("session-archive", sessionArchiveExtension),
+		firstPartyExtensionFactory("session-autoname", sessionAutonameExtension),
 		firstPartyExtensionFactory("self-restart", selfRestartExtension),
 		firstPartyExtensionFactory("session-id", sessionIdExtension),
 	];

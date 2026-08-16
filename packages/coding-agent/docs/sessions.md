@@ -85,6 +85,8 @@ pi --name "CI audit" -p "Review this build failure"
 
 Named sessions are easier to find in `/resume` and `pi -r`.
 
+In interactive TUI and RPC modes, the default session-autoname extension asynchronously asks the active model for a short 3–6 word title after the first completed substantive real-user exchange in a persisted unnamed main session. It does not name print/JSON, ephemeral, child-agent, already-named, non-substantive, failed, later-turn, or cwd-relocation intermediate sessions. Manual `/name` or `/unname` changes win, and failures leave the session unnamed.
+
 ## Branching with `/tree`
 
 Sessions are stored as trees. Every entry has an `id` and `parentId`, and the current position is the active leaf. `/tree` lets you jump to any previous point and continue from there without creating a new file.

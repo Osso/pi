@@ -43,6 +43,7 @@
 
 ### Added
 
+- Added automatic session naming for persisted unnamed main sessions in interactive TUI and RPC modes after the first completed substantive real-user exchange; naming runs asynchronously, manual names win, and failures leave sessions unnamed.
 - Added optional historical lifecycle tracing to `agent_viewer`: `storeSessionId` with `trace: true` returns persisted runtime ownership plus timestamp-ordered selected-agent, descendant admission/current-state, tree terminal-outbox, child `end_turn`, and parent `agent_start`/`agent_complete` evidence without mutating state.
 - Added `/multi-agent proactive|explicit` with proactive delegation as the default; the selected mode persists in session custom state across reload and branch restoration; `/effort ultra` selects maximum reasoning and proactive delegation without sending Responses multi-agent beta fields.
 - Added first-party `ask_secret` for interactive-TUI-only masked credential prompts that provision browser records through the typed Secrets Broker path without returning secret values to the model.

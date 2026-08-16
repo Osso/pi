@@ -274,7 +274,7 @@ pi --session <path|id> # Use specific session file or ID
 pi --fork <path|id>    # Fork specific session file or ID into a new session
 ```
 
-Use `/session` in interactive mode to see the current session ID before reusing it with `--session <id>` or `--fork <id>`.
+Use `/session` in interactive mode to see the current session ID before reusing it with `--session <id>` or `--fork <id>`. In interactive TUI and RPC modes, persisted unnamed main sessions are automatically given a short title after the first completed substantive real-user exchange; see [docs/sessions.md](docs/sessions.md) for exclusions and manual override behavior.
 
 ### Branching
 

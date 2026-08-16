@@ -48,6 +48,7 @@
   - `packages/coding-agent/extensions/safe`
   - `packages/coding-agent/extensions/self-restart`
   - `packages/coding-agent/extensions/session-archive`
+  - `packages/coding-agent/extensions/session-autoname`
   - `packages/coding-agent/extensions/session-id`
 
 ## Commands
