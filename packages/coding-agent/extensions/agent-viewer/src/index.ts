@@ -1,9 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-	registerAgentViewerTools,
-	type MultiAgentExtensionOptions,
-} from "../../agents-core/src/runtime.ts";
+import { registerAgentViewerTools, type AgentViewerExtensionOptions } from "./runtime.ts";
 
-export default function agentViewerExtension(pi: ExtensionAPI, options: MultiAgentExtensionOptions = {}) {
+export default function agentViewerExtension(pi: ExtensionAPI, options: AgentViewerExtensionOptions = {}) {
 	registerAgentViewerTools(pi, options);
 }

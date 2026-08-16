@@ -1,3 +1,4 @@
+export { registerAgentViewerTools } from "../../extensions/agent-viewer/src/runtime.ts";
 export type {
 	AgentDesktopNotification,
 	AgentDesktopNotifier,
@@ -16,6 +17,5 @@ export {
 	deliverTerminalOutboxForStore,
 	registerAgentsCoreTools,
 	registerAgentsMailboxTools,
-	registerAgentViewerTools,
 	resolveMultiAgentStore,
 } from "../../extensions/agents-core/src/runtime.ts";

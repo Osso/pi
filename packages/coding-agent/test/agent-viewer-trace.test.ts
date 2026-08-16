@@ -10,8 +10,23 @@ import { SessionManager } from "../src/core/session-manager.ts";
 import { CURRENT_PROCESS_IDENTITY } from "./helpers/process-identity.ts";
 
 interface AgentTraceEvent {
-	kind: "agent_snapshot" | "child_end_turn" | "parent_agent_complete" | "parent_agent_start" | "terminal_outbox";
+	agentId?: string;
+	kind:
+		| "agent_snapshot"
+		| "child_end_turn"
+		| "descendant_admitted"
+		| "descendant_snapshot"
+		| "parent_agent_complete"
+		| "parent_agent_start"
+		| "terminal_outbox";
+	lifecycle?: AgentSnapshot["lifecycle"];
 	timestamp: string;
+	timestampSource:
+		| "agent.updatedAt"
+		| "descendant.createdAt"
+		| "descendant.updatedAt"
+		| "entry.timestamp"
+		| "outbox.updated_at";
 }
 
 interface AgentViewerTraceDetails extends Record<string, unknown> {
@@ -61,7 +76,14 @@ function createTraceFixture(input: { completed: boolean }) {
 	viewerSession.setMetadataControlDbPath(controlDbPath);
 	viewerSession.persistForRecovery();
 	const childSessionPath = join(tempDir, `${childSessionId}.jsonl`);
-	const timestamps = ["2026-08-15T23:59:58.000Z", "2026-08-15T23:59:59.000Z", "2026-08-16T00:00:03.000Z"];
+	const timestamps = [
+		"2026-08-15T23:59:58.000Z",
+		"2026-08-15T23:59:59.000Z",
+		"2026-08-16T00:00:00.000Z",
+		"2026-08-16T00:00:00.100Z",
+		"2026-08-16T00:00:02.000Z",
+		"2026-08-16T00:00:03.000Z",
+	];
 	const terminalTimestamp = "2026-08-16T00:00:03.000Z";
 	let timestampIndex = 0;
 	const coordinator = new LifecycleCoordinator({
@@ -80,6 +102,33 @@ function createTraceFixture(input: { completed: boolean }) {
 	});
 	const running = coordinator.commitRunningChild(prepared, supervisorSessionId);
 	if (!running.ok) throw new Error(`could not create running child: ${running.error}`);
+	const preparedDescendant = coordinator.prepareChild({
+		agentId: "detached_1",
+		agentType: "background",
+		cwd: "/repo",
+		detached: true,
+		displayName: "Pyrun evaluation",
+		parentId: running.agent.id,
+		permission: { narrowed: true, policy: "on-request" },
+	});
+	const runningDescendant = coordinator.commitRunningChild(
+		preparedDescendant,
+		childSessionId,
+		CURRENT_PROCESS_IDENTITY,
+		running.agent.id,
+	);
+	if (!runningDescendant.ok) throw new Error(`could not create running descendant: ${runningDescendant.error}`);
+	if (input.completed) {
+		const completedDescendant = coordinator.finalizeChild({
+			agent: runningDescendant.agent,
+			ownership: runningDescendant.ownership,
+			result: { summary: "Detached work finished" },
+			terminalLifecycle: "completed",
+		});
+		if (!completedDescendant.ok) {
+			throw new Error(`could not finalize trace descendant: ${completedDescendant.error}`);
+		}
+	}
 	const agent = input.completed
 		? coordinator.finalizeChild({
 				agent: running.agent,
@@ -145,6 +194,21 @@ function writeChildEndTurn(childSessionPath: string, childSessionId: string): vo
 		type: "session",
 		version: 3,
 	};
+	const inheritedEndTurn = {
+		id: "inherited-end-turn",
+		message: {
+			content: [{ text: "Turn ended: Parent history", type: "text" }],
+			details: { reason: "Parent history" },
+			isError: false,
+			role: "toolResult",
+			timestamp: Date.parse("2026-08-15T23:50:00.000Z"),
+			toolCallId: "inherited-end-turn-call",
+			toolName: "end_turn",
+		},
+		parentId: null,
+		timestamp: "2026-08-15T23:50:00.000Z",
+		type: "message",
+	};
 	const endTurn = {
 		id: "child-end-turn",
 		message: {
@@ -160,7 +224,10 @@ function writeChildEndTurn(childSessionPath: string, childSessionId: string): vo
 		timestamp: "2026-08-16T00:00:01.000Z",
 		type: "message",
 	};
-	writeFileSync(childSessionPath, `${JSON.stringify(header)}\n${JSON.stringify(endTurn)}\n`);
+	writeFileSync(
+		childSessionPath,
+		`${JSON.stringify(header)}\n${JSON.stringify(inheritedEndTurn)}\n${JSON.stringify(endTurn)}\n`,
+	);
 }
 
 async function viewTrace(
@@ -191,8 +258,14 @@ async function viewTrace(
 	)) as AgentToolResult<AgentViewerTraceDetails>;
 }
 
+function traceText(viewed: AgentToolResult<AgentViewerTraceDetails>): string {
+	const content = viewed.content[0];
+	if (!content || content.type !== "text") throw new Error("expected trace text content");
+	return content.text;
+}
+
 describe("agent_viewer historical lifecycle trace", () => {
-	it("shows a running child owner and successful end_turn with no terminal commit evidence", async () => {
+	it("shows the active descendant that keeps a child running after end_turn", async () => {
 		const fixture = createTraceFixture({ completed: false });
 
 		const viewed = await viewTrace(fixture);
@@ -205,34 +278,76 @@ describe("agent_viewer historical lifecycle trace", () => {
 		expect(viewed.details.trace.events.map((event) => event.kind)).toEqual([
 			"agent_snapshot",
 			"parent_agent_start",
+			"descendant_admitted",
+			"descendant_snapshot",
 			"child_end_turn",
 		]);
 		expect(viewed.details.trace.events.map((event) => event.timestamp)).toEqual([
 			"2026-08-15T23:59:58.000Z",
 			"2026-08-15T23:59:59.500Z",
+			"2026-08-16T00:00:00.000Z",
+			"2026-08-16T00:00:00.000Z",
 			"2026-08-16T00:00:01.000Z",
 		]);
+		expect(viewed.details.trace.events.map((event) => event.timestampSource)).toEqual([
+			"agent.updatedAt",
+			"entry.timestamp",
+			"descendant.createdAt",
+			"descendant.updatedAt",
+			"entry.timestamp",
+		]);
+		expect(viewed.details.trace.events).toContainEqual(
+			expect.objectContaining({
+				agentId: "detached_1",
+				kind: "descendant_snapshot",
+				lifecycle: "running",
+			}),
+		);
+		expect(traceText(viewed)).toContain(
+			"descendant_snapshot agent=detached_1 parent=agent_15 lifecycle=running revision=1",
+		);
 	});
 
-	it("shows terminal row, outbox, and parent completion in deterministic order", async () => {
+	it("shows descendant and parent terminal evidence in deterministic order", async () => {
 		const fixture = createTraceFixture({ completed: true });
 
 		const viewed = await viewTrace(fixture);
 
-		expect(viewed.details.trace.ownership).toBeUndefined();
+		expect(viewed.details.trace.ownership).toMatchObject({
+			agentId: fixture.agent.id,
+			owner: { agentId: null, sessionId: fixture.supervisorSessionId },
+			processIdentity: CURRENT_PROCESS_IDENTITY,
+		});
 		expect(viewed.details.trace.events.map((event) => event.kind)).toEqual([
 			"parent_agent_start",
+			"descendant_admitted",
 			"child_end_turn",
+			"descendant_snapshot",
+			"terminal_outbox",
 			"agent_snapshot",
 			"terminal_outbox",
 			"parent_agent_complete",
 		]);
 		expect(viewed.details.trace.events.map((event) => event.timestamp)).toEqual([
 			"2026-08-15T23:59:59.500Z",
+			"2026-08-16T00:00:00.000Z",
 			"2026-08-16T00:00:01.000Z",
+			"2026-08-16T00:00:02.000Z",
+			"2026-08-16T00:00:02.000Z",
 			"2026-08-16T00:00:03.000Z",
 			"2026-08-16T00:00:03.000Z",
 			"2026-08-16T00:00:04.000Z",
 		]);
+		expect(viewed.details.trace.events.map((event) => event.timestampSource)).toEqual([
+			"entry.timestamp",
+			"descendant.createdAt",
+			"entry.timestamp",
+			"descendant.updatedAt",
+			"outbox.updated_at",
+			"agent.updatedAt",
+			"outbox.updated_at",
+			"entry.timestamp",
+		]);
+		expect(traceText(viewed)).toContain("terminal_outbox agent=detached_1 event=completed revision=2 status=pending");
 	});
 });

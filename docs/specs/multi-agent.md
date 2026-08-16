@@ -41,7 +41,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       PID and `startTimeTicks` remain unchanged. Repository transactions read and increment revision internally;
       model-facing tools never supply revision, lease IDs, expiration timestamps, or fencing counters.
 - [x] Viewing, focusing, or switching to an agent is read-only and must not resume, wake, close,
-      cancel, or otherwise advance that agent.
+      cancel, or otherwise advance that agent. `agent_viewer` can optionally return a historical lifecycle
+      trace for a persisted supervisor store; trace collection is also read-only and never repairs or infers state.
 - [x] Active-agent counts derive only from core lifecycle state, not from visible panes, rendered
       rows, cached UI state, or subprocess lists.
 - [x] Only the supervisor runtime can orchestrate or inspect agents. Current runtime role and explicit
@@ -65,9 +66,13 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Parent sessions can spawn child agents, wait for status/result updates, cancel children, and
       list active descendants without depending on the TUI. `list_agents` has no terminal-agent option
       and identifies each returned active agent by ID, name, type, status, and lifecycle; `agent_viewer`
-      remains the direct-ID path for inspecting terminal status, result summaries, and errors. Terminal
-      result summaries preserve the last non-empty assistant text when a final tool-only `end_turn` call
-      follows it.
+      remains the direct-ID path for inspecting terminal status, result summaries, and errors. With
+      `storeSessionId` plus `trace: true`, it returns the persisted runtime owner and a deterministic timeline
+      of the selected agent snapshot, descendant admissions and current snapshots, terminal-outbox rows for that
+      tree, successful child `end_turn` results, and matching parent `agent_start`/`agent_complete` records.
+      Missing evidence remains visibly absent rather than being inferred.
+      Terminal result summaries preserve the last non-empty assistant text when a final tool-only `end_turn`
+      call follows it.
 - [x] Multi-agent orchestration tools do not trigger generic tool approval prompts; child-agent
       host effects remain subject to normal tool approval inside the child session.
 - [x] `spawn_agent` requires the issued execution capability and constructs the executable child session
@@ -502,6 +507,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [`packages/coding-agent/extensions/agents-core/src/runtime.ts`](../../packages/coding-agent/extensions/agents-core/src/runtime.ts)
   provides capability-gated tools, coordinator-backed child dispatch/cancellation/steering/recovery,
   background jobs, fan-out waits, and the production child-session factory.
+- [`packages/coding-agent/src/core/agent-lifecycle-trace.ts`](../../packages/coding-agent/src/core/agent-lifecycle-trace.ts)
+  reads persisted owner/outbox state, descendant admissions and current snapshots, and parent/child transcript
+  evidence for the read-only viewer trace.
 - [`packages/coding-agent/src/extensions/multi-agent.ts`](../../packages/coding-agent/src/extensions/multi-agent.ts)
   re-exports the first-party extension runtime for compatibility with older internal imports.
 - [`packages/coding-agent/extensions/agents-core/src/index.ts`](../../packages/coding-agent/extensions/agents-core/src/index.ts)
@@ -541,6 +549,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   rejected with the current projection so existing slot bindings stay stable.
 - [`packages/coding-agent/test/spawn-agent-profile-validation.test.ts`](../../packages/coding-agent/test/spawn-agent-profile-validation.test.ts)
   asserts that an explicit unknown `agentType` is rejected with configured-profile guidance before child construction.
+- [`packages/coding-agent/test/agent-viewer-trace.test.ts`](../../packages/coding-agent/test/agent-viewer-trace.test.ts)
+  asserts read-only historical owner, descendant, terminal-outbox, child `end_turn`, and parent journal evidence
+  ordering, including inherited pre-header `end_turn` exclusion.
 - [`packages/coding-agent/test/multi-agent-extension.test.ts`](../../packages/coding-agent/test/multi-agent-extension.test.ts)
   asserts the first extension-facing viewer/mailbox/spawn/list/wait/cancel/contact/steer tool
   surface is capability-gated and coordinator-backed; executable spawn always starts reserved child work. It also asserts
@@ -650,6 +661,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       rows, pane slots, and stale conflict refresh.
 - [x] Add focused `agent_viewer` tests for one-agent read-only status/transcript/child inspection plus
       explicit stop/steer command descriptors.
+- [x] Add a read-only persisted lifecycle trace to `agent_viewer` with deterministic parent journal,
+      child `end_turn`, agent-row, runtime-owner, and terminal-outbox evidence.
 - [x] Add focused TUI slot-key tests for `Alt+1` through `Alt+9` switching visible agent slots
       without lifecycle mutation.
 - [x] Add focused TUI slot persistence tests for stable bindings across list refreshes and pinned

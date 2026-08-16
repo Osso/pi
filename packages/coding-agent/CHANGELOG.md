@@ -42,6 +42,7 @@
 
 ### Added
 
+- Added optional historical lifecycle tracing to `agent_viewer`: `storeSessionId` with `trace: true` returns persisted runtime ownership plus timestamp-ordered selected-agent, descendant admission/current-state, tree terminal-outbox, child `end_turn`, and parent `agent_start`/`agent_complete` evidence without mutating state.
 - Added `/multi-agent proactive|explicit` with proactive delegation as the default; the selected mode persists in session custom state across reload and branch restoration; `/effort ultra` selects maximum reasoning and proactive delegation without sending Responses multi-agent beta fields.
 - Added first-party `ask_secret` for interactive-TUI-only masked credential prompts that provision browser records through the typed Secrets Broker path without returning secret values to the model.
 - Added duplicate-turn loop termination: after consecutive identical text-only assistant turns, Pi injects a non-persisted instruction to call the always-active `end_turn` control tool with a concise reason, then stops the current loop if the model repeats after that instruction instead of consuming request deadlines such as resident Supervisor reviews; a guard-generated terminal `end_turn` uses the last completed JSON response from that same request, never historical response text. Changed assistant content, tool execution, or new user input resets detection. Ordinary tool filtering remains unchanged.

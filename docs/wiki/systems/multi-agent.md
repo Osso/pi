@@ -38,7 +38,11 @@ surfaces can resync from core state by agent ID instead of trusting stale render
 siblings and transitive ancestors or descendants cannot target each other directly.
 `agent_viewer` is read-only, requires an agent ID, and returns one agent's snapshot, status,
 transcript pointer, child IDs, and stop/steer command descriptors; those descriptors name existing
-tools and do not mutate agent lifecycle by themselves.
+tools and do not mutate agent lifecycle by themselves. With a persisted `storeSessionId` and
+`trace: true`, it also reads the current runtime-owner row plus a timestamp-ordered diagnostic timeline
+from the selected agent snapshot, descendant admissions and current snapshots, terminal outbox for that
+agent tree, successful child `end_turn` results, and matching parent `agent_start`/`agent_complete` records.
+The trace reports missing evidence as absent and never mutates or repairs lifecycle state.
 Higher-level workflow extensions must invoke the registered agent tools or Pyrun request handler;
 they cannot create dormant agent rows or call store lifecycle mutators. Coordinator child creation
 inherits parent model/account budget metadata and rejects permission broadening.
