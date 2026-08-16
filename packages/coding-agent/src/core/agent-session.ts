@@ -1010,6 +1010,7 @@ export class AgentSession {
 	 */
 	private _installAgentToolHooks(): void {
 		this.agent.beforeToolCall = async ({ toolCall, args, context }) => {
+			this._clearThinkingPhaseDeadline();
 			const runner = this._extensionRunner;
 			const event = {
 				type: "tool_call",

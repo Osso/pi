@@ -12,7 +12,7 @@ Module boundary: core subsystem. The interactive-mode default working indicator 
 
 ### Thinking-phase deadline
 
-- [x] Main sessions and spawned or attached child sessions abort any single model-thinking phase that reaches 15 minutes; observer runtimes are excluded, tool execution remains uncapped, and each post-tool or steered model phase receives a fresh deadline. This is not a total request or turn timeout (`packages/coding-agent/test/suite/agent-session-child-activity.test.ts`, `packages/coding-agent/test/multi-agent-extension.test.ts`).
+- [x] Main sessions and spawned or attached child sessions abort any single model-thinking phase that reaches 15 minutes; observer runtimes are excluded, tool gate/review and interactive approval waits clear the deadline before waiting, tool execution remains uncapped, and each post-tool or steered model phase receives a fresh deadline. This is not a total request or turn timeout (`packages/coding-agent/test/suite/agent-session-approval-deadline.test.ts`, `packages/coding-agent/test/suite/agent-session-child-activity.test.ts`, `packages/coding-agent/test/multi-agent-extension.test.ts`).
 
 ### Tool waits
 
@@ -43,6 +43,7 @@ Module boundary: core subsystem. The interactive-mode default working indicator 
 - `packages/coding-agent/test/interactive-mode-tool-timing.test.ts` — hydrated versus unhydrated pending-tool ownership across footer paths.
 - `packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts` — completed model-turn duration placement between consecutive tools.
 - `packages/coding-agent/test/edit-tool-no-full-redraw.test.ts` — real-TUI proof that offscreen active tool timing does not clear or redraw transcript scrollback.
+- `packages/coding-agent/test/suite/agent-session-approval-deadline.test.ts` — pending human approval exclusion from the model-thinking deadline.
 - `packages/coding-agent/test/suite/agent-session-child-activity.test.ts` — main/child per-phase deadlines, tool exclusion, continuation propagation, observer exclusion, and lifecycle cleanup.
 - `packages/coding-agent/test/multi-agent-extension.test.ts` — real spawned and attached child timeout terminalization.
 

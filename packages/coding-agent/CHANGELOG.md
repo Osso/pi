@@ -140,6 +140,7 @@
 
 ### Fixed
 
+- Fixed tool gate, approval-review, and interactive approval waits consuming the 15-minute model-thinking deadline; the deadline now clears before those waits while post-tool model phases still receive a fresh deadline.
 - Fixed reported npm vulnerabilities across direct and transitive dependencies by upgrading `minimatch`, `undici`, `vitest`, `protobufjs`, `shell-quote`, `postcss`, and `nanoid`, regenerating shrinkwrap and install locks.
 - Fixed `change_working_directory` in mixed tool-call batches relocating persisted session state while the active runtime and multi-agent store remained on the previous cwd and session path, which could make later `wait_agent` calls resolve missing store references.
 - Fixed active tool cards triggering recurring global transcript redraws for elapsed timing; live elapsed time now updates through the partial working-status region, while completed tool cards retain final duration.

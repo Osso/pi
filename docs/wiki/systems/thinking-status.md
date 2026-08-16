@@ -6,4 +6,4 @@ Tool-wait messages take precedence while tools are active. Their live elapsed ti
 
 ## Thinking-phase deadline
 
-Main and child `AgentSession` runtimes start a 15-minute deadline at `agent_start`. The first active tool clears it, and the final active tool finishing starts a fresh deadline for the next model phase. Expiry aborts the active turn and surfaces a main- or child-specific timeout error. Observer runtimes are excluded. Tool execution is uncapped, and the deadline applies to each thinking phase rather than the total request or turn.
+Main and child `AgentSession` runtimes start a 15-minute deadline at `agent_start`. Entering tool gates, approval review, or an interactive approval prompt clears it before waiting; the final active tool finishing starts a fresh deadline for the next model phase. Expiry aborts the active turn and surfaces a main- or child-specific timeout error. Observer runtimes are excluded. Approval waits and tool execution are uncapped, and the deadline applies to each model-thinking phase rather than the total request or turn.
