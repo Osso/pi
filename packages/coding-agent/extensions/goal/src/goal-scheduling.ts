@@ -24,7 +24,8 @@ interface GoalSchedulingOptions<TGoal, TDecision> {
 }
 
 export interface GoalWaitCallbacks {
-	onAgentWait(): void;
+	onAgentWait(reviewAt: string): void;
+	onAgentWake(): void;
 	onReviewScheduled(reviewAt: string): void;
 }
 
@@ -136,8 +137,8 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 				this.scheduleWaitReview(ctx, goal, terminalTurn, callbacks.onReviewScheduled);
 				return;
 			}
-			this.startAgentWait(ctx, goal, terminalTurn, callbacks);
-			callbacks.onAgentWait();
+			const scheduledWait = this.scheduleWaitReview(ctx, goal, terminalTurn, callbacks.onAgentWait);
+			this.startAgentWait(ctx, goal, terminalTurn, callbacks, scheduledWait);
 		} catch (error) {
 			if ((this.cancellationEpochs.get(sessionId) ?? 0) !== epoch) return;
 			this.options.reportError(error, ctx);
@@ -226,12 +227,13 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		goal: TGoal,
 		terminalTurn: TerminalTurn,
 		onScheduled: (reviewAt: string) => void,
-	): void {
+	): { reviewAt: string; epoch: number } {
 		const sessionId = ctx.sessionManager.getSessionId();
+		const epoch = this.captureEpoch(ctx);
 		this.clearTimer(this.waitReviewTimers, sessionId);
 		const reviewAt = new Date(Date.now() + WAIT_REVIEW_DELAY_MS).toISOString();
 		const timer = setTimeout(() => {
-			this.waitReviewTimers.delete(sessionId);
+			if (!this.claimWaitReview(ctx, epoch)) return;
 			if (!ctx.isIdle()) {
 				this.scheduleReviewRetry(ctx, goal, terminalTurn);
 				return;
@@ -242,6 +244,16 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		}, Date.parse(reviewAt) - Date.now());
 		this.waitReviewTimers.set(sessionId, timer);
 		onScheduled(reviewAt);
+		return { reviewAt, epoch };
+	}
+
+	private claimWaitReview(ctx: ExtensionContext, expectedEpoch: number): boolean {
+		const sessionId = ctx.sessionManager.getSessionId();
+		if (!this.isEpochCurrent(ctx, expectedEpoch)) return false;
+		this.cancellationEpochs.set(sessionId, expectedEpoch + 1);
+		this.clearTimer(this.waitReviewTimers, sessionId);
+		this.clearWait(sessionId);
+		return true;
 	}
 
 	private startAgentWait(
@@ -249,16 +261,17 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		goal: TGoal,
 		terminalTurn: TerminalTurn,
 		callbacks: GoalWaitCallbacks,
+		scheduledWait: { reviewAt: string; epoch: number },
 	): void {
 		const sessionId = ctx.sessionManager.getSessionId();
 		this.clearWait(sessionId);
 		const controller = new AbortController();
 		this.waitControllers.set(sessionId, controller);
-		void this.waitForAgentWake(ctx, goal, terminalTurn, controller).catch((error: unknown) => {
-			if (controller.signal.aborted) return;
-			this.waitControllers.delete(sessionId);
+		void this.waitForAgentWake(ctx, goal, terminalTurn, controller, scheduledWait, callbacks).catch((error: unknown) => {
+			if (controller.signal.aborted || !this.isEpochCurrent(ctx, scheduledWait.epoch)) return;
+			if (this.waitControllers.get(sessionId) === controller) this.waitControllers.delete(sessionId);
 			this.options.reportError(error, ctx);
-			this.scheduleWaitReview(ctx, goal, terminalTurn, callbacks.onReviewScheduled);
+			callbacks.onReviewScheduled(scheduledWait.reviewAt);
 		});
 	}
 
@@ -267,12 +280,15 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		goal: TGoal,
 		terminalTurn: TerminalTurn,
 		controller: AbortController,
+		scheduledWait: { reviewAt: string; epoch: number },
+		callbacks: GoalWaitCallbacks,
 	): Promise<void> {
 		const waitResult = await this.options.pi.callTool("wait_agent", {}, controller.signal);
-		if (controller.signal.aborted) return;
+		if (controller.signal.aborted || !this.isEpochCurrent(ctx, scheduledWait.epoch)) return;
 		const waitError = toolError(waitResult, "wait_agent");
 		if (waitError) throw waitError;
-		this.waitControllers.delete(ctx.sessionManager.getSessionId());
+		if (!this.claimWaitReview(ctx, scheduledWait.epoch)) return;
+		callbacks.onAgentWake();
 		await this.reviewAndApply(ctx, goal, terminalTurn, waitWakeEvidence(waitResult));
 	}
 

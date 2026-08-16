@@ -15,9 +15,11 @@ export function createWaitStatusCallbacks(
 	appendStatus: AppendSupervisorStatus,
 	ctx: ExtensionContext,
 	message: string,
+	onAgentWake: () => void,
 ): GoalWaitCallbacks {
 	return {
-		onAgentWait: () => appendStatus(ctx, message),
+		onAgentWait: (reviewAt) => appendStatus(ctx, message, reviewAt),
+		onAgentWake,
 		onReviewScheduled: (reviewAt) => appendStatus(ctx, message, reviewAt),
 	};
 }

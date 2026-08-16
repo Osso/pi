@@ -502,7 +502,7 @@ function createCompletionScheduler(
 	pi: ExtensionAPI,
 	reviewGoal: GoalEvidenceReview,
 	evidence: GoalReviewEvidenceController,
-	appendStatus: AppendSupervisorStatus,
+	status: SupervisorStatusController,
 ) {
 	return createCompletionWaitScheduler({
 		pi,
@@ -522,8 +522,9 @@ function createCompletionScheduler(
 			if (goal) ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
 		},
 		onContinue: sendSupervisorInstructions.bind(undefined, pi),
-		onStatus: appendStatus,
-		onError: appendGoalSchedulingError.bind(undefined, appendStatus),
+		onStatus: status.append,
+		onClearStatus: status.clearSession,
+		onError: appendGoalSchedulingError.bind(undefined, status.append),
 	});
 }
 
@@ -550,7 +551,7 @@ function createIdleGoalScheduler(
 	pi: ExtensionAPI,
 	reviewGoal: GoalEvidenceReview,
 	evidence: GoalReviewEvidenceController,
-	appendStatus: AppendSupervisorStatus,
+	status: SupervisorStatusController,
 	clearSchedules: (sessionId: string) => void,
 ): { scheduler: IdleGoalScheduler; applyDecision: ApplyIdleDecision } {
 	let scheduler: IdleGoalScheduler;
@@ -566,10 +567,12 @@ function createIdleGoalScheduler(
 					ctx,
 					goal,
 					terminalTurn,
-					createWaitStatusCallbacks(appendStatus, ctx, message),
+					createWaitStatusCallbacks(status.append, ctx, message, () =>
+						status.clearSession(ctx.sessionManager.getSessionId()),
+					),
 				);
 			},
-			appendStatus,
+			status.append,
 		);
 		if (reviewed.decision.kind !== "error") evidence.consume(ctx, goal, reviewed.evidenceCount);
 	};
@@ -577,7 +580,7 @@ function createIdleGoalScheduler(
 		pi,
 		applyDecision,
 		isSameRunningGoal: sameRunningGoal,
-		reportError: appendGoalSchedulingError.bind(undefined, appendStatus),
+		reportError: appendGoalSchedulingError.bind(undefined, status.append),
 		reviewGoal: async (ctx, goal, _terminalTurn, wakeEvidence) =>
 			reviewGoal({ ctx, kind: "goal_idle_review", payload: { objective: goal.objective, wakeEvidence } }),
 	});
@@ -593,10 +596,14 @@ function createGoalExtensionRuntime(
 	const emptyResponseScheduler = createEmptyResponseScheduler<Goal>({ pi, isSameRunningGoal: sameRunningGoal });
 	const errorStatusScheduler = createErrorStatusScheduler({ onStatus: status.append });
 	let clearGoalSchedules: (sessionId: string) => void;
-	const { scheduler, applyDecision } = createIdleGoalScheduler(pi, reviewGoal, evidence, status.append, (sessionId) =>
-		clearGoalSchedules(sessionId),
+	const { scheduler, applyDecision } = createIdleGoalScheduler(
+		pi,
+		reviewGoal,
+		evidence,
+		status,
+		(sessionId) => clearGoalSchedules(sessionId),
 	);
-	const completionScheduler = createCompletionScheduler(pi, reviewGoal, evidence, status.append);
+	const completionScheduler = createCompletionScheduler(pi, reviewGoal, evidence, status);
 	clearGoalSchedules = (sessionId: string): void => {
 		emptyResponseScheduler.clearSession(sessionId);
 		errorStatusScheduler.clearSession(sessionId);

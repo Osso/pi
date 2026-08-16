@@ -1208,43 +1208,159 @@ describe("goal extension", () => {
 		expect(harness.sendMessage).not.toHaveBeenCalled();
 	});
 
-	it("persists a wait message, waits in the background for active agents, and re-reviews", async () => {
-		let finishWait: (() => void) | undefined;
-		const waitFinished = new Promise<void>((resolve) => {
-			finishWait = resolve;
+	it("re-reviews once when an active agent wakes before its deadline", async () => {
+		let harness: ReturnType<typeof createGoalHarness> | undefined;
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-07-28T12:00:00.000Z"));
+			let finishWait: (() => void) | undefined;
+			const waitFinished = new Promise<void>((resolve) => {
+				finishWait = resolve;
+			});
+			const reviewGoal = vi
+				.fn<GoalSupervisorReview>()
+				.mockResolvedValueOnce({ kind: "wait", reason: "child still running" })
+				.mockResolvedValueOnce({
+					kind: "continue",
+					reason: "child finished",
+					instructions: "Inspect child result.",
+				});
+			harness = createGoalHarness(cwd, {
+				callTool: async (name) => {
+					if (name === "list_agents")
+						return { content: [], details: { activeCount: 1, agents: [{ id: "child" }] } };
+					await waitFinished;
+					return { content: [], details: { agent: { id: "child", status: "completed" } } };
+				},
+				reviewGoal,
+			});
+			await harness.runCommand("set wait for child");
+			harness.sendMessage.mockClear();
+
+			await harness.runAgentEnd();
+
+			expect(harness.callTool).toHaveBeenNthCalledWith(1, "list_agents", { parentId: "main" });
+			expect(harness.callTool.mock.calls[1]?.slice(0, 2)).toEqual(["wait_agent", {}]);
+			expect(harness.callTool.mock.calls[1]?.[2]).toBeInstanceOf(AbortSignal);
+			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+				message: "Waiting: child still running",
+				reviewAt: "2026-07-28T12:05:00.000Z",
+			});
+			expect(reviewGoal).toHaveBeenCalledTimes(1);
+
+			finishWait?.();
+			await vi.waitFor(() => expect(reviewGoal).toHaveBeenCalledTimes(2));
+			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+
+			expect(reviewGoal).toHaveBeenCalledTimes(2);
+			expect(harness.sendMessage.mock.calls.at(-1)?.[0]).toEqual({
+				customType: "supervisor",
+				content: "<supervisor-instruction>\nInspect child result.\n</supervisor-instruction>",
+				display: true,
+			});
+		} finally {
+			await harness?.runSessionShutdown();
+			vi.useRealTimers();
+		}
+	});
+
+	it("ignores a late agent wake after the five-minute deadline starts re-review", async () => {
+		let harness: ReturnType<typeof createGoalHarness> | undefined;
+		vi.useFakeTimers();
+		try {
+			vi.setSystemTime(new Date("2026-07-28T12:00:00.000Z"));
+			let finishWait: (() => void) | undefined;
+			let waitSignal: AbortSignal | undefined;
+			const waitFinished = new Promise<void>((resolve) => {
+				finishWait = resolve;
+			});
+			const reviewGoal = vi
+				.fn<GoalSupervisorReview>()
+				.mockResolvedValueOnce({ kind: "wait", reason: "child still running" })
+				.mockResolvedValueOnce({ kind: "pause", reason: "deadline reassessed" });
+			harness = createGoalHarness(cwd, {
+				callTool: async (name, _params, signal) => {
+					if (name === "list_agents")
+						return { content: [], details: { activeCount: 1, agents: [{ id: "child" }] } };
+					waitSignal = signal;
+					await waitFinished;
+					return { content: [], details: { agent: { id: "child", status: "completed" } } };
+				},
+				reviewGoal,
+			});
+
+			await harness.runCommand("set wait for child deadline");
+			await harness.runAgentEnd();
+			expect(reviewGoal).toHaveBeenCalledTimes(1);
+			expect(waitSignal).toBeInstanceOf(AbortSignal);
+
+			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+			await vi.waitFor(() => expect(reviewGoal).toHaveBeenCalledTimes(2));
+			expect(waitSignal?.aborted).toBe(true);
+
+			finishWait?.();
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(reviewGoal).toHaveBeenCalledTimes(2);
+		} finally {
+			await harness?.runSessionShutdown();
+			vi.useRealTimers();
+		}
+	});
+
+	it("persists a five-minute countdown for active-agent waits while retaining wait_agent wakeup", async () => {
+		vi.useFakeTimers();
+		const reviewGoal = vi.fn<GoalSupervisorReview>().mockResolvedValueOnce({
+			kind: "wait",
+			reason: "child still running",
 		});
-		const reviewGoal = vi
-			.fn<GoalSupervisorReview>()
-			.mockResolvedValueOnce({ kind: "wait", reason: "child still running" })
-			.mockResolvedValueOnce({ kind: "continue", reason: "child finished", instructions: "Inspect child result." });
 		const harness = createGoalHarness(cwd, {
 			callTool: async (name) => {
 				if (name === "list_agents") return { content: [], details: { activeCount: 1, agents: [{ id: "child" }] } };
-				await waitFinished;
-				return { content: [], details: { agent: { id: "child", status: "completed" } } };
+				await new Promise<void>(() => {});
+				return { content: [], details: {} };
 			},
 			reviewGoal,
 		});
-		await harness.runCommand("set wait for child");
-		harness.sendMessage.mockClear();
 
-		await harness.runAgentEnd();
+		try {
+			vi.setSystemTime(new Date("2026-07-28T12:00:00.000Z"));
+			await harness.runCommand("set wait for child countdown");
+			await harness.runAgentEnd();
 
-		expect(harness.callTool).toHaveBeenNthCalledWith(1, "list_agents", { parentId: "main" });
-		expect(harness.callTool.mock.calls[1]?.slice(0, 2)).toEqual(["wait_agent", {}]);
-		expect(harness.callTool.mock.calls[1]?.[2]).toBeInstanceOf(AbortSignal);
-		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-			message: "Waiting: child still running",
-		});
-		expect(reviewGoal).toHaveBeenCalledTimes(1);
+			expect(harness.callTool).toHaveBeenNthCalledWith(1, "list_agents", { parentId: "main" });
+			expect(harness.callTool.mock.calls[1]?.slice(0, 2)).toEqual(["wait_agent", {}]);
+			expect(harness.callTool.mock.calls[1]?.[2]).toBeInstanceOf(AbortSignal);
+			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+				message: "Waiting: child still running",
+				reviewAt: "2026-07-28T12:05:00.000Z",
+			});
 
-		finishWait?.();
-		await vi.waitFor(() => expect(reviewGoal).toHaveBeenCalledTimes(2));
-		expect(harness.sendMessage.mock.calls.at(-1)?.[0]).toEqual({
-			customType: "supervisor",
-			content: "<supervisor-instruction>\nInspect child result.\n</supervisor-instruction>",
-			display: true,
-		});
+			const renderer = harness.getSupervisorStatusRenderer();
+			if (!renderer) throw new Error("Supervisor status renderer was not registered");
+			const identityTheme = {
+				bg: (_color: string, text: string) => text,
+				bold: (text: string) => text,
+				fg: (_color: string, text: string) => text,
+			} as Parameters<EntryRenderer>[2];
+			const component = renderer(
+				{
+					type: "custom",
+					id: "status-1",
+					parentId: null,
+					timestamp: "2026-07-28T12:00:00.000Z",
+					customType: "supervisor-status",
+					data: { message: "Waiting: child still running", reviewAt: "2026-07-28T12:05:00.000Z" },
+				},
+				{ expanded: false },
+				identityTheme,
+			);
+			if (!component) throw new Error("Supervisor status renderer returned no component");
+			expect(component.render(120).join("\n")).toContain("Next review in 5:00");
+		} finally {
+			await harness.runSessionShutdown();
+			vi.useRealTimers();
+		}
 	});
 
 	it("passes wait_agent visible coordination content into goal re-review", async () => {

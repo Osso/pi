@@ -15,6 +15,7 @@ interface CompletionSchedulingOptions {
 	onComplete: (waiting: CompletionWait, ctx: ExtensionContext) => void;
 	onContinue: (instructions: string) => void;
 	onStatus: (ctx: ExtensionContext, message: string, reviewAt?: string) => void;
+	onClearStatus: (sessionId: string) => void;
 	onError: (error: unknown, ctx: ExtensionContext) => void;
 }
 
@@ -46,7 +47,8 @@ async function applyCompletionDecision(
 		case "wait": {
 			const message = `Waiting: ${decision.reason}`;
 			await scheduler.waitForAgentsOrScheduleReview(ctx, waiting, [], {
-				onAgentWait: () => options.onStatus(ctx, message),
+				onAgentWait: (reviewAt) => options.onStatus(ctx, message, reviewAt),
+				onAgentWake: () => options.onClearStatus(ctx.sessionManager.getSessionId()),
 				onReviewScheduled: (reviewAt) => options.onStatus(ctx, message, reviewAt),
 			});
 			break;
@@ -95,7 +97,8 @@ export function createCompletionWaitScheduler(options: CompletionSchedulingOptio
 		wait: async (goal, ctx, completionReport, statusReason) => {
 			const message = `Waiting: ${statusReason}`;
 			return scheduler.waitForAgentsOrScheduleReview(ctx, { goal, completionReport }, [], {
-				onAgentWait: () => options.onStatus(ctx, message),
+				onAgentWait: (reviewAt) => options.onStatus(ctx, message, reviewAt),
+				onAgentWake: () => options.onClearStatus(ctx.sessionManager.getSessionId()),
 				onReviewScheduled: (reviewAt) => options.onStatus(ctx, message, reviewAt),
 			});
 		},
