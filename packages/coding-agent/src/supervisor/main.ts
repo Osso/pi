@@ -1,12 +1,19 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
-import { type AssistantMessage, cleanupSessionResources } from "@earendil-works/pi-ai/compat";
+import {
+	type Api,
+	type AssistantMessage,
+	cleanupSessionResources,
+	type Model,
+	streamSimple,
+} from "@earendil-works/pi-ai/compat";
 import { getAgentDir, VERSION } from "../config.ts";
 import type { AgentSessionEvent } from "../core/agent-session.ts";
 import { AuthStorage } from "../core/auth-storage.ts";
 import type { LoadExtensionsResult } from "../core/extensions/types.ts";
 import { ModelRegistry } from "../core/model-registry.ts";
+import { mergeProviderAttributionHeaders } from "../core/provider-attribution.ts";
 import { ResidentConsoleServer, type ResidentConsoleSnapshot } from "../core/resident-console-transport.ts";
 import { DefaultResourceLoader } from "../core/resource-loader.ts";
 import { createAgentSession } from "../core/sdk.ts";
@@ -26,21 +33,45 @@ import { SUPERVISOR_AUTOSTART_ENV } from "./ensure-running.ts";
 import { DEFAULT_SUPERVISOR_KB_DIR } from "./project-resolver.ts";
 import { notifySupervisorRequest, SupervisorRequestWakeServer } from "./request-wake.ts";
 import { createSupervisorResponseTool, SUPERVISOR_RESPONSE_TOOL_NAME } from "./response-tool.ts";
-import { runSupervisorRequest } from "./service.ts";
+import {
+	buildSupervisorInstructionReviewContext,
+	parseSupervisorInstructionReviewDecision,
+	parseSupervisorResponse,
+	runSupervisorRequest,
+	SUPERVISOR_INSTRUCTION_REJECTION_REASONS,
+	type SupervisorInstructionRejectionReason,
+	type SupervisorInstructionReviewDecision,
+	supervisorInstructionRejectionFeedback,
+} from "./service.ts";
 
 const SUPERVISOR_SESSION_ID = "supervisor";
 const SUPERVISOR_COMPACTION_PERCENT = 75;
 const SUPERVISOR_INSTANCE_ID = randomUUID();
+
+export const GENERIC_GOAL_CONTINUATION = "Continue working toward the active goal.";
+
+export type SupervisorInstructionReviewer = (
+	instructions: string,
+	signal: AbortSignal,
+) => Promise<SupervisorInstructionReviewDecision | undefined>;
 
 interface SupervisorSession {
 	abort(): Promise<void>;
 	compact?: (customInstructions?: string) => Promise<unknown>;
 	getContextUsage?: () => { percent: number | null } | undefined;
 	prompt(content: string): Promise<void>;
+	sendCustomMessage?<T = unknown>(message: {
+		customType: string;
+		content: string;
+		display: boolean;
+		details?: T;
+	}): Promise<void>;
 	sessionId?: string;
 	sessionManager: Pick<SessionManager, "getBranch" | "getLeafId">;
 	subscribe?(listener: (event: AgentSessionEvent) => void): () => void;
 }
+
+export type SupervisorInstructionEvaluator = (instructions: string, signal: AbortSignal) => Promise<unknown>;
 
 type SupervisorConsolePrompt = { id: string; text: string };
 
@@ -90,6 +121,49 @@ export function createSupervisorSettingsManager(): SettingsManager {
 		approvalPreset: "auto-approve",
 		sandboxProfile: "full-access",
 	});
+}
+
+function requireSupervisorModel(modelRegistry: ModelRegistry): Model<Api> {
+	const model = modelRegistry.find("openai-codex", "gpt-5.6-sol");
+	if (!model) throw new Error("Pi Supervisor requires openai-codex/gpt-5.6-sol");
+	return model;
+}
+
+function readSupervisorInstructionReviewText(message: AssistantMessage): string | undefined {
+	if (message.stopReason !== "stop") return undefined;
+	const text = message.content
+		.filter((part): part is { text: string; type: "text" } => part.type === "text")
+		.map((part) => part.text)
+		.join("");
+	return text || undefined;
+}
+
+export function createSupervisorInstructionEvaluator(agentDir: string): SupervisorInstructionEvaluator {
+	const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
+	const modelRegistry = ModelRegistry.create(authStorage, join(agentDir, "models.json"));
+	const model = requireSupervisorModel(modelRegistry);
+	const settingsManager = createSupervisorSettingsManager();
+	return async (instructions, signal) => {
+		if (signal.aborted) return undefined;
+		const auth = await modelRegistry.getApiKeyAndHeaders(model);
+		if (!auth.ok) throw new Error(auth.error);
+		const retrySettings = settingsManager.getProviderRetrySettings();
+		const configuredIdleTimeoutMs = settingsManager.getHttpIdleTimeoutMs();
+		const effectiveIdleTimeoutMs = configuredIdleTimeoutMs === 0 ? 2_147_483_647 : configuredIdleTimeoutMs;
+		const response = await streamSimple(model, buildSupervisorInstructionReviewContext(instructions, Date.now()), {
+			apiKey: auth.apiKey,
+			env: auth.env,
+			headers: mergeProviderAttributionHeaders(model, settingsManager, undefined, auth.headers),
+			maxRetries: retrySettings.maxRetries,
+			maxRetryDelayMs: retrySettings.maxRetryDelayMs,
+			reasoning: "low",
+			signal,
+			timeoutMs: retrySettings.timeoutMs ?? effectiveIdleTimeoutMs,
+			websocketConnectTimeoutMs: settingsManager.getWebSocketConnectTimeoutMs(),
+		}).result();
+		if (signal.aborted) return undefined;
+		return readSupervisorInstructionReviewText(response);
+	};
 }
 
 export function validateSupervisorExtensionLoad(result: LoadExtensionsResult): void {
@@ -167,6 +241,7 @@ export async function runSupervisorService(): Promise<void> {
 	const controlDbPath = getControlDbPath();
 	const sessionManager = openSupervisorSession(agentDir, kbDir);
 	const session = await createSupervisorAgentSession(agentDir, kbDir, sessionManager);
+	const reviewInstructions = createSupervisorInstructionReviewer(createSupervisorInstructionEvaluator(agentDir));
 	const wakeServer = new SupervisorRequestWakeServer(controlDbPath);
 	const consolePrompts = new SupervisorConsolePromptQueue();
 	const managedBy = process.env[SUPERVISOR_AUTOSTART_ENV] === "1" ? "pi" : "external";
@@ -191,6 +266,8 @@ export async function runSupervisorService(): Promise<void> {
 			claimToken: randomUUID(),
 			consolePrompts,
 			controlDbPath,
+			processRequest: (path, request, currentSession) =>
+				processSupervisorRequest(path, request, currentSession, reviewInstructions),
 			session,
 			signal: abortController.signal,
 			wakeServer,
@@ -211,8 +288,7 @@ async function createSupervisorAgentSession(
 ): Promise<SupervisorSession> {
 	const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
 	const modelRegistry = ModelRegistry.create(authStorage, join(agentDir, "models.json"));
-	const model = modelRegistry.find("openai-codex", "gpt-5.6-sol");
-	if (!model) throw new Error("Pi Supervisor requires openai-codex/gpt-5.6-sol");
+	const model = requireSupervisorModel(modelRegistry);
 	const settingsManager = createSupervisorSettingsManager();
 	const resourceLoader = await createSupervisorResourceLoader(agentDir, kbDir, settingsManager);
 	const { session } = await createAgentSession({
@@ -273,17 +349,79 @@ function openSupervisorSession(agentDir: string, kbDir: string): SessionManager 
 	return sessionManager;
 }
 
+export function createSupervisorInstructionReviewer(
+	evaluate: SupervisorInstructionEvaluator,
+): SupervisorInstructionReviewer {
+	return async (instructions, signal) => {
+		if (signal.aborted) return undefined;
+		return parseSupervisorInstructionReviewDecision(await evaluate(instructions, signal));
+	};
+}
+
+function isInstructionRejectionReason(value: unknown): value is SupervisorInstructionRejectionReason {
+	return SUPERVISOR_INSTRUCTION_REJECTION_REASONS.some((reason) => reason === value);
+}
+
+async function appendSupervisorPolicyFeedback<T>(
+	session: SupervisorSession,
+	content: string,
+	details: T,
+): Promise<void> {
+	await session.sendCustomMessage?.({
+		customType: "supervisor_policy_feedback",
+		content,
+		display: false,
+		details,
+	});
+}
+
+async function appendSupervisorInstructionReviewFailure(
+	session: SupervisorSession,
+	failure: "evaluation_error" | "invalid_response",
+): Promise<void> {
+	await appendSupervisorPolicyFeedback(
+		session,
+		`Policy gate failure: ${failure}. Non-generic instructions were suppressed.`,
+		{ failure },
+	);
+}
+
+async function applySupervisorInstructionVeto(
+	request: SupervisorRequest,
+	rawResponse: unknown,
+	session: SupervisorSession,
+	reviewInstructions: SupervisorInstructionReviewer,
+	signal: AbortSignal,
+): Promise<unknown> {
+	if (request.kind !== "goal_idle_review" && request.kind !== "goal_completion_review") return rawResponse;
+	const response = parseSupervisorResponse(request.kind, rawResponse);
+	if (response?.kind !== "continue" || response.instructions === GENERIC_GOAL_CONTINUATION) return rawResponse;
+
+	let decision: SupervisorInstructionReviewDecision | undefined;
+	try {
+		decision = await reviewInstructions(response.instructions, signal);
+	} catch (error) {
+		if (signal.aborted) throw error;
+		await appendSupervisorInstructionReviewFailure(session, "evaluation_error");
+		return { ...response, instructions: GENERIC_GOAL_CONTINUATION };
+	}
+	if (signal.aborted) throw new Error("Supervisor instruction review aborted");
+	if (decision === "accept") return response;
+	if (isInstructionRejectionReason(decision)) {
+		await appendSupervisorPolicyFeedback(session, supervisorInstructionRejectionFeedback(decision), {
+			reason: decision,
+		});
+	} else {
+		await appendSupervisorInstructionReviewFailure(session, "invalid_response");
+	}
+	return { ...response, instructions: GENERIC_GOAL_CONTINUATION };
+}
+
 export async function processSupervisorRequest(
 	controlDbPath: string,
 	request: SupervisorRequest,
-	session: {
-		abort(): Promise<void>;
-		compact?: (customInstructions?: string) => Promise<unknown>;
-		getContextUsage?: () => { percent: number | null } | undefined;
-		prompt(content: string): Promise<void>;
-		sessionId?: string;
-		sessionManager: Pick<SessionManager, "getBranch" | "getLeafId">;
-	},
+	session: SupervisorSession,
+	reviewInstructions: SupervisorInstructionReviewer = async () => undefined,
 ): Promise<void> {
 	try {
 		await runSupervisorRequest({
@@ -304,14 +442,15 @@ export async function processSupervisorRequest(
 						contextPercent >= SUPERVISOR_COMPACTION_PERCENT
 					) {
 						await session.compact(
-							"Preserve Supervisor decisions, project-specific policies, and reusable approval rationale.",
+							"Preserve Supervisor decisions, project-specific policies, instruction-veto policy feedback, and reusable approval rationale.",
 						);
 						if (session.sessionId) cleanupSupervisorProviderContext(session.sessionId);
 					}
 					if (signal.aborted) throw new Error("Supervisor request aborted");
 					const previousLeafId = session.sessionManager.getLeafId();
 					await session.prompt(prompt);
-					return readCurrentSupervisorResponse(session.sessionManager.getBranch(), previousLeafId);
+					const rawResponse = readCurrentSupervisorResponse(session.sessionManager.getBranch(), previousLeafId);
+					return applySupervisorInstructionVeto(request, rawResponse, session, reviewInstructions, signal);
 				} finally {
 					signal.removeEventListener("abort", abort);
 				}
