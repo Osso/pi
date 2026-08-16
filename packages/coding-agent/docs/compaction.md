@@ -116,6 +116,8 @@ Only one speculative cache may exist per session, and it does not overlap anothe
 
 If background generation fails before cancellation, Pi marks the cache failed and reports one concise diagnostic line without changing the active turn or appending a compaction entry. Later threshold or overflow recovery continues through synchronous compaction; canceled background generation produces no failure diagnostic.
 
+Extensions receive `background_compaction_start` when speculative generation begins and exactly one `background_compaction_end` when it settles. The end event is emitted for success, failure, abort, and extension cancellation. The default footer maps this lifecycle to status key `background-compaction`, showing `compacting context` only while generation is active.
+
 ### Split Turns
 
 A "turn" starts with a user message and includes all assistant responses and tool calls until the next user message. Compaction normally cuts at turn boundaries and keeps the active turn whole when older compactable history exists.

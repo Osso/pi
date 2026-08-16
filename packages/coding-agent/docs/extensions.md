@@ -483,6 +483,20 @@ pi.on("session_compact", async (event, ctx) => {
 });
 ```
 
+#### background_compaction_start / background_compaction_end
+
+Notification-only events for speculative cache generation. `background_compaction_start` fires when generation begins. Pi emits exactly one `background_compaction_end` when it settles, including success, failure, abort, and extension cancellation. These events do not append session entries or install a compaction result.
+
+```typescript
+pi.on("background_compaction_start", async (_event, ctx) => {
+  ctx.ui.setStatus("background-compaction", "compacting context");
+});
+
+pi.on("background_compaction_end", async (_event, ctx) => {
+  ctx.ui.setStatus("background-compaction", undefined);
+});
+```
+
 #### session_before_tree / session_tree
 
 Fired on `/tree` navigation. See [Sessions](sessions.md) for tree navigation concepts.

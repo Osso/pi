@@ -1411,6 +1411,65 @@ describe("AgentSession compaction characterization", () => {
 		expect(harness.getPendingResponseCount()).toBe(1);
 	});
 
+	it.each(["success", "failure", "abort", "extension cancellation"] as const)(
+		"emits speculative background compaction lifecycle events through %s",
+		async (outcome) => {
+			const lifecycle: string[] = [];
+			const generationStarted = createDeferred<void>();
+			const generationEnded = createDeferred<void>();
+			const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+			const harness = await createHarness({
+				settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 0 } },
+				models: [{ id: "faux-1", contextWindow: 100, maxTokens: 100 }],
+				extensionFactories: [
+					(pi) => {
+						pi.on("background_compaction_start", () => {
+							lifecycle.push("start");
+						});
+						pi.on("background_compaction_end", () => {
+							lifecycle.push("end");
+							generationEnded.resolve();
+						});
+						pi.on("compaction", async (event) => {
+							lifecycle.push("generation");
+							generationStarted.resolve();
+							if (outcome === "failure") return undefined;
+							if (outcome === "abort") {
+								await new Promise<void>((resolve) => {
+									if (event.signal.aborted) resolve();
+									else event.signal.addEventListener("abort", () => resolve(), { once: true });
+								});
+								return { cancel: true };
+							}
+							if (outcome === "extension cancellation") return { cancel: true };
+							return {
+								compaction: {
+									summary: "speculative lifecycle summary",
+									firstKeptEntryId: event.preparation.firstKeptEntryId,
+									tokensBefore: event.preparation.tokensBefore,
+									details: {},
+								},
+							};
+						});
+					},
+				],
+			});
+			harnesses.push(harness);
+			seedCompactableSession(harness);
+			const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+
+			await sessionInternals._checkCompaction(
+				createAssistant(harness, { stopReason: "stop", totalTokens: 70, timestamp: Date.now() }),
+			);
+			await generationStarted.promise;
+			if (outcome === "abort") harness.session.abortCompaction();
+			await generationEnded.promise;
+
+			expect(lifecycle).toEqual(["start", "generation", "end"]);
+			if (outcome === "failure") expect(errorSpy).toHaveBeenCalledTimes(1);
+		},
+	);
+
 	it("reports a failed background compaction without starting foreground compaction", async () => {
 		const overloadError = "Codex error: Our servers are currently overloaded. Please try again later.";
 		const backgroundFailureObserved = createDeferred<void>();

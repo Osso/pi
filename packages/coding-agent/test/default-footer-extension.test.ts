@@ -1,5 +1,5 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import defaultFooterExtension, {
 	countDefaultFooterAgents,
 	createDefaultFooterComponent,
@@ -128,6 +128,44 @@ describe("default footer extension status lines", () => {
 });
 
 describe("default footer extension", () => {
+	it("shows background compaction status only while generation is running", async () => {
+		type CapturedHandler = (event: unknown, ctx: ExtensionContext) => unknown;
+		const handlers = new Map<string, CapturedHandler>();
+		const pi = {
+			on: (eventName: string, handler: CapturedHandler) => {
+				handlers.set(eventName, handler);
+			},
+		} as unknown as ExtensionAPI;
+		const setStatus = vi.fn();
+		const ctx = {
+			...createContext({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }),
+			ui: {
+				requestRender: vi.fn(),
+				setDefaultFooter: vi.fn(),
+				setStatus,
+			},
+		} as unknown as ExtensionContext;
+		const requireHandler = (eventName: string): CapturedHandler => {
+			const handler = handlers.get(eventName);
+			if (!handler) throw new Error(`Missing ${eventName} handler`);
+			return handler;
+		};
+
+		defaultFooterExtension(pi);
+		await requireHandler("session_start")(undefined, ctx);
+		expect(setStatus).toHaveBeenLastCalledWith("background-compaction", undefined);
+
+		await requireHandler("background_compaction_start")(undefined, ctx);
+		expect(setStatus).toHaveBeenLastCalledWith("background-compaction", "compacting context");
+
+		await requireHandler("background_compaction_end")(undefined, ctx);
+		expect(setStatus).toHaveBeenLastCalledWith("background-compaction", undefined);
+
+		await requireHandler("background_compaction_start")(undefined, ctx);
+		await requireHandler("session_shutdown")(undefined, ctx);
+		expect(setStatus).toHaveBeenLastCalledWith("background-compaction", undefined);
+	});
+
 	it("uses readable labels and omits cache and auto fields", () => {
 		const line = statsLine({ running: 2, steeringPending: 1, waitingForInput: 3 });
 
@@ -238,15 +276,18 @@ describe("default footer extension", () => {
 
 		let footerFactory: Parameters<ExtensionContext["ui"]["setDefaultFooter"]>[0] | undefined;
 		const pi = {
-			on: (_eventName: string, handler: (event: unknown, ctx: ExtensionContext) => Promise<void>) => {
+			on: (eventName: string, handler: (event: unknown, ctx: ExtensionContext) => Promise<void>) => {
+				if (eventName !== "session_start") return;
 				void handler(undefined, {
 					...createContext({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }),
 					ui: {
+						requestRender: vi.fn(),
 						setDefaultFooter: (factory: NonNullable<typeof footerFactory>) => {
 							footerFactory = factory;
 						},
+						setStatus: vi.fn(),
 					},
-				} as ExtensionContext);
+				} as unknown as ExtensionContext);
 			},
 		} as ExtensionAPI;
 

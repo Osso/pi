@@ -7,6 +7,7 @@ Speculative background compaction prepares a compaction result before normal com
 ### Cache lifecycle
 
 - [x] Start at most one cache-only compaction when context reaches 70% of the model context window, including between tool calls in one active turn.
+- [x] Emit `background_compaction_start` when speculative generation begins.
 - [x] Keep background generation from appending session entries or mutating active agent messages/context.
 - [x] Preserve a ready result for normal compaction instead of exposing it as a second context.
 
@@ -22,6 +23,12 @@ Speculative background compaction prepares a compaction result before normal com
 - [x] Prevent speculative generation from overlapping another speculative or real compaction.
 - [x] Retain synchronous threshold and overflow compaction when the cache is unavailable, stale, canceled, or not ready.
 - [x] Report non-aborted background cache-generation failures as one concise diagnostic line without changing cache lifecycle or foreground fallback.
+- [x] Emit exactly one `background_compaction_end` after generation settles, including success, failure, abort, and extension cancellation.
+
+### Footer status
+
+- [x] The default footer sets status key `background-compaction` to `compacting context` while speculative generation is active.
+- [x] The default footer clears `background-compaction` when the background generation ends or the session shuts down.
 
 ## How it works
 
@@ -32,6 +39,8 @@ Speculative background compaction prepares a compaction result before normal com
 
 - `packages/coding-agent/src/core/agent-session.ts` — starts, validates, cancels, schedules, and consumes the session-local cache.
 - `packages/coding-agent/src/core/compaction/compaction.ts` — prepares the snapshot and generates the reusable compaction result.
+- `packages/coding-agent/src/core/extensions/types.ts` — exposes background-compaction lifecycle events to extensions.
+- `packages/coding-agent/extensions/default-footer/src/index.ts` — maps lifecycle events to the footer status.
 
 ## Tests asserting this spec
 
@@ -43,6 +52,9 @@ Speculative background compaction prepares a compaction result before normal com
   - post-snapshot entry preservation
   - stale branch rejection
   - synchronous fallback without overlapping compactions
+  - background-compaction lifecycle event pairing and terminal outcomes
+- `packages/coding-agent/test/default-footer-extension.test.ts`
+  - `background-compaction` status text while generation is active
 
 ## Known gaps (current cycle)
 

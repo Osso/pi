@@ -4195,8 +4195,9 @@ export class AgentSession {
 	}
 
 	private async _generateBackgroundCompaction(cache: BackgroundCompactionCache, model: Model<any>): Promise<void> {
-		const startedAt = Date.now();
 		try {
+			await cache.extensionRunner.emit({ type: "background_compaction_start" });
+			const startedAt = Date.now();
 			const extensionResult = cache.extensionRunner.hasHandlers("compaction")
 				? await cache.extensionRunner.emit({
 						type: "compaction",
@@ -4217,6 +4218,8 @@ export class AgentSession {
 			if (cache.abortController.signal.aborted) return;
 			cache.state = "failed";
 			console.error(`Background compaction cache generation failed: ${errorMessage(error)}`);
+		} finally {
+			await cache.extensionRunner.emit({ type: "background_compaction_end" });
 		}
 	}
 

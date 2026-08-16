@@ -18,6 +18,9 @@ import {
 	sanitizeFooterStatusText,
 } from "../../../src/utils/footer-status.ts";
 
+const BACKGROUND_COMPACTION_STATUS_KEY = "background-compaction";
+const BACKGROUND_COMPACTION_STATUS_TEXT = "compacting context";
+
 export interface DefaultFooterAgentLifecycleCounts {
 	running: number;
 	waitingForInput: number;
@@ -253,9 +256,30 @@ export function createDefaultFooterComponent(input: DefaultFooterComponentInput)
 	};
 }
 
+function setBackgroundCompactionStatus(ctx: ExtensionContext, text: string | undefined): void {
+	ctx.ui.setStatus(BACKGROUND_COMPACTION_STATUS_KEY, text);
+	ctx.ui.requestRender();
+}
+
+function registerBackgroundCompactionStatus(pi: ExtensionAPI): void {
+	pi.on("background_compaction_start", async (_event, ctx) => {
+		setBackgroundCompactionStatus(ctx, BACKGROUND_COMPACTION_STATUS_TEXT);
+	});
+
+	pi.on("background_compaction_end", async (_event, ctx) => {
+		setBackgroundCompactionStatus(ctx, undefined);
+	});
+
+	pi.on("session_shutdown", async (_event, ctx) => {
+		setBackgroundCompactionStatus(ctx, undefined);
+	});
+}
+
 export default function defaultFooterExtension(pi: ExtensionAPI, options: DefaultFooterExtensionOptions = {}) {
 	const store = options.multiAgentStore;
+	registerBackgroundCompactionStatus(pi);
 	pi.on("session_start", async (_event, ctx) => {
+		setBackgroundCompactionStatus(ctx, undefined);
 		ctx.ui.setDefaultFooter((tui, thm, footerData) => {
 			const unsubscribe = footerData.onBranchChange(() => tui.requestRender());
 			const component = createDefaultFooterComponent({

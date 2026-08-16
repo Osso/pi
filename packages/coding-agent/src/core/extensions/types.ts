@@ -703,6 +703,16 @@ export interface SessionCompactionSourceEvent {
 	willRetry: boolean;
 }
 
+/** Fired before speculative background compaction generation starts. */
+export interface BackgroundCompactionStartEvent {
+	type: "background_compaction_start";
+}
+
+/** Fired after speculative background compaction generation settles. */
+export interface BackgroundCompactionEndEvent {
+	type: "background_compaction_end";
+}
+
 /** Fired after context compaction */
 export interface SessionCompactEvent {
 	type: "session_compact";
@@ -767,6 +777,8 @@ export type SessionEvent =
 	| SessionBeforeCompactEvent
 	| CompactionEvent
 	| SessionCompactionSourceEvent
+	| BackgroundCompactionStartEvent
+	| BackgroundCompactionEndEvent
 	| SessionCompactEvent
 	| SessionShutdownEvent
 	| SessionBeforeTreeEvent
@@ -1385,6 +1397,8 @@ export interface ExtensionAPI {
 		event: "session_compaction_source",
 		handler: ExtensionHandler<SessionCompactionSourceEvent, SessionCompactionSourceResult>,
 	): void;
+	on(event: "background_compaction_start", handler: ExtensionHandler<BackgroundCompactionStartEvent>): void;
+	on(event: "background_compaction_end", handler: ExtensionHandler<BackgroundCompactionEndEvent>): void;
 	on(event: "session_compact", handler: ExtensionHandler<SessionCompactEvent>): void;
 	on(event: "session_shutdown", handler: ExtensionHandler<SessionShutdownEvent>): void;
 	on(event: "runtime_mailbox", handler: ExtensionHandler<RuntimeMailboxEvent, RuntimeMailboxEventResult>): void;
