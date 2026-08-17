@@ -48,6 +48,16 @@ export function isProcessIdentityAlive(identity: ProcessIdentity): boolean {
 	}
 }
 
+export function isSupersededRuntimeIdentity(current: ProcessIdentity, replacement: ProcessIdentity): boolean {
+	return (
+		current.pid === replacement.pid &&
+		current.startTimeTicks === replacement.startTimeTicks &&
+		current.incarnation !== undefined &&
+		replacement.incarnation !== undefined &&
+		current.incarnation !== replacement.incarnation
+	);
+}
+
 export function isPiRuntimeProcessAlive(pid: number): boolean {
 	if (pid === process.pid) return true;
 	if (!processExists(pid)) return false;

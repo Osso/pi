@@ -94,7 +94,9 @@ Dispatch and graph invariants:
   `cancelling` until exact-owner exit acknowledgement or dead-owner recovery settles the cancellation.
   Terminal fencing rejects any late natural dispatch result. Parent cancellation proceeds
   deepest-first, so a parent cannot terminalize before each descendant is terminal. A parent dispatch whose result is ready waits
-  without disposing its runtime until every descendant is terminal, then commits its preserved terminal result.
+  without disposing its runtime until every descendant is terminal, then commits its preserved terminal result. The wait reads the
+  authoritative persisted descendant graph and resyncs newer projections, so a detached descendant's out-of-process terminal commit
+  cannot be missed and a committed parent cancellation cannot bypass the wait through its already-aborted runtime signal.
   Dead-owner recovery likewise rejects a terminal parent while any descendant remains nonterminal. Runtime-mailbox
   steering completion stores the original terminal lifecycle/result and retries it when descendants settle.
 
@@ -111,8 +113,8 @@ wall-clock time, or mailbox delivery:
    plus the current runtime incarnation. Ownership for one agent cannot authorize another agent even under the
    same supervisor process. After an exec-in-place restart, unchanged PID and `startTimeTicks` with a different
    incarnation makes the persisted owner stale; the resumed supervisor may replace that ownership and continue
-   active `steering_pending` recovery. PID reuse does not match, and zombie/exited states are dead before parent
-   reaping.
+   active `steering_pending` recovery, or settle an existing cancellation intent as `aborted/lost_runtime` after
+   descendants become terminal. PID reuse does not match, and zombie/exited states are dead before parent reaping.
 4. Any late finalizer, exit acknowledgement, or outbox write from a different process identity fails
    the ownership predicate and cannot rewrite the agent row or notification identity.
 

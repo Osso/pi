@@ -24,7 +24,11 @@ import {
 	LifecycleCoordinator,
 	type OwnedLifecycleCommandInput,
 } from "../../../src/core/lifecycle-coordinator.ts";
-import { isProcessIdentityAlive, type ProcessIdentity } from "../../../src/core/runtime-process.ts";
+import {
+	isProcessIdentityAlive,
+	isSupersededRuntimeIdentity,
+	type ProcessIdentity,
+} from "../../../src/core/runtime-process.ts";
 import {
 	type AgentFileReference,
 	type AgentLifecycleState,
@@ -68,6 +72,7 @@ import {
 } from "../../../src/core/tool-capabilities.ts";
 import { deliverTerminalOutboxProjections } from "../../../src/core/terminal-outbox-delivery.ts";
 import { registerAgentViewerTools } from "../../agent-viewer/src/runtime.ts";
+import { waitForActiveDescendants } from "./descendant-settlement.ts";
 import {
 	appendParentAgentCompletion,
 	appendParentAgentStart,
@@ -1431,7 +1436,9 @@ function hasLiveAgentOwner(
 	const persistence = input.store.getPersistenceTarget();
 	if (!persistence) return false;
 	const ownership = readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, agent.id);
-	return ownership?.processIdentity ? isProcessIdentityAlive(ownership.processIdentity) : false;
+	if (!ownership?.processIdentity) return false;
+	if (isSupersededRuntimeIdentity(ownership.processIdentity, RUNTIME_PROCESS_IDENTITY)) return false;
+	return isProcessIdentityAlive(ownership.processIdentity);
 }
 
 function dispatchReservedAttachedChildSession(
@@ -1804,23 +1811,6 @@ async function runAgentSession(
 		handles?.delete(running.agent.id);
 		childSession?.dispose?.();
 	}
-}
-
-async function waitForActiveDescendants(store: MultiAgentStore, agentId: string, signal?: AbortSignal): Promise<void> {
-	const hasActiveDescendants = () => store.listDescendants(agentId).some((agent) => isActiveLifecycle(agent.lifecycle));
-	if (!hasActiveDescendants() || signal?.aborted) return;
-	await new Promise<void>((resolve) => {
-		const finish = () => {
-			unsubscribe();
-			signal?.removeEventListener("abort", finish);
-			resolve();
-		};
-		const unsubscribe = store.subscribeAgentUpdates(() => {
-			if (!hasActiveDescendants()) finish();
-		});
-		signal?.addEventListener("abort", finish, { once: true });
-		if (!hasActiveDescendants() || signal?.aborted) finish();
-	});
 }
 
 function finalizeReservedRuntime(

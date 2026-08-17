@@ -13,6 +13,7 @@ import { isSandboxProfileName, type SandboxProfileName } from "./permissions/pre
 import {
 	isPiRuntimeProcessAlive,
 	isProcessIdentityAlive,
+	isSupersededRuntimeIdentity,
 	isVerifiedPiRuntimeProcess,
 	type ProcessIdentity,
 	readProcessIdentity,
@@ -3698,16 +3699,6 @@ function runtimeListenerMatchesProcessIdentity(
 	}
 }
 
-function sameProcessWithSupersededIncarnation(current: ProcessIdentity, replacement: ProcessIdentity): boolean {
-	return (
-		current.pid === replacement.pid &&
-		current.startTimeTicks === replacement.startTimeTicks &&
-		current.incarnation !== undefined &&
-		replacement.incarnation !== undefined &&
-		current.incarnation !== replacement.incarnation
-	);
-}
-
 function runtimeOwnerMatches(
 	owner: MultiAgentRuntimeOwnershipRow | undefined,
 	identity: MultiAgentRuntimeOwnershipIdentity,
@@ -4691,7 +4682,7 @@ function recoverDeadMultiAgentRuntimeWithDb(
 			input.supervisor,
 		);
 		if (!supervisorAuthority) return { ok: false, error: "mutation_mismatch" };
-		const recoverable = readRecoverableMultiAgentRuntime(db, input.expectedOwner, true);
+		const recoverable = readRecoverableMultiAgentRuntime(db, input.expectedOwner, input.supervisor.processIdentity);
 		if (!recoverable.ok) return recoverable;
 		const plan = prepareDeadRuntimeRecovery(recoverable, input.expectedOwner, input.nowIso);
 		const result = persistDeadRuntimeRecovery(db, input.expectedOwner, plan, supervisorAuthority);
@@ -4763,7 +4754,7 @@ function reconcileDeadDetachedAgentRuntime(
 	nowIso: string,
 ): number {
 	for (let attempt = 1; attempt <= DEAD_RUNTIME_RECOVERY_MAX_ATTEMPTS; attempt += 1) {
-		const recoverable = readRecoverableMultiAgentRuntime(db, expectedOwner, false);
+		const recoverable = readRecoverableMultiAgentRuntime(db, expectedOwner);
 		if (!recoverable.ok) return 0;
 		const plan = prepareDeadRuntimeRecovery(recoverable, expectedOwner, nowIso);
 		const result = persistDeadRuntimeRecovery(db, expectedOwner, plan);
@@ -4825,7 +4816,7 @@ type RecoverableMultiAgentRuntime =
 function readRecoverableMultiAgentRuntime(
 	db: SqliteDatabase,
 	expectedOwner: MultiAgentRuntimeOwnershipIdentity,
-	verifyOwnerLiveness: boolean,
+	replacementProcessIdentity?: ProcessIdentity,
 ): RecoverableMultiAgentRuntime {
 	const { agentId, sessionPath } = expectedOwner;
 	const row = db
@@ -4837,7 +4828,11 @@ function readRecoverableMultiAgentRuntime(
 	const owner = readMultiAgentRuntimeOwnershipRow(db, sessionPath, agentId);
 	if (!runtimeOwnerMatches(owner, expectedOwner)) return { ok: false, error: "mutation_mismatch" };
 	if (hasActivePersistedDescendant(db, sessionPath, agentId)) return { ok: false, error: "invalid_transition" };
-	if (verifyOwnerLiveness && isProcessIdentityAlive(expectedOwner.processIdentity)) {
+	const ownerAlive = isProcessIdentityAlive(expectedOwner.processIdentity);
+	const ownerSuperseded =
+		replacementProcessIdentity !== undefined &&
+		isSupersededRuntimeIdentity(expectedOwner.processIdentity, replacementProcessIdentity);
+	if (replacementProcessIdentity !== undefined && ownerAlive && !ownerSuperseded) {
 		return { ok: false, error: "owner_alive" };
 	}
 	return { agent, agentData: row.data, ok: true };
@@ -5320,7 +5315,7 @@ function prepareAttachedRuntimeOwnershipAcquisition(
 		};
 	}
 	const replacesCurrentIncarnation =
-		currentIdentity !== undefined && sameProcessWithSupersededIncarnation(currentIdentity, input.processIdentity);
+		currentIdentity !== undefined && isSupersededRuntimeIdentity(currentIdentity, input.processIdentity);
 	if (currentOwnerAlive && !replacesCurrentIncarnation) {
 		return { result: { ok: false, error: "ownership_held" } };
 	}

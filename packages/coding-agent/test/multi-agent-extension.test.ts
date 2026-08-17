@@ -1989,6 +1989,50 @@ describe("multi-agent extension tools", () => {
 		expect(cancelled.details.agent).toMatchObject({ lifecycle: "aborted" });
 	});
 
+	it("keeps descendant waiting active when cancellation arrives after the parent prompt settles", async () => {
+		const parentPrompt = deferred<void>();
+		let rejectChildPrompt: (error: Error) => void = () => {};
+		const childPrompt = new Promise<void>((_resolve, reject) => {
+			rejectChildPrompt = reject;
+		});
+		const runtimeHandles = createMultiAgentRuntimeHandles();
+		runtimeHandles.cancellationSettlementTimeoutMs = 20;
+		const harness = createMultiAgentHarness({
+			createChildSession: async ({ agent }) => ({
+				abort: () => {},
+				messages: [],
+				prompt: async () => (agent.displayName === "Parent" ? parentPrompt.promise : childPrompt),
+			}),
+			runtimeHandles,
+		});
+		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			context: "fresh",
+			displayName: "Parent",
+			prompt: "parent",
+		});
+		const child = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			context: "fresh",
+			displayName: "Child",
+			parentId: parent.details.agent.id,
+			prompt: "child",
+		});
+		parentPrompt.resolve();
+		await delay(20);
+
+		const cancelled = await harness.call<CancelAgentDetails>("close_agent", {
+			agentId: parent.details.agent.id,
+			reason: "cascade after prompt",
+		});
+		expect(cancelled.details.agent).toMatchObject({ lifecycle: "cancelling" });
+		expect(harness.store.getAgent(child.details.agent.id)).toMatchObject({ lifecycle: "cancelling" });
+
+		rejectChildPrompt(new Error("child aborted"));
+		await vi.waitFor(() => {
+			expect(harness.store.getAgent(child.details.agent.id)).toMatchObject({ lifecycle: "aborted" });
+			expect(harness.store.getAgent(parent.details.agent.id)).toMatchObject({ lifecycle: "aborted" });
+		});
+	});
+
 	it("uses the five-second production settlement timeout for each slow cancellation", async () => {
 		vi.useFakeTimers();
 		try {

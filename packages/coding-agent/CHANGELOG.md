@@ -144,6 +144,7 @@
 
 ### Fixed
 
+- Fixed child cancellation remaining stuck in `cancelling` when a detached descendant terminalized out of process, including recovery after `restart_self` supersedes the prior same-PID runtime incarnation.
 - Fixed tool gate, approval-review, and interactive approval waits consuming the 15-minute model-thinking deadline; the deadline now clears before those waits while post-tool model phases still receive a fresh deadline.
 - Fixed reported npm vulnerabilities across direct and transitive dependencies by upgrading `minimatch`, `undici`, `vitest`, `protobufjs`, `shell-quote`, `postcss`, and `nanoid`, regenerating shrinkwrap and install locks.
 - Fixed `change_working_directory` in mixed tool-call batches relocating persisted session state while the active runtime and multi-agent store remained on the previous cwd and session path, which could make later `wait_agent` calls resolve missing store references.

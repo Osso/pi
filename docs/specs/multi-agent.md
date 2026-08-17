@@ -574,7 +574,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   while rejecting sibling targets. Higher-level integrations must use registered agent tools or the
   Pyrun request handler rather than a store-backed dormant-spawn helper. It also asserts `/bg` registers a
   background job command, starts child-session prompt work without waiting for completion, and
-  aborts a running background child session when the job is cancelled. The stale-sender-session regression
+  aborts a running background child session when the job is cancelled. Cancellation coverage also proves a
+  parent whose prompt already settled keeps waiting until its cancelling descendant becomes terminal. The stale-sender-session regression
   rejects steering without changing the lifecycle row or mailbox.
 - [`packages/coding-agent/test/session-control-db.test.ts`](../../packages/coding-agent/test/session-control-db.test.ts)
   asserts atomic steering commit validation of the canonical recipient-listener PID, embedded
@@ -592,6 +593,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   and slash-command plus `!` shell-command routing on the main thread.
 - [`packages/coding-agent/test/suite/headless-pi.test.ts`](../../packages/coding-agent/test/suite/headless-pi.test.ts)
   asserts real-process steering of a restored child through the current main session after supervisor restart.
+- [`packages/coding-agent/test/suite/agent-cancellation-reconciliation.test.ts`](../../packages/coding-agent/test/suite/agent-cancellation-reconciliation.test.ts)
+  asserts that out-of-process detached-descendant cancellation releases its live parent and that `restart_self`
+  settles a cancelling parent owned by the superseded same-PID runtime incarnation.
+- [`packages/coding-agent/test/superseded-runtime-recovery.test.ts`](../../packages/coding-agent/test/superseded-runtime-recovery.test.ts)
+  asserts prior-incarnation cancellation recovery while preserving exact-current-runtime owner rejection.
 - [`packages/coding-agent/test/suite/regressions/restart-self-auto-continuation.test.ts`](../../packages/coding-agent/test/suite/regressions/restart-self-auto-continuation.test.ts)
   asserts compacted active-child admission refresh, legacy full-parent-JSONL recovery, prior-incarnation
   ownership rebinding, queued steering delivery, post-rebind cancellation to `aborted`, and model-facing

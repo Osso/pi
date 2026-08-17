@@ -112,8 +112,10 @@ timestamp matches the listener heartbeat; pathless or legacy timestamp-only hear
 Session-path relocation moves the assertion in the same transaction as the store. Verified
 administrative shutdown/restart may terminalize owned work through an exact-owner coordinator command.
 Confirmed exact owner-process exit records `failed/lost_runtime` from `running` or
-`aborted/lost_runtime` from `cancelling`, while attached, terminal, current-live, and uncertain
-process-backed rows follow their explicit recovery policies. Runtime-process verification recognizes
+`aborted/lost_runtime` from `cancelling`. A same-PID exec restart also treats a different persisted
+runtime incarnation as superseded rather than live, allowing the registered replacement runtime to
+settle a prior cancellation without weakening exact-current-owner fencing. Attached, terminal,
+current-live, and uncertain process-backed rows follow their explicit recovery policies. Runtime-process verification recognizes
 Pi executables and source, Bun, or built `packages/coding-agent` entrypoints in relative or absolute form.
 Startup reconciliation scans persisted detached runtimes after listener/path binding, including exact
 dead runners whose logical parent session remains live. Attached-session rows retain the transcript-backed
@@ -124,8 +126,10 @@ notification already waiting, then polls authoritative control-DB agent rows unt
 A coordination wake returns and consumes all currently pending deliverable runtime-mailbox and shared-channel inputs,
 preserving sender/body formatting; mailbox rows become `delivered` and the shared-channel cursor advances. Each
 distinct coordination message is visible exactly once. Terminal notifications still accelerate the agent-row query,
-so a detached runner in another process can wake a blocked wait after its terminal commit. The store removes transient
-worker metadata on restore, but durable lifecycle state remains unchanged until an exact-owner command commits.
+so a detached runner in another process can wake a blocked wait after its terminal commit. Parent dispatch settlement uses
+that same authoritative persisted graph: it projects newer descendant revisions into the local store and, after a committed
+parent cancellation, does not let the already-aborted runtime signal skip the descendant terminal gate. The store removes
+transient worker metadata on restore, but durable lifecycle state remains unchanged until an exact-owner command commits.
 
 Existing primitives worth reusing:
 
