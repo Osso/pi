@@ -109,6 +109,7 @@ export interface RenderRegion {
 	place(rect: RenderRegionRect): void;
 	clear(): void;
 	requestRender(): boolean;
+	tryRender(): boolean;
 	dispose(): void;
 }
 
@@ -480,6 +481,7 @@ export class TUI extends Container {
 			place: (rect) => this.placeRenderRegion(state, rect),
 			clear: () => this.clearRenderRegion(state),
 			requestRender: () => this.requestRenderRegion(state),
+			tryRender: () => this.tryRenderRegion(state),
 			dispose: () => this.disposeRenderRegion(state),
 		};
 	}
@@ -563,10 +565,13 @@ export class TUI extends Container {
 	}
 
 	private requestRenderRegion(state: RenderRegionState): boolean {
-		const rendered = state.flowLayout ? this.writeFlowRenderRegion(state) : this.writeRenderRegion(state);
-		if (rendered) return true;
+		if (this.tryRenderRegion(state)) return true;
 		this.requestRender();
 		return false;
+	}
+
+	private tryRenderRegion(state: RenderRegionState): boolean {
+		return state.flowLayout ? this.writeFlowRenderRegion(state) : this.writeRenderRegion(state);
 	}
 
 	private createFixedCellHandle(state: FixedCellState): FixedCell {

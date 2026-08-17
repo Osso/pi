@@ -191,6 +191,7 @@ import { formatKeyText, keyDisplayText, keyHint, keyText, rawKeyHint } from "./c
 import { LoginDialogComponent } from "./components/login-dialog.ts";
 import { ModelSelectorComponent } from "./components/model-selector.ts";
 import { type AuthSelectorProvider, OAuthSelectorComponent } from "./components/oauth-selector.ts";
+import { RenderRegionContainer } from "./components/render-region-container.ts";
 import { SandboxSelectorComponent } from "./components/sandbox-selector.ts";
 import { ScopedModelsSelectorComponent } from "./components/scoped-models-selector.ts";
 import { SessionSelectorComponent } from "./components/session-selector.ts";
@@ -473,7 +474,7 @@ export class InteractiveMode {
 	private runtimeHost: AgentSessionRuntime;
 	private ui: TUI;
 	private loadedResourcesContainer: Container;
-	private chatContainer: Container;
+	private chatContainer: RenderRegionContainer;
 	private transcriptTailContainer: Container;
 	private transcriptTailRegion: FlowRenderRegion;
 	private pendingMessagesContainer: Container;
@@ -661,7 +662,7 @@ export class InteractiveMode {
 		this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
 		this.headerContainer = new Container();
 		this.loadedResourcesContainer = new Container();
-		this.chatContainer = new Container();
+		this.chatContainer = new RenderRegionContainer(this.ui);
 		this.transcriptTailContainer = new Container();
 		this.transcriptTailRegion = this.ui.createFlowRenderRegion(this.transcriptTailContainer);
 		this.pendingMessagesContainer = new Container();
@@ -694,6 +695,7 @@ export class InteractiveMode {
 			header: this.headerContainer,
 			loadedResources: this.loadedResourcesContainer,
 			chat: this.chatContainer,
+			onChatLayout: (rect) => this.chatContainer.place(rect),
 			transcriptTail: this.transcriptTailContainer,
 			pendingMessages: this.pendingMessagesContainer,
 			onTranscriptTailLayout: (layout) => this.transcriptTailRegion.place(layout),
@@ -4667,9 +4669,16 @@ export class InteractiveMode {
 		const renderer = this.session.extensionRunner.getEntryRenderer(entry.customType);
 		if (!renderer) return false;
 
-		const component = new CustomEntryComponent(entry, renderer);
+		const component = new CustomEntryComponent(entry, renderer, {
+			requestRender: (child) => this.chatContainer.requestChildRender(child),
+			sessionId: this.sessionManager.getSessionId(),
+		});
 		component.setExpanded(this.toolOutputExpanded);
-		if (!component.hasContent()) return false;
+		if (!component.hasContent()) {
+			component.dispose();
+			return false;
+		}
+		this.chatContainer.trackScopedChild(component);
 
 		if (this.streamingComponent) {
 			const streamingIndex = this.chatContainer.children.indexOf(this.streamingComponent);

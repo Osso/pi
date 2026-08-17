@@ -101,7 +101,7 @@ tui.addChild(root);
 tui.requestComponentRender(statusText);
 ```
 
-Partial region writes require a current full-width placement with unchanged height and visible rows. Pending normal renders, resize, stale layout generations, overlays, cursor markers, images, invalid widths, or height changes fall back to normal rendering. Arbitrary column slicing and overlapping region composition are not supported.
+Partial region writes require a current full-width placement with unchanged height and visible rows. Pending normal renders, resize, stale layout generations, overlays, cursor markers, images, invalid widths, or height changes fall back to normal rendering through `requestComponentRender()` or `region.requestRender()`. `region.tryRender()` attempts the partial write and returns `false` without scheduling a fallback when the caller must skip unsafe updates. Arbitrary column slicing and overlapping region composition are not supported.
 
 `TUI.createFixedCell()` provides a low-level one-cell update for an already-rendered root line and terminal column. `update(value)` returns `true` only when the value occupies exactly one terminal cell and the cached frame is safe to patch; it returns `false` while a normal render is pending, terminal dimensions are stale, the position is not visible, or an overlay is active. Successful updates synchronize the differential-render cache. Clear or dispose the handle when the position is no longer valid.
 

@@ -1570,7 +1570,7 @@ describe("goal extension", () => {
 		}
 	});
 
-	it("re-reviews a wait decision after five minutes while refreshing one durable countdown", async () => {
+	it("re-reviews a wait decision after five minutes without generic countdown renders", async () => {
 		vi.useFakeTimers();
 		try {
 			vi.setSystemTime(new Date("2026-07-28T12:00:00.000Z"));
@@ -1591,7 +1591,7 @@ describe("goal extension", () => {
 			harness.appendEntry.mockClear();
 			harness.requestRender.mockClear();
 			await vi.advanceTimersByTimeAsync(1_000);
-			expect(harness.requestRender).toHaveBeenCalledTimes(1);
+			expect(harness.requestRender).not.toHaveBeenCalled();
 			expect(harness.appendEntry).not.toHaveBeenCalled();
 			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000 - 1_000);
 
@@ -1614,7 +1614,7 @@ describe("goal extension", () => {
 		}
 	});
 
-	it("restores redraw refresh from the newest future Supervisor deadline without scheduling review", async () => {
+	it("restores the newest future Supervisor deadline without generic rendering or review work", async () => {
 		vi.useFakeTimers();
 		try {
 			vi.setSystemTime(new Date("2026-07-28T12:00:00.000Z"));
@@ -1638,7 +1638,7 @@ describe("goal extension", () => {
 			await harness.runSessionStart("resume");
 			await vi.advanceTimersByTimeAsync(1_000);
 
-			expect(harness.requestRender).toHaveBeenCalledTimes(1);
+			expect(harness.requestRender).not.toHaveBeenCalled();
 			expect(reviewGoal).not.toHaveBeenCalled();
 			expect(harness.callTool).not.toHaveBeenCalled();
 			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);

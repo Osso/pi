@@ -1333,6 +1333,12 @@ export interface MessageRenderOptions {
 
 export interface EntryRenderOptions {
 	expanded: boolean;
+	/** Current session id when rendered in the interactive TUI. */
+	sessionId?: string;
+	/** Request a same-height redraw of only this custom entry. */
+	requestRender?: () => boolean;
+	/** Register cleanup for state bound to this rendered component instance. */
+	registerCleanup?: (cleanup: () => void) => void;
 }
 
 export type MessageRenderer<T = unknown> = (

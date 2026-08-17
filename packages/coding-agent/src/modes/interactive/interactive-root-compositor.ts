@@ -7,6 +7,7 @@ export interface InteractiveRootCompositorOptions {
 	header: Component;
 	loadedResources: Component;
 	chat: Component;
+	onChatLayout: (rect: RootLayoutRect) => void;
 	transcriptTail: Component;
 	pendingMessages: Component;
 	onTranscriptTailLayout: (layout: InteractiveRootFlowLayout) => void;
@@ -25,7 +26,7 @@ export function createInteractiveRootCompositor(options: InteractiveRootComposit
 		flow: [
 			{ component: options.header },
 			{ component: options.loadedResources },
-			{ component: options.chat },
+			{ component: options.chat, onLayout: options.onChatLayout },
 			{ component: options.transcriptTail, onFlowLayout: options.onTranscriptTailLayout },
 			{ component: options.pendingMessages },
 		],

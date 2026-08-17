@@ -137,15 +137,29 @@ export function createSupervisorStatusController(
 	};
 }
 
-export const renderSupervisorStatusEntry: EntryRenderer = (entry, _rendererOptions, theme) => {
-	const { message, reviewAt } = statusDetails(entry.data);
-	return new SupervisorStatusComponent(message, reviewAt, {
-		background: (text) => theme.bg("customMessageBg", text),
-		countdown: (text) => theme.fg("dim", text),
-		label: (text) => theme.fg("customMessageLabel", theme.bold(text)),
-		message: (text) => theme.fg("customMessageText", text),
-	});
-};
+function bindSupervisorStatusCountdown(
+	refresher: WaitCountdownRefresher,
+	rendererOptions: Parameters<EntryRenderer>[1],
+	reviewAt: string | undefined,
+): void {
+	if (!reviewAt) return;
+	const { registerCleanup, requestRender, sessionId } = rendererOptions;
+	if (!sessionId || !requestRender || !registerCleanup) return;
+	registerCleanup(refresher.bind(sessionId, reviewAt, requestRender));
+}
+
+export function createSupervisorStatusEntryRenderer(refresher: WaitCountdownRefresher): EntryRenderer {
+	return (entry, rendererOptions, theme) => {
+		const { message, reviewAt } = statusDetails(entry.data);
+		bindSupervisorStatusCountdown(refresher, rendererOptions, reviewAt);
+		return new SupervisorStatusComponent(message, reviewAt, {
+			background: (text) => theme.bg("customMessageBg", text),
+			countdown: (text) => theme.fg("dim", text),
+			label: (text) => theme.fg("customMessageLabel", theme.bold(text)),
+			message: (text) => theme.fg("customMessageText", text),
+		});
+	};
+}
 
 export const renderSupervisorMessage: MessageRenderer = (message, _rendererOptions, theme) => {
 	const content = typeof message.content === "string" ? message.content : "";

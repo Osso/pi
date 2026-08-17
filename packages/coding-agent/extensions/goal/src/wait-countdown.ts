@@ -1,46 +1,82 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
+interface CountdownRenderBinding {
+	requestRender: () => boolean;
+	token: symbol;
+}
+
+interface ActiveCountdown {
+	deadlineMs: number;
+	reviewAt: string;
+	timer: ReturnType<typeof setTimeout> | undefined;
+}
+
 export interface WaitCountdownRefresher {
+	bind(sessionId: string, reviewAt: string, requestRender: () => boolean): () => void;
 	clearAll(): void;
 	clearSession(sessionId: string): void;
 	start(ctx: ExtensionContext, reviewAt: string): void;
 }
 
 class WaitCountdownRefresherImpl implements WaitCountdownRefresher {
-	private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
+	private readonly activeCountdowns = new Map<string, ActiveCountdown>();
+	private readonly renderBindings = new Map<string, Map<string, CountdownRenderBinding>>();
+
+	bind(sessionId: string, reviewAt: string, requestRender: () => boolean): () => void {
+		const bindings = this.renderBindings.get(sessionId) ?? new Map<string, CountdownRenderBinding>();
+		const token = Symbol("goal-countdown-render");
+		bindings.set(reviewAt, { requestRender, token });
+		this.renderBindings.set(sessionId, bindings);
+		return () => {
+			const currentBindings = this.renderBindings.get(sessionId);
+			if (currentBindings?.get(reviewAt)?.token !== token) return;
+			currentBindings.delete(reviewAt);
+			if (currentBindings.size === 0) this.renderBindings.delete(sessionId);
+		};
+	}
 
 	clearAll(): void {
-		for (const timer of this.timers.values()) clearTimeout(timer);
-		this.timers.clear();
+		for (const countdown of this.activeCountdowns.values()) {
+			if (countdown.timer) clearTimeout(countdown.timer);
+		}
+		this.activeCountdowns.clear();
+		this.renderBindings.clear();
 	}
 
 	clearSession(sessionId: string): void {
-		const timer = this.timers.get(sessionId);
-		if (timer) clearTimeout(timer);
-		this.timers.delete(sessionId);
+		this.cancelCountdown(sessionId);
+		this.renderBindings.delete(sessionId);
 	}
 
 	start(ctx: ExtensionContext, reviewAt: string): void {
 		const sessionId = ctx.sessionManager.getSessionId();
-		this.clearSession(sessionId);
+		this.cancelCountdown(sessionId);
 		const deadlineMs = Date.parse(reviewAt);
 		if (!Number.isFinite(deadlineMs) || deadlineMs <= Date.now()) return;
-		this.scheduleNextRender(ctx, sessionId, deadlineMs);
+		const countdown: ActiveCountdown = { deadlineMs, reviewAt, timer: undefined };
+		this.activeCountdowns.set(sessionId, countdown);
+		this.scheduleNextRender(sessionId, countdown);
 	}
 
-	private scheduleNextRender(ctx: ExtensionContext, sessionId: string, deadlineMs: number): void {
+	private cancelCountdown(sessionId: string): void {
+		const countdown = this.activeCountdowns.get(sessionId);
+		if (countdown?.timer) clearTimeout(countdown.timer);
+		this.activeCountdowns.delete(sessionId);
+	}
+
+	private scheduleNextRender(sessionId: string, countdown: ActiveCountdown): void {
 		const now = Date.now();
-		const remainingMs = deadlineMs - now;
+		const remainingMs = countdown.deadlineMs - now;
 		if (remainingMs <= 0) return;
 		const remainingSeconds = Math.ceil(remainingMs / 1_000);
-		const nextChangeAt = deadlineMs - (remainingSeconds - 1) * 1_000;
-		const timer = setTimeout(() => {
-			this.timers.delete(sessionId);
-			ctx.ui.requestRender();
-			this.scheduleNextRender(ctx, sessionId, deadlineMs);
+		const nextChangeAt = countdown.deadlineMs - (remainingSeconds - 1) * 1_000;
+		countdown.timer = setTimeout(() => {
+			if (this.activeCountdowns.get(sessionId) !== countdown) return;
+			countdown.timer = undefined;
+			this.renderBindings.get(sessionId)?.get(countdown.reviewAt)?.requestRender();
+			this.scheduleNextRender(sessionId, countdown);
 		}, Math.max(1, nextChangeAt - now));
-		timer.unref?.();
-		this.timers.set(sessionId, timer);
+		countdown.timer.unref?.();
 	}
 }
 

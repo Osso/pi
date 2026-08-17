@@ -28,6 +28,7 @@
 - Changed assistant message start and visible text/thinking stream updates to render through a dedicated transcript-tail flow region without rerendering committed transcript or unrelated root entries; message completion consolidates the tail into chat and performs one normal render. User messages, tool layouts, history rebuilds, and other transcript mutations retain normal rendering.
 - Changed same-height status loader updates to redraw only the registered bottom status region when safe; stale layout, resize, overlays, or height changes retain the normal full-layout render path.
 - Changed goal status rendering to use its own footer line while keeping other extension statuses grouped.
+- Changed Supervisor wait countdown repainting to update only its rendered custom status entry; unsafe or offscreen ticks are skipped without requesting a generic root render.
 - Changed the built-in `end_turn` instruction to keep working while actionable task work remains and only end after completion, when progress requires user input, or when the user explicitly asks it to stop.
 - Increased the maximum `/goal` objective and production child prompt length from 4,000 to 10,000 characters.
 - Temporarily disabled the resident Architect service and removed the `ask_architect` built-in tool while retaining the implementation and service template for rework; default deployment now uses Pi-managed lazy Supervisor startup, cleans up Architect and Supervisor user units on Linux, skips systemd configuration on Darwin, rejects the systemd opt-in there, and leaves systemd opt-in via `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1`.
@@ -44,6 +45,7 @@
 
 ### Added
 
+- Added interactive custom-entry renderer options for session identity, scoped same-height redraw attempts without generic fallback, and component-lifetime cleanup registration.
 - Added automatic session naming for persisted unnamed main sessions in interactive TUI and RPC modes after the first completed substantive real-user exchange; naming runs asynchronously, manual names win, and failures leave sessions unnamed.
 - Added optional historical lifecycle tracing to `agent_viewer`: `storeSessionId` with `trace: true` returns persisted runtime ownership plus timestamp-ordered selected-agent, descendant admission/current-state, tree terminal-outbox, child `end_turn`, and parent `agent_start`/`agent_complete` evidence without mutating state.
 - Added `/multi-agent proactive|explicit` with proactive delegation as the default; the selected mode persists in session custom state across reload and branch restoration; `/effort ultra` selects maximum reasoning and proactive delegation without sending Responses multi-agent beta fields.

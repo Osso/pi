@@ -43,6 +43,7 @@ describe("interactive root compositor", () => {
 		const compositor = createInteractiveRootCompositor({
 			getHeight: () => terminalHeight,
 			...components,
+			onChatLayout: () => {},
 			onTranscriptTailLayout: (layout) => {
 				transcriptTailLayout = layout;
 			},
@@ -116,6 +117,7 @@ describe("interactive root compositor", () => {
 		const compositor = createInteractiveRootCompositor({
 			getHeight: () => terminal.rows,
 			...components,
+			onChatLayout: () => {},
 			onTranscriptTailLayout: () => {},
 			onStatusLayout: statusRegion.place,
 			onEditorLayout: () => {},
@@ -163,6 +165,7 @@ describe("interactive root compositor", () => {
 		const compositor = createInteractiveRootCompositor({
 			getHeight: () => terminal.rows,
 			...components,
+			onChatLayout: () => {},
 			onTranscriptTailLayout: transcriptTailRegion.place,
 			onStatusLayout: () => {},
 			onEditorLayout: () => {},

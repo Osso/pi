@@ -1652,7 +1652,7 @@ Register a custom TUI renderer for custom messages with your `customType`. Custo
 
 ### pi.registerEntryRenderer(customType, renderer)
 
-Register a custom TUI renderer for custom entries with your `customType`. Custom entries are created with `pi.appendEntry()` and do not participate in LLM context. The renderer handles matching entries appended during a live interactive session and matching entries restored from the active compaction-aware branch during transcript startup, resume, or rebuild.
+Register a custom TUI renderer for custom entries with your `customType`. Custom entries are created with `pi.appendEntry()` and do not participate in LLM context. The renderer handles matching entries appended during a live interactive session and matching entries restored from the active compaction-aware branch during transcript startup, resume, or rebuild. `options` always includes `expanded`; interactive mode may also provide `sessionId`, `requestRender()`, and `registerCleanup()`. `requestRender()` attempts a same-height redraw of only that entry and returns `false` without scheduling a generic render when the entry is offscreen or partial rendering is unsafe. Register cleanup for timers or other state bound to that component instance.
 
 ```typescript
 import { Box, Text } from "@earendil-works/pi-tui";

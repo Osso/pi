@@ -124,4 +124,21 @@ describe("TUI render region safety fallbacks", () => {
 			await stopFixture(fixture);
 		}
 	});
+
+	it("can reject an unsafe region redraw without scheduling a normal root render", async () => {
+		const fixture = await startFixture();
+		try {
+			const unrelatedRenderCount = fixture.unrelated.renderCount;
+			fixture.region.place({ row: 0, col: 1, width: 23, height: 2 });
+			fixture.descendant.lines = ["changed one", "changed two"];
+
+			assert.strictEqual(fixture.region.tryRender(), false);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+
+			assert.strictEqual(fixture.unrelated.renderCount, unrelatedRenderCount);
+			assert.strictEqual(fixture.terminal.getViewport()[0], "region one");
+		} finally {
+			await stopFixture(fixture);
+		}
+	});
 });

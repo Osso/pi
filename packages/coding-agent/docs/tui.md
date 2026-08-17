@@ -508,7 +508,7 @@ tui.addChild(root);
 tui.requestComponentRender(statusText);
 ```
 
-The partial path is used only while the recorded width, height, viewport, and layout generation remain current and no overlay or normal render is pending. Unsupported output, resize, stale placement, or a height change automatically requests a normal render. Regions currently cover complete terminal rows; arbitrary columns, overlapping regions, and cell-grid composition are not supported.
+The partial path is used only while the recorded width, height, viewport, and layout generation remain current and no overlay or normal render is pending. Unsupported output, resize, stale placement, or a height change automatically requests a normal render through `requestComponentRender()` or `region.requestRender()`. Call `region.tryRender()` when an unsafe attempt should return `false` without scheduling that fallback. Regions currently cover complete terminal rows; arbitrary columns, overlapping regions, and cell-grid composition are not supported.
 
 ## Invalidation and Theme Changes
 

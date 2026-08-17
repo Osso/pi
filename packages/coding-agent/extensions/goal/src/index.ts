@@ -47,8 +47,8 @@ import { type ManageGoalParams, registerManageGoalTool } from "./goal-tool.ts";
 import {
 	type AppendSupervisorStatus,
 	createSupervisorStatusController,
+	createSupervisorStatusEntryRenderer,
 	renderSupervisorMessage,
-	renderSupervisorStatusEntry,
 	sendSupervisorInstructions,
 	type SupervisorStatusController,
 } from "./rendering.ts";
@@ -729,7 +729,8 @@ function registerGoalCommand(pi: ExtensionAPI, runtime: GoalExtensionRuntime): v
 }
 
 export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOptions = {}): void {
-	const status = createSupervisorStatusController(pi, createWaitCountdownRefresher());
+	const countdownRefresher = createWaitCountdownRefresher();
+	const status = createSupervisorStatusController(pi, countdownRefresher);
 	const supervisorReview = withSupervisorReviewStatus(
 		status.append,
 		options.reviewGoal ?? reviewGoalWithResidentSupervisor,
@@ -738,7 +739,7 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 		{ loadActiveGoal: loadOrMigrateActiveGoal, saveGoal },
 		supervisorReview,
 	);
-	pi.registerEntryRenderer("supervisor-status", renderSupervisorStatusEntry);
+	pi.registerEntryRenderer("supervisor-status", createSupervisorStatusEntryRenderer(countdownRefresher));
 	pi.registerMessageRenderer("supervisor", renderSupervisorMessage);
 	const runtime = createGoalExtensionRuntime(pi, evidence.review, evidence, status);
 	registerManageGoal(pi, evidence.review, evidence, runtime);
