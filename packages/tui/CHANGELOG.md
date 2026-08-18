@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed padded text exceeding narrow terminal widths ([#8252](https://github.com/earendil-works/pi/issues/8252)).
 - Fixed `Input.setValue()` keeping a cursor offset inside an emoji of the new value, so the next typed character split the emoji into invalid UTF-16; the cursor now moves back to a grapheme boundary.
 - Fixed path completion listing quoted directories (names with spaces) after files.
 - Fixed `@` file autocomplete returning no results for queries containing regex metacharacters such as `[` or `(` ([#10972](https://github.com/earendil-works/pi/issues/10972))
