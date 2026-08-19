@@ -258,6 +258,8 @@
 
 ### Fixed
 
+- Fixed `/fork` and `/clone` dropping compaction-retained context, and producing a session that failed to reopen, when the compaction boundary was a label entry ([#8989](https://github.com/earendil-works/pi/issues/8989)).
+- Fixed branch summary entries recording the navigation destination in `fromId` instead of the pre-navigation source leaf.
 - Fixed prompt templates and skills that start with a `----` Markdown thematic break losing their first lines: frontmatter now requires whole `---` delimiter lines.
 - Fixed interactive built-in commands with arguments (`/name`, `/compact`, `/model`, `/cd`, `/export`, `/import`, `/login`) being sent to the model as a prompt when a newline or tab, not a space, followed the command name.
 - Fixed `send_agent_message` from a main-thread child to `toAgentId: "main"` without `toSessionId` failing with `target_not_found`; the direct parent edge to the main thread now delivers.
