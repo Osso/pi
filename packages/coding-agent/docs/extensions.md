@@ -28,7 +28,12 @@ Extensions are TypeScript modules that extend pi's behavior. They can subscribe 
 
 ## First-party secret provisioning
 
-The built-in `ask_secret` tool is interactive-TUI-only. It prompts for a username and masked password, then provisions them directly through the typed Secrets Broker browser-record path. The tool accepts only a record path and field selectors; credential values never appear in tool arguments, results, logs, environment variables, or the transcript. It fails closed outside interactive TUI mode and requires the caller to have the broker command and target record configured.
+The built-in `ask_secret` tool is interactive-TUI-only and approval-required. It supports two request shapes:
+
+- Browser credentials: `{ record, usernameSelector, passwordSelector }` prompts for a username and masked password, then provisions them through the typed Secrets Broker browser-record path.
+- Single-value file secret: `{ path, label }` validates an absolute destination, prompts once with masked input using `label`, and writes the raw value plus one trailing newline. Missing parent directories are created with mode `0700`; the destination is written with mode `0600` through a same-directory temporary file and atomic rename. Existing regular files may be overwritten; symbolic links and non-regular destinations are rejected.
+
+Both flows fail closed outside interactive TUI mode. Secret values never appear in tool arguments, results, logs, environment variables, or the persisted transcript. The file flow returns only destination metadata; after persistence, normal filesystem permissions and later tool authorization govern access to the file.
 
 See [examples/extensions/](../examples/extensions/) for working implementations.
 
