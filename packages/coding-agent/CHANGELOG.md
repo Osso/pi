@@ -18,6 +18,7 @@
 
 ### Changed
 
+- Changed standalone binary release builds to exact Bun 1.4.0.
 - Changed Claude-memory enrichment to allow 75-second subprocess execution and reap timed-out children after bounded SIGTERM/SIGKILL escalation.
 - Changed speculative background compaction failures to report one concise non-fatal diagnostic line while preserving foreground fallback.
 - Changed ready speculative background compaction caches to install at the safe `prepareNextTurnWithContext` boundary after current tool results and before the next provider request, combining the cached compacted prefix with all post-snapshot messages and tool results while retaining ancestry-based invalidation and synchronous fallback.
