@@ -153,7 +153,13 @@ describe("InteractiveMode compaction events", () => {
 			requestComponentRender: vi.fn(),
 			terminal: { setProgress: vi.fn() },
 		};
-		const workingLoader = new Loader(ui, (text) => text, (text) => text, "Thinking...", { frames: [] });
+		const workingLoader = new Loader(
+			ui,
+			(text) => text,
+			(text) => text,
+			"Thinking...",
+			{ frames: [] },
+		);
 		statusContainer.addChild(workingLoader);
 		const fakeThis = Object.assign(Object.create(InteractiveMode.prototype), {
 			isInitialized: true,
