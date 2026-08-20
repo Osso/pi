@@ -758,8 +758,13 @@ export class Markdown implements Component {
 	 * Delegates to wrapTextWithAnsi() so ANSI codes + long tokens are handled
 	 * consistently with the rest of the renderer.
 	 */
-	private wrapCellText(text: string, maxWidth: number): string[] {
-		return wrapTextWithAnsi(text, Math.max(1, maxWidth));
+	private wrapCellText(text: string, maxWidth: number, stylePrefix = ""): string[] {
+		const lines = wrapTextWithAnsi(text, Math.max(1, maxWidth));
+		return lines.map((line, index) => {
+			// Reset text styles after each non-final fragment, then restore the surrounding style before padding and borders.
+			const styleReset = index < lines.length - 1 ? "\x1b[22;23;24;25;27;28;29;39m" : "";
+			return `${line}${styleReset}${stylePrefix}`;
+		});
 	}
 
 	/**
@@ -915,7 +920,7 @@ export class Markdown implements Component {
 			const columnWidth = columnWidths[i];
 			if (columnWidth === undefined) throw new Error(`Missing table width at index ${i}`);
 			const text = this.renderInlineTokens(cell.tokens || [], styleContext);
-			return this.wrapCellText(text, columnWidth);
+			return this.wrapCellText(text, columnWidth, styleContext?.stylePrefix);
 		});
 		const headerLineCount = Math.max(...headerCellLines.map((c) => c.length));
 
@@ -942,7 +947,7 @@ export class Markdown implements Component {
 				const columnWidth = columnWidths[i];
 				if (columnWidth === undefined) throw new Error(`Missing table width at index ${i}`);
 				const text = this.renderInlineTokens(cell.tokens || [], styleContext);
-				return this.wrapCellText(text, columnWidth);
+				return this.wrapCellText(text, columnWidth, styleContext?.stylePrefix);
 			});
 			const rowLineCount = Math.max(...rowCellLines.map((c) => c.length));
 
