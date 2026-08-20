@@ -1,3 +1,4 @@
+import { Container, Loader } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import type { AgentSessionEvent } from "../src/core/agent-session.ts";
 import {
@@ -80,6 +81,8 @@ describe("InteractiveMode compaction events", () => {
 			flushCompactionQueue: vi.fn().mockResolvedValue(undefined),
 			promptActivitySources: new Set<string>(),
 			setPromptActivity: Reflect.get(InteractiveMode.prototype, "setPromptActivity"),
+			stopWorkingLoader: vi.fn(),
+			syncWorkingLoaderVisibility: vi.fn(),
 			showError: vi.fn(),
 			statusContainer: {
 				clear: vi.fn(),
@@ -137,6 +140,82 @@ describe("InteractiveMode compaction events", () => {
 			expect(editor.working).toBe(false);
 		} finally {
 			addedChildren[0]?.stop?.();
+			vi.useRealTimers();
+		}
+	});
+
+	test("restores the Thinking status when an overflow compaction resumes a streaming turn", async () => {
+		vi.useFakeTimers();
+		const editor = new WorkingEditor();
+		const statusContainer = new Container();
+		const ui = {
+			requestRender: vi.fn(),
+			requestComponentRender: vi.fn(),
+			terminal: { setProgress: vi.fn() },
+		};
+		const workingLoader = new Loader(ui, (text) => text, (text) => text, "Thinking...", { frames: [] });
+		statusContainer.addChild(workingLoader);
+		const fakeThis = Object.assign(Object.create(InteractiveMode.prototype), {
+			isInitialized: true,
+			footer: { invalidate: vi.fn() },
+			autoCompactionEscapeHandler: undefined as (() => void) | undefined,
+			autoCompactionLoader: undefined as Loader | undefined,
+			autoCompactionSourceHint: undefined,
+			defaultEditor: { onEscape: vi.fn() },
+			editor,
+			editorContainer: { children: [editor] },
+			flushCompactionQueue: vi.fn().mockResolvedValue(undefined),
+			promptActivitySources: new Set<string>(),
+			showError: vi.fn(),
+			showStatus: vi.fn(),
+			statusContainer,
+			runtimeHost: {
+				session: {
+					abortCompaction: vi.fn(),
+					isStreaming: true,
+					settingsManager: { getShowTerminalProgress: () => false },
+				},
+			},
+			ui,
+			workingIndicatorOptions: undefined,
+			workingVisible: true,
+			loadingAnimation: workingLoader,
+			workingLoaderView: "main" as const,
+			workingMessage: undefined,
+			currentWorkingDefaultMessage: "Thinking...",
+			defaultWorkingMessage: "Thinking...",
+			thinkingStartedAt: undefined,
+			thinkingTimer: undefined,
+			executingToolNames: new Map<string, string>(),
+			executingToolStartedAt: new Map<string, number>(),
+			childActivityTimer: undefined,
+			multiAgentStore: undefined,
+		});
+		const handleEvent = Reflect.get(InteractiveMode.prototype, "handleEvent") as (
+			this: typeof fakeThis,
+			event: AgentSessionEvent,
+		) => Promise<void>;
+
+		try {
+			await handleEvent.call(fakeThis, {
+				type: "compaction_start",
+				reason: "overflow",
+				sourceHint: { type: "local", provider: "openai-codex", model: "gpt-5.6-sol" },
+			});
+			await handleEvent.call(fakeThis, {
+				type: "compaction_end",
+				reason: "overflow",
+				result: undefined,
+				aborted: true,
+				willRetry: true,
+			});
+			await handleEvent.call(fakeThis, { type: "model_request_start" });
+
+			expect(editor.working).toBe(true);
+			expect(statusContainer.render(80).join("\n")).toContain("Thinking...");
+		} finally {
+			Reflect.get(InteractiveMode.prototype, "stopThinkingTimer").call(fakeThis);
+			Reflect.get(InteractiveMode.prototype, "stopWorkingLoader").call(fakeThis);
 			vi.useRealTimers();
 		}
 	});
@@ -271,6 +350,7 @@ describe("InteractiveMode compaction events", () => {
 			showStatus: vi.fn(),
 			flushCompactionQueue: vi.fn().mockResolvedValue(undefined),
 			setPromptActivity: vi.fn(),
+			syncWorkingLoaderVisibility: vi.fn(),
 			settingsManager: { getShowTerminalProgress: () => false },
 			ui: { requestRender: vi.fn(), terminal: { setProgress: vi.fn() } },
 		};

@@ -1,6 +1,6 @@
 # Thinking status indicator
 
-Interactive mode starts an elapsed-duration ticker at each model request. It updates the default `Thinking...` working label once per second until visible assistant output begins or the request ends.
+Interactive mode starts an elapsed-duration ticker at each model request. It updates the default `Thinking...` working label once per second until visible assistant output begins or the request ends. During in-turn compaction, temporary compaction status may replace the working row; when compaction ends while the main session remains streaming, the working status is restored and the prompt spinner remains active.
 
 Tool-wait messages take precedence while tools are active. Their live elapsed time updates through the footer's partial status region, not through recurring tool-card renders; completed cards retain final duration.
 

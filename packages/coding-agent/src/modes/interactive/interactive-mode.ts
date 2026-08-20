@@ -4481,6 +4481,7 @@ export class InteractiveMode {
 				this.defaultEditor.onEscape = () => {
 					this.session.abortCompaction();
 				};
+				this.stopWorkingLoader();
 				this.statusContainer.clear();
 				this.autoCompactionSourceHint = event.sourceHint;
 				const cancelHint = `(${keyText("app.interrupt")} to cancel)`;
@@ -4537,6 +4538,7 @@ export class InteractiveMode {
 					}
 				}
 				this.autoCompactionSourceHint = undefined;
+				this.syncWorkingLoaderVisibility();
 				void this.flushCompactionQueue({ willRetry: event.willRetry });
 				this.ui.requestRender();
 				break;
