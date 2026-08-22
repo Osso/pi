@@ -867,17 +867,17 @@ describe("goal extension", () => {
 					parentId: null,
 					timestamp: "2026-07-28T12:00:00.000Z",
 					customType: "supervisor-status",
-					data: { message: "Waiting: backfills advancing", reviewAt: "2026-07-28T12:05:00.000Z" },
+					data: { message: "Waiting: backfills advancing", reviewAt: "2026-07-28T12:15:00.000Z" },
 				},
 				{ expanded: false },
 				identityTheme,
 			);
 			if (!component) throw new Error("Supervisor status renderer returned no component");
 
-			expect(component.render(120).join("\n")).toContain("Next review in 5:00");
+			expect(component.render(120).join("\n")).toContain("Next review in 15:00");
 			vi.setSystemTime(new Date("2026-07-28T12:00:01.000Z"));
-			expect(component.render(120).join("\n")).toContain("Next review in 4:59");
-			vi.setSystemTime(new Date("2026-07-28T12:05:00.000Z"));
+			expect(component.render(120).join("\n")).toContain("Next review in 14:59");
+			vi.setSystemTime(new Date("2026-07-28T12:15:00.000Z"));
 			expect(component.render(120).join("\n")).toContain("Review due…");
 		} finally {
 			vi.useRealTimers();
@@ -1244,13 +1244,13 @@ describe("goal extension", () => {
 			expect(harness.callTool.mock.calls[1]?.[2]).toBeInstanceOf(AbortSignal);
 			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
 				message: "Waiting: child still running",
-				reviewAt: "2026-07-28T12:05:00.000Z",
+				reviewAt: "2026-07-28T12:15:00.000Z",
 			});
 			expect(reviewGoal).toHaveBeenCalledTimes(1);
 
 			finishWait?.();
 			await vi.waitFor(() => expect(reviewGoal).toHaveBeenCalledTimes(2));
-			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+			await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
 
 			expect(reviewGoal).toHaveBeenCalledTimes(2);
 			expect(harness.sendMessage.mock.calls.at(-1)?.[0]).toEqual({
@@ -1264,7 +1264,7 @@ describe("goal extension", () => {
 		}
 	});
 
-	it("ignores a late agent wake after the five-minute deadline starts re-review", async () => {
+	it("ignores a late agent wake after the fifteen-minute deadline starts re-review", async () => {
 		let harness: ReturnType<typeof createGoalHarness> | undefined;
 		vi.useFakeTimers();
 		try {
@@ -1294,7 +1294,7 @@ describe("goal extension", () => {
 			expect(reviewGoal).toHaveBeenCalledTimes(1);
 			expect(waitSignal).toBeInstanceOf(AbortSignal);
 
-			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+			await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
 			await vi.waitFor(() => expect(reviewGoal).toHaveBeenCalledTimes(2));
 			expect(waitSignal?.aborted).toBe(true);
 
@@ -1308,7 +1308,7 @@ describe("goal extension", () => {
 		}
 	});
 
-	it("persists a five-minute countdown for active-agent waits while retaining wait_agent wakeup", async () => {
+	it("persists a fifteen-minute countdown for active-agent waits while retaining wait_agent wakeup", async () => {
 		vi.useFakeTimers();
 		const reviewGoal = vi.fn<GoalSupervisorReview>().mockResolvedValueOnce({
 			kind: "wait",
@@ -1333,7 +1333,7 @@ describe("goal extension", () => {
 			expect(harness.callTool.mock.calls[1]?.[2]).toBeInstanceOf(AbortSignal);
 			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
 				message: "Waiting: child still running",
-				reviewAt: "2026-07-28T12:05:00.000Z",
+				reviewAt: "2026-07-28T12:15:00.000Z",
 			});
 
 			const renderer = harness.getSupervisorStatusRenderer();
@@ -1350,13 +1350,13 @@ describe("goal extension", () => {
 					parentId: null,
 					timestamp: "2026-07-28T12:00:00.000Z",
 					customType: "supervisor-status",
-					data: { message: "Waiting: child still running", reviewAt: "2026-07-28T12:05:00.000Z" },
+					data: { message: "Waiting: child still running", reviewAt: "2026-07-28T12:15:00.000Z" },
 				},
 				{ expanded: false },
 				identityTheme,
 			);
 			if (!component) throw new Error("Supervisor status renderer returned no component");
-			expect(component.render(120).join("\n")).toContain("Next review in 5:00");
+			expect(component.render(120).join("\n")).toContain("Next review in 15:00");
 		} finally {
 			await harness.runSessionShutdown();
 			vi.useRealTimers();
@@ -1463,7 +1463,7 @@ describe("goal extension", () => {
 		}
 	});
 
-	it("falls back to a five-minute review when agent discovery returns an error result", async () => {
+	it("falls back to a fifteen-minute review when agent discovery returns an error result", async () => {
 		vi.useFakeTimers();
 		try {
 			vi.setSystemTime(new Date("2026-07-28T12:00:00.000Z"));
@@ -1487,9 +1487,9 @@ describe("goal extension", () => {
 			});
 			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
 				message: "Waiting: agent state unavailable",
-				reviewAt: "2026-07-28T12:05:00.000Z",
+				reviewAt: "2026-07-28T12:15:00.000Z",
 			});
-			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+			await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
 
 			expect(reviewGoal).toHaveBeenCalledTimes(2);
 		} finally {
@@ -1524,10 +1524,10 @@ describe("goal extension", () => {
 			});
 			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
 				message: "Waiting: child running",
-				reviewAt: "2026-07-28T12:05:00.000Z",
+				reviewAt: "2026-07-28T12:15:00.000Z",
 			});
 
-			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+			await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
 
 			expect(reviewGoal).toHaveBeenCalledTimes(2);
 		} finally {
@@ -1562,7 +1562,7 @@ describe("goal extension", () => {
 			await harness.runSessionShutdown();
 			finishList?.();
 			await agentEnd;
-			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+			await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
 
 			expect(reviewGoal).toHaveBeenCalledTimes(1);
 		} finally {
@@ -1570,7 +1570,7 @@ describe("goal extension", () => {
 		}
 	});
 
-	it("re-reviews a wait decision after five minutes without generic countdown renders", async () => {
+	it("re-reviews a wait decision after fifteen minutes without generic countdown renders", async () => {
 		vi.useFakeTimers();
 		try {
 			vi.setSystemTime(new Date("2026-07-28T12:00:00.000Z"));
@@ -1585,7 +1585,7 @@ describe("goal extension", () => {
 			expect(reviewGoal).toHaveBeenCalledTimes(1);
 			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
 				message: "Waiting: retry later",
-				reviewAt: "2026-07-28T12:05:00.000Z",
+				reviewAt: "2026-07-28T12:15:00.000Z",
 			});
 
 			harness.appendEntry.mockClear();
@@ -1593,7 +1593,7 @@ describe("goal extension", () => {
 			await vi.advanceTimersByTimeAsync(1_000);
 			expect(harness.requestRender).not.toHaveBeenCalled();
 			expect(harness.appendEntry).not.toHaveBeenCalled();
-			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000 - 1_000);
+			await vi.advanceTimersByTimeAsync(15 * 60 * 1_000 - 1_000);
 
 			expect(reviewGoal).toHaveBeenCalledTimes(2);
 			expect(harness.sendMessage.mock.calls.at(-1)?.[0]).toEqual({
@@ -1624,12 +1624,12 @@ describe("goal extension", () => {
 					{
 						type: "custom",
 						customType: "supervisor-status",
-						data: { message: "Waiting: older", reviewAt: "2026-07-28T12:04:00.000Z" },
+						data: { message: "Waiting: older", reviewAt: "2026-07-28T12:14:00.000Z" },
 					},
 					{
 						type: "custom",
 						customType: "supervisor-status",
-						data: { message: "Waiting: latest", reviewAt: "2026-07-28T12:05:00.000Z" },
+						data: { message: "Waiting: latest", reviewAt: "2026-07-28T12:15:00.000Z" },
 					},
 				],
 				reviewGoal,
@@ -1641,7 +1641,7 @@ describe("goal extension", () => {
 			expect(harness.requestRender).not.toHaveBeenCalled();
 			expect(reviewGoal).not.toHaveBeenCalled();
 			expect(harness.callTool).not.toHaveBeenCalled();
-			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+			await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
 			expect(reviewGoal).not.toHaveBeenCalled();
 			expect(harness.callTool).not.toHaveBeenCalled();
 		} finally {
@@ -1659,7 +1659,7 @@ describe("goal extension", () => {
 			harness.requestRender.mockClear();
 
 			await harness.runInput("new user work");
-			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+			await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
 
 			expect(harness.requestRender).not.toHaveBeenCalled();
 			expect(reviewGoal).toHaveBeenCalledTimes(1);
@@ -1678,7 +1678,7 @@ describe("goal extension", () => {
 			harness.requestRender.mockClear();
 
 			await harness.runSessionShutdown();
-			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+			await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
 
 			expect(harness.requestRender).not.toHaveBeenCalled();
 			expect(reviewGoal).toHaveBeenCalledTimes(1);
@@ -1687,7 +1687,7 @@ describe("goal extension", () => {
 		}
 	});
 
-	it("discards a five-minute review canceled while Supervisor review is in flight", async () => {
+	it("discards a fifteen-minute review canceled while Supervisor review is in flight", async () => {
 		vi.useFakeTimers();
 		try {
 			let finishReview: ((decision: GoalSupervisorResponse) => void) | undefined;
@@ -1709,7 +1709,7 @@ describe("goal extension", () => {
 			await harness.runCommand("set cancel timed review");
 			harness.sendMessage.mockClear();
 			await harness.runAgentEnd();
-			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+			await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
 			await reviewStarted;
 			await harness.runInput("cancel timed review");
 			finishReview?.({ kind: "continue", reason: "stale", instructions: "Do stale timed work." });
@@ -1721,7 +1721,7 @@ describe("goal extension", () => {
 		}
 	});
 
-	it("cancels a five-minute review when manage_goal pauses the goal", async () => {
+	it("cancels a fifteen-minute review when manage_goal pauses the goal", async () => {
 		vi.useFakeTimers();
 		try {
 			const reviewGoal = vi.fn<GoalSupervisorReview>().mockResolvedValue({ kind: "wait", reason: "retry later" });
@@ -1729,7 +1729,7 @@ describe("goal extension", () => {
 			await harness.runCommand("set pause scheduled review");
 			await harness.runAgentEnd();
 			await harness.runPauseGoal("Pause requested during scheduled review");
-			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+			await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
 
 			expect(reviewGoal).toHaveBeenCalledTimes(1);
 		} finally {
@@ -1737,7 +1737,7 @@ describe("goal extension", () => {
 		}
 	});
 
-	it("cancels countdown redraw and five-minute review when /goal clears the goal", async () => {
+	it("cancels countdown redraw and fifteen-minute review when /goal clears the goal", async () => {
 		vi.useFakeTimers();
 		try {
 			const reviewGoal = vi.fn<GoalSupervisorReview>().mockResolvedValue({ kind: "wait", reason: "retry later" });
@@ -1746,7 +1746,7 @@ describe("goal extension", () => {
 			await harness.runAgentEnd();
 			harness.requestRender.mockClear();
 			await harness.runCommand("clear");
-			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+			await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
 
 			expect(reviewGoal).toHaveBeenCalledTimes(1);
 			expect(harness.requestRender).not.toHaveBeenCalled();
@@ -1755,7 +1755,7 @@ describe("goal extension", () => {
 		}
 	});
 
-	it("does not apply a five-minute review after the goal is replaced", async () => {
+	it("does not apply a fifteen-minute review after the goal is replaced", async () => {
 		vi.useFakeTimers();
 		try {
 			let finishReview: ((decision: GoalSupervisorResponse) => void) | undefined;
@@ -1771,7 +1771,7 @@ describe("goal extension", () => {
 			const harness = createGoalHarness(cwd, { reviewGoal });
 			await harness.runCommand("set original goal");
 			await harness.runAgentEnd();
-			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+			await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
 			await harness.runCommand("set replacement goal");
 			finishReview?.({ kind: "continue", reason: "stale", instructions: "Run stale work." });
 			await Promise.resolve();
@@ -1803,11 +1803,11 @@ describe("goal extension", () => {
 			expect(result?.content).toEqual([{ type: "text", text: "Goal remains active: child proof running" }]);
 			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
 				message: "Waiting: child proof running",
-				reviewAt: "2026-07-28T12:05:00.000Z",
+				reviewAt: "2026-07-28T12:15:00.000Z",
 			});
 			expect(harness.callTool).toHaveBeenCalledWith("list_agents", { parentId: "main" });
 
-			await vi.advanceTimersByTimeAsync(5 * 60 * 1_000);
+			await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
 			expect(reviewGoal).toHaveBeenNthCalledWith(
 				2,
 				expect.objectContaining({

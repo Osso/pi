@@ -6,7 +6,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 const PENDING_DECISION_RETRY_DELAY_MS = 1_000;
-const WAIT_REVIEW_DELAY_MS = 5 * 60 * 1_000;
+const WAIT_REVIEW_DELAY_MS = 15 * 60 * 1_000;
 
 type TerminalTurn = AgentEndEvent["messages"];
 

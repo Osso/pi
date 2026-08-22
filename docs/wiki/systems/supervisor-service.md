@@ -56,7 +56,7 @@ or circular work, or missing completion proof. `complete` marks the goal complet
 only after the full unfinished parent objective is proven. Bounded request
 objectives and progress reports are claims, not replacements for that parent
 objective; only an explicit user instruction may reset or narrow it.
-`wait` appends one durable Supervisor status with one absolute five-minute `reviewAt`
+`wait` appends one durable Supervisor status with one absolute fifteen-minute `reviewAt`
 deadline, regardless of whether agents are active. Active-agent mode starts a
 cancellable background `wait_agent`; agent completion reviews early, while deadline
 expiry cancels `wait_agent` and reviews. The first path wins, cancels the losing path,
