@@ -578,7 +578,8 @@ export class InteractiveMode {
 	// Shutdown state
 	private shutdownRequested = false;
 
-	// Extension UI state
+	// Selector UI state
+	private builtInSelector: Component | undefined = undefined;
 	private extensionSelector: ExtensionSelectorComponent | undefined = undefined;
 	private extensionInput: ExtensionInputComponent | undefined = undefined;
 	private extensionEditor: ExtensionEditorComponent | undefined = undefined;
@@ -3183,7 +3184,8 @@ export class InteractiveMode {
 	private registerGlobalInterruptInputHandler(): void {
 		this.unregisterInterruptInputHandler?.();
 		this.unregisterInterruptInputHandler = this.ui.addInputListener((data) => {
-			const selectorHandlesCancel = this.extensionSelector && this.keybindings.matches(data, "tui.select.cancel");
+			const hasActiveSelector = this.builtInSelector !== undefined || this.extensionSelector !== undefined;
+			const selectorHandlesCancel = hasActiveSelector && this.keybindings.matches(data, "tui.select.cancel");
 			const matchesInterrupt = this.keybindings.matches(data, "app.interrupt");
 			if (selectorHandlesCancel || !matchesInterrupt) return undefined;
 			if (this.session.cancelSupervisorReview?.() === true) {
@@ -5617,11 +5619,13 @@ export class InteractiveMode {
 	 */
 	private showSelector(create: (done: () => void) => { component: Component; focus: Component }): void {
 		const done = () => {
+			this.builtInSelector = undefined;
 			this.editorContainer.clear();
 			this.editorContainer.addChild(this.editor);
 			this.ui.setFocus(this.editor);
 		};
 		const { component, focus } = create(done);
+		this.builtInSelector = component;
 		this.editorContainer.clear();
 		this.editorContainer.addChild(component);
 		this.ui.setFocus(focus);

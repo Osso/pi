@@ -17,6 +17,7 @@ import { SessionManager } from "../src/core/session-manager.ts";
 import type { SourceInfo } from "../src/core/source-info.ts";
 import { AgentSelectionBannerComponent } from "../src/modes/interactive/components/agent-selection-banner.ts";
 import type { ExtensionSelectorComponent } from "../src/modes/interactive/components/extension-selector.ts";
+import { TreeSelectorComponent } from "../src/modes/interactive/components/tree-selector.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
@@ -170,6 +171,7 @@ interface InteractiveModeKeyHandlerInternals {
 	registerGlobalInterruptInputHandler(this: unknown): void;
 	showExtensionSelector(this: unknown, title: string, options: string[]): Promise<string | undefined>;
 	hideExtensionSelector(this: unknown): void;
+	showSelector(this: unknown, create: (done: () => void) => { component: Component; focus: Component }): void;
 	showAgentSwitcher(this: unknown): void;
 	openChildAgentView(this: unknown, agent: unknown): boolean;
 	renderInitialMessages(this: unknown): void;
@@ -1728,6 +1730,110 @@ describe("InteractiveMode key handlers", () => {
 
 		expect(result).toEqual({ consume: true });
 		expect(cancelStreamingAndSubmitQueuedMessages).toHaveBeenCalledTimes(1);
+	});
+
+	test("raw terminal escape closes the tree selector without interrupting a streaming turn", async () => {
+		const terminal = new VirtualTerminal(80, 24);
+		const ui = new TUI(terminal);
+		const editorContainer = new Container();
+		const editor = new TestFocusableComponent("EDITOR");
+		const sessionManager = SessionManager.inMemory("/repo");
+		sessionManager.appendMessage({ role: "user", content: "prompt", timestamp: 1 });
+		sessionManager.appendMessage(fauxAssistantMessage("response"));
+		const cancelStreamingAndSubmitQueuedMessages = vi.fn();
+		const fakeThis = {
+			builtInSelector: undefined as Component | undefined,
+			editor,
+			editorContainer,
+			extensionSelector: undefined as ExtensionSelectorComponent | undefined,
+			keybindings: {
+				matches: (data: string, action: string) =>
+					(action === "app.interrupt" || action === "tui.select.cancel") && data === "\x1b",
+			},
+			session: { isStreaming: true },
+			cancelStreamingAndSubmitQueuedMessages,
+			showError: vi.fn(),
+			ui,
+		};
+
+		editorContainer.addChild(editor);
+		ui.addChild(editorContainer);
+		ui.setFocus(editor);
+		interactiveModeKeyHandlers.registerGlobalInterruptInputHandler.call(fakeThis);
+		ui.start();
+		try {
+			interactiveModeKeyHandlers.showSelector.call(fakeThis, (done) => {
+				const selector = new TreeSelectorComponent(
+					sessionManager.getTree(),
+					sessionManager.getLeafId(),
+					terminal.rows,
+					vi.fn(),
+					done,
+				);
+				return { component: selector, focus: selector };
+			});
+
+			terminal.sendInput("\x1b");
+			await Promise.resolve();
+			await flushTui(ui, terminal);
+
+			expect(cancelStreamingAndSubmitQueuedMessages).not.toHaveBeenCalled();
+			expect(editor.focused).toBe(true);
+		} finally {
+			ui.stop();
+		}
+	});
+
+	test("a configured non-cancel interrupt still interrupts while the tree selector is open", async () => {
+		const terminal = new VirtualTerminal(80, 24);
+		const ui = new TUI(terminal);
+		const editorContainer = new Container();
+		const editor = new TestFocusableComponent("EDITOR");
+		const sessionManager = SessionManager.inMemory("/repo");
+		sessionManager.appendMessage({ role: "user", content: "prompt", timestamp: 1 });
+		sessionManager.appendMessage(fauxAssistantMessage("response"));
+		const cancelStreamingAndSubmitQueuedMessages = vi.fn();
+		const fakeThis = {
+			builtInSelector: undefined as Component | undefined,
+			editor,
+			editorContainer,
+			extensionSelector: undefined as ExtensionSelectorComponent | undefined,
+			keybindings: {
+				matches: (data: string, action: string) =>
+					(action === "app.interrupt" && data === "\x18") || (action === "tui.select.cancel" && data === "\x1b"),
+			},
+			session: { isStreaming: true },
+			cancelStreamingAndSubmitQueuedMessages,
+			showError: vi.fn(),
+			ui,
+		};
+
+		editorContainer.addChild(editor);
+		ui.addChild(editorContainer);
+		ui.setFocus(editor);
+		interactiveModeKeyHandlers.registerGlobalInterruptInputHandler.call(fakeThis);
+		ui.start();
+		try {
+			interactiveModeKeyHandlers.showSelector.call(fakeThis, (done) => {
+				const selector = new TreeSelectorComponent(
+					sessionManager.getTree(),
+					sessionManager.getLeafId(),
+					terminal.rows,
+					vi.fn(),
+					done,
+				);
+				return { component: selector, focus: selector };
+			});
+
+			terminal.sendInput("\x18");
+			await Promise.resolve();
+			await flushTui(ui, terminal);
+
+			expect(cancelStreamingAndSubmitQueuedMessages).toHaveBeenCalledTimes(1);
+			expect(editor.focused).toBe(false);
+		} finally {
+			ui.stop();
+		}
 	});
 
 	test("raw terminal escape closes the branch-summary selector without interrupting a streaming turn", async () => {
