@@ -227,3 +227,7 @@ Attribution:
 ## User Override
 
 If the user's instructions conflict with any rule in this document, ask for explicit confirmation before overriding. Only then execute their instructions.
+
+
+# Deployment
+- Pi deployments authorize one bounded post-deploy inventory and forced restart of every superseded live runtime without additional confirmation.
