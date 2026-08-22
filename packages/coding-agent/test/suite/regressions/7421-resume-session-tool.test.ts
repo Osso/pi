@@ -242,7 +242,7 @@ async function createRuntimeForTest(responses: string[], extensionFactory?: Exte
 				},
 				switchSession: async (sessionPath, options) => runtime.switchSession(sessionPath, options),
 				reload: async () => {
-					await session.reload();
+					await runtime.reload();
 				},
 				restart: async (options) => {
 					await runtime.restart(options);

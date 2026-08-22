@@ -7026,7 +7026,7 @@ export class InteractiveMode {
 		};
 
 		try {
-			await this.session.reload({ beforeSessionStart: restoreChatBeforeSessionStart });
+			await this.runtimeHost.reload({ beforeSessionStart: restoreChatBeforeSessionStart });
 			restoreChatBeforeSessionStart();
 			configureHttpDispatcher(this.settingsManager.getHttpIdleTimeoutMs());
 			this.keybindings.reload();

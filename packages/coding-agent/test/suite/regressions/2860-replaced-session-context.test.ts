@@ -121,7 +121,7 @@ describe("regression #2860: replaced session callbacks", () => {
 					},
 					switchSession: async (sessionPath, options) => runtime.switchSession(sessionPath, options),
 					reload: async () => {
-						await session.reload();
+						await runtime.reload();
 					},
 					restart: async (options) => {
 						await runtime.restart(options);

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -12,6 +13,7 @@ import {
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import type {
+	ExtensionContext,
 	ExtensionFactory,
 	SessionBeforeForkEvent,
 	SessionBeforeSwitchEvent,
@@ -25,70 +27,155 @@ type RecordedSessionEvent =
 	| SessionShutdownEvent
 	| SessionStartEvent;
 
-describe("AgentSessionRuntime session lifecycle events", () => {
-	const cleanups: Array<() => Promise<void> | void> = [];
+const sessionTimerIntervalMs = 1;
+const staleTimerObservationMs = 10;
 
-	afterEach(async () => {
-		while (cleanups.length > 0) {
-			await cleanups.pop()?.();
+type Deferred = { promise: Promise<void>; resolve(): void };
+
+interface ConcurrentLifecycleProbe {
+	startedSessionIds: string[];
+	shutdownSessionIds: string[];
+	staleTimerSessionIds: string[];
+	shutdownEntered: Deferred[];
+	shutdownRelease: Deferred[];
+	timers: Map<string, ReturnType<typeof setInterval>>;
+}
+
+function createDeferred(): Deferred {
+	let resolvePromise: (() => void) | undefined;
+	const promise = new Promise<void>((resolve) => {
+		resolvePromise = resolve;
+	});
+	return {
+		promise,
+		resolve: () => {
+			if (!resolvePromise) throw new Error("Deferred promise was not initialized");
+			resolvePromise();
+		},
+	};
+}
+
+function createConcurrentLifecycleProbe(): ConcurrentLifecycleProbe {
+	return {
+		startedSessionIds: [],
+		shutdownSessionIds: [],
+		staleTimerSessionIds: [],
+		shutdownEntered: [createDeferred(), createDeferred()],
+		shutdownRelease: [createDeferred(), createDeferred()],
+		timers: new Map(),
+	};
+}
+
+function isSessionContextStale(ctx: ExtensionContext): boolean {
+	try {
+		ctx.sessionManager.getSessionId();
+		return false;
+	} catch {
+		return true;
+	}
+}
+
+function stopSessionTimer(probe: ConcurrentLifecycleProbe, sessionId: string): void {
+	const timer = probe.timers.get(sessionId);
+	if (!timer) return;
+	clearInterval(timer);
+	probe.timers.delete(sessionId);
+}
+
+function observeSessionContext(probe: ConcurrentLifecycleProbe, ctx: ExtensionContext, sessionId: string): void {
+	if (!isSessionContextStale(ctx)) return;
+	probe.staleTimerSessionIds.push(sessionId);
+	stopSessionTimer(probe, sessionId);
+}
+
+function startSessionTimer(probe: ConcurrentLifecycleProbe, ctx: ExtensionContext): void {
+	const sessionId = ctx.sessionManager.getSessionId();
+	probe.startedSessionIds.push(sessionId);
+	probe.timers.set(
+		sessionId,
+		setInterval(() => observeSessionContext(probe, ctx, sessionId), sessionTimerIntervalMs),
+	);
+}
+
+async function recordSessionShutdown(probe: ConcurrentLifecycleProbe, ctx: ExtensionContext): Promise<void> {
+	const sessionId = ctx.sessionManager.getSessionId();
+	stopSessionTimer(probe, sessionId);
+	const callIndex = probe.shutdownSessionIds.push(sessionId) - 1;
+	probe.shutdownEntered[callIndex]?.resolve();
+	await probe.shutdownRelease[callIndex]?.promise;
+}
+
+function createConcurrentLifecycleExtension(probe: ConcurrentLifecycleProbe): ExtensionFactory {
+	return (pi) => {
+		pi.on("session_start", (_event, ctx) => startSessionTimer(probe, ctx));
+		pi.on("session_shutdown", (_event, ctx) => recordSessionShutdown(probe, ctx));
+	};
+}
+
+const cleanups: Array<() => Promise<void> | void> = [];
+
+afterEach(async () => {
+	while (cleanups.length > 0) {
+		await cleanups.pop()?.();
+	}
+});
+
+async function createRuntimeHost(extensionFactory: ExtensionFactory) {
+	const tempDir = join(tmpdir(), `pi-runtime-events-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+	mkdirSync(tempDir, { recursive: true });
+
+	const faux = registerFauxProvider();
+	faux.setResponses([fauxAssistantMessage("one"), fauxAssistantMessage("two"), fauxAssistantMessage("three")]);
+
+	const authStorage = AuthStorage.inMemory();
+	authStorage.setRuntimeApiKey(faux.getModel().provider, "faux-key");
+
+	const runtimeOptions = {
+		agentDir: tempDir,
+		authStorage,
+		model: faux.getModel(),
+		resourceLoaderOptions: {
+			extensionFactories: [extensionFactory],
+			noSkills: true,
+			noPromptTemplates: true,
+			noThemes: true,
+		},
+	};
+	const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
+		const services = await createAgentSessionServices({
+			...runtimeOptions,
+			cwd,
+		});
+		return {
+			...(await createAgentSessionFromServices({
+				services,
+				sessionManager,
+				sessionStartEvent,
+				model: faux.getModel(),
+			})),
+			services,
+			diagnostics: services.diagnostics,
+		};
+	};
+	const runtimeHost = await createAgentSessionRuntime(createRuntime, {
+		cwd: tempDir,
+		agentDir: tempDir,
+		sessionManager: SessionManager.create(tempDir, join(tempDir, "sessions")),
+	});
+	await runtimeHost.session.bindExtensions({});
+
+	cleanups.push(async () => {
+		await runtimeHost.dispose();
+		faux.unregister();
+		if (existsSync(tempDir)) {
+			rmSync(tempDir, { recursive: true, force: true });
 		}
 	});
 
-	async function createRuntimeHost(extensionFactory: ExtensionFactory) {
-		const tempDir = join(tmpdir(), `pi-runtime-events-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-		mkdirSync(tempDir, { recursive: true });
+	return { runtimeHost, faux };
+}
 
-		const faux = registerFauxProvider();
-		faux.setResponses([fauxAssistantMessage("one"), fauxAssistantMessage("two"), fauxAssistantMessage("three")]);
-
-		const authStorage = AuthStorage.inMemory();
-		authStorage.setRuntimeApiKey(faux.getModel().provider, "faux-key");
-
-		const runtimeOptions = {
-			agentDir: tempDir,
-			authStorage,
-			model: faux.getModel(),
-			resourceLoaderOptions: {
-				extensionFactories: [extensionFactory],
-				noSkills: true,
-				noPromptTemplates: true,
-				noThemes: true,
-			},
-		};
-		const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
-			const services = await createAgentSessionServices({
-				...runtimeOptions,
-				cwd,
-			});
-			return {
-				...(await createAgentSessionFromServices({
-					services,
-					sessionManager,
-					sessionStartEvent,
-					model: faux.getModel(),
-				})),
-				services,
-				diagnostics: services.diagnostics,
-			};
-		};
-		const runtimeHost = await createAgentSessionRuntime(createRuntime, {
-			cwd: tempDir,
-			agentDir: tempDir,
-			sessionManager: SessionManager.create(tempDir, join(tempDir, "sessions")),
-		});
-		await runtimeHost.session.bindExtensions({});
-
-		cleanups.push(async () => {
-			await runtimeHost.dispose();
-			faux.unregister();
-			if (existsSync(tempDir)) {
-				rmSync(tempDir, { recursive: true, force: true });
-			}
-		});
-
-		return { runtimeHost, faux };
-	}
-
+describe("AgentSessionRuntime session lifecycle events", () => {
 	it("emits session_before_switch and session_start for new and resume flows", async () => {
 		const events: RecordedSessionEvent[] = [];
 		const { runtimeHost } = await createRuntimeHost((pi) => {
@@ -182,7 +269,38 @@ describe("AgentSessionRuntime session lifecycle events", () => {
 		runtimeHost.setBeforeSessionInvalidate(undefined);
 		runtimeHost.setRebindSession(undefined);
 	});
+});
 
+describe("AgentSessionRuntime concurrent lifecycle transitions", () => {
+	it("serializes concurrent replacements so each session shuts down before invalidation", async () => {
+		const probe = createConcurrentLifecycleProbe();
+		const { runtimeHost } = await createRuntimeHost(createConcurrentLifecycleExtension(probe));
+		runtimeHost.setRebindSession(async (session) => {
+			await session.bindExtensions({});
+		});
+
+		const initialSessionId = runtimeHost.session.sessionId;
+		const firstReplacement = runtimeHost.newSession();
+		await probe.shutdownEntered[0].promise;
+
+		const secondReplacement = runtimeHost.newSession();
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		probe.shutdownRelease[0].resolve();
+		await firstReplacement;
+
+		const replacementSessionId = runtimeHost.session.sessionId;
+		await probe.shutdownEntered[1].promise;
+		probe.shutdownRelease[1].resolve();
+		await secondReplacement;
+		await delay(staleTimerObservationMs);
+
+		expect(probe.startedSessionIds).toHaveLength(3);
+		expect(probe.shutdownSessionIds.slice(0, 2)).toEqual([initialSessionId, replacementSessionId]);
+		expect(probe.staleTimerSessionIds).toEqual([]);
+	});
+});
+
+describe("AgentSessionRuntime fork lifecycle events", () => {
 	it("emits session_before_fork and session_start and honors cancellation", async () => {
 		const events: RecordedSessionEvent[] = [];
 		let cancelNextFork = false;

@@ -8,9 +8,10 @@ Session lifecycle hooks let an extension observe and, at key points, cancel or r
 
 ### Start / shutdown
 
-- [x] `session_start` fires with `reason` ∈ {startup, reload, new, resume, fork, restart}; for new/resume/fork/restart it carries `previousSessionFile` (`agent-session-runtime-events.test.ts:106,120,132` and `2860-replaced-session-context.test.ts` assert the emitted `reason`/`previousSessionFile`).
-- [x] `session_shutdown` fires before a runtime is torn down with `reason` ∈ {quit, reload, new, resume, fork, restart} and a `targetSessionFile` when caused by session replacement (`agent-session-runtime-events.test.ts:119,131` and `2860-replaced-session-context.test.ts`).
-- [x] On a `new`/`resume` switch the ordering is `session_before_switch` → `session_shutdown` → `session_start` (`agent-session-runtime-events.test.ts:118-120,130-132`).
+- [x] `session_start` fires with `reason` ∈ {startup, reload, new, resume, fork, restart}; for new/resume/fork/restart it carries `previousSessionFile` (`agent-session-runtime-events.test.ts` and `2860-replaced-session-context.test.ts` assert the emitted `reason`/`previousSessionFile`).
+- [x] `session_shutdown` fires before a runtime is torn down with `reason` ∈ {quit, reload, new, resume, fork, restart} and a `targetSessionFile` when caused by session replacement (`agent-session-runtime-events.test.ts` and `2860-replaced-session-context.test.ts`).
+- [x] On a `new`/`resume` switch the ordering is `session_before_switch` → `session_shutdown` → `session_start` (`agent-session-runtime-events.test.ts`).
+- [x] Runtime-owned replacement, reload, relocation, restart, import, and quit transitions serialize so each installed runtime receives its own `session_shutdown` before context invalidation, including concurrent requests and deferred tool-result relocation (`agent-session-runtime-events.test.ts` and `suite/change-working-directory-tool.test.ts`).
 
 ### Resume continuation request
 
@@ -53,12 +54,14 @@ Session lifecycle hooks let an extension observe and, at key points, cancel or r
 - `packages/coding-agent/src/core/extensions/types.ts:1125-1140` — `on(...)` overloads for `project_trust`, `resources_discover`, and all eight session events, with cancellable result types on the `before_*` variants.
 - `packages/coding-agent/src/core/extensions/types.ts:1467` — exposes `ExtensionAPI.requestResumeContinuation()`.
 - `packages/coding-agent/src/core/agent-session.ts:2038` — stores and consumes the one-shot continuation request.
-- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` and `packages/coding-agent/src/modes/rpc/rpc-mode.ts` — consume the request before restored-session continuation.
+- `packages/coding-agent/src/core/agent-session-runtime.ts` — owns and serializes session replacement, reload, relocation, restart, import, and quit transitions.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`, `packages/coding-agent/src/modes/print-mode.ts`, and `packages/coding-agent/src/modes/rpc/rpc-mode.ts` — route hosted reloads through the runtime owner; interactive and RPC modes also consume resume-continuation requests.
 - `packages/coding-agent/src/core/extensions/runner.ts:1046` — `emitResourcesDiscover`: aggregates skill/prompt/theme paths across extensions.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/agent-session-runtime-events.test.ts:92,118,130` — start/shutdown/switch ordering and `reason`/file fields for new/resume.
+- `packages/coding-agent/test/agent-session-runtime-events.test.ts` — start/shutdown/switch ordering, `reason`/file fields for new/resume, and concurrent replacement cleanup before context invalidation.
+- `packages/coding-agent/test/suite/change-working-directory-tool.test.ts` — deferred cwd relocation serialization and real-process restart behavior while a child remains live.
 - `packages/coding-agent/test/compaction-extensions.test.ts:55,153,159` — `session_before_compact` cancel and `session_compact` after-event.
 - `packages/coding-agent/test/suite/regressions/3688-tree-cancel-compacting.test.ts:18` — `session_before_tree` `{ cancel: true }` clears branch-summary state.
 - `packages/coding-agent/test/extensions-runner.test.ts:89` — `project_trust` event.

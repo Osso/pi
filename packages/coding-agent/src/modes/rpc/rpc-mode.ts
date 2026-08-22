@@ -352,7 +352,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 					return runtimeHost.switchSession(sessionPath, options);
 				},
 				reload: async () => {
-					await session.reload();
+					await runtimeHost.reload();
 				},
 				restart: async (options) => {
 					await runtimeHost.restart(options);

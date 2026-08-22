@@ -53,6 +53,11 @@ interface PreparedCwdRelocation {
 	sessionManager: SessionManager;
 }
 
+interface PreparedToolResultRelocation {
+	relocation: PreparedCwdRelocation;
+	releaseLifecycleTransition: () => void;
+}
+
 function extractUserMessageText(content: string | Array<{ type: string; text?: string }>): string {
 	if (typeof content === "string") {
 		return content;
@@ -81,7 +86,8 @@ export class AgentSessionRuntime {
 	private _diagnostics: AgentSessionRuntimeDiagnostic[];
 	private _modelFallbackMessage?: string;
 	private processRestarter: ProcessRestarter = restartCurrentProcess;
-	private preparedToolResultRelocation: PreparedCwdRelocation | undefined;
+	private lifecycleTransitionTail: Promise<void> = Promise.resolve();
+	private preparedToolResultRelocation: PreparedToolResultRelocation | undefined;
 
 	constructor(
 		_session: AgentSession,
@@ -142,6 +148,25 @@ export class AgentSessionRuntime {
 		this.processRestarter = processRestarter;
 	}
 
+	private async acquireLifecycleTransition(): Promise<() => void> {
+		const previousTransition = this.lifecycleTransitionTail;
+		let releaseTransition!: () => void;
+		this.lifecycleTransitionTail = new Promise<void>((resolveTransition) => {
+			releaseTransition = resolveTransition;
+		});
+		await previousTransition;
+		return releaseTransition;
+	}
+
+	private async runLifecycleTransition<T>(transition: () => Promise<T>): Promise<T> {
+		const releaseTransition = await this.acquireLifecycleTransition();
+		try {
+			return await transition();
+		} finally {
+			releaseTransition();
+		}
+	}
+
 	private async emitBeforeSwitch(
 		reason: "new" | "resume",
 		targetSessionFile?: string,
@@ -177,13 +202,14 @@ export class AgentSessionRuntime {
 	}
 
 	private async teardownCurrent(reason: SessionShutdownEvent["reason"], targetSessionFile?: string): Promise<void> {
-		await emitSessionShutdownEvent(this.session.extensionRunner, {
+		const session = this.session;
+		await emitSessionShutdownEvent(session.extensionRunner, {
 			type: "session_shutdown",
 			reason,
 			targetSessionFile,
 		});
 		this.beforeSessionInvalidate?.();
-		this.session.dispose();
+		session.dispose();
 	}
 
 	private bindSessionRuntimeActions(): void {
@@ -212,6 +238,17 @@ export class AgentSessionRuntime {
 	}
 
 	async switchSession(
+		sessionPath: string,
+		options?: {
+			cwdOverride?: string;
+			withSession?: (ctx: ReplacedSessionContext) => Promise<void>;
+			projectTrustContextFactory?: (cwd: string) => ProjectTrustContext;
+		},
+	): Promise<{ cancelled: boolean }> {
+		return this.runLifecycleTransition(() => this.switchSessionUnlocked(sessionPath, options));
+	}
+
+	private async switchSessionUnlocked(
 		sessionPath: string,
 		options?: {
 			cwdOverride?: string;
@@ -292,23 +329,50 @@ export class AgentSessionRuntime {
 		if (this.preparedToolResultRelocation) {
 			throw new Error("A tool-result working-directory relocation is already prepared");
 		}
-		this.preparedToolResultRelocation = this.prepareRelocation(targetCwd);
+
+		const releaseLifecycleTransition = await this.acquireLifecycleTransition();
+		try {
+			if (this.preparedToolResultRelocation) {
+				throw new Error("A tool-result working-directory relocation is already prepared");
+			}
+			this.preparedToolResultRelocation = {
+				relocation: this.prepareRelocation(targetCwd),
+				releaseLifecycleTransition,
+			};
+		} catch (error) {
+			releaseLifecycleTransition();
+			throw error;
+		}
 	}
 
 	private async activateToolResultRelocation(): Promise<void> {
 		const prepared = this.preparedToolResultRelocation;
 		if (!prepared) return;
 		this.preparedToolResultRelocation = undefined;
-		await this.activateRelocation(prepared);
+		try {
+			await this.activateRelocation(prepared.relocation);
+		} finally {
+			prepared.releaseLifecycleTransition();
+		}
 		await this.session.continue();
 	}
 
 	async relocate(targetCwd: string, options?: { projectTrustContext?: ProjectTrustContext }): Promise<void> {
-		const prepared = this.prepareRelocation(targetCwd, options?.projectTrustContext);
-		await this.activateRelocation(prepared);
+		return this.runLifecycleTransition(async () => {
+			const prepared = this.prepareRelocation(targetCwd, options?.projectTrustContext);
+			await this.activateRelocation(prepared);
+		});
+	}
+
+	async reload(options?: { beforeSessionStart?: () => void | Promise<void> }): Promise<void> {
+		return this.runLifecycleTransition(() => this.session.reload(options));
 	}
 
 	async restart(options?: { notice?: string; process?: boolean }): Promise<void> {
+		return this.runLifecycleTransition(() => this.restartUnlocked(options));
+	}
+
+	private async restartUnlocked(options?: { notice?: string; process?: boolean }): Promise<void> {
 		const previousSessionFile = this.session.sessionFile;
 		const currentSessionManager = this.session.sessionManager;
 		const currentSessionFile = currentSessionManager.getSessionFile();
@@ -354,6 +418,14 @@ export class AgentSessionRuntime {
 		setup?: (sessionManager: SessionManager) => Promise<void>;
 		withSession?: (ctx: ReplacedSessionContext) => Promise<void>;
 	}): Promise<{ cancelled: boolean }> {
+		return this.runLifecycleTransition(() => this.newSessionUnlocked(options));
+	}
+
+	private async newSessionUnlocked(options?: {
+		parentSession?: string;
+		setup?: (sessionManager: SessionManager) => Promise<void>;
+		withSession?: (ctx: ReplacedSessionContext) => Promise<void>;
+	}): Promise<{ cancelled: boolean }> {
 		const beforeResult = await this.emitBeforeSwitch("new");
 		if (beforeResult.cancelled) {
 			return beforeResult;
@@ -386,6 +458,13 @@ export class AgentSessionRuntime {
 	}
 
 	async fork(
+		entryId: string,
+		options?: { position?: "before" | "at"; withSession?: (ctx: ReplacedSessionContext) => Promise<void> },
+	): Promise<{ cancelled: boolean; selectedText?: string }> {
+		return this.runLifecycleTransition(() => this.forkUnlocked(entryId, options));
+	}
+
+	private async forkUnlocked(
 		entryId: string,
 		options?: { position?: "before" | "at"; withSession?: (ctx: ReplacedSessionContext) => Promise<void> },
 	): Promise<{ cancelled: boolean; selectedText?: string }> {
@@ -480,6 +559,10 @@ export class AgentSessionRuntime {
 	 * @throws {MissingSessionCwdError} When the imported session cwd cannot be resolved and no override is provided.
 	 */
 	async importFromJsonl(inputPath: string, cwdOverride?: string): Promise<{ cancelled: boolean }> {
+		return this.runLifecycleTransition(() => this.importFromJsonlUnlocked(inputPath, cwdOverride));
+	}
+
+	private async importFromJsonlUnlocked(inputPath: string, cwdOverride?: string): Promise<{ cancelled: boolean }> {
 		const resolvedPath = resolvePath(inputPath);
 		if (!existsSync(resolvedPath)) {
 			throw new SessionImportFileNotFoundError(resolvedPath);
@@ -517,12 +600,7 @@ export class AgentSessionRuntime {
 	}
 
 	async dispose(): Promise<void> {
-		await emitSessionShutdownEvent(this.session.extensionRunner, {
-			type: "session_shutdown",
-			reason: "quit",
-		});
-		this.beforeSessionInvalidate?.();
-		this.session.dispose();
+		return this.runLifecycleTransition(() => this.teardownCurrent("quit"));
 	}
 }
 

@@ -148,6 +148,7 @@
 
 ### Fixed
 
+- Fixed concurrent session lifecycle transitions disposing a replacement runtime without its own `session_shutdown`, which could leave recurring loop timers reading stale extension context; runtime-owned replacement, reload, relocation, restart, import, and quit transitions now serialize, including deferred cwd relocation.
 - Fixed in-turn compaction dropping the main working status; streaming sessions now restore `Thinking...` while the prompt spinner remains active after compaction ends.
 - Fixed child cancellation remaining stuck in `cancelling` when a detached descendant terminalized out of process, including recovery after `restart_self` supersedes the prior same-PID runtime incarnation.
 - Fixed tool gate, approval-review, and interactive approval waits consuming the 15-minute model-thinking deadline; the deadline now clears before those waits while post-tool model phases still receive a fresh deadline.

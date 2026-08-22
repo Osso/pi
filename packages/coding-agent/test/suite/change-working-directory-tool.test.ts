@@ -109,7 +109,7 @@ async function createRuntimeForTest(extensionFactory?: (pi: ExtensionAPI) => voi
 			},
 			switchSession: async (sessionPath, options) => runtime.switchSession(sessionPath, options),
 			reload: async () => {
-				await session.reload();
+				await runtime.reload();
 			},
 			restart: async (options) => {
 				await runtime.restart(options);
@@ -375,6 +375,37 @@ describe("change_working_directory first-party tool", () => {
 			);
 		expect(persistedResult).toBeDefined();
 	});
+
+	it("finishes deferred relocation before a concurrent session replacement", async () => {
+		let nextRuntimeInstance = 0;
+		const shutdownRuntimeInstances: number[] = [];
+		const { runtime, tempDir } = await createRuntimeForTest((pi) => {
+			const runtimeInstance = ++nextRuntimeInstance;
+			pi.on("session_shutdown", () => {
+				shutdownRuntimeInstances.push(runtimeInstance);
+			});
+		});
+		const targetCwd = join(tempDir, "serialized-relocation-target");
+		mkdirSync(targetCwd);
+		const toolCallId = "serialized-change-cwd";
+		const runner = runtime.session.extensionRunner;
+		await getChangeWorkingDirectoryTool(runtime).execute(
+			toolCallId,
+			{ path: targetCwd },
+			undefined,
+			undefined,
+			runner.createContext(),
+		);
+		await runner.deliverToolResultRelocation(toolCallId);
+
+		const sessionReplacement = runtime.newSession();
+		const relocation = runner.activateToolResultRelocation();
+		await Promise.all([relocation, sessionReplacement]);
+
+		expect(shutdownRuntimeInstances).toEqual([1, 2]);
+		expect(nextRuntimeInstance).toBe(3);
+		expect(runtime.cwd).toBe(targetCwd);
+	});
 });
 
 describe("change_working_directory real-process lifecycle", () => {
@@ -547,7 +578,9 @@ describe("change_working_directory process restart", () => {
 			);
 
 			await agent.send({ type: "prompt", message: "Change working directory" });
-			const changeRequest = await agent.waitForLlmRequest();
+			const changeRequest = await agent.waitForLlmRequest((request) =>
+				request.userMessages.includes("Change working directory"),
+			);
 			agent.respondToLlmRequest(
 				changeRequest.id,
 				fauxAssistantMessage(
@@ -564,7 +597,10 @@ describe("change_working_directory process restart", () => {
 			);
 
 			const settledRequest = await agent.waitForLlmRequest(
-				(request) => request.agentId === null && request.id !== changeRequest.id,
+				(request) =>
+					request.agentId === null &&
+					request.id !== changeRequest.id &&
+					request.userMessages.includes("Change working directory"),
 			);
 			agent.respondToLlmRequest(settledRequest.id, fauxCompletedAssistantMessage("replacement runtime settled"));
 			await agent.waitForSessionEntry(
@@ -584,7 +620,9 @@ describe("change_working_directory process restart", () => {
 			expect(restoredChildRequest.userMessages).toContain("Remain live through cwd relocation and restart");
 
 			await agent.send({ type: "prompt", message: "Read restart-marker.txt" });
-			const readRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+			const readRequest = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.userMessages.includes("Read restart-marker.txt"),
+			);
 			agent.respondToLlmRequest(
 				readRequest.id,
 				fauxAssistantMessage(
