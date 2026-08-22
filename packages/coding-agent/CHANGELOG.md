@@ -520,6 +520,7 @@
 - Fixed speculative compaction waiting until `agent_end` to notice long tool-heavy turns crossing 70% context; persisted assistant tool-call responses now start cache generation during the active turn so the ready result is consumed at the existing safe end without a second compaction request.
 - Fixed new-turn user messages waiting for slow extension preflight before appearing in the interactive transcript; the display now uses the authoritative transformed message once prepared, reconciles the later message event without duplication, and cleans up safely across transcript rebuilds and child-agent views.
 - Fixed disabled reasoning for Gemini 3.7 Flash to use LOW instead of the unsupported MINIMAL thinking level on Google AI Studio and Google Vertex.
+- Fixed Escape interrupting an active model turn while the built-in tree selector is open; Escape now closes the selector, while configured non-cancel interrupt bindings still interrupt.
 
 ### Removed
 
