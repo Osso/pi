@@ -672,6 +672,8 @@ function parseSessionEntryLine(line: string): FileEntry | null {
 interface ReverseSessionScan {
 	allEntries: SessionEntry[];
 	activePath: SessionEntry[];
+	/** Session-info entries on the active chain older than the compaction cutoff, newest first. */
+	preCutoffSessionInfos: SessionEntry[];
 	isReadingLeaf: boolean;
 	requiredParentId: string | null;
 	latestCompaction: CompactionEntry | undefined;
@@ -699,6 +701,7 @@ function createReverseSessionScan(): ReverseSessionScan {
 	return {
 		allEntries: [],
 		activePath: [],
+		preCutoffSessionInfos: [],
 		isReadingLeaf: true,
 		requiredParentId: null,
 		latestCompaction: undefined,
@@ -738,6 +741,10 @@ function scanSessionEntryReverse(scan: ReverseSessionScan, entry: FileEntry): bo
 	scan.isReadingLeaf = false;
 	if (!scan.foundFirstKeptEntry) {
 		scan.activePath.push(entry);
+	} else if (entry.type === "session_info") {
+		// Session metadata (display names) must survive compaction: retain entries the
+		// cutoff drops so getSessionName() still sees the latest name after a restart.
+		scan.preCutoffSessionInfos.push(entry);
 	}
 	scan.requiredParentId = entry.parentId;
 	if (!scan.latestCompaction && entry.type === "compaction") {
@@ -754,7 +761,11 @@ function scanSessionEntryReverse(scan: ReverseSessionScan, entry: FileEntry): bo
 }
 
 function loadedActiveSlice(scan: ReverseSessionScan): LoadedSessionEntries {
-	return { entries: scan.activePath.reverse(), precedingCwd: scan.precedingCwd };
+	// Pre-cutoff session-info entries are older than everything in the active path;
+	// both lists were collected newest-first, so reversing each keeps chronological order.
+	const preCutoffInfos = scan.preCutoffSessionInfos.slice().reverse();
+	const activePath = scan.activePath.slice().reverse();
+	return { entries: [...preCutoffInfos, ...activePath], precedingCwd: scan.precedingCwd };
 }
 
 function scanCompleteReverseLines(scan: ReverseSessionScan, pending: Buffer, filePath: string): ReverseLineScanResult {

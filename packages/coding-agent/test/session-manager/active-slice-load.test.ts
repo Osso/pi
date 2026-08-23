@@ -87,6 +87,57 @@ describe("active slice session loading", () => {
 		expect(totalBytesRead).toBeLessThan(Buffer.byteLength(content) / 2);
 	});
 
+	it("keeps the session name from the summarized prefix across compaction", () => {
+		const file = join(tempDir, "named-compacted.jsonl");
+		const lines = [
+			JSON.stringify({
+				type: "session",
+				version: 3,
+				id: "session-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				cwd: "/tmp",
+			}),
+			JSON.stringify(messageEntry("old-1", null, "old")),
+			JSON.stringify({
+				type: "session_info",
+				id: "name-old",
+				parentId: "old-1",
+				timestamp: "2025-01-01T00:00:01Z",
+				name: "Old Name",
+			}),
+			JSON.stringify({
+				type: "session_info",
+				id: "name-new",
+				parentId: "name-old",
+				timestamp: "2025-01-01T00:00:02Z",
+				name: "Current Name",
+			}),
+			JSON.stringify(messageEntry("kept-1", "name-new", "kept")),
+			JSON.stringify({
+				type: "compaction",
+				id: "compaction-1",
+				parentId: "kept-1",
+				timestamp: "2025-01-01T00:00:03Z",
+				summary: "summary",
+				firstKeptEntryId: "kept-1",
+				tokensBefore: 1000,
+			}),
+			JSON.stringify(messageEntry("after-1", "compaction-1", "after")),
+		];
+		writeFileSync(file, `${lines.join("\n")}\n`);
+
+		const session = SessionManager.open(file, tempDir);
+
+		expect(session.getSessionName()).toBe("Current Name");
+		expect(session.getEntries().map((entry) => entry.id)).toEqual([
+			"name-old",
+			"name-new",
+			"kept-1",
+			"compaction-1",
+			"after-1",
+		]);
+	});
+
 	it("loads the active slice when a reverse-read chunk begins at a newline", () => {
 		const file = join(tempDir, "newline-boundary.jsonl");
 		const header = {
