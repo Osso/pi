@@ -38,7 +38,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
   live session health row and signals its PID with `SIGHUP`. The send subcommand
   treats `-h`/`--help` as a help request: it prints usage to stdout, exits 0, and
   enqueues nothing.
-- [x] Store named-session metadata in the control DB.
+- [x] Store each session display name only in `session_metadata.name`. Schema version 15 runs under lifecycle quiescence, normalizes matching legacy `named_sessions.name` values into metadata, gives legacy values precedence when both stores diverge, discards orphan legacy rows, and drops `named_sessions`. `NULL` means never named and remains autoname-eligible; `''` means explicitly cleared and blocks autonaming; a nonempty value is the current name. New name changes update only metadata; JSONL `session_info` entries remain parseable historical records but are ignored and never newly written.
 - [x] Store the current session cwd, model provider/model ID, and thinking level in the
       session metadata row. Resume and restart treat these values as authoritative; ordinary
       metadata snapshots preserve them when callers update unrelated fields, and model/thinking
@@ -205,11 +205,14 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
   history is empty. Legacy rows are trimmed and adjacent duplicates are removed read-only; blank input
   returns without reserving the writer, and nonblank rows use one conditional bulk insert so a concurrent
   winner leaves the existing history unchanged.
-- [x] `/name <name>` names the current session and `/unname` removes that name.
+- [x] `/name <name>` names the current session and `/unname` stores an explicit clear in
+  `session_metadata.name`; the clear survives restart and blocks automatic renaming.
 - [x] Session restore lists show named sessions first in Current Folder and All
   scopes, including threaded restore mode; Archived scope preserves recent
   ordering; all scopes display session names and support clearing a selected
   session name from rename mode with an empty value.
+- [x] Copied imports and forked/new sessions do not inherit the source session name;
+  only an explicit rename stores a name for the new session.
 - [x] On SIGHUP, restart the interactive process so startup can consume the
   control DB incoming message.
 
@@ -243,6 +246,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/session-control-db.test.ts`
+- `packages/coding-agent/test/session-name-schema-migration.test.ts`
+- `packages/coding-agent/test/session-manager/active-slice-load.test.ts`
+- `packages/coding-agent/test/startup-session-name.test.ts`
+- `packages/coding-agent/test/suite/regressions/3686-session-name-event.test.ts`
 - `packages/coding-agent/test/supervisor-request-repository.test.ts` — pending/claimed cancellation, claim exclusion, and late-completion fencing.
 - `packages/coding-agent/test/control-command.test.ts`
 - `packages/coding-agent/test/custom-editor-history.test.ts`

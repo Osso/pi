@@ -18,7 +18,8 @@
 
 ### Changed
 
-- Changed session autonaming to name any persisted unnamed main session after its first real-user agent turn in TUI/RPC modes with a 2–4 word conversation summary, regardless of empty, aborted, or failed assistant responses, removing the single-exchange and completed-response gates.
+- Changed session display names to persist only in `session_metadata.name`: schema v15 normalizes matching legacy `named_sessions` values under lifecycle quiescence, gives legacy values precedence, discards orphan rows, and drops the duplicate table; `NULL` means never named, `''` means explicitly cleared, and nonempty values are current names; historical JSONL `session_info` entries remain parseable but are ignored and never newly written; copied imports and forks do not inherit names.
+- Changed session autonaming to name persisted never-named main sessions after the first real-user agent turn in TUI/RPC modes with a 2–4 word conversation summary, regardless of empty, aborted, or failed assistant responses; extension-only `agent_end` events cannot reuse historical branch messages, and explicit `/unname` remains cleared across restart.
 - Changed standalone binary release builds to exact Bun 1.4.0.
 - Changed Claude-memory enrichment to allow 75-second subprocess execution and reap timed-out children after bounded SIGTERM/SIGKILL escalation.
 - Changed speculative background compaction failures to report one concise non-fatal diagnostic line while preserving foreground fallback.
@@ -49,7 +50,7 @@
 ### Added
 
 - Added interactive custom-entry renderer options for session identity, scoped same-height redraw attempts without generic fallback, and component-lifetime cleanup registration.
-- Added automatic session naming for persisted unnamed main sessions in interactive TUI and RPC modes after the first completed substantive real-user exchange; naming runs asynchronously, manual names win, and failures leave sessions unnamed.
+- Added automatic session naming for persisted never-named main sessions in interactive TUI and RPC modes after a real-user agent turn; naming runs asynchronously, manual names win, and failures leave sessions unnamed.
 - Added optional historical lifecycle tracing to `agent_viewer`: `storeSessionId` with `trace: true` returns persisted runtime ownership plus timestamp-ordered selected-agent, descendant admission/current-state, tree terminal-outbox, child `end_turn`, and parent `agent_start`/`agent_complete` evidence without mutating state.
 - Added `/multi-agent proactive|explicit` with proactive delegation as the default; the selected mode persists in session custom state across reload and branch restoration; `/effort ultra` selects maximum reasoning and proactive delegation without sending Responses multi-agent beta fields.
 - Added first-party `ask_secret` for interactive-TUI-only, approval-required masked secret entry: existing browser credential provisioning remains available, and single-value requests can persist a raw secret file atomically without returning the value to the model.

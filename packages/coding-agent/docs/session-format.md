@@ -290,15 +290,15 @@ User-defined bookmark/marker on an entry.
 
 Set `label` to `undefined` to clear a label.
 
-### SessionInfoEntry
+### SessionInfoEntry (legacy)
 
-Session metadata (e.g., user-defined display name). Set via `/name`, `--name` / `-n`, or `pi.setSessionName()` in extensions.
+Older transcripts may contain `session_info` display-name entries:
 
 ```json
 {"type":"session_info","id":"k1l2m3n4","parentId":"j0k1l2m3","timestamp":"2024-12-03T14:35:00.000Z","name":"Refactor auth module"}
 ```
 
-The session name is displayed in the session selector (`/resume`) instead of the first message when set.
+Current runtimes keep these entries parseable but ignore them as session-name authority and never newly write them. Display names persist only in the control database's `session_metadata.name` column: `NULL` means never named, `''` means explicitly cleared, and a nonempty value is the current name. Restart and compaction use this SQLite value; copied imports and forks start without inheriting the source name unless explicitly renamed.
 
 ## Tree Structure
 
@@ -413,7 +413,6 @@ Key methods for working with sessions programmatically.
 - `appendModelChange(provider, modelId)` - Record model change
 - `appendCompaction(summary, firstKeptEntryId, tokensBefore, details?, fromHook?)` - Add compaction
 - `appendCustomEntry(customType, data?)` - Extension state (not in context)
-- `appendSessionInfo(name)` - Set session display name
 - `appendCustomMessageEntry(customType, content, display, details?)` - Extension message (in context)
 - `appendLabelChange(targetId, label)` - Set/clear label
 
@@ -434,7 +433,8 @@ Key methods for working with sessions programmatically.
 - `buildSessionContext()` - Get messages, thinkingLevel, and model for LLM
 - `getEntries()` - Loaded entries excluding the header (the retained active slice for compacted current-version sessions)
 - `getHeader()` - Session header metadata
-- `getSessionName()` - Get display name from latest session_info entry
+- `setSessionName(name?)` - Set or explicitly clear the name and persist it to `session_metadata.name` when the session uses the control DB
+- `getSessionName()` - Get the current SQLite-hydrated display name
 - `getCwd()` - Working directory
 - `getSessionDir()` - Session storage directory
 - `getSessionId()` - Session UUID
