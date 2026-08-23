@@ -21,7 +21,7 @@ Session autonaming is a default first-party extension that gives persisted never
 
 ### Manual control and failure
 
-- [x] A manual `/name` or `/unname` during title generation wins over the generated title; `/unname` stores `session_metadata.name = ''`, remains cleared after restart, and blocks later autonaming.
+- [x] A manual `/name`, `/unname`, or active-session selector rename/clear during title generation wins over the generated title; active-session changes emit `session_info_changed`, and `/unname` stores `session_metadata.name = ''`, remains cleared after restart, and blocks later autonaming.
 - [x] A title-generation failure leaves the session unnamed.
 
 ## How it works

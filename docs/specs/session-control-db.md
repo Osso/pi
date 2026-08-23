@@ -38,7 +38,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
   live session health row and signals its PID with `SIGHUP`. The send subcommand
   treats `-h`/`--help` as a help request: it prints usage to stdout, exits 0, and
   enqueues nothing.
-- [x] Store each session display name only in `session_metadata.name`. The v14→v15 control-DB migration runs under lifecycle quiescence, normalizes legacy `named_sessions.name` values, applies them only to matching `session_metadata` rows, gives legacy values precedence when both stores diverge, discards orphan legacy rows, and drops `named_sessions`. `NULL` means never named and remains autoname-eligible; `''` means explicitly cleared and blocks autonaming; a nonempty value is the current name. New name changes update only metadata; JSONL `session_info` entries remain parseable historical records but are ignored and never newly written.
+- [x] Store each session display name only in `session_metadata.name`. The v14→v15 control-DB migration runs under lifecycle quiescence, normalizes legacy `named_sessions.name` values, applies them only to matching `session_metadata` rows, gives legacy values precedence when both stores diverge, discards orphan legacy rows, and drops `named_sessions`. `NULL` means never named and remains autoname-eligible; `''` means explicitly cleared and blocks autonaming; a nonempty value is the current name. Name persistence uses only metadata; active-session rename and clear operations also update runtime state and emit `session_info_changed`; JSONL `session_info` entries remain parseable historical records but are ignored and never newly written.
 - [x] Store the current session cwd, model provider/model ID, and thinking level in the
       session metadata row. Resume and restart treat these values as authoritative; ordinary
       metadata snapshots preserve them when callers update unrelated fields, and model/thinking
@@ -205,8 +205,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
   history is empty. Legacy rows are trimmed and adjacent duplicates are removed read-only; blank input
   returns without reserving the writer, and nonblank rows use one conditional bulk insert so a concurrent
   winner leaves the existing history unchanged.
-- [x] `/name <name>` names the current session and `/unname` stores an explicit clear in
-  `session_metadata.name`; the clear survives restart and blocks automatic renaming.
+- [x] `/name <name>`, `/unname`, and active-session selector rename/clear persist the
+  current value or an explicit clear in `session_metadata.name`. Active-session changes
+  update runtime state and emit `session_info_changed`; the clear survives restart and
+  blocks automatic renaming.
 - [x] Session restore lists show named sessions first in Current Folder and All
   scopes, including threaded restore mode; Archived scope preserves recent
   ordering; all scopes display session names and support clearing a selected
@@ -256,6 +258,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - `packages/coding-agent/test/control-command.test.ts`
 - `packages/coding-agent/test/custom-editor-history.test.ts`
 - `packages/coding-agent/test/session-selector-rename.test.ts`
+- `packages/coding-agent/test/interactive-mode-session-rename.test.ts`
 - `packages/coding-agent/test/self-restart.test.ts`
 - `packages/coding-agent/test/interactive-mode-startup-input.test.ts`
 

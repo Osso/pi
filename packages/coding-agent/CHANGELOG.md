@@ -151,8 +151,7 @@
 
 ### Fixed
 
-- Fixed session display names disappearing after compaction and restart: the reverse-scan loader now retains `session_info` entries older than the compaction cutoff, so `getSessionName()`, the footer name, and the autoname guard keep working across compacted restarts.
-
+- Fixed active-session selector renames and clears updating SQLite without synchronizing runtime state; they now update the active runtime name and emit `session_info_changed` so the footer, terminal title, and extensions stay current.
 - Fixed `pi control send --help` and `-h` enqueueing the literal text as an incoming prompt; the send subcommand now prints usage to stdout and exits 0 without queueing or signaling.
 - Fixed concurrent session lifecycle transitions disposing a replacement runtime without its own `session_shutdown`, which could leave recurring loop timers reading stale extension context; runtime-owned replacement, reload, relocation, restart, import, and quit transitions now serialize, including deferred cwd relocation.
 - Fixed in-turn compaction dropping the main working status; streaming sessions now restore `Thinking...` while the prompt spinner remains active after compaction ends.
