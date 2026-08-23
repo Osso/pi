@@ -530,6 +530,13 @@ export function getUserStateRoot(): string {
 	return join(stateHome, APP_NAME);
 }
 
+/** Get the XDG cache root for Pi (e.g., ~/.cache/pi/) */
+export function getUserCacheRoot(): string {
+	const xdgCacheHome = process.env.XDG_CACHE_HOME;
+	const cacheHome = xdgCacheHome ? expandTildePath(xdgCacheHome) : join(homedir(), ".cache");
+	return join(cacheHome, APP_NAME);
+}
+
 /** Get the legacy agent config directory (e.g., ~/.pi/agent/) */
 export function getLegacyAgentDir(): string {
 	return join(homedir(), CONFIG_DIR_NAME, "agent");

@@ -76,6 +76,7 @@ import type { ExtensionFactory } from "./core/extensions/types.ts";
 import { importExternalSessionAlias, isExternalSessionAlias } from "./core/external-session-importer.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import { LifecycleCoordinator } from "./core/lifecycle-coordinator.ts";
+import { ensureModelCatalogFresh, type ModelCatalogRefreshResult } from "./core/model-catalog-cache.ts";
 import type { ModelRegistry } from "./core/model-registry.ts";
 import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
 import { MultiAgentStore } from "./core/multi-agent-store.ts";
@@ -123,6 +124,7 @@ import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
 import { cleanupWindowsSelfUpdateQuarantine } from "./utils/windows-self-update.ts";
 
 const EXTENSION_LOAD_FAILURE_HINT = 'Hint: Start without extensions using "pi -ne".';
+const OFFLINE_FETCH: typeof fetch = () => Promise.reject(new Error("Network disabled by offline mode"));
 
 /**
  * Read all content from piped stdin.
@@ -193,8 +195,21 @@ function isPlainRuntimeMetadataCommand(parsed: Args): boolean {
 		parsed.mode === undefined &&
 		(parsed.help === true ||
 			parsed.listModels !== undefined ||
+			parsed.refreshModels === true ||
 			parsed.listTools === true ||
 			parsed.listExtensions === true)
+	);
+}
+
+function refreshOpenRouterCatalog(offlineMode: boolean, force = false): Promise<ModelCatalogRefreshResult> {
+	return offlineMode
+		? ensureModelCatalogFresh({ force, fetchImpl: OFFLINE_FETCH })
+		: ensureModelCatalogFresh({ force });
+}
+
+function printModelCatalogRefreshSummary(result: ModelCatalogRefreshResult): void {
+	console.log(
+		`OpenRouter models: fetched ${result.fetchedCount}, cached ${result.cachedCount}, bundled ${result.bundledCount}, merged ${result.models.length}; cache ${result.cachePath}`,
 	);
 }
 
@@ -734,16 +749,18 @@ export async function main(args: string[], options?: MainOptions) {
 		await runResidentConsoleCommand(residentConsoleCommand);
 		return;
 	}
+	resetTimings();
+	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
 	if (args.length === 1 && args[0] === "architect") {
+		await refreshOpenRouterCatalog(offlineMode);
 		await runArchitectService();
 		return;
 	}
 	if (args.length === 1 && args[0] === "supervisor") {
+		await refreshOpenRouterCatalog(offlineMode);
 		await runSupervisorService();
 		return;
 	}
-	resetTimings();
-	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
 	if (offlineMode) {
 		process.env.PI_OFFLINE = "1";
 		process.env.PI_SKIP_VERSION_CHECK = "1";
@@ -840,6 +857,12 @@ export async function main(args: string[], options?: MainOptions) {
 			process.exit(1);
 		}
 		console.log(`Exported to: ${result}`);
+		process.exit(0);
+	}
+
+	const catalogResult = await refreshOpenRouterCatalog(offlineMode, parsed.refreshModels === true);
+	if (parsed.refreshModels) {
+		printModelCatalogRefreshSummary(catalogResult);
 		process.exit(0);
 	}
 

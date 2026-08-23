@@ -49,6 +49,7 @@ export interface Args {
 	noThemes?: boolean;
 	noContextFiles?: boolean;
 	listModels?: string | true;
+	refreshModels?: boolean;
 	listTools?: boolean;
 	listExtensions?: boolean;
 	loginProvider?: string;
@@ -219,6 +220,8 @@ export function parseArgs(args: string[]): Args {
 			} else {
 				result.listModels = true;
 			}
+		} else if (arg === "--refresh-models") {
+			result.refreshModels = true;
 		} else if (arg === "tools") {
 			result.listTools = true;
 		} else if (arg === "extensions") {
@@ -335,6 +338,7 @@ ${chalk.bold("Options:")}
   --no-context-files, -nc        Disable AGENTS.md, AGENTS.local.md, CLAUDE.md, and CLAUDE.local.md discovery/loading
   --export <file>                Export session file to HTML and exit
   --list-models [search]         List available models (with optional fuzzy search)
+  --refresh-models               Refresh the cached OpenRouter model catalog and exit
   --verbose                      Force verbose startup (overrides quietStartup setting)
   --approve, -a                  Trust project-local files for this run
   --no-approve, -na              Ignore project-local files for this run

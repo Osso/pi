@@ -97,7 +97,7 @@ Then just talk to pi. By default, pi gives the model file, command, and structur
 
 ## Providers & Models
 
-For each built-in provider, pi maintains a list of tool-capable models, updated with every release. Authenticate via subscription (`/login`) or API key, then select any model from that provider via `/model` (or Ctrl+L).
+For each built-in provider, pi maintains a list of tool-capable models, updated with every release. At startup, pi also adds new OpenRouter models from a catalog cached for seven days at `$XDG_CACHE_HOME/pi/models/openrouter.json` (default `~/.cache/pi/models/openrouter.json`). Authenticate via subscription (`/login`) or API key, then select any model from that provider via `/model` (or Ctrl+L).
 
 **Subscriptions:**
 - Anthropic Claude Pro/Max
@@ -580,6 +580,7 @@ cat README.md | pi -p "Summarize this text"
 | `--thinking <level>` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` (model-dependent) |
 | `--models <patterns>` | Comma-separated patterns for Ctrl+P cycling |
 | `--list-models [search]` | List available models |
+| `--refresh-models` | Refresh the OpenRouter model catalog cache and exit |
 
 ### Session Options
 

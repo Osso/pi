@@ -145,6 +145,7 @@
 - Added the systemd-deployed Resident Architect service: a 30-second, event-driven `openai-codex/gpt-5.6-sol` advisor with read-only control-SQLite observation and read-only bwrap file/shell/Pyrun workers.
 - Added the public `bash_messages_committed` session event for observing idle or deferred bash messages after they enter session state.
 - Added built-in `gemini-3.7-flash` availability for Google AI Studio and Google Vertex, with 1,048,576-token context, 65,536-token maximum output, current pricing, and low/medium/high thinking levels.
+- Added a seven-day runtime OpenRouter model catalog cache under the XDG cache root, with additive bundled-first merging and `--refresh-models` for forced refreshes.
 
 ### Fixed
 
