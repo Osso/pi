@@ -18,6 +18,7 @@
 
 ### Changed
 
+- Changed session autonaming to name any persisted unnamed main session after its first real-user agent turn in TUI/RPC modes with a 2–4 word conversation summary, regardless of empty, aborted, or failed assistant responses, removing the single-exchange and completed-response gates.
 - Changed standalone binary release builds to exact Bun 1.4.0.
 - Changed Claude-memory enrichment to allow 75-second subprocess execution and reap timed-out children after bounded SIGTERM/SIGKILL escalation.
 - Changed speculative background compaction failures to report one concise non-fatal diagnostic line while preserving foreground fallback.

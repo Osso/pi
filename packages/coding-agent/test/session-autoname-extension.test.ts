@@ -200,27 +200,21 @@ describe("session autoname extension", () => {
 	it.each([
 		{ firstResponse: emptyCompletedAssistantMessage(), label: "empty" },
 		{ firstResponse: failedAssistantMessage(), label: "failed" },
-	])("never names later turns after a $label first exchange", async ({ firstResponse }) => {
+	])("names the session from the user prompt when the first response is $label", async ({ firstResponse }) => {
 		const harness = await createSessionAutonameHarness({
 			persistedSession: true,
 			settings: { retry: { enabled: false } },
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			firstResponse,
-			completedAssistantMessage("A later substantive answer."),
-			fauxAssistantMessage("Later Turn Should Not Name Session"),
-		]);
+		harness.setResponses([firstResponse, fauxAssistantMessage("Named From User Prompt")]);
 
 		await harness.session.prompt("First exchange.");
-		await harness.session.prompt("Second exchange.");
-		await delay(BACKGROUND_SETTLEMENT_DELAY_MS);
 
-		expect(harness.faux.state.callCount).toBe(2);
-		expect(harness.sessionManager.getSessionName()).toBeUndefined();
+		expect(await waitUntil(() => harness.sessionManager.getSessionName() !== undefined)).toBe(true);
+		expect(harness.sessionManager.getSessionName()).toBe("Named From User Prompt");
 	});
 
-	it("does not name from earlier assistant text when the exchange ends in failure", async () => {
+	it("names from the user prompt when the exchange ends in failure", async () => {
 		const harness = await createSessionAutonameHarness({ persistedSession: true });
 		harnesses.push(harness);
 		const userMessage = {
@@ -240,28 +234,39 @@ describe("session autoname extension", () => {
 			type: "agent_end",
 			messages: [userMessage, partialAssistantMessage, finalFailure],
 		});
-		await delay(BACKGROUND_SETTLEMENT_DELAY_MS);
 
-		expect(harness.faux.state.callCount).toBe(0);
-		expect(harness.sessionManager.getSessionName()).toBeUndefined();
+		expect(await waitUntil(() => harness.sessionManager.getSessionName() !== undefined)).toBe(true);
+		expect(harness.sessionManager.getSessionName()).toBe("Failed Work Session");
 	});
 
-	it("does not treat a later root branch as the session's first exchange", async () => {
+	it("names a session whose first response was aborted before a second user message", async () => {
 		const harness = await createSessionAutonameHarness({ persistedSession: true });
 		harnesses.push(harness);
-		harness.setResponses([
-			emptyCompletedAssistantMessage(),
-			completedAssistantMessage("Substantive answer on a later root branch."),
-			fauxAssistantMessage("Later Branch Session"),
-		]);
+		const firstUserMessage = {
+			role: "user" as const,
+			content: "Why is the footer missing the session name?",
+			inputSource: "interactive" as const,
+			timestamp: Date.now(),
+		};
+		const abortedAssistant = fauxAssistantMessage("", { stopReason: "aborted" });
+		const secondUserMessage = {
+			role: "user" as const,
+			content: "Tell me more.",
+			inputSource: "interactive" as const,
+			timestamp: Date.now() + 1,
+		};
+		harness.sessionManager.appendMessage(firstUserMessage);
+		harness.sessionManager.appendMessage(abortedAssistant);
+		harness.sessionManager.appendMessage(secondUserMessage);
+		harness.setResponses([fauxAssistantMessage("Footer Name Bug")]);
 
-		await harness.session.prompt("Original first exchange.");
-		harness.sessionManager.resetLeaf();
-		await harness.session.prompt("Later root branch exchange.");
-		await delay(BACKGROUND_SETTLEMENT_DELAY_MS);
+		await harness.session.extensionRunner.emit({
+			type: "agent_end",
+			messages: [firstUserMessage, abortedAssistant, secondUserMessage],
+		});
 
-		expect(harness.faux.state.callCount).toBe(2);
-		expect(harness.sessionManager.getSessionName()).toBeUndefined();
+		expect(await waitUntil(() => harness.sessionManager.getSessionName() !== undefined)).toBe(true);
+		expect(harness.sessionManager.getSessionName()).toBe("Footer Name Bug");
 	});
 
 	it("defers autonaming across a cwd-relocation continuation", async () => {
