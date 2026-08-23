@@ -6459,8 +6459,7 @@ export class InteractiveMode {
 				() => this.ui.requestRender(),
 				{
 					renameSession: async (sessionFilePath: string, nextName: string | undefined) => {
-						if (!this.options.controlDbPath) return;
-						writeSessionName(this.options.controlDbPath, sessionFilePath, nextName);
+						this.renameSessionFromSelector(sessionFilePath, nextName);
 					},
 					showRenameHint: true,
 					keybindings: this.keybindings,
@@ -6483,6 +6482,17 @@ export class InteractiveMode {
 			);
 			return { component: selector, focus: selector };
 		});
+	}
+
+	private renameSessionFromSelector(sessionFilePath: string, nextName: string | undefined): void {
+		const controlDbPath = this.options.controlDbPath;
+		if (!controlDbPath) return;
+		if (sessionFilePath !== this.sessionManager.getSessionFile()) {
+			writeSessionName(controlDbPath, sessionFilePath, nextName);
+			return;
+		}
+		if (nextName) this.session.setSessionName(nextName);
+		else this.session.clearSessionName();
 	}
 
 	private sortNamedSessionsFirst(sessions: SessionInfo[]): SessionInfo[] {
