@@ -35,7 +35,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] Provide `pi control send`, `pi control restart --session-id <session-id>`,
   `pi control last`, and `pi control path` so harnesses and operators use the CLI
   instead of reading or writing SQLite directly. Session restart resolves the exact
-  live session health row and signals its PID with `SIGHUP`.
+  live session health row and signals its PID with `SIGHUP`. The send subcommand
+  treats `-h`/`--help` as a help request: it prints usage to stdout, exits 0, and
+  enqueues nothing.
 - [x] Store named-session metadata in the control DB.
 - [x] Store the current session cwd, model provider/model ID, and thinking level in the
       session metadata row. Resume and restart treat these values as authoritative; ordinary

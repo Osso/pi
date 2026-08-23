@@ -25,7 +25,13 @@ export function handleControlCommand(args: string[], dependencies: ControlComman
 
 	const subcommand = args[1];
 	if (subcommand === "send") {
-		const parsed = parseSendCommand(args.slice(2));
+		const sendArgs = args.slice(2);
+		if (sendArgs.includes("--help") || sendArgs.includes("-h")) {
+			printControlHelp(stdout);
+			process.exitCode = 0;
+			return true;
+		}
+		const parsed = parseSendCommand(sendArgs);
 		if (!parsed) {
 			printControlHelp(stderr);
 			process.exitCode = 1;

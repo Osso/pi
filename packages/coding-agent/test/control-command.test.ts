@@ -95,6 +95,35 @@ describe("control command", () => {
 		expect(stderr).toEqual([]);
 	});
 
+	it("treats send -h/--help as a help request instead of a prompt", () => {
+		const previousExitCode = process.exitCode;
+		try {
+			for (const args of [
+				["control", "send", "--help"],
+				["control", "send", "-h"],
+				["control", "send", "--pid", "1234", "--help"],
+			]) {
+				stdout = [];
+				const handled = handleControlCommand(args, {
+					signalProcess,
+					stderr: (text) => stderr.push(text),
+					stdout: (text) => stdout.push(text),
+				});
+
+				expect(handled).toBe(true);
+				expect(stdout).toEqual([
+					"Usage:\n  pi control send [--pid <pid>] <message>\n  pi control restart --session-id <session-id>\n  pi control last\n  pi control path\n",
+				]);
+				expect(stderr).toEqual([]);
+				expect(process.exitCode).toBe(0);
+				expect(signalProcess).not.toHaveBeenCalled();
+				expect(claimLatestIncomingMessage(getControlDbPath(agentDir))).toBeUndefined();
+			}
+		} finally {
+			process.exitCode = previousExitCode;
+		}
+	});
+
 	it("ignores non-control commands", () => {
 		const handled = handleControlCommand(["--help"], {
 			signalProcess,
