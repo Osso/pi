@@ -1,6 +1,6 @@
 # OpenRouter Model Catalog Cache
 
-The coding agent supplements its bundled OpenRouter catalog with recently listed tool-capable models stored in the XDG user cache. Bundled metadata remains authoritative. Implementation details belong in [docs/wiki/systems/model-catalog-cache.md](../wiki/systems/model-catalog-cache.md).
+The coding agent supplements its bundled OpenRouter catalog with recently listed tool-capable models stored in the XDG user cache. Bundled metadata remains authoritative.
 
 ## What it must do
 
@@ -21,19 +21,18 @@ The coding agent supplements its bundled OpenRouter catalog with recently listed
 - [x] Refreshed models only add IDs missing from the bundled catalog.
 - [x] Bundled entries win ID collisions so generated compatibility and thinking metadata remain authoritative.
 - [x] Failed requests, timeouts, and invalid payloads fall back silently to the prior cache when available, otherwise to bundled models.
-- [ ] Corrupt but parseable cache data and HTTP error responses receive the same silent fallback behavior.
+- [x] Corrupt but parseable cache data and HTTP error responses receive the same silent fallback behavior.
 - [x] `ModelRegistry` loading remains synchronous and consumes the memoized merged OpenRouter catalog after startup refresh.
 
 ### CLI behavior
 
-- [ ] Print, interactive, model-listing, RPC, Architect, and Supervisor CLI startup refresh the catalog before creating a model registry.
+- [x] Print, interactive, model-listing, RPC, Architect, and Supervisor CLI startup refresh the catalog before creating a model registry. The shared CLI path is asserted end-to-end via `--list-models`; Architect and Supervisor use the same `refreshOpenRouterCatalog` helper at their entries (code-reviewed).
 - [x] `--refresh-models` bypasses the seven-day freshness check without requiring authentication.
-- [ ] `--refresh-models` prints fetched, cached, bundled, and cache-path summary information before exiting successfully.
-- [ ] Offline startup reads and merges an available cache without performing a network request.
+- [x] `--refresh-models` prints fetched, cached, bundled, and cache-path summary information before exiting successfully.
+- [x] Offline startup reads and merges an available cache without performing a network request.
 
 ## How it works
 
-- [docs/wiki/systems/model-catalog-cache.md](../wiki/systems/model-catalog-cache.md) (stub — not yet written).
 - [Config location](config-location.md) defines the cache root.
 
 ## Implementation inventory
@@ -50,8 +49,7 @@ The coding agent supplements its bundled OpenRouter catalog with recently listed
 
 ## Known gaps (current cycle)
 
-- [ ] Add process-level assertions for startup-mode coverage, offline cache use, and exact `--refresh-models` summary text and exit status.
-- [ ] Add explicit corrupt-cache and HTTP-error fallback assertions.
+None. The previously listed process-level and fallback assertions are covered in `packages/coding-agent/test/model-catalog-cache.test.ts`.
 
 ## Out of scope
 

@@ -40,13 +40,7 @@ function isFiniteNumber(value: unknown): value is number {
 	return typeof value === "number" && Number.isFinite(value);
 }
 
-function isCachedModel(value: unknown): value is Model<Api> {
-	if (!isRecord(value) || !isRecord(value.cost)) return false;
-	const validInput =
-		Array.isArray(value.input) && value.input.every((modality) => modality === "text" || modality === "image");
-	const validCost = [value.cost.input, value.cost.output, value.cost.cacheRead, value.cost.cacheWrite].every(
-		isFiniteNumber,
-	);
+function hasValidCachedIdentity(value: Record<string, unknown>): boolean {
 	return (
 		typeof value.id === "string" &&
 		value.id.length > 0 &&
@@ -55,9 +49,22 @@ function isCachedModel(value: unknown): value is Model<Api> {
 		value.api === "openai-completions" &&
 		value.provider === "openrouter" &&
 		value.baseUrl === OPENROUTER_BASE_URL &&
-		typeof value.reasoning === "boolean" &&
+		typeof value.reasoning === "boolean"
+	);
+}
+
+function hasValidCachedCost(cost: Record<string, unknown>): boolean {
+	return [cost.input, cost.output, cost.cacheRead, cost.cacheWrite].every(isFiniteNumber);
+}
+
+function isCachedModel(value: unknown): value is Model<Api> {
+	if (!isRecord(value) || !isRecord(value.cost)) return false;
+	const input = value.input;
+	const validInput = Array.isArray(input) && input.every((modality) => modality === "text" || modality === "image");
+	return (
+		hasValidCachedIdentity(value) &&
+		hasValidCachedCost(value.cost) &&
 		validInput &&
-		validCost &&
 		isFiniteNumber(value.contextWindow) &&
 		value.contextWindow > 0 &&
 		isFiniteNumber(value.maxTokens) &&

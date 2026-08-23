@@ -1,10 +1,11 @@
+import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { type Api, getModels, type Model } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseArgs } from "../src/cli/args.ts";
-import { getUserCacheRoot } from "../src/config.ts";
+import { ENV_AGENT_DIR, getUserCacheRoot } from "../src/config.ts";
 
 const NOW = new Date("2026-08-23T12:00:00.000Z");
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
@@ -278,4 +279,120 @@ describe("OpenRouter model catalog cache", () => {
 		expect(result.source).toBe("network");
 		expect(result.models.some((model) => model.id === "fixture/forced-refresh")).toBe(true);
 	});
+
+	it("falls back silently when the cache is parseable JSON with invalid entries", async () => {
+		mkdirSync(join(cacheHome, "pi", "models"), { recursive: true });
+		writeFileSync(
+			cachePath(),
+			JSON.stringify({ fetchedAt: NOW.toISOString(), models: [{ nonsense: true }, "not-an-object"] }),
+			"utf8",
+		);
+		let fetchCount = 0;
+		const fetchImpl: typeof fetch = async () => {
+			fetchCount++;
+			throw new Error("offline");
+		};
+		const { ensureModelCatalogFresh } = await importCatalogModule();
+
+		const result = await ensureModelCatalogFresh({ fetchImpl, now: () => NOW });
+
+		expect(fetchCount).toBe(1);
+		expect(result.source).toBe("bundled");
+		expect(result.models).toEqual(getModels("openrouter"));
+	});
+
+	it("falls back to the prior cache on an HTTP error response", async () => {
+		writeCache(new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000), [cachedModel("fixture/http-error-cache")]);
+		const originalCache = readFileSync(cachePath(), "utf8");
+		const fetchImpl: typeof fetch = async () =>
+			new Response(JSON.stringify({ error: "upstream unavailable" }), { status: 502 });
+		const { ensureModelCatalogFresh } = await importCatalogModule();
+
+		const result = await ensureModelCatalogFresh({ fetchImpl, now: () => NOW });
+
+		expect(result.source).toBe("cache");
+		expect(result.models.some((model) => model.id === "fixture/http-error-cache")).toBe(true);
+		expect(readFileSync(cachePath(), "utf8")).toBe(originalCache);
+	});
+});
+
+describe("OpenRouter model catalog CLI startup", () => {
+	const cliPath = resolve(__dirname, "../src/cli.ts");
+	const tempDirs: string[] = [];
+
+	function createTempDir(prefix: string): string {
+		const dir = mkdtempSync(join(tmpdir(), prefix));
+		tempDirs.push(dir);
+		return dir;
+	}
+
+	function seedOfflineCache(cacheHome: string): string {
+		const modelDir = join(cacheHome, "pi", "models");
+		mkdirSync(modelDir, { recursive: true });
+		const cacheFile = join(modelDir, "openrouter.json");
+		const catalog = { fetchedAt: new Date().toISOString(), models: [cachedModel("fixture/offline-cli-model")] };
+		writeFileSync(cacheFile, JSON.stringify(catalog), "utf8");
+		return cacheFile;
+	}
+
+	async function runCli(
+		args: string[],
+		cacheHome: string,
+	): Promise<{ stdout: string; stderr: string; code: number | null }> {
+		const agentDir = createTempDir("pi-model-catalog-agent-");
+		return await new Promise((resolvePromise, reject) => {
+			const child = spawn(process.execPath, ["--experimental-strip-types", cliPath, ...args], {
+				cwd: agentDir,
+				env: {
+					...process.env,
+					[ENV_AGENT_DIR]: agentDir,
+					XDG_CACHE_HOME: cacheHome,
+					PI_OFFLINE: "1",
+					OPENROUTER_API_KEY: "test-key",
+				},
+				stdio: ["ignore", "pipe", "pipe"],
+			});
+			let stdout = "";
+			let stderr = "";
+			child.stdout.on("data", (chunk) => {
+				stdout += chunk.toString();
+			});
+			child.stderr.on("data", (chunk) => {
+				stderr += chunk.toString();
+			});
+			child.on("error", reject);
+			child.on("close", (code) => {
+				resolvePromise({ stdout, stderr, code });
+			});
+		});
+	}
+
+	afterEach(() => {
+		for (const dir of tempDirs.splice(0)) {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("merges a fresh offline cache into --list-models before registry creation", async () => {
+		const cacheHome = createTempDir("pi-model-catalog-cli-");
+		seedOfflineCache(cacheHome);
+
+		const result = await runCli(["--list-models"], cacheHome);
+
+		expect(result.code).toBe(0);
+		expect(result.stderr).toBe("");
+		expect(result.stdout).toContain("fixture/offline-cli-model");
+	}, 30_000);
+
+	it("--refresh-models prints a summary with counts and cache path, then exits 0", async () => {
+		const cacheHome = createTempDir("pi-model-catalog-cli-");
+		const cacheFile = seedOfflineCache(cacheHome);
+
+		const result = await runCli(["--refresh-models"], cacheHome);
+
+		expect(result.code).toBe(0);
+		expect(result.stdout).toContain("fetched 0");
+		expect(result.stdout).toContain("cached 1");
+		expect(result.stdout).toContain(`cache ${cacheFile}`);
+	}, 30_000);
 });
