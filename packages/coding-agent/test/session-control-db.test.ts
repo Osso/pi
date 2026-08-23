@@ -40,7 +40,6 @@ import {
 	listActiveSessionMetadata,
 	listArchivedSessionMetadata,
 	listDetachedArtifactAgentsUpdatedAtOrBefore,
-	listNamedSessions,
 	listPendingArchitectRequests,
 	listRuntimeMailboxListeners,
 	listRuntimeMailboxMessages,
@@ -61,6 +60,7 @@ import {
 	readSessionGoal,
 	readSessionHealth,
 	readSessionMetadata,
+	readSessionNameState,
 	readSharedChannelCursor,
 	recordPromptHistoryEntry,
 	recoverDeadMultiAgentRuntime,
@@ -68,12 +68,10 @@ import {
 	recoverSupervisorRequests,
 	registerRuntimeMailboxListener,
 	relocateSessionControlData,
-	removeNamedSession,
 	renewArchitectRequestClaims,
 	resolveOwnMainRuntimeCoordinationRecipient,
 	retainControlDbConnection,
 	retireRuntimeMailboxListener,
-	setNamedSession,
 	unarchiveSession,
 	updateMultiAgentAgentActivity,
 	updateMultiAgentAgentCurrentActivity,
@@ -84,6 +82,7 @@ import {
 	writeSessionGoal,
 	writeSessionHealth,
 	writeSessionMetadata,
+	writeSessionName,
 } from "../src/core/session-control-db.ts";
 import { emptySessionHealth } from "../src/core/session-health.ts";
 import {
@@ -3939,7 +3938,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				"owner_session_id",
 				"owner_agent_id",
 			]);
-			expect((migratedDb.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(14);
+			expect((migratedDb.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(15);
 		} finally {
 			migratedDb.close();
 		}
@@ -3994,7 +3993,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 					.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
 					.get("multi_agent_dispatch_leases"),
 			).toBeUndefined();
-			expect((migratedDb.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(14);
+			expect((migratedDb.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(15);
 		} finally {
 			migratedDb.close();
 		}
@@ -4326,7 +4325,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		let agentUpdatedAt: string;
 		try {
 			const version = migratedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(14);
+			expect(version.user_version).toBe(15);
 			const triggers = migratedDb
 				.prepare(
 					`SELECT name FROM sqlite_master
@@ -4447,7 +4446,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const upgradedDb = createSqliteDatabase(controlDbPath);
 		try {
 			const version = upgradedDb.prepare("PRAGMA user_version").get() as { user_version: number };
-			expect(version.user_version).toBe(14);
+			expect(version.user_version).toBe(15);
 			expect(
 				(
 					upgradedDb.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ?").get(sessionPath) as {
@@ -4653,7 +4652,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 					.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runtime_mailbox_messages'")
 					.get(),
 			).toBeUndefined();
-			expect((migrated.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(14);
+			expect((migrated.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(15);
 		} finally {
 			migrated.close();
 		}
@@ -4781,7 +4780,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				status: "delivered",
 				threadId: "thread-delivered",
 			});
-			expect((migrated.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(14);
+			expect((migrated.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(15);
 			expect(
 				migrated
 					.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runtime_mailbox_messages'")
@@ -7120,24 +7119,42 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(resolveOwnMainRuntimeCoordinationRecipient(controlDbPath)).toBeUndefined();
 	});
 
-	it("stores and removes named sessions", () => {
-		setNamedSession(controlDbPath, "/tmp/session-a.jsonl", "Alpha");
-		setNamedSession(controlDbPath, "/tmp/session-b.jsonl", "Beta");
-		setNamedSession(controlDbPath, "/tmp/session-a.jsonl", "Alpha renamed");
+	it("stores and clears names in session metadata", () => {
+		for (const [id, name] of [
+			["session-a", "Alpha"],
+			["session-b", "Beta"],
+		] as const) {
+			writeSessionMetadata(controlDbPath, {
+				sessionPath: `/tmp/${id}.jsonl`,
+				id,
+				cwd: "/repo",
+				createdAt: "2026-01-01T00:00:00.000Z",
+				modifiedAt: "2026-01-01T00:10:00.000Z",
+				messageCount: 1,
+				firstMessage: "first",
+				allMessagesText: "first",
+			});
+			writeSessionName(controlDbPath, `/tmp/${id}.jsonl`, name);
+		}
+		writeSessionName(controlDbPath, "/tmp/session-a.jsonl", "Alpha renamed");
 
-		const namedSessions = listNamedSessions(controlDbPath)
-			.map((session) => [session.sessionPath, session.name])
-			.sort(([left], [right]) => left.localeCompare(right));
-		expect(namedSessions).toEqual([
+		expect(
+			listSessionMetadata(controlDbPath)
+				.map((session) => [session.sessionPath, session.name] as const)
+				.sort(([left], [right]) => left.localeCompare(right)),
+		).toEqual([
 			["/tmp/session-a.jsonl", "Alpha renamed"],
 			["/tmp/session-b.jsonl", "Beta"],
 		]);
 
-		removeNamedSession(controlDbPath, "/tmp/session-a.jsonl");
+		writeSessionName(controlDbPath, "/tmp/session-a.jsonl", undefined);
 
-		expect(listNamedSessions(controlDbPath).map((session) => [session.sessionPath, session.name])).toEqual([
-			["/tmp/session-b.jsonl", "Beta"],
-		]);
+		expect(readSessionMetadata(controlDbPath, "/tmp/session-a.jsonl")?.name).toBeUndefined();
+		expect(readSessionNameState(controlDbPath, "/tmp/session-a.jsonl")).toEqual({
+			name: undefined,
+			hasStoredValue: true,
+		});
+		expect(readSessionMetadata(controlDbPath, "/tmp/session-b.jsonl")?.name).toBe("Beta");
 	});
 
 	it("stores and lists session metadata ordered by modified time", () => {
@@ -7335,7 +7352,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		}
 	});
 
-	it("updates existing session metadata without changing its session path", () => {
+	it("updates existing session metadata without changing its session path or name", () => {
 		writeSessionMetadata(controlDbPath, {
 			sessionPath: "/tmp/session-a.jsonl",
 			id: "session-a",
@@ -7352,7 +7369,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			sessionPath: "/tmp/session-a.jsonl",
 			id: "session-a-renamed",
 			cwd: "/repo/a2",
-			name: undefined,
 			parentSessionPath: "/tmp/parent.jsonl",
 			createdAt: "2026-01-01T00:00:00.000Z",
 			modifiedAt: "2026-01-01T00:20:00.000Z",
@@ -7365,7 +7381,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			sessionPath: "/tmp/session-a.jsonl",
 			id: "session-a-renamed",
 			cwd: "/repo/a2",
-			name: undefined,
+			name: "Original",
 			parentSessionPath: "/tmp/parent.jsonl",
 			createdAt: "2026-01-01T00:00:00.000Z",
 			modifiedAt: "2026-01-01T00:20:00.000Z",
@@ -7475,12 +7491,11 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		);
 	});
 
-	it("keeps named session APIs compatible while mirroring names into metadata", () => {
+	it("preserves dedicated session names across generic metadata snapshots", () => {
 		writeSessionMetadata(controlDbPath, {
 			sessionPath: "/tmp/session-a.jsonl",
 			id: "session-a",
 			cwd: "/repo/a",
-			name: undefined,
 			parentSessionPath: undefined,
 			createdAt: "2026-01-01T00:00:00.000Z",
 			modifiedAt: "2026-01-01T00:10:00.000Z",
@@ -7489,12 +7504,11 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			allMessagesText: "first",
 		});
 
-		setNamedSession(controlDbPath, "/tmp/session-a.jsonl", "Alpha");
+		writeSessionName(controlDbPath, "/tmp/session-a.jsonl", "Alpha");
 		writeSessionMetadata(controlDbPath, {
 			sessionPath: "/tmp/session-a.jsonl",
 			id: "session-a",
 			cwd: "/repo/a",
-			name: undefined,
 			parentSessionPath: undefined,
 			createdAt: "2026-01-01T00:00:00.000Z",
 			modifiedAt: "2026-01-01T00:20:00.000Z",
@@ -7503,12 +7517,21 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			allMessagesText: "first second",
 		});
 
-		expect(listNamedSessions(controlDbPath)).toMatchObject([{ sessionPath: "/tmp/session-a.jsonl", name: "Alpha" }]);
 		expect(readSessionMetadata(controlDbPath, "/tmp/session-a.jsonl")?.name).toBe("Alpha");
 
-		removeNamedSession(controlDbPath, "/tmp/session-a.jsonl");
+		writeSessionName(controlDbPath, "/tmp/session-a.jsonl", undefined);
+		writeSessionMetadata(controlDbPath, {
+			sessionPath: "/tmp/session-a.jsonl",
+			id: "session-a",
+			cwd: "/repo/a",
+			createdAt: "2026-01-01T00:00:00.000Z",
+			modifiedAt: "2026-01-01T00:30:00.000Z",
+			messageCount: 3,
+			firstMessage: "first",
+			allMessagesText: "first second third",
+		});
 
-		expect(listNamedSessions(controlDbPath)).toEqual([]);
 		expect(readSessionMetadata(controlDbPath, "/tmp/session-a.jsonl")?.name).toBeUndefined();
+		expect(readSessionNameState(controlDbPath, "/tmp/session-a.jsonl").hasStoredValue).toBe(true);
 	});
 });

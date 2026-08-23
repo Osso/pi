@@ -22,10 +22,6 @@ vi.mock("../src/cli/startup-ui.ts", () => ({
 	startStartupTui: vi.fn(),
 }));
 
-vi.mock("../src/core/session-control-db.ts", () => ({
-	listNamedSessions: vi.fn(() => [{ sessionPath: "/sessions/older.jsonl", name: "Older named" }]),
-}));
-
 vi.mock("../src/modes/interactive/components/session-selector.ts", () => ({
 	SessionSelectorComponent: class {
 		constructor(
@@ -69,7 +65,7 @@ describe("session picker selection", () => {
 		};
 		const older = {
 			path: "/sessions/older.jsonl",
-			name: undefined,
+			name: "Older named",
 			modified: new Date("2026-07-29T01:00:00Z"),
 			isArchived: true,
 		};

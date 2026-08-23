@@ -4,7 +4,6 @@
 
 import { setKeybindings } from "@earendil-works/pi-tui";
 import { KeybindingsManager } from "../core/keybindings.ts";
-import { listNamedSessions } from "../core/session-control-db.ts";
 import type { SessionInfo, SessionListProgress } from "../core/session-manager.ts";
 import type { SettingsManager } from "../core/settings-manager.ts";
 import { SessionSelectorComponent } from "../modes/interactive/components/session-selector.ts";
@@ -29,8 +28,8 @@ export async function selectSession(
 		let resolved = false;
 
 		const selector = new SessionSelectorComponent(
-			(onProgress) => loadSessionsWithControlNames(currentSessionsLoader, controlDbPath, onProgress),
-			(onProgress) => loadSessionsWithControlNames(allSessionsLoader, controlDbPath, onProgress),
+			(onProgress) => loadSessions(currentSessionsLoader, onProgress),
+			(onProgress) => loadSessions(allSessionsLoader, onProgress),
 			(path: string) => {
 				if (resolved) return;
 				try {
@@ -61,7 +60,7 @@ export async function selectSession(
 				keybindings,
 				controlDbPath,
 				archivedSessionsLoader: archivedSessionsLoader
-					? (onProgress) => loadSessionsWithControlNames(archivedSessionsLoader, controlDbPath, onProgress, true)
+					? (onProgress) => loadSessions(archivedSessionsLoader, onProgress, true)
 					: undefined,
 			},
 		);
@@ -72,24 +71,17 @@ export async function selectSession(
 	});
 }
 
-async function loadSessionsWithControlNames(
+async function loadSessions(
 	loader: SessionsLoader,
-	controlDbPath: string | undefined,
 	onProgress?: SessionListProgress,
 	archived = false,
 ): Promise<SessionInfo[]> {
 	const sessions = await loader(onProgress);
-	const filteredSessions = archived
-		? sessions.filter((session) => session.isArchived)
-		: sessions.filter((session) => !session.isArchived);
-	if (!controlDbPath) return filteredSessions;
-
-	const names = new Map(listNamedSessions(controlDbPath).map((session) => [session.sessionPath, session.name]));
-	return filteredSessions
-		.map((session) => ({ ...session, name: names.get(session.path) ?? session.name }))
+	return sessions
+		.filter((session) => (archived ? session.isArchived : !session.isArchived))
 		.sort((a, b) => {
-			const aNamed = names.has(a.path);
-			const bNamed = names.has(b.path);
+			const aNamed = Boolean(a.name?.trim());
+			const bNamed = Boolean(b.name?.trim());
 			if (!archived && aNamed !== bNamed) return aNamed ? -1 : 1;
 			return b.modified.getTime() - a.modified.getTime();
 		});

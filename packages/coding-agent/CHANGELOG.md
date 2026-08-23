@@ -18,7 +18,7 @@
 
 ### Changed
 
-- Changed session display names to persist only in `session_metadata.name`: schema v15 normalizes matching legacy `named_sessions` values under lifecycle quiescence, gives legacy values precedence, discards orphan rows, and drops the duplicate table; `NULL` means never named, `''` means explicitly cleared, and nonempty values are current names; historical JSONL `session_info` entries remain parseable but are ignored and never newly written; copied imports and forks do not inherit names.
+- Changed session display names to persist only in `session_metadata.name`: the v14→v15 migration normalizes legacy `named_sessions` values under lifecycle quiescence, applies them only to matching metadata rows, gives legacy values precedence, discards orphan rows, and drops the duplicate table; `NULL` means never named, `''` means explicitly cleared, and nonempty values are current names; historical JSONL `session_info` entries remain parseable but are ignored and never newly written; copied imports and forks do not inherit names.
 - Changed session autonaming to name persisted never-named main sessions after the first real-user agent turn in TUI/RPC modes with a 2–4 word conversation summary, regardless of empty, aborted, or failed assistant responses; extension-only `agent_end` events cannot reuse historical branch messages, and explicit `/unname` remains cleared across restart.
 - Changed standalone binary release builds to exact Bun 1.4.0.
 - Changed Claude-memory enrichment to allow 75-second subprocess execution and reap timed-out children after bounded SIGTERM/SIGKILL escalation.

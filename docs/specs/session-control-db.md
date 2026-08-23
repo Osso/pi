@@ -38,7 +38,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
   live session health row and signals its PID with `SIGHUP`. The send subcommand
   treats `-h`/`--help` as a help request: it prints usage to stdout, exits 0, and
   enqueues nothing.
-- [x] Store each session display name only in `session_metadata.name`. Schema version 15 runs under lifecycle quiescence, normalizes matching legacy `named_sessions.name` values into metadata, gives legacy values precedence when both stores diverge, discards orphan legacy rows, and drops `named_sessions`. `NULL` means never named and remains autoname-eligible; `''` means explicitly cleared and blocks autonaming; a nonempty value is the current name. New name changes update only metadata; JSONL `session_info` entries remain parseable historical records but are ignored and never newly written.
+- [x] Store each session display name only in `session_metadata.name`. The v14→v15 control-DB migration runs under lifecycle quiescence, normalizes legacy `named_sessions.name` values, applies them only to matching `session_metadata` rows, gives legacy values precedence when both stores diverge, discards orphan legacy rows, and drops `named_sessions`. `NULL` means never named and remains autoname-eligible; `''` means explicitly cleared and blocks autonaming; a nonempty value is the current name. New name changes update only metadata; JSONL `session_info` entries remain parseable historical records but are ignored and never newly written.
 - [x] Store the current session cwd, model provider/model ID, and thinking level in the
       session metadata row. Resume and restart treat these values as authoritative; ordinary
       metadata snapshots preserve them when callers update unrelated fields, and model/thinking
@@ -248,8 +248,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - `packages/coding-agent/test/session-control-db.test.ts`
 - `packages/coding-agent/test/session-name-schema-migration.test.ts`
 - `packages/coding-agent/test/session-manager/active-slice-load.test.ts`
+- `packages/coding-agent/test/session-manager/file-operations.test.ts`
 - `packages/coding-agent/test/startup-session-name.test.ts`
 - `packages/coding-agent/test/suite/regressions/3686-session-name-event.test.ts`
+- `packages/coding-agent/test/suite/regressions/session-active-slice-restart.test.ts`
 - `packages/coding-agent/test/supervisor-request-repository.test.ts` — pending/claimed cancellation, claim exclusion, and late-completion fencing.
 - `packages/coding-agent/test/control-command.test.ts`
 - `packages/coding-agent/test/custom-editor-history.test.ts`

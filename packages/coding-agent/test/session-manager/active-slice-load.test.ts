@@ -4,6 +4,7 @@ import { syncBuiltinESMExports } from "module";
 import { tmpdir } from "os";
 import { basename, join, resolve } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { writeSessionMetadata, writeSessionName } from "../../src/core/session-control-db.ts";
 import { getDefaultSessionDir, SessionManager, type SessionTreeNode } from "../../src/core/session-manager.ts";
 
 function messageEntry(id: string, parentId: string | null, content: string): object {
@@ -87,7 +88,7 @@ describe("active slice session loading", () => {
 		expect(totalBytesRead).toBeLessThan(Buffer.byteLength(content) / 2);
 	});
 
-	it("keeps the session name from the summarized prefix across compaction", () => {
+	it("does not treat summarized JSONL session info as authoritative", () => {
 		const file = join(tempDir, "named-compacted.jsonl");
 		const lines = [
 			JSON.stringify({
@@ -128,14 +129,147 @@ describe("active slice session loading", () => {
 
 		const session = SessionManager.open(file, tempDir);
 
-		expect(session.getSessionName()).toBe("Current Name");
-		expect(session.getEntries().map((entry) => entry.id)).toEqual([
-			"name-old",
-			"name-new",
-			"kept-1",
-			"compaction-1",
-			"after-1",
-		]);
+		expect(session.getSessionName()).toBeUndefined();
+		expect(session.getEntries().map((entry) => entry.id)).toEqual(["kept-1", "compaction-1", "after-1"]);
+	});
+
+	it("restores the SQLite session name without loading pre-cutoff session info", () => {
+		const file = join(tempDir, "sqlite-named-compacted.jsonl");
+		const controlDbPath = join(tempDir, "control.sqlite");
+		const initialCwd = join(tempDir, "initial");
+		const relocatedCwd = join(tempDir, "relocated");
+		const entries = [
+			{
+				type: "session",
+				version: 3,
+				id: "session-1",
+				timestamp: "2025-01-01T00:00:00Z",
+				cwd: initialCwd,
+			},
+			messageEntry("old-1", null, "old"),
+			{
+				type: "custom_message",
+				id: "cwd-change",
+				parentId: "old-1",
+				timestamp: "2025-01-01T00:00:01Z",
+				customType: "cwd_changed",
+				content: `Working directory changed to ${relocatedCwd}.`,
+				details: { previousCwd: initialCwd, cwd: relocatedCwd },
+				display: true,
+			},
+			messageEntry("kept-1", "cwd-change", "kept"),
+			{
+				type: "compaction",
+				id: "compaction-1",
+				parentId: "kept-1",
+				timestamp: "2025-01-01T00:00:02Z",
+				summary: "summary",
+				firstKeptEntryId: "kept-1",
+				tokensBefore: 1000,
+			},
+			messageEntry("after-1", "compaction-1", "after"),
+		];
+		writeFileSync(file, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+		writeSessionMetadata(controlDbPath, {
+			sessionPath: file,
+			id: "session-1",
+			cwd: relocatedCwd,
+			name: "SQLite Session Name",
+			createdAt: "2025-01-01T00:00:00.000Z",
+			modifiedAt: "2025-01-01T00:00:03.000Z",
+			messageCount: 3,
+			firstMessage: "old",
+			allMessagesText: "old kept after",
+		});
+
+		const session = SessionManager.open(file, tempDir);
+		session.setMetadataControlDbPath(controlDbPath);
+
+		expect(session.getEntries().some((entry) => entry.type === "session_info")).toBe(false);
+		expect(session.getCwd()).toBe(relocatedCwd);
+		expect(session.getSessionName()).toBe("SQLite Session Name");
+	});
+
+	it("restores an explicit SQLite name clear without making the session autoname eligible", () => {
+		const controlDbPath = join(tempDir, "control.sqlite");
+		const file = join(tempDir, "cleared.jsonl");
+		writeFileSync(
+			file,
+			`${JSON.stringify({
+				type: "session",
+				version: 3,
+				id: "cleared",
+				timestamp: "2025-01-01T00:00:00Z",
+				cwd: tempDir,
+			})}\n`,
+		);
+		writeSessionMetadata(controlDbPath, {
+			sessionPath: file,
+			id: "cleared",
+			cwd: tempDir,
+			createdAt: "2025-01-01T00:00:00.000Z",
+			modifiedAt: "2025-01-01T00:00:00.000Z",
+			messageCount: 0,
+			firstMessage: "(no messages)",
+			allMessagesText: "",
+		});
+		writeSessionName(controlDbPath, file, undefined);
+
+		const session = SessionManager.open(file, tempDir);
+		session.setMetadataControlDbPath(controlDbPath);
+
+		expect(session.getSessionName()).toBeUndefined();
+		expect(session.hasSessionNameState()).toBe(true);
+	});
+
+	it("rehydrates the SQLite session name when switching files", () => {
+		const controlDbPath = join(tempDir, "control.sqlite");
+		const firstFile = join(tempDir, "first.jsonl");
+		const secondFile = join(tempDir, "second.jsonl");
+		for (const [file, id, name] of [
+			[firstFile, "first", "First Name"],
+			[secondFile, "second", "Second Name"],
+		] as const) {
+			writeFileSync(
+				file,
+				`${JSON.stringify({
+					type: "session",
+					version: 3,
+					id,
+					timestamp: "2025-01-01T00:00:00Z",
+					cwd: tempDir,
+				})}\n`,
+			);
+			writeSessionMetadata(controlDbPath, {
+				sessionPath: file,
+				id,
+				cwd: tempDir,
+				name,
+				createdAt: "2025-01-01T00:00:00.000Z",
+				modifiedAt: "2025-01-01T00:00:00.000Z",
+				messageCount: 0,
+				firstMessage: "(no messages)",
+				allMessagesText: "",
+			});
+		}
+		const session = SessionManager.open(firstFile, tempDir);
+		session.setMetadataControlDbPath(controlDbPath);
+		expect(session.getSessionName()).toBe("First Name");
+
+		session.setSessionFile(secondFile);
+
+		expect(session.getSessionName()).toBe("Second Name");
+	});
+
+	it("does not carry a session name into a branched session", () => {
+		const session = SessionManager.inMemory(tempDir);
+		const leafId = session.appendMessage({ role: "user", content: "branch me", timestamp: 1 });
+		session.setSessionName("Parent Name");
+
+		session.createBranchedSession(leafId);
+
+		expect(session.getSessionName()).toBeUndefined();
+		expect(session.hasSessionNameState()).toBe(false);
 	});
 
 	it("loads the active slice when a reverse-read chunk begins at a newline", () => {

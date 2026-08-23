@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { ENV_STATE_DIR } from "../src/config.ts";
+import { getControlDbPath, readSessionMetadata } from "../src/core/session-control-db.ts";
 import { RpcClient } from "../src/modes/rpc/rpc-client.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -20,7 +22,7 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_OAUTH_T
 		client = new RpcClient({
 			cliPath: join(__dirname, "..", "dist", "cli.js"),
 			cwd: join(__dirname, ".."),
-			env: { PI_CODING_AGENT_DIR: sessionDir },
+			env: { PI_CODING_AGENT_DIR: sessionDir, [ENV_STATE_DIR]: sessionDir },
 			provider: "anthropic",
 			model: "claude-sonnet-4-5",
 		});
@@ -359,19 +361,17 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_OAUTH_T
 		// Wait for file writes
 		await new Promise((resolve) => setTimeout(resolve, 200));
 
-		// Verify session_info entry in session file
 		const sessionsPath = join(sessionDir, "sessions");
 		const sessionDirs = readdirSync(sessionsPath);
 		const cwdSessionDir = join(sessionsPath, sessionDirs[0]);
 		const sessionFiles = readdirSync(cwdSessionDir).filter((f) => f.endsWith(".jsonl"));
-		const sessionContent = readFileSync(join(cwdSessionDir, sessionFiles[0]), "utf8");
-		const entries = sessionContent
+		const sessionFile = join(cwdSessionDir, sessionFiles[0]);
+		const entryTypes = readFileSync(sessionFile, "utf8")
 			.trim()
 			.split("\n")
-			.map((line) => JSON.parse(line));
+			.map((line) => (JSON.parse(line) as { type: string }).type);
 
-		const sessionInfoEntries = entries.filter((e: { type: string }) => e.type === "session_info");
-		expect(sessionInfoEntries.length).toBe(1);
-		expect(sessionInfoEntries[0].name).toBe("my-test-session");
+		expect(readSessionMetadata(getControlDbPath(sessionDir), sessionFile)?.name).toBe("my-test-session");
+		expect(entryTypes).not.toContain("session_info");
 	}, 60000);
 });

@@ -20,14 +20,13 @@ import {
 	consumeRuntimeMailboxMessageByStoreRef,
 	enqueueRuntimeMailboxMessage,
 	getControlDbPath,
-	listNamedSessions,
 	readMultiAgentState,
 	readSessionGoal,
 	readSessionMetadata,
-	setNamedSession,
 	upsertMultiAgentMailboxMessage,
 	writeMultiAgentCounters,
 	writeSessionMetadata,
+	writeSessionName,
 } from "../../src/core/session-control-db.ts";
 import { findMostRecentSession, loadEntriesFromFile, SessionManager } from "../../src/core/session-manager.ts";
 
@@ -285,7 +284,7 @@ describe("SessionManager relocate", () => {
 		});
 
 		session.setSessionGoalJson(JSON.stringify({ objective: "keep goal" }));
-		setNamedSession(controlDbPath, sourceFile!, "Keep name");
+		writeSessionName(controlDbPath, sourceFile!, "Keep name");
 		bootstrapMultiAgentAgent(controlDbPath, sourceFile!, "agent_1", { id: "agent_1" });
 		upsertMultiAgentMailboxMessage(controlDbPath, sourceFile!, "message_1", {
 			messageId: "message_1",
@@ -316,11 +315,13 @@ describe("SessionManager relocate", () => {
 		expect(reopened.getCwd()).toBe(projectB);
 		expect(readSessionMetadata(controlDbPath, sourceFile!)).toBeUndefined();
 		const movedMetadata = readSessionMetadata(controlDbPath, movedFile!);
-		expect(movedMetadata).toMatchObject({ cwd: projectB, isSubagent: true, subagentName: "worker" });
+		expect(movedMetadata).toMatchObject({
+			cwd: projectB,
+			isSubagent: true,
+			name: "Keep name",
+			subagentName: "worker",
+		});
 		expect(readSessionGoal(controlDbPath, movedFile!)).toBe(JSON.stringify({ objective: "keep goal" }));
-		expect(listNamedSessions(controlDbPath)).toEqual([
-			{ sessionPath: movedFile!, name: "Keep name", updatedAt: expect.any(String) },
-		]);
 		expect(readMultiAgentState(controlDbPath, sourceFile!)).toBeUndefined();
 		expect(readMultiAgentState(controlDbPath, movedFile!)).toEqual({
 			agents: [{ id: "agent_1" }],

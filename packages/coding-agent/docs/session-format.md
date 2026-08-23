@@ -298,7 +298,7 @@ Older transcripts may contain `session_info` display-name entries:
 {"type":"session_info","id":"k1l2m3n4","parentId":"j0k1l2m3","timestamp":"2024-12-03T14:35:00.000Z","name":"Refactor auth module"}
 ```
 
-Current runtimes keep these entries parseable but ignore them as session-name authority and never newly write them. Display names persist only in the control database's `session_metadata.name` column: `NULL` means never named, `''` means explicitly cleared, and a nonempty value is the current name. Restart and compaction use this SQLite value; copied imports and forks start without inheriting the source name unless explicitly renamed.
+Current runtimes keep these entries parseable but ignore them as session-name authority and never newly write them. Display names persist only outside JSONL, in the control database's `session_metadata.name` column: `NULL` means never named, `''` means explicitly cleared, and a nonempty value is the current name. Restart and compaction use this SQLite value; copied imports and forks create or reset destination metadata without inheriting the source name unless explicitly renamed.
 
 ## Tree Structure
 
@@ -435,6 +435,7 @@ Key methods for working with sessions programmatically.
 - `getHeader()` - Session header metadata
 - `setSessionName(name?)` - Set or explicitly clear the name and persist it to `session_metadata.name` when the session uses the control DB
 - `getSessionName()` - Get the current SQLite-hydrated display name
+- `hasSessionNameState()` - Whether SQLite stores a current name or explicit clear; false only for never-named sessions
 - `getCwd()` - Working directory
 - `getSessionDir()` - Session storage directory
 - `getSessionId()` - Session UUID

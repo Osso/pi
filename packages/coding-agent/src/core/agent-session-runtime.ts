@@ -16,7 +16,7 @@ export { SessionImportFileNotFoundError } from "./session-errors.ts";
 
 import { runDetachedJobArtifactCleanup } from "./detached-job-cleanup.ts";
 import { type ProcessRestarter, restartCurrentProcess } from "./self-restart.ts";
-import { assertMainSessionRuntimeAvailable } from "./session-control-db.ts";
+import { assertMainSessionRuntimeAvailable, removeSessionMetadata } from "./session-control-db.ts";
 import { assertSessionCwdExists } from "./session-cwd.ts";
 import { SessionImportFileNotFoundError } from "./session-errors.ts";
 import { SessionManager } from "./session-manager.ts";
@@ -580,9 +580,7 @@ export class AgentSessionRuntime {
 		}
 
 		const previousSessionFile = this.session.sessionFile;
-		if (resolve(destinationPath) !== resolvedPath) {
-			copyFileSync(resolvedPath, destinationPath);
-		}
+		this.copyImportedSession(resolvedPath, destinationPath);
 
 		const sessionManager = SessionManager.open(destinationPath, sessionDir, cwdOverride);
 		assertSessionCwdExists(sessionManager, this.cwd);
@@ -597,6 +595,13 @@ export class AgentSessionRuntime {
 		);
 		await this.finishSessionReplacement();
 		return { cancelled: false };
+	}
+
+	private copyImportedSession(sourcePath: string, destinationPath: string): void {
+		if (resolve(destinationPath) === sourcePath) return;
+		copyFileSync(sourcePath, destinationPath);
+		const controlDbPath = this.session.sessionManager.getMetadataControlDbPath();
+		if (controlDbPath) removeSessionMetadata(controlDbPath, destinationPath);
 	}
 
 	async dispose(): Promise<void> {

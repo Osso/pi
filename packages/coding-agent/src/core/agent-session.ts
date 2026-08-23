@@ -183,11 +183,9 @@ import {
 	readSharedChannelTail,
 	recordPromptHistoryEntry,
 	registerRuntimeMailboxListener,
-	removeNamedSession,
 	retainControlDbConnection,
 	retireRuntimeMailboxListener,
 	type SharedChannelMessage,
-	setNamedSession,
 	takeRuntimeMailboxMessagesForDelivery,
 	writeLastMessage,
 } from "./session-control-db.ts";
@@ -5418,23 +5416,17 @@ export class AgentSession {
 	 * Set a display name for the current session.
 	 */
 	setSessionName(name: string): void {
-		const sessionFile = this.sessionFile;
-		if (sessionFile) {
-			setNamedSession(this._controlDbPath, sessionFile, name);
-		}
-		this.sessionManager.appendSessionInfo(name);
+		this.sessionManager.setSessionName(name);
 		const event = { type: "session_info_changed", name: this.sessionManager.getSessionName() } as const;
 		this._emit(event);
 		void this._extensionRunner.emit(event);
 	}
 
 	clearSessionName(): void {
-		const sessionFile = this.sessionFile;
-		if (sessionFile) {
-			removeNamedSession(this._controlDbPath, sessionFile);
-		}
-		this.sessionManager.appendSessionInfo("");
-		this._emit({ type: "session_info_changed", name: undefined });
+		this.sessionManager.setSessionName(undefined);
+		const event = { type: "session_info_changed", name: undefined } as const;
+		this._emit(event);
+		void this._extensionRunner.emit(event);
 	}
 
 	updateCompactionSummary(entryId: string, summary: string): void {

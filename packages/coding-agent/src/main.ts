@@ -941,7 +941,7 @@ export async function main(args: string[], options?: MainOptions) {
 			console.error(chalk.red("Error: --name requires a non-empty value"));
 			process.exit(1);
 		}
-		sessionManager.appendSessionInfo(name);
+		sessionManager.setSessionName(name);
 	}
 	if (shouldTakeOverStdout) {
 		takeOverStdout();

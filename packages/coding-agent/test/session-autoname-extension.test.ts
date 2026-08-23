@@ -1,3 +1,4 @@
+import { appendFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -163,6 +164,39 @@ describe("session autoname extension", () => {
 		expect(harness.sessionManager.getSessionName()).toBeUndefined();
 	});
 
+	it("does not name from extension-only activity after a historical real-user turn", async () => {
+		const harness = await createSessionAutonameHarness({ persistedSession: true });
+		harnesses.push(harness);
+		const historicalUserMessage = {
+			role: "user" as const,
+			content: "Historical real-user request.",
+			inputSource: "interactive" as const,
+			timestamp: Date.now(),
+		};
+		const historicalAssistantMessage = completedAssistantMessage("Historical response.");
+		const extensionUserMessage = {
+			role: "user" as const,
+			content: "Extension continuation.",
+			inputSource: "extension" as const,
+			timestamp: Date.now() + 1,
+		};
+		const extensionAssistantMessage = completedAssistantMessage("Extension response.");
+		harness.sessionManager.appendMessage(historicalUserMessage);
+		harness.sessionManager.appendMessage(historicalAssistantMessage);
+		harness.sessionManager.appendMessage(extensionUserMessage);
+		harness.sessionManager.appendMessage(extensionAssistantMessage);
+		harness.setResponses([fauxAssistantMessage("Incorrect Historical Name")]);
+
+		await harness.session.extensionRunner.emit({
+			type: "agent_end",
+			messages: [extensionUserMessage, extensionAssistantMessage],
+		});
+		await delay(BACKGROUND_SETTLEMENT_DELAY_MS);
+
+		expect(harness.faux.state.callCount).toBe(0);
+		expect(harness.sessionManager.getSessionName()).toBeUndefined();
+	});
+
 	it("allows the first real user prompt after extension-only activity to name the session", async () => {
 		const harness = await createSessionAutonameHarness({ persistedSession: true });
 		harnesses.push(harness);
@@ -179,6 +213,51 @@ describe("session autoname extension", () => {
 		await harness.session.prompt("First real request.");
 		expect(await waitUntil(() => harness.sessionManager.getSessionName() !== undefined)).toBe(true);
 		expect(harness.sessionManager.getSessionName()).toBe("Real User Session");
+	});
+
+	it("ignores historical JSONL session info when metadata has never stored a name", async () => {
+		const harness = await createSessionAutonameHarness({ persistedSession: true });
+		harnesses.push(harness);
+		const sessionFile = harness.sessionManager.getSessionFile();
+		if (!sessionFile) throw new Error("Expected persisted session file");
+		harness.sessionManager.persistForRecovery();
+		appendFileSync(
+			sessionFile,
+			`${JSON.stringify({
+				type: "session_info",
+				id: "legacy-session-name",
+				parentId: null,
+				timestamp: "2025-01-01T00:00:00.000Z",
+				name: "Historical JSONL Name",
+			})}\n`,
+		);
+		harness.sessionManager.setSessionFile(sessionFile);
+		harness.setResponses([
+			completedAssistantMessage("Current response."),
+			fauxAssistantMessage("Metadata Authority Name"),
+		]);
+
+		await harness.session.prompt("Current real-user request.");
+
+		expect(await waitUntil(() => harness.sessionManager.getSessionName() !== undefined)).toBe(true);
+		expect(harness.sessionManager.getSessionName()).toBe("Metadata Authority Name");
+	});
+
+	it("preserves an explicit clear before the first exchange", async () => {
+		const harness = await createSessionAutonameHarness({ persistedSession: true });
+		harnesses.push(harness);
+		harness.session.clearSessionName();
+		harness.setResponses([
+			completedAssistantMessage("Substantive answer."),
+			fauxAssistantMessage("Generated Name Should Not Replace Clear"),
+		]);
+
+		await harness.session.prompt("Keep this session unnamed.");
+		await delay(BACKGROUND_SETTLEMENT_DELAY_MS);
+
+		expect(harness.faux.state.callCount).toBe(1);
+		expect(harness.sessionManager.getSessionName()).toBeUndefined();
+		expect(harness.sessionManager.hasSessionNameState()).toBe(true);
 	});
 
 	it("preserves a session name set before the first exchange", async () => {

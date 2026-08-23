@@ -42,6 +42,16 @@ function expectNoLegacySettingEntries(agent: HeadlessPi): void {
 	expect(legacyEntries).toEqual([]);
 }
 
+function expectOnlyHistoricalSessionInfo(agent: HeadlessPi): void {
+	const sessionInfoNames = readFileSync(agent.sessionFile, "utf8")
+		.trim()
+		.split("\n")
+		.map((line) => JSON.parse(line) as { type: string; name?: string })
+		.filter((entry) => entry.type === "session_info")
+		.map((entry) => entry.name);
+	expect(sessionInfoNames).toEqual(["Historical JSONL Name"]);
+}
+
 async function waitForToolResult(agent: HeadlessPi, toolCallId: string): Promise<void> {
 	await agent.waitForSessionEntry(
 		null,
@@ -96,6 +106,10 @@ async function expectCurrentCwdMarker(agent: HeadlessPi): Promise<void> {
 it("restores and relocates a compacted active slice across process replacement", async () => {
 	await withHeadlessPi(
 		async (agent) => {
+			expect(await agent.send({ type: "set_session_name", name: "Compacted SQLite Name" })).toMatchObject({
+				command: "set_session_name",
+				success: true,
+			});
 			await agent.crash();
 			const relocatedCwd = join(agent.paths.tempDir, "relocated");
 			const finalCwd = join(agent.paths.tempDir, "final-relocated");
@@ -112,8 +126,15 @@ it("restores and relocates a compacted active slice across process replacement",
 					cwd: agent.paths.workspaceDir,
 				},
 				userEntry("summarized", null, "summarized prefix"),
-				userEntry("abandoned", "summarized", "abandoned branch"),
-				userEntry("kept", "summarized", "retained branch"),
+				{
+					type: "session_info",
+					id: "historical-name",
+					parentId: "summarized",
+					timestamp: "2026-07-24T00:00:00.000Z",
+					name: "Historical JSONL Name",
+				},
+				userEntry("abandoned", "historical-name", "abandoned branch"),
+				userEntry("kept", "historical-name", "retained branch"),
 				{
 					type: "custom_message",
 					id: "cwd-change",
@@ -174,15 +195,22 @@ it("restores and relocates a compacted active slice across process replacement",
 			expect(state).toMatchObject({
 				command: "get_state",
 				success: true,
-				data: { model: { id: "headless-faux-reasoning" }, thinkingLevel: "high" },
+				data: {
+					model: { id: "headless-faux-reasoning" },
+					sessionName: "Compacted SQLite Name",
+					thinkingLevel: "high",
+				},
 			});
 			expect(readSessionMetadata(controlDbPath, agent.sessionFile)).toMatchObject({
 				cwd: relocatedCwd,
+				name: "Compacted SQLite Name",
 				modelProvider: "headless-faux",
 				modelId: "headless-faux-reasoning",
 				thinkingLevel: "high",
 			});
 			expectNoLegacySettingEntries(agent);
+			expect(agent.readSessionEntries(null).some((entry) => entry.type === "session_info")).toBe(false);
+			expectOnlyHistoricalSessionInfo(agent);
 
 			await relocateCompactedSession(agent, finalCwd);
 
@@ -193,7 +221,14 @@ it("restores and relocates a compacted active slice across process replacement",
 
 			expectActiveSlice(agent);
 			expectSummarizedPrefix(agent);
-			expect(readSessionMetadata(controlDbPath, agent.sessionFile)).toMatchObject({ cwd: finalCwd });
+			expect(readSessionMetadata(controlDbPath, agent.sessionFile)).toMatchObject({
+				cwd: finalCwd,
+				name: "Compacted SQLite Name",
+			});
+			expect(await agent.send({ type: "get_state" })).toMatchObject({
+				data: { sessionName: "Compacted SQLite Name" },
+			});
+			expectOnlyHistoricalSessionInfo(agent);
 
 			await expectCurrentCwdMarker(agent);
 		},

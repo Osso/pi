@@ -32,8 +32,14 @@ interface AutonameCandidate {
 	request: TitleRequest;
 }
 
+interface AutonameTurnDecision {
+	shouldAttempt: boolean;
+	pendingRealUserTurn: boolean;
+}
+
 export default function sessionAutonameExtension(pi: ExtensionAPI): void {
 	let attempted = false;
+	let pendingRealUserTurn = false;
 	let pendingController: AbortController | undefined;
 
 	const abortPendingGeneration = (): void => {
@@ -45,7 +51,10 @@ export default function sessionAutonameExtension(pi: ExtensionAPI): void {
 	pi.on("session_shutdown", abortPendingGeneration);
 	pi.on("agent_end", (event, ctx) => {
 		if (attempted) return;
-		const candidate = createAutonameCandidate(event, ctx);
+		const turn = decideAutonameTurn(event, pendingRealUserTurn);
+		pendingRealUserTurn = turn.pendingRealUserTurn;
+		if (!turn.shouldAttempt) return;
+		const candidate = createAutonameCandidate(ctx);
 		if (!candidate) return;
 
 		attempted = true;
@@ -57,8 +66,22 @@ export default function sessionAutonameExtension(pi: ExtensionAPI): void {
 	});
 }
 
-function createAutonameCandidate(event: AgentEndEvent, ctx: ExtensionContext): AutonameCandidate | undefined {
-	if (event.sessionContinuation || !canAutonameSession(ctx)) return undefined;
+function decideAutonameTurn(event: AgentEndEvent, pendingRealUserTurn: boolean): AutonameTurnDecision {
+	const hasRealUserMessage = event.messages.some(isRealUserMessage);
+	if (event.sessionContinuation) {
+		return {
+			shouldAttempt: false,
+			pendingRealUserTurn: pendingRealUserTurn || hasRealUserMessage,
+		};
+	}
+	return {
+		shouldAttempt: pendingRealUserTurn || hasRealUserMessage,
+		pendingRealUserTurn: false,
+	};
+}
+
+function createAutonameCandidate(ctx: ExtensionContext): AutonameCandidate | undefined {
+	if (!canAutonameSession(ctx)) return undefined;
 	const exchange = findFirstExchange(ctx.sessionManager);
 	const model = ctx.model;
 	if (!exchange || !model) return undefined;
@@ -92,7 +115,7 @@ function canAutonameSession(ctx: ExtensionContext): boolean {
 	const isSupportedMode = ctx.mode === "tui" || ctx.mode === "rpc";
 	if (!isSupportedMode || !ctx.sessionManager.getSessionFile()) return false;
 	if (ctx.multiAgentAgentId || ctx.sessionManager.isSubagentSession()) return false;
-	return !hasSessionNameOrInfo(ctx.sessionManager);
+	return !ctx.sessionManager.hasSessionNameState();
 }
 
 function findFirstExchange(sessionManager: ReadonlySessionManager): FirstExchange | undefined {
@@ -127,7 +150,7 @@ async function generateAndSetTitle(
 ): Promise<void> {
 	const title = await requestGeneratedTitle(request, exchange, controller.signal);
 	if (!title || controller.signal.aborted) return;
-	if (pi.getSessionName() || hasSessionInfo(request.sessionManager)) return;
+	if (request.sessionManager.hasSessionNameState()) return;
 	pi.setSessionName(title);
 }
 
@@ -220,19 +243,15 @@ function truncateTitle(title: string): string {
 	return truncatedTitle.trim();
 }
 
-function hasSessionNameOrInfo(sessionManager: ReadonlySessionManager): boolean {
-	return Boolean(sessionManager.getSessionName()) || hasSessionInfo(sessionManager);
-}
-
-function hasSessionInfo(sessionManager: ReadonlySessionManager): boolean {
-	return sessionManager.getEntries().some((entry) => entry.type === "session_info");
+function isRealUserMessage(message: AgentMessage): message is Extract<AgentMessage, { role: "user" }> {
+	return message.role === "user" && message.inputSource !== "extension";
 }
 
 function isRealUserMessageEntry(entry: SessionEntry): entry is SessionEntry & {
 	type: "message";
 	message: Extract<AgentMessage, { role: "user" }>;
 } {
-	return entry.type === "message" && entry.message.role === "user" && entry.message.inputSource !== "extension";
+	return entry.type === "message" && isRealUserMessage(entry.message);
 }
 
 function isAssistantMessageEntry(entry: SessionEntry): entry is SessionEntry & {

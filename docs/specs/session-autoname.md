@@ -7,7 +7,7 @@ Session autonaming is a default first-party extension that gives persisted never
 ### Trigger and title
 
 - [x] In interactive TUI and RPC modes, after the first agent turn that follows a real user message, asynchronously ask the active model for a short 2–4 word session title summarizing the conversation so far. Empty, aborted, and failed responses still qualify.
-- [x] Persist the generated title through the existing session-naming behavior.
+- [x] Persist the generated title through the existing session-naming behavior in `session_metadata.name`; no JSONL name entry is written.
 - [x] Do not delay completion of the originating user exchange while generating the title.
 
 ### Eligibility and exclusions
@@ -21,7 +21,7 @@ Session autonaming is a default first-party extension that gives persisted never
 
 ### Manual control and failure
 
-- [x] A manual `/name` or `/unname` during title generation wins over the generated title; `/unname` remains cleared after restart.
+- [x] A manual `/name` or `/unname` during title generation wins over the generated title; `/unname` stores `session_metadata.name = ''`, remains cleared after restart, and blocks later autonaming.
 - [x] A title-generation failure leaves the session unnamed.
 
 ## How it works

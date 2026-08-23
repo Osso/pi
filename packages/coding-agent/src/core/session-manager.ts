@@ -34,8 +34,10 @@ import {
 	clearSessionSandboxProfile as clearPersistedSessionSandboxProfile,
 	listResumeSessionMetadata,
 	listSessionMetadata,
+	normalizeSessionName,
 	readSessionGoal,
 	readSessionMetadata,
+	readSessionNameState,
 	readSessionSandboxProfile,
 	relocateSessionControlData,
 	type SessionMetadata,
@@ -43,6 +45,7 @@ import {
 	writeSessionGoal,
 	writeSessionMetadata,
 	writeSessionModel,
+	writeSessionName,
 	writeSessionSandboxProfile,
 	writeSessionThinkingLevel,
 } from "./session-control-db.ts";
@@ -138,7 +141,7 @@ export interface LabelEntry extends SessionEntryBase {
 	label: string | undefined;
 }
 
-/** Session metadata entry (e.g., user-defined display name). */
+/** Legacy session metadata entry retained only so existing JSONL files remain parseable. */
 export interface SessionInfoEntry extends SessionEntryBase {
 	type: "session_info";
 	name?: string;
@@ -213,7 +216,7 @@ export interface SessionInfo {
 	id: string;
 	/** Working directory where the session was started. Empty string for old sessions. */
 	cwd: string;
-	/** User-defined display name from session_info entries. */
+	/** User-defined display name from control-DB session metadata. */
 	name?: string;
 	/** Whether the session is hidden from normal resume lists. */
 	isArchived?: boolean;
@@ -242,6 +245,7 @@ export type ReadonlySessionManager = Pick<
 	| "getEntries"
 	| "getTree"
 	| "getSessionName"
+	| "hasSessionNameState"
 	| "getSessionGoalJson"
 	| "getSessionGoalJsonForSession"
 	| "setSessionGoalJson"
@@ -672,8 +676,6 @@ function parseSessionEntryLine(line: string): FileEntry | null {
 interface ReverseSessionScan {
 	allEntries: SessionEntry[];
 	activePath: SessionEntry[];
-	/** Session-info entries on the active chain older than the compaction cutoff, newest first. */
-	preCutoffSessionInfos: SessionEntry[];
 	isReadingLeaf: boolean;
 	requiredParentId: string | null;
 	latestCompaction: CompactionEntry | undefined;
@@ -701,7 +703,6 @@ function createReverseSessionScan(): ReverseSessionScan {
 	return {
 		allEntries: [],
 		activePath: [],
-		preCutoffSessionInfos: [],
 		isReadingLeaf: true,
 		requiredParentId: null,
 		latestCompaction: undefined,
@@ -741,10 +742,6 @@ function scanSessionEntryReverse(scan: ReverseSessionScan, entry: FileEntry): bo
 	scan.isReadingLeaf = false;
 	if (!scan.foundFirstKeptEntry) {
 		scan.activePath.push(entry);
-	} else if (entry.type === "session_info") {
-		// Session metadata (display names) must survive compaction: retain entries the
-		// cutoff drops so getSessionName() still sees the latest name after a restart.
-		scan.preCutoffSessionInfos.push(entry);
 	}
 	scan.requiredParentId = entry.parentId;
 	if (!scan.latestCompaction && entry.type === "compaction") {
@@ -761,11 +758,7 @@ function scanSessionEntryReverse(scan: ReverseSessionScan, entry: FileEntry): bo
 }
 
 function loadedActiveSlice(scan: ReverseSessionScan): LoadedSessionEntries {
-	// Pre-cutoff session-info entries are older than everything in the active path;
-	// both lists were collected newest-first, so reversing each keeps chronological order.
-	const preCutoffInfos = scan.preCutoffSessionInfos.slice().reverse();
-	const activePath = scan.activePath.slice().reverse();
-	return { entries: [...preCutoffInfos, ...activePath], precedingCwd: scan.precedingCwd };
+	return { entries: scan.activePath.slice().reverse(), precedingCwd: scan.precedingCwd };
 }
 
 function scanCompleteReverseLines(scan: ReverseSessionScan, pending: Buffer, filePath: string): ReverseLineScanResult {
@@ -985,7 +978,6 @@ interface SessionInfoAccumulator {
 	messageCount: number;
 	firstMessage: string;
 	allMessagesText: string;
-	name?: string;
 	lastActivityTime?: number;
 }
 
@@ -998,10 +990,6 @@ function createSessionInfoAccumulator(): SessionInfoAccumulator {
 }
 
 function applySessionInfoEntry(accumulator: SessionInfoAccumulator, entry: SessionEntry): void {
-	if (entry.type === "session_info") {
-		accumulator.name = entry.name?.trim() || undefined;
-	}
-
 	if (entry.type !== "message") return;
 	accumulator.messageCount++;
 
@@ -1045,7 +1033,6 @@ function finishSessionInfo(
 		path: filePath,
 		id: header.id,
 		cwd,
-		name: accumulator.name,
 		parentSessionPath: header.parentSession,
 		created: new Date(header.timestamp),
 		modified,
@@ -1089,7 +1076,7 @@ function isSessionEntry(entry: FileEntry): entry is SessionEntry {
 }
 
 function affectsSessionInfo(entry: SessionEntry): boolean {
-	return entry.type === "message" || entry.type === "session_info";
+	return entry.type === "message";
 }
 
 function writableSessionMetadataFromInfo(
@@ -1100,7 +1087,6 @@ function writableSessionMetadataFromInfo(
 		sessionPath: info.path,
 		id: info.id,
 		cwd: info.cwd,
-		name: info.name,
 		parentSessionPath: info.parentSessionPath,
 		isSubagent: options.isSubagent,
 		subagentName: options.subagentName,
@@ -1307,6 +1293,8 @@ export class SessionManager {
 	private indexMessageText: boolean = true;
 	private isSubagent: boolean = false;
 	private subagentName: string | undefined;
+	private sessionName: string | undefined;
+	private hasStoredSessionName: boolean = false;
 	private inMemoryGoalJson: string | undefined;
 
 	private constructor(
@@ -1333,13 +1321,13 @@ export class SessionManager {
 	/** Switch to a different session file (used for resume and branching) */
 	setSessionFile(sessionFile: string): void {
 		this.sessionFile = resolvePath(sessionFile);
+		this.resetSessionNameState();
 		if (existsSync(this.sessionFile)) {
 			const loaded = loadSessionFileEntries(this.sessionFile);
 			this.fileEntries = loaded.fileEntries;
 			if (loaded.precedingCwd) this.cwd = resolvePath(loaded.precedingCwd);
 
-			// If file was empty, initialize it with a valid session header. If it was
-			// non-empty but did not parse as a pi session, fail without modifying it.
+			// Initialize an empty file; reject a nonempty invalid session without modifying it.
 			if (this.fileEntries.length === 0) {
 				const explicitPath = this.sessionFile;
 				if (statSync(explicitPath).size > 0) {
@@ -1361,8 +1349,8 @@ export class SessionManager {
 			if (migrateToCurrentVersion(this.fileEntries)) {
 				this._rewriteFile();
 			}
-
 			this._buildIndex();
+			this.restorePersistedMetadata();
 			this.flushed = true;
 		} else {
 			const explicitPath = this.sessionFile;
@@ -1378,6 +1366,7 @@ export class SessionManager {
 		this.sessionId = options?.id ?? createSessionId();
 		this.isSubagent = options?.isSubagent ?? false;
 		this.subagentName = options?.subagentName?.trim() || undefined;
+		this.resetSessionNameState();
 		const timestamp = new Date().toISOString();
 		const header: SessionHeader = {
 			type: "session",
@@ -1633,8 +1622,16 @@ export class SessionManager {
 		this.writeMetadataSnapshot();
 	}
 
+	private resetSessionNameState(): void {
+		this.sessionName = undefined;
+		this.hasStoredSessionName = false;
+	}
+
 	private restorePersistedMetadata(): void {
 		if (!this.metadataControlDbPath || !this.sessionFile) return;
+		const nameState = readSessionNameState(this.metadataControlDbPath, this.sessionFile);
+		this.sessionName = nameState.name;
+		this.hasStoredSessionName = nameState.hasStoredValue;
 		const metadata = readSessionMetadata(this.metadataControlDbPath, this.sessionFile);
 		if (!metadata) return;
 		this.cwd = resolvePath(metadata.cwd);
@@ -1837,32 +1834,21 @@ export class SessionManager {
 		return entry.id;
 	}
 
-	/** Append a session info entry (e.g., display name). Returns entry id. */
-	appendSessionInfo(name: string): string {
-		const sanitizedName = name.replace(/[\r\n]+/g, " ").trim();
-		const entry: SessionInfoEntry = {
-			type: "session_info",
-			id: generateId(this.byId),
-			parentId: this.leafId,
-			timestamp: new Date().toISOString(),
-			name: sanitizedName,
-		};
-		this._appendEntry(entry);
-		return entry.id;
+	/** Set or clear the current session display name. */
+	setSessionName(name: string | undefined): void {
+		this.sessionName = normalizeSessionName(name);
+		this.hasStoredSessionName = true;
+		if (!this.metadataControlDbPath || !this.sessionFile) return;
+		this.writeMetadataSnapshot();
+		writeSessionName(this.metadataControlDbPath, this.sessionFile, this.sessionName);
 	}
 
-	/** Get the current session name from the latest session_info entry, if any. */
 	getSessionName(): string | undefined {
-		// Walk entries in reverse to find the latest session_info entry.
-		// Empty names explicitly clear the session title.
-		const entries = this.getEntries();
-		for (let i = entries.length - 1; i >= 0; i--) {
-			const entry = entries[i];
-			if (entry.type === "session_info") {
-				return entry.name?.trim() || undefined;
-			}
-		}
-		return undefined;
+		return this.sessionName;
+	}
+
+	hasSessionNameState(): boolean {
+		return this.hasStoredSessionName;
 	}
 
 	/**
@@ -2170,14 +2156,12 @@ export class SessionManager {
 
 			this.fileEntries = [header, ...pathWithoutLabels, ...labelEntries];
 			this.sessionId = newSessionId;
+			this.resetSessionNameState();
 			this.sessionFile = newSessionFile;
 			this._buildIndex();
 
-			// Only write the file now if it contains an assistant message.
-			// Otherwise defer to _persist(), which creates the file on the
-			// first assistant response, matching the newSession() contract
-			// and avoiding the duplicate-header bug when _persist()'s
-			// no-assistant guard later resets flushed to false.
+			// Write immediately only when history contains an assistant message.
+			// Otherwise defer to _persist() so newSession() semantics avoid duplicate headers.
 			const hasAssistant = this.fileEntries.some((e) => e.type === "message" && e.message.role === "assistant");
 			if (hasAssistant) {
 				this._rewriteFile();
@@ -2206,6 +2190,7 @@ export class SessionManager {
 		}
 		this.fileEntries = [header, ...pathWithoutLabels, ...labelEntries];
 		this.sessionId = newSessionId;
+		this.resetSessionNameState();
 		this._buildIndex();
 		return undefined;
 	}

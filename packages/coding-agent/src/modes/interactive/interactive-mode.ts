@@ -110,9 +110,7 @@ import {
 	completeIncomingMessage,
 	failIncomingMessage,
 	type IncomingControlMessage,
-	listNamedSessions,
-	removeNamedSession,
-	setNamedSession,
+	writeSessionName,
 } from "../../core/session-control-db.ts";
 import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
 import { SessionImportFileNotFoundError } from "../../core/session-errors.ts";
@@ -6421,7 +6419,7 @@ export class InteractiveMode {
 				onProgress?: SessionListProgress,
 			): Promise<SessionInfo[]> => {
 				const sessions = await loader(onProgress);
-				return this.applyControlSessionNames(sessions);
+				return this.sortNamedSessionsFirst(sessions);
 			};
 			const selector = new SessionSelectorComponent(
 				(onProgress) =>
@@ -6461,15 +6459,8 @@ export class InteractiveMode {
 				() => this.ui.requestRender(),
 				{
 					renameSession: async (sessionFilePath: string, nextName: string | undefined) => {
-						const next = (nextName ?? "").trim();
 						if (!this.options.controlDbPath) return;
-						if (!next) {
-							removeNamedSession(this.options.controlDbPath, sessionFilePath);
-							return;
-						}
-						setNamedSession(this.options.controlDbPath, sessionFilePath, next);
-						const mgr = SessionManager.open(sessionFilePath);
-						mgr.appendSessionInfo(next);
+						writeSessionName(this.options.controlDbPath, sessionFilePath, nextName);
 					},
 					showRenameHint: true,
 					keybindings: this.keybindings,
@@ -6494,19 +6485,13 @@ export class InteractiveMode {
 		});
 	}
 
-	private applyControlSessionNames(sessions: SessionInfo[]): SessionInfo[] {
-		const controlDbPath = this.options.controlDbPath;
-		if (!controlDbPath) return sessions;
-
-		const names = new Map(listNamedSessions(controlDbPath).map((session) => [session.sessionPath, session.name]));
-		return sessions
-			.map((session) => ({ ...session, name: names.get(session.path) ?? session.name }))
-			.sort((a, b) => {
-				const aNamed = names.has(a.path);
-				const bNamed = names.has(b.path);
-				if (aNamed !== bNamed) return aNamed ? -1 : 1;
-				return b.modified.getTime() - a.modified.getTime();
-			});
+	private sortNamedSessionsFirst(sessions: SessionInfo[]): SessionInfo[] {
+		return [...sessions].sort((a, b) => {
+			const aNamed = Boolean(a.name?.trim());
+			const bNamed = Boolean(b.name?.trim());
+			if (aNamed !== bNamed) return aNamed ? -1 : 1;
+			return b.modified.getTime() - a.modified.getTime();
+		});
 	}
 
 	private async continueInterruptedResumedSession(): Promise<void> {

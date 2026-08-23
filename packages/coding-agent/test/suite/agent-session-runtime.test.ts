@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, parse } from "node:path";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
@@ -17,6 +17,8 @@ import {
 	listRuntimeMailboxListeners,
 	readSessionHealth,
 	readSessionMetadata,
+	readSessionNameState,
+	writeSessionMetadata,
 } from "../../src/core/session-control-db.ts";
 import { listSessions } from "../../src/core/session-directory.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
@@ -146,6 +148,54 @@ describe("AgentSessionRuntime characterization", () => {
 
 		return { runtime, faux, tempDir };
 	}
+
+	it("does not inherit stale metadata or historical JSONL names when importing a new session", async () => {
+		const { runtime, tempDir } = await createRuntimeForTest(() => {});
+		const sourceDir = join(tempDir, "import-source");
+		mkdirSync(sourceDir, { recursive: true });
+		const sourcePath = join(sourceDir, "imported.jsonl");
+		const destinationPath = join(runtime.session.sessionManager.getSessionDir(), "imported.jsonl");
+		writeFileSync(
+			sourcePath,
+			[
+				JSON.stringify({
+					type: "session",
+					version: 3,
+					id: "imported-session",
+					timestamp: "2026-08-23T00:00:00.000Z",
+					cwd: tempDir,
+				}),
+				JSON.stringify({
+					type: "session_info",
+					id: "historical-name",
+					parentId: null,
+					timestamp: "2026-08-23T00:00:01.000Z",
+					name: "Historical Import Name",
+				}),
+				"",
+			].join("\n"),
+		);
+		const controlDbPath = getControlDbPath(tempDir);
+		writeSessionMetadata(controlDbPath, {
+			sessionPath: destinationPath,
+			id: "stale-session",
+			cwd: tempDir,
+			name: "Stale Destination Name",
+			createdAt: "2026-08-22T00:00:00.000Z",
+			modifiedAt: "2026-08-22T00:00:00.000Z",
+			messageCount: 0,
+			firstMessage: "(no messages)",
+			allMessagesText: "",
+		});
+
+		await runtime.importFromJsonl(sourcePath);
+
+		expect(runtime.session.sessionFile).toBe(destinationPath);
+		expect(runtime.session.sessionName).toBeUndefined();
+		expect(runtime.session.sessionManager.hasSessionNameState()).toBe(false);
+		expect(readSessionMetadata(controlDbPath, destinationPath)?.name).toBeUndefined();
+		expect(readSessionNameState(controlDbPath, destinationPath).hasStoredValue).toBe(false);
+	});
 
 	it("relocates the active session to a new cwd and adds a context note", async () => {
 		const { runtime, tempDir } = await createRuntimeForTest(() => {});
@@ -472,10 +522,11 @@ describe("AgentSessionRuntime characterization", () => {
 		expect(events).toEqual([{ type: "session_before_fork", entryId: "missing-entry", position: "at" }]);
 	});
 
-	it("duplicates the current active branch when forking at the current position", async () => {
-		const { runtime } = await createRuntimeForTest(() => {});
+	it("duplicates the current active branch without inheriting its session name", async () => {
+		const { runtime, tempDir } = await createRuntimeForTest(() => {});
 		await runtime.session.prompt("hello");
 		await runtime.session.prompt("again");
+		runtime.session.setSessionName("Parent Session Name");
 
 		const beforeMessages = runtime.session.messages.map((message) => ({
 			role: message.role,
@@ -491,11 +542,16 @@ describe("AgentSessionRuntime characterization", () => {
 		}));
 		const previousSessionFile = runtime.session.sessionFile;
 		const leafId = runtime.session.sessionManager.getLeafId();
-		expect(leafId).toBeTruthy();
+		if (!leafId) throw new Error("Missing current session leaf");
 
-		const result = await runtime.fork(leafId!, { position: "at" });
+		const result = await runtime.fork(leafId, { position: "at" });
+		const forkedSessionFile = runtime.session.sessionFile;
+		if (!forkedSessionFile) throw new Error("Missing forked session file");
 		expect(result).toEqual({ cancelled: false, selectedText: undefined });
-		expect(runtime.session.sessionFile).not.toBe(previousSessionFile);
+		expect(forkedSessionFile).not.toBe(previousSessionFile);
+		expect(runtime.session.sessionName).toBeUndefined();
+		expect(runtime.session.sessionManager.hasSessionNameState()).toBe(false);
+		expect(readSessionMetadata(getControlDbPath(tempDir), forkedSessionFile)?.name).toBeUndefined();
 		expect(
 			runtime.session.messages.map((message) => ({
 				role: message.role,

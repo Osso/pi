@@ -26,7 +26,8 @@ import {
 } from "./session-health.ts";
 import { configureSharedSqliteDatabase, createSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
 
-const CONTROL_DB_SCHEMA_VERSION = 14;
+const LIFECYCLE_PROTOCOL_SCHEMA_VERSION = 14;
+const CONTROL_DB_SCHEMA_VERSION = 15;
 
 export interface IncomingControlMessage {
 	id: number;
@@ -153,12 +154,6 @@ export interface EnqueueRuntimeMailboxMessageInput {
 export interface LastControlMessage {
 	role: "assistant";
 	content: string;
-	updatedAt: string;
-}
-
-export interface NamedSession {
-	sessionPath: string;
-	name: string;
 	updatedAt: string;
 }
 
@@ -311,12 +306,6 @@ type IncomingStatusRow = {
 	status: string;
 };
 
-type NamedSessionRow = {
-	session_path: string;
-	name: string;
-	updated_at: string;
-};
-
 type SessionMetadataRow = {
 	session_path: string;
 	id: string;
@@ -339,6 +328,7 @@ type SessionMetadataRow = {
 };
 
 type SessionMetadataPreservedRow = {
+	name: string | null;
 	archived_at: string | null;
 	goal_json: string | null;
 	is_subagent: number;
@@ -2400,45 +2390,34 @@ function readLatestPromptHistoryEntry(db: SqliteDatabase): string | undefined {
 	return row?.content;
 }
 
-export function setNamedSession(controlDbPath: string, sessionPath: string, name: string): void {
-	const trimmedName = name.trim();
-	if (!trimmedName) {
-		removeNamedSession(controlDbPath, sessionPath);
-		return;
-	}
+export interface SessionNameState {
+	name: string | undefined;
+	hasStoredValue: boolean;
+}
 
+export function normalizeSessionName(name: string | undefined): string | undefined {
+	return name?.replace(/[\r\n]+/g, " ").trim() || undefined;
+}
+
+export function writeSessionName(controlDbPath: string, sessionPath: string, name: string | undefined): void {
+	const storedName = normalizeSessionName(name) ?? "";
 	withControlDb(controlDbPath, (db) => {
-		const now = new Date().toISOString();
-		db.prepare(
-			`
-			INSERT INTO named_sessions (session_path, name, updated_at)
-			VALUES (?, ?, ?)
-			ON CONFLICT(session_path) DO UPDATE SET
-				name = excluded.name,
-				updated_at = excluded.updated_at
-			`,
-		).run(sessionPath, trimmedName, now);
-		db.prepare(
-			`
-			UPDATE session_metadata
-			SET name = ?, updated_at = ?
-			WHERE session_path = ?
-			`,
-		).run(trimmedName, now, sessionPath);
+		const result = db
+			.prepare("UPDATE session_metadata SET name = ?, updated_at = ? WHERE session_path = ?")
+			.run(storedName, new Date().toISOString(), sessionPath);
+		if (Number(result.changes) !== 1) {
+			throw new Error(`Cannot update session name without metadata for ${sessionPath}`);
+		}
 	});
 }
 
-export function removeNamedSession(controlDbPath: string, sessionPath: string): void {
-	withControlDb(controlDbPath, (db) => {
-		const now = new Date().toISOString();
-		db.prepare("DELETE FROM named_sessions WHERE session_path = ?").run(sessionPath);
-		db.prepare(
-			`
-			UPDATE session_metadata
-			SET name = NULL, updated_at = ?
-			WHERE session_path = ?
-			`,
-		).run(now, sessionPath);
+export function readSessionNameState(controlDbPath: string, sessionPath: string): SessionNameState {
+	return withControlDb(controlDbPath, (db) => {
+		const row = db.prepare("SELECT name FROM session_metadata WHERE session_path = ?").get(sessionPath) as
+			| { name: string | null }
+			| undefined;
+		if (!row || row.name === null) return { name: undefined, hasStoredValue: false };
+		return { name: normalizeSessionName(row.name), hasStoredValue: true };
 	});
 }
 
@@ -2446,7 +2425,6 @@ export function removeSessionMetadata(controlDbPath: string, sessionPath: string
 	withControlDb(controlDbPath, (db) => {
 		db.exec("BEGIN IMMEDIATE");
 		try {
-			db.prepare("DELETE FROM named_sessions WHERE session_path = ?").run(sessionPath);
 			db.prepare("DELETE FROM session_sandbox_profiles WHERE session_path = ?").run(sessionPath);
 			db.prepare("DELETE FROM session_metadata WHERE session_path = ?").run(sessionPath);
 			db.exec("COMMIT");
@@ -2454,25 +2432,6 @@ export function removeSessionMetadata(controlDbPath: string, sessionPath: string
 			db.exec("ROLLBACK");
 			throw error;
 		}
-	});
-}
-
-export function listNamedSessions(controlDbPath: string): NamedSession[] {
-	return withControlDb(controlDbPath, (db) => {
-		const rows = db
-			.prepare(
-				`
-				SELECT session_path, name, updated_at
-				FROM named_sessions
-				ORDER BY updated_at DESC
-				`,
-			)
-			.all() as NamedSessionRow[];
-		return rows.map((row) => ({
-			sessionPath: row.session_path,
-			name: row.name,
-			updatedAt: row.updated_at,
-		}));
 	});
 }
 
@@ -2490,7 +2449,6 @@ export function relocateSessionControlData(
 		db.exec("BEGIN IMMEDIATE");
 		try {
 			relocateSessionPathPrimaryKey(db, "session_metadata", oldSessionPath, newSessionPath, now);
-			relocateSessionPathPrimaryKey(db, "named_sessions", oldSessionPath, newSessionPath, now);
 			relocateSessionPathPrimaryKey(db, "session_sandbox_profiles", oldSessionPath, newSessionPath, now);
 			relocateMultiAgentSessionRows(db, "multi_agent_agents", oldSessionPath, newSessionPath, now);
 			relocateMultiAgentRuntimeOwners(db, oldSessionPath, newSessionPath);
@@ -2640,7 +2598,7 @@ function readSessionMetadataWriteValues(
 	const preserved = readPreservedSessionMetadata(db, metadata.sessionPath);
 	const preservedIsSubagent = preserved?.is_subagent === 1;
 	return {
-		name: metadata.name ?? readNamedSessionName(db, metadata.sessionPath) ?? null,
+		name: metadata.name !== undefined ? (normalizeSessionName(metadata.name) ?? "") : (preserved?.name ?? null),
 		archivedAt: metadata.archivedAt ?? preserved?.archived_at ?? null,
 		isSubagent: metadata.isSubagent ?? preservedIsSubagent,
 		subagentName: metadata.subagentName ?? preserved?.subagent_name ?? null,
@@ -2692,7 +2650,7 @@ function readPreservedSessionMetadata(
 	return db
 		.prepare(
 			`
-			SELECT archived_at, goal_json, is_subagent, subagent_name, model_provider, model_id, thinking_level
+			SELECT name, archived_at, goal_json, is_subagent, subagent_name, model_provider, model_id, thinking_level
 			FROM session_metadata
 			WHERE session_path = ?
 			`,
@@ -2812,13 +2770,6 @@ export function readSessionGoal(controlDbPath: string, sessionPath: string): str
 			.get(sessionPath) as GoalRow | undefined;
 		return row?.goal_json ?? undefined;
 	});
-}
-
-function readNamedSessionName(db: SqliteDatabase, sessionPath: string): string | null {
-	const row = db.prepare("SELECT name FROM named_sessions WHERE session_path = ?").get(sessionPath) as
-		| { name: string }
-		| undefined;
-	return row?.name ?? null;
 }
 
 export function readSessionMetadata(controlDbPath: string, sessionPath: string): SessionMetadata | undefined {
@@ -3059,7 +3010,7 @@ function sessionMetadataFromRow(row: SessionMetadataRow): SessionMetadata {
 		sessionPath: row.session_path,
 		id: row.id,
 		cwd: row.cwd,
-		name: row.name ?? undefined,
+		name: normalizeSessionName(row.name ?? undefined),
 		parentSessionPath: row.parent_session_path ?? undefined,
 		archivedAt: row.archived_at ?? undefined,
 		isArchived: row.archived_at !== null,
@@ -6407,12 +6358,6 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 			PRIMARY KEY (recipient_session_id, recipient_agent_id_key)
 		);
 
-		CREATE TABLE IF NOT EXISTS named_sessions (
-			session_path TEXT PRIMARY KEY,
-			name TEXT NOT NULL,
-			updated_at TEXT NOT NULL
-		);
-
 		CREATE TABLE IF NOT EXISTS prompt_history (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			content TEXT NOT NULL,
@@ -6591,9 +6536,10 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 		);
 	`);
 	const schemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
-	if (schemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) migrateLegacyMultiAgentCounters(db);
+	if (schemaVersion.user_version >= LIFECYCLE_PROTOCOL_SCHEMA_VERSION) migrateLegacyMultiAgentCounters(db);
 	migrateLegacyMultiAgentPayloads(db, selfRestartProcessId);
 	addMissingSessionMetadataColumns(db);
+	migrateLegacySessionNames(db, selfRestartProcessId);
 	addMissingRuntimeMailboxListenerColumns(db);
 	addMissingArchitectRequestColumns(db);
 }
@@ -6658,15 +6604,16 @@ type LifecycleProtocolMigrationState = {
 };
 
 function migrateLegacyMultiAgentPayloads(db: SqliteDatabase, selfRestartProcessId?: number): void {
+	const targetVersion = LIFECYCLE_PROTOCOL_SCHEMA_VERSION;
 	const schemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
-	if (schemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) return;
+	if (schemaVersion.user_version >= targetVersion) return;
 	const migrationState = readLifecycleProtocolMigrationState(db);
-	assertLifecycleProtocolMigrationQuiescent(migrationState, selfRestartProcessId);
+	assertControlDbMigrationQuiescent(migrationState, selfRestartProcessId, "lifecycle protocol", targetVersion);
 	const migrationTimestamp = new Date().toISOString();
 
 	withImmediateTransaction(db, () => {
 		const currentSchemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
-		if (currentSchemaVersion.user_version >= CONTROL_DB_SCHEMA_VERSION) return;
+		if (currentSchemaVersion.user_version >= targetVersion) return;
 		const currentMigrationState = readLifecycleProtocolMigrationState(db);
 		if (!lifecycleProtocolMigrationStatesEqual(migrationState, currentMigrationState)) {
 			throw new Error("Lifecycle protocol migration state changed while acquiring the writer lock; retry");
@@ -6682,8 +6629,49 @@ function migrateLegacyMultiAgentPayloads(db: SqliteDatabase, selfRestartProcessI
 		migrateLegacyMultiAgentPayloadTable(db, "multi_agent_mailbox_messages", "message_id", migrationTimestamp);
 		migrateLegacyRuntimeMailboxMessages(db, migrationTimestamp);
 		createLegacyArtifactFieldTriggers(db);
-		db.exec(`PRAGMA user_version = ${CONTROL_DB_SCHEMA_VERSION}`);
+		db.exec(`PRAGMA user_version = ${targetVersion}`);
 	});
+}
+
+function migrateLegacySessionNames(db: SqliteDatabase, selfRestartProcessId?: number): void {
+	const targetVersion = CONTROL_DB_SCHEMA_VERSION;
+	const schemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
+	if (schemaVersion.user_version >= targetVersion) return;
+	const migrationState = readLifecycleProtocolMigrationState(db);
+	assertControlDbMigrationQuiescent(migrationState, selfRestartProcessId, "session name schema", targetVersion);
+
+	withImmediateTransaction(db, () => {
+		const currentSchemaVersion = db.prepare("PRAGMA user_version").get() as { user_version: number };
+		if (currentSchemaVersion.user_version >= targetVersion) return;
+		const currentMigrationState = readLifecycleProtocolMigrationState(db);
+		if (!lifecycleProtocolMigrationStatesEqual(migrationState, currentMigrationState)) {
+			throw new Error("Session name migration state changed while acquiring the writer lock; retry");
+		}
+
+		assertControlDbMigrationQuiescent(
+			currentMigrationState,
+			selfRestartProcessId,
+			"session name schema",
+			targetVersion,
+		);
+		moveLegacySessionNamesIntoMetadata(db);
+		db.exec(`PRAGMA user_version = ${targetVersion}`);
+	});
+}
+
+function moveLegacySessionNamesIntoMetadata(db: SqliteDatabase): void {
+	const legacyTable = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'named_sessions'").get();
+	if (!legacyTable) return;
+
+	const legacyRows = db.prepare("SELECT session_path, name FROM named_sessions").all() as Array<{
+		session_path: string;
+		name: string;
+	}>;
+	const writeName = db.prepare("UPDATE session_metadata SET name = ? WHERE session_path = ?");
+	for (const row of legacyRows) {
+		writeName.run(normalizeSessionName(row.name) ?? "", row.session_path);
+	}
+	db.exec("DROP TABLE named_sessions");
 }
 
 function readLifecycleProtocolMigrationState(db: SqliteDatabase): LifecycleProtocolMigrationState {
@@ -6726,9 +6714,11 @@ function readLifecycleMigrationOwnerTableState(
 	return { kind: "with_process_identity", processIdentities };
 }
 
-function assertLifecycleProtocolMigrationQuiescent(
+function assertControlDbMigrationQuiescent(
 	state: LifecycleProtocolMigrationState,
-	selfRestartProcessId?: number,
+	selfRestartProcessId: number | undefined,
+	migrationName: string,
+	targetVersion: number,
 ): void {
 	const liveRuntimePids = state.runtimePids.filter(isPiRuntimeProcessAlive);
 	for (const tableState of Object.values(state.ownerTables)) {
@@ -6744,7 +6734,7 @@ function assertLifecycleProtocolMigrationQuiescent(
 	const uniqueLivePids = [...new Set(liveRuntimePids)].filter((pid) => pid !== selfRestartProcessId);
 	if (uniqueLivePids.length === 0) return;
 	throw new Error(
-		`Cannot activate lifecycle protocol version ${CONTROL_DB_SCHEMA_VERSION} while lifecycle owners are active (PIDs: ${uniqueLivePids.join(", ")}). Stop all Pi and detached runner processes, then retry`,
+		`Cannot activate ${migrationName} version ${targetVersion} while lifecycle owners are active (PIDs: ${uniqueLivePids.join(", ")}). Stop all Pi and detached runner processes, then retry`,
 	);
 }
 
@@ -7095,6 +7085,9 @@ function addMissingSessionMetadataColumns(db: SqliteDatabase): void {
 	const columns = new Set(
 		(db.prepare("PRAGMA table_info(session_metadata)").all() as TableInfoRow[]).map((column) => column.name),
 	);
+	if (!columns.has("name")) {
+		db.exec("ALTER TABLE session_metadata ADD COLUMN name TEXT");
+	}
 	if (!columns.has("archived_at")) {
 		db.exec("ALTER TABLE session_metadata ADD COLUMN archived_at TEXT");
 	}

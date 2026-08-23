@@ -443,7 +443,7 @@ describe("resume_session first-party tool", () => {
 	it("rejects resuming the current session by path, id, or name", async () => {
 		const { runtime } = await createRuntimeForTest(["root reply"]);
 		await runtime.session.prompt("root");
-		runtime.session.sessionManager.appendSessionInfo("current session");
+		runtime.session.setSessionName("current session");
 		const sessionPath = runtime.session.sessionFile;
 		if (!sessionPath) throw new Error("Missing session path");
 		const sessionId = runtime.session.sessionManager.getSessionId();
@@ -468,7 +468,7 @@ describe("resume_session first-party tool", () => {
 		if (!originalSessionPath) throw new Error("Missing original session path");
 		await runtime.newSession();
 		await runtime.session.prompt("target");
-		runtime.session.sessionManager.appendSessionInfo("named target");
+		runtime.session.setSessionName("named target");
 		const targetSessionPath = runtime.session.sessionFile;
 		if (!targetSessionPath) throw new Error("Missing target session path");
 		const targetSessionId = runtime.session.sessionManager.getSessionId();
@@ -519,10 +519,10 @@ describe("resume_session first-party tool", () => {
 		if (!originalSessionPath) throw new Error("Missing original session path");
 		await runtime.newSession();
 		await runtime.session.prompt("first");
-		runtime.session.sessionManager.appendSessionInfo("duplicate target");
+		runtime.session.setSessionName("duplicate target");
 		await runtime.newSession();
 		await runtime.session.prompt("second");
-		runtime.session.sessionManager.appendSessionInfo("duplicate target");
+		runtime.session.setSessionName("duplicate target");
 		await runtime.switchSession(originalSessionPath);
 
 		const tool = runtime.session.getToolDefinition("resume_session");

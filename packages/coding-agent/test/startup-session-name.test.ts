@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ENV_AGENT_DIR } from "../src/config.ts";
+import { ENV_AGENT_DIR, ENV_STATE_DIR } from "../src/config.ts";
+import { getControlDbPath, readSessionMetadata } from "../src/core/session-control-db.ts";
 
 const cliPath = resolve(__dirname, "../src/cli.ts");
 const tempDirs: string[] = [];
@@ -24,6 +25,7 @@ interface CliDirs {
 	agentDir: string;
 	projectDir: string;
 	sessionFile: string;
+	stateDir: string;
 }
 
 interface CliResult {
@@ -54,13 +56,11 @@ function createSessionFile(projectDir: string, sessionFile: string): void {
 	);
 }
 
-function readSessionInfoNames(sessionFile: string): string[] {
+function readSessionEntryTypes(sessionFile: string): string[] {
 	return readFileSync(sessionFile, "utf8")
 		.trim()
 		.split("\n")
-		.map((line) => JSON.parse(line) as { type?: string; name?: string })
-		.filter((entry) => entry.type === "session_info")
-		.map((entry) => entry.name ?? "");
+		.map((line) => (JSON.parse(line) as { type: string }).type);
 }
 
 async function runCli(args: string[], dirs: CliDirs): Promise<CliResult> {
@@ -70,6 +70,7 @@ async function runCli(args: string[], dirs: CliDirs): Promise<CliResult> {
 		env: {
 			...process.env,
 			[ENV_AGENT_DIR]: dirs.agentDir,
+			[ENV_STATE_DIR]: dirs.stateDir,
 			PI_OFFLINE: "1",
 			TSX_TSCONFIG_PATH: resolve(__dirname, "../../../tsconfig.json"),
 		},
@@ -100,6 +101,7 @@ function setup(): CliDirs {
 		agentDir: join(tempRoot, "agent"),
 		projectDir: join(tempRoot, "project"),
 		sessionFile: join(tempRoot, "session.jsonl"),
+		stateDir: join(tempRoot, "state"),
 	};
 	mkdirSync(dirs.agentDir, { recursive: true });
 	mkdirSync(dirs.projectDir, { recursive: true });
@@ -117,7 +119,8 @@ describe("startup session name", () => {
 
 		expect(result.code).toBe(1);
 		expect(result.signal).toBeNull();
-		expect(readSessionInfoNames(dirs.sessionFile)).toEqual(["CLI Named Session"]);
+		expect(readSessionMetadata(getControlDbPath(dirs.stateDir), dirs.sessionFile)?.name).toBe("CLI Named Session");
+		expect(readSessionEntryTypes(dirs.sessionFile)).not.toContain("session_info");
 	});
 
 	it("rejects empty --name values without appending session metadata", async () => {
@@ -130,6 +133,7 @@ describe("startup session name", () => {
 		expect(result.code).toBe(1);
 		expect(result.signal).toBeNull();
 		expect(result.stderr).toContain("--name requires a non-empty value");
-		expect(readSessionInfoNames(dirs.sessionFile)).toEqual([]);
+		expect(readSessionMetadata(getControlDbPath(dirs.stateDir), dirs.sessionFile)?.name).toBeUndefined();
+		expect(readSessionEntryTypes(dirs.sessionFile)).not.toContain("session_info");
 	});
 });
