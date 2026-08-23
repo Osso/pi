@@ -196,9 +196,8 @@ describe("OpenRouter model catalog cache", () => {
 		expect(registry.find("openrouter", "fixture/registry-model")).toBeDefined();
 	});
 
-	it("falls back to a stale cache when refresh fails without overwriting it", async () => {
-		const staleFetchedAt = new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000);
-		writeCache(staleFetchedAt, [cachedModel("fixture/offline-cache")]);
+	it("falls back to bundled models when refresh fails, leaving the stale cache intact", async () => {
+		writeCache(new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000), [cachedModel("fixture/offline-cache")]);
 		const originalCache = readFileSync(cachePath(), "utf8");
 		const fetchImpl: typeof fetch = async () => {
 			throw new Error("offline");
@@ -207,8 +206,8 @@ describe("OpenRouter model catalog cache", () => {
 
 		const result = await ensureModelCatalogFresh({ fetchImpl, now: () => NOW });
 
-		expect(result.source).toBe("cache");
-		expect(result.models.some((model) => model.id === "fixture/offline-cache")).toBe(true);
+		expect(result.source).toBe("bundled");
+		expect(result.models).toEqual(getModels("openrouter"));
 		expect(readFileSync(cachePath(), "utf8")).toBe(originalCache);
 	});
 
@@ -301,7 +300,7 @@ describe("OpenRouter model catalog cache", () => {
 		expect(result.models).toEqual(getModels("openrouter"));
 	});
 
-	it("falls back to the prior cache on an HTTP error response", async () => {
+	it("falls back to bundled models on an HTTP error response without touching the cache", async () => {
 		writeCache(new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000), [cachedModel("fixture/http-error-cache")]);
 		const originalCache = readFileSync(cachePath(), "utf8");
 		const fetchImpl: typeof fetch = async () =>
@@ -310,8 +309,8 @@ describe("OpenRouter model catalog cache", () => {
 
 		const result = await ensureModelCatalogFresh({ fetchImpl, now: () => NOW });
 
-		expect(result.source).toBe("cache");
-		expect(result.models.some((model) => model.id === "fixture/http-error-cache")).toBe(true);
+		expect(result.source).toBe("bundled");
+		expect(result.models).toEqual(getModels("openrouter"));
 		expect(readFileSync(cachePath(), "utf8")).toBe(originalCache);
 	});
 });

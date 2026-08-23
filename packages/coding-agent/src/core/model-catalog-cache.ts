@@ -209,11 +209,10 @@ async function refreshCachedCatalog(
 			cached: cachedCatalog?.models.length ?? 0,
 		});
 	} catch {
-		const fallbackModels = cachedCatalog?.models ?? [];
-		const source = cachedCatalog ? "cache" : "bundled";
-		return buildResult(mergeWithBundledModels(fallbackModels), source, cachePath, {
+		// Bundled models are the guaranteed floor whenever a refresh fails.
+		return buildResult(mergeWithBundledModels([]), "bundled", cachePath, {
 			fetched: 0,
-			cached: fallbackModels.length,
+			cached: cachedCatalog?.models.length ?? 0,
 		});
 	} finally {
 		clearTimeout(timeout);

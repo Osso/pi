@@ -20,7 +20,7 @@ The coding agent supplements its bundled OpenRouter catalog with recently listed
 - [x] Runtime entries use the same base model metadata mapping as the generated OpenRouter catalog.
 - [x] Refreshed models only add IDs missing from the bundled catalog.
 - [x] Bundled entries win ID collisions so generated compatibility and thinking metadata remain authoritative.
-- [x] Failed requests, timeouts, and invalid payloads fall back silently to the prior cache when available, otherwise to bundled models.
+- [x] Failed requests, timeouts, and invalid payloads fall back silently to bundled models alone; the existing cache file is left untouched for a later successful refresh.
 - [x] Corrupt but parseable cache data and HTTP error responses receive the same silent fallback behavior.
 - [x] `ModelRegistry` loading remains synchronous and consumes the memoized merged OpenRouter catalog after startup refresh.
 
