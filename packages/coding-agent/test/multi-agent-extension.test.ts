@@ -4181,7 +4181,7 @@ describe("multi-agent extension tools", () => {
 		expect(runCommand).toHaveBeenCalledWith("browser-cli", ["get", "title"], undefined);
 		expect(pyrunCallError).toBe("Tool is not active: pyrun_eval");
 		expect([...activeToolNames].sort()).toEqual(
-			["browser-cli", "contact_parent", "send_agent_message", "end_turn"].sort(),
+			["browser-cli", "read", "contact_parent", "send_agent_message", "end_turn"].sort(),
 		);
 	});
 

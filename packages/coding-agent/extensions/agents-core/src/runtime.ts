@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { getAgentDir } from "../../../src/config.ts";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
@@ -10,6 +12,7 @@ import {
 	type ExtensionFactory,
 	type ExtensionCommandContext,
 	type ExtensionContext,
+	type ToolDefinition,
 	type ViewedSessionMutationTarget,
 } from "../../../src/core/extensions/types.ts";
 import {
@@ -66,6 +69,7 @@ import {
 } from "../../../src/core/session-control-db.ts";
 import { SessionManager, type SessionEntry, type SessionInfo } from "../../../src/core/session-manager.ts";
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
+import { createAgentConfigReadToolDefinition } from "../../../src/core/tools/read.ts";
 import {
 	CHILD_DISABLED_AGENT_TOOL_NAMES,
 	SUPERVISOR_ONLY_TOOL_NAMES,
@@ -198,6 +202,7 @@ const CRASH_RECOVERY_PROMPT =
 const MESSAGE_CONTENT_LIMIT = 2000;
 const RUNTIME_COORDINATION_POLL_INTERVAL_MS = 3_000;
 const CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE = "Agent orchestration is unavailable from child agent runtimes.";
+const DEFAULT_BROWSER_AGENT_CONFIG_ROOT = join(homedir(), "AgentConfig");
 
 export type AgentDesktopNotification = DesktopNotification;
 
@@ -255,6 +260,7 @@ interface UnboundChildAgentSession extends ChildAgentSession {
 
 export interface ProductionChildAgentSessionFactoryOptions {
 	agentDir?: string;
+	browserAgentConfigRoot?: string;
 	createSession: (options: CreateAgentSessionOptions) => Promise<{ session: UnboundChildAgentSession }>;
 	createSessionManager: (
 		cwd: string,
@@ -601,6 +607,15 @@ function resolveChildExtensionFactories(
 	);
 }
 
+function createBrowserReadTools(
+	agent: AgentSnapshot,
+	options: Pick<ProductionChildAgentSessionFactoryOptions, "browserAgentConfigRoot">,
+): ToolDefinition[] | undefined {
+	if (agent.agentType !== "browser") return undefined;
+	const allowedRoot = options.browserAgentConfigRoot ?? DEFAULT_BROWSER_AGENT_CONFIG_ROOT;
+	return [createAgentConfigReadToolDefinition(agent.cwd, allowedRoot)];
+}
+
 function getSessionTranscriptMetadata(
 	sessionManager: NonNullable<CreateAgentSessionOptions["sessionManager"]>,
 ): AgentSnapshot["transcript"] {
@@ -699,12 +714,13 @@ export function createProductionChildAgentSessionFactory(
 			: { type: "session_start" as const, reason: "fork" as const };
 		const result = await options.createSession({
 			agentDir: options.agentDir,
+			customTools: createBrowserReadTools(agent, options),
 			cwd: agent.cwd,
 			excludeTools: [...CHILD_DISABLED_AGENT_TOOL_NAMES, ...SUPERVISOR_ONLY_TOOL_NAMES],
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
 			model: profile.model ?? ctx.model,
 			modelRegistry: ctx.modelRegistry,
-			tools: resolveChildAgentTools(profile.tools),
+			tools: resolveChildAgentTools(agent.agentType, profile.tools),
 			multiAgentAgentId: agent.id,
 			multiAgentParentSessionId: ctx.sessionManager.getSessionId(),
 			multiAgentRequiresAgentId: true,
@@ -755,12 +771,13 @@ export function createProductionAttachedSessionFactory(
 			: { type: "session_start" as const, reason: "resume" as const };
 		const result = await options.createSession({
 			agentDir: options.agentDir,
+			customTools: createBrowserReadTools(agent, options),
 			cwd: agent.cwd,
 			excludeTools: [...CHILD_DISABLED_AGENT_TOOL_NAMES, ...SUPERVISOR_ONLY_TOOL_NAMES],
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
 			model: profile.model ?? ctx.model,
 			modelRegistry: ctx.modelRegistry,
-			tools: resolveChildAgentTools(profile.tools),
+			tools: resolveChildAgentTools(agent.agentType, profile.tools),
 			multiAgentAgentId: agent.id,
 			multiAgentParentSessionId: ctx.sessionManager.getSessionId(),
 			multiAgentRequiresAgentId: true,
@@ -786,9 +803,11 @@ function resolveChildAgentProfile(agent: AgentSnapshot, ctx: ExtensionContext): 
 	};
 }
 
-function resolveChildAgentTools(tools: string[] | undefined): string[] | undefined {
+function resolveChildAgentTools(agentType: string, tools: string[] | undefined): string[] | undefined {
 	if (!tools) return undefined;
-	return [...new Set([...tools, ...CHILD_AGENT_CONTROL_TOOL_NAMES])];
+	const requiredTools =
+		agentType === "browser" ? [...CHILD_AGENT_CONTROL_TOOL_NAMES, "read"] : CHILD_AGENT_CONTROL_TOOL_NAMES;
+	return [...new Set([...tools, ...requiredTools])];
 }
 
 function resolveConfiguredAgentProfile(agentType: string, ctx: ExtensionContext): ResolvedAgentProfile | undefined {

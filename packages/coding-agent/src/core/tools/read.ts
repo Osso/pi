@@ -1,5 +1,11 @@
 import { constants } from "node:fs";
-import { access as fsAccess, open as fsOpen, readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
+import {
+	access as fsAccess,
+	open as fsOpen,
+	readFile as fsReadFile,
+	realpath as fsRealpath,
+	stat as fsStat,
+} from "node:fs/promises";
 import { basename, dirname, isAbsolute, relative, resolve as resolvePath, sep } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Api, ImageContent, Model, TextContent } from "@earendil-works/pi-ai";
@@ -11,7 +17,7 @@ import { getLanguageFromPath, highlightCode, type Theme } from "../../modes/inte
 import { processImage } from "../../utils/image-process.ts";
 import { detectSupportedImageMimeTypeFromFile } from "../../utils/mime.ts";
 import { formatPathRelativeToCwdOrAbsolute } from "../../utils/paths.ts";
-import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
+import { defineTool, type ToolDefinition, type ToolRenderResultOptions } from "../extensions/types.ts";
 import { resolveReadPathAsync, resolveToCwd } from "./path-utils.ts";
 import { getTextOutput, renderToolPath, replaceTabs, str } from "./render-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
@@ -92,11 +98,38 @@ const defaultReadOperations: ReadOperations = {
 	detectImageMimeType: detectSupportedImageMimeTypeFromFile,
 };
 
+function isPathWithinRoot(filePath: string, rootPath: string): boolean {
+	const relativePath = relative(rootPath, filePath);
+	if (relativePath === "") return true;
+	const escapesRoot = relativePath === ".." || relativePath.startsWith(`..${sep}`);
+	return !escapesRoot && !isAbsolute(relativePath);
+}
+
+async function resolveAgentConfigReadPath(filePath: string, cwd: string, agentConfigRoot: string): Promise<string> {
+	const requestedPath = resolveToCwd(filePath, cwd);
+	const [canonicalPath, canonicalRoot] = await Promise.all([fsRealpath(requestedPath), fsRealpath(agentConfigRoot)]);
+	if (isPathWithinRoot(canonicalPath, canonicalRoot)) return canonicalPath;
+	throw new Error(`Read access denied: ${filePath} resolves outside allowed roots`);
+}
+
+async function resolveReadToolPath(
+	filePath: string,
+	cwd: string,
+	agentConfigRoot: string | undefined,
+): Promise<string> {
+	if (agentConfigRoot) return resolveAgentConfigReadPath(filePath, cwd, agentConfigRoot);
+	return resolveReadPathAsync(filePath, cwd);
+}
+
 export interface ReadToolOptions {
 	/** Whether to auto-resize images to 2000x2000 max. Default: true */
 	autoResizeImages?: boolean;
 	/** Custom operations for file reading. Default: local filesystem */
 	operations?: ReadOperations;
+}
+
+interface InternalReadToolOptions extends ReadToolOptions {
+	agentConfigRoot?: string;
 }
 
 type ReadRenderArgs = {
@@ -288,11 +321,12 @@ function formatReadResult(
 	return text;
 }
 
-export function createReadToolDefinition(
+function createReadToolDefinitionInternal(
 	cwd: string,
-	options?: ReadToolOptions,
+	options?: InternalReadToolOptions,
 ): ToolDefinition<typeof readSchema, ReadToolDetails | undefined> {
 	const autoResizeImages = options?.autoResizeImages ?? true;
+	const agentConfigRoot = options?.agentConfigRoot;
 	const ops = options?.operations ?? defaultReadOperations;
 	return {
 		name: "read",
@@ -327,7 +361,7 @@ export function createReadToolDefinition(
 
 				(async () => {
 					try {
-						const absolutePath = await resolveReadPathAsync(path, cwd);
+						const absolutePath = await resolveReadToolPath(path, cwd, agentConfigRoot);
 						if (aborted) return;
 						// Check if file exists and is readable.
 						await ops.access(absolutePath);
@@ -428,7 +462,7 @@ export function createReadToolDefinition(
 						if (aborted) return;
 						signal?.removeEventListener("abort", onAbort);
 						resolve({ content, details });
-					} catch (error: any) {
+					} catch (error: unknown) {
 						signal?.removeEventListener("abort", onAbort);
 						if (!aborted) reject(error);
 					}
@@ -453,6 +487,17 @@ export function createReadToolDefinition(
 			return text;
 		},
 	};
+}
+
+export function createReadToolDefinition(
+	cwd: string,
+	options?: ReadToolOptions,
+): ToolDefinition<typeof readSchema, ReadToolDetails | undefined> {
+	return createReadToolDefinitionInternal(cwd, options);
+}
+
+export function createAgentConfigReadToolDefinition(cwd: string, agentConfigRoot: string) {
+	return defineTool(createReadToolDefinitionInternal(cwd, { agentConfigRoot }));
 }
 
 export function createReadTool(cwd: string, options?: ReadToolOptions): AgentTool<typeof readSchema> {

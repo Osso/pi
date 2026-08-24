@@ -100,6 +100,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       names plus `contact_parent`, `send_agent_message`, and `end_turn`. `spawn_agent` rejects a non-empty explicit
       `agentType` when `SettingsManager` finds no matching built-in or configured profile, and the error lists
       configured profile keys; omitted or blank `agentType` still defaults to `default` and inherits the parent model.
+- [x] Browser agent runtimes add the standard `read` tool alongside `browser-cli` and lifecycle tools, even when
+      a configured browser `tools` allowlist omits `read`. Browser `read` canonicalizes every target and permits
+      only paths whose realpath is under `~/AgentConfig/**`;
+      direct paths and symlink aliases inside that tree succeed, while ordinary outside paths and symlink escapes
+      fail. Spawned and attached browser sessions share this restriction; main and non-browser reads are unchanged.
 - [x] Agent transcripts and event streams are durable enough for restart/resume and are bounded so
       large child output does not become an unbounded event log. The parent session JSONL contains
       authoritative custom `agent_start` and `agent_complete` records for restart reconstruction.
@@ -549,6 +554,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   rejected with the current projection so existing slot bindings stay stable.
 - [`packages/coding-agent/test/spawn-agent-profile-validation.test.ts`](../../packages/coding-agent/test/spawn-agent-profile-validation.test.ts)
   asserts that an explicit unknown `agentType` is rejected with configured-profile guidance before child construction.
+- [`packages/coding-agent/test/browser-agent-read-access.test.ts`](../../packages/coding-agent/test/browser-agent-read-access.test.ts)
+  asserts browser read canonicalization and the `~/AgentConfig/**` realpath boundary for direct paths, in-tree
+  symlink aliases, outside paths, symlink escapes, configured browser allowlists that omit `read`, spawned sessions,
+  attached sessions, and unchanged main/non-browser reads.
 - [`packages/coding-agent/test/agent-viewer-trace.test.ts`](../../packages/coding-agent/test/agent-viewer-trace.test.ts)
   asserts read-only historical owner, descendant, terminal-outbox, child `end_turn`, and parent journal evidence
   ordering, including inherited pre-header `end_turn` exclusion.
