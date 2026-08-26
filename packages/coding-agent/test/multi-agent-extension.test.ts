@@ -3888,6 +3888,69 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
+	it.each([
+		{ agentId: "bash_failure_cleanup", displayName: "Bash command", outputLabel: "Bash output" },
+		{ agentId: "pyrun_failure_cleanup", displayName: "Pyrun evaluation", outputLabel: "Pyrun output" },
+	])("silently cancels a detached $outputLabel runtime before failing its owning subagent", async (fixture) => {
+		let rejectPrompt: (error: Error) => void = () => {};
+		const prompt = new Promise<void>((_resolve, reject) => {
+			rejectPrompt = reject;
+		});
+		const harness = createMultiAgentHarness({
+			createChildSession: async () => ({ messages: [], prompt: async () => prompt }),
+		});
+		const parent = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			context: "fresh",
+			displayName: "failing cleanup parent",
+			prompt: "Fail after starting detached work",
+		});
+		const persistence = harness.store.getPersistenceTarget();
+		if (!persistence) throw new Error("expected persisted store fixture");
+		const coordinator = new LifecycleCoordinator({
+			controlDbPath: persistence.controlDbPath,
+			createAgentId: () => fixture.agentId,
+			now: () => "2026-06-21T00:00:00.000Z",
+			processIdentity: CURRENT_PROCESS_IDENTITY,
+			sessionPath: persistence.sessionPath,
+		});
+		const prepared = coordinator.prepareChild({
+			agentId: fixture.agentId,
+			agentType: "background",
+			cwd: "/repo",
+			detached: true,
+			displayName: fixture.displayName,
+			parentId: parent.details.agent.id,
+			permission: { narrowed: true, policy: "on-request" },
+			result: { fileRefs: [{ label: fixture.outputLabel, path: `/tmp/${fixture.agentId}.log` }] },
+			worker: { adapter: "runtime", handleId: String(process.pid) },
+		});
+		const created = coordinator.commitRunningChild(
+			prepared,
+			parent.details.agent.transcript?.sessionId ?? harness.getSessionId(),
+			CURRENT_PROCESS_IDENTITY,
+			parent.details.agent.id,
+		);
+		if (!created.ok) throw new Error(`failed to create detached runtime: ${created.error}`);
+		harness.store.publishLifecycleCoordinatorSnapshot(created.agent);
+
+		rejectPrompt(new Error("provider failed"));
+		const cancelling = await waitForAgentLifecycle(harness, created.agent.id, "cancelling");
+		expect(harness.store.getAgent(parent.details.agent.id)).toMatchObject({ lifecycle: "running" });
+		const finalized = coordinator.finalizeChild({
+			agent: cancelling,
+			ownership: created.ownership,
+			terminalLifecycle: "aborted",
+		});
+		if (!finalized.ok) throw new Error(`failed to finalize detached runtime: ${finalized.error}`);
+		harness.store.publishLifecycleCoordinatorSnapshot(finalized.agent);
+
+		const failed = await waitForAgentLifecycle(harness, parent.details.agent.id, "failed");
+		expect(failed).toMatchObject({ error: { message: "provider failed" }, lifecycle: "failed" });
+		expect(
+			harness.store.listMailboxMessages().filter((message) => message.fromAgentId === created.agent.id),
+		).toHaveLength(0);
+	});
+
 	it("fails without dispatch when parent journal persistence fails", async () => {
 		const prompt = vi.fn(async () => {});
 		const dispose = vi.fn();

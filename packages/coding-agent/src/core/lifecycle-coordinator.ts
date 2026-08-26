@@ -90,6 +90,7 @@ export type SteeringCommandResult =
 export interface DetachedCancellationCommandInput extends OwnedLifecycleCommandInput {
 	outputLabel: string;
 	reason?: string;
+	suppressTerminalNotification?: boolean;
 }
 
 export type LifecycleCommandResult =
@@ -242,6 +243,7 @@ export class LifecycleCoordinator {
 			{
 				outputLabel: input.outputLabel,
 				reason: input.reason,
+				suppressTerminalNotification: input.suppressTerminalNotification,
 			},
 			false,
 		);
@@ -395,7 +397,11 @@ export class LifecycleCoordinator {
 	private commitReservedLifecycle(
 		input: OwnedLifecycleCommandInput,
 		requestedLifecycle: "running" | "waiting_for_input" | "cancelling",
-		detachedCancellation?: { outputLabel: string; reason?: string },
+		detachedCancellation?: {
+			outputLabel: string;
+			reason?: string;
+			suppressTerminalNotification?: boolean;
+		},
 		requireCurrentProcess = true,
 	): LifecycleCommandResult {
 		const ownership = input.ownership;

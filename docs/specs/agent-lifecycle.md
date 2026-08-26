@@ -99,6 +99,15 @@ Dispatch and graph invariants:
   cannot be missed and a committed parent cancellation cannot bypass the wait through its already-aborted runtime signal.
   Dead-owner recovery likewise rejects a terminal parent while any descendant remains nonterminal. Runtime-mailbox
   steering completion stores the original terminal lifecycle/result and retries it when descendants settle.
+  Before a spawned or attached child commits any terminal lifecycle, it selects only active direct children whose
+  `parentId` is that child, `agentType` is `"background"`, `worker.adapter` is `"runtime"`, and `detached` is `true`,
+  then requests cancellation for those detached Bash/Pyrun jobs and waits for those jobs and every other descendant
+  to become terminal. Parent-cancellation cascades apply the same silent policy to detached jobs in the cancelled
+  subtree without changing spawned or attached descendant semantics. The cancellation mutation persists notification
+  suppression with lifecycle intent, including when an earlier cancellation already moved the job to `cancelling`,
+  so restart cannot reintroduce a cleanup notification. Terminal agent state and outbox evidence remain unconditional;
+  cleanup suppresses only terminal-notification projections, runtime-mailbox terminal transport, and
+  `detached_tool_call_completion` transcript entries.
 
 Race precedence is deterministic and based on coordinator commit order, not callback order, PID,
 wall-clock time, or mailbox delivery:
@@ -143,10 +152,12 @@ transactions: steering that commits first keeps the agent active until delivery 
 `running`; only then may it become idle or terminal. Steering attempted after a terminal commit receives
 an explicit inactive-agent rejection rather than being silently dropped.
 
-Every terminal transition updates the agent row and revision and enqueues exactly one pending completion
-or failure notification in the same SQLite transaction. The agent row is terminal truth; the outbox is
-only a delivery queue. Notification delivery may retry or expire, but it never creates or replaces
-terminal state. Runtime transport uses one session-bound lifecycle mirror shared by direct tools and
+Every terminal transition updates the agent row and revision and enqueues exactly one pending terminal
+outbox row in the same SQLite transaction. The agent row is terminal truth; the outbox is only a delivery
+queue. Outbox projection normally creates the completion or failure notification and any detached runtime
+transport. A persisted silent-cleanup policy suppresses those user-facing projections without suppressing
+or rewriting the outbox record. Delivery may retry or expire, but it never creates or replaces terminal
+state. Runtime transport uses one session-bound lifecycle mirror shared by direct tools and
 Pyrun handlers. `wait_agent` snapshots active agents and consumes every pending terminal notification
 already waiting, then queries current agent rows. A coordination wake instead returns and consumes all
 currently pending deliverable runtime-mailbox and shared-channel inputs, preserving sender/body formatting;
@@ -184,6 +195,12 @@ SQLite connection access control and arbitrary same-UID raw SQL are outside this
       dead-owner recovery settles it as `aborted/lost_runtime`; late dispatch completion cannot rewrite it. Detached Pyrun jobs register their
       handle and terminate the runner process group so spawned
       commands cannot survive cancellation as orphans.
+- [x] Every child terminal path first selects active direct children whose `parentId` is the child,
+      `agentType` is `"background"`, `worker.adapter` is `"runtime"`, and `detached` is `true`, then cancels those
+      directly owned Bash/Pyrun jobs with persisted terminal-notification suppression, waits for descendant settlement,
+      and only then commits the child terminal state. Completion, failure, explicit cancellation, and restored
+      dispatches use the same path; main-session detached jobs and direct cancellation of a detached job retain
+      normal notification behavior.
 
 ### Restore, restart reconstruction, and recovery (derived liveness)
 
@@ -290,6 +307,10 @@ folder from reading stale manifests or output belonging to another supervisor.
   and restore-time removal of runtime-only worker handles; no lifecycle mutation API.
 - `packages/coding-agent/extensions/agents-core/src/runtime.ts` — coordinator-backed dispatch,
   cancellation, steering, attached recovery, waits, and shutdown ordering.
+- `packages/coding-agent/extensions/agents-core/src/detached-runtime-cancellation.ts` — direct detached
+  Bash/Pyrun classification, persisted cancellation requests, and silent subagent terminal cleanup.
+- `packages/coding-agent/extensions/agents-core/src/lifecycle-runtime.ts` — current process identity and
+  lifecycle-coordinator construction shared by dispatch and detached cleanup.
 - `packages/coding-agent/src/core/detached-job-lifecycle.ts` — detached runner lifecycle adapter.
 - `packages/coding-agent/src/main.ts` — runtime-role/capability construction and per-session restore.
 
@@ -299,9 +320,11 @@ folder from reading stale manifests or output belonging to another supervisor.
   exact process ownership, terminal-row immutability, recovery, and race precedence.
 - `packages/coding-agent/test/multi-agent-store.test.ts` — projection, metadata, and restore behavior.
 - `packages/coding-agent/test/multi-agent-extension.test.ts` — dispatch transitions, recovery
-  gating, shutdown behavior, cancel/steer tool paths.
+  gating, shutdown behavior, cancel/steer tool paths, and failure-path cleanup for detached Bash/Pyrun children.
 - `packages/coding-agent/test/runtime-mailbox.test.ts` — steering/mailbox-driven transitions.
 - `packages/coding-agent/test/suite/headless-pi.test.ts` — real-process supervisor death, shared-session startup barriers, foreign-peer recovery serialization, historical detached-cancellation reconciliation, and exact-session spawned-agent recovery.
+- `packages/coding-agent/test/suite/agent-cancellation-reconciliation.test.ts` — real-process silent detached-Pyrun cleanup on child completion, explicit cancellation, and supervisor restart.
+- `packages/coding-agent/test/detached-pyrun-runner.test.ts` — Linux durable-wrapper, nested-runner, and descendant process-tree termination.
 - `packages/coding-agent/test/agent-session-registration-failure.test.ts` — listener-registration failure prevents `session_start`.
 - `packages/coding-agent/test/orphaned-detached-reconciliation.test.ts` — active-descendant, live-owner, live-runner,
   pre-existing-terminal-outbox, PID-reuse, and worker-handle-mismatch recovery guards; successful reconciliation

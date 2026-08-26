@@ -13,6 +13,15 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - [x] Detached Pyrun evaluations create a background job, complete independently, expose final output through an absolute log file reference, persist the submitted source as a permission-locked `script.py` file reference for the full running and terminal lifecycle, and record elapsed time in the agent result's `durationMs` field.
 - [x] The live-agent TUI view renders the detached Pyrun script and output log without fabricating a child transcript.
 - [x] Detached Pyrun completion and failure notifications include the recorded duration as `Duration: Nms`.
+- [x] Before a subagent completes, fails, or acknowledges cancellation, it selects only active direct children whose
+      `parentId` is the subagent, `agentType` is `"background"`, `worker.adapter` is `"runtime"`, and `detached` is
+      `true`, then cancels each directly owned detached Bash/Pyrun job and waits for terminal settlement. Cleanup
+      cancellation persists across supervisor restart and is silent: terminal lifecycle/outbox evidence remains, but
+      terminal-notification projections, runtime-mailbox terminal transport, and `detached_tool_call_completion`
+      transcript entries are omitted. Main-session detached jobs and direct `close_agent` calls on detached jobs
+      retain normal notifications.
+- [x] Linux detached Pyrun cancellation terminates the durable wrapper, nested Pyrun runner, and descendants in
+      their inherited process group so child processes cannot survive as orphans.
 - [x] Unfinished foreground Bash recovery with a matching persisted live detached runner waits for that runner and reuses its output instead of launching a duplicate (`packages/coding-agent/test/bash-tool-detach.test.ts`, `packages/coding-agent/test/suite/headless-pi.test.ts`).
 - [x] Unfinished foreground Bash recovery permits one replacement execution only when the matching persisted job is terminal `failed` with `lost_runtime`; completed, aborted, ordinary failed, and cancelling jobs replay their persisted terminal result without rerun.
 - [x] Unfinished foreground Pyrun recovery replays complete terminal result/error records; a dead runner without one returns explicit `lost_runtime`, preserves `launch.json`, `script.py`, and `output.log`, and never reruns submitted code. Incomplete trailing JSONL is ignored; malformed complete JSONL fails explicitly.
@@ -27,9 +36,10 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
       direct `fileRefs`.
 - [x] Tool-specific detach support must be opt-in; tools without a registered detach handle are not detached.
 - [x] Only jobs explicitly detached from their waiting tool call emit a terminal supervisor mailbox
-      notification, recorded through a fenced `detached` lifecycle mark. Attended runner-owned jobs
-      deliver results in-band through the waiting tool call without a mailbox wakeup; terminal outbox
-      rows and lifecycle events remain unconditional.
+      notification, recorded through a fenced `detached` lifecycle mark. Silent subagent terminal cleanup
+      is the sole exception: its persisted cancellation policy suppresses notification projection without
+      suppressing terminal state or the outbox row. Attended runner-owned jobs deliver results in-band through
+      the waiting tool call without a mailbox wakeup; terminal outbox rows and lifecycle events remain unconditional.
 - [x] Terminal detached-job artifact directories are pruned at Pi startup and after terminal outbox delivery.
 - [x] Cleanup removes artifacts at least three days old, then removes the oldest terminal artifacts until
       retained terminal artifacts are at most 2 GiB.
@@ -62,6 +72,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - `packages/coding-agent/src/core/agent-session.ts` — owns the session detach registry and exposes it to base tools and extensions.
 - `packages/coding-agent/src/core/tools/bash.ts` — registers bash commands as detachable and tracks detached subprocesses.
 - `packages/coding-agent/extensions/pyrun/src/index.ts` and `detached-evaluation.ts` — register Pyrun evaluations as detachable, persist submitted source, and track detached evaluations. Pyrun command guidance treats both `run.*` and default `cli.*.run()` as forwarding, exit-code-only execution; `.capture().run()` explicitly returns a `CommandResult`.
+- `packages/coding-agent/extensions/pyrun/src/runner.ts` and `detached-runner.ts` — terminate the nested Pyrun process tree while retaining the durable wrapper's process group.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts` — binds the background action to the active session registry and renders live script/output artifacts.
 
 ## Tests asserting this spec
@@ -74,7 +85,9 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - `packages/coding-agent/test/interactive-mode-status.test.ts` — live detached Pyrun script/output rendering without a transcript.
 - `packages/coding-agent/test/runtime-mailbox.test.ts` — explicit runtime mailbox delivery plus
   completion-notification wakeups and simultaneous/late waiter queries.
-- `packages/coding-agent/test/multi-agent-extension.test.ts`
+- `packages/coding-agent/test/multi-agent-extension.test.ts` — silent failure-path cleanup for detached Bash/Pyrun jobs.
+- `packages/coding-agent/test/suite/agent-cancellation-reconciliation.test.ts` — real-process completion, cancellation, and restart cleanup.
+- `packages/coding-agent/test/detached-pyrun-runner.test.ts` — Linux nested-runner and descendant termination.
 - `packages/coding-agent/test/detached-job-cleanup.test.ts`
 - `packages/coding-agent/test/detached-job-retention.test.ts`
 

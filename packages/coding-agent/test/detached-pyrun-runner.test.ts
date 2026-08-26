@@ -419,7 +419,9 @@ describe("detached Pyrun runner", () => {
 					storeRef: { messageId: "message_1", sessionPath },
 				});
 
-				await waitFor(() => readMultiAgentAgent(controlDbPath, sessionPath, runnerAddress.agentId)?.lifecycle === "aborted");
+				await waitFor(
+					() => readMultiAgentAgent(controlDbPath, sessionPath, runnerAddress.agentId)?.lifecycle === "aborted",
+				);
 				await waitFor(() => !processIsAlive(durableRunnerPid) && !processIsAlive(nestedRunnerPid));
 				expect(processIsAlive(childPid)).toBe(false);
 			} finally {

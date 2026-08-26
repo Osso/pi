@@ -3122,7 +3122,11 @@ export interface CommitMultiAgentLifecycleMutationInput {
 	owner: { sessionId: string; agentId: string | null };
 	requestedLifecycle: string;
 	updatedAt: string;
-	detachedCancellation?: { outputLabel: string; reason?: string };
+	detachedCancellation?: {
+		outputLabel: string;
+		reason?: string;
+		suppressTerminalNotification?: boolean;
+	};
 }
 export type CommitMultiAgentLifecycleMutationResult =
 	| { ok: true; agent: Record<string, unknown> }
@@ -3926,6 +3930,10 @@ type MultiAgentLifecycleMutationPreflight =
 	| { plan: MultiAgentLifecycleMutationPlan }
 	| { result: CommitMultiAgentLifecycleMutationResult };
 
+type MultiAgentLifecycleAgentUpdate =
+	| { result: CommitMultiAgentLifecycleMutationResult }
+	| { cancellation?: DetachedCancellationCommand; updatedAgent: Record<string, unknown> };
+
 export function commitMultiAgentLifecycleMutation(
 	controlDbPath: string,
 	input: CommitMultiAgentLifecycleMutationInput,
@@ -3958,30 +3966,46 @@ function prepareMultiAgentLifecycleMutation(
 	const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
 	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
 	if (!runtimeOwnerMatches(ownership, input)) return { result: { ok: false, error: "mutation_mismatch" } };
-	if (agent.lifecycle === input.requestedLifecycle) {
+	const preparedUpdate = prepareMultiAgentLifecycleAgentUpdate(agent, input);
+	if ("result" in preparedUpdate) return preparedUpdate;
+	return {
+		plan: {
+			agentData: row.data,
+			cancellation: preparedUpdate.cancellation,
+			processIdentityData: serializeProcessIdentity(input.processIdentity),
+			updatedAgent: preparedUpdate.updatedAgent,
+			updatedAgentData: JSON.stringify(preparedUpdate.updatedAgent),
+		},
+	};
+}
+
+function prepareMultiAgentLifecycleAgentUpdate(
+	agent: Record<string, unknown>,
+	input: CommitMultiAgentLifecycleMutationInput,
+): MultiAgentLifecycleAgentUpdate {
+	const shouldPersistNotificationSuppression =
+		input.detachedCancellation?.suppressTerminalNotification === true && agent.suppressTerminalNotification !== true;
+	if (agent.lifecycle === input.requestedLifecycle && !shouldPersistNotificationSuppression) {
 		return { result: { ok: true, agent } };
 	}
-	if (!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle)) {
+	if (
+		agent.lifecycle !== input.requestedLifecycle &&
+		!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle)
+	) {
 		return { result: { ok: false, error: "invalid_transition" } };
 	}
 	const updatedAgent = {
 		...agent,
+		...(shouldPersistNotificationSuppression ? { suppressTerminalNotification: true } : {}),
 		lifecycle: input.requestedLifecycle,
 		revision: Number(agent.revision) + 1,
 		updatedAt: input.updatedAt,
 	};
-	const cancellation = input.detachedCancellation
-		? buildDetachedCancellationMessage(input, input.detachedCancellation, updatedAgent.revision)
-		: undefined;
-	return {
-		plan: {
-			agentData: row.data,
-			cancellation,
-			processIdentityData: serializeProcessIdentity(input.processIdentity),
-			updatedAgent,
-			updatedAgentData: JSON.stringify(updatedAgent),
-		},
-	};
+	const cancellation =
+		input.detachedCancellation && agent.lifecycle !== input.requestedLifecycle
+			? buildDetachedCancellationMessage(input, input.detachedCancellation, updatedAgent.revision)
+			: undefined;
+	return { cancellation, updatedAgent };
 }
 
 function persistMultiAgentLifecycleMutation(
@@ -4415,20 +4439,19 @@ function prepareDetachedJobFinalization(
 		worker: undefined,
 	};
 	validatePersistedAgentPayload(terminalAgent, context);
-	const terminalTransport =
-		agent.detached === true
-			? prepareDetachedAgentTerminalTransport(
-					sessionPath,
-					terminal.jobId,
-					{
-						agentId: ownership.owner_agent_id,
-						sessionId: ownership.owner_session_id ?? undefined,
-					},
-					terminalRevision,
-					eventKind,
-					terminal.terminalAt,
-				)
-			: undefined;
+	const terminalTransport = shouldNotifyDetachedJobOwner(agent)
+		? prepareDetachedAgentTerminalTransport(
+				sessionPath,
+				terminal.jobId,
+				{
+					agentId: ownership.owner_agent_id,
+					sessionId: ownership.owner_session_id ?? undefined,
+				},
+				terminalRevision,
+				eventKind,
+				terminal.terminalAt,
+			)
+		: undefined;
 	return {
 		plan: {
 			agentData: row.data,
@@ -4522,6 +4545,10 @@ function persistDetachedJobFinalization(
 		if (plan.terminalTransport) persistPreparedTerminalTransport(db, plan.terminalTransport);
 		return { ok: true, terminalAgent: plan.terminalAgent, terminalRevision: plan.terminalRevision };
 	});
+}
+
+function shouldNotifyDetachedJobOwner(agent: Record<string, unknown>): boolean {
+	return agent.detached === true && agent.suppressTerminalNotification !== true;
 }
 
 function prepareDetachedAgentTerminalTransport(
@@ -4815,17 +4842,16 @@ function prepareDeadRuntimeRecovery(
 		updatedAt: nowIso,
 		worker: undefined,
 	};
-	const terminalTransport =
-		agent.detached === true
-			? prepareDetachedAgentTerminalTransport(
-					expectedOwner.sessionPath,
-					expectedOwner.agentId,
-					expectedOwner.owner,
-					terminalRevision,
-					"lost_runtime",
-					nowIso,
-				)
-			: undefined;
+	const terminalTransport = shouldNotifyDetachedJobOwner(agent)
+		? prepareDetachedAgentTerminalTransport(
+				expectedOwner.sessionPath,
+				expectedOwner.agentId,
+				expectedOwner.owner,
+				terminalRevision,
+				"lost_runtime",
+				nowIso,
+			)
+		: undefined;
 	return {
 		agentData: recoverable.agentData,
 		processIdentityData: serializeProcessIdentity(expectedOwner.processIdentity),
@@ -6006,12 +6032,7 @@ function validatePersistedAgentPayload(data: Record<string, unknown>, context: s
 		throw new Error(`Invalid persisted agent payload at ${context}: expected fields`);
 	}
 	rejectLegacyArtifactFields(data, context);
-	if (
-		data.revision !== undefined &&
-		(typeof data.revision !== "number" || !Number.isInteger(data.revision) || data.revision < 0)
-	) {
-		throw new Error(`Invalid persisted revision at ${context}: expected a non-negative integer`);
-	}
+	validatePersistedAgentRevisionAndNotificationPolicy(data, context);
 	if (data.permission !== undefined) {
 		if (!data.permission || typeof data.permission !== "object" || Array.isArray(data.permission)) {
 			throw new Error(`Invalid persisted permission at ${context}`);
@@ -6028,6 +6049,18 @@ function validatePersistedAgentPayload(data: Record<string, unknown>, context: s
 			throw new Error(`Invalid persisted agent result at ${context}`);
 		}
 		parseFileRefs((result as Record<string, unknown>).fileRefs, `${context}.result`);
+	}
+}
+
+function validatePersistedAgentRevisionAndNotificationPolicy(data: Record<string, unknown>, context: string): void {
+	if (
+		data.revision !== undefined &&
+		(typeof data.revision !== "number" || !Number.isInteger(data.revision) || data.revision < 0)
+	) {
+		throw new Error(`Invalid persisted revision at ${context}: expected a non-negative integer`);
+	}
+	if (data.suppressTerminalNotification !== undefined && typeof data.suppressTerminalNotification !== "boolean") {
+		throw new Error(`Invalid persisted suppressTerminalNotification at ${context}: expected a boolean`);
 	}
 }
 

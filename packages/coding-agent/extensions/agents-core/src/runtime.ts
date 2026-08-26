@@ -51,7 +51,6 @@ import { formatRuntimeMailboxPrompt, formatSharedChannelPrompt } from "../../../
 import {
 	advanceSharedChannelCursor,
 	enqueueRuntimeMailboxMessage,
-	getRuntimeProcessInstanceId,
 	hasPendingRuntimeCoordinationMessage,
 	isRuntimeCoordinationMailboxMessage,
 	listRuntimeMailboxMessages,
@@ -76,7 +75,14 @@ import {
 } from "../../../src/core/tool-capabilities.ts";
 import { deliverTerminalOutboxProjections } from "../../../src/core/terminal-outbox-delivery.ts";
 import { registerAgentViewerTools } from "../../agent-viewer/src/runtime.ts";
+import {
+	type DetachedRuntimeCancellationOptions,
+	isDetachedRuntimeAgent,
+	requestDirectDetachedRuntimeCancellations,
+	requestPersistedDetachedRuntimeCancellation,
+} from "./detached-runtime-cancellation.ts";
 import { waitForActiveDescendants } from "./descendant-settlement.ts";
+import { createLifecycleCoordinator, RUNTIME_PROCESS_IDENTITY } from "./lifecycle-runtime.ts";
 import {
 	appendParentAgentCompletion,
 	appendParentAgentStart,
@@ -196,7 +202,7 @@ const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium
 const CHILD_AGENT_CONTROL_TOOL_NAMES = ["contact_parent", "send_agent_message", "end_turn"] as const;
 const MAIN_THREAD_AGENT_ID = "main";
 const CANCELLATION_SETTLEMENT_TIMEOUT_MS = 5_000;
-const RUNTIME_PROCESS_IDENTITY = JSON.parse(getRuntimeProcessInstanceId()) as ProcessIdentity;
+const SUBAGENT_TERMINAL_CLEANUP_REASON = "Owning subagent reached a terminal path";
 const CRASH_RECOVERY_PROMPT =
 	"Continue the conversation from where it left off without asking the user any further questions. Resume directly from the saved session context.";
 const MESSAGE_CONTENT_LIMIT = 2000;
@@ -1063,18 +1069,6 @@ function truncateText(text: string): { truncated: boolean; value: string } {
 	return { truncated: true, value: text.slice(0, MESSAGE_CONTENT_LIMIT) };
 }
 
-function createLifecycleCoordinator(store: MultiAgentStore): LifecycleCoordinator | undefined {
-	const persistence = store.getPersistenceTarget();
-	if (!persistence) return undefined;
-	return new LifecycleCoordinator({
-		controlDbPath: persistence.controlDbPath,
-		createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
-		now: () => new Date().toISOString(),
-		processIdentity: RUNTIME_PROCESS_IDENTITY,
-		sessionPath: persistence.sessionPath,
-	});
-}
-
 async function spawnAgent(
 	store: MultiAgentStore,
 	createChildSession: ChildAgentSessionFactory | undefined,
@@ -1789,7 +1783,7 @@ async function runAgentSession(
 			store.updateAgentTranscript(running.agent.id, activeSession.transcript);
 		}
 		await activeSession.prompt(prompt);
-		await waitForActiveDescendants(store, running.agent.id, reservedRuntime.abortController.signal);
+		await settleDescendantsBeforeTerminalization(store, running.agent.id, reservedRuntime.abortController.signal);
 		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
 		if (cancelled) return cancelled;
 		while (true) {
@@ -1818,7 +1812,7 @@ async function runAgentSession(
 		}
 
 	} catch (error) {
-		await waitForActiveDescendants(store, running.agent.id);
+		await settleDescendantsBeforeTerminalization(store, running.agent.id);
 		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
 		if (cancelled) return cancelled;
 		const failure = { message: error instanceof Error ? error.message : String(error) };
@@ -1830,6 +1824,15 @@ async function runAgentSession(
 		handles?.delete(running.agent.id);
 		childSession?.dispose?.();
 	}
+}
+
+async function settleDescendantsBeforeTerminalization(
+	store: MultiAgentStore,
+	agentId: string,
+	signal?: AbortSignal,
+): Promise<void> {
+	requestDirectDetachedRuntimeCancellations(store, agentId, SUBAGENT_TERMINAL_CLEANUP_REASON);
+	await waitForActiveDescendants(store, agentId, signal);
 }
 
 function finalizeReservedRuntime(
@@ -2475,10 +2478,13 @@ export async function cancelOwnedAgentRuntime(
 ): Promise<CancelReservedAgentResult> {
 	const descendants = store.listDescendants(agentId).filter((agent) => isActiveLifecycle(agent.lifecycle)).reverse();
 	for (const descendant of descendants) {
-		const cancelled = await cancelOneOwnedAgentRuntime(store, runtimeHandles, descendant.id, reason);
+		const cancelled = await cancelOneOwnedAgentRuntime(store, runtimeHandles, descendant.id, {
+			reason,
+			suppressTerminalNotification: isDetachedRuntimeAgent(descendant),
+		});
 		if (!cancelled.ok) return cancelled;
 	}
-	return cancelOneOwnedAgentRuntime(store, runtimeHandles, agentId, reason);
+	return cancelOneOwnedAgentRuntime(store, runtimeHandles, agentId, { reason });
 }
 
 function abortAgentHandleSafely(store: MultiAgentStore, agentId: string): void {
@@ -2493,12 +2499,12 @@ async function cancelOneOwnedAgentRuntime(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
 	agentId: string,
-	reason?: string,
+	options: DetachedRuntimeCancellationOptions,
 ): Promise<CancelReservedAgentResult> {
 	const current = store.getAgent(agentId);
 	if (!current) return { ok: false, error: "agent_not_found" };
 	const reservedRuntime = runtimeHandles.ownerships.get(agentId);
-	if (!reservedRuntime) return cancelPersistedDetachedRuntime(store, current, reason);
+	if (!reservedRuntime) return requestPersistedDetachedRuntimeCancellation(store, current, options);
 	const cancelling = reservedRuntime.coordinator.requestCancellation({
 		agent: current,
 		ownership: reservedRuntime.lifecycle.ownership,
@@ -2516,40 +2522,6 @@ async function cancelOneOwnedAgentRuntime(
 	}
 	const settled = store.getAgent(agentId) ?? cancelling.agent;
 	return { ok: true, agent: settled };
-}
-
-function cancelPersistedDetachedRuntime(
-	store: MultiAgentStore,
-	agent: AgentSnapshot,
-	reason?: string,
-): CancelReservedAgentResult {
-	const persistence = store.getPersistenceTarget();
-	const outputLabel = detachedRuntimeOutputLabel(agent);
-	if (!persistence || !outputLabel) {
-		return { ok: false, error: "runtime_ownership_unavailable", agent };
-	}
-	const ownership = readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, agent.id);
-	const coordinator = createLifecycleCoordinator(store);
-	if (!ownership?.processIdentity || !ownership.owner.sessionId || !coordinator) {
-		return { ok: false, error: "runtime_ownership_unavailable", agent };
-	}
-	const cancelled = coordinator.requestDetachedCancellation({
-		agent,
-		outputLabel,
-		reason,
-		ownership: ownership,
-	});
-	if (!cancelled.ok) return { ok: false, error: "mutation_rejected", agent };
-	publishCoordinatorSnapshot(store, cancelled.agent);
-	return { ok: true, agent: cancelled.agent };
-}
-
-function detachedRuntimeOutputLabel(agent: AgentSnapshot): "Bash output" | "Pyrun output" | undefined {
-	if (agent.agentType !== "background" || agent.worker?.adapter !== "runtime") return undefined;
-	const label = agent.result?.fileRefs?.find(
-		(fileRef) => fileRef.label === "Bash output" || fileRef.label === "Pyrun output",
-	)?.label;
-	return label === "Bash output" || label === "Pyrun output" ? label : undefined;
 }
 
 async function cancelAgent(

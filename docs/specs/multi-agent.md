@@ -281,9 +281,16 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   nonterminal until attached-session ownership is reacquired or resolved as lost. Cancelling a parent
   issues cancellation intents to active
   descendants deepest-first, while each descendant still terminalizes through its own owned command.
-  `close_agent`, selected-agent Escape, and reserved-runtime shutdown call this same operation. SQLite
-  rejects any parent terminal mutation while a persisted descendant remains nonterminal; the coordinator resolves cancellation or exact owner-process loss
-  for descendants before terminalizing the parent.
+  `close_agent`, selected-agent Escape, and reserved-runtime shutdown call this same operation. Before any
+  spawned or attached child completes, fails, or acknowledges cancellation, it selects only active direct children
+  whose `parentId` is the child, `agentType` is `"background"`, `worker.adapter` is `"runtime"`, and `detached` is
+  `true`, then cancels those directly owned detached Bash/Pyrun jobs and waits for all descendants to settle. Those
+  cleanup cancellations persist a silent terminal-notification policy; parent-cancellation cascades apply the same
+  policy to detached jobs in the cancelled subtree. Terminal rows and outbox evidence remain, while terminal-notification
+  projections, runtime terminal transport, and `detached_tool_call_completion` transcript entries are omitted.
+  Main-session detached jobs and directly closed detached jobs keep normal notifications. SQLite rejects any parent
+  terminal mutation while a persisted descendant remains nonterminal; the coordinator resolves cancellation or exact
+  owner-process loss for descendants before terminalizing the parent.
 - Externally visible child effects use a deterministic operation identity derived from the durable
   agent identity and command/tool-call revision when the target adapter supports idempotency keys.
   Before starting an effect, the runtime must be the persisted exact owner process. Spawned children are
@@ -320,6 +327,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Spawned child dispatches perform a final runtime-coordination drain before end-of-turn completion;
       steering that races with turn end is delivered before terminalization and cannot remain pending
       after the child reaches `completed`.
+- [x] Child terminal paths select active direct children whose `parentId` is the child, `agentType` is `"background"`,
+      `worker.adapter` is `"runtime"`, and `detached` is `true`, then cancel those directly owned detached Bash/Pyrun
+      jobs before descendant settlement. Notification suppression is persisted with cancellation intent and survives
+      supervisor restart; cleanup keeps terminal outbox audit evidence but produces no terminal-notification projection,
+      runtime terminal transport, or `detached_tool_call_completion` transcript entry.
 - [x] Mailbox messages and completion results carry validated absolute `fileRefs` entries so logs,
       diffs, summaries, and findings are referenced directly without registry indirection.
 - [x] Persisted mailbox message IDs are stable within a session store. Reuse is checked
@@ -512,6 +524,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [`packages/coding-agent/extensions/agents-core/src/runtime.ts`](../../packages/coding-agent/extensions/agents-core/src/runtime.ts)
   provides capability-gated tools, coordinator-backed child dispatch/cancellation/steering/recovery,
   background jobs, fan-out waits, and the production child-session factory.
+- [`packages/coding-agent/extensions/agents-core/src/detached-runtime-cancellation.ts`](../../packages/coding-agent/extensions/agents-core/src/detached-runtime-cancellation.ts)
+  classifies directly owned detached Bash/Pyrun jobs and persists silent cancellation before child terminalization.
+- [`packages/coding-agent/extensions/agents-core/src/lifecycle-runtime.ts`](../../packages/coding-agent/extensions/agents-core/src/lifecycle-runtime.ts)
+  shares current process identity and coordinator construction across runtime lifecycle operations.
 - [`packages/coding-agent/src/core/agent-lifecycle-trace.ts`](../../packages/coding-agent/src/core/agent-lifecycle-trace.ts)
   reads persisted owner/outbox state, descendant admissions and current snapshots, and parent/child transcript
   evidence for the read-only viewer trace.
@@ -584,7 +600,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   Pyrun request handler rather than a store-backed dormant-spawn helper. It also asserts `/bg` registers a
   background job command, starts child-session prompt work without waiting for completion, and
   aborts a running background child session when the job is cancelled. Cancellation coverage also proves a
-  parent whose prompt already settled keeps waiting until its cancelling descendant becomes terminal. The stale-sender-session regression
+  parent whose prompt already settled keeps waiting until its cancelling descendant becomes terminal, and that
+  failure terminalization silently cancels directly owned detached Bash/Pyrun jobs before the parent fails. The stale-sender-session regression
   rejects steering without changing the lifecycle row or mailbox.
 - [`packages/coding-agent/test/session-control-db.test.ts`](../../packages/coding-agent/test/session-control-db.test.ts)
   asserts atomic steering commit validation of the canonical recipient-listener PID, embedded
@@ -603,8 +620,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [`packages/coding-agent/test/suite/headless-pi.test.ts`](../../packages/coding-agent/test/suite/headless-pi.test.ts)
   asserts real-process steering of a restored child through the current main session after supervisor restart.
 - [`packages/coding-agent/test/suite/agent-cancellation-reconciliation.test.ts`](../../packages/coding-agent/test/suite/agent-cancellation-reconciliation.test.ts)
-  asserts that out-of-process detached-descendant cancellation releases its live parent and that `restart_self`
-  settles a cancelling parent owned by the superseded same-PID runtime incarnation.
+  asserts silent automatic detached-Pyrun cancellation before child completion, after supervisor restart, and
+  during explicit parent cancellation; it also asserts that out-of-process detached-descendant cancellation
+  releases its live parent and that `restart_self` settles a cancelling parent owned by the superseded same-PID
+  runtime incarnation.
 - [`packages/coding-agent/test/superseded-runtime-recovery.test.ts`](../../packages/coding-agent/test/superseded-runtime-recovery.test.ts)
   asserts prior-incarnation cancellation recovery while preserving exact-current-runtime owner rejection.
 - [`packages/coding-agent/test/suite/regressions/restart-self-auto-continuation.test.ts`](../../packages/coding-agent/test/suite/regressions/restart-self-auto-continuation.test.ts)

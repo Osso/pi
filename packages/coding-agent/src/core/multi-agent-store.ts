@@ -104,6 +104,8 @@ export interface AgentNode {
 	worker?: AgentWorkerAdapter;
 	/** True when a background job was detached from its waiting tool call; only detached jobs emit terminal mailbox notifications. */
 	detached?: boolean;
+	/** Persisted policy for terminal cleanup that must not notify the owning agent. */
+	suppressTerminalNotification?: boolean;
 	currentActivity?: AgentCurrentActivity;
 	lastActivity?: AgentActivity;
 	result?: AgentResult;
@@ -378,9 +380,11 @@ export class MultiAgentStore {
 		const previous = this.agents.get(agent.id);
 		const current = copyAgent(agent);
 		this.agents.set(agent.id, current);
-		if (current.lifecycle === "completed") this.retryOrRecordTerminalNotification(current, "completed");
-		if (current.lifecycle === "failed" || current.lifecycle === "aborted") {
-			this.retryOrRecordTerminalNotification(current, "failed");
+		if (current.suppressTerminalNotification !== true) {
+			if (current.lifecycle === "completed") this.retryOrRecordTerminalNotification(current, "completed");
+			if (current.lifecycle === "failed" || current.lifecycle === "aborted") {
+				this.retryOrRecordTerminalNotification(current, "failed");
+			}
 		}
 		if (!previous) {
 			this.clearSelectedTerminalAgent(current);

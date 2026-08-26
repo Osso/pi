@@ -24,8 +24,14 @@ function isProcessAlive(pid: number): boolean {
 	}
 }
 
+function fauxCompletedAssistantMessage(text: string): ReturnType<typeof fauxAssistantMessage> {
+	return fauxAssistantMessage([{ type: "text", text }, fauxToolCall("end_turn", { reason: text })], {
+		stopReason: "toolUse",
+	});
+}
+
 async function waitForFile(path: string): Promise<void> {
-	await vi.waitFor(() => expect(existsSync(path)).toBe(true));
+	await vi.waitFor(() => expect(existsSync(path)).toBe(true), { timeout: 5_000 });
 }
 
 function readMainRuntimeIdentity(
@@ -121,6 +127,120 @@ function requestChildCancellation(pi: HeadlessPi, requestId: string, childId: st
 	);
 }
 
+async function expectSilentDetachedCleanupAndSingleParentCompletion(
+	pi: HeadlessPi,
+	detachedAgentId: string,
+	parentAgentId: string,
+): Promise<void> {
+	await vi.waitFor(() => expect(pi.readTerminalOutboxStatuses(detachedAgentId)).toEqual(["delivered"]));
+	await vi.waitFor(() => expect(pi.readTerminalOutboxStatuses(parentAgentId)).toEqual(["delivered"]));
+	expect(pi.listMailboxMessages().filter((message) => message.fromAgentId === detachedAgentId)).toHaveLength(0);
+	expect(pi.listRuntimeMailboxMessages().filter((message) => message.sender.agentId === detachedAgentId)).toHaveLength(
+		0,
+	);
+	expect(pi.listMailboxMessages().filter((message) => message.fromAgentId === parentAgentId)).toHaveLength(1);
+	expect(pi.listRuntimeMailboxMessages().filter((message) => message.sender.agentId === parentAgentId)).toHaveLength(
+		1,
+	);
+	expect(
+		pi
+			.readSessionEntries(parentAgentId)
+			.some((entry) => entry.type === "custom" && entry.customType === "detached_tool_call_completion"),
+	).toBe(false);
+}
+
+describe("subagent detached cleanup", () => {
+	it("silently aborts a detached Pyrun descendant before completing the subagent", async () => {
+		await withHeadlessPi(
+			async (pi) => {
+				const { child, childAfterDetach, detached, mainAfterSpawn } = await spawnChildWithDetachedPyrun(
+					pi,
+					"Terminal cleanup parent",
+				);
+
+				pi.respondToLlmRequest(childAfterDetach.id, fauxCompletedAssistantMessage("Subagent work complete"));
+
+				await expect(
+					pi.waitForAgent((agent) => agent.id === detached.id && agent.lifecycle === "aborted"),
+				).resolves.toMatchObject({ id: detached.id, lifecycle: "aborted" });
+				await expect(
+					pi.waitForAgent((agent) => agent.id === child.id && agent.lifecycle === "completed"),
+				).resolves.toMatchObject({
+					id: child.id,
+					lifecycle: "completed",
+					result: { summary: "Subagent work complete" },
+				});
+				await expectSilentDetachedCleanupAndSingleParentCompletion(pi, detached.id, child.id);
+				pi.respondToLlmRequest(mainAfterSpawn.id, fauxCompletedAssistantMessage("Supervisor complete"));
+			},
+			{ autoDetachTools: true, env: { PI_HEADLESS_TOOL_AUTO_DETACH_MS: "1000" } },
+		);
+	}, 30_000);
+
+	it("cancels a restored subagent detached Pyrun descendant before completion", async () => {
+		await withHeadlessPi(
+			async (pi) => {
+				const { child, detached } = await spawnChildWithDetachedPyrun(pi, "Restarted terminal cleanup parent");
+				const childSessionId = requireHeadlessAgentSessionId(child);
+
+				await pi.crash();
+				await pi.restart();
+
+				const restoredChild = await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);
+				const restoredMain = await pi.waitForLlmRequest((request) => request.agentId === null);
+				pi.respondToLlmRequest(restoredMain.id, fauxCompletedAssistantMessage("Supervisor restored"));
+				pi.respondToLlmRequest(restoredChild.id, fauxCompletedAssistantMessage("Restored subagent complete"));
+
+				await expect(
+					pi.waitForAgent((agent) => agent.id === detached.id && agent.lifecycle === "aborted"),
+				).resolves.toMatchObject({ id: detached.id, lifecycle: "aborted" });
+				await expect(
+					pi.waitForAgent((agent) => agent.id === child.id && agent.lifecycle === "completed"),
+				).resolves.toMatchObject({
+					id: child.id,
+					lifecycle: "completed",
+					result: { summary: "Restored subagent complete" },
+				});
+				await expectSilentDetachedCleanupAndSingleParentCompletion(pi, detached.id, child.id);
+			},
+			{ autoDetachTools: true, env: { PI_HEADLESS_TOOL_AUTO_DETACH_MS: "1000" } },
+		);
+	}, 40_000);
+});
+
+describe("restored subagent cancellation cleanup", () => {
+	it("silently cancels a restored detached Pyrun descendant when its subagent is cancelled", async () => {
+		await withHeadlessPi(
+			async (pi) => {
+				const { child, detached } = await spawnChildWithDetachedPyrun(pi, "Restarted cancellation parent");
+				const childSessionId = requireHeadlessAgentSessionId(child);
+
+				await pi.crash();
+				await pi.restart();
+
+				await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);
+				const restoredMain = await pi.waitForLlmRequest((request) => request.agentId === null);
+				requestChildCancellation(pi, restoredMain.id, child.id);
+
+				await expect(
+					pi.waitForAgent((agent) => agent.id === detached.id && agent.lifecycle === "aborted"),
+				).resolves.toMatchObject({ id: detached.id, lifecycle: "aborted" });
+				await expect(
+					pi.waitForAgent((agent) => agent.id === child.id && agent.lifecycle === "aborted"),
+				).resolves.toMatchObject({ id: child.id, lifecycle: "aborted" });
+				await expectSilentDetachedCleanupAndSingleParentCompletion(pi, detached.id, child.id);
+				const afterClose = await pi.waitForLlmRequest(
+					(request) => request.agentId === null && request.id !== restoredMain.id,
+					15_000,
+				);
+				expect(JSON.stringify(afterClose.messages)).toContain("Cancelled Restarted cancellation parent");
+				pi.respondToLlmRequest(afterClose.id, fauxAssistantMessage("Restarted cancellation complete"));
+			},
+			{ autoDetachTools: true, env: { PI_HEADLESS_TOOL_AUTO_DETACH_MS: "1000" } },
+		);
+	}, 40_000);
+});
+
 describe("agent cancellation reconciliation", () => {
 	it("terminalizes a cancelled child after its detached Pyrun descendant aborts out of process", async () => {
 		await withHeadlessPi(
@@ -139,6 +259,7 @@ describe("agent cancellation reconciliation", () => {
 					(agent) => agent.id === child.id && agent.lifecycle === "aborted",
 				);
 				expect(abortedChild).toMatchObject({ id: child.id, lifecycle: "aborted" });
+				await expectSilentDetachedCleanupAndSingleParentCompletion(pi, detached.id, child.id);
 				const afterClose = await pi.waitForLlmRequest(
 					(request) => request.agentId === null && request.id !== mainAfterSpawn.id,
 					15_000,
