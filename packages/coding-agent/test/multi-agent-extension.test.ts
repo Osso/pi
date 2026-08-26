@@ -11,6 +11,7 @@ import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
 import agentsCoreExtension from "../extensions/agents-core/src/index.ts";
 import { appendParentAgentStart } from "../extensions/agents-core/src/parent-agent-journal.ts";
 import {
+	cancelOwnedAgentRuntime,
 	createMultiAgentPiRequestHandler,
 	createMultiAgentRuntimeHandles,
 	type ParentAgentJournalWriter,
@@ -5565,6 +5566,59 @@ describe("multi-agent extension tools", () => {
 		await waitForTerminalAgent(harness, spawned.details.agent.id);
 
 		expect(sessionOptions?.sessionManager?.getSessionDir()).toBe(parentSessionDir);
+	});
+});
+
+describe("restored parent detached cleanup", () => {
+	it("persists silent cleanup with the initial restored parent cancellation", async () => {
+		const harness = createMultiAgentHarness();
+		const parent = spawnStoreFixture(harness.store, {
+			displayName: "Restored cancellation parent",
+			prompt: "cancel restored work",
+		}).details.agent;
+		const persistence = harness.store.getPersistenceTarget();
+		if (!persistence) throw new Error("expected persisted store fixture");
+		const coordinator = new LifecycleCoordinator({
+			controlDbPath: persistence.controlDbPath,
+			createAgentId: () => "restored_silent_cleanup",
+			now: () => "2026-06-21T00:00:00.000Z",
+			processIdentity: CURRENT_PROCESS_IDENTITY,
+			sessionPath: persistence.sessionPath,
+		});
+		const prepared = coordinator.prepareChild({
+			agentId: "restored_silent_cleanup",
+			agentType: "background",
+			cwd: "/repo",
+			detached: true,
+			displayName: "Pyrun evaluation",
+			parentId: parent.id,
+			permission: { narrowed: true, policy: "on-request" },
+			result: { fileRefs: [{ label: "Pyrun output", path: "/tmp/restored-silent-cleanup.log" }] },
+			worker: { adapter: "runtime", handleId: String(process.pid) },
+		});
+		const created = coordinator.commitRunningChild(
+			prepared,
+			harness.getSessionId(),
+			CURRENT_PROCESS_IDENTITY,
+			parent.id,
+		);
+		if (!created.ok) throw new Error(`failed to create detached runtime: ${created.error}`);
+
+		const restoredSession = SessionManager.open(persistence.sessionPath);
+		restoredSession.setMetadataControlDbPath(persistence.controlDbPath);
+		const restoredStore = MultiAgentStore.fromSessionManager(restoredSession);
+		expect(restoredStore.getAgent(created.agent.id)?.worker).toBeUndefined();
+		await cancelOwnedAgentRuntime(
+			restoredStore,
+			createMultiAgentRuntimeHandles(),
+			parent.id,
+			"cancel restored parent",
+		);
+
+		expect(readMultiAgentAgent(persistence.controlDbPath, persistence.sessionPath, created.agent.id)).toMatchObject({
+			lifecycle: "cancelling",
+			suppressTerminalNotification: true,
+		});
 	});
 });
 

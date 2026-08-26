@@ -42,15 +42,30 @@ export function requestDirectDetachedRuntimeCancellations(
 }
 
 function readDirectDetachedRuntimeAgents(store: MultiAgentStore, parentAgentId: string): AgentSnapshot[] {
-	const persistence = store.getPersistenceTarget();
-	const agents = persistence
-		? (readMultiAgentState(persistence.controlDbPath, persistence.sessionPath)?.agents as AgentSnapshot[] | undefined)
-		: store.listDescendants(parentAgentId);
-	if (!agents) throw new Error(`Could not read persisted descendants for ${parentAgentId}`);
-	return agents.filter(
+	return readAuthoritativeAgentSnapshots(store).filter(
 		(agent) =>
 			agent.parentId === parentAgentId && isActiveLifecycle(agent.lifecycle) && isDetachedRuntimeAgent(agent),
 	);
+}
+
+export function readDetachedRuntimeAgentIds(store: MultiAgentStore, agentIds: readonly string[]): Set<string> {
+	const candidateIds = new Set(agentIds);
+	return new Set(
+		readAuthoritativeAgentSnapshots(store)
+			.filter(
+				(agent) =>
+					candidateIds.has(agent.id) && isActiveLifecycle(agent.lifecycle) && isDetachedRuntimeAgent(agent),
+			)
+			.map((agent) => agent.id),
+	);
+}
+
+function readAuthoritativeAgentSnapshots(store: MultiAgentStore): AgentSnapshot[] {
+	const persistence = store.getPersistenceTarget();
+	if (!persistence) return store.listAgents();
+	const state = readMultiAgentState(persistence.controlDbPath, persistence.sessionPath);
+	if (!state) throw new Error(`Could not read persisted multi-agent state for ${persistence.sessionPath}`);
+	return state.agents as AgentSnapshot[];
 }
 
 export function requestPersistedDetachedRuntimeCancellation(

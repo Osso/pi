@@ -77,7 +77,7 @@ import { deliverTerminalOutboxProjections } from "../../../src/core/terminal-out
 import { registerAgentViewerTools } from "../../agent-viewer/src/runtime.ts";
 import {
 	type DetachedRuntimeCancellationOptions,
-	isDetachedRuntimeAgent,
+	readDetachedRuntimeAgentIds,
 	requestDirectDetachedRuntimeCancellations,
 	requestPersistedDetachedRuntimeCancellation,
 } from "./detached-runtime-cancellation.ts";
@@ -2477,10 +2477,14 @@ export async function cancelOwnedAgentRuntime(
 	reason?: string,
 ): Promise<CancelReservedAgentResult> {
 	const descendants = store.listDescendants(agentId).filter((agent) => isActiveLifecycle(agent.lifecycle)).reverse();
+	const detachedRuntimeAgentIds = readDetachedRuntimeAgentIds(
+		store,
+		descendants.map((agent) => agent.id),
+	);
 	for (const descendant of descendants) {
 		const cancelled = await cancelOneOwnedAgentRuntime(store, runtimeHandles, descendant.id, {
 			reason,
-			suppressTerminalNotification: isDetachedRuntimeAgent(descendant),
+			suppressTerminalNotification: detachedRuntimeAgentIds.has(descendant.id),
 		});
 		if (!cancelled.ok) return cancelled;
 	}
