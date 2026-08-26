@@ -29,9 +29,12 @@ import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { readProcessIdentity } from "../src/core/runtime-process.ts";
 import {
 	claimRuntimeMailboxMessages,
+	enqueueRuntimeMailboxMessage,
 	listRuntimeMailboxMessages,
+	readMultiAgentAgent,
 	readMultiAgentState,
 	registerRuntimeMailboxListener,
+	upsertMultiAgentMailboxMessage,
 } from "../src/core/session-control-db.ts";
 import { testProcessIdentity } from "./helpers/process-identity.ts";
 
@@ -302,6 +305,130 @@ describe("detached Pyrun runner", () => {
 			expect(samples).toEqual(samples.map(() => stableDescriptors));
 		},
 	);
+
+	it.runIf(process.platform === "linux")(
+		"kills the nested Pyrun runner and its child when a durable evaluation is cancelled",
+		async () => {
+			const root = mkdtempSync(join(tmpdir(), "pi-detached-pyrun-cancel-tree-"));
+			temporaryDirectories.push(root);
+			const childPidPath = join(root, "child.pid");
+			const nestedRunnerPidPath = join(root, "nested-runner.pid");
+			const nestedRunnerPath = join(root, "nested-pyrun.mjs");
+			writeFileSync(
+				nestedRunnerPath,
+				[
+					"#!/usr/bin/env node",
+					"import { spawn } from 'node:child_process';",
+					"import { writeFileSync } from 'node:fs';",
+					"writeFileSync(process.env.NESTED_RUNNER_PID_PATH, String(process.pid));",
+					"let started = false;",
+					"process.stdin.on('data', () => {",
+					"  if (started) return;",
+					"  started = true;",
+					"  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
+					"  writeFileSync(process.env.CHILD_PID_PATH, String(child.pid));",
+					"  process.stdout.write(JSON.stringify({ type: 'progress', message: 'child started' }) + '\\n');",
+					"});",
+					"setInterval(() => {}, 1000);",
+				].join("\n"),
+			);
+			chmodSync(nestedRunnerPath, 0o700);
+			const controlDbPath = join(root, "control.sqlite");
+			const sessionPath = join(root, "session.jsonl");
+			const runnerAddress = { agentId: "pyrun_1", sessionId: "main" };
+			const store = new MultiAgentStore();
+			const coordinator = new LifecycleCoordinator({
+				controlDbPath,
+				createAgentId: () => runnerAddress.agentId,
+				now: () => new Date().toISOString(),
+				processIdentity: testProcessIdentity("pyrun-cancel-tree"),
+				sessionPath,
+			});
+			const lifecycle = createDetachedJobLifecycleController({
+				artifactRoot: root,
+				controlDbPath,
+				coordinator,
+				ownerSessionId: runnerAddress.sessionId,
+				sessionPath,
+				store,
+			});
+			const artifacts = lifecycle.createArtifacts(runnerAddress.agentId);
+			const activationPath = join(artifacts.directory, "activation.json");
+			const manifestPath = join(artifacts.directory, "launch.json");
+			const durableRunnerPid = launchDetachedPyrunRunner(manifestPath, {
+				entryPath: join(import.meta.dirname, "../extensions/pyrun/src/detached-runner-entry.ts"),
+			});
+			let childPid = 0;
+			let nestedRunnerPid = 0;
+			try {
+				const durableRunnerIdentity = readProcessIdentity(durableRunnerPid);
+				const ownership = lifecycle.register({
+					agentType: "pyrun",
+					cwd: root,
+					displayName: "Pyrun cancellation tree",
+					jobId: runnerAddress.agentId,
+					processIdentity: durableRunnerIdentity,
+					workerHandleId: String(durableRunnerPid),
+				});
+				writeDetachedPyrunLaunchManifest(manifestPath, {
+					activationPath,
+					artifacts,
+					bridgeRequestPath: join(artifacts.directory, "foreground-bridge-requests.jsonl"),
+					bridgeResponsePath: join(artifacts.directory, "foreground-bridge-responses.jsonl"),
+					controlDbPath,
+					foregroundCompletionPath: join(artifacts.directory, "foreground-completed"),
+					params: { code: "run child forever" },
+					runnerAddress,
+					runnerOptions: {
+						args: [nestedRunnerPath],
+						command: process.execPath,
+						env: { CHILD_PID_PATH: childPidPath, NESTED_RUNNER_PID_PATH: nestedRunnerPidPath },
+						inheritEnv: true,
+					},
+					runnerProcessIdentity: durableRunnerIdentity,
+					sessionPath,
+					startedAt: Date.now(),
+					supervisorProcessIdentity: readProcessIdentity(process.pid),
+					toolCallId: "test-pyrun-cancel-tree",
+				});
+				writeDetachedPyrunActivation(activationPath, ownership.identity);
+				await waitFor(() => existsSync(childPidPath) && existsSync(nestedRunnerPidPath));
+				childPid = Number(readFileSync(childPidPath, "utf8"));
+				nestedRunnerPid = Number(readFileSync(nestedRunnerPidPath, "utf8"));
+
+				const cancelling = coordinator.requestDetachedCancellation({
+					agent: ownership.agent,
+					outputLabel: artifacts.outputPath,
+					ownership: ownership.controlOwnership,
+					reason: "test cancellation",
+				});
+				expect(cancelling.ok).toBe(true);
+				if (!cancelling.ok) return;
+				upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, "message_1", {
+					body: JSON.stringify({ command: "cancel", identity: ownership.identity, reason: "test cancellation" }),
+					fromAgentId: "main",
+					id: "message_1",
+					kind: "system",
+					status: "pending",
+					toAgentId: runnerAddress.agentId,
+				});
+				enqueueRuntimeMailboxMessage(controlDbPath, {
+					kind: "system",
+					recipient: runnerAddress,
+					sender: { agentId: null, sessionId: runnerAddress.sessionId },
+					storeRef: { messageId: "message_1", sessionPath },
+				});
+
+				await waitFor(() => readMultiAgentAgent(controlDbPath, sessionPath, runnerAddress.agentId)?.lifecycle === "aborted");
+				await waitFor(() => !processIsAlive(durableRunnerPid) && !processIsAlive(nestedRunnerPid));
+				expect(processIsAlive(childPid)).toBe(false);
+			} finally {
+				terminateProcessGroup(durableRunnerPid);
+				terminateProcess(nestedRunnerPid);
+				terminateProcess(childPid);
+			}
+		},
+	);
 });
 
 async function requestAndAssertDetachedPyrunStatus(input: {
@@ -380,6 +507,34 @@ function readOpenControlDbDescriptors(pid: number, controlDbPath: string): Recor
 		if (targets.has(target)) descriptors[target] = descriptor;
 	}
 	return descriptors;
+}
+
+function processIsAlive(pid: number): boolean {
+	if (pid === 0) return false;
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function terminateProcess(pid: number): void {
+	if (!processIsAlive(pid)) return;
+	try {
+		process.kill(pid, "SIGKILL");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+	}
+}
+
+function terminateProcessGroup(pid: number): void {
+	if (pid === 0) return;
+	try {
+		process.kill(-pid, "SIGKILL");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+	}
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {

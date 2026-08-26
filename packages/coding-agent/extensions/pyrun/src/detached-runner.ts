@@ -129,7 +129,11 @@ export async function runDetachedPyrunRunner(manifestPath: string): Promise<{ te
 	const manifest = await waitForDetachedPyrunLaunchManifest(manifestPath);
 	const releaseControlDb = retainControlDbConnection(manifest.controlDbPath);
 	try {
-		const runner = new PyrunRunnerClient({ ...manifest.runnerOptions, detached: false });
+		const runner = new PyrunRunnerClient({
+			...manifest.runnerOptions,
+			detached: false,
+			inheritedProcessGroupId: process.pid,
+		});
 		try {
 			const settlement = await waitForDetachedPyrunSettlement(manifest, runner);
 			appendPyrunSettlementRecord(manifest, settlement);

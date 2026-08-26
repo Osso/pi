@@ -1,4 +1,5 @@
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { readdirSync, readFileSync } from "node:fs";
 import { EOL } from "node:os";
 
 export interface CanonicalPyrunEvalParams {
@@ -64,13 +65,16 @@ export interface PyrunRunnerOptions {
 	detached?: boolean;
 	env?: NodeJS.ProcessEnv;
 	inheritEnv?: boolean;
+	inheritedProcessGroupId?: number;
 }
 
 export interface PyrunRunnerResolutionOptions {
 	env?: NodeJS.ProcessEnv;
 }
 
-type ResolvedPyrunRunnerOptions = Required<Omit<PyrunRunnerOptions, "detached" | "inheritEnv">>;
+type ResolvedPyrunRunnerOptions = Required<
+	Omit<PyrunRunnerOptions, "detached" | "inheritEnv" | "inheritedProcessGroupId">
+>;
 
 function parseRunnerArgs(value: string | undefined): string[] | undefined {
 	if (!value) {
@@ -104,9 +108,40 @@ function signalProcessGroup(pid: number, signal: NodeJS.Signals): boolean {
 	}
 }
 
+function readLinuxProcessGroupId(pid: number): number | undefined {
+	try {
+		const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+		const commandEnd = stat.lastIndexOf(")");
+		if (commandEnd === -1) return undefined;
+		const fields = stat.slice(commandEnd + 2).split(" ");
+		const processGroupId = Number(fields[2]);
+		return Number.isInteger(processGroupId) ? processGroupId : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function signalInheritedProcessGroupMembers(processGroupId: number, signal: NodeJS.Signals): void {
+	if (process.platform !== "linux") return;
+	const memberPids = readdirSync("/proc", { withFileTypes: true }).flatMap((entry) => {
+		if (!entry.isDirectory() || !/^\d+$/.test(entry.name)) return [];
+		const pid = Number(entry.name);
+		if (pid === process.pid || readLinuxProcessGroupId(pid) !== processGroupId) return [];
+		return [pid];
+	});
+	for (const pid of memberPids) {
+		try {
+			process.kill(pid, signal);
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+		}
+	}
+}
+
 function terminateRunnerTree(
 	child: ChildProcessWithoutNullStreams,
 	detached: boolean,
+	inheritedProcessGroupId: number | undefined,
 	signal: NodeJS.Signals = "SIGTERM",
 ): void {
 	if (process.platform === "win32" && child.pid !== undefined) {
@@ -118,6 +153,9 @@ function terminateRunnerTree(
 	}
 	const canSignalProcessGroup = detached && process.platform !== "win32" && child.pid !== undefined;
 	if (canSignalProcessGroup && signalProcessGroup(child.pid, signal)) return;
+	if (inheritedProcessGroupId !== undefined) {
+		signalInheritedProcessGroupMembers(inheritedProcessGroupId, signal);
+	}
 	child.kill(signal);
 }
 
@@ -174,7 +212,11 @@ export class PyrunRunnerClient {
 		if (this.process === generation) {
 			this.process = undefined;
 		}
-		terminateRunnerTree(generation.child, this.shouldDetachProcess());
+		terminateRunnerTree(
+			generation.child,
+			this.shouldDetachProcess(),
+			this.options.inheritedProcessGroupId,
+		);
 	}
 
 	private shouldDetachProcess(): boolean {
