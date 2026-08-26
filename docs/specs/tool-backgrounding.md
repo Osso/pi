@@ -7,7 +7,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 ## What it must do
 
 - [x] `Ctrl+B` detaches a supported running tool through the shared tool detach registry.
-- [x] Supported running tools auto-detach through the same shared registry after 120 seconds.
+- [x] Supported running tools auto-detach through the same shared registry after 600 seconds.
 - [x] Auto-detach moves the tool out of the foreground only; explicit tool timeout settings continue to kill/fail the underlying work.
 - [x] Detached bash commands create a background job, write later output to an absolute log file reference, and support cancellation through `close_agent`.
 - [x] Detached Pyrun evaluations create a background job, complete independently, expose final output through an absolute log file reference, persist the submitted source as a permission-locked `script.py` file reference for the full running and terminal lifecycle, and record elapsed time in the agent result's `durationMs` field.
