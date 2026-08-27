@@ -46,6 +46,7 @@
 - Changed durable Pyrun artifact observation to wake on filesystem activity, drain remaining bounded artifact chunks before waiting again, and retain a one-second fallback while batching dense console progress before live updates; complete artifact records remain preserved.
 - Changed `AssistantMessageComponent` streaming updates to retain child component identity, avoiding per-chunk component allocation and preserving Markdown instance caches.
 - Changed `send_agent_message` tool description, parameter schema descriptions, and prompt guidelines to document cross-session mailbox messaging via `toSessionId` and `toAgentId: "main"`.
+- Changed `channel_post` model-facing guidance to require short action-only broadcasts naming exact affected shared paths or installed artifacts, prefer targeted mailbox messaging, and exclude status, diagnostic, test, ownership, and conversational posts; delivered shared-channel prompts now include matching no-acknowledgement and no-echo handling guidance.
 
 ### Added
 
