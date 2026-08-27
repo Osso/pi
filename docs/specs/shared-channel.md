@@ -42,6 +42,8 @@ once needed.
 - [x] `channel_post` appends one non-empty message to the shared channel.
 - [x] `channel_post` is rejected from subagent contexts by default.
 - [x] `channel_post` advances the sender cursor to the posted message so the sender does not receive its own post.
+- [x] `channel_post` tool metadata carries the mandatory action-only posting contract, including exact affected path or artifact, required action, prohibited chatter and diagnostics, direct-message preference, and runtime-restart guidance.
+- [x] Every formatted shared-channel delivery includes receive-side handling rules that prohibit acknowledgements, restatements, reviews, and diagnostic echoes when no coordination action is required.
 
 ## How it works
 
@@ -53,12 +55,14 @@ once needed.
 
 - `packages/coding-agent/src/core/session-control-db.ts` — shared channel tables and cursor/message APIs.
 - `packages/coding-agent/src/core/agent-session.ts` — idle drain integration and shared-channel custom-message delivery.
-- `packages/coding-agent/src/core/tools/channel-post.ts` — `channel_post` built-in tool.
+- `packages/coding-agent/src/core/runtime-coordination-format.ts` — sender/body formatting and receive-side handling context.
+- `packages/coding-agent/src/core/tools/channel-post.ts` — `channel_post` built-in tool and posting policy.
 - `packages/coding-agent/src/core/tools/index.ts` — built-in tool registration.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/session-control-db.test.ts`
+- `packages/coding-agent/test/runtime-coordination-format.test.ts` — asserts receive-side policy and sender/body formatting.
 - `packages/coding-agent/test/runtime-mailbox.test.ts` — asserts batched idle delivery, ordering/labels, skipped sender handling, and cursor failure semantics.
 - `packages/coding-agent/test/suite/agent-session-queue.test.ts` — asserts shared-channel prompts use the custom-message path.
 - `packages/coding-agent/test/suite/regressions/shared-channel-end-turn-queue.test.ts` — asserts consumed follow-ups clear after `end_turn`.

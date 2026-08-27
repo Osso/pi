@@ -4,7 +4,10 @@ import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 import { advanceSharedChannelCursor, postSharedChannelMessage } from "../session-control-db.ts";
 
 const channelPostSchema = Type.Object({
-	message: Type.String({ description: "Message body to append to the global shared session channel." }),
+	message: Type.String({
+		description:
+			"One short action-required broadcast naming the exact affected shared path or installed artifact and required action.",
+	}),
 });
 
 export type ChannelPostToolInput = Static<typeof channelPostSchema>;
@@ -18,11 +21,16 @@ export function createChannelPostToolDefinition(): ToolDefinition<typeof channel
 		name: "channel_post",
 		label: "channel_post",
 		description:
-			"Append one message to the global shared channel. Idle sessions read new channel messages from control.sqlite using per-session cursors.",
-		promptSnippet: "Post a message to the global shared channel",
+			"Append one action-required coordination broadcast to the global shared channel. Idle sessions read new channel messages from control.sqlite using per-session cursors.",
+		promptSnippet: "Post an action-required broadcast to the global shared channel",
 		promptGuidelines: [
-			"Use channel_post for soft cross-session coordination; idle sessions catch up from their cursor.",
-			"Do not use channel_post for urgent targeted wakeups; use broadcast with explicit filters for that.",
+			"Post only when other sessions must take a concrete action now. Treat channel_post as a low-volume broadcast bus, not a conversation; valid cases are an already-shared checkout collision, blocker, or release, a blocking dependency, or an installed Pi runtime replacement.",
+			"Include the exact affected shared path or installed artifact and required action. Keep each post to one short sentence when possible, two maximum. Omit task descriptions, planned file inventories, implementation scope, rationale, progress, and deployment narration unless required for safe action.",
+			"Do not post diagnostics, tests, acknowledgements, restatements, reviews, or status updates. This includes experiments, delivery or echo/tag tests, liveness probes, architecture requests, evidence gathering, falsification checks, untouched or no-overlap reports, no-action updates, and conversational replies.",
+			"Do not post isolated-worktree ownership or release; isolation already prevents conflicts. Correct a prior post only when the required action changed.",
+			"Prefer send_agent_message for targeted coordination. If independent main sessions lack a direct mailbox path, use one minimal targeted channel post rather than a conversation.",
+			"For urgent targeted wakeups, use broadcast with explicit filters instead.",
+			"For Pi runtime replacements, identify the installed artifact and tell affected sessions to call restart_self.",
 		],
 		parameters: channelPostSchema,
 		executionMode: "sequential",

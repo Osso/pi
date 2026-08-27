@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS } from "../src/core/desktop-notification.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { formatSharedChannelPrompt } from "../src/core/runtime-coordination-format.ts";
 import {
 	claimRuntimeMailboxMessages,
 	consumeRuntimeMailboxMessageByStoreRef,
@@ -164,8 +165,19 @@ function runtimeMailboxPrompt(body: string, sessionId = "child-session", agentId
 	return ["From:", `- session: ${sessionId}`, `- agent: ${agentId}`, "", "Message:", body].join("\n");
 }
 
-function sharedChannelPrompt(body: string, sessionId = "sender-session"): string {
-	return ["From shared channel:", `- session: ${sessionId}`, "- agent: main", "", "Message:", body].join("\n");
+function sharedChannelBatchPrompt(
+	messages: Array<{ body: string; sessionId: string }>,
+	recipientSessionId: string,
+): string {
+	return formatSharedChannelPrompt(
+		messages.map(({ body, sessionId }, index) => ({
+			body,
+			createdAt: "",
+			id: index + 1,
+			sender: { agentId: null, sessionId },
+		})),
+		recipientSessionId,
+	);
 }
 
 function createReservedRuntimeAgent(
@@ -2268,10 +2280,13 @@ describe("runtime SQLite mailbox delivery", () => {
 			expect.objectContaining({
 				role: "custom",
 				customType: "shared_channel",
-				content: [
-					sharedChannelPrompt("First shared status?", "sender-session-a"),
-					sharedChannelPrompt("Second shared status?", "sender-session-b"),
-				].join("\n\n"),
+				content: sharedChannelBatchPrompt(
+					[
+						{ body: "First shared status?", sessionId: "sender-session-a" },
+						{ body: "Second shared status?", sessionId: "sender-session-b" },
+					],
+					harness.sessionManager.getSessionId(),
+				),
 				display: true,
 			}),
 		);
@@ -2284,7 +2299,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
 		harness.setResponses([fauxAssistantMessage("user reply"), fauxAssistantMessage("channel reply")]);
-		const sharedPrompt = sharedChannelPrompt("Post-run shared status?");
+		const sharedPrompt = "From shared channel:\n\nMessage:\nPost-run shared status?";
 		const promptableSession = harness.session as unknown as {
 			_sendSharedChannelPrompt(prompt: string, options: { triggerIfIdle: boolean }): Promise<boolean>;
 		};
@@ -2347,9 +2362,13 @@ describe("runtime SQLite mailbox delivery", () => {
 			expect.objectContaining({
 				role: "custom",
 				customType: "shared_channel",
-				content: deliverableBodies
-					.map((body, index) => sharedChannelPrompt(body, `sender-session-${index + 1}`))
-					.join("\n\n"),
+				content: sharedChannelBatchPrompt(
+					deliverableBodies.map((body, index) => ({
+						body,
+						sessionId: `sender-session-${index + 1}`,
+					})),
+					recipient.sessionId,
+				),
 				display: true,
 			}),
 		);
@@ -2393,9 +2412,13 @@ describe("runtime SQLite mailbox delivery", () => {
 			expect.objectContaining({
 				role: "custom",
 				customType: "shared_channel",
-				content: deliverableBodies
-					.map((body, index) => sharedChannelPrompt(body, `sender-session-${index + 1}`))
-					.join("\n\n"),
+				content: sharedChannelBatchPrompt(
+					deliverableBodies.map((body, index) => ({
+						body,
+						sessionId: `sender-session-${index + 1}`,
+					})),
+					recipient.sessionId,
+				),
 				display: true,
 			}),
 		);
@@ -2441,9 +2464,13 @@ describe("runtime SQLite mailbox delivery", () => {
 			expect.objectContaining({
 				role: "custom",
 				customType: "shared_channel",
-				content: deliverableBodies
-					.map((body, index) => sharedChannelPrompt(body, `sender-session-${index + 1}`))
-					.join("\n\n"),
+				content: sharedChannelBatchPrompt(
+					deliverableBodies.map((body, index) => ({
+						body,
+						sessionId: `sender-session-${index + 1}`,
+					})),
+					recipient.sessionId,
+				),
 				display: true,
 			}),
 		);

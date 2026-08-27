@@ -40,6 +40,31 @@ describe("session coordination tools", () => {
 		expect(tools.channel_post.description).toContain("shared channel");
 	});
 
+	it("documents mandatory shared-channel posting policy on the active channel_post tool", () => {
+		const tools = createAllToolDefinitions("/tmp");
+		const messageDescription = (tools.channel_post.parameters.properties.message as { description?: string })
+			.description;
+		const guidance = [
+			tools.channel_post.description,
+			messageDescription,
+			...(tools.channel_post.promptGuidelines ?? []),
+		].join("\n");
+
+		expect(guidance).toContain("Post only when other sessions must take a concrete action now.");
+		expect(guidance).toContain("Include the exact affected shared path or installed artifact and required action.");
+		expect(guidance).toContain("Keep each post to one short sentence when possible, two maximum.");
+		expect(guidance).toContain(
+			"Do not post diagnostics, tests, acknowledgements, restatements, reviews, or status updates.",
+		);
+		expect(guidance).toContain("Do not post isolated-worktree ownership or release");
+		expect(guidance).toContain("Correct a prior post only when the required action changed.");
+		expect(guidance).toContain("Prefer send_agent_message for targeted coordination.");
+		expect(guidance).toContain("For urgent targeted wakeups, use broadcast with explicit filters instead.");
+		expect(guidance).toContain(
+			"For Pi runtime replacements, identify the installed artifact and tell affected sessions to call restart_self.",
+		);
+	});
+
 	it("persists Architect requests from a main runtime with historical subagent provenance", async () => {
 		const agentDir = mkdtempSync(join(tmpdir(), "pi-ask-architect-tool-"));
 		try {
