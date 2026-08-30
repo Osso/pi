@@ -236,20 +236,26 @@ function restorePyrunCandidate(
 	}
 	const scriptPath = join(directory, "script.py");
 	if (!existsSync(scriptPath)) throw new Error(`Pyrun script artifact is missing: ${scriptPath}`);
+	return { kind: "resume", runner: buildRestoredPyrunRunner(candidate, jobId, scriptPath) };
+}
+
+function buildRestoredPyrunRunner(
+	candidate: PyrunManifestCandidate,
+	jobId: string,
+	scriptPath: string,
+): RestoredPyrunRunner {
+	const { manifest, manifestPath } = candidate;
 	return {
-		kind: "resume",
-		runner: {
-			activationPath: manifest.activationPath,
-			artifacts: manifest.artifacts,
-			bridgeRequestPath: manifest.bridgeRequestPath,
-			bridgeResponsePath: manifest.bridgeResponsePath,
-			foregroundCompletionPath: manifest.foregroundCompletionPath,
-			jobId,
-			manifestPath: candidate.manifestPath,
-			processIdentity: manifest.runnerProcessIdentity,
-			runnerPid: manifest.runnerProcessIdentity.pid,
-			scriptPath,
-		},
+		activationPath: manifest.activationPath,
+		artifacts: manifest.artifacts,
+		bridgeRequestPath: manifest.bridgeRequestPath,
+		bridgeResponsePath: manifest.bridgeResponsePath,
+		foregroundCompletionPath: manifest.foregroundCompletionPath,
+		jobId,
+		manifestPath,
+		processIdentity: manifest.runnerProcessIdentity,
+		runnerPid: manifest.runnerProcessIdentity.pid,
+		scriptPath,
 	};
 }
 
@@ -396,8 +402,7 @@ function launchForegroundPyrunRunner(
 	controller: ReturnType<typeof createDetachedJobLifecycleController>,
 	startedAt: number,
 ) {
-	const jobId = input.agentId;
-	const artifacts = controller.createArtifacts(jobId);
+	const artifacts = controller.createArtifacts(input.agentId);
 	const activationPath = join(artifacts.directory, "activation.json");
 	const bridgeRequestPath = join(artifacts.directory, "foreground-bridge-requests.jsonl");
 	const bridgeResponsePath = join(artifacts.directory, "foreground-bridge-responses.jsonl");
@@ -415,7 +420,7 @@ function launchForegroundPyrunRunner(
 		controlDbPath: persistence.controlDbPath,
 		foregroundCompletionPath,
 		params: createCanonicalPyrunEvalParams(input.params, input.ctx, input.piBridgeEnabled),
-		runnerAddress: { agentId: jobId, sessionId: input.ctx.sessionManager.getSessionId() },
+		runnerAddress: { agentId: input.agentId, sessionId: input.ctx.sessionManager.getSessionId() },
 		runnerOptions: input.runnerOptions,
 		runnerProcessIdentity: processIdentity,
 		sessionPath: persistence.sessionPath,
@@ -429,7 +434,7 @@ function launchForegroundPyrunRunner(
 		bridgeRequestPath,
 		bridgeResponsePath,
 		foregroundCompletionPath,
-		jobId,
+		jobId: input.agentId,
 		manifestPath,
 		processIdentity,
 		runnerPid,
