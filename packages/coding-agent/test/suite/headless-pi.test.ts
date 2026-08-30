@@ -957,10 +957,9 @@ describe("headless Pi fixture", () => {
 					agent.respondToLlmRequest(mainAfterSpawn.id, fauxCompletedAssistantMessage("Caller started"));
 					agent.respondToLlmRequest(
 						callerRequest.id,
-						fauxAssistantMessage(
-							fauxToolCall("pyrun_eval", { code: "foreground.wrapper_failure()" }),
-							{ stopReason: "toolUse" },
-						),
+						fauxAssistantMessage(fauxToolCall("pyrun_eval", { code: "foreground.wrapper_failure()" }), {
+							stopReason: "toolUse",
+						}),
 					);
 					await agent.waitForAgent(
 						(candidate) =>
@@ -985,12 +984,15 @@ describe("headless Pi fixture", () => {
 					expect(
 						agent
 							.listAgents()
-							.filter((candidate) => candidate.parentId === caller.id && candidate.displayName === "Pyrun evaluation"),
+							.filter(
+								(candidate) => candidate.parentId === caller.id && candidate.displayName === "Pyrun evaluation",
+							),
 					).toHaveLength(0);
 					await vi.waitFor(() => expect(agent.getPyrunRunnerPids().filter(isProcessAlive)).toHaveLength(0));
 
 					const completionRequest = await agent.waitForLlmRequest(
-						(request) => request.agentId === null && JSON.stringify(request.messages).includes("Wrapper failure handled"),
+						(request) =>
+							request.agentId === null && JSON.stringify(request.messages).includes("Wrapper failure handled"),
 					);
 					agent.respondToLlmRequest(
 						completionRequest.id,

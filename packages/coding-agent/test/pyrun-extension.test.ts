@@ -22,15 +22,15 @@ import {
 	type ParentAgentJournalWriter,
 } from "../extensions/agents-core/src/runtime.ts";
 import {
+	readDetachedPyrunLaunchManifest,
+	writeDetachedPyrunLaunchManifest,
+} from "../extensions/pyrun/src/detached-runner.ts";
+import {
 	createCanonicalPyrunEvalParams,
 	createPyrunEvalExecutor,
 	formatCanonicalPyrunEvalResult,
 } from "../extensions/pyrun/src/eval-tool.ts";
 import pyrunExtension, { type PyrunExtensionOptions } from "../extensions/pyrun/src/index.ts";
-import {
-	readDetachedPyrunLaunchManifest,
-	writeDetachedPyrunLaunchManifest,
-} from "../extensions/pyrun/src/detached-runner.ts";
 import { PyrunRunnerClient, resolvePyrunRunnerOptions } from "../extensions/pyrun/src/runner.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
@@ -2625,9 +2625,7 @@ setInterval(() => {}, 1000);
 			agentId,
 			context: harness.evaluateContext,
 			params,
-			records: [
-				{ kind: "result", result: { executed: params.code, type: "completed", value: "restored" } },
-			],
+			records: [{ kind: "result", result: { executed: params.code, type: "completed", value: "restored" } }],
 			runnerError: "late wrapper sidecar\n",
 			store,
 			toolCallId,
