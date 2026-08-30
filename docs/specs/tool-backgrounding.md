@@ -82,7 +82,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - `packages/agent-core/test/agent-loop.test.ts` — prepared agent identity persistence and execution propagation.
 - `packages/coding-agent/test/tool-definition-wrapper.test.ts` — extension preparation and execution-context propagation.
 - `packages/coding-agent/test/suite/headless-pi.test.ts` — interrupted Pyrun replay uses the original agent identity, ignores an unrelated historical manifest, and settles a child after a foreground wrapper fails following progress.
-- `packages/coding-agent/test/pyrun-extension.test.ts` — detached Pyrun script/output persistence, foreground wrapper-sidecar settlement (nonempty/empty diagnostics, restored sidecars, and canonical-result precedence), completion/failure regressions, elapsed `durationMs`, and duration-bearing lifecycle notifications.
+- `packages/coding-agent/test/pyrun-extension.test.ts` — detached Pyrun script/output persistence, foreground wrapper-sidecar settlement (nonempty/empty diagnostics, restored sidecars, and canonical result/error precedence), completion/failure regressions, elapsed `durationMs`, and duration-bearing lifecycle notifications.
 - `packages/coding-agent/test/interactive-mode-status.test.ts` — live detached Pyrun script/output rendering without a transcript.
 - `packages/coding-agent/test/runtime-mailbox.test.ts` — explicit runtime mailbox delivery plus
   completion-notification wakeups and simultaneous/late waiter queries.
