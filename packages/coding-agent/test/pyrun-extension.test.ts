@@ -2662,7 +2662,23 @@ setInterval(() => {}, 1000);
 		}
 	});
 
-	it("drains unread foreground artifacts before accepting a runner sidecar", async () => {
+	it.each([
+		{
+			caseName: "canonical result",
+			expectedCompletion: "completed\n",
+			expectedValue: "canonical result",
+			terminalRecord: {
+				kind: "result",
+				result: { executed: "run.sidecar_failure()", type: "completed", value: "canonical result" },
+			},
+		},
+		{
+			caseName: "canonical error",
+			expectedCompletion: "failed\n",
+			expectedError: "canonical error",
+			terminalRecord: { error: "canonical error", kind: "error" },
+		},
+	])("drains unread foreground artifacts before liveness settles a dead runner: $caseName", async (testCase) => {
 		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
 		const harness = createPyrunHarness({
 			backgroundJobs: { store },
@@ -2671,9 +2687,13 @@ setInterval(() => {}, 1000);
 		const params = { code: "run.sidecar_failure()" };
 		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
 		const evaluation = harness.evaluate(params, (update) => updates.push(update));
+		const evaluationOutcome = evaluation.then(
+			(result) => ({ error: undefined, result }),
+			(error: unknown) => ({ error: error instanceof Error ? error.message : String(error), result: undefined }),
+		);
 		await waitFor(
 			() => updates.some((update) => update.details.type === "status"),
-			"foreground Pyrun progress before chunked result",
+			"foreground Pyrun progress before chunked terminal record",
 		);
 		const [artifactName] = readdirSync(pyrunArtifactRoot(store));
 		if (!artifactName) throw new Error("Expected Pyrun artifact directory");
@@ -2685,27 +2705,32 @@ setInterval(() => {}, 1000);
 			kind: "progress",
 			update: { message: "x".repeat(1_048_576), type: "status" },
 		};
-		const canonicalResult = {
-			kind: "result",
-			result: { executed: params.code, type: "completed", value: "canonical result" },
-		};
+		const livenessCheckNow = Date.now() + 10_000;
+		const nowSpy = vi.spyOn(Date, "now").mockReturnValue(livenessCheckNow);
 		try {
 			writeFileSync(
 				manifest.artifacts.outputPath,
-				`${JSON.stringify(largeProgress)}\n${JSON.stringify(canonicalResult)}\n`,
+				`${JSON.stringify(largeProgress)}\n${JSON.stringify(testCase.terminalRecord)}\n`,
 				{ flag: "a" },
 			);
 			writeFileSync(`${manifestPath}.runner-error`, "late wrapper sidecar\n");
+			killProcessGroup(manifest.runnerProcessIdentity.pid);
+			await waitFor(
+				() => !isProcessIdentityAlive(manifest.runnerProcessIdentity) && !processIsAlive(canonicalRunnerPid),
+				"chunked foreground Pyrun process-tree exit",
+			);
 
-			const result = await Promise.race([
-				evaluation,
+			const outcome = await Promise.race([
+				evaluationOutcome,
 				new Promise<never>((_, reject) =>
-					setTimeout(() => reject(new Error("Chunked Pyrun result did not settle")), 2_000),
+					setTimeout(() => reject(new Error("Chunked Pyrun terminal record did not settle")), 2_000),
 				),
 			]);
-			expect(result.details.value).toBe("canonical result");
-			expect(readFileSync(manifest.foregroundCompletionPath, "utf8")).toBe("completed\n");
+			expect(outcome.error).toBe(testCase.expectedError);
+			expect(outcome.result?.details.value).toBe(testCase.expectedValue);
+			expect(readFileSync(manifest.foregroundCompletionPath, "utf8")).toBe(testCase.expectedCompletion);
 		} finally {
+			nowSpy.mockRestore();
 			if (processIsAlive(manifest.runnerProcessIdentity.pid)) killProcessGroup(manifest.runnerProcessIdentity.pid);
 			await waitFor(
 				() => !isProcessIdentityAlive(manifest.runnerProcessIdentity) && !processIsAlive(canonicalRunnerPid),
