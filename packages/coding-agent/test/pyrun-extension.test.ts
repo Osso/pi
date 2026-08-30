@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
@@ -20,13 +21,21 @@ import {
 	createProductionChildAgentSessionFactory,
 	type ParentAgentJournalWriter,
 } from "../extensions/agents-core/src/runtime.ts";
-import { createPyrunEvalExecutor, formatCanonicalPyrunEvalResult } from "../extensions/pyrun/src/eval-tool.ts";
+import {
+	createCanonicalPyrunEvalParams,
+	createPyrunEvalExecutor,
+	formatCanonicalPyrunEvalResult,
+} from "../extensions/pyrun/src/eval-tool.ts";
 import pyrunExtension, { type PyrunExtensionOptions } from "../extensions/pyrun/src/index.ts";
+import {
+	readDetachedPyrunLaunchManifest,
+	writeDetachedPyrunLaunchManifest,
+} from "../extensions/pyrun/src/detached-runner.ts";
 import { PyrunRunnerClient, resolvePyrunRunnerOptions } from "../extensions/pyrun/src/runner.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
-import { isProcessIdentityAlive } from "../src/core/runtime-process.ts";
+import { isProcessIdentityAlive, readProcessIdentity } from "../src/core/runtime-process.ts";
 import {
 	getControlDbPath,
 	readMultiAgentAgent,
@@ -239,6 +248,11 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 				toolExecutionAgentId: execution?.agentId,
 			} as ExtensionContext);
 		},
+		evaluateWithExecution: async (toolCallId: string, agentId: string, params: PyrunEvalParams) =>
+			registeredPyrunTool.execute(toolCallId, params, undefined, undefined, {
+				...ctx,
+				toolExecutionAgentId: agentId,
+			} as ExtensionContext),
 	};
 }
 
@@ -323,6 +337,51 @@ function readToolText(result: AgentToolResult<unknown>): string {
 	return result.content.map((item) => (item.type === "text" ? (item.text ?? "") : "")).join("\n");
 }
 
+function pyrunArtifactRoot(store: MultiAgentStore): string {
+	const persistence = store.getPersistenceTarget();
+	if (!persistence) throw new Error("Expected persisted Pyrun store");
+	const sessionFileName = basename(persistence.sessionPath);
+	const sessionName = sessionFileName.slice(0, -extname(sessionFileName).length);
+	return join(dirname(persistence.sessionPath), "detached-jobs", sessionName);
+}
+
+function writeRestorablePyrunArtifacts(input: {
+	agentId: string;
+	context: ExtensionContext;
+	params: PyrunEvalParams;
+	records: unknown[];
+	runnerError: string;
+	store: MultiAgentStore;
+	toolCallId: string;
+}): string {
+	const persistence = input.store.getPersistenceTarget();
+	if (!persistence) throw new Error("Expected persisted Pyrun store");
+	const directory = join(pyrunArtifactRoot(input.store), input.agentId);
+	mkdirSync(directory, { recursive: true });
+	const manifestPath = join(directory, "launch.json");
+	const outputPath = join(directory, "output.log");
+	writeFileSync(join(directory, "script.py"), input.params.code);
+	writeFileSync(outputPath, `${input.records.map((record) => JSON.stringify(record)).join("\n")}\n`);
+	writeFileSync(`${manifestPath}.runner-error`, input.runnerError);
+	writeDetachedPyrunLaunchManifest(manifestPath, {
+		activationPath: join(directory, "activation.json"),
+		artifacts: { directory, outputPath },
+		bridgeRequestPath: join(directory, "foreground-bridge-requests.jsonl"),
+		bridgeResponsePath: join(directory, "foreground-bridge-responses.jsonl"),
+		controlDbPath: persistence.controlDbPath,
+		foregroundCompletionPath: join(directory, "foreground-completed"),
+		params: createCanonicalPyrunEvalParams(input.params, input.context, true),
+		runnerAddress: { agentId: input.agentId, sessionId: input.context.sessionManager.getSessionId() },
+		runnerOptions: resolvePyrunRunnerOptions(),
+		runnerProcessIdentity: testProcessIdentity("dead-restored-pyrun-runner"),
+		sessionPath: persistence.sessionPath,
+		startedAt: Date.now(),
+		supervisorProcessIdentity: readProcessIdentity(process.pid),
+		toolCallId: input.toolCallId,
+	});
+	return manifestPath;
+}
+
 const localPyrunCheckout = "/syncthing/Sync/Projects/claude/pyrun";
 const localPyrunJsonl = join(localPyrunCheckout, "pyrun", "jsonl.py");
 const hasLocalPyrunRunner = existsSync(localPyrunJsonl);
@@ -333,6 +392,8 @@ function writeFakePyrunRunner(tempDir: string): string {
 	writeFileSync(
 		runnerPath,
 		`
+import { writeFileSync } from "node:fs";
+
 const sessionValues = new Map();
 let buffer = "";
 const stdin = process.stdin[Symbol.asyncIterator]();
@@ -500,6 +561,11 @@ async function resultFor(request) {
   }
   if (request.code === "run.never()") {
     process.stdout.write(JSON.stringify({ type: "status", message: "still running" }) + "\\n");
+    return new Promise(() => {});
+  }
+  if (request.code === "run.sidecar_failure()") {
+    writeFileSync("canonical-runner.pid", String(process.pid));
+    process.stdout.write(JSON.stringify({ type: "status", message: "waiting for runner sidecar" }) + "\\n");
     return new Promise(() => {});
   }
   if (request.code === "raise Exception('boom')") {
@@ -2483,6 +2549,93 @@ setInterval(() => {}, 1000);
 			]),
 		).rejects.toThrow("Pyrun evaluation aborted");
 		expect(updates.map((update) => update.details)).toEqual([{ type: "status", message: "still running" }]);
+	});
+
+	it.each([
+		["preserves nonempty runner diagnostics", "durable wrapper failed\n", "durable wrapper failed"],
+		["reports an empty runner sidecar explicitly", "", "Pyrun runner failed without diagnostic output."],
+	])("%s", async (_case, sidecar, expectedError) => {
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const detachRegistry = new ToolDetachRegistry({ autoDetachAfterMs: 5_000 });
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
+		const evaluation = harness.evaluate({ code: "run.sidecar_failure()" }, (update) => updates.push(update));
+		await waitFor(
+			() => updates.some((update) => update.details.type === "status"),
+			"foreground Pyrun progress before runner failure",
+		);
+		const [artifactName] = readdirSync(pyrunArtifactRoot(store));
+		if (!artifactName) throw new Error("Expected Pyrun artifact directory");
+		const directory = join(pyrunArtifactRoot(store), artifactName);
+		const manifestPath = join(directory, "launch.json");
+		const manifest = readDetachedPyrunLaunchManifest(manifestPath);
+		const canonicalRunnerPid = Number(readFileSync(join(directory, "canonical-runner.pid"), "utf8"));
+		expect(isProcessIdentityAlive(manifest.runnerProcessIdentity)).toBe(true);
+		expect(processIsAlive(canonicalRunnerPid)).toBe(true);
+
+		writeFileSync(`${manifestPath}.runner-error`, sidecar);
+
+		await expect(
+			Promise.race([
+				evaluation,
+				new Promise<never>((_, reject) =>
+					setTimeout(() => reject(new Error("Pyrun runner sidecar did not settle")), 1_000),
+				),
+			]),
+		).rejects.toThrow(expectedError);
+		expect(readFileSync(manifest.foregroundCompletionPath, "utf8")).toBe("failed\n");
+		await waitFor(
+			() => !isProcessIdentityAlive(manifest.runnerProcessIdentity) && !processIsAlive(canonicalRunnerPid),
+			"foreground Pyrun process-tree termination",
+		);
+		expect(store.listAgents()).toEqual([]);
+	});
+
+	it("honors a persisted foreground runner sidecar before generic lost-runtime recovery", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const detachRegistry = new ToolDetachRegistry();
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+		const params = { code: "restore.sidecar_failure()" };
+		const agentId = "restored-pyrun-runner-error";
+		const toolCallId = "restored-pyrun-tool-call";
+		const manifestPath = writeRestorablePyrunArtifacts({
+			agentId,
+			context: harness.evaluateContext,
+			params,
+			records: [{ kind: "progress", update: { message: "started", type: "status" } }],
+			runnerError: "restored durable wrapper failed\n",
+			store,
+			toolCallId,
+		});
+
+		await expect(harness.evaluateWithExecution(toolCallId, agentId, params)).rejects.toThrow(
+			"restored durable wrapper failed",
+		);
+		expect(readFileSync(join(dirname(manifestPath), "foreground-completed"), "utf8")).toBe("failed\n");
+	});
+
+	it("replays a canonical foreground result before a coexisting runner sidecar", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const detachRegistry = new ToolDetachRegistry();
+		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
+		const params = { code: "restore.completed()" };
+		const agentId = "restored-pyrun-completed";
+		const toolCallId = "restored-pyrun-completed-call";
+		writeRestorablePyrunArtifacts({
+			agentId,
+			context: harness.evaluateContext,
+			params,
+			records: [
+				{ kind: "result", result: { executed: params.code, type: "completed", value: "restored" } },
+			],
+			runnerError: "late wrapper sidecar\n",
+			store,
+			toolCallId,
+		});
+
+		const result = await harness.evaluateWithExecution(toolCallId, agentId, params);
+
+		expect(result.details.value).toBe("restored");
 	});
 
 	it("rejects a failed foreground runner without creating an agent", async () => {

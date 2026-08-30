@@ -187,6 +187,8 @@ type PyrunResumeDecision =
 	| { kind: "terminal"; result: CanonicalPyrunEvalResult }
 	| { kind: "lost_runtime"; outputPath: string; records: PyrunArtifactRecord[] };
 
+const EMPTY_PYRUN_RUNNER_ERROR = "Pyrun runner failed without diagnostic output.";
+
 interface PyrunManifestCandidate {
 	directory: string;
 	manifest: PyrunLaunchManifest;
@@ -225,6 +227,10 @@ function restorePyrunCandidate(
 	const records = readCompletePyrunArtifactRecords(manifest.artifacts.outputPath);
 	const terminalResult = restoreTerminalPyrunResult(records);
 	if (terminalResult) return { kind: "terminal", result: terminalResult };
+	const runnerError = readForegroundPyrunRunnerError(candidate.manifestPath, manifest.activationPath);
+	if (runnerError !== undefined) {
+		failForegroundPyrunRunner(runnerError, manifest.foregroundCompletionPath, manifest.runnerProcessIdentity.pid);
+	}
 	if (!isProcessIdentityAlive(manifest.runnerProcessIdentity)) {
 		return { kind: "lost_runtime", outputPath: manifest.artifacts.outputPath, records };
 	}
@@ -239,6 +245,7 @@ function restorePyrunCandidate(
 			bridgeResponsePath: manifest.bridgeResponsePath,
 			foregroundCompletionPath: manifest.foregroundCompletionPath,
 			jobId,
+			manifestPath: candidate.manifestPath,
 			processIdentity: manifest.runnerProcessIdentity,
 			runnerPid: manifest.runnerProcessIdentity.pid,
 			scriptPath,
@@ -423,6 +430,7 @@ function launchForegroundPyrunRunner(
 		bridgeResponsePath,
 		foregroundCompletionPath,
 		jobId,
+		manifestPath,
 		processIdentity,
 		runnerPid,
 		scriptPath,
@@ -485,12 +493,33 @@ function settleForegroundEvaluation(
 	if (ownership) return undefined;
 	const foregroundError = records.find((record) => record.kind === "error");
 	if (foregroundError) {
-		writeFileSync(input.runner.foregroundCompletionPath, "failed\n", { encoding: "utf8", mode: 0o600 });
+		writeForegroundPyrunFailure(input.runner.foregroundCompletionPath);
 		throw new Error(foregroundError.error);
 	}
-	if (!result) return undefined;
-	writeFileSync(input.runner.foregroundCompletionPath, "completed\n", { encoding: "utf8", mode: 0o600 });
-	return formatCanonicalPyrunEvalResult(input.params, result);
+	if (result) {
+		writeFileSync(input.runner.foregroundCompletionPath, "completed\n", { encoding: "utf8", mode: 0o600 });
+		return formatCanonicalPyrunEvalResult(input.params, result);
+	}
+	const runnerError = readForegroundPyrunRunnerError(input.runner.manifestPath, input.runner.activationPath);
+	if (runnerError === undefined) return undefined;
+	return failForegroundPyrunRunner(runnerError, input.runner.foregroundCompletionPath, input.runner.runnerPid);
+}
+
+function failForegroundPyrunRunner(error: string, completionPath: string, runnerPid: number): never {
+	writeForegroundPyrunFailure(completionPath);
+	terminateForegroundRunner(runnerPid);
+	throw new Error(error);
+}
+
+function readForegroundPyrunRunnerError(manifestPath: string, activationPath: string): string | undefined {
+	if (existsSync(activationPath)) return undefined;
+	const runnerErrorPath = `${manifestPath}.runner-error`;
+	if (!existsSync(runnerErrorPath)) return undefined;
+	return readFileSync(runnerErrorPath, "utf8").trim() || EMPTY_PYRUN_RUNNER_ERROR;
+}
+
+function writeForegroundPyrunFailure(path: string): void {
+	writeFileSync(path, "failed\n", { encoding: "utf8", mode: 0o600 });
 }
 
 function checkForegroundRunnerLiveness(

@@ -223,6 +223,30 @@ async function selectAndMutateHeadlessTarget(
 	return mutationEntry;
 }
 
+function writeForegroundPyrunWrapperFailureRunner(directory: string): string {
+	const runnerPath = join(directory, "foreground-pyrun-wrapper-failure.mjs");
+	writeFileSync(
+		runnerPath,
+		`import { chmodSync, existsSync, readFileSync } from "node:fs";
+import { createInterface } from "node:readline";
+
+for await (const line of createInterface({ input: process.stdin })) {
+  const request = JSON.parse(line);
+  const progressMessage = "foreground wrapper failure started";
+  process.stdout.write(JSON.stringify({ type: "status", message: progressMessage }) + "\\n");
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (existsSync("output.log") && readFileSync("output.log", "utf8").includes(progressMessage)) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  chmodSync("output.log", 0o400);
+  process.stdout.write(JSON.stringify({ type: "completed", executed: request.code, value: "unreachable" }) + "\\n");
+}
+`,
+	);
+	return runnerPath;
+}
+
 async function selectHeadlessView(
 	agent: HeadlessPi,
 	request: HeadlessLlmRequest,
@@ -902,6 +926,87 @@ describe("headless Pi fixture", () => {
 			);
 			agent.respondToLlmRequest(steeredChildRequest.id, fauxCompletedAssistantMessage("Restored steering complete"));
 		});
+	});
+
+	it("settles a child after a foreground Pyrun wrapper fails following progress", async () => {
+		const runnerDirectory = mkdtempSync(join(tmpdir(), "pi-headless-pyrun-wrapper-failure-"));
+		const runnerPath = writeForegroundPyrunWrapperFailureRunner(runnerDirectory);
+		try {
+			await withHeadlessPi(
+				async (agent) => {
+					await agent.send({ type: "prompt", message: "Delegate a foreground Pyrun evaluation" });
+					const mainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+					agent.respondToLlmRequest(
+						mainRequest.id,
+						fauxAssistantMessage(
+							fauxToolCall("spawn_agent", {
+								context: "fresh",
+								displayName: "Foreground Pyrun caller",
+								prompt: "Run the foreground Pyrun evaluation",
+							}),
+							{ stopReason: "toolUse" },
+						),
+					);
+					const caller = await agent.waitForAgent(
+						(candidate) => candidate.displayName === "Foreground Pyrun caller",
+					);
+					const callerRequest = await agent.waitForLlmRequest((request) => request.agentId === caller.id);
+					const mainAfterSpawn = await agent.waitForLlmRequest(
+						(request) => request.agentId === null && request.id !== mainRequest.id,
+					);
+					agent.respondToLlmRequest(mainAfterSpawn.id, fauxCompletedAssistantMessage("Caller started"));
+					agent.respondToLlmRequest(
+						callerRequest.id,
+						fauxAssistantMessage(
+							fauxToolCall("pyrun_eval", { code: "foreground.wrapper_failure()" }),
+							{ stopReason: "toolUse" },
+						),
+					);
+					await agent.waitForAgent(
+						(candidate) =>
+							candidate.id === caller.id &&
+							candidate.currentActivity?.phase === "tool" &&
+							candidate.currentActivity.toolName === "pyrun_eval",
+					);
+
+					const afterFailure = await agent.waitForLlmRequest(
+						(request) => request.agentId === caller.id && request.id !== callerRequest.id,
+					);
+					expectSingleFailedToolResult(afterFailure, "EACCES");
+					expect(agent.listAgents().find((candidate) => candidate.id === caller.id)?.currentActivity?.phase).toBe(
+						"thinking",
+					);
+					agent.respondToLlmRequest(afterFailure.id, fauxCompletedAssistantMessage("Wrapper failure handled"));
+
+					const completed = await agent.waitForAgent(
+						(candidate) => candidate.id === caller.id && candidate.lifecycle === "completed",
+					);
+					expect(completed.currentActivity).toBeUndefined();
+					expect(
+						agent
+							.listAgents()
+							.filter((candidate) => candidate.parentId === caller.id && candidate.displayName === "Pyrun evaluation"),
+					).toHaveLength(0);
+					await vi.waitFor(() => expect(agent.getPyrunRunnerPids().filter(isProcessAlive)).toHaveLength(0));
+
+					const completionRequest = await agent.waitForLlmRequest(
+						(request) => request.agentId === null && JSON.stringify(request.messages).includes("Wrapper failure handled"),
+					);
+					agent.respondToLlmRequest(
+						completionRequest.id,
+						fauxCompletedAssistantMessage("Foreground Pyrun failure settled"),
+					);
+				},
+				{
+					env: {
+						PI_PYRUN_RUNNER_ARGS: JSON.stringify([runnerPath]),
+						PI_PYRUN_RUNNER_COMMAND: process.execPath,
+					},
+				},
+			);
+		} finally {
+			rmSync(runnerDirectory, { recursive: true, force: true });
+		}
 	});
 
 	it("settles a dead detached Pyrun descendant when restoring its parent agent", async () => {
