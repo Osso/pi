@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	existsSync,
@@ -35,7 +35,7 @@ import { PyrunRunnerClient, resolvePyrunRunnerOptions } from "../extensions/pyru
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
-import { isProcessIdentityAlive, readProcessIdentity } from "../src/core/runtime-process.ts";
+import { isProcessIdentityAlive, type ProcessIdentity, readProcessIdentity } from "../src/core/runtime-process.ts";
 import {
 	getControlDbPath,
 	readMultiAgentAgent,
@@ -333,6 +333,16 @@ function processIsAlive(pid: number): boolean {
 	}
 }
 
+function killProcessGroup(pid: number): void {
+	try {
+		if (process.platform === "win32") process.kill(pid, "SIGKILL");
+		else process.kill(-pid, "SIGKILL");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+		if (processIsAlive(pid)) process.kill(pid, "SIGKILL");
+	}
+}
+
 function readToolText(result: AgentToolResult<unknown>): string {
 	return result.content.map((item) => (item.type === "text" ? (item.text ?? "") : "")).join("\n");
 }
@@ -351,6 +361,7 @@ function writeRestorablePyrunArtifacts(input: {
 	params: PyrunEvalParams;
 	records: unknown[];
 	runnerError: string;
+	runnerProcessIdentity?: ProcessIdentity;
 	store: MultiAgentStore;
 	toolCallId: string;
 }): string {
@@ -373,7 +384,7 @@ function writeRestorablePyrunArtifacts(input: {
 		params: createCanonicalPyrunEvalParams(input.params, input.context, true),
 		runnerAddress: { agentId: input.agentId, sessionId: input.context.sessionManager.getSessionId() },
 		runnerOptions: resolvePyrunRunnerOptions(),
-		runnerProcessIdentity: testProcessIdentity("dead-restored-pyrun-runner"),
+		runnerProcessIdentity: input.runnerProcessIdentity ?? testProcessIdentity("dead-restored-pyrun-runner"),
 		sessionPath: persistence.sessionPath,
 		startedAt: Date.now(),
 		supervisorProcessIdentity: readProcessIdentity(process.pid),
@@ -2612,6 +2623,95 @@ setInterval(() => {}, 1000);
 			"restored durable wrapper failed",
 		);
 		expect(readFileSync(join(dirname(manifestPath), "foreground-completed"), "utf8")).toBe("failed\n");
+	});
+
+	it("does not signal a recycled PID while restoring a foreground runner sidecar", async () => {
+		const unrelated = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+		const unrelatedPid = unrelated.pid;
+		if (!unrelatedPid) throw new Error("Expected unrelated process PID");
+		await waitFor(() => processIsAlive(unrelatedPid), "unrelated process startup");
+		const unrelatedIdentity = readProcessIdentity(unrelatedPid);
+		try {
+			const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+			const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry: new ToolDetachRegistry() });
+			const params = { code: "restore.recycled_pid()" };
+			const agentId = "restored-pyrun-recycled-pid";
+			const toolCallId = "restored-pyrun-recycled-pid-call";
+			writeRestorablePyrunArtifacts({
+				agentId,
+				context: harness.evaluateContext,
+				params,
+				records: [{ kind: "progress", update: { message: "started", type: "status" } }],
+				runnerError: "restored wrapper failed\n",
+				runnerProcessIdentity: {
+					...unrelatedIdentity,
+					startTimeTicks: unrelatedIdentity.startTimeTicks + 1,
+				},
+				store,
+				toolCallId,
+			});
+
+			await expect(harness.evaluateWithExecution(toolCallId, agentId, params)).rejects.toThrow(
+				"restored wrapper failed",
+			);
+			await delay(50);
+			expect(processIsAlive(unrelatedPid)).toBe(true);
+		} finally {
+			if (processIsAlive(unrelatedPid)) process.kill(unrelatedPid, "SIGKILL");
+			await waitFor(() => !processIsAlive(unrelatedPid), "unrelated process cleanup");
+		}
+	});
+
+	it("drains unread foreground artifacts before accepting a runner sidecar", async () => {
+		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const harness = createPyrunHarness({
+			backgroundJobs: { store },
+			detachRegistry: new ToolDetachRegistry({ autoDetachAfterMs: 5_000 }),
+		});
+		const params = { code: "run.sidecar_failure()" };
+		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
+		const evaluation = harness.evaluate(params, (update) => updates.push(update));
+		await waitFor(
+			() => updates.some((update) => update.details.type === "status"),
+			"foreground Pyrun progress before chunked result",
+		);
+		const [artifactName] = readdirSync(pyrunArtifactRoot(store));
+		if (!artifactName) throw new Error("Expected Pyrun artifact directory");
+		const directory = join(pyrunArtifactRoot(store), artifactName);
+		const manifestPath = join(directory, "launch.json");
+		const manifest = readDetachedPyrunLaunchManifest(manifestPath);
+		const canonicalRunnerPid = Number(readFileSync(join(directory, "canonical-runner.pid"), "utf8"));
+		const largeProgress = {
+			kind: "progress",
+			update: { message: "x".repeat(1_048_576), type: "status" },
+		};
+		const canonicalResult = {
+			kind: "result",
+			result: { executed: params.code, type: "completed", value: "canonical result" },
+		};
+		try {
+			writeFileSync(
+				manifest.artifacts.outputPath,
+				`${JSON.stringify(largeProgress)}\n${JSON.stringify(canonicalResult)}\n`,
+				{ flag: "a" },
+			);
+			writeFileSync(`${manifestPath}.runner-error`, "late wrapper sidecar\n");
+
+			const result = await Promise.race([
+				evaluation,
+				new Promise<never>((_, reject) =>
+					setTimeout(() => reject(new Error("Chunked Pyrun result did not settle")), 2_000),
+				),
+			]);
+			expect(result.details.value).toBe("canonical result");
+			expect(readFileSync(manifest.foregroundCompletionPath, "utf8")).toBe("completed\n");
+		} finally {
+			if (processIsAlive(manifest.runnerProcessIdentity.pid)) killProcessGroup(manifest.runnerProcessIdentity.pid);
+			await waitFor(
+				() => !isProcessIdentityAlive(manifest.runnerProcessIdentity) && !processIsAlive(canonicalRunnerPid),
+				"chunked foreground Pyrun process-tree cleanup",
+			);
+		}
 	});
 
 	it("replays a canonical foreground result before a coexisting runner sidecar", async () => {

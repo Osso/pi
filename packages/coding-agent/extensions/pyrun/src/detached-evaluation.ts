@@ -17,7 +17,7 @@ import { createDetachedJobLifecycleController } from "../../../src/core/detached
 import { createDetachedJobTerminalInput } from "../../../src/core/detached-job-runner.ts";
 import { LifecycleCoordinator } from "../../../src/core/lifecycle-coordinator.ts";
 import { isActiveLifecycle, type AgentSnapshot, type MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
-import { isProcessIdentityAlive, readProcessIdentity } from "../../../src/core/runtime-process.ts";
+import { isProcessIdentityAlive, type ProcessIdentity, readProcessIdentity } from "../../../src/core/runtime-process.ts";
 import { finalizeDetachedJob, readMultiAgentAgent } from "../../../src/core/session-control-db.ts";
 import { closeWatcher, watchWithErrorHandler } from "../../../src/utils/fs-watch.ts";
 import type { ToolDetachRegistry } from "../../../src/core/tool-detach-registry.ts";
@@ -229,7 +229,7 @@ function restorePyrunCandidate(
 	if (terminalResult) return { kind: "terminal", result: terminalResult };
 	const runnerError = readForegroundPyrunRunnerError(candidate.manifestPath, manifest.activationPath);
 	if (runnerError !== undefined) {
-		failForegroundPyrunRunner(runnerError, manifest.foregroundCompletionPath, manifest.runnerProcessIdentity.pid);
+		failForegroundPyrunRunner(runnerError, manifest.foregroundCompletionPath, manifest.runnerProcessIdentity);
 	}
 	if (!isProcessIdentityAlive(manifest.runnerProcessIdentity)) {
 		return { kind: "lost_runtime", outputPath: manifest.artifacts.outputPath, records };
@@ -486,28 +486,29 @@ function createPyrunDetachControl(input: DetachablePyrunInput): {
 
 function settleForegroundEvaluation(
 	input: DetachablePyrunInput,
-	records: PyrunArtifactRecord[],
+	artifactRead: JsonLineReadResult<PyrunArtifactRecord>,
 	result: CanonicalPyrunEvalResult | undefined,
 	ownership: PyrunOwnership | undefined,
 ): AgentToolResult<unknown> | undefined {
 	if (ownership) return undefined;
-	const foregroundError = records.find((record) => record.kind === "error");
+	const foregroundError = artifactRead.values.find((record) => record.kind === "error");
 	if (foregroundError) {
-		writeForegroundPyrunFailure(input.runner.foregroundCompletionPath);
+		writeFileSync(input.runner.foregroundCompletionPath, "failed\n", { encoding: "utf8", mode: 0o600 });
 		throw new Error(foregroundError.error);
 	}
 	if (result) {
 		writeFileSync(input.runner.foregroundCompletionPath, "completed\n", { encoding: "utf8", mode: 0o600 });
 		return formatCanonicalPyrunEvalResult(input.params, result);
 	}
+	if (artifactRead.hasUnreadBytes) return undefined;
 	const runnerError = readForegroundPyrunRunnerError(input.runner.manifestPath, input.runner.activationPath);
 	if (runnerError === undefined) return undefined;
-	return failForegroundPyrunRunner(runnerError, input.runner.foregroundCompletionPath, input.runner.runnerPid);
+	return failForegroundPyrunRunner(runnerError, input.runner.foregroundCompletionPath, input.runner.processIdentity);
 }
 
-function failForegroundPyrunRunner(error: string, completionPath: string, runnerPid: number): never {
-	writeForegroundPyrunFailure(completionPath);
-	terminateForegroundRunner(runnerPid);
+function failForegroundPyrunRunner(error: string, completionPath: string, runnerIdentity: ProcessIdentity): never {
+	writeFileSync(completionPath, "failed\n", { encoding: "utf8", mode: 0o600 });
+	if (isProcessIdentityAlive(runnerIdentity)) terminateForegroundRunner(runnerIdentity.pid);
 	throw new Error(error);
 }
 
@@ -516,10 +517,6 @@ function readForegroundPyrunRunnerError(manifestPath: string, activationPath: st
 	const runnerErrorPath = `${manifestPath}.runner-error`;
 	if (!existsSync(runnerErrorPath)) return undefined;
 	return readFileSync(runnerErrorPath, "utf8").trim() || EMPTY_PYRUN_RUNNER_ERROR;
-}
-
-function writeForegroundPyrunFailure(path: string): void {
-	writeFileSync(path, "failed\n", { encoding: "utf8", mode: 0o600 });
 }
 
 function checkForegroundRunnerLiveness(
@@ -572,7 +569,7 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 			const artifactRead = readNewArtifactRecords(input.runner.artifacts.outputPath, outputCursor);
 			result = progressAccumulator.consume(artifactRead.values) ?? result;
 			const ownership = control.getOwnership();
-			const foregroundResult = settleForegroundEvaluation(input, artifactRead.values, result, ownership);
+			const foregroundResult = settleForegroundEvaluation(input, artifactRead, result, ownership);
 			if (foregroundResult) return foregroundResult;
 			nextForegroundRunnerLivenessCheckAt = checkForegroundOwnershipLiveness(
 				input,
