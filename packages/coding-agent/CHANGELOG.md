@@ -152,6 +152,7 @@
 
 ### Fixed
 
+- Fixed Escape in `/scoped-models` interrupting an active model response instead of closing the selector.
 - Fixed active-session selector renames and clears updating SQLite without synchronizing runtime state; they now update the active runtime name and emit `session_info_changed` so the footer, terminal title, and extensions stay current.
 - Fixed `pi control send --help` and `-h` enqueueing the literal text as an incoming prompt; the send subcommand now prints usage to stdout and exits 0 without queueing or signaling.
 - Fixed concurrent session lifecycle transitions disposing a replacement runtime without its own `session_shutdown`, which could leave recurring loop timers reading stale extension context; runtime-owned replacement, reload, relocation, restart, import, and quit transitions now serialize, including deferred cwd relocation.

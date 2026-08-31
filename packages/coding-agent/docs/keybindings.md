@@ -157,7 +157,7 @@ Modifier combinations: `ctrl+shift+x`, `alt+ctrl+x`, `ctrl+shift+alt+x`, `ctrl+1
 
 ### Scoped Models Selector
 
-Used inside the scoped models selector (opened via `/scoped-models`).
+Used inside the scoped models selector (opened via `/scoped-models`). Escape closes this selector without interrupting an active model response.
 
 | Keybinding id | Default | Description |
 |--------|---------|-------------|
