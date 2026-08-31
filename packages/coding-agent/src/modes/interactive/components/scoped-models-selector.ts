@@ -344,7 +344,7 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 		}
 
 		// Escape - cancel
-		if (matchesKey(data, Key.escape)) {
+		if (this.handlesEscape(data)) {
 			this.callbacks.onCancel();
 			return;
 		}
@@ -352,6 +352,10 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 		// Pass everything else to search input
 		this.searchInput.handleInput(data);
 		this.refresh();
+	}
+
+	handlesEscape(data: string): boolean {
+		return matchesKey(data, Key.escape);
 	}
 
 	getSearchInput(): Input {

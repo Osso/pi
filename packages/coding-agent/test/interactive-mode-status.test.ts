@@ -6,21 +6,25 @@ import {
 	type AutocompleteProvider,
 	CombinedAutocompleteProvider,
 	type LoaderIndicatorOptions,
+	setKeybindings,
 	Text,
 } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { type Component, Container, type Focusable, TUI } from "../../tui/src/tui.ts";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import type { AutocompleteProviderFactory, ExtensionUIContext, ToolDefinition } from "../src/core/extensions/types.ts";
+import { KeybindingsManager } from "../src/core/keybindings.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import type { SourceInfo } from "../src/core/source-info.ts";
 import { AgentSelectionBannerComponent } from "../src/modes/interactive/components/agent-selection-banner.ts";
+import { ScopedModelsSelectorComponent } from "../src/modes/interactive/components/scoped-models-selector.ts";
 import type { ExtensionSelectorComponent } from "../src/modes/interactive/components/extension-selector.ts";
 import { TreeSelectorComponent } from "../src/modes/interactive/components/tree-selector.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
+import { createHarness } from "./suite/harness.ts";
 
 function renderLastLine(container: Container, width = 120): string {
 	const last = container.children[container.children.length - 1];
@@ -1781,6 +1785,57 @@ describe("InteractiveMode key handlers", () => {
 			expect(editor.focused).toBe(true);
 		} finally {
 			ui.stop();
+		}
+	});
+
+	test("raw terminal escape closes the scoped-models selector without interrupting a streaming turn", async () => {
+		const harness = await createHarness({
+			models: [{ id: "faux-1", name: "One", reasoning: true }],
+		});
+		const terminal = new VirtualTerminal(80, 24);
+		const ui = new TUI(terminal);
+		const editorContainer = new Container();
+		const editor = new TestFocusableComponent("EDITOR");
+		const cancelStreamingAndSubmitQueuedMessages = vi.fn();
+		const keybindings = new KeybindingsManager({ "tui.select.cancel": "ctrl+c" });
+		const fakeThis = {
+			builtInSelector: undefined as Component | undefined,
+			editor,
+			editorContainer,
+			extensionSelector: undefined as ExtensionSelectorComponent | undefined,
+			keybindings,
+			session: { isStreaming: true },
+			cancelStreamingAndSubmitQueuedMessages,
+			showError: vi.fn(),
+			ui,
+		};
+
+		setKeybindings(keybindings);
+		editorContainer.addChild(editor);
+		ui.addChild(editorContainer);
+		ui.setFocus(editor);
+		interactiveModeKeyHandlers.registerGlobalInterruptInputHandler.call(fakeThis);
+		ui.start();
+		try {
+			interactiveModeKeyHandlers.showSelector.call(fakeThis, (done) => {
+				const selector = new ScopedModelsSelectorComponent(
+					{ allModels: harness.models, enabledModelIds: null },
+					{ onChange: () => {}, onPersist: () => {}, onCancel: done },
+				);
+				return { component: selector, focus: selector };
+			});
+
+			terminal.sendInput("\x1b");
+			await Promise.resolve();
+			await flushTui(ui, terminal);
+
+			expect(cancelStreamingAndSubmitQueuedMessages).not.toHaveBeenCalled();
+			expect(fakeThis.builtInSelector).toBeUndefined();
+			expect(editor.focused).toBe(true);
+		} finally {
+			ui.stop();
+			harness.cleanup();
+			setKeybindings(new KeybindingsManager());
 		}
 	});
 

@@ -3183,7 +3183,9 @@ export class InteractiveMode {
 		this.unregisterInterruptInputHandler?.();
 		this.unregisterInterruptInputHandler = this.ui.addInputListener((data) => {
 			const hasActiveSelector = this.builtInSelector !== undefined || this.extensionSelector !== undefined;
-			const selectorHandlesCancel = hasActiveSelector && this.keybindings.matches(data, "tui.select.cancel");
+			const selectorHandlesCancel =
+				(hasActiveSelector && this.keybindings.matches(data, "tui.select.cancel")) ||
+				(this.builtInSelector instanceof ScopedModelsSelectorComponent && this.builtInSelector.handlesEscape(data));
 			const matchesInterrupt = this.keybindings.matches(data, "app.interrupt");
 			if (selectorHandlesCancel || !matchesInterrupt) return undefined;
 			if (this.session.cancelSupervisorReview?.() === true) {
