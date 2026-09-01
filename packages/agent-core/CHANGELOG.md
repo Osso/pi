@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Fixed parallel tool execution starting tools whose preflight finished before a later preflight aborted the run ([#8935](https://github.com/earendil-works/pi-mono/issues/8935)).
 - Fixed prompt templates and skills that start with a `----` Markdown thematic break losing their first lines: frontmatter now requires whole `---` delimiter lines.
 - Fixed `Agent.continue({ processQueuedMessagesFirst: true })` throwing `No messages to continue from` on an empty transcript with queued steering or follow-ups; the queued messages now start the run (for example RPC `steer` in a new session).
 - Fixed `Agent` emitting an unpaired `turn_end` when a run fails between turns, such as an abort during tool execution; the failure message now gets its own `turn_start`.
