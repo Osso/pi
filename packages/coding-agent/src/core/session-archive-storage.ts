@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
-import { archiveSession, relocateSessionControlData, unarchiveSession } from "./session-control-db.ts";
+import { readSessionMetadata, relocateAndArchiveSession, relocateAndUnarchiveSession } from "./session-control-db.ts";
 
 export const ARCHIVED_SESSION_SUFFIX = ".zst";
 
@@ -11,16 +11,30 @@ export function isArchivedSessionFile(sessionPath: string): boolean {
 
 export function archivePersistedSession(controlDbPath: string, sessionPath: string): string {
 	const archivedPath = archiveSessionFile(sessionPath);
-	relocateSessionControlData(controlDbPath, sessionPath, archivedPath);
-	archiveSession(controlDbPath, archivedPath);
-	return archivedPath;
+	try {
+		relocateAndArchiveSession(controlDbPath, sessionPath, archivedPath);
+		return archivedPath;
+	} catch (error) {
+		restoreArchivedSessionFile(archivedPath);
+		throw error;
+	}
 }
 
 export function restoreArchivedSession(controlDbPath: string, sessionPath: string): string {
-	const restoredPath = restoreArchivedSessionFile(sessionPath);
-	relocateSessionControlData(controlDbPath, sessionPath, restoredPath);
-	unarchiveSession(controlDbPath, restoredPath);
-	return restoredPath;
+	if (!isArchivedSessionFile(sessionPath)) return sessionPath;
+	const restoredPath = sessionPath.slice(0, -ARCHIVED_SESSION_SUFFIX.length);
+	const needsMetadataRestore =
+		existsSync(sessionPath) || readSessionMetadata(controlDbPath, sessionPath) !== undefined;
+	if (!needsMetadataRestore) return restoredPath;
+
+	restoreArchivedSessionFile(sessionPath);
+	try {
+		relocateAndUnarchiveSession(controlDbPath, sessionPath, restoredPath);
+		return restoredPath;
+	} catch (error) {
+		archiveSessionFile(restoredPath);
+		throw error;
+	}
 }
 
 export function archiveSessionFile(sessionPath: string): string {

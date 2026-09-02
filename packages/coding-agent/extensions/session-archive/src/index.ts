@@ -9,7 +9,8 @@ export default function sessionArchiveExtension(pi: ExtensionAPI): void {
 				ctx.ui.notify("Usage: /archive", "warning");
 				return;
 			}
-			if (!ctx.controlDbPath) {
+			const controlDbPath = ctx.controlDbPath;
+			if (!controlDbPath) {
 				ctx.ui.notify("Session archive requires a control database.", "error");
 				return;
 			}
@@ -19,8 +20,12 @@ export default function sessionArchiveExtension(pi: ExtensionAPI): void {
 				return;
 			}
 
-			archivePersistedSession(ctx.controlDbPath, sessionPath);
-			ctx.ui.notify("Archived current session.", "info");
+			await ctx.newSession({
+				withSession: async (nextCtx) => {
+					archivePersistedSession(controlDbPath, sessionPath);
+					nextCtx.ui.notify("Archived current session.", "info");
+				},
+			});
 		},
 	});
 }

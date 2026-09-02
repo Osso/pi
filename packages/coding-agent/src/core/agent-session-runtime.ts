@@ -267,6 +267,7 @@ export class AgentSessionRuntime {
 		if (!controlDbPath) throw new Error("Current session has no control database path");
 		const restoredSessionPath = restoreArchivedSession(controlDbPath, sessionPath);
 		const sessionManager = SessionManager.open(restoredSessionPath, undefined, options?.cwdOverride);
+		sessionManager.setMetadataControlDbPath(controlDbPath);
 		assertSessionCwdExists(sessionManager, this.cwd);
 		assertMainSessionRuntimeAvailable(controlDbPath, sessionManager.getSessionId());
 		await this.teardownCurrent("resume", sessionManager.getSessionFile());
@@ -434,10 +435,12 @@ export class AgentSessionRuntime {
 		}
 
 		const previousSessionFile = this.session.sessionFile;
+		const controlDbPath = this.session.sessionManager.getMetadataControlDbPath();
 		const sessionDir = this.session.sessionManager.getSessionDir();
 		const sessionManager = this.session.sessionManager.isPersisted()
 			? SessionManager.create(this.cwd, sessionDir)
 			: SessionManager.inMemory(this.cwd);
+		sessionManager.setMetadataControlDbPath(controlDbPath);
 		if (options?.parentSession) {
 			sessionManager.newSession({ parentSession: options.parentSession });
 		}

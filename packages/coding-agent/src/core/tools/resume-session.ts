@@ -1,4 +1,5 @@
 import { existsSync, statSync } from "node:fs";
+import { isArchivedSessionFile } from "../session-archive-storage.ts";
 import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
@@ -76,8 +77,8 @@ function assertResumeSessionPath(path: string): string {
 	if (!existsSync(path) || !statSync(path).isFile()) {
 		throw new Error(`Session file does not exist: ${path}`);
 	}
-	if (!path.endsWith(".jsonl")) {
-		throw new Error(`Session file must be a .jsonl file: ${path}`);
+	if (!path.endsWith(".jsonl") && !isArchivedSessionFile(path)) {
+		throw new Error(`Session file must be a .jsonl or .jsonl.zst file: ${path}`);
 	}
 	return path;
 }

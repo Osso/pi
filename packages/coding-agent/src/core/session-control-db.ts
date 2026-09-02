@@ -2440,28 +2440,60 @@ export function relocateSessionControlData(
 	oldSessionPath: string,
 	newSessionPath: string,
 ): void {
-	if (oldSessionPath === newSessionPath) {
-		return;
-	}
-
+	if (oldSessionPath === newSessionPath) return;
 	withControlDb(controlDbPath, (db) => {
-		const now = new Date().toISOString();
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			relocateSessionPathPrimaryKey(db, "session_metadata", oldSessionPath, newSessionPath, now);
-			relocateSessionPathPrimaryKey(db, "session_sandbox_profiles", oldSessionPath, newSessionPath, now);
-			relocateMultiAgentSessionRows(db, "multi_agent_agents", oldSessionPath, newSessionPath, now);
-			relocateMultiAgentRuntimeOwners(db, oldSessionPath, newSessionPath);
-			relocateMultiAgentSessionRows(db, "multi_agent_terminal_outbox", oldSessionPath, newSessionPath, now);
-			relocateMultiAgentSessionRows(db, "multi_agent_mailbox_messages", oldSessionPath, newSessionPath, now);
-			relocateMultiAgentCounters(db, oldSessionPath, newSessionPath, now);
-			relocateRuntimeMailboxListenerPaths(db, oldSessionPath, newSessionPath);
-			db.exec("COMMIT");
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		withImmediateTransaction(db, () => {
+			relocateSessionControlDataInTransaction(db, oldSessionPath, newSessionPath, new Date().toISOString());
+		});
 	});
+}
+
+export function relocateAndArchiveSession(controlDbPath: string, oldSessionPath: string, newSessionPath: string): void {
+	withControlDb(controlDbPath, (db) => {
+		withImmediateTransaction(db, () => {
+			const now = new Date().toISOString();
+			relocateSessionControlDataInTransaction(db, oldSessionPath, newSessionPath, now);
+			db.prepare("UPDATE session_metadata SET archived_at = ?, updated_at = ? WHERE session_path = ?").run(
+				now,
+				now,
+				newSessionPath,
+			);
+		});
+	});
+}
+
+export function relocateAndUnarchiveSession(
+	controlDbPath: string,
+	oldSessionPath: string,
+	newSessionPath: string,
+): void {
+	withControlDb(controlDbPath, (db) => {
+		withImmediateTransaction(db, () => {
+			const now = new Date().toISOString();
+			relocateSessionControlDataInTransaction(db, oldSessionPath, newSessionPath, now);
+			db.prepare("UPDATE session_metadata SET archived_at = NULL, updated_at = ? WHERE session_path = ?").run(
+				now,
+				newSessionPath,
+			);
+		});
+	});
+}
+
+function relocateSessionControlDataInTransaction(
+	db: SqliteDatabase,
+	oldSessionPath: string,
+	newSessionPath: string,
+	now: string,
+): void {
+	if (oldSessionPath === newSessionPath) return;
+	relocateSessionPathPrimaryKey(db, "session_metadata", oldSessionPath, newSessionPath, now);
+	relocateSessionPathPrimaryKey(db, "session_sandbox_profiles", oldSessionPath, newSessionPath, now);
+	relocateMultiAgentSessionRows(db, "multi_agent_agents", oldSessionPath, newSessionPath, now);
+	relocateMultiAgentRuntimeOwners(db, oldSessionPath, newSessionPath);
+	relocateMultiAgentSessionRows(db, "multi_agent_terminal_outbox", oldSessionPath, newSessionPath, now);
+	relocateMultiAgentSessionRows(db, "multi_agent_mailbox_messages", oldSessionPath, newSessionPath, now);
+	relocateMultiAgentCounters(db, oldSessionPath, newSessionPath, now);
+	relocateRuntimeMailboxListenerPaths(db, oldSessionPath, newSessionPath);
 }
 
 function relocateRuntimeMailboxListenerPaths(db: SqliteDatabase, oldSessionPath: string, newSessionPath: string): void {
@@ -2968,32 +3000,16 @@ export function unarchiveSession(controlDbPath: string, sessionPath: string): vo
 }
 
 export function archiveSessionsOlderThan(controlDbPath: string, cutoff: Date): string[] {
-	const cutoffIso = cutoff.toISOString();
 	return withControlDb(controlDbPath, (db) => {
-		if (!hasSessionEligibleForArchival(db, cutoffIso)) return [];
-		const archivedAt = new Date().toISOString();
 		const rows = db
 			.prepare(
-				`UPDATE session_metadata
-				 SET archived_at = ?, updated_at = ?
-				 WHERE archived_at IS NULL AND is_subagent = 0 AND modified_at < ?
-				 RETURNING session_path, modified_at`,
+				`SELECT session_path, modified_at
+				 FROM session_metadata
+				 WHERE archived_at IS NULL AND is_subagent = 0 AND modified_at < ?`,
 			)
-			.all(archivedAt, archivedAt, cutoffIso) as Array<{ modified_at: string; session_path: string }>;
+			.all(cutoff.toISOString()) as Array<{ modified_at: string; session_path: string }>;
 		return rows.sort(compareArchivedSessionRows).map((row) => row.session_path);
 	});
-}
-
-function hasSessionEligibleForArchival(db: SqliteDatabase, cutoffIso: string): boolean {
-	return Boolean(
-		db
-			.prepare(
-				`SELECT 1 FROM session_metadata
-				 WHERE archived_at IS NULL AND is_subagent = 0 AND modified_at < ?
-				 LIMIT 1`,
-			)
-			.get(cutoffIso),
-	);
 }
 
 function compareArchivedSessionRows(

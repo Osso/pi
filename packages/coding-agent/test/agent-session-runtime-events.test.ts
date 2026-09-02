@@ -11,6 +11,8 @@ import {
 	createAgentSessionServices,
 } from "../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
+import { archivePersistedSession } from "../src/core/session-archive-storage.ts";
+import { getControlDbPath, readSessionMetadata } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import type {
 	ExtensionContext,
@@ -157,10 +159,12 @@ async function createRuntimeHost(extensionFactory: ExtensionFactory) {
 			diagnostics: services.diagnostics,
 		};
 	};
+	const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
+	sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
 	const runtimeHost = await createAgentSessionRuntime(createRuntime, {
 		cwd: tempDir,
 		agentDir: tempDir,
-		sessionManager: SessionManager.create(tempDir, join(tempDir, "sessions")),
+		sessionManager,
 	});
 	await runtimeHost.session.bindExtensions({});
 
@@ -218,6 +222,24 @@ describe("AgentSessionRuntime session lifecycle events", () => {
 			{ type: "session_shutdown", reason: "resume", targetSessionFile: originalSessionFile },
 			{ type: "session_start", reason: "resume", previousSessionFile: secondSessionFile },
 		]);
+	});
+
+	it("restores archive storage and metadata through the resume_session runtime path", async () => {
+		const { runtimeHost } = await createRuntimeHost(() => {});
+		await runtimeHost.session.prompt("hello");
+		const originalSessionFile = runtimeHost.session.sessionFile;
+		if (!originalSessionFile) throw new Error("Expected persisted session");
+		const controlDbPath = getControlDbPath(runtimeHost.services.agentDir);
+
+		await runtimeHost.newSession();
+		const archivedSessionFile = archivePersistedSession(controlDbPath, originalSessionFile);
+		expect(readSessionMetadata(controlDbPath, archivedSessionFile)?.isArchived).toBe(true);
+
+		await runtimeHost.switchSession(archivedSessionFile);
+
+		expect(runtimeHost.session.sessionFile).toBe(originalSessionFile);
+		expect(readSessionMetadata(controlDbPath, archivedSessionFile)).toBeUndefined();
+		expect(readSessionMetadata(controlDbPath, originalSessionFile)?.isArchived).toBe(false);
 	});
 
 	it("honors session_before_switch cancellation", async () => {

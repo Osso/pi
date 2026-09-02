@@ -7258,7 +7258,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		});
 	});
 
-	it("archives only non-subagent sessions older than the cutoff", () => {
+	it("selects only non-subagent sessions older than the cutoff without archiving metadata", () => {
 		for (const metadata of [
 			{
 				sessionPath: "/tmp/old.jsonl",
@@ -7296,17 +7296,15 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		}
 
 		expect(archiveSessionsOlderThan(controlDbPath, new Date("2026-01-02T00:00:00.000Z"))).toEqual(["/tmp/old.jsonl"]);
-		expect(readSessionMetadata(controlDbPath, "/tmp/old.jsonl")).toMatchObject({ isArchived: true });
+		expect(readSessionMetadata(controlDbPath, "/tmp/old.jsonl")).toMatchObject({ isArchived: false });
 		expect(readSessionMetadata(controlDbPath, "/tmp/new.jsonl")).toMatchObject({ isArchived: false });
 		expect(readSessionMetadata(controlDbPath, "/tmp/child.jsonl")).toMatchObject({ isArchived: false });
 		expect(
 			listActiveSessionMetadata(controlDbPath)
 				.map((session) => session.sessionPath)
 				.sort(),
-		).toEqual(["/tmp/child.jsonl", "/tmp/new.jsonl"]);
-		expect(listArchivedSessionMetadata(controlDbPath).map((session) => session.sessionPath)).toEqual([
-			"/tmp/old.jsonl",
-		]);
+		).toEqual(["/tmp/child.jsonl", "/tmp/new.jsonl", "/tmp/old.jsonl"]);
+		expect(listArchivedSessionMetadata(controlDbPath)).toEqual([]);
 	});
 
 	it("returns without a writer lock when no session is eligible for archival", async () => {

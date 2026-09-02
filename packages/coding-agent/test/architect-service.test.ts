@@ -234,6 +234,7 @@ describe("resident architect service", () => {
 				isArchived: true,
 				archivedAt: expect.any(String),
 			});
+			expect(existsSync(`${sessionPath}.zst`)).toBe(false);
 		} finally {
 			rmSync(agentDir, { force: true, recursive: true });
 		}

@@ -489,9 +489,9 @@ async function createSessionManager(
 				controlDbPath,
 				(onProgress) => SessionManager.listArchived(sessionDir, onProgress, controlDbPath),
 				(selectedPath) => {
-					if (!controlDbPath) return;
-					const selectedSession = SessionManager.open(selectedPath, sessionDir);
-					assertMainSessionRuntimeAvailable(controlDbPath, selectedSession.getSessionId());
+					const restoredPath = controlDbPath ? restoreArchivedSession(controlDbPath, selectedPath) : selectedPath;
+					const selectedSession = SessionManager.open(restoredPath, sessionDir);
+					if (controlDbPath) assertMainSessionRuntimeAvailable(controlDbPath, selectedSession.getSessionId());
 				},
 			);
 			if (!selectedPath) {
@@ -854,7 +854,10 @@ export async function main(args: string[], options?: MainOptions) {
 		let result: string;
 		try {
 			const outputPath = parsed.messages.length > 0 ? parsed.messages[0] : undefined;
-			result = await exportFromFile(parsed.export, outputPath);
+			const sessionPath = isArchivedSessionFile(parsed.export)
+				? restoreArchivedSession(getControlDbPath(), parsed.export)
+				: parsed.export;
+			result = await exportFromFile(sessionPath, outputPath);
 		} catch (error: unknown) {
 			const message = error instanceof Error ? error.message : "Failed to export session";
 			console.error(chalk.red(`Error: ${message}`));

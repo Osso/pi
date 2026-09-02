@@ -30,7 +30,7 @@ import {
 	createCustomMessage,
 } from "./messages.ts";
 import type { SandboxProfileName } from "./permissions/presets.ts";
-import { restoreArchivedSessionFile } from "./session-archive-storage.ts";
+import { isArchivedSessionFile } from "./session-archive-storage.ts";
 import {
 	clearSessionSandboxProfile as clearPersistedSessionSandboxProfile,
 	listResumeSessionMetadata,
@@ -264,6 +264,12 @@ export function assertValidSessionId(id: string): void {
 		throw new Error(
 			"Session id must be non-empty, contain only alphanumeric characters, '-', '_', and '.', and start and end with an alphanumeric character",
 		);
+	}
+}
+
+function assertUnarchivedSessionFile(sessionPath: string): void {
+	if (isArchivedSessionFile(sessionPath)) {
+		throw new Error(`Archived session requires a control database restore before opening: ${sessionPath}`);
 	}
 }
 
@@ -1321,7 +1327,8 @@ export class SessionManager {
 
 	/** Switch to a different session file (used for resume and branching) */
 	setSessionFile(sessionFile: string): void {
-		this.sessionFile = restoreArchivedSessionFile(resolvePath(sessionFile));
+		this.sessionFile = resolvePath(sessionFile);
+		assertUnarchivedSessionFile(this.sessionFile);
 		this.resetSessionNameState();
 		if (existsSync(this.sessionFile)) {
 			const loaded = loadSessionFileEntries(this.sessionFile);
@@ -2213,7 +2220,8 @@ export class SessionManager {
 	 * @param cwdOverride Optional cwd override instead of the session header cwd.
 	 */
 	static open(path: string, sessionDir?: string, cwdOverride?: string): SessionManager {
-		const resolvedPath = restoreArchivedSessionFile(resolvePath(path));
+		const resolvedPath = resolvePath(path);
+		assertUnarchivedSessionFile(resolvedPath);
 		// Extract cwd from session header if possible, otherwise use process.cwd()
 		const header = readSessionHeader(resolvedPath);
 		const cwd = cwdOverride ?? header?.cwd ?? process.cwd();

@@ -14,6 +14,7 @@ import {
 	createAgentSessionServices,
 } from "../../../src/core/agent-session-runtime.ts";
 import { AuthStorage } from "../../../src/core/auth-storage.ts";
+import { archivePersistedSession } from "../../../src/core/session-archive-storage.ts";
 import {
 	getControlDbPath,
 	readRuntimeMailboxListener,
@@ -710,6 +711,37 @@ describe("resume_session first-party tool", () => {
 			"assistant:starter reply",
 			"toolResult:Turn ended: starter reply",
 		]);
+	});
+
+	it("resumes an explicitly addressed archived zstd session through runtime restoration", async () => {
+		const { runtime } = await createRuntimeForTest(["root reply", "target reply"]);
+
+		await runtime.session.prompt("root");
+		const originalSessionPath = runtime.session.sessionFile;
+		if (!originalSessionPath) throw new Error("Missing original session path");
+		await runtime.newSession();
+		await runtime.session.prompt("target");
+		const targetSessionPath = runtime.session.sessionFile;
+		if (!targetSessionPath) throw new Error("Missing target session path");
+		await runtime.switchSession(originalSessionPath);
+		const controlDbPath = runtime.session.sessionManager.getMetadataControlDbPath();
+		if (!controlDbPath) throw new Error("Missing control database path");
+		const archivedTargetPath = archivePersistedSession(controlDbPath, targetSessionPath);
+
+		const tool = runtime.session.getToolDefinition("resume_session");
+		if (!tool) throw new Error("Missing resume_session tool");
+		const result = await tool.execute(
+			"resume-archived-session-test",
+			{ path: archivedTargetPath },
+			undefined,
+			undefined,
+			runtime.session.extensionRunner.createContext(),
+		);
+
+		expect(result.details).toEqual({ cancelled: false, resumed: true, sessionPath: archivedTargetPath });
+		expect(runtime.session.sessionFile).toBe(targetSessionPath);
+		expect(existsSync(targetSessionPath)).toBe(true);
+		expect(existsSync(archivedTargetPath)).toBe(false);
 	});
 
 	it("does not send the starter prompt when a session_before_switch hook cancels resume", async () => {
