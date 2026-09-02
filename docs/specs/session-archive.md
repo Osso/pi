@@ -1,13 +1,15 @@
 Module boundary: first-party extension module (`packages/coding-agent/extensions/session-archive/`) plus core session-control-DB archive state and resume-picker behavior.
 
-Pi persists archive state for session transcripts without moving or deleting their JSONL files. The first-party `/archive` command accepts no arguments and archives only the current persisted session. The resume picker archives the selected session with Ctrl+A. The separate `pi sessions archive` CLI command remains an age-based administrative bulk operation. `pi sessions truncate-tool-output` is a separate maintenance command that may rewrite session JSONL files; see [`session-tool-output.md`](session-tool-output.md). The resident Architect transcript is also a persisted, non-subagent session under `<agent-dir>/architect-sessions/`; its metadata is written with `archived_at` set at startup, so it remains available only through the Archived picker scope.
+Pi stores archived session transcripts as `.jsonl.zst` files and tracks their archive state in control-DB metadata. Non-archived sessions remain plain `.jsonl` files; resuming an archived session restores its `.jsonl` file and clears its archive state. The first-party `/archive` command accepts no arguments and archives only the current persisted session. The resume picker archives the selected session with Ctrl+A. The separate `pi sessions archive` CLI command remains an age-based administrative bulk operation. `pi sessions truncate-tool-output` is a separate maintenance command that may rewrite session JSONL files; see [`session-tool-output.md`](session-tool-output.md). The resident Architect transcript is also a persisted, non-subagent session under `<agent-dir>/architect-sessions/`; its metadata is written with `archived_at` set at startup, so it remains available only through the Archived picker scope.
 
 ## What it must do
 
 ### Archive state and picker
 
 - [x] Persist an archive timestamp in control-DB session metadata.
-- [x] Archive and unarchive a session without changing its transcript path or contents (`session-control-db.test.ts`).
+- [x] Store archived transcripts as `.jsonl.zst` files.
+- [x] Restore an archived transcript to plain `.jsonl` and clear its archive state when it is resumed.
+- [x] Keep non-archived session transcripts as plain `.jsonl` files.
 - [x] Hide archived sessions from normal session metadata listings used by Current Folder and All resume scopes.
 - [x] Exclude `archived_at` and `is_subagent` metadata from the core non-archived main-session inventory, so
       `list_sessions` never returns archived or child sessions regardless of `include_ended`; this also removes

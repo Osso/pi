@@ -17,6 +17,7 @@ export { SessionImportFileNotFoundError } from "./session-errors.ts";
 import { runDetachedJobArtifactCleanup } from "./detached-job-cleanup.ts";
 import { type ProcessRestarter, restartCurrentProcess } from "./self-restart.ts";
 import { assertMainSessionRuntimeAvailable, removeSessionMetadata } from "./session-control-db.ts";
+import { restoreArchivedSession } from "./session-archive-storage.ts";
 import { assertSessionCwdExists } from "./session-cwd.ts";
 import { SessionImportFileNotFoundError } from "./session-errors.ts";
 import { SessionManager } from "./session-manager.ts";
@@ -262,10 +263,11 @@ export class AgentSessionRuntime {
 		}
 
 		const previousSessionFile = this.session.sessionFile;
-		const sessionManager = SessionManager.open(sessionPath, undefined, options?.cwdOverride);
-		assertSessionCwdExists(sessionManager, this.cwd);
 		const controlDbPath = this.session.sessionManager.getMetadataControlDbPath();
 		if (!controlDbPath) throw new Error("Current session has no control database path");
+		const restoredSessionPath = restoreArchivedSession(controlDbPath, sessionPath);
+		const sessionManager = SessionManager.open(restoredSessionPath, undefined, options?.cwdOverride);
+		assertSessionCwdExists(sessionManager, this.cwd);
 		assertMainSessionRuntimeAvailable(controlDbPath, sessionManager.getSessionId());
 		await this.teardownCurrent("resume", sessionManager.getSessionFile());
 		this.apply(

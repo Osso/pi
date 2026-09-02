@@ -107,6 +107,7 @@ import {
 	type SessionCwdIssue,
 } from "./core/session-cwd.ts";
 import { reconcileSessionRuntimeBindings } from "./core/session-directory.ts";
+import { isArchivedSessionFile, restoreArchivedSession } from "./core/session-archive-storage.ts";
 import { assertValidSessionId, SessionManager } from "./core/session-manager.ts";
 import { SettingsManager } from "./core/settings-manager.ts";
 import { printTimings, resetTimings, time } from "./core/timings.ts";
@@ -393,9 +394,11 @@ export async function runInteractiveActionOrReportTerminalError(
 	}
 }
 
-function openSessionOrExit(path: string, sessionDir?: string): SessionManager {
+function openSessionOrExit(path: string, sessionDir?: string, controlDbPath?: string): SessionManager {
 	try {
-		return SessionManager.open(path, sessionDir);
+		const restoredPath =
+			controlDbPath && isArchivedSessionFile(path) ? restoreArchivedSession(controlDbPath, path) : path;
+		return SessionManager.open(restoredPath, sessionDir);
 	} catch (error: unknown) {
 		const message = error instanceof Error ? error.message : String(error);
 		console.error(chalk.red(`Error: ${message}`));
@@ -459,7 +462,7 @@ async function createSessionManager(
 		switch (resolved.type) {
 			case "path":
 			case "local":
-				return openSessionOrExit(resolved.path, sessionDir);
+				return openSessionOrExit(resolved.path, sessionDir, controlDbPath);
 
 			case "global": {
 				console.log(chalk.yellow(`Session found in different project: ${resolved.cwd}`));
@@ -495,7 +498,8 @@ async function createSessionManager(
 				console.log(chalk.dim("No session selected"));
 				process.exit(0);
 			}
-			return SessionManager.open(selectedPath, sessionDir);
+			const resumedPath = controlDbPath ? restoreArchivedSession(controlDbPath, selectedPath) : selectedPath;
+			return SessionManager.open(resumedPath, sessionDir);
 		} finally {
 			stopThemeWatcher();
 		}

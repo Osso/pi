@@ -196,13 +196,14 @@ describe("session selector path/delete interactions", () => {
 		await flushPromises();
 
 		selector.getSessionList().handleInput(CTRL_A);
+		const archivedPath = `${sessionPath}.zst`;
 		await waitFor(
 			() =>
-				listSessionMetadata(controlDbPath).find((metadata) => metadata.sessionPath === sessionPath)?.isArchived ===
+				listSessionMetadata(controlDbPath).find((metadata) => metadata.sessionPath === archivedPath)?.isArchived ===
 				true,
 		);
 		expect(
-			listSessionMetadata(controlDbPath).find((metadata) => metadata.sessionPath === sessionPath)?.isArchived,
+			listSessionMetadata(controlDbPath).find((metadata) => metadata.sessionPath === archivedPath)?.isArchived,
 		).toBe(true);
 	});
 

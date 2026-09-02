@@ -1,5 +1,6 @@
 import { getAgentDir } from "../config.ts";
 import { archiveSessionsOlderThan, getControlDbPath, writeSessionMetadata } from "../core/session-control-db.ts";
+import { archivePersistedSession } from "../core/session-archive-storage.ts";
 import type { SessionInfo } from "../core/session-manager.ts";
 import { SessionManager } from "../core/session-manager.ts";
 import { migrateToolResultSessionFiles, type ToolResultSessionMigrationReport } from "../core/session-tool-output.ts";
@@ -64,7 +65,11 @@ export async function handleSessionsCommand(
 
 	const now = dependencies.now?.() ?? new Date();
 	const cutoff = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-	const archived = (dependencies.archiveOlderThan ?? archiveSessionsOlderThan)(controlDbPath, cutoff);
+	const archived = dependencies.archiveOlderThan
+		? dependencies.archiveOlderThan(controlDbPath, cutoff)
+		: archiveSessionsOlderThan(controlDbPath, cutoff).map((sessionPath) =>
+				archivePersistedSession(controlDbPath, sessionPath),
+			);
 	stdout(
 		`Archived ${archived.length} session${archived.length === 1 ? "" : "s"} older than ${days} day${days === 1 ? "" : "s"}.\n`,
 	);

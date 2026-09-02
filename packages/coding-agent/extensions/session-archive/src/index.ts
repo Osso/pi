@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "../../../src/core/extensions/types.ts";
-import { archiveSession } from "../../../src/core/session-control-db.ts";
+import { archivePersistedSession } from "../../../src/core/session-archive-storage.ts";
 
 export default function sessionArchiveExtension(pi: ExtensionAPI): void {
 	pi.registerCommand("archive", {
@@ -19,7 +19,7 @@ export default function sessionArchiveExtension(pi: ExtensionAPI): void {
 				return;
 			}
 
-			archiveSession(ctx.controlDbPath, sessionPath);
+			archivePersistedSession(ctx.controlDbPath, sessionPath);
 			ctx.ui.notify("Archived current session.", "info");
 		},
 	});

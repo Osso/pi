@@ -14,7 +14,8 @@ import {
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import { KeybindingsManager } from "../../../core/keybindings.ts";
-import { archiveSession, removeSessionMetadata } from "../../../core/session-control-db.ts";
+import { removeSessionMetadata } from "../../../core/session-control-db.ts";
+import { archivePersistedSession } from "../../../core/session-archive-storage.ts";
 import type { SessionInfo, SessionListProgress } from "../../../core/session-manager.ts";
 import { canonicalizePath as _canonicalizePath } from "../../../utils/paths.ts";
 import { theme } from "../theme/theme.ts";
@@ -894,7 +895,7 @@ export class SessionSelectorComponent extends Container implements Focusable {
 				this.requestRender();
 				return;
 			}
-			archiveSession(this.controlDbPath, sessionPath);
+			archivePersistedSession(this.controlDbPath, sessionPath);
 			this.header.setStatusMessage({ type: "info", message: "Session archived" }, 2000);
 			await this.refreshSessionsAfterMutation();
 			this.requestRender();

@@ -1,10 +1,12 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import sessionArchiveExtension from "../extensions/session-archive/src/index.ts";
 import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "../src/core/extensions/types.ts";
 import { getControlDbPath, readSessionMetadata, writeSessionMetadata } from "../src/core/session-control-db.ts";
+import { restoreArchivedSession } from "../src/core/session-archive-storage.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
 
 describe("session archive extension", () => {
 	const tempDirs: string[] = [];
@@ -42,6 +44,10 @@ describe("session archive extension", () => {
 		tempDirs.push(baseDir);
 		const controlDbPath = getControlDbPath(baseDir);
 		const sessionPath = join(baseDir, "current.jsonl");
+		writeFileSync(
+			sessionPath,
+			`${JSON.stringify({ type: "session", id: "current", timestamp: "2026-07-11T00:00:00.000Z", cwd: baseDir })}\n`,
+		);
 		writeSessionMetadata(controlDbPath, {
 			sessionPath,
 			id: "current",
@@ -70,7 +76,78 @@ describe("session archive extension", () => {
 			sessionManager: { getSessionFile: () => sessionPath },
 		} as unknown as ExtensionCommandContext);
 
-		expect(readSessionMetadata(controlDbPath, sessionPath)?.isArchived).toBe(true);
+		const archivedPath = `${sessionPath}.zst`;
+		expect(readSessionMetadata(controlDbPath, sessionPath)).toBeUndefined();
+		expect(readSessionMetadata(controlDbPath, archivedPath)?.isArchived).toBe(true);
 		expect(notify).toHaveBeenCalledWith("Archived current session.", "info");
+	});
+
+	it("stores archived sessions as zstd and restores them when resumed", async () => {
+		const baseDir = mkdtempSync(join(tmpdir(), "pi-session-archive-zstd-"));
+		tempDirs.push(baseDir);
+		const controlDbPath = getControlDbPath(baseDir);
+		const sessionPath = join(baseDir, "current.jsonl");
+		writeFileSync(
+			sessionPath,
+			[
+				JSON.stringify({
+					type: "session",
+					version: 3,
+					id: "current",
+					timestamp: "2026-09-02T00:00:00.000Z",
+					cwd: baseDir,
+				}),
+				JSON.stringify({
+					type: "message",
+					id: "user-message",
+					parentId: null,
+					timestamp: "2026-09-02T00:00:01.000Z",
+					message: { role: "user", content: "resume me", timestamp: 1 },
+				}),
+			].join("\n") + "\n",
+		);
+		writeSessionMetadata(controlDbPath, {
+			sessionPath,
+			id: "current",
+			cwd: baseDir,
+			createdAt: "2026-09-02T00:00:00.000Z",
+			modifiedAt: "2026-09-02T00:00:01.000Z",
+			messageCount: 1,
+			firstMessage: "resume me",
+			allMessagesText: "resume me",
+		});
+
+		let command: RegisteredCommand | undefined;
+		const pi = {
+			registerCommand(_name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">) {
+				command = {
+					...options,
+					name: "archive",
+					sourceInfo: { path: "<test>", source: "test", scope: "temporary", origin: "top-level" },
+				};
+			},
+		} as unknown as ExtensionAPI;
+		sessionArchiveExtension(pi);
+		await command!.handler("", {
+			controlDbPath,
+			ui: { notify: vi.fn() },
+			sessionManager: { getSessionFile: () => sessionPath },
+		} as unknown as ExtensionCommandContext);
+
+		const archivedPath = `${sessionPath}.zst`;
+		expect(existsSync(sessionPath)).toBe(false);
+		expect(existsSync(archivedPath)).toBe(true);
+		expect(readSessionMetadata(controlDbPath, archivedPath)?.isArchived).toBe(true);
+
+		const resumed = SessionManager.open(archivedPath, baseDir);
+		expect(resumed.getSessionFile()).toBe(sessionPath);
+		expect(resumed.getEntries()).toMatchObject([
+			{ type: "message", message: { content: "resume me", role: "user" } },
+		]);
+		expect(existsSync(sessionPath)).toBe(true);
+		expect(existsSync(archivedPath)).toBe(false);
+		expect(restoreArchivedSession(controlDbPath, archivedPath)).toBe(sessionPath);
+		expect(readSessionMetadata(controlDbPath, archivedPath)).toBeUndefined();
+		expect(readSessionMetadata(controlDbPath, sessionPath)?.isArchived).toBe(false);
 	});
 });

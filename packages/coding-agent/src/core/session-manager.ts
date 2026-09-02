@@ -49,6 +49,7 @@ import {
 	writeSessionSandboxProfile,
 	writeSessionThinkingLevel,
 } from "./session-control-db.ts";
+import { restoreArchivedSessionFile } from "./session-archive-storage.ts";
 import { serializeSessionEntryForPersistence } from "./session-tool-output.ts";
 
 export const CURRENT_SESSION_VERSION = 3;
@@ -1320,7 +1321,7 @@ export class SessionManager {
 
 	/** Switch to a different session file (used for resume and branching) */
 	setSessionFile(sessionFile: string): void {
-		this.sessionFile = resolvePath(sessionFile);
+		this.sessionFile = restoreArchivedSessionFile(resolvePath(sessionFile));
 		this.resetSessionNameState();
 		if (existsSync(this.sessionFile)) {
 			const loaded = loadSessionFileEntries(this.sessionFile);
@@ -2212,7 +2213,7 @@ export class SessionManager {
 	 * @param cwdOverride Optional cwd override instead of the session header cwd.
 	 */
 	static open(path: string, sessionDir?: string, cwdOverride?: string): SessionManager {
-		const resolvedPath = resolvePath(path);
+		const resolvedPath = restoreArchivedSessionFile(resolvePath(path));
 		// Extract cwd from session header if possible, otherwise use process.cwd()
 		const header = readSessionHeader(resolvedPath);
 		const cwd = cwdOverride ?? header?.cwd ?? process.cwd();
