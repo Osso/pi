@@ -6,14 +6,14 @@ The first-party `ask_secret` extension provides two interactive-TUI-only secret-
 
 ### Tool surface
 
-- [x] Accept browser credential requests with `{ record, fields: [{ type, name, selector }] }`, where ordered fields use `text`, `email`, or `password` input types.
+- [x] Accept browser credential requests only as `{ record, fields: [{ type, name, selector }] }`, where `fields` has one or more ordered entries and each type is `text`, `email`, or `password`; reject the replaced `{ record, usernameSelector, passwordSelector }` shape.
 - [x] Accept single-value file requests with `{ path, label }`.
 - [x] Require approval before either secret-entry flow executes.
 - [x] Fail closed outside an interactive TUI session.
 
 ### Browser credential flow
 
-- [x] Prompt for each requested browser field in order using its name; mask only `password` fields, then provision through the typed Secrets Broker browser-record path.
+- [x] Prompt for each requested browser field in order using its name; mask only `password` fields, then pass field metadata and values separately to the typed Secrets Broker browser-record path.
 - [x] Return only non-secret provisioning metadata.
 - [x] Reject unsafe broker arguments before prompting.
 
