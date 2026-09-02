@@ -1,10 +1,10 @@
 import { existsSync, statSync } from "node:fs";
-import { isArchivedSessionFile } from "../session-archive-storage.ts";
 import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import { resolvePath } from "../../utils/paths.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import { isArchivedSessionFile } from "../session-archive-storage.ts";
 import {
 	findActiveSessionMetadataById,
 	findActiveSessionMetadataByName,
