@@ -93,6 +93,7 @@ import {
 	consumeSelfRestartRequest,
 	waitForSelfRestartParentExit,
 } from "./core/self-restart.ts";
+import { isArchivedSessionFile, restoreArchivedSession } from "./core/session-archive-storage.ts";
 import {
 	assertMainSessionRuntimeAvailable,
 	claimLatestIncomingMessage,
@@ -107,7 +108,6 @@ import {
 	type SessionCwdIssue,
 } from "./core/session-cwd.ts";
 import { reconcileSessionRuntimeBindings } from "./core/session-directory.ts";
-import { isArchivedSessionFile, restoreArchivedSession } from "./core/session-archive-storage.ts";
 import { assertValidSessionId, SessionManager } from "./core/session-manager.ts";
 import { SettingsManager } from "./core/settings-manager.ts";
 import { printTimings, resetTimings, time } from "./core/timings.ts";

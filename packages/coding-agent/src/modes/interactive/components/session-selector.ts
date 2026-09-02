@@ -14,8 +14,8 @@ import {
 	visibleWidth,
 } from "@earendil-works/pi-tui";
 import { KeybindingsManager } from "../../../core/keybindings.ts";
-import { removeSessionMetadata } from "../../../core/session-control-db.ts";
 import { archivePersistedSession } from "../../../core/session-archive-storage.ts";
+import { removeSessionMetadata } from "../../../core/session-control-db.ts";
 import type { SessionInfo, SessionListProgress } from "../../../core/session-manager.ts";
 import { canonicalizePath as _canonicalizePath } from "../../../utils/paths.ts";
 import { theme } from "../theme/theme.ts";

@@ -1,6 +1,6 @@
 import { getAgentDir } from "../config.ts";
-import { archiveSessionsOlderThan, getControlDbPath, writeSessionMetadata } from "../core/session-control-db.ts";
 import { archivePersistedSession } from "../core/session-archive-storage.ts";
+import { archiveSessionsOlderThan, getControlDbPath, writeSessionMetadata } from "../core/session-control-db.ts";
 import type { SessionInfo } from "../core/session-manager.ts";
 import { SessionManager } from "../core/session-manager.ts";
 import { migrateToolResultSessionFiles, type ToolResultSessionMigrationReport } from "../core/session-tool-output.ts";

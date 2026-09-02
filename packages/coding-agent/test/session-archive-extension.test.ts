@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import sessionArchiveExtension from "../extensions/session-archive/src/index.ts";
 import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "../src/core/extensions/types.ts";
-import { getControlDbPath, readSessionMetadata, writeSessionMetadata } from "../src/core/session-control-db.ts";
 import { restoreArchivedSession } from "../src/core/session-archive-storage.ts";
+import { getControlDbPath, readSessionMetadata, writeSessionMetadata } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 
 describe("session archive extension", () => {
@@ -89,7 +89,7 @@ describe("session archive extension", () => {
 		const sessionPath = join(baseDir, "current.jsonl");
 		writeFileSync(
 			sessionPath,
-			[
+			`${[
 				JSON.stringify({
 					type: "session",
 					version: 3,
@@ -104,7 +104,7 @@ describe("session archive extension", () => {
 					timestamp: "2026-09-02T00:00:01.000Z",
 					message: { role: "user", content: "resume me", timestamp: 1 },
 				}),
-			].join("\n") + "\n",
+			].join("\n")}\n`,
 		);
 		writeSessionMetadata(controlDbPath, {
 			sessionPath,

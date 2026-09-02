@@ -30,6 +30,7 @@ import {
 	createCustomMessage,
 } from "./messages.ts";
 import type { SandboxProfileName } from "./permissions/presets.ts";
+import { restoreArchivedSessionFile } from "./session-archive-storage.ts";
 import {
 	clearSessionSandboxProfile as clearPersistedSessionSandboxProfile,
 	listResumeSessionMetadata,
@@ -49,7 +50,6 @@ import {
 	writeSessionSandboxProfile,
 	writeSessionThinkingLevel,
 } from "./session-control-db.ts";
-import { restoreArchivedSessionFile } from "./session-archive-storage.ts";
 import { serializeSessionEntryForPersistence } from "./session-tool-output.ts";
 
 export const CURRENT_SESSION_VERSION = 3;

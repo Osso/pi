@@ -16,8 +16,8 @@ export { SessionImportFileNotFoundError } from "./session-errors.ts";
 
 import { runDetachedJobArtifactCleanup } from "./detached-job-cleanup.ts";
 import { type ProcessRestarter, restartCurrentProcess } from "./self-restart.ts";
-import { assertMainSessionRuntimeAvailable, removeSessionMetadata } from "./session-control-db.ts";
 import { restoreArchivedSession } from "./session-archive-storage.ts";
+import { assertMainSessionRuntimeAvailable, removeSessionMetadata } from "./session-control-db.ts";
 import { assertSessionCwdExists } from "./session-cwd.ts";
 import { SessionImportFileNotFoundError } from "./session-errors.ts";
 import { SessionManager } from "./session-manager.ts";
