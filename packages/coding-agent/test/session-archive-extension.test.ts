@@ -8,6 +8,8 @@ import { archivePersistedSession, restoreArchivedSession } from "../src/core/ses
 import { getControlDbPath, readSessionMetadata, writeSessionMetadata } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 
+type NewSessionOptions = Parameters<NonNullable<ExtensionCommandContext["newSession"]>>[0];
+
 describe("session archive extension", () => {
 	const tempDirs: string[] = [];
 
@@ -76,7 +78,7 @@ describe("session archive extension", () => {
 			controlDbPath,
 			ui: { notify },
 			sessionManager: { getSessionFile: () => activeSessionPath },
-			newSession: async (options) => {
+			newSession: async (options: NewSessionOptions) => {
 				plainSessionExistedDuringTransition = existsSync(sessionPath);
 				activeSessionPath = join(baseDir, "next.jsonl");
 				await options?.withSession?.({ ui: { notify } } as unknown as ExtensionCommandContext);
@@ -142,7 +144,7 @@ describe("session archive extension", () => {
 			controlDbPath,
 			ui: { notify: vi.fn() },
 			sessionManager: { getSessionFile: () => sessionPath },
-			newSession: async (options) => {
+			newSession: async (options: NewSessionOptions) => {
 				await options?.withSession?.({ ui: { notify: vi.fn() } } as unknown as ExtensionCommandContext);
 				return { cancelled: false };
 			},
