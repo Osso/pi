@@ -29,41 +29,36 @@ afterEach(async () => {
 });
 
 describe("ask_secret extension", () => {
-	it("preserves browser provisioning and returns only non-secret metadata", async () => {
-		const provision = vi.fn<AskSecretProvisioner>().mockResolvedValue(undefined);
-		const input = vi.fn<InputFunction>().mockResolvedValueOnce("rei-user").mockResolvedValueOnce("super-secret");
+	it("provisions ordered browser fields and masks only password fields", async () => {
+		let receivedValues: string[] | undefined;
+		const provision = vi.fn<AskSecretProvisioner>(async (_request, values) => {
+			receivedValues = [...values];
+		});
+		const input = vi
+			.fn<InputFunction>()
+			.mockResolvedValueOnce("user@example.com")
+			.mockResolvedValueOnce("super-secret");
 		const tool = createAskSecretToolDefinition({ provision });
 		const context = createTuiContext(input);
+		const request = {
+			record: "browser/rei-capital-one.json",
+			fields: [
+				{ type: "email", name: "Account email", selector: "#usernameInputField" },
+				{ type: "password", name: "Account password", selector: "#pwInputField" },
+			],
+		} as never;
 
-		const result = await tool.execute(
-			"call-1",
-			{
-				record: "browser/rei-capital-one.json",
-				usernameSelector: "#usernameInputField",
-				passwordSelector: "#pwInputField",
-			},
-			undefined,
-			undefined,
-			context,
-		);
+		const result = await tool.execute("call-1", request, undefined, undefined, context);
 
-		expect(provision).toHaveBeenCalledWith(
-			{
-				record: "browser/rei-capital-one.json",
-				usernameSelector: "#usernameInputField",
-				passwordSelector: "#pwInputField",
-			},
-			"rei-user",
-			"super-secret",
-			undefined,
-		);
+		expect(provision).toHaveBeenCalledWith(request, expect.any(Array), undefined);
+		expect(receivedValues).toEqual(["user@example.com", "super-secret"]);
 		expect(input).toHaveBeenCalledTimes(2);
-		expect(input).toHaveBeenNthCalledWith(1, "Secrets Broker username", "Enter username", { signal: undefined });
-		expect(input).toHaveBeenNthCalledWith(2, "Secrets Broker password", "Enter password", {
+		expect(input).toHaveBeenNthCalledWith(1, "Account email", "Enter Account email", { signal: undefined });
+		expect(input).toHaveBeenNthCalledWith(2, "Account password", "Enter Account password", {
 			signal: undefined,
 			secret: true,
 		});
-		expect(JSON.stringify(result)).not.toContain("rei-user");
+		expect(JSON.stringify(result)).not.toContain("user@example.com");
 		expect(JSON.stringify(result)).not.toContain("super-secret");
 	});
 
@@ -267,8 +262,7 @@ describe("ask_secret extension", () => {
 			"call-2",
 			{
 				record: "browser/rei-capital-one.json",
-				usernameSelector: "#usernameInputField",
-				passwordSelector: "#pwInputField",
+				fields: [{ type: "email", name: "Account email", selector: "#usernameInputField" }],
 			},
 			undefined,
 			undefined,
@@ -306,8 +300,7 @@ describe("ask_secret extension", () => {
 				"call-3",
 				{
 					record: "browser/rei-capital-one.json\nleak",
-					usernameSelector: "#usernameInputField",
-					passwordSelector: "#pwInputField",
+					fields: [{ type: "email", name: "Account email", selector: "#usernameInputField" }],
 				},
 				undefined,
 				undefined,

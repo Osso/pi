@@ -4,6 +4,7 @@
 
 ### Breaking Changes
 
+- Replaced fixed `ask_secret` browser username/password selectors with ordered `{ type, name, selector }` field schemas; browser credential callers must provide `fields`, and only `password` fields are masked.
 - Moved configured control SQLite from the agent config directory to the XDG state root: the default is `$XDG_STATE_HOME/pi/control.sqlite` or `~/.local/state/pi/control.sqlite`, overridden by `PI_CODING_AGENT_STATE_DIR`. Startup performs no legacy fallback or migration, so deployment must move the live database while runtimes are stopped.
 - Removed the `list_agents.activeOnly` option; `list_agents` now always returns active agents, while terminal agents remain inspectable by ID through `agent_viewer`.
 - Goal creation now requires `/goal set <objective>`; bare `/goal <text>` is rejected, and `manage_goal` cannot persist reserved control words such as `continue` as objectives.

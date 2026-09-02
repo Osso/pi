@@ -6,14 +6,14 @@ The first-party `ask_secret` extension provides two interactive-TUI-only secret-
 
 ### Tool surface
 
-- [x] Accept browser credential requests with `{ record, usernameSelector, passwordSelector }`.
+- [x] Accept browser credential requests with `{ record, fields: [{ type, name, selector }] }`, where ordered fields use `text`, `email`, or `password` input types.
 - [x] Accept single-value file requests with `{ path, label }`.
 - [x] Require approval before either secret-entry flow executes.
 - [x] Fail closed outside an interactive TUI session.
 
 ### Browser credential flow
 
-- [x] Prompt for username and masked password, then provision through the existing typed Secrets Broker browser-record path.
+- [x] Prompt for each requested browser field in order using its name; mask only `password` fields, then provision through the typed Secrets Broker browser-record path.
 - [x] Return only non-secret provisioning metadata.
 - [x] Reject unsafe broker arguments before prompting.
 
@@ -42,7 +42,7 @@ The first-party `ask_secret` extension provides two interactive-TUI-only secret-
 ## Implementation inventory
 
 - `packages/coding-agent/extensions/ask-secret/src/index.ts` — tool schemas, TUI guards, browser provisioning, file validation, and atomic file persistence.
-- `packages/coding-agent/test/ask-secret.test.ts` — behavioral coverage for both flows, cancellation, validation, permissions, overwrite, and destination rejection.
+- `packages/coding-agent/test/ask-secret.test.ts` — behavioral coverage for schema-driven browser prompts, both flows, cancellation, validation, permissions, overwrite, and destination rejection.
 
 ## Tests asserting this spec
 

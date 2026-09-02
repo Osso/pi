@@ -13,11 +13,19 @@ const OWNER_ONLY_DIRECTORY_MODE = 0o700;
 const OWNER_ONLY_FILE_MODE = 0o600;
 const TRAILING_NEWLINE = 0x0a;
 
+const browserCredentialFieldSchema = Type.Object(
+	{
+		type: Type.Union([Type.Literal("text"), Type.Literal("email"), Type.Literal("password")]),
+		name: Type.String({ description: "Non-empty user-facing credential field name." }),
+		selector: Type.String({ description: "CSS selector for the browser field." }),
+	},
+	{ additionalProperties: false },
+);
+
 const browserSecretSchema = Type.Object(
 	{
 		record: Type.String({ description: "Secrets Broker browser credential record path." }),
-		usernameSelector: Type.String({ description: "CSS selector for the username field." }),
-		passwordSelector: Type.String({ description: "CSS selector for the password field." }),
+		fields: Type.Array(browserCredentialFieldSchema, { minItems: 1 }),
 	},
 	{ additionalProperties: false },
 );
@@ -36,16 +44,20 @@ type AskSecretInput = Static<typeof askSecretSchema>;
 type BrowserSecretInput = Static<typeof browserSecretSchema>;
 type FileSecretInput = Static<typeof fileSecretSchema>;
 
+export interface AskSecretBrowserField {
+	type: "text" | "email" | "password";
+	name: string;
+	selector: string;
+}
+
 export interface AskSecretProvisionRequest {
 	record: string;
-	usernameSelector: string;
-	passwordSelector: string;
+	fields: AskSecretBrowserField[];
 }
 
 export type AskSecretProvisioner = (
 	request: AskSecretProvisionRequest,
-	username: string,
-	password: string,
+	values: string[],
 	signal?: AbortSignal,
 ) => Promise<void>;
 
@@ -100,15 +112,22 @@ async function executeBrowserRequest(
 	ctx: ExtensionContext,
 	provision: AskSecretProvisioner,
 ): Promise<AgentToolResult<AskSecretDetails>> {
-	const username = await ctx.ui.input("Secrets Broker username", "Enter username", { signal });
-	if (username === undefined) return cancelledResult();
-	const password = await ctx.ui.input("Secrets Broker password", "Enter password", { signal, secret: true });
-	if (password === undefined) return cancelledResult();
+	const values: string[] = [];
+	for (const field of params.fields) {
+		const value = await ctx.ui.input(field.name, `Enter ${field.name}`, {
+			signal,
+			...(field.type === "password" ? { secret: true } : {}),
+		});
+		if (value === undefined) {
+			clearStringReferences(values);
+			return cancelledResult();
+		}
+		values.push(value);
+	}
 	try {
-		await provision(params, username, password, signal);
+		await provision(params, values, signal);
 	} finally {
-		clearStringReference(username);
-		clearStringReference(password);
+		clearStringReferences(values);
 	}
 
 	return {
@@ -147,11 +166,19 @@ function validateRequest(params: AskSecretInput): void {
 	}
 
 	validateArgument(params.record, "record");
-	validateArgument(params.usernameSelector, "usernameSelector");
-	validateArgument(params.passwordSelector, "passwordSelector");
+	if (params.fields.length === 0) throw new Error("fields must not be empty");
+	for (const [index, field] of params.fields.entries()) {
+		if (!isBrowserFieldType(field.type)) throw new Error(`fields[${index}].type is invalid`);
+		validateArgument(field.name, `fields[${index}].name`);
+		validateArgument(field.selector, `fields[${index}].selector`);
+	}
 	if (params.record.startsWith("/") || params.record.split("/").includes("..")) {
 		throw new Error("record must be a relative Secrets Broker path");
 	}
+}
+
+function isBrowserFieldType(value: string): value is AskSecretBrowserField["type"] {
+	return value === "text" || value === "email" || value === "password";
 }
 
 function validateArgument(value: string, name: string): void {
@@ -279,8 +306,7 @@ function cancelledResult(): AgentToolResult<AskSecretDetails> {
 
 async function provisionBrowserCredential(
 	request: AskSecretProvisionRequest,
-	username: string,
-	password: string,
+	values: string[],
 	signal?: AbortSignal,
 ): Promise<void> {
 	if (signal?.aborted) throw new Error("ask_secret cancelled");
@@ -293,10 +319,8 @@ async function provisionBrowserCredential(
 			PROVISION_OPERATION,
 			"--record",
 			request.record,
-			"--username-selector",
-			request.usernameSelector,
-			"--password-selector",
-			request.passwordSelector,
+			"--fields-json",
+			JSON.stringify(request.fields),
 		],
 		{ stdio: ["pipe", "ignore", "ignore"] },
 	);
@@ -305,7 +329,7 @@ async function provisionBrowserCredential(
 	};
 	signal?.addEventListener("abort", onAbort, { once: true });
 	try {
-		await writeCredentialInput(child, username, password);
+		await writeCredentialInput(child, values);
 		const exitCode = await waitForChildProcess(child);
 		if (signal?.aborted) throw new Error("ask_secret cancelled");
 		if (exitCode !== 0) throw new Error("Secrets Broker provisioning failed");
@@ -318,13 +342,9 @@ async function provisionBrowserCredential(
 	}
 }
 
-async function writeCredentialInput(
-	child: ReturnType<typeof spawnProcess>,
-	username: string,
-	password: string,
-): Promise<void> {
+async function writeCredentialInput(child: ReturnType<typeof spawnProcess>, values: string[]): Promise<void> {
 	if (!child.stdin) throw new Error("Secrets Broker provisioning has no stdin");
-	const payload = Buffer.from(`${username}\n${password}\n`, "utf8");
+	const payload = Buffer.from(JSON.stringify(values), "utf8");
 	try {
 		await new Promise<void>((resolve, reject) => {
 			child.stdin?.once("error", reject);
@@ -333,6 +353,11 @@ async function writeCredentialInput(
 	} finally {
 		payload.fill(0);
 	}
+}
+
+function clearStringReferences(values: string[]): void {
+	for (const value of values) clearStringReference(value);
+	values.length = 0;
 }
 
 function clearStringReference(_value: string): void {
