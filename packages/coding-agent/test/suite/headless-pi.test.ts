@@ -21,9 +21,9 @@ import { isProcessIdentityAlive, type ProcessIdentity, readProcessIdentity } fro
 import {
 	getControlDbPath,
 	postSharedChannelMessage,
-	readSessionMetadata,
 	readMultiAgentRuntimeOwnership,
 	readRuntimeMailboxListener,
+	readSessionMetadata,
 	readSharedChannelCursor,
 } from "../../src/core/session-control-db.ts";
 import type { CustomEntry, SessionMessageEntry } from "../../src/core/session-manager.ts";

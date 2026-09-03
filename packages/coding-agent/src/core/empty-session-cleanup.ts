@@ -1,8 +1,8 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { resolve } from "node:path";
+import { isPiRuntimeProcessAlive } from "./runtime-process.ts";
 import { listActiveSessionMetadata, readSessionHealth, removeSessionMetadata } from "./session-control-db.ts";
 import type { SessionManager } from "./session-manager.ts";
-import { isPiRuntimeProcessAlive } from "./runtime-process.ts";
 
 function isResidentSession(sessionId: string, sessionPath: string): boolean {
 	return (
@@ -35,7 +35,7 @@ export function sweepAbandonedEmptySessions(controlDbPath: string): number {
 		}
 		if (existsSync(session.sessionPath)) return false;
 		const health = readSessionHealth(controlDbPath, session.id);
-		return health?.pid === undefined || !isPiRuntimeProcessAlive(health.pid);
+		return !health?.pid || !isPiRuntimeProcessAlive(health.pid);
 	});
 
 	for (const session of abandonedSessions) {
