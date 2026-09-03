@@ -2,13 +2,13 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { handleSessionsCommand } from "../src/cli/sessions-command.ts";
 import {
 	archiveSession,
 	getControlDbPath,
 	readSessionMetadata,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
-import { handleSessionsCommand } from "../src/cli/sessions-command.ts";
 
 describe("sessions command", () => {
 	const tempDirs: string[] = [];
