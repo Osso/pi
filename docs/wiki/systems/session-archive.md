@@ -5,6 +5,7 @@ Pi has three explicit archive surfaces:
 - `/archive` accepts no arguments and archives only the current persisted session.
 - The resume picker archives the selected session when Ctrl+A is pressed.
 - `pi sessions archive [--older-than <days>]` performs the age-based administrative bulk operation and reports its archived count.
+- `pi sessions compress-archived [--dry-run]` migrates older metadata-archived plain JSONL files, excluding live resident Supervisor and Architect transcripts, and reports migrated, skipped, and failed sessions.
 
 `/archive`, picker, and bulk-archived sessions persist archive metadata in the control database and store their transcripts as `.jsonl.zst`. Resuming one restores its `.jsonl` file and active metadata. Non-archived sessions remain plain `.jsonl`. The resident Supervisor and Architect transcripts are also metadata-archived, but remain plain `.jsonl` because their live runtimes append to them. `pi sessions truncate-tool-output` is separate maintenance functionality and can rewrite session JSONL files; see [`session-tool-output.md`](session-tool-output.md). Archived sessions disappear from the normal Current Folder and All resume scopes and remain available in the Archived picker scope. The core session inventory is a non-archived main-session inventory: rows with `archived_at IS NOT NULL` or
 `is_subagent = 1` are excluded regardless of `include_ended`, so child rows belonging to archived parents are

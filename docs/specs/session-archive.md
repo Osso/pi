@@ -1,6 +1,6 @@
 Module boundary: first-party extension module (`packages/coding-agent/extensions/session-archive/`) plus core session-control-DB archive state and resume-picker behavior.
 
-Sessions archived through `/archive`, the resume picker, or `pi sessions archive` are stored as `.jsonl.zst` files and tracked in control-DB metadata. Resuming one restores plain `.jsonl` storage and active metadata. The resident Supervisor and Architect transcripts are metadata-archived but remain plain `.jsonl` because their live runtimes append to them. The first-party `/archive` command accepts no arguments and archives only the current persisted session. The resume picker archives the selected session with Ctrl+A. The separate `pi sessions archive` CLI command remains an age-based administrative bulk operation. `pi sessions truncate-tool-output` is a separate maintenance command that may rewrite session JSONL files; see [`session-tool-output.md`](session-tool-output.md).
+Sessions archived through `/archive`, the resume picker, or `pi sessions archive` are stored as `.jsonl.zst` files and tracked in control-DB metadata. Resuming one restores plain `.jsonl` storage and active metadata. The resident Supervisor and Architect transcripts are metadata-archived but remain plain `.jsonl` because their live runtimes append to them. The first-party `/archive` command accepts no arguments and archives only the current persisted session. The resume picker archives the selected session with Ctrl+A. The separate `pi sessions archive` CLI command remains an age-based administrative bulk operation. `pi sessions compress-archived [--dry-run]` is a one-time migration for older metadata-archived plain JSONL transcripts; it excludes live resident Supervisor and Architect transcripts and reports migrated, skipped, and failed sessions. `pi sessions truncate-tool-output` is a separate maintenance command that may rewrite session JSONL files; see [`session-tool-output.md`](session-tool-output.md).
 
 ## What it must do
 
@@ -32,6 +32,7 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 
 - [x] Provide `pi sessions archive [--older-than <days>]`, defaulting to 5 days, and report the archived count (`sessions-command.test.ts`).
 - [x] Archive only non-subagent sessions older than the supplied cutoff (`session-control-db.test.ts`).
+- [x] Provide `pi sessions compress-archived [--dry-run]` to migrate existing metadata-archived plain JSONL files while reporting results and excluding live resident transcripts.
 
 ## How it works
 
