@@ -12,6 +12,7 @@ Session lifecycle hooks let an extension observe and, at key points, cancel or r
 - [x] `session_shutdown` fires before a runtime is torn down with `reason` ∈ {quit, reload, new, resume, fork, restart} and a `targetSessionFile` when caused by session replacement (`agent-session-runtime-events.test.ts` and `2860-replaced-session-context.test.ts`).
 - [x] On a `new`/`resume` switch the ordering is `session_before_switch` → `session_shutdown` → `session_start` (`agent-session-runtime-events.test.ts`).
 - [x] Runtime-owned replacement, reload, relocation, restart, import, and quit transitions serialize so each installed runtime receives its own `session_shutdown` before context invalidation, including concurrent requests and deferred tool-result relocation (`agent-session-runtime-events.test.ts` and `suite/change-working-directory-tool.test.ts`).
+- [x] After shutdown delivery and before disposal, teardown removes a non-resident persisted session with no message entries unless the transition retains that same session file; startup also sweeps dead, fileless zero-message metadata rows. Live, resident, archived, message-bearing, and recovery-persisted sessions remain intact (`empty-session-cleanup.test.ts`, `suite/agent-session-runtime.test.ts`, and `suite/headless-pi.test.ts`).
 
 ### Resume continuation request
 
