@@ -4687,6 +4687,7 @@ describe("multi-agent extension tools", () => {
 			createChildSession: createProductionChildAgentSessionFactory({
 				agentDir: parentHarness.tempDir,
 				extensionFactories: [externalGoalExtension, probeExtension],
+				sessionDir: parentHarness.tempDir,
 				createSessionManager: SessionManager.create,
 				createSession: async (options) => {
 					const result = await createAgentSession({ ...options, authStorage: parentHarness.authStorage });
@@ -4706,6 +4707,7 @@ describe("multi-agent extension tools", () => {
 
 		expect(childSession?.getAllTools().some((tool) => tool.name === "manage_goal")).toBe(false);
 		expect(childSession?.getActiveToolNames()).not.toContain("manage_goal");
+		expect(childSession?.sessionManager.getSessionFile()).toContain(parentHarness.tempDir);
 		expect(manageGoalCallError).toBe("Tool is not active: manage_goal");
 	});
 
@@ -5389,6 +5391,7 @@ describe("multi-agent extension tools", () => {
 			createChildSession: createProductionChildAgentSessionFactory({
 				agentDir: parentHarness.tempDir,
 				extensionFactories: [firstPartyGoalExtension, captureFirstTurnSystemPrompt],
+				sessionDir: parentHarness.tempDir,
 				createSessionManager: SessionManager.create,
 				createSession: async (options) => {
 					const result = await createAgentSession({ ...options, authStorage: parentHarness.authStorage });
@@ -5407,6 +5410,7 @@ describe("multi-agent extension tools", () => {
 
 		expect(firstSystemPrompt).not.toContain("Long-running objective: Anchor first child turn");
 		expect(childSession?.sessionManager.getSessionGoalJson()).toBeUndefined();
+		expect(childSession?.sessionManager.getSessionFile()).toContain(parentHarness.tempDir);
 		expect(
 			childSession?.messages.filter((message) => message.role === "user").map((message) => getMessageText(message)),
 		).toEqual(["Anchor first child turn"]);
@@ -5452,6 +5456,7 @@ describe("multi-agent extension tools", () => {
 			createChildSession: createProductionChildAgentSessionFactory({
 				agentDir: parentHarness.tempDir,
 				extensionFactories: [firstPartyGoalExtension],
+				sessionDir: parentHarness.tempDir,
 				createSessionManager: SessionManager.create,
 				createSession: async (options) => {
 					const result = await createAgentSession({
@@ -5474,6 +5479,7 @@ describe("multi-agent extension tools", () => {
 
 		expect(childSession?.getAllTools().some((tool) => tool.name === "manage_goal")).toBe(false);
 		expect(childSession?.sessionManager.getSessionGoalJson()).toBeUndefined();
+		expect(childSession?.sessionManager.getSessionFile()).toContain(parentHarness.tempDir);
 		expect(parentHarness.session.getAllTools().some((tool) => tool.name === "manage_goal")).toBe(true);
 		expect(parentHarness.sessionManager.getSessionGoalJson()).toContain("parent objective");
 	});
