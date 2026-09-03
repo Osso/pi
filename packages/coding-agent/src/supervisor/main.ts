@@ -14,8 +14,8 @@ import { AuthStorage } from "../core/auth-storage.ts";
 import type { LoadExtensionsResult } from "../core/extensions/types.ts";
 import { ModelRegistry } from "../core/model-registry.ts";
 import { mergeProviderAttributionHeaders } from "../core/provider-attribution.ts";
-import { prepareResidentSessionFile } from "../core/resident-session.ts";
 import { ResidentConsoleServer, type ResidentConsoleSnapshot } from "../core/resident-console-transport.ts";
+import { prepareResidentSessionFile } from "../core/resident-session.ts";
 import { DefaultResourceLoader } from "../core/resource-loader.ts";
 import { createAgentSession } from "../core/sdk.ts";
 import {
