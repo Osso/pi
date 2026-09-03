@@ -179,6 +179,39 @@ describe("AgentSession model and extension characterization", () => {
 		).toEqual([]);
 	});
 
+	it("keeps global defaults unchanged for agent sessions while main sessions update them", async () => {
+		const settings = {
+			defaultModel: "initial-model",
+			defaultProvider: "initial-provider",
+			defaultThinkingLevel: "medium" as const,
+		};
+		const models = [
+			{ id: "faux-1", name: "One", reasoning: true },
+			{ id: "faux-2", name: "Two", reasoning: true },
+		];
+		const childHarness = await createHarness({ models, multiAgentAgentId: "agent_1", settings });
+		const mainHarness = await createHarness({ models, settings });
+		harnesses.push(childHarness, mainHarness);
+
+		const childModelOne = childHarness.getModel("faux-1")!;
+		const childModelTwo = childHarness.getModel("faux-2")!;
+		await childHarness.session.setModel(childModelTwo);
+		childHarness.session.setThinkingLevel("high");
+		childHarness.session.setScopedModels([{ model: childModelOne }, { model: childModelTwo }]);
+		await childHarness.session.cycleModel();
+
+		expect(childHarness.settingsManager.getDefaultProvider()).toBe("initial-provider");
+		expect(childHarness.settingsManager.getDefaultModel()).toBe("initial-model");
+		expect(childHarness.settingsManager.getDefaultThinkingLevel()).toBe("medium");
+
+		await mainHarness.session.setModel(mainHarness.getModel("faux-2")!);
+		mainHarness.session.setThinkingLevel("high");
+
+		expect(mainHarness.settingsManager.getDefaultProvider()).toBe("faux");
+		expect(mainHarness.settingsManager.getDefaultModel()).toBe("faux-2");
+		expect(mainHarness.settingsManager.getDefaultThinkingLevel()).toBe("high");
+	});
+
 	it("cycles through scoped models and preserves the scoped thinking preference", async () => {
 		const harness = await createHarness({
 			models: [

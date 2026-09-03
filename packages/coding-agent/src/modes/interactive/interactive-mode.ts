@@ -3490,19 +3490,26 @@ export class InteractiveMode {
 		}
 	}
 
-	private renderSelectedAgentView(): boolean {
+	private buildSelectedAgentFooterOverride() {
 		if (!this.childViewSessionManager) {
-			return false;
+			return undefined;
 		}
 
 		const sessionContext = this.childViewSessionManager.buildSessionContext();
 		const persistedSettings = this.childViewSessionManager.readPersistedSessionSettings();
 		const selectedAgent = this.childViewAgentId ? this.multiAgentStore?.getAgent(this.childViewAgentId) : undefined;
+		const target = interactiveSessionMutationTargetResolvers.get(this)?.();
+		const liveTarget = target && isInteractiveSessionMutationTarget(target) ? target : undefined;
+		const model =
+			liveTarget?.model ??
+			(sessionContext.model
+				? this.session.modelRegistry.find(sessionContext.model.provider, sessionContext.model.modelId)
+				: undefined);
 		const thinkingLevel =
-			persistedSettings?.thinkingLevel ?? selectedAgent?.model?.thinkingLevel ?? sessionContext.thinkingLevel;
-		const model = sessionContext.model
-			? this.session.modelRegistry.find(sessionContext.model.provider, sessionContext.model.modelId)
-			: undefined;
+			liveTarget?.thinkingLevel ??
+			persistedSettings?.thinkingLevel ??
+			selectedAgent?.model?.thinkingLevel ??
+			sessionContext.thinkingLevel;
 		const contextWindow = model?.contextWindow ?? 0;
 		const contextEstimate = estimateContextTokens(sessionContext.messages);
 		const contextUsage =
@@ -3513,15 +3520,33 @@ export class InteractiveMode {
 						percent: (contextEstimate.tokens / contextWindow) * 100,
 					}
 				: undefined;
-		const footerOverride = {
+		return {
 			cwd: this.childViewSessionManager.getCwd(),
 			sessionManager: this.childViewSessionManager,
 			model: model ?? null,
 			thinkingLevel,
 			contextUsage,
 		};
+	}
+
+	private refreshSelectedAgentFooterOverride(): void {
+		if (!this.childViewAgentId) {
+			return;
+		}
+		const footerOverride = InteractiveMode.prototype.buildSelectedAgentFooterOverride.call(this);
+		if (!footerOverride) {
+			return;
+		}
 		this.footer.setSessionOverride(footerOverride);
 		this.footerDataProvider.setSessionOverride(footerOverride);
+	}
+
+	private renderSelectedAgentView(): boolean {
+		if (!this.childViewSessionManager) {
+			return false;
+		}
+
+		InteractiveMode.prototype.refreshSelectedAgentFooterOverride.call(this);
 		this.chatContainer.clear();
 		InteractiveMode.prototype.renderSessionEntries.call(this, this.childViewSessionManager.buildContextEntries(), {
 			sourceCwd: this.childViewSessionManager.getCwd(),
@@ -5281,6 +5306,7 @@ export class InteractiveMode {
 				const msg = target.scopedModels.length > 0 ? "Only one model in scope" : "Only one model available";
 				this.showStatus(msg);
 			} else {
+				InteractiveMode.prototype.refreshSelectedAgentFooterOverride.call(this);
 				this.footer.invalidate();
 				this.updateEditorBorderColor();
 				const thinkingStr =
@@ -5802,6 +5828,7 @@ export class InteractiveMode {
 		if (model) {
 			try {
 				await this.resolveViewedSessionTarget().setModel(model);
+				InteractiveMode.prototype.refreshSelectedAgentFooterOverride.call(this);
 				this.footer.invalidate();
 				this.updateEditorBorderColor();
 				this.showStatus(`Model: ${model.id}`);
@@ -5991,6 +6018,7 @@ export class InteractiveMode {
 				async (model) => {
 					try {
 						await this.resolveViewedSessionTarget().setModel(model);
+						InteractiveMode.prototype.refreshSelectedAgentFooterOverride.call(this);
 						this.footer.invalidate();
 						this.updateEditorBorderColor();
 						done();

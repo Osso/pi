@@ -12,7 +12,12 @@ import {
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { type Component, Container, type Focusable, TUI } from "../../tui/src/tui.ts";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
-import type { AutocompleteProviderFactory, ExtensionUIContext, ToolDefinition } from "../src/core/extensions/types.ts";
+import type {
+	AutocompleteProviderFactory,
+	ExtensionUIContext,
+	SessionMutationTarget,
+	ToolDefinition,
+} from "../src/core/extensions/types.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
@@ -21,7 +26,10 @@ import { AgentSelectionBannerComponent } from "../src/modes/interactive/componen
 import type { ExtensionSelectorComponent } from "../src/modes/interactive/components/extension-selector.ts";
 import { ScopedModelsSelectorComponent } from "../src/modes/interactive/components/scoped-models-selector.ts";
 import { TreeSelectorComponent } from "../src/modes/interactive/components/tree-selector.ts";
-import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
+import {
+	bindInteractiveModeSessionMutationTargetResolver,
+	InteractiveMode,
+} from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
 import { createHarness } from "./suite/harness.ts";
@@ -2537,16 +2545,38 @@ describe("InteractiveMode selected-session model routing", () => {
 	beforeAll(() => initTheme("dark"));
 
 	test("routes an exact /model change to the viewed live child without changing main", async () => {
+		const initialModel = { id: "stale-model", name: "Stale Model", provider: "headless-faux", reasoning: true };
 		const model = { id: "child-model", name: "Child Model", provider: "headless-faux", reasoning: true };
+		let liveModel = initialModel;
 		const mainSetModel = vi.fn();
-		const childSetModel = vi.fn();
-		const childSession = { setModel: childSetModel };
+		const childSetModel = vi.fn(async (nextModel: typeof model) => {
+			liveModel = nextModel;
+		});
+		const childSession = {
+			get model() {
+				return liveModel;
+			},
+			thinkingLevel: "medium",
+			setModel: childSetModel,
+			setThinkingLevel: vi.fn(),
+			cycleModel: vi.fn(),
+			modelRegistry: { find: vi.fn() },
+			scopedModels: [],
+		};
+		const footer = { invalidate: vi.fn(), setSessionOverride: vi.fn() };
+		const footerDataProvider = { setSessionOverride: vi.fn() };
 		const fakeThis = {
 			childViewAgentId: "agent_1",
-			session: { setModel: mainSetModel },
+			childViewSessionManager: {
+				buildSessionContext: () => ({ messages: [], model: undefined, thinkingLevel: "off" }),
+				readPersistedSessionSettings: () => undefined,
+				getCwd: () => "/child",
+			},
+			session: { modelRegistry: { find: vi.fn() }, setModel: mainSetModel },
 			findExactModelMatch: vi.fn().mockResolvedValue(model),
 			resolveViewedSessionTarget: vi.fn().mockReturnValue(childSession),
-			footer: { invalidate: vi.fn() },
+			footer,
+			footerDataProvider,
 			updateEditorBorderColor: vi.fn(),
 			showStatus: vi.fn(),
 			showError: vi.fn(),
@@ -2554,11 +2584,21 @@ describe("InteractiveMode selected-session model routing", () => {
 			checkDaxnutsEasterEgg: vi.fn(),
 			showModelSelector: vi.fn(),
 		};
+		bindInteractiveModeSessionMutationTargetResolver(
+			fakeThis as unknown as InteractiveMode,
+			() => childSession as unknown as SessionMutationTarget,
+		);
 
 		await interactiveModeKeyHandlers.handleModelCommand.call(fakeThis, "headless-faux/child-model");
 
 		expect(childSetModel).toHaveBeenCalledWith(model);
 		expect(mainSetModel).not.toHaveBeenCalled();
+		expect(footer.setSessionOverride).toHaveBeenCalledWith(
+			expect.objectContaining({ model, thinkingLevel: "medium" }),
+		);
+		expect(footerDataProvider.setSessionOverride).toHaveBeenCalledWith(
+			expect.objectContaining({ model, thinkingLevel: "medium" }),
+		);
 	});
 
 	test("keeps /model on main when main is viewed", async () => {

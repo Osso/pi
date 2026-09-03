@@ -3681,24 +3681,29 @@ export class AgentSession {
 
 	/**
 	 * Set model directly.
-	 * Validates that auth is configured, saves to session and settings.
+	 * Validates that auth is configured and saves to the session.
 	 * @throws Error if no auth is configured for the model
 	 */
-	async setModel(model: Model<any>): Promise<void> {
+	async setModel(
+		model: Model<any>,
+		source: "set" | "cycle" = "set",
+		thinkingLevel = this._getThinkingLevelForModelSwitch(),
+	): Promise<void> {
 		if (!this._modelRegistry.hasConfiguredAuth(model)) {
 			throw new Error(`No API key for ${model.provider}/${model.id}`);
 		}
 
 		const previousModel = this.model;
-		const thinkingLevel = this._getThinkingLevelForModelSwitch();
 		this.agent.state.model = model;
 		this.sessionManager.setSessionModel(model.provider, model.id);
-		this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
+		if (this._multiAgentAgentId === undefined) {
+			this.settingsManager.setDefaultModelAndProvider(model.provider, model.id);
+		}
 
 		// Re-clamp thinking level for new model's capabilities
 		this.setThinkingLevel(thinkingLevel);
 
-		await this._emitModelSelect(model, previousModel, "set");
+		await this._emitModelSelect(model, previousModel, source);
 	}
 
 	/**
@@ -3755,18 +3760,7 @@ export class AgentSession {
 		const next = scopedModels[nextIndex];
 		const thinkingLevel = this._getThinkingLevelForModelSwitch(next.thinkingLevel);
 
-		// Apply model
-		this.agent.state.model = next.model;
-		this.sessionManager.setSessionModel(next.model.provider, next.model.id);
-		this.settingsManager.setDefaultModelAndProvider(next.model.provider, next.model.id);
-
-		// Apply thinking level.
-		// - Explicit scoped model thinking level overrides current session level
-		// - Undefined scoped model thinking level inherits the current session preference
-		// setThinkingLevel clamps to model capabilities.
-		this.setThinkingLevel(thinkingLevel);
-
-		await this._emitModelSelect(next.model, currentModel, "cycle");
+		await this.setModel(next.model, "cycle", thinkingLevel);
 
 		return { model: next.model, thinkingLevel: this.thinkingLevel, isScoped: true };
 	}
@@ -3792,7 +3786,7 @@ export class AgentSession {
 
 		if (isChanging) {
 			this.sessionManager.setSessionThinkingLevel(effectiveLevel);
-			if (this.supportsThinking() || effectiveLevel !== "off") {
+			if (this._multiAgentAgentId === undefined && (this.supportsThinking() || effectiveLevel !== "off")) {
 				this.settingsManager.setDefaultThinkingLevel(effectiveLevel);
 			}
 			this._emit({ type: "thinking_level_changed", level: effectiveLevel });
