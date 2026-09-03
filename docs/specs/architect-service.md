@@ -40,7 +40,7 @@ The resident Architect is a retained but temporarily disabled Sol advisor. Its i
 ### Service lifecycle
 
 - [x] Retain the installed Bun-compiled systemd template for optional Architect re-enable using `openai-codex/gpt-5.6-sol`; default deployment does not install or start it.
-- [x] Preserve a dedicated Architect session transcript across service restarts while reading normal shared Pi state; persist its metadata with `archived_at` set while retaining its plain `.jsonl` storage for live appends and excluding it from every resume-picker scope, including Archived.
+- [x] Preserve exactly one dedicated Architect session transcript across service restarts while reading normal shared Pi state; persist its metadata with `archived_at` set while retaining its plain `.jsonl` storage for live appends and excluding it from every resume-picker scope, including Archived. Opening the role prunes stale Architect transcripts and metadata before creating or reusing this sole runtime history.
 - [x] Install the compiled `pi` binary while default deployment disables and removes Architect and Supervisor user units on Linux, skips systemd configuration on Darwin, and leaves Supervisor to Pi-managed lazy startup.
 
 ## How it works

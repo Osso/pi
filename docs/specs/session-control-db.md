@@ -49,9 +49,10 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       branch, or new session), and entries that cannot change session metadata (custom entries,
       labels, compaction records) do not trigger a metadata write at all. Generic metadata
       snapshots never write `goal_json`; goal mutations use the dedicated goal writer so stale
-      snapshots cannot overwrite newer active, paused, or completed state. Resident Architect and
-      Supervisor transcripts omit accumulated message-search text from metadata because they are
-      archived service histories, not resume-picker search targets; this prevents unbounded shared-DB rewrites.
+      snapshots cannot overwrite newer active, paused, or completed state. Each resident Architect and
+      Supervisor role retains metadata for exactly one archived service-history transcript; opening a role
+      prunes stale resident transcript metadata. The retained histories omit accumulated message-search text
+      because they are not resume-picker search targets; this prevents unbounded shared-DB rewrites.
 - [x] Resume lists treat a nonempty `session_metadata` table as authoritative: Current Folder,
       All, and Archived return only non-resident main-session rows matching archive state, cwd, and
       configured session-directory scope; resident Supervisor and Architect histories are excluded from
