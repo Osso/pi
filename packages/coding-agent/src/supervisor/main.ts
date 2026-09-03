@@ -22,9 +22,9 @@ import {
 	claimNextSupervisorRequest,
 	completeSupervisorRequest,
 	getControlDbPath,
-	removeSessionMetadata,
 	readSupervisorRequest,
 	recoverSupervisorRequests,
+	removeSessionMetadata,
 	type SupervisorRequest,
 } from "../core/session-control-db.ts";
 import { type SessionEntry, SessionManager } from "../core/session-manager.ts";
