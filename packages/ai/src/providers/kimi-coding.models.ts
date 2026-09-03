@@ -4,44 +4,8 @@
 import type { Model } from "../types.ts";
 
 export const KIMI_CODING_MODELS = {
-	"k3": {
-		id: "k3",
-		name: "Kimi K3",
-		api: "anthropic-messages",
-		provider: "kimi-coding",
-		baseUrl: "https://api.kimi.com/coding",
-		headers: {"User-Agent":"KimiCLI/1.5"},
-		reasoning: true,
-		input: ["text", "image"],
-		cost: {
-			input: 0,
-			output: 0,
-			cacheRead: 0,
-			cacheWrite: 0,
-		},
-		contextWindow: 1048576,
-		maxTokens: 131072,
-	} satisfies Model<"anthropic-messages">,
-	"k3-256k": {
-		id: "k3-256k",
-		name: "Kimi K3-256K",
-		api: "anthropic-messages",
-		provider: "kimi-coding",
-		baseUrl: "https://api.kimi.com/coding",
-		headers: {"User-Agent":"KimiCLI/1.5"},
-		reasoning: true,
-		input: ["text", "image"],
-		cost: {
-			input: 0,
-			output: 0,
-			cacheRead: 0,
-			cacheWrite: 0,
-		},
-		contextWindow: 262144,
-		maxTokens: 131072,
-	} satisfies Model<"anthropic-messages">,
-	"kimi-for-coding": {
-		id: "kimi-for-coding",
+	"k2p7": {
+		id: "k2p7",
 		name: "Kimi K2.7 Code",
 		api: "anthropic-messages",
 		provider: "kimi-coding",
@@ -58,15 +22,33 @@ export const KIMI_CODING_MODELS = {
 		contextWindow: 262144,
 		maxTokens: 32768,
 	} satisfies Model<"anthropic-messages">,
-	"kimi-for-coding-highspeed": {
-		id: "kimi-for-coding-highspeed",
-		name: "Kimi For Coding HighSpeed",
+	"kimi-for-coding": {
+		id: "kimi-for-coding",
+		name: "Kimi For Coding",
 		api: "anthropic-messages",
 		provider: "kimi-coding",
 		baseUrl: "https://api.kimi.com/coding",
 		headers: {"User-Agent":"KimiCLI/1.5"},
 		reasoning: true,
 		input: ["text", "image"],
+		cost: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+		},
+		contextWindow: 262144,
+		maxTokens: 32768,
+	} satisfies Model<"anthropic-messages">,
+	"kimi-k2-thinking": {
+		id: "kimi-k2-thinking",
+		name: "Kimi K2 Thinking",
+		api: "anthropic-messages",
+		provider: "kimi-coding",
+		baseUrl: "https://api.kimi.com/coding",
+		headers: {"User-Agent":"KimiCLI/1.5"},
+		reasoning: true,
+		input: ["text"],
 		cost: {
 			input: 0,
 			output: 0,
