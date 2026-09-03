@@ -229,15 +229,16 @@ export async function loadOpenRouterCatalogAtStartup(
 	const now = options.now ?? (() => new Date());
 	const cachePath = join(getUserCacheRoot(), "models", "openrouter.json");
 	const cachedCatalog = await readCachedCatalog(cachePath);
+	const cachedCount = cachedCatalog?.models.length ?? 0;
 	if (isCacheFresh(cachedCatalog, now())) {
 		return buildResult(mergeWithBundledModels(cachedCatalog.models), "cache", cachePath, {
 			fetched: 0,
-			cached: cachedCatalog.models.length,
+			cached: cachedCount,
 		});
 	}
 	return buildResult(mergeWithBundledModels([]), "bundled", cachePath, {
 		fetched: 0,
-		cached: cachedCatalog?.models.length ?? 0,
+		cached: cachedCount,
 	});
 }
 
