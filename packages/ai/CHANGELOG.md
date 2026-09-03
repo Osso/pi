@@ -40,6 +40,7 @@
 
 ### Added
 
+- Added GPT-6 Astra to the `openai-codex` and `openai-codex-gc` model catalogs with 922,000-token effective input context and supported reasoning efforts.
 - Added optional persisted `ToolCall.execution.agentId` metadata for application-owned durable tool execution identity; provider adapters ignore it.
 - Added GPT-5.6 Sol `max` and `ultra` effort metadata; both serialize as provider maximum reasoning effort (`reasoning.effort: "max"`). Coding-agent layers proactive delegation onto `ultra`; the Codex adapter does not send Responses multi-agent beta fields or headers.
 - Added `AssistantMessage.imageGenerationResult` and OpenAI Responses parsing for completed hosted `image_generation_call` results as PNG image content.

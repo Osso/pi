@@ -40,22 +40,4 @@ export const CEREBRAS_MODELS = {
 		contextWindow: 131072,
 		maxTokens: 40960,
 	} satisfies Model<"openai-completions">,
-	"zai-glm-4.7": {
-		id: "zai-glm-4.7",
-		name: "Z.AI GLM-4.7",
-		api: "openai-completions",
-		provider: "cerebras",
-		baseUrl: "https://api.cerebras.ai/v1",
-		compat: {"supportsStore":false,"supportsDeveloperRole":false},
-		reasoning: true,
-		input: ["text"],
-		cost: {
-			input: 2.25,
-			output: 2.75,
-			cacheRead: 0,
-			cacheWrite: 0,
-		},
-		contextWindow: 131072,
-		maxTokens: 40960,
-	} satisfies Model<"openai-completions">,
 } as const;

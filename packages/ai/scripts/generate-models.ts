@@ -249,7 +249,8 @@ function supportsOpenAiXhigh(modelId: string): boolean {
 		modelId.includes("gpt-5.3") ||
 		modelId.includes("gpt-5.4") ||
 		modelId.includes("gpt-5.5") ||
-		modelId.includes("gpt-5.6")
+		modelId.includes("gpt-5.6") ||
+		modelId.includes("gpt-6")
 	);
 }
 
@@ -512,6 +513,12 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 		model.id === "gpt-5.6-sol"
 	) {
 		mergeThinkingLevelMap(model, { max: "max", ultra: "max" });
+	}
+	if (
+		(model.provider === "openai-codex" || model.provider === "openai-codex-gc") &&
+		model.id === "gpt-6-astra"
+	) {
+		mergeThinkingLevelMap(model, { off: null, max: "max" });
 	}
 	if (
 		(model.provider === "moonshotai" || model.provider === "moonshotai-cn") &&
@@ -1812,6 +1819,7 @@ async function generateModels() {
 	const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 	const CODEX_CONTEXT = 272000;
 	const CODEX_5_6_CONTEXT = 372000;
+	const CODEX_ASTRA_CONTEXT = 922000;
 	const CODEX_SPARK_CONTEXT = 128000;
 	const CODEX_MAX_TOKENS = 128000;
 	const codexModels: Model<"openai-codex-responses">[] = [
@@ -1898,6 +1906,18 @@ async function generateModels() {
 			cost: { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 },
 			contextWindow: CODEX_5_6_CONTEXT,
 			autoCompactionThreshold: 272000,
+			maxTokens: CODEX_MAX_TOKENS,
+		},
+		{
+			id: "gpt-6-astra",
+			name: "GPT-6 Astra",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: CODEX_BASE_URL,
+			reasoning: true,
+			input: ["text", "image"],
+			cost: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
+			contextWindow: CODEX_ASTRA_CONTEXT,
 			maxTokens: CODEX_MAX_TOKENS,
 		},
 	];

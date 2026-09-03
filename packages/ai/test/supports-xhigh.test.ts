@@ -45,6 +45,17 @@ describe("getSupportedThinkingLevels", () => {
 		expect(getSupportedThinkingLevels(model!)).toEqual(expect.arrayContaining(["max", "ultra"]));
 	});
 
+	it("registers GPT-6 Astra with its supported reasoning efforts", () => {
+		const model = getModel("openai-codex", "gpt-6-astra");
+		expect(model).toMatchObject({
+			name: "GPT-6 Astra",
+			contextWindow: 922000,
+			maxTokens: 128000,
+			input: ["text", "image"],
+		});
+		expect(getSupportedThinkingLevels(model!)).toEqual(["minimal", "low", "medium", "high", "xhigh", "max"]);
+	});
+
 	it("includes only medium/high/xhigh for OpenAI GPT-5.5 Pro", () => {
 		const model = getModel("openai", "gpt-5.5-pro");
 		expect(model).toBeDefined();
