@@ -91,6 +91,40 @@ describe("session picker selection", () => {
 		expect(archivedSessions?.find((session) => session.path === older.path)?.name).toBe("Older named");
 	});
 
+	it("hides archived resident Supervisor and Architect sessions", async () => {
+		const ordinary = {
+			path: "/sessions/ordinary.jsonl",
+			id: "ordinary",
+			modified: new Date("2026-07-29T02:00:00Z"),
+			isArchived: true,
+		};
+		const supervisor = {
+			path: "/agent/supervisor-sessions/supervisor.jsonl",
+			id: "supervisor",
+			modified: new Date("2026-07-29T03:00:00Z"),
+			isArchived: true,
+		};
+		const architect = {
+			path: "/agent/architect-sessions/architect.jsonl",
+			id: "architect",
+			modified: new Date("2026-07-29T04:00:00Z"),
+			isArchived: true,
+		};
+
+		void selectSession(
+			async () => [],
+			async () => [],
+			{} as never,
+			"/control.sqlite",
+			async () => [ordinary, supervisor, architect] as never,
+		);
+		await Promise.resolve();
+
+		const archivedSessions = await pickerMocks.archivedSessionsLoader?.();
+
+		expect(archivedSessions?.map((session) => session.path)).toEqual([ordinary.path]);
+	});
+
 	it("keeps the picker open when validating the selected session fails", async () => {
 		let rejectSelection = true;
 		const selection = selectSession(

@@ -71,6 +71,14 @@ export async function selectSession(
 	});
 }
 
+function isResidentSession(session: Pick<SessionInfo, "id" | "path">): boolean {
+	return (
+		session.id === "supervisor" ||
+		session.id === "architect" ||
+		/(?:^|[\\/])(?:supervisor-sessions|architect-sessions)(?:[\\/]|$)/.test(session.path)
+	);
+}
+
 async function loadSessions(
 	loader: SessionsLoader,
 	onProgress?: SessionListProgress,
@@ -78,6 +86,7 @@ async function loadSessions(
 ): Promise<SessionInfo[]> {
 	const sessions = await loader(onProgress);
 	return sessions
+		.filter((session) => !isResidentSession(session))
 		.filter((session) => (archived ? session.isArchived : !session.isArchived))
 		.sort((a, b) => {
 			const aNamed = Boolean(a.name?.trim());
