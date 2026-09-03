@@ -8,11 +8,11 @@ The coding agent supplements its bundled OpenRouter catalog with recently listed
 
 - [x] The cache file is `$XDG_CACHE_HOME/pi/models/openrouter.json`, defaulting to `~/.cache/pi/models/openrouter.json`.
 - [x] The cache stores an ISO `fetchedAt` timestamp and normalized `Model<Api>[]` entries.
-- [ ] Normal startup uses and merges a cache younger than seven days without a network request.
-- [ ] Normal startup uses bundled models when the cache is missing or at least seven days old.
-- [ ] Only `pi --refresh-models` requests the OpenRouter catalog; no normal CLI startup path sends that request.
-- [ ] The `--refresh-models` request is aborted after approximately five seconds.
-- [ ] Cache write failures do not fail `--refresh-models` or discard a successfully fetched in-memory catalog.
+- [x] Normal startup uses and merges a cache younger than seven days without a network request.
+- [x] Normal startup uses bundled models when the cache is missing or at least seven days old.
+- [x] Only `pi --refresh-models` requests the OpenRouter catalog; no normal CLI startup path sends that request.
+- [x] The `--refresh-models` request is aborted after approximately five seconds.
+- [x] Cache write failures do not fail `--refresh-models` or discard a successfully fetched in-memory catalog.
 
 ### Catalog contents
 
@@ -20,16 +20,16 @@ The coding agent supplements its bundled OpenRouter catalog with recently listed
 - [x] Runtime entries use the same base model metadata mapping as the generated OpenRouter catalog.
 - [x] Refreshed models only add IDs missing from the bundled catalog.
 - [x] Bundled entries win ID collisions so generated compatibility and thinking metadata remain authoritative.
-- [ ] Failed `--refresh-models` requests, timeouts, and invalid payloads fall back silently to bundled models alone; the existing cache file is left untouched for a later successful refresh.
-- [ ] Corrupt but parseable cache data and HTTP error responses receive the same silent fallback behavior.
-- [ ] `ModelRegistry` loading remains synchronous and consumes the memoized cached-or-bundled OpenRouter catalog during normal startup.
+- [x] Failed `--refresh-models` requests, timeouts, and invalid payloads fall back silently to bundled models alone; the existing cache file is left untouched for a later successful refresh.
+- [x] Corrupt but parseable cache data and HTTP error responses receive the same silent fallback behavior.
+- [x] `ModelRegistry` loading remains synchronous and consumes the memoized cached-or-bundled OpenRouter catalog during normal startup.
 
 ### CLI behavior
 
-- [ ] Print, interactive, model-listing, RPC, Architect, and Supervisor startup paths use only a fresh cache or bundled models before creating a model registry; they never wait for an OpenRouter catalog request.
-- [ ] `--refresh-models` is the only catalog refresh operation, bypasses the seven-day freshness check, and requires no authentication.
-- [ ] `--refresh-models` prints fetched, cached, bundled, and cache-path summary information before exiting successfully.
-- [ ] Offline startup reads and merges an available fresh cache without performing a network request.
+- [x] Print, interactive, model-listing, RPC, Architect, and Supervisor startup paths use only a fresh cache or bundled models before creating a model registry; they never wait for an OpenRouter catalog request.
+- [x] `--refresh-models` is the only catalog refresh operation, bypasses the seven-day freshness check, and requires no authentication.
+- [x] `--refresh-models` prints fetched, cached, bundled, and cache-path summary information before exiting successfully.
+- [x] Offline startup reads and merges an available fresh cache without performing a network request.
 
 ## How it works
 
@@ -49,7 +49,7 @@ The coding agent supplements its bundled OpenRouter catalog with recently listed
 
 ## Known gaps (current cycle)
 
-- [ ] Update `packages/coding-agent/test/model-catalog-cache.test.ts` for no-network normal startup and explicit-only refresh behavior.
+None. `packages/coding-agent/test/model-catalog-cache.test.ts` covers no-network normal startup and explicit-only refresh behavior.
 
 ## Out of scope
 
