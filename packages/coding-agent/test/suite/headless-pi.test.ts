@@ -21,6 +21,7 @@ import { isProcessIdentityAlive, type ProcessIdentity, readProcessIdentity } fro
 import {
 	getControlDbPath,
 	postSharedChannelMessage,
+	readSessionMetadata,
 	readMultiAgentRuntimeOwnership,
 	readRuntimeMailboxListener,
 	readSharedChannelCursor,
@@ -281,6 +282,25 @@ async function selectHeadlessView(
 }
 
 describe("headless Pi fixture", () => {
+	it("removes an abandoned zero-message session when Pi disposes", async () => {
+		let agentDir = "";
+		let sessionFile = "";
+		try {
+			await withHeadlessPi(
+				async (agent) => {
+					agentDir = agent.paths.agentDir;
+					sessionFile = agent.sessionFile;
+					expect(readSessionMetadata(getControlDbPath(agentDir), sessionFile)?.messageCount).toBe(0);
+				},
+				{ retainTempDirOnDispose: true },
+			);
+
+			expect(readSessionMetadata(getControlDbPath(agentDir), sessionFile)).toBeUndefined();
+			expect(existsSync(sessionFile)).toBe(false);
+		} finally {
+			rmSync(dirname(agentDir), { recursive: true, force: true });
+		}
+	});
 	it("does not throw when a provider socket emits an expected ECONNRESET teardown error", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-headless-provider-error-"));
 		const socketPath = join(tempDir, "provider.sock");

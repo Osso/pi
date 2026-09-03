@@ -71,6 +71,7 @@ import { type AgentSessionRuntimeDiagnostic, createAgentSessionServices } from "
 import { formatNoModelsAvailableMessage } from "./core/auth-guidance.ts";
 import { AuthStorage } from "./core/auth-storage.ts";
 import { DebugReplServer } from "./core/debug-repl.ts";
+import { sweepAbandonedEmptySessions } from "./core/empty-session-cleanup.ts";
 import { exportFromFile } from "./core/export-html/index.ts";
 import type { ExtensionFactory } from "./core/extensions/types.ts";
 import { importExternalSessionAlias, isExternalSessionAlias } from "./core/external-session-importer.ts";
@@ -919,6 +920,7 @@ export async function main(args: string[], options?: MainOptions) {
 		(envSessionDir ? expandTildePath(envSessionDir) : undefined) ??
 		startupSettingsManager.getSessionDir();
 	const controlDbPath = getControlDbPath();
+	sweepAbandonedEmptySessions(controlDbPath);
 	let sessionManager = await createSessionManager(parsed, cwd, sessionDir, startupSettingsManager, controlDbPath);
 	sessionManager.setMetadataControlDbPath(controlDbPath);
 	const missingSessionCwdIssue = getMissingSessionCwdIssue(sessionManager, cwd);

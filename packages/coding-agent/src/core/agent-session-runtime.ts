@@ -15,6 +15,7 @@ import type { CreateAgentSessionResult } from "./sdk.ts";
 export { SessionImportFileNotFoundError } from "./session-errors.ts";
 
 import { runDetachedJobArtifactCleanup } from "./detached-job-cleanup.ts";
+import { removeAbandonedEmptySession } from "./empty-session-cleanup.ts";
 import { type ProcessRestarter, restartCurrentProcess } from "./self-restart.ts";
 import { restoreArchivedSession } from "./session-archive-storage.ts";
 import { assertMainSessionRuntimeAvailable, removeSessionMetadata } from "./session-control-db.ts";
@@ -210,6 +211,7 @@ export class AgentSessionRuntime {
 			targetSessionFile,
 		});
 		this.beforeSessionInvalidate?.();
+		removeAbandonedEmptySession(session.sessionManager, targetSessionFile);
 		session.dispose();
 	}
 

@@ -81,6 +81,7 @@ export interface HeadlessPiOptions {
 	model?: string | false;
 	provider?: "headless-faux" | "openai-codex";
 	sandboxProfile?: SandboxProfileName;
+	retainTempDirOnDispose?: boolean;
 }
 
 export interface HeadlessRpcExtensionError {
@@ -1026,7 +1027,11 @@ function createHeadlessRuntime(options: {
 						destroyProviderSocket: () => options.provider.getSocket()?.destroy(),
 						closeProviderServer: () => closeServer(options.provider.server),
 						closeSupervisorProbe: () => options.supervisorProbe.close(),
-						removeTempDir: () => rmSync(options.paths.tempDir, { recursive: true, force: true }),
+						removeTempDir: () => {
+							if (!options.fixtureOptions.retainTempDirOnDispose) {
+								rmSync(options.paths.tempDir, { recursive: true, force: true });
+							}
+						},
 					}),
 			);
 		},

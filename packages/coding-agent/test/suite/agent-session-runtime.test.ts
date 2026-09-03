@@ -14,6 +14,7 @@ import {
 import { AuthStorage } from "../../src/core/auth-storage.ts";
 import {
 	getControlDbPath,
+	listActiveSessionMetadata,
 	listRuntimeMailboxListeners,
 	readSessionHealth,
 	readSessionMetadata,
@@ -455,11 +456,18 @@ describe("AgentSessionRuntime characterization", () => {
 
 		await runtime.session.prompt("hello");
 		const originalSessionFile = runtime.session.sessionFile;
+		const controlDbPath = getControlDbPath(tempDir);
+		const sessionPathsBeforeCancellation = listActiveSessionMetadata(controlDbPath).map(
+			(session) => session.sessionPath,
+		);
 
 		cancelReason = "new";
 		const newResult = await runtime.newSession();
 		expect(newResult.cancelled).toBe(true);
 		expect(runtime.session.sessionFile).toBe(originalSessionFile);
+		expect(listActiveSessionMetadata(controlDbPath).map((session) => session.sessionPath)).toEqual(
+			sessionPathsBeforeCancellation,
+		);
 
 		events.length = 0;
 		const otherDir = join(tempDir, "other");
@@ -471,6 +479,23 @@ describe("AgentSessionRuntime characterization", () => {
 		const resumeResult = await runtime.switchSession(otherSessionFile!);
 		expect(resumeResult.cancelled).toBe(true);
 		expect(runtime.session.sessionFile).toBe(originalSessionFile);
+	});
+
+	it("removes an abandoned zero-message fork session on dispose", async () => {
+		const { runtime, tempDir } = await createRuntimeForTest(() => {});
+		await runtime.session.prompt("hello");
+		const userMessage = runtime.session.getUserMessagesForForking()[0];
+		if (!userMessage) throw new Error("Missing user message");
+
+		await runtime.fork(userMessage.entryId);
+		const forkSessionFile = runtime.session.sessionFile;
+		if (!forkSessionFile) throw new Error("Missing fork session file");
+		expect(readSessionMetadata(getControlDbPath(tempDir), forkSessionFile)?.messageCount).toBe(0);
+
+		await runtime.dispose();
+
+		expect(readSessionMetadata(getControlDbPath(tempDir), forkSessionFile)).toBeUndefined();
+		expect(existsSync(forkSessionFile)).toBe(false);
 	});
 
 	it("emits session_before_fork and session_start and honors cancellation", async () => {
