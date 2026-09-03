@@ -47,6 +47,8 @@ Use `/trust` in interactive mode to save a project trust decision for future ses
 }
 ```
 
+`defaultProvider`, `defaultModel`, and `defaultThinkingLevel` initialize new sessions only. `/model` and `/effort` persist to the current session without rewriting these settings. When a running subagent is selected, they persist only to that child session.
+
 `defaultThinkingLevel` controls reasoning only; delegation mode is not a global settings value. Sessions start in proactive mode, `/multi-agent explicit` changes the current session branch to explicit mode, and the selected delegation mode is restored on reload and branch navigation.
 
 `defaultCodexFastMode` accepts exactly `"off"`, `"priority"`, or `"ultrafast"`; omission and `"off"` disable fast mode. The merged global/project setting is only a fallback when the session branch has no valid persisted `codex-fast-mode` entry. A persisted explicit off or tier wins, and merely opening a session does not persist the configured default.

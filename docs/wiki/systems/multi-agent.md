@@ -336,6 +336,9 @@ Rules:
 - The repository reads current state transactionally and the viewer refreshes from committed projections.
 - Slot order is stable while an agent exists. Pinned slots survive refreshes. Unpinned slots may be
   recomputed from core snapshots, but never from rendered row order alone.
+- For a selected running child, `/model`, its selector, model cycling, and `/effort` mutate that
+  child `AgentSession`. The footer refreshes immediately from the child model and thinking state.
+  These session mutations never rewrite global or project `settings.json` defaults.
 
 ### Persistence
 

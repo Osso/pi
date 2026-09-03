@@ -36,7 +36,7 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | Command | Description |
 |---------|-------------|
 | `/login`, `/logout` | Manage OAuth or API-key credentials |
-| `/model` | Switch models |
+| `/model` | Switch models for the currently viewed live session |
 | `/scoped-models` | Enable/disable models for Ctrl+P cycling |
 | `/settings` | Thinking level, theme, message delivery, transport |
 | `/sandbox [<profile> <scope>]` | Select or set `read-only`, `workspace-write`, `full-access`, or session `inherit` for `session`, `project`, or `global` scope |
@@ -63,6 +63,8 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/hotkeys` | Show all keyboard shortcuts |
 | `/changelog` | Display version history |
 | `/quit` | Quit pi |
+
+When a running subagent is selected with `/agents`, `/model`, its selector, and Ctrl+P model cycling change that child session only. The footer updates immediately with the child's model and thinking level. Model and thinking changes persist to the selected session; they never rewrite `settings.json` defaults.
 
 After enabling `/debug`, attach from another terminal:
 
