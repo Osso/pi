@@ -30,6 +30,7 @@ import {
 	createCustomMessage,
 } from "./messages.ts";
 import type { SandboxProfileName } from "./permissions/presets.ts";
+import { isResidentSession } from "./resident-session.ts";
 import { isArchivedSessionFile } from "./session-archive-storage.ts";
 import {
 	clearSessionSandboxProfile as clearPersistedSessionSandboxProfile,
@@ -1166,14 +1167,15 @@ function sessionInfoFromMetadata(metadata: SessionMetadata): SessionInfo {
 }
 
 function excludeKnownSubagentSessions(controlDbPath: string | undefined, sessions: SessionInfo[]): SessionInfo[] {
-	if (!controlDbPath) return sessions;
+	const nonResidentSessions = sessions.filter((session) => !isResidentSession(session));
+	if (!controlDbPath) return nonResidentSessions;
 	const subagentSessionPaths = new Set(
 		listSessionMetadata(controlDbPath)
 			.filter((metadata) => metadata.isSubagent)
 			.map((metadata) => normalizePath(metadata.sessionPath)),
 	);
-	if (subagentSessionPaths.size === 0) return sessions;
-	return sessions.filter((session) => !subagentSessionPaths.has(normalizePath(session.path)));
+	if (subagentSessionPaths.size === 0) return nonResidentSessions;
+	return nonResidentSessions.filter((session) => !subagentSessionPaths.has(normalizePath(session.path)));
 }
 
 function cacheSessionMetadata(controlDbPath: string | undefined, sessions: SessionInfo[]): void {
@@ -1195,7 +1197,9 @@ function listMetadataSessions(
 		archived: options.archived,
 		cwd: resolvedCwd,
 		sessionPathPrefix,
-	})?.map(sessionInfoFromMetadata);
+	})
+		?.map(sessionInfoFromMetadata)
+		.filter((session) => !isResidentSession(session));
 }
 
 async function listDefaultSessionRoot(progress: SessionListProgress | undefined): Promise<SessionInfo[]> {

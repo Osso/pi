@@ -614,6 +614,65 @@ describe("SessionManager custom flat session directory", () => {
 		}
 	});
 
+	it("excludes resident sessions from every sqlite-backed resume scope by canonical ID or resident path", async () => {
+		const controlDbPath = getControlDbPath(tempDir);
+		const currentOrdinary = join(tempDir, "current-ordinary.jsonl");
+		const allOrdinary = join(tempDir, "all-ordinary.jsonl");
+		const archivedOrdinary = join(tempDir, "archived-ordinary.jsonl");
+		const residentSessions = [
+			{ sessionPath: join(tempDir, "id-supervisor.jsonl"), id: "supervisor", cwd: projectA, archived: false },
+			{
+				sessionPath: join(tempDir, "architect-sessions", "path-architect.jsonl"),
+				id: "ordinary",
+				cwd: projectA,
+				archived: false,
+			},
+			{ sessionPath: join(tempDir, "id-architect.jsonl"), id: "architect", cwd: projectB, archived: false },
+			{
+				sessionPath: join(tempDir, "supervisor-sessions", "path-supervisor.jsonl"),
+				id: "ordinary",
+				cwd: projectB,
+				archived: false,
+			},
+			{
+				sessionPath: join(tempDir, "archived-id-supervisor.jsonl"),
+				id: "supervisor",
+				cwd: projectA,
+				archived: true,
+			},
+			{
+				sessionPath: join(tempDir, "architect-sessions", "archived-path-architect.jsonl"),
+				id: "ordinary",
+				cwd: projectB,
+				archived: true,
+			},
+		] as const;
+		for (const session of [
+			{ sessionPath: currentOrdinary, id: "current-ordinary", cwd: projectA, archived: false },
+			{ sessionPath: allOrdinary, id: "all-ordinary", cwd: projectB, archived: false },
+			{ sessionPath: archivedOrdinary, id: "archived-ordinary", cwd: projectA, archived: true },
+			...residentSessions,
+		]) {
+			writeSessionMetadata(controlDbPath, {
+				...session,
+				createdAt: "2026-09-03T00:00:00.000Z",
+				modifiedAt: "2026-09-03T00:00:00.000Z",
+				messageCount: 1,
+				firstMessage: session.id,
+				allMessagesText: session.id,
+			});
+			if (session.archived) archiveSession(controlDbPath, session.sessionPath);
+		}
+
+		const current = await SessionManager.list(projectA, tempDir, undefined, controlDbPath);
+		const all = await SessionManager.listAll(tempDir, undefined, controlDbPath);
+		const archived = await SessionManager.listArchived(tempDir, undefined, controlDbPath);
+
+		expect(current.map((session) => session.path)).toEqual([currentOrdinary]);
+		expect(new Set(all.map((session) => session.path))).toEqual(new Set([currentOrdinary, allOrdinary]));
+		expect(archived.map((session) => session.path)).toEqual([archivedOrdinary]);
+	});
+
 	it("treats nonempty sqlite metadata as authoritative instead of scanning transcripts", async () => {
 		const controlDbPath = getControlDbPath(tempDir);
 		const mainSession = createPersistedSession(projectA, "unindexed main prompt");

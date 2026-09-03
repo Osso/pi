@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import agentsMailboxExtension from "../../extensions/agents-mailbox/src/index.ts";
 import bwrapExtension from "../../extensions/bwrap/src/index.ts";
@@ -7,9 +7,10 @@ import type { AgentSessionEvent } from "../core/agent-session.ts";
 import { AuthStorage } from "../core/auth-storage.ts";
 import { ModelRegistry } from "../core/model-registry.ts";
 import { MultiAgentStore } from "../core/multi-agent-store.ts";
+import { prepareResidentSessionFile } from "../core/resident-session.ts";
 import { ResidentConsoleServer, type ResidentConsoleSnapshot } from "../core/resident-console-transport.ts";
 import { createAgentSession } from "../core/sdk.ts";
-import { archiveSession, getControlDbPath, removeSessionMetadata } from "../core/session-control-db.ts";
+import { archiveSession, getControlDbPath } from "../core/session-control-db.ts";
 import { type SessionEntry, SessionManager } from "../core/session-manager.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
 import { SUPERVISOR_ONLY_TOOL_NAMES } from "../core/tool-capabilities.ts";
@@ -223,29 +224,7 @@ export function openArchitectSession(
 	cwd: string,
 	controlDbPath = getControlDbPath(),
 ): SessionManager {
-	const sessionDir = join(agentDir, "architect-sessions");
-	mkdirSync(sessionDir, { recursive: true });
-	const sessionFiles = readdirSync(sessionDir, { withFileTypes: true })
-		.filter(
-			(entry) =>
-				entry.isFile() &&
-				(entry.name === `${ARCHITECT_SESSION_ID}.jsonl` || entry.name.endsWith(`_${ARCHITECT_SESSION_ID}.jsonl`)),
-		)
-		.map((entry) => entry.name);
-	const existingSessionFile = sessionFiles
-		.filter((file) => file.endsWith(`_${ARCHITECT_SESSION_ID}.jsonl`))
-		.sort()
-		.at(-1);
-	const retainedSessionFile = existingSessionFile ?? `${ARCHITECT_SESSION_ID}.jsonl`;
-	for (const sessionFile of sessionFiles) {
-		if (sessionFile === retainedSessionFile) continue;
-		const stalePath = join(sessionDir, sessionFile);
-		removeSessionMetadata(controlDbPath, stalePath);
-		unlinkSync(stalePath);
-	}
-	const sessionPath = existingSessionFile
-		? join(sessionDir, existingSessionFile)
-		: join(sessionDir, `${ARCHITECT_SESSION_ID}.jsonl`);
+	const { sessionDir, sessionPath } = prepareResidentSessionFile(agentDir, ARCHITECT_SESSION_ID, controlDbPath);
 	return existsSync(sessionPath)
 		? SessionManager.open(sessionPath, sessionDir, cwd)
 		: SessionManager.create(cwd, sessionDir, { id: ARCHITECT_SESSION_ID });

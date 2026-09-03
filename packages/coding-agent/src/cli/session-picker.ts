@@ -5,6 +5,7 @@
 import { setKeybindings } from "@earendil-works/pi-tui";
 import { KeybindingsManager } from "../core/keybindings.ts";
 import type { SessionInfo, SessionListProgress } from "../core/session-manager.ts";
+import { isResidentSession } from "../core/resident-session.ts";
 import type { SettingsManager } from "../core/settings-manager.ts";
 import { SessionSelectorComponent } from "../modes/interactive/components/session-selector.ts";
 import { createStartupTui, startStartupTui } from "./startup-ui.ts";
@@ -69,14 +70,6 @@ export async function selectSession(
 		ui.setFocus(selector.getSessionList());
 		startStartupTui(ui, settingsManager);
 	});
-}
-
-function isResidentSession(session: Pick<SessionInfo, "id" | "path">): boolean {
-	return (
-		session.id === "supervisor" ||
-		session.id === "architect" ||
-		/(?:^|[\\/])(?:supervisor-sessions|architect-sessions)(?:[\\/]|$)/.test(session.path)
-	);
 }
 
 async function loadSessions(

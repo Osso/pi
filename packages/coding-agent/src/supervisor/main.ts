@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, realpathSync, unlinkSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import {
 	type Api,
@@ -14,6 +14,7 @@ import { AuthStorage } from "../core/auth-storage.ts";
 import type { LoadExtensionsResult } from "../core/extensions/types.ts";
 import { ModelRegistry } from "../core/model-registry.ts";
 import { mergeProviderAttributionHeaders } from "../core/provider-attribution.ts";
+import { prepareResidentSessionFile } from "../core/resident-session.ts";
 import { ResidentConsoleServer, type ResidentConsoleSnapshot } from "../core/resident-console-transport.ts";
 import { DefaultResourceLoader } from "../core/resource-loader.ts";
 import { createAgentSession } from "../core/sdk.ts";
@@ -24,7 +25,6 @@ import {
 	getControlDbPath,
 	readSupervisorRequest,
 	recoverSupervisorRequests,
-	removeSessionMetadata,
 	type SupervisorRequest,
 } from "../core/session-control-db.ts";
 import { type SessionEntry, SessionManager } from "../core/session-manager.ts";
@@ -335,29 +335,7 @@ export function openSupervisorSession(
 	kbDir: string,
 	controlDbPath = getControlDbPath(),
 ): SessionManager {
-	const sessionDir = join(agentDir, "supervisor-sessions");
-	mkdirSync(sessionDir, { recursive: true });
-	const sessionFiles = readdirSync(sessionDir, { withFileTypes: true })
-		.filter(
-			(entry) =>
-				entry.isFile() &&
-				(entry.name === `${SUPERVISOR_SESSION_ID}.jsonl` || entry.name.endsWith(`_${SUPERVISOR_SESSION_ID}.jsonl`)),
-		)
-		.map((entry) => entry.name);
-	const existingSessionFile = sessionFiles
-		.filter((file) => file.endsWith(`_${SUPERVISOR_SESSION_ID}.jsonl`))
-		.sort()
-		.at(-1);
-	const retainedSessionFile = existingSessionFile ?? `${SUPERVISOR_SESSION_ID}.jsonl`;
-	for (const sessionFile of sessionFiles) {
-		if (sessionFile === retainedSessionFile) continue;
-		const stalePath = join(sessionDir, sessionFile);
-		removeSessionMetadata(controlDbPath, stalePath);
-		unlinkSync(stalePath);
-	}
-	const sessionPath = existingSessionFile
-		? join(sessionDir, existingSessionFile)
-		: join(sessionDir, `${SUPERVISOR_SESSION_ID}.jsonl`);
+	const { sessionDir, sessionPath } = prepareResidentSessionFile(agentDir, SUPERVISOR_SESSION_ID, controlDbPath);
 	const sessionManager = existsSync(sessionPath)
 		? SessionManager.open(sessionPath, sessionDir, kbDir)
 		: SessionManager.create(kbDir, sessionDir, { id: SUPERVISOR_SESSION_ID });

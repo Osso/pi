@@ -33,7 +33,12 @@ import {
 import { readProjectSpec } from "../src/architect/project-spec.ts";
 import { ARCHITECT_SYSTEM_PROMPT, buildArchitectPrompt } from "../src/architect/prompt.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
-import { getControlDbPath, readSessionMetadata, writeSessionMetadata } from "../src/core/session-control-db.ts";
+import {
+	getControlDbPath,
+	readSessionMetadata,
+	registerRuntimeMailboxListener,
+	writeSessionMetadata,
+} from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SUPERVISOR_ONLY_TOOL_NAMES } from "../src/core/tool-capabilities.ts";
 
@@ -91,6 +96,64 @@ describe("resident architect service", () => {
 			expect(readSessionMetadata(controlDbPath, stalePath)).toBeUndefined();
 			expect(existsSync(retainedPath)).toBe(true);
 			expect(readSessionMetadata(controlDbPath, retainedPath)).toMatchObject({ name: "Retain me" });
+		} finally {
+			rmSync(agentDir, { force: true, recursive: true });
+		}
+	});
+
+	it("retains a live Architect transcript while pruning stale files and fileless metadata", () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "pi-architect-live-session-"));
+		const controlDbPath = getControlDbPath(agentDir);
+		const sessionDir = join(agentDir, "architect-sessions");
+		mkdirSync(sessionDir);
+		const activePath = join(sessionDir, "2026-09-01T00-00-00-000Z_architect.jsonl");
+		const stalePath = join(sessionDir, "2026-09-02T00-00-00-000Z_architect.jsonl");
+		const missingPath = join(sessionDir, "2026-09-03T00-00-00-000Z_architect.jsonl");
+		try {
+			for (const sessionPath of [activePath, stalePath]) {
+				writeFileSync(
+					sessionPath,
+					`${JSON.stringify({
+						type: "session",
+						version: 3,
+						id: "architect",
+						timestamp: "2026-09-01T00:00:00.000Z",
+						cwd: agentDir,
+					})}\n`,
+				);
+			}
+			for (const [sessionPath, name] of [
+				[activePath, "Live transcript"],
+				[stalePath, "Stale transcript"],
+				[missingPath, "Missing transcript"],
+			] as const) {
+				writeSessionMetadata(controlDbPath, {
+					sessionPath,
+					id: "architect",
+					cwd: agentDir,
+					name,
+					createdAt: "2026-09-01T00:00:00.000Z",
+					modifiedAt: "2026-09-01T00:00:00.000Z",
+					messageCount: 1,
+					firstMessage: name,
+					allMessagesText: name,
+				});
+			}
+			registerRuntimeMailboxListener(
+				controlDbPath,
+				{ agentId: null, sessionId: "architect" },
+				process.pid,
+				activePath,
+			);
+
+			const session = openArchitectSession(agentDir, agentDir, controlDbPath);
+
+			expect(session.getSessionFile()).toBe(activePath);
+			expect(existsSync(activePath)).toBe(true);
+			expect(readSessionMetadata(controlDbPath, activePath)).toMatchObject({ name: "Live transcript" });
+			expect(existsSync(stalePath)).toBe(false);
+			expect(readSessionMetadata(controlDbPath, stalePath)).toBeUndefined();
+			expect(readSessionMetadata(controlDbPath, missingPath)).toBeUndefined();
 		} finally {
 			rmSync(agentDir, { force: true, recursive: true });
 		}

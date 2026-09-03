@@ -11,6 +11,7 @@ const pickerMocks = vi.hoisted(() => {
 	return {
 		ui,
 		currentSessionsLoader: undefined as (() => Promise<Array<{ path: string; name?: string }>>) | undefined,
+		allSessionsLoader: undefined as (() => Promise<Array<{ path: string; name?: string }>>) | undefined,
 		archivedSessionsLoader: undefined as (() => Promise<Array<{ path: string; name?: string }>>) | undefined,
 		onSelect: undefined as ((path: string) => void) | undefined,
 		showError: vi.fn(),
@@ -26,7 +27,7 @@ vi.mock("../src/modes/interactive/components/session-selector.ts", () => ({
 	SessionSelectorComponent: class {
 		constructor(
 			currentSessionsLoader: () => Promise<Array<{ path: string; name?: string }>>,
-			_allSessionsLoader: unknown,
+			allSessionsLoader: () => Promise<Array<{ path: string; name?: string }>>,
 			onSelect: (path: string) => void,
 			_onCancel: unknown,
 			_onExit: unknown,
@@ -34,6 +35,7 @@ vi.mock("../src/modes/interactive/components/session-selector.ts", () => ({
 			options?: { archivedSessionsLoader?: () => Promise<Array<{ path: string; name?: string }>> },
 		) {
 			pickerMocks.currentSessionsLoader = currentSessionsLoader;
+			pickerMocks.allSessionsLoader = allSessionsLoader;
 			pickerMocks.archivedSessionsLoader = options?.archivedSessionsLoader;
 			pickerMocks.onSelect = onSelect;
 		}
@@ -52,6 +54,7 @@ describe("session picker selection", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		pickerMocks.currentSessionsLoader = undefined;
+		pickerMocks.allSessionsLoader = undefined;
 		pickerMocks.archivedSessionsLoader = undefined;
 		pickerMocks.onSelect = undefined;
 	});
@@ -91,38 +94,66 @@ describe("session picker selection", () => {
 		expect(archivedSessions?.find((session) => session.path === older.path)?.name).toBe("Older named");
 	});
 
-	it("hides archived resident Supervisor and Architect sessions", async () => {
-		const ordinary = {
-			path: "/sessions/ordinary.jsonl",
-			id: "ordinary",
+	it("hides resident Supervisor and Architect sessions from Current, All, and Archived scopes", async () => {
+		const currentOrdinary = {
+			path: "/sessions/current-ordinary.jsonl",
+			id: "current-ordinary",
 			modified: new Date("2026-07-29T02:00:00Z"),
-			isArchived: true,
+			isArchived: false,
 		};
-		const supervisor = {
-			path: "/agent/supervisor-sessions/supervisor.jsonl",
-			id: "supervisor",
+		const allOrdinary = {
+			path: "/sessions/all-ordinary.jsonl",
+			id: "all-ordinary",
 			modified: new Date("2026-07-29T03:00:00Z"),
+			isArchived: false,
+		};
+		const archivedOrdinary = {
+			path: "/sessions/archived-ordinary.jsonl",
+			id: "archived-ordinary",
+			modified: new Date("2026-07-29T04:00:00Z"),
 			isArchived: true,
 		};
-		const architect = {
+		const supervisorById = {
+			path: "/sessions/supervisor.jsonl",
+			id: "supervisor",
+			modified: new Date("2026-07-29T05:00:00Z"),
+			isArchived: false,
+		};
+		const architectByPath = {
 			path: "/agent/architect-sessions/architect.jsonl",
+			id: "ordinary",
+			modified: new Date("2026-07-29T06:00:00Z"),
+			isArchived: false,
+		};
+		const archivedSupervisorByPath = {
+			path: "/agent/supervisor-sessions/supervisor.jsonl",
+			id: "ordinary",
+			modified: new Date("2026-07-29T07:00:00Z"),
+			isArchived: true,
+		};
+		const archivedArchitectById = {
+			path: "/sessions/architect.jsonl",
 			id: "architect",
-			modified: new Date("2026-07-29T04:00:00Z"),
+			modified: new Date("2026-07-29T08:00:00Z"),
 			isArchived: true,
 		};
 
 		void selectSession(
-			async () => [],
-			async () => [],
+			async () => [currentOrdinary, supervisorById, architectByPath] as never,
+			async () => [currentOrdinary, allOrdinary, supervisorById, architectByPath] as never,
 			{} as never,
 			"/control.sqlite",
-			async () => [ordinary, supervisor, architect] as never,
+			async () => [archivedOrdinary, archivedSupervisorByPath, archivedArchitectById] as never,
 		);
 		await Promise.resolve();
 
+		const currentSessions = await pickerMocks.currentSessionsLoader?.();
+		const allSessions = await pickerMocks.allSessionsLoader?.();
 		const archivedSessions = await pickerMocks.archivedSessionsLoader?.();
 
-		expect(archivedSessions?.map((session) => session.path)).toEqual([ordinary.path]);
+		expect(currentSessions?.map((session) => session.path)).toEqual([currentOrdinary.path]);
+		expect(allSessions?.map((session) => session.path)).toEqual([allOrdinary.path, currentOrdinary.path]);
+		expect(archivedSessions?.map((session) => session.path)).toEqual([archivedOrdinary.path]);
 	});
 
 	it("keeps the picker open when validating the selected session fails", async () => {

@@ -11,6 +11,7 @@ import {
 	postSupervisorRequest,
 	readSessionMetadata,
 	readSupervisorRequest,
+	registerRuntimeMailboxListener,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
@@ -84,6 +85,58 @@ describe("resident Supervisor service", () => {
 		expect(readSessionMetadata(controlDbPath, stalePath)).toBeUndefined();
 		expect(existsSync(retainedPath)).toBe(true);
 		expect(readSessionMetadata(controlDbPath, retainedPath)).toMatchObject({ name: "Retain me" });
+	});
+
+	it("retains a live Supervisor transcript while pruning stale files and fileless metadata", () => {
+		const sessionDir = join(tempDir, "supervisor-sessions");
+		mkdirSync(sessionDir);
+		const activePath = join(sessionDir, "2026-09-01T00-00-00-000Z_supervisor.jsonl");
+		const stalePath = join(sessionDir, "2026-09-02T00-00-00-000Z_supervisor.jsonl");
+		const missingPath = join(sessionDir, "2026-09-03T00-00-00-000Z_supervisor.jsonl");
+		for (const sessionPath of [activePath, stalePath]) {
+			writeFileSync(
+				sessionPath,
+				`${JSON.stringify({
+					type: "session",
+					version: 3,
+					id: "supervisor",
+					timestamp: "2026-09-01T00:00:00.000Z",
+					cwd: tempDir,
+				})}\n`,
+			);
+		}
+		for (const [sessionPath, name] of [
+			[activePath, "Live transcript"],
+			[stalePath, "Stale transcript"],
+			[missingPath, "Missing transcript"],
+		] as const) {
+			writeSessionMetadata(controlDbPath, {
+				sessionPath,
+				id: "supervisor",
+				cwd: tempDir,
+				name,
+				createdAt: "2026-09-01T00:00:00.000Z",
+				modifiedAt: "2026-09-01T00:00:00.000Z",
+				messageCount: 1,
+				firstMessage: name,
+				allMessagesText: name,
+			});
+		}
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: "supervisor" },
+			process.pid,
+			activePath,
+		);
+
+		const session = openSupervisorSession(tempDir, tempDir, controlDbPath);
+
+		expect(session.getSessionFile()).toBe(activePath);
+		expect(existsSync(activePath)).toBe(true);
+		expect(readSessionMetadata(controlDbPath, activePath)).toMatchObject({ name: "Live transcript" });
+		expect(existsSync(stalePath)).toBe(false);
+		expect(readSessionMetadata(controlDbPath, stalePath)).toBeUndefined();
+		expect(readSessionMetadata(controlDbPath, missingPath)).toBeUndefined();
 	});
 
 	it("aborts an active evaluation after caller cancellation without writing a response", async () => {
