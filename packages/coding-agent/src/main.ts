@@ -77,7 +77,11 @@ import type { ExtensionFactory } from "./core/extensions/types.ts";
 import { importExternalSessionAlias, isExternalSessionAlias } from "./core/external-session-importer.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import { LifecycleCoordinator } from "./core/lifecycle-coordinator.ts";
-import { ensureModelCatalogFresh, type ModelCatalogRefreshResult } from "./core/model-catalog-cache.ts";
+import {
+	ensureModelCatalogFresh,
+	loadOpenRouterCatalogAtStartup,
+	type ModelCatalogRefreshResult,
+} from "./core/model-catalog-cache.ts";
 import type { ModelRegistry } from "./core/model-registry.ts";
 import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
 import { MultiAgentStore } from "./core/multi-agent-store.ts";
@@ -757,12 +761,12 @@ export async function main(args: string[], options?: MainOptions) {
 	resetTimings();
 	const offlineMode = args.includes("--offline") || isTruthyEnvFlag(process.env.PI_OFFLINE);
 	if (args.length === 1 && args[0] === "architect") {
-		await refreshOpenRouterCatalog(offlineMode);
+		await loadOpenRouterCatalogAtStartup();
 		await runArchitectService();
 		return;
 	}
 	if (args.length === 1 && args[0] === "supervisor") {
-		await refreshOpenRouterCatalog(offlineMode);
+		await loadOpenRouterCatalogAtStartup();
 		await runSupervisorService();
 		return;
 	}
@@ -868,11 +872,12 @@ export async function main(args: string[], options?: MainOptions) {
 		process.exit(0);
 	}
 
-	const catalogResult = await refreshOpenRouterCatalog(offlineMode, parsed.refreshModels === true);
 	if (parsed.refreshModels) {
+		const catalogResult = await refreshOpenRouterCatalog(offlineMode, true);
 		printModelCatalogRefreshSummary(catalogResult);
 		process.exit(0);
 	}
+	await loadOpenRouterCatalogAtStartup();
 
 	let appMode = resolveAppMode(parsed, process.stdin.isTTY, process.stdout.isTTY);
 	const shouldTakeOverStdout = appMode !== "interactive" && !isPlainRuntimeMetadataCommand(parsed);

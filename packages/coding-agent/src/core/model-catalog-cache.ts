@@ -21,6 +21,10 @@ export interface EnsureModelCatalogOptions {
 	now?: () => Date;
 }
 
+export interface LoadOpenRouterCatalogAtStartupOptions {
+	now?: () => Date;
+}
+
 export interface ModelCatalogRefreshResult {
 	models: Model<Api>[];
 	source: "bundled" | "cache" | "network";
@@ -217,6 +221,24 @@ async function refreshCachedCatalog(
 	} finally {
 		clearTimeout(timeout);
 	}
+}
+
+export async function loadOpenRouterCatalogAtStartup(
+	options: LoadOpenRouterCatalogAtStartupOptions = {},
+): Promise<ModelCatalogRefreshResult> {
+	const now = options.now ?? (() => new Date());
+	const cachePath = join(getUserCacheRoot(), "models", "openrouter.json");
+	const cachedCatalog = await readCachedCatalog(cachePath);
+	if (isCacheFresh(cachedCatalog, now())) {
+		return buildResult(mergeWithBundledModels(cachedCatalog.models), "cache", cachePath, {
+			fetched: 0,
+			cached: cachedCatalog.models.length,
+		});
+	}
+	return buildResult(mergeWithBundledModels([]), "bundled", cachePath, {
+		fetched: 0,
+		cached: cachedCatalog?.models.length ?? 0,
+	});
 }
 
 export async function ensureModelCatalogFresh(

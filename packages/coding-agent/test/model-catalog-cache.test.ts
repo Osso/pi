@@ -149,6 +149,23 @@ describe("OpenRouter model catalog cache", () => {
 		expect(result.models.some((model) => model.id === "fixture/fresh-cache")).toBe(true);
 	});
 
+	it.each([
+		["a fresh cache", new Date(NOW.getTime() - 6 * 24 * 60 * 60 * 1000), "cache"],
+		["an expired cache", new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000), "bundled"],
+		["no cache", undefined, "bundled"],
+	] as const)("loads %s at normal startup without fetching", async (_description, fetchedAt, source) => {
+		if (fetchedAt) writeCache(fetchedAt, [cachedModel("fixture/startup-cache")]);
+		const fetchSpy = vi.fn<typeof fetch>();
+		vi.stubGlobal("fetch", fetchSpy);
+		const { loadOpenRouterCatalogAtStartup } = await importCatalogModule();
+
+		const result = await loadOpenRouterCatalogAtStartup({ now: () => NOW });
+
+		expect(fetchSpy).not.toHaveBeenCalled();
+		expect(result.source).toBe(source);
+		expect(result.models.some((model) => model.id === "fixture/startup-cache")).toBe(source === "cache");
+	});
+
 	it("refreshes a cache older than seven days", async () => {
 		writeCache(new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000), [cachedModel("fixture/stale-cache")]);
 		let fetchCount = 0;
