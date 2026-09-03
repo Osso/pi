@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, realpathSync, unlinkSync } from "node:fs";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import {
 	type Api,
@@ -22,6 +22,7 @@ import {
 	claimNextSupervisorRequest,
 	completeSupervisorRequest,
 	getControlDbPath,
+	removeSessionMetadata,
 	readSupervisorRequest,
 	recoverSupervisorRequests,
 	type SupervisorRequest,
@@ -329,20 +330,37 @@ export async function runSupervisorRequestLoop(input: RunSupervisorRequestLoopIn
 	}
 }
 
-function openSupervisorSession(agentDir: string, kbDir: string): SessionManager {
+export function openSupervisorSession(
+	agentDir: string,
+	kbDir: string,
+	controlDbPath = getControlDbPath(),
+): SessionManager {
 	const sessionDir = join(agentDir, "supervisor-sessions");
 	mkdirSync(sessionDir, { recursive: true });
-	const existingSessionFile = readdirSync(sessionDir)
+	const sessionFiles = readdirSync(sessionDir, { withFileTypes: true })
+		.filter(
+			(entry) =>
+				entry.isFile() &&
+				(entry.name === `${SUPERVISOR_SESSION_ID}.jsonl` || entry.name.endsWith(`_${SUPERVISOR_SESSION_ID}.jsonl`)),
+		)
+		.map((entry) => entry.name);
+	const existingSessionFile = sessionFiles
 		.filter((file) => file.endsWith(`_${SUPERVISOR_SESSION_ID}.jsonl`))
 		.sort()
 		.at(-1);
+	const retainedSessionFile = existingSessionFile ?? `${SUPERVISOR_SESSION_ID}.jsonl`;
+	for (const sessionFile of sessionFiles) {
+		if (sessionFile === retainedSessionFile) continue;
+		const stalePath = join(sessionDir, sessionFile);
+		removeSessionMetadata(controlDbPath, stalePath);
+		unlinkSync(stalePath);
+	}
 	const sessionPath = existingSessionFile
 		? join(sessionDir, existingSessionFile)
 		: join(sessionDir, `${SUPERVISOR_SESSION_ID}.jsonl`);
 	const sessionManager = existsSync(sessionPath)
 		? SessionManager.open(sessionPath, sessionDir, kbDir)
 		: SessionManager.create(kbDir, sessionDir, { id: SUPERVISOR_SESSION_ID });
-	const controlDbPath = getControlDbPath();
 	sessionManager.setMetadataControlDbPath(controlDbPath, { indexMessageText: false });
 	const persistedPath = sessionManager.getSessionFile();
 	if (persistedPath) archiveSession(controlDbPath, persistedPath);

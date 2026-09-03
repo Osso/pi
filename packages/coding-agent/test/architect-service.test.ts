@@ -25,6 +25,7 @@ import {
 	createArchitectMultiAgentStore,
 	createArchitectSettingsManager,
 	createArchitectStopHandler,
+	openArchitectSession,
 	runArchitectCycle,
 	runArchitectServiceLoop,
 	waitForArchitectInterval,
@@ -32,7 +33,7 @@ import {
 import { readProjectSpec } from "../src/architect/project-spec.ts";
 import { ARCHITECT_SYSTEM_PROMPT, buildArchitectPrompt } from "../src/architect/prompt.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
-import { getControlDbPath, readSessionMetadata } from "../src/core/session-control-db.ts";
+import { getControlDbPath, readSessionMetadata, writeSessionMetadata } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SUPERVISOR_ONLY_TOOL_NAMES } from "../src/core/tool-capabilities.ts";
 
@@ -44,6 +45,57 @@ const supervisorServiceUnit = fileURLToPath(new URL("../systemd/pi-supervisor.se
 const systemdPathValidator = fileURLToPath(new URL("../../../scripts/validate-systemd-exec-path.mjs", import.meta.url));
 
 describe("resident architect service", () => {
+	it("retains the newest Architect transcript and removes stale files and metadata", () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "pi-architect-sessions-"));
+		const controlDbPath = getControlDbPath(agentDir);
+		const sessionDir = join(agentDir, "architect-sessions");
+		mkdirSync(sessionDir);
+		const legacyPath = join(sessionDir, "architect.jsonl");
+		const stalePath = join(sessionDir, "2026-09-01T00-00-00-000Z_architect.jsonl");
+		const retainedPath = join(sessionDir, "2026-09-02T00-00-00-000Z_architect.jsonl");
+		try {
+			for (const [sessionPath, name] of [
+				[legacyPath, "Remove legacy"],
+				[stalePath, "Remove me"],
+				[retainedPath, "Retain me"],
+			] as const) {
+				writeFileSync(
+					sessionPath,
+					`${JSON.stringify({
+						type: "session",
+						version: 3,
+						id: "architect",
+						timestamp: "2026-09-01T00:00:00.000Z",
+						cwd: agentDir,
+					})}\n`,
+				);
+				writeSessionMetadata(controlDbPath, {
+					sessionPath,
+					id: "architect",
+					cwd: agentDir,
+					name,
+					createdAt: "2026-09-01T00:00:00.000Z",
+					modifiedAt: "2026-09-01T00:00:00.000Z",
+					messageCount: 0,
+					firstMessage: "(no messages)",
+					allMessagesText: "",
+				});
+			}
+
+			const session = openArchitectSession(agentDir, agentDir, controlDbPath);
+
+			expect(session.getSessionFile()).toBe(retainedPath);
+			expect(existsSync(legacyPath)).toBe(false);
+			expect(readSessionMetadata(controlDbPath, legacyPath)).toBeUndefined();
+			expect(existsSync(stalePath)).toBe(false);
+			expect(readSessionMetadata(controlDbPath, stalePath)).toBeUndefined();
+			expect(existsSync(retainedPath)).toBe(true);
+			expect(readSessionMetadata(controlDbPath, retainedPath)).toMatchObject({ name: "Retain me" });
+		} finally {
+			rmSync(agentDir, { force: true, recursive: true });
+		}
+	});
+
 	it("uses the structured observer snapshot instead of list_sessions", () => {
 		const prompt = buildArchitectPrompt({ reason: "session_state_changed", requests: [], sessions: [] });
 

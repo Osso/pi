@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,13 +9,16 @@ import {
 	claimNextSupervisorRequest,
 	getControlDbPath,
 	postSupervisorRequest,
+	readSessionMetadata,
 	readSupervisorRequest,
+	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import {
 	blockSupervisorFileAccess,
 	createSupervisorResourceLoader,
 	createSupervisorSettingsManager,
+	openSupervisorSession,
 	processSupervisorRequest,
 	SUPERVISOR_EXCLUDED_TOOL_NAMES,
 	SUPERVISOR_TOOL_NAMES,
@@ -36,6 +39,51 @@ describe("resident Supervisor service", () => {
 
 	afterEach(() => {
 		rmSync(tempDir, { force: true, recursive: true });
+	});
+
+	it("retains the newest Supervisor transcript and removes stale files and metadata", () => {
+		const sessionDir = join(tempDir, "supervisor-sessions");
+		mkdirSync(sessionDir);
+		const legacyPath = join(sessionDir, "supervisor.jsonl");
+		const stalePath = join(sessionDir, "2026-09-01T00-00-00-000Z_supervisor.jsonl");
+		const retainedPath = join(sessionDir, "2026-09-02T00-00-00-000Z_supervisor.jsonl");
+		for (const [sessionPath, name] of [
+			[legacyPath, "Remove legacy"],
+			[stalePath, "Remove me"],
+			[retainedPath, "Retain me"],
+		] as const) {
+			writeFileSync(
+				sessionPath,
+				`${JSON.stringify({
+					type: "session",
+					version: 3,
+					id: "supervisor",
+					timestamp: "2026-09-01T00:00:00.000Z",
+					cwd: tempDir,
+				})}\n`,
+			);
+			writeSessionMetadata(controlDbPath, {
+				sessionPath,
+				id: "supervisor",
+				cwd: tempDir,
+				name,
+				createdAt: "2026-09-01T00:00:00.000Z",
+				modifiedAt: "2026-09-01T00:00:00.000Z",
+				messageCount: 0,
+				firstMessage: "(no messages)",
+				allMessagesText: "",
+			});
+		}
+
+		const session = openSupervisorSession(tempDir, tempDir, controlDbPath);
+
+		expect(session.getSessionFile()).toBe(retainedPath);
+		expect(existsSync(legacyPath)).toBe(false);
+		expect(readSessionMetadata(controlDbPath, legacyPath)).toBeUndefined();
+		expect(existsSync(stalePath)).toBe(false);
+		expect(readSessionMetadata(controlDbPath, stalePath)).toBeUndefined();
+		expect(existsSync(retainedPath)).toBe(true);
+		expect(readSessionMetadata(controlDbPath, retainedPath)).toMatchObject({ name: "Retain me" });
 	});
 
 	it("aborts an active evaluation after caller cancellation without writing a response", async () => {
