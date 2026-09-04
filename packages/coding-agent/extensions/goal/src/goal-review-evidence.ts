@@ -76,21 +76,19 @@ export function createGoalReviewEvidenceController(
 	store: GoalReviewEvidenceStore,
 	reviewGoal: GoalSupervisorReview,
 ): GoalReviewEvidenceController {
-	let currentUserRequest: { sessionId: string; text: string } | undefined;
+	const userRequests = new Map<string, string>();
 	const review = createEvidenceReview(store, reviewGoal);
 	return {
 		appendInput(event, ctx) {
 			if (event.source !== "extension" && event.text.length > 0) {
-				currentUserRequest = { sessionId: ctx.sessionManager.getSessionId(), text: event.text };
+				userRequests.set(ctx.sessionManager.getSessionId(), event.text);
 			}
 			appendInputEvidence(store, event, ctx);
 		},
 		appendToolResult: appendEndTurnEvidence.bind(undefined, store),
 		consume: consumeEvidence.bind(undefined, store),
 		review(input) {
-			const userRequest = currentUserRequest?.sessionId === input.ctx.sessionManager.getSessionId()
-				? currentUserRequest.text
-				: undefined;
+			const userRequest = userRequests.get(input.ctx.sessionManager.getSessionId());
 			return review({
 				...input,
 				payload: userRequest ? { ...input.payload, userRequest } : input.payload,

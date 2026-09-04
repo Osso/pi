@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ExtensionContext } from "../src/core/extensions/types.ts";
 import { createGoalReviewEvidenceController } from "../extensions/goal/src/goal-review-evidence.ts";
+import type { ExtensionContext } from "../src/core/extensions/types.ts";
 
 // No active goal exists yet: the first user request must still reach review.
 function captureReviews() {
@@ -46,6 +46,15 @@ describe("Supervisor raw user evidence", () => {
 			payload: { proposedObjective: "Prove a clean workflow" },
 		});
 		expect(requests).toEqual([{ proposedObjective: "Prove a clean workflow" }]);
+	});
+
+	it("retains each session's genuine request when sessions interleave", async () => {
+		const { controller, requests, ctx } = captureReviews();
+		const other = { sessionManager: { getSessionId: () => "different-session" } } as ExtensionContext;
+		controller.appendInput({ type: "input", text: "Prove a clean workflow", source: "interactive" }, ctx);
+		controller.appendInput({ type: "input", text: "Fix BUG-42", source: "interactive" }, other);
+		await controller.review({ ctx, kind: "goal_set_review", payload: { proposedObjective: "Clean pilot" } });
+		expect(requests).toEqual([{ proposedObjective: "Clean pilot", userRequest: "Prove a clean workflow" }]);
 	});
 
 	it("does not invent user evidence from an assistant-proposed objective", async () => {
