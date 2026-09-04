@@ -15,7 +15,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - [x] Expose read-only resident identity only when the console snapshot explicitly includes `ready: true`, alongside Pi version, PID, executable, optional entrypoint, unique service-start instance ID, and Pi-versus-external ownership without claiming writable console ownership.
 - [x] Reuse compatible externally managed residents, replace only verified incompatible Pi-managed residents, and report an explicit restart requirement for incompatible externally managed residents.
 - [x] Bound startup/readiness failures and return them through the typed Supervisor error path without posting an unserviceable durable request.
-- [x] Use `openai-codex/gpt-5.6-sol` with low thinking effort.
+- [x] Use `openai-codex/gpt-6-astra` with low thinking effort.
 - [x] Preserve exactly one global Supervisor model transcript across requests and service restarts. Its metadata remains archived while its live storage remains plain `.jsonl` for appends and is excluded from every resume-picker scope, including Archived. Opening the role reuses its live transcript when present; otherwise it reuses the latest resident transcript, prunes only inactive stale transcripts and metadata, and removes stale fileless resident metadata. Proactively compact the shared context before a bounded request when usage reaches 75%, preserving prior decisions, project-specific policies, and reusable approval rationale rather than resetting history. Invalidate provider continuation state after compaction so the next request starts from the compacted local context rather than the pre-compaction remote chain.
 - [x] Process requests through an event-driven request/response queue rather than polling sessions. Idle recovery probes the Supervisor request queue read-only for expired pending or claimed work; when recovery is needed, expired requests are completed and remaining claimed requests are requeued in one immediate transaction.
 - [x] Remain local-only without web access.
@@ -35,7 +35,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - [x] Keep the resident Supervisor as the first-level goal and completion reviewer: it remains a peer-unblocking policy engine, not a routine task manager, preserves agent autonomy and cumulative parent-goal consistency across requests, and intervenes only on evidence-backed exceptions; the calling subsystem enforces the typed response.
 - [x] Detect narrowed or lost goals, dropped requirements, exclusions, or completion criteria, contradictions between claims and evidence, repeated or circular work, and missing completion proof without prescribing routine decomposition; only an explicit user instruction may reset or narrow a known parent objective.
 - [x] Audit every automatic non-generic `continue.instructions` from goal idle and completion review through a separate stateless veto gate before delivery; the gate receives only the raw instruction message and has no goal, project, evidence, transcript, workspace, memory, or prior-decision context.
-- [x] Run each veto evaluation as one fresh direct low-effort call to the configured Supervisor Sol model under one fixed system policy, with one raw instructions user message, no tools, and no inherited transcript context.
+- [x] Run each veto evaluation as one fresh direct low-effort call to the configured Supervisor Astra model under one fixed system policy, with one raw instructions user message, no tools, and no inherited transcript context.
 - [x] Restrict veto output to `ACCEPT`, `REJECT_TASK_ASSIGNMENT`, `REJECT_IMPLEMENTATION_PRESCRIPTION`, `REJECT_SEQUENCING_INSTRUCTION`, `REJECT_AGENT_OR_TOOL_DIRECTION`, or `REJECT_PLAN_OVERRIDE`; any extra or invalid output is rejected.
 - [x] Preserve accepted instructions; replace rejected, invalid, or failed evaluations with exactly `Continue working toward the active goal.` without retrying the first-level review at that boundary.
 - [x] Append deterministic hidden feedback for actual policy rejections and fixed hidden failure feedback for invalid or failed evaluations to resident Supervisor context; neither rejected instructions nor feedback reaches the main agent, and compaction preserves the feedback.
@@ -144,7 +144,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 
 ## Implementation inventory
 
-- `packages/coding-agent/src/supervisor/main.ts` — resident Sol SDK service, restricted tool surface, persistent transcript, stateless instruction-veto evaluation, hidden policy feedback, and request loop.
+- `packages/coding-agent/src/supervisor/main.ts` — resident Astra SDK service, restricted tool surface, persistent transcript, stateless instruction-veto evaluation, hidden policy feedback, and request loop.
 - `packages/coding-agent/src/supervisor/service.ts` — bounded prompts, typed response validation, veto tokens and policy contract, deadlines, approval preemption, and active-evaluation cancellation.
 - `packages/coding-agent/src/supervisor/client.ts` — ensures resident readiness, performs durable synchronous caller transport, and propagates caller cancellation.
 - `packages/coding-agent/src/supervisor/ensure-running.ts` — cross-platform probe, singleton startup lock, detached launch, compatibility checks, and Pi-managed replacement.

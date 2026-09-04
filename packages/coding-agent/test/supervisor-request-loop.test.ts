@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupervisorRequest } from "../src/core/session-control-db.ts";
 import { DEFAULT_SUPERVISOR_POLL_INTERVAL_MS, requestSupervisorDecision } from "../src/supervisor/client.ts";
-import { runSupervisorService } from "../src/supervisor/main.ts";
+import { createSupervisorInstructionEvaluator, runSupervisorService } from "../src/supervisor/main.ts";
 
 const mocks = vi.hoisted(() => {
 	const sessionEntries: Array<Record<string, unknown>> = [];
@@ -54,7 +54,12 @@ vi.mock("../src/core/auth-storage.ts", () => ({
 }));
 
 vi.mock("../src/core/model-registry.ts", () => ({
-	ModelRegistry: { create: vi.fn(() => ({ find: vi.fn(() => ({ id: "gpt-5.6-sol" })) })) },
+	ModelRegistry: {
+		create: () => ({
+			find: (provider: string, id: string) =>
+				provider === "openai-codex" && id === "gpt-6-astra" ? { id, provider } : undefined,
+		}),
+	},
 }));
 
 vi.mock("../src/core/resource-loader.ts", () => ({
@@ -144,6 +149,10 @@ describe("Supervisor request loop", () => {
 	afterEach(() => {
 		vi.useRealTimers();
 		rmSync(mocks.agentDir, { force: true, recursive: true });
+	});
+
+	it("initializes instruction review when only the requested Astra model is available", () => {
+		expect(() => createSupervisorInstructionEvaluator(mocks.agentDir)).not.toThrow();
 	});
 
 	it("does not claim repeatedly while no Supervisor request exists", async () => {

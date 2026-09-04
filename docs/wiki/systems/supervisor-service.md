@@ -1,6 +1,6 @@
 # Resident Supervisor service
 
-The Supervisor runs as `pi supervisor`, either as a Pi-started detached process or under the optional `pi-supervisor.service`. It owns one metadata-archived SDK transcript using `openai-codex/gpt-5.6-sol` at low thinking effort. The transcript remains plain `.jsonl`, rather than becoming `.jsonl.zst`, because the live service appends to it. Unlike the Architect, it does not observe sessions periodically. Callers persist typed requests in `control.sqlite`; an owner-only Unix socket provides a wake notification, while SQLite remains the durable queue. The service claims one request, prompts the resident model, validates its JSON response, and persists the result for the waiting caller.
+The Supervisor runs as `pi supervisor`, either as a Pi-started detached process or under the optional `pi-supervisor.service`. It owns one metadata-archived SDK transcript using `openai-codex/gpt-6-astra` at low thinking effort. The transcript remains plain `.jsonl`, rather than becoming `.jsonl.zst`, because the live service appends to it. Unlike the Architect, it does not observe sessions periodically. Callers persist typed requests in `control.sqlite`; an owner-only Unix socket provides a wake notification, while SQLite remains the durable queue. The service claims one request, prompts the resident model, validates its JSON response, and persists the result for the waiting caller.
 
 ## Automatic startup
 

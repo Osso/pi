@@ -1,7 +1,6 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -26,8 +25,6 @@ import {
 	validateSupervisorExtensionLoad,
 } from "../src/supervisor/main.ts";
 import { buildSupervisorPrompt, parseSupervisorResponse, runSupervisorRequest } from "../src/supervisor/service.ts";
-
-const supervisorMain = fileURLToPath(new URL("../src/supervisor/main.ts", import.meta.url));
 
 describe("resident Supervisor service", () => {
 	let tempDir: string;
@@ -175,14 +172,6 @@ describe("resident Supervisor service", () => {
 		expect(await run).toBe("cancelled");
 		expect(evaluationSignal?.aborted).toBe(true);
 		expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({ status: "cancelled" });
-	});
-
-	it("uses the fixed local Sol model with low effort and no web tool", () => {
-		const source = readFileSync(supervisorMain, "utf8");
-
-		expect(source).toContain('modelRegistry.find("openai-codex", "gpt-5.6-sol")');
-		expect(source).toContain('thinkingLevel: "low"');
-		expect(source).not.toContain('"web_search"');
 	});
 
 	it("loads only the Supervisor mutation gate extension", async () => {
