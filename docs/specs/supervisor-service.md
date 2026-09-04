@@ -32,6 +32,8 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 
 ### Authority boundary
 
+- [x] Ground binding requirements in explicit user instructions or applicable persistent project contracts. `userRequest` and user-kind conversation events supply user evidence; objectives, plans, summaries, assistant end-turn reports, and prior Supervisor decisions do not establish provenance by repetition. Remove unsupported constraints; disposable pilot IDs are diagnostic unless explicitly required. Apply this rule to goal creation, idle review, and completion review.
+
 - [x] Keep the resident Supervisor as the first-level goal and completion reviewer: it remains a peer-unblocking policy engine, not a routine task manager, preserves agent autonomy and cumulative parent-goal consistency across requests, and intervenes only on evidence-backed exceptions; the calling subsystem enforces the typed response.
 - [x] Detect narrowed or lost goals, dropped requirements, exclusions, or completion criteria, contradictions between claims and evidence, repeated or circular work, and missing completion proof without prescribing routine decomposition; only an explicit user instruction may reset or narrow a known parent objective.
 - [x] Audit every automatic non-generic `continue.instructions` from goal idle and completion review through a separate stateless veto gate before delivery; the gate receives only the raw instruction message and has no goal, project, evidence, transcript, workspace, memory, or prior-decision context.
@@ -94,7 +96,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - [x] On `wait`, append one durable Supervisor status entry with one absolute fifteen-minute `reviewAt` deadline, regardless of whether agents are active; active-agent mode starts a cancellable background `wait_agent`, agent completion reviews early, deadline expiry cancels `wait_agent` and reviews, the first path wins without duplicate review, and `wait_agent` failure retains the original deadline for timed review.
 - [x] On `error`, append durable status and keep the completion request unresolved without scheduling automatic re-review; rejected completion reports remain visible with the Supervisor's reason in durable status.
 - [x] Leave the goal active without another continuation only when required user action or input is needed and no automatic recheck can advance progress; the caller receives `pause` only for that manual stop condition.
-- [x] Treat supplied objectives and current progress claims as claims about the active goal; preserve any known unfinished parent objective from Supervisor context or KB memory when judging completion, so a child slice cannot replace the broader objective.
+- [x] Treat supplied objectives and current progress claims as claims about the active goal; preserve the grounded unfinished parent objective when judging completion, excluding unsupported additions repeated in Supervisor context or KB memory, so a child slice cannot replace the broader objective.
 - [x] Require the Supervisor to make its best judgment between `complete`, autonomous or corrective `continue`, scheduled `wait` for recheckable asynchronous or external progress, and manual-only `pause` from the supplied report; uncertainty alone uses generic continuation rather than invented oversight, the caller must provide a nonblank report, and the system never infers completion evidence automatically.
 
 ### Goal idle review

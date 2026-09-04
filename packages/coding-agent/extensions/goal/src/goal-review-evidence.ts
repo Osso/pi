@@ -76,10 +76,25 @@ export function createGoalReviewEvidenceController(
 	store: GoalReviewEvidenceStore,
 	reviewGoal: GoalSupervisorReview,
 ): GoalReviewEvidenceController {
+	let currentUserRequest: { sessionId: string; text: string } | undefined;
+	const review = createEvidenceReview(store, reviewGoal);
 	return {
-		appendInput: appendInputEvidence.bind(undefined, store),
+		appendInput(event, ctx) {
+			if (event.source !== "extension" && event.text.length > 0) {
+				currentUserRequest = { sessionId: ctx.sessionManager.getSessionId(), text: event.text };
+			}
+			appendInputEvidence(store, event, ctx);
+		},
 		appendToolResult: appendEndTurnEvidence.bind(undefined, store),
 		consume: consumeEvidence.bind(undefined, store),
-		review: createEvidenceReview(store, reviewGoal),
+		review(input) {
+			const userRequest = currentUserRequest?.sessionId === input.ctx.sessionManager.getSessionId()
+				? currentUserRequest.text
+				: undefined;
+			return review({
+				...input,
+				payload: userRequest ? { ...input.payload, userRequest } : input.payload,
+			});
+		},
 	};
 }

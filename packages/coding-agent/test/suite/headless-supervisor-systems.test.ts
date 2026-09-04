@@ -88,6 +88,38 @@ describe("headless Supervisor advisory tool", () => {
 });
 
 describe("headless Supervisor goal system", () => {
+	it.each([undefined, "Repair disposable PILOT-17 and PILOT-23 before completion"])(
+		"grounds a goal in raw user input rather than pilot task IDs (prior goal: %s)",
+		async (priorGoal) => {
+			await withHeadlessPi(async (agent) => {
+				if (priorGoal) agent.writeRunningGoal(priorGoal);
+				const userRequest = "Dispose the old pilot tasks and prove one clean three-host workflow.";
+				await agent.send({ type: "prompt", message: userRequest });
+				const initial = await agent.waitForLlmRequest();
+				agent.respondToLlmRequest(
+					initial.id,
+					fauxAssistantMessage(
+						fauxToolCall("manage_goal", { action: "set", objective: "Repair PILOT-17, then prove the workflow" }),
+						{ stopReason: "toolUse" },
+					),
+				);
+				const review = await agent.waitForSupervisorRequest("goal_set_review");
+				expect(review.payload).toMatchObject({
+					userRequest,
+					proposedObjective: "Repair PILOT-17, then prove the workflow",
+				});
+				const groundedObjective = "Retire disposable pilot tasks and prove one clean three-host workflow";
+				agent.respondToSupervisorRequest(review, {
+					kind: "set",
+					objective: groundedObjective,
+					reason: "The user requires workflow proof, not preservation of diagnostic task IDs.",
+				});
+				await agent.waitForLlmRequest();
+				expect(agent.readGoal()).toMatchObject({ objective: groundedObjective });
+			});
+		},
+	);
+
 	it("preserves active scope when manage_goal set crosses the durable Supervisor boundary", async () => {
 		await withHeadlessPi(async (agent) => {
 			agent.writeRunningGoal(RUNNING_GOAL);
@@ -180,6 +212,7 @@ describe("headless Supervisor goal system", () => {
 
 	it("requests one idle review only after the terminal post-tool response and follows continue instructions", async () => {
 		await withHeadlessPi(async (agent) => {
+			await agent.send({ type: "set_session_name", name: "Supervisor continuation proof" });
 			agent.writeRunningGoal(RUNNING_GOAL);
 			const markerPath = join(agent.paths.workspaceDir, "tool-marker.txt");
 			await agent.send({ type: "prompt", message: "Use a tool, then stop" });
@@ -201,7 +234,7 @@ describe("headless Supervisor goal system", () => {
 				instructions: "Continue from the idle gate.",
 			});
 			const continuation = await agent.waitForLlmRequest();
-			expect(continuation.userMessages).toContain(
+			expect(continuation.userMessages, JSON.stringify(continuation.userMessages)).toContain(
 				"<supervisor-instruction>\nContinue from the idle gate.\n</supervisor-instruction>",
 			);
 			expect(agent.countSupervisorRequests("goal_idle_review")).toBe(1);

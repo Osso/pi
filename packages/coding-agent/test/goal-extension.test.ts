@@ -1062,6 +1062,7 @@ describe("goal extension", () => {
 			kind: "goal_completion_review",
 			payload: {
 				objective: "complete with paused evidence",
+				userRequest: "Use the verified deployment result.",
 				completionReport: "all checks passed",
 				conversationEvents: [
 					{ kind: "user", text: "Use the verified deployment result." },
