@@ -11,6 +11,36 @@ import { expect, it } from "vitest";
 import { runAgentLoop } from "../src/agent-loop.ts";
 import type { AgentTool } from "../src/types.ts";
 
+function createResponseStream(model: Model<"openai-responses">, requestNumber: number) {
+	const finishing = requestNumber === 3;
+	const response: AssistantMessage = {
+		role: "assistant",
+		content: finishing
+			? [{ type: "toolCall", id: "end", name: "end_turn", arguments: {} }]
+			: [{ type: "text", text: requestNumber === 1 ? "First fixed." : "Final queued message fixed." }],
+		api: model.api,
+		provider: model.provider,
+		model: model.id,
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: finishing ? "toolUse" : "stop",
+		timestamp: 3,
+	};
+	const stream = new EventStream<AssistantMessageEvent, AssistantMessage>(
+		(event) => event.type === "done",
+		() => response,
+	);
+	stream.push({ type: "done", reason: finishing ? "toolUse" : "stop", message: response });
+	stream.end(response);
+	return stream;
+}
+
 it("lets steering at text-only turn end supersede the previous completion instruction", async () => {
 	const model: Model<"openai-responses"> = {
 		id: "mock",
@@ -56,33 +86,7 @@ it("lets steering at text-only turn end supersede the previous completion instru
 		undefined,
 		(_model, context) => {
 			requests.push([...context.messages]);
-			const finishing = requests.length === 3;
-			const response: AssistantMessage = {
-				role: "assistant",
-				content: finishing
-					? [{ type: "toolCall", id: "end", name: "end_turn", arguments: {} }]
-					: [{ type: "text", text: requests.length === 1 ? "First fixed." : "Final queued message fixed." }],
-				api: model.api,
-				provider: model.provider,
-				model: model.id,
-				usage: {
-					input: 0,
-					output: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					totalTokens: 0,
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-				},
-				stopReason: finishing ? "toolUse" : "stop",
-				timestamp: 3,
-			};
-			const stream = new EventStream<AssistantMessageEvent, AssistantMessage>(
-				(event) => event.type === "done",
-				() => response,
-			);
-			stream.push({ type: "done", reason: finishing ? "toolUse" : "stop", message: response });
-			stream.end(response);
-			return stream;
+			return createResponseStream(model, requests.length);
 		},
 	);
 
