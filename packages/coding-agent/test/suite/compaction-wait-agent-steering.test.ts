@@ -3,55 +3,70 @@ import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { expect, it } from "vitest";
 import { getControlDbPath, postSharedChannelMessage } from "../../src/core/session-control-db.ts";
-import { requireHeadlessAgentSessionId, withHeadlessPi } from "./headless-pi.ts";
+import { type HeadlessPi, requireHeadlessAgentSessionId, withHeadlessPi } from "./headless-pi.ts";
 
-it("accepts steering during a post-compaction wait with a live child restored across restart", async () => {
-	await withHeadlessPi(async (agent) => {
-		const mainSessionId = agent.sessionId;
-		await agent.send({ type: "set_session_name", name: "Compaction steering regression" });
-		await agent.send({ type: "prompt", message: "Record the completed table audit before delegation" });
-		const audit = await agent.waitForLlmRequest((request) => request.sessionId === mainSessionId);
-		agent.respondToLlmRequest(
-			audit.id,
-			fauxAssistantMessage(
-				[
-					{ type: "text", text: "Earlier table audit finished; retain the parallel worker assignment next." },
-					fauxToolCall("end_turn", { reason: "Earlier audit complete" }),
-				],
-				{ stopReason: "toolUse" },
-			),
-		);
-		await agent.waitForEvent((event) => event.type === "agent_end");
-		await agent.send({ type: "prompt", message: "Delegate the parallel worker and keep it running" });
-		const initial = await agent.waitForLlmRequest((request) => request.sessionId === mainSessionId);
-		agent.respondToLlmRequest(
-			initial.id,
-			fauxAssistantMessage(
-				fauxToolCall("spawn_agent", {
-					context: "fresh",
-					displayName: "Compaction parallel worker",
-					prompt: "Keep investigating the other tables until released",
-				}),
-				{ stopReason: "toolUse" },
-			),
-		);
-		const child = await agent.waitForAgent((candidate) => candidate.displayName === "Compaction parallel worker");
-		const childSessionId = requireHeadlessAgentSessionId(child);
-		await agent.waitForLlmRequest((request) => request.sessionId === childSessionId);
-		await agent.waitForLlmRequest((request) => request.sessionId === mainSessionId);
+async function recordCompletedAudit(agent: HeadlessPi) {
+	const mainSessionId = agent.sessionId;
+	await agent.send({ type: "set_session_name", name: "Compaction steering regression" });
+	await agent.send({ type: "prompt", message: "Record the completed table audit before delegation" });
+	const audit = await agent.waitForLlmRequest((request) => request.sessionId === mainSessionId);
+	agent.respondToLlmRequest(
+		audit.id,
+		fauxAssistantMessage(
+			[
+				{ type: "text", text: "Earlier table audit finished; retain the parallel worker assignment next." },
+				fauxToolCall("end_turn", { reason: "Earlier audit complete" }),
+			],
+			{ stopReason: "toolUse" },
+		),
+	);
+	await agent.waitForEvent((event) => event.type === "agent_end");
+}
 
-		const settingsPath = join(agent.paths.agentDir, "settings.json");
-		const settings: Record<string, unknown> = JSON.parse(readFileSync(settingsPath, "utf8"));
-		writeFileSync(
-			settingsPath,
-			JSON.stringify({
-				...settings,
-				compaction: { enabled: false, keepRecentTokens: 1, reserveTokens: 16384 },
+async function seedAndRestartLiveChild(agent: HeadlessPi) {
+	const mainSessionId = agent.sessionId;
+	await recordCompletedAudit(agent);
+	await agent.send({ type: "prompt", message: "Delegate the parallel worker and keep it running" });
+	const initial = await agent.waitForLlmRequest((request) => request.sessionId === mainSessionId);
+	agent.respondToLlmRequest(
+		initial.id,
+		fauxAssistantMessage(
+			fauxToolCall("spawn_agent", {
+				context: "fresh",
+				displayName: "Compaction parallel worker",
+				prompt: "Keep investigating the other tables until released",
 			}),
-		);
-		writeFileSync(
-			join(agent.paths.agentDir, "extensions", "manual-compaction-fixture.ts"),
-			`
+			{ stopReason: "toolUse" },
+		),
+	);
+	const child = await agent.waitForAgent((candidate) => candidate.displayName === "Compaction parallel worker");
+	const childSessionId = requireHeadlessAgentSessionId(child);
+	await agent.waitForLlmRequest((request) => request.sessionId === childSessionId);
+	await agent.waitForLlmRequest((request) => request.sessionId === mainSessionId);
+
+	installManualCompactionExtension(agent);
+	await agent.crash();
+	await agent.restart();
+	const restoredChildRequest = await agent.waitForLlmRequest((request) => request.sessionId === childSessionId);
+	const beforeCompactionRequest = await agent.waitForLlmRequest((request) => request.sessionId === mainSessionId);
+	expect(restoredChildRequest.userMessages).toContain("Keep investigating the other tables until released");
+	expect(agent.listAgents().find((candidate) => candidate.id === child.id)?.transcript).toEqual(child.transcript);
+	return { child, beforeCompactionRequest };
+}
+
+function installManualCompactionExtension(agent: HeadlessPi) {
+	const settingsPath = join(agent.paths.agentDir, "settings.json");
+	const settings: Record<string, unknown> = JSON.parse(readFileSync(settingsPath, "utf8"));
+	writeFileSync(
+		settingsPath,
+		JSON.stringify({
+			...settings,
+			compaction: { enabled: false, keepRecentTokens: 1, reserveTokens: 16384 },
+		}),
+	);
+	writeFileSync(
+		join(agent.paths.agentDir, "extensions", "manual-compaction-fixture.ts"),
+		`
 export default function (pi) {
 	pi.on("compaction", async (event) => ({
 		compaction: {
@@ -63,14 +78,13 @@ export default function (pi) {
 	}));
 }
 `,
-		);
-		await agent.crash();
-		await agent.restart();
-		const restoredChildRequest = await agent.waitForLlmRequest((request) => request.sessionId === childSessionId);
-		const beforeCompactionRequest = await agent.waitForLlmRequest((request) => request.sessionId === mainSessionId);
-		expect(restoredChildRequest.userMessages).toContain("Keep investigating the other tables until released");
-		expect(agent.listAgents().find((candidate) => candidate.id === child.id)?.transcript).toEqual(child.transcript);
+	);
+}
 
+it("accepts steering during a post-compaction wait with a live child restored across restart", async () => {
+	await withHeadlessPi(async (agent) => {
+		const mainSessionId = agent.sessionId;
+		const { child, beforeCompactionRequest } = await seedAndRestartLiveChild(agent);
 		expect(await agent.send({ type: "get_state" })).toMatchObject({
 			data: { isStreaming: true, isCompacting: false },
 		});
