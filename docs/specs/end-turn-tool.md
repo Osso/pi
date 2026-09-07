@@ -14,7 +14,7 @@ The built-in `end_turn` tool gives normal coding-agent model turns an explicit c
 ### Agent loop
 
 - [x] Continue a normal coding-agent model run after an assistant response containing text but no tool call when `end_turn` is available.
-- [x] Before that immediate continuation request, append a runtime-only user instruction stating that the prior response was already delivered, that the model must not continue, repeat, or infer a new user request, and that it must call `end_turn` with a concise reason. The instruction is not emitted as an event, returned in `newMessages`, or persisted.
+- [x] Before an uninterrupted immediate continuation request, append a runtime-only user instruction stating that the prior response was already delivered, that the model must not continue, repeat, or infer a new user request, and that it must call `end_turn` with a concise reason. Real steering queued before that request supersedes the instruction. The instruction is not emitted as an event, returned in `newMessages`, or persisted.
 - [x] End the run after a tool batch whose finalized results all request termination, including `end_turn`.
 - [x] Keep model errors, aborted turns, provider `"length"` truncation, and existing explicit termination mechanisms terminal.
 - [x] Treat a persisted assistant tool batch with a successful `end_turn` result as clean completion during resume; it stays idle unless an extension requests one continuation, while interrupted turns still use the existing continuation predicate.
@@ -28,7 +28,7 @@ The built-in `end_turn` tool gives normal coding-agent model turns an explicit c
 
 - `packages/coding-agent/src/core/tools/end-turn.ts` — defines the built-in tool schema and terminating result.
 - `packages/coding-agent/src/core/tools/index.ts` — exports and registers the tool in default tool collections.
-- `packages/agent-core/src/agent-loop.ts` — continues text-only responses when the end-turn tool is available.
+- `packages/agent-core/src/agent-loop.ts` — continues text-only responses when the end-turn tool is available, unless pending steering takes precedence.
 - `packages/coding-agent/src/core/agent-session.ts` — detects duplicate assistant turns, injects the runtime-only loop guard, and distinguishes completed persisted `end_turn` batches from interrupted turns during resume.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts` and `packages/coding-agent/src/modes/rpc/rpc-mode.ts` — consume one-shot extension continuation requests before startup or session-switch continuation.
 
