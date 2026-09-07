@@ -29,9 +29,9 @@ works is described in [compaction](../../packages/coding-agent/docs/compaction.m
   the preceding user/tool-result message.
 - [x] The resumed turn actually re-runs: the LLM is called again after compaction and its
   response is appended to the session.
-- [ ] Once manual compaction has committed and emitted `compaction_end`, its active-compaction
-  state and turn-start exclusion end before any resumed turn runs. A later steering submission
-  must use normal steering delivery, including while the resumed turn waits on a tool.
+- [x] Manual compaction clears its active-compaction state before `compaction_end`. After
+  starting the resumed turn, it releases turn-start exclusion before awaiting that turn.
+  Later steering uses normal delivery, including while the resumed turn waits on a tool.
 - [x] Pre-prompt compaction checks (a new user prompt is being submitted) never resume a
   truncated turn; the incoming prompt supersedes it (`willRetry: false`).
 - [x] At most one length-recovery attempt runs per truncated turn: a second consecutive
@@ -81,11 +81,17 @@ works is described in [compaction](../../packages/coding-agent/docs/compaction.m
   - "requests retry when threshold compaction follows a length-truncated turn"
   - "does not retry a length-truncated turn on pre-prompt compaction checks"
   - "compacts and resumes a length-truncated turn"
-  - manual compaction ends before resumed tool waits accept steering
   - "does not resume a second consecutive length-truncated turn"
   - "resets the length-recovery guard on the next user prompt"
   - "compacts and retries request-buffer overflow without ordinary auto-retry"
   - "compacts once and reports bounded failure after repeated request-buffer overflow"
+
+- `packages/coding-agent/test/suite/manual-compaction-steering.test.ts`
+  - compaction state clears and steering is accepted during resumed tool execution.
+- `packages/coding-agent/test/suite/interactive-compaction-wait-steering.test.ts`
+  - editor steering during compaction and resumed waiting wakes the controlled tool and delivers once.
+- `packages/coding-agent/test/suite/compaction-wait-agent-steering.test.ts`
+  - a live child survives supervisor restart while post-compaction steering is accepted and delivered.
 
 ## Known gaps (current cycle)
 
