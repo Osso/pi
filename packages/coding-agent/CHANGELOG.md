@@ -154,6 +154,7 @@
 
 ### Fixed
 
+- Fixed steering submitted after manual compaction completion becoming permanently queued while its resumed turn waited on a tool: compaction state and turn-start exclusion now end before resumption, so the message uses normal steering delivery and wakes `wait_agent`.
 - Fixed abandoned non-resident zero-message sessions accumulating in control SQLite and occasional transcript files: teardown/replacement removes them after shutdown delivery, and startup sweeps only dead fileless rows while preserving live, resident, archived, message-bearing, and recovery-persisted sessions.
 - Fixed Escape in `/scoped-models` interrupting an active model response instead of closing the selector.
 - Fixed active-session selector renames and clears updating SQLite without synchronizing runtime state; they now update the active runtime name and emit `session_info_changed` so the footer, terminal title, and extensions stay current.

@@ -29,6 +29,9 @@ works is described in [compaction](../../packages/coding-agent/docs/compaction.m
   the preceding user/tool-result message.
 - [x] The resumed turn actually re-runs: the LLM is called again after compaction and its
   response is appended to the session.
+- [ ] Once manual compaction has committed and emitted `compaction_end`, its active-compaction
+  state and turn-start exclusion end before any resumed turn runs. A later steering submission
+  must use normal steering delivery, including while the resumed turn waits on a tool.
 - [x] Pre-prompt compaction checks (a new user prompt is being submitted) never resume a
   truncated turn; the incoming prompt supersedes it (`willRetry: false`).
 - [x] At most one length-recovery attempt runs per truncated turn: a second consecutive
@@ -56,8 +59,8 @@ works is described in [compaction](../../packages/coding-agent/docs/compaction.m
 - `packages/agent-core/src/agent-loop.ts` — treats provider `"length"` truncation as terminal so the host receives `agent_end` and can run post-turn compaction.
 - `packages/coding-agent/src/core/agent-session.ts` — `_checkCompaction` orders stale checks
   by persisted branch position with timestamp fallback, decides `willRetry` for threshold
-  compactions, and `_runAutoCompaction` strips the truncated trailing assistant message before
-  continuation; `_lengthRecoveryAttempted` guard state.
+  compactions, ends manual compaction before resuming a turn, and `_runAutoCompaction` strips
+  the truncated trailing assistant message before continuation; `_lengthRecoveryAttempted` guard state.
 - `packages/ai/src/utils/overflow.ts` — `isContextOverflow` boundary that separates
   overflow recovery from threshold length-retry.
 
@@ -78,6 +81,7 @@ works is described in [compaction](../../packages/coding-agent/docs/compaction.m
   - "requests retry when threshold compaction follows a length-truncated turn"
   - "does not retry a length-truncated turn on pre-prompt compaction checks"
   - "compacts and resumes a length-truncated turn"
+  - manual compaction ends before resumed tool waits accept steering
   - "does not resume a second consecutive length-truncated turn"
   - "resets the length-recovery guard on the next user prompt"
   - "compacts and retries request-buffer overflow without ordinary auto-retry"

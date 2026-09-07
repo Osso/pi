@@ -46,6 +46,10 @@ Set `compaction.enabled` to `false` in `~/.pi/agent/settings.json` or `<project-
 
 With the setting disabled, registered `compaction` handlers still run for manual compaction and automatic threshold or overflow compaction. A handler-provided result is saved normally, including provider-native results such as OpenAI remote compaction. Pi never falls back to the local summarizer when the handlers are absent, fail, or return no result; instead it reports an actionable error to enable built-in compaction or configure a compaction extension.
 
+### Resuming an interrupted turn
+
+Manual compaction cancels an active turn, then may resume it when work remains. Once compaction has committed and the UI receives completion, compaction is no longer active: new input follows normal steering or follow-up delivery even if the resumed turn is waiting on a tool. Input submitted while summary generation or compaction commit is still active remains deferred until completion.
+
 ### How It Works
 
 1. **Find cut point**: Walk backwards from newest message, accumulating token estimates until `keepRecentTokens` (default 20k, configurable in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`) is reached
