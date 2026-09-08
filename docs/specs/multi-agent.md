@@ -176,9 +176,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       process-local AgentSession event path; neither wake changes notification delivery. Persisted coordination polling
       consumes all currently pending deliverable runtime-mailbox and shared-channel inputs so each message is visible
       exactly once. Restore clears transient `runtime` worker metadata without rewriting durable lifecycle.
-- [ ] `wait_agent({})` expires 25 minutes after the latest foreground `model_request_start`, returning an explicit
-      still-running result without cancelling snapshotted agents; the model can take another turn and wait again.
-      The timeout is not a cache-retention guarantee.
+- [x] `wait_agent({})` expires 25 minutes after the latest observed foreground `model_request_start`, returning an
+      explicit still-running result without cancelling snapshotted agents; the model can take another turn and wait
+      again. Child model requests do not reset the deadline, and the timeout is not a cache-retention guarantee.
 
 ### Runtime construction inventory
 
@@ -401,9 +401,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       active at invocation until one reaches a terminal state. Terminal notifications only wake the query; child
       steering and accepted ordinary main-session steering wake only a live wait. Persisted coordination polling returns
       and consumes all currently pending deliverable runtime-mailbox and shared-channel inputs; Pyrun uses the same operation.
-- [ ] `wait_agent({})` expires 25 minutes after the latest foreground `model_request_start` with an explicit
-      still-running result, without cancelling agents, so a later model turn can wait again. The deadline is not a
-      cache-retention guarantee.
+- [x] `wait_agent({})` expires 25 minutes after the latest observed foreground `model_request_start` with an
+      explicit still-running result, without cancelling agents, so a later model turn can wait again. Child model
+      requests do not reset the deadline, and the deadline is not a cache-retention guarantee.
 - [x] A live `wait_agent({})` invocation receives a transient `wake_up` when steering is accepted for one of its
       snapshotted active agents. Accepted ordinary main-session steering emits `steering_message_queued` after it enters
       the AgentSession queue; interactive mode forwards that event to the same process-local wait wake path. Both wakes
@@ -595,9 +595,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   recovery, shutdown aborts live child handles, and old dispatch completions cannot mutate a newly rebound store. It also asserts
   the production child factory and configured agent profiles select child model/thinking settings for
   `agentType: "explore"`, `agentType: "documentation-update"`, and `agentType: "implement"`; `wait_agent({})`
-  supports simultaneous and late completion waiters while returning and consuming coordination delivery. Its pending
-  coverage must also prove the 25-minute deadline is measured from the latest foreground `model_request_start`, returns
-  an explicit still-running result without cancellation, and allows another model turn to wait again. Failed agents
+  supports simultaneous and late completion waiters while returning and consuming coordination delivery. Failed agents
   expose their failure message and `fileRefs`. `list_agents` always returns
   active agents, can scope them below a parent without TUI state, and exposes no terminal-agent option. `contact_parent` derives the caller's exact agent runtime identity from session context and routes child messages only to the current direct parent with validated absolute
   file references and persisted target validation. It rejects parentless runtimes, cannot target the resident Supervisor or arbitrary siblings,
@@ -614,6 +612,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   parent whose prompt already settled keeps waiting until its cancelling descendant becomes terminal, and that
   failure terminalization silently cancels directly owned detached Bash/Pyrun jobs before the parent fails. The stale-sender-session regression
   rejects steering without changing the lifecycle row or mailbox.
+- [`packages/coding-agent/test/suite/wait-agent-deadline.test.ts`](../../packages/coding-agent/test/suite/wait-agent-deadline.test.ts)
+  contains six behavioral tests proving the request-relative 25-minute deadline accounts for elapsed model/tool time,
+  expires immediately after an already-expired deadline, leaves the child running and un-aborted, ignores child model
+  requests, renews after the next foreground request, and preserves later completion delivery.
 - [`packages/coding-agent/test/session-control-db.test.ts`](../../packages/coding-agent/test/session-control-db.test.ts)
   asserts atomic steering commit validation of the canonical recipient-listener PID, embedded
   `(pid, startTimeTicks)` identity, liveness, direct sender/recipient ownership, and lifecycle legality.
