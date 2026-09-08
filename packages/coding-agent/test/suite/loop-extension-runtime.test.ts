@@ -111,7 +111,10 @@ describe("loop extension runtime", () => {
 				agent.respondToLlmRequest(busyRequest.id, fauxEndTurn("Initial work complete"));
 
 				const loopRequest = await agent.waitForLlmRequest(
-					(request) => request.id !== initialRequest.id && request.id !== busyRequest.id,
+					(request) =>
+						request.id !== initialRequest.id &&
+						request.id !== busyRequest.id &&
+						request.userMessages.includes("Start recurring recovery checks"),
 				);
 				expect(loopRequest.userMessages.filter((message) => message === LOOP_PROMPT)).toHaveLength(1);
 
@@ -128,7 +131,10 @@ describe("loop extension runtime", () => {
 				);
 				const stoppedRequest = await agent.waitForLlmRequest(
 					(request) =>
-						request.id !== initialRequest.id && request.id !== busyRequest.id && request.id !== loopRequest.id,
+						request.id !== initialRequest.id &&
+						request.id !== busyRequest.id &&
+						request.id !== loopRequest.id &&
+						request.userMessages.includes("Start recurring recovery checks"),
 				);
 				agent.respondToLlmRequest(stoppedRequest.id, fauxEndTurn("Loop test settled"));
 				await agent.waitForSessionEntry(
