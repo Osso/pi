@@ -19,6 +19,7 @@
 
 ### Changed
 
+- Capped `wait_agent({})` at 25 minutes since the latest foreground `model_request_start`: expiry returns an explicit still-running result without cancelling agents, allowing a later model turn to wait again. This deadline makes no cache-retention guarantee.
 - Changed session display names to persist only in `session_metadata.name`: the v14→v15 migration normalizes legacy `named_sessions` values under lifecycle quiescence, applies them only to matching metadata rows, gives legacy values precedence, discards orphan rows, and drops the duplicate table; `NULL` means never named, `''` means explicitly cleared, and nonempty values are current names; historical JSONL `session_info` entries remain parseable but are ignored and never newly written; copied imports and forks do not inherit names.
 - Changed session autonaming to name persisted never-named main sessions after the first real-user agent turn in TUI/RPC modes with a 2–4 word conversation summary, regardless of empty, aborted, or failed assistant responses; extension-only `agent_end` events cannot reuse historical branch messages, and explicit `/unname` remains cleared across restart.
 - Changed standalone binary release builds to exact Bun 1.4.0.
