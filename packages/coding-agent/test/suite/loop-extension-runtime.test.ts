@@ -38,15 +38,14 @@ describe("loop extension runtime", () => {
 								{ stopReason: "toolUse" },
 							),
 						);
-						await agent.waitForSessionEntry(
-							null,
-							(entry) =>
-								entry.type === "message" &&
-								entry.message.role === "toolResult" &&
+						await agent.waitForSessionEntry(null, (entry) => {
+							if (entry.type !== "message" || entry.message.role !== "toolResult") return false;
+							return (
 								entry.message.toolName === "loop" &&
 								entry.message.isError === true &&
-								entryText(entry).includes("Cannot start a loop after session shutdown"),
-						);
+								entryText(entry).includes("Cannot start a loop after session shutdown")
+							);
+						});
 					} finally {
 						writeFileSync(join(agent.paths.workspaceDir, "shutdown-release"), "release");
 						await replacement;
@@ -129,11 +128,10 @@ describe("loop extension runtime", () => {
 					loopRequest.id,
 					fauxAssistantMessage(fauxToolCall("loop", { action: "stop" }), { stopReason: "toolUse" }),
 				);
+				const completedRequestIds = new Set([initialRequest.id, busyRequest.id, loopRequest.id]);
 				const stoppedRequest = await agent.waitForLlmRequest(
 					(request) =>
-						request.id !== initialRequest.id &&
-						request.id !== busyRequest.id &&
-						request.id !== loopRequest.id &&
+						!completedRequestIds.has(request.id) &&
 						request.userMessages.includes("Start recurring recovery checks"),
 				);
 				agent.respondToLlmRequest(stoppedRequest.id, fauxEndTurn("Loop test settled"));
