@@ -17,6 +17,7 @@ function createLoopHarness() {
 	let tool: ToolDefinition | undefined;
 	let agentEndHandler: AgentEndHandler | undefined;
 	let idle = true;
+	let invalidated = false;
 	const sessionShutdownHandlers: Array<(event: unknown, ctx: ExtensionContext) => void> = [];
 	const notify = vi.fn();
 	const sendMessage = vi.fn();
@@ -58,14 +59,20 @@ function createLoopHarness() {
 		cwd: "/repo",
 		hasPendingMessages: () => false,
 		isIdle: () => idle,
-		sessionManager,
+		get sessionManager() {
+			if (invalidated) throw new Error("Stale test context accessed");
+			return sessionManager;
+		},
 		ui: { notify, setEditorText },
 	} as unknown as ExtensionCommandContext;
 	const toolCtx = {
 		cwd: "/repo",
 		hasPendingMessages: () => false,
 		isIdle: () => idle,
-		sessionManager,
+		get sessionManager() {
+			if (invalidated) throw new Error("Stale test context accessed");
+			return sessionManager;
+		},
 		ui: { notify },
 	} as unknown as ExtensionContext;
 
@@ -74,6 +81,9 @@ function createLoopHarness() {
 		sendMessage,
 		sendUserMessage,
 		setEditorText,
+		invalidate: () => {
+			invalidated = true;
+		},
 		setIdle: (value: boolean) => {
 			idle = value;
 		},
@@ -227,6 +237,30 @@ describe("loop extension", () => {
 		await harness.runTool({ action: "stop" });
 		await vi.advanceTimersByTimeAsync(3_000);
 		expect(harness.sendMessage).toHaveBeenCalledTimes(1);
+	});
+
+	it.each([false, true])("rejects tool and slash starts after shutdown (invalidated: %s)", async (invalidated) => {
+		vi.useFakeTimers();
+		const harness = createLoopHarness();
+		harness.runShutdown();
+		if (invalidated) harness.invalidate();
+		await expect(harness.runTool({ action: "start", intervalSeconds: 1, prompt: "late" })).rejects.toThrow(
+			"Cannot start a loop after session shutdown",
+		);
+		await expect(harness.runCommand("1s late")).rejects.toThrow("Cannot start a loop after session shutdown");
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect(harness.sendMessage).not.toHaveBeenCalled();
+	});
+
+	it("allows a new loop after ordinary stop", async () => {
+		vi.useFakeTimers();
+		const harness = createLoopHarness();
+		await harness.runCommand("1s old");
+		await harness.runTool({ action: "stop" });
+		await harness.runTool({ action: "start", intervalSeconds: 1, prompt: "new" });
+		await vi.advanceTimersByTimeAsync(1_000);
+		expect(harness.sendMessage).toHaveBeenCalledTimes(1);
+		expect(harness.sendMessage.mock.calls[0]?.[0]).toMatchObject({ content: "new" });
 	});
 
 	it("clears the active timer on session shutdown", async () => {

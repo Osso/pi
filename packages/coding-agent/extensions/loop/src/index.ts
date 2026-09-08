@@ -62,6 +62,7 @@ function textResult(text: string, details: LoopToolDetails): AgentToolResult<Loo
 class LoopController {
 	private activeLoop: ActiveLoop | undefined;
 	private nextGeneration = 0;
+	private closed = false;
 	private readonly pi: ExtensionAPI;
 
 	constructor(pi: ExtensionAPI) {
@@ -69,6 +70,7 @@ class LoopController {
 	}
 
 	start(intervalMs: number, prompt: string, ctx: LoopRuntimeContext): ActiveLoop {
+		if (this.closed) throw new Error("Cannot start a loop after session shutdown");
 		this.stop();
 		const generation = ++this.nextGeneration;
 		const sessionId = ctx.sessionManager.getSessionId();
@@ -83,6 +85,11 @@ class LoopController {
 			timer,
 		};
 		return this.activeLoop;
+	}
+
+	shutdown(): void {
+		this.closed = true;
+		this.stop();
 	}
 
 	stop(): boolean {
@@ -174,7 +181,7 @@ export default function loopExtension(pi: ExtensionAPI) {
 	const loop = new LoopController(pi);
 
 	pi.on("session_shutdown", () => {
-		loop.stop();
+		loop.shutdown();
 	});
 	pi.on("agent_end", (event, ctx) => {
 		if (event.sessionContinuation) return;

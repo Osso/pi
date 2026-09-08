@@ -44,7 +44,8 @@ describe("loop extension runtime", () => {
 								entry.type === "message" &&
 								entry.message.role === "toolResult" &&
 								entry.message.toolName === "loop" &&
-								entryText(entry).includes("Loop started"),
+								entry.message.isError === true &&
+								entryText(entry).includes("Cannot start a loop after session shutdown"),
 						);
 					} finally {
 						writeFileSync(join(agent.paths.workspaceDir, "shutdown-release"), "release");
@@ -55,7 +56,32 @@ describe("loop extension runtime", () => {
 					const resumed = await agent.waitForLlmRequest((candidate) =>
 						candidate.userMessages.includes("Confirm replacement remains usable"),
 					);
-					agent.respondToLlmRequest(resumed.id, fauxEndTurn("Replacement remains usable"));
+					agent.respondToLlmRequest(
+						resumed.id,
+						fauxAssistantMessage(
+							fauxToolCall("loop", { action: "start", intervalSeconds: 1, prompt: "Fresh session loop" }),
+							{ stopReason: "toolUse" },
+						),
+					);
+					const freshWork = await agent.waitForLlmRequest(
+						(candidate) =>
+							candidate.id !== request.id &&
+							candidate.id !== resumed.id &&
+							candidate.userMessages.includes("Confirm replacement remains usable"),
+					);
+					agent.respondToLlmRequest(freshWork.id, fauxEndTurn("Replacement remains usable"));
+					const freshLoop = await agent.waitForLlmRequest((candidate) =>
+						candidate.userMessages.includes("Fresh session loop"),
+					);
+					expect(freshLoop.userMessages).not.toContain(LOOP_PROMPT);
+					agent.respondToLlmRequest(
+						freshLoop.id,
+						fauxAssistantMessage(fauxToolCall("loop", { action: "stop" }), { stopReason: "toolUse" }),
+					);
+					const stopped = await agent.waitForLlmRequest(
+						(candidate) => candidate.id !== freshLoop.id && candidate.userMessages.includes("Fresh session loop"),
+					);
+					agent.respondToLlmRequest(stopped.id, fauxEndTurn("Fresh loop stopped"));
 					await agent.waitForEvent((event) => event.type === "agent_end");
 				},
 				{ cliPath: join(import.meta.dirname, "fixtures", "loop-shutdown-race-cli.ts") },
