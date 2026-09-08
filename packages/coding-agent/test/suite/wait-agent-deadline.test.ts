@@ -3,8 +3,8 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import agentsCoreExtension from "../../extensions/agents-core/src/index.ts";
 import {
-	createMultiAgentRuntimeHandles,
 	type ChildAgentDispatchInput,
+	createMultiAgentRuntimeHandles,
 } from "../../extensions/agents-core/src/runtime.ts";
 import type { ExtensionAPI, ToolExecutionStartEvent } from "../../src/core/extensions/types.ts";
 import { MultiAgentStore } from "../../src/core/multi-agent-store.ts";
