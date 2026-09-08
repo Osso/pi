@@ -11,7 +11,8 @@ The loop tool lets the agent or user schedule a recurring prompt that is injecte
 - [x] Register a `loop` tool that supports `start`, `stop`, and `status` actions.
 - [x] Require approval before the model can use the `loop` tool.
 - [x] For `start`, require a prompt and an interval of at least one second.
-- [x] For `start`, replace any existing active loop with the new loop.
+- [x] For `start`, replace any existing active loop with the new loop while the controller is active.
+- [x] Reject `start` after the controller receives `session_shutdown`; it must not create a timer that can outlive that session's extension context.
 - [x] For `stop`, clear the active loop and report whether a loop was stopped.
 - [ ] For `status`, report whether a loop is active and include the active interval and prompt when present.
 
@@ -31,7 +32,8 @@ The loop tool lets the agent or user schedule a recurring prompt that is injecte
 - [x] Coalesce interval ticks while other work is active into at most one deferred loop follow-up, and skip further ticks while that loop follow-up is in progress so no backlog forms.
 - [x] Preserve `loop` provenance when loop-origin follow-ups are delivered and rendered.
 - [x] Stop injecting prompts after the active loop is stopped, replaced, or shut down, including deferred delivery.
-- [x] Clear the active timer when the session shuts down.
+- [x] Clear the active timer and terminally close the controller when the session shuts down.
+- [x] Reject a late `start` from an active model turn during shutdown; ordinary `stop` still permits a later `start` before shutdown.
 - [ ] Expose only one active loop per session.
 - [ ] Keep loop state session-local; do not persist loops across process restarts or restored sessions.
 
@@ -52,7 +54,7 @@ The loop tool lets the agent or user schedule a recurring prompt that is injecte
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/loop-extension.test.ts` — asserts registration, approval requirement, interval injection, busy-tick coalescing, deferred-delivery cancellation, provenance, tool start/stop behavior, and session shutdown cleanup.
-- `packages/coding-agent/test/suite/loop-extension-runtime.test.ts` — proves with a real Pi process that multiple ticks during an active model turn produce one loop follow-up and no queued user-message backlog.
+- `packages/coding-agent/test/suite/loop-extension-runtime.test.ts` — proves with a real Pi process that multiple ticks during an active model turn produce one loop follow-up and no queued user-message backlog, and that a late model `start` during shutdown cannot retain a stale extension context.
 
 ## Known gaps (current cycle)
 
@@ -60,6 +62,8 @@ The loop tool lets the agent or user schedule a recurring prompt that is injecte
 - [ ] Add explicit test coverage for `/loop` and `/loop status` notifications.
 - [ ] Add explicit test coverage that starting a new loop replaces the prior loop.
 - [ ] Add explicit test coverage that loop state is not persisted across extension/controller instances.
+
+The late-start regression reproduces a lifecycle race; it does not attribute the reported crash to a specific user session.
 
 ## Out of scope
 

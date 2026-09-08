@@ -32,6 +32,7 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 - [x] Pause a shared session after runtime-listener registration and before `session_start` using a fixture-only release marker.
 - [x] Verify runtime-listener registration failure aborts startup before `session_start` (`agent-session-registration-failure.test.ts`).
 - [ ] Include child-process stderr in bounded timeout diagnostics.
+- [x] Accept a test-only CLI entrypoint path for real-process scenarios that need appended `main()` extension factories without changing production RPC behavior (`loop-extension-runtime.test.ts`).
 
 ### Multi-agent behavior
 
@@ -73,6 +74,7 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 
 - `packages/coding-agent/test/suite/headless-pi.ts` — disposable parent-side fixture and assertion helpers.
 - `packages/coding-agent/test/suite/fixtures/headless-pi-provider-preload.ts` — child-process faux provider connected through private Unix-socket JSONL.
+- `packages/coding-agent/test/suite/fixtures/loop-shutdown-race-cli.ts` — test-only CLI entrypoint that appends a shutdown barrier after first-party extensions.
 - `packages/coding-agent/src/modes/rpc/rpc-client.ts` — typed RPC transport with configurable Node startup arguments and public raw command sending.
 - `packages/coding-agent/src/modes/index.ts` — mode-level `RpcCommandBody` type export.
 - `packages/coding-agent/src/index.ts` — package-level `RpcCommandBody` type export.
@@ -89,6 +91,7 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 - `packages/coding-agent/test/session-manager/active-slice-load.test.ts`
 - `packages/coding-agent/test/suite/headless-supervisor-systems.test.ts`
 - `packages/coding-agent/test/rpc-client-process-exit.test.ts`
+- `packages/coding-agent/test/suite/loop-extension-runtime.test.ts`
 
 ## Session restoration (current cycle)
 
