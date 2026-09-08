@@ -11,3 +11,7 @@ A loop waits for one full interval before its first tick. If the session is busy
 Stopping or replacing a loop clears its timer and cancels any deferred loop delivery. Session shutdown clears the timer and terminally closes that controller: a late model `start` is rejected rather than retaining session-bound extension context past disposal. Ordinary stop/restart behavior remains available until shutdown. Loop follow-ups retain `loop` provenance while keeping the configured prompt body unchanged; ordinary user follow-ups are unaffected.
 
 Loop state remains session-local and is not restored across process restarts.
+
+## Verification evidence
+
+On September 8, 2026, a real-process faux-provider regression forced shutdown cleanup, a late model `start`, and disposal; the prior behavior reached the stale extension-context error. The fixed regression and loop suite passed 14/14 at `0ee797cef`. `deploy.sh` then completed with `npm run check` and installation; restarted installed-Pi sessions matched SHA-256 `d33e0689747f7aeba5ff181044d5df2e02f418fbe0c71419a2f6b311ebb5c206`. This proves the forced lifecycle ordering is closed; it does not establish the timing of the reported session crash.
