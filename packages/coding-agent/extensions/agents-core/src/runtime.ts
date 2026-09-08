@@ -207,6 +207,7 @@ const CRASH_RECOVERY_PROMPT =
 	"Continue the conversation from where it left off without asking the user any further questions. Resume directly from the saved session context.";
 const MESSAGE_CONTENT_LIMIT = 2000;
 const RUNTIME_COORDINATION_POLL_INTERVAL_MS = 3_000;
+const WAIT_AGENT_SLICE_MS = 25 * 60_000;
 const CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE = "Agent orchestration is unavailable from child agent runtimes.";
 const DEFAULT_BROWSER_AGENT_CONFIG_ROOT = join(homedir(), "AgentConfig");
 
@@ -340,6 +341,7 @@ interface WaitAgentsWakeUp {
 }
 
 interface WaitAgentsToolDetails {
+	timedOut?: true;
 	agent?: AgentSnapshot;
 	agents?: AgentSnapshot[];
 	message?: AgentMailboxMessage;
@@ -368,6 +370,7 @@ interface OwnedAgentRuntime {
 
 export interface MultiAgentRuntimeHandles {
 	cancellationSettlementTimeoutMs?: number;
+	latestModelRequestStartedAt?: number;
 	dispatches: ActiveAgentDispatches;
 	ownerships: Map<string, OwnedAgentRuntime>;
 	sessions: BackgroundSessionHandles;
@@ -2117,6 +2120,7 @@ export type WaitNotificationsWake =
 	| { kind: "coordination"; prompt?: string }
 	| { kind: "error"; error: unknown }
 	| { kind: "none" }
+	| { kind: "timeout" }
 	| { kind: "unavailable"; message: string }
 	| { kind: "wake_up"; wakeUp: WaitAgentsWakeUp };
 
@@ -2127,6 +2131,8 @@ type RuntimeCoordinationRecipient = {
 
 class WaitAgentsWakeWatcher {
 	private readonly activeAgents: AgentSnapshot[];
+	private readonly deadline: number | undefined;
+	private deadlineTimer: ReturnType<typeof setTimeout> | undefined;
 	private readonly controlDbPath: string;
 	private readonly recipient: RuntimeCoordinationRecipient | undefined;
 	private readonly sessionPath: string;
@@ -2146,15 +2152,19 @@ class WaitAgentsWakeWatcher {
 		sessionPath: string,
 		signal: AbortSignal | undefined,
 		recipient: RuntimeCoordinationRecipient | undefined,
-		waitWakeListeners: MultiAgentRuntimeHandles["waitWakeListeners"],
+		runtimeHandles: MultiAgentRuntimeHandles,
 	) {
 		this.activeAgents = activeAgents;
+		this.deadline =
+			runtimeHandles.latestModelRequestStartedAt === undefined
+				? undefined
+				: runtimeHandles.latestModelRequestStartedAt + WAIT_AGENT_SLICE_MS;
 		this.controlDbPath = controlDbPath;
 		this.sessionPath = sessionPath;
 		this.recipient = recipient;
 		this.signal = signal;
 		this.store = store;
-		this.waitWakeListeners = waitWakeListeners;
+		this.waitWakeListeners = runtimeHandles.waitWakeListeners;
 	}
 
 	wait(): Promise<WaitNotificationsWake> {
@@ -2207,6 +2217,25 @@ class WaitAgentsWakeWatcher {
 			return;
 		}
 		this.checkCoordination();
+		this.startDeadlineTimer(readTrackedTerminal);
+	}
+
+	private startDeadlineTimer(readTrackedTerminal: () => AgentSnapshot | undefined): void {
+		if (this.settled || this.deadline === undefined) return;
+		const remainingMs = this.deadline - Date.now();
+		if (remainingMs <= 0) {
+			this.finish({ kind: "timeout" });
+			return;
+		}
+		this.deadlineTimer = setTimeout(() => {
+			const terminal = readTrackedTerminal();
+			if (terminal) {
+				this.finish({ agent: terminal, kind: "agent" });
+				return;
+			}
+			this.checkCoordination();
+			this.finish({ kind: "timeout" });
+		}, remainingMs);
 	}
 
 	private reconcileDeadDetachedRuntimes(): void {
@@ -2258,6 +2287,10 @@ class WaitAgentsWakeWatcher {
 	}
 
 	private cleanup(): void {
+		if (this.deadlineTimer !== undefined) {
+			clearTimeout(this.deadlineTimer);
+			this.deadlineTimer = undefined;
+		}
 		this.unsubscribeAgentTransitions();
 		this.unsubscribeWakeUp();
 		if (this.pollTimer) {
@@ -2300,7 +2333,7 @@ export async function waitNotifications(
 		persistence.sessionPath,
 		signal,
 		runtimeCoordinationRecipient(ctx),
-		runtimeHandles.waitWakeListeners,
+		runtimeHandles,
 	);
 }
 
@@ -2319,6 +2352,12 @@ export function consumeNotifications(
 		return errorResult(`Wait failed: ${message}`, {});
 	}
 	if (wake.kind === "none") return emptyResult();
+	if (wake.kind === "timeout") {
+		return result(
+			"Wait slice timed out: agents are still running. No agents were cancelled. You can wait again after the next model request.",
+			{ timedOut: true },
+		);
+	}
 	if (wake.kind === "unavailable") return errorResult(wake.message, {});
 	if (wake.kind === "wake_up") {
 		const agent = wake.wakeUp.agentId ? store.getAgent(wake.wakeUp.agentId) : undefined;
@@ -2433,7 +2472,7 @@ async function waitForAgentOrCoordination(
 	sessionPath: string,
 	signal: AbortSignal | undefined,
 	recipient: RuntimeCoordinationRecipient | undefined,
-	waitWakeListeners: MultiAgentRuntimeHandles["waitWakeListeners"],
+	runtimeHandles: MultiAgentRuntimeHandles,
 ): Promise<WaitNotificationsWake> {
 	if (signal?.aborted) return Promise.resolve({ kind: "cancelled" });
 	const agents = (readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []) as AgentSnapshot[];
@@ -2444,7 +2483,7 @@ async function waitForAgentOrCoordination(
 		sessionPath,
 		signal,
 		recipient,
-		waitWakeListeners,
+		runtimeHandles,
 	).wait();
 }
 
@@ -3096,10 +3135,15 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 	const runtimeLifecycleMirror = createRuntimeLifecycleMirror(store);
 	let unbindParentAgentJournal: (() => void) | undefined;
 
+	pi.on?.("model_request_start", (_event, ctx) => {
+		if (!isChildAgentRuntime(ctx)) runtimeHandles.latestModelRequestStartedAt = Date.now();
+	});
+
 	pi.on?.("session_start", async (_event, ctx) => {
 		unbindParentAgentJournal?.();
 		restoreCompactedParentAgentRecords(pi, store, ctx);
 		if (!isChildAgentRuntime(ctx)) {
+			runtimeHandles.latestModelRequestStartedAt = undefined;
 			if (ctx.sessionManager) {
 				unbindParentAgentJournal = store.subscribeAgentTransitions((previous, current) => {
 					if (
@@ -3228,7 +3272,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			name: "wait_agent",
 			label: "Wait Agent",
 			description:
-				"Wait until an active agent terminates, steering wakes the wait, or persisted coordination polling finds input. Terminal wakes consume pending terminal notifications.",
+				"Wait until an active agent terminates, steering wakes the wait, persisted coordination polling finds input, or 25 minutes elapse since the latest model request started. Timeout leaves agents running. Terminal wakes consume pending terminal notifications.",
 			approvalRequired: false,
 			parameters: waitAgentsSchema,
 			execute: async (_toolCallId, params, signal, _onUpdate, ctx) => {
