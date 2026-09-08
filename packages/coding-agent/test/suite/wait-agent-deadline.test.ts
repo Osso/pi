@@ -2,6 +2,11 @@ import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import agentsCoreExtension from "../../extensions/agents-core/src/index.ts";
+import {
+	createMultiAgentRuntimeHandles,
+	type ChildAgentDispatchInput,
+} from "../../extensions/agents-core/src/runtime.ts";
+import type { ExtensionAPI, ToolExecutionStartEvent } from "../../src/core/extensions/types.ts";
 import { MultiAgentStore } from "../../src/core/multi-agent-store.ts";
 import { createHarness, getMessageText, type Harness } from "./harness.ts";
 
@@ -15,11 +20,15 @@ describe("wait_agent request-relative deadline", () => {
 	let childSignal: AbortSignal | undefined;
 	let childAborted = false;
 	let store: MultiAgentStore;
+	let runtimeHandles = createMultiAgentRuntimeHandles();
+	let childHarness: Harness | undefined;
 
 	afterEach(async () => {
 		finishChild?.();
 		await harness?.session.abort();
 		await prompt;
+		childHarness?.cleanup();
+		childHarness = undefined;
 		harness?.cleanup();
 		harness = undefined;
 		prompt = undefined;
@@ -29,42 +38,61 @@ describe("wait_agent request-relative deadline", () => {
 		vi.useRealTimers();
 	});
 
-	async function startWait(elapsedBeforeWait: number, waitCount = 1) {
+	function waitForChildCompletion() {
+		return new Promise<void>((resolve) => {
+			finishChild = resolve;
+		});
+	}
+
+	async function createChildSession(input: ChildAgentDispatchInput) {
+		childSignal = input.signal;
+		return {
+			abort: () => {
+				childAborted = true;
+			},
+			messages: [fauxAssistantMessage("child finished")],
+			prompt: waitForChildCompletion,
+			transcript: { path: join(input.ctx.cwd, "child.jsonl"), sessionId: "deadline-child" },
+		};
+	}
+
+	function registerChildExtension(pi: ExtensionAPI) {
+		agentsCoreExtension(pi, { store, runtimeHandles });
+	}
+
+	async function startWait(elapsedBeforeWait: number, waitCount = 1, beforeWait?: () => Promise<void>) {
 		vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
 		vi.setSystemTime(REQUEST_START);
 		store = new MultiAgentStore();
+		runtimeHandles = createMultiAgentRuntimeHandles();
 		let waitInvocations = 0;
-		const waitStarted = Promise.withResolvers<void>();
+		let notifyWaitStarted: (() => void) | undefined;
+		let rejectWaitStarted: ((error: unknown) => void) | undefined;
+		const waitStarted = new Promise<void>((resolve, reject) => {
+			notifyWaitStarted = resolve;
+			rejectWaitStarted = reject;
+		});
+		const onToolExecutionStart = async (event: ToolExecutionStartEvent) => {
+			if (event.toolName !== "wait_agent") return;
+			waitInvocations++;
+			if (waitInvocations !== 1) return;
+			vi.setSystemTime(Date.now() + elapsedBeforeWait);
+			try {
+				await beforeWait?.();
+				notifyWaitStarted?.();
+			} catch (error) {
+				rejectWaitStarted?.(error);
+				throw error;
+			}
+		};
+		const registerExtension = (pi: ExtensionAPI) => {
+			agentsCoreExtension(pi, { store, runtimeHandles, createChildSession });
+			pi.on("tool_execution_start", onToolExecutionStart);
+		};
 		harness = await createHarness({
 			persistedSession: true,
 			multiAgentStore: store,
-			extensionFactories: [
-				(pi) => {
-					agentsCoreExtension(pi, {
-						store,
-						createChildSession: async (input) => {
-							childSignal = input.signal;
-							return {
-								abort: () => {
-									childAborted = true;
-								},
-								messages: [fauxAssistantMessage("child finished")],
-								prompt: () =>
-									new Promise<void>((resolve) => {
-										finishChild = resolve;
-									}),
-								transcript: { path: join(input.ctx.cwd, "child.jsonl"), sessionId: "deadline-child" },
-							};
-						},
-					});
-					pi.on("tool_execution_start", (event) => {
-						if (event.toolName !== "wait_agent") return;
-						waitInvocations++;
-						waitStarted.resolve();
-						if (waitInvocations === 1) vi.setSystemTime(Date.now() + elapsedBeforeWait);
-					});
-				},
-			],
+			extensionFactories: [registerExtension],
 		});
 		store.setPersistenceSessionManager(harness.sessionManager);
 		await harness.session.bindExtensions({});
@@ -79,7 +107,7 @@ describe("wait_agent request-relative deadline", () => {
 			fauxAssistantMessage("supervisor done"),
 		]);
 		prompt = harness.session.prompt("Spawn a child and wait.");
-		await waitStarted.promise;
+		await waitStarted;
 		await vi.advanceTimersByTimeAsync(0);
 		expect(waitInvocations).toBeGreaterThanOrEqual(1);
 		expect(store.listActiveAgents()).toHaveLength(1);
@@ -122,6 +150,43 @@ describe("wait_agent request-relative deadline", () => {
 		finishChild?.();
 		await vi.advanceTimersByTimeAsync(0);
 		expect(store.listAgents()).toMatchObject([{ lifecycle: "completed", result: { summary: "child finished" } }]);
+	});
+
+	it("ignores a child model request before the parent starts waiting", async () => {
+		await startWait(20 * MINUTE, 1, async () => {
+			childHarness = await createHarness({
+				fauxProvider: { api: "deadline-child-api", provider: "deadline-child-provider" },
+				multiAgentRuntimeRole: "child",
+				multiAgentAgentId: store.listActiveAgents()[0].id,
+				extensionFactories: [registerChildExtension],
+			});
+			await childHarness.session.bindExtensions({});
+			childHarness.setResponses([
+				fauxAssistantMessage([fauxToolCall("end_turn", { reason: "Child request complete" })], {
+					stopReason: "toolUse",
+				}),
+			]);
+			await childHarness.session.prompt("Continue child work");
+			expect(childHarness.eventsOfType("model_request_start")).toHaveLength(1);
+		});
+		await vi.advanceTimersByTimeAsync(5 * MINUTE - 1);
+		expect(waitResults()).toHaveLength(0);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(Date.now()).toBe(REQUEST_START + 25 * MINUTE);
+		expect(waitResults()).toHaveLength(1);
+		expectTimeout();
+	});
+
+	it("expires the renewed slice exactly 25 minutes after the next model request", async () => {
+		await startWait(20 * MINUTE, 2);
+		await vi.advanceTimersByTimeAsync(5 * MINUTE);
+		expect(waitResults()).toHaveLength(1);
+		await vi.advanceTimersByTimeAsync(25 * MINUTE - 1);
+		expect(waitResults()).toHaveLength(1);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(Date.now()).toBe(REQUEST_START + 50 * MINUTE);
+		expect(waitResults()).toHaveLength(2);
+		expectTimeout();
 	});
 
 	it("starts a new slice after the next model request and preserves completion delivery", async () => {

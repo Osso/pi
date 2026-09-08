@@ -2342,27 +2342,31 @@ export function consumeNotifications(
 	wake: WaitNotificationsWake,
 	ctx?: ExtensionContext,
 ): AgentToolResult<WaitAgentsToolDetails> {
-	if (wake.kind === "cancelled") return errorResult("Wait cancelled.", {});
-	if (wake.kind === "coordination") {
-		const coordination = wake.prompt ?? takePendingWaitCoordination(store, runtimeCoordinationRecipient(ctx));
-		return coordination ? result(coordination, {}) : result("Coordination input changed before delivery.", {});
-	}
-	if (wake.kind === "error") {
-		const message = wake.error instanceof Error ? wake.error.message : String(wake.error);
-		return errorResult(`Wait failed: ${message}`, {});
-	}
-	if (wake.kind === "none") return emptyResult();
-	if (wake.kind === "timeout") {
-		return result(
-			"Wait slice timed out: agents are still running. No agents were cancelled. You can wait again after the next model request.",
-			{ timedOut: true },
-		);
-	}
-	if (wake.kind === "unavailable") return errorResult(wake.message, {});
-	if (wake.kind === "wake_up") {
-		const agent = wake.wakeUp.agentId ? store.getAgent(wake.wakeUp.agentId) : undefined;
-		const text = agent ? `Woken after steering ${agent.displayName}.` : "Woken after supervisor steering.";
-		return result(text, { wakeUp: wake.wakeUp });
+	switch (wake.kind) {
+		case "cancelled":
+			return errorResult("Wait cancelled.", {});
+		case "coordination": {
+			const coordination = wake.prompt ?? takePendingWaitCoordination(store, runtimeCoordinationRecipient(ctx));
+			return result(coordination || "Coordination input changed before delivery.", {});
+		}
+		case "error": {
+			const message = wake.error instanceof Error ? wake.error.message : String(wake.error);
+			return errorResult(`Wait failed: ${message}`, {});
+		}
+		case "none":
+			return emptyResult();
+		case "timeout":
+			return result(
+				"Wait slice timed out: agents are still running. No agents were cancelled. You can wait again after the next model request.",
+				{ timedOut: true as const },
+			);
+		case "unavailable":
+			return errorResult(wake.message, {});
+		case "wake_up": {
+			const agent = wake.wakeUp.agentId ? store.getAgent(wake.wakeUp.agentId) : undefined;
+			const text = agent ? `Woken after steering ${agent.displayName}.` : "Woken after supervisor steering.";
+			return result(text, { wakeUp: wake.wakeUp });
+		}
 	}
 	const persistence = store.getPersistenceTarget();
 	if (persistence) {
