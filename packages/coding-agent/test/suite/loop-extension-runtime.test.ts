@@ -1,3 +1,5 @@
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
@@ -17,6 +19,51 @@ function entryText(entry: SessionEntry): string {
 }
 
 describe("loop extension runtime", () => {
+	it(
+		"survives a loop start from an active model during session shutdown",
+		async () => {
+			await withHeadlessPi(
+				async (agent) => {
+					await agent.send({ type: "prompt", message: "Start work before session replacement" });
+					const request = await agent.waitForLlmRequest();
+					const replacement = agent.send({ type: "new_session" });
+					const enteredPath = join(agent.paths.workspaceDir, "shutdown-entered");
+					try {
+						await expect.poll(() => existsSync(enteredPath), { timeout: 5_000 }).toBe(true);
+						expect(readFileSync(enteredPath, "utf8")).toBe(agent.sessionId);
+						agent.respondToLlmRequest(
+							request.id,
+							fauxAssistantMessage(
+								fauxToolCall("loop", { action: "start", intervalSeconds: 1, prompt: LOOP_PROMPT }),
+								{ stopReason: "toolUse" },
+							),
+						);
+						await agent.waitForSessionEntry(
+							null,
+							(entry) =>
+								entry.type === "message" &&
+								entry.message.role === "toolResult" &&
+								entry.message.toolName === "loop" &&
+								entryText(entry).includes("Loop started"),
+						);
+					} finally {
+						writeFileSync(join(agent.paths.workspaceDir, "shutdown-release"), "release");
+						await replacement;
+					}
+					await delay(1_200);
+					await agent.send({ type: "prompt", message: "Confirm replacement remains usable" });
+					const resumed = await agent.waitForLlmRequest((candidate) =>
+						candidate.userMessages.includes("Confirm replacement remains usable"),
+					);
+					agent.respondToLlmRequest(resumed.id, fauxEndTurn("Replacement remains usable"));
+					await agent.waitForEvent((event) => event.type === "agent_end");
+				},
+				{ cliPath: join(import.meta.dirname, "fixtures", "loop-shutdown-race-cli.ts") },
+			);
+		},
+		REAL_PROCESS_TEST_TIMEOUT_MS,
+	);
+
 	it(
 		"coalesces interval ticks while a real turn is busy",
 		async () => {

@@ -75,6 +75,7 @@ interface HeadlessRuntimePaths extends HeadlessPiPaths {
 export interface HeadlessPiOptions {
 	approvalPreset?: ApprovalPresetName;
 	autoDetachTools?: boolean;
+	cliPath?: string;
 	deleteCwdBeforeSelfRestart?: boolean;
 	enableMemoryEnrichment?: boolean;
 	env?: Record<string, string>;
@@ -304,7 +305,7 @@ function createHeadlessRpcClient(
 ): RpcClient {
 	const preloadPath = join(import.meta.dirname, "fixtures", "headless-pi-provider-preload.ts");
 	const deleteCwdPreloadPath = join(import.meta.dirname, "fixtures", "delete-cwd-self-restart-preload.mjs");
-	const cliPath = join(import.meta.dirname, "..", "..", "src", "cli.ts");
+	const cliPath = options.cliPath ?? join(import.meta.dirname, "..", "..", "src", "cli.ts");
 	const args = [...(options.approvalPreset ? [] : ["--approve"]), "--no-context-files", "--no-skills", "--no-themes"];
 	if (sessionFile) args.push("--session", sessionFile);
 	const selectedProvider = options.provider ?? "headless-faux";
