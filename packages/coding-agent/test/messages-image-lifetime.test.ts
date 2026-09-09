@@ -13,7 +13,9 @@ const image: ImageContent = {
 const placeholder: TextContent = { type: "text", text: "[Previously processed image omitted]" };
 const roles = ["user", "custom", "toolResult"] as const;
 
-function imageMessage(role: (typeof roles)[number]): Extract<AgentMessage, { role: (typeof roles)[number] }> {
+function imageMessage(
+	role: (typeof roles)[number],
+): Extract<AgentMessage, { role: (typeof roles)[number] }> & { content: (TextContent | ImageContent)[] } {
 	const content: (TextContent | ImageContent)[] = [
 		{ type: "text", text: "Before screenshot" },
 		{ ...image },
@@ -86,10 +88,12 @@ describe("convertToLlm image lifetime", () => {
 			);
 			expect(received?.content).toEqual(screenshot.content);
 			expect(processed?.content).toEqual(consumedContent);
-			expect(
-				agent.state.messages.find((message) => message.role === "toolResult" && message.toolCallId === "capture-1")
-					?.content,
-			).toEqual(screenshot.content);
+			const storedScreenshot = agent.state.messages.find(
+				(message) => message.role === "toolResult" && message.toolCallId === "capture-1",
+			);
+			expect(storedScreenshot?.role).toBe("toolResult");
+			if (storedScreenshot?.role !== "toolResult") throw new Error("Missing screenshot tool result");
+			expect(storedScreenshot.content).toEqual(screenshot.content);
 		} finally {
 			faux.unregister();
 		}

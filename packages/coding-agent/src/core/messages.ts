@@ -216,20 +216,24 @@ export function convertToLlm(messages: AgentMessage[]): Message[] {
 }
 
 function omitProcessedImages(messages: Message[]): Message[] {
-	const lastSuccessfulResponse = messages.findLastIndex(
-		(message) =>
-			message.role === "assistant" &&
-			(message.stopReason === "stop" || message.stopReason === "toolUse" || message.stopReason === "length"),
-	);
-	return messages.map((message, index) => {
-		if (index >= lastSuccessfulResponse) return message;
-		if (message.role !== "user" && message.role !== "toolResult") return message;
-		if (!Array.isArray(message.content) || !message.content.some((part) => part.type === "image")) return message;
-		return {
-			...message,
-			content: message.content.map((part) =>
-				part.type === "image" ? { type: "text" as const, text: "[Previously processed image omitted]" } : part,
-			),
-		};
-	});
+	let lastSuccessfulResponse = -1;
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (message.role !== "assistant") continue;
+		if (message.stopReason === "error" || message.stopReason === "aborted") continue;
+		lastSuccessfulResponse = index;
+		break;
+	}
+	return messages.map((message, index) => (index < lastSuccessfulResponse ? omitMessageImages(message) : message));
+}
+
+function omitMessageImages(message: Message): Message {
+	if (message.role !== "user" && message.role !== "toolResult") return message;
+	if (!Array.isArray(message.content) || !message.content.some((part) => part.type === "image")) return message;
+	return {
+		...message,
+		content: message.content.map((part) =>
+			part.type === "image" ? { type: "text" as const, text: "[Previously processed image omitted]" } : part,
+		),
+	};
 }
