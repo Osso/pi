@@ -1930,6 +1930,7 @@ function sendAgentMessage(
 	ctx?: ExtensionContext,
 	onSessionMessageSent?: MultiAgentExtensionOptions["onSessionMessageSent"],
 ): AgentToolResult<SendAgentMessageToolDetails> {
+	const target = formatSentMessageTarget(params, params.toSessionId);
 	if (params.toSessionId) {
 		if (isMainRuntimeTarget(params.toAgentId)) {
 			return sendMainRuntimeSessionMessage(store, params, ctx, onSessionMessageSent);
@@ -1952,7 +1953,7 @@ function sendAgentMessage(
 
 	const senderId = currentMessageSenderId(store, ctx);
 	if (!senderId) {
-		return errorResult("Could not send agent message: subagent runtime identity is unavailable.", {
+		return errorResult(`Could not send agent message to ${target}: subagent runtime identity is unavailable.`, {
 			agent: emptyAgent("unknown_subagent"),
 			message: emptyDirectMessage("unknown_subagent", params.toAgentId, params.message),
 		});
@@ -1968,7 +1969,7 @@ function sendAgentMessage(
 		? store.sendMailboxMessage(sender.id, sender.revision, messageInput)
 		: store.sendMainThreadMailboxMessage(messageInput);
 	if (!sent.ok) {
-		return errorResult(`Could not send agent message from ${senderId}: ${sent.error}`, {
+		return errorResult(`Could not send agent message from ${senderId} to ${target}: ${sent.error}`, {
 			agent: "current" in sent ? sent.current : emptyAgent(senderId),
 			message: emptyDirectMessage(senderId, params.toAgentId, params.message),
 		});
@@ -1978,15 +1979,18 @@ function sendAgentMessage(
 		const recipientAgentId = isMainRuntimeTarget(params.toAgentId) ? null : params.toAgentId;
 		if (!mirrorRuntimeSessionMessage(store, sent.message, params.toSessionId, ctx, recipientAgentId)) {
 			const failedMessage = markFailedMailboxTransportMessage(store, sent.message);
-			return errorResult("Could not send runtime session message: runtime mailbox transport is unavailable.", {
-				agent: sent.agent,
-				message: failedMessage,
-			});
+			return errorResult(
+				`Could not send runtime session message to ${target}: runtime mailbox transport is unavailable.`,
+				{
+					agent: sent.agent,
+					message: failedMessage,
+				},
+			);
 		}
 		onSessionMessageSent?.({ message: sent.message, toSessionId: params.toSessionId });
 	} else if (!mirrorRuntimeMailboxMessage(store, sent.message, ctx)) {
 		const failedMessage = markFailedMailboxTransportMessage(store, sent.message);
-		return errorResult("Could not send agent message: runtime mailbox transport is unavailable.", {
+		return errorResult(`Could not send agent message to ${target}: runtime mailbox transport is unavailable.`, {
 			agent: sent.agent,
 			message: failedMessage,
 		});
@@ -2004,19 +2008,23 @@ function sendMainRuntimeSessionMessage(
 	ctx: ExtensionContext | undefined,
 	onSessionMessageSent?: MultiAgentExtensionOptions["onSessionMessageSent"],
 ): AgentToolResult<SendAgentMessageToolDetails> {
+	const target = formatSentMessageTarget(params, params.toSessionId);
 	const sender = currentMessageSenderAgent(store, ctx);
 	const senderId = currentMessageSenderId(store, ctx);
 	if (!params.toSessionId) {
-		return errorResult("Could not send runtime session message: target session unavailable.", {
+		return errorResult(`Could not send runtime session message to ${target}: target session unavailable.`, {
 			agent: sender,
 			message: emptyDirectMessage(senderId ?? "unknown_subagent", params.toAgentId, params.message),
 		});
 	}
 	if (!senderId) {
-		return errorResult("Could not send runtime session message: subagent runtime identity is unavailable.", {
-			agent: sender,
-			message: emptyDirectMessage("unknown_subagent", params.toAgentId, params.message),
-		});
+		return errorResult(
+			`Could not send runtime session message to ${target}: subagent runtime identity is unavailable.`,
+			{
+				agent: sender,
+				message: emptyDirectMessage("unknown_subagent", params.toAgentId, params.message),
+			},
+		);
 	}
 	const message = store.recordOutboundSessionMessage({
 		fileRefs: params.fileRefs,
@@ -2027,10 +2035,13 @@ function sendMainRuntimeSessionMessage(
 	});
 	if (!mirrorRuntimeSessionMessage(store, message, params.toSessionId, ctx, null)) {
 		const failedMessage = markFailedMailboxTransportMessage(store, message);
-		return errorResult("Could not send runtime session message: runtime mailbox transport is unavailable.", {
-			agent: sender,
-			message: failedMessage,
-		});
+		return errorResult(
+			`Could not send runtime session message to ${target}: runtime mailbox transport is unavailable.`,
+			{
+				agent: sender,
+				message: failedMessage,
+			},
+		);
 	}
 	onSessionMessageSent?.({ message, toSessionId: params.toSessionId });
 	return result(`Sent message to session ${params.toSessionId}.`, {
@@ -2110,7 +2121,10 @@ function isMainRuntimeTarget(toAgentId: string): boolean {
 	return toAgentId === MAIN_THREAD_AGENT_ID || toAgentId === "supervisor";
 }
 
-function formatSentMessageTarget(message: AgentMailboxMessage, toSessionId: string | undefined): string {
+function formatSentMessageTarget(
+	message: Pick<AgentMailboxMessage, "toAgentId">,
+	toSessionId: string | undefined,
+): string {
 	return toSessionId ? `${message.toAgentId} in session ${toSessionId}` : message.toAgentId;
 }
 

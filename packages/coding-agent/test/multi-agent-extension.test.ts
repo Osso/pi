@@ -2931,6 +2931,12 @@ describe("multi-agent extension tools", () => {
 			expect(childMailbox.inbox).toMatchObject([
 				{ id: sent.details.message.id, status: "failed", toAgentId: child.details.agent.id },
 			]);
+			expect(rejected.content).toEqual([
+				{
+					type: "text",
+					text: `Could not send agent message from ${child.details.agent.id} to ${sibling.details.agent.id}: forbidden_target`,
+				},
+			]);
 			expect(rejected.details).toMatchObject({
 				agent: { id: child.details.agent.id, revision: child.details.agent.revision },
 				message: { status: "failed", toAgentId: sibling.details.agent.id },
@@ -2939,6 +2945,63 @@ describe("multi-agent extension tools", () => {
 			rmSync(tempDir, { force: true, recursive: true });
 		}
 	});
+
+	it.each([undefined, "missing-session"])(
+		"identifies a missing mailbox target with session %s without queuing delivery",
+		async (toSessionId) => {
+			const harness = createMultiAgentHarness();
+			const sent = await harness.call<SendAgentMessageDetails>("send_agent_message", {
+				message: "Inspect missing target",
+				toAgentId: "missing-agent",
+				toSessionId,
+			});
+
+			expect(sent.content).toEqual([
+				{
+					type: "text",
+					text: `Could not send agent message from main to missing-agent${toSessionId ? ` in session ${toSessionId}` : ""}: target_not_found`,
+				},
+			]);
+			expect(sent.details.message).toMatchObject({
+				id: "",
+				fromAgentId: "main",
+				toAgentId: "missing-agent",
+				status: "failed",
+			});
+			expect(harness.store.listMailboxMessages()).toEqual([]);
+		},
+	);
+
+	it.each([
+		{ toAgentId: "target-agent", toSessionId: undefined, route: "agent" },
+		{ toAgentId: "target-agent", toSessionId: "target-session", route: "agent" },
+		{ toAgentId: "main", toSessionId: "target-session", route: "runtime session" },
+		{ toAgentId: "supervisor", toSessionId: "target-session", route: "runtime session" },
+	])(
+		"identifies $toAgentId in session $toSessionId when sender identity is unavailable",
+		async ({ toAgentId, toSessionId, route }) => {
+			const harness = createMultiAgentHarness({ ctx: { multiAgentRequiresAgentId: true } });
+			const sent = await harness.call<SendAgentMessageDetails>("send_agent_message", {
+				message: "Inspect target",
+				toAgentId,
+				toSessionId,
+			});
+
+			expect(sent.content).toEqual([
+				{
+					type: "text",
+					text: `Could not send ${route} message to ${toAgentId}${toSessionId ? ` in session ${toSessionId}` : ""}: subagent runtime identity is unavailable.`,
+				},
+			]);
+			expect(sent.details.message).toMatchObject({
+				id: "",
+				fromAgentId: "unknown_subagent",
+				toAgentId,
+				status: "failed",
+			});
+			expect(harness.store.listMailboxMessages()).toEqual([]);
+		},
+	);
 
 	it("derives the main thread as sender for top-level agent messages", async () => {
 		const harness = createMultiAgentHarness();
@@ -2953,6 +3016,12 @@ describe("multi-agent extension tools", () => {
 		});
 		const childMailbox = mailboxDetails(harness.store, child.details.agent.id);
 
+		expect(sent.content).toEqual([
+			{
+				type: "text",
+				text: `Could not send agent message to ${child.details.agent.id}: runtime mailbox transport is unavailable.`,
+			},
+		]);
 		expect(sent.details.message).toMatchObject({
 			body: "Main thread request",
 			fromAgentId: "main",

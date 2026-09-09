@@ -654,7 +654,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		);
 
 		expect(sent.content[0]).toMatchObject({
-			text: "Could not send runtime session message: runtime mailbox transport is unavailable.",
+			text: `Could not send runtime session message to ${child.agent.id} in session target-session: runtime mailbox transport is unavailable.`,
 		});
 		expect(sent.details.message).toMatchObject({ status: "failed" });
 		expect(store.listMailboxMessages()).toMatchObject([{ status: "failed" }]);
@@ -684,7 +684,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		);
 
 		expect(sent.content[0]).toMatchObject({
-			text: "Could not send runtime session message: runtime mailbox transport is unavailable.",
+			text: "Could not send runtime session message to main in session target-session: runtime mailbox transport is unavailable.",
 		});
 		expect(sent.details.message).toMatchObject({ status: "failed" });
 		expect(store.listMailboxMessages()).toMatchObject([{ status: "failed" }]);
@@ -772,6 +772,12 @@ describe("runtime SQLite mailbox delivery", () => {
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: senderSession }),
 		);
 
+		expect(sent.content).toEqual([
+			{
+				type: "text",
+				text: `Could not send agent message to ${child.agent.id}: target session does not match target-session.`,
+			},
+		]);
 		expect(sent.details.message).toMatchObject({ status: "failed", toAgentId: child.agent.id });
 		expect(store.listMailboxMessages()).toEqual([]);
 		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
