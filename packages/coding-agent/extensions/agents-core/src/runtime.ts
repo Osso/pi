@@ -1979,21 +1979,14 @@ function sendAgentMessage(
 		const recipientAgentId = isMainRuntimeTarget(params.toAgentId) ? null : params.toAgentId;
 		if (!mirrorRuntimeSessionMessage(store, sent.message, params.toSessionId, ctx, recipientAgentId)) {
 			const failedMessage = markFailedMailboxTransportMessage(store, sent.message);
-			return errorResult(
-				`Could not send runtime session message to ${target}: runtime mailbox transport is unavailable.`,
-				{
-					agent: sent.agent,
-					message: failedMessage,
-				},
-			);
+			const error = `Could not send runtime session message to ${target}: runtime mailbox transport is unavailable.`;
+			return errorResult(error, { agent: sent.agent, message: failedMessage });
 		}
 		onSessionMessageSent?.({ message: sent.message, toSessionId: params.toSessionId });
 	} else if (!mirrorRuntimeMailboxMessage(store, sent.message, ctx)) {
 		const failedMessage = markFailedMailboxTransportMessage(store, sent.message);
-		return errorResult(`Could not send agent message to ${target}: runtime mailbox transport is unavailable.`, {
-			agent: sent.agent,
-			message: failedMessage,
-		});
+		const error = `Could not send agent message to ${target}: runtime mailbox transport is unavailable.`;
+		return errorResult(error, { agent: sent.agent, message: failedMessage });
 	}
 
 	return result(`Sent message to ${formatSentMessageTarget(sent.message, params.toSessionId)}.`, {
@@ -2018,13 +2011,11 @@ function sendMainRuntimeSessionMessage(
 		});
 	}
 	if (!senderId) {
-		return errorResult(
-			`Could not send runtime session message to ${target}: subagent runtime identity is unavailable.`,
-			{
-				agent: sender,
-				message: emptyDirectMessage("unknown_subagent", params.toAgentId, params.message),
-			},
-		);
+		const error = `Could not send runtime session message to ${target}: subagent runtime identity is unavailable.`;
+		return errorResult(error, {
+			agent: sender,
+			message: emptyDirectMessage("unknown_subagent", params.toAgentId, params.message),
+		});
 	}
 	const message = store.recordOutboundSessionMessage({
 		fileRefs: params.fileRefs,
@@ -2035,13 +2026,8 @@ function sendMainRuntimeSessionMessage(
 	});
 	if (!mirrorRuntimeSessionMessage(store, message, params.toSessionId, ctx, null)) {
 		const failedMessage = markFailedMailboxTransportMessage(store, message);
-		return errorResult(
-			`Could not send runtime session message to ${target}: runtime mailbox transport is unavailable.`,
-			{
-				agent: sender,
-				message: failedMessage,
-			},
-		);
+		const error = `Could not send runtime session message to ${target}: runtime mailbox transport is unavailable.`;
+		return errorResult(error, { agent: sender, message: failedMessage });
 	}
 	onSessionMessageSent?.({ message, toSessionId: params.toSessionId });
 	return result(`Sent message to session ${params.toSessionId}.`, {
