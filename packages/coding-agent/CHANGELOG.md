@@ -155,6 +155,7 @@
 
 ### Fixed
 
+- Fixed `send_agent_message` failures omitting the attempted agent ID or supplied session ID; errors now retain both routing context and the underlying reason.
 - Fixed a loop timer retaining stale extension context when a model starts a loop after shutdown begins but before session disposal; shutdown now terminally closes the controller and rejects that late start.
 - Fixed steering submitted after manual compaction completion becoming permanently queued while its resumed turn waited on a tool: compaction state and turn-start exclusion now end before resumption, so the message uses normal steering delivery and wakes `wait_agent`.
 - Fixed abandoned non-resident zero-message sessions accumulating in control SQLite and occasional transcript files: teardown/replacement removes them after shutdown delivery, and startup sweeps only dead fileless rows while preserving live, resident, archived, message-bearing, and recovery-persisted sessions.

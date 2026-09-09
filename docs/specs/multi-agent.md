@@ -348,6 +348,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       session JSONL transcripts or `MultiAgentStore` session snapshots.
 - [x] Cross-session mailbox recipients are addressed by `(session_id, agent_id)` where `agent_id`
       is absent/null for the main thread and present for a subagent in that session.
+- [x] `send_agent_message` failures identify the attempted agent ID and any supplied session ID while
+      preserving the underlying failure reason and routing context.
 - [x] Every `AgentSession` owns exactly one runtime listener address: a main runtime uses
       `(session_id, null)` and a subagent runtime uses `(session_id, agent_id)`. Registration,
       heartbeat refresh, and retirement use that exact address; a subagent never creates or
