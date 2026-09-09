@@ -155,6 +155,7 @@
 
 ### Fixed
 
+- Fixed processed user, custom-message, and tool-result images remaining in later provider requests after an assistant completion; later requests now receive a text placeholder while persisted history and file references remain intact.
 - Fixed `send_agent_message` failures omitting the attempted agent ID or supplied session ID; errors now retain both routing context and the underlying reason.
 - Fixed a loop timer retaining stale extension context when a model starts a loop after shutdown begins but before session disposal; shutdown now terminally closes the controller and rejects that late start.
 - Fixed steering submitted after manual compaction completion becoming permanently queued while its resumed turn waited on a tool: compaction state and turn-start exclusion now end before resumption, so the message uses normal steering delivery and wakes `wait_agent`.

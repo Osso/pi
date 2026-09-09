@@ -55,7 +55,11 @@ interface ImageContent {
   data: string;      // base64 encoded
   mimeType: string;  // e.g., "image/jpeg", "image/png"
 }
+```
 
+Image data remains in persisted history. Provider and compaction requests include images from user, custom, and tool-result messages until a later assistant completion with `stop`, `toolUse`, or `length`; later requests receive `[Previously processed image omitted]` in their place. Error and aborted responses leave images pending. This conversion does not change stored messages, so transcript content and text file references remain available.
+
+```typescript
 interface ThinkingContent {
   type: "thinking";
   thinking: string;

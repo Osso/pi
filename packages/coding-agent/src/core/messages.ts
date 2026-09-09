@@ -165,7 +165,7 @@ export function createCustomMessage(
  * - Custom extensions and tools
  */
 export function convertToLlm(messages: AgentMessage[]): Message[] {
-	return messages
+	const converted = messages
 		.map((m): Message | undefined => {
 			switch (m.role) {
 				case "bashExecution":
@@ -212,4 +212,24 @@ export function convertToLlm(messages: AgentMessage[]): Message[] {
 			}
 		})
 		.filter((m) => m !== undefined);
+	return omitProcessedImages(converted);
+}
+
+function omitProcessedImages(messages: Message[]): Message[] {
+	const lastSuccessfulResponse = messages.findLastIndex(
+		(message) =>
+			message.role === "assistant" &&
+			(message.stopReason === "stop" || message.stopReason === "toolUse" || message.stopReason === "length"),
+	);
+	return messages.map((message, index) => {
+		if (index >= lastSuccessfulResponse) return message;
+		if (message.role !== "user" && message.role !== "toolResult") return message;
+		if (!Array.isArray(message.content) || !message.content.some((part) => part.type === "image")) return message;
+		return {
+			...message,
+			content: message.content.map((part) =>
+				part.type === "image" ? { type: "text" as const, text: "[Previously processed image omitted]" } : part,
+			),
+		};
+	});
 }
