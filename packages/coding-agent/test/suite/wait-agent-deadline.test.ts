@@ -13,6 +13,25 @@ import { createHarness, getMessageText, type Harness } from "./harness.ts";
 const MINUTE = 60_000;
 const REQUEST_START = Date.parse("2026-09-08T12:00:00.000Z");
 
+async function createChildRequestHarness(
+	store: MultiAgentStore,
+	runtimeHandles: ReturnType<typeof createMultiAgentRuntimeHandles>,
+) {
+	const childHarness = await createHarness({
+		fauxProvider: { api: "deadline-child-api", provider: "deadline-child-provider" },
+		multiAgentRuntimeRole: "child",
+		multiAgentAgentId: store.listActiveAgents()[0].id,
+		extensionFactories: [(pi) => agentsCoreExtension(pi, { store, runtimeHandles })],
+	});
+	await childHarness.session.bindExtensions({});
+	childHarness.setResponses([
+		fauxAssistantMessage([fauxToolCall("end_turn", { reason: "Child request complete" })], {
+			stopReason: "toolUse",
+		}),
+	]);
+	return childHarness;
+}
+
 describe("wait_agent request-relative deadline", () => {
 	let harness: Harness | undefined;
 	let finishChild: (() => void) | undefined;
@@ -54,10 +73,6 @@ describe("wait_agent request-relative deadline", () => {
 			prompt: waitForChildCompletion,
 			transcript: { path: join(input.ctx.cwd, "child.jsonl"), sessionId: "deadline-child" },
 		};
-	}
-
-	function registerChildExtension(pi: ExtensionAPI) {
-		agentsCoreExtension(pi, { store, runtimeHandles });
 	}
 
 	async function startWait(elapsedBeforeWait: number, waitCount = 1, beforeWait?: () => Promise<void>) {
@@ -178,18 +193,7 @@ describe("wait_agent request-relative deadline", () => {
 
 	it("ignores a child model request before the parent starts waiting", async () => {
 		await startWait(20 * MINUTE, 1, async () => {
-			childHarness = await createHarness({
-				fauxProvider: { api: "deadline-child-api", provider: "deadline-child-provider" },
-				multiAgentRuntimeRole: "child",
-				multiAgentAgentId: store.listActiveAgents()[0].id,
-				extensionFactories: [registerChildExtension],
-			});
-			await childHarness.session.bindExtensions({});
-			childHarness.setResponses([
-				fauxAssistantMessage([fauxToolCall("end_turn", { reason: "Child request complete" })], {
-					stopReason: "toolUse",
-				}),
-			]);
+			childHarness = await createChildRequestHarness(store, runtimeHandles);
 			await childHarness.session.prompt("Continue child work");
 			expect(childHarness.eventsOfType("model_request_start")).toHaveLength(1);
 		});
