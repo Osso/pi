@@ -152,6 +152,30 @@ describe("wait_agent request-relative deadline", () => {
 		expect(store.listAgents()).toMatchObject([{ lifecycle: "completed", result: { summary: "child finished" } }]);
 	});
 
+	it("expires on the next poll after suspend without cancelling the child", async () => {
+		await startWait(20 * MINUTE);
+		vi.setSystemTime(REQUEST_START + 26 * MINUTE);
+		expect(waitResults()).toHaveLength(0);
+		await vi.advanceTimersByTimeAsync(3_000);
+		expect(waitResults()).toHaveLength(1);
+		expectTimeout();
+	});
+
+	it("preserves completion before the first poll after suspend", async () => {
+		await startWait(0);
+		vi.setSystemTime(REQUEST_START + 26 * MINUTE);
+		finishChild?.();
+		await vi.advanceTimersByTimeAsync(3_000);
+		expect(waitResults()).toHaveLength(1);
+		const completion = waitResults()[0];
+		expect(completion?.isError).toBe(false);
+		expect(getMessageText(completion?.result)).toContain("child finished");
+		expect(completion?.result.details).not.toHaveProperty("timedOut");
+		expect(store.listAgents()).toMatchObject([{ lifecycle: "completed" }]);
+		expect(childSignal?.aborted).toBe(false);
+		expect(childAborted).toBe(false);
+	});
+
 	it("ignores a child model request before the parent starts waiting", async () => {
 		await startWait(20 * MINUTE, 1, async () => {
 			childHarness = await createHarness({

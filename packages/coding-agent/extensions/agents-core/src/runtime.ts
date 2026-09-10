@@ -2260,6 +2260,7 @@ class WaitAgentsWakeWatcher {
 				return;
 			}
 			this.checkCoordination();
+			if (this.deadline !== undefined && Date.now() >= this.deadline) this.finish({ kind: "timeout" });
 		}, RUNTIME_COORDINATION_POLL_INTERVAL_MS);
 	}
 
