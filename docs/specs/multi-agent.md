@@ -179,6 +179,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] `wait_agent({})` expires 25 minutes after the latest observed foreground `model_request_start`, returning an
       explicit still-running result without cancelling snapshotted agents; the model can take another turn and wait
       again. Child model requests do not reset the deadline, and the timeout is not a cache-retention guarantee.
+      After suspend/wake delays its timer callback, the existing three-second coordination poll rechecks the absolute
+      deadline only after terminal and coordination checks, preserving their precedence.
 
 ### Runtime construction inventory
 
@@ -316,10 +318,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   terminal notifications only wake that query, while child steering and accepted ordinary main-session steering wake
   only a live wait. At 25 minutes after the latest foreground `model_request_start`, it returns an explicit
   still-running result and leaves every agent active; a later model turn can inspect state or wait again. This bound
-  makes no cache-retention guarantee. Ordinary steering emits `steering_message_queued` after entering the AgentSession
-  queue; interactive mode forwards that event to the process-local wait wake path. Persisted coordination polling
-  returns and consumes currently pending deliverable mailbox and shared-channel input. The agent row remains the sole
-  terminal source of truth.
+  makes no cache-retention guarantee. After suspend/wake delays its timer callback, the existing three-second
+  coordination poll rechecks the absolute deadline after terminal and coordination checks, preserving their precedence.
+  Ordinary steering emits `steering_message_queued` after entering the AgentSession queue; interactive mode forwards
+  that event to the process-local wait wake path. Persisted coordination polling returns and consumes currently pending
+  deliverable mailbox and shared-channel input. The agent row remains the sole terminal source of truth.
 
 ### Mailbox and steering
 

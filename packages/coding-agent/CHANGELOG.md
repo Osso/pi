@@ -155,6 +155,7 @@
 
 ### Fixed
 
+- Fixed `wait_agent({})` exceeding its 25-minute absolute deadline after laptop suspend: the existing three-second coordination poll now rechecks the wall-clock deadline after terminal and coordination checks, preserving their precedence and leaving child agents running.
 - Fixed processed user, custom-message, and tool-result images remaining in later provider requests after an assistant completion; later requests now receive a text placeholder while persisted history and file references remain intact.
 - Fixed `send_agent_message` failures omitting the attempted agent ID or supplied session ID; errors now retain both routing context and the underlying reason.
 - Fixed a loop timer retaining stale extension context when a model starts a loop after shutdown begins but before session disposal; shutdown now terminally closes the controller and rejects that late start.
