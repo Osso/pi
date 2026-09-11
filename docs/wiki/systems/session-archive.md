@@ -12,6 +12,8 @@ Pi has three explicit archive surfaces:
 also absent; `broadcast` uses the same inventory. Archive writes remain targeted-row operations and do not
 implicitly archive child rows. Archived scope preserves recent ordering instead of promoting named sessions, but still displays session names; Current Folder and All scopes continue to promote named sessions first.
 
-`/archive` reports usage guidance when given arguments, reports when the current session is not persisted, and reports when no control database is available.
+`/archive` and `/unarchive` report usage guidance when given arguments, report when the current session is not persisted, and report when no control database is available.
+
+`/unarchive` clears only the current persisted session's archive metadata using the control-DB API. It leaves the active manager and transcript unchanged, with no picker, ID lookup, or session replacement. An already-unarchived session produces an informational notification without a metadata write. Compressed sessions are restored by the existing storage path when resumed, before becoming the current session.
 
 See [`docs/specs/session-archive.md`](../../specs/session-archive.md) for the contract and test coverage.

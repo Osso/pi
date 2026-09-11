@@ -31,6 +31,14 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 - [x] Report when no control database is available.
 - [x] Notify after archiving the current session.
 
+### First-party `/unarchive` command
+
+- [x] Accept no arguments; reject arguments with `/unarchive` usage guidance.
+- [x] Clear archive metadata only for the current persisted session through the existing control-DB API (`session-archive-extension.test.ts`).
+- [x] Keep the current session, transcript, and manager unchanged; do not open a picker, resolve IDs, or switch sessions.
+- [x] Report already-unarchived state as an informative no-op without writing metadata.
+- [x] Report missing session persistence or control database.
+
 ### Administrative CLI
 
 - [x] Provide `pi sessions archive [--older-than <days>]`, defaulting to 5 days, and report the archived count (`sessions-command.test.ts`).
@@ -43,7 +51,7 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 
 ## Implementation inventory
 
-- `packages/coding-agent/extensions/session-archive/src/index.ts` — registers `/archive`, validates that it has no arguments, and archives the current persisted session.
+- `packages/coding-agent/extensions/session-archive/src/index.ts` — registers argument-free `/archive` and `/unarchive` commands targeting only the current persisted session.
 - `packages/coding-agent/src/core/session-control-db.ts` — archive metadata schema, migration, listing, and archive APIs.
 - `packages/coding-agent/src/core/session-manager.ts` — active and archived session loaders.
 - `packages/coding-agent/src/cli/sessions-command.ts` — age-based administrative archive command.
