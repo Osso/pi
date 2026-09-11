@@ -25,6 +25,7 @@ For the JSONL file format and SessionManager API, see [Session Format](session-f
 |---------|-------------|
 | `/resume` | Browse and select previous sessions |
 | `/archive` | Archive the current persisted session; accepts no arguments |
+| `/unarchive` | Clear archive state for the current persisted session; accepts no arguments |
 | `/new` | Start a new session |
 | `/name <name>` | Set the current session display name |
 | `/session` | Show session info |
@@ -56,6 +57,12 @@ Archived sessions are hidden from the normal Current Folder and All scopes but r
 
 ```text
 /archive
+```
+
+`/unarchive` clears archive state only for the current persisted session. It accepts no arguments and does not resume, replace, or switch a transcript:
+
+```text
+/unarchive
 ```
 
 The separate administrative CLI command archives sessions by age:

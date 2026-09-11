@@ -45,6 +45,7 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/debug`, `/debug off` | Enable or disable the privileged local live-process JavaScript REPL |
 | `/resume` | Pick from previous sessions |
 | `/archive` | Archive the current persisted session; accepts no arguments |
+| `/unarchive` | Clear archive state for the current persisted session; accepts no arguments |
 | `/agents` | Open agent switcher |
 | `/new` | Start a new session |
 | `/continue` | Continue the current transcript without adding a user message |
