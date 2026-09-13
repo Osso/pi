@@ -147,6 +147,7 @@ describe("durable detached Pyrun evaluation", () => {
 				childSessionManager = options.sessionManager;
 				return {
 					session: {
+						extensionRunner: { emit: async () => {} },
 						bindExtensions: async () => {},
 						get messages() {
 							return options.sessionManager?.buildSessionContext().messages ?? [];

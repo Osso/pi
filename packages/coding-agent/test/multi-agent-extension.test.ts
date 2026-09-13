@@ -4338,6 +4338,7 @@ describe("multi-agent extension tools", () => {
 				childSessionManager = options.sessionManager;
 				return {
 					session: {
+						extensionRunner: { emit: async () => {} },
 						bindExtensions: async () => {},
 						get messages() {
 							return options.sessionManager?.buildSessionContext().messages ?? [];
@@ -4411,6 +4412,7 @@ describe("multi-agent extension tools", () => {
 				childSessionManager = options.sessionManager;
 				return {
 					session: {
+						extensionRunner: { emit: async () => {} },
 						bindExtensions: async () => {},
 						get messages() {
 							return options.sessionManager?.buildSessionContext().messages ?? [];
@@ -4513,6 +4515,7 @@ describe("multi-agent extension tools", () => {
 				childSessionManager = options.sessionManager;
 				return {
 					session: {
+						extensionRunner: { emit: async () => {} },
 						bindExtensions: async () => {},
 						get messages() {
 							return options.sessionManager?.buildSessionContext().messages ?? [];
@@ -4994,7 +4997,14 @@ describe("multi-agent extension tools", () => {
 		const attachedFactory = createProductionAttachedSessionFactory({
 			createSession: async (options) => {
 				sessionOptions = options;
-				return { session: { bindExtensions: async () => {}, messages: [], prompt: async () => {} } };
+				return {
+					session: {
+						extensionRunner: { emit: async () => {} },
+						bindExtensions: async () => {},
+						messages: [],
+						prompt: async () => {},
+					},
+				};
 			},
 			multiAgentStore: store,
 		});
@@ -5045,7 +5055,12 @@ describe("multi-agent extension tools", () => {
 		target.persistForRecovery();
 		const missingCwd = join(parentHarness.tempDir, "deleted-agent-cwd");
 		const createSession = vi.fn(async () => ({
-			session: { bindExtensions: async () => {}, messages: [], prompt: async () => {} },
+			session: {
+				extensionRunner: { emit: async () => {} },
+				bindExtensions: async () => {},
+				messages: [],
+				prompt: async () => {},
+			},
 		}));
 		const attachedFactory = createProductionAttachedSessionFactory({ createSession, multiAgentStore: store });
 		const agent = legacyMultiAgentStore(store).spawnAgent({
@@ -5080,7 +5095,12 @@ describe("multi-agent extension tools", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const transcriptPath = join(parentHarness.tempDir, "missing-child.jsonl");
 		const createSession = vi.fn(async () => ({
-			session: { bindExtensions: async () => {}, messages: [], prompt: async () => {} },
+			session: {
+				extensionRunner: { emit: async () => {} },
+				bindExtensions: async () => {},
+				messages: [],
+				prompt: async () => {},
+			},
 		}));
 		const attachedFactory = createProductionAttachedSessionFactory({ createSession, multiAgentStore: store });
 		const agent = legacyMultiAgentStore(store).spawnAgent({
@@ -5118,7 +5138,12 @@ describe("multi-agent extension tools", () => {
 		target.appendMessage(fauxAssistantMessage("replacement context"));
 		const transcriptPath = target.getSessionFile() ?? "";
 		const createSession = vi.fn(async () => ({
-			session: { bindExtensions: async () => {}, messages: [], prompt: async () => {} },
+			session: {
+				extensionRunner: { emit: async () => {} },
+				bindExtensions: async () => {},
+				messages: [],
+				prompt: async () => {},
+			},
 		}));
 		const attachedFactory = createProductionAttachedSessionFactory({ createSession, multiAgentStore: store });
 		const agent = legacyMultiAgentStore(store).spawnAgent({
@@ -5172,6 +5197,7 @@ describe("multi-agent extension tools", () => {
 						});
 						return {
 							session: {
+								extensionRunner: { emit: async () => {} },
 								bindExtensions,
 								messages: [fauxAssistantMessage("child transcript ready")],
 								prompt: async () => {},
@@ -5219,6 +5245,7 @@ describe("multi-agent extension tools", () => {
 					childSessionManager = options.sessionManager;
 					return {
 						session: {
+							extensionRunner: { emit: async () => {} },
 							bindExtensions: async () => {},
 							messages: [],
 							prompt: async () => {
@@ -5260,6 +5287,7 @@ describe("multi-agent extension tools", () => {
 					childSessionManager = options.sessionManager;
 					return {
 						session: {
+							extensionRunner: { emit: async () => {} },
 							bindExtensions: async () => {},
 							messages: [],
 							prompt: async () => {

@@ -81,6 +81,7 @@ import {
 	requestDirectDetachedRuntimeCancellations,
 	requestPersistedDetachedRuntimeCancellation,
 } from "./detached-runtime-cancellation.ts";
+import { bindProductionChildSession, type UnboundChildAgentSession } from "./child-session.ts";
 import { waitForActiveDescendants } from "./descendant-settlement.ts";
 import { createLifecycleCoordinator, RUNTIME_PROCESS_IDENTITY } from "./lifecycle-runtime.ts";
 import {
@@ -236,7 +237,7 @@ export interface ChildAgentDispatchInput {
 
 export interface ChildAgentSession {
 	abort?(): void;
-	dispose?(): void;
+	dispose?(): void | Promise<void>;
 	drainRuntimeCoordination?(): Promise<void>;
 	messages: AgentMessage[];
 	prompt(text: string): Promise<void>;
@@ -260,10 +261,6 @@ export interface AttachedSessionDispatchInput extends Omit<ChildAgentDispatchInp
 }
 
 export type AttachedSessionFactory = (input: AttachedSessionDispatchInput) => Promise<ChildAgentSession>;
-
-interface UnboundChildAgentSession extends ChildAgentSession {
-	bindExtensions(bindings: Record<string, never>): Promise<void>;
-}
 
 export interface ProductionChildAgentSessionFactoryOptions {
 	agentDir?: string;
@@ -581,7 +578,7 @@ async function backgroundCommand(
 		ctx.sessionManager?.getSessionId() ?? background.store.getPersistenceTarget()?.sessionPath ?? "",
 	);
 	if (!created.ok) {
-		childSession?.dispose?.();
+		await childSession?.dispose?.();
 		ctx.ui.notify(`Could not create background job: ${created.error}`, "error");
 		return;
 	}
@@ -743,7 +740,7 @@ export function createProductionChildAgentSessionFactory(
 		await result.session.bindExtensions({});
 		sessionManager.persistForRecovery();
 		result.session.transcript = getSessionTranscriptMetadata(sessionManager);
-		return result.session;
+		return bindProductionChildSession(result.session);
 	};
 	factory[productionChildSessionFactoryMarker] = true;
 	return factory;
@@ -799,7 +796,7 @@ export function createProductionAttachedSessionFactory(
 
 		await result.session.bindExtensions({});
 		result.session.transcript = getSessionTranscriptMetadata(sessionManager);
-		return result.session;
+		return bindProductionChildSession(result.session);
 	};
 }
 
@@ -1170,7 +1167,7 @@ async function spawnAgent(
 		ctx.sessionManager?.getSessionId() ?? store.getPersistenceTarget()?.sessionPath ?? "",
 	);
 	if (!created.ok) {
-		childSession?.dispose?.();
+		await childSession?.dispose?.();
 		return errorResult(`spawn_agent failed: ${created.error}`, {
 			agent: prepared,
 			dispatched: false,
@@ -1181,7 +1178,7 @@ async function spawnAgent(
 	try {
 		appendParentAgentStart(pi, created.agent);
 	} catch (error) {
-		childSession?.dispose?.();
+		await childSession?.dispose?.();
 		const message = error instanceof Error ? error.message : String(error);
 		const failed = coordinator.finalizeChild({
 			agent: created.agent,
@@ -1707,13 +1704,13 @@ async function dispatchReservedAgentSession(
 	}
 	if (store.getRestoreGeneration() !== restoreGeneration) {
 		childSession.abort?.();
-		childSession.dispose?.();
+		await childSession.dispose?.();
 		return store.getAgent(lifecycle.agent.id) ?? lifecycle.agent;
 	}
 	const running = coordinator.confirmChildRuntime(lifecycle);
 	if (!running.ok) {
 		childSession.abort?.();
-		childSession.dispose?.();
+		await childSession.dispose?.();
 		return lifecycle.agent;
 	}
 	store.publishLifecycleCoordinatorSnapshot(running.agent);
@@ -1825,7 +1822,7 @@ async function runAgentSession(
 		unregisterLeaseAbort?.();
 		unregisterAbortHandler?.();
 		handles?.delete(running.agent.id);
-		childSession?.dispose?.();
+		await childSession?.dispose?.();
 	}
 }
 
@@ -3174,11 +3171,11 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		});
 	});
 	registerParentAgentCompactionRefresh(pi, store);
-	pi.on?.("session_shutdown", async (event) => {
+	pi.on?.("session_shutdown", async (event, ctx) => {
 		unbindParentAgentJournal?.();
 		unbindParentAgentJournal = undefined;
 		runtimeLifecycleMirror.dispose();
-		if (event.reason === "reload") {
+		if (event.reason === "reload" || isChildAgentRuntime(ctx)) {
 			return;
 		}
 		store.invalidateInFlightDispatches();

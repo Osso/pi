@@ -1707,6 +1707,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 					childSessionManager = options.sessionManager;
 					return {
 						session: {
+							extensionRunner: { emit: async () => {} },
 							bindExtensions: async () => {},
 							get messages() {
 								return options.sessionManager?.buildSessionContext().messages ?? [];
