@@ -33,6 +33,7 @@ The loop tool lets the agent or user schedule a recurring prompt that is injecte
 - [x] Preserve `loop` provenance when loop-origin follow-ups are delivered and rendered.
 - [x] Stop injecting prompts after the active loop is stopped, replaced, or shut down, including deferred delivery.
 - [x] Clear the active timer and terminally close the controller when the session shuts down.
+- [x] Before a spawned or attached child session is disposed after terminal dispatch, emit its `session_shutdown` handlers so child-owned loop timers are cleared before its extension context becomes stale.
 - [x] Reject a late `start` from an active model turn during shutdown; ordinary `stop` still permits a later `start` before shutdown.
 - [ ] Expose only one active loop per session.
 - [ ] Keep loop state session-local; do not persist loops across process restarts or restored sessions.
@@ -55,6 +56,7 @@ The loop tool lets the agent or user schedule a recurring prompt that is injecte
 
 - `packages/coding-agent/test/loop-extension.test.ts` — asserts registration, approval requirement, interval injection, busy-tick coalescing, deferred-delivery cancellation, provenance, tool start/stop behavior, and session shutdown cleanup.
 - `packages/coding-agent/test/suite/loop-extension-runtime.test.ts` — proves with a real Pi process that multiple ticks during an active model turn produce one loop follow-up and no queued user-message backlog, and that a late model `start` during shutdown cannot retain a stale extension context.
+- `packages/coding-agent/test/suite/loop-child-completion.test.ts` — proves a production child that starts a loop and completes does not retain a timer that can access its disposed extension context.
 
 ## Known gaps (current cycle)
 
@@ -63,7 +65,7 @@ The loop tool lets the agent or user schedule a recurring prompt that is injecte
 - [ ] Add explicit test coverage that starting a new loop replaces the prior loop.
 - [ ] Add explicit test coverage that loop state is not persisted across extension/controller instances.
 
-The late-start regression reproduces a lifecycle race; it does not attribute the reported crash to a specific user session.
+The late-start and child-completion regressions reproduce lifecycle races; neither attributes a reported crash to a specific user session.
 
 ## Out of scope
 

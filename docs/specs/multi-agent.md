@@ -80,7 +80,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       failure persists `failed` revision 1. Dormant promptless session attachment remains the explicit
       non-executable operation.
 - [x] `spawn_agent` can use a production child `AgentSession` factory that creates a child session
-      with the parent's model, model registry, cwd, and `parentSession` metadata.
+      with the parent's model, model registry, cwd, and `parentSession` metadata. Terminal spawned and attached child
+      cleanup emits `session_shutdown` before disposal so extension-owned resources stop before context invalidation.
 - [x] `spawn_agent` accepts an optional `context` value of `"fresh"` or `"inherit"`. Omitted context
       defaults to `"inherit"`, unless the selected agent-type profile configures another default. `"fresh"`
       creates a new child transcript containing only the appended assignment. `"inherit"` forks a persisted parent
