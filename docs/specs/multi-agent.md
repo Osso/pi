@@ -618,7 +618,12 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   aborts a running background child session when the job is cancelled. Cancellation coverage also proves a
   parent whose prompt already settled keeps waiting until its cancelling descendant becomes terminal, and that
   failure terminalization silently cancels directly owned detached Bash/Pyrun jobs before the parent fails. The stale-sender-session regression
-  rejects steering without changing the lifecycle row or mailbox.
+  rejects steering without changing the lifecycle row or mailbox. It also covers production child teardown awaiting asynchronous
+  extension shutdown before disposal without invalidating parent or sibling dispatches.
+- [`packages/coding-agent/test/child-session-shutdown.test.ts`](../../packages/coding-agent/test/child-session-shutdown.test.ts)
+  asserts child resources remain available until asynchronous extension shutdown handlers finish, then dispose.
+- [`packages/coding-agent/test/suite/loop-child-completion.test.ts`](../../packages/coding-agent/test/suite/loop-child-completion.test.ts)
+  proves a production child loop is shut down on completion while an independent sibling remains dispatchable.
 - [`packages/coding-agent/test/suite/wait-agent-deadline.test.ts`](../../packages/coding-agent/test/suite/wait-agent-deadline.test.ts)
   contains six behavioral tests proving the request-relative 25-minute deadline accounts for elapsed model/tool time,
   expires immediately after an already-expired deadline, leaves the child running and un-aborted, ignores child model
