@@ -3117,21 +3117,32 @@ export function resolveMultiAgentStore(options: MultiAgentExtensionOptions = {})
 	return options.store ?? new MultiAgentStore();
 }
 
+function stopAgentDispatches(
+	background: BackgroundDispatchContext,
+	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
+): void {
+	background.store.invalidateInFlightDispatches();
+	for (const runtime of background.ownerships.values()) runtime.abortController.abort();
+	for (const agentId of background.handles.keys()) {
+		if (!background.ownerships.has(agentId)) abortAgentHandleSafely(background.store, agentId);
+	}
+	for (const agentId of waitingDesktopNotifications.keys()) {
+		closeWaitingDesktopNotification(agentId, waitingDesktopNotifications);
+	}
+	background.handles.clear();
+	background.dispatches.clear();
+}
+
 export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExtensionOptions = {}) {
 	const store = resolveMultiAgentStore(options);
-	const createAttachedSession = options.createAttachedSession;
-	const createChildSession = options.createChildSession;
 	const desktopNotifier = options.desktopNotifier ?? sendDesktopNotification;
 	const runtimeHandles = options.runtimeHandles ?? createMultiAgentRuntimeHandles();
-	const backgroundSessions = runtimeHandles.sessions;
-	const activeDispatches = runtimeHandles.dispatches;
-	const ownerships = runtimeHandles.ownerships;
 	const waitingDesktopNotifications: WaitingDesktopNotificationHandles = new Map();
 	const backgroundDispatch = {
-		createChildSession,
-		dispatches: activeDispatches,
-		handles: backgroundSessions,
-		ownerships,
+		createChildSession: options.createChildSession,
+		dispatches: runtimeHandles.dispatches,
+		handles: runtimeHandles.sessions,
+		ownerships: runtimeHandles.ownerships,
 		store,
 	};
 	const runtimeLifecycleMirror = createRuntimeLifecycleMirror(store);
@@ -3160,12 +3171,12 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			runtimeLifecycleMirror.bind(ctx);
 		}
 		recoverAgents({
-			createAttachedSession,
+			createAttachedSession: options.createAttachedSession,
 			ctx,
 			desktopNotifier,
-			dispatches: activeDispatches,
-			handles: backgroundSessions,
-			ownerships,
+			dispatches: runtimeHandles.dispatches,
+			handles: runtimeHandles.sessions,
+			ownerships: runtimeHandles.ownerships,
 			store,
 			waitingDesktopNotifications,
 		});
@@ -3178,16 +3189,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		if (event.reason === "reload" || isChildAgentRuntime(ctx)) {
 			return;
 		}
-		store.invalidateInFlightDispatches();
-		for (const runtime of ownerships.values()) runtime.abortController.abort();
-		for (const agentId of backgroundSessions.keys()) {
-			if (!ownerships.has(agentId)) abortAgentHandleSafely(store, agentId);
-		}
-		for (const agentId of waitingDesktopNotifications.keys()) {
-			closeWaitingDesktopNotification(agentId, waitingDesktopNotifications);
-		}
-		backgroundSessions.clear();
-		activeDispatches.clear();
+		stopAgentDispatches(backgroundDispatch, waitingDesktopNotifications);
 	});
 
 	pi.registerCommand("bg", {
@@ -3219,15 +3221,15 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 				runtimeLifecycleMirror.bind(ctx);
 				return spawnAgent(
 					store,
-					createChildSession,
-					activeDispatches,
-					ownerships,
+					options.createChildSession,
+					runtimeHandles.dispatches,
+					runtimeHandles.ownerships,
 					params,
 					ctx,
 					desktopNotifier,
 					waitingDesktopNotifications,
 					pi,
-					backgroundSessions,
+					runtimeHandles.sessions,
 					_toolCallId,
 				);
 			},
@@ -3255,13 +3257,13 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => {
 				runtimeLifecycleMirror.bind(ctx);
 				return attachSessionAgent({
-					createAttachedSession,
+					createAttachedSession: options.createAttachedSession,
 					ctx,
 					desktopNotifier,
-					dispatches: activeDispatches,
-					handles: backgroundSessions,
+					dispatches: runtimeHandles.dispatches,
+					handles: runtimeHandles.sessions,
 					params,
-					ownerships,
+					ownerships: runtimeHandles.ownerships,
 					store,
 					waitingDesktopNotifications,
 				});
