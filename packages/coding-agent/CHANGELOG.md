@@ -162,6 +162,7 @@
 - Fixed spawned and attached child completion disposing extension contexts without `session_shutdown`, which could leave a child loop timer running and crash the supervisor; child cleanup now shuts down extensions before disposal.
 - Fixed steering submitted after manual compaction completion becoming permanently queued while its resumed turn waited on a tool: compaction state and turn-start exclusion now end before resumption, so the message uses normal steering delivery and wakes `wait_agent`.
 - Fixed abandoned non-resident zero-message sessions accumulating in control SQLite and occasional transcript files: teardown/replacement removes them after shutdown delivery, and startup sweeps only dead fileless rows while preserving live, resident, archived, message-bearing, and recovery-persisted sessions.
+- Fixed startup cleanup loading every session's message-search text: it now reads only active main zero-message candidate IDs and paths before applying the existing resident, file, liveness, and deletion checks.
 - Fixed Escape in `/scoped-models` interrupting an active model response instead of closing the selector.
 - Fixed active-session selector renames and clears updating SQLite without synchronizing runtime state; they now update the active runtime name and emit `session_info_changed` so the footer, terminal title, and extensions stay current.
 - Fixed `pi control send --help` and `-h` enqueueing the literal text as an incoming prompt; the send subcommand now prints usage to stdout and exits 0 without queueing or signaling.
