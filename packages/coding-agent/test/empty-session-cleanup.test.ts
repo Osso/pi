@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { sweepAbandonedEmptySessions } from "../src/core/empty-session-cleanup.ts";
 import {
 	getControlDbPath,
+	listEmptyMainSessionCandidates,
 	readSessionMetadata,
 	writeSessionHealth,
 	writeSessionMetadata,
@@ -29,6 +30,40 @@ describe("empty session cleanup", () => {
 
 	afterEach(() => {
 		for (const tempDir of tempDirs.splice(0)) rmSync(tempDir, { recursive: true, force: true });
+	});
+
+	it("returns only active empty main-session identities without unrelated message text", () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "pi-empty-session-candidates-"));
+		tempDirs.push(agentDir);
+		const controlDbPath = getControlDbPath(agentDir);
+		const largeText = "irrelevant message text ".repeat(100_000);
+		for (const [id, overrides] of [
+			["empty", {}],
+			["nonempty", { messageCount: 1 }],
+			["subagent", { isSubagent: true }],
+			["archived", { archivedAt: "2026-09-03T00:00:00.000Z" }],
+		] as const) {
+			writeSessionMetadata(controlDbPath, {
+				sessionPath: join(agentDir, `${id}.jsonl`),
+				id,
+				cwd: agentDir,
+				createdAt: "2026-09-03T00:00:00.000Z",
+				modifiedAt: "2026-09-03T00:00:00.000Z",
+				messageCount: 0,
+				firstMessage: "(no messages)",
+				allMessagesText: largeText,
+				...overrides,
+			});
+		}
+
+		expect(listEmptyMainSessionCandidates(controlDbPath)).toEqual([
+			{ id: "empty", sessionPath: join(agentDir, "empty.jsonl") },
+		]);
+		expect(sweepAbandonedEmptySessions(controlDbPath)).toBe(1);
+		expect(readSessionMetadata(controlDbPath, join(agentDir, "empty.jsonl"))).toBeUndefined();
+		for (const id of ["nonempty", "subagent", "archived"]) {
+			expect(readSessionMetadata(controlDbPath, join(agentDir, `${id}.jsonl`))?.allMessagesText).toBe(largeText);
+		}
 	});
 
 	it("removes only dead fileless empty sessions during startup sweep", () => {

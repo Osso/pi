@@ -2841,6 +2841,18 @@ export function listSessionMetadata(controlDbPath: string): SessionMetadata[] {
 	return listSessionMetadataByArchiveState(controlDbPath);
 }
 
+export function listEmptyMainSessionCandidates(controlDbPath: string): Pick<SessionMetadata, "id" | "sessionPath">[] {
+	return withControlDb(controlDbPath, (db) => {
+		const rows = db
+			.prepare(
+				`SELECT id, session_path FROM session_metadata
+				 WHERE archived_at IS NULL AND is_subagent = 0 AND message_count = 0`,
+			)
+			.all() as Pick<SessionMetadataRow, "id" | "session_path">[];
+		return rows.map((row) => ({ id: row.id, sessionPath: row.session_path }));
+	});
+}
+
 export function listActiveSessionMetadata(controlDbPath: string): SessionMetadata[] {
 	return listSessionMetadataByArchiveState(controlDbPath, false);
 }

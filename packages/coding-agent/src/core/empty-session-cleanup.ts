@@ -1,7 +1,7 @@
 import { existsSync, unlinkSync } from "node:fs";
 import { resolve } from "node:path";
 import { isPiRuntimeProcessAlive } from "./runtime-process.ts";
-import { listActiveSessionMetadata, readSessionHealth, removeSessionMetadata } from "./session-control-db.ts";
+import { listEmptyMainSessionCandidates, readSessionHealth, removeSessionMetadata } from "./session-control-db.ts";
 import type { SessionManager } from "./session-manager.ts";
 
 function isResidentSession(sessionId: string, sessionPath: string): boolean {
@@ -28,9 +28,9 @@ export function removeAbandonedEmptySession(sessionManager: SessionManager, targ
 }
 
 export function sweepAbandonedEmptySessions(controlDbPath: string): number {
-	const sessions = listActiveSessionMetadata(controlDbPath);
+	const sessions = listEmptyMainSessionCandidates(controlDbPath);
 	const abandonedSessions = sessions.filter((session) => {
-		if (session.isSubagent || session.messageCount !== 0 || isResidentSession(session.id, session.sessionPath)) {
+		if (isResidentSession(session.id, session.sessionPath)) {
 			return false;
 		}
 		if (existsSync(session.sessionPath)) return false;
