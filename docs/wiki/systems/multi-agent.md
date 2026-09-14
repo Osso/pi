@@ -339,6 +339,22 @@ Rules:
 - For a selected running child, `/model`, its selector, model cycling, and `/effort` mutate that
   child `AgentSession`. The footer refreshes immediately from the child model and thinking state.
   These session mutations never rewrite global or project `settings.json` defaults.
+- Selected-child footer rendering is read-only: it reads persisted child model and thinking settings
+  and must not require live mutation capability. Model/thinking changes and steering retain their
+  mutation guards.
+
+### Deployment evidence
+
+On September 14, 2026, `09453024d` deployed through `deploy.sh`. Source checks passed, as did 261 focused
+footer, default-footer, and multi-agent tests. The installed executable SHA-256 matched the deployed hash:
+`7935680fbf9a78957b22dc0bdd7d9d7ba6af254a9d04c10782266669be7b76f9`. A bounded final inventory found all
+three eligible sessions (PIDs 2963985, 2965304, and 2539799) running healthy with that exact hash after
+same-PID restart; installed `pi` launchers were preserved. An isolated interactive installed-binary smoke
+selected a synthetic child with no runtime handle, rendered low effort, returned to the main session at high
+effort, remained responsive in the same PID, and exited 0. The focused source regression separately covers a
+child session missing live mutation methods. Evidence: `/tmp/pi-footer-provenance-_erl9ez6/proof-ledger.json`
+(read and checked). The headless suite remained 37/42: five unresolved failures outside the interactive footer
+path.
 
 ### Persistence
 
