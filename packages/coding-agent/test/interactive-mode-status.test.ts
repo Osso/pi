@@ -12,6 +12,10 @@ import {
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import { type Component, Container, type Focusable, TUI } from "../../tui/src/tui.ts";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
+import {
+	createMultiAgentRuntimeHandles,
+	resolveSelectedSessionMutationTarget,
+} from "../extensions/agents-core/src/runtime.ts";
 import type {
 	AutocompleteProviderFactory,
 	ExtensionUIContext,
@@ -403,7 +407,7 @@ function createTranscriptSwitchFixture(options: {
 			isStreaming: false,
 			modelRegistry: {
 				find: (provider: string, modelId: string) =>
-					provider === "faux" && modelId === "faux-1"
+					provider === "faux" && (modelId === "faux-1" || modelId === "faux-2")
 						? { id: modelId, provider, reasoning: true, contextWindow: 128_000 }
 						: undefined,
 			},
@@ -1095,6 +1099,46 @@ describe("InteractiveMode key handlers", () => {
 			expect(output).toContain("child transcript only");
 			expect(output).not.toContain("parent transcript only");
 
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, "main")).toBe(true);
+			expect(fixture.fakeThis.footer.clearSessionOverride).toHaveBeenCalledTimes(2);
+		} finally {
+			fixture.cleanup();
+		}
+	});
+
+	test("selects a child without mutation capabilities and refreshes persisted footer settings", () => {
+		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
+		const handles = createMultiAgentRuntimeHandles();
+		handles.sessions.set(fixture.childAgentId, { messages: [], prompt: async () => {} });
+		const resolveMutationTarget = () => resolveSelectedSessionMutationTarget(fixture.store, handles);
+		bindInteractiveModeSessionMutationTargetResolver(
+			fixture.fakeThis as unknown as InteractiveMode,
+			resolveMutationTarget,
+		);
+		try {
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
+			expect(normalizeRenderedOutput(fixture.fakeThis.chatContainer)).toContain("child transcript only");
+			expect(resolveMutationTarget).toThrow("does not support live session mutation");
+			expect(fixture.fakeThis.footer.setSessionOverride).toHaveBeenLastCalledWith(
+				expect.objectContaining({ model: expect.objectContaining({ id: "faux-1" }), thinkingLevel: "xhigh" }),
+			);
+
+			const selectedSession = fixture.fakeThis.childViewSessionManager;
+			if (!selectedSession) throw new Error("expected selected child session");
+			const controlDbPath = path.join(fixture.fakeThis.sessionManager.getSessionDir(), "control.sqlite");
+			selectedSession.setMetadataControlDbPath(controlDbPath);
+			const child = SessionManager.open(fixture.childTranscriptPath);
+			child.setMetadataControlDbPath(controlDbPath);
+			child.setSessionModel("faux", "faux-2");
+			child.setSessionThinkingLevel("low");
+			expect(child.buildSessionContext().model).toEqual({ provider: "faux", modelId: "faux-1" });
+			expect(interactiveModeKeyHandlers.renderSelectedAgentView.call(fixture.fakeThis)).toBe(true);
+			for (const footer of [fixture.fakeThis.footer, fixture.fakeThis.footerDataProvider]) {
+				expect(footer.setSessionOverride).toHaveBeenLastCalledWith(
+					expect.objectContaining({ model: expect.objectContaining({ id: "faux-2" }), thinkingLevel: "low" }),
+				);
+			}
+			expect(resolveMutationTarget).toThrow("does not support live session mutation");
 			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, "main")).toBe(true);
 			expect(fixture.fakeThis.footer.clearSessionOverride).toHaveBeenCalledTimes(2);
 		} finally {
@@ -2569,10 +2613,19 @@ describe("InteractiveMode selected-session model routing", () => {
 			childViewAgentId: "agent_1",
 			childViewSessionManager: {
 				buildSessionContext: () => ({ messages: [], model: undefined, thinkingLevel: "off" }),
-				readPersistedSessionSettings: () => undefined,
+				readPersistedSessionSettings: () => ({
+					model: { provider: liveModel.provider, modelId: liveModel.id },
+					thinkingLevel: childSession.thinkingLevel,
+				}),
 				getCwd: () => "/child",
 			},
-			session: { modelRegistry: { find: vi.fn() }, setModel: mainSetModel },
+			session: {
+				modelRegistry: {
+					find: (provider: string, modelId: string) =>
+						provider === liveModel.provider && modelId === liveModel.id ? liveModel : undefined,
+				},
+				setModel: mainSetModel,
+			},
 			findExactModelMatch: vi.fn().mockResolvedValue(model),
 			resolveViewedSessionTarget: vi.fn().mockReturnValue(childSession),
 			footer,

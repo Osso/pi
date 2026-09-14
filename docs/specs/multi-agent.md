@@ -483,9 +483,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] A selected-child banner identifies the agent ID, display name, and lifecycle without exposing
       internal target/view terminology; when the selected child reaches `completed`, `failed`, or
       `aborted`, the selected view clears automatically.
-- [x] While a child transcript is selected, the footer shows that child session's model, provider,
-      and thinking level, and refreshes immediately after a child model or thinking change; live
-      placeholders clear the model display, and returning to the main session restores the main footer model.
+- [x] While a child transcript is selected, the footer reads that child session's model, provider,
+      and thinking level without requiring a live runtime mutation capability. It refreshes immediately after a
+      child model or thinking change; live placeholders clear the model display, and returning to the main session
+      restores the main footer model. Model/thinking changes and steering retain their live-session mutation guards.
 - [x] The main-session working loader is hidden while a child transcript is selected, preserves
       unrelated status rows, and is restored after returning to a still-streaming main session.
 - [x] A selected running child renders its current thinking or tool phase and computes elapsed time
