@@ -144,17 +144,20 @@ describe("durable detached Pyrun evaluation", () => {
 			createSessionManager: SessionManager.create,
 			multiAgentStore: store,
 			createSession: async (options) => {
-				childSessionManager = options.sessionManager;
+				const childManager = options.sessionManager;
+				if (!childManager) throw new Error("Expected session manager from production factory");
+				childSessionManager = childManager;
 				return {
 					session: {
+						sessionManager: childManager,
 						extensionRunner: { emit: async () => {} },
 						bindExtensions: async () => {},
 						get messages() {
-							return options.sessionManager?.buildSessionContext().messages ?? [];
+							return childManager.buildSessionContext().messages;
 						},
 						prompt: async (prompt) => {
-							options.sessionManager?.appendMessage({ role: "user", content: prompt, timestamp: 2 });
-							options.sessionManager?.appendMessage(fauxAssistantMessage("Child complete"));
+							childManager.appendMessage({ role: "user", content: prompt, timestamp: 2 });
+							childManager.appendMessage(fauxAssistantMessage("Child complete"));
 						},
 					},
 				};
