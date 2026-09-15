@@ -82,6 +82,7 @@ import {
 	requestPersistedDetachedRuntimeCancellation,
 } from "./detached-runtime-cancellation.ts";
 import { bindProductionChildSession, type UnboundChildAgentSession } from "./child-session.ts";
+import { readCurrentChildAssistantText } from "./child-response.ts";
 import { waitForActiveDescendants } from "./descendant-settlement.ts";
 import { createLifecycleCoordinator, RUNTIME_PROCESS_IDENTITY } from "./lifecycle-runtime.ts";
 import {
@@ -1782,12 +1783,13 @@ async function runAgentSession(
 		if (activeSession.transcript) {
 			store.updateAgentTranscript(running.agent.id, activeSession.transcript);
 		}
+		const previousMessages = new Set(activeSession.messages);
 		await activeSession.prompt(prompt);
 		await settleDescendantsBeforeTerminalization(store, running.agent.id, reservedRuntime.abortController.signal);
 		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
 		if (cancelled) return cancelled;
 		while (true) {
-			const summary = lastAssistantText(activeSession.messages);
+			const summary = readCurrentChildAssistantText(activeSession.messages, previousMessages);
 			const result = summary ? { summary } : undefined;
 			const currentSnapshot = store.getAgent(running.agent.id);
 			const completed = finalizeReservedRuntime(
@@ -3083,34 +3085,6 @@ function emptyDirectMessage(fromAgentId: string, toAgentId: string, body: string
 		toAgentId,
 		updatedAt: timestamp,
 	};
-}
-
-function lastAssistantText(messages: AgentMessage[]): string | undefined {
-	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		const message = messages[index];
-		if (message?.role === "assistant") {
-			const text = messageText(message);
-			if (text) return text;
-		}
-	}
-
-	return undefined;
-}
-
-function messageText(message: AgentMessage): string {
-	if (!("content" in message)) {
-		return "";
-	}
-
-	const content = message.content;
-	if (typeof content === "string") {
-		return content;
-	}
-
-	return content
-		.filter((part) => part.type === "text")
-		.map((part) => part.text)
-		.join("\n");
 }
 
 export function resolveMultiAgentStore(options: MultiAgentExtensionOptions = {}): MultiAgentStore {

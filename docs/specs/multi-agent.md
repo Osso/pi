@@ -71,8 +71,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       of the selected agent snapshot, descendant admissions and current snapshots, terminal-outbox rows for that
       tree, successful child `end_turn` results, and matching parent `agent_start`/`agent_complete` records.
       Missing evidence remains visibly absent rather than being inferred.
-      Terminal result summaries preserve the last non-empty assistant text when a final tool-only `end_turn`
-      call follows it.
+      Terminal result summaries use only assistant messages produced by the current dispatch, preserving its
+      last non-empty text when a final tool-only `end_turn` follows it. A terminal provider error produces
+      `failed` with its error message, even with empty or partial text; inherited parent history and earlier
+      dispatch results never substitute for a current result.
 - [x] Multi-agent orchestration tools do not trigger generic tool approval prompts; child-agent
       host effects remain subject to normal tool approval inside the child session.
 - [x] `spawn_agent` requires the issued execution capability and constructs the executable child session
@@ -621,6 +623,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   failure terminalization silently cancels directly owned detached Bash/Pyrun jobs before the parent fails. The stale-sender-session regression
   rejects steering without changing the lifecycle row or mailbox. It also covers production child teardown awaiting asynchronous
   extension shutdown before disposal without invalidating parent or sibling dispatches.
+- [`packages/coding-agent/test/suite/regressions/child-provider-error-completion.test.ts`](../../packages/coding-agent/test/suite/regressions/child-provider-error-completion.test.ts)
+  proves empty and partial provider errors fail with the original error and one parent notification, including
+  after supervisor restart while a child is live. It preserves transcript identity and assignment, keeps
+  current child text before tool-only `end_turn`, and rejects inherited text as a new result.
 - [`packages/coding-agent/test/child-session-shutdown.test.ts`](../../packages/coding-agent/test/child-session-shutdown.test.ts)
   asserts child resources remain available until asynchronous extension shutdown handlers finish, then dispose.
 - [`packages/coding-agent/test/suite/loop-child-completion.test.ts`](../../packages/coding-agent/test/suite/loop-child-completion.test.ts)
