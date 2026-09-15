@@ -345,6 +345,20 @@ Rules:
 
 ### Deployment evidence
 
+On September 15, 2026, `d8288e08a` deployed through `deploy.sh` with full checks and builds passing.
+Child response extraction now uses raw persisted branch messages: current provider errors become failures,
+and inherited text cannot become a result merely because compaction cloned the model-context projection.
+Seven focused regression/shutdown cases passed, including live-child supervisor restart; two affected
+Pyrun cases passed. The existing extension/resume/recovery batch was 148/149: its sole timeout passed
+in a focused rerun, but the timeout cause remains unproven.
+The sole eligible live main session, PID 2539799, restarted with its installed `pi` launcher preserved;
+its executable matched installed SHA-256
+`6194a8941830575d8673f0c836810d59fadde01c821af5986fb88848150a3f9e` and returned healthy.
+Live child `agent_19002` then reported its WebSocket failure instead of inherited success.
+The separate `openai-codex` HTTP 401 `token_revoked` requires login; deployment does not repair credentials.
+Proof: `/tmp/pi-child-failure-deploy2-ledger.json`, `/tmp/pi-child-failure-runtime-after.json`,
+`/tmp/pi-child-fixture-recovery-ledger.json`, and `/tmp/pi-pyrun-child-fixtures-ledger.json`.
+
 On September 14, 2026, `09453024d` deployed through `deploy.sh`. Source checks passed, as did 261 focused
 footer, default-footer, and multi-agent tests. The installed executable SHA-256 matched the deployed hash:
 `7935680fbf9a78957b22dc0bdd7d9d7ba6af254a9d04c10782266669be7b76f9`. A bounded final inventory found all
