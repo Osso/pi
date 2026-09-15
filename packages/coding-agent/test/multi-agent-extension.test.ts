@@ -116,6 +116,11 @@ afterAll(() => {
 	}
 });
 
+function requireSessionManager(options: CreateAgentSessionOptions): SessionManager {
+	if (!options.sessionManager) throw new Error("Expected session manager from production factory");
+	return options.sessionManager;
+}
+
 function createControlDbSession(cwd = "/repo"): SessionManager {
 	const tempDir = mkdtempSync(join(tmpdir(), "pi-agent-ext-db-"));
 	managedTempDirs.push(tempDir);
@@ -828,11 +833,16 @@ describe("multi-agent extension tools", () => {
 			supervisorSession.setMetadataControlDbPath(controlDbPath);
 			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 			store.setPersistenceSessionManager(supervisorSession);
-			const createAttachedSession: AttachedSessionFactory = async ({ agent }) => ({
-				messages: [fauxAssistantMessage("attached complete")],
-				prompt: async () => {},
-				transcript: agent.transcript,
-			});
+			const createAttachedSession: AttachedSessionFactory = async ({ agent }) => {
+				const messages: ReturnType<typeof fauxAssistantMessage>[] = [];
+				return {
+					messages,
+					prompt: async () => {
+						messages.push(fauxAssistantMessage("attached complete"));
+					},
+					transcript: agent.transcript,
+				};
+			};
 			const harness = createMultiAgentHarness({
 				createAttachedSession,
 				ctx: { controlDbPath, sessionManager: supervisorSession },
@@ -1037,11 +1047,16 @@ describe("multi-agent extension tools", () => {
 			supervisorSession.setMetadataControlDbPath(controlDbPath);
 			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 			store.setPersistenceSessionManager(supervisorSession);
-			const createAttachedSession: AttachedSessionFactory = async ({ agent }) => ({
-				messages: [fauxAssistantMessage("attached complete")],
-				prompt: async () => {},
-				transcript: agent.transcript,
-			});
+			const createAttachedSession: AttachedSessionFactory = async ({ agent }) => {
+				const messages: ReturnType<typeof fauxAssistantMessage>[] = [];
+				return {
+					messages,
+					prompt: async () => {
+						messages.push(fauxAssistantMessage("attached complete"));
+					},
+					transcript: agent.transcript,
+				};
+			};
 			const harness = createMultiAgentHarness({
 				createAttachedSession,
 				ctx: { controlDbPath, sessionManager: supervisorSession },
@@ -1106,10 +1121,12 @@ describe("multi-agent extension tools", () => {
 			expect(agent.id).toBe(recovered.id);
 			expect(agent.permission).toEqual(recovered.permission);
 			expect(sessionPath).toBe("/sessions/recovered.jsonl");
+			const messages: ReturnType<typeof fauxAssistantMessage>[] = [];
 			return {
-				messages: [fauxAssistantMessage("recovered complete")],
+				messages,
 				prompt: async (prompt) => {
 					prompts.push(prompt);
+					messages.push(fauxAssistantMessage("recovered complete"));
 				},
 				transcript: agent.transcript,
 			};
@@ -1401,6 +1418,7 @@ describe("multi-agent extension tools", () => {
 		const createAttachedSession: AttachedSessionFactory = async ({ agent, sessionPath }) => {
 			expect(agent.id).toBe(interrupted.agent.id);
 			expect(sessionPath).toBe("/sessions/spawned-child.jsonl");
+			const messages: ReturnType<typeof fauxAssistantMessage>[] = [];
 			return {
 				drainRuntimeCoordination: async () => {
 					const message = store
@@ -1417,9 +1435,10 @@ describe("multi-agent extension tools", () => {
 					);
 					if (!delivered.ok) throw new Error(`Expected recovery steering delivery: ${delivered.error}`);
 				},
-				messages: [fauxAssistantMessage("spawned recovery complete")],
+				messages,
 				prompt: async (prompt) => {
 					prompts.push(prompt);
+					messages.push(fauxAssistantMessage("spawned recovery complete"));
 				},
 				transcript: agent.transcript,
 			};
@@ -3372,16 +3391,21 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("preserves the last text response when an agent terminates with an end_turn tool call", async () => {
-		const createChildSession: ChildAgentSessionFactory = async () => ({
-			abort: () => {},
-			messages: [
-				fauxAssistantMessage("Rust verification passed"),
-				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Verification complete" }), {
-					stopReason: "toolUse",
-				}),
-			],
-			prompt: async () => {},
-		});
+		const createChildSession: ChildAgentSessionFactory = async () => {
+			const messages: ReturnType<typeof fauxAssistantMessage>[] = [];
+			return {
+				abort: () => {},
+				messages,
+				prompt: async () => {
+					messages.push(
+						fauxAssistantMessage("Rust verification passed"),
+						fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Verification complete" }), {
+							stopReason: "toolUse",
+						}),
+					);
+				},
+			};
+		};
 		const harness = createMultiAgentHarness({ createChildSession });
 		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
 			agentType: "verifier",
@@ -3612,11 +3636,17 @@ describe("multi-agent extension tools", () => {
 	it("wakes an idle main parent when a child completion notification arrives", async () => {
 		const childPrompt = deferred<void>();
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		const createChildSession: ChildAgentSessionFactory = async ({ agent }) => ({
-			messages: [fauxAssistantMessage("child done")],
-			prompt: async () => childPrompt.promise,
-			transcript: { path: join(tmpdir(), `${agent.id}.jsonl`), sessionId: `session-${agent.id}` },
-		});
+		const createChildSession: ChildAgentSessionFactory = async ({ agent }) => {
+			const messages: ReturnType<typeof fauxAssistantMessage>[] = [];
+			return {
+				messages,
+				prompt: async () => {
+					await childPrompt.promise;
+					messages.push(fauxAssistantMessage("child done"));
+				},
+				transcript: { path: join(tmpdir(), `${agent.id}.jsonl`), sessionId: `session-${agent.id}` },
+			};
+		};
 		const harness = await createHarness({
 			extensionFactories: [(pi) => multiAgentExtension(pi, { createChildSession, store })],
 			multiAgentStore: store,
@@ -4298,7 +4328,7 @@ describe("multi-agent extension tools", () => {
 			store,
 			createChildSession,
 		});
-		parentHarness.setResponses([fauxAssistantMessage("browser child done")]);
+		parentHarness.setResponses([fauxCompletedAssistantMessage("browser child done")]);
 
 		const spawned = await harness.call<SpawnAgentDetails>("spawn_agent", {
 			agentType: "browser",
@@ -4343,6 +4373,7 @@ describe("multi-agent extension tools", () => {
 						get messages() {
 							return options.sessionManager?.buildSessionContext().messages ?? [];
 						},
+						sessionManager: requireSessionManager(options),
 						prompt: async (prompt) => {
 							options.sessionManager?.appendMessage({ role: "user", content: prompt, timestamp: 2 });
 							options.sessionManager?.appendMessage(fauxAssistantMessage("fresh child done"));
@@ -4417,6 +4448,7 @@ describe("multi-agent extension tools", () => {
 						get messages() {
 							return options.sessionManager?.buildSessionContext().messages ?? [];
 						},
+						sessionManager: requireSessionManager(options),
 						prompt: async (prompt) => {
 							options.sessionManager?.appendMessage({ role: "user", content: prompt, timestamp: 2 });
 							options.sessionManager?.appendMessage(fauxAssistantMessage("inherited child done"));
@@ -4520,6 +4552,7 @@ describe("multi-agent extension tools", () => {
 						get messages() {
 							return options.sessionManager?.buildSessionContext().messages ?? [];
 						},
+						sessionManager: requireSessionManager(options),
 						prompt: async (prompt) => {
 							options.sessionManager?.appendMessage({ role: "user", content: prompt, timestamp: 3 });
 							options.sessionManager?.appendMessage(fauxAssistantMessage("active branch child done"));
@@ -4999,6 +5032,7 @@ describe("multi-agent extension tools", () => {
 				sessionOptions = options;
 				return {
 					session: {
+						sessionManager: requireSessionManager(options),
 						extensionRunner: { emit: async () => {} },
 						bindExtensions: async () => {},
 						messages: [],
@@ -5054,8 +5088,9 @@ describe("multi-agent extension tools", () => {
 		target.appendMessage({ role: "user", content: "existing", timestamp: 1 });
 		target.persistForRecovery();
 		const missingCwd = join(parentHarness.tempDir, "deleted-agent-cwd");
-		const createSession = vi.fn(async () => ({
+		const createSession = vi.fn(async (options: CreateAgentSessionOptions) => ({
 			session: {
+				sessionManager: requireSessionManager(options),
 				extensionRunner: { emit: async () => {} },
 				bindExtensions: async () => {},
 				messages: [],
@@ -5094,8 +5129,9 @@ describe("multi-agent extension tools", () => {
 		childHarnesses.push(parentHarness);
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const transcriptPath = join(parentHarness.tempDir, "missing-child.jsonl");
-		const createSession = vi.fn(async () => ({
+		const createSession = vi.fn(async (options: CreateAgentSessionOptions) => ({
 			session: {
+				sessionManager: requireSessionManager(options),
 				extensionRunner: { emit: async () => {} },
 				bindExtensions: async () => {},
 				messages: [],
@@ -5137,8 +5173,9 @@ describe("multi-agent extension tools", () => {
 		target.appendMessage({ role: "user", content: "unrelated context", timestamp: 1 });
 		target.appendMessage(fauxAssistantMessage("replacement context"));
 		const transcriptPath = target.getSessionFile() ?? "";
-		const createSession = vi.fn(async () => ({
+		const createSession = vi.fn(async (options: CreateAgentSessionOptions) => ({
 			session: {
+				sessionManager: requireSessionManager(options),
 				extensionRunner: { emit: async () => {} },
 				bindExtensions: async () => {},
 				messages: [],
@@ -5199,6 +5236,7 @@ describe("multi-agent extension tools", () => {
 							session: {
 								extensionRunner: { emit: async () => {} },
 								bindExtensions,
+								sessionManager,
 								messages: [fauxAssistantMessage("child transcript ready")],
 								prompt: async () => {},
 							},
@@ -5245,6 +5283,7 @@ describe("multi-agent extension tools", () => {
 					childSessionManager = options.sessionManager;
 					return {
 						session: {
+							sessionManager: requireSessionManager(options),
 							extensionRunner: { emit: async () => {} },
 							bindExtensions: async () => {},
 							messages: [],
@@ -5287,6 +5326,7 @@ describe("multi-agent extension tools", () => {
 					childSessionManager = options.sessionManager;
 					return {
 						session: {
+							sessionManager: requireSessionManager(options),
 							extensionRunner: { emit: async () => {} },
 							bindExtensions: async () => {},
 							messages: [],
