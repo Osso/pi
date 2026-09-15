@@ -9,6 +9,7 @@ it("keeps child resources valid until asynchronous shutdown cleanup finishes", a
 	let resourcesOpen = true;
 	let cleanupUsedLiveResources = false;
 	const child = bindProductionChildSession({
+		sessionManager: { getBranch: () => [] },
 		bindExtensions: async () => {},
 		extensionRunner: {
 			async emit() {
