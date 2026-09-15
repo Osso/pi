@@ -5,7 +5,7 @@ export function readCurrentChildAssistantText(
 	previousMessages: ReadonlySet<AgentMessage>,
 ): string | undefined {
 	const currentMessages = messages.filter((message) => !previousMessages.has(message));
-	const terminal = currentMessages.findLast((message) => message.role === "assistant");
+	const terminal = [...currentMessages].reverse().find((message) => message.role === "assistant");
 	if (terminal?.stopReason === "error") {
 		throw new Error(terminal.errorMessage || "Child model request ended with error");
 	}
