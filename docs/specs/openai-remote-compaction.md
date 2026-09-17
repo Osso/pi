@@ -1,13 +1,13 @@
 # OpenAI Remote Compaction
 
-OpenAI remote compaction uses OpenAI's `/responses/compact` endpoint for first-party OpenAI Responses models and preserves the returned native replacement history for later OpenAI requests. How it works is tracked in [OpenAI remote compaction](../wiki/systems/openai-remote-compaction.md).
+OpenAI remote compaction uses OpenAI's `/responses/compact` endpoint for first-party OpenAI Responses models and preserves the returned native replacement history for later OpenAI requests. This retained extension is not registered by default in CLI startup; its behavior applies only when explicitly loaded. How it works is tracked in [OpenAI remote compaction](../wiki/systems/openai-remote-compaction.md).
 
 ## What it must do
 
 - [x] Only first-party `openai` provider models using `openai-responses` and first-party `openai-codex` / `openai-codex-gc` provider models using `openai-codex-responses` are eligible for remote compaction.
 - [x] Remote compaction requests must serialize compacted Pi messages into OpenAI Responses input items and send them to the provider's compact endpoint.
 - [x] Remote compaction requests must preserve Pi's system instructions, append compaction-only guidance that prioritizes deduplicated continuation context, and include optional user-provided `/compact` instructions.
-- [x] Codex remote compaction must use `gpt-5.6-terra` regardless of the active Codex generation model, while preserving native history across Codex model switches.
+- [x] Codex remote compaction must use the active Codex provider, account, and model while preserving native history across generation-model switches on that provider.
 - [x] Remote compaction results must keep OpenAI's native replacement history in both the compaction entry's provider-native checkpoint and its OpenAI remote-compaction details, while the persisted summary remains a synthetic placeholder.
 - [x] When the compact endpoint returns provider-generated `message` rows that are identical except for response-item `id`, remote compaction must keep only the latest row while preserving every non-message item unchanged.
 - [x] When a compact request exceeds the 400,000-character serialized-input limit, it must retain prior OpenAI-native replacement history intact when that history and any pinned split-turn opening user fit together, then allocate the remaining budget to newer raw context.
@@ -32,7 +32,6 @@ OpenAI remote compaction uses OpenAI's `/responses/compact` endpoint for first-p
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts` — coordinates `/tree` loading, editing, cancellation, and errors.
 - `packages/agent-core/src/harness/messages.ts` — carries provider-native history through compaction-summary context conversion.
 - `packages/ai/src/api/openai-responses-shared.ts` — substitutes matching native history while serializing later OpenAI Responses requests.
-- `packages/coding-agent/src/main.ts` — registers the first-party extension.
 
 ## Tests asserting this spec
 
@@ -40,7 +39,8 @@ OpenAI remote compaction uses OpenAI's `/responses/compact` endpoint for first-p
 - `packages/coding-agent/test/agent-session-compaction-summary-edit.test.ts` — matching-model materialization, no pre-save mutation, and mismatch rejection.
 - `packages/coding-agent/test/interactive-mode-compaction-edit.test.ts` — plaintext/native editor flows, cancellation, failure, and command routing.
 - `packages/coding-agent/test/session-manager/update-compaction-summary.test.ts` — atomic native replacement, rollback, metadata/leaf preservation, and later plaintext serialization.
-- `packages/coding-agent/test/openai-remote-compact-extension.test.ts` — payload limits, Terra selection, tool-pair preservation, and plaintext invalidation barrier.
+- `packages/coding-agent/test/openai-remote-compact-extension.test.ts` — payload limits, active-model selection, tool-pair preservation, and plaintext invalidation barrier.
+- `packages/coding-agent/test/openai-remote-compact-model.test.ts` — local HTTP requests preserve the active Codex model/account and native history across model switches.
 - `packages/coding-agent/test/openai-remote-compact-split-turn.test.ts` — split-turn opening-user pinning within the payload limit.
 
 ## Known gaps (current cycle)

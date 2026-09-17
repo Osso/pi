@@ -12,7 +12,6 @@ export const OPENAI_REMOTE_COMPACTION_SUMMARY = "OpenAI native compaction stored
 const DETAILS_TYPE = "openai-remote-compaction";
 const DETAILS_VERSION = 1;
 const MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS = 400_000;
-const CODEX_REMOTE_COMPACTION_MODEL = "gpt-5.6-terra";
 const OPENAI_REMOTE_COMPACTION_GUIDANCE = `Create a compact context checkpoint for continuing the work, not a conversational reply.
 
 - Deduplicate repeated or semantically equivalent content. Represent each fact, message, and tool result once.
@@ -137,10 +136,6 @@ function isCodexRemoteCompactionModel(model: OpenAINativeCompactModel): boolean 
 	);
 }
 
-function getOpenAICompactModelId(model: OpenAINativeCompactModel): string {
-	return isCodexRemoteCompactionModel(model) ? CODEX_REMOTE_COMPACTION_MODEL : model.id;
-}
-
 export function buildOpenAICompactPayload(
 	model: OpenAINativeCompactModel,
 	messages: AgentMessage[],
@@ -179,7 +174,7 @@ export function buildOpenAICompactPayload(
 		new Set(previousReplacementHistory),
 	);
 	return {
-		model: getOpenAICompactModelId(model),
+		model: model.id,
 		input,
 		instructions,
 		tools: [],
@@ -206,7 +201,7 @@ export function extractOpenAICompactDetails(
 		version: DETAILS_VERSION,
 		provider: model.provider,
 		api: model.api,
-		model: getOpenAICompactModelId(model),
+		model: model.id,
 		endpoint,
 		replacementHistory,
 		replacementHistoryBytes,

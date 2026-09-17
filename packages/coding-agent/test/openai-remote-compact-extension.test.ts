@@ -72,22 +72,6 @@ describe("openai remote compact extension", () => {
 		expect(isOpenAIResponsesModel({ ...createOpenAIResponsesModel(), api: "anthropic-messages" })).toBe(false);
 	});
 
-	it("uses Terra for Codex compaction while preserving the active model elsewhere", () => {
-		const model = createOpenAICodexResponsesModel({ id: "gpt-5.6-luna" });
-		const payload = buildOpenAICompactPayload(model, [], "system prompt", []);
-		const details = extractOpenAICompactDetails(
-			model,
-			{ output: [{ type: "compaction", encrypted_content: "encrypted" }] },
-			"https://chatgpt.com/backend-api/codex/responses/compact",
-		);
-
-		expect(payload.model).toBe("gpt-5.6-terra");
-		expect(details.model).toBe("gpt-5.6-terra");
-		expect(buildOpenAICompactPayload({ ...model, provider: "openai-codex-gc" }, [], "system prompt", []).model).toBe(
-			"gpt-5.6-terra",
-		);
-	});
-
 	it("builds a /responses/compact payload from compacted messages", () => {
 		const messages: AgentMessage[] = [
 			{ role: "user", content: "hello", timestamp: 1 },
@@ -654,7 +638,7 @@ describe("openai remote compact extension", () => {
 		await handleCompaction(event, ctx);
 
 		expect(requestPayload).toMatchObject({
-			model: "gpt-5.6-terra",
+			model: "gpt-5.6-luna",
 			input: [{ type: "compaction", encrypted_content: "old-codex" }, { role: "user" }],
 		});
 	});
