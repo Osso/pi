@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed signal-terminated local shell commands being reported as successful with partial output ([#9577](https://github.com/earendil-works/pi/issues/9577)).
 - Fixed `settingsManager.applyOverrides({ sandboxProfile })` being ignored by the sandbox profile getters, so SDK sessions ran with the file-configured profile.
 - Fixed `pi "<message>" tools` (also `extensions` and `login`) treating a later message word as a command; command words are only recognized before the first message.
 - Fixed an extension whose factory throws still registering the providers it queued with `pi.registerProvider()` before failing.

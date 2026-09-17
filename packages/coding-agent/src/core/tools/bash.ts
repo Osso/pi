@@ -1,5 +1,6 @@
 import { closeSync, constants, openSync, readFileSync, rmSync } from "node:fs";
 import { access as fsAccess } from "node:fs/promises";
+import { constants as osConstants } from "node:os";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Container, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { type ChildProcess, spawn } from "child_process";
@@ -98,7 +99,8 @@ export interface BashOperations {
 	 * @param command The command to execute
 	 * @param cwd Working directory
 	 * @param options Execution options
-	 * @returns Promise resolving to exit code (null if killed)
+	 * @returns Promise resolving to the exit code. Report signal terminations as 128 + signal number;
+	 * a null exit code is treated as a failed command.
 	 */
 	exec: (
 		command: string,
@@ -228,7 +230,10 @@ export function createLocalBashOperations(options?: { shellPath?: string }): Bas
 				if (timedOut) {
 					throw new Error(`timeout:${timeout}`);
 				}
-				return { exitCode: settled.exitCode };
+				// A signal-killed shell has no exit code; use the shell convention 128 + signal number.
+				const exitCode =
+					settled.exitCode ?? (child.signalCode ? 128 + (osConstants.signals[child.signalCode] ?? 0) : 1);
+				return { exitCode };
 			} finally {
 				removeDetachListener?.();
 				if (outputTail) clearInterval(outputTail);
@@ -589,7 +594,10 @@ export function createBashToolDefinition(
 
 				const snapshot = await finishOutput();
 				const { text: outputText, details } = formatOutput(snapshot);
-				if (exitCode !== 0 && exitCode !== null) {
+				if (exitCode === null) {
+					throw new Error(appendStatus(outputText, "Command terminated without an exit code"));
+				}
+				if (exitCode !== 0) {
 					throw new Error(appendStatus(outputText, `Command exited with code ${exitCode}`));
 				}
 				return { content: [{ type: "text", text: outputText }], details };
