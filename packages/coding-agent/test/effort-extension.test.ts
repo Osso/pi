@@ -21,7 +21,20 @@ function requireSystemPrompt(result: unknown): string {
 	return result.systemPrompt;
 }
 
+const SUBAGENT_TOOLS = [
+	"spawn_agent",
+	"list_agents",
+	"attach_session_agent",
+	"wait_agent",
+	"close_agent",
+	"steer_agent",
+	"agent_viewer",
+	"send_agent_message",
+	"contact_parent",
+];
+
 function createCommandHarness(options?: {
+	activeTools?: string[];
 	branch?: unknown[];
 	child?: boolean;
 	reasoning?: boolean;
@@ -36,7 +49,14 @@ function createCommandHarness(options?: {
 		thinkingLevel = level;
 	});
 	const appendEntry = vi.fn();
+	let activeTools = options?.activeTools ?? ["read", "pyrun_eval", "list_sessions", ...SUBAGENT_TOOLS];
+	const getActiveTools = () => [...activeTools];
+	const setActiveTools = (names: string[]) => {
+		activeTools = [...names];
+	};
 	const pi = {
+		getActiveTools,
+		setActiveTools,
 		getThinkingLevel: () => thinkingLevel,
 		on: (name: string, handler: (event: unknown, ctx: ExtensionContext) => unknown) => {
 			handlers.set(name, [...(handlers.get(name) ?? []), handler]);
@@ -85,6 +105,8 @@ function createCommandHarness(options?: {
 	if (!command || !multiAgentCommand) throw new Error("expected effort and multi-agent commands");
 	return {
 		appendEntry,
+		getActiveTools,
+		setActiveTools,
 		command,
 		ctx,
 		extensionStatuses,
@@ -196,27 +218,27 @@ describe("effort extension", () => {
 
 		await sessionStart({ type: "session_start", reason: "new" }, ctx);
 
-		expect(extensionStatuses.get("multi-agent-mode")).toBe(`${theme.fg("dim", "multi-agent: ")}proactive`);
+		expect(extensionStatuses.get("multi-agent-mode")).toBe(`${theme.fg("dim", "multi-agent: ")}active`);
 	});
 
-	it("persists and restores explicit delegation without retaining proactive policy", async () => {
+	it("persists and restores disabled delegation without retaining proactive policy", async () => {
 		const initial = createCommandHarness();
-		await initial.multiAgentCommand.handler("explicit", initial.ctx);
+		await initial.multiAgentCommand.handler("disabled", initial.ctx);
 
-		expect(initial.appendEntry).toHaveBeenCalledWith("multi-agent-mode", { mode: "explicit" });
+		expect(initial.appendEntry).toHaveBeenCalledWith("multi-agent-mode", { mode: "disabled" });
 		const beforeAgentStart = initial.handlers.get("before_agent_start")?.[0];
 		if (!beforeAgentStart) throw new Error("expected before_agent_start handler");
-		const explicitResult = await beforeAgentStart(
+		const disabledResult = await beforeAgentStart(
 			{
 				systemPrompt: "base\n\n<multi_agent_mode>Proactive multi-agent delegation is active.</multi_agent_mode>",
 			},
 			initial.ctx,
 		);
-		expect(requireSystemPrompt(explicitResult)).toContain("Do not spawn sub-agents unless");
-		expect(requireSystemPrompt(explicitResult)).not.toContain("Proactive multi-agent delegation is active.");
+		expect(requireSystemPrompt(disabledResult)).toBe("base");
+		expect(requireSystemPrompt(disabledResult)).not.toContain("Proactive multi-agent delegation is active.");
 
 		const restored = createCommandHarness({
-			branch: [{ type: "custom", customType: "multi-agent-mode", data: { mode: "explicit" } }],
+			branch: [{ type: "custom", customType: "multi-agent-mode", data: { mode: "disabled" } }],
 		});
 		const sessionStart = restored.handlers.get("session_start")?.[0];
 		if (!sessionStart) throw new Error("expected session_start handler");
@@ -224,26 +246,67 @@ describe("effort extension", () => {
 		const restoredBeforeAgentStart = restored.handlers.get("before_agent_start")?.[0];
 		if (!restoredBeforeAgentStart) throw new Error("expected before_agent_start handler");
 		const restoredResult = await restoredBeforeAgentStart({ systemPrompt: "base" }, restored.ctx);
-		expect(requireSystemPrompt(restoredResult)).toContain("Do not spawn sub-agents unless");
+		expect(requireSystemPrompt(restoredResult)).toBe("base");
+	});
+
+	it("hides subagent tools while preserving unrelated tools and disabled status", async () => {
+		const harness = createCommandHarness();
+		await harness.multiAgentCommand.handler("disabled", harness.ctx);
+		expect(harness.getActiveTools()).toEqual(["read", "pyrun_eval", "list_sessions"]);
+		expect(harness.extensionStatuses.get("multi-agent-mode")).toBe(`${theme.fg("dim", "multi-agent: ")}disabled`);
+	});
+
+	it("restores only previously active subagent tools without reverting unrelated tool selection", async () => {
+		const harness = createCommandHarness({ activeTools: ["read", "spawn_agent", "wait_agent"] });
+		await harness.multiAgentCommand.handler("disabled", harness.ctx);
+		await harness.multiAgentCommand.handler("disabled", harness.ctx);
+		harness.setActiveTools(["pyrun_eval", "list_sessions"]);
+		await harness.multiAgentCommand.handler("proactive", harness.ctx);
+		expect(harness.getActiveTools().sort()).toEqual(
+			["pyrun_eval", "list_sessions", "spawn_agent", "wait_agent"].sort(),
+		);
+		expect(harness.extensionStatuses.get("multi-agent-mode")).toBe(`${theme.fg("dim", "multi-agent: ")}active`);
+		expect(harness.appendEntry).toHaveBeenLastCalledWith("multi-agent-mode", { mode: "proactive" });
+	});
+
+	it.each(["session_start", "session_tree"])("restores disabled tool selection on %s", async (eventName) => {
+		const harness = createCommandHarness({
+			branch: [{ type: "custom", customType: "multi-agent-mode", data: { mode: "disabled" } }],
+		});
+		const handler = harness.handlers.get(eventName)?.[0];
+		if (!handler) throw new Error(`expected ${eventName} handler`);
+		await handler({ type: eventName, reason: "resume" }, harness.ctx);
+		expect(harness.getActiveTools()).toEqual(["read", "pyrun_eval", "list_sessions"]);
+		expect(harness.extensionStatuses.get("multi-agent-mode")).toBe(`${theme.fg("dim", "multi-agent: ")}disabled`);
+	});
+
+	it("offers proactive and disabled command modes, not the active display label", async () => {
+		const harness = createCommandHarness({ selectedEffort: "disabled" });
+		await harness.multiAgentCommand.handler("", harness.ctx);
+		expect(harness.select).toHaveBeenCalledWith("Select multi-agent mode", ["proactive", "disabled"]);
+		expect(harness.getActiveTools()).toEqual(["read", "pyrun_eval", "list_sessions"]);
 	});
 
 	it("keeps delegation mode when changing a non-ultra effort", async () => {
 		const { command, ctx, handlers, multiAgentCommand } = createCommandHarness();
-		await multiAgentCommand.handler("explicit", ctx);
+		await multiAgentCommand.handler("disabled", ctx);
 		await command.handler("high", ctx);
 
 		const beforeAgentStart = handlers.get("before_agent_start")?.[0];
 		if (!beforeAgentStart) throw new Error("expected before_agent_start handler");
 		const result = await beforeAgentStart({ systemPrompt: "base" }, ctx);
-		expect(requireSystemPrompt(result)).toContain("Do not spawn sub-agents unless");
+		expect(requireSystemPrompt(result)).toBe("base");
 	});
 
 	it("maps /effort ultra to ultra reasoning and proactive delegation", async () => {
-		const { appendEntry, command, ctx, handlers, notify, setTargetThinkingLevel } = createCommandHarness({
-			thinkingLevel: "high",
-		});
+		const { appendEntry, command, ctx, handlers, notify, setTargetThinkingLevel, multiAgentCommand, getActiveTools } =
+			createCommandHarness({
+				thinkingLevel: "high",
+			});
 
+		await multiAgentCommand.handler("disabled", ctx);
 		await command.handler("ultra", ctx);
+		expect(getActiveTools()).toEqual(expect.arrayContaining(SUBAGENT_TOOLS));
 
 		expect(setTargetThinkingLevel).toHaveBeenCalledWith("ultra");
 		expect(appendEntry).toHaveBeenCalledWith("multi-agent-mode", { mode: "proactive" });
@@ -255,13 +318,16 @@ describe("effort extension", () => {
 	});
 
 	it("enables proactive delegation when the interactive selector chooses ultra", async () => {
-		const { appendEntry, ctx, handlers, multiAgentCommand } = createCommandHarness({ thinkingLevel: "max" });
-		await multiAgentCommand.handler("explicit", ctx);
+		const { appendEntry, ctx, handlers, multiAgentCommand, getActiveTools } = createCommandHarness({
+			thinkingLevel: "max",
+		});
+		await multiAgentCommand.handler("disabled", ctx);
 		appendEntry.mockClear();
 
 		const thinkingLevelSelect = handlers.get("thinking_level_select")?.[0];
 		if (!thinkingLevelSelect) throw new Error("expected thinking_level_select handler");
 		await thinkingLevelSelect({ level: "ultra", previousLevel: "max" }, ctx);
+		expect(getActiveTools()).toEqual(expect.arrayContaining(SUBAGENT_TOOLS));
 
 		expect(appendEntry).toHaveBeenCalledWith("multi-agent-mode", { mode: "proactive" });
 		const beforeAgentStart = handlers.get("before_agent_start")?.[0];
@@ -270,10 +336,10 @@ describe("effort extension", () => {
 		expect(requireSystemPrompt(result)).toContain("Proactive multi-agent delegation is active.");
 	});
 
-	it("keeps maximum reasoning when explicit mode disables an ultra preset", async () => {
+	it("keeps maximum reasoning when disabled mode disables an ultra preset", async () => {
 		const { ctx, multiAgentCommand, setTargetThinkingLevel } = createCommandHarness({ thinkingLevel: "ultra" });
 
-		await multiAgentCommand.handler("explicit", ctx);
+		await multiAgentCommand.handler("disabled", ctx);
 
 		expect(setTargetThinkingLevel).toHaveBeenCalledWith("max");
 	});
@@ -283,16 +349,16 @@ describe("effort runtime authorization", () => {
 	it("lets a main runtime with historical subagent provenance control delegation mode", async () => {
 		const { appendEntry, ctx, multiAgentCommand, notify } = createCommandHarness({ subagentProvenance: true });
 
-		await multiAgentCommand.handler("explicit", ctx);
+		await multiAgentCommand.handler("disabled", ctx);
 
-		expect(appendEntry).toHaveBeenCalledWith("multi-agent-mode", { mode: "explicit" });
-		expect(notify).toHaveBeenCalledWith("Multi-agent mode: explicit", "info");
+		expect(appendEntry).toHaveBeenCalledWith("multi-agent-mode", { mode: "disabled" });
+		expect(notify).toHaveBeenCalledWith("Multi-agent mode: disabled", "info");
 	});
 
 	it("does not let child runtimes change delegation mode or receive its policy", async () => {
 		const { appendEntry, ctx, handlers, multiAgentCommand, notify } = createCommandHarness({ child: true });
 
-		await multiAgentCommand.handler("explicit", ctx);
+		await multiAgentCommand.handler("disabled", ctx);
 
 		expect(appendEntry).not.toHaveBeenCalled();
 		expect(notify).toHaveBeenCalledWith("Multi-agent mode is controlled by the main thread", "warning");
