@@ -30,7 +30,7 @@ import {
 	createPyrunEvalExecutor,
 	formatCanonicalPyrunEvalResult,
 } from "../extensions/pyrun/src/eval-tool.ts";
-import pyrunExtension, { type PyrunExtensionOptions } from "../extensions/pyrun/src/index.ts";
+import pyrunExtension, { createPyrunPiDispatcher, type PyrunExtensionOptions } from "../extensions/pyrun/src/index.ts";
 import { PyrunRunnerClient, resolvePyrunRunnerOptions } from "../extensions/pyrun/src/runner.ts";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
@@ -164,6 +164,15 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 		callCommand: options.callCommand ?? (async () => undefined),
 		callTool: options.callTool ?? (async () => ({ content: [], details: undefined })),
 		getCommands: () => [{ name: "usage", source: "extension" }],
+		getActiveTools: () => [
+			"pyrun_eval",
+			"spawn_agent",
+			"wait_agent",
+			"attach_session_agent",
+			"list_agents",
+			"agent_viewer",
+			"send_agent_message",
+		],
 		setModel: createHarnessModelSetter(selectedModels, options.setModel),
 		setThinkingLevel: () => {},
 		registerTool(tool: ToolDefinition) {
@@ -754,6 +763,55 @@ while (true) {
 	return runnerPath;
 }
 
+describe("Pyrun agent bridge tool availability", () => {
+	it.each([
+		["agents.spawn", "spawn_agent"],
+		["agents.wait", "wait_agent"],
+		["agents.attachSession", "attach_session_agent"],
+		["agents.list", "list_agents"],
+		["agents.current", "agent_viewer"],
+		["agents.select", "agent_viewer"],
+		["messages.send", "send_agent_message"],
+	])("gates %s on its active tool", async (method, tool) => {
+		let activeTools = ["pyrun_eval", "read"];
+		const delivered: unknown[] = [];
+		const pi = { getActiveTools: () => activeTools } as unknown as ExtensionAPI;
+		const dispatch = createPyrunPiDispatcher(pi, {
+			piRequestHandlers: [
+				async (request) => {
+					delivered.push(request.params);
+					return { accepted: request.params };
+				},
+			],
+		});
+		const ctx = {} as ExtensionContext;
+		const request = { method, params: { prompt: "inspect fixture" } };
+
+		await expect(dispatch(request, ctx)).rejects.toThrow();
+		expect(delivered).toEqual([]);
+		activeTools = [...activeTools, tool];
+		await expect(dispatch(request, ctx)).resolves.toEqual({ accepted: request.params });
+		expect(delivered).toEqual([request.params]);
+	});
+
+	it("keeps unrelated bridge methods available without agent tools", async () => {
+		const pi = {
+			getActiveTools: () => ["pyrun_eval", "read"],
+			getCommands: () => [{ name: "usage" }],
+		} as unknown as ExtensionAPI;
+		const dispatch = createPyrunPiDispatcher(pi, {
+			piRequestHandlers: [
+				async (request) => (request.method === "messages.last" ? { text: "prior response" } : undefined),
+			],
+		});
+		const ctx = {} as ExtensionContext;
+		await expect(dispatch({ method: "commands.list", params: null }, ctx)).resolves.toEqual([{ name: "usage" }]);
+		await expect(dispatch({ method: "messages.last", params: null }, ctx)).resolves.toEqual({
+			text: "prior response",
+		});
+	});
+});
+
 describe("pyrun extension", () => {
 	let previousRunnerCommand: string | undefined;
 	let previousRunner: string | undefined;
@@ -838,10 +896,8 @@ describe("pyrun extension", () => {
 		);
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.compact");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.restart");
-		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.agents.current");
-		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.agents.select");
-		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.messages.last");
-		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain("pi.messages.send");
+		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).not.toContain("pi.agents.");
+		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).not.toContain("pi.messages.send");
 		expect(harness.toolDefinition?.promptGuidelines?.join("\n")).toContain(
 			"host, fs, cli, run, http, rg, fd, sqlite, kubectl, tools, text, seq, obj, and hr",
 		);
