@@ -53,10 +53,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       and attached sessions also exclude `spawn_agent`, `attach_session_agent`, `wait_agent`,
       `list_agents`, `agent_viewer`, `steer_agent`, and `close_agent` as defense in depth, while retaining
       direct child communication through `contact_parent` and `send_agent_message`.
-- [ ] When multi-agent mode is disabled in a main runtime, remove the active orchestration and mailbox tool
+- [x] When multi-agent mode is disabled in a main runtime, remove the active orchestration and mailbox tool
       surface (`spawn_agent`, `list_agents`, `attach_session_agent`, `wait_agent`, `close_agent`,
       `steer_agent`, `agent_viewer`, `send_agent_message`, and `contact_parent`) without cancelling
-      existing agents. Re-enabling proactive mode restores that surface.
+      existing agents. Re-enabling proactive mode restores that surface. Pyrun bridge agent methods require
+      the corresponding active tool.
 - [x] Child runtimes register only their agent-address mailbox listener and never run supervisor-wide
       persisted-store reconciliation or lifecycle-notification mirroring. Their bound session-start hook
       reconciles only direct persisted descendants through coordinator recovery, preventing same-PID child

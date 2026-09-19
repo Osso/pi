@@ -7,13 +7,13 @@ GPT-5.6 Sol exposes maximum reasoning and automatic delegation through the first
 - [x] GPT-5.6 Sol advertises `max` and `ultra` in effort selection.
 - [x] `max` sends provider reasoning effort `max`.
 - [x] `ultra` sends provider reasoning effort `max` and enables proactive delegation.
-- [ ] `/multi-agent proactive|disabled` changes agent availability independently of reasoning effort.
-- [ ] Proactive delegation is the default and persists as the `proactive` session value, while its footer value displays `active`.
-- [ ] Disabled mode persists across session reload and active-branch restoration; absent saved state defaults to proactive.
-- [ ] Disabled mode removes the Pi multi-agent policy and all active sub-agent tools (`spawn_agent`, `list_agents`, `attach_session_agent`, `wait_agent`, `close_agent`, `steer_agent`, `agent_viewer`, `send_agent_message`, and `contact_parent`) with their generated guidance. It does not cancel existing children.
-- [ ] Selecting another effort preserves multi-agent mode; selecting `ultra` enables proactive mode.
-- [ ] Selecting disabled mode while `ultra` is active retains maximum provider reasoning and displays `max`.
-- [ ] The active delegation policy is observable in the model-facing prompt and current status; disabled mode adds no replacement delegation policy.
+- [x] `/multi-agent proactive|disabled` changes agent availability independently of reasoning effort.
+- [x] Proactive delegation is the default and persists as the `proactive` session value, while every UI display uses `active`.
+- [x] Disabled mode persists across session reload and active-branch restoration; absent saved state defaults to proactive.
+- [x] Disabled mode removes the Pi multi-agent policy and all active sub-agent tools (`spawn_agent`, `list_agents`, `attach_session_agent`, `wait_agent`, `close_agent`, `steer_agent`, `agent_viewer`, `send_agent_message`, and `contact_parent`) with their generated guidance. It does not cancel existing children. Pyrun agent-bridge methods require their corresponding active tool.
+- [x] Selecting another effort preserves multi-agent mode; selecting `ultra` enables proactive mode.
+- [x] Selecting disabled mode while `ultra` is active retains maximum provider reasoning and displays `max`.
+- [x] The active delegation policy is observable in the model-facing prompt and current status; disabled mode adds no replacement delegation policy.
 - [x] Unsupported providers and models do not receive `max` or `ultra` unless their model metadata advertises them.
 - [x] Proactive delegation is implemented through the model-facing delegation policy, not `multi_agent.enabled`, `max_concurrent_subagents`, or `OpenAI-Beta: responses_multi_agent=v1`.
 - [x] `/effort` and `/multi-agent` authorization uses the current runtime role and explicit child identity;
@@ -48,7 +48,7 @@ GPT-5.6 Sol exposes maximum reasoning and automatic delegation through the first
 
 ## Known gaps (current cycle)
 
-- [ ] Replace explicit mode with disabled mode and test the policy, active-tool surface, persisted restoration, active display label, and `ultra` re-enable behavior.
+- None.
 
 ## Out of scope
 
