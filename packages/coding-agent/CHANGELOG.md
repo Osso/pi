@@ -155,6 +155,7 @@
 
 ### Fixed
 
+- Fixed selected live-child `/model`, model cycling, and `/effort` controls being unavailable because the production child-session binding omitted the child model/thinking accessors and mutations; controls now operate on the child session without changing main-session settings.
 - Fixed child provider failures being reported as completed with inherited parent text; child failures retain the provider error, and summaries use only current child output, including after compaction.
 - Fixed `wait_agent({})` exceeding its 25-minute absolute deadline after laptop suspend: the existing three-second coordination poll now rechecks the wall-clock deadline after terminal and coordination checks, preserving their precedence and leaving child agents running.
 - Fixed processed user, custom-message, and tool-result images remaining in later provider requests after an assistant completion; later requests now receive a text placeholder while persisted history and file references remain intact.

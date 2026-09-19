@@ -48,6 +48,7 @@ import { ToolDetachRegistry } from "../src/core/tool-detach-registry.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
+import { createChildSessionMutationFixture } from "./helpers/child-session-mutation.ts";
 import { terminateDetachedPyrunTestProcesses } from "./helpers/detached-process-cleanup.ts";
 import { writeFakeBwrap } from "./helpers/fake-bwrap.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
@@ -1709,6 +1710,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 					childSessionManager = childManager;
 					return {
 						session: {
+							...createChildSessionMutationFixture(),
 							sessionManager: childManager,
 							extensionRunner: { emit: async () => {} },
 							bindExtensions: async () => {},

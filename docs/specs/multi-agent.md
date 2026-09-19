@@ -501,7 +501,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] While a direct child with a live transcript and steerable lifecycle is selected, ordinary editor text
       routes to that child.
 - [x] `/model`, its selector, model cycling, and `/effort` target the currently viewed live session: the main
-      session when main is viewed, or the viewed live subagent session when a subagent is selected.
+      session when main is viewed, or the viewed live spawned or attached child when a subagent is selected. They
+      read that child's current model, scoped models, and thinking level, remain available after supervisor restart,
+      and operate on that child rather than falling back to the main session.
 - [x] Selecting a live subagent for model or thinking changes leaves the main session and global
       `settings.json` defaults unchanged; changes persist only to that child session.
 - [x] Viewed completed, detached/background, missing, or otherwise non-live `/model` and `/effort` targets
@@ -651,6 +653,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   and slash-command plus `!` shell-command routing on the main thread.
 - [`packages/coding-agent/test/suite/headless-pi.test.ts`](../../packages/coding-agent/test/suite/headless-pi.test.ts)
   asserts real-process steering of a restored child through the current main session after supervisor restart.
+- [`packages/coding-agent/test/suite/child-session-mutation.test.ts`](../../packages/coding-agent/test/suite/child-session-mutation.test.ts)
+  verifies selected-child `/model` and `/effort` changes affect only that live child, both before and after
+  supervisor restart.
 - [`packages/coding-agent/test/suite/agent-cancellation-reconciliation.test.ts`](../../packages/coding-agent/test/suite/agent-cancellation-reconciliation.test.ts)
   asserts silent automatic detached-Pyrun cancellation before child completion, after supervisor restart, and
   during explicit parent cancellation; it also asserts that out-of-process detached-descendant cancellation

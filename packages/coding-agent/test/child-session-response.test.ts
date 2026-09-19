@@ -6,6 +6,7 @@ import { expect, it } from "vitest";
 import { readCurrentChildAssistantText } from "../extensions/agents-core/src/child-response.ts";
 import { bindProductionChildSession } from "../extensions/agents-core/src/child-session.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
+import { createChildSessionMutationFixture } from "./helpers/child-session-mutation.ts";
 
 it("excludes inherited text when compaction truncates the model context during a child request", async () => {
 	const directory = mkdtempSync(join(tmpdir(), "pi-child-response-"));
@@ -14,6 +15,7 @@ it("excludes inherited text when compaction truncates the model context during a
 		const parentText = "INHERITED_PARENT_ONLY ".repeat(1400);
 		const parentId = sessionManager.appendMessage(fauxAssistantMessage(parentText));
 		const child = bindProductionChildSession({
+			...createChildSessionMutationFixture(),
 			sessionManager,
 			bindExtensions: async () => {},
 			extensionRunner: { emit: async () => {} },

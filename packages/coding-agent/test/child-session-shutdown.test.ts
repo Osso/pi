@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { bindProductionChildSession } from "../extensions/agents-core/src/child-session.ts";
+import { createChildSessionMutationFixture } from "./helpers/child-session-mutation.ts";
 
 it("keeps child resources valid until asynchronous shutdown cleanup finishes", async () => {
 	let release: (() => void) | undefined;
@@ -9,6 +10,7 @@ it("keeps child resources valid until asynchronous shutdown cleanup finishes", a
 	let resourcesOpen = true;
 	let cleanupUsedLiveResources = false;
 	const child = bindProductionChildSession({
+		...createChildSessionMutationFixture(),
 		sessionManager: { getBranch: () => [] },
 		bindExtensions: async () => {},
 		extensionRunner: {

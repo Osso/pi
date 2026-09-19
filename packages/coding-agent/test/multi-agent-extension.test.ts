@@ -75,6 +75,7 @@ import multiAgentExtension, {
 	type MultiAgentExtensionOptions,
 } from "../src/extensions/multi-agent.ts";
 import { main } from "../src/main.ts";
+import { createChildSessionMutationFixture } from "./helpers/child-session-mutation.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
 import { CURRENT_PROCESS_IDENTITY, testProcessIdentity } from "./helpers/process-identity.ts";
 import { forceRuntimeOwnership } from "./helpers/runtime-ownership.ts";
@@ -4368,6 +4369,7 @@ describe("multi-agent extension tools", () => {
 				childSessionManager = options.sessionManager;
 				return {
 					session: {
+						...createChildSessionMutationFixture(),
 						extensionRunner: { emit: async () => {} },
 						bindExtensions: async () => {},
 						get messages() {
@@ -4443,6 +4445,7 @@ describe("multi-agent extension tools", () => {
 				childSessionManager = options.sessionManager;
 				return {
 					session: {
+						...createChildSessionMutationFixture(),
 						extensionRunner: { emit: async () => {} },
 						bindExtensions: async () => {},
 						get messages() {
@@ -4547,6 +4550,7 @@ describe("multi-agent extension tools", () => {
 				childSessionManager = options.sessionManager;
 				return {
 					session: {
+						...createChildSessionMutationFixture(),
 						extensionRunner: { emit: async () => {} },
 						bindExtensions: async () => {},
 						get messages() {
@@ -5032,6 +5036,7 @@ describe("multi-agent extension tools", () => {
 				sessionOptions = options;
 				return {
 					session: {
+						...createChildSessionMutationFixture(),
 						sessionManager: requireSessionManager(options),
 						extensionRunner: { emit: async () => {} },
 						bindExtensions: async () => {},
@@ -5090,6 +5095,7 @@ describe("multi-agent extension tools", () => {
 		const missingCwd = join(parentHarness.tempDir, "deleted-agent-cwd");
 		const createSession = vi.fn(async (options: CreateAgentSessionOptions) => ({
 			session: {
+				...createChildSessionMutationFixture(),
 				sessionManager: requireSessionManager(options),
 				extensionRunner: { emit: async () => {} },
 				bindExtensions: async () => {},
@@ -5131,6 +5137,7 @@ describe("multi-agent extension tools", () => {
 		const transcriptPath = join(parentHarness.tempDir, "missing-child.jsonl");
 		const createSession = vi.fn(async (options: CreateAgentSessionOptions) => ({
 			session: {
+				...createChildSessionMutationFixture(),
 				sessionManager: requireSessionManager(options),
 				extensionRunner: { emit: async () => {} },
 				bindExtensions: async () => {},
@@ -5175,6 +5182,7 @@ describe("multi-agent extension tools", () => {
 		const transcriptPath = target.getSessionFile() ?? "";
 		const createSession = vi.fn(async (options: CreateAgentSessionOptions) => ({
 			session: {
+				...createChildSessionMutationFixture(),
 				sessionManager: requireSessionManager(options),
 				extensionRunner: { emit: async () => {} },
 				bindExtensions: async () => {},
@@ -5234,6 +5242,7 @@ describe("multi-agent extension tools", () => {
 						});
 						return {
 							session: {
+								...createChildSessionMutationFixture(),
 								extensionRunner: { emit: async () => {} },
 								bindExtensions,
 								sessionManager,
@@ -5283,6 +5292,7 @@ describe("multi-agent extension tools", () => {
 					childSessionManager = options.sessionManager;
 					return {
 						session: {
+							...createChildSessionMutationFixture(),
 							sessionManager: requireSessionManager(options),
 							extensionRunner: { emit: async () => {} },
 							bindExtensions: async () => {},
@@ -5326,6 +5336,7 @@ describe("multi-agent extension tools", () => {
 					childSessionManager = options.sessionManager;
 					return {
 						session: {
+							...createChildSessionMutationFixture(),
 							sessionManager: requireSessionManager(options),
 							extensionRunner: { emit: async () => {} },
 							bindExtensions: async () => {},

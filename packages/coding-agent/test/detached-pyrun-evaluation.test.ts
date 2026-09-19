@@ -21,6 +21,7 @@ import {
 import { SessionManager } from "../src/core/session-manager.ts";
 import { deliverTerminalOutboxProjections } from "../src/core/terminal-outbox-delivery.ts";
 import { ToolDetachRegistry } from "../src/core/tool-detach-registry.ts";
+import { createChildSessionMutationFixture } from "./helpers/child-session-mutation.ts";
 import { terminateDetachedPyrunTestProcesses } from "./helpers/detached-process-cleanup.ts";
 import { CURRENT_PROCESS_IDENTITY } from "./helpers/process-identity.ts";
 
@@ -149,6 +150,7 @@ describe("durable detached Pyrun evaluation", () => {
 				childSessionManager = childManager;
 				return {
 					session: {
+						...createChildSessionMutationFixture(),
 						sessionManager: childManager,
 						extensionRunner: { emit: async () => {} },
 						bindExtensions: async () => {},
