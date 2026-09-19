@@ -345,6 +345,18 @@ Rules:
 
 ### Deployment evidence
 
+On September 19, 2026, `5299a368d` deployed through `deploy.sh` from this fork's default branch,
+`master`. Checks/builds passed; installed SHA-256 matched the build:
+`1184d7fb662e899184b8c88bb58017bdb3c4fbcfc659365cb5efd5736b6ebe99`.
+All three eligible installed runtimes (PIDs 2539799, 3650656, and 2606103) restarted onto that hash
+and returned healthy; the third became eligible during final inventory and received a targeted restart.
+Live child `agent_16` accepted `/effort medium` then `/effort high`, persisted both changes, and continued;
+main-session metadata and global settings remained unchanged, and the main view was restored.
+Seven wrapper/process tests, five interactive cases, and twelve affected fixture cases passed.
+One existing locality test timed out before its second child was spawned; its cause remains unresolved.
+Proof: `/tmp/pi-child-effort-verifier.md`, `/tmp/pi-child-effort-installed-verifier.md`,
+`/tmp/pi-child-effort-installed-live-smoke.json`, and `/tmp/pi-child-effort-rollout-health.json`.
+
 On September 15, 2026, `d8288e08a` deployed through `deploy.sh` with full checks and builds passing.
 Child response extraction now uses raw persisted branch messages: current provider errors become failures,
 and inherited text cannot become a result merely because compaction cloned the model-context projection.
