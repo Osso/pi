@@ -787,10 +787,10 @@ describe("Pyrun agent bridge tool availability", () => {
 		const ctx = {} as ExtensionContext;
 		const request = { method, params: { prompt: "inspect fixture" } };
 
-		await expect(dispatch(request, ctx)).rejects.toThrow();
+		await expect(dispatch(request, ctx, undefined)).rejects.toThrow();
 		expect(delivered).toEqual([]);
 		activeTools = [...activeTools, tool];
-		await expect(dispatch(request, ctx)).resolves.toEqual({ accepted: request.params });
+		await expect(dispatch(request, ctx, undefined)).resolves.toEqual({ accepted: request.params });
 		expect(delivered).toEqual([request.params]);
 	});
 
@@ -805,8 +805,10 @@ describe("Pyrun agent bridge tool availability", () => {
 			],
 		});
 		const ctx = {} as ExtensionContext;
-		await expect(dispatch({ method: "commands.list", params: null }, ctx)).resolves.toEqual([{ name: "usage" }]);
-		await expect(dispatch({ method: "messages.last", params: null }, ctx)).resolves.toEqual({
+		await expect(dispatch({ method: "commands.list", params: null }, ctx, undefined)).resolves.toEqual([
+			{ name: "usage" },
+		]);
+		await expect(dispatch({ method: "messages.last", params: null }, ctx, undefined)).resolves.toEqual({
 			text: "prior response",
 		});
 	});
