@@ -139,8 +139,8 @@ function showInvalidMode(ctx: ExtensionCommandContext, requestedMode: string): v
 }
 
 async function selectDelegationMode(ctx: ExtensionCommandContext): Promise<MultiAgentMode | undefined> {
-	const selectedMode = await ctx.ui.select("Select multi-agent mode", ["proactive", "disabled"]);
-	return parseMultiAgentMode(selectedMode);
+	const selectedMode = await ctx.ui.select("Select multi-agent mode", ["active", "disabled"]);
+	return selectedMode === "active" ? "proactive" : parseMultiAgentMode(selectedMode);
 }
 
 async function handleDelegationCommand(

@@ -269,10 +269,24 @@ function createPyrunExecutorState(
 	};
 }
 
+const AGENT_BRIDGE_TOOLS: Readonly<Record<string, string>> = {
+	"agents.spawn": "spawn_agent",
+	"agents.wait": "wait_agent",
+	"agents.attachSession": "attach_session_agent",
+	"agents.list": "list_agents",
+	"agents.current": "agent_viewer",
+	"agents.select": "agent_viewer",
+	"messages.send": "send_agent_message",
+};
+
 export function createPyrunPiDispatcher(pi: ExtensionAPI, options: PyrunExtensionOptions): PyrunPiRequestDispatcher {
 	return async (request, ctx, signal, activeToolCallId) => {
 		const builtIn = await dispatchBuiltinPyrunRequest(request, pi, ctx, signal, activeToolCallId);
 		if (builtIn.handled) return builtIn.result;
+		const requiredTool = AGENT_BRIDGE_TOOLS[request.method];
+		if (requiredTool && !pi.getActiveTools().includes(requiredTool)) {
+			throw new Error(`Tool is not active: ${requiredTool}`);
+		}
 		for (const handler of options.piRequestHandlers ?? []) {
 			const result = await handler(request, ctx, signal, activeToolCallId);
 			if (result !== undefined) return result;

@@ -18,6 +18,13 @@ function appendUserRulesSection(prompt: string, rulesContent: string | undefined
 	return `${prompt}${separator}<user_rules>\n${rulesContent}\n</user_rules>`;
 }
 
+function buildPyrunAgentGuidelines(tools: string[]): string[] {
+	if (!tools.includes("spawn_agent") || !tools.includes("pyrun_eval")) return [];
+	return [
+		"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(), pi.agents.current(), pi.agents.select(agent_id), pi.messages.last(), pi.messages.enqueue(...), and pi.messages.send(...) for the supported Pi runtime bridge; pi.agents.wait() waits for any active agent and returns no agent output.",
+	];
+}
+
 export interface BuildSystemPromptOptions {
 	/** Custom system prompt (replaces default). */
 	customPrompt?: string;
@@ -150,12 +157,6 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		);
 	}
 
-	if (hasSpawnAgent && tools.includes("pyrun_eval")) {
-		addGuideline(
-			"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(), pi.agents.current(), pi.agents.select(agent_id), pi.messages.last(), pi.messages.enqueue(...), and pi.messages.send(...) for the supported Pi runtime bridge; pi.agents.wait() waits for any active agent and returns no agent output.",
-		);
-	}
-
 	if (hasBackgroundableCommandTool && tools.includes("wait_agent")) {
 		const autoBackgroundAfterMinutes = DEFAULT_AUTO_DETACH_AFTER_MS / MILLISECONDS_PER_MINUTE;
 		addGuideline(
@@ -174,7 +175,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		);
 	}
 
-	for (const guideline of promptGuidelines ?? []) {
+	for (const guideline of [...buildPyrunAgentGuidelines(tools), ...(promptGuidelines ?? [])]) {
 		const normalized = guideline.trim();
 		if (normalized.length > 0) {
 			addGuideline(normalized);

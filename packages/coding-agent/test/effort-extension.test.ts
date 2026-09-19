@@ -280,11 +280,19 @@ describe("effort extension", () => {
 		expect(harness.extensionStatuses.get("multi-agent-mode")).toBe(`${theme.fg("dim", "multi-agent: ")}disabled`);
 	});
 
-	it("offers proactive and disabled command modes, not the active display label", async () => {
+	it("displays active and disabled choices", async () => {
 		const harness = createCommandHarness({ selectedEffort: "disabled" });
 		await harness.multiAgentCommand.handler("", harness.ctx);
-		expect(harness.select).toHaveBeenCalledWith("Select multi-agent mode", ["proactive", "disabled"]);
+		expect(harness.select).toHaveBeenCalledWith("Select multi-agent mode", ["active", "disabled"]);
 		expect(harness.getActiveTools()).toEqual(["read", "pyrun_eval", "list_sessions"]);
+	});
+
+	it("maps the active selector label to proactive mode", async () => {
+		const harness = createCommandHarness({ selectedEffort: "active" });
+		await harness.multiAgentCommand.handler("disabled", harness.ctx);
+		await harness.multiAgentCommand.handler("", harness.ctx);
+		expect(harness.appendEntry).toHaveBeenLastCalledWith("multi-agent-mode", { mode: "proactive" });
+		expect(harness.getActiveTools()).toEqual(expect.arrayContaining(SUBAGENT_TOOLS));
 	});
 
 	it("keeps delegation mode when changing a non-ultra effort", async () => {
@@ -310,7 +318,7 @@ describe("effort extension", () => {
 
 		expect(setTargetThinkingLevel).toHaveBeenCalledWith("ultra");
 		expect(appendEntry).toHaveBeenCalledWith("multi-agent-mode", { mode: "proactive" });
-		expect(notify).toHaveBeenCalledWith("Effort: ultra (max + proactive)", "info");
+		expect(notify).toHaveBeenCalledWith("Effort: ultra (max + active)", "info");
 		const beforeAgentStart = handlers.get("before_agent_start")?.[0];
 		if (!beforeAgentStart) throw new Error("expected before_agent_start handler");
 		const result = await beforeAgentStart({ systemPrompt: "base" }, ctx);
