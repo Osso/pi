@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, Message } from "@earendil-works/pi-ai/compat";
+import type { AssistantMessage, Message, Tool } from "@earendil-works/pi-ai/compat";
 import { inject } from "vitest";
 import type { AgentMailboxMessage, AgentSnapshot } from "../../src/core/multi-agent-store.ts";
 import { MultiAgentStore } from "../../src/core/multi-agent-store.ts";
@@ -45,6 +45,7 @@ function readHeadlessCompileCacheDir(): string {
 }
 
 interface WireLlmRequest {
+	tools?: Tool[];
 	type: "request";
 	id: string;
 	sessionId?: string;
@@ -53,6 +54,7 @@ interface WireLlmRequest {
 }
 
 export interface HeadlessLlmRequest {
+	tools?: Tool[];
 	id: string;
 	sessionId?: string;
 	agentId: string | null;
@@ -659,6 +661,7 @@ function createRequestRecorder(options: {
 			sessionId: wireRequest.sessionId,
 			agentId: options.resolveAgentId(wireRequest.sessionId),
 			systemPrompt: wireRequest.systemPrompt,
+			tools: wireRequest.tools,
 			messages: wireRequest.messages,
 			userMessages: wireRequest.messages.map(userMessageText).filter((text): text is string => text !== undefined),
 		});
