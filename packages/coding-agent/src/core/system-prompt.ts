@@ -150,6 +150,12 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		);
 	}
 
+	if (hasSpawnAgent && tools.includes("pyrun_eval")) {
+		addGuideline(
+			"Use pi.agents.spawn(...), pi.agents.list(...), pi.agents.wait(), pi.agents.current(), pi.agents.select(agent_id), pi.messages.last(), pi.messages.enqueue(...), and pi.messages.send(...) for the supported Pi runtime bridge; pi.agents.wait() waits for any active agent and returns no agent output.",
+		);
+	}
+
 	if (hasBackgroundableCommandTool && tools.includes("wait_agent")) {
 		const autoBackgroundAfterMinutes = DEFAULT_AUTO_DETACH_AFTER_MS / MILLISECONDS_PER_MINUTE;
 		addGuideline(

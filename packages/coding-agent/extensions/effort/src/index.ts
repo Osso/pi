@@ -2,7 +2,7 @@ import type { ThinkingLevel as AgentThinkingLevel } from "@earendil-works/pi-age
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "../../../src/core/extensions/types.ts";
 
-type MultiAgentMode = "proactive" | "explicit";
+type MultiAgentMode = "proactive" | "disabled";
 
 type DelegationModeEntry = {
 	mode: MultiAgentMode;
@@ -13,15 +13,24 @@ const DELEGATION_STATUS_KEY = "multi-agent-mode";
 const POLICY_START = "<multi_agent_mode>";
 const POLICY_END = "</multi_agent_mode>";
 
-const DELEGATION_POLICIES: Record<MultiAgentMode, string> = {
-	proactive:
-		"Proactive multi-agent delegation is active. Use sub-agents when parallel work would materially improve speed or quality. This mode remains active until a later multi-agent mode message changes it.",
-	explicit:
-		"Any earlier instruction enabling proactive multi-agent delegation no longer applies. Do not spawn sub-agents unless the user or applicable AGENTS.md/skill instructions explicitly ask for sub-agents, delegation, or parallel agent work.",
-};
+const DELEGATION_POLICY =
+	"Proactive multi-agent delegation is active. Use sub-agents when parallel work would materially improve speed or quality. This mode remains active until a later multi-agent mode message changes it.";
+
+const SUBAGENT_TOOLS = new Set([
+	"spawn_agent",
+	"list_agents",
+	"attach_session_agent",
+	"wait_agent",
+	"close_agent",
+	"steer_agent",
+	"agent_viewer",
+	"send_agent_message",
+	"contact_parent",
+]);
 
 interface DelegationState {
 	mode: MultiAgentMode;
+	disabledTools: string[];
 }
 
 function getEffortLevels(ctx: ExtensionCommandContext): AgentThinkingLevel[] | undefined {
@@ -45,7 +54,7 @@ function isChildRuntime(ctx: ExtensionContext): boolean {
 }
 
 function parseMultiAgentMode(value: unknown): MultiAgentMode | undefined {
-	if (value === "proactive" || value === "explicit") return value;
+	if (value === "proactive" || value === "disabled") return value;
 	return undefined;
 }
 
@@ -65,11 +74,23 @@ function persistDelegationMode(pi: ExtensionAPI, state: DelegationState): void {
 
 function updateDelegationStatus(ctx: ExtensionContext, state: DelegationState): void {
 	const prefix = ctx.ui.theme.fg("dim", "multi-agent: ");
-	ctx.ui.setStatus(DELEGATION_STATUS_KEY, `${prefix}${state.mode}`);
+	ctx.ui.setStatus(DELEGATION_STATUS_KEY, `${prefix}${state.mode === "proactive" ? "active" : "disabled"}`);
 }
 
-function policyText(mode: MultiAgentMode): string {
-	return `${POLICY_START}${DELEGATION_POLICIES[mode]}${POLICY_END}`;
+function updateDelegationTools(pi: ExtensionAPI, state: DelegationState): void {
+	const activeTools = pi.getActiveTools();
+	if (state.mode === "disabled") {
+		const removedTools = activeTools.filter((name) => SUBAGENT_TOOLS.has(name));
+		state.disabledTools = [...new Set([...state.disabledTools, ...removedTools])];
+		if (removedTools.length > 0) {
+			pi.setActiveTools(activeTools.filter((name) => !SUBAGENT_TOOLS.has(name)));
+		}
+		return;
+	}
+	if (state.disabledTools.length > 0) {
+		pi.setActiveTools([...new Set([...activeTools, ...state.disabledTools])]);
+		state.disabledTools = [];
+	}
 }
 
 function removeDelegationPolicy(systemPrompt: string): string {
@@ -81,7 +102,8 @@ function removeDelegationPolicy(systemPrompt: string): string {
 
 function injectDelegationPolicy(systemPrompt: string, mode: MultiAgentMode): string {
 	const basePrompt = removeDelegationPolicy(systemPrompt);
-	const policy = policyText(mode);
+	if (mode === "disabled") return basePrompt;
+	const policy = `${POLICY_START}${DELEGATION_POLICY}${POLICY_END}`;
 	return basePrompt ? `${basePrompt}\n\n${policy}` : policy;
 }
 
@@ -93,6 +115,7 @@ function applyDelegationMode(
 ): void {
 	state.mode = mode;
 	persistDelegationMode(pi, state);
+	updateDelegationTools(pi, state);
 	updateDelegationStatus(ctx, state);
 }
 
@@ -102,21 +125,21 @@ function setDelegationMode(
 	state: DelegationState,
 	mode: MultiAgentMode,
 ): void {
-	if (mode === "explicit" && ctx.getThinkingLevel() === "ultra") {
+	if (mode === "disabled" && ctx.getThinkingLevel() === "ultra") {
 		ctx.setThinkingLevel("max");
 	}
 	applyDelegationMode(pi, ctx, state, mode);
-	ctx.ui.notify(`Multi-agent mode: ${mode}`, "info");
+	ctx.ui.notify(`Multi-agent mode: ${mode === "proactive" ? "active" : "disabled"}`, "info");
 	clearEditor(ctx);
 }
 
 function showInvalidMode(ctx: ExtensionCommandContext, requestedMode: string): void {
-	ctx.ui.notify(`Invalid multi-agent mode "${requestedMode}". Available: proactive, explicit`, "warning");
+	ctx.ui.notify(`Invalid multi-agent mode "${requestedMode}". Available: proactive, disabled`, "warning");
 	clearEditor(ctx);
 }
 
 async function selectDelegationMode(ctx: ExtensionCommandContext): Promise<MultiAgentMode | undefined> {
-	const selectedMode = await ctx.ui.select("Select multi-agent mode", ["proactive", "explicit"]);
+	const selectedMode = await ctx.ui.select("Select multi-agent mode", ["proactive", "disabled"]);
 	return parseMultiAgentMode(selectedMode);
 }
 
@@ -142,9 +165,10 @@ async function handleDelegationCommand(
 	setDelegationMode(pi, ctx, state, mode);
 }
 
-function restoreAndUpdateDelegationMode(state: DelegationState, ctx: ExtensionContext): void {
+function restoreAndUpdateDelegationMode(pi: ExtensionAPI, state: DelegationState, ctx: ExtensionContext): void {
 	if (isChildRuntime(ctx)) return;
 	restoreDelegationMode(state, ctx);
+	updateDelegationTools(pi, state);
 	updateDelegationStatus(ctx, state);
 }
 
@@ -154,8 +178,8 @@ function registerDelegationControl(pi: ExtensionAPI, state: DelegationState): vo
 		handler: (args, ctx) => handleDelegationCommand(args, ctx, pi, state),
 	});
 
-	pi.on("session_start", (_event, ctx) => restoreAndUpdateDelegationMode(state, ctx));
-	pi.on("session_tree", (_event, ctx) => restoreAndUpdateDelegationMode(state, ctx));
+	pi.on("session_start", (_event, ctx) => restoreAndUpdateDelegationMode(pi, state, ctx));
+	pi.on("session_tree", (_event, ctx) => restoreAndUpdateDelegationMode(pi, state, ctx));
 	pi.on("thinking_level_select", (event, ctx) => {
 		if (isChildRuntime(ctx) || event.level !== "ultra" || state.mode === "proactive") return;
 		applyDelegationMode(pi, ctx, state, "proactive");
@@ -177,7 +201,7 @@ function setEffort(
 		applyDelegationMode(pi, ctx, state, "proactive");
 	}
 	ctx.setThinkingLevel(effort);
-	const label = activatesProactiveDelegation ? "ultra (max + proactive)" : ctx.getThinkingLevel();
+	const label = activatesProactiveDelegation ? "ultra (max + active)" : ctx.getThinkingLevel();
 	ctx.ui.notify(`Effort: ${label}`, "info");
 	clearEditor(ctx);
 }
@@ -224,7 +248,7 @@ async function handleEffortCommand(
 }
 
 export default function effortExtension(pi: ExtensionAPI): void {
-	const state: DelegationState = { mode: "proactive" };
+	const state: DelegationState = { mode: "proactive", disabledTools: [] };
 	registerDelegationControl(pi, state);
 
 	pi.registerCommand("effort", {

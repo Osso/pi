@@ -131,6 +131,14 @@ describe("buildSystemPrompt", () => {
 	});
 
 	describe("delegation guidelines", () => {
+		test.each([["spawn_agent", "pyrun_eval"], ["pyrun_eval"], ["spawn_agent"]])(
+			"only describes the Pyrun agent bridge when both tools are active: %j",
+			(...selectedTools) => {
+				const prompt = buildSystemPrompt({ selectedTools, cwd: process.cwd() });
+				expect(prompt.includes("Use pi.agents.spawn(...)")).toBe(selectedTools.length === 2);
+			},
+		);
+
 		test("requires explore agents for codebase research", () => {
 			const prompt = buildSystemPrompt({
 				selectedTools: ["read", "grep", "find", "spawn_agent"],
