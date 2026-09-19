@@ -70,7 +70,12 @@ it("restores disabled delegation across restart without cancelling live child wo
 				expect(disabledRequest.tools?.map((tool) => tool.name)).not.toContain(name);
 			}
 			expect(disabledRequest.tools?.map((tool) => tool.name)).toContain("read");
-			agent.respondToLlmRequest(disabledRequest.id, fauxAssistantMessage("Disabled settings confirmed"));
+			agent.respondToLlmRequest(
+				disabledRequest.id,
+				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Disabled settings confirmed" }), {
+					stopReason: "toolUse",
+				}),
+			);
 			await agent.waitForEvent((event) => event.type === "agent_end");
 
 			agent.respondToLlmRequest(
@@ -81,6 +86,24 @@ it("restores disabled delegation across restart without cancelling live child wo
 			);
 			await agent.waitForAgent((candidate) => candidate.id === child.id && candidate.lifecycle === "completed");
 
+			const completionRequest = await agent.waitForLlmRequest(
+				(request) =>
+					request.agentId === null &&
+					request.userMessages.some((message) => message.includes("Disabled-mode live child completed.")),
+			);
+			agent.respondToLlmRequest(
+				completionRequest.id,
+				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Child completion received" }), {
+					stopReason: "toolUse",
+				}),
+			);
+			await agent.waitForEvent((event) => event.type === "agent_end");
+
+			const namingRequest = await agent.waitForLlmRequest(
+				(request) => request.systemPrompt?.startsWith("Create a concise session title.") === true,
+			);
+			agent.respondToLlmRequest(namingRequest.id, fauxAssistantMessage("Delegation mode restart"));
+
 			await agent.send({ type: "prompt", message: "/multi-agent proactive" });
 			const status = await agent.waitForExtensionUiRequest(
 				(request) =>
@@ -90,11 +113,20 @@ it("restores disabled delegation across restart without cancelling live child wo
 			);
 			expect(status).toMatchObject({ statusKey: "multi-agent-mode" });
 			await agent.send({ type: "prompt", message: "Confirm delegation is active again" });
-			const enabledRequest = await agent.waitForLlmRequest((candidate) => candidate.agentId === null);
+			const enabledRequest = await agent.waitForLlmRequest(
+				(candidate) =>
+					candidate.agentId === null &&
+					candidate.userMessages.some((message) => message.includes("Confirm delegation is active again")),
+			);
 			expect(enabledRequest.systemPrompt).toContain("Proactive multi-agent delegation is active.");
 			expect(enabledRequest.systemPrompt).toContain("you must use spawn_agent");
 			expect(enabledRequest.tools?.map((tool) => tool.name)).toContain("spawn_agent");
-			agent.respondToLlmRequest(enabledRequest.id, fauxAssistantMessage("Active settings confirmed"));
+			agent.respondToLlmRequest(
+				enabledRequest.id,
+				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Active settings confirmed" }), {
+					stopReason: "toolUse",
+				}),
+			);
 			await agent.waitForEvent((event) => event.type === "agent_end");
 		},
 		{ model: "headless-faux-reasoning" },
