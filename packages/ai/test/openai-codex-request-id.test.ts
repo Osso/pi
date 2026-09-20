@@ -105,29 +105,77 @@ describe("Codex support request IDs", () => {
 		await assertError("sse", `${type === "error" ? "Codex error: " : ""}${message}\nOpenAI request ID: req_http`);
 	});
 
-	for (const type of ["error", "response.failed"]) {
-		it.each(["top", "nested", "response", "absent", "invalid"])(
-			`preserves WebSocket ${type} with %s ID`,
-			async (location) => {
-				const error = { message, ...(location === "nested" ? { request_id: "req_nested" } : {}) };
-				const payload = {
-					type,
-					...(type === "error" ? { error } : {}),
-					response: {
-						id: "resp_not_request",
-						...(type === "response.failed" ? { error } : {}),
-						...(location === "response" ? { request_id: "req_response" } : {}),
-					},
-					...(location === "top" ? { request_id: "req_top" } : {}),
-					...(location === "invalid" ? { request_id: 123 } : {}),
-				};
-				mockWebSocket(payload);
-				const id = ["top", "nested", "response"].includes(location) ? `req_${location}` : undefined;
-				await assertError(
-					"websocket",
-					`${type === "error" ? "Codex error: " : ""}${message}${id ? `\nOpenAI request ID: ${id}` : ""}`,
-				);
+	it.each([
+		{
+			name: "error with top ID",
+			payload: { type: "error", request_id: "req_top", error: { message }, response: { id: "resp_not_request" } },
+			expected: `Codex error: ${message}\nOpenAI request ID: req_top`,
+		},
+		{
+			name: "error with nested ID",
+			payload: { type: "error", error: { message, request_id: "req_nested" }, response: { id: "resp_not_request" } },
+			expected: `Codex error: ${message}\nOpenAI request ID: req_nested`,
+		},
+		{
+			name: "error with response ID",
+			payload: {
+				type: "error",
+				error: { message },
+				response: { id: "resp_not_request", request_id: "req_response" },
 			},
-		);
-	}
+			expected: `Codex error: ${message}\nOpenAI request ID: req_response`,
+		},
+		{
+			name: "error with absent ID",
+			payload: { type: "error", error: { message }, response: { id: "resp_not_request" } },
+			expected: `Codex error: ${message}`,
+		},
+		{
+			name: "error with invalid ID",
+			payload: { type: "error", request_id: 123, error: { message }, response: { id: "resp_not_request" } },
+			expected: `Codex error: ${message}`,
+		},
+		{
+			name: "response.failed with top ID",
+			payload: {
+				type: "response.failed",
+				request_id: "req_top",
+				response: { id: "resp_not_request", error: { message } },
+			},
+			expected: `${message}\nOpenAI request ID: req_top`,
+		},
+		{
+			name: "response.failed with nested ID",
+			payload: {
+				type: "response.failed",
+				response: { id: "resp_not_request", error: { message, request_id: "req_nested" } },
+			},
+			expected: `${message}\nOpenAI request ID: req_nested`,
+		},
+		{
+			name: "response.failed with response ID",
+			payload: {
+				type: "response.failed",
+				response: { id: "resp_not_request", request_id: "req_response", error: { message } },
+			},
+			expected: `${message}\nOpenAI request ID: req_response`,
+		},
+		{
+			name: "response.failed with absent ID",
+			payload: { type: "response.failed", response: { id: "resp_not_request", error: { message } } },
+			expected: message,
+		},
+		{
+			name: "response.failed with invalid ID",
+			payload: {
+				type: "response.failed",
+				request_id: 123,
+				response: { id: "resp_not_request", error: { message } },
+			},
+			expected: message,
+		},
+	])("preserves WebSocket $name", async ({ payload, expected }) => {
+		mockWebSocket(payload);
+		await assertError("websocket", expected);
+	});
 });
