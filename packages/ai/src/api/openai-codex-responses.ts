@@ -407,7 +407,12 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 						statusText: response.statusText,
 					});
 					const info = await parseErrorResponse(fakeResponse);
-					throw new Error(info.friendlyMessage || info.message);
+					throw new Error(
+						formatCodexRequestId(
+							info.friendlyMessage || info.message,
+							response.headers.get("x-request-id") || info.requestId,
+						),
+					);
 				} catch (error) {
 					if (error instanceof Error) {
 						if (error.name === "AbortError" || error.message === "Request was aborted") {
@@ -602,7 +607,7 @@ async function processStream(
 	options?: OpenAICodexResponsesOptions,
 ): Promise<void> {
 	await processResponsesStream(
-		mapCodexEvents(parseSSE(response, idleTimeoutMs, options?.signal)),
+		mapCodexEvents(parseSSE(response, idleTimeoutMs, options?.signal), response.headers.get("x-request-id")),
 		output,
 		stream,
 		model,
@@ -659,24 +664,49 @@ function extractCodexEventError(event: Record<string, unknown>): { code?: string
 	};
 }
 
-async function* mapCodexEvents(events: AsyncIterable<Record<string, unknown>>): AsyncGenerator<ResponseStreamEvent> {
+function formatCodexRequestId(message: string, requestId: unknown): string {
+	return typeof requestId === "string" && requestId.trim()
+		? `${message}\nOpenAI request ID: ${requestId.trim()}`
+		: message;
+}
+
+function extractCodexRequestId(event: Record<string, unknown>): string | undefined {
+	for (const value of [event, event.error, event.response]) {
+		if (value && typeof value === "object" && "request_id" in value) {
+			const id = value.request_id;
+			if (typeof id === "string" && id.trim()) return id.trim();
+		}
+	}
+	return undefined;
+}
+
+async function* mapCodexEvents(
+	events: AsyncIterable<Record<string, unknown>>,
+	httpRequestId?: string | null,
+): AsyncGenerator<ResponseStreamEvent> {
 	for await (const event of events) {
 		const type = typeof event.type === "string" ? event.type : undefined;
 		if (!type) continue;
 
 		if (type === "error") {
 			const { code, message } = extractCodexEventError(event);
-			throw new CodexApiError(`Codex error: ${message || code || JSON.stringify(event)}`, {
-				code,
-				payload: event,
-			});
+			throw new CodexApiError(
+				formatCodexRequestId(
+					`Codex error: ${message || code || JSON.stringify(event)}`,
+					httpRequestId || extractCodexRequestId(event),
+				),
+				{ code, payload: event },
+			);
 		}
 
 		if (type === "response.failed") {
 			const response = (event as { response?: { error?: { code?: string; message?: string } } }).response;
 			const code = response?.error?.code;
 			const message = response?.error?.message;
-			throw new CodexApiError(message || "Codex response failed", { code, payload: event });
+			throw new CodexApiError(
+				formatCodexRequestId(message || "Codex response failed", httpRequestId || extractCodexRequestId(event)),
+				{ code, payload: event },
+			);
 		}
 
 		if (type === "response.done" || type === "response.completed" || type === "response.incomplete") {
@@ -1518,15 +1548,19 @@ async function processWebSocketStream(
 // Error Handling
 // ============================================================================
 
-async function parseErrorResponse(response: Response): Promise<{ message: string; friendlyMessage?: string }> {
+async function parseErrorResponse(
+	response: Response,
+): Promise<{ message: string; friendlyMessage?: string; requestId?: string }> {
 	const raw = await response.text();
 	let message = raw || response.statusText || "Request failed";
 	let friendlyMessage: string | undefined;
+	let requestId: string | undefined;
 
 	try {
 		const parsed = JSON.parse(raw) as {
 			error?: { code?: string; type?: string; message?: string; plan_type?: string; resets_at?: number };
 		};
+		requestId = extractCodexRequestId(parsed);
 		const err = parsed?.error;
 		if (err) {
 			const code = err.code || err.type || "";
@@ -1542,7 +1576,7 @@ async function parseErrorResponse(response: Response): Promise<{ message: string
 		}
 	} catch {}
 
-	return { message, friendlyMessage };
+	return { message, friendlyMessage, requestId };
 }
 
 // ============================================================================
