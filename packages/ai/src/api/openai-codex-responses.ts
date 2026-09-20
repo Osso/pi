@@ -671,7 +671,9 @@ function formatCodexRequestId(message: string, requestId: unknown): string {
 }
 
 function extractCodexRequestId(event: Record<string, unknown>): string | undefined {
-	for (const value of [event, event.error, event.response]) {
+	const response = event.response;
+	const responseError = response && typeof response === "object" && "error" in response ? response.error : undefined;
+	for (const value of [event, event.error, response, responseError]) {
 		if (value && typeof value === "object" && "request_id" in value) {
 			const id = value.request_id;
 			if (typeof id === "string" && id.trim()) return id.trim();

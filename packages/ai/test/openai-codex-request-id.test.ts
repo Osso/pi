@@ -87,7 +87,12 @@ describe("Codex support request IDs", () => {
 
 	it.each(["error", "response.failed"])("preserves SSE %s HTTP request ID", async (type) => {
 		const error = { message, request_id: "req_nested" };
-		const payload = { type, request_id: "req_event", error, response: { error, request_id: "req_response" } };
+		const payload = {
+			type,
+			request_id: "req_event",
+			...(type === "error" ? { error } : {}),
+			response: { ...(type === "response.failed" ? { error } : {}), request_id: "req_response" },
+		};
 		vi.stubGlobal(
 			"fetch",
 			vi.fn(
@@ -107,10 +112,10 @@ describe("Codex support request IDs", () => {
 				const error = { message, ...(location === "nested" ? { request_id: "req_nested" } : {}) };
 				const payload = {
 					type,
-					error,
+					...(type === "error" ? { error } : {}),
 					response: {
 						id: "resp_not_request",
-						error,
+						...(type === "response.failed" ? { error } : {}),
 						...(location === "response" ? { request_id: "req_response" } : {}),
 					},
 					...(location === "top" ? { request_id: "req_top" } : {}),
