@@ -90,6 +90,7 @@ describe("Codex support request IDs", () => {
 		const payload = {
 			type,
 			request_id: "req_event",
+			headers: { "X-Request-Id": "req_event_header" },
 			...(type === "error" ? { error } : {}),
 			response: { ...(type === "response.failed" ? { error } : {}), request_id: "req_response" },
 		};
@@ -103,6 +104,16 @@ describe("Codex support request IDs", () => {
 			),
 		);
 		await assertError("sse", `${type === "error" ? "Codex error: " : ""}${message}\nOpenAI request ID: req_http`);
+	});
+
+	it.each([
+		{ name: "mixed-case", headers: { "X-Request-Id": "req_ws_header" }, expectedId: "req_ws_header" },
+		{ name: "lowercase", headers: { "x-request-id": "req_ws_header" }, expectedId: "req_ws_header" },
+		{ name: "missing", headers: {}, expectedId: "req_body" },
+		{ name: "non-string", headers: { "x-request-id": 123 }, expectedId: "req_body" },
+	])("preserves wrapped WebSocket error with $name header", async ({ headers, expectedId }) => {
+		mockWebSocket({ type: "error", status: 403, headers, request_id: "req_body", error: { message } });
+		await assertError("websocket", `Codex error: ${message}\nOpenAI request ID: ${expectedId}`);
 	});
 
 	it.each([

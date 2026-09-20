@@ -671,6 +671,11 @@ function formatCodexRequestId(message: string, requestId: unknown): string {
 }
 
 function extractCodexRequestId(event: Record<string, unknown>): string | undefined {
+	const headers = event.headers;
+	if (headers && typeof headers === "object") {
+		const requestId = Object.entries(headers).find(([name]) => name.toLowerCase() === "x-request-id")?.[1];
+		if (typeof requestId === "string" && requestId.trim()) return requestId.trim();
+	}
 	const response = event.response;
 	const responseError = response && typeof response === "object" && "error" in response ? response.error : undefined;
 	for (const value of [event, event.error, response, responseError]) {
