@@ -21,7 +21,7 @@ The OpenAI Codex Responses adapter supports explicit SSE and WebSocket transport
 ### Error support IDs
 
 - Preserve an OpenAI server request ID when one is available from an HTTP response or SSE/WebSocket error event.
-- Append it to `AssistantMessage.errorMessage` as `Request ID: <id>`.
+- Append it to `AssistantMessage.errorMessage` as `OpenAI request ID: <id>`.
 - Do not present Pi session IDs or client request IDs as OpenAI server request IDs.
 - Preserve the original error message when no server request ID is available.
 
@@ -37,6 +37,7 @@ The OpenAI Codex Responses adapter supports explicit SSE and WebSocket transport
 ## Tests asserting this spec
 
 - `packages/ai/test/openai-codex-stream.test.ts`
+- `packages/ai/test/openai-codex-request-id.test.ts`
 
 ## Known gaps (current cycle)
 
