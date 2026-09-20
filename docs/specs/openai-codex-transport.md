@@ -18,6 +18,13 @@ The OpenAI Codex Responses adapter supports explicit SSE and WebSocket transport
 - [x] Reconnect once over WebSocket when the backend reports its connection limit before output starts.
 - [x] Preserve the original WebSocket failure in session debug statistics.
 
+### Error support IDs
+
+- Preserve an OpenAI server request ID when one is available from an HTTP response or SSE/WebSocket error event.
+- Append it to `AssistantMessage.errorMessage` as `Request ID: <id>`.
+- Do not present Pi session IDs or client request IDs as OpenAI server request IDs.
+- Preserve the original error message when no server request ID is available.
+
 ## How it works
 
 - [`docs/wiki/systems/openai-codex-transport.md`](../wiki/systems/openai-codex-transport.md)

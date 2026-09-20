@@ -13,6 +13,7 @@
 
 ### Fixed
 
+- Fixed OpenAI Codex HTTP, SSE, and WebSocket errors to preserve available OpenAI server request IDs in `errorMessage` for support, without presenting Pi client or session IDs as server IDs.
 - Fixed stored API-key credentials to own their provider even when the key is empty, preventing ambient environment and credential-file fallback; this includes OpenRouter environment auth and Google Vertex API-key, explicit ADC, and default gcloud ADC probes.
 - Fixed Envoy HTTP 507 errors containing `exceeded request buffer limit while retrying upstream` to classify as oversized-request overflow instead of ordinary transient provider errors, allowing coding-agent to compact before its bounded retry.
 - Fixed OpenAI server processing errors to enter the normal transient-error retry path.
