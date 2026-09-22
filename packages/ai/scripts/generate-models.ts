@@ -521,6 +521,12 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 		mergeThinkingLevelMap(model, { off: null, max: "max" });
 	}
 	if (
+		(model.provider === "openai-codex" || model.provider === "openai-codex-gc") &&
+		(model.id === "gpt-6-sol" || model.id === "gpt-6-luna")
+	) {
+		mergeThinkingLevelMap(model, { max: "max" });
+	}
+	if (
 		(model.provider === "moonshotai" || model.provider === "moonshotai-cn") &&
 		(model.id === "kimi-k2.7-code" || model.id === "kimi-k2.7-code-highspeed")
 	) {
@@ -1906,6 +1912,33 @@ async function generateModels() {
 			cost: { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 },
 			contextWindow: CODEX_5_6_CONTEXT,
 			autoCompactionThreshold: 272000,
+			maxTokens: CODEX_MAX_TOKENS,
+		},
+		// https://developers.openai.com/api/docs/models/gpt-6-sol
+		// https://developers.openai.com/api/docs/models/gpt-6-luna
+		// 1,050,000 total context minus 128,000 reserved output tokens.
+		{
+			id: "gpt-6-sol",
+			name: "GPT-6 Sol",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: CODEX_BASE_URL,
+			reasoning: true,
+			input: ["text", "image"],
+			cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+			contextWindow: 922000,
+			maxTokens: CODEX_MAX_TOKENS,
+		},
+		{
+			id: "gpt-6-luna",
+			name: "GPT-6 Luna",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: CODEX_BASE_URL,
+			reasoning: true,
+			input: ["text", "image"],
+			cost: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
+			contextWindow: 922000,
 			maxTokens: CODEX_MAX_TOKENS,
 		},
 		{
