@@ -156,7 +156,7 @@ export const OPENAI_CODEX_GC_MODELS = {
 		provider: "openai-codex-gc",
 		baseUrl: "https://chatgpt.com/backend-api",
 		reasoning: true,
-		thinkingLevelMap: {"xhigh":"xhigh","minimal":"low","max":"max"},
+		thinkingLevelMap: {"max":"max","xhigh":"xhigh","minimal":"low"},
 		input: ["text", "image"],
 		cost: {
 			input: 0.1,
@@ -174,7 +174,7 @@ export const OPENAI_CODEX_GC_MODELS = {
 		provider: "openai-codex-gc",
 		baseUrl: "https://chatgpt.com/backend-api",
 		reasoning: true,
-		thinkingLevelMap: {"xhigh":"xhigh","minimal":"low","max":"max"},
+		thinkingLevelMap: {"max":"max","xhigh":"xhigh","minimal":"low"},
 		input: ["text", "image"],
 		cost: {
 			input: 2,

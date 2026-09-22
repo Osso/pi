@@ -521,12 +521,6 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 		mergeThinkingLevelMap(model, { off: null, max: "max" });
 	}
 	if (
-		(model.provider === "openai-codex" || model.provider === "openai-codex-gc") &&
-		(model.id === "gpt-6-sol" || model.id === "gpt-6-luna")
-	) {
-		mergeThinkingLevelMap(model, { max: "max" });
-	}
-	if (
 		(model.provider === "moonshotai" || model.provider === "moonshotai-cn") &&
 		(model.id === "kimi-k2.7-code" || model.id === "kimi-k2.7-code-highspeed")
 	) {
@@ -1924,6 +1918,7 @@ async function generateModels() {
 			provider: "openai-codex",
 			baseUrl: CODEX_BASE_URL,
 			reasoning: true,
+			thinkingLevelMap: { max: "max" },
 			input: ["text", "image"],
 			cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
 			contextWindow: 922000,
@@ -1936,6 +1931,7 @@ async function generateModels() {
 			provider: "openai-codex",
 			baseUrl: CODEX_BASE_URL,
 			reasoning: true,
+			thinkingLevelMap: { max: "max" },
 			input: ["text", "image"],
 			cost: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
 			contextWindow: 922000,
