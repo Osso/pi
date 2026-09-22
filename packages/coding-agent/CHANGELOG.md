@@ -156,6 +156,7 @@
 
 ### Fixed
 
+- Fixed `--refresh-models` silently succeeding with bundled models after an OpenRouter fetch failure. It now retries only transient network and HTTP failures, honors `Retry-After`, reports failures with a nonzero exit, preserves the existing cache on fetch failure, and fails when the fetched catalog cannot be persisted.
 - Fixed selected live-child `/model`, model cycling, and `/effort` controls being unavailable because the production child-session binding omitted the child model/thinking accessors and mutations; controls now operate on the child session without changing main-session settings.
 - Fixed child provider failures being reported as completed with inherited parent text; child failures retain the provider error, and summaries use only current child output, including after compaction.
 - Fixed `wait_agent({})` exceeding its 25-minute absolute deadline after laptop suspend: the existing three-second coordination poll now rechecks the wall-clock deadline after terminal and coordination checks, preserving their precedence and leaving child agents running.

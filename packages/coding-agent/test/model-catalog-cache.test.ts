@@ -255,10 +255,84 @@ describe("OpenRouter model catalog cache reads", () => {
 	});
 });
 
+describe("OpenRouter model catalog retry policy", () => {
+	useCatalogCache();
+
+	it.each([429, 500, 503, "network"])("retries transient %s and persists recovered models", async (failure) => {
+		let attempts = 0;
+		const fetchImpl: typeof fetch = async () => {
+			if (++attempts < 3) {
+				if (failure === "network") throw new TypeError("fetch failed", { cause: new Error("ECONNRESET") });
+				return new Response(null, { status: Number(failure) });
+			}
+			return responseFor([apiModel("fixture/recovered")]);
+		};
+		const { ensureModelCatalogFresh } = await importCatalogModule();
+		const result = await ensureModelCatalogFresh({ fetchImpl });
+		expect(attempts).toBe(3);
+		expect(result.models.some((model) => model.id === "fixture/recovered")).toBe(true);
+	});
+
+	it.each([401, 403, 404, "json", "empty"])("does not retry permanent %s", async (failure) => {
+		let attempts = 0;
+		const fetchImpl: typeof fetch = async () => {
+			attempts++;
+			if (failure === "json") return new Response("not json");
+			if (failure === "empty") return responseFor([]);
+			return new Response(null, { status: Number(failure) });
+		};
+		const { ensureModelCatalogFresh } = await importCatalogModule();
+		await expect(ensureModelCatalogFresh({ fetchImpl })).rejects.toThrow("OpenRouter");
+		expect(attempts).toBe(1);
+	});
+
+	it("bounds network failures to three attempts and includes their cause", async () => {
+		let attempts = 0;
+		const fetchImpl: typeof fetch = async () => {
+			attempts++;
+			throw new TypeError("fetch failed", { cause: new Error("ENOTFOUND openrouter.ai") });
+		};
+		const { ensureModelCatalogFresh } = await importCatalogModule();
+		await expect(ensureModelCatalogFresh({ fetchImpl })).rejects.toThrow("ENOTFOUND openrouter.ai");
+		expect(attempts).toBe(3);
+	});
+
+	it.each(["seconds", "date"])("waits for Retry-After %s before recovery", async (format) => {
+		const retryAt = Math.ceil(Date.now() / 1000) * 1000 + 1000;
+		const retryAfter = format === "seconds" ? "1" : new Date(retryAt).toUTCString();
+		const requests: number[] = [];
+		const fetchImpl: typeof fetch = async () => {
+			requests.push(Date.now());
+			return requests.length === 1
+				? new Response(null, { status: 429, headers: { "Retry-After": retryAfter } })
+				: responseFor([apiModel("fixture/after-delay")]);
+		};
+		const { ensureModelCatalogFresh } = await importCatalogModule();
+		const result = await ensureModelCatalogFresh({ fetchImpl });
+		expect(requests).toHaveLength(2);
+		expect(requests[1]).toBeGreaterThanOrEqual(format === "seconds" ? requests[0] + 1000 : retryAt);
+		expect(result.models.some((model) => model.id === "fixture/after-delay")).toBe(true);
+	});
+
+	it.each(["60", new Date(Date.now() + 60_000).toUTCString()])(
+		"does not retry before long Retry-After %s",
+		async (retryAfter) => {
+			let attempts = 0;
+			const fetchImpl: typeof fetch = async () => {
+				attempts++;
+				return new Response(null, { status: 429, headers: { "Retry-After": retryAfter } });
+			};
+			const { ensureModelCatalogFresh } = await importCatalogModule();
+			await expect(ensureModelCatalogFresh({ fetchImpl })).rejects.toThrow("HTTP 429");
+			expect(attempts).toBe(1);
+		},
+	);
+});
+
 describe("OpenRouter model catalog cache failures", () => {
 	const cache = useCatalogCache();
 
-	it("falls back to bundled models when refresh fails, leaving the stale cache intact", async () => {
+	it("reports refresh failure while leaving the stale cache intact", async () => {
 		cache.writeCache(new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000), [cachedModel("fixture/offline-cache")]);
 		const originalCache = readFileSync(cache.cachePath(), "utf8");
 		const fetchImpl: typeof fetch = async () => {
@@ -266,21 +340,15 @@ describe("OpenRouter model catalog cache failures", () => {
 		};
 		const { ensureModelCatalogFresh } = await importCatalogModule();
 
-		const result = await ensureModelCatalogFresh({ fetchImpl, now: () => NOW });
-
-		expect(result.source).toBe("bundled");
-		expect(result.models).toEqual(getModels("openrouter"));
+		await expect(ensureModelCatalogFresh({ fetchImpl, now: () => NOW })).rejects.toThrow("offline");
 		expect(readFileSync(cache.cachePath(), "utf8")).toBe(originalCache);
 	});
 
-	it("falls back to bundled models when an invalid response arrives without a cache", async () => {
+	it("rejects an invalid response without creating a cache", async () => {
 		const fetchImpl: typeof fetch = async () => new Response(JSON.stringify({ unexpected: [] }), { status: 200 });
 		const { ensureModelCatalogFresh } = await importCatalogModule();
 
-		const result = await ensureModelCatalogFresh({ fetchImpl, now: () => NOW });
-
-		expect(result.source).toBe("bundled");
-		expect(result.models).toEqual(getModels("openrouter"));
+		await expect(ensureModelCatalogFresh({ fetchImpl, now: () => NOW })).rejects.toThrow("no data array");
 		expect(() => readFileSync(cache.cachePath(), "utf8")).toThrow();
 	});
 
@@ -302,30 +370,26 @@ describe("OpenRouter model catalog cache failures", () => {
 			const { ensureModelCatalogFresh } = await importCatalogModule();
 
 			const pending = ensureModelCatalogFresh({ fetchImpl, now: () => NOW });
+			const rejection = expect(pending).rejects.toThrow(/timed out.*5000/);
 			await fetchStarted;
 			await vi.advanceTimersByTimeAsync(5000);
-			const result = await pending;
-
-			expect(result.source).toBe("bundled");
+			await rejection;
 		} finally {
 			vi.useRealTimers();
 		}
 	});
 
-	it("ignores cache write failures after a successful fetch", async () => {
+	it("reports cache write failures with the destination path", async () => {
 		const blockedCacheHome = join(cache.getCacheHome(), "blocked");
 		writeFileSync(blockedCacheHome, "blocked", "utf8");
 		process.env.XDG_CACHE_HOME = blockedCacheHome;
 		const fetchImpl: typeof fetch = async () => responseFor([apiModel("fixture/write-failure")]);
 		const { ensureModelCatalogFresh } = await importCatalogModule();
 
-		const result = await ensureModelCatalogFresh({ fetchImpl, now: () => NOW });
-
-		expect(result.source).toBe("network");
-		expect(result.models.some((model) => model.id === "fixture/write-failure")).toBe(true);
+		await expect(ensureModelCatalogFresh({ fetchImpl, now: () => NOW })).rejects.toThrow("openrouter.json");
 	});
 
-	it("falls back silently when the cache is parseable JSON with invalid entries", async () => {
+	it("reports refresh errors when the cache contains invalid entries", async () => {
 		mkdirSync(join(cache.getCacheHome(), "pi", "models"), { recursive: true });
 		writeFileSync(
 			cache.cachePath(),
@@ -342,14 +406,11 @@ describe("OpenRouter model catalog cache failures", () => {
 		};
 		const { ensureModelCatalogFresh } = await importCatalogModule();
 
-		const result = await ensureModelCatalogFresh({ fetchImpl, now: () => NOW });
-
+		await expect(ensureModelCatalogFresh({ fetchImpl, now: () => NOW })).rejects.toThrow("offline");
 		expect(fetchCount).toBe(1);
-		expect(result.source).toBe("bundled");
-		expect(result.models).toEqual(getModels("openrouter"));
 	});
 
-	it("falls back to bundled models on an HTTP error response without touching the cache", async () => {
+	it("reports exhausted HTTP retries without touching the cache", async () => {
 		cache.writeCache(new Date(NOW.getTime() - 8 * 24 * 60 * 60 * 1000), [cachedModel("fixture/http-error-cache")]);
 		const originalCache = readFileSync(cache.cachePath(), "utf8");
 		const fetchImpl: typeof fetch = async () =>
@@ -358,10 +419,7 @@ describe("OpenRouter model catalog cache failures", () => {
 			});
 		const { ensureModelCatalogFresh } = await importCatalogModule();
 
-		const result = await ensureModelCatalogFresh({ fetchImpl, now: () => NOW });
-
-		expect(result.source).toBe("bundled");
-		expect(result.models).toEqual(getModels("openrouter"));
+		await expect(ensureModelCatalogFresh({ fetchImpl, now: () => NOW })).rejects.toThrow("HTTP 502");
 		expect(readFileSync(cache.cachePath(), "utf8")).toBe(originalCache);
 	});
 });
@@ -437,15 +495,16 @@ describe("OpenRouter model catalog CLI startup", () => {
 		expect(result.stdout).toContain("fixture/offline-cli-model");
 	}, 30_000);
 
-	it("--refresh-models prints a summary with counts and cache path, then exits 0", async () => {
+	it("--refresh-models reports offline failure without a success summary or cache change", async () => {
 		const cacheHome = createTempDir("pi-model-catalog-cli-");
 		const cacheFile = seedOfflineCache(cacheHome);
 
+		const originalCache = readFileSync(cacheFile, "utf8");
 		const result = await runCli(["--refresh-models"], cacheHome);
 
-		expect(result.code).toBe(0);
-		expect(result.stdout).toContain("fetched 0");
-		expect(result.stdout).toContain("cached 1");
-		expect(result.stdout).toContain(`cache ${cacheFile}`);
+		expect(result.code).toBe(1);
+		expect(result.stderr).toContain("OpenRouter");
+		expect(result.stdout).not.toContain("OpenRouter models:");
+		expect(readFileSync(cacheFile, "utf8")).toBe(originalCache);
 	}, 30_000);
 });

@@ -11,8 +11,8 @@ The coding agent supplements its bundled OpenRouter catalog with recently listed
 - [x] Normal startup uses and merges a cache younger than seven days without a network request.
 - [x] Normal startup uses bundled models when the cache is missing or at least seven days old.
 - [x] Only `pi --refresh-models` requests the OpenRouter catalog; no normal CLI startup path sends that request.
-- [x] The `--refresh-models` request is aborted after approximately five seconds.
-- [x] Cache write failures do not fail `--refresh-models` or discard a successfully fetched in-memory catalog.
+- [x] The `--refresh-models` request has a bounded timeout and retries only transient network failures and transient HTTP responses, honoring `Retry-After` when supplied.
+- [x] Cache writes are atomic; a write failure preserves an existing cache file and fails `--refresh-models`.
 
 ### Catalog contents
 
@@ -20,15 +20,15 @@ The coding agent supplements its bundled OpenRouter catalog with recently listed
 - [x] Runtime entries use the same base model metadata mapping as the generated OpenRouter catalog.
 - [x] Refreshed models only add IDs missing from the bundled catalog.
 - [x] Bundled entries win ID collisions so generated compatibility and thinking metadata remain authoritative.
-- [x] Failed `--refresh-models` requests, timeouts, and invalid payloads fall back silently to bundled models alone; the existing cache file is left untouched for a later successful refresh.
-- [x] Corrupt but parseable cache data and HTTP error responses receive the same silent fallback behavior.
+- [x] `--refresh-models` reports request, timeout, invalid-payload, and cache-write failures and exits nonzero; it does not report a bundled-only result as a successful refresh.
+- [x] Fetch failures leave the existing cache file untouched for a later successful refresh. Invalid payloads and non-transient HTTP responses do not retry.
 - [x] `ModelRegistry` loading remains synchronous and consumes the memoized cached-or-bundled OpenRouter catalog during normal startup.
 
 ### CLI behavior
 
 - [x] Print, interactive, model-listing, RPC, Architect, and Supervisor startup paths use only a fresh cache or bundled models before creating a model registry; they never wait for an OpenRouter catalog request.
 - [x] `--refresh-models` is the only catalog refresh operation, bypasses the seven-day freshness check, and requires no authentication.
-- [x] `--refresh-models` prints fetched, cached, bundled, and cache-path summary information before exiting successfully.
+- [x] On success, `--refresh-models` prints fetched, cached, bundled, and cache-path summary information. On failure, it reports the cause and exits nonzero.
 - [x] Offline startup reads and merges an available fresh cache without performing a network request.
 
 ## How it works
@@ -49,7 +49,7 @@ The coding agent supplements its bundled OpenRouter catalog with recently listed
 
 ## Known gaps (current cycle)
 
-None. `packages/coding-agent/test/model-catalog-cache.test.ts` covers no-network normal startup and explicit-only refresh behavior.
+None.
 
 ## Out of scope
 

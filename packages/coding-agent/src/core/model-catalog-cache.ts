@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { type Api, getModels, type Model } from "@earendil-works/pi-ai/compat";
 import { getUserCacheRoot } from "../config.ts";
 
@@ -136,9 +137,47 @@ function mapOpenRouterModel(value: unknown): Model<Api> | undefined {
 	};
 }
 
+class CatalogRequestError extends Error {
+	readonly retryable: boolean;
+	readonly retryAfterMs: number;
+
+	constructor(message: string, retryable: boolean, retryAfterMs = 0, cause?: unknown) {
+		super(message, { cause });
+		this.retryable = retryable;
+		this.retryAfterMs = retryAfterMs;
+	}
+}
+
+function describeError(error: unknown): string {
+	if (!(error instanceof Error)) return String(error);
+	return error.cause ? `${error.message}: ${describeError(error.cause)}` : error.message;
+}
+
+function parseRetryAfter(value: string | null): number {
+	if (!value) return 0;
+	const milliseconds = /^\d+$/.test(value) ? Number(value) * 1000 : Date.parse(value) - Date.now();
+	return Number.isFinite(milliseconds) ? Math.max(0, milliseconds) : 0;
+}
+
 async function fetchOpenRouterCatalogWith(fetchImpl: typeof fetch, abortSignal?: AbortSignal): Promise<Model<Api>[]> {
-	const response = await fetchImpl(OPENROUTER_MODELS_URL, { signal: abortSignal });
-	if (!response.ok) throw new Error(`OpenRouter model catalog request failed with HTTP ${response.status}`);
+	let response: Response;
+	try {
+		response = await fetchImpl(OPENROUTER_MODELS_URL, { signal: abortSignal });
+	} catch (error) {
+		throw new CatalogRequestError(
+			"OpenRouter model catalog request failed",
+			error instanceof TypeError && error.message === "fetch failed",
+			0,
+			error,
+		);
+	}
+	if (!response.ok) {
+		throw new CatalogRequestError(
+			`OpenRouter model catalog request failed with HTTP ${response.status}`,
+			response.status === 429 || response.status >= 500,
+			parseRetryAfter(response.headers.get("retry-after")),
+		);
+	}
 	const payload: unknown = await response.json();
 	if (!isRecord(payload) || !Array.isArray(payload.data)) {
 		throw new Error("OpenRouter model catalog response has no data array");
@@ -166,12 +205,20 @@ async function writeCachedCatalog(cachePath: string, catalog: CachedCatalog): Pr
 		await mkdir(dirname(cachePath), { recursive: true });
 		await writeFile(temporaryPath, `${JSON.stringify(catalog, null, 2)}\n`, "utf8");
 		await rename(temporaryPath, cachePath);
-	} catch {
+	} catch (error) {
+		const primaryMessage = describeError(error);
+		let message = `Cannot write OpenRouter model catalog cache ${cachePath}: ${primaryMessage}`;
 		try {
 			await unlink(temporaryPath);
-		} catch {
-			// Best-effort cache writes must not affect startup.
+		} catch (cleanupError) {
+			if (!isRecord(cleanupError) || cleanupError.code !== "ENOENT") {
+				const cleanupMessage = describeError(cleanupError);
+				if (cleanupMessage !== primaryMessage) {
+					message += `; cannot remove temporary cache ${temporaryPath}: ${cleanupMessage}`;
+				}
+			}
 		}
+		throw new Error(message, { cause: error });
 	}
 }
 
@@ -203,21 +250,38 @@ async function refreshCachedCatalog(
 	cachedCatalog: CachedCatalog | undefined,
 	now: () => Date,
 ): Promise<ModelCatalogRefreshResult> {
+	const fetchedModels = await fetchCatalogWithRetries(options.fetchImpl ?? fetch);
+	await writeCachedCatalog(cachePath, { fetchedAt: now().toISOString(), models: fetchedModels });
+	return buildResult(mergeWithBundledModels(fetchedModels), "network", cachePath, {
+		fetched: fetchedModels.length,
+		cached: cachedCatalog?.models.length ?? 0,
+	});
+}
+
+async function fetchCatalogWithRetries(fetchImpl: typeof fetch): Promise<Model<Api>[]> {
 	const controller = new AbortController();
+	const deadline = Date.now() + FETCH_TIMEOUT_MS;
 	const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 	try {
-		const fetchedModels = await fetchOpenRouterCatalogWith(options.fetchImpl ?? fetch, controller.signal);
-		await writeCachedCatalog(cachePath, { fetchedAt: now().toISOString(), models: fetchedModels });
-		return buildResult(mergeWithBundledModels(fetchedModels), "network", cachePath, {
-			fetched: fetchedModels.length,
-			cached: cachedCatalog?.models.length ?? 0,
-		});
-	} catch {
-		// Bundled models are the guaranteed floor whenever a refresh fails.
-		return buildResult(mergeWithBundledModels([]), "bundled", cachePath, {
-			fetched: 0,
-			cached: cachedCatalog?.models.length ?? 0,
-		});
+		for (let attempt = 0; ; attempt++) {
+			try {
+				return await fetchOpenRouterCatalogWith(fetchImpl, controller.signal);
+			} catch (error) {
+				if (
+					!(error instanceof CatalogRequestError) ||
+					!error.retryable ||
+					attempt === 2 ||
+					controller.signal.aborted
+				)
+					throw error;
+				const waitMs = Math.max(error.retryAfterMs, 250 * 2 ** attempt * (1 + Math.random()));
+				if (Date.now() + waitMs >= deadline) throw error;
+				await delay(waitMs, undefined, { signal: controller.signal });
+			}
+		}
+	} catch (error) {
+		const message = controller.signal.aborted ? `timed out after ${FETCH_TIMEOUT_MS} ms` : describeError(error);
+		throw new Error(`OpenRouter model catalog refresh failed: ${message}`, { cause: error });
 	} finally {
 		clearTimeout(timeout);
 	}
