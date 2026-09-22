@@ -1,7 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { completeSimple, type Context, isRetryableAssistantError } from "@earendil-works/pi-ai/compat";
+import { type Context, completeSimple, isRetryableAssistantError } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI, ExtensionContext } from "../../../src/core/extensions/types.ts";
 import type { ReadonlySessionManager } from "../../../src/core/session-manager.ts";
 
@@ -179,7 +179,7 @@ function normalizeTitle(text: string): string {
 		.find((line) => line.length > 0);
 	if (!firstLine) return "";
 	const withoutHeading = firstLine.replace(/^#{1,6}\s*/, "");
-	const withoutPrefix = withoutHeading.replace(/^(?:session\s+)?(?:title|name)\s*[:\-]\s*/i, "");
+	const withoutPrefix = withoutHeading.replace(/^(?:session\s+)?(?:title|name)\s*[:-]\s*/i, "");
 	const withoutWrapping = withoutPrefix.replace(/^["'`*_]+|["'`*_]+$/g, "");
 	return truncateTitle(withoutWrapping.replace(/\s+/g, " ").trim());
 }
