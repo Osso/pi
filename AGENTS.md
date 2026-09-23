@@ -11,7 +11,7 @@
 
 ## Code Quality
 
-- Documentation-update sub-agents inherit parent context unless the user explicitly requests fresh context.
+- Documentation-update sub-agents default to fresh context. Select inherit only when conversation history is necessary for the task.
 - Read files in full before wide-ranging changes, before editing files you have not fully inspected, and when asked to investigate or audit. Do not rely on search snippets for broad changes.
 - No `any` unless absolutely necessary.
 - Inline single-line helpers that have only one call site.
