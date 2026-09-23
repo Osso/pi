@@ -410,6 +410,7 @@ async function observeForegroundBashRunner(
 	// Activate synchronously so an abort right after detach (restart teardown) finds a detached job, not a foreground runner.
 	const activateOnDetach = () => {
 		if (activation || readForegroundBashCompletion(runner.foregroundCompletionPath)) return;
+		outputOffset = forwardBashRunnerOutput(runner, outputOffset, options.onData);
 		try {
 			activation = activateDetachedBashRunner(runner, cwd, options);
 		} catch (error) {
@@ -424,9 +425,9 @@ async function observeForegroundBashRunner(
 	options.detach.signal.addEventListener("abort", activateOnDetach);
 	try {
 		for (;;) {
-			outputOffset = forwardBashRunnerOutput(runner, outputOffset, options.onData);
 			if (activationError) throw activationError;
 			if (activation) return activation.result;
+			outputOffset = forwardBashRunnerOutput(runner, outputOffset, options.onData);
 			const completion = settleForegroundBashRunner(runner, aborted, options.timeout);
 			if (completion) return completion;
 			if (options.detach.signal.aborted) activateOnDetach();
