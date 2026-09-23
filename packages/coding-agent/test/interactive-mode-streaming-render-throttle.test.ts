@@ -61,7 +61,7 @@ type HandleEventThis = {
 			isStreaming: boolean;
 			retryAttempt: number;
 			sessionManager: { getCwd(): string };
-			settingsManager: { getImageWidthCells(): number; getShowImages(): boolean };
+			settingsManager: { getHideToolOutput(): boolean; getImageWidthCells(): number; getShowImages(): boolean };
 		};
 	};
 	streamingComponent: unknown;
@@ -221,7 +221,11 @@ function createFakeInteractiveModeThis(): HandleEventThis {
 				isStreaming: true,
 				retryAttempt: 0,
 				sessionManager: { getCwd: () => process.cwd() },
-				settingsManager: { getImageWidthCells: () => 40, getShowImages: () => false },
+				settingsManager: {
+					getHideToolOutput: () => false,
+					getImageWidthCells: () => 40,
+					getShowImages: () => false,
+				},
 			},
 		},
 		streamingComponent: undefined,

@@ -113,7 +113,9 @@ function createRenderingHarness() {
 		showStatus: vi.fn(),
 		flushCompactionQueue: vi.fn().mockResolvedValue(undefined),
 		setPromptActivity: vi.fn(),
+		syncWorkingLoaderVisibility: vi.fn(),
 		settingsManager: {
+			getHideToolOutput: () => false,
 			getShowTerminalProgress: () => false,
 			getShowImages: () => false,
 			getImageWidthCells: () => 80,

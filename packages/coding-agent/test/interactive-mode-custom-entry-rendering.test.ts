@@ -25,7 +25,7 @@ interface CustomEntryRenderingThis {
 			extensionRunner: { getEntryRenderer(customType: string): EntryRenderer | undefined };
 			retryAttempt: number;
 			sessionManager: { getCwd(): string; getSessionId(): string };
-			settingsManager: { getImageWidthCells(): number; getShowImages(): boolean };
+			settingsManager: { getHideToolOutput(): boolean; getImageWidthCells(): number; getShowImages(): boolean };
 		};
 	};
 	toolOutputExpanded: boolean;
@@ -84,7 +84,11 @@ function createFakeInteractiveModeThis(renderer: EntryRenderer = supervisorStatu
 				},
 				retryAttempt: 0,
 				sessionManager: { getCwd: () => process.cwd(), getSessionId: () => "session-1" },
-				settingsManager: { getImageWidthCells: () => 40, getShowImages: () => false },
+				settingsManager: {
+					getHideToolOutput: () => false,
+					getImageWidthCells: () => 40,
+					getShowImages: () => false,
+				},
 			},
 		},
 		toolOutputExpanded: false,

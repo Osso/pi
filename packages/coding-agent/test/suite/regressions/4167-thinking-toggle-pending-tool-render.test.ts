@@ -39,6 +39,7 @@ type RenderSessionContextThis = {
 	footer: { invalidate(): void };
 	ui: TUI;
 	settingsManager: {
+		getHideToolOutput(): boolean;
 		getShowImages(): boolean;
 		getImageWidthCells(): number;
 	};
@@ -86,6 +87,7 @@ function createFakeInteractiveModeThis(): RenderSessionContextThis {
 		footer: { invalidate: vi.fn() },
 		ui: { requestRender: vi.fn() } as unknown as TUI,
 		settingsManager: {
+			getHideToolOutput: () => false,
 			getShowImages: () => false,
 			getImageWidthCells: () => 60,
 		},
