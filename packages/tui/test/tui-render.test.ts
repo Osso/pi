@@ -657,7 +657,7 @@ describe("TUI differential rendering", () => {
 		tui.stop();
 	});
 
-	it("full re-renders when deleted lines move the viewport upward", async () => {
+	it("repaints only the viewport when deleted lines move it upward", async () => {
 		const terminal = new VirtualTerminal(20, 5);
 		const tui = new TUI(terminal);
 		const component = new TestComponent();
@@ -673,7 +673,7 @@ describe("TUI differential rendering", () => {
 		tui.requestRender();
 		await terminal.waitForRender();
 
-		assert.ok(tui.fullRedraws > initialRedraws, "Shrink should trigger a full redraw");
+		assert.strictEqual(tui.fullRedraws, initialRedraws, "Shrink should repaint only the viewport");
 		assert.deepStrictEqual(terminal.getViewport(), ["Line 2", "Line 3", "Line 4", "Line 5", "Line 6"]);
 
 		tui.stop();
@@ -724,7 +724,7 @@ describe("TUI differential rendering", () => {
 		tui.requestRender();
 		await terminal.waitForRender();
 
-		assert.ok(tui.fullRedraws > initialRedraws, "Shrink should reset the viewport with a full redraw");
+		assert.strictEqual(tui.fullRedraws, initialRedraws, "Shrink should reset the viewport without a full redraw");
 		const redrawsAfterShrink = tui.fullRedraws;
 
 		component.lines = ["Line 0", "Line 1", "Line 2"];
@@ -768,7 +768,7 @@ describe("TUI differential rendering", () => {
 		tui.requestRender();
 		await terminal.waitForRender();
 
-		assert.ok(tui.fullRedraws > redrawsBeforeSwitch, "Branch switch should trigger a full redraw");
+		assert.strictEqual(tui.fullRedraws, redrawsBeforeSwitch, "Branch switch should repaint only the viewport");
 
 		const viewport = terminal.getViewport();
 		for (let i = 0; i < 10; i++) {

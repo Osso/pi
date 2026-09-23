@@ -1970,6 +1970,25 @@ export class TUI extends Container {
 			this.previousHeight = height;
 		};
 
+		// Repaint only the visible window after a shrink moved the viewport up. Lines already pushed into scrollback
+		// cannot scroll back down, so the window is rewritten in place instead of clearing and replaying the history.
+		const viewportRender = (nextViewportTop: number): void => {
+			let buffer = "\x1b[?2026h\x1b[H";
+			const visibleLines = newLines.slice(nextViewportTop, nextViewportTop + height);
+			buffer += visibleLines.map((line) => `\x1b[2K${line}`).join("\r\n");
+			buffer += "\x1b[J\x1b[?2026l";
+			this.terminal.write(buffer);
+			this.cursorRow = Math.max(0, newLines.length - 1);
+			this.hardwareCursorRow = nextViewportTop + Math.max(0, visibleLines.length - 1);
+			this.maxLinesRendered = newLines.length;
+			this.previousViewportTop = nextViewportTop;
+			this.positionHardwareCursor(cursorPos, newLines.length);
+			this.previousLines = newLines;
+			this.previousKittyImageIds = this.collectKittyImageIds(newLines);
+			this.previousWidth = width;
+			this.previousHeight = height;
+		};
+
 		const debugRedraw = process.env.PI_DEBUG_REDRAW === "1";
 		const logRedraw = (reason: string): void => {
 			if (!debugRedraw) return;
@@ -2015,10 +2034,13 @@ export class TUI extends Container {
 			prevViewportTop,
 		);
 		if (upwardViewportTop !== undefined) {
-			return fallbackToFullRender(
-				`content shrink moved viewport up (${prevViewportTop} -> ${upwardViewportTop})`,
-				true,
-			);
+			const reason = `content shrink moved viewport up (${prevViewportTop} -> ${upwardViewportTop})`;
+			// Image lines reserve multiple rows and need the full renderer's placement.
+			if (newLines.slice(upwardViewportTop, upwardViewportTop + height).some(isImageLine)) {
+				return fallbackToFullRender(reason, true);
+			}
+			viewportRender(upwardViewportTop);
+			return true;
 		}
 
 		// Find first and last changed lines

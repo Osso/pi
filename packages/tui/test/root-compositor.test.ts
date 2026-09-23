@@ -119,10 +119,13 @@ describe("RootCompositor", () => {
 		tui.requestRender();
 		await terminal.waitForRender();
 
+		const fullRedrawsBeforeClose = tui.fullRedraws;
 		terminal.sendInput("\x1b");
 		await terminal.waitForRender();
 
 		assert.deepStrictEqual(terminal.getViewport(), ["body 2", "body 3", "body 4", "body 5", "editor", "footer"]);
+		// Only the visible window is repainted; the history is not cleared and replayed.
+		assert.strictEqual(tui.fullRedraws, fullRedrawsBeforeClose);
 		tui.stop();
 		await terminal.flush();
 	});
