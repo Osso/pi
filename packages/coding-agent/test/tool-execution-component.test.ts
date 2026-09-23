@@ -1,7 +1,7 @@
 import { join, resolve } from "node:path";
 import { Text, type TUI } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { beforeAll, describe, expect, test } from "vitest";
+import { beforeAll, describe, expect, test, vi } from "vitest";
 import { getReadmePath } from "../src/config.ts";
 import type { ToolDefinition } from "../src/core/extensions/types.ts";
 import { type BashOperations, createBashToolDefinition } from "../src/core/tools/bash.ts";
@@ -170,6 +170,35 @@ describe("ToolExecutionComponent parity", () => {
 		expect(rendered).toContain("unknown_tool");
 		expect(rendered).toContain("needle");
 		expect(rendered).not.toContain("secret-output");
+	});
+
+	test("hideOutput keeps a quiet running bash elapsed timer ticking and stops it on completion", () => {
+		vi.useFakeTimers();
+		try {
+			const component = new ToolExecutionComponent(
+				"bash",
+				"tool-hidden-bash",
+				{ command: "sleep 10" },
+				{ hideOutput: true },
+				createBashToolDefinition(process.cwd()),
+				createFakeTui(),
+				process.cwd(),
+			);
+			component.markExecutionStarted(Date.now());
+			component.updateResult({ content: [], details: undefined, isError: false }, true);
+
+			vi.advanceTimersByTime(3000);
+			expect(stripAnsi(component.render(120).join("\n"))).toContain("Elapsed: 3s");
+
+			component.updateResult(
+				{ content: [{ type: "text", text: "slept" }], details: undefined, isError: false },
+				false,
+			);
+			expect(vi.getTimerCount()).toBe(0);
+			expect(stripAnsi(component.render(120).join("\n"))).not.toContain("slept");
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	test("self-rendered empty tool rows take no layout space", () => {

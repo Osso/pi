@@ -379,34 +379,12 @@ export class ToolExecutionComponent extends Container {
 				}
 			}
 
-			if (this.result && !this.hideOutput) {
-				const displayContent = this.getDisplayContent();
-				const resultRenderer = this.getResultRenderer();
-				if (!resultRenderer) {
-					const component = this.createResultFallback();
-					if (component) {
-						renderContainer.addChild(component);
-						hasContent = true;
-					}
-				} else {
-					try {
-						const component = resultRenderer(
-							{ content: displayContent as any, details: this.result.details },
-							{ expanded: this.expanded, isPartial: this.isPartial },
-							theme,
-							this.getRenderContext(this.resultRendererComponent),
-						);
-						this.resultRendererComponent = component;
-						renderContainer.addChild(component);
-						hasContent = true;
-					} catch {
-						this.resultRendererComponent = undefined;
-						const component = this.createResultFallback();
-						if (component) {
-							renderContainer.addChild(component);
-							hasContent = true;
-						}
-					}
+			if (this.result) {
+				// Result renderers own renderer state such as live timers, so they run even when output is hidden.
+				const component = this.renderResultComponent();
+				if (component && !this.hideOutput) {
+					renderContainer.addChild(component);
+					hasContent = true;
 				}
 			}
 		} else {
@@ -452,6 +430,26 @@ export class ToolExecutionComponent extends Container {
 
 		if (this.hasRendererDefinition() && !hasContent && this.imageComponents.length === 0) {
 			this.hideComponent = true;
+		}
+	}
+
+	private renderResultComponent(): Component | undefined {
+		const resultRenderer = this.getResultRenderer();
+		if (!resultRenderer || !this.result) {
+			return this.createResultFallback();
+		}
+		try {
+			const component = resultRenderer(
+				{ content: this.getDisplayContent() as any, details: this.result.details },
+				{ expanded: this.expanded, isPartial: this.isPartial },
+				theme,
+				this.getRenderContext(this.resultRendererComponent),
+			);
+			this.resultRendererComponent = component;
+			return component;
+		} catch {
+			this.resultRendererComponent = undefined;
+			return this.createResultFallback();
 		}
 	}
 
