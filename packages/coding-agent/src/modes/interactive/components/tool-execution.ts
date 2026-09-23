@@ -49,6 +49,7 @@ function limitToolResultContent(content: ToolResultContentItem[]): ToolResultCon
 export interface ToolExecutionOptions {
 	showImages?: boolean;
 	imageWidthCells?: number;
+	hideOutput?: boolean;
 }
 
 export interface ToolExecutionStartOptions {
@@ -69,6 +70,7 @@ export class ToolExecutionComponent extends Container {
 	private args: any;
 	private expanded = false;
 	private showImages: boolean;
+	private hideOutput: boolean;
 	private imageWidthCells: number;
 	private isPartial = true;
 	private toolDefinition?: ToolDefinition<any, any>;
@@ -105,6 +107,7 @@ export class ToolExecutionComponent extends Container {
 		this.builtInToolDefinition = createAllToolDefinitions(cwd)[toolName as ToolName];
 		this.showImages = options.showImages ?? true;
 		this.imageWidthCells = options.imageWidthCells ?? 60;
+		this.hideOutput = options.hideOutput ?? false;
 		this.ui = ui;
 		this.cwd = cwd;
 
@@ -286,6 +289,11 @@ export class ToolExecutionComponent extends Container {
 		this.updateDisplay();
 	}
 
+	setHideOutput(hide: boolean): void {
+		this.hideOutput = hide;
+		this.updateDisplay();
+	}
+
 	setImageWidthCells(width: number): void {
 		this.imageWidthCells = Math.max(1, Math.floor(width));
 		this.updateDisplay();
@@ -371,7 +379,7 @@ export class ToolExecutionComponent extends Container {
 				}
 			}
 
-			if (this.result) {
+			if (this.result && !this.hideOutput) {
 				const displayContent = this.getDisplayContent();
 				const resultRenderer = this.getResultRenderer();
 				if (!resultRenderer) {
@@ -416,7 +424,7 @@ export class ToolExecutionComponent extends Container {
 		}
 		this.imageSpacers = [];
 
-		if (this.result) {
+		if (this.result && !this.hideOutput) {
 			const imageBlocks = this.result.content.filter((c) => c.type === "image");
 			const caps = getCapabilities();
 			for (let i = 0; i < imageBlocks.length; i++) {
@@ -465,7 +473,7 @@ export class ToolExecutionComponent extends Container {
 		if (timerText) {
 			text += `\n${timerText}`;
 		}
-		const output = this.getTextOutput(this.getDisplayContent());
+		const output = this.hideOutput ? "" : this.getTextOutput(this.getDisplayContent());
 		if (output) {
 			text += `\n${output}`;
 		}

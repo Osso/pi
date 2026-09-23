@@ -25,6 +25,21 @@ describe("SettingsManager", () => {
 		}
 	});
 
+	describe("hideToolOutput", () => {
+		it("defaults to false, reads settings.json, and persists changes", async () => {
+			const settingsPath = join(agentDir, "settings.json");
+			writeFileSync(settingsPath, JSON.stringify({ hideToolOutput: true }));
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getHideToolOutput()).toBe(true);
+
+			manager.setHideToolOutput(false);
+			await manager.flush();
+			expect(JSON.parse(readFileSync(settingsPath, "utf-8")).hideToolOutput).toBe(false);
+			expect(SettingsManager.inMemory().getHideToolOutput()).toBe(false);
+		});
+	});
+
 	describe("preserves externally added settings", () => {
 		it("should preserve enabledModels when changing thinking level", async () => {
 			// Create initial settings file

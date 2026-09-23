@@ -113,6 +113,7 @@ export interface Settings {
 	branchSummary?: BranchSummarySettings;
 	retry?: RetrySettings;
 	hideThinkingBlock?: boolean;
+	hideToolOutput?: boolean; // Hide tool result output in the interactive transcript; call lines stay visible
 	externalEditor?: string; // Command for Ctrl+G external editor; takes precedence over VISUAL/EDITOR
 	shellPath?: string; // Custom shell path (e.g., for Cygwin users on Windows)
 	quietStartup?: boolean;
@@ -988,6 +989,16 @@ export class SettingsManager {
 
 	getHideThinkingBlock(): boolean {
 		return this.settings.hideThinkingBlock ?? false;
+	}
+
+	getHideToolOutput(): boolean {
+		return this.settings.hideToolOutput ?? false;
+	}
+
+	setHideToolOutput(hide: boolean): void {
+		this.globalSettings.hideToolOutput = hide;
+		this.markModified("hideToolOutput");
+		this.save();
 	}
 
 	getExternalEditorCommand(): string | undefined {

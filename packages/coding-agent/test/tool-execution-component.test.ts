@@ -125,6 +125,53 @@ describe("ToolExecutionComponent parity", () => {
 		expect(rendered).toContain("custom result");
 	});
 
+	test("hideOutput keeps the call and drops result output until disabled", () => {
+		const toolDefinition: ToolDefinition = {
+			...createBaseToolDefinition(),
+			renderCall: () => new Text("custom call", 0, 0),
+			renderResult: () => new Text("custom result", 0, 0),
+		};
+		const component = new ToolExecutionComponent(
+			"custom_tool",
+			"tool-hidden-output",
+			{},
+			{ hideOutput: true },
+			toolDefinition,
+			createFakeTui(),
+			process.cwd(),
+		);
+		component.setExpanded(true);
+		component.updateResult({ content: [{ type: "text", text: "done" }], details: {}, isError: false }, false);
+
+		const hidden = stripAnsi(component.render(120).join("\n"));
+		expect(hidden).toContain("custom call");
+		expect(hidden).not.toContain("custom result");
+
+		component.setHideOutput(false);
+		expect(stripAnsi(component.render(120).join("\n"))).toContain("custom result");
+	});
+
+	test("hideOutput drops result output for tools without a definition", () => {
+		const component = new ToolExecutionComponent(
+			"unknown_tool",
+			"tool-hidden-generic",
+			{ query: "needle" },
+			{ hideOutput: true },
+			undefined,
+			createFakeTui(),
+			process.cwd(),
+		);
+		component.updateResult(
+			{ content: [{ type: "text", text: "secret-output" }], details: {}, isError: false },
+			false,
+		);
+
+		const rendered = stripAnsi(component.render(120).join("\n"));
+		expect(rendered).toContain("unknown_tool");
+		expect(rendered).toContain("needle");
+		expect(rendered).not.toContain("secret-output");
+	});
+
 	test("self-rendered empty tool rows take no layout space", () => {
 		const toolDefinition: ToolDefinition = {
 			...createBaseToolDefinition(),

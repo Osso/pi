@@ -4239,6 +4239,7 @@ export class InteractiveMode {
 			{
 				showImages: this.settingsManager.getShowImages(),
 				imageWidthCells: this.settingsManager.getImageWidthCells(),
+				hideOutput: this.settingsManager.getHideToolOutput(),
 			},
 			this.getRegisteredToolDefinition(toolName),
 			this.ui,
@@ -4878,6 +4879,7 @@ export class InteractiveMode {
 							{
 								showImages: this.settingsManager.getShowImages(),
 								imageWidthCells: this.settingsManager.getImageWidthCells(),
+								hideOutput: this.settingsManager.getHideToolOutput(),
 							},
 							this.getRegisteredToolDefinition(content.name),
 							this.ui,
@@ -5672,6 +5674,7 @@ export class InteractiveMode {
 					terminalTheme: this.themeController.getTerminalTheme(),
 					availableThemes: getAvailableThemes(),
 					hideThinkingBlock: this.hideThinkingBlock,
+					hideToolOutput: this.settingsManager.getHideToolOutput(),
 					collapseChangelog: this.settingsManager.getCollapseChangelog(),
 					enableInstallTelemetry: this.settingsManager.getEnableInstallTelemetry(),
 					doubleEscapeAction: this.settingsManager.getDoubleEscapeAction(),
@@ -5690,6 +5693,14 @@ export class InteractiveMode {
 					onAutoCompactChange: (enabled) => {
 						this.session.setAutoCompactionEnabled(enabled);
 						this.footer.setAutoCompactEnabled(enabled);
+					},
+					onHideToolOutputChange: (hidden) => {
+						this.settingsManager.setHideToolOutput(hidden);
+						for (const child of this.chatContainer.children) {
+							if (child instanceof ToolExecutionComponent) {
+								child.setHideOutput(hidden);
+							}
+						}
 					},
 					onShowImagesChange: (enabled) => {
 						this.settingsManager.setShowImages(enabled);
