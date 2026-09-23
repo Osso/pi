@@ -177,6 +177,53 @@ describe("prepared user-message lifecycle", () => {
 		}
 	});
 
+	test("renders submitted text as in transit before preparation and marks it sent at message_start", async () => {
+		const preparedMessage = createPreparedUserMessage();
+		const preparation = createDeferred();
+		const promptCompletion = createDeferred();
+		const prompt = vi.fn(async (_text: string, options?: PromptOptions) => {
+			await preparation.promise;
+			options?.onUserMessagePrepared?.(preparedMessage);
+			await promptCompletion.promise;
+		});
+		const fakeThis = createInteractiveModeTestThis({ prompt });
+		const promptPromise = submitMainLoopInput.call(fakeThis, "raw submitted text");
+
+		try {
+			expect(renderChat(fakeThis.chatContainer)).toContain("raw submitted text");
+			expect(renderChat(fakeThis.chatContainer)).toContain("sending");
+
+			preparation.resolve();
+			await vi.waitFor(() => expect(renderChat(fakeThis.chatContainer)).toContain("prepared user message"));
+			expect(renderChat(fakeThis.chatContainer)).not.toContain("raw submitted text");
+			expect(renderChat(fakeThis.chatContainer)).toContain("sending");
+			expect(getRenderedUserMessages(fakeThis.chatContainer)).toHaveLength(1);
+
+			await handleEvent.call(fakeThis, createUserMessageStart(preparedMessage));
+			expect(getRenderedUserMessages(fakeThis.chatContainer)).toHaveLength(1);
+			expect(renderChat(fakeThis.chatContainer)).toContain("prepared user message");
+			expect(renderChat(fakeThis.chatContainer)).not.toContain("sending");
+		} finally {
+			preparation.resolve();
+			promptCompletion.resolve();
+			await promptPromise;
+		}
+	});
+
+	test("removes in-transit submitted text when prompt fails before preparation", async () => {
+		const showError = vi.fn();
+		const prompt = vi.fn(async () => {
+			throw new Error("No API key");
+		});
+		const fakeThis = createInteractiveModeTestThis({ prompt });
+		fakeThis.showError = showError;
+
+		await submitMainLoopInput.call(fakeThis, "raw submitted text");
+
+		expect(getRenderedUserMessages(fakeThis.chatContainer)).toHaveLength(0);
+		expect(showError).toHaveBeenCalledWith("No API key");
+	});
+
 	test("falls back to the authoritative message after a transcript rebuild", async () => {
 		const preparedMessage = createPreparedUserMessage();
 		const promptCompletion = createDeferred();
@@ -219,7 +266,7 @@ describe("prepared user-message lifecycle", () => {
 
 		expect(getRenderedUserMessages(fakeThis.chatContainer)).toHaveLength(0);
 		expect(renderChat(fakeThis.chatContainer)).not.toContain("prepared user message");
-		expect(requestRender).toHaveBeenCalledTimes(2);
+		expect(requestRender).toHaveBeenCalledTimes(3);
 	});
 
 	test("keeps main-session prepared and authoritative messages out of a child transcript", async () => {

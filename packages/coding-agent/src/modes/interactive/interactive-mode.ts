@@ -1191,10 +1191,24 @@ export class InteractiveMode {
 	 * queue as steering instead of throwing away the user's text.
 	 */
 	private async submitMainLoopInput(userInput: string): Promise<void> {
+		// Show the raw text until the session prepares the real message (input hooks,
+		// compaction and the turn-start lock can delay preparation).
+		let submittedMessage: AgentMessage | undefined = {
+			role: "user",
+			content: [{ type: "text", text: userInput }],
+			timestamp: Date.now(),
+		};
+		InteractiveMode.prototype.renderPreparedUserMessage.call(this, submittedMessage);
 		try {
 			await this.session.prompt(userInput, {
 				streamingBehavior: "steer",
-				onUserMessagePrepared: (message) => InteractiveMode.prototype.renderPreparedUserMessage.call(this, message),
+				onUserMessagePrepared: (message) => {
+					if (submittedMessage) {
+						InteractiveMode.prototype.discardPreparedUserMessage.call(this, submittedMessage);
+						submittedMessage = undefined;
+					}
+					InteractiveMode.prototype.renderPreparedUserMessage.call(this, message);
+				},
 			});
 			this.clipboardTempFiles.cleanupReferencedIn(userInput);
 		} catch (error: unknown) {
@@ -1235,8 +1249,22 @@ export class InteractiveMode {
 		const components = this.chatContainer.children.slice(previousChildCount);
 		if (components.length === 0) return;
 
+		InteractiveMode.prototype.setUserMessagesInTransit.call(this, components, true);
 		this.ensureProvisionalUserMessages().set(message, components);
 		this.ui.requestRender();
+	}
+
+	private discardPreparedUserMessage(message: AgentMessage): void {
+		const components = this.provisionalUserMessages?.get(message);
+		if (!components) return;
+		this.provisionalUserMessages?.delete(message);
+		this.removeComponentsFromChat(components);
+	}
+
+	private setUserMessagesInTransit(components: readonly Component[], inTransit: boolean): void {
+		for (const component of components) {
+			if (component instanceof UserMessageComponent) component.setInTransit(inTransit);
+		}
 	}
 
 	private consumePreparedUserMessage(message: AgentMessage): boolean {
@@ -1246,7 +1274,10 @@ export class InteractiveMode {
 		this.provisionalUserMessages?.delete(message);
 		const componentsRemainInChat =
 			components.length > 0 && components.every((component) => this.chatContainer.children.includes(component));
-		if (componentsRemainInChat) return true;
+		if (componentsRemainInChat) {
+			InteractiveMode.prototype.setUserMessagesInTransit.call(this, components, false);
+			return true;
+		}
 
 		this.removeComponentsFromChat(components);
 		return false;

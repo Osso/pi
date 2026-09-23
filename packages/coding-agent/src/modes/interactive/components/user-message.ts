@@ -1,4 +1,4 @@
-import { Box, Container, Markdown, type MarkdownTheme } from "@earendil-works/pi-tui";
+import { Box, Container, Markdown, type MarkdownTheme, Text } from "@earendil-works/pi-tui";
 import { getMarkdownTheme, theme } from "../theme/theme.ts";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
@@ -12,6 +12,7 @@ export class UserMessageComponent extends Container {
 	private text: string;
 	private markdownTheme: MarkdownTheme;
 	private outputPad: number;
+	private inTransit = false;
 
 	constructor(text: string, markdownTheme: MarkdownTheme = getMarkdownTheme(), outputPad = 1) {
 		super();
@@ -26,6 +27,13 @@ export class UserMessageComponent extends Container {
 		this.rebuild();
 	}
 
+	/** Mark a submitted message the agent has not started yet. */
+	setInTransit(inTransit: boolean): void {
+		if (this.inTransit === inTransit) return;
+		this.inTransit = inTransit;
+		this.rebuild();
+	}
+
 	private rebuild(): void {
 		this.clear();
 		const contentBox = new Box(this.outputPad, 1, (content: string) => theme.bg("userMessageBg", content));
@@ -36,11 +44,14 @@ export class UserMessageComponent extends Container {
 				0,
 				this.markdownTheme,
 				{
-					color: (content: string) => theme.fg("userMessageText", content),
+					color: (content: string) => theme.fg(this.inTransit ? "dim" : "userMessageText", content),
 				},
 				{ preserveOrderedListMarkers: true, preserveBackslashEscapes: true },
 			),
 		);
+		if (this.inTransit) {
+			contentBox.addChild(new Text(theme.fg("muted", "⧗ sending…"), 0, 0));
+		}
 		this.addChild(contentBox);
 	}
 

@@ -86,6 +86,7 @@ type MainLoopContext = {
 	session: { prompt: (text: string, options?: unknown) => Promise<void> };
 	clipboardTempFiles: { cleanupReferencedIn: (text: string) => void };
 	showError: (text: string) => void;
+	isViewingAgentSession: () => boolean;
 };
 
 type InteractiveModePrivate = {
@@ -450,6 +451,7 @@ describe("InteractiveMode startup input", () => {
 			session: { prompt: vi.fn(async () => {}) },
 			clipboardTempFiles: { cleanupReferencedIn: vi.fn() },
 			showError: vi.fn(),
+			isViewingAgentSession: () => true,
 		};
 
 		await interactiveModePrototype.submitMainLoopInput.call(context, "queued steering");
