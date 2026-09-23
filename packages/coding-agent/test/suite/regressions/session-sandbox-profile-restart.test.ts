@@ -137,6 +137,9 @@ it.skipIf(!canExecuteBwrap)(
 						"read-only",
 					);
 
+					// Message-less sessions are deleted on shutdown, so give this one a real turn before restarting.
+					await agent.send({ type: "prompt", message: "Keep this session" });
+					await finishToolTurn(agent, await agent.waitForLlmRequest((candidate) => candidate.agentId === null));
 					await agent.restart();
 					await agent.waitForExtensionUiRequest(
 						(request) =>

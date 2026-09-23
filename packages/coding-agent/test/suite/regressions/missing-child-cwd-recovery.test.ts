@@ -44,6 +44,8 @@ it("keeps selected-session startup alive when an attached child cwd was deleted"
 			expect(SessionManager.open(pi.sessionFile).getEntries()).toEqual(
 				expect.arrayContaining([expect.objectContaining({ type: "custom", customType: "agent_start" })]),
 			);
+			// Crash instead of quitting: a graceful quit deletes this message-less parent session and its agent journal.
+			await pi.crash();
 			await pi.restart();
 			await new Promise((resolve) => setTimeout(resolve, 1000));
 

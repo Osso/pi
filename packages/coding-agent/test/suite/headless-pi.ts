@@ -675,8 +675,18 @@ async function startRpcClientSession(client: RpcClient, context: HeadlessSession
 	context.mainSessionId = state.sessionId;
 	context.sessionFile = state.sessionFile ?? "";
 	if (!context.sessionFile) throw new Error("Headless Pi did not create a persistent session");
-	// Named sessions skip session-autoname, whose title request would otherwise consume scripted LLM responses.
-	if (!state.sessionName) await client.setSessionName("Headless Pi");
+	if (!state.sessionName) await nameHeadlessSession(client);
+}
+
+// Named sessions skip session-autoname, whose title request would otherwise consume scripted LLM responses.
+function nameHeadlessSession(client: RpcClient): Promise<void> {
+	return client.setSessionName("Headless Pi");
+}
+
+async function sendHeadlessCommand(client: RpcClient, command: RpcCommandBody): Promise<RpcResponse> {
+	const response = await client.send(command);
+	if (command.type === "new_session" && response.success) await nameHeadlessSession(client);
+	return response;
 }
 
 interface RpcClientProcess {
@@ -911,7 +921,7 @@ function createHeadlessRuntime(options: {
 		},
 		startSharedSession: (sharedOptions) =>
 			startSharedHeadlessSession(options.paths, options.fixtureOptions, sharedSessions, sharedOptions),
-		send: (command) => options.clientControl.client.send(command),
+		send: (command) => sendHeadlessCommand(options.clientControl.client, command),
 		getPyrunRunnerPids: () =>
 			readdirSync(options.paths.sessionDir, { recursive: true })
 				.filter((path): path is string => typeof path === "string" && path.endsWith("launch.json"))

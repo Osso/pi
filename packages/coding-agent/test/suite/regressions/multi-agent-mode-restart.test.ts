@@ -99,11 +99,6 @@ it("restores disabled delegation across restart without cancelling live child wo
 			);
 			await agent.waitForEvent((event) => event.type === "agent_end");
 
-			const namingRequest = await agent.waitForLlmRequest(
-				(request) => request.systemPrompt?.startsWith("Create a concise session title.") === true,
-			);
-			agent.respondToLlmRequest(namingRequest.id, fauxAssistantMessage("Delegation mode restart"));
-
 			await agent.send({ type: "prompt", message: "/multi-agent proactive" });
 			const status = await agent.waitForExtensionUiRequest(
 				(request) =>
