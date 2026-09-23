@@ -65,12 +65,16 @@ describe("wait_agent request-relative deadline", () => {
 
 	async function createChildSession(input: ChildAgentDispatchInput) {
 		childSignal = input.signal;
+		const messages: ReturnType<typeof fauxAssistantMessage>[] = [];
 		return {
 			abort: () => {
 				childAborted = true;
 			},
-			messages: [fauxAssistantMessage("child finished")],
-			prompt: waitForChildCompletion,
+			messages,
+			prompt: async () => {
+				await waitForChildCompletion();
+				messages.push(fauxAssistantMessage("child finished"));
+			},
 			transcript: { path: join(input.ctx.cwd, "child.jsonl"), sessionId: "deadline-child" },
 		};
 	}
