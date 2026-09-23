@@ -36,6 +36,7 @@ import {
 	type Component,
 	Container,
 	fuzzyFilter,
+	isKeyRelease,
 	isTerminalRawModeFailure,
 	Loader,
 	type LoaderIndicatorOptions,
@@ -576,8 +577,6 @@ export class InteractiveMode {
 	// Shutdown state
 	private shutdownRequested = false;
 
-	// Selector UI state
-	private builtInSelector: Component | undefined = undefined;
 	private extensionSelector: ExtensionSelectorComponent | undefined = undefined;
 	private extensionInput: ExtensionInputComponent | undefined = undefined;
 	private extensionEditor: ExtensionEditorComponent | undefined = undefined;
@@ -3170,6 +3169,7 @@ export class InteractiveMode {
 	private registerGlobalAgentSlotInputHandler(): void {
 		this.unregisterAgentSlotInputHandler?.();
 		this.unregisterAgentSlotInputHandler = this.ui.addInputListener((data) => {
+			if (isKeyRelease(data)) return undefined;
 			for (const [keybinding, slotIndex] of AGENT_SLOT_KEYBINDINGS) {
 				if (this.keybindings.matches(data, keybinding) && this.selectAgentSlot(slotIndex)) {
 					return { consume: true };
@@ -3182,12 +3182,12 @@ export class InteractiveMode {
 	private registerGlobalInterruptInputHandler(): void {
 		this.unregisterInterruptInputHandler?.();
 		this.unregisterInterruptInputHandler = this.ui.addInputListener((data) => {
-			const hasActiveSelector = this.builtInSelector !== undefined || this.extensionSelector !== undefined;
-			const selectorHandlesCancel =
-				(hasActiveSelector && this.keybindings.matches(data, "tui.select.cancel")) ||
-				(this.builtInSelector instanceof ScopedModelsSelectorComponent && this.builtInSelector.handlesEscape(data));
-			const matchesInterrupt = this.keybindings.matches(data, "app.interrupt");
-			if (selectorHandlesCancel || !matchesInterrupt) return undefined;
+			// Kitty reports key releases; a release arriving after a dialog closed on press must not interrupt.
+			if (isKeyRelease(data) || !this.keybindings.matches(data, "app.interrupt")) return undefined;
+			// Any focused component other than the editor is a dialog that owns its cancel key.
+			const dialogHandlesCancel =
+				this.keybindings.matches(data, "tui.select.cancel") && this.ui.getFocusedComponent() !== this.editor;
+			if (dialogHandlesCancel) return undefined;
 			if (this.session.cancelSupervisorReview?.() === true) {
 				this.stopWorkingLoader();
 				this.clearStatusIndicator();
@@ -5641,13 +5641,11 @@ export class InteractiveMode {
 	 */
 	private showSelector(create: (done: () => void) => { component: Component; focus: Component }): void {
 		const done = () => {
-			this.builtInSelector = undefined;
 			this.editorContainer.clear();
 			this.editorContainer.addChild(this.editor);
 			this.ui.setFocus(this.editor);
 		};
 		const { component, focus } = create(done);
-		this.builtInSelector = component;
 		this.editorContainer.clear();
 		this.editorContainer.addChild(component);
 		this.ui.setFocus(focus);

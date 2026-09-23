@@ -29,6 +29,11 @@ import type { SourceInfo } from "../src/core/source-info.ts";
 import { AgentSelectionBannerComponent } from "../src/modes/interactive/components/agent-selection-banner.ts";
 import type { ExtensionSelectorComponent } from "../src/modes/interactive/components/extension-selector.ts";
 import { ScopedModelsSelectorComponent } from "../src/modes/interactive/components/scoped-models-selector.ts";
+import {
+	type SettingsCallbacks,
+	type SettingsConfig,
+	SettingsSelectorComponent,
+} from "../src/modes/interactive/components/settings-selector.ts";
 import { TreeSelectorComponent } from "../src/modes/interactive/components/tree-selector.ts";
 import {
 	bindInteractiveModeSessionMutationTargetResolver,
@@ -1798,7 +1803,6 @@ describe("InteractiveMode key handlers", () => {
 		sessionManager.appendMessage(fauxAssistantMessage("response"));
 		const cancelStreamingAndSubmitQueuedMessages = vi.fn();
 		const fakeThis = {
-			builtInSelector: undefined as Component | undefined,
 			editor,
 			editorContainer,
 			extensionSelector: undefined as ExtensionSelectorComponent | undefined,
@@ -1849,9 +1853,8 @@ describe("InteractiveMode key handlers", () => {
 		const editorContainer = new Container();
 		const editor = new TestFocusableComponent("EDITOR");
 		const cancelStreamingAndSubmitQueuedMessages = vi.fn();
-		const keybindings = new KeybindingsManager({ "tui.select.cancel": "ctrl+c" });
+		const keybindings = new KeybindingsManager();
 		const fakeThis = {
-			builtInSelector: undefined as Component | undefined,
 			editor,
 			editorContainer,
 			extensionSelector: undefined as ExtensionSelectorComponent | undefined,
@@ -1882,7 +1885,7 @@ describe("InteractiveMode key handlers", () => {
 			await flushTui(ui, terminal);
 
 			expect(cancelStreamingAndSubmitQueuedMessages).not.toHaveBeenCalled();
-			expect(fakeThis.builtInSelector).toBeUndefined();
+			expect(editorContainer.children).toEqual([editor]);
 			expect(editor.focused).toBe(true);
 		} finally {
 			ui.stop();
@@ -1901,7 +1904,6 @@ describe("InteractiveMode key handlers", () => {
 		sessionManager.appendMessage(fauxAssistantMessage("response"));
 		const cancelStreamingAndSubmitQueuedMessages = vi.fn();
 		const fakeThis = {
-			builtInSelector: undefined as Component | undefined,
 			editor,
 			editorContainer,
 			extensionSelector: undefined as ExtensionSelectorComponent | undefined,
@@ -2017,6 +2019,131 @@ describe("InteractiveMode key handlers", () => {
 			expect(fakeThis.extensionSelector).toBeDefined();
 		} finally {
 			fakeThis.hideExtensionSelector();
+			ui.stop();
+		}
+	});
+
+	test("kitty escape press and release close the settings selector without interrupting a streaming turn", async () => {
+		const terminal = new VirtualTerminal(80, 24);
+		const ui = new TUI(terminal);
+		const editorContainer = new Container();
+		const editor = new TestFocusableComponent("EDITOR");
+		const cancelStreamingAndSubmitQueuedMessages = vi.fn();
+		const keybindings = new KeybindingsManager();
+		const fakeThis = {
+			editor,
+			editorContainer,
+			extensionSelector: undefined as ExtensionSelectorComponent | undefined,
+			keybindings,
+			session: { isStreaming: true },
+			cancelStreamingAndSubmitQueuedMessages,
+			showError: vi.fn(),
+			ui,
+		};
+		const config: SettingsConfig = {
+			autoCompact: true,
+			showImages: true,
+			imageWidthCells: 60,
+			autoResizeImages: true,
+			blockImages: false,
+			enableSkillCommands: true,
+			steeringMode: "all",
+			followUpMode: "all",
+			transport: "sse",
+			httpIdleTimeoutMs: 60_000,
+			thinkingLevel: "medium",
+			availableThinkingLevels: ["off", "medium"],
+			currentTheme: "dark",
+			terminalTheme: "dark",
+			availableThemes: ["dark"],
+			hideThinkingBlock: false,
+			hideToolOutput: false,
+			collapseChangelog: false,
+			enableInstallTelemetry: false,
+			doubleEscapeAction: "none",
+			treeFilterMode: "default",
+			showHardwareCursor: false,
+			editorPaddingX: 0,
+			outputPad: 0,
+			autocompleteMaxVisible: 5,
+			quietStartup: false,
+			defaultProjectTrust: "ask",
+			clearOnShrink: false,
+			showTerminalProgress: false,
+			warnings: {},
+		};
+
+		setKeybindings(keybindings);
+		editorContainer.addChild(editor);
+		ui.addChild(editorContainer);
+		ui.setFocus(editor);
+		interactiveModeKeyHandlers.registerGlobalInterruptInputHandler.call(fakeThis);
+		ui.start();
+		try {
+			interactiveModeKeyHandlers.showSelector.call(fakeThis, (done) => {
+				const callbacks = new Proxy({ onCancel: done } as SettingsCallbacks, {
+					get: (target, key) => (key in target ? target[key as keyof SettingsCallbacks] : () => {}),
+				});
+				const selector = new SettingsSelectorComponent(config, callbacks);
+				return { component: selector, focus: selector.getSettingsList() };
+			});
+
+			terminal.sendInput("\x1b[27u");
+			terminal.sendInput("\x1b[27;1:3u");
+			await Promise.resolve();
+			await flushTui(ui, terminal);
+
+			expect(editorContainer.children).toEqual([editor]);
+			expect(editor.focused).toBe(true);
+			expect(cancelStreamingAndSubmitQueuedMessages).not.toHaveBeenCalled();
+		} finally {
+			ui.stop();
+			setKeybindings(new KeybindingsManager());
+		}
+	});
+
+	test("escape closes any focused dialog without interrupting, while escape in the editor still interrupts", async () => {
+		const terminal = new VirtualTerminal(80, 24);
+		const ui = new TUI(terminal);
+		const editor = new TestFocusableComponent("EDITOR");
+		const dialogInputs: string[] = [];
+		const dialog: Component = {
+			render: () => ["EXTENSION DIALOG"],
+			handleInput: (data) => {
+				dialogInputs.push(data);
+				ui.setFocus(editor);
+			},
+			invalidate: () => {},
+		};
+		const cancelStreamingAndSubmitQueuedMessages = vi.fn();
+		const keybindings = new KeybindingsManager();
+		const fakeThis = {
+			editor,
+			extensionSelector: undefined,
+			keybindings,
+			session: { isStreaming: true },
+			cancelStreamingAndSubmitQueuedMessages,
+			showError: vi.fn(),
+			ui,
+		};
+
+		ui.addChild(editor);
+		ui.addChild(dialog);
+		ui.setFocus(dialog);
+		interactiveModeKeyHandlers.registerGlobalInterruptInputHandler.call(fakeThis);
+		ui.start();
+		try {
+			terminal.sendInput("\x1b");
+			await flushTui(ui, terminal);
+			expect(dialogInputs).toEqual(["\x1b"]);
+			expect(cancelStreamingAndSubmitQueuedMessages).not.toHaveBeenCalled();
+
+			terminal.sendInput("\x1b");
+			await Promise.resolve();
+			await flushTui(ui, terminal);
+			expect(cancelStreamingAndSubmitQueuedMessages).toHaveBeenCalledTimes(1);
+			expect(editor.inputs).toEqual([]);
+		} finally {
 			ui.stop();
 		}
 	});

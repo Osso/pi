@@ -597,6 +597,10 @@ export class TUI extends Container {
 		};
 	}
 
+	getFocusedComponent(): Component | null {
+		return this.focusedComponent;
+	}
+
 	setFocus(component: Component | null): void {
 		this.setFocusInternal({ component, overlayFocusRestore: "clear" });
 	}

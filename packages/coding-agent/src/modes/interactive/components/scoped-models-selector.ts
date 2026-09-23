@@ -343,8 +343,7 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 			return;
 		}
 
-		// Escape - cancel
-		if (this.handlesEscape(data)) {
+		if (kb.matches(data, "tui.select.cancel")) {
 			this.callbacks.onCancel();
 			return;
 		}
@@ -352,10 +351,6 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 		// Pass everything else to search input
 		this.searchInput.handleInput(data);
 		this.refresh();
-	}
-
-	handlesEscape(data: string): boolean {
-		return matchesKey(data, Key.escape);
 	}
 
 	getSearchInput(): Input {
