@@ -50,7 +50,7 @@ With the setting disabled, registered `compaction` handlers still run for manual
 
 Manual compaction cancels an active turn, then may resume it when work remains. Once compaction has committed and the UI receives completion, compaction is no longer active: new input follows normal steering or follow-up delivery even if the resumed turn is waiting on a tool. Input submitted while summary generation or compaction commit is still active remains deferred until completion.
 
-Manual-resumption post-run ownership is under repair. The required behavior is that, if the original cancelled turn reaches post-run handling after the resumed turn has started, it defers without consuming the shared last assistant message or queued follow-up. The resumed turn then delivers queued input once; the original caller settles without starting a concurrent continuation.
+Manual-resumption post-run ownership prevents a cancelled turn from racing its resumed turn. If the original turn reaches post-run handling while the resumed turn is streaming, it defers before consuming the shared last assistant message or queued follow-up. The resumed turn owns post-processing and delivers queued input once; the original caller settles without starting a concurrent continuation.
 
 ### How It Works
 

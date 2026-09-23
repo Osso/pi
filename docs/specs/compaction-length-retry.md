@@ -32,7 +32,7 @@ works is described in [compaction](../../packages/coding-agent/docs/compaction.m
 - [x] Manual compaction clears its active-compaction state before `compaction_end`. After
   starting the resumed turn, it releases turn-start exclusion before awaiting that turn.
   Later steering uses normal delivery, including while the resumed turn waits on a tool.
-- [ ] If the cancelled original turn reaches post-run handling after manual compaction has
+- [x] If the cancelled original turn reaches post-run handling after manual compaction has
   started its resumed run, it defers while that run is streaming without consuming the shared
   last assistant message or queued follow-up. The resumed turn owns post-processing, delivers
   queued input once, and the original caller settles without starting a concurrent continuation.
@@ -97,9 +97,9 @@ works is described in [compaction](../../packages/coding-agent/docs/compaction.m
 - `packages/coding-agent/test/suite/interactive-compaction-wait-steering.test.ts`
   - editor steering during compaction and resumed waiting wakes the controlled tool and delivers once.
 - `packages/coding-agent/test/suite/manual-compaction-postrun-race.test.ts`
-  - RED regression: manual compaction resumes an aborted tool turn while the original post-run
-    path observes a queued follow-up; requires the original to settle without a busy error and
-    the resumed turn to own delivery.
+  - covers both `prompt` and `continue` entry points when manual compaction resumes an aborted
+    tool turn and the original post-run path observes a queued follow-up; requires the original
+    to settle without a busy error while the resumed turn owns delivery.
 - `packages/coding-agent/test/suite/compaction-wait-agent-steering.test.ts`
   - a live child survives supervisor restart while post-compaction steering is accepted and delivered.
 
