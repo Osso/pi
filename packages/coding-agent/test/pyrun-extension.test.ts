@@ -1917,14 +1917,19 @@ for await (const line of createInterface({ input: process.stdin })) {
 			piRequestHandlers: [
 				createMultiAgentPiRequestHandler(
 					{
-						createChildSession: async ({ agent }) => ({
-							messages: [fauxAssistantMessage("done")],
-							prompt: async () => {},
-							transcript: {
-								path: join(tempDir, `${agent.id}.jsonl`),
-								sessionId: `session-${agent.id}`,
-							},
-						}),
+						createChildSession: async ({ agent }) => {
+							const messages: ReturnType<typeof fauxAssistantMessage>[] = [];
+							return {
+								messages,
+								prompt: async () => {
+									messages.push(fauxAssistantMessage("done"));
+								},
+								transcript: {
+									path: join(tempDir, `${agent.id}.jsonl`),
+									sessionId: `session-${agent.id}`,
+								},
+							};
+						},
 						store,
 					},
 					{
