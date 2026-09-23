@@ -337,6 +337,7 @@ async function executeRunnerOwnedBash(
 		detach: BashDetachOptions;
 		env: NodeJS.ProcessEnv;
 		lifecycle: DetachedJobLifecycleController;
+		onActivated: () => void;
 		onData: (data: Buffer) => void;
 		shellPath?: string;
 		signal?: AbortSignal;
@@ -391,6 +392,7 @@ async function observeForegroundBashRunner(
 	options: {
 		detach: BashDetachOptions;
 		lifecycle: DetachedJobLifecycleController;
+		onActivated: () => void;
 		onData: (data: Buffer) => void;
 		signal?: AbortSignal;
 		timeout?: number;
@@ -413,7 +415,9 @@ async function observeForegroundBashRunner(
 		} catch (error) {
 			activationError = error;
 		}
-		if (activation) options.signal?.removeEventListener("abort", requestCancellation);
+		if (!activation) return;
+		options.signal?.removeEventListener("abort", requestCancellation);
+		options.onActivated();
 	};
 	if (options.signal?.aborted) requestCancellation();
 	else options.signal?.addEventListener("abort", requestCancellation, { once: true });
@@ -623,6 +627,8 @@ export function createBashToolDefinition(
 			const detachController = configuredDetach || !lifecycle || !detachRegistry ? undefined : new AbortController();
 			let unregisterDetach: (() => void) | undefined;
 			const detach = configuredDetach ?? createDetachOptions(detachController, lifecycle);
+			const useDetachedRunner = options?.operations === undefined && lifecycle !== undefined && detach !== undefined;
+			let runnerActivated = false;
 			let acceptingOutput = true;
 			let updateTimer: NodeJS.Timeout | undefined;
 			let updateDirty = false;
@@ -733,7 +739,8 @@ export function createBashToolDefinition(
 							return false;
 						}
 						detachController.abort();
-						return true;
+						// The durable runner activates synchronously; report only a call that actually became a job.
+						return !useDetachedRunner || runnerActivated;
 					},
 				});
 			}
@@ -741,13 +748,14 @@ export function createBashToolDefinition(
 			try {
 				let exitCode: number | null;
 				try {
-					const useDetachedRunner =
-						options?.operations === undefined && lifecycle !== undefined && detach !== undefined;
 					const result = useDetachedRunner
 						? await executeRunnerOwnedBash(spawnContext.command, spawnContext.cwd, {
 								detach,
 								env: spawnContext.env,
 								lifecycle,
+								onActivated: () => {
+									runnerActivated = true;
+								},
 								onData: handleData,
 								shellPath: options?.shellPath,
 								signal,
