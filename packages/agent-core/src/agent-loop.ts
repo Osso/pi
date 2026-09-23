@@ -114,7 +114,8 @@ export async function runAgentLoop(
 	return newMessages;
 }
 
-function restoredPendingToolMessage(messages: readonly AgentMessage[]): AssistantMessage | undefined {
+/** Returns the trailing assistant tool batch reduced to calls that have no tool result yet. */
+export function restoredPendingToolMessage(messages: readonly AgentMessage[]): AssistantMessage | undefined {
 	const completedToolCallIds = new Set<string>();
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const message = messages[index];

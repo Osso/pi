@@ -12,6 +12,7 @@ import {
 	ENV_SELF_RESTART_PROMPT,
 	ENV_SELF_RESTART_REQUEST,
 	ENV_SELF_RESTART_SESSION,
+	resolveRestartInterruptedToolCalls,
 	restartCurrentProcess,
 	spawnSelfRestart,
 	waitForSelfRestartParentExit,
@@ -168,6 +169,72 @@ describe("self restart request", () => {
 			expect(sessions).toHaveLength(1);
 			expect(sessions[0]?.firstMessage).toBe("Actual first request");
 			expect(sessions[0]?.allMessagesText).toBe("Actual first request Response");
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("resolves tool calls left pending by a restart before the restart notice", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "pi-self-restart-pending-"));
+		try {
+			const sessionManager = SessionManager.create(cwd, join(cwd, "sessions"));
+			sessionManager.appendMessage({ role: "user", content: "Restart while reading", timestamp: Date.now() });
+			sessionManager.appendMessage({
+				role: "assistant",
+				content: [
+					{ type: "toolCall", id: "call-read", name: "read", arguments: { path: "a.txt" } },
+					{ type: "toolCall", id: "call-done", name: "read", arguments: { path: "b.txt" } },
+					{ type: "toolCall", id: "call-restart", name: "restart_self", arguments: {} },
+				],
+				timestamp: Date.now(),
+				api: "anthropic-messages",
+				provider: "faux",
+				model: "faux",
+				usage: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "toolUse",
+			});
+			sessionManager.appendMessage({
+				role: "toolResult",
+				toolCallId: "call-done",
+				toolName: "read",
+				content: [{ type: "text", text: "b contents" }],
+				isError: false,
+				timestamp: Date.now(),
+			});
+
+			resolveRestartInterruptedToolCalls(sessionManager);
+			appendSelfRestartNotice(sessionManager, {
+				sessionFile: sessionManager.getSessionFile()!,
+				prompt: "Restarted.",
+				oldPid: process.pid,
+			});
+
+			const tail = sessionManager.buildSessionContext().messages.slice(-4);
+			expect(tail).toMatchObject([
+				{ role: "toolResult", toolCallId: "call-done", isError: false },
+				{
+					role: "toolResult",
+					toolCallId: "call-read",
+					isError: true,
+					content: [
+						{ type: "text", text: "Interrupted by a Pi restart before it finished; rerun it if still needed." },
+					],
+				},
+				{
+					role: "toolResult",
+					toolCallId: "call-restart",
+					isError: false,
+					content: [{ type: "text", text: "Pi restarted." }],
+				},
+				{ role: "custom", customType: "self_restart" },
+			]);
 		} finally {
 			rmSync(cwd, { recursive: true, force: true });
 		}

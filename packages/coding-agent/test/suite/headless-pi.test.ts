@@ -99,6 +99,17 @@ function expectSingleToolResult(request: HeadlessLlmRequest, expectedOutput: str
 	expect(JSON.stringify(request.messages)).toContain(expectedOutput);
 }
 
+function expectRestartJobResult(request: HeadlessLlmRequest, toolName: string, jobId: string): void {
+	const results = request.messages.filter((message) => message.role === "toolResult" && message.toolName === toolName);
+	expect(results).toHaveLength(1);
+	expect(results[0]).toMatchObject({ isError: false, details: { backgroundJobId: jobId } });
+	const resultIndex = request.messages.indexOf(results[0]!);
+	const noticeIndex = request.messages.findIndex((message) =>
+		JSON.stringify(message).includes("The agent process was restarted"),
+	);
+	expect(resultIndex).toBeLessThan(noticeIndex);
+}
+
 function expectSingleFailedToolResult(request: HeadlessLlmRequest, expectedOutput: string): void {
 	const results = request.messages.filter((message) => message.role === "toolResult");
 	expect(results).toHaveLength(1);
@@ -2220,7 +2231,7 @@ describe("headless Pi fixture", () => {
 					15_000,
 				);
 				expect(isProcessIdentityAlive(exactRunnerIdentity)).toBe(true);
-				expect(JSON.stringify(restoredRequest.messages)).toContain("1 running tool call moved to a background job");
+				expectRestartJobResult(restoredRequest, "pyrun_eval", jobId);
 				await agent.waitForAgent((candidate) => candidate.id === jobId && candidate.lifecycle === "running");
 				agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Waiting for the job"));
 
@@ -2266,10 +2277,10 @@ describe("headless Pi fixture", () => {
 					request.agentId === null && JSON.stringify(request.messages).includes("The agent process was restarted"),
 				15_000,
 			);
-			expect(JSON.stringify(restoredRequest.messages)).toContain("1 running tool call moved to a background job");
 			const job = await agent.waitForAgent(
 				(candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running",
 			);
+			expectRestartJobResult(restoredRequest, "bash", job.id);
 			agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Waiting for the job"));
 
 			writeFileSync(releasePath, "release");

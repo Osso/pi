@@ -136,6 +136,10 @@ it("automatically continues the restored session after restart_self", async () =
 		const afterRestart = await pi.waitForLlmRequest((request) => request.agentId === null, 10_000);
 		expect(afterRestart.sessionId).toBe(pi.sessionId);
 		expect(JSON.stringify(afterRestart.messages)).not.toContain("Continue from the restored session after restart.");
+		const restartResults = afterRestart.messages.filter(
+			(message) => message.role === "toolResult" && message.toolName === "restart_self",
+		);
+		expect(restartResults).toMatchObject([{ isError: false, content: [{ type: "text", text: "Pi restarted." }] }]);
 		const restoredEntries = pi.readSessionEntries(null);
 		expect(
 			restoredEntries.filter((entry) => entry.type === "custom_message" && entry.customType === "self_restart"),

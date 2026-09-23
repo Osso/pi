@@ -335,8 +335,8 @@ describe("bash tool background detach", () => {
 		const restoredResultPromise = restoredTool.execute(toolCallId, { command }, undefined, undefined, {} as never);
 		try {
 			await delay(0);
-			// Already a background job: detaching must not report a newly moved call.
-			expect(restoredDetachRegistry.detachAll()).toBe(0);
+			// Already a background job: nothing new to detach.
+			expect(restoredDetachRegistry.detachRunning()).toBe(false);
 			expect(readdirSync(join(cwd, "detached-jobs", "session"))).toHaveLength(1);
 			expect(readFileSync(attemptsPath, "utf8").trim().split("\n")).toEqual(["attempt"]);
 		} finally {

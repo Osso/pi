@@ -5337,8 +5337,8 @@ export class AgentSession {
 		return this._toolDetachRegistry.detachRunning();
 	}
 
-	detachAllRunningTools(): number {
-		return this._toolDetachRegistry.detachAll();
+	detachAllRunningTools(): void {
+		this._toolDetachRegistry.detachAll();
 	}
 
 	detachBashTool(): boolean {

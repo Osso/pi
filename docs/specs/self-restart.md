@@ -44,7 +44,8 @@ runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
 - [x] Restore an interrupted `restart_self` tool batch by treating the typed `self_restart` notice as metadata and continuing the same session through `AgentSession.continue`; do not require or synthesize a user prompt.
 - [x] If the persisted session cwd was deleted, automatically reopen the same session at the nearest existing parent of the current cwd before runtime startup, preserving the typed restart notice and automatic continuation without synthesizing a user prompt.
 - [x] Preserve goal state exactly across restart: running goals remain running, and explicitly paused goals retain their existing `pausedAt` value.
-- [x] Before teardown, detach every running detachable tool call (Bash, Pyrun) into a background job so restart does not cancel it; when any detach, append to the restart notice how many moved and that their results arrive as job notifications and must not be rerun (`packages/coding-agent/test/suite/headless-pi.test.ts`).
+- [x] Before teardown, detach every running detachable tool call (Bash, Pyrun) into a background job so restart does not cancel it (`packages/coding-agent/test/suite/headless-pi.test.ts`).
+- [x] Before appending the restart notice, persist a result for every tool call in the trailing batch that has none: `restart_self` succeeds (`Pi restarted.`), a call with a detached job returns that job reference, and any other call returns an interrupted error; these results precede the notice and are never rerun (`packages/coding-agent/test/self-restart.test.ts`, `packages/coding-agent/test/suite/regressions/restart-self-auto-continuation.test.ts`).
 
 ## How it works
 

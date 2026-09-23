@@ -1,6 +1,10 @@
 import { spawn } from "node:child_process";
 import type { EventEmitter } from "node:events";
+import { restoredPendingToolMessage } from "@earendil-works/pi-agent-core";
+import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import type { Args } from "../cli/args.ts";
+import type { AgentSnapshot } from "./multi-agent-store.ts";
+import { readMultiAgentState } from "./session-control-db.ts";
 import type { SessionManager } from "./session-manager.ts";
 
 export const ENV_SELF_RESTART_REQUEST = "PI_SELF_RESTART_REQUEST";
@@ -149,6 +153,51 @@ export function applySelfRestartRequest(parsed: Args, handoff: SelfRestartHandof
 	parsed.sessionId = undefined;
 	parsed.fileArgs = [];
 	parsed.messages = [];
+}
+
+/**
+ * Persists a result for every tool call a restart left without one, so the resumed model sees each outcome before
+ * the restart notice: restart_self succeeded, calls detached at restart point at their background job, and anything
+ * else was interrupted.
+ */
+export function resolveRestartInterruptedToolCalls(sessionManager: SessionManager): void {
+	const pending = restoredPendingToolMessage(sessionManager.buildSessionContext().messages);
+	if (!pending) return;
+	const jobs = readDetachedJobs(sessionManager);
+	for (const content of pending.content) {
+		if (content.type !== "toolCall") continue;
+		const job = jobs.find((candidate) => candidate.worker?.toolCallId === content.id);
+		sessionManager.appendMessage(createRestartToolResult(content.id, content.name, job));
+	}
+}
+
+function readDetachedJobs(sessionManager: SessionManager): AgentSnapshot[] {
+	const controlDbPath = sessionManager.getMetadataControlDbPath();
+	const sessionPath = sessionManager.getSessionFile();
+	if (!controlDbPath || !sessionPath) return [];
+	const agents = (readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []) as AgentSnapshot[];
+	return agents.filter((agent) => agent.detached);
+}
+
+function createRestartToolResult(
+	toolCallId: string,
+	toolName: string,
+	job: AgentSnapshot | undefined,
+): ToolResultMessage {
+	const result = { role: "toolResult" as const, timestamp: Date.now(), toolCallId, toolName };
+	if (job) {
+		const text = `Moved to background as job ${job.id} during a Pi restart; its result arrives as a job notification.`;
+		return {
+			...result,
+			content: [{ type: "text", text }],
+			details: { backgroundJobId: job.id, type: "detached" },
+			isError: false,
+		};
+	}
+	if (toolName === "restart_self")
+		return { ...result, content: [{ type: "text", text: "Pi restarted." }], isError: false };
+	const text = "Interrupted by a Pi restart before it finished; rerun it if still needed.";
+	return { ...result, content: [{ type: "text", text }], isError: true };
 }
 
 export function appendSelfRestartNotice(sessionManager: SessionManager, handoff: SelfRestartHandoff | undefined): void {

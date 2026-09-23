@@ -33,9 +33,9 @@ export class ToolDetachRegistry {
 		return false;
 	}
 
-	/** Detaches every running tool that supports it and returns how many moved to background jobs. */
-	detachAll(): number {
-		return [...this.handles].filter((handle) => handle.detach()).length;
+	/** Detaches every running tool that supports it into a background job. */
+	detachAll(): void {
+		for (const handle of [...this.handles]) handle.detach();
 	}
 
 	hasRunning(): boolean {

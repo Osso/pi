@@ -96,6 +96,7 @@ import {
 	appendSelfRestartNotice,
 	applySelfRestartRequest,
 	consumeSelfRestartRequest,
+	resolveRestartInterruptedToolCalls,
 	waitForSelfRestartParentExit,
 } from "./core/self-restart.ts";
 import { isArchivedSessionFile, restoreArchivedSession } from "./core/session-archive-storage.ts";
@@ -948,6 +949,7 @@ export async function main(args: string[], options?: MainOptions) {
 			process.exit(1);
 		}
 	}
+	if (selfRestartHandoff) resolveRestartInterruptedToolCalls(sessionManager);
 	appendSelfRestartNotice(sessionManager, selfRestartHandoff);
 	if (parsed.name !== undefined) {
 		const name = parsed.name.trim();

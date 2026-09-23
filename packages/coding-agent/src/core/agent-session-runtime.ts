@@ -16,7 +16,7 @@ export { SessionImportFileNotFoundError } from "./session-errors.ts";
 
 import { runDetachedJobArtifactCleanup } from "./detached-job-cleanup.ts";
 import { removeAbandonedEmptySession } from "./empty-session-cleanup.ts";
-import { type ProcessRestarter, restartCurrentProcess } from "./self-restart.ts";
+import { type ProcessRestarter, resolveRestartInterruptedToolCalls, restartCurrentProcess } from "./self-restart.ts";
 import { restoreArchivedSession } from "./session-archive-storage.ts";
 import { assertMainSessionRuntimeAvailable, removeSessionMetadata } from "./session-control-db.ts";
 import { assertSessionCwdExists } from "./session-cwd.ts";
@@ -69,15 +69,6 @@ function extractUserMessageText(content: string | Array<{ type: string; text?: s
 		.filter((part): part is { type: "text"; text: string } => part.type === "text" && typeof part.text === "string")
 		.map((part) => part.text)
 		.join("");
-}
-
-function appendDetachedToolNotice(notice: string | undefined, detachedCount: number): string | undefined {
-	if (detachedCount === 0) return notice;
-	const detachedNotice =
-		detachedCount === 1
-			? "1 running tool call moved to a background job; its result arrives as a job notification, so do not rerun it."
-			: `${detachedCount} running tool calls moved to background jobs; their results arrive as job notifications, so do not rerun them.`;
-	return notice ? `${notice} ${detachedNotice}` : detachedNotice;
 }
 
 /**
@@ -391,7 +382,7 @@ export class AgentSessionRuntime {
 		const currentSessionManager = this.session.sessionManager;
 		const currentSessionFile = currentSessionManager.getSessionFile();
 		// Teardown aborts in-flight tool calls; detached ones keep running and report as background jobs.
-		const notice = appendDetachedToolNotice(options?.notice, this.session.detachAllRunningTools());
+		this.session.detachAllRunningTools();
 
 		if (options?.process && currentSessionManager.isPersisted() && currentSessionFile) {
 			currentSessionManager.persistForRecovery();
@@ -399,7 +390,7 @@ export class AgentSessionRuntime {
 			await this.teardownCurrent("restart", currentSessionFile);
 			await this.processRestarter({
 				sessionFile: currentSessionFile,
-				prompt: notice,
+				prompt: options.notice,
 			});
 			return;
 		}
@@ -413,8 +404,9 @@ export class AgentSessionRuntime {
 					)
 				: currentSessionManager;
 
-		if (notice) {
-			sessionManager.appendCustomMessageEntry("self_restart", notice, true);
+		resolveRestartInterruptedToolCalls(sessionManager);
+		if (options?.notice) {
+			sessionManager.appendCustomMessageEntry("self_restart", options.notice, true);
 		}
 
 		await this.teardownCurrent("restart", currentSessionFile);
