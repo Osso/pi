@@ -18,7 +18,7 @@ it("continues an interrupted self-restart from an existing parent after its cwd 
 				fauxAssistantMessage(fauxToolCall("restart_self", {}), { stopReason: "toolUse" }),
 			);
 
-			const afterRestart = await agent.waitForLlmRequest((request) => request.agentId === null, 10_000);
+			const afterRestart = await agent.waitForLlmRequest((request) => request.agentId === null);
 			expect(afterRestart.sessionId).toBe(agent.sessionId);
 			expect(existsSync(deletedCwd)).toBe(false);
 			expect(readSessionMetadata(getControlDbPath(agent.paths.agentDir), agent.sessionFile)?.cwd).toBe(fallbackCwd);

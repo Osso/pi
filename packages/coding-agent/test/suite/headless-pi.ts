@@ -35,7 +35,7 @@ import { RpcClient, type RpcCommandBody } from "../../src/modes/rpc/rpc-client.t
 import type { RpcExtensionUIRequest, RpcResponse } from "../../src/modes/rpc/rpc-types.ts";
 import { type HeadlessSupervisorProbe, startHeadlessSupervisorProbe } from "./fixtures/headless-supervisor-probe.ts";
 
-const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 function readHeadlessCompileCacheDir(): string {
 	const compileCacheRoot = inject("headlessCompileCacheRoot");

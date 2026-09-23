@@ -2245,6 +2245,43 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, runtimeMessageId)).toMatchObject({ status: "delivered" });
 	});
 
+	it("delivers a shared-channel message posted while an idle drain is already delivering", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		harness.setResponses([fauxAssistantMessage("first reply"), fauxAssistantMessage("second reply")]);
+		const recipient = { agentId: null, sessionId: harness.sessionManager.getSessionId() };
+		initializeSharedChannelCursorAtTail(controlDbPath, recipient);
+		postSharedChannelMessage(controlDbPath, {
+			body: "First status?",
+			sender: { agentId: null, sessionId: "sender-session-a" },
+		});
+		const drainableSession = harness.session as unknown as {
+			_drainSharedChannelMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
+		};
+
+		const firstDrain = drainableSession._drainSharedChannelMessages({ triggerIfIdle: true });
+		const secondMessageId = postSharedChannelMessage(controlDbPath, {
+			body: "Second status?",
+			sender: { agentId: null, sessionId: "sender-session-b" },
+		});
+		// A wake arriving mid-delivery must not be dropped until the next poll.
+		await drainableSession._drainSharedChannelMessages({ triggerIfIdle: true });
+		await firstDrain;
+		await harness.session.agent.waitForIdle();
+
+		const deliveredContents = harness.session.messages.flatMap((message) =>
+			message.role === "custom" && message.customType === "shared_channel" ? [message.content] : [],
+		);
+		expect(deliveredContents).toEqual([
+			sharedChannelBatchPrompt([{ body: "First status?", sessionId: "sender-session-a" }], recipient.sessionId),
+			sharedChannelBatchPrompt([{ body: "Second status?", sessionId: "sender-session-b" }], recipient.sessionId),
+		]);
+		expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(secondMessageId);
+	});
+
 	it("queues shared channel chatter when idle delivery races a newly started turn", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);

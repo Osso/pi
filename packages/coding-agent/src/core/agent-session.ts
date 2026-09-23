@@ -839,6 +839,7 @@ export class AgentSession {
 	private _runtimeMailboxDrainPromise: Promise<boolean> | undefined;
 	private _runtimeMailboxDrainMode: "prompt" | "steer" | undefined;
 	private _sharedChannelDrainInProgress = false;
+	private _sharedChannelDrainRequested = false;
 	private _runtimeMailboxSteeringAgentIds = new Set<string>();
 	private readonly _runtimeMailboxPendingTerminal = new Map<
 		string,
@@ -3169,9 +3170,8 @@ export class AgentSession {
 			return false;
 		}
 		if (this._sharedChannelDrainInProgress) {
-			return false;
-		}
-		if (options.triggerIfIdle && this.isStreaming) {
+			// The running drain may have read the channel before this wake's message arrived; make it re-read.
+			this._sharedChannelDrainRequested = true;
 			return false;
 		}
 		const controlDbPath = this._getRuntimeMailboxControlDbPath();
@@ -3180,7 +3180,13 @@ export class AgentSession {
 		}
 		this._sharedChannelDrainInProgress = true;
 		try {
-			return await this._drainSharedChannelMessagesFromDb(controlDbPath, options);
+			let queued = false;
+			do {
+				this._sharedChannelDrainRequested = false;
+				if (options.triggerIfIdle && this.isStreaming) break;
+				queued = (await this._drainSharedChannelMessagesFromDb(controlDbPath, options)) || queued;
+			} while (this._sharedChannelDrainRequested);
+			return queued;
 		} finally {
 			this._sharedChannelDrainInProgress = false;
 		}

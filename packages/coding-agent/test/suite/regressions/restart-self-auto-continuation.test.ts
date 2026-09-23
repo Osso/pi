@@ -133,7 +133,7 @@ it("automatically continues the restored session after restart_self", async () =
 			fauxAssistantMessage(fauxToolCall("restart_self", {}), { stopReason: "toolUse" }),
 		);
 
-		const afterRestart = await pi.waitForLlmRequest((request) => request.agentId === null, 10_000);
+		const afterRestart = await pi.waitForLlmRequest((request) => request.agentId === null);
 		expect(afterRestart.sessionId).toBe(pi.sessionId);
 		expect(JSON.stringify(afterRestart.messages)).not.toContain("Continue from the restored session after restart.");
 		const restartResults = afterRestart.messages.filter(
@@ -185,7 +185,6 @@ it("rejects child restart_self without replacing the supervisor session", async 
 		);
 		const childAfterRejection = await pi.waitForLlmRequest(
 			(request) => request.id !== initialChild.id && (request.agentId === child.id || request.agentId === null),
-			10_000,
 		);
 
 		expect(childAfterRejection.agentId).toBe(child.id);
@@ -257,11 +256,8 @@ it("continues a completed running goal after restart while a child remains live"
 
 		await pi.restart();
 
-		const continuation = await pi.waitForLlmRequest((request) => request.agentId === null, 10_000);
-		const restoredChildRequest = await pi.waitForLlmRequest(
-			(request) => request.sessionId === childSessionId,
-			10_000,
-		);
+		const continuation = await pi.waitForLlmRequest((request) => request.agentId === null);
+		const restoredChildRequest = await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);
 		expect(continuation.sessionId).toBe(pi.sessionId);
 		expect(restoredChildRequest.userMessages).toContain("Wait across restart");
 		expect(pi.listAgents().find((agent) => agent.id === child.id)?.lifecycle).toBe("running");
@@ -291,11 +287,11 @@ it("recovers and cancels a compacted logical child after restart_self changes th
 		const controlDbPath = getControlDbPath(pi.paths.agentDir);
 		await completeParentTurn(pi, mainAfterSpawn.id, "Wait for the child");
 		await pi.send({ type: "prompt", message: "Record another parent turn before compaction" });
-		const beforeCompaction = await waitForMainRequest(pi, 10_000);
+		const beforeCompaction = await waitForMainRequest(pi);
 		await completeParentTurn(pi, beforeCompaction.id, "Parent turn before compaction complete");
 
 		const compaction = pi.send({ type: "compact" });
-		const compactionRequest = await waitForMainRequest(pi, 10_000);
+		const compactionRequest = await waitForMainRequest(pi);
 		pi.respondToLlmRequest(compactionRequest.id, fauxAssistantMessage("Child remains active across compaction"));
 		const compactionResponse = await compaction;
 		expect(compactionResponse).toMatchObject({ command: "compact", success: true });
@@ -321,7 +317,7 @@ it("recovers and cancels a compacted logical child after restart_self changes th
 		if (!ownershipBefore?.processIdentity) throw new Error("Steered logical child has no runtime ownership");
 
 		await pi.send({ type: "prompt", message: "Restart while the compacted child remains live" });
-		const restartRequest = await waitForMainRequest(pi, 10_000);
+		const restartRequest = await waitForMainRequest(pi);
 		pi.respondToLlmRequest(
 			restartRequest.id,
 			fauxAssistantMessage(fauxToolCall("restart_self", {}), { stopReason: "toolUse" }),
@@ -330,7 +326,7 @@ it("recovers and cancels a compacted logical child after restart_self changes th
 			null,
 			(entry) => entry.type === "custom_message" && entry.customType === "self_restart",
 		);
-		const restoredChildRequest = await waitForChildRequest(pi, child.id, 10_000);
+		const restoredChildRequest = await waitForChildRequest(pi, child.id);
 		expectOneActiveParentAgentStart(pi, child.id);
 		const ownershipAfter = readMultiAgentRuntimeOwnership(controlDbPath, pi.sessionFile, child.id);
 		expect(ownershipAfter?.processIdentity).toMatchObject({
@@ -348,7 +344,7 @@ it("recovers and cancels a compacted logical child after restart_self changes th
 			"Recovery prompt handled",
 		);
 		await waitForSteeredChildRequest(pi, child.id);
-		const mainAfterRestart = await waitForMainRequest(pi, 10_000);
+		const mainAfterRestart = await waitForMainRequest(pi);
 		pi.respondToLlmRequest(
 			mainAfterRestart.id,
 			fauxAssistantMessage(

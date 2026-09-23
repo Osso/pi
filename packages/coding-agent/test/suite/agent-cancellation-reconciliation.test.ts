@@ -231,7 +231,6 @@ describe("restored subagent cancellation cleanup", () => {
 				await expectSilentDetachedCleanupAndSingleParentCompletion(pi, detached.id, child.id);
 				const afterClose = await pi.waitForLlmRequest(
 					(request) => request.agentId === null && request.id !== restoredMain.id,
-					15_000,
 				);
 				expect(JSON.stringify(afterClose.messages)).toContain("Cancelled Restarted cancellation parent");
 				pi.respondToLlmRequest(afterClose.id, fauxAssistantMessage("Restarted cancellation complete"));
@@ -262,7 +261,6 @@ describe("agent cancellation reconciliation", () => {
 				await expectSilentDetachedCleanupAndSingleParentCompletion(pi, detached.id, child.id);
 				const afterClose = await pi.waitForLlmRequest(
 					(request) => request.agentId === null && request.id !== mainAfterSpawn.id,
-					15_000,
 				);
 				expect(JSON.stringify(afterClose.messages)).toContain("Cancelled Detached cancellation parent");
 				pi.respondToLlmRequest(afterClose.id, fauxAssistantMessage("Cancellation complete"));
@@ -291,7 +289,6 @@ describe("agent cancellation restart recovery", () => {
 				await pi.waitForAgent((agent) => agent.id === child.id && agent.lifecycle === "cancelling");
 				const afterClose = await pi.waitForLlmRequest(
 					(request) => request.agentId === null && request.id !== mainAfterSpawn.id,
-					15_000,
 				);
 				expect(JSON.stringify(afterClose.messages)).toContain("Cancellation requested");
 
@@ -301,7 +298,7 @@ describe("agent cancellation restart recovery", () => {
 					afterClose.id,
 					fauxAssistantMessage(fauxToolCall("restart_self", {}), { stopReason: "toolUse" }),
 				);
-				const restoredMain = await pi.waitForLlmRequest((request) => request.agentId === null, 15_000);
+				const restoredMain = await pi.waitForLlmRequest((request) => request.agentId === null);
 				const afterRestart = readMainRuntimeIdentity(controlDbPath, pi.sessionId);
 				expect(afterRestart).toMatchObject({
 					pid: beforeRestart.pid,

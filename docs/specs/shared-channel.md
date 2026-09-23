@@ -29,6 +29,7 @@ once needed.
 - [x] Messages posted by the same recipient are skipped and marked seen to avoid self-echo.
 - [x] Messages posted by subagents are skipped and marked seen, preventing old-process subagent traffic from flooding main sessions.
 - [x] Busy/streaming sessions do not drain channel messages until a later idle drain.
+- [x] A drain requested while another drain is delivering is not dropped: the running drain re-reads the channel when it finishes, so a message posted mid-delivery arrives without waiting for the 30-second poll (`packages/coding-agent/test/runtime-mailbox.test.ts`: "delivers a shared-channel message posted while an idle drain is already delivering").
 - [x] When `wait_agent({})` wakes on coordination input for a main-thread recipient, it returns and consumes all
       currently pending deliverable shared-channel inputs, preserving each sender/body format and advancing the
       recipient cursor so each distinct channel message is visible exactly once.

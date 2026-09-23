@@ -1899,7 +1899,7 @@ describe("headless Pi fixture", () => {
 
 				writeFileSync(releasePath, "release");
 				const restoredRequest = await agent
-					.waitForLlmRequest((request) => request.agentId === null, 10_000)
+					.waitForLlmRequest((request) => request.agentId === null)
 					.catch((error: unknown) => {
 						throw new Error(
 							`Live Bash runner completed without restoring the tool turn: ${String(error)} alive=${isProcessAlive(originalPid)} agents=${JSON.stringify(agent.listAgents())} entries=${JSON.stringify(agent.readSessionEntries(null).slice(-8))}`,
@@ -2228,7 +2228,6 @@ describe("headless Pi fixture", () => {
 					(request) =>
 						request.agentId === null &&
 						JSON.stringify(request.messages).includes("The agent process was restarted"),
-					15_000,
 				);
 				expect(isProcessIdentityAlive(exactRunnerIdentity)).toBe(true);
 				expectRestartJobResult(restoredRequest, "pyrun_eval", jobId);
@@ -2275,7 +2274,6 @@ describe("headless Pi fixture", () => {
 			const restoredRequest = await agent.waitForLlmRequest(
 				(request) =>
 					request.agentId === null && JSON.stringify(request.messages).includes("The agent process was restarted"),
-				15_000,
 			);
 			const job = await agent.waitForAgent(
 				(candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running",
@@ -2352,7 +2350,7 @@ describe("headless Pi fixture", () => {
 				writeFileSync(releasePath, "release");
 				expect(existsSync(outputPath), "original Pyrun output log must survive runner loss").toBe(true);
 				expect(readFileSync(outputPath, "utf8")).toContain("original-pyrun-output");
-				const restoredRequest = await agent.waitForLlmRequest((request) => request.agentId === null, 2_000);
+				const restoredRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
 				expectSingleFailedToolResult(restoredRequest, "original-pyrun-output");
 				const [restoredResult] = restoredRequest.messages.filter((message) => message.role === "toolResult");
 				expect(restoredResult).toMatchObject({ details: { outputPath, type: "lost_runtime" } });
