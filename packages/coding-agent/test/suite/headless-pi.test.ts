@@ -2207,6 +2207,7 @@ describe("headless Pi fixture", () => {
 				});
 				if (!manifest) throw new Error("Foreground Pyrun launch manifest not found");
 				const jobId = manifest.runnerAddress.agentId;
+				if (!jobId) throw new Error("Foreground Pyrun launch manifest has no agent ID");
 				const exactRunnerIdentity = manifest.runnerProcessIdentity;
 				runnerIdentity = exactRunnerIdentity;
 
