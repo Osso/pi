@@ -18,7 +18,7 @@ The probe identity is accepted only when the console snapshot explicitly include
 
 Callers poll only their durable request row, using a 300ms interval by default for client completion checks and in-flight evaluation cancellation, deadline, and approval-preemption checks; explicit per-request intervals remain available. Approval requests use a 30-second deadline; goal requests use three minutes. Approval failure escalates through the existing human reviewer. Goal failure keeps the goal running, displays an error, and does not continue automatically.
 
-Caller cancellation atomically moves its pending or claimed row to terminal `cancelled`, stores a typed cancellation response, clears claim authority, and wakes the resident. The client stops polling and retry delays. A resident evaluating the claimed request observes the row, aborts the model turn, and cannot overwrite cancellation with a late response. Interactive Escape invokes this path through a global input listener, so cancellation still works after `agent_end` while the caller is idle and the wait loader owns focus.
+Caller cancellation atomically moves its pending or claimed row to terminal `cancelled`, stores a typed cancellation response, clears claim authority, and wakes the resident. The client stops polling and retry delays. A resident evaluating the claimed request observes the row, aborts the model turn, and cannot overwrite cancellation with a late response. Interactive Escape invokes this path through a global input listener, so cancellation still works after `agent_end` while the caller is idle; the waiting status never takes focus.
 
 ## Resident console
 

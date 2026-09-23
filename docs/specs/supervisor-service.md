@@ -130,7 +130,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 ### Failure handling
 
 - [x] Caller cancellation stops polling and retries, atomically moves a sender-owned pending or claimed request to terminal `cancelled`, wakes the resident, aborts active evaluation, and prevents later claim or completion.
-- [x] Interactive Escape reaches an active goal review through global input even when the caller is idle and the wait loader owns focus, then clears the loader without applying a stale decision.
+- [x] Interactive Escape reaches an active goal review through global input even when the caller is idle (the editor keeps focus while the waiting status shows), then clears the loader without applying a stale decision.
 - [x] Return generic `error` for service, transport, timeout, model, tool, or response-validation failures.
 - [x] Fail non-generic instruction vetoes closed: invalid output or evaluation failure suppresses the proposed instruction, appends fixed hidden failure feedback, and delivers exactly the generic continuation without retrying the first-level review at that boundary.
 - [x] Retry resident goal-review request timeouts up to three attempts with bounded exponential backoff and jitter before returning generic `error`; other request kinds retain single-attempt timeout behavior.
