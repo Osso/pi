@@ -24,7 +24,8 @@ For the JSONL file format and SessionManager API, see [Session Format](session-f
 | Command | Description |
 |---------|-------------|
 | `/resume` | Browse and select previous sessions |
-| `/archive` | Archive the current persisted session; accepts no arguments |
+| `/archive` | Archive the current persisted session and quit; accepts no arguments |
+| `/delete` | After confirmation, delete the current session and its child agent sessions, then quit |
 | `/unarchive` | Clear archive state for the current persisted session; accepts no arguments |
 | `/new` | Start a new session |
 | `/name <name>` | Set the current session display name |
@@ -49,11 +50,11 @@ In the picker you can:
 - filter to named sessions with Ctrl+N
 - rename with Ctrl+R
 - archive the selected session with Ctrl+A
-- delete with Ctrl+D, then confirm
+- delete with Ctrl+D, then confirm (child agent sessions are deleted too)
 
 Archived sessions are hidden from the normal Current Folder and All scopes but remain resumable from Archived. The resident Architect transcript is stored outside normal project session directories and starts archived, so it is available only from the Archived scope as a non-subagent session.
 
-`/archive` archives only the current persisted session and accepts no arguments:
+`/archive` archives only the current persisted session and quits Pi. It accepts no arguments:
 
 ```text
 /archive

@@ -2,7 +2,7 @@
 
 Pi has three explicit archive surfaces:
 
-- `/archive` accepts no arguments and archives only the current persisted session.
+- `/archive` accepts no arguments, archives only the current persisted session, and quits Pi. The archive runs during quit teardown so no later session write recreates the plain transcript.
 - The resume picker archives the selected session when Ctrl+A is pressed.
 - `pi sessions archive [--older-than <days>]` performs the age-based administrative bulk operation and reports its archived count.
 - `pi sessions compress-archived [--dry-run]` migrates older metadata-archived plain JSONL files, excluding live resident Supervisor and Architect transcripts, and reports migrated, skipped, and failed sessions.
@@ -12,7 +12,9 @@ Pi has three explicit archive surfaces:
 also absent; `broadcast` uses the same inventory. Archive writes remain targeted-row operations and do not
 implicitly archive child rows. Archived scope preserves recent ordering instead of promoting named sessions, but still displays session names; Current Folder and All scopes continue to promote named sessions first.
 
-`/archive` and `/unarchive` report usage guidance when given arguments, report when the current session is not persisted, and report when no control database is available.
+`/delete` asks for confirmation, then quits Pi and, during quit teardown, deletes the current session and every child agent session recorded under it (by `parent_session_path` and `is_subagent`, recursively), using the `trash` CLI when it works and permanent deletion otherwise, and removes their metadata. The resume picker's Ctrl+D delete uses the same removal. A child agent still running at quit can append to its transcript after deletion.
+
+`/archive`, `/delete`, and `/unarchive` report usage guidance when given arguments, report when the current session is not persisted, and report when no control database is available.
 
 `/unarchive` clears only the current persisted session's archive metadata using the control-DB API. It leaves the active manager and transcript unchanged, with no picker, ID lookup, or session replacement. An already-unarchived session produces an informational notification without a metadata write. Compressed sessions are restored by the existing storage path when resumed, before becoming the current session.
 

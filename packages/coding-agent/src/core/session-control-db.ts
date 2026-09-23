@@ -2421,6 +2421,22 @@ export function readSessionNameState(controlDbPath: string, sessionPath: string)
 	});
 }
 
+/** Lists child agent sessions recorded under a parent, matching its plain and archived transcript paths. */
+export function listSubagentSessionPaths(controlDbPath: string, parentSessionPath: string): string[] {
+	const plainPath = parentSessionPath.endsWith(".zst")
+		? parentSessionPath.slice(0, -".zst".length)
+		: parentSessionPath;
+	return withControlDb(controlDbPath, (db) =>
+		(
+			db
+				.prepare(
+					"SELECT session_path FROM session_metadata WHERE is_subagent = 1 AND parent_session_path IN (?, ?)",
+				)
+				.all(plainPath, `${plainPath}.zst`) as Array<{ session_path: string }>
+		).map((row) => row.session_path),
+	);
+}
+
 export function removeSessionMetadata(controlDbPath: string, sessionPath: string): void {
 	withControlDb(controlDbPath, (db) => {
 		db.exec("BEGIN IMMEDIATE");

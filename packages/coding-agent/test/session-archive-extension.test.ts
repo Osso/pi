@@ -13,9 +13,6 @@ import {
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 
-type NewSessionOptions = NonNullable<Parameters<NonNullable<ExtensionCommandContext["newSession"]>>[0]>;
-type ReplacedSessionContext = Parameters<NonNullable<NewSessionOptions["withSession"]>>[0];
-
 describe("session archive extension", () => {
 	const tempDirs: string[] = [];
 
@@ -42,6 +39,7 @@ describe("session archive extension", () => {
 		});
 		let command: RegisteredCommand | undefined;
 		sessionArchiveExtension({
+			on: () => {},
 			registerCommand(name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">) {
 				if (name === "unarchive")
 					command = {
@@ -102,6 +100,7 @@ describe("session archive extension", () => {
 	it("registers the archive slash command", () => {
 		let command: RegisteredCommand | undefined;
 		const pi = {
+			on: () => {},
 			registerCommand(name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">) {
 				if (name === "archive") {
 					command = {
@@ -123,57 +122,123 @@ describe("session archive extension", () => {
 		expect(command?.description).toContain("Archive the current session");
 	});
 
-	it("archives only the current persisted session", async () => {
-		const baseDir = mkdtempSync(join(tmpdir(), "pi-session-archive-command-"));
+	function quitCommandFixture() {
+		const baseDir = mkdtempSync(join(tmpdir(), "pi-session-quit-command-"));
 		tempDirs.push(baseDir);
 		const controlDbPath = getControlDbPath(baseDir);
-		const sessionPath = join(baseDir, "current.jsonl");
-		writeFileSync(
-			sessionPath,
-			`${JSON.stringify({ type: "session", id: "current", timestamp: "2026-07-11T00:00:00.000Z", cwd: baseDir })}\n`,
-		);
-		writeSessionMetadata(controlDbPath, {
-			sessionPath,
-			id: "current",
-			cwd: baseDir,
-			createdAt: "2026-07-11T00:00:00.000Z",
-			modifiedAt: "2026-07-11T00:00:00.000Z",
-			messageCount: 1,
-			firstMessage: "hello",
-			allMessagesText: "hello",
-		});
-		let command: RegisteredCommand | undefined;
-		const pi = {
-			registerCommand(_name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">) {
-				command = {
+		const writeSession = (name: string, options?: { parentSession?: string }) => {
+			const manager = SessionManager.create(
+				baseDir,
+				baseDir,
+				options ? { ...options, isSubagent: true } : undefined,
+			);
+			manager.setMetadataControlDbPath(controlDbPath);
+			manager.appendMessage({ role: "user", content: `${name} work`, timestamp: 1 });
+			manager.persistForRecovery();
+			return manager.getSessionFile()!;
+		};
+		const sessionPath = writeSession("current");
+		const childPath = writeSession("child", { parentSession: sessionPath });
+		const otherPath = writeSession("other");
+		const commands = new Map<string, RegisteredCommand>();
+		const shutdownHandlers: Array<(event: { reason: string }) => void> = [];
+		sessionArchiveExtension({
+			on(event: string, handler: (event: { reason: string }) => void) {
+				if (event === "session_shutdown") shutdownHandlers.push(handler);
+			},
+			registerCommand(name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">) {
+				commands.set(name, {
 					...options,
-					name: "archive",
+					name,
 					sourceInfo: { path: "<test>", source: "test", scope: "temporary", origin: "top-level" },
-				};
+				});
 			},
-		} as unknown as ExtensionAPI;
-		sessionArchiveExtension(pi);
+		} as unknown as ExtensionAPI);
 		const notify = vi.fn();
-		let activeSessionPath = sessionPath;
-		let plainSessionExistedDuringTransition = false;
-		await command!.handler("", {
+		const confirm = vi.fn(async () => true);
+		const shutdown = vi.fn();
+		const ctx = {
 			controlDbPath,
-			ui: { notify },
-			sessionManager: { getSessionFile: () => activeSessionPath },
-			newSession: async (options: NewSessionOptions) => {
-				plainSessionExistedDuringTransition = existsSync(sessionPath);
-				activeSessionPath = join(baseDir, "next.jsonl");
-				await options?.withSession?.({ ui: { notify } } as unknown as ReplacedSessionContext);
-				return { cancelled: false };
-			},
-		} as unknown as ExtensionCommandContext);
+			sessionManager: { getSessionFile: () => sessionPath },
+			shutdown,
+			ui: { confirm, notify },
+		} as unknown as ExtensionCommandContext;
+		const teardown = (reason: string) => {
+			for (const handler of shutdownHandlers) handler({ reason });
+		};
+		const quit = () => teardown("quit");
+		return {
+			childPath,
+			commands,
+			confirm,
+			controlDbPath,
+			ctx,
+			notify,
+			otherPath,
+			quit,
+			sessionPath,
+			shutdown,
+			teardown,
+		};
+	}
 
-		const archivedPath = `${sessionPath}.zst`;
-		expect(plainSessionExistedDuringTransition).toBe(true);
-		expect(activeSessionPath).toBe(join(baseDir, "next.jsonl"));
-		expect(readSessionMetadata(controlDbPath, sessionPath)).toBeUndefined();
-		expect(readSessionMetadata(controlDbPath, archivedPath)?.isArchived).toBe(true);
-		expect(notify).toHaveBeenCalledWith("Archived current session.", "info");
+	it("archives the current session when quitting after /archive", async () => {
+		const f = quitCommandFixture();
+		await f.commands.get("archive")!.handler("", f.ctx);
+
+		expect(f.shutdown).toHaveBeenCalledOnce();
+		expect(existsSync(f.sessionPath)).toBe(true);
+		f.quit();
+
+		const archivedPath = `${f.sessionPath}.zst`;
+		expect(existsSync(f.sessionPath)).toBe(false);
+		expect(readSessionMetadata(f.controlDbPath, f.sessionPath)).toBeUndefined();
+		expect(readSessionMetadata(f.controlDbPath, archivedPath)?.isArchived).toBe(true);
+		expect(readSessionMetadata(f.controlDbPath, f.otherPath)?.isArchived).toBe(false);
+	});
+
+	it("deletes the current session and its child sessions when quitting after a confirmed /delete", async () => {
+		const f = quitCommandFixture();
+		await f.commands.get("delete")!.handler("", f.ctx);
+
+		expect(f.confirm).toHaveBeenCalledOnce();
+		expect(f.shutdown).toHaveBeenCalledOnce();
+		f.quit();
+
+		expect([f.sessionPath, f.childPath].map((path) => existsSync(path))).toEqual([false, false]);
+		expect(readSessionMetadata(f.controlDbPath, f.sessionPath)).toBeUndefined();
+		expect(readSessionMetadata(f.controlDbPath, f.childPath)).toBeUndefined();
+		expect(existsSync(f.otherPath)).toBe(true);
+		expect(readSessionMetadata(f.controlDbPath, f.otherPath)).toBeDefined();
+	});
+
+	it("keeps the session and pi running when /delete is declined", async () => {
+		const f = quitCommandFixture();
+		f.confirm.mockResolvedValueOnce(false);
+		await f.commands.get("delete")!.handler("", f.ctx);
+		f.quit();
+
+		expect(f.shutdown).not.toHaveBeenCalled();
+		expect([f.sessionPath, f.childPath].map((path) => existsSync(path))).toEqual([true, true]);
+	});
+
+	it("does not archive when the pending teardown is not a quit", async () => {
+		const f = quitCommandFixture();
+		await f.commands.get("archive")!.handler("", f.ctx);
+		f.teardown("reload");
+		f.quit();
+
+		expect(existsSync(f.sessionPath)).toBe(true);
+		expect(readSessionMetadata(f.controlDbPath, f.sessionPath)?.isArchived).toBe(false);
+	});
+
+	it("rejects /delete arguments without confirming or quitting", async () => {
+		const f = quitCommandFixture();
+		await f.commands.get("delete")!.handler("other-session", f.ctx);
+
+		expect(f.notify).toHaveBeenCalledWith("Usage: /delete", "warning");
+		expect(f.confirm).not.toHaveBeenCalled();
+		expect(f.shutdown).not.toHaveBeenCalled();
 	});
 
 	it("stores archived sessions as zstd and restores them when resumed", async () => {
@@ -212,11 +277,16 @@ describe("session archive extension", () => {
 		});
 
 		let command: RegisteredCommand | undefined;
+		let onShutdown: ((event: { reason: string }) => void) | undefined;
 		const pi = {
-			registerCommand(_name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">) {
+			on: (_event: string, handler: (event: { reason: string }) => void) => {
+				onShutdown = handler;
+			},
+			registerCommand(name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">) {
+				if (name !== "archive") return;
 				command = {
 					...options,
-					name: "archive",
+					name,
 					sourceInfo: { path: "<test>", source: "test", scope: "temporary", origin: "top-level" },
 				};
 			},
@@ -226,10 +296,7 @@ describe("session archive extension", () => {
 			controlDbPath,
 			ui: { notify: vi.fn() },
 			sessionManager: { getSessionFile: () => sessionPath },
-			newSession: async (options: NewSessionOptions) => {
-				await options?.withSession?.({ ui: { notify: vi.fn() } } as unknown as ReplacedSessionContext);
-				return { cancelled: false };
-			},
+			shutdown: () => onShutdown?.({ reason: "quit" }),
 		} as unknown as ExtensionCommandContext);
 
 		const archivedPath = `${sessionPath}.zst`;

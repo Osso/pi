@@ -1,10 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setKeybindings } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
-import { getControlDbPath, listSessionMetadata } from "../src/core/session-control-db.ts";
+import { getControlDbPath, listSessionMetadata, readSessionMetadata } from "../src/core/session-control-db.ts";
 import { type SessionInfo, SessionManager } from "../src/core/session-manager.ts";
 import { SessionSelectorComponent } from "../src/modes/interactive/components/session-selector.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
@@ -63,11 +63,13 @@ function createMetadataBackedSession(
 	sessionDir: string,
 	controlDbPath: string,
 	prompt: string,
-	options?: { isSubagent?: boolean; subagentName?: string; timestamp?: number },
+	options?: { isSubagent?: boolean; parentSession?: string; subagentName?: string; timestamp?: number },
 ): string {
-	const subagentOptions = options?.subagentName
-		? { isSubagent: true, subagentName: options.subagentName }
-		: { isSubagent: true };
+	const subagentOptions = {
+		isSubagent: true,
+		...(options?.subagentName ? { subagentName: options.subagentName } : {}),
+		...(options?.parentSession ? { parentSession: options.parentSession } : {}),
+	};
 	const session = options?.isSubagent
 		? SessionManager.create(cwd, sessionDir, subagentOptions)
 		: SessionManager.create(cwd, sessionDir);
@@ -550,6 +552,53 @@ describe("session selector path/delete interactions", () => {
 		const remainingPaths = listSessionMetadata(controlDbPath).map((metadata) => metadata.sessionPath);
 		expect(remainingPaths).toContain(olderPath);
 		expect(remainingPaths).not.toContain(newerPath);
+	});
+
+	it("deletes child agent sessions together with the confirmed session", async () => {
+		const baseDir = mkdtempSync(join(tmpdir(), "pi-session-selector-delete-children-"));
+		tempDirs.push(baseDir);
+		const projectDir = join(baseDir, "project");
+		mkdirSync(projectDir, { recursive: true });
+		const controlDbPath = getControlDbPath(baseDir);
+		const keptPath = createMetadataBackedSession(projectDir, baseDir, controlDbPath, "keep me", { timestamp: 1 });
+		const parentPath = createMetadataBackedSession(projectDir, baseDir, controlDbPath, "delete me", { timestamp: 3 });
+		const childPath = createMetadataBackedSession(projectDir, baseDir, controlDbPath, "child work", {
+			isSubagent: true,
+			parentSession: parentPath,
+			timestamp: 5,
+		});
+		const grandchildPath = createMetadataBackedSession(projectDir, baseDir, controlDbPath, "grandchild work", {
+			isSubagent: true,
+			parentSession: childPath,
+			timestamp: 7,
+		});
+
+		const selector = new SessionSelectorComponent(
+			(onProgress) => SessionManager.list(projectDir, baseDir, onProgress, controlDbPath),
+			(onProgress) => SessionManager.listAll(baseDir, onProgress, controlDbPath),
+			() => {},
+			() => {},
+			() => {},
+			() => {},
+			{ keybindings, controlDbPath },
+		);
+		await flushPromises();
+
+		const list = selector.getSessionList();
+		expect(list.getSelectedSessionPath()).toBe(parentPath);
+		list.handleInput(CTRL_D);
+		list.handleInput("\r");
+		await waitFor(() => !existsSync(parentPath));
+
+		const remainingPaths = listSessionMetadata(controlDbPath).map((metadata) => metadata.sessionPath);
+		expect(remainingPaths).toEqual([keptPath]);
+		expect([parentPath, childPath, grandchildPath].map((path) => existsSync(path))).toEqual([false, false, false]);
+		expect([parentPath, childPath, grandchildPath].map((path) => readSessionMetadata(controlDbPath, path))).toEqual([
+			undefined,
+			undefined,
+			undefined,
+		]);
+		expect(existsSync(keptPath)).toBe(true);
 	});
 
 	it("treats the current session as active across symlink aliases", async () => {

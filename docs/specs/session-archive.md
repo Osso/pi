@@ -1,6 +1,6 @@
 Module boundary: first-party extension module (`packages/coding-agent/extensions/session-archive/`) plus core session-control-DB archive state and resume-picker behavior.
 
-Sessions archived through `/archive`, the resume picker, or `pi sessions archive` are stored as `.jsonl.zst` files and tracked in control-DB metadata. Resuming one restores plain `.jsonl` storage and active metadata. Each resident role has exactly one metadata-archived Supervisor or Architect transcript, which remains plain `.jsonl` because its live runtime appends to it; opening a role reuses its live transcript when present, otherwise reuses the latest resident transcript, and prunes only inactive stale transcripts and metadata. Resident histories are excluded from every resume-picker scope, including Archived. Non-resident sessions abandoned with no messages are removed at runtime teardown or replacement; startup also removes dead, fileless zero-message rows left by interrupted processes. The first-party `/archive` command accepts no arguments and archives only the current persisted session. The resume picker archives the selected session with Ctrl+A. The separate `pi sessions archive` CLI command remains an age-based administrative bulk operation. `pi sessions compress-archived [--dry-run]` is a one-time migration for older metadata-archived plain JSONL transcripts; it excludes live resident Supervisor and Architect transcripts and reports migrated, skipped, and failed sessions. `pi sessions truncate-tool-output` is a separate maintenance command that may rewrite session JSONL files; see [`session-tool-output.md`](session-tool-output.md).
+Sessions archived through `/archive`, the resume picker, or `pi sessions archive` are stored as `.jsonl.zst` files and tracked in control-DB metadata. Resuming one restores plain `.jsonl` storage and active metadata. Each resident role has exactly one metadata-archived Supervisor or Architect transcript, which remains plain `.jsonl` because its live runtime appends to it; opening a role reuses its live transcript when present, otherwise reuses the latest resident transcript, and prunes only inactive stale transcripts and metadata. Resident histories are excluded from every resume-picker scope, including Archived. Non-resident sessions abandoned with no messages are removed at runtime teardown or replacement; startup also removes dead, fileless zero-message rows left by interrupted processes. The first-party `/archive` command accepts no arguments, archives only the current persisted session, and quits Pi. `/delete` confirms, then deletes the current session and its child agent sessions and quits Pi. The resume picker archives the selected session with Ctrl+A and deletes it, with its child agent sessions, with Ctrl+D. The separate `pi sessions archive` CLI command remains an age-based administrative bulk operation. `pi sessions compress-archived [--dry-run]` is a one-time migration for older metadata-archived plain JSONL transcripts; it excludes live resident Supervisor and Architect transcripts and reports migrated, skipped, and failed sessions. `pi sessions truncate-tool-output` is a separate maintenance command that may rewrite session JSONL files; see [`session-tool-output.md`](session-tool-output.md).
 
 ## What it must do
 
@@ -26,10 +26,21 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 
 - [x] Register `/archive` in the session-archive extension (`session-archive-extension.test.ts`).
 - [x] Reject arguments with usage guidance; the command accepts no arguments.
-- [x] Archive only the current persisted session (`session-archive-extension.test.ts`).
+- [x] Archive only the current persisted session, then quit Pi; the archive runs at quit teardown and only when teardown is a quit (`session-archive-extension.test.ts`).
 - [x] Report when the current session is not persisted.
 - [x] Report when no control database is available.
-- [x] Notify after archiving the current session.
+- [x] Report an archive failure at quit on stderr.
+
+### First-party `/delete` command
+
+- [x] Accept no arguments; reject arguments with `/delete` usage guidance.
+- [x] Ask for confirmation; declining keeps the session and Pi running (`session-archive-extension.test.ts`).
+- [x] On confirmation, quit Pi and at quit teardown delete the current session and every child agent session recorded under it (recursively), removing their control-DB metadata (`session-archive-extension.test.ts`).
+- [x] Move files to the trash when the `trash` CLI succeeds, otherwise delete permanently; report failures on stderr.
+
+### Resume picker delete
+
+- [x] Ctrl+D, then confirm, deletes the selected session and every child agent session recorded under it with the same removal as `/delete` (`session-selector-path-delete.test.ts`).
 
 ### First-party `/unarchive` command
 
@@ -51,7 +62,8 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 
 ## Implementation inventory
 
-- `packages/coding-agent/extensions/session-archive/src/index.ts` — registers argument-free `/archive` and `/unarchive` commands targeting only the current persisted session.
+- `packages/coding-agent/extensions/session-archive/src/index.ts` — registers argument-free `/archive`, `/delete`, and `/unarchive` commands targeting only the current persisted session.
+- `packages/coding-agent/src/core/session-delete.ts` — shared session and child-agent-session deletion used by `/delete` and the picker.
 - `packages/coding-agent/src/core/session-control-db.ts` — archive metadata schema, migration, listing, and archive APIs.
 - `packages/coding-agent/src/core/session-manager.ts` — active and archived session loaders.
 - `packages/coding-agent/src/cli/sessions-command.ts` — age-based administrative archive command.
