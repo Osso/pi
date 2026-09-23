@@ -675,6 +675,8 @@ async function startRpcClientSession(client: RpcClient, context: HeadlessSession
 	context.mainSessionId = state.sessionId;
 	context.sessionFile = state.sessionFile ?? "";
 	if (!context.sessionFile) throw new Error("Headless Pi did not create a persistent session");
+	// Named sessions skip session-autoname, whose title request would otherwise consume scripted LLM responses.
+	if (!state.sessionName) await client.setSessionName("Headless Pi");
 }
 
 interface RpcClientProcess {
