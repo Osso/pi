@@ -61,7 +61,8 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 ### Terminal interrupt coverage
 
 - [x] Route raw Escape input through a real `TUI` and `VirtualTerminal` while another focused component can consume input.
-- [x] Prove the global interrupt listener consumes Escape first, interrupts the active main turn, and preserves queued steering plus current editor text (`interactive-mode-status.test.ts`: `raw terminal escape interrupts before a focused component can consume it and preserves queued steering`).
+- [x] Prove the global interrupt listener consumes an interrupt key that is not the focused dialog's cancel key before that component sees it, interrupts the active main turn, and preserves queued steering plus current editor text (`interactive-mode-status.test.ts`: `raw terminal escape interrupts before a focused component can consume it and preserves queued steering`).
+- [x] Prove a focused dialog's cancel key and kitty key-release events do not interrupt (`interactive-mode-status.test.ts`: `kitty escape press and release close the settings selector without interrupting a streaming turn`, `escape closes any focused dialog without interrupting, while escape in the editor still interrupts`).
 - [x] Keep the RPC real-process test as the independent lower-layer proof that interruption creates a replacement LLM request containing queued steering (`headless-pi.test.ts`: `preserves queued steering when interrupting an active turn`).
 
 ## How it works
