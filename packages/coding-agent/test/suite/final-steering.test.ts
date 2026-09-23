@@ -26,15 +26,14 @@ it("delivers both final steering messages before enforcing end_turn on an uninte
 		let request = await agent.waitForLlmRequest();
 		agent.respondToLlmRequest(request.id, fauxAssistantMessage("Initial text-only response"));
 		const runtimeInstruction = "Do not continue, repeat, or infer a new user request";
-		for (const message of steering) {
-			const previousId = request.id;
-			request = await agent.waitForLlmRequest(
-				(candidate) => candidate.id !== previousId && candidate.userMessages.includes(message),
-			);
-			expect(request.userMessages.at(-1)).toBe(message);
-			expect(request.userMessages.some((text) => text.includes(runtimeInstruction))).toBe(false);
-			agent.respondToLlmRequest(request.id, fauxAssistantMessage(`Handled ${message}`));
-		}
+		const initialId = request.id;
+		request = await agent.waitForLlmRequest(
+			(candidate) =>
+				candidate.id !== initialId && steering.every((message) => candidate.userMessages.includes(message)),
+		);
+		expect(request.userMessages.slice(-steering.length)).toEqual(steering);
+		expect(request.userMessages.some((text) => text.includes(runtimeInstruction))).toBe(false);
+		agent.respondToLlmRequest(request.id, fauxAssistantMessage("Handled both steering requests"));
 		const previousId = request.id;
 		request = await agent.waitForLlmRequest(
 			(candidate) =>
