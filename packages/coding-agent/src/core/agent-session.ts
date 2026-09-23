@@ -2435,6 +2435,7 @@ export class AgentSession {
 		if (this._disposed) return;
 		while (
 			await this._withTurnStartLock(async (release) => {
+				if (this.isStreaming) return false;
 				const continuationKind = await this._handlePostAgentRun();
 				if (continuationKind === undefined) {
 					return false;
