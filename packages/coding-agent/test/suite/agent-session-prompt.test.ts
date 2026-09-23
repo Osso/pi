@@ -658,7 +658,7 @@ describe("AgentSession prompt characterization", () => {
 		await promptPromise;
 	});
 
-	it("does not bypass the turn-start arbiter during manual compaction continuation", async () => {
+	it("manual compaction waits for a prompt that holds the turn-start arbiter", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
 		harness.setResponses([fauxAssistantMessage("prompt")]);
@@ -684,18 +684,22 @@ describe("AgentSession prompt characterization", () => {
 			return false;
 		});
 
+		const events: string[] = [];
+		harness.session.subscribe((event) => {
+			if (event.type === "agent_start" || event.type === "compaction_start") events.push(event.type);
+		});
+
 		const prompt = harness.session.prompt("prompt", { streamingBehavior: "followUp" });
 		await compactionStarted.promise;
-		const manualContinuation = (
-			harness.session as unknown as {
-				_continueAfterManualCompaction: (removeToolUseAssistant: boolean) => Promise<void>;
-			}
-		)._continueAfterManualCompaction(false);
-		expect(harness.session.isStreaming).toBe(false);
+		const manualCompaction = harness.session.compact().catch(() => undefined);
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(events).toEqual([]);
+		expect(harness.session.isCompacting).toBe(false);
 		releaseCompaction.resolve();
 
 		await expect(prompt).resolves.toBeUndefined();
-		await expect(manualContinuation).rejects.toThrow("Agent is already processing");
+		await manualCompaction;
+		expect(events.slice(0, 2)).toEqual(["agent_start", "compaction_start"]);
 	});
 
 	it("queues a prompt when a trigger-turn custom message races compaction preflight", async () => {
