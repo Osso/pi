@@ -12,7 +12,7 @@ Pi has three explicit archive surfaces:
 also absent; `broadcast` uses the same inventory. Archive writes remain targeted-row operations and do not
 implicitly archive child rows. Archived scope preserves recent ordering instead of promoting named sessions, but still displays session names; Current Folder and All scopes continue to promote named sessions first.
 
-`/delete` asks for confirmation, then quits Pi and, during quit teardown, deletes the current session and every child agent session recorded under it (by `parent_session_path` and `is_subagent`, recursively), using the `trash` CLI when it works and permanent deletion otherwise, and removes their metadata. The resume picker's Ctrl+D delete uses the same removal. A child agent still running at quit can append to its transcript after deletion.
+`/delete` asks for confirmation, then quits Pi and, during quit teardown, deletes the current session and every child agent session recorded under it (by `parent_session_path` and `is_subagent`, recursively), using the `trash` CLI when it works and permanent deletion otherwise, and removes their metadata. The resume picker's Ctrl+D delete uses the same removal. `/delete` refuses while a child agent session is still running, since an aborted child keeps writing its transcript until it settles.
 
 `/archive`, `/delete`, and `/unarchive` report usage guidance when given arguments, report when the current session is not persisted, and report when no control database is available.
 

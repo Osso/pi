@@ -34,6 +34,7 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 ### First-party `/delete` command
 
 - [x] Accept no arguments; reject arguments with `/delete` usage guidance.
+- [x] Refuse with a warning, without confirming or quitting, while any child agent session of the current runtime is still running, because an aborted child can still write its transcript (`session-archive-extension.test.ts`).
 - [x] Ask for confirmation; declining keeps the session and Pi running (`session-archive-extension.test.ts`).
 - [x] On confirmation, quit Pi and at quit teardown delete the current session and every child agent session recorded under it (recursively), removing their control-DB metadata (`session-archive-extension.test.ts`).
 - [x] Move files to the trash when the `trash` CLI succeeds, otherwise delete permanently; report failures on stderr.

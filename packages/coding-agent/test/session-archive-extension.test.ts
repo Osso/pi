@@ -232,6 +232,28 @@ describe("session archive extension", () => {
 		expect(readSessionMetadata(f.controlDbPath, f.sessionPath)?.isArchived).toBe(false);
 	});
 
+	it("refuses /delete while a child agent session is still running", async () => {
+		const f = quitCommandFixture();
+		const ctx = {
+			...f.ctx,
+			multiAgentStore: {
+				listActiveAgents: () => [
+					{ id: "agent_1", transcript: { path: f.childPath } },
+					{ id: "bash_1", result: { fileRefs: [] } },
+				],
+			},
+		} as unknown as ExtensionCommandContext;
+		await f.commands.get("delete")!.handler("", ctx);
+
+		expect(f.notify).toHaveBeenCalledWith(
+			"Close the 1 running child agent before /delete; it could still write its transcript.",
+			"warning",
+		);
+		expect(f.confirm).not.toHaveBeenCalled();
+		expect(f.shutdown).not.toHaveBeenCalled();
+		expect([f.sessionPath, f.childPath].map((path) => existsSync(path))).toEqual([true, true]);
+	});
+
 	it("rejects /delete arguments without confirming or quitting", async () => {
 		const f = quitCommandFixture();
 		await f.commands.get("delete")!.handler("other-session", f.ctx);
