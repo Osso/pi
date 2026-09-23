@@ -2169,6 +2169,124 @@ describe("headless Pi fixture", () => {
 		);
 	});
 
+	it("moves a foreground Pyrun evaluation into a background job across /restart", async () => {
+		await withHeadlessPi(async (agent) => {
+			const toolCallId = "foreground-pyrun-restart-call";
+			const attemptPath = join(agent.paths.workspaceDir, "attempts-restart-pyrun");
+			const releasePath = join(agent.paths.workspaceDir, "release-restart-pyrun");
+			const afterPath = join(agent.paths.workspaceDir, "after-restart-pyrun");
+			const code = [
+				"from pathlib import Path",
+				"import time",
+				`attempt = Path(${JSON.stringify(attemptPath)})`,
+				`release = Path(${JSON.stringify(releasePath)})`,
+				`attempt.write_text((attempt.read_text() if attempt.exists() else "") + "x")`,
+				"while not release.exists(): time.sleep(0.05)",
+				`Path(${JSON.stringify(afterPath)}).write_text("after-restart\\n")`,
+				'print("restart-survivor-output")',
+			].join("\n");
+			let runnerIdentity: ProcessIdentity | undefined;
+			try {
+				await agent.send({ type: "prompt", message: "Run a long Pyrun evaluation, then restart" });
+				const initialRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+				agent.respondToLlmRequest(
+					initialRequest.id,
+					fauxAssistantMessage(
+						{ ...fauxToolCall("pyrun_eval", { code }), id: toolCallId },
+						{ stopReason: "toolUse" },
+					),
+				);
+				await waitForFileContent(attemptPath, "x");
+				let manifest: DetachedPyrunLaunchManifest | undefined;
+				await vi.waitFor(() => {
+					manifest = readdirSync(agent.paths.sessionDir, { recursive: true })
+						.filter((path): path is string => typeof path === "string" && path.endsWith("launch.json"))
+						.map((path) => JSON.parse(readFileSync(join(agent.paths.sessionDir, path), "utf8")))
+						.find((candidate: DetachedPyrunLaunchManifest) => candidate.toolCallId === toolCallId);
+					expect(manifest).toBeDefined();
+				});
+				if (!manifest) throw new Error("Foreground Pyrun launch manifest not found");
+				const jobId = manifest.runnerAddress.agentId;
+				const exactRunnerIdentity = manifest.runnerProcessIdentity;
+				runnerIdentity = exactRunnerIdentity;
+
+				// The process execs in place before answering, so this RPC response never arrives.
+				void agent.send({ type: "prompt", message: "/restart" }).catch(() => undefined);
+				const restoredRequest = await agent.waitForLlmRequest(
+					(request) =>
+						request.agentId === null &&
+						JSON.stringify(request.messages).includes("The agent process was restarted"),
+					15_000,
+				);
+				expect(isProcessIdentityAlive(exactRunnerIdentity)).toBe(true);
+				expect(JSON.stringify(restoredRequest.messages)).toContain("1 running tool call moved to a background job");
+				await agent.waitForAgent((candidate) => candidate.id === jobId && candidate.lifecycle === "running");
+				agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Waiting for the job"));
+
+				writeFileSync(releasePath, "release");
+				await waitForFileContent(afterPath, "after-restart\n");
+				await agent.waitForAgent((candidate) => candidate.id === jobId && candidate.lifecycle === "completed");
+				const notifiedRequest = await agent.waitForLlmRequest(
+					(request) =>
+						request.agentId === null &&
+						request !== restoredRequest &&
+						JSON.stringify(request.messages).includes(jobId),
+					// Terminal job notifications are delivered by the 30s runtime mailbox poll.
+					45_000,
+				);
+				expect(readFileSync(attemptPath, "utf8")).toBe("x");
+				expect(readFileSync(manifest.artifacts.outputPath, "utf8")).toContain("restart-survivor-output");
+				agent.respondToLlmRequest(notifiedRequest.id, fauxCompletedAssistantMessage("Background job observed"));
+			} finally {
+				const cleanupIdentity = runnerIdentity;
+				if (cleanupIdentity && isProcessIdentityAlive(cleanupIdentity)) killProcessGroup(cleanupIdentity.pid);
+			}
+		});
+	}, 90_000);
+
+	it("moves a foreground Bash command into a background job across /restart", async () => {
+		await withHeadlessPi(async (agent) => {
+			const attemptPath = join(agent.paths.workspaceDir, "attempts-restart-bash");
+			const releasePath = join(agent.paths.workspaceDir, "release-restart-bash");
+			const afterPath = join(agent.paths.workspaceDir, "after-restart-bash");
+			const command = `printf x >> '${attemptPath}'; while [ ! -f '${releasePath}' ]; do sleep 0.05; done; printf after > '${afterPath}'; printf bash-restart-survivor`;
+			await agent.send({ type: "prompt", message: "Run a long Bash command, then restart" });
+			const initialRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
+			agent.respondToLlmRequest(
+				initialRequest.id,
+				fauxAssistantMessage(fauxToolCall("bash", { command }), { stopReason: "toolUse" }),
+			);
+			await waitForFileContent(attemptPath, "x");
+
+			// The process execs in place before answering, so this RPC response never arrives.
+			void agent.send({ type: "prompt", message: "/restart" }).catch(() => undefined);
+			const restoredRequest = await agent.waitForLlmRequest(
+				(request) =>
+					request.agentId === null && JSON.stringify(request.messages).includes("The agent process was restarted"),
+				15_000,
+			);
+			expect(JSON.stringify(restoredRequest.messages)).toContain("1 running tool call moved to a background job");
+			const job = await agent.waitForAgent(
+				(candidate) => candidate.displayName === "Bash command" && candidate.lifecycle === "running",
+			);
+			agent.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Waiting for the job"));
+
+			writeFileSync(releasePath, "release");
+			await waitForFileContent(afterPath, "after");
+			await agent.waitForAgent((candidate) => candidate.id === job.id && candidate.lifecycle === "completed");
+			const notifiedRequest = await agent.waitForLlmRequest(
+				(request) =>
+					request.agentId === null &&
+					request !== restoredRequest &&
+					JSON.stringify(request.messages).includes(job.id),
+				// Terminal job notifications are delivered by the 30s runtime mailbox poll.
+				45_000,
+			);
+			expect(readFileSync(attemptPath, "utf8")).toBe("x");
+			agent.respondToLlmRequest(notifiedRequest.id, fauxCompletedAssistantMessage("Background job observed"));
+		});
+	}, 90_000);
+
 	it("does not rerun an unfinished Pyrun tool call after its runner dies", async () => {
 		await withHeadlessPi(async (agent) => {
 			const attemptPath = join(agent.paths.workspaceDir, "attempts-dead-pyrun");

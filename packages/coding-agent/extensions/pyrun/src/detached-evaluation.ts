@@ -566,8 +566,15 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 	const progressAccumulator = createArtifactProgressAccumulator(reportProgress, ARTIFACT_POLL_MS);
 	const control = createPyrunDetachControl(input);
 	const artifactWakeup = createArtifactWakeup(input.runner.artifacts.directory);
-	const unregister = input.detachRegistry.register({ detach: control.detach });
 	const cancel = control.cancel;
+	const unregister = input.detachRegistry.register({
+		detach: () => {
+			if (!control.detach()) return false;
+			// A detached job outlives its tool call; aborting the call (including restart teardown) must not cancel it.
+			input.signal?.removeEventListener("abort", cancel);
+			return true;
+		},
+	});
 	input.signal?.addEventListener("abort", cancel, { once: true });
 	try {
 		for (;;) {

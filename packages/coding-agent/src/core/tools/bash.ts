@@ -399,30 +399,38 @@ async function observeForegroundBashRunner(
 ): Promise<BashRunnerResult> {
 	let outputOffset = 0;
 	let aborted = false;
-	let ownership: BashOwnership | undefined;
+	let activation: ReturnType<typeof activateDetachedBashRunner>;
+	let activationError: unknown;
 	const requestCancellation = () => {
 		aborted = true;
-		if (ownership) options.lifecycle.cancel(ownership, "Bash tool call aborted");
-		else terminateForegroundBashRunner(runner.runnerPid);
+		terminateForegroundBashRunner(runner.runnerPid);
+	};
+	// Activate synchronously so an abort right after detach (restart teardown) finds a detached job, not a foreground runner.
+	const activateOnDetach = () => {
+		if (activation || readForegroundBashCompletion(runner.foregroundCompletionPath)) return;
+		try {
+			activation = activateDetachedBashRunner(runner, cwd, options);
+		} catch (error) {
+			activationError = error;
+		}
+		if (activation) options.signal?.removeEventListener("abort", requestCancellation);
 	};
 	if (options.signal?.aborted) requestCancellation();
 	else options.signal?.addEventListener("abort", requestCancellation, { once: true });
+	options.detach.signal.addEventListener("abort", activateOnDetach);
 	try {
 		for (;;) {
 			outputOffset = forwardBashRunnerOutput(runner, outputOffset, options.onData);
+			if (activationError) throw activationError;
+			if (activation) return activation.result;
 			const completion = settleForegroundBashRunner(runner, aborted, options.timeout);
 			if (completion) return completion;
-			if (options.detach.signal.aborted) {
-				const activation = activateDetachedBashRunner(runner, cwd, options);
-				if (activation) {
-					ownership = activation.ownership;
-					return activation.result;
-				}
-			}
+			if (options.detach.signal.aborted) activateOnDetach();
 			await new Promise((resolve) => setTimeout(resolve, 25));
 		}
 	} finally {
 		options.signal?.removeEventListener("abort", requestCancellation);
+		options.detach.signal.removeEventListener("abort", activateOnDetach);
 	}
 }
 

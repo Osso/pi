@@ -71,6 +71,15 @@ function extractUserMessageText(content: string | Array<{ type: string; text?: s
 		.join("");
 }
 
+function appendDetachedToolNotice(notice: string | undefined, detachedCount: number): string | undefined {
+	if (detachedCount === 0) return notice;
+	const detachedNotice =
+		detachedCount === 1
+			? "1 running tool call moved to a background job; its result arrives as a job notification, so do not rerun it."
+			: `${detachedCount} running tool calls moved to background jobs; their results arrive as job notifications, so do not rerun them.`;
+	return notice ? `${notice} ${detachedNotice}` : detachedNotice;
+}
+
 /**
  * Owns the current AgentSession plus its cwd-bound services.
  *
@@ -381,6 +390,8 @@ export class AgentSessionRuntime {
 		const previousSessionFile = this.session.sessionFile;
 		const currentSessionManager = this.session.sessionManager;
 		const currentSessionFile = currentSessionManager.getSessionFile();
+		// Teardown aborts in-flight tool calls; detached ones keep running and report as background jobs.
+		const notice = appendDetachedToolNotice(options?.notice, this.session.detachAllRunningTools());
 
 		if (options?.process && currentSessionManager.isPersisted() && currentSessionFile) {
 			currentSessionManager.persistForRecovery();
@@ -388,7 +399,7 @@ export class AgentSessionRuntime {
 			await this.teardownCurrent("restart", currentSessionFile);
 			await this.processRestarter({
 				sessionFile: currentSessionFile,
-				prompt: options.notice,
+				prompt: notice,
 			});
 			return;
 		}
@@ -402,8 +413,8 @@ export class AgentSessionRuntime {
 					)
 				: currentSessionManager;
 
-		if (options?.notice) {
-			sessionManager.appendCustomMessageEntry("self_restart", options.notice, true);
+		if (notice) {
+			sessionManager.appendCustomMessageEntry("self_restart", notice, true);
 		}
 
 		await this.teardownCurrent("restart", currentSessionFile);

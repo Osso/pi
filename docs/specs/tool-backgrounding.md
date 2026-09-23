@@ -36,6 +36,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
       cursor advances so each distinct message is visible exactly once. Failed jobs expose their failure message and
       direct `fileRefs`.
 - [x] Tool-specific detach support must be opt-in; tools without a registered detach handle are not detached.
+- [x] Detaching activates the background job synchronously and releases the tool call's abort listener, so aborting the call afterwards (including restart teardown) does not cancel the job.
 - [x] Only jobs explicitly detached from their waiting tool call emit a terminal supervisor mailbox
       notification, recorded through a fenced `detached` lifecycle mark. Silent subagent terminal cleanup
       is the sole exception: its persisted cancellation policy suppresses notification projection without
@@ -81,7 +82,7 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
 - `packages/coding-agent/test/bash-tool-detach.test.ts`
 - `packages/agent-core/test/agent-loop.test.ts` — prepared agent identity persistence and execution propagation.
 - `packages/coding-agent/test/tool-definition-wrapper.test.ts` — extension preparation and execution-context propagation.
-- `packages/coding-agent/test/suite/headless-pi.test.ts` — interrupted Pyrun replay uses the original agent identity, ignores an unrelated historical manifest, and settles a child after a foreground wrapper fails following progress.
+- `packages/coding-agent/test/suite/headless-pi.test.ts` — foreground Bash/Pyrun calls survive `/restart` as background jobs; interrupted Pyrun replay uses the original agent identity, ignores an unrelated historical manifest, and settles a child after a foreground wrapper fails following progress.
 - `packages/coding-agent/test/pyrun-extension.test.ts` — detached Pyrun script/output persistence, foreground wrapper-sidecar settlement (nonempty/empty diagnostics, restored sidecars, and canonical result/error precedence), completion/failure regressions, elapsed `durationMs`, and duration-bearing lifecycle notifications.
 - `packages/coding-agent/test/interactive-mode-status.test.ts` — live detached Pyrun script/output rendering without a transcript.
 - `packages/coding-agent/test/runtime-mailbox.test.ts` — explicit runtime mailbox delivery plus
