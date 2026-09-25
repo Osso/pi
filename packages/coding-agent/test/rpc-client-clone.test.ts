@@ -40,4 +40,14 @@ describe("RpcClient clone", () => {
 		}).not.toThrow();
 		expect(events).toEqual([]);
 	});
+
+	it("delivers an event to every listener when an earlier listener unsubscribes during dispatch", () => {
+		const client = new RpcClient();
+		const received: string[] = [];
+		const unsubscribe = client.onEvent(() => unsubscribe());
+		client.onEvent((event) => received.push(event.type));
+
+		(client as unknown as { handleLine: (line: string) => void }).handleLine('{"type":"agent_end","messages":[]}');
+		expect(received).toEqual(["agent_end"]);
+	});
 });

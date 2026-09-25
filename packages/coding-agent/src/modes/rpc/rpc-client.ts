@@ -548,8 +548,9 @@ export class RpcClient {
 				}
 			}
 
-			// Otherwise it's an event
-			for (const listener of this.eventListeners) {
+			// Otherwise it's an event. Iterate a snapshot so a listener that unsubscribes
+			// during dispatch does not cause later listeners to miss this event.
+			for (const listener of [...this.eventListeners]) {
 				listener(record as unknown as AgentEvent);
 			}
 		} catch {
