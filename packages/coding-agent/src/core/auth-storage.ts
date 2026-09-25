@@ -59,6 +59,10 @@ export interface AuthStorageBackend {
 	withLockAsync<T>(fn: (current: string | undefined) => Promise<LockResult<T>>): Promise<T>;
 }
 
+// Sync and async lockers must agree: a lock is stale only after `stale` ms without an mtime update,
+// and the async holder updates every stale/2. A shorter sync `stale` lets startup reloads steal a live refresh lock.
+const AUTH_LOCK_STALE_MS = 30000;
+
 export class FileAuthStorageBackend implements AuthStorageBackend {
 	private authPath: string;
 
@@ -87,7 +91,7 @@ export class FileAuthStorageBackend implements AuthStorageBackend {
 
 		for (let attempt = 1; attempt <= maxAttempts; attempt++) {
 			try {
-				return lockfile.lockSync(path, { realpath: false });
+				return lockfile.lockSync(path, { realpath: false, stale: AUTH_LOCK_STALE_MS });
 			} catch (error) {
 				const code =
 					typeof error === "object" && error !== null && "code" in error
@@ -150,7 +154,7 @@ export class FileAuthStorageBackend implements AuthStorageBackend {
 					maxTimeout: 10000,
 					randomize: true,
 				},
-				stale: 30000,
+				stale: AUTH_LOCK_STALE_MS,
 				onCompromised: (err) => {
 					lockCompromised = true;
 					lockCompromisedError = err;
@@ -426,7 +430,10 @@ export class AuthStorage {
 			return null;
 		}
 
-		const result = await this.storage.withLockAsync(async (current) => {
+		// A successful refresh spends the old refresh token server-side, so its result must reach disk
+		// even if the lock is compromised before the backend writes it.
+		let rotated: { apiKey: string; newCredentials: OAuthCredentials } | undefined;
+		const refresh = this.storage.withLockAsync(async (current) => {
 			const currentData = this.parseStorageData(current);
 			this.data = currentData;
 			this.loadError = null;
@@ -451,6 +458,7 @@ export class AuthStorage {
 			if (!refreshed) {
 				return { result: null };
 			}
+			rotated = refreshed;
 
 			const merged: AuthStorageData = {
 				...currentData,
@@ -461,7 +469,14 @@ export class AuthStorage {
 			return { result: refreshed, next: JSON.stringify(merged, null, 2) };
 		});
 
-		return result;
+		try {
+			return await refresh;
+		} catch (error) {
+			if (!rotated) throw error;
+			this.recordError(error);
+			this.set(providerId, { type: "oauth", ...rotated.newCredentials });
+			return rotated;
+		}
 	}
 
 	/**

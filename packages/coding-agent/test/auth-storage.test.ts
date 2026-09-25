@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as piAiCompat from "@earendil-works/pi-ai/compat";
@@ -557,6 +557,62 @@ describe("AuthStorage", () => {
 
 			const secondTry = await authStorage.getApiKey(providerId);
 			expect(secondTry).toBe("Bearer refreshed-access-token");
+		});
+
+		test("persists rotated credentials when the lock is compromised after the refresh succeeded", async () => {
+			const providerId = `test-oauth-provider-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+			let compromiseLock: ((error: Error) => void) | undefined;
+			registerOAuthProvider({
+				id: providerId,
+				name: "Test OAuth Provider",
+				async login() {
+					throw new Error("Not used in this test");
+				},
+				async refreshToken(credentials) {
+					// The provider has rotated the refresh token server-side; the old one is now spent.
+					compromiseLock?.(new Error("Unable to update lock within the stale threshold"));
+					return {
+						...credentials,
+						access: "rotated-access",
+						refresh: "rotated-refresh",
+						expires: Date.now() + 60_000,
+					};
+				},
+				getApiKey(credentials) {
+					return `Bearer ${credentials.access}`;
+				},
+			});
+			writeAuthJson({
+				[providerId]: { type: "oauth", refresh: "spent-refresh", access: "expired", expires: Date.now() - 10_000 },
+			});
+			authStorage = AuthStorage.create(authJsonPath);
+			const realLock = lockfile.lock.bind(lockfile);
+			vi.spyOn(lockfile, "lock").mockImplementationOnce(async (file, options) => {
+				compromiseLock = options?.onCompromised;
+				return realLock(file, options);
+			});
+
+			const apiKey = await authStorage.getApiKey(providerId);
+
+			expect(apiKey).toBe("Bearer rotated-access");
+			const onDisk = JSON.parse(readFileSync(authJsonPath, "utf-8"));
+			expect(onDisk[providerId].refresh).toBe("rotated-refresh");
+		});
+
+		test("a starting process does not steal a refresh lock held for more than 10 seconds", async () => {
+			writeAuthJson({ anthropic: { type: "api_key", key: "sk-test" } });
+			const release = await lockfile.lock(authJsonPath, { stale: 30000 });
+			try {
+				const lockAge = new Date(Date.now() - 12_000);
+				utimesSync(`${authJsonPath}.lock`, lockAge, lockAge);
+
+				const starting = AuthStorage.create(authJsonPath);
+
+				expect(starting.drainErrors().map((error) => error.message)).toEqual(["Lock file is already being held"]);
+				expect(existsSync(`${authJsonPath}.lock`)).toBe(true);
+			} finally {
+				await release();
+			}
 		});
 	});
 
