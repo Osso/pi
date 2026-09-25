@@ -709,7 +709,10 @@ export class ModelRegistry {
 		try {
 			const providerConfig = this.providerRequestConfigs.get(model.provider);
 			const providerEnv = this.authStorage.getProviderEnv(model.provider);
-			const apiKeyFromAuthStorage = await this.authStorage.getApiKey(model.provider, { includeFallback: false });
+			const apiKeyFromAuthStorage = await this.authStorage.getApiKey(model.provider, {
+				includeFallback: false,
+				throwOnRefreshFailure: true,
+			});
 			const apiKey =
 				apiKeyFromAuthStorage ??
 				(providerConfig?.apiKey

@@ -43,6 +43,8 @@ export type AuthStatus = {
 
 export interface GetApiKeyOptions {
 	includeFallback?: boolean;
+	/** Throw the refresh error instead of returning undefined when an OAuth refresh fails. */
+	throwOnRefreshFailure?: boolean;
 }
 
 type LockResult<T> = {
@@ -511,8 +513,15 @@ export class AuthStorage {
 						return provider.getApiKey(updatedCred);
 					}
 
-					// Refresh truly failed - return undefined so model discovery skips this provider
-					// User can /login to re-authenticate (credentials preserved for retry)
+					// Refresh truly failed - model discovery skips this provider on undefined;
+					// request paths ask for the error. Credentials stay preserved for /login retry.
+					if (options.throwOnRefreshFailure) {
+						const reason = error instanceof Error ? error.message : String(error);
+						throw new Error(
+							`Authentication failed for "${providerId}": ${reason}. Run '/login ${providerId}' to re-authenticate.`,
+							{ cause: error },
+						);
+					}
 					return undefined;
 				}
 			} else {

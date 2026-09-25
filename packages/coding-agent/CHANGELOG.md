@@ -156,6 +156,7 @@
 
 ### Fixed
 
+- Fixed failed OAuth token refreshes at request time to report `Authentication failed for "<provider>": <refresh error>. Run '/login <provider>' to re-authenticate.` for main sessions, sub-agents, and the Supervisor, instead of forwarding no key and surfacing the misleading `No API key for provider` error. Model discovery still skips providers whose refresh failed.
 - Fixed Escape in the settings menu (and any other dialog) interrupting the active turn: kitty key-release events no longer reach the global interrupt and agent-slot listeners after a dialog closes on key press, and any focused non-editor component now owns its `tui.select.cancel` key without per-dialog exemptions. The scoped-models selector now cancels via `tui.select.cancel` instead of a hardcoded Escape.
 - Fixed `--refresh-models` silently succeeding with bundled models after an OpenRouter fetch failure. It now retries only transient network and HTTP failures, honors `Retry-After`, reports failures with a nonzero exit, preserves the existing cache on fetch failure, and fails when the fetched catalog cannot be persisted.
 - Fixed selected live-child `/model`, model cycling, and `/effort` controls being unavailable because the production child-session binding omitted the child model/thinking accessors and mutations; controls now operate on the child session without changing main-session settings.

@@ -1292,6 +1292,35 @@ describe("ModelRegistry", () => {
 			};
 		}
 
+		test("request auth reports the OAuth refresh failure instead of a missing key", async () => {
+			const codexOAuth = getOAuthProvider("openai-codex");
+			if (!codexOAuth) throw new Error("openai-codex OAuth provider not registered");
+			vi.spyOn(codexOAuth, "refreshToken").mockRejectedValue(
+				new Error("OpenAI Codex token refresh failed (401): refresh_token_invalidated"),
+			);
+			writeFileSync(
+				join(tempDir, "auth.json"),
+				JSON.stringify({
+					"openai-codex": { type: "oauth", access: "old", refresh: "revoked", expires: Date.now() - 1000 },
+				}),
+			);
+			authStorage.reload();
+
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+			const model = getModelsForProvider(registry, "openai-codex")[0];
+
+			const auth = await registry.getApiKeyAndHeaders(model);
+
+			expect(auth).toEqual({
+				ok: false,
+				error:
+					'Authentication failed for "openai-codex": Failed to refresh OAuth token for openai-codex: ' +
+					"OpenAI Codex token refresh failed (401): refresh_token_invalidated. " +
+					"Run '/login openai-codex' to re-authenticate.",
+			});
+			expect(await registry.getApiKeyForProvider("openai-codex")).toBeUndefined();
+		});
+
 		test("apiKey with ! prefix executes command and uses stdout", async () => {
 			writeRawModelsJson({
 				"custom-provider": providerWithApiKey("!echo test-api-key-from-command"),
