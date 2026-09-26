@@ -3,8 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { Container } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	consumeNotifications,
 	createMultiAgentRuntimeHandles,
@@ -23,6 +24,7 @@ import {
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
+import { getMarkdownTheme, initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { createHarness } from "./suite/harness.ts";
 
 type SubmitContext = {
@@ -83,10 +85,17 @@ type InputContext = {
 };
 
 type MainLoopContext = {
-	session: { prompt: (text: string, options?: unknown) => Promise<void> };
+	session: {
+		prompt: (text: string, options?: unknown) => Promise<void>;
+		extensionRunner: { getPromptCommand: (name: string) => unknown };
+	};
+	chatContainer: Container;
 	clipboardTempFiles: { cleanupReferencedIn: (text: string) => void };
 	showError: (text: string) => void;
 	isViewingAgentSession: () => boolean;
+	getMarkdownThemeWithSettings: typeof getMarkdownTheme;
+	toolOutputExpanded: boolean;
+	ui: { requestRender: () => void };
 };
 
 type InteractiveModePrivate = {
@@ -156,6 +165,8 @@ function createSubmitContext(): SubmitContext {
 
 describe("InteractiveMode startup input", () => {
 	let tempDir: string;
+
+	beforeAll(() => initTheme("dark"));
 	let controlDbPath: string;
 
 	beforeEach(() => {
@@ -443,15 +454,95 @@ describe("InteractiveMode startup input", () => {
 		}
 	});
 
+	it("does not render a direct extension command while its handler is pending", async () => {
+		let releaseHandler!: () => void;
+		let handlerStarted!: () => void;
+		const started = new Promise<void>((resolve) => {
+			handlerStarted = resolve;
+		});
+		const held = new Promise<void>((resolve) => {
+			releaseHandler = resolve;
+		});
+		const handler = vi.fn(async () => {
+			handlerStarted();
+			await held;
+		});
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.registerCommand("hold", { description: "Hold command", handler });
+				},
+			],
+		});
+		const context = Object.assign(Object.create(InteractiveMode.prototype) as MainLoopContext, {
+			runtimeHost: { session: harness.session },
+			chatContainer: new Container(),
+			clipboardTempFiles: { cleanupReferencedIn: vi.fn() },
+			showError: vi.fn(),
+			isViewingAgentSession: () => false,
+			getMarkdownThemeWithSettings: getMarkdownTheme,
+			toolOutputExpanded: false,
+			ui: { requestRender: vi.fn() },
+		});
+		const submission = interactiveModePrototype.submitMainLoopInput.call(context, "/hold argument");
+		try {
+			await started;
+			expect(context.chatContainer.children).toHaveLength(0);
+			expect(handler).toHaveBeenCalledWith("argument", expect.anything());
+		} finally {
+			releaseHandler();
+			await submission;
+			harness.cleanup();
+		}
+		expect(context.showError).not.toHaveBeenCalled();
+	});
+
+	it.each(["ordinary prompt", "/skill:example", "/template"])(
+		"keeps %s visible as sending before preparation when not a direct command",
+		async (text) => {
+			let releasePrompt!: () => void;
+			const pending = new Promise<void>((resolve) => {
+				releasePrompt = resolve;
+			});
+			const prompt = vi.fn(async () => {
+				await pending;
+			});
+			const context = Object.assign(Object.create(InteractiveMode.prototype) as MainLoopContext, {
+				runtimeHost: { session: { prompt, extensionRunner: { getPromptCommand: () => undefined } } },
+				chatContainer: new Container(),
+				clipboardTempFiles: { cleanupReferencedIn: vi.fn() },
+				showError: vi.fn(),
+				isViewingAgentSession: () => false,
+				getMarkdownThemeWithSettings: getMarkdownTheme,
+				toolOutputExpanded: false,
+				ui: { requestRender: vi.fn() },
+			});
+			const submission = interactiveModePrototype.submitMainLoopInput.call(context, text);
+			try {
+				const display = context.chatContainer.render(80).join("\n");
+				expect(display).toContain(text);
+				expect(display).toContain("sending");
+				expect(prompt).toHaveBeenCalledOnce();
+			} finally {
+				releasePrompt();
+				await submission;
+			}
+		},
+	);
+
 	it("queues main-loop input as steering when a background turn raced in", async () => {
 		// Regression: after Escape resubmits queued steering text, a runtime
 		// mailbox delivery can start a new turn first. The main loop must queue
 		// the text as steering instead of losing it to an "already processing" error.
 		const context: MainLoopContext = {
-			session: { prompt: vi.fn(async () => {}) },
+			session: { prompt: vi.fn(async () => {}), extensionRunner: { getPromptCommand: () => undefined } },
 			clipboardTempFiles: { cleanupReferencedIn: vi.fn() },
 			showError: vi.fn(),
 			isViewingAgentSession: () => true,
+			chatContainer: new Container(),
+			getMarkdownThemeWithSettings: getMarkdownTheme,
+			toolOutputExpanded: false,
+			ui: { requestRender: vi.fn() },
 		};
 
 		await interactiveModePrototype.submitMainLoopInput.call(context, "queued steering");

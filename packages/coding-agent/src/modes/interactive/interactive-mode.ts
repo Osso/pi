@@ -1191,14 +1191,18 @@ export class InteractiveMode {
 	 * queue as steering instead of throwing away the user's text.
 	 */
 	private async submitMainLoopInput(userInput: string): Promise<void> {
-		// Show the raw text until the session prepares the real message (input hooks,
-		// compaction and the turn-start lock can delay preparation).
-		let submittedMessage: AgentMessage | undefined = {
-			role: "user",
-			content: [{ type: "text", text: userInput }],
-			timestamp: Date.now(),
-		};
-		InteractiveMode.prototype.renderPreparedUserMessage.call(this, submittedMessage);
+		// Show prompt text until the session prepares the real message (input hooks,
+		// compaction and the turn-start lock can delay preparation). Direct commands have no user message.
+		let submittedMessage: AgentMessage | undefined;
+		const commandName = userInput.startsWith("/") ? userInput.slice(1).split(" ", 1)[0] : undefined;
+		if (!commandName || !this.session.extensionRunner.getPromptCommand(commandName)) {
+			submittedMessage = {
+				role: "user",
+				content: [{ type: "text", text: userInput }],
+				timestamp: Date.now(),
+			};
+			InteractiveMode.prototype.renderPreparedUserMessage.call(this, submittedMessage);
+		}
 		try {
 			await this.session.prompt(userInput, {
 				streamingBehavior: "steer",

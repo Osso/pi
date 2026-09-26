@@ -38,6 +38,7 @@ runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
 ### First-party Tool
 
 - [x] Register a `/restart` slash command from the first-party extension.
+- [x] Do not render direct extension commands such as `/restart` as in-transit user messages; preserve existing interactive rendering for ordinary prompts.
 - [x] Register a `restart_self` tool from a first-party extension.
 - [x] Add a user-visible restart notice to the same session when the tool runs.
 - [x] Persist a process-restart notice exactly once as a typed `self_restart` custom message; do not submit it as a user prompt or include it in session metadata or search text.
@@ -75,6 +76,7 @@ runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
 - `packages/coding-agent/test/suite/regressions/restart-self-auto-continuation.test.ts`
 - `packages/coding-agent/test/suite/regressions/missing-session-cwd-restart.test.ts`
 - `packages/coding-agent/test/self-restart-extension.test.ts`
+- `packages/coding-agent/test/interactive-mode-startup-input.test.ts` — direct-command display and ordinary prompt in-transit rendering.
 - `packages/coding-agent/test/suite/regressions/sighup-restart-harness.test.ts`
 
 ## Known gaps (current cycle)
