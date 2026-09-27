@@ -188,11 +188,11 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private createTimerComponent(): Component | undefined {
-		const timerText = this.formatTimerText();
-		if (!timerText) {
+		const timingText = [this.formatTimerText(), this.formatCompletionTime()].filter(Boolean).join("\n");
+		if (!timingText) {
 			return undefined;
 		}
-		return new Text(theme.fg("muted", timerText), 0, 0);
+		return new Text(theme.fg("muted", timingText), 0, 0);
 	}
 
 	private formatTimerText(): string | undefined {
@@ -208,6 +208,18 @@ export class ToolExecutionComponent extends Container {
 
 		const elapsedMs = finishedAt - this.executionStartedAt;
 		return `Elapsed: ${formatElapsedDuration(elapsedMs)}`;
+	}
+
+	private formatCompletionTime(): string | undefined {
+		if (this.executionFinishedAt === undefined) {
+			return undefined;
+		}
+		return new Date(this.executionFinishedAt).toLocaleTimeString("en-GB", {
+			hour: "2-digit",
+			minute: "2-digit",
+			second: "2-digit",
+			hourCycle: "h23",
+		});
 	}
 
 	private createResultFallback(): Component | undefined {
@@ -249,7 +261,7 @@ export class ToolExecutionComponent extends Container {
 	): void {
 		this.result = result;
 		this.isPartial = isPartial;
-		if (!isPartial && this.executionStartedAt !== undefined) {
+		if (!isPartial) {
 			this.executionFinishedAt = finishedAt ?? Date.now();
 		}
 		this.updateDisplay();
@@ -470,6 +482,10 @@ export class ToolExecutionComponent extends Container {
 		const timerText = this.formatTimerText();
 		if (timerText) {
 			text += `\n${timerText}`;
+		}
+		const completionTime = this.formatCompletionTime();
+		if (completionTime) {
+			text += `\n${theme.fg("muted", completionTime)}`;
 		}
 		const output = this.hideOutput ? "" : this.getTextOutput(this.getDisplayContent());
 		if (output) {

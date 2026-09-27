@@ -16,7 +16,12 @@ function userEntry(id: string, parentId: string | null, content: string): Sessio
 	};
 }
 
-function assistantEntry(id: string, parentId: string | null, text: string): SessionEntry {
+function assistantEntry(
+	id: string,
+	parentId: string | null,
+	text: string,
+	options: { toolCallId?: string; stopReason?: "aborted" | "toolUse"; timestamp?: number } = {},
+): SessionEntry {
 	return {
 		type: "message",
 		id,
@@ -24,7 +29,9 @@ function assistantEntry(id: string, parentId: string | null, text: string): Sess
 		timestamp: "2026-08-08T00:00:00.000Z",
 		message: {
 			role: "assistant",
-			content: [{ type: "text", text }],
+			content: options.toolCallId
+				? [{ type: "toolCall", id: options.toolCallId, name: "end_turn", arguments: { reason: "done" } }]
+				: [{ type: "text", text }],
 			api: "openai-completions",
 			provider: "openai",
 			model: "test",
@@ -36,8 +43,8 @@ function assistantEntry(id: string, parentId: string | null, text: string): Sess
 				totalTokens: 2,
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 			},
-			stopReason: "stop",
-			timestamp: 1,
+			stopReason: options.stopReason ?? "stop",
+			timestamp: options.timestamp ?? 1,
 		},
 	};
 }
@@ -186,6 +193,39 @@ describe("InteractiveMode compaction transcript rendering", () => {
 			"Compaction completed via OpenAI remote endpoint (openai/gpt-4.1-mini, https://api.openai.com/v1/responses/compact)",
 		);
 		expect(fakeThis.flushCompactionQueue).toHaveBeenCalledWith({ willRetry: false });
+	});
+
+	test("renders persisted completion times for restored results and aborted tools", () => {
+		const { fakeThis } = createRenderingHarness();
+		const finishedAt = new Date(2024, 0, 2, 3, 4, 5).getTime();
+		const abortedAt = new Date(2024, 0, 2, 4, 5, 6).getTime();
+		const entries: SessionEntry[] = [
+			assistantEntry("tool-call", null, "", { toolCallId: "completed", stopReason: "toolUse" }),
+			{
+				type: "message",
+				id: "tool-result",
+				parentId: "tool-call",
+				timestamp: new Date(finishedAt).toISOString(),
+				message: {
+					role: "toolResult",
+					toolCallId: "completed",
+					toolName: "end_turn",
+					content: [{ type: "text", text: "Turn ended: done" }],
+					isError: false,
+					timestamp: finishedAt,
+				},
+			},
+			assistantEntry("aborted-tool", "tool-result", "", {
+				toolCallId: "aborted",
+				stopReason: "aborted",
+				timestamp: abortedAt,
+			}),
+		];
+		fakeThis.renderSessionEntries.call(fakeThis, entries);
+
+		const output = renderedTranscript(fakeThis);
+		expect(output).toContain("03:04:05");
+		expect(output).toContain("04:05:06");
 	});
 
 	test("keeps live compaction metadata visible after editing the summary", async () => {

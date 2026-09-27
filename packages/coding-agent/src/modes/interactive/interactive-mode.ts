@@ -4934,7 +4934,11 @@ export class InteractiveMode {
 							} else {
 								errorMessage = message.errorMessage || "Error";
 							}
-							component.updateResult({ content: [{ type: "text", text: errorMessage }], isError: true });
+							component.updateResult(
+								{ content: [{ type: "text", text: errorMessage }], isError: true },
+								false,
+								message.timestamp,
+							);
 						} else {
 							renderedPendingTools.set(content.id, component);
 						}
@@ -4948,7 +4952,7 @@ export class InteractiveMode {
 					if (timing) {
 						component.markExecutionStarted(timing.startedAt);
 					}
-					component.updateResult(message, false, timing?.finishedAt);
+					component.updateResult(message, false, timing?.finishedAt ?? message.timestamp);
 					renderedPendingTools.delete(message.toolCallId);
 				}
 			} else {
