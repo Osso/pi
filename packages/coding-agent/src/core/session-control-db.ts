@@ -6474,10 +6474,6 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 		CREATE INDEX IF NOT EXISTS session_metadata_name_idx
 		ON session_metadata(name);
 
-		CREATE INDEX IF NOT EXISTS session_metadata_empty_main_idx
-		ON session_metadata(id, session_path)
-		WHERE archived_at IS NULL AND is_subagent = 0 AND message_count = 0;
-
 		CREATE TABLE IF NOT EXISTS session_sandbox_profiles (
 			session_path TEXT PRIMARY KEY,
 			session_id TEXT NOT NULL,
@@ -6620,6 +6616,11 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 	if (schemaVersion.user_version >= LIFECYCLE_PROTOCOL_SCHEMA_VERSION) migrateLegacyMultiAgentCounters(db);
 	migrateLegacyMultiAgentPayloads(db, selfRestartProcessId);
 	addMissingSessionMetadataColumns(db);
+	db.exec(`
+		CREATE INDEX IF NOT EXISTS session_metadata_empty_main_idx
+		ON session_metadata(id, session_path)
+		WHERE archived_at IS NULL AND is_subagent = 0 AND message_count = 0;
+	`);
 	migrateLegacySessionNames(db, selfRestartProcessId);
 	addMissingRuntimeMailboxListenerColumns(db);
 	addMissingArchitectRequestColumns(db);
