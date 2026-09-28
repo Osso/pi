@@ -4,9 +4,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { sweepAbandonedEmptySessions } from "../src/core/empty-session-cleanup.ts";
 import {
+	archiveSession,
 	getControlDbPath,
 	listEmptyMainSessionCandidates,
 	readSessionMetadata,
+	unarchiveSession,
 	writeSessionHealth,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
@@ -64,6 +66,42 @@ describe("empty session cleanup", () => {
 		for (const id of ["nonempty", "subagent", "archived"]) {
 			expect(readSessionMetadata(controlDbPath, join(agentDir, `${id}.jsonl`))?.allMessagesText).toBe(largeText);
 		}
+	});
+
+	it("tracks empty main-session candidates across message, child, and archive transitions", () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "pi-empty-session-transitions-"));
+		tempDirs.push(agentDir);
+		const controlDbPath = getControlDbPath(agentDir);
+		const sessionPath = join(agentDir, "candidate.jsonl");
+		const base = {
+			sessionPath,
+			id: "candidate",
+			cwd: agentDir,
+			createdAt: "2026-09-03T00:00:00.000Z",
+			modifiedAt: "2026-09-03T00:00:00.000Z",
+			firstMessage: "(no messages)",
+			allMessagesText: "",
+		};
+		const candidates = () => listEmptyMainSessionCandidates(controlDbPath);
+		const expected = [{ id: "candidate", sessionPath }];
+
+		writeSessionMetadata(controlDbPath, { ...base, messageCount: 0 });
+		expect(candidates()).toEqual(expected);
+
+		writeSessionMetadata(controlDbPath, { ...base, messageCount: 1 });
+		expect(candidates()).toEqual([]);
+
+		writeSessionMetadata(controlDbPath, { ...base, messageCount: 0, isSubagent: true });
+		expect(candidates()).toEqual([]);
+
+		archiveSession(controlDbPath, sessionPath);
+		expect(candidates()).toEqual([]);
+
+		writeSessionMetadata(controlDbPath, { ...base, messageCount: 0, isSubagent: false });
+		expect(candidates()).toEqual([]);
+
+		unarchiveSession(controlDbPath, sessionPath);
+		expect(candidates()).toEqual(expected);
 	});
 
 	it("removes only dead fileless empty sessions during startup sweep", () => {
