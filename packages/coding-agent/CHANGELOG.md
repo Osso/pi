@@ -19,6 +19,7 @@
 
 ### Changed
 
+- Improved fresh-start empty-session cleanup with a covering partial index for active non-subagent zero-message session metadata candidates, avoiding scans of unrelated metadata rows without changing cleanup behavior.
 - Changed `/multi-agent` to `proactive|disabled`: persisted `proactive` displays as `active`; disabled removes the Pi delegation policy and active sub-agent tools/guidance without cancelling existing children; `ultra` re-enables proactive mode.
 - Capped `wait_agent({})` at 25 minutes since the latest foreground `model_request_start`: expiry returns an explicit still-running result without cancelling agents, allowing a later model turn to wait again. This deadline makes no cache-retention guarantee.
 - Changed session display names to persist only in `session_metadata.name`: the v14→v15 migration normalizes legacy `named_sessions` values under lifecycle quiescence, applies them only to matching metadata rows, gives legacy values precedence, discards orphan rows, and drops the duplicate table; `NULL` means never named, `''` means explicitly cleared, and nonempty values are current names; historical JSONL `session_info` entries remain parseable but are ignored and never newly written; copied imports and forks do not inherit names.
