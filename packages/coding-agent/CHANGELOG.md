@@ -74,7 +74,7 @@
 - Added automatic detached-job artifact cleanup at Pi startup and after terminal outbox delivery; Linux `/proc`-backed cleanup preserves nonterminal or live-referenced jobs, removes artifacts at least three days old, and caps retained terminal artifacts at 2 GiB.
 - Added the `steering_message_queued` AgentSession event; interactive mode uses it to wake active process-local `wait_agent` after accepted ordinary main-session steering.
 - Added first-party `/spec-validation` to validate each `docs/specs/*.md` file independently in one native agent turn.
-- Added per-session `/fast` mode for `openai-codex` and `openai-codex-gc`: bare `/fast` toggles the current mode, `/fast on` selects `priority`, `/fast ultra` selects `ultrafast`, and `/fast off` disables it; one main-thread authority shares the selected tier dynamically with spawned and attached child runtimes, while child `/fast` commands cannot mutate it and accepted changes persist outside LLM context across `/restart` and later reopening of the same session, including before the first assistant response because pending session entries are flushed before process handoff.
+- Added per-session `/fast` mode for `openai-codex`, `openai-codex-gc`, and `openai-codex-team`: bare `/fast` toggles the current mode, `/fast on` selects `priority`, `/fast ultra` selects `ultrafast`, and `/fast off` disables it; one main-thread authority shares the selected tier dynamically with spawned and attached child runtimes, while child `/fast` commands cannot mutate it and accepted changes persist outside LLM context across `/restart` and later reopening of the same session, including before the first assistant response because pending session entries are flushed before process handoff.
 - Added the `defaultCodexFastMode` settings.json option with exact values `"off"`, `"priority"`, and `"ultrafast"`; omission or `"off"` disables fast mode, and the merged global/project value is used only when the session branch has no valid persisted `codex-fast-mode` entry, without persisting the default on session open.
 - Added built-in `search_current_session_history` for searching full conversational entry content on the active branch, including entries omitted from model context by compaction.
 - Added parent-journal admission enforcement for spawned agents: dispatch starts only after `agent_start` persists, append failures terminalize explicitly without running the child, and restart cleanup fails dead-owned unjournaled rows instead of leaving active ghosts.
@@ -106,7 +106,7 @@
 - Added a systemd-supervised `pi architect` Sol advisor with event-driven shared-session observation, durable `ask_architect` requests, targeted runtime-mailbox advice, and read-only Bubblewrap tool workers.
 - Added `pi --supervisor` and `pi --architect` interactive resident consoles that attach to the running service, render its current branch and live events, submit prompts through the resident owner, and preserve the existing positional service commands.
 - Added `pi.models.set(provider, model_id, thinking_level=None)` to Pyrun for switching the current Pi session model through the host bridge.
-- Added GPT-5.6 Sol and GPT-5.6 Terra to the `openai-codex` and `openai-codex-gc` model catalogs, and refreshed OpenRouter models with GPT-5.6 variants.
+- Added GPT-5.6 Sol and GPT-5.6 Terra to the `openai-codex`, `openai-codex-gc`, and `openai-codex-team` model catalogs, and refreshed OpenRouter models with GPT-5.6 variants.
 - Added built-in `channel_post` for the global SQLite-backed shared channel with per-main-session cursors and idle delivery.
 - Added built-in `list_sessions` and `broadcast` tools with control-DB session health, sticky dead checks, and runtime mailbox delivery.
 - Opened `control.sqlite` with multi-consumer WAL settings so concurrent Pi sessions can list/broadcast and write mailboxes without exclusive-lock failures.
@@ -114,8 +114,8 @@
 - Added a built-in `ask_questions` tool for structured clarifying questions in interactive sessions.
 - Added the first-party `browser-cli` tool with ordered `commands: string[][]` batches; it invokes an externally installed `browser-cli` executable sequentially, stops on failure or cancellation, and guides browser-agent routing and mapped broker login.
 - Added `pi login <provider>` for running OAuth login flows from the CLI, including a `--browser-cli` option to open auth URLs through browser-cli.
-- Added `/login openai-codex-gc` support for logging in to a second OpenAI Codex account separately.
-- Added automatic one-time fallback from `openai-codex` to `openai-codex-gc` (and back) after terminal quota, usage-limit, or billing exhaustion when the paired provider has auth for the same model ID; fallback is guarded against provider loops within the user turn.
+- Added `/login openai-codex-gc` and `/login openai-codex-team` support for independently authenticating additional OpenAI Codex backends; OAuth account or workspace selection remains upstream.
+- Added automatic same-model quota fallback among `openai-codex`, `openai-codex-gc`, and `openai-codex-team`: candidate orders are codex → gc → team, gc → codex → team, and team → codex → gc; each provider is attempted at most once per user turn without rewriting global defaults.
 - Added a first-party `/usage` extension command for OpenAI Codex account usage and reset credits.
 - Added a first-party `web_search` tool for OpenAI Responses hosted web search.
 - Added a generic Pyrun `pi.tools.call(name, params)` bridge for active Pi tools, with `pi.web_search(query)` as a convenience wrapper for `web_search`.

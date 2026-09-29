@@ -47,38 +47,41 @@ describe("Codex image generation extension", () => {
 		expect(on).not.toHaveBeenCalled();
 	});
 
-	it("saves generated PNG and returns its path with the image", async () => {
-		const outputDirectory = mkdtempSync(join(tmpdir(), "pi-image-gen-test-"));
-		try {
-			const runGeneration = vi.fn(async () => ({
-				type: "image" as const,
-				data: "aW1hZ2U=",
-				mimeType: "image/png",
-			}));
-			const tool = createImageGenerationToolDefinition({ runGeneration });
-			const ctx = { ...context("openai-codex-responses"), cwd: outputDirectory } as ExtensionContext;
+	it.each(["openai-codex", "openai-codex-gc", "openai-codex-team"])(
+		"saves generated PNG using %s auth and returns its path with the image",
+		async (provider) => {
+			const outputDirectory = mkdtempSync(join(tmpdir(), "pi-image-gen-test-"));
+			try {
+				const runGeneration = vi.fn(async () => ({
+					type: "image" as const,
+					data: "aW1hZ2U=",
+					mimeType: "image/png",
+				}));
+				const tool = createImageGenerationToolDefinition({ runGeneration });
+				const ctx = { ...context("openai-codex-responses", provider), cwd: outputDirectory } as ExtensionContext;
 
-			const result = await tool.execute("call-1", { prompt: "A simple blue circle" }, undefined, undefined, ctx);
+				const result = await tool.execute("call-1", { prompt: "A simple blue circle" }, undefined, undefined, ctx);
 
-			expect(runGeneration).toHaveBeenCalledWith(
-				expect.objectContaining({
-					prompt: "A simple blue circle",
-					model: ctx.model,
-					apiKey: "test-key",
-					headers: { "x-test": "yes" },
-					signal: expect.any(AbortSignal),
-				}),
-				ctx,
-			);
-			const pathText = result.content.find((entry) => entry.type === "text")?.text;
-			const savedPath = pathText?.replace("Generated image: ", "");
-			expect(savedPath).toMatch(new RegExp(`^${outputDirectory}/image-gen-[a-f0-9]{16}\\.png$`));
-			expect(readFileSync(savedPath ?? "")).toEqual(Buffer.from("image"));
-			expect(result.content).toContainEqual({ type: "image", data: "aW1hZ2U=", mimeType: "image/png" });
-		} finally {
-			rmSync(outputDirectory, { recursive: true, force: true });
-		}
-	});
+				expect(runGeneration).toHaveBeenCalledWith(
+					expect.objectContaining({
+						prompt: "A simple blue circle",
+						model: ctx.model,
+						apiKey: "test-key",
+						headers: { "x-test": "yes" },
+						signal: expect.any(AbortSignal),
+					}),
+					ctx,
+				);
+				const pathText = result.content.find((entry) => entry.type === "text")?.text;
+				const savedPath = pathText?.replace("Generated image: ", "");
+				expect(savedPath).toMatch(new RegExp(`^${outputDirectory}/image-gen-[a-f0-9]{16}\\.png$`));
+				expect(readFileSync(savedPath ?? "")).toEqual(Buffer.from("image"));
+				expect(result.content).toContainEqual({ type: "image", data: "aW1hZ2U=", mimeType: "image/png" });
+			} finally {
+				rmSync(outputDirectory, { recursive: true, force: true });
+			}
+		},
+	);
 
 	it("adds one hosted image tool and removes the same-named function tool", () => {
 		expect(
@@ -104,6 +107,7 @@ describe("Codex image generation extension", () => {
 	it("identifies only Codex provider models as hosted image-generation capable", () => {
 		expect(isOpenAIHostedImageGenerationModel(model("openai-codex-responses", "openai-codex"))).toBe(true);
 		expect(isOpenAIHostedImageGenerationModel(model("openai-codex-responses", "openai-codex-gc"))).toBe(true);
+		expect(isOpenAIHostedImageGenerationModel(model("openai-codex-responses", "openai-codex-team"))).toBe(true);
 		expect(isOpenAIHostedImageGenerationModel(model("openai-responses", "openai"))).toBe(false);
 		expect(isOpenAIHostedImageGenerationModel(model("anthropic-messages", "anthropic"))).toBe(false);
 	});

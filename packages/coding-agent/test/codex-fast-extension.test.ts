@@ -125,6 +125,19 @@ describe("Codex fast mode extension", () => {
 		expect(appendEntry).toHaveBeenNthCalledWith(2, "codex-fast-mode", { serviceTier: null });
 	});
 
+	it("enables fast mode and annotates requests for the team provider", async () => {
+		const { beforeProviderRequest, command, ctx, notify, setStatus } = createHarness({
+			provider: "openai-codex-team",
+		});
+		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
+
+		await command.handler("on", ctx);
+
+		expect(notify).toHaveBeenLastCalledWith("Fast mode: on", "info");
+		expect(setStatus).toHaveBeenLastCalledWith("codex-fast", "fast");
+		expect(beforeProviderRequest(event, ctx)).toEqual({ model: "test-model", service_tier: "priority" });
+	});
+
 	it("selects ultrafast processing until fast mode is disabled", async () => {
 		const { beforeProviderRequest, command, ctx, notify, setStatus } = createHarness();
 		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
@@ -147,7 +160,7 @@ describe("Codex fast mode extension", () => {
 
 		await command.handler("on", ctx);
 
-		expect(notify).toHaveBeenCalledWith("Fast mode requires openai-codex or openai-codex-gc", "warning");
+		expect(notify).toHaveBeenCalledWith("Fast mode requires a Codex provider", "warning");
 		expect(setStatus).not.toHaveBeenCalledWith("codex-fast", "fast");
 	});
 
@@ -156,7 +169,7 @@ describe("Codex fast mode extension", () => {
 
 		await command.handler("on", ctx);
 
-		expect(notify).toHaveBeenCalledWith("Fast mode requires openai-codex or openai-codex-gc", "warning");
+		expect(notify).toHaveBeenCalledWith("Fast mode requires a Codex provider", "warning");
 	});
 
 	it("adds priority service tier only while enabled on Codex requests", async () => {

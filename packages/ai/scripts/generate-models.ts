@@ -505,20 +505,16 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 	if (model.provider === "groq" && model.id === "qwen/qwen3-32b") {
 		mergeThinkingLevelMap(model, { minimal: null, low: null, medium: null, high: "default" });
 	}
-	if ((model.provider === "openai-codex" || model.provider === "openai-codex-gc") && supportsOpenAiXhigh(model.id)) {
-		mergeThinkingLevelMap(model, { minimal: "low" });
-	}
-	if (
-		(model.provider === "openai-codex" || model.provider === "openai-codex-gc") &&
-		model.id === "gpt-5.6-sol"
-	) {
-		mergeThinkingLevelMap(model, { max: "max", ultra: "max" });
-	}
-	if (
-		(model.provider === "openai-codex" || model.provider === "openai-codex-gc") &&
-		model.id === "gpt-6-astra"
-	) {
-		mergeThinkingLevelMap(model, { off: null, max: "max" });
+	if (["openai-codex", "openai-codex-gc", "openai-codex-team"].includes(model.provider)) {
+		if (supportsOpenAiXhigh(model.id)) {
+			mergeThinkingLevelMap(model, { minimal: "low" });
+		}
+		if (model.id === "gpt-5.6-sol") {
+			mergeThinkingLevelMap(model, { max: "max", ultra: "max" });
+		}
+		if (model.id === "gpt-6-astra") {
+			mergeThinkingLevelMap(model, { off: null, max: "max" });
+		}
 	}
 	if (
 		(model.provider === "moonshotai" || model.provider === "moonshotai-cn") &&
@@ -1954,7 +1950,11 @@ async function generateModels() {
 		...model,
 		provider: "openai-codex-gc",
 	}));
-	allModels.push(...codexModels, ...codexGcModels);
+	const codexTeamModels: Model<"openai-codex-responses">[] = codexModels.map((model) => ({
+		...model,
+		provider: "openai-codex-team",
+	}));
+	allModels.push(...codexModels, ...codexGcModels, ...codexTeamModels);
 
 	// Add missing Grok models
 	const missingGrokModels: Model<"openai-completions">[] = [

@@ -124,7 +124,9 @@ export function isOpenAIResponsesModel(model: Model<Api> | undefined): model is 
 
 function isOpenAICodexResponsesModel(model: Model<Api> | undefined): model is OpenAINativeCompactModel {
 	return (
-		(model?.provider === "openai-codex" || model?.provider === "openai-codex-gc") &&
+		(model?.provider === "openai-codex" ||
+			model?.provider === "openai-codex-gc" ||
+			model?.provider === "openai-codex-team") &&
 		model.api === "openai-codex-responses"
 	);
 }
@@ -132,7 +134,9 @@ function isOpenAICodexResponsesModel(model: Model<Api> | undefined): model is Op
 function isCodexRemoteCompactionModel(model: OpenAINativeCompactModel): boolean {
 	return (
 		model.api === "openai-codex-responses" &&
-		(model.provider === "openai-codex" || model.provider === "openai-codex-gc")
+		(model.provider === "openai-codex" ||
+			model.provider === "openai-codex-gc" ||
+			model.provider === "openai-codex-team")
 	);
 }
 

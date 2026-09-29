@@ -690,3 +690,7 @@ export const openaiCodexGcOAuthProvider: OAuthProviderInterface = createOpenAICo
 	"openai-codex-gc",
 	"ChatGPT Plus/Pro (Codex Subscription, GlobalComix)",
 );
+export const openaiCodexTeamOAuthProvider: OAuthProviderInterface = createOpenAICodexOAuthProvider(
+	"openai-codex-team",
+	"ChatGPT (Codex Subscription, Team)",
+);

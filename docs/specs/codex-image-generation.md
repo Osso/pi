@@ -10,7 +10,7 @@ The `codex-image-generation` extension exposes hosted image generation as a call
 
 - [x] Register a callable `image_gen` tool with a required `prompt` string.
 - [x] Load the extension as a default first-party tool.
-- [x] Accept the tool only for `openai-codex` and `openai-codex-gc` provider models.
+- [ ] Accept the tool only for `openai-codex`, `openai-codex-gc`, and `openai-codex-team` provider models.
 
 ### Private hosted request
 

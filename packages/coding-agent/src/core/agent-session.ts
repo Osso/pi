@@ -278,9 +278,10 @@ function assistantMessagePrecedesCompaction(
 	return assistantMessage.timestamp <= new Date(compactionEntry.timestamp).getTime();
 }
 
-const CODEX_PROVIDER_PAIRS = new Map([
-	["openai-codex", "openai-codex-gc"],
-	["openai-codex-gc", "openai-codex"],
+const CODEX_FALLBACK_PROVIDERS = new Map([
+	["openai-codex", ["openai-codex-gc", "openai-codex-team"]],
+	["openai-codex-gc", ["openai-codex", "openai-codex-team"]],
+	["openai-codex-team", ["openai-codex", "openai-codex-gc"]],
 ]);
 const QUOTA_EXHAUSTION_PATTERN =
 	/GoUsageLimitError|FreeUsageLimitError|usage limit|available balance|insufficient_quota|out of budget|quota exceeded|billing (?:limit|quota|exhausted)/i;
@@ -792,7 +793,7 @@ export class AgentSession {
 	// Retry state
 	private _retryAbortController: AbortController | undefined = undefined;
 	private _retryAttempt = 0;
-	private _quotaFallbackAttempted = false;
+	private readonly _quotaFallbackVisitedProviders = new Set<string>();
 
 	// Bash execution state
 	private _bashAbortController: AbortController | undefined = undefined;
@@ -1377,7 +1378,7 @@ export class AgentSession {
 		if (!isInternalSteeringMessage) this._resetDuplicateTurnGuard();
 		this._overflowRecoveryAttempted = false;
 		this._lengthRecoveryAttempted = false;
-		this._quotaFallbackAttempted = false;
+		this._quotaFallbackVisitedProviders.clear();
 		const messageText = this._getUserMessageText(event.message);
 		if (!messageText) return;
 
@@ -5131,7 +5132,7 @@ export class AgentSession {
 	}
 
 	private _findQuotaFallbackModel(message: AssistantMessage): Model<any> | undefined {
-		if (this._quotaFallbackAttempted || message.stopReason !== "error" || !message.errorMessage) {
+		if (message.stopReason !== "error" || !message.errorMessage) {
 			return undefined;
 		}
 		if (!QUOTA_EXHAUSTION_PATTERN.test(message.errorMessage)) {
@@ -5142,13 +5143,15 @@ export class AgentSession {
 		if (!currentModel || message.provider !== currentModel.provider || message.model !== currentModel.id) {
 			return undefined;
 		}
-		const pairedProvider = CODEX_PROVIDER_PAIRS.get(message.provider);
-		if (!pairedProvider) {
-			return undefined;
-		}
+		const fallbackProviders = CODEX_FALLBACK_PROVIDERS.get(message.provider);
+		if (!fallbackProviders) return undefined;
 
-		const fallbackModel = this._modelRegistry.find(pairedProvider, message.model);
-		return fallbackModel && this._modelRegistry.hasConfiguredAuth(fallbackModel) ? fallbackModel : undefined;
+		for (const provider of fallbackProviders) {
+			if (this._quotaFallbackVisitedProviders.has(provider)) continue;
+			const fallbackModel = this._modelRegistry.find(provider, message.model);
+			if (fallbackModel && this._modelRegistry.hasConfiguredAuth(fallbackModel)) return fallbackModel;
+		}
+		return undefined;
 	}
 
 	private async _prepareQuotaFallback(message: AssistantMessage): Promise<boolean> {
@@ -5157,7 +5160,7 @@ export class AgentSession {
 			return false;
 		}
 
-		this._quotaFallbackAttempted = true;
+		this._quotaFallbackVisitedProviders.add(message.provider);
 		const messages = this.agent.state.messages;
 		if (messages.at(-1)?.role === "assistant") {
 			this.agent.state.messages = messages.slice(0, -1);

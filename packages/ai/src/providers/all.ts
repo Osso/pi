@@ -91,6 +91,7 @@ export function builtinProviders(): Provider[] {
 		openaiProvider(),
 		openaiCodexProvider(),
 		openaiCodexProvider("openai-codex-gc", "OpenAI Codex (GlobalComix)"),
+		openaiCodexProvider("openai-codex-team", "OpenAI Codex (Team)"),
 		opencodeProvider(),
 		opencodeGoProvider(),
 		openrouterProvider(),

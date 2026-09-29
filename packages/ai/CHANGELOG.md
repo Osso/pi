@@ -42,17 +42,17 @@
 
 ### Added
 
-- Added GPT-6 Sol and GPT-6 Luna to the `openai-codex` and `openai-codex-gc` model catalogs with OpenAI's published per-million-token pricing: Sol $2 input/$10 output and Luna $0.10 input/$0.50 output.
-- Added GPT-6 Astra to the `openai-codex` and `openai-codex-gc` model catalogs with 922,000-token effective input context and supported reasoning efforts.
+- Added GPT-6 Sol and GPT-6 Luna to the `openai-codex`, `openai-codex-gc`, and `openai-codex-team` model catalogs with OpenAI's published per-million-token pricing: Sol $2 input/$10 output and Luna $0.10 input/$0.50 output.
+- Added GPT-6 Astra to the `openai-codex`, `openai-codex-gc`, and `openai-codex-team` model catalogs with 922,000-token effective input context and supported reasoning efforts.
 - Added optional persisted `ToolCall.execution.agentId` metadata for application-owned durable tool execution identity; provider adapters ignore it.
 - Added GPT-5.6 Sol `max` and `ultra` effort metadata; both serialize as provider maximum reasoning effort (`reasoning.effort: "max"`). Coding-agent layers proactive delegation onto `ultra`; the Codex adapter does not send Responses multi-agent beta fields or headers.
 - Added `AssistantMessage.imageGenerationResult` and OpenAI Responses parsing for completed hosted `image_generation_call` results as PNG image content.
 - Added `EventStream.fail(error)` so producers can reject both final results and active async iterators instead of leaving consumers pending.
 - Added an optional `onRetry` stream option that reports provider-internal retries and transport fallbacks. The OpenAI Codex API emits it for HTTP retries and WebSocket connection-limit reconnects.
 - Added optional `Model.autoCompactionThreshold` metadata for models with an exact preferred automatic-compaction boundary.
-- Added GPT-5.6 Sol and GPT-5.6 Terra to the `openai-codex` and `openai-codex-gc` model catalogs, and refreshed OpenRouter models with GPT-5.6 variants.
+- Added GPT-5.6 Sol and GPT-5.6 Terra to the `openai-codex`, `openai-codex-gc`, and `openai-codex-team` model catalogs, and refreshed OpenRouter models with GPT-5.6 variants.
 - Added/refreshed metadata for the versioned OpenRouter DeepSeek V4 Flash 0731 model (`deepseek/deepseek-v4-flash-0731`).
-- Added an `openai-codex-gc` provider alias for logging in to a second OpenAI Codex account separately.
+- Added `openai-codex-gc` and `openai-codex-team` provider aliases with the same Codex model catalog and separate OAuth storage.
 - Refreshed generated model catalogs from models.dev, adding newly listed models including Kimi K2.7 Code for GitHub Copilot and Fable 5 to several providers ([#6256](https://github.com/earendil-works/pi/issues/6256)).
 - Added Claude Sonnet 5 to the GitHub Copilot model catalog ([#6200](https://github.com/earendil-works/pi/issues/6200)).
 - Added zstd request-body compression for the OpenAI Codex Responses SSE transport. Requests are sent with `Content-Encoding: zstd` when Node/Bun zstd support is available; the WebSocket transport is unchanged.

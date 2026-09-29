@@ -25,9 +25,10 @@ Use `/logout` to clear credentials. Tokens are stored in `~/.pi/agent/auth.json`
 
 - Requires ChatGPT Plus or Pro subscription
 - Officially endorsed by OpenAI: [Codex for OSS](https://developers.openai.com/community/codex-for-oss)
-- To configure a second Codex account, run `/login openai-codex-gc`; its credentials are stored separately from `openai-codex`.
+- Configure independent Codex OAuth credentials with `/login openai-codex`, `/login openai-codex-gc`, or `/login openai-codex-team`. Each provider stores its credential separately and exposes the same model catalog.
+- The same email may be used for multiple providers. The upstream OAuth flow determines the selected account or workspace; Pi does not select one or infer distinct quotas from provider IDs.
 
-When both `openai-codex` and `openai-codex-gc` have credentials, and both expose the active model ID, `AgentSession` automatically switches to the paired provider after a terminal quota, usage-limit, or billing-exhaustion error and continues the request once. It does not switch back and forth within the same user turn. If the paired provider or same model ID is unavailable, the original error is returned.
+After a terminal quota, usage-limit, or billing-exhaustion error, `AgentSession` tries configured same-model Codex providers in this order: `openai-codex` → `openai-codex-gc` → `openai-codex-team`; `openai-codex-gc` → `openai-codex` → `openai-codex-team`; `openai-codex-team` → `openai-codex` → `openai-codex-gc`. The failed active provider counts as its one attempt, so fallback continues with later eligible providers. Eligibility resets with the next user message. Fallback changes only the active session model; it never rewrites global defaults.
 
 ### Claude Pro/Max
 

@@ -1,6 +1,6 @@
 # OpenAI Remote Compaction
 
-OpenAI remote compaction is retained as a Pi extension but is not registered by default in CLI startup. When explicitly loaded, during `compaction`, the extension handles first-party `openai` provider models using the `openai-responses` API and first-party `openai-codex` / `openai-codex-gc` provider models using the `openai-codex-responses` API.
+OpenAI remote compaction is retained as a Pi extension but is not registered by default in CLI startup. When explicitly loaded, during `compaction`, the extension handles first-party `openai` provider models using the `openai-responses` API and first-party `openai-codex`, `openai-codex-gc`, and `openai-codex-team` provider models using the `openai-codex-responses` API.
 
 The extension sends the compacted span to the active model's compact endpoint using that model's provider, account, and model ID. OpenAI API models use `/responses/compact`; Codex subscription models use the ChatGPT backend `/codex/responses/compact` endpoint with Codex account headers. The request's `instructions` combine Pi's current system prompt with compaction-only continuation guidance and optional instructions supplied through `/compact`. The guidance asks the endpoint to integrate prior context, prefer current state, and collapse repeated or semantically equivalent content instead of reproducing it.
 

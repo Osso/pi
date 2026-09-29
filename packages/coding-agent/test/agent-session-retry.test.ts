@@ -325,6 +325,119 @@ describe("AgentSession retry", () => {
 		expect(callCount).toBe(4);
 	});
 
+	function createThreeProviderSession(options: {
+		start: "openai-codex" | "openai-codex-gc" | "openai-codex-team";
+		authenticated?: string[];
+		succeedOn?: string;
+		errorMessage?: string;
+	}) {
+		const providers: string[] = [];
+		const baseModel = getModel("openai-codex", "gpt-5.6-luna")!;
+		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
+		for (const provider of options.authenticated ?? ["openai-codex", "openai-codex-gc", "openai-codex-team"]) {
+			authStorage.setRuntimeApiKey(provider, "test-key");
+		}
+		const agent = new Agent({
+			getApiKey: () => "test-key",
+			initialState: { model: modelRegistry.find(options.start, baseModel.id)!, systemPrompt: "Test", tools: [] },
+			streamFn: (activeModel) => {
+				providers.push(activeModel.provider);
+				const stream = new MockAssistantStream();
+				queueMicrotask(() => {
+					const overrides = {
+						api: "openai-codex-responses" as const,
+						provider: activeModel.provider,
+						model: activeModel.id,
+					};
+					if (activeModel.provider === options.succeedOn) {
+						const msg = createCompletedAssistantMessage("Recovered", overrides);
+						stream.push({ type: "start", partial: msg });
+						stream.push({ type: "done", reason: "toolUse", message: msg });
+						return;
+					}
+					const msg = createAssistantMessage("", {
+						...overrides,
+						stopReason: "error",
+						errorMessage: options.errorMessage ?? "You have hit your ChatGPT usage limit",
+					});
+					stream.push({ type: "start", partial: msg });
+					stream.push({ type: "error", reason: "error", error: msg });
+				});
+				return stream;
+			},
+		});
+		const settingsManager = SettingsManager.create(tempDir, tempDir);
+		settingsManager.applyOverrides({ retry: { enabled: false } });
+		session = new AgentSession({
+			agent,
+			sessionManager: SessionManager.inMemory(),
+			settingsManager,
+			cwd: tempDir,
+			modelRegistry,
+			resourceLoader: createTestResourceLoader(),
+		});
+		return { providers, settingsManager };
+	}
+
+	it("exhausts each configured Codex provider once and resets on the next user turn", async () => {
+		const { providers } = createThreeProviderSession({ start: "openai-codex" });
+		const willRetry: boolean[] = [];
+		session.subscribe((event) => {
+			if (event.type === "agent_end") willRetry.push(event.willRetry);
+		});
+		await session.prompt("First turn");
+		expect(providers).toEqual(["openai-codex", "openai-codex-gc", "openai-codex-team"]);
+		expect(willRetry).toEqual([true, true, false]);
+		await session.prompt("Second turn");
+		expect(providers).toEqual([
+			"openai-codex",
+			"openai-codex-gc",
+			"openai-codex-team",
+			"openai-codex-team",
+			"openai-codex",
+			"openai-codex-gc",
+		]);
+	});
+
+	it("succeeds on the third Codex provider while preserving session-local defaults", async () => {
+		const { providers, settingsManager } = createThreeProviderSession({
+			start: "openai-codex-gc",
+			succeedOn: "openai-codex-team",
+		});
+		await session.prompt("Test");
+		expect(providers).toEqual(["openai-codex-gc", "openai-codex", "openai-codex-team"]);
+		expect(session.model?.provider).toBe("openai-codex-team");
+		expect(session.model?.id).toBe("gpt-5.6-luna");
+		expect(settingsManager.getDefaultProvider()).toBeUndefined();
+		expect(settingsManager.getDefaultModel()).toBeUndefined();
+	});
+
+	it("starts on team and falls back through codex then gc", async () => {
+		const { providers } = createThreeProviderSession({ start: "openai-codex-team" });
+		await session.prompt("Test");
+		expect(providers).toEqual(["openai-codex-team", "openai-codex", "openai-codex-gc"]);
+	});
+
+	it("skips an unauthenticated Codex provider", async () => {
+		const { providers } = createThreeProviderSession({
+			start: "openai-codex",
+			authenticated: ["openai-codex", "openai-codex-team"],
+			succeedOn: "openai-codex-team",
+		});
+		await session.prompt("Test");
+		expect(providers).toEqual(["openai-codex", "openai-codex-team"]);
+	});
+
+	it("does not fallback across three providers for unrelated errors", async () => {
+		const { providers } = createThreeProviderSession({
+			start: "openai-codex-team",
+			errorMessage: "Billing address invalid",
+		});
+		await session.prompt("Test");
+		expect(providers).toEqual(["openai-codex-team"]);
+	});
+
 	it("falls back to the paired Codex provider after quota exhaustion", async () => {
 		const providers: string[] = [];
 		const model = getModel("openai-codex", "gpt-5.6-luna")!;

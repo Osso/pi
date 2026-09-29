@@ -26,6 +26,7 @@ export {
 	OPENAI_CODEX_DEVICE_CODE_LOGIN_METHOD,
 	openaiCodexGcOAuthProvider,
 	openaiCodexOAuthProvider,
+	openaiCodexTeamOAuthProvider,
 	refreshOpenAICodexToken,
 } from "./openai-codex.ts";
 
@@ -37,7 +38,7 @@ export * from "./types.ts";
 
 import { anthropicOAuthProvider } from "./anthropic.ts";
 import { githubCopilotOAuthProvider } from "./github-copilot.ts";
-import { openaiCodexGcOAuthProvider, openaiCodexOAuthProvider } from "./openai-codex.ts";
+import { openaiCodexGcOAuthProvider, openaiCodexOAuthProvider, openaiCodexTeamOAuthProvider } from "./openai-codex.ts";
 import type { OAuthCredentials, OAuthProviderId, OAuthProviderInfo, OAuthProviderInterface } from "./types.ts";
 
 const BUILT_IN_OAUTH_PROVIDERS: OAuthProviderInterface[] = [
@@ -45,6 +46,7 @@ const BUILT_IN_OAUTH_PROVIDERS: OAuthProviderInterface[] = [
 	githubCopilotOAuthProvider,
 	openaiCodexOAuthProvider,
 	openaiCodexGcOAuthProvider,
+	openaiCodexTeamOAuthProvider,
 ];
 
 const oauthProviderRegistry = new Map<string, OAuthProviderInterface>(

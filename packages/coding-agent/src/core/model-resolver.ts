@@ -16,6 +16,7 @@ export const defaultModelPerProvider: Record<KnownProvider, string> = {
 	"ant-ling": "Ring-2.6-1T",
 	"openai-codex": "gpt-5.5",
 	"openai-codex-gc": "gpt-5.5",
+	"openai-codex-team": "gpt-5.5",
 	anthropic: "claude-opus-4-8",
 	openai: "gpt-5.5",
 	nvidia: "nvidia/nemotron-3-super-120b-a12b",

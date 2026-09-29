@@ -9,7 +9,7 @@ const FAST_MODE_ENTRY = "codex-fast-mode";
 const FAST_STATUS_KEY = "codex-fast";
 const PRIORITY_SERVICE_TIER = "priority";
 const ULTRAFAST_SERVICE_TIER = "ultrafast";
-const SUPPORTED_PROVIDERS = new Set(["openai-codex", "openai-codex-gc"]);
+const SUPPORTED_PROVIDERS = new Set(["openai-codex", "openai-codex-gc", "openai-codex-team"]);
 
 type FastServiceTier = typeof PRIORITY_SERVICE_TIER | typeof ULTRAFAST_SERVICE_TIER;
 
@@ -109,7 +109,7 @@ async function handleFastCommand(
 		return;
 	}
 	if (requested !== false && !supportsFastMode(ctx.model)) {
-		ctx.ui.notify("Fast mode requires openai-codex or openai-codex-gc", "warning");
+		ctx.ui.notify("Fast mode requires a Codex provider", "warning");
 		clearEditor(ctx);
 		return;
 	}

@@ -71,7 +71,11 @@ export function isOpenAIHostedImageGenerationModel(
 	model: Model<Api> | undefined,
 ): model is OpenAIImageGenerationModel {
 	if (model?.api !== "openai-codex-responses") return false;
-	return model.provider === "openai-codex" || model.provider === "openai-codex-gc";
+	return (
+		model.provider === "openai-codex" ||
+		model.provider === "openai-codex-gc" ||
+		model.provider === "openai-codex-team"
+	);
 }
 
 async function executeImageGeneration(

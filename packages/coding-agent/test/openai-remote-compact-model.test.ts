@@ -72,6 +72,8 @@ describe("remote compaction session model alignment", () => {
 		{ provider: "openai-codex", id: "gpt-5.6-luna" },
 		{ provider: "openai-codex-gc", id: "gpt-6-astra" },
 		{ provider: "openai-codex-gc", id: "gpt-5.6-luna" },
+		{ provider: "openai-codex-team", id: "gpt-6-astra" },
+		{ provider: "openai-codex-team", id: "gpt-5.6-luna" },
 	])("uses the active $provider/$id model for compaction", ({ provider, id }) => {
 		const model = createCodexModel({ provider, id });
 		const payload = buildOpenAICompactPayload(model, [], "system prompt", []);
@@ -86,7 +88,7 @@ describe("remote compaction session model alignment", () => {
 		expect(details.provider).toBe(provider);
 	});
 
-	it.each(["openai-codex", "openai-codex-gc"])(
+	it.each(["openai-codex", "openai-codex-gc", "openai-codex-team"])(
 		"uses the current %s model and account while preserving native history",
 		async (provider) => {
 			const nativeHistory = [{ type: "compaction", encrypted_content: "retained-native-context" }];
@@ -95,7 +97,7 @@ describe("remote compaction session model alignment", () => {
 			try {
 				let model = createCodexModel({ provider, baseUrl: server.baseUrl });
 				const authStorage = AuthStorage.inMemory();
-				for (const account of ["openai-codex", "openai-codex-gc"]) {
+				for (const account of ["openai-codex", "openai-codex-gc", "openai-codex-team"]) {
 					authStorage.setRuntimeApiKey(account, createAccountToken(account));
 				}
 				const ctx = {
