@@ -13,6 +13,7 @@ The built-in `end_turn` tool gives normal coding-agent model turns an explicit c
 
 ### Agent loop
 
+- [x] In print mode (`pi -p`), print the final assistant text from the current prompt when `end_turn` completes either in the same response or a subsequent textless response; never reuse text from an earlier prompt. Preserve JSON output and nonzero error exits.
 - [x] Continue a normal coding-agent model run after an assistant response containing text but no tool call when `end_turn` is available.
 - [x] Before an uninterrupted immediate continuation request, append a runtime-only user instruction stating that the prior response was already delivered, that the model must not continue, repeat, or infer a new user request, and that it must call `end_turn` with a concise reason. Real steering queued before that request supersedes the instruction. The instruction is not emitted as an event, returned in `newMessages`, or persisted.
 - [x] End the run after a tool batch whose finalized results all request termination, including `end_turn`.
@@ -35,6 +36,8 @@ The built-in `end_turn` tool gives normal coding-agent model turns an explicit c
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/end-turn-tool.test.ts`
+- `packages/coding-agent/test/print-mode.test.ts`
+- `packages/coding-agent/test/suite/print-mode-cli.test.ts`
 - `packages/agent-core/test/agent-loop.test.ts`
 - `packages/coding-agent/test/suite/agent-session-prompt.test.ts`
 - `packages/coding-agent/test/suite/regressions/7421-resume-session-tool.test.ts`

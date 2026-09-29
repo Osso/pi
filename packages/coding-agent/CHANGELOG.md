@@ -158,6 +158,7 @@
 
 ### Fixed
 
+- Fixed `pi -p` dropping final assistant text when a later textless `end_turn` call completed the current prompt; it now prints that current-prompt text without reusing stale prior-prompt output. JSON output remains unchanged and errors still exit nonzero.
 - Fixed OAuth refresh races that could lose a rotated refresh token and get the account's token family revoked (for example OpenAI Codex `refresh_token_invalidated`): a successful refresh is now persisted even when the auth lock is compromised before the write, and sync auth-file locks (used by every process start) share the async lock's 30-second stale threshold, so they no longer steal a refresh lock held for more than 10 seconds.
 - Fixed failed OAuth token refreshes at request time to report `Authentication failed for "<provider>": <refresh error>. Run '/login <provider>' to re-authenticate.` for main sessions, sub-agents, and the Supervisor, instead of forwarding no key and surfacing the misleading `No API key for provider` error. Model discovery still skips providers whose refresh failed.
 - Fixed Escape in the settings menu (and any other dialog) interrupting the active turn: kitty key-release events no longer reach the global interrupt and agent-slot listeners after a dialog closes on key press, and any focused non-editor component now owns its `tui.select.cancel` key without per-dialog exemptions. The scoped-models selector now cancels via `tui.select.cancel` instead of a hardcoded Escape.

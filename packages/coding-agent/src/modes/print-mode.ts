@@ -6,6 +6,7 @@
  * - `pi --mode json "prompt"` - JSON event stream
  */
 
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ImageContent } from "@earendil-works/pi-ai";
 import type { AgentSessionRuntime } from "../core/agent-session-runtime.ts";
 import { flushRawStdout, writeRawStdout } from "../core/output-guard.ts";
@@ -24,6 +25,19 @@ export interface PrintModeOptions {
 	initialMessage?: string;
 	/** Images to attach to the initial message */
 	initialImages?: ImageContent[];
+}
+
+function findLastPrintableAssistant(messages: AgentMessage[]): AssistantMessage | undefined {
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (message.role === "toolResult" && message.toolName === "end_turn" && !message.isError) continue;
+		if (message.role !== "assistant") return undefined;
+		if (message.stopReason === "error" || message.stopReason === "aborted") return message;
+		if (message.content.some((content) => content.type === "text" && content.text)) return message;
+		if (message.content.some((content) => content.type === "toolCall" && content.name === "end_turn")) continue;
+		return undefined;
+	}
+	return undefined;
 }
 
 /**
@@ -134,11 +148,9 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 		}
 
 		if (mode === "text") {
-			const state = session.state;
-			const lastMessage = state.messages[state.messages.length - 1];
+			const assistantMsg = findLastPrintableAssistant(session.state.messages);
 
-			if (lastMessage?.role === "assistant") {
-				const assistantMsg = lastMessage as AssistantMessage;
+			if (assistantMsg) {
 				if (assistantMsg.stopReason === "error" || assistantMsg.stopReason === "aborted") {
 					console.error(assistantMsg.errorMessage || `Request ${assistantMsg.stopReason}`);
 					exitCode = 1;
