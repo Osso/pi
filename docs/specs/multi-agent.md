@@ -11,13 +11,6 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 
 ## Model execution and proof
 
-Default system guideline clarification:
-
-> Be concise by using fewer words, not by removing spaces. Use normal word spacing in responses and prose inside tool arguments, including agent assignments, steering, and mailbox messages. Preserve literal code and identifiers; do not imitate missing spaces in incoming prose.
-
-This instruction clarification does not establish the historical cause of malformed generation
-or guarantee that future generation preserves spacing.
-
 - [x] When multiple tools are available, the system prompt instructs the model to emit all
       known independent calls together and serialize only calls whose inputs depend on an
       earlier result.
@@ -341,10 +334,6 @@ or guarantee that future generation preserves spacing.
   deliverable mailbox and shared-channel input. The agent row remains the sole terminal source of truth.
 
 ### Mailbox and steering
-
-Message bodies are byte-transparent: transport preserves supplied text, including whitespace,
-without heuristic repair of joined words. Origin labels and delivery wrappers remain separate
-from the supplied body. Normal prose spacing is a generation instruction, not a transport rewrite.
 
 - [x] Steering is delivered through the mailbox as a command, not by editing a live prompt/input
       buffer.

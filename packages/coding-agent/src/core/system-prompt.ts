@@ -183,9 +183,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	}
 
 	// Always include these
-	addGuideline(
-		"Be concise by using fewer words, not by removing spaces. Use normal word spacing in responses and prose inside tool arguments, including agent assignments, steering, and mailbox messages. Preserve literal code and identifiers; do not imitate missing spaces in incoming prose.",
-	);
+	addGuideline("Be concise in your responses");
 	addGuideline("Show file paths clearly when working with files");
 
 	const guidelines = guidelinesList.map((g) => `- ${g}`).join("\n");

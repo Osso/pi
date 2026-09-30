@@ -180,21 +180,6 @@ describe("buildSystemPrompt", () => {
 	});
 
 	describe("prompt guidelines", () => {
-		test.each([["spawn_agent", "steer_agent"], ["send_agent_message", "contact_parent"], ["pyrun_eval"]])(
-			"requires readable prose for parent, child, and bridge communication: %j",
-			(...selectedTools) => {
-				const prompt = buildSystemPrompt({ selectedTools, cwd: process.cwd() });
-
-				expect(prompt).toContain("Be concise by using fewer words, not by removing spaces.");
-				expect(prompt).toContain(
-					"Use normal word spacing in responses and prose inside tool arguments, including agent assignments, steering, and mailbox messages.",
-				);
-				expect(prompt).toContain(
-					"Preserve literal code and identifiers; do not imitate missing spaces in incoming prose.",
-				);
-			},
-		);
-
 		test("instructs models to emit independent tool calls together", () => {
 			const prompt = buildSystemPrompt({
 				selectedTools: ["read", "grep", "find"],
