@@ -14,6 +14,22 @@ tool, contributes model-facing instructions, and delegates evaluation to a Pyrun
 - pyrun-mcp is owned by Pyrun. Pi must not publish a duplicate `pyrun-mcp` binary or
   reimplement the MCP server.
 
+## Mailbox API Boundary
+
+`pi.messages.send` and `pi.messages.enqueue` remain programmatic raw literal-body transport
+APIs; their body and routing contracts are unchanged.
+
+Model-facing `send_agent_message` and `contact_parent` instead accept metadata plus optional
+`textIndex`, not `message: string`. They send verbatim text from the executing assistant
+response matched by exact `toolCallId`. `textIndex` selects a zero-based filtered text block;
+multiple blocks require it, while one block is selected by default. Missing, unmatched,
+empty, or ambiguous source text fails without compatibility or stale-transcript fallback.
+
+A `pi.tools.call` mailbox invocation creates a synthetic assistant message with no text and
+must fail; use the raw messaging APIs for programmatic literal bodies, not a mailbox-tool
+wrapper. Commentary is never automatically broadcast, and `spawn_agent.prompt` is unchanged.
+See [mailbox migration examples](../../../../docs/wiki/systems/multi-agent.md#model-facing-mailbox-body-and-migration).
+
 ## Runner Configuration
 
 By default the adapter starts the installed `pyrun-jsonl` with no arguments. `pyrun_eval` is registered only when the selected runner command is executable; missing runners are non-fatal and Pi never installs them. First-party Pyrun availability is selected at Pi startup, so restart Pi after installing, removing, or changing the runner command. Explicitly loaded Pyrun factories guard registration whenever they load. A local checkout is never selected implicitly.
