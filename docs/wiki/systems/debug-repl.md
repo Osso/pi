@@ -8,7 +8,7 @@ The debug REPL is a first-party extension backed by a process-local Unix socket.
 
 `/debug` starts the socket server for the current Pi process. `/debug off` destroys attached clients, closes the server, and removes the socket. The server is disabled by default.
 
-`pi debug attach <session-id>` reads the live session health record from `control.sqlite`, resolves its exact PID, and connects to `~/.pi/agent/debug/<pid>.sock`. The socket directory and socket are owner-only.
+`pi debug attach <session-id>` requires a PID and `ok` status in the session's control-DB health row, then connects to `<agent-dir>/debug/<pid>.sock`. The agent directory follows [configuration path resolution](config-location.md); the socket directory and socket are owner-only. The socket handshake supplies the expected session ID.
 
 ## Runtime access
 
@@ -20,7 +20,7 @@ Evaluations are serialized per connection. `.exit` closes the client even when a
 
 ## Audit
 
-Each evaluation appends an owner-only JSONL record under `~/.pi/agent/debug/audit.jsonl`. Records contain the client-reported PID, live session ID, timestamp, duration, settled outcome, and SHA-256 expression hash. Expression text and returned values are not persisted.
+Each evaluation appends an owner-only JSONL record under `<agent-dir>/debug/audit.jsonl`. Records contain the client-reported PID, live session ID, timestamp, duration, settled outcome, and SHA-256 expression hash. Expression text and returned values are not persisted.
 
 ## Source and coverage
 
