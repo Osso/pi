@@ -4,8 +4,12 @@ import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall, validateToolArguments } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { createMultiAgentPiRequestHandler, registerAgentsMailboxTools } from "../extensions/agents-core/src/runtime.ts";
-import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/types.ts";
-import { MultiAgentStore, type AgentMailboxMessage } from "../src/core/multi-agent-store.ts";
+import { AuthStorage } from "../src/core/auth-storage.ts";
+import { createExtensionRuntime } from "../src/core/extensions/loader.ts";
+import { ExtensionRunner } from "../src/core/extensions/runner.ts";
+import type { AgentToolResult, ExtensionAPI, ToolDefinition } from "../src/core/extensions/types.ts";
+import { ModelRegistry } from "../src/core/model-registry.ts";
+import { type AgentMailboxMessage, MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { getControlDbPath, listRuntimeMailboxMessages } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
@@ -27,13 +31,14 @@ function createFixture() {
 	const tools = new Map<string, ToolDefinition>();
 	const pi = { registerTool: (tool: ToolDefinition) => tools.set(tool.name, tool) } as unknown as ExtensionAPI;
 	registerAgentsMailboxTools(pi, { store });
-	const ctx = {
-		controlDbPath,
-		cwd: "/repo",
-		hasUI: false,
-		mode: "print",
+	const contextRunner = new ExtensionRunner(
+		[],
+		createExtensionRuntime(),
+		"/repo",
 		sessionManager,
-	} as ExtensionContext;
+		ModelRegistry.inMemory(AuthStorage.inMemory()),
+	);
+	const ctx = { ...contextRunner.createContext(), controlDbPath };
 	const spawn = (parentId?: string) =>
 		legacyMultiAgentStore(store).spawnAgent({
 			agentType: "test",
