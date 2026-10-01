@@ -522,6 +522,8 @@ export class Agent {
 	}
 
 	private async handleRunFailure(error: unknown, aborted: boolean): Promise<void> {
+		const streamingMessage = this._state.streamingMessage;
+		const partialMessage = streamingMessage?.role === "assistant" ? structuredClone(streamingMessage) : undefined;
 		const failureMessage = {
 			role: "assistant",
 			content: [{ type: "text", text: "" }],
@@ -529,11 +531,14 @@ export class Agent {
 			provider: this._state.model.provider,
 			model: this._state.model.id,
 			usage: EMPTY_USAGE,
+			timestamp: Date.now(),
+			...partialMessage,
 			stopReason: aborted ? "aborted" : "error",
 			errorMessage: error instanceof Error ? error.message : String(error),
-			timestamp: Date.now(),
 		} satisfies AgentMessage;
-		await this.processEvents({ type: "message_start", message: failureMessage });
+		if (!partialMessage) {
+			await this.processEvents({ type: "message_start", message: failureMessage });
+		}
 		await this.processEvents({ type: "message_end", message: failureMessage });
 		await this.processEvents({ type: "turn_end", message: failureMessage, toolResults: [] });
 		await this.processEvents({ type: "agent_end", messages: [failureMessage] });

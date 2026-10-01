@@ -346,6 +346,8 @@ agent.clearFollowUpQueue();
 agent.clearAllQueues();
 ```
 
+Steering aborts an active model request without interrupting active tool execution. If an assistant message has already started streaming, its content and metadata are retained in one aborted `message_end`, without a replacement `message_start`. Tool calls from that interrupted response are not executed.
+
 Use clearSteeringQueue, clearFollowUpQueue, or clearAllQueues to drop queued messages.
 
 When steering messages are detected after a turn completes:

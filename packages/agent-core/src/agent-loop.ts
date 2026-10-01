@@ -124,12 +124,13 @@ export function restoredPendingToolMessage(messages: readonly AgentMessage[]): A
 			continue;
 		}
 		if (message.role !== "assistant") return undefined;
-		const pendingToolCallIds = new Set<string>();
-		for (const content of message.content) {
-			if (content.type === "toolCall" && !completedToolCallIds.has(content.id)) {
-				pendingToolCallIds.add(content.id);
-			}
-		}
+		if (message.stopReason === "aborted" || message.stopReason === "error") return undefined;
+		const pendingToolCallIds = new Set(
+			message.content
+				.filter((content) => content.type === "toolCall")
+				.filter((toolCall) => !completedToolCallIds.has(toolCall.id))
+				.map((toolCall) => toolCall.id),
+		);
 		if (pendingToolCallIds.size === 0) return undefined;
 		return {
 			...message,
