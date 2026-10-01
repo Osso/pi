@@ -164,6 +164,14 @@ function createTranscriptBackedFauxSessionFactory(run: FauxChildRun): ChildAgent
 	};
 }
 
+function appendMailboxResponse(
+	sessionManager: SessionManager,
+	text: string,
+	toolCall: ReturnType<typeof fauxToolCall>,
+): void {
+	sessionManager.appendMessage(fauxAssistantMessage([{ type: "text", text }, toolCall], { stopReason: "toolUse" }));
+}
+
 function createTestEntryWriter(sessionManager: SessionManager): ParentAgentJournalWriter {
 	return {
 		appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
@@ -430,6 +438,8 @@ function createMultiAgentHarness(
 	}
 
 	return {
+		appendMailboxResponse: (text: string, toolCall: ReturnType<typeof fauxToolCall>) =>
+			appendMailboxResponse(ctx.sessionManager as SessionManager, text, toolCall),
 		getSessionId: () => ctx.sessionManager.getSessionId(),
 		setAgentRuntimeIdentity: (agentId: string | undefined) => {
 			ctx.multiAgentAgentId = agentId;
@@ -717,8 +727,15 @@ describe("multi-agent extension tools", () => {
 				message: "Continue from saved work",
 				targetCheckpoint: "when_waiting",
 			});
+			harness.appendMailboxResponse(
+				"Mailbox request",
+				fauxToolCall(
+					"send_agent_message",
+					{ toAgentId: attached.details.agent.id },
+					{ id: "send_agent_message-call" },
+				),
+			);
 			const sent = await harness.call<SendAgentMessageDetails>("send_agent_message", {
-				message: "Mailbox request",
 				toAgentId: attached.details.agent.id,
 			});
 			const agentBeforeCancel = harness.store.getAgent(attached.details.agent.id);
@@ -2854,9 +2871,8 @@ describe("multi-agent extension tools", () => {
 			throw new Error("expected steering acknowledgement");
 		}
 		harness.setAgentRuntimeIdentity(child.details.agent.id);
-		const contact = await harness.call<ContactParentDetails>("contact_parent", {
-			message: "Need scope",
-		});
+		harness.appendMailboxResponse("Need scope", fauxToolCall("contact_parent", {}, { id: "contact_parent-call" }));
+		const contact = await harness.call<ContactParentDetails>("contact_parent", {});
 
 		const childMailbox = mailboxDetails(harness.store, child.details.agent.id);
 		const parentMailbox = mailboxDetails(harness.store, parent.details.agent.id);
@@ -2913,9 +2929,14 @@ describe("multi-agent extension tools", () => {
 				throw new Error("expected send_agent_message tool");
 			}
 
+			appendMailboxResponse(
+				parentSession,
+				"Please inspect auth",
+				fauxToolCall("send_agent_message", { toAgentId: child.details.agent.id }, { id: "send-parent" }),
+			);
 			const sent = (await sendAgentMessage.execute(
 				"send-parent",
-				{ message: "Please inspect auth", toAgentId: child.details.agent.id },
+				{ toAgentId: child.details.agent.id },
 				undefined,
 				undefined,
 				{
@@ -2926,9 +2947,14 @@ describe("multi-agent extension tools", () => {
 					sessionManager: parentSession,
 				} as unknown as ExtensionContext,
 			)) as AgentToolResult<SendAgentMessageDetails>;
+			appendMailboxResponse(
+				childSession,
+				"Can I read your state?",
+				fauxToolCall("send_agent_message", { toAgentId: sibling.details.agent.id }, { id: "send-child" }),
+			);
 			const rejected = (await sendAgentMessage.execute(
 				"send-child",
-				{ message: "Can I read your state?", toAgentId: sibling.details.agent.id },
+				{ toAgentId: sibling.details.agent.id },
 				undefined,
 				undefined,
 				{
@@ -2970,8 +2996,15 @@ describe("multi-agent extension tools", () => {
 		"identifies a missing mailbox target with session %s without queuing delivery",
 		async (toSessionId) => {
 			const harness = createMultiAgentHarness();
+			harness.appendMailboxResponse(
+				"Inspect missing target",
+				fauxToolCall(
+					"send_agent_message",
+					{ toAgentId: "missing-agent", toSessionId },
+					{ id: "send_agent_message-call" },
+				),
+			);
 			const sent = await harness.call<SendAgentMessageDetails>("send_agent_message", {
-				message: "Inspect missing target",
 				toAgentId: "missing-agent",
 				toSessionId,
 			});
@@ -3001,8 +3034,11 @@ describe("multi-agent extension tools", () => {
 		"identifies $toAgentId in session $toSessionId when sender identity is unavailable",
 		async ({ toAgentId, toSessionId, route }) => {
 			const harness = createMultiAgentHarness({ ctx: { multiAgentRequiresAgentId: true } });
+			harness.appendMailboxResponse(
+				"Inspect target",
+				fauxToolCall("send_agent_message", { toAgentId, toSessionId }, { id: "send_agent_message-call" }),
+			);
 			const sent = await harness.call<SendAgentMessageDetails>("send_agent_message", {
-				message: "Inspect target",
 				toAgentId,
 				toSessionId,
 			});
@@ -3030,8 +3066,11 @@ describe("multi-agent extension tools", () => {
 			prompt: "Child task",
 		});
 
+		harness.appendMailboxResponse(
+			"Main thread request",
+			fauxToolCall("send_agent_message", { toAgentId: child.details.agent.id }, { id: "send_agent_message-call" }),
+		);
 		const sent = await harness.call<SendAgentMessageDetails>("send_agent_message", {
-			message: "Main thread request",
 			toAgentId: child.details.agent.id,
 		});
 		const childMailbox = mailboxDetails(harness.store, child.details.agent.id);
@@ -3065,9 +3104,11 @@ describe("multi-agent extension tools", () => {
 		spawnStoreFixture(harness.store, { displayName: "Sibling", prompt: "Sibling task" });
 		harness.setAgentRuntimeIdentity(child.details.agent.id);
 
-		const contact = await harness.call<ContactParentDetails>("contact_parent", {
-			message: "Need auth scope",
-		});
+		harness.appendMailboxResponse(
+			"Need auth scope",
+			fauxToolCall("contact_parent", {}, { id: "contact_parent-call" }),
+		);
+		const contact = await harness.call<ContactParentDetails>("contact_parent", {});
 
 		expect(contact.details.agent).toMatchObject({
 			id: child.details.agent.id,
@@ -3086,9 +3127,11 @@ describe("multi-agent extension tools", () => {
 	it("rejects contact_parent when the caller has no agent runtime identity", async () => {
 		const harness = createMultiAgentHarness();
 
-		const contact = await harness.call<ContactParentDetails>("contact_parent", {
-			message: "Need auth scope",
-		});
+		harness.appendMailboxResponse(
+			"Need auth scope",
+			fauxToolCall("contact_parent", {}, { id: "contact_parent-call" }),
+		);
+		const contact = await harness.call<ContactParentDetails>("contact_parent", {});
 
 		expect(contact.content).toEqual([
 			{ type: "text", text: expect.stringContaining("runtime identity is unavailable") },
@@ -5793,8 +5836,11 @@ describe("historical subagent runtime provenance", () => {
 			prompt: "Child task",
 		});
 
+		harness.appendMailboxResponse(
+			"Main thread request",
+			fauxToolCall("send_agent_message", { toAgentId: child.details.agent.id }, { id: "send_agent_message-call" }),
+		);
 		const sent = await harness.call<SendAgentMessageDetails>("send_agent_message", {
-			message: "Main thread request",
 			toAgentId: child.details.agent.id,
 		});
 

@@ -524,9 +524,15 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(tools.has("contact_supervisor")).toBe(false);
 		const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("provider socket closed"));
 
+		childSession.appendMessage(
+			fauxAssistantMessage(
+				[{ type: "text", text: "Need scope" }, fauxToolCall("contact_parent", {}, { id: "contact" })],
+				{ stopReason: "toolUse" },
+			),
+		);
 		await contactParent.execute(
 			"contact",
-			{ message: "Need scope" },
+			{},
 			undefined,
 			undefined,
 			createRuntimeMailboxContext({
@@ -583,10 +589,22 @@ describe("runtime SQLite mailbox delivery", () => {
 			throw new Error("expected send_agent_message tool");
 		}
 
+		senderSession.appendMessage(
+			fauxAssistantMessage(
+				[
+					{ type: "text", text: "Hello other session" },
+					fauxToolCall(
+						"send_agent_message",
+						{ toAgentId: child.agent.id, toSessionId: "target-session" },
+						{ id: "send" },
+					),
+				],
+				{ stopReason: "toolUse" },
+			),
+		);
 		await sendAgentMessage.execute(
 			"send",
 			{
-				message: "Hello other session",
 				toAgentId: child.agent.id,
 				toSessionId: "target-session",
 			},
@@ -637,10 +655,22 @@ describe("runtime SQLite mailbox delivery", () => {
 			throw new Error("expected send_agent_message tool");
 		}
 
+		senderSession.appendMessage(
+			fauxAssistantMessage(
+				[
+					{ type: "text", text: "Hello unreachable child session" },
+					fauxToolCall(
+						"send_agent_message",
+						{ toAgentId: child.agent.id, toSessionId: "target-session" },
+						{ id: "send-child-unavailable" },
+					),
+				],
+				{ stopReason: "toolUse" },
+			),
+		);
 		const sent = await sendAgentMessage.execute(
 			"send-child-unavailable",
 			{
-				message: "Hello unreachable child session",
 				toAgentId: child.agent.id,
 				toSessionId: "target-session",
 			},
@@ -671,10 +701,22 @@ describe("runtime SQLite mailbox delivery", () => {
 			throw new Error("expected send_agent_message tool");
 		}
 
+		senderSession.appendMessage(
+			fauxAssistantMessage(
+				[
+					{ type: "text", text: "Hello unreachable main session" },
+					fauxToolCall(
+						"send_agent_message",
+						{ toAgentId: "main", toSessionId: "target-session" },
+						{ id: "send-main-unavailable" },
+					),
+				],
+				{ stopReason: "toolUse" },
+			),
+		);
 		const sent = await sendAgentMessage.execute(
 			"send-main-unavailable",
 			{
-				message: "Hello unreachable main session",
 				toAgentId: "main",
 				toSessionId: "target-session",
 			},
@@ -705,10 +747,22 @@ describe("runtime SQLite mailbox delivery", () => {
 			throw new Error("expected send_agent_message tool");
 		}
 
+		senderSession.appendMessage(
+			fauxAssistantMessage(
+				[
+					{ type: "text", text: "Hello main session" },
+					fauxToolCall(
+						"send_agent_message",
+						{ toAgentId: "main", toSessionId: "target-session" },
+						{ id: "send-main" },
+					),
+				],
+				{ stopReason: "toolUse" },
+			),
+		);
 		await sendAgentMessage.execute(
 			"send-main",
 			{
-				message: "Hello main session",
 				toAgentId: "main",
 				toSessionId: "target-session",
 			},
@@ -760,10 +814,22 @@ describe("runtime SQLite mailbox delivery", () => {
 			throw new Error("expected send_agent_message tool");
 		}
 
+		senderSession.appendMessage(
+			fauxAssistantMessage(
+				[
+					{ type: "text", text: "Hello wrong session" },
+					fauxToolCall(
+						"send_agent_message",
+						{ toAgentId: child.agent.id, toSessionId: "target-session" },
+						{ id: "send-mismatch" },
+					),
+				],
+				{ stopReason: "toolUse" },
+			),
+		);
 		const sent = await sendAgentMessage.execute(
 			"send-mismatch",
 			{
-				message: "Hello wrong session",
 				toAgentId: child.agent.id,
 				toSessionId: "target-session",
 			},
