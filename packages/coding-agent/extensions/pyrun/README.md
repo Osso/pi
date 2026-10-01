@@ -21,13 +21,13 @@ APIs; their body and routing contracts are unchanged.
 
 Model-facing `send_agent_message` and `contact_parent` instead accept metadata plus optional
 `textIndex`, not `message: string`. They send verbatim text from the executing assistant
-response matched by exact `toolCallId`. `textIndex` selects a zero-based filtered text block;
+response matched by both the expected mailbox tool name and exact `toolCallId`. `textIndex` selects a zero-based filtered text block;
 multiple blocks require it, while one block is selected by default. Missing, unmatched,
 empty, or ambiguous source text fails without compatibility or stale-transcript fallback.
 
-A `pi.tools.call` mailbox invocation creates a synthetic assistant message with no text and
-must fail; use the raw messaging APIs for programmatic literal bodies, not a mailbox-tool
-wrapper. Commentary is never automatically broadcast, and `spawn_agent.prompt` is unchanged.
+A synthetic `pi.tools.call` mailbox invocation must fail explicitly: reusing the outer
+`pyrun_eval` ID does not match the mailbox tool name and cannot send outer commentary.
+Use the raw messaging APIs for programmatic literal bodies, not a mailbox-tool wrapper. Commentary is never automatically broadcast, and `spawn_agent.prompt` is unchanged.
 See [mailbox migration examples](../../../../docs/wiki/systems/multi-agent.md#model-facing-mailbox-body-and-migration).
 
 ## Runner Configuration

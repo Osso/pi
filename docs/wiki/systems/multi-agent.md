@@ -313,7 +313,8 @@ must remain tagged as protocol/system messages until explicitly rendered for the
 `send_agent_message` and `contact_parent` no longer accept `message: string`; there is no
 compatibility alias or argument-body fallback. Routing, sender identity, `fileRefs`, and
 `threadId` are unchanged. The body is the verbatim `TextContent` (provider `output_text`)
-from the executing assistant response containing the exact `toolCallId`, not prior transcript text.
+from the executing assistant response containing both the expected mailbox tool name and exact
+`toolCallId`, not prior transcript text.
 
 Migration from `send_agent_message({ toAgentId: "agent_7", message: "Review complete." })`:
 emit `Review complete.` as a text block in the same assistant response as the tool call, then
@@ -335,7 +336,8 @@ Commentary is not automatically broadcast: delivery still requires an explicit m
 Programmatic `pi.messages.send` and `pi.messages.enqueue` remain separate raw literal-body
 transport APIs, unchanged by this model-tool migration. Do not replace a literal-body send
 with `pi.tools.call("send_agent_message", ...)` or `pi.tools.call("contact_parent", ...)`:
-a synthetic assistant message without text must fail, not reuse earlier assistant output.
+a synthetic mailbox invocation must fail explicitly. Its reused outer `pyrun_eval` ID does not
+match the mailbox tool name, so outer commentary cannot become the body.
 See [Pyrun adapter messaging](../../../packages/coding-agent/extensions/pyrun/README.md#mailbox-api-boundary).
 
 `spawn_agent.prompt` is unchanged; original parent assignments can still join. This fix

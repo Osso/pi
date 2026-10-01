@@ -337,15 +337,15 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 
 - [x] Model-facing `send_agent_message` and `contact_parent` accept routing/file-reference/thread
       metadata and optional `textIndex`, never `message: string`. The body is sent verbatim from
-      `TextContent` (provider `output_text`) in the executing assistant response matched by the exact
-      `toolCallId`. `textIndex` is zero-based over filtered text blocks, not all content blocks;
+      `TextContent` (provider `output_text`) in the executing assistant response matched by both the expected
+      mailbox tool name and exact `toolCallId`. `textIndex` is zero-based over filtered text blocks, not all content blocks;
       it is required when multiple text blocks exist and defaults to the sole block otherwise.
       Missing, unmatched, empty, or ambiguous source text fails explicitly. No argument-body
       compatibility, historical-text fallback, or automatic broadcast of commentary is allowed.
 - [x] Routing, sender identity, `fileRefs`, and `threadId` retain their existing contracts.
       Programmatic `pi.messages.send` and `pi.messages.enqueue` remain separate raw literal-body
-      transport APIs. A synthetic `pi.tools.call` mailbox invocation with no assistant text fails
-      rather than selecting stale text. `spawn_agent.prompt` is unchanged; original parent assignments
+      transport APIs. A synthetic `pi.tools.call` mailbox invocation fails explicitly;
+      reusing the outer `pyrun_eval` ID cannot match the mailbox tool name or send outer commentary. `spawn_agent.prompt` is unchanged; original parent assignments
       can still join. This change concerns the mailbox body data channel, not unknown provider internals.
 
 - [x] Steering is delivered through the mailbox as a command, not by editing a live prompt/input
