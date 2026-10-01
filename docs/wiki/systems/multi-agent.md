@@ -84,13 +84,17 @@ At supervisor start, there are no persisted `queued` or `starting` startup rows.
 happens first; successful construction persists `running` revision 1, while interruption or failure
 persists `failed` revision 1. After the `running` commit, the parent session appends an `agent_start`
 custom JSONL record containing the agent ID and child transcript identity. A committed `completed`,
-`failed`, or `aborted` transition appends the matching `agent_complete` record. Unmatched starts are
-the authoritative restart candidates; matching completions prevent recovery. Control-DB lifecycle and
-ownership rows remain required, but cannot admit child recovery without the parent record. After parent-session
+`failed`, or `aborted` transition appends the matching `agent_complete` record. When session-manager
+context and a child transcript path are present, unmatched starts admit restart candidates and matching
+completions prevent journal admission. Control-DB lifecycle and ownership rows remain required.
+`recoverAgents` skips journal-membership filtering when either context or transcript path is absent;
+see [lifecycle qualifications](agent-lifecycle.md#limits-and-evidence). This is not proof that ordinary
+startup omits those identities or that transcript-less jobs resume as child sessions. After parent-session
 compaction, active child admissions are refreshed with `agent_start` records so the active branch retains
 restart visibility. For a legacy compacted session whose active branch lacks an admission, startup checks the
 full parent JSONL and restores an unmatched `agent_start` before child recovery. This repairs journal admission
-only; lifecycle, ownership, and transcript identity remain authoritative. There is no control-DB-only fallback.
+only; lifecycle, ownership, and transcript identity remain authoritative. Journal repair restores only
+unmatched starts found in the parent transcript; it does not synthesize journal records from control-DB rows.
 Detached Bash and Pyrun jobs retain their separate tool-call JSONL and runner
 recovery contract and do not use these child-agent records. After the one registered supervisor binding
 for the session path registers, that supervisor reconstructs eligible active children through coordinator
@@ -425,7 +429,9 @@ path.
 Persisted lifecycle, ownership, agent, and mailbox state lives in control-DB rows keyed by session path.
 The parent session JSONL additionally carries `agent_start` and `agent_complete` custom records as the
 restart-admission journal for transcript-backed child agents. These records do not replace control-DB
-lifecycle truth: recovery requires both an unmatched start and valid persisted agent/transcript identity.
+lifecycle truth: with session-manager context and a child transcript path, recovery admission requires
+an unmatched start alongside valid persisted agent/transcript identity. The conditional filtering exceptions
+are described under [runtime ownership and recovery](#runtime-ownership-and-recovery).
 Runtime mailbox transport rows reference stored mailbox messages by
 `(store_session_path, store_message_id)` instead of copying bodies; payload bodies and absolute `fileRefs`
 resolve from `multi_agent_mailbox_messages`.
@@ -436,7 +442,8 @@ are dropped so relocation cannot resurrect stale state or reuse IDs. Mailbox mes
 only when stored and incoming identities are complete and their sender, recipient, kind, thread, and
 message ID identity match; incomplete or conflicting reuse fails without overwriting the existing row.
 
-Runtime handles for transcript-backed children are reconstructed only for unmatched parent JSONL starts.
+With session-manager context present, runtime handles for transcript-backed children are reconstructed
+only for unmatched parent JSONL starts.
 Restart preserves the same agent and transcript identity, then reacquires exact process ownership before
 resuming the child transcript. A matching completion record prevents reconstruction. Missing or mismatched
 transcript identity commits explicit failure; recovery never invents success from a missing handle.
