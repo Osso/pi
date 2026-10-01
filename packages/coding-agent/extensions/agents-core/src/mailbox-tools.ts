@@ -57,7 +57,7 @@ const sendAgentMessageSchema = Type.Object(
 );
 
 const outgoingTextGuideline =
-	"Write the outgoing body as assistant text in the same message as this tool call, then call the tool with routing/fileRefs/thread metadata only. The selected assistant text is sent verbatim. With multiple text blocks, set textIndex to the zero-based index among text blocks, not all content blocks; omit it when there is exactly one text block.";
+	"For send_agent_message and contact_parent, write the outgoing body as assistant text in the same message as the mailbox tool call, then call that tool with routing/fileRefs/thread metadata only. The selected assistant text is sent verbatim. With multiple text blocks, set textIndex to the zero-based index among text blocks, not all content blocks; omit it when there is exactly one text block.";
 
 function createSendAgentMessageTool(transports: MailboxToolTransports) {
 	return defineTool({
@@ -72,7 +72,7 @@ function createSendAgentMessageTool(transports: MailboxToolTransports) {
 			transports.sendAgentMessage(
 				{
 					fileRefs: params.fileRefs,
-					message: readCurrentToolCallText(ctx, toolCallId, params.textIndex),
+					message: readCurrentToolCallText(ctx, toolCallId, "send_agent_message", params.textIndex),
 					threadId: params.threadId,
 					toAgentId: params.toAgentId,
 					toSessionId: params.toSessionId,
@@ -95,7 +95,7 @@ function createContactParentTool(transports: MailboxToolTransports) {
 			transports.contactParent(
 				{
 					fileRefs: params.fileRefs,
-					message: readCurrentToolCallText(ctx, toolCallId, params.textIndex),
+					message: readCurrentToolCallText(ctx, toolCallId, "contact_parent", params.textIndex),
 					threadId: params.threadId,
 				},
 				ctx,

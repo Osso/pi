@@ -9,6 +9,7 @@ import { MultiAgentStore, type AgentMailboxMessage } from "../src/core/multi-age
 import { getControlDbPath, listRuntimeMailboxMessages } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
+import { createHarness } from "./suite/harness.ts";
 
 const directories: string[] = [];
 afterEach(() => {
@@ -18,15 +19,16 @@ afterEach(() => {
 function createFixture() {
 	const directory = mkdtempSync(join(tmpdir(), "pi-mailbox-tool-wiring-"));
 	directories.push(directory);
+	const controlDbPath = getControlDbPath(directory);
 	const sessionManager = SessionManager.create("/repo", directory);
-	sessionManager.setMetadataControlDbPath(getControlDbPath(directory));
+	sessionManager.setMetadataControlDbPath(controlDbPath);
 	sessionManager.persistForRecovery();
 	const store = MultiAgentStore.fromSessionManager(sessionManager);
 	const tools = new Map<string, ToolDefinition>();
 	const pi = { registerTool: (tool: ToolDefinition) => tools.set(tool.name, tool) } as unknown as ExtensionAPI;
 	registerAgentsMailboxTools(pi, { store });
 	const ctx = {
-		controlDbPath: getControlDbPath(directory),
+		controlDbPath,
 		cwd: "/repo",
 		hasUI: false,
 		mode: "print",
@@ -49,10 +51,56 @@ function createFixture() {
 		(await tool(name).execute(id, params, undefined, undefined, ctx)) as AgentToolResult<{
 			message: AgentMailboxMessage;
 		}>;
-	return { ctx, execute, sessionManager, spawn, store, tool };
+	return { controlDbPath, ctx, execute, sessionManager, spawn, store, tool };
 }
 
 describe("model-facing mailbox tool wiring", () => {
+	it.each(["send_agent_message", "contact_parent"])(
+		"rejects synthetic %s through the active-tool bridge with an enclosing pyrun_eval identity",
+		async (name) => {
+			const fixture = createFixture();
+			const parent = fixture.spawn();
+			const child = fixture.spawn(parent.id);
+			const harness = await createHarness({
+				persistedSession: true,
+				multiAgentAgentId: child.id,
+				extensionFactories: [(pi) => registerAgentsMailboxTools(pi, { store: fixture.store })],
+			});
+			try {
+				harness.sessionManager.setMetadataControlDbPath(fixture.controlDbPath);
+				await harness.session.bindExtensions({});
+				const outerId = "outer-pyrun-call";
+				harness.sessionManager.appendMessage(
+					fauxAssistantMessage([
+						{ type: "text", text: "Outer commentary must never become a mailbox body" },
+						fauxToolCall("pyrun_eval", { code: `pi.tools.call("${name}", {})` }, { id: outerId }),
+					]),
+				);
+				const bridgedSession = harness.session as unknown as {
+					_callActiveTool(
+						toolName: string,
+						params: unknown,
+						signal: AbortSignal | undefined,
+						activeToolCallId: string,
+					): Promise<AgentToolResult<unknown>>;
+				};
+				const result = await bridgedSession._callActiveTool(
+					name,
+					name === "send_agent_message" ? { toAgentId: parent.id } : {},
+					undefined,
+					outerId,
+				);
+				expect(result.isError).toBe(true);
+				expect(result.content).toEqual([
+					{ type: "text", text: expect.stringMatching(/one assistant response for mailbox tool/) },
+				]);
+				expect(fixture.store.listMailboxMessages()).toEqual([]);
+				expect(listRuntimeMailboxMessages(fixture.controlDbPath)).toEqual([]);
+			} finally {
+				harness.cleanup();
+			}
+		},
+	);
 	it("sends exact executing assistant text unchanged, with routing and attachments", async () => {
 		const fixture = createFixture();
 		const recipient = fixture.spawn();
@@ -79,7 +127,7 @@ describe("model-facing mailbox tool wiring", () => {
 			toAgentId: recipient.id,
 		});
 		expect(fixture.store.listMailboxMessages()[0]?.body).toBe(body);
-		expect(listRuntimeMailboxMessages(fixture.ctx.controlDbPath!)[0]?.body).toBe(body);
+		expect(listRuntimeMailboxMessages(fixture.controlDbPath)[0]?.body).toBe(body);
 	});
 
 	it("uses a filtered text block index for contact_parent", async () => {
