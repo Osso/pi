@@ -125,8 +125,8 @@ export function createSupervisorSettingsManager(): SettingsManager {
 }
 
 function requireSupervisorModel(modelRegistry: ModelRegistry): Model<Api> {
-	const model = modelRegistry.find("openai-codex", "gpt-6-astra");
-	if (!model) throw new Error("Pi Supervisor requires openai-codex/gpt-6-astra");
+	const model = modelRegistry.find("openai-codex", "gpt-6.1-sol");
+	if (!model) throw new Error("Pi Supervisor requires openai-codex/gpt-6.1-sol");
 	return model;
 }
 
