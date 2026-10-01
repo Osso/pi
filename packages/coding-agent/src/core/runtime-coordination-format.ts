@@ -13,7 +13,7 @@ const SHARED_CHANNEL_RECEIVE_GUIDANCE = [
 export function formatRuntimeMailboxPrompt(message: RuntimeMailboxMessage, recipientSessionId: string): string {
 	const senderSession = message.sender.sessionId || "unknown-session";
 	const senderAgent = message.sender.agentId || "main";
-	const body = message.body.trim() || "No message body.";
+	const body = message.body.trim() ? message.body : "No message body.";
 	const senderLines =
 		senderSession === recipientSessionId
 			? [`- agent: ${senderAgent}`]
