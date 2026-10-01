@@ -1,5 +1,7 @@
 # Session directory and runtime liveness
 
+Contract: [Session directory tools](../../specs/session-directory-tools.md). See [agent lifecycle](agent-lifecycle.md) for durable ownership rather than inventory freshness.
+
 `list_sessions`, `broadcast`, and Resident Architect snapshots share the runtime listener and
 `session_health` state in `control.sqlite`. Inventory identifies a live main session by a fresh runtime
 heartbeat, not by OS PID existence; lifecycle ownership remains the exact `(pid, startTimeTicks)`
