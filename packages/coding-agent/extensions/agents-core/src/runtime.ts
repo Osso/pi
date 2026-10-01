@@ -38,12 +38,10 @@ import {
 	type AgentMailboxMessage,
 	type AgentResult,
 	type AgentSnapshot,
-	type ContactParentInput,
 	formatInactiveAgentSelectionMessage,
 	isActiveLifecycle,
 	type MailboxMessageCommandResult,
 	MultiAgentStore,
-	type SendMailboxMessageInput,
 	type SteeringCheckpoint,
 } from "../../../src/core/multi-agent-store.ts";
 import { findExactModelReferenceMatch } from "../../../src/core/model-resolver.ts";
@@ -85,6 +83,11 @@ import { bindProductionChildSession, type UnboundChildAgentSession } from "./chi
 import { readCurrentChildAssistantText } from "./child-response.ts";
 import { waitForActiveDescendants } from "./descendant-settlement.ts";
 import { createLifecycleCoordinator, RUNTIME_PROCESS_IDENTITY } from "./lifecycle-runtime.ts";
+import {
+	type ContactParentMessageParams,
+	registerModelMailboxTools,
+	type SendAgentMessageParams,
+} from "./mailbox-tools.ts";
 import {
 	appendParentAgentCompletion,
 	appendParentAgentStart,
@@ -151,24 +154,6 @@ const steerAgentSchema = Type.Object({
 	targetCheckpoint: Type.Optional(checkpointSchema),
 });
 
-const contactParentSchema = Type.Object({
-	fileRefs: Type.Optional(Type.Array(fileReferenceSchema)),
-	message: Type.String(),
-	threadId: Type.Optional(Type.String()),
-});
-
-const sendAgentMessageSchema = Type.Object({
-	fileRefs: Type.Optional(Type.Array(fileReferenceSchema, { description: "Optional file references to attach." })),
-	message: Type.String({ description: "Message body to send." }),
-	threadId: Type.Optional(Type.String({ description: "Optional thread identifier for conversation correlation." })),
-	toAgentId: Type.String({
-		description: "Target agent ID, or 'main' when sending to another session's main thread.",
-	}),
-	toSessionId: Type.Optional(
-		Type.String({ description: "Optional target session ID for direct cross-session mailbox delivery." }),
-	),
-});
-
 type SpawnAgentParams = Static<typeof spawnAgentSchema>;
 type AttachSessionAgentParams = Static<typeof attachSessionAgentSchema>;
 
@@ -187,8 +172,6 @@ function requireSpawnAgentParams(params: unknown): asserts params is SpawnAgentP
 type ListAgentsParams = Static<typeof listAgentsSchema>;
 type CancelAgentParams = Static<typeof cancelAgentSchema>;
 type SteerAgentParams = Static<typeof steerAgentSchema>;
-type ContactParentParams = Static<typeof contactParentSchema>;
-type SendAgentMessageParams = Static<typeof sendAgentMessageSchema>;
 
 type ChildSessionModel = CreateAgentSessionOptions["model"];
 
@@ -2594,7 +2577,7 @@ async function cancelAgent(
 
 function contactParent(
 	store: MultiAgentStore,
-	params: ContactParentParams,
+	params: ContactParentMessageParams,
 	ctx?: ExtensionContext,
 ): AgentToolResult<ContactParentToolDetails> {
 	const currentAgentId = ctx?.multiAgentAgentId;
@@ -3289,32 +3272,10 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 export function registerAgentsMailboxTools(pi: ExtensionAPI, options: MultiAgentExtensionOptions = {}) {
 	const store = resolveMultiAgentStore(options);
 
-	pi.registerTool(
-		defineTool({
-			name: "send_agent_message",
-			label: "Send Agent Message",
-			description:
-				"Send a direct mailbox message to a local child or sibling agent, or to another session via toSessionId (with toAgentId 'main' for its main thread).",
-			promptGuidelines: [
-				"Use send_agent_message for direct mailbox messaging to local agents, or across sessions via toSessionId (with toAgentId='main' for the main thread).",
-			],
-			approvalRequired: false,
-			parameters: sendAgentMessageSchema,
-			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
-				sendAgentMessage(store, params, ctx, options.onSessionMessageSent),
-		}),
-	);
-
-	pi.registerTool(
-		defineTool({
-			name: "contact_parent",
-			label: "Contact Parent",
-			description: "Send a child-agent mailbox request to its direct parent.",
-			approvalRequired: false,
-			parameters: contactParentSchema,
-			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => contactParent(store, params, ctx),
-		}),
-	);
+	registerModelMailboxTools(pi, {
+		contactParent: (params, ctx) => contactParent(store, params, ctx),
+		sendAgentMessage: (params, ctx) => sendAgentMessage(store, params, ctx, options.onSessionMessageSent),
+	});
 }
 
 export default function multiAgentExtension(pi: ExtensionAPI, options: MultiAgentExtensionOptions = {}) {
