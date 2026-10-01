@@ -1,5 +1,7 @@
 # Resident Architect Service
 
+Contract: [Resident Architect service](../../specs/architect-service.md). Disabled startup is a source configuration, not a claim about the state of an installed process.
+
 The resident Architect is a retained but temporarily disabled Pi process. Its implementation remains documented for rework, but deployment does not install or start its systemd user service and the built-in `ask_architect` request tool is not exposed. When re-enabled, it observes the shared Pi control database, sends only material observations to `openai-codex/gpt-5.6-sol`, and delivers advisory hypotheses through targeted runtime mailbox messages.
 
 ## Observation loop

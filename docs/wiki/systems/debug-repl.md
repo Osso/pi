@@ -1,5 +1,7 @@
 # Live-process debug REPL
 
+Contract: [Debug REPL](../../specs/debug-repl.md).
+
 The debug REPL is a first-party extension backed by a process-local Unix socket.
 
 ## Lifecycle

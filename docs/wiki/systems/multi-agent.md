@@ -146,9 +146,11 @@ Existing primitives worth reusing:
   child-agent isolation can reuse.
 - `packages/tui/test/keys.test.ts` already proves terminal parsing for `alt+1`.
 
-Still missing first-party pieces:
-
-- Read-only interactive TUI agent viewer that never advances child lifecycle on focus or tab switch.
+The interactive [agent switcher](../../../packages/coding-agent/src/modes/interactive/components/agent-switcher.ts)
+is wired through `showAgentSwitcher()` in
+[`interactive-mode.ts`](../../../packages/coding-agent/src/modes/interactive/interactive-mode.ts).
+It selects a view without advancing child lifecycle; inactive rows report status rather than resuming
+work. The model-facing `agent_viewer` separately provides snapshot and transcript inspection.
 
 ## Architecture decision
 

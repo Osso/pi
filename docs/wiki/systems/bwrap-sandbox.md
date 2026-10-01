@@ -1,5 +1,7 @@
 # Bubblewrap sandbox backend
 
+Contract: [Bubblewrap sandbox](../../specs/bwrap-sandbox.md).
+
 The bwrap sandbox backend lives under `packages/coding-agent/extensions/bwrap/`. It is an extension/backend, not a process wrapper for Pi itself: the host Pi process stays outside bubblewrap and selected tool workers are spawned through `bwrap` only for explicit `read-only` and `workspace-write` profiles.
 
 ## Sandbox shape
