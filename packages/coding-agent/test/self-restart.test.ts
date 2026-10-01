@@ -168,7 +168,6 @@ describe("self restart request", () => {
 			const sessions = await SessionManager.listAll(sessionDir);
 			expect(sessions).toHaveLength(1);
 			expect(sessions[0]?.firstMessage).toBe("Actual first request");
-			expect(sessions[0]?.allMessagesText).toBe("Actual first request Response");
 		} finally {
 			rmSync(cwd, { recursive: true, force: true });
 		}

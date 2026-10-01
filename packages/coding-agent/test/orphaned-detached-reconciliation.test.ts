@@ -31,7 +31,6 @@ const JOB_ID = "pyrun_1";
 
 function createOwnerSession(controlDbPath: string): void {
 	writeSessionMetadata(controlDbPath, {
-		allMessagesText: "owner",
 		createdAt: CREATED_AT,
 		cwd: "/repo",
 		firstMessage: "owner",

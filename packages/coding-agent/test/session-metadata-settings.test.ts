@@ -32,7 +32,6 @@ describe("session metadata settings", () => {
 			modifiedAt: "2026-07-24T00:00:00.000Z",
 			messageCount: 1,
 			firstMessage: "first",
-			allMessagesText: "first",
 			modelProvider: "openai-codex",
 			modelId: "gpt-5.6-sol",
 			thinkingLevel: "medium",

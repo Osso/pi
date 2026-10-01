@@ -489,7 +489,6 @@ describe("runtime SQLite mailbox delivery", () => {
 		const controlDbPath = getControlDbPath(tempDir);
 		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
 		writeSessionMetadata(controlDbPath, {
-			allMessagesText: "parent",
 			createdAt: "2026-07-01T00:00:00.000Z",
 			cwd: "/repo",
 			firstMessage: "parent",

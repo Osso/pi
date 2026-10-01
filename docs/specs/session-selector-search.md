@@ -2,13 +2,13 @@
 
 Module boundary: core interactive TUI.
 
-The resume-session picker searches loaded session metadata and conversation text while retaining fuzzy fallback for incomplete queries.
+The resume-session picker searches loaded session metadata while retaining fuzzy fallback for incomplete queries.
 
 ## What it must do
 
 ### Search behavior
 
-- [x] Search session IDs, names, user and assistant message text, and working directories.
+- [x] Search session IDs, names, first user messages, and working directories.
 - [x] Treat unquoted terms as case-insensitive fuzzy subsequence tokens.
 - [x] Rank literal substring matches before subsequence-only fuzzy matches in Recent sort mode.
 - [x] Rank literal substring matches before subsequence-only fuzzy matches in Fuzzy (relevance) sort mode.

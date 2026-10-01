@@ -19,7 +19,6 @@ import { createSqliteDatabase } from "../src/core/sqlite.ts";
 
 function writeTestSessionMetadata(controlDbPath: string, sessionPath: string, sessionId: string): void {
 	writeSessionMetadata(controlDbPath, {
-		allMessagesText: "",
 		createdAt: "2026-08-09T00:00:00.000Z",
 		cwd: "/repo",
 		firstMessage: "",

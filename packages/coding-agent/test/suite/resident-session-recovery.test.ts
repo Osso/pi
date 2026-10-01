@@ -51,7 +51,6 @@ describe("resident session recovery", () => {
 					modifiedAt: "2026-09-01T00:00:00.000Z",
 					messageCount: 1,
 					firstMessage: "live child content",
-					allMessagesText: "live child content",
 				});
 				writeResidentTranscript(stalePath, "supervisor", runtime.paths.workspaceDir, "stale content");
 				writeSessionMetadata(controlDbPath, {
@@ -63,7 +62,6 @@ describe("resident session recovery", () => {
 					modifiedAt: "2026-09-02T00:00:00.000Z",
 					messageCount: 1,
 					firstMessage: "stale content",
-					allMessagesText: "stale content",
 				});
 				writeSessionMetadata(controlDbPath, {
 					sessionPath: missingPath,
@@ -74,7 +72,6 @@ describe("resident session recovery", () => {
 					modifiedAt: "2026-09-03T00:00:00.000Z",
 					messageCount: 1,
 					firstMessage: "missing content",
-					allMessagesText: "missing content",
 				});
 
 				const retained = openSupervisorSession(runtime.paths.agentDir, runtime.paths.workspaceDir, controlDbPath);

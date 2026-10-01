@@ -179,7 +179,6 @@ describe("active slice session loading", () => {
 			modifiedAt: "2025-01-01T00:00:03.000Z",
 			messageCount: 3,
 			firstMessage: "old",
-			allMessagesText: "old kept after",
 		});
 
 		const session = SessionManager.open(file, tempDir);
@@ -211,7 +210,6 @@ describe("active slice session loading", () => {
 			modifiedAt: "2025-01-01T00:00:00.000Z",
 			messageCount: 0,
 			firstMessage: "(no messages)",
-			allMessagesText: "",
 		});
 		writeSessionName(controlDbPath, file, undefined);
 
@@ -249,7 +247,6 @@ describe("active slice session loading", () => {
 				modifiedAt: "2025-01-01T00:00:00.000Z",
 				messageCount: 0,
 				firstMessage: "(no messages)",
-				allMessagesText: "",
 			});
 		}
 		const session = SessionManager.open(firstFile, tempDir);

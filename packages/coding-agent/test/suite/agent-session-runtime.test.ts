@@ -186,7 +186,6 @@ describe("AgentSessionRuntime characterization", () => {
 			modifiedAt: "2026-08-22T00:00:00.000Z",
 			messageCount: 0,
 			firstMessage: "(no messages)",
-			allMessagesText: "",
 		});
 
 		await runtime.importFromJsonl(sourcePath);

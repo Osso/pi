@@ -114,7 +114,6 @@ describe("sessions command", () => {
 				modifiedAt: "2026-09-02T00:00:00.000Z",
 				messageCount: 0,
 				firstMessage: "",
-				allMessagesText: "",
 			});
 		}
 		archiveSession(controlDbPath, archivedPath);

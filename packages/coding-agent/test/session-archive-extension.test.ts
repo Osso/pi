@@ -35,7 +35,6 @@ describe("session archive extension", () => {
 			modifiedAt: "2026-09-11T00:00:00.000Z",
 			messageCount: 1,
 			firstMessage: "keep this transcript",
-			allMessagesText: "keep this transcript",
 		});
 		let command: RegisteredCommand | undefined;
 		sessionArchiveExtension({
@@ -295,7 +294,6 @@ describe("session archive extension", () => {
 			modifiedAt: "2026-09-02T00:00:01.000Z",
 			messageCount: 1,
 			firstMessage: "resume me",
-			allMessagesText: "resume me",
 		});
 
 		let command: RegisteredCommand | undefined;
@@ -370,7 +368,6 @@ describe("session archive extension", () => {
 			modifiedAt: "2026-09-02T00:00:00.000Z",
 			messageCount: 0,
 			firstMessage: "",
-			allMessagesText: "",
 		});
 		const archivedPath = archivePersistedSession(controlDbPath, sessionPath);
 

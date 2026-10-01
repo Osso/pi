@@ -5564,7 +5564,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			modifiedAt: "2026-01-01T00:10:00.000Z",
 			messageCount: 1,
 			firstMessage: "first",
-			allMessagesText: "first",
 		});
 
 		const workerSource = `
@@ -6683,7 +6682,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				modifiedAt: "2026-01-01T00:00:00.000Z",
 				messageCount: 1,
 				firstMessage: "first",
-				allMessagesText: "first",
 			});
 			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId }, child.pid, sessionPath);
 			bootstrapMultiAgentAgent(controlDbPath, sessionPath, "running", {
@@ -6727,7 +6725,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				modifiedAt: "2026-01-01T00:00:00.000Z",
 				messageCount: 1,
 				firstMessage: "first",
-				allMessagesText: "first",
 			});
 		}
 		writeSessionHealth(controlDbPath, {
@@ -6823,7 +6820,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			modifiedAt: "2026-01-01T00:00:00.000Z",
 			messageCount: 1,
 			firstMessage: "first",
-			allMessagesText: "first",
 		});
 		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "live-session" }, 123, oldSessionPath);
 		bootstrapMultiAgentAgent(controlDbPath, oldSessionPath, "running", {
@@ -6855,7 +6851,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				modifiedAt: "2026-01-01T00:00:00.000Z",
 				messageCount: 1,
 				firstMessage: "first",
-				allMessagesText: "first",
 			});
 		}
 		registerRuntimeMailboxListener(
@@ -6892,7 +6887,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				modifiedAt: "2026-01-01T00:00:00.000Z",
 				messageCount: 1,
 				firstMessage: "first",
-				allMessagesText: "first",
 			});
 		}
 		registerRuntimeMailboxListener(
@@ -6935,7 +6929,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			modifiedAt: "2026-01-01T00:00:00.000Z",
 			messageCount: 1,
 			firstMessage: "first",
-			allMessagesText: "first",
 		});
 		registerRuntimeMailboxListener(controlDbPath, recipient, 111, sessionPath, {
 			runtimeInstanceId: "runtime-a",
@@ -6978,7 +6971,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			modifiedAt: "2026-01-01T00:00:00.000Z",
 			messageCount: 1,
 			firstMessage: "first",
-			allMessagesText: "first",
 		});
 		registerRuntimeMailboxListener(
 			controlDbPath,
@@ -7132,7 +7124,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				modifiedAt: "2026-01-01T00:10:00.000Z",
 				messageCount: 1,
 				firstMessage: "first",
-				allMessagesText: "first",
 			});
 			writeSessionName(controlDbPath, `/tmp/${id}.jsonl`, name);
 		}
@@ -7168,7 +7159,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			modifiedAt: "2026-01-01T00:10:00.000Z",
 			messageCount: 2,
 			firstMessage: "first alpha",
-			allMessagesText: "first alpha assistant alpha",
 		});
 		writeSessionMetadata(controlDbPath, {
 			sessionPath: "/tmp/session-b.jsonl",
@@ -7180,7 +7170,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			modifiedAt: "2026-01-02T00:05:00.000Z",
 			messageCount: 1,
 			firstMessage: "first beta",
-			allMessagesText: "first beta",
 		});
 
 		const sessions = listSessionMetadata(controlDbPath);
@@ -7196,7 +7185,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				modifiedAt: "2026-01-02T00:05:00.000Z",
 				messageCount: 1,
 				firstMessage: "first beta",
-				allMessagesText: "first beta",
 			},
 			{
 				sessionPath: "/tmp/session-a.jsonl",
@@ -7208,29 +7196,9 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				modifiedAt: "2026-01-01T00:10:00.000Z",
 				messageCount: 2,
 				firstMessage: "first alpha",
-				allMessagesText: "first alpha assistant alpha",
 			},
 		]);
 		expect(sessions[0].updatedAt).toEqual(expect.any(String));
-	});
-
-	it("omits message search text when metadata indexing is disabled", () => {
-		writeSessionMetadata(controlDbPath, {
-			sessionPath: "/tmp/resident-service.jsonl",
-			id: "resident-service",
-			cwd: "/repo",
-			createdAt: "2026-01-01T00:00:00.000Z",
-			modifiedAt: "2026-01-01T00:10:00.000Z",
-			messageCount: 2,
-			firstMessage: "first request",
-			allMessagesText: "x".repeat(1024 * 1024),
-			indexMessageText: false,
-		});
-
-		expect(readSessionMetadata(controlDbPath, "/tmp/resident-service.jsonl")).toMatchObject({
-			firstMessage: "first request",
-			allMessagesText: "",
-		});
 	});
 
 	it("archives and restores session metadata without changing transcript data", () => {
@@ -7242,7 +7210,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			modifiedAt: "2026-01-01T00:10:00.000Z",
 			messageCount: 1,
 			firstMessage: "first",
-			allMessagesText: "first",
 		});
 
 		archiveSession(controlDbPath, "/tmp/session-a.jsonl");
@@ -7268,7 +7235,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				modifiedAt: "2026-01-01T00:00:00.000Z",
 				messageCount: 1,
 				firstMessage: "old",
-				allMessagesText: "old",
 			},
 			{
 				sessionPath: "/tmp/new.jsonl",
@@ -7278,7 +7244,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				modifiedAt: "2026-01-03T00:00:00.000Z",
 				messageCount: 1,
 				firstMessage: "new",
-				allMessagesText: "new",
 			},
 			{
 				sessionPath: "/tmp/child.jsonl",
@@ -7288,7 +7253,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				modifiedAt: "2026-01-01T00:00:00.000Z",
 				messageCount: 1,
 				firstMessage: "child",
-				allMessagesText: "child",
 				isSubagent: true,
 			},
 		]) {
@@ -7361,7 +7325,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			modifiedAt: "2026-01-01T00:10:00.000Z",
 			messageCount: 1,
 			firstMessage: "first",
-			allMessagesText: "first",
 		});
 		writeSessionMetadata(controlDbPath, {
 			sessionPath: "/tmp/session-a.jsonl",
@@ -7372,7 +7335,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			modifiedAt: "2026-01-01T00:20:00.000Z",
 			messageCount: 3,
 			firstMessage: "updated first",
-			allMessagesText: "updated first more text",
 		});
 
 		expect(readSessionMetadata(controlDbPath, "/tmp/session-a.jsonl")).toMatchObject({
@@ -7385,7 +7347,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			modifiedAt: "2026-01-01T00:20:00.000Z",
 			messageCount: 3,
 			firstMessage: "updated first",
-			allMessagesText: "updated first more text",
 		});
 	});
 
@@ -7421,7 +7382,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			modifiedAt: "2026-01-01T00:10:00.000Z",
 			messageCount: 1,
 			firstMessage: "first",
-			allMessagesText: "first",
 			isSubagent: true,
 			subagentName: "researcher",
 		});
@@ -7432,6 +7392,50 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			isSubagent: true,
 			subagentName: "researcher",
 		});
+	});
+
+	it("drops stored transcript text from existing session metadata rows", () => {
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec(`
+				CREATE TABLE session_metadata (
+					session_path TEXT PRIMARY KEY,
+					id TEXT NOT NULL,
+					cwd TEXT NOT NULL,
+					name TEXT,
+					parent_session_path TEXT,
+					created_at TEXT NOT NULL,
+					modified_at TEXT NOT NULL,
+					message_count INTEGER NOT NULL,
+					first_message TEXT NOT NULL,
+					all_messages_text TEXT NOT NULL,
+					updated_at TEXT NOT NULL
+				)
+			`);
+			db.prepare(
+				`INSERT INTO session_metadata VALUES (
+					'/tmp/session-a.jsonl', 'session-a', '/repo/a', NULL, NULL, '2026-01-01T00:00:00.000Z',
+					'2026-01-01T00:10:00.000Z', 3, 'first prompt', ?, '2026-01-01T00:10:00.000Z'
+				)`,
+			).run("transcript ".repeat(10_000));
+		} finally {
+			db.close();
+		}
+
+		expect(readSessionMetadata(controlDbPath, "/tmp/session-a.jsonl")).toMatchObject({
+			id: "session-a",
+			messageCount: 3,
+			firstMessage: "first prompt",
+		});
+		const migrated = createSqliteDatabase(controlDbPath);
+		try {
+			const columns = (migrated.prepare("PRAGMA table_info(session_metadata)").all() as Array<{ name: string }>).map(
+				(column) => column.name,
+			);
+			expect(columns).not.toContain("all_messages_text");
+		} finally {
+			migrated.close();
+		}
 	});
 
 	it("stores goal and subagent metadata in the session metadata row", () => {
@@ -7445,7 +7449,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			modifiedAt: "2026-01-01T00:10:00.000Z",
 			messageCount: 1,
 			firstMessage: "first",
-			allMessagesText: "first",
 			isSubagent: true,
 			subagentName: "researcher",
 		});
@@ -7472,7 +7475,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			modifiedAt: "2026-01-01T00:10:00.000Z",
 			messageCount: 1,
 			firstMessage: "first",
-			allMessagesText: "first",
 		};
 		writeSessionMetadata(controlDbPath, metadata);
 		writeSessionGoal(
@@ -7499,7 +7501,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			modifiedAt: "2026-01-01T00:10:00.000Z",
 			messageCount: 1,
 			firstMessage: "first",
-			allMessagesText: "first",
 		});
 
 		writeSessionName(controlDbPath, "/tmp/session-a.jsonl", "Alpha");
@@ -7512,7 +7513,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			modifiedAt: "2026-01-01T00:20:00.000Z",
 			messageCount: 2,
 			firstMessage: "first",
-			allMessagesText: "first second",
 		});
 
 		expect(readSessionMetadata(controlDbPath, "/tmp/session-a.jsonl")?.name).toBe("Alpha");
@@ -7526,7 +7526,6 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			modifiedAt: "2026-01-01T00:30:00.000Z",
 			messageCount: 3,
 			firstMessage: "first",
-			allMessagesText: "first second third",
 		});
 
 		expect(readSessionMetadata(controlDbPath, "/tmp/session-a.jsonl")?.name).toBeUndefined();

@@ -52,7 +52,6 @@ describe("session directory", () => {
 			modifiedAt: overrides?.modifiedAt ?? "2026-01-01T00:10:00.000Z",
 			messageCount: 1,
 			firstMessage: "hello",
-			allMessagesText: "hello",
 		});
 		if (overrides?.goal) {
 			writeSessionGoal(controlDbPath, sessionPath, JSON.stringify({ objective: overrides.goal }));

@@ -431,7 +431,6 @@ describe("SessionManager custom flat session directory", () => {
 			modifiedAt: "2026-01-01T00:00:00.000Z",
 			messageCount: 1,
 			firstMessage: "metadata A",
-			allMessagesText: "metadata A",
 		});
 		writeSessionMetadata(controlDbPath, {
 			sessionPath: join(tempDir, "missing.jsonl"),
@@ -443,7 +442,6 @@ describe("SessionManager custom flat session directory", () => {
 			modifiedAt: "2026-01-02T00:00:00.000Z",
 			messageCount: 1,
 			firstMessage: "metadata missing",
-			allMessagesText: "metadata missing",
 		});
 
 		const currentA = await SessionManager.list(projectA, tempDir, undefined, controlDbPath);
@@ -477,24 +475,21 @@ describe("SessionManager custom flat session directory", () => {
 		const sessionFile = session.getSessionFile();
 		if (!sessionFile) throw new Error("Expected persisted session file");
 		expect(readSessionMetadata(controlDbPath, sessionFile)).toMatchObject({
-			allMessagesText: "first prompt first reply",
 			messageCount: 2,
 		});
 
 		const sentinel = readSessionMetadata(controlDbPath, sessionFile);
 		if (!sentinel) throw new Error("Expected session metadata");
-		writeSessionMetadata(controlDbPath, { ...sentinel, firstMessage: "sentinel", allMessagesText: "sentinel" });
+		writeSessionMetadata(controlDbPath, { ...sentinel, firstMessage: "sentinel" });
 		session.appendCustomEntry("multi-agent-test", { payload: "snapshot" });
 
 		expect(readSessionMetadata(controlDbPath, sessionFile)).toMatchObject({
-			allMessagesText: "sentinel",
 			firstMessage: "sentinel",
 		});
 
 		session.appendMessage({ role: "user", content: "second prompt", timestamp: 3 });
 
 		expect(readSessionMetadata(controlDbPath, sessionFile)).toMatchObject({
-			allMessagesText: "first prompt first reply second prompt",
 			firstMessage: "first prompt",
 			messageCount: 3,
 		});
@@ -659,7 +654,6 @@ describe("SessionManager custom flat session directory", () => {
 				modifiedAt: "2026-09-03T00:00:00.000Z",
 				messageCount: 1,
 				firstMessage: session.id,
-				allMessagesText: session.id,
 			});
 			if (session.archived) archiveSession(controlDbPath, session.sessionPath);
 		}
@@ -700,7 +694,6 @@ describe("SessionManager custom flat session directory", () => {
 		expect(readSessionMetadata(controlDbPath, mainSession)).toMatchObject({
 			messageCount: 2,
 			firstMessage: "main prompt",
-			allMessagesText: "main prompt reply to main prompt",
 		});
 	});
 
@@ -735,7 +728,6 @@ describe("SessionManager custom flat session directory", () => {
 			cwd: projectA,
 			messageCount: 2,
 			firstMessage: "fast listing prompt",
-			allMessagesText: "fast listing prompt fast listing reply",
 		});
 
 		writeFileSync(sessionFile, "not jsonl metadata path proves sqlite listing is used\n");

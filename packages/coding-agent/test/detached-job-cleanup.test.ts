@@ -80,7 +80,6 @@ function persistArtifact(input: {
 	if (input.size !== undefined) truncateSync(outputPath, input.size);
 	if (input.writeMetadata !== false) {
 		writeSessionMetadata(input.controlDbPath, {
-			allMessagesText: input.sessionName,
 			createdAt: input.updatedAt,
 			cwd: input.root,
 			firstMessage: input.sessionName,
@@ -125,7 +124,6 @@ function persistOwnedDetachedArtifact(input: {
 	writeFileSync(outputPath, "output", { mode: 0o600 });
 	truncateSync(outputPath, input.size);
 	writeSessionMetadata(input.controlDbPath, {
-		allMessagesText: input.sessionName,
 		createdAt: input.updatedAt,
 		cwd: input.root,
 		firstMessage: input.sessionName,
@@ -429,7 +427,6 @@ describe("detached job artifact cleanup", () => {
 		mkdirSync(externalDirectory, { recursive: true });
 		writeFileSync(outputPath, "output", { mode: 0o600 });
 		writeSessionMetadata(controlDbPath, {
-			allMessagesText: sessionName,
 			createdAt: "2026-07-19T18:00:00.000Z",
 			cwd: root,
 			firstMessage: sessionName,
@@ -475,7 +472,6 @@ describe("detached job artifact cleanup", () => {
 		const outputPath = join(detachedRoot, sessionName, jobId, "output.log");
 		writeFileSync(outputPath, "output", { mode: 0o600 });
 		writeSessionMetadata(controlDbPath, {
-			allMessagesText: sessionName,
 			createdAt: "2026-07-19T18:00:00.000Z",
 			cwd: root,
 			firstMessage: sessionName,
@@ -517,7 +513,6 @@ describe("detached job artifact cleanup", () => {
 		mkdirSync(escapedDirectory, { recursive: true });
 		writeFileSync(outputPath, "output", { mode: 0o600 });
 		writeSessionMetadata(controlDbPath, {
-			allMessagesText: sessionName,
 			createdAt: "2026-07-19T18:00:00.000Z",
 			cwd: root,
 			firstMessage: sessionName,

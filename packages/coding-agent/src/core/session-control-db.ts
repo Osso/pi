@@ -175,13 +175,10 @@ export interface SessionMetadata {
 	modifiedAt: string;
 	messageCount: number;
 	firstMessage: string;
-	allMessagesText: string;
 	updatedAt: string;
 }
 
-export type WritableSessionMetadata = Omit<SessionMetadata, "goalJson" | "updatedAt"> & {
-	indexMessageText?: boolean;
-};
+export type WritableSessionMetadata = Omit<SessionMetadata, "goalJson" | "updatedAt">;
 
 export interface ResumeSessionMetadataOptions {
 	archived: boolean;
@@ -323,7 +320,6 @@ type SessionMetadataRow = {
 	modified_at: string;
 	message_count: number;
 	first_message: string;
-	all_messages_text: string;
 	updated_at: string;
 };
 
@@ -2616,10 +2612,9 @@ const UPSERT_SESSION_METADATA_SQL = `
 		modified_at,
 		message_count,
 		first_message,
-		all_messages_text,
 		updated_at
 	)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(session_path) DO UPDATE SET
 		id = excluded.id,
 		cwd = excluded.cwd,
@@ -2635,7 +2630,6 @@ const UPSERT_SESSION_METADATA_SQL = `
 		modified_at = excluded.modified_at,
 		message_count = excluded.message_count,
 		first_message = excluded.first_message,
-		all_messages_text = excluded.all_messages_text,
 		updated_at = excluded.updated_at
 `;
 
@@ -2661,7 +2655,6 @@ function writeSessionMetadataRow(
 	metadata: WritableSessionMetadata,
 	values: SessionMetadataWriteValues,
 ): void {
-	const allMessagesText = metadata.indexMessageText === false ? "" : metadata.allMessagesText;
 	db.prepare(UPSERT_SESSION_METADATA_SQL).run(
 		metadata.sessionPath,
 		metadata.id,
@@ -2679,7 +2672,6 @@ function writeSessionMetadataRow(
 		metadata.modifiedAt,
 		metadata.messageCount,
 		metadata.firstMessage,
-		allMessagesText,
 		new Date().toISOString(),
 	);
 }
@@ -2842,7 +2834,6 @@ export function readSessionMetadata(controlDbPath: string, sessionPath: string):
 					modified_at,
 					message_count,
 					first_message,
-					all_messages_text,
 					updated_at
 				FROM session_metadata
 				WHERE session_path = ?
@@ -2915,7 +2906,6 @@ export function listResumeSessionMetadata(
 					modified_at,
 					message_count,
 					first_message,
-					all_messages_text,
 					updated_at
 				FROM session_metadata
 				WHERE ${predicates.join(" AND ")}
@@ -2959,7 +2949,6 @@ function findActiveSessionMetadata(controlDbPath: string, field: "id" | "name", 
 					modified_at,
 					message_count,
 					first_message,
-					all_messages_text,
 					updated_at
 				FROM session_metadata
 				WHERE archived_at IS NULL AND is_subagent = 0 AND ${matchClause}
@@ -2995,7 +2984,6 @@ function listSessionMetadataByArchiveState(controlDbPath: string, archived?: boo
 					modified_at,
 					message_count,
 					first_message,
-					all_messages_text,
 					updated_at
 				FROM session_metadata
 				${archiveClause}
@@ -3068,7 +3056,6 @@ function sessionMetadataFromRow(row: SessionMetadataRow): SessionMetadata {
 		modifiedAt: row.modified_at,
 		messageCount: row.message_count,
 		firstMessage: row.first_message,
-		allMessagesText: row.all_messages_text,
 		updatedAt: row.updated_at,
 	};
 }
@@ -6461,7 +6448,6 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 			modified_at TEXT NOT NULL,
 			message_count INTEGER NOT NULL,
 			first_message TEXT NOT NULL,
-			all_messages_text TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		);
 
@@ -7190,5 +7176,8 @@ function addMissingSessionMetadataColumns(db: SqliteDatabase): void {
 	}
 	if (!columns.has("thinking_level")) {
 		db.exec("ALTER TABLE session_metadata ADD COLUMN thinking_level TEXT");
+	}
+	if (columns.has("all_messages_text")) {
+		db.exec("ALTER TABLE session_metadata DROP COLUMN all_messages_text");
 	}
 }

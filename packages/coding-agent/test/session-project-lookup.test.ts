@@ -115,7 +115,6 @@ describe("--session project lookup", () => {
 			modifiedAt: "2026-07-25T22:38:54.945Z",
 			messageCount: 0,
 			firstMessage: "",
-			allMessagesText: "",
 		});
 
 		const result = await runCli(buildSessionLookupCliArgs(sessionId), currentProject, agentDir, "n\n");
@@ -158,7 +157,6 @@ describe("--session project lookup", () => {
 			modifiedAt: "2026-07-25T22:38:54.945Z",
 			messageCount: 0,
 			firstMessage: "",
-			allMessagesText: "",
 		});
 
 		const result = await runCli(buildSessionLookupCliArgs(sessionId), currentProject, agentDir, "y\n");

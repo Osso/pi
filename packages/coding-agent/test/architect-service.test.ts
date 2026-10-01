@@ -83,7 +83,6 @@ describe("resident architect service", () => {
 					modifiedAt: "2026-09-01T00:00:00.000Z",
 					messageCount: 0,
 					firstMessage: "(no messages)",
-					allMessagesText: "",
 				});
 			}
 
@@ -136,7 +135,6 @@ describe("resident architect service", () => {
 					modifiedAt: "2026-09-01T00:00:00.000Z",
 					messageCount: 1,
 					firstMessage: name,
-					allMessagesText: name,
 				});
 			}
 			registerRuntimeMailboxListener(

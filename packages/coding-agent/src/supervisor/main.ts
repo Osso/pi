@@ -339,7 +339,7 @@ export function openSupervisorSession(
 	const sessionManager = existsSync(sessionPath)
 		? SessionManager.open(sessionPath, sessionDir, kbDir)
 		: SessionManager.create(kbDir, sessionDir, { id: SUPERVISOR_SESSION_ID });
-	sessionManager.setMetadataControlDbPath(controlDbPath, { indexMessageText: false });
+	sessionManager.setMetadataControlDbPath(controlDbPath);
 	const persistedPath = sessionManager.getSessionFile();
 	if (persistedPath) archiveSession(controlDbPath, persistedPath);
 	return sessionManager;

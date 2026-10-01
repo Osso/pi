@@ -103,7 +103,6 @@ describe("InteractiveMode session selector rename", () => {
 				modified: new Date("2026-08-23T00:00:00.000Z"),
 				messageCount: 1,
 				firstMessage: "current session",
-				allMessagesText: "current session",
 			};
 			vi.spyOn(SessionManager, "list").mockResolvedValue([sessionInfo]);
 			vi.spyOn(SessionManager, "listAll").mockResolvedValue([sessionInfo]);

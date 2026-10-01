@@ -108,7 +108,7 @@ export function createArchitectMultiAgentStore(
 	sessionManager: SessionManager,
 	controlDbPath = getControlDbPath(),
 ): MultiAgentStore {
-	sessionManager.setMetadataControlDbPath(controlDbPath, { indexMessageText: false });
+	sessionManager.setMetadataControlDbPath(controlDbPath);
 	const sessionPath = sessionManager.getSessionFile();
 	if (sessionPath) {
 		archiveSession(controlDbPath, sessionPath);

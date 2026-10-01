@@ -23,7 +23,6 @@ function writeEmptySession(controlDbPath: string, sessionPath: string, id: strin
 		modifiedAt: "2026-09-03T00:00:00.000Z",
 		messageCount: 0,
 		firstMessage: "(no messages)",
-		allMessagesText: "",
 	});
 }
 
@@ -38,7 +37,6 @@ describe("empty session cleanup", () => {
 		const agentDir = mkdtempSync(join(tmpdir(), "pi-empty-session-candidates-"));
 		tempDirs.push(agentDir);
 		const controlDbPath = getControlDbPath(agentDir);
-		const largeText = "irrelevant message text ".repeat(100_000);
 		for (const [id, overrides] of [
 			["empty", {}],
 			["nonempty", { messageCount: 1 }],
@@ -53,7 +51,6 @@ describe("empty session cleanup", () => {
 				modifiedAt: "2026-09-03T00:00:00.000Z",
 				messageCount: 0,
 				firstMessage: "(no messages)",
-				allMessagesText: largeText,
 				...overrides,
 			});
 		}
@@ -64,7 +61,7 @@ describe("empty session cleanup", () => {
 		expect(sweepAbandonedEmptySessions(controlDbPath)).toBe(1);
 		expect(readSessionMetadata(controlDbPath, join(agentDir, "empty.jsonl"))).toBeUndefined();
 		for (const id of ["nonempty", "subagent", "archived"]) {
-			expect(readSessionMetadata(controlDbPath, join(agentDir, `${id}.jsonl`))?.allMessagesText).toBe(largeText);
+			expect(readSessionMetadata(controlDbPath, join(agentDir, `${id}.jsonl`))).toBeDefined();
 		}
 	});
 
@@ -80,7 +77,6 @@ describe("empty session cleanup", () => {
 			createdAt: "2026-09-03T00:00:00.000Z",
 			modifiedAt: "2026-09-03T00:00:00.000Z",
 			firstMessage: "(no messages)",
-			allMessagesText: "",
 		};
 		const candidates = () => listEmptyMainSessionCandidates(controlDbPath);
 		const expected = [{ id: "candidate", sessionPath }];

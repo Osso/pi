@@ -51,15 +51,16 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       snapshots never write `goal_json`; goal mutations use the dedicated goal writer so stale
       snapshots cannot overwrite newer active, paused, or completed state. Each resident Architect and
       Supervisor role retains metadata for exactly one archived service-history transcript; opening a role
-      prunes stale resident transcript metadata. The retained histories omit accumulated message-search text
-      because they are not resume-picker search targets; this prevents unbounded shared-DB rewrites.
+      prunes stale resident transcript metadata.
+- [x] `session_metadata` stores only the first user message, never accumulated transcript text, so
+      per-append metadata rewrites stay bounded. Opening a control DB whose `session_metadata` still has
+      the legacy `all_messages_text` column drops that column.
 - [x] Resume lists treat a nonempty `session_metadata` table as authoritative: Current Folder,
       All, and Archived return only non-resident main-session rows matching archive state, cwd, and
       configured session-directory scope; resident Supervisor and Architect histories are excluded from
       every picker scope. Transcript scanning/indexing runs only when the table is empty. Startup
       empty-session cleanup uses an index-scoped lookup of active non-subagent zero-message candidate IDs
-      and paths; it does not scan the full `session_metadata` table or materialize session message-search
-      text, while resident, file, liveness, and deletion checks remain unchanged.
+      and paths; it does not scan the full `session_metadata` table, while resident, file, liveness, and deletion checks remain unchanged.
 - [x] Store multi-agent state as per-entity rows keyed by session path
       (`multi_agent_agents`, `multi_agent_runtime_owners`, `multi_agent_terminal_outbox`,
       `multi_agent_mailbox_messages`, `multi_agent_counters_v2`): one row upsert per mutation, restore

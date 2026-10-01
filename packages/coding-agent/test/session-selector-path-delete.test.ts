@@ -54,7 +54,6 @@ function makeSession(overrides: Partial<SessionInfo> & { id: string }): SessionI
 		modified: overrides.modified ?? new Date(0),
 		messageCount: overrides.messageCount ?? 1,
 		firstMessage: overrides.firstMessage ?? "hello",
-		allMessagesText: overrides.allMessagesText ?? "hello",
 	};
 }
 
@@ -234,8 +233,8 @@ describe("session selector path/delete interactions", () => {
 	});
 
 	it("does not select sessions with no messages", async () => {
-		const empty = makeSession({ id: "empty", messageCount: 0, firstMessage: "(no messages)", allMessagesText: "" });
-		const normal = makeSession({ id: "normal", firstMessage: "hello", allMessagesText: "hello" });
+		const empty = makeSession({ id: "empty", messageCount: 0, firstMessage: "(no messages)" });
+		const normal = makeSession({ id: "normal", firstMessage: "hello" });
 		const sessions = [empty, normal];
 		let selectedPath: string | null = null;
 
@@ -325,11 +324,10 @@ describe("session selector path/delete interactions", () => {
 	});
 
 	it("shows archived sessions only in the Archived scope", async () => {
-		const active = makeSession({ id: "active", firstMessage: "active session", allMessagesText: "active session" });
+		const active = makeSession({ id: "active", firstMessage: "active session" });
 		const archived = makeSession({
 			id: "archived",
 			firstMessage: "archived session",
-			allMessagesText: "archived session",
 			isArchived: true,
 		});
 		const selector = new SessionSelectorComponent(

@@ -3,7 +3,7 @@ import type { SessionInfo } from "../src/core/session-manager.ts";
 import { filterAndSortSessions } from "../src/modes/interactive/components/session-selector-search.ts";
 
 function makeSession(
-	overrides: Partial<SessionInfo> & { id: string; modified: Date; allMessagesText: string },
+	overrides: Partial<SessionInfo> & { id: string; modified: Date; firstMessage: string },
 ): SessionInfo {
 	return {
 		path: `/tmp/${overrides.id}.jsonl`,
@@ -13,8 +13,7 @@ function makeSession(
 		created: overrides.created ?? new Date(0),
 		modified: overrides.modified,
 		messageCount: overrides.messageCount ?? 1,
-		firstMessage: overrides.firstMessage ?? "(no messages)",
-		allMessagesText: overrides.allMessagesText,
+		firstMessage: overrides.firstMessage,
 	};
 }
 
@@ -24,12 +23,12 @@ describe("session selector search", () => {
 			makeSession({
 				id: "a",
 				modified: new Date("2026-01-01T00:00:00.000Z"),
-				allMessagesText: "node\n\n   cve was discussed",
+				firstMessage: "node\n\n   cve was discussed",
 			}),
 			makeSession({
 				id: "b",
 				modified: new Date("2026-01-02T00:00:00.000Z"),
-				allMessagesText: "node something else",
+				firstMessage: "node something else",
 			}),
 		];
 
@@ -42,12 +41,12 @@ describe("session selector search", () => {
 			makeSession({
 				id: "a",
 				modified: new Date("2026-01-02T00:00:00.000Z"),
-				allMessagesText: "Brave is great",
+				firstMessage: "Brave is great",
 			}),
 			makeSession({
 				id: "b",
 				modified: new Date("2026-01-03T00:00:00.000Z"),
-				allMessagesText: "bravery is not the same",
+				firstMessage: "bravery is not the same",
 			}),
 		];
 
@@ -60,17 +59,17 @@ describe("session selector search", () => {
 			makeSession({
 				id: "newer",
 				modified: new Date("2026-01-03T00:00:00.000Z"),
-				allMessagesText: "brave",
+				firstMessage: "brave",
 			}),
 			makeSession({
 				id: "older",
 				modified: new Date("2026-01-01T00:00:00.000Z"),
-				allMessagesText: "brave",
+				firstMessage: "brave",
 			}),
 			makeSession({
 				id: "nomatch",
 				modified: new Date("2026-01-04T00:00:00.000Z"),
-				allMessagesText: "something else",
+				firstMessage: "something else",
 			}),
 		];
 
@@ -83,22 +82,22 @@ describe("session selector search", () => {
 			makeSession({
 				id: "candidate-a",
 				modified: new Date("2026-01-04T00:00:00.000Z"),
-				allMessagesText: "could help arrange indexing results",
+				firstMessage: "could help arrange indexing results",
 			}),
 			makeSession({
 				id: "candidate-b",
 				modified: new Date("2026-01-03T00:00:00.000Z"),
-				allMessagesText: "my computer chair broke",
+				firstMessage: "my computer chair broke",
 			}),
 			makeSession({
 				id: "candidate-c",
 				modified: new Date("2026-01-02T00:00:00.000Z"),
-				allMessagesText: "could help arrange internal records",
+				firstMessage: "could help arrange internal records",
 			}),
 			makeSession({
 				id: "candidate-d",
 				modified: new Date("2026-01-01T00:00:00.000Z"),
-				allMessagesText: "replacement chair ordered",
+				firstMessage: "replacement chair ordered",
 			}),
 		];
 
@@ -111,12 +110,12 @@ describe("session selector search", () => {
 			makeSession({
 				id: "separated-tokens",
 				modified: new Date("2026-01-03T00:00:00.000Z"),
-				allMessagesText: "foo elsewhere bar",
+				firstMessage: "foo elsewhere bar",
 			}),
 			makeSession({
 				id: "complete-query",
 				modified: new Date("2026-01-01T00:00:00.000Z"),
-				allMessagesText: "xxxxxxxxxxxxxxxx foo bar",
+				firstMessage: "xxxxxxxxxxxxxxxx foo bar",
 			}),
 		];
 
@@ -132,12 +131,12 @@ describe("session selector search", () => {
 			makeSession({
 				id: "candidate-a",
 				modified: new Date("2026-01-03T00:00:00.000Z"),
-				allMessagesText: "alpha could help arrange indexing results",
+				firstMessage: "alpha could help arrange indexing results",
 			}),
 			makeSession({
 				id: "candidate-b",
 				modified: new Date("2026-01-01T00:00:00.000Z"),
-				allMessagesText: "alpha chair",
+				firstMessage: "alpha chair",
 			}),
 		];
 
@@ -150,12 +149,12 @@ describe("session selector search", () => {
 			makeSession({
 				id: "late",
 				modified: new Date("2026-01-03T00:00:00.000Z"),
-				allMessagesText: "xxxx brave",
+				firstMessage: "xxxx brave",
 			}),
 			makeSession({
 				id: "early",
 				modified: new Date("2026-01-01T00:00:00.000Z"),
-				allMessagesText: "brave xxxx",
+				firstMessage: "brave xxxx",
 			}),
 		];
 
@@ -166,12 +165,12 @@ describe("session selector search", () => {
 			makeSession({
 				id: "newer",
 				modified: new Date("2026-01-03T00:00:00.000Z"),
-				allMessagesText: "brave",
+				firstMessage: "brave",
 			}),
 			makeSession({
 				id: "older",
 				modified: new Date("2026-01-01T00:00:00.000Z"),
-				allMessagesText: "brave",
+				firstMessage: "brave",
 			}),
 		];
 
@@ -184,7 +183,7 @@ describe("session selector search", () => {
 			makeSession({
 				id: "a",
 				modified: new Date("2026-01-01T00:00:00.000Z"),
-				allMessagesText: "brave",
+				firstMessage: "brave",
 			}),
 		];
 
@@ -199,12 +198,12 @@ describe("session selector search", () => {
 				name: "Important Empty Session",
 				modified: new Date("2026-01-03T00:00:00.000Z"),
 				messageCount: 0,
-				allMessagesText: "",
+				firstMessage: "",
 			}),
 			makeSession({
 				id: "normal",
 				modified: new Date("2026-01-02T00:00:00.000Z"),
-				allMessagesText: "real conversation",
+				firstMessage: "real conversation",
 			}),
 		];
 
@@ -218,23 +217,23 @@ describe("session selector search", () => {
 				id: "named1",
 				name: "My Project",
 				modified: new Date("2026-01-03T00:00:00.000Z"),
-				allMessagesText: "blueberry",
+				firstMessage: "blueberry",
 			}),
 			makeSession({
 				id: "named2",
 				name: "Another Named",
 				modified: new Date("2026-01-02T00:00:00.000Z"),
-				allMessagesText: "blueberry",
+				firstMessage: "blueberry",
 			}),
 			makeSession({
 				id: "other1",
 				modified: new Date("2026-01-04T00:00:00.000Z"),
-				allMessagesText: "blueberry",
+				firstMessage: "blueberry",
 			}),
 			makeSession({
 				id: "other2",
 				modified: new Date("2026-01-01T00:00:00.000Z"),
-				allMessagesText: "blueberry",
+				firstMessage: "blueberry",
 			}),
 		];
 
@@ -259,19 +258,19 @@ describe("session selector search", () => {
 					id: "whitespace",
 					name: "   ",
 					modified: new Date("2026-01-01T00:00:00.000Z"),
-					allMessagesText: "test",
+					firstMessage: "test",
 				}),
 				makeSession({
 					id: "empty",
 					name: "",
 					modified: new Date("2026-01-02T00:00:00.000Z"),
-					allMessagesText: "test",
+					firstMessage: "test",
 				}),
 				makeSession({
 					id: "named",
 					name: "Real Name",
 					modified: new Date("2026-01-03T00:00:00.000Z"),
-					allMessagesText: "test",
+					firstMessage: "test",
 				}),
 			];
 

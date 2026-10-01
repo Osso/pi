@@ -310,7 +310,6 @@ describe("session inventory and channel tools", () => {
 					createdAt: "2026-01-01T00:00:00.000Z",
 					messageCount: 1,
 					firstMessage: "hello",
-					allMessagesText: "hello",
 				});
 			}
 			archiveSession(controlDbPath, "/sessions/archived-main.jsonl");
@@ -365,7 +364,6 @@ describe("session inventory and channel tools", () => {
 				modifiedAt: "2026-01-01T00:10:00.000Z",
 				messageCount: 1,
 				firstMessage: "hello",
-				allMessagesText: "hello",
 			});
 			writeSessionHealth(controlDbPath, {
 				...emptySessionHealth("ended"),

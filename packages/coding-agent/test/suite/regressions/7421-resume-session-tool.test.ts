@@ -549,7 +549,6 @@ describe("resume_session first-party tool", () => {
 		const controlDbPath = getControlDbPath(root);
 		const stalePath = join(sessionDir, "stale-session.jsonl");
 		writeSessionMetadata(controlDbPath, {
-			allMessagesText: "stale",
 			createdAt: "2026-07-04T00:00:00.000Z",
 			cwd: currentCwd,
 			firstMessage: "stale",
@@ -592,7 +591,6 @@ describe("resume_session first-party tool", () => {
 		writeFileSync(targetPath, "");
 		const controlDbPath = getControlDbPath(root);
 		writeSessionMetadata(controlDbPath, {
-			allMessagesText: "target",
 			createdAt: "2026-07-16T00:00:00.000Z",
 			cwd: targetCwd,
 			firstMessage: "target",
@@ -610,8 +608,8 @@ describe("resume_session first-party tool", () => {
 				INSERT INTO session_metadata (
 					session_path, id, cwd, name, parent_session_path, archived_at, goal_json,
 					is_subagent, subagent_name, created_at, modified_at, message_count,
-					first_message, all_messages_text, updated_at
-				) VALUES (?, ?, ?, NULL, NULL, NULL, NULL, 0, NULL, ?, ?, 1, ?, ?, ?)
+					first_message, updated_at
+				) VALUES (?, ?, ?, NULL, NULL, NULL, NULL, 0, NULL, ?, ?, 1, ?, ?)
 			`);
 			const largeMessage = "x".repeat(8192);
 			for (let index = 0; index < 5_000; index += 1) {
@@ -622,7 +620,6 @@ describe("resume_session first-party tool", () => {
 					targetCwd,
 					timestamp,
 					timestamp,
-					"unrelated",
 					largeMessage,
 					timestamp,
 				);

@@ -228,7 +228,6 @@ export interface SessionInfo {
 	modified: Date;
 	messageCount: number;
 	firstMessage: string;
-	allMessagesText: string;
 }
 
 export type ReadonlySessionManager = Pick<
@@ -985,7 +984,6 @@ function getMessageActivityTime(entry: SessionMessageEntry): number | undefined 
 interface SessionInfoAccumulator {
 	messageCount: number;
 	firstMessage: string;
-	allMessagesText: string;
 	lastActivityTime?: number;
 }
 
@@ -993,7 +991,6 @@ function createSessionInfoAccumulator(): SessionInfoAccumulator {
 	return {
 		messageCount: 0,
 		firstMessage: "",
-		allMessagesText: "",
 	};
 }
 
@@ -1006,20 +1003,11 @@ function applySessionInfoEntry(accumulator: SessionInfoAccumulator, entry: Sessi
 		accumulator.lastActivityTime = Math.max(accumulator.lastActivityTime ?? 0, activityTime);
 	}
 
+	if (accumulator.firstMessage) return;
 	const message = entry.message;
 	if (!isMessageWithContent(message)) return;
-	if (message.role !== "user" && message.role !== "assistant") return;
-
-	const textContent = extractTextContent(message);
-	if (!textContent) return;
-
-	accumulator.allMessagesText = accumulator.allMessagesText
-		? `${accumulator.allMessagesText} ${textContent}`
-		: textContent;
-	const isUserPrompt = message.role === "user" && message.inputSource !== "extension";
-	if (!accumulator.firstMessage && isUserPrompt) {
-		accumulator.firstMessage = textContent;
-	}
+	if (message.role !== "user" || message.inputSource === "extension") return;
+	accumulator.firstMessage = extractTextContent(message);
 }
 
 function finishSessionInfo(
@@ -1046,7 +1034,6 @@ function finishSessionInfo(
 		modified,
 		messageCount: accumulator.messageCount,
 		firstMessage: accumulator.firstMessage || "(no messages)",
-		allMessagesText: accumulator.allMessagesText,
 	};
 }
 
@@ -1102,7 +1089,6 @@ function writableSessionMetadataFromInfo(
 		modifiedAt: info.modified.toISOString(),
 		messageCount: info.messageCount,
 		firstMessage: info.firstMessage,
-		allMessagesText: info.allMessagesText,
 	};
 }
 
@@ -1162,7 +1148,6 @@ function sessionInfoFromMetadata(metadata: SessionMetadata): SessionInfo {
 		modified: new Date(metadata.modifiedAt),
 		messageCount: metadata.messageCount,
 		firstMessage: metadata.firstMessage,
-		allMessagesText: metadata.allMessagesText,
 	};
 }
 
@@ -1301,7 +1286,6 @@ export class SessionManager {
 	private labelTimestampsById: Map<string, string> = new Map();
 	private leafId: string | null = null;
 	private metadataControlDbPath: string | undefined;
-	private indexMessageText: boolean = true;
 	private isSubagent: boolean = false;
 	private subagentName: string | undefined;
 	private sessionName: string | undefined;
@@ -1623,12 +1607,8 @@ export class SessionManager {
 		return true;
 	}
 
-	setMetadataControlDbPath(
-		controlDbPath: string | undefined,
-		options?: { indexMessageText?: boolean; cwdOverride?: string },
-	): void {
+	setMetadataControlDbPath(controlDbPath: string | undefined, options?: { cwdOverride?: string }): void {
 		this.metadataControlDbPath = controlDbPath;
-		if (options?.indexMessageText !== undefined) this.indexMessageText = options.indexMessageText;
 		this.restorePersistedMetadata();
 		if (options?.cwdOverride) this.cwd = resolvePath(options.cwdOverride);
 		this.writeMetadataSnapshot();
@@ -1663,7 +1643,6 @@ export class SessionManager {
 				subagentName: this.subagentName,
 			}),
 			cwd: this.cwd,
-			indexMessageText: this.indexMessageText,
 		});
 	}
 

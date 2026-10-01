@@ -170,7 +170,6 @@ function writableMetadata(session: SessionInfo) {
 		modifiedAt: session.modified.toISOString(),
 		messageCount: session.messageCount,
 		firstMessage: session.firstMessage,
-		allMessagesText: session.allMessagesText,
 	};
 }
 

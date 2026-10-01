@@ -21,6 +21,7 @@
 
 ### Changed
 
+- Changed session metadata to store only the first user message instead of every session's accumulated transcript text, which grew the shared control DB to ~2 GB and stalled `list_sessions` and metadata writes; opening the control DB drops the legacy `all_messages_text` column, and resume-picker search now matches IDs, names, first messages, and cwd.
 - Changed the resident Supervisor and stateless instruction-veto model from `openai-codex/gpt-6-astra` to `openai-codex/gpt-6.1-sol` for a trial; low thinking effort and the resident transcript are unchanged.
 - Improved fresh-start empty-session cleanup with a covering partial index for active non-subagent zero-message session metadata candidates, avoiding scans of unrelated metadata rows without changing cleanup behavior.
 - Changed `/multi-agent` to `proactive|disabled`: persisted `proactive` displays as `active`; disabled removes the Pi delegation policy and active sub-agent tools/guidance without cancelling existing children; `ultra` re-enables proactive mode.
