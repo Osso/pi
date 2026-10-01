@@ -21,6 +21,7 @@
 
 ### Changed
 
+- Changed the resident Supervisor and stateless instruction-veto model from `openai-codex/gpt-6-astra` to `openai-codex/gpt-6.1-sol` for a trial; low thinking effort and the resident transcript are unchanged.
 - Improved fresh-start empty-session cleanup with a covering partial index for active non-subagent zero-message session metadata candidates, avoiding scans of unrelated metadata rows without changing cleanup behavior.
 - Changed `/multi-agent` to `proactive|disabled`: persisted `proactive` displays as `active`; disabled removes the Pi delegation policy and active sub-agent tools/guidance without cancelling existing children; `ultra` re-enables proactive mode.
 - Capped `wait_agent({})` at 25 minutes since the latest foreground `model_request_start`: expiry returns an explicit still-running result without cancelling agents, allowing a later model turn to wait again. This deadline makes no cache-retention guarantee.
