@@ -73,6 +73,25 @@ describe("provider retry classification", () => {
 		).toBe(true);
 	});
 
+	it.each([
+		"Codex error: Unable to verify Daybreak Blue access. Please try again.",
+		"Codex error: Unable to verify Daybreak Blue access. Please try again.\nOpenAI request ID: req_daybreak_123",
+	])("retries the exact Daybreak Blue verification error: %s", (errorMessage) => {
+		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(true);
+	});
+
+	it.each([
+		"Codex error: Daybreak Blue access denied. Please try again.",
+		"Codex error: Daybreak Blue access denied. Please try again.\nOpenAI request ID: req_denied_123",
+		"Codex error: You do not have access to Daybreak Blue.",
+		"Codex error: Please try again.",
+		"Codex error: Unable to verify another model access. Please try again.",
+		"Codex error: Unable to verify Daybreak Blue access. Please try again. Access permanently denied.",
+		"Codex error: Unable to verify Daybreak Blue accessX Please try againX",
+	])("does not broaden Daybreak Blue retries to other errors: %s", (errorMessage) => {
+		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(false);
+	});
+
 	it("does not retry upstream request buffer limit overflow errors", () => {
 		expect(
 			isRetryableAssistantError(

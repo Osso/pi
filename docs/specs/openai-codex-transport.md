@@ -18,6 +18,11 @@ The OpenAI Codex Responses adapter supports explicit SSE and WebSocket transport
 - [x] Reconnect once over WebSocket when the backend reports its connection limit before output starts.
 - [x] Preserve the original WebSocket failure in session debug statistics.
 
+### Shared retry classification
+
+- [x] Classify the exact transient Codex error `Unable to verify Daybreak Blue access. Please try again.` as retryable through the shared AI retry classifier.
+- [x] Retain existing retry enablement, budget, and backoff; permanent access denial remains terminal. This classification neither switches providers nor bypasses access checks.
+
 ### Error support IDs
 
 - Preserve an OpenAI server request ID from an HTTP error response or a streamed API `error` or `response.failed` event, including wrapped WebSocket events.
@@ -33,11 +38,14 @@ The OpenAI Codex Responses adapter supports explicit SSE and WebSocket transport
 
 - `packages/ai/src/api/openai-codex-responses.ts` — selects the Codex transport and processes SSE or WebSocket streams.
 - `packages/ai/src/types.ts` — defines shared stream transport options and retry events.
+- `packages/ai/src/utils/retry.ts` — classifies shared AI transient errors, including the exact Codex access-verification error above.
 
 ## Tests asserting this spec
 
 - `packages/ai/test/openai-codex-stream.test.ts`
 - `packages/ai/test/openai-codex-request-id.test.ts`
+- `packages/ai/test/retry.test.ts`
+- `packages/coding-agent/test/suite/agent-session-daybreak-retry.test.ts`
 
 ## Known gaps (current cycle)
 
