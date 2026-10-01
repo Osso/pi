@@ -63,7 +63,10 @@ describe("model-facing mailbox tool wiring", () => {
 			fileRefs: [{ path: "/tmp/report", label: "Report" }],
 		};
 		fixture.sessionManager.appendMessage(
-			fauxAssistantMessage([{ type: "text", text: body }, fauxToolCall("send_agent_message", params, "send-exact")]),
+			fauxAssistantMessage([
+				{ type: "text", text: body },
+				fauxToolCall("send_agent_message", params, { id: "send-exact" }),
+			]),
 		);
 		fixture.sessionManager.appendMessage(fauxAssistantMessage("Later text must not become the body"));
 
@@ -89,7 +92,7 @@ describe("model-facing mailbox tool wiring", () => {
 		fixture.sessionManager.appendMessage(
 			fauxAssistantMessage([
 				{ type: "text", text: "Not this block" },
-				fauxToolCall("contact_parent", params, "parent-exact"),
+				fauxToolCall("contact_parent", params, { id: "parent-exact" }),
 				{ type: "text", text: body },
 			]),
 		);
@@ -110,7 +113,7 @@ describe("model-facing mailbox tool wiring", () => {
 	it.each(["send_agent_message", "contact_parent"])("rejects legacy message arguments for %s", (name) => {
 		const fixture = createFixture();
 		const args = { message: "Legacy body", ...(name === "send_agent_message" ? { toAgentId: "main" } : {}) };
-		expect(() => validateToolArguments(fixture.tool(name), fauxToolCall(name, args, "legacy"))).toThrow(
+		expect(() => validateToolArguments(fixture.tool(name), fauxToolCall(name, args, { id: "legacy" }))).toThrow(
 			/Validation failed/,
 		);
 		expect(fixture.store.listMailboxMessages()).toEqual([]);
@@ -119,7 +122,7 @@ describe("model-facing mailbox tool wiring", () => {
 	it.each(["send_agent_message", "contact_parent"])("rejects unknown metadata before %s delivery", (name) => {
 		const fixture = createFixture();
 		const args = { contentIndex: 0, ...(name === "send_agent_message" ? { toAgentId: "main" } : {}) };
-		expect(() => validateToolArguments(fixture.tool(name), fauxToolCall(name, args, "unknown"))).toThrow(
+		expect(() => validateToolArguments(fixture.tool(name), fauxToolCall(name, args, { id: "unknown" }))).toThrow(
 			/Validation failed/,
 		);
 	});
@@ -130,7 +133,7 @@ describe("model-facing mailbox tool wiring", () => {
 			textIndex: 0,
 			...(name === "send_agent_message" ? { toAgentId: "main", toSessionId: "other-session" } : {}),
 		};
-		expect(validateToolArguments(fixture.tool(name), fauxToolCall(name, args, "metadata"))).toEqual(args);
+		expect(validateToolArguments(fixture.tool(name), fauxToolCall(name, args, { id: "metadata" }))).toEqual(args);
 	});
 
 	it("does not write a mailbox message when executing tool identity is absent", async () => {
@@ -146,7 +149,10 @@ describe("model-facing mailbox tool wiring", () => {
 		fixture.ctx.multiAgentRequiresAgentId = true;
 		const params = { toAgentId: "main", toSessionId: "other-session" };
 		fixture.sessionManager.appendMessage(
-			fauxAssistantMessage([{ type: "text", text: "Request" }, fauxToolCall("send_agent_message", params, "guard")]),
+			fauxAssistantMessage([
+				{ type: "text", text: "Request" },
+				fauxToolCall("send_agent_message", params, { id: "guard" }),
+			]),
 		);
 		const sent = await fixture.execute("send_agent_message", "guard", params);
 		expect(sent.content).toEqual([
@@ -168,7 +174,7 @@ describe("model-facing mailbox tool wiring", () => {
 		fixture.sessionManager.appendMessage(
 			fauxAssistantMessage([
 				{ type: "text", text: "Request" },
-				fauxToolCall("send_agent_message", params, "forbidden"),
+				fauxToolCall("send_agent_message", params, { id: "forbidden" }),
 			]),
 		);
 		const sent = await fixture.execute("send_agent_message", "forbidden", params);
