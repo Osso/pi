@@ -126,7 +126,7 @@ describe("--session project lookup", () => {
 		expect(result.output).not.toContain("Fork this session into current directory?");
 	});
 
-	it("accepts fork confirmation for a different Git project without hanging", async () => {
+	it("opens a session from a different Git project in its recorded cwd without prompting", async () => {
 		const tempRoot = createTempDir();
 		const agentDir = join(tempRoot, "agent");
 		const currentProject = join(tempRoot, "current-project");
@@ -159,12 +159,21 @@ describe("--session project lookup", () => {
 			firstMessage: "",
 		});
 
-		const result = await runCli(buildSessionLookupCliArgs(sessionId), currentProject, agentDir, "y\n");
+		const opened = await runCli(buildSessionLookupCliArgs(sessionId), currentProject, agentDir, "");
 
-		expect(result.timedOut).toBe(false);
-		expect(result.code).toBe(1);
-		expect(result.output).toContain(`Session found in different project: ${foreignProject}`);
-		expect(result.output).toContain("Fork this session into current directory? [y/N]");
-		expect(result.output).toContain('Model "missing-model" not found');
+		expect(opened.timedOut).toBe(false);
+		expect(opened.code).toBe(1);
+		expect(opened.output).not.toContain("Session found in different project");
+		expect(opened.output).not.toContain("Fork this session into current directory?");
+		expect(opened.output).toContain('Model "missing-model" not found');
+
+		// The session keeps its recorded cwd: once that directory is gone, startup reports it instead of
+		// silently running in the invoking project.
+		rmSync(foreignProject, { recursive: true, force: true });
+		const missingCwd = await runCli(buildSessionLookupCliArgs(sessionId), currentProject, agentDir, "");
+
+		expect(missingCwd.timedOut).toBe(false);
+		expect(missingCwd.code).toBe(1);
+		expect(missingCwd.output).toContain(foreignProject);
 	});
 });

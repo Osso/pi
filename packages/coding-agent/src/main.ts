@@ -6,7 +6,6 @@
  */
 
 import { existsSync } from "node:fs";
-import { createInterface } from "node:readline";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import { isTerminalRawModeFailure } from "@earendil-works/pi-tui";
 import chalk from "chalk";
@@ -125,7 +124,6 @@ import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.ts"
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
 import { runSupervisorService } from "./supervisor/main.ts";
 import { isExecutableAvailable } from "./utils/executable.ts";
-import { readGitCommonDirectory } from "./utils/git-project.ts";
 import { resolveWorktree, WorktreeStartupError } from "./utils/git-worktree.ts";
 import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
 import { cleanupWindowsSelfUpdateQuarantine } from "./utils/windows-self-update.ts";
@@ -244,8 +242,7 @@ async function prepareInitialMessage(
 /** Result from resolving a session argument */
 type ResolvedSession =
 	| { type: "path"; path: string } // Direct file path
-	| { type: "local"; path: string } // Found in current project
-	| { type: "global"; path: string; cwd: string } // Found in different project
+	| { type: "found"; path: string } // Matched by session ID, current project first
 	| { type: "not_found"; arg: string }; // Not found anywhere
 
 /**
@@ -261,14 +258,6 @@ async function findLocalSessionByExactId(
 	const localSessions = await SessionManager.list(cwd, sessionDir, undefined, controlDbPath);
 	const localMatch = localSessions.find((s) => s.id === sessionId);
 	return localMatch ? { type: "local", path: localMatch.path } : undefined;
-}
-
-function sessionBelongsToProject(sessionCwd: string, cwd: string): boolean {
-	if (resolvePath(sessionCwd) === resolvePath(cwd)) return true;
-
-	const sessionGitDirectory = readGitCommonDirectory(sessionCwd);
-	const currentGitDirectory = readGitCommonDirectory(cwd);
-	return sessionGitDirectory !== undefined && sessionGitDirectory === currentGitDirectory;
 }
 
 async function resolveSessionPath(
@@ -299,7 +288,7 @@ async function resolveSessionPath(
 		localSessions.find((s) => s.id === sessionArg) ?? localSessions.find((s) => s.id.startsWith(sessionArg));
 
 	if (localMatch) {
-		return { type: "local", path: localMatch.path };
+		return { type: "found", path: localMatch.path };
 	}
 
 	// Try global search across all projects
@@ -308,28 +297,11 @@ async function resolveSessionPath(
 		allSessions.find((s) => s.id === sessionArg) ?? allSessions.find((s) => s.id.startsWith(sessionArg));
 
 	if (globalMatch) {
-		if (sessionBelongsToProject(globalMatch.cwd, cwd)) {
-			return { type: "local", path: globalMatch.path };
-		}
-		return { type: "global", path: globalMatch.path, cwd: globalMatch.cwd };
+		return { type: "found", path: globalMatch.path };
 	}
 
 	// Not found anywhere
 	return { type: "not_found", arg: sessionArg };
-}
-
-/** Prompt user for yes/no confirmation */
-async function promptConfirm(message: string): Promise<boolean> {
-	return new Promise((resolve) => {
-		const rl = createInterface({
-			input: process.stdin,
-			output: process.stdout,
-		});
-		rl.question(`${message} [y/N] `, (answer) => {
-			rl.close();
-			resolve(answer.toLowerCase() === "y" || answer.toLowerCase() === "yes");
-		});
-	});
 }
 
 function validateForkFlags(parsed: Args): void {
@@ -452,8 +424,7 @@ async function createSessionManager(
 
 		switch (resolved.type) {
 			case "path":
-			case "local":
-			case "global":
+			case "found":
 				return forkSessionOrExit(resolved.path, cwd, sessionDir, parsed.sessionId);
 
 			case "not_found":
@@ -467,18 +438,8 @@ async function createSessionManager(
 
 		switch (resolved.type) {
 			case "path":
-			case "local":
+			case "found":
 				return openSessionOrExit(resolved.path, sessionDir, controlDbPath);
-
-			case "global": {
-				console.log(chalk.yellow(`Session found in different project: ${resolved.cwd}`));
-				const shouldFork = await promptConfirm("Fork this session into current directory?");
-				if (!shouldFork) {
-					console.log(chalk.dim("Aborted."));
-					process.exit(0);
-				}
-				return forkSessionOrExit(resolved.path, cwd, sessionDir);
-			}
 
 			case "not_found":
 				console.error(chalk.red(`No session found matching '${resolved.arg}'`));
