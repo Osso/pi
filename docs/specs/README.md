@@ -1,8 +1,10 @@
 # Pi feature specs
 
 This directory holds one spec per feature, describing **what** each feature must do (the
-contract). How a feature works belongs in `docs/wiki/systems/<feature>.md` (stubs, written
-later). Specs are tracked in git; add or update a feature's spec in the same commit as its code.
+contract). How a feature works is documented in the [implementation wiki](../wiki/README.md),
+with system pages under `docs/wiki/systems/`. Wiki coverage does not imply every contract bullet
+has implementation or test evidence. Specs are tracked in git; add or update a feature's spec
+in the same commit as its code.
 Each feature spec starts with a `Module boundary:` line saying whether the feature is a
 first-party extension module, a core subsystem, or an extension API contract.
 

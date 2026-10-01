@@ -37,7 +37,7 @@ This fork extends upstream Pi with workflows for long-running, supervised coding
 - **Persistent runtime operations**: control-database-backed session lookup, naming and archive state, shared coordination channels, cwd/session switching, history search, self-restart, and detached job tracking.
 - **Codex enhancements**: runtime fast mode, usage visibility, hosted image generation, remote compaction, and paired-provider quota fallback. See the specs for [fast mode](docs/specs/codex-fast-mode.md), [image generation](docs/specs/codex-image-generation.md), [remote compaction](docs/specs/openai-remote-compaction.md), and [quota fallback](docs/specs/codex-quota-fallback.md).
 
-Detailed behavior and implementation status are tracked in the [feature specifications](docs/specs/README.md).
+Detailed behavior contracts and test coverage are tracked in the [feature specifications](docs/specs/README.md). The [implementation wiki](docs/wiki/README.md) explains system behavior, source boundaries, and limitations.
 
 ## All Packages
 
@@ -52,7 +52,7 @@ For Slack/chat automation and workflows see [earendil-works/pi-chat](https://git
 
 ## Permissions & Containerization
 
-Pi does not include a built-in permission system for restricting filesystem, process, network, or credential access. By default, it runs with the permissions of the user and process that launched it.
+This fork includes [tool approval policies](docs/wiki/systems/approval-system.md) and an optional [bubblewrap worker sandbox](docs/wiki/systems/bwrap-sandbox.md). Approval is an execution gate, not OS isolation; the host Pi process and trusted extensions retain the permissions of the launching user. Bubblewrap restricts selected workers, not the entire harness or network.
 
 If you need stronger boundaries, containerize or sandbox Pi. See [packages/coding-agent/docs/containerization.md](packages/coding-agent/docs/containerization.md) for three patterns:
 
