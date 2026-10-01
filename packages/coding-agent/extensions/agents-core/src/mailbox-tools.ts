@@ -59,48 +59,51 @@ const sendAgentMessageSchema = Type.Object(
 const outgoingTextGuideline =
 	"Write the outgoing body as assistant text in the same message as this tool call, then call the tool with routing/fileRefs/thread metadata only. The selected assistant text is sent verbatim. With multiple text blocks, set textIndex to the zero-based index among text blocks, not all content blocks; omit it when there is exactly one text block.";
 
-export function registerModelMailboxTools(pi: ExtensionAPI, transports: MailboxToolTransports): void {
-	pi.registerTool(
-		defineTool({
-			name: "send_agent_message",
-			label: "Send Agent Message",
-			description:
-				"Send assistant text verbatim to a local child or sibling agent, or another session via toSessionId (with toAgentId 'main'). Write the outgoing body as assistant text alongside this tool call, then pass only metadata; use textIndex when there are multiple text blocks.",
-			promptGuidelines: [outgoingTextGuideline],
-			approvalRequired: false,
-			parameters: sendAgentMessageSchema,
-			execute: async (toolCallId, params, _signal, _onUpdate, ctx) =>
-				transports.sendAgentMessage(
-					{
-						fileRefs: params.fileRefs,
-						message: readCurrentToolCallText(ctx, toolCallId, params.textIndex),
-						threadId: params.threadId,
-						toAgentId: params.toAgentId,
-						toSessionId: params.toSessionId,
-					},
-					ctx,
-				),
-		}),
-	);
+function createSendAgentMessageTool(transports: MailboxToolTransports) {
+	return defineTool({
+		name: "send_agent_message",
+		label: "Send Agent Message",
+		description:
+			"Send assistant text verbatim to a local child or sibling agent, or another session via toSessionId (with toAgentId 'main'). Write the outgoing body as assistant text alongside this tool call, then pass only metadata; use textIndex when there are multiple text blocks.",
+		promptGuidelines: [outgoingTextGuideline],
+		approvalRequired: false,
+		parameters: sendAgentMessageSchema,
+		execute: async (toolCallId, params, _signal, _onUpdate, ctx) =>
+			transports.sendAgentMessage(
+				{
+					fileRefs: params.fileRefs,
+					message: readCurrentToolCallText(ctx, toolCallId, params.textIndex),
+					threadId: params.threadId,
+					toAgentId: params.toAgentId,
+					toSessionId: params.toSessionId,
+				},
+				ctx,
+			),
+	});
+}
 
-	pi.registerTool(
-		defineTool({
-			name: "contact_parent",
-			label: "Contact Parent",
-			description:
-				"Send assistant text verbatim as a child-agent mailbox request to its direct parent. Write the outgoing body as assistant text alongside this tool call, then pass only metadata; use textIndex when there are multiple text blocks.",
-			promptGuidelines: [outgoingTextGuideline],
-			approvalRequired: false,
-			parameters: contactParentSchema,
-			execute: async (toolCallId, params, _signal, _onUpdate, ctx) =>
-				transports.contactParent(
-					{
-						fileRefs: params.fileRefs,
-						message: readCurrentToolCallText(ctx, toolCallId, params.textIndex),
-						threadId: params.threadId,
-					},
-					ctx,
-				),
-		}),
-	);
+function createContactParentTool(transports: MailboxToolTransports) {
+	return defineTool({
+		name: "contact_parent",
+		label: "Contact Parent",
+		description:
+			"Send assistant text verbatim as a child-agent mailbox request to its direct parent. Write the outgoing body as assistant text alongside this tool call, then pass only metadata; use textIndex when there are multiple text blocks.",
+		promptGuidelines: [outgoingTextGuideline],
+		approvalRequired: false,
+		parameters: contactParentSchema,
+		execute: async (toolCallId, params, _signal, _onUpdate, ctx) =>
+			transports.contactParent(
+				{
+					fileRefs: params.fileRefs,
+					message: readCurrentToolCallText(ctx, toolCallId, params.textIndex),
+					threadId: params.threadId,
+				},
+				ctx,
+			),
+	});
+}
+
+export function registerModelMailboxTools(pi: ExtensionAPI, transports: MailboxToolTransports): void {
+	pi.registerTool(createSendAgentMessageTool(transports));
+	pi.registerTool(createContactParentTool(transports));
 }
