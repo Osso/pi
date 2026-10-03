@@ -15,7 +15,7 @@ An explicit ephemeral worker mode in `packages/coding-agent/src/main.ts` and the
 
 - [x] Execute real canonical `pyrun-jsonl` commands and file mutations in a real CLI process with a faux provider and an in-memory session.
 - [x] Preserve ordinary `pi.tools.call` from foreground Pyrun, including native file mutation and reading.
-- [ ] Do not create orchestration stores, child/attached factories, detach registries, or multi-agent bridge handlers; omit first-party goal, agents-core, agent-viewer, and agents-mailbox orchestration.
+- [ ] Do not wire orchestration stores, child/attached factories, detach registries, or multi-agent bridge handlers into the worker runtime; omit first-party goal, agents-core, agent-viewer, and agents-mailbox orchestration.
 - [ ] Skip abandoned-session sweeps, runtime-binding reconciliation, and detached artifact cleanup/recovery.
 - [x] Leave mailbox listener, shared-channel cursor, and multi-agent rows empty after worker startup, execution, and hidden API attempts; do not contact resident sockets, start a resident process, or post Supervisor requests.
 - [x] Make Supervisor advisory, goal review, agent orchestration, shared coordination, and persisted session resume unavailable; hidden tool/API attempts fail before lookup, startup, or contact.
@@ -48,10 +48,13 @@ An explicit ephemeral worker mode in `packages/coding-agent/src/main.ts` and the
 - `packages/coding-agent/test/sdk-session-manager.test.ts`
 - `packages/coding-agent/test/suite/headless-pi.test.ts` — ordinary supervisor restart with a thinking child.
 
-## Known gaps (current cycle)
+## Verification
 
-- [ ] Installed-runtime and live delegated Sol verification belong to the integrating main session.
-- [ ] Full approval/sandbox/account matrix and independent final gate belong to the integrating main session.
+At `d0727c4cc`, independent verification passed 104 selected CLI, SDK, worker-process, and ordinary live-child restart tests (43 nonselected cases skipped). Broad deployment checks and the installed build passed. SDK guards and isolated process probes reject hidden Supervisor/orchestration requests before lookup; worker sockets, starts, requests, and coordination rows remained zero. Ordinary supervisor-based main behavior was exercised separately.
+
+On that installed artifact, native Sol changed a temporary Python addition function and the unchanged test returned `SOL_CODE_TEST_OK`. The parent could call only Agent. Monitored Supervisor connections/processes/requests and coordination rows stayed zero; the worker exited. Separate installed JSON output captured a completed canonical Pyrun command, exit assertion, and file write/read—not merely echoed code. Local tool execution IDs do not establish Supervisor use.
+
+No unresolved implementation blocker. Approval preservation was tested for the affected review preset; this is not a full cross-account/sandbox/preset matrix or a sandbox against arbitrary extension/Python code. Existing sandbox bridge restrictions remain unchanged. Unchecked construction/resource bullets above are implementation invariants, not represented as standalone behavioral tests.
 
 ## Out of scope
 
