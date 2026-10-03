@@ -4,7 +4,7 @@ Contract: [First-party ask_secret](../../specs/ask-secret-tool.md).
 
 ## Flow
 
-[`ask-secret/src/index.ts`](../../../packages/coding-agent/extensions/ask-secret/src/index.ts) registers an approval-required, sequential extension tool. Its strict union accepts `{ record, fields }` for browser credentials or `{ path, label }` for a file secret. Request validation precedes the interactive-TUI guard; unsupported modes return `status: "unavailable"` without prompting.
+[`ask-secret/src/index.ts`](../../../packages/coding-agent/extensions/ask-secret/src/index.ts) registers an approval-required, sequential extension tool. Its schema is one top-level object with optional `path`, `label`, `record`, and `fields` (MCP servers and Anthropic tool definitions reject a root union); `parseRequest` accepts exactly `{ record, fields }` for browser credentials or `{ path, label }` for a file secret and rejects mixed or incomplete requests. Request validation precedes the interactive-TUI guard; unsupported modes return `status: "unavailable"` without prompting.
 
 Browser requests reject empty/control-character arguments, absolute broker records, and `..` path segments. Fields prompt in order; only password fields use `secret: true`. The provisioner launches `authsudo -u secrets-broker /usr/bin/secrets-broker-admin provision-browser`, passing record/field metadata in arguments and the JSON value array through stdin. Child stdout/stderr are ignored; failure becomes a generic provisioning error. Cancellation before provisioning returns only cancellation metadata.
 

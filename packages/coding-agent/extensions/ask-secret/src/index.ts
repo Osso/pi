@@ -22,27 +22,29 @@ const browserCredentialFieldSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-const browserSecretSchema = Type.Object(
+// One top-level object: MCP and Anthropic tool definitions reject a union at the
+// root. parseRequest enforces that exactly one of the two shapes is supplied.
+const askSecretSchema = Type.Object(
 	{
-		record: Type.String({ description: "Secrets Broker browser credential record path." }),
-		fields: Type.Array(browserCredentialFieldSchema, { minItems: 1 }),
+		path: Type.Optional(
+			Type.String({ description: "File secret: absolute destination path. Use with label, not record/fields." }),
+		),
+		label: Type.Optional(
+			Type.String({ description: "File secret: non-empty user-facing label for the masked secret prompt." }),
+		),
+		record: Type.Optional(
+			Type.String({
+				description: "Browser credentials: Secrets Broker record path. Use with fields, not path/label.",
+			}),
+		),
+		fields: Type.Optional(Type.Array(browserCredentialFieldSchema, { minItems: 1 })),
 	},
 	{ additionalProperties: false },
 );
-
-const fileSecretSchema = Type.Object(
-	{
-		path: Type.String({ description: "Absolute destination path for the secret file." }),
-		label: Type.String({ description: "Non-empty user-facing label for the masked secret prompt." }),
-	},
-	{ additionalProperties: false },
-);
-
-const askSecretSchema = Type.Union([browserSecretSchema, fileSecretSchema]);
 
 type AskSecretInput = Static<typeof askSecretSchema>;
-type BrowserSecretInput = Static<typeof browserSecretSchema>;
-type FileSecretInput = Static<typeof fileSecretSchema>;
+type BrowserSecretInput = { record: string; fields: AskSecretBrowserField[] };
+type FileSecretInput = { path: string; label: string };
 
 export interface AskSecretBrowserField {
 	type: "text" | "email" | "password";
@@ -98,10 +100,11 @@ export function createAskSecretToolDefinition(options: AskSecretToolOptions = {}
 			_onUpdate,
 			ctx: ExtensionContext,
 		): Promise<AgentToolResult<AskSecretDetails>> {
-			validateRequest(params);
+			const request = parseRequest(params);
+			validateRequest(request);
 			if (ctx.mode !== "tui" || !ctx.hasUI) return unavailableResult();
-			if ("path" in params) return executeFileRequest(params, signal, ctx, renameFile);
-			return executeBrowserRequest(params, signal, ctx, provision);
+			if ("path" in request) return executeFileRequest(request, signal, ctx, renameFile);
+			return executeBrowserRequest(request, signal, ctx, provision);
 		},
 	};
 }
@@ -157,7 +160,22 @@ async function executeFileRequest(
 	};
 }
 
-function validateRequest(params: AskSecretInput): void {
+function parseRequest(params: AskSecretInput): BrowserSecretInput | FileSecretInput {
+	const { path, label, record, fields } = params;
+	const isFile = path !== undefined || label !== undefined;
+	const isBrowser = record !== undefined || fields !== undefined;
+	if (isFile === isBrowser) throw new Error("ask_secret takes either path and label, or record and fields");
+	if (isFile) {
+		if (path === undefined) throw new Error("path is required with label");
+		if (label === undefined) throw new Error("label is required with path");
+		return { path, label };
+	}
+	if (record === undefined) throw new Error("record is required with fields");
+	if (fields === undefined) throw new Error("fields is required with record");
+	return { record, fields };
+}
+
+function validateRequest(params: BrowserSecretInput | FileSecretInput): void {
 	if ("path" in params) {
 		validateArgument(params.path, "path");
 		validateArgument(params.label, "label");

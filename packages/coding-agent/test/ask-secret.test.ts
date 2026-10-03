@@ -108,6 +108,37 @@ describe("ask_secret extension", () => {
 		await expect(access(destination)).rejects.toMatchObject({ code: "ENOENT" });
 	});
 
+	it("publishes a top-level object schema accepted by MCP and Anthropic tool definitions", () => {
+		// The serialized schema is what providers and MCP servers receive.
+		const parameters = JSON.parse(JSON.stringify(createAskSecretToolDefinition().parameters));
+
+		expect(parameters.type).toBe("object");
+		expect(parameters).not.toHaveProperty("anyOf");
+		expect(Object.keys(parameters.properties as object).sort()).toEqual(["fields", "label", "path", "record"]);
+	});
+
+	it("rejects mixed or incomplete request shapes before prompting", async () => {
+		const input = vi.fn<InputFunction>();
+		const tool = createAskSecretToolDefinition();
+		const context = createTuiContext(input);
+		const field = { type: "password" as const, name: "Password", selector: "#password" };
+
+		const cases: Array<[Parameters<typeof tool.execute>[1], string]> = [
+			[
+				{ path: "/tmp/a.key", label: "A", record: "site/a", fields: [field] },
+				"either path and label, or record and fields",
+			],
+			[{ path: "/tmp/a.key" }, "label is required with path"],
+			[{ label: "A" }, "path is required with label"],
+			[{ record: "site/a" }, "fields is required with record"],
+			[{}, "either path and label, or record and fields"],
+		];
+		for (const [params, message] of cases) {
+			await expect(tool.execute("call-shape", params, undefined, undefined, context)).rejects.toThrow(message);
+		}
+		expect(input).not.toHaveBeenCalled();
+	});
+
 	it("rejects invalid single-value requests before prompting", async () => {
 		const directory = await createTemporaryDirectory();
 		const input = vi.fn<InputFunction>();

@@ -8,6 +8,7 @@ The first-party `ask_secret` extension provides two interactive-TUI-only secret-
 
 - [x] Accept browser credential requests only as `{ record, fields: [{ type, name, selector }] }`, where `fields` has one or more ordered entries and each type is `text`, `email`, or `password`; reject the replaced `{ record, usernameSelector, passwordSelector }` shape.
 - [x] Accept single-value file requests with `{ path, label }`.
+- [x] Publish parameters as one top-level object schema, and reject requests that mix or omit members of the two shapes before prompting.
 - [x] Require approval before either secret-entry flow executes.
 - [x] Fail closed outside an interactive TUI session.
 
