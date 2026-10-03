@@ -9,3 +9,14 @@ export const CHILD_DISABLED_AGENT_TOOL_NAMES = [
 ] as const;
 
 export const SUPERVISOR_ONLY_TOOL_NAMES = ["ask_supervisor", "manage_goal"] as const;
+
+export const STANDALONE_DISABLED_TOOL_NAMES: ReadonlySet<string> = new Set([
+	...CHILD_DISABLED_AGENT_TOOL_NAMES,
+	...SUPERVISOR_ONLY_TOOL_NAMES,
+	"send_agent_message",
+	"contact_parent",
+	"list_sessions",
+	"broadcast",
+	"channel_post",
+	"resume_session",
+]);

@@ -317,6 +317,7 @@ export class ExtensionRunner {
 	private hasPendingMessagesFn: () => boolean = () => false;
 	private getContextUsageFn: () => ContextUsage | undefined = () => undefined;
 	private getScopedModelsFn: ExtensionContextActions["getScopedModels"] = () => [];
+	private getNoSupervisorFn: () => boolean = () => false;
 	private getMultiAgentAgentIdFn: () => string | undefined = () => undefined;
 	private getMultiAgentParentSessionIdFn: () => string | undefined = () => undefined;
 	private getMultiAgentRequiresAgentIdFn: () => boolean = () => false;
@@ -401,6 +402,7 @@ export class ExtensionRunner {
 		this.runtime.setThinkingLevel = actions.setThinkingLevel;
 
 		// Context actions (required)
+		this.getNoSupervisorFn = contextActions.getNoSupervisor ?? (() => false);
 		this.getModel = contextActions.getModel;
 		this.getThinkingLevelFn = contextActions.getThinkingLevel ?? (() => "off");
 		this.getFooterData = contextActions.getFooterData ?? (() => undefined);
@@ -823,6 +825,10 @@ export class ExtensionRunner {
 			get settingsManager() {
 				runner.assertActive();
 				return runner.settingsManager;
+			},
+			get noSupervisor() {
+				runner.assertActive();
+				return runner.getNoSupervisorFn();
 			},
 			get controlDbPath() {
 				runner.assertActive();

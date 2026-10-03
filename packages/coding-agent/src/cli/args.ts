@@ -25,6 +25,7 @@ export interface Args {
 	mode?: Mode;
 	name?: string;
 	noSession?: boolean;
+	noSupervisor?: boolean;
 	session?: string;
 	sessionId?: string;
 	fork?: string;
@@ -112,6 +113,8 @@ export function parseArgs(args: string[]): Args {
 			}
 		} else if (arg === "--no-session") {
 			result.noSession = true;
+		} else if (arg === "--no-supervisor") {
+			result.noSupervisor = true;
 		} else if (arg === "--session" && i + 1 < args.length) {
 			result.session = args[++i];
 		} else if (arg === "--session-id" && i + 1 < args.length) {
@@ -265,6 +268,25 @@ export function parseArgs(args: string[]): Args {
 		}
 	}
 
+	if (result.noSupervisor) {
+		if (!result.noSession)
+			result.diagnostics.push({ type: "error", message: "--no-supervisor requires --no-session" });
+		const incompatible = [
+			result.session !== undefined ? "--session" : undefined,
+			result.sessionId !== undefined ? "--session-id" : undefined,
+			result.sessionDir !== undefined ? "--session-dir" : undefined,
+			result.fork !== undefined ? "--fork" : undefined,
+			result.resume ? "--resume" : undefined,
+			result.continue ? "--continue" : undefined,
+			result.name !== undefined ? "--name" : undefined,
+			result.export !== undefined ? "--export" : undefined,
+		].filter((flag) => flag !== undefined);
+		if (incompatible.length > 0)
+			result.diagnostics.push({
+				type: "error",
+				message: `--no-supervisor cannot be combined with ${incompatible.join(", ")}`,
+			});
+	}
 	return result;
 }
 
@@ -315,6 +337,7 @@ ${chalk.bold("Options:")}
   --session-dir <dir>            Directory for session storage and lookup
   --worktree, -w <name>          Create or reuse a sibling git worktree before startup
   --no-session                   Don't save session (ephemeral)
+  --no-supervisor                Standalone worker; requires --no-session; no orchestration or Supervisor
   --name, -n <name>              Set session display name
   --models <patterns>            Comma-separated model patterns for Ctrl+P cycling
                                  Supports globs (anthropic/*, *sonnet*) and fuzzy matching

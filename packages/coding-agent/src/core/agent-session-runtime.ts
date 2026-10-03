@@ -248,6 +248,7 @@ export class AgentSessionRuntime {
 			projectTrustContextFactory?: (cwd: string) => ProjectTrustContext;
 		},
 	): Promise<{ cancelled: boolean }> {
+		if (this.session.noSupervisor) throw new Error("Session resume is unavailable in standalone worker mode");
 		return this.runLifecycleTransition(() => this.switchSessionUnlocked(sessionPath, options));
 	}
 
@@ -569,6 +570,7 @@ export class AgentSessionRuntime {
 	 * @throws {MissingSessionCwdError} When the imported session cwd cannot be resolved and no override is provided.
 	 */
 	async importFromJsonl(inputPath: string, cwdOverride?: string): Promise<{ cancelled: boolean }> {
+		if (this.session.noSupervisor) throw new Error("Session import is unavailable in standalone worker mode");
 		return this.runLifecycleTransition(() => this.importFromJsonlUnlocked(inputPath, cwdOverride));
 	}
 
@@ -632,11 +634,14 @@ export async function createAgentSessionRuntime(
 		agentDir: string;
 		sessionManager: SessionManager;
 		sessionStartEvent?: SessionStartEvent;
+		noSupervisor?: boolean;
 	},
 ): Promise<AgentSessionRuntime> {
+	if (options.noSupervisor && options.sessionManager.isPersisted())
+		throw new Error("Standalone worker requires an in-memory session");
 	assertSessionCwdExists(options.sessionManager, options.cwd);
 	const controlDbPath = options.sessionManager.getMetadataControlDbPath();
-	if (controlDbPath) runDetachedJobArtifactCleanup(controlDbPath, options.agentDir);
+	if (controlDbPath && !options.noSupervisor) runDetachedJobArtifactCleanup(controlDbPath, options.agentDir);
 	const result = await createRuntime(options);
 	return new AgentSessionRuntime(
 		result.session,

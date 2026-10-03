@@ -1,6 +1,13 @@
 import { createConnection } from "node:net";
+import { appendFileSync } from "node:fs";
 import type { AssistantMessage, Context, StreamOptions } from "@earendil-works/pi-ai/compat";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
+
+// A real resident launch inherits this preload. Stop before any real model or account access.
+if (process.env.PI_HEADLESS_SUPERVISOR_STARTS && process.argv.includes("supervisor")) {
+	appendFileSync(process.env.PI_HEADLESS_SUPERVISOR_STARTS, `${process.pid}\n`);
+	process.exit(91);
+}
 
 const socketPath = process.env.PI_HEADLESS_PROVIDER_SOCKET;
 if (!socketPath) {

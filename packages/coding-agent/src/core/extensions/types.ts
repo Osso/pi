@@ -323,6 +323,8 @@ export interface CompactOptions {
 export type ExtensionMode = "tui" | "rpc" | "json" | "print";
 
 export interface ExtensionContext {
+	/** Explicit standalone worker opt-out; Supervisor-backed APIs must fail before lookup. */
+	noSupervisor?: boolean;
 	/** UI methods for user interaction */
 	ui: ExtensionUIContext;
 	/** Read-only footer data, available when the current mode owns footer state. */
@@ -1855,6 +1857,7 @@ export interface ExtensionActions {
  * Required by all modes.
  */
 export interface ExtensionContextActions {
+	getNoSupervisor?: () => boolean;
 	getModel: () => Model<any> | undefined;
 	getThinkingLevel?: () => ThinkingLevel;
 	getScopedModels?: () => ReadonlyArray<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;

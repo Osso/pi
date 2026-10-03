@@ -37,6 +37,7 @@ export function createAskSupervisorToolDefinition(): ToolDefinition<
 		parameters: askSupervisorSchema,
 		executionMode: "sequential",
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			if (ctx?.noSupervisor) throw new Error("Supervisor advisory is unavailable in standalone worker mode");
 			assertMainSession(ctx);
 			const controlDbPath = requireControlDbPath(ctx);
 			const senderSessionId = ctx?.sessionManager.getSessionId();

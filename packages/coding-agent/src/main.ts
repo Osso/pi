@@ -619,26 +619,25 @@ function optionalFirstPartyExtensionFactory(
 	return command && isExecutableAvailable(command) ? [firstPartyExtensionFactory(name, factory)] : [];
 }
 
-const firstPartyMultiAgentStore = new MultiAgentStore();
-const firstPartyMultiAgentRuntimeHandles = createMultiAgentRuntimeHandles();
-const resolveFirstPartySessionMutationTarget = () =>
-	resolveSelectedSessionMutationTarget(firstPartyMultiAgentStore, firstPartyMultiAgentRuntimeHandles);
-const wakeWaitAgentsFromSharedChannel = (prompt: string) =>
-	wakeWaitAgentsAfterCoordination(firstPartyMultiAgentRuntimeHandles, prompt);
-let interactiveAgentViewSelector: ((agentId: string) => boolean) | undefined;
+interface FirstPartyOrchestration {
+	store: MultiAgentStore;
+	runtimeHandles: ReturnType<typeof createMultiAgentRuntimeHandles>;
+	selectAgentView: (agentId: string) => boolean | undefined;
+}
 
 function createPyrunFirstPartyExtensionFactory(
 	createAttachedSession: ReturnType<typeof createProductionAttachedSessionFactory>,
 	createChildSession: ReturnType<typeof createProductionChildAgentSessionFactory>,
+	orchestration: FirstPartyOrchestration,
 ): ExtensionFactory {
 	return (pi) => {
 		const multiAgentPiRequestHandler = createMultiAgentPiRequestHandler(
 			{
 				createAttachedSession,
 				createChildSession,
-				runtimeHandles: firstPartyMultiAgentRuntimeHandles,
-				selectAgentView: (agentId) => interactiveAgentViewSelector?.(agentId),
-				store: firstPartyMultiAgentStore,
+				runtimeHandles: orchestration.runtimeHandles,
+				selectAgentView: orchestration.selectAgentView,
+				store: orchestration.store,
 			},
 			pi,
 		);
@@ -650,21 +649,29 @@ function createFirstPartyExtensionFactories(
 	getRuntimeExtensionFactories: () => ExtensionFactory[],
 	getDebugRepl: () => DebugReplServer,
 	fastModeAuthority: FastModeAuthority,
+	orchestration?: FirstPartyOrchestration,
 ): ExtensionFactory[] {
-	const childAgentSessionFactory = createProductionChildAgentSessionFactory({
-		agentDir: getAgentDir(),
-		createSession: createAgentSession,
-		createSessionManager: SessionManager.create,
-		extensionFactories: getRuntimeExtensionFactories,
-		multiAgentStore: firstPartyMultiAgentStore,
-	});
-	const attachedSessionFactory = createProductionAttachedSessionFactory({
-		agentDir: getAgentDir(),
-		createSession: createAgentSession,
-		extensionFactories: getRuntimeExtensionFactories,
-		multiAgentStore: firstPartyMultiAgentStore,
-	});
-	const pyrunFactory = createPyrunFirstPartyExtensionFactory(attachedSessionFactory, childAgentSessionFactory);
+	const childAgentSessionFactory = orchestration
+		? createProductionChildAgentSessionFactory({
+				agentDir: getAgentDir(),
+				createSession: createAgentSession,
+				createSessionManager: SessionManager.create,
+				extensionFactories: getRuntimeExtensionFactories,
+				multiAgentStore: orchestration.store,
+			})
+		: undefined;
+	const attachedSessionFactory = orchestration
+		? createProductionAttachedSessionFactory({
+				agentDir: getAgentDir(),
+				createSession: createAgentSession,
+				extensionFactories: getRuntimeExtensionFactories,
+				multiAgentStore: orchestration.store,
+			})
+		: undefined;
+	const pyrunFactory =
+		orchestration && attachedSessionFactory && childAgentSessionFactory
+			? createPyrunFirstPartyExtensionFactory(attachedSessionFactory, childAgentSessionFactory, orchestration)
+			: (pi: Parameters<ExtensionFactory>[0]) => pyrunExtension(pi);
 	return [
 		firstPartyExtensionFactory("approval-controls", approvalControlsExtension),
 		firstPartyExtensionFactory("ask-secret", askSecretExtension),
@@ -682,25 +689,29 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("codex-web-search", codexWebSearchExtension),
 		firstPartyExtensionFactory("debug", (pi) => debugExtension(pi, getDebugRepl)),
 		firstPartyExtensionFactory("docs-tree-context", docsTreeContextExtension),
-		firstPartyExtensionFactory("agents-core", (pi) =>
-			agentsCoreExtension(pi, {
-				createAttachedSession: attachedSessionFactory,
-				createChildSession: childAgentSessionFactory,
-				runtimeHandles: firstPartyMultiAgentRuntimeHandles,
-				store: firstPartyMultiAgentStore,
-			}),
-		),
-		firstPartyExtensionFactory("agent-viewer", (pi) =>
-			agentViewerExtension(pi, { store: firstPartyMultiAgentStore }),
-		),
-		firstPartyExtensionFactory("agents-mailbox", (pi) =>
-			agentsMailboxExtension(pi, { store: firstPartyMultiAgentStore }),
-		),
+		...(orchestration && attachedSessionFactory && childAgentSessionFactory
+			? [
+					firstPartyExtensionFactory("agents-core", (pi) =>
+						agentsCoreExtension(pi, {
+							createAttachedSession: attachedSessionFactory,
+							createChildSession: childAgentSessionFactory,
+							runtimeHandles: orchestration.runtimeHandles,
+							store: orchestration.store,
+						}),
+					),
+					firstPartyExtensionFactory("agent-viewer", (pi) =>
+						agentViewerExtension(pi, { store: orchestration.store }),
+					),
+					firstPartyExtensionFactory("agents-mailbox", (pi) =>
+						agentsMailboxExtension(pi, { store: orchestration.store }),
+					),
+				]
+			: []),
 		firstPartyExtensionFactory("default-footer", (pi) =>
-			defaultFooterExtension(pi, { multiAgentStore: firstPartyMultiAgentStore }),
+			defaultFooterExtension(pi, { multiAgentStore: orchestration?.store }),
 		),
 		firstPartyExtensionFactory("effort", effortExtension),
-		firstPartyExtensionFactory("goal", goalExtension),
+		...(orchestration ? [firstPartyExtensionFactory("goal", goalExtension)] : []),
 		firstPartyExtensionFactory("bwrap", bwrapExtension),
 		...optionalFirstPartyExtensionFactory("pyrun", resolvePyrunRunnerCommand(), pyrunFactory),
 		firstPartyExtensionFactory("loop", loopExtension),
@@ -715,6 +726,19 @@ function createFirstPartyExtensionFactories(
 }
 
 export async function main(args: string[], options?: MainOptions) {
+	// Validate worker persistence before resident-console dispatch or runtime initialization.
+	const initialArgs = parseArgs(args);
+	if (
+		initialArgs.noSupervisor &&
+		(initialArgs.diagnostics.some((d) => d.type === "error") ||
+			args.includes("--supervisor") ||
+			args.includes("--architect"))
+	) {
+		reportDiagnostics(initialArgs.diagnostics);
+		if (args.includes("--supervisor") || args.includes("--architect"))
+			console.error("Error: resident consoles are unavailable in standalone worker mode");
+		process.exit(1);
+	}
 	const residentConsoleCommand = parseResidentConsoleArgs(args);
 	if (residentConsoleCommand) {
 		await runResidentConsoleCommand(residentConsoleCommand);
@@ -780,13 +804,23 @@ export async function main(args: string[], options?: MainOptions) {
 		process.exit(process.exitCode ?? 0);
 	}
 
-	const parsed = parseArgs(args);
-	const selfRestartHandoff = consumeSelfRestartRequest();
+	const parsed = initialArgs;
+	const selfRestartHandoff = parsed.noSupervisor ? undefined : consumeSelfRestartRequest();
 	applySelfRestartRequest(parsed, selfRestartHandoff);
 	await waitForSelfRestartParentExit(selfRestartHandoff);
 	if (selfRestartHandoff?.oldPid === process.pid) {
 		prepareControlDbForSelfRestart(getControlDbPath(), process.pid);
 	}
+	const firstPartyMultiAgentStore = parsed.noSupervisor ? undefined : new MultiAgentStore();
+	const firstPartyMultiAgentRuntimeHandles = parsed.noSupervisor ? undefined : createMultiAgentRuntimeHandles();
+	let interactiveAgentViewSelector: ((agentId: string) => boolean) | undefined;
+	const resolveFirstPartySessionMutationTarget = () =>
+		firstPartyMultiAgentStore && firstPartyMultiAgentRuntimeHandles
+			? resolveSelectedSessionMutationTarget(firstPartyMultiAgentStore, firstPartyMultiAgentRuntimeHandles)
+			: undefined;
+	const wakeWaitAgentsFromSharedChannel = firstPartyMultiAgentRuntimeHandles
+		? (prompt: string) => wakeWaitAgentsAfterCoordination(firstPartyMultiAgentRuntimeHandles, prompt)
+		: undefined;
 	let extensionFactories: ExtensionFactory[] = [];
 	let debugRepl: DebugReplServer | undefined;
 	const fastModeAuthority: FastModeAuthority = { serviceTier: undefined };
@@ -797,6 +831,13 @@ export async function main(args: string[], options?: MainOptions) {
 			return debugRepl;
 		},
 		fastModeAuthority,
+		firstPartyMultiAgentStore && firstPartyMultiAgentRuntimeHandles
+			? {
+					store: firstPartyMultiAgentStore,
+					runtimeHandles: firstPartyMultiAgentRuntimeHandles,
+					selectAgentView: (agentId) => interactiveAgentViewSelector?.(agentId),
+				}
+			: undefined,
 	);
 	extensionFactories = parsed.noExtensions
 		? (options?.extensionFactories ?? [])
@@ -887,7 +928,7 @@ export async function main(args: string[], options?: MainOptions) {
 		(envSessionDir ? expandTildePath(envSessionDir) : undefined) ??
 		startupSettingsManager.getSessionDir();
 	const controlDbPath = getControlDbPath();
-	sweepAbandonedEmptySessions(controlDbPath);
+	if (!parsed.noSupervisor) sweepAbandonedEmptySessions(controlDbPath);
 	let sessionManager = await createSessionManager(parsed, cwd, sessionDir, startupSettingsManager, controlDbPath);
 	sessionManager.setMetadataControlDbPath(controlDbPath);
 	const missingSessionCwdIssue = getMissingSessionCwdIssue(sessionManager, cwd);
@@ -924,7 +965,8 @@ export async function main(args: string[], options?: MainOptions) {
 		takeOverStdout();
 	}
 	time("createSessionManager");
-	const controlMessage = appMode === "interactive" ? claimLatestIncomingMessage(controlDbPath) : undefined;
+	const controlMessage =
+		appMode === "interactive" && !parsed.noSupervisor ? claimLatestIncomingMessage(controlDbPath) : undefined;
 
 	const trustStore = new ProjectTrustStore(agentDir);
 	const sessionCwd = sessionManager.getCwd();
@@ -952,7 +994,7 @@ export async function main(args: string[], options?: MainOptions) {
 		// constructor, which runs after this callback; set it here so the store restore
 		// and its row persistence see the DB.
 		sessionManager.setMetadataControlDbPath(getControlDbPath());
-		firstPartyMultiAgentStore.restoreFromSessionManager(sessionManager);
+		firstPartyMultiAgentStore?.restoreFromSessionManager(sessionManager);
 		const isInitialRuntime = sessionStartEvent === undefined;
 		const projectTrustDiagnostics: AgentSessionRuntimeDiagnostic[] = [];
 		const cachedProjectTrust = projectTrustByCwd.get(cwd);
@@ -1055,8 +1097,9 @@ export async function main(args: string[], options?: MainOptions) {
 			settingsManager: services.settingsManager,
 			modelRegistry: services.modelRegistry,
 			resourceLoader: services.resourceLoader,
-			multiAgentRuntimeRole: "orchestrator",
-			multiAgentExecutionCapability: createMultiAgentExecutionCapability(),
+			noSupervisor: parsed.noSupervisor,
+			multiAgentRuntimeRole: parsed.noSupervisor ? undefined : "orchestrator",
+			multiAgentExecutionCapability: parsed.noSupervisor ? undefined : createMultiAgentExecutionCapability(),
 			sessionManager,
 			sessionStartEvent,
 			model: sessionOptions.model,
@@ -1087,9 +1130,12 @@ export async function main(args: string[], options?: MainOptions) {
 		cwd: sessionManager.getCwd(),
 		agentDir,
 		sessionManager,
+		noSupervisor: parsed.noSupervisor,
 	});
-	reconcileSessionRuntimeBindings(controlDbPath);
-	LifecycleCoordinator.reconcileDeadDetachedRuntimes(controlDbPath, new Date().toISOString(), agentDir);
+	if (!parsed.noSupervisor) {
+		reconcileSessionRuntimeBindings(controlDbPath);
+		LifecycleCoordinator.reconcileDeadDetachedRuntimes(controlDbPath, new Date().toISOString(), agentDir);
+	}
 	debugRepl = new DebugReplServer({
 		agentDir,
 		getRuntime: () => runtime,
@@ -1184,9 +1230,12 @@ export async function main(args: string[], options?: MainOptions) {
 			controlMessage,
 			controlDbPath,
 			multiAgentStore: firstPartyMultiAgentStore,
-			wakeWaitAgentsAfterSteering: () => wakeWaitAgentsAfterSteering(firstPartyMultiAgentRuntimeHandles),
+			wakeWaitAgentsAfterSteering: firstPartyMultiAgentRuntimeHandles
+				? () => wakeWaitAgentsAfterSteering(firstPartyMultiAgentRuntimeHandles)
+				: undefined,
 			steerMultiAgent: async (agentId, message) => {
-				if (!controlDbPath) return { error: "Agent steering is unavailable", ok: false };
+				if (!controlDbPath || !firstPartyMultiAgentStore || !firstPartyMultiAgentRuntimeHandles)
+					return { error: "Agent steering is unavailable", ok: false };
 				return requestInteractiveAgentSteering(
 					firstPartyMultiAgentStore,
 					firstPartyMultiAgentRuntimeHandles,
@@ -1195,13 +1244,16 @@ export async function main(args: string[], options?: MainOptions) {
 					{ actorAgentId: null, controlDbPath, sessionId: runtime.session.sessionId },
 				);
 			},
-			cancelMultiAgent: (agentId) =>
-				cancelOwnedAgentRuntime(
-					firstPartyMultiAgentStore,
-					firstPartyMultiAgentRuntimeHandles,
-					agentId,
-					"cancelled interactively",
-				),
+			cancelMultiAgent:
+				firstPartyMultiAgentStore && firstPartyMultiAgentRuntimeHandles
+					? (agentId) =>
+							cancelOwnedAgentRuntime(
+								firstPartyMultiAgentStore,
+								firstPartyMultiAgentRuntimeHandles,
+								agentId,
+								"cancelled interactively",
+							)
+					: undefined,
 			verbose: parsed.verbose,
 		});
 		bindInteractiveModeSessionMutationTargetResolver(interactiveMode, resolveFirstPartySessionMutationTarget);

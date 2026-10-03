@@ -35,6 +35,11 @@ import { RpcClient, type RpcCommandBody } from "../../src/modes/rpc/rpc-client.t
 import type { RpcExtensionUIRequest, RpcResponse } from "../../src/modes/rpc/rpc-types.ts";
 import { type HeadlessSupervisorProbe, startHeadlessSupervisorProbe } from "./fixtures/headless-supervisor-probe.ts";
 
+import {
+	startStandaloneSupervisorSentinel,
+	type StandaloneSupervisorSentinel,
+} from "./fixtures/standalone-supervisor-sentinel.ts";
+
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 function readHeadlessCompileCacheDir(): string {
@@ -75,6 +80,7 @@ interface HeadlessRuntimePaths extends HeadlessPiPaths {
 }
 
 export interface HeadlessPiOptions {
+	noSupervisor?: boolean;
 	approvalPreset?: ApprovalPresetName;
 	autoDetachTools?: boolean;
 	cliPath?: string;
@@ -128,6 +134,7 @@ export interface HeadlessPi {
 	writeRunningGoal(objective: string): void;
 	readGoal(): Record<string, unknown> | undefined;
 	countSupervisorRequests(kind: SupervisorRequestKind): number;
+	readSupervisorActivity(): ReturnType<StandaloneSupervisorSentinel["read"]>;
 	countExtensionUiRequests(predicate?: (request: RpcExtensionUIRequest) => boolean): number;
 	waitForSessionEntry(agentId: string | null, predicate: (entry: SessionEntry) => boolean): Promise<SessionEntry>;
 	waitForEvent(predicate: (event: AgentEvent) => boolean): Promise<AgentEvent>;
@@ -309,6 +316,7 @@ function createHeadlessRpcClient(
 	const deleteCwdPreloadPath = join(import.meta.dirname, "fixtures", "delete-cwd-self-restart-preload.mjs");
 	const cliPath = options.cliPath ?? join(import.meta.dirname, "..", "..", "src", "cli.ts");
 	const args = [...(options.approvalPreset ? [] : ["--approve"]), "--no-context-files", "--no-skills", "--no-themes"];
+	if (options.noSupervisor) args.push("--no-supervisor", "--no-session");
 	if (sessionFile) args.push("--session", sessionFile);
 	const selectedProvider = options.provider ?? "headless-faux";
 	const defaultModel = selectedProvider === "openai-codex" ? "headless-faux-codex" : "headless-faux-1";
@@ -322,6 +330,9 @@ function createHeadlessRpcClient(
 			PI_CODING_AGENT_STATE_DIR: paths.agentDir,
 			PI_CODING_AGENT_SESSION_DIR: paths.sessionDir,
 			PI_HEADLESS_PROVIDER_SOCKET: providerSocketPath,
+			...(options.noSupervisor
+				? { PI_HEADLESS_SUPERVISOR_STARTS: `${getControlDbPath(paths.agentDir)}.supervisor-starts` }
+				: {}),
 			...(options.autoDetachTools ? { PI_HEADLESS_TOOL_AUTO_DETACH_MS: "50" } : {}),
 			...(options.env ?? {}),
 			...(sessionStartReleasePath ? { PI_HEADLESS_SESSION_START_RELEASE_PATH: sessionStartReleasePath } : {}),
@@ -669,12 +680,16 @@ function createRequestRecorder(options: {
 	};
 }
 
-async function startRpcClientSession(client: RpcClient, context: HeadlessSessionContext): Promise<void> {
+async function startRpcClientSession(
+	client: RpcClient,
+	context: HeadlessSessionContext,
+	noSupervisor = false,
+): Promise<void> {
 	await client.start();
 	const state = await client.getState();
 	context.mainSessionId = state.sessionId;
 	context.sessionFile = state.sessionFile ?? "";
-	if (!context.sessionFile) throw new Error("Headless Pi did not create a persistent session");
+	if (!context.sessionFile && !noSupervisor) throw new Error("Headless Pi did not create a persistent session");
 	if (!state.sessionName) await nameHeadlessSession(client);
 }
 
@@ -792,7 +807,7 @@ async function startSharedHeadlessSession(
 			removeTempDir: () => {},
 		});
 	try {
-		await startRpcClientSession(client, context);
+		await startRpcClientSession(client, context, fixtureOptions.noSupervisor);
 	} catch (error) {
 		unsubscribeEvents();
 		return runWithCleanup(async () => {
@@ -830,7 +845,8 @@ function createHeadlessRuntime(options: {
 	requests: HeadlessLlmRequest[];
 	requestListeners: Set<() => void>;
 	context: HeadlessSessionContext;
-	supervisorProbe: HeadlessSupervisorProbe;
+	supervisorProbe?: HeadlessSupervisorProbe;
+	supervisorSentinel?: StandaloneSupervisorSentinel;
 }): HeadlessPiRuntime {
 	const waitForEvent = (predicate: (event: AgentEvent) => boolean): Promise<AgentEvent> =>
 		waitForBufferedItem({
@@ -903,7 +919,7 @@ function createHeadlessRuntime(options: {
 			const client = createHeadlessRpcClient(options.paths, options.fixtureOptions, options.context.sessionFile);
 			options.clientControl.client = client;
 			options.clientControl.unsubscribeEvents = subscribeHeadlessRpcOutput(client, options);
-			await startRpcClientSession(client, options.context);
+			await startRpcClientSession(client, options.context, options.fixtureOptions.noSupervisor);
 		},
 		async crash() {
 			options.clientControl.unsubscribeEvents();
@@ -989,6 +1005,10 @@ function createHeadlessRuntime(options: {
 				db.close();
 			}
 		},
+		readSupervisorActivity() {
+			if (!options.supervisorSentinel) throw new Error("Supervisor sentinel requires noSupervisor fixture mode");
+			return options.supervisorSentinel.read();
+		},
 		countExtensionUiRequests: (predicate = () => true) => options.uiRequests.filter(predicate).length,
 		async waitForSessionEntry(agentId, predicate) {
 			const deadline = Date.now() + DEFAULT_TIMEOUT_MS;
@@ -1039,10 +1059,15 @@ function createHeadlessRuntime(options: {
 					cleanupHeadlessPiResources({
 						stopClient: () => options.clientControl.client.stop(),
 						terminateDetachedRunners: () =>
-							terminateHeadlessDetachedRunners(options.paths, options.context.sessionFile),
+							options.fixtureOptions.noSupervisor
+								? undefined
+								: terminateHeadlessDetachedRunners(options.paths, options.context.sessionFile),
 						destroyProviderSocket: () => options.provider.getSocket()?.destroy(),
 						closeProviderServer: () => closeServer(options.provider.server),
-						closeSupervisorProbe: () => options.supervisorProbe.close(),
+						closeSupervisorProbe: async () => {
+							await options.supervisorProbe?.close();
+							await options.supervisorSentinel?.close();
+						},
 						removeTempDir: () => {
 							if (!options.fixtureOptions.retainTempDirOnDispose) {
 								rmSync(options.paths.tempDir, { recursive: true, force: true });
@@ -1128,10 +1153,13 @@ export default function(pi) {
 	const recordRequest = createRequestRecorder({ requests, listeners: requestListeners, resolveAgentId });
 	let provider: ProviderServerControl | undefined;
 	let supervisorProbe: HeadlessSupervisorProbe | undefined;
+	let supervisorSentinel: StandaloneSupervisorSentinel | undefined;
 	let client: RpcClient | undefined;
 	let unsubscribeEvents = (): void => {};
 	try {
-		supervisorProbe = await startHeadlessSupervisorProbe(getControlDbPath(paths.agentDir));
+		if (fixtureOptions.noSupervisor)
+			supervisorSentinel = await startStandaloneSupervisorSentinel(getControlDbPath(paths.agentDir));
+		else supervisorProbe = await startHeadlessSupervisorProbe(getControlDbPath(paths.agentDir));
 		provider = await createProviderServer(paths.socketPath, recordRequest);
 		client = createHeadlessRpcClient(paths, fixtureOptions);
 		unsubscribeEvents = subscribeHeadlessRpcOutput(client, {
@@ -1142,9 +1170,10 @@ export default function(pi) {
 			uiRequests,
 			uiRequestListeners,
 		});
-		await startRpcClientSession(client, context);
+		await startRpcClientSession(client, context, fixtureOptions.noSupervisor);
 	} catch (error) {
 		unsubscribeEvents();
+		await supervisorSentinel?.close();
 		return runWithCleanup(
 			async () => {
 				throw error;
@@ -1170,6 +1199,7 @@ export default function(pi) {
 		requestListeners,
 		context,
 		supervisorProbe,
+		supervisorSentinel,
 	});
 }
 

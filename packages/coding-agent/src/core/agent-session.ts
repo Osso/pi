@@ -205,6 +205,7 @@ export { type ParsedSkillBlock, parseSkillBlock } from "./skill-block.ts";
 
 import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.ts";
 import { ToolDetachRegistry } from "./tool-detach-registry.ts";
+import { STANDALONE_DISABLED_TOOL_NAMES } from "./tool-capabilities.ts";
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
 import {
 	createEndTurnToolDefinition,
@@ -440,6 +441,8 @@ const SUPERVISOR_AUTO_APPROVED_READ_ONLY_TOOLS = new Set([
 ]);
 
 export interface AgentSessionConfig {
+	/** Explicit standalone ephemeral worker runtime. */
+	noSupervisor?: boolean;
 	agent: Agent;
 	sessionManager: SessionManager;
 	settingsManager: SettingsManager;
@@ -695,6 +698,19 @@ function isSessionBusyPromptError(error: unknown): boolean {
 /** Standard thinking levels */
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high"];
 
+export function assertStandaloneWorkerOptions(config: Partial<AgentSessionConfig>): void {
+	if (!config.noSupervisor) return;
+	if (config.sessionManager?.isPersisted()) throw new Error("Standalone worker requires an in-memory session");
+	const hasOrchestration =
+		config.multiAgentStore ||
+		(config.multiAgentRuntimeRole && config.multiAgentRuntimeRole !== "standalone") ||
+		config.multiAgentExecutionCapability ||
+		config.multiAgentAgentId ||
+		config.multiAgentParentSessionId ||
+		config.multiAgentRequiresAgentId;
+	if (hasOrchestration) throw new Error("Standalone worker cannot receive multi-agent orchestration");
+}
+
 function validateMultiAgentRuntimeRole(config: AgentSessionConfig): void {
 	const role = config.multiAgentRuntimeRole ?? "standalone";
 	const capability = config.multiAgentExecutionCapability;
@@ -753,6 +769,7 @@ export class AgentSession {
 	readonly agent: Agent;
 	readonly sessionManager: SessionManager;
 	readonly settingsManager: SettingsManager;
+	readonly noSupervisor: boolean;
 
 	private _scopedModels: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
 
@@ -797,9 +814,7 @@ export class AgentSession {
 
 	// Bash execution state
 	private _bashAbortController: AbortController | undefined = undefined;
-	private readonly _toolDetachRegistry = new ToolDetachRegistry({
-		autoDetachAfterMs: readHeadlessToolAutoDetachAfterMs(),
-	});
+	private readonly _toolDetachRegistry: ToolDetachRegistry | undefined;
 	private _pendingBashMessages: BashExecutionMessage[] = [];
 
 	// Extension system
@@ -880,7 +895,12 @@ export class AgentSession {
 	private _systemPromptOverride?: string;
 
 	constructor(config: AgentSessionConfig) {
+		assertStandaloneWorkerOptions(config);
 		validateMultiAgentRuntimeRole(config);
+		this.noSupervisor = config.noSupervisor ?? false;
+		this._toolDetachRegistry = this.noSupervisor
+			? undefined
+			: new ToolDetachRegistry({ autoDetachAfterMs: readHeadlessToolAutoDetachAfterMs() });
 		this.agent = config.agent;
 		this.sessionManager = config.sessionManager;
 		this.settingsManager = config.settingsManager;
@@ -899,7 +919,8 @@ export class AgentSession {
 		this._multiAgentParentSessionId = config.multiAgentParentSessionId;
 		this._multiAgentRequiresAgentId = config.multiAgentRequiresAgentId ?? false;
 		this._thinkingPhaseTimeoutMs = config.thinkingPhaseTimeoutMs ?? THINKING_PHASE_TIMEOUT_MS;
-		this._disableRuntimeCoordinationInbound = config.disableRuntimeCoordinationInbound ?? false;
+		this._disableRuntimeCoordinationInbound =
+			this.noSupervisor || (config.disableRuntimeCoordinationInbound ?? false);
 		this._onSharedChannelMessageDelivered = config.onSharedChannelMessageDelivered;
 		this._multiAgentStore = config.multiAgentStore;
 		this._agentDir = config.agentDir ?? getAgentDir();
@@ -1011,6 +1032,8 @@ export class AgentSession {
 	private _installAgentToolHooks(): void {
 		this.agent.beforeToolCall = async ({ toolCall, args, context }) => {
 			this._clearThinkingPhaseDeadline();
+			if (this.noSupervisor && STANDALONE_DISABLED_TOOL_NAMES.has(toolCall.name))
+				return { block: true, reason: `Tool ${toolCall.name} is unavailable in standalone worker mode` };
 			const runner = this._extensionRunner;
 			const event = {
 				type: "tool_call",
@@ -1263,6 +1286,8 @@ export class AgentSession {
 			return async () => undefined;
 		}
 
+		if (this.noSupervisor)
+			return async () => ({ block: true, reason: "Supervisor approval is unavailable in standalone worker mode" });
 		return async () => {
 			const kbDir = process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR;
 			return reviewToolCallWithSupervisor(
@@ -2121,6 +2146,8 @@ export class AgentSession {
 		signal: AbortSignal | undefined,
 		activeToolCallId?: string,
 	): Promise<AgentToolResult<unknown>> {
+		if (this.noSupervisor && STANDALONE_DISABLED_TOOL_NAMES.has(toolName))
+			throw new Error(`Tool ${toolName} is unavailable in standalone worker mode`);
 		if (!this.getActiveToolNames().includes(toolName)) {
 			throw new Error(`Tool is not active: ${toolName}`);
 		}
@@ -3415,6 +3442,7 @@ export class AgentSession {
 	}
 
 	private _retireRuntimeMailboxListeners(): void {
+		if (this.noSupervisor) return;
 		const controlDbPath = this._getRuntimeMailboxControlDbPath();
 		if (!controlDbPath) return;
 		const agentId = this._getRuntimeMailboxAgentId();
@@ -4879,6 +4907,7 @@ export class AgentSession {
 				setThinkingLevel: (level) => this.setThinkingLevel(level),
 			},
 			{
+				getNoSupervisor: () => this.noSupervisor,
 				getModel: () => this.model,
 				getThinkingLevel: () => this.thinkingLevel,
 				getScopedModels: () => this.scopedModels,
@@ -4940,7 +4969,9 @@ export class AgentSession {
 		const previousActiveToolNames = this.getActiveToolNames();
 		const allowedToolNames = this._allowedToolNames;
 		const excludedToolNames = this._excludedToolNames;
-		const isAllowedTool = (name: string): boolean => isAllowedSessionTool(name, allowedToolNames, excludedToolNames);
+		const isAllowedTool = (name: string): boolean =>
+			(!this.noSupervisor || !STANDALONE_DISABLED_TOOL_NAMES.has(name)) &&
+			isAllowedSessionTool(name, allowedToolNames, excludedToolNames);
 
 		const registeredTools = this._extensionRunner.getAllRegisteredTools();
 		const allCustomTools = [
@@ -5346,11 +5377,11 @@ export class AgentSession {
 	}
 
 	detachRunningTool(): boolean {
-		return this._toolDetachRegistry.detachRunning();
+		return this._toolDetachRegistry?.detachRunning() ?? false;
 	}
 
 	detachAllRunningTools(): void {
-		this._toolDetachRegistry.detachAll();
+		this._toolDetachRegistry?.detachAll();
 	}
 
 	detachBashTool(): boolean {
@@ -5363,7 +5394,7 @@ export class AgentSession {
 	}
 
 	get hasDetachableTool(): boolean {
-		return this._toolDetachRegistry.hasRunning();
+		return this._toolDetachRegistry?.hasRunning() ?? false;
 	}
 
 	get hasDetachableBashTool(): boolean {

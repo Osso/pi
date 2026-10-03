@@ -45,6 +45,7 @@ export async function reviewGoalWithResidentSupervisor(input: {
 	payload: Record<string, unknown>;
 	ctx: ExtensionContext;
 }): Promise<GoalSupervisorResponse> {
+	if (input.ctx.noSupervisor) throw new Error("Supervisor goal review is unavailable in standalone worker mode");
 	const kbDir = process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR;
 	const cancellationController = new AbortController();
 	const unregisterCancellation = input.ctx.registerSupervisorReviewCancellation?.(() =>

@@ -6,6 +6,7 @@ import { resolvePath } from "../utils/paths.ts";
 import {
 	AgentSession,
 	type AgentSessionConfig,
+	assertStandaloneWorkerOptions,
 	type MultiAgentExecutionCapability,
 	type MultiAgentRuntimeRole,
 } from "./agent-session.ts";
@@ -47,6 +48,8 @@ import {
 } from "./tools/index.ts";
 
 export interface CreateAgentSessionOptions {
+	/** Standalone ephemeral worker: no Supervisor, coordination, or durable tool orchestration. */
+	noSupervisor?: boolean;
 	/** Working directory for project-local discovery. Default: process.cwd() */
 	cwd?: string;
 	/** Global config directory. Default: ~/.config/pi/agent */
@@ -226,6 +229,7 @@ function restorePersistedSessionSettings(sessionManager: SessionManager, setting
 }
 
 async function createAgentSessionInternal(options: CreateAgentSessionOptions): Promise<CreateAgentSessionResult> {
+	assertStandaloneWorkerOptions(options);
 	const cwd = resolvePath(options.cwd ?? options.sessionManager?.getCwd() ?? process.cwd());
 	const agentDir = options.agentDir ? resolvePath(options.agentDir) : getDefaultAgentDir();
 	let resourceLoader = options.resourceLoader;
@@ -237,7 +241,11 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 	const modelRegistry = options.modelRegistry ?? ModelRegistry.create(authStorage, modelsPath);
 
 	const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir);
-	const sessionManager = options.sessionManager ?? SessionManager.create(cwd, getDefaultSessionDir(cwd, agentDir));
+	const sessionManager =
+		options.sessionManager ??
+		(options.noSupervisor
+			? SessionManager.inMemory(cwd)
+			: SessionManager.create(cwd, getDefaultSessionDir(cwd, agentDir)));
 
 	if (!resourceLoader) {
 		resourceLoader = new DefaultResourceLoader({
@@ -428,6 +436,7 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 		agent.state.messages = existingSession.messages;
 	}
 	const session = new AgentSession({
+		noSupervisor: options.noSupervisor,
 		agent,
 		sessionManager,
 		settingsManager,
