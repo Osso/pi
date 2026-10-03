@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
 import { withHeadlessPi } from "./headless-pi.ts";
+import type { CanonicalPyrunEvalResult } from "../../extensions/pyrun/src/runner.ts";
 
 describe("standalone worker real CLI", () => {
 	it("executes canonical Pyrun commands and ordinary Pi tools with no Supervisor or coordination", async () => {
@@ -28,7 +29,7 @@ describe("standalone worker real CLI", () => {
 					first.id,
 					fauxAssistantMessage(
 						fauxToolCall("pyrun_eval", {
-							code: "run.printf('standalone-command-ok\\n')\nprint(pi.tools.call('write', {'path': 'worker.txt', 'content': 'foreground bridge works'}))\nprint(pi.tools.call('read', {'path': 'worker.txt'}))",
+							code: "assert run.printf('standalone-command-ok\\n') == 0\nprint(pi.tools.call('write', {'path': 'worker.txt', 'content': 'foreground bridge works'}))\nprint(pi.tools.call('read', {'path': 'worker.txt'}))",
 						}),
 						{ stopReason: "toolUse" },
 					),
@@ -38,8 +39,12 @@ describe("standalone worker real CLI", () => {
 					(message) => message.role === "toolResult" && message.toolName === "pyrun_eval",
 				);
 				expect(result).toMatchObject({ isError: false });
-				expect(JSON.stringify(result)).toContain("standalone-command-ok");
-				expect(JSON.stringify(result)).toContain("foreground bridge works");
+				if (result?.role !== "toolResult") throw new Error("Missing Pyrun tool result");
+				const consoleOutput = (result.details as CanonicalPyrunEvalResult).console
+					?.map((entry) => (typeof entry === "string" ? entry : entry.message))
+					.join("\n");
+				expect(consoleOutput).toContain("standalone-command-ok");
+				expect(consoleOutput).toContain("foreground bridge works");
 				expect(readFileSync(join(agent.paths.workspaceDir, "worker.txt"), "utf8")).toBe("foreground bridge works");
 				agent.respondToLlmRequest(
 					second.id,
