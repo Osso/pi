@@ -204,8 +204,8 @@ import {
 export { type ParsedSkillBlock, parseSkillBlock } from "./skill-block.ts";
 
 import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.ts";
-import { ToolDetachRegistry } from "./tool-detach-registry.ts";
 import { STANDALONE_DISABLED_TOOL_NAMES } from "./tool-capabilities.ts";
+import { ToolDetachRegistry } from "./tool-detach-registry.ts";
 import { type BashOperations, createLocalBashOperations } from "./tools/bash.ts";
 import {
 	createEndTurnToolDefinition,

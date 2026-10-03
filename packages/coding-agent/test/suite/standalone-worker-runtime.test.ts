@@ -1,9 +1,9 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
-import { withHeadlessPi } from "./headless-pi.ts";
 import type { CanonicalPyrunEvalResult } from "../../extensions/pyrun/src/runner.ts";
+import { withHeadlessPi } from "./headless-pi.ts";
 
 describe("standalone worker real CLI", () => {
 	it("executes canonical Pyrun commands and ordinary Pi tools with no Supervisor or coordination", async () => {

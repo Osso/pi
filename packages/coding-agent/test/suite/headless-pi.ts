@@ -36,8 +36,8 @@ import type { RpcExtensionUIRequest, RpcResponse } from "../../src/modes/rpc/rpc
 import { type HeadlessSupervisorProbe, startHeadlessSupervisorProbe } from "./fixtures/headless-supervisor-probe.ts";
 
 import {
-	startStandaloneSupervisorSentinel,
 	type StandaloneSupervisorSentinel,
+	startStandaloneSupervisorSentinel,
 } from "./fixtures/standalone-supervisor-sentinel.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;

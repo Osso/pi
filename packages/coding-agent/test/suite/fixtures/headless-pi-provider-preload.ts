@@ -1,5 +1,5 @@
-import { createConnection } from "node:net";
 import { appendFileSync } from "node:fs";
+import { createConnection } from "node:net";
 import type { AssistantMessage, Context, StreamOptions } from "@earendil-works/pi-ai/compat";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 

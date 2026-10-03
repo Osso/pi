@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
-import { createSqliteDatabase } from "../../../src/core/sqlite.ts";
 import { listRuntimeMailboxMessages } from "../../../src/core/session-control-db.ts";
+import { createSqliteDatabase } from "../../../src/core/sqlite.ts";
 
 export interface StandaloneSupervisorSentinel {
 	read(): {

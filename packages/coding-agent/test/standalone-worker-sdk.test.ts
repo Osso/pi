@@ -3,10 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getModel } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createAgentSession } from "../src/core/sdk.ts";
-import { createAskSupervisorToolDefinition } from "../src/core/tools/ask-supervisor.ts";
 import { reviewGoalWithResidentSupervisor } from "../extensions/goal/src/supervisor-review.ts";
+import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
+import { createAskSupervisorToolDefinition } from "../src/core/tools/ask-supervisor.ts";
 
 describe("standalone worker SDK", () => {
 	let root: string;
