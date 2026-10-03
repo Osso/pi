@@ -70,6 +70,11 @@ export function isValidThinkingLevel(level: string): level is ThinkingLevel {
 	return VALID_THINKING_LEVELS.includes(level as ThinkingLevel);
 }
 
+const EPHEMERAL_SESSION_FLAGS = new Map<string, "noSession" | "noSupervisor">([
+	["--no-session", "noSession"],
+	["--no-supervisor", "noSupervisor"],
+]);
+
 export function parseArgs(args: string[]): Args {
 	const result: Args = {
 		messages: [],
@@ -80,6 +85,7 @@ export function parseArgs(args: string[]): Args {
 
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i];
+		const ephemeralSessionFlag = EPHEMERAL_SESSION_FLAGS.get(arg);
 
 		if (arg === "--help" || arg === "-h") {
 			result.help = true;
@@ -111,10 +117,8 @@ export function parseArgs(args: string[]): Args {
 			} else {
 				result.diagnostics.push({ type: "error", message: "--name requires a value" });
 			}
-		} else if (arg === "--no-session") {
-			result.noSession = true;
-		} else if (arg === "--no-supervisor") {
-			result.noSupervisor = true;
+		} else if (ephemeralSessionFlag !== undefined) {
+			result[ephemeralSessionFlag] = true;
 		} else if (arg === "--session" && i + 1 < args.length) {
 			result.session = args[++i];
 		} else if (arg === "--session-id" && i + 1 < args.length) {

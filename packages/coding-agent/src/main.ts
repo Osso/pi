@@ -807,6 +807,11 @@ function createInteractiveOrchestrationControls(
 	};
 }
 
+function readStartupControlMessage(appMode: AppMode, controlDbPath: string, noSupervisor: boolean | undefined) {
+	if (noSupervisor || appMode !== "interactive") return undefined;
+	return claimLatestIncomingMessage(controlDbPath);
+}
+
 export async function main(args: string[], options?: MainOptions) {
 	// Validate worker persistence before resident-console dispatch or runtime initialization.
 	const initialArgs = parseArgs(args);
@@ -1023,8 +1028,7 @@ export async function main(args: string[], options?: MainOptions) {
 		takeOverStdout();
 	}
 	time("createSessionManager");
-	const controlMessage =
-		appMode === "interactive" && !parsed.noSupervisor ? claimLatestIncomingMessage(controlDbPath) : undefined;
+	const controlMessage = readStartupControlMessage(appMode, controlDbPath, parsed.noSupervisor);
 
 	const trustStore = new ProjectTrustStore(agentDir);
 	const sessionCwd = sessionManager.getCwd();
