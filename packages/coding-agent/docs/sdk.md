@@ -736,6 +736,8 @@ const { session } = await createAgentSession({ resourceLoader: loader });
 
 Sessions use a tree structure with `id`/`parentId` linking, enabling in-place branching.
 
+For a nonpersistent worker without Supervisor or orchestration, use `createAgentSession({ noSupervisor: true })`. An in-memory session manager alone does not select this mode. Runtime hosts must also pass `noSupervisor: true` to `createAgentSessionRuntime` and retain it in their runtime factory; see the [standalone worker contract](../../../docs/specs/standalone-worker.md).
+
 ```typescript
 import {
   type CreateAgentSessionRuntimeFactory,

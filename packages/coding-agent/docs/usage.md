@@ -217,7 +217,8 @@ cat README.md | pi -p "Summarize this text"
 | `--session <path\|id>` | Use a specific session file or partial UUID |
 | `--fork <path\|id>` | Fork a session file or partial UUID into a new session |
 | `--session-dir <dir>` | Custom session storage directory |
-| `--no-session` | Ephemeral mode; do not save |
+| `--no-session` | Ephemeral mode; do not save; does not disable Supervisor |
+| `--no-supervisor` | Standalone worker; requires `--no-session`. See [worker contract](../../../docs/specs/standalone-worker.md) |
 | `--name <name>`, `-n <name>` | Set session display name at startup |
 
 ### Tool Options

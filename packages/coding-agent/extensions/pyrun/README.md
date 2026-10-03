@@ -14,6 +14,8 @@ tool, contributes model-facing instructions, and delegates evaluation to a Pyrun
 - pyrun-mcp is owned by Pyrun. Pi must not publish a duplicate `pyrun-mcp` binary or
   reimplement the MCP server.
 
+Foreground Pyrun does not require a persisted main session. [Standalone workers](../../../../docs/specs/standalone-worker.md) use the same canonical JSONL runner without Supervisor or durable backgrounding; orchestration bridge APIs are unavailable. Ordinary session behavior is unchanged.
+
 ## Mailbox API Boundary
 
 `pi.messages.send` and `pi.messages.enqueue` remain programmatic raw literal-body transport

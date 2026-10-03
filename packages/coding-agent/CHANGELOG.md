@@ -61,6 +61,7 @@
 
 ### Added
 
+- Added [standalone workers](../../docs/specs/standalone-worker.md) via `--no-supervisor --no-session` and SDK `noSupervisor: true`, with canonical foreground Pyrun and no Supervisor or multi-agent orchestration.
 - Added interactive custom-entry renderer options for session identity, scoped same-height redraw attempts without generic fallback, and component-lifetime cleanup registration.
 - Added automatic session naming for persisted never-named main sessions in interactive TUI and RPC modes after a real-user agent turn; naming runs asynchronously, manual names win, and failures leave sessions unnamed.
 - Added optional historical lifecycle tracing to `agent_viewer`: `storeSessionId` with `trace: true` returns persisted runtime ownership plus timestamp-ordered selected-agent, descendant admission/current-state, tree terminal-outbox, child `end_turn`, and parent `agent_start`/`agent_complete` evidence without mutating state.
