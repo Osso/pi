@@ -281,7 +281,13 @@ const AGENT_BRIDGE_TOOLS: Readonly<Record<string, string>> = {
 
 export function createPyrunPiDispatcher(pi: ExtensionAPI, options: PyrunExtensionOptions): PyrunPiRequestDispatcher {
 	return async (request, ctx, signal, activeToolCallId) => {
-		if (ctx.noSupervisor && (request.method.startsWith("agents.") || request.method === "messages.send" || request.method === "sessions.resume")) throw new Error(`Pi API ${request.method} is unavailable in standalone worker mode`);
+		const requiresSupervisor =
+			request.method.startsWith("agents.") ||
+			request.method === "messages.send" ||
+			request.method === "sessions.resume";
+		if (ctx.noSupervisor && requiresSupervisor) {
+			throw new Error(`Pi API ${request.method} is unavailable in standalone worker mode`);
+		}
 		const builtIn = await dispatchBuiltinPyrunRequest(request, pi, ctx, signal, activeToolCallId);
 		if (builtIn.handled) return builtIn.result;
 		const requiredTool = AGENT_BRIDGE_TOOLS[request.method];
