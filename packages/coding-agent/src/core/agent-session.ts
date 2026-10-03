@@ -3878,6 +3878,7 @@ export class AgentSession {
 		const sourceHint = await this.getCompactionSourceHint("manual", false);
 		this._emit({ type: "compaction_start", reason: "manual", sourceHint });
 		const startedAt = Date.now();
+		let saved: { result: CompactionResult; willRetry: boolean };
 
 		try {
 			if (!this.model) {
@@ -4044,11 +4045,7 @@ export class AgentSession {
 				aborted: false,
 				willRetry,
 			});
-			if (willRetry) {
-				this._reconnectToAgent();
-				await this._continueAfterManualCompaction(wasRunningAgentTurn, releaseTurnStart);
-			}
-			return compactionResult;
+			saved = { result: compactionResult, willRetry };
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			const aborted = message === "Compaction cancelled" || (error instanceof Error && error.name === "AbortError");
@@ -4067,6 +4064,11 @@ export class AgentSession {
 			}
 			this._reconnectToAgent();
 		}
+		// The compaction is saved; errors from the resumed turn are turn errors, not compaction failures.
+		if (saved.willRetry) {
+			await this._continueAfterManualCompaction(wasRunningAgentTurn, releaseTurnStart);
+		}
+		return saved.result;
 	}
 
 	/**

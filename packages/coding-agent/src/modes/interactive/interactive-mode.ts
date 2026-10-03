@@ -7722,10 +7722,17 @@ export class InteractiveMode {
 		}
 		this.statusContainer.clear();
 
+		let saved = false;
+		const unsubscribe = this.session.subscribe((event) => {
+			if (event.type === "compaction_end" && event.result) saved = true;
+		});
 		try {
 			await this.session.compact(customInstructions);
-		} catch {
-			// Ignore, will be emitted as an event
+		} catch (error) {
+			// Compaction failures are reported by compaction_end; a saved compaction can still fail its resumed turn.
+			if (saved) this.showError(error instanceof Error ? error.message : String(error));
+		} finally {
+			unsubscribe();
 		}
 	}
 

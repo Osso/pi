@@ -36,6 +36,9 @@ works is described in [compaction](../../packages/coding-agent/docs/compaction.m
   started its resumed run, it defers while that run is streaming without consuming the shared
   last assistant message or queued follow-up. The resumed turn owns post-processing, delivers
   queued input once, and the original caller settles without starting a concurrent continuation.
+- [x] Errors from the resumed turn after a saved manual compaction (e.g. the main-session thinking
+  deadline) do not emit a failed `compaction_end`; `compact()` rejects with the turn error and
+  interactive `/compact` shows it as an ordinary error.
 - [x] Pre-prompt compaction checks (a new user prompt is being submitted) never resume a
   truncated turn; the incoming prompt supersedes it (`willRetry: false`).
 - [x] At most one length-recovery attempt runs per truncated turn: a second consecutive
@@ -100,6 +103,10 @@ works is described in [compaction](../../packages/coding-agent/docs/compaction.m
   - covers both `prompt` and `continue` entry points when manual compaction resumes an aborted
     tool turn and the original post-run path observes a queued follow-up; requires the original
     to settle without a busy error while the resumed turn owns delivery.
+- `packages/coding-agent/test/suite/regressions/compaction-thinking-timeout.test.ts`
+  - resumed-turn thinking timeout leaves one successful `compaction_end` and the saved compaction entry.
+- `packages/coding-agent/test/interactive-mode-compact-command.test.ts`
+  - `/compact` shows a resumed-turn error only after a saved compaction.
 - `packages/coding-agent/test/suite/compaction-wait-agent-steering.test.ts`
   - a live child survives supervisor restart while post-compaction steering is accepted and delivered.
 
