@@ -619,7 +619,8 @@ export default function pyrunExtension(pi: ExtensionAPI, options: PyrunExtension
 			const typedOnUpdate = onUpdate as
 				| ((partialResult: AgentToolResult<CanonicalPyrunEvalResult | CanonicalPyrunProgressUpdate>) => void)
 				| undefined;
-			if (!store || !detachRegistry) {
+			// Detaching needs a persisted session to own the background job; `--no-session` runs stay foreground.
+			if (!store?.getPersistenceTarget() || !detachRegistry) {
 				return activeExecutor.evaluate(params, ctx, typedOnUpdate, signal, toolCallId);
 			}
 			const agentId = ctx.toolExecutionAgentId;

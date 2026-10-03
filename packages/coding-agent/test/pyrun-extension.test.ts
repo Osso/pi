@@ -1238,6 +1238,23 @@ for await (const line of createInterface({ input: process.stdin })) {
 		expect(text).toContain("hello");
 	});
 
+	it("evaluates in the foreground when the session store is not persisted", async () => {
+		const harness = createPyrunHarness();
+
+		const result = await harness.evaluate({ code: "print('hello')\n1 + 1" }, undefined, undefined, {
+			multiAgentStore: new MultiAgentStore(),
+			toolDetachRegistry: new ToolDetachRegistry(),
+			toolExecutionStartedAt: Date.now(),
+		});
+
+		expect(result.details).toEqual({
+			console: ["hello"],
+			executed: "print('hello')\n1 + 1",
+			type: "completed",
+			value: 2,
+		});
+	});
+
 	it("records detached Pyrun result and completion notification", async () => {
 		const store = new MultiAgentStore();
 		const detachRegistry = new ToolDetachRegistry();
