@@ -293,7 +293,10 @@ function isAllowedSessionTool(
 	name: string,
 	allowedToolNames: Set<string> | undefined,
 	excludedToolNames: Set<string> | undefined,
+	noSupervisor: boolean,
 ): boolean {
+	const requiresSupervisor = STANDALONE_DISABLED_TOOL_NAMES.has(name);
+	if (noSupervisor && requiresSupervisor) return false;
 	if (name === "end_turn") return true;
 	return (!allowedToolNames || allowedToolNames.has(name)) && !excludedToolNames?.has(name);
 }
@@ -4970,8 +4973,7 @@ export class AgentSession {
 		const allowedToolNames = this._allowedToolNames;
 		const excludedToolNames = this._excludedToolNames;
 		const isAllowedTool = (name: string): boolean =>
-			(!this.noSupervisor || !STANDALONE_DISABLED_TOOL_NAMES.has(name)) &&
-			isAllowedSessionTool(name, allowedToolNames, excludedToolNames);
+			isAllowedSessionTool(name, allowedToolNames, excludedToolNames, this.noSupervisor);
 
 		const registeredTools = this._extensionRunner.getAllRegisteredTools();
 		const allCustomTools = [

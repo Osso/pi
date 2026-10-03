@@ -268,26 +268,33 @@ export function parseArgs(args: string[]): Args {
 		}
 	}
 
-	if (result.noSupervisor) {
-		if (!result.noSession)
-			result.diagnostics.push({ type: "error", message: "--no-supervisor requires --no-session" });
-		const incompatible = [
-			result.session !== undefined ? "--session" : undefined,
-			result.sessionId !== undefined ? "--session-id" : undefined,
-			result.sessionDir !== undefined ? "--session-dir" : undefined,
-			result.fork !== undefined ? "--fork" : undefined,
-			result.resume ? "--resume" : undefined,
-			result.continue ? "--continue" : undefined,
-			result.name !== undefined ? "--name" : undefined,
-			result.export !== undefined ? "--export" : undefined,
-		].filter((flag) => flag !== undefined);
-		if (incompatible.length > 0)
-			result.diagnostics.push({
-				type: "error",
-				message: `--no-supervisor cannot be combined with ${incompatible.join(", ")}`,
-			});
-	}
+	result.diagnostics.push(...collectStandaloneWorkerDiagnostics(result));
 	return result;
+}
+
+function collectStandaloneWorkerDiagnostics(parsed: Args): Args["diagnostics"] {
+	if (!parsed.noSupervisor) return [];
+	const diagnostics: Args["diagnostics"] = [];
+	if (!parsed.noSession) {
+		diagnostics.push({ type: "error", message: "--no-supervisor requires --no-session" });
+	}
+	const incompatible = [
+		parsed.session !== undefined ? "--session" : undefined,
+		parsed.sessionId !== undefined ? "--session-id" : undefined,
+		parsed.sessionDir !== undefined ? "--session-dir" : undefined,
+		parsed.fork !== undefined ? "--fork" : undefined,
+		parsed.resume ? "--resume" : undefined,
+		parsed.continue ? "--continue" : undefined,
+		parsed.name !== undefined ? "--name" : undefined,
+		parsed.export !== undefined ? "--export" : undefined,
+	].filter((flag) => flag !== undefined);
+	if (incompatible.length > 0) {
+		diagnostics.push({
+			type: "error",
+			message: `--no-supervisor cannot be combined with ${incompatible.join(", ")}`,
+		});
+	}
+	return diagnostics;
 }
 
 export function printHelp(extensionFlags?: ExtensionFlag[]): void {

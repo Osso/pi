@@ -228,6 +228,11 @@ function restorePersistedSessionSettings(sessionManager: SessionManager, setting
 	return persistedSettings;
 }
 
+function createDefaultSessionManager(cwd: string, agentDir: string, noSupervisor: boolean | undefined): SessionManager {
+	if (noSupervisor) return SessionManager.inMemory(cwd);
+	return SessionManager.create(cwd, getDefaultSessionDir(cwd, agentDir));
+}
+
 async function createAgentSessionInternal(options: CreateAgentSessionOptions): Promise<CreateAgentSessionResult> {
 	assertStandaloneWorkerOptions(options);
 	const cwd = resolvePath(options.cwd ?? options.sessionManager?.getCwd() ?? process.cwd());
@@ -241,11 +246,7 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 	const modelRegistry = options.modelRegistry ?? ModelRegistry.create(authStorage, modelsPath);
 
 	const settingsManager = options.settingsManager ?? SettingsManager.create(cwd, agentDir);
-	const sessionManager =
-		options.sessionManager ??
-		(options.noSupervisor
-			? SessionManager.inMemory(cwd)
-			: SessionManager.create(cwd, getDefaultSessionDir(cwd, agentDir)));
+	const sessionManager = options.sessionManager ?? createDefaultSessionManager(cwd, agentDir, options.noSupervisor);
 
 	if (!resourceLoader) {
 		resourceLoader = new DefaultResourceLoader({

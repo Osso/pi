@@ -119,7 +119,10 @@ import { printTimings, resetTimings, time } from "./core/timings.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
 import { runMigrations, showDeprecationWarnings } from "./migrations.ts";
 import { InteractiveMode, runPrintMode, runRpcMode } from "./modes/index.ts";
-import { bindInteractiveModeSessionMutationTargetResolver } from "./modes/interactive/interactive-mode.ts";
+import {
+	bindInteractiveModeSessionMutationTargetResolver,
+	type InteractiveModeOptions,
+} from "./modes/interactive/interactive-mode.ts";
 import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
 import { runSupervisorService } from "./supervisor/main.ts";
@@ -725,20 +728,89 @@ function createFirstPartyExtensionFactories(
 	];
 }
 
+function rejectInvalidStandaloneWorkerStartup(args: string[], parsed: Args): void {
+	if (!parsed.noSupervisor) return;
+	const requestsResidentConsole = args.includes("--supervisor") || args.includes("--architect");
+	const hasArgumentErrors = parsed.diagnostics.some((diagnostic) => diagnostic.type === "error");
+	if (hasArgumentErrors || requestsResidentConsole) {
+		reportDiagnostics(parsed.diagnostics);
+		if (requestsResidentConsole) {
+			console.error("Error: resident consoles are unavailable in standalone worker mode");
+		}
+		process.exit(1);
+	}
+}
+
+async function applyStartupSelfRestartHandoff(parsed: Args) {
+	const handoff = parsed.noSupervisor ? undefined : consumeSelfRestartRequest();
+	applySelfRestartRequest(parsed, handoff);
+	await waitForSelfRestartParentExit(handoff);
+	if (handoff?.oldPid === process.pid) {
+		prepareControlDbForSelfRestart(getControlDbPath(), process.pid);
+	}
+	return handoff;
+}
+
+function createMainSessionCoordination(
+	noSupervisor: boolean | undefined,
+	selectAgentView: FirstPartyOrchestration["selectAgentView"],
+) {
+	if (noSupervisor) return undefined;
+	const store = new MultiAgentStore();
+	const runtimeHandles = createMultiAgentRuntimeHandles();
+	return {
+		store,
+		runtimeHandles,
+		selectAgentView,
+		resolveMutationTarget: () => resolveSelectedSessionMutationTarget(store, runtimeHandles),
+		wakeWaitAgentsFromSharedChannel: (prompt: string) => wakeWaitAgentsAfterCoordination(runtimeHandles, prompt),
+	};
+}
+
+function createMainSessionExecutionOptions(
+	noSupervisor: boolean | undefined,
+): Pick<CreateAgentSessionOptions, "noSupervisor" | "multiAgentRuntimeRole" | "multiAgentExecutionCapability"> {
+	if (noSupervisor) {
+		return { noSupervisor, multiAgentRuntimeRole: undefined, multiAgentExecutionCapability: undefined };
+	}
+	return {
+		noSupervisor,
+		multiAgentRuntimeRole: "orchestrator",
+		multiAgentExecutionCapability: createMultiAgentExecutionCapability(),
+	};
+}
+
+function createInteractiveOrchestrationControls(
+	orchestration: FirstPartyOrchestration | undefined,
+	controlDbPath: string | undefined,
+	getSessionId: () => string,
+): Pick<InteractiveModeOptions, "wakeWaitAgentsAfterSteering" | "steerMultiAgent" | "cancelMultiAgent"> {
+	if (!orchestration) {
+		return {
+			wakeWaitAgentsAfterSteering: undefined,
+			steerMultiAgent: async () => ({ error: "Agent steering is unavailable", ok: false }),
+			cancelMultiAgent: undefined,
+		};
+	}
+	const { store, runtimeHandles } = orchestration;
+	return {
+		wakeWaitAgentsAfterSteering: () => wakeWaitAgentsAfterSteering(runtimeHandles),
+		steerMultiAgent: async (agentId, message) => {
+			if (!controlDbPath) return { error: "Agent steering is unavailable", ok: false };
+			return requestInteractiveAgentSteering(store, runtimeHandles, agentId, message, {
+				actorAgentId: null,
+				controlDbPath,
+				sessionId: getSessionId(),
+			});
+		},
+		cancelMultiAgent: (agentId) => cancelOwnedAgentRuntime(store, runtimeHandles, agentId, "cancelled interactively"),
+	};
+}
+
 export async function main(args: string[], options?: MainOptions) {
 	// Validate worker persistence before resident-console dispatch or runtime initialization.
 	const initialArgs = parseArgs(args);
-	if (
-		initialArgs.noSupervisor &&
-		(initialArgs.diagnostics.some((d) => d.type === "error") ||
-			args.includes("--supervisor") ||
-			args.includes("--architect"))
-	) {
-		reportDiagnostics(initialArgs.diagnostics);
-		if (args.includes("--supervisor") || args.includes("--architect"))
-			console.error("Error: resident consoles are unavailable in standalone worker mode");
-		process.exit(1);
-	}
+	rejectInvalidStandaloneWorkerStartup(args, initialArgs);
 	const residentConsoleCommand = parseResidentConsoleArgs(args);
 	if (residentConsoleCommand) {
 		await runResidentConsoleCommand(residentConsoleCommand);
@@ -805,22 +877,14 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 
 	const parsed = initialArgs;
-	const selfRestartHandoff = parsed.noSupervisor ? undefined : consumeSelfRestartRequest();
-	applySelfRestartRequest(parsed, selfRestartHandoff);
-	await waitForSelfRestartParentExit(selfRestartHandoff);
-	if (selfRestartHandoff?.oldPid === process.pid) {
-		prepareControlDbForSelfRestart(getControlDbPath(), process.pid);
-	}
-	const firstPartyMultiAgentStore = parsed.noSupervisor ? undefined : new MultiAgentStore();
-	const firstPartyMultiAgentRuntimeHandles = parsed.noSupervisor ? undefined : createMultiAgentRuntimeHandles();
+	const selfRestartHandoff = await applyStartupSelfRestartHandoff(parsed);
 	let interactiveAgentViewSelector: ((agentId: string) => boolean) | undefined;
-	const resolveFirstPartySessionMutationTarget = () =>
-		firstPartyMultiAgentStore && firstPartyMultiAgentRuntimeHandles
-			? resolveSelectedSessionMutationTarget(firstPartyMultiAgentStore, firstPartyMultiAgentRuntimeHandles)
-			: undefined;
-	const wakeWaitAgentsFromSharedChannel = firstPartyMultiAgentRuntimeHandles
-		? (prompt: string) => wakeWaitAgentsAfterCoordination(firstPartyMultiAgentRuntimeHandles, prompt)
-		: undefined;
+	const coordination = createMainSessionCoordination(parsed.noSupervisor, (agentId) =>
+		interactiveAgentViewSelector?.(agentId),
+	);
+	const firstPartyMultiAgentStore = coordination?.store;
+	const resolveFirstPartySessionMutationTarget = () => coordination?.resolveMutationTarget();
+	const wakeWaitAgentsFromSharedChannel = coordination?.wakeWaitAgentsFromSharedChannel;
 	let extensionFactories: ExtensionFactory[] = [];
 	let debugRepl: DebugReplServer | undefined;
 	const fastModeAuthority: FastModeAuthority = { serviceTier: undefined };
@@ -831,13 +895,7 @@ export async function main(args: string[], options?: MainOptions) {
 			return debugRepl;
 		},
 		fastModeAuthority,
-		firstPartyMultiAgentStore && firstPartyMultiAgentRuntimeHandles
-			? {
-					store: firstPartyMultiAgentStore,
-					runtimeHandles: firstPartyMultiAgentRuntimeHandles,
-					selectAgentView: (agentId) => interactiveAgentViewSelector?.(agentId),
-				}
-			: undefined,
+		coordination,
 	);
 	extensionFactories = parsed.noExtensions
 		? (options?.extensionFactories ?? [])
@@ -1097,9 +1155,7 @@ export async function main(args: string[], options?: MainOptions) {
 			settingsManager: services.settingsManager,
 			modelRegistry: services.modelRegistry,
 			resourceLoader: services.resourceLoader,
-			noSupervisor: parsed.noSupervisor,
-			multiAgentRuntimeRole: parsed.noSupervisor ? undefined : "orchestrator",
-			multiAgentExecutionCapability: parsed.noSupervisor ? undefined : createMultiAgentExecutionCapability(),
+			...createMainSessionExecutionOptions(parsed.noSupervisor),
 			sessionManager,
 			sessionStartEvent,
 			model: sessionOptions.model,
@@ -1230,30 +1286,7 @@ export async function main(args: string[], options?: MainOptions) {
 			controlMessage,
 			controlDbPath,
 			multiAgentStore: firstPartyMultiAgentStore,
-			wakeWaitAgentsAfterSteering: firstPartyMultiAgentRuntimeHandles
-				? () => wakeWaitAgentsAfterSteering(firstPartyMultiAgentRuntimeHandles)
-				: undefined,
-			steerMultiAgent: async (agentId, message) => {
-				if (!controlDbPath || !firstPartyMultiAgentStore || !firstPartyMultiAgentRuntimeHandles)
-					return { error: "Agent steering is unavailable", ok: false };
-				return requestInteractiveAgentSteering(
-					firstPartyMultiAgentStore,
-					firstPartyMultiAgentRuntimeHandles,
-					agentId,
-					message,
-					{ actorAgentId: null, controlDbPath, sessionId: runtime.session.sessionId },
-				);
-			},
-			cancelMultiAgent:
-				firstPartyMultiAgentStore && firstPartyMultiAgentRuntimeHandles
-					? (agentId) =>
-							cancelOwnedAgentRuntime(
-								firstPartyMultiAgentStore,
-								firstPartyMultiAgentRuntimeHandles,
-								agentId,
-								"cancelled interactively",
-							)
-					: undefined,
+			...createInteractiveOrchestrationControls(coordination, controlDbPath, () => runtime.session.sessionId),
 			verbose: parsed.verbose,
 		});
 		bindInteractiveModeSessionMutationTargetResolver(interactiveMode, resolveFirstPartySessionMutationTarget);

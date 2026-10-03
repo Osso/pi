@@ -84,14 +84,17 @@ describe("standalone worker SDK", () => {
 		});
 		try {
 			session.settingsManager.setApprovalPreset("llm-approved-deny");
-			const write = session.agent.state.tools.find((tool) => tool.name === "write")!;
+			const write = session.agent.state.tools.find((tool) => tool.name === "write");
+			if (!write) throw new Error("SDK fixture requires an active write tool");
+			const beforeToolCall = session.agent.beforeToolCall;
+			if (!beforeToolCall) throw new Error("SDK fixture requires the tool approval hook");
 			const toolCall = {
 				id: "blocked-write",
 				type: "toolCall" as const,
 				name: "write",
 				arguments: { path: "blocked.txt", content: "no" },
 			};
-			const response = await session.agent.beforeToolCall!({
+			const response = await beforeToolCall({
 				toolCall,
 				args: toolCall.arguments,
 				context: { messages: [], systemPrompt: "", tools: [write] },
