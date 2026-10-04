@@ -82,6 +82,29 @@ describe("Anthropic forceAdaptiveThinking compat override", () => {
 		expect(payload.output_config).toEqual({ effort: "medium" });
 	});
 
+	it.each(["claude-opus-5", "claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1"] as const)(
+		"lists %s as an adaptive-thinking model without temperature",
+		async (id) => {
+			const model = getModel("anthropic", id);
+			const payload = (await capturePayload(model, {
+				reasoning: "high",
+				temperature: 0.5,
+			})) as AnthropicThinkingPayload & {
+				temperature?: number;
+			};
+
+			expect(payload.thinking).toEqual({ type: "adaptive", display: "summarized" });
+			expect(payload.output_config).toEqual({ effort: "high" });
+			if (id !== "claude-fable-5-1") expect(payload.temperature).toBeUndefined();
+		},
+	);
+
+	it.each(["claude-opus-5-5", "claude-sonnet-5-5"] as const)("sends native max effort for %s", async (id) => {
+		const payload = await capturePayload(getModel("anthropic", id), { reasoning: "max" });
+
+		expect(payload.output_config).toEqual({ effort: "max" });
+	});
+
 	it("uses adaptive thinking with native xhigh effort for Claude Fable 5", async () => {
 		const payload = await capturePayload(getModel("anthropic", "claude-fable-5"), { reasoning: "xhigh" });
 
