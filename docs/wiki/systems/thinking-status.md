@@ -10,7 +10,11 @@ Tool-wait messages take precedence while tools are active. Their live elapsed ti
 
 ## Thinking-phase deadline
 
-Main and child `AgentSession` runtimes start a 15-minute deadline at `agent_start`. Entering tool gates, approval review, or an interactive approval prompt clears it before waiting; the final active tool finishing starts a fresh deadline for the next model phase. Expiry aborts the active turn and surfaces a main- or child-specific timeout error. Observer runtimes are excluded. Approval waits and tool execution are uncapped, and the deadline applies to each model-thinking phase rather than the total request or turn.
+Main and spawned or attached child `AgentSession` runtimes use a default 20-minute deadline for each model-thinking phase. Entering tool gates, approval review, or an interactive approval prompt clears it before waiting; the final active tool finishing starts a fresh deadline for the next model phase. Observer runtimes are excluded. Approval waits and tool execution are uncapped; this is not a total request or turn timeout.
+
+The selected policy keeps the first watchdog abort and its automatic continuation inside the same prompt or continuation dispatch promise. One continuation allowance belongs to that explicit operation and is shared through internal continuations, rather than reset at each `agent_start`, tool, or fresh phase deadline. A second watchdog timeout stops and surfaces the main- or child-specific timeout error. Spawned and attached child dispatches remain owned across the first timeout; exhaustion finalizes the child as failed. A new explicit operation may receive a new allowance.
+
+Manual cancellation never uses the watchdog allowance, including during the handoff to continuation. Queued steering and follow-up input retain normal delivery and precedence; recovery must not drop input or start a duplicate dispatch. This is core watchdog recovery, not goal-extension continuation or provider fallback. Implementation and regression proof for the changed policy remain pending in the [contract](../../specs/thinking-status.md#known-gaps-current-cycle).
 
 ## Source and coverage
 
