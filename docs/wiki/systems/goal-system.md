@@ -73,6 +73,13 @@ notifications, and footer status; legacy paused state without a reason shows
 do not inject prompt context or continue automatically until the resume action
 removes both pause fields. Completion evidence is never inferred automatically.
 
+All `manage_goal` actions (`status`, `set`, `pause`, `resume`, `clear`, `complete`)
+return useful success, no-op, or error results without duplicate human-facing
+`ctx.ui.notify` acknowledgements or errors. `status` is read-only and does not
+start continuation. `/goal` commands retain visible acknowledgements and errors.
+Footer updates and autonomous Supervisor waiting, failure, and decision status
+feedback remain unchanged; this separation does not alter continuation scheduling.
+
 `manage_goal set` is reviewed by the resident Supervisor before state changes. The
 request includes the current objective when one exists and the proposed objective.
 The Supervisor reconciles current and proposed objectives against explicit user
