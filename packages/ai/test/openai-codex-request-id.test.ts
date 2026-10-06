@@ -23,7 +23,7 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-async function assertError(transport: "sse" | "websocket", expected: string) {
+async function assertError(transport: "sse" | "websocket" | "auto", expected: string, maxRetries = 0) {
 	const events = stream(
 		model,
 		{ messages: [{ role: "user", content: "hello", timestamp: 0 }] },
@@ -31,7 +31,7 @@ async function assertError(transport: "sse" | "websocket", expected: string) {
 			apiKey,
 			transport,
 			sessionId: "not-a-server-request-id",
-			maxRetries: 0,
+			maxRetries,
 		},
 	);
 	const emitted: string[] = [];
@@ -57,6 +57,36 @@ function mockWebSocket(payload: Record<string, unknown>) {
 }
 
 describe("Codex support request IDs", () => {
+	it.each(["websocket", "auto"] as const)(
+		"preserves pre-open Expected-101 errors without retry or SSE fallback (%s)",
+		async (transport) => {
+			const handshakeError =
+				"WebSocket connection to 'wss://chatgpt.com/backend-api/codex/responses' failed: Expected 101 status code";
+			let connections = 0;
+			const fetchMock = vi.fn();
+			const send = vi.fn();
+			class Socket extends EventTarget {
+				constructor() {
+					super();
+					connections++;
+					queueMicrotask(() => {
+						this.dispatchEvent(Object.assign(new Event("error"), { message: handshakeError }));
+					});
+				}
+				send = send;
+				close() {}
+			}
+			vi.stubGlobal("WebSocket", Socket);
+			vi.stubGlobal("fetch", fetchMock);
+
+			await assertError(transport, handshakeError, 2);
+
+			expect(connections).toBe(1);
+			expect(send).not.toHaveBeenCalled();
+			expect(fetchMock).not.toHaveBeenCalled();
+		},
+	);
+
 	it.each([undefined, "req_http"])("preserves HTTP errors with header %s", async (id) => {
 		vi.stubGlobal(
 			"fetch",

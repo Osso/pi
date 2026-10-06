@@ -21,7 +21,8 @@ The OpenAI Codex Responses adapter supports explicit SSE and WebSocket transport
 ### Shared retry classification
 
 - [x] Classify the exact transient Codex error `Unable to verify Daybreak Blue access. Please try again.` as retryable through the shared AI retry classifier.
-- [x] Retain existing retry enablement, budget, and backoff; permanent access denial remains terminal. This classification neither switches providers nor bypasses access checks.
+- [x] Classify `WebSocket connection to 'wss://chatgpt.com/backend-api/codex/responses' failed: Expected 101 status code` through the shared AI retry classifier, using existing session retry enablement, budget, and backoff without a new provider retry loop or SSE fallback.
+- [x] Retain existing retry enablement, budget, and backoff; known permanent errors remain terminal. This classification neither switches providers nor bypasses access checks.
 
 ### Error support IDs
 
@@ -38,7 +39,7 @@ The OpenAI Codex Responses adapter supports explicit SSE and WebSocket transport
 
 - `packages/ai/src/api/openai-codex-responses.ts` — selects the Codex transport and processes SSE or WebSocket streams.
 - `packages/ai/src/types.ts` — defines shared stream transport options and retry events.
-- `packages/ai/src/utils/retry.ts` — classifies shared AI transient errors, including the exact Codex access-verification error above.
+- `packages/ai/src/utils/retry.ts` — classifies shared AI transient errors, including the Codex access-verification and handshake errors above.
 
 ## Tests asserting this spec
 
@@ -54,4 +55,5 @@ None.
 ## Out of scope
 
 - Changing explicit SSE request, timeout, or retry behavior.
-- Adding WebSocket retry policies beyond the existing connection-limit reconnect.
+- Adding provider-specific WebSocket retry policies beyond the existing connection-limit reconnect; shared classification uses existing session retries.
+- Guaranteeing handshake recovery: the reported runtime message hides the actual HTTP rejection reason, so retries remain bounded.

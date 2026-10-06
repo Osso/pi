@@ -92,6 +92,25 @@ describe("provider retry classification", () => {
 		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(false);
 	});
 
+	it.each([
+		"WebSocket connection to 'wss://chatgpt.com/backend-api/codex/responses' failed: Expected 101 status code",
+		"Error: WebSocket connection to 'wss://proxy.example.test/codex/responses?session=abc' failed: Expected 101 status code",
+		"error: websocket connection to 'wss://example.test/responses' failed: expected 101 status\t code",
+	])("retries runtime Expected-101 handshake failures: %s", (errorMessage) => {
+		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(true);
+	});
+
+	it.each([
+		"WebSocket connection to 'wss://chatgpt.com/backend-api/codex/responses' failed: 401 Unauthorized",
+		"Error: WebSocket connection to 'wss://chatgpt.com/backend-api/codex/responses' failed: 403 Forbidden",
+		"WebSocket connection to 'wss://example.test/responses' failed: 400 Bad Request",
+		"WebSocket connection to 'wss://example.test/responses' failed: invalid_api_key",
+		"WebSocket connection to 'wss://example.test/responses' failed: Expected 101 status code; received 403 Forbidden",
+		"Expected 101 status code",
+	])("does not broaden handshake retries to permanent or unrelated failures: %s", (errorMessage) => {
+		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(false);
+	});
+
 	it("does not retry upstream request buffer limit overflow errors", () => {
 		expect(
 			isRetryableAssistantError(

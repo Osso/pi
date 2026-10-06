@@ -13,6 +13,7 @@
 
 ### Fixed
 
+- Fixed Codex WebSocket `Expected 101 status code` handshake failures bypassing existing bounded session retries.
 - Fixed shared AI retry classification for the exact transient Codex error `Unable to verify Daybreak Blue access. Please try again.`; existing retry enablement, budget, and backoff remain unchanged, and permanent access denial remains terminal.
 - Fixed `getOAuthApiKey` refresh failures to include the underlying provider error (for example OpenAI Codex `refresh_token_invalidated`) instead of a bare `Failed to refresh OAuth token` message.
 - Fixed OpenAI Codex HTTP error responses and streamed API `error`/`response.failed` events to preserve available OpenAI server request IDs in `errorMessage` for support, without presenting Pi client or session IDs as server IDs.

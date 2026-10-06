@@ -68,6 +68,7 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	// WebSocket transports can report close/error text instead of HTTP/fetch text.
 	"websocket.?closed",
 	"websocket.?error",
+	"^(?:Error:\\s*)?WebSocket connection to 'wss://[^'\\s]+' failed: Expected 101 status\\s+code$",
 
 	// Premature or incomplete stream endings from SDKs and transports. Anthropic can throw
 	// "stream ended without ..." and "Anthropic stream ended before message_stop"
