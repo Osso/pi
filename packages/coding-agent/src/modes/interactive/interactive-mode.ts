@@ -1120,7 +1120,12 @@ export class InteractiveMode {
 	 */
 	async run(): Promise<void> {
 		await this.init();
-		await this.continueInterruptedResumedSession();
+		try {
+			await this.continueInterruptedResumedSession();
+		} catch (error: unknown) {
+			const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+			this.showError(errorMessage);
+		}
 
 		// Check tmux keyboard setup asynchronously
 		this.checkTmuxKeyboardSetup().then((warning) => {

@@ -18,7 +18,7 @@ Session lifecycle hooks let an extension observe and, at key points, cancel or r
 
 - [x] `ExtensionAPI.requestResumeContinuation()` lets an active extension request one continuation after session startup or resume; requests are coalesced into one pending flag and consumed/cleared once by InteractiveMode or RPC mode before startup/session-switch continuation.
 
-- [ ] A failed interactive startup model continuation visibly reports the error and enters the normal input loop with the same session identity; built-in local commands, extension commands, and plain prompts remain usable. This does not add automatic goal retries or change timeouts or transport.
+- [x] A failed interactive startup model continuation visibly reports the error and enters the normal input loop with the same session identity; built-in local commands, extension commands, and plain prompts remain usable. This does not add automatic goal retries or change timeouts or transport.
 
 ### Switch / fork (cancellable)
 
@@ -69,7 +69,7 @@ Session lifecycle hooks let an extension observe and, at key points, cancel or r
 - `packages/coding-agent/test/suite/regressions/3688-tree-cancel-compacting.test.ts:18` — `session_before_tree` `{ cancel: true }` clears branch-summary state.
 - `packages/coding-agent/test/extensions-runner.test.ts:89` — `project_trust` event.
 - `packages/coding-agent/test/suite/resume-continuation-request.test.ts` — one-shot extension-requested continuation in a real session runtime.
-- `packages/coding-agent/test/suite/regressions/startup-resume-failure-input.test.ts` — interactive startup continuation failure, visible error, extension-command and plain-prompt recovery, and preserved session identity/transcript; passing proof pending.
+- `packages/coding-agent/test/suite/regressions/startup-resume-failure-input.test.ts` — interactive startup continuation failure, visible error, extension-command and plain-prompt recovery, and preserved session identity/transcript.
 
 ## Known gaps (current cycle)
 
