@@ -4,7 +4,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import type { AgentSessionEvent } from "../../src/core/agent-session.ts";
 import type { AssistantMessage, Message, Tool } from "@earendil-works/pi-ai/compat";
 import { inject } from "vitest";
 import type { AgentMailboxMessage, AgentSnapshot } from "../../src/core/multi-agent-store.ts";
@@ -137,7 +137,7 @@ export interface HeadlessPi {
 	readSupervisorActivity(): ReturnType<StandaloneSupervisorSentinel["read"]>;
 	countExtensionUiRequests(predicate?: (request: RpcExtensionUIRequest) => boolean): number;
 	waitForSessionEntry(agentId: string | null, predicate: (entry: SessionEntry) => boolean): Promise<SessionEntry>;
-	waitForEvent(predicate: (event: AgentEvent) => boolean): Promise<AgentEvent>;
+	waitForEvent(predicate: (event: AgentSessionEvent) => boolean): Promise<AgentSessionEvent>;
 	waitForExtensionError(predicate?: (error: HeadlessRpcExtensionError) => boolean): Promise<HeadlessRpcExtensionError>;
 	waitForExtensionUiRequest(predicate?: (request: RpcExtensionUIRequest) => boolean): Promise<RpcExtensionUIRequest>;
 	waitForLlmRequest(
@@ -732,7 +732,7 @@ function resolveHeadlessSessionFile(
 function subscribeHeadlessRpcOutput(
 	client: RpcClient,
 	options: {
-		events: AgentEvent[];
+		events: AgentSessionEvent[];
 		eventListeners: Set<() => void>;
 		extensionErrors: HeadlessRpcExtensionError[];
 		extensionErrorListeners: Set<() => void>;
@@ -752,7 +752,7 @@ function subscribeHeadlessRpcOutput(
 			for (const listener of options.extensionErrorListeners) listener();
 			return;
 		}
-		options.events.push(event);
+		options.events.push(output as AgentSessionEvent);
 		for (const listener of options.eventListeners) listener();
 	});
 }
@@ -836,7 +836,7 @@ function createHeadlessRuntime(options: {
 	clientControl: HeadlessClientControl;
 	provider: ProviderServerControl;
 	disposeController: AbortController;
-	events: AgentEvent[];
+	events: AgentSessionEvent[];
 	eventListeners: Set<() => void>;
 	extensionErrors: HeadlessRpcExtensionError[];
 	extensionErrorListeners: Set<() => void>;
@@ -848,7 +848,7 @@ function createHeadlessRuntime(options: {
 	supervisorProbe?: HeadlessSupervisorProbe;
 	supervisorSentinel?: StandaloneSupervisorSentinel;
 }): HeadlessPiRuntime {
-	const waitForEvent = (predicate: (event: AgentEvent) => boolean): Promise<AgentEvent> =>
+	const waitForEvent = (predicate: (event: AgentSessionEvent) => boolean): Promise<AgentSessionEvent> =>
 		waitForBufferedItem({
 			items: options.events,
 			listeners: options.eventListeners,
@@ -1134,7 +1134,7 @@ export default function(pi) {
 	);
 	const context: HeadlessSessionContext = { mainSessionId: "", sessionFile: "" };
 	const disposeController = new AbortController();
-	const events: AgentEvent[] = [];
+	const events: AgentSessionEvent[] = [];
 	const eventListeners = new Set<() => void>();
 	const extensionErrors: HeadlessRpcExtensionError[] = [];
 	const extensionErrorListeners = new Set<() => void>();

@@ -1,4 +1,4 @@
-import { fauxAssistantMessage, type FauxResponseFactory, fauxToolCall } from "@earendil-works/pi-ai";
+import { type FauxResponseFactory, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { expect, it } from "vitest";
 import type { AgentSessionEvent } from "../../../src/core/agent-session.ts";
 import { createHarness } from "../harness.ts";

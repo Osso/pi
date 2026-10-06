@@ -19,7 +19,7 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 ### Control API
 
 - [x] Accept typed RPC commands through `agent.send({...})`.
-- [x] Wait for production RPC events without racing events emitted before the waiter starts.
+- [x] Wait for production RPC session events, including automatic retry events, using the `AgentSessionEvent` contract without racing events emitted before the waiter starts.
 - [x] Expose provider requests and allow the test to supply a response to a specific request.
 - [x] Configure isolated approval presets through the fixture's persisted settings.
 - [x] Claim and answer durable Supervisor requests without bypassing the production control-database boundary.
