@@ -189,7 +189,6 @@ async function reviewGoalSetObjective(
 	}
 
 	const reason = reviewed.decision.reason;
-	ctx.ui.notify(`Supervisor goal set review failed: ${reason}`, "error");
 	return textResult(`Goal not set: ${reason}`);
 }
 
@@ -208,7 +207,6 @@ async function runSetGoalAction({
 	const reviewedObjective = await reviewGoalSetObjective(ctx, proposedObjective, reviewGoal);
 	if (typeof reviewedObjective !== "string") return reviewedObjective;
 	const result = setGoal({ objective: reviewedObjective, ctx, pi, beforeSave: beforeGoalSave });
-	ctx.ui.notify(result.message, result.severity);
 	const details = result.goal ? { objective: result.goal.objective } : {};
 	return textResult(result.ok ? `Goal set: ${reviewedObjective}` : result.message, details);
 }
@@ -220,19 +218,16 @@ function runPauseGoalAction(
 ): AgentToolResult<unknown> {
 	if (!loadOrMigrateActiveGoal(ctx)) {
 		updateGoalFooterStatus(ctx);
-		ctx.ui.notify("No active goal to pause", "info");
 		return textResult("No active goal to pause.");
 	}
 	const reason = reasonInput?.trim();
 	if (!reason) {
-		ctx.ui.notify("Reason is required to pause a goal", "error");
 		return textResult("Reason is required to pause a goal.");
 	}
 	const goal = pauseGoal(ctx, reason);
 	if (!goal) return textResult("No active goal to pause.");
 	updateGoalFooterStatus(ctx);
 	afterGoalChange?.();
-	ctx.ui.notify(`Goal paused: ${reason}`, "info");
 	return textResult(`Goal paused: ${reason}`, { objective: goal.objective, reason });
 }
 
@@ -244,12 +239,10 @@ function runResumeGoalAction(
 	const goal = resumeGoal(ctx);
 	updateGoalFooterStatus(ctx);
 	if (!goal) {
-		ctx.ui.notify("No paused goal to resume", "info");
 		return textResult("No paused goal to resume.");
 	}
 
 	afterGoalChange?.();
-	ctx.ui.notify(`Goal resumed: ${goal.objective}`, "info");
 	if (ctx.isIdle()) {
 		pi.sendUserMessage("Continue working toward the active goal.");
 	}
@@ -277,7 +270,6 @@ async function applyCompletionDecision(
 		const goal = markGoalComplete(ctx, completionReport);
 		if (!goal) return textResult("No active goal to complete.");
 		updateGoalFooterStatus(ctx);
-		ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
 		return textResult(`Goal marked complete: ${completionReport}`);
 	}
 	appendStatus(ctx, `Completion report rejected: ${decision.reason}\n\nSubmitted report:\n${completionReport}`);
@@ -292,7 +284,6 @@ async function applyCompletionDecision(
 		await onWait(activeGoal, ctx, completionReport, decision.reason);
 		return textResult(`Goal remains active: ${decision.reason}`);
 	}
-	ctx.ui.notify(`Supervisor goal review failed: ${decision.reason}`, "error");
 	return textResult(`Goal review failed: ${decision.reason}`);
 }
 
@@ -337,14 +328,12 @@ function runClearGoalAction(ctx: ExtensionContext, afterGoalChange?: () => void)
 	updateGoalFooterStatus(ctx);
 	if (cleared) afterGoalChange?.();
 	const message = cleared ? "Goal cleared" : "No active goal";
-	ctx.ui.notify(message, "info");
 	return textResult(message);
 }
 
 function runGoalStatusAction(ctx: ExtensionContext): AgentToolResult<unknown> {
 	const goal = loadOrMigrateActiveGoal(ctx);
 	const message = goal ? goalViewMessage(goal) : "No active goal — use /goal set <objective>";
-	ctx.ui.notify(message, "info");
 	const details = goal ? { objective: goal.objective } : {};
 	return textResult(message, details);
 }

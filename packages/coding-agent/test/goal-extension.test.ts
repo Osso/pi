@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AssistantMessage, getModel, type Usage } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import goalExtension, { type GoalSupervisorResponse, type GoalSupervisorReview } from "../extensions/goal/src/index.ts";
+import type { ManageGoalParams } from "../extensions/goal/src/goal-tool.ts";
+import goalExtension, {
+	type Goal,
+	type GoalSupervisorResponse,
+	type GoalSupervisorReview,
+} from "../extensions/goal/src/index.ts";
 import type {
 	AgentEndEvent,
 	AgentToolResult,
@@ -299,6 +304,8 @@ function createGoalHarness(
 				undefined,
 				ctx as ExtensionContext,
 			),
+		runManageGoal: async (params: ManageGoalParams) =>
+			manageGoalTool?.execute("manage-goal-1", params, undefined, undefined, ctx as ExtensionContext),
 		getManageGoalTool: () => manageGoalTool,
 		getRegisteredToolNames: () => registeredToolNames,
 		getSupervisorStatusRenderer: () => supervisorStatusRenderer,
@@ -329,6 +336,163 @@ describe("goal extension", () => {
 			if (key.startsWith(`${cwd}\0`)) storedGoalJsonBySession.delete(key);
 		}
 		rmSync(cwd, { recursive: true, force: true });
+	});
+
+	it.each<ManageGoalParams>([
+		{ action: "status" },
+		{ action: "set", objective: "replacement objective" },
+		{ action: "pause", reason: "Awaiting user decision." },
+		{ action: "resume" },
+		{ action: "clear" },
+		{ action: "complete", completionReport: "Regression passed; implementation committed." },
+	])("returns $action results and preserves lifecycle without duplicate notifications", async (params) => {
+		const harness = createGoalHarness(cwd);
+		await harness.runCommand("set original objective");
+		if (params.action === "resume") await harness.runCommand("pause");
+		const original = readStoredGoal<Goal>(cwd);
+		harness.notify.mockClear();
+		harness.sendUserMessage.mockClear();
+		harness.setStatus.mockClear();
+
+		const result = await harness.runManageGoal(params);
+
+		switch (params.action) {
+			case "status":
+				expect(result).toEqual({
+					content: [{ type: "text", text: "Goal: original objective" }],
+					details: { objective: "original objective" },
+				});
+				expect(readStoredGoal<Goal>(cwd)).toEqual(original);
+				expect(harness.setStatus).not.toHaveBeenCalled();
+				break;
+			case "set":
+				expect(result).toEqual({
+					content: [{ type: "text", text: "Goal set: replacement objective" }],
+					details: { objective: "replacement objective" },
+				});
+				expect(readStoredGoal<Goal>(cwd)).toMatchObject({
+					objective: "replacement objective",
+					continuationTurns: 0,
+				});
+				expect(harness.setStatus).toHaveBeenLastCalledWith("goal", "goal: replacement objective");
+				break;
+			case "pause":
+				expect(result).toEqual({
+					content: [{ type: "text", text: "Goal paused: Awaiting user decision." }],
+					details: { objective: "original objective", reason: "Awaiting user decision." },
+				});
+				expect(readStoredGoal<Goal>(cwd)).toEqual({
+					...original,
+					pausedAt: expect.any(String),
+					pauseReason: "Awaiting user decision.",
+				});
+				expect(harness.setStatus).toHaveBeenLastCalledWith("goal", "goal paused: Awaiting user decision.");
+				break;
+			case "resume": {
+				expect(result).toEqual({
+					content: [{ type: "text", text: "Goal resumed: original objective" }],
+					details: { objective: "original objective" },
+				});
+				const { pausedAt: _pausedAt, pauseReason: _pauseReason, ...running } = original;
+				expect(readStoredGoal<Goal>(cwd)).toEqual(running);
+				expect(harness.setStatus).toHaveBeenLastCalledWith("goal", "goal: original objective");
+				break;
+			}
+			case "clear":
+				expect(result).toEqual({ content: [{ type: "text", text: "Goal cleared" }], details: {} });
+				expect(storedGoalJsonBySession.has(storedGoalKey(cwd))).toBe(false);
+				expect(harness.setStatus).toHaveBeenLastCalledWith("goal", undefined);
+				break;
+			case "complete":
+				expect(result).toEqual({
+					content: [{ type: "text", text: `Goal marked complete: ${params.completionReport}` }],
+					details: {},
+				});
+				expect(readStoredGoal<Goal>(cwd)).toEqual({
+					...original,
+					completedAt: expect.any(String),
+					completionReason: params.completionReport,
+				});
+				expect(harness.setStatus).toHaveBeenLastCalledWith("goal", undefined);
+				break;
+		}
+		expect(harness.notify).not.toHaveBeenCalled();
+		if (params.action === "set" || params.action === "resume") {
+			expect(harness.sendUserMessage).toHaveBeenCalledExactlyOnceWith("Continue working toward the active goal.");
+		} else {
+			expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		}
+	});
+
+	it.each([
+		["status", "No active goal — use /goal set <objective>"],
+		["pause", "No active goal to pause."],
+		["resume", "No paused goal to resume."],
+		["clear", "No active goal"],
+		["complete", "No active goal to complete."],
+	] as const)("returns absent-goal %s results without notifications or state changes", async (action, text) => {
+		const harness = createGoalHarness(cwd);
+		const result = await harness.runManageGoal({ action });
+		expect(result).toEqual({ content: [{ type: "text", text }], details: {} });
+		expect(storedGoalJsonBySession.has(storedGoalKey(cwd))).toBe(false);
+		expect(harness.notify).not.toHaveBeenCalled();
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	it.each<{ params: ManageGoalParams; text: string }>([
+		{ params: { action: "set" }, text: "Objective is required." },
+		{ params: { action: "set", objective: "status" }, text: "Objective cannot be a goal control command: status" },
+		{ params: { action: "set", objective: "x".repeat(10_001) }, text: "Objective too long (10001 > 10000 chars)" },
+		{ params: { action: "pause", reason: "   " }, text: "Reason is required to pause a goal." },
+		{ params: { action: "complete", completionReport: "   " }, text: "Completion report is required." },
+	])("returns validation error $text without notifications or changing the goal", async ({ params, text }) => {
+		const reviewGoal = vi.fn<GoalSupervisorReview>();
+		const harness = createGoalHarness(cwd, { reviewGoal });
+		await harness.runCommand("set preserve objective");
+		const original = readStoredGoal<Goal>(cwd);
+		harness.notify.mockClear();
+		harness.sendUserMessage.mockClear();
+
+		const result = await harness.runManageGoal(params);
+
+		expect(result).toEqual({ content: [{ type: "text", text }], details: {} });
+		expect(readStoredGoal<Goal>(cwd)).toEqual(original);
+		expect(reviewGoal).not.toHaveBeenCalled();
+		expect(harness.notify).not.toHaveBeenCalled();
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+	});
+
+	it.each(["set", "complete"] as const)("returns %s review errors without duplicate notifications", async (action) => {
+		const harness = createGoalHarness(cwd, {
+			reviewGoal: async () => {
+				throw new Error("Supervisor connection closed");
+			},
+		});
+		await harness.runCommand("set preserve objective");
+		const original = readStoredGoal<Goal>(cwd);
+		harness.notify.mockClear();
+		harness.sendUserMessage.mockClear();
+
+		const result = await harness.runManageGoal({ action, objective: "replacement", completionReport: "done" });
+
+		expect(result?.content).toEqual([
+			{
+				type: "text",
+				text:
+					action === "set"
+						? "Goal not set: Supervisor connection closed"
+						: "Goal review failed: Supervisor connection closed",
+			},
+		]);
+		expect(readStoredGoal<Goal>(cwd)).toEqual(original);
+		expect(harness.notify).not.toHaveBeenCalled();
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", { message: "Waiting for Supervisor…" });
+		if (action === "complete") {
+			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
+				message: "Completion report rejected: Supervisor connection closed\n\nSubmitted report:\ndone",
+			});
+		}
 	});
 
 	it("registers only the manage_goal lifecycle tool from the first-party extension path", () => {
@@ -425,7 +589,7 @@ describe("goal extension", () => {
 			{ type: "text", text: "Goal set: ship the complete goal system; add Supervisor review to goal set" },
 		]);
 		expect(reviewGoal).toHaveBeenCalledOnce();
-		expect(harness.notify).toHaveBeenCalledWith("Goal set — starting work", "info");
+		expect(harness.notify).not.toHaveBeenCalled();
 		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
 	});
 
@@ -1922,9 +2086,11 @@ describe("goal extension", () => {
 		});
 		await harness.runCommand("set finish automatically");
 		harness.sendUserMessage.mockClear();
+		harness.notify.mockClear();
 
 		await harness.runAgentEnd();
 
+		expect(harness.notify).toHaveBeenCalledExactlyOnceWith("Goal complete: finish automatically", "info");
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 		expect(await harness.runBeforeAgentStart()).toBeUndefined();
 	});
@@ -2071,7 +2237,7 @@ describe("goal extension", () => {
 		expect(goal.pausedAt).toEqual(expect.any(String));
 		expect(goal.pauseReason).toBe(reason);
 		expect(result?.content).toEqual([{ type: "text", text: `Goal paused: ${reason}` }]);
-		expect(harness.notify).toHaveBeenCalledWith(`Goal paused: ${reason}`, "info");
+		expect(harness.notify).not.toHaveBeenCalled();
 		expect(harness.setStatus).toHaveBeenCalledWith("goal", `goal paused: ${reason}`);
 		expect(injected).toBeUndefined();
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
@@ -2096,7 +2262,7 @@ describe("goal extension", () => {
 
 		expect(storedGoalJsonBySession.has(storedGoalKey(cwd))).toBe(false);
 		expect(result?.content).toEqual([{ type: "text", text: "No active goal to pause." }]);
-		expect(harness.notify).toHaveBeenCalledWith("No active goal to pause", "info");
+		expect(harness.notify).not.toHaveBeenCalled();
 	});
 
 	it("pauses an active goal without clearing it", async () => {
