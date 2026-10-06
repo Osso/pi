@@ -55,17 +55,17 @@ function writeStartupAuthentication(paths: HeadlessPiPaths, abortThinking: boole
 	writeFileSync(modelsPath, JSON.stringify(models));
 }
 
-function writeFirstThinkingDeadlinePreload(paths: HeadlessPiPaths): string {
-	const timeoutPreloadPath = join(paths.tempDir, "shorten-first-thinking-phase.mjs");
+function writeInitialThinkingDeadlinePreload(paths: HeadlessPiPaths): string {
+	const timeoutPreloadPath = join(paths.tempDir, "shorten-first-two-thinking-phases.mjs");
 	writeFileSync(
 		timeoutPreloadPath,
 		`const startTimer = globalThis.setTimeout;
-const thinkingPhaseMs = 15 * 60 * 1000;
+const thinkingPhaseMs = 20 * 60 * 1000;
 const firstThinkingPhaseMs = 200;
-let shortened = false;
+let shortened = 0;
 globalThis.setTimeout = (callback, delay, ...args) => {
-	if (!shortened && delay === thinkingPhaseMs) {
-		shortened = true;
+	if (shortened < 2 && delay === thinkingPhaseMs) {
+		shortened += 1;
 		delay = firstThinkingPhaseMs;
 	}
 	return startTimer(callback, delay, ...args);
@@ -159,7 +159,7 @@ function startStartupFailureFixture(paths: HeadlessPiPaths, abortThinking: boole
 	const controlDbPath = getControlDbPath(paths.agentDir);
 	writeStartupAuthentication(paths, abortThinking);
 	const files = {
-		timeoutPreloadPath: writeFirstThinkingDeadlinePreload(paths),
+		timeoutPreloadPath: writeInitialThinkingDeadlinePreload(paths),
 		restoreAuthPath: writeAuthenticationRestoreExtension(paths),
 	};
 	const child = launchInteractiveSession(paths, session.sessionFile, files, abortThinking);
@@ -211,9 +211,9 @@ describe("interactive startup resumed continuation failure", () => {
 			expectedError: "No API key found for headless-faux.",
 		},
 		{
-			failure: "aborted model thinking",
+			failure: "exhausted thinking-timeout continuation",
 			abortThinking: true,
-			expectedError: "Main session thinking phase exceeded 15 minutes",
+			expectedError: "Main session thinking phase exceeded 20 minutes",
 		},
 	])(
 		"accepts extension commands and another request after $failure",
@@ -223,12 +223,15 @@ describe("interactive startup resumed continuation failure", () => {
 					startStartupFailureFixture(agent.paths, abortThinking);
 				try {
 					if (abortThinking) {
-						await agent.waitForLlmRequest(
+						const initialRequest = await agent.waitForLlmRequest(
 							(candidate) =>
 								candidate.sessionId === sessionId && candidate.userMessages.includes("Interrupted request"),
 						);
+						await agent.waitForLlmRequest(
+							(candidate) => candidate.sessionId === sessionId && candidate.id !== initialRequest.id,
+						);
 					}
-					await waitForOutput(child, readOutput, expectedError);
+					await waitForOutput(child, readOutput, `Error: ${expectedError}`);
 					child.stdin.write("/session-id\r");
 					await waitForOutput(child, readOutput, `Session ID: ${sessionId}`);
 					// The error must be surfaced by the interactive UI, not the outer CLI catch.

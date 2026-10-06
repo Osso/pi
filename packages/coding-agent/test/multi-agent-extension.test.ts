@@ -947,12 +947,11 @@ describe("multi-agent extension tools", () => {
 					multiAgentStore: store,
 				});
 				childHarnesses.push(childHarness);
-				childHarness.setResponses([
-					async () => {
-						await delay(50);
-						return fauxAssistantMessage("too late");
-					},
-				]);
+				const slowResponse = async () => {
+					await delay(50);
+					return fauxAssistantMessage("too late");
+				};
+				childHarness.setResponses([slowResponse, slowResponse]);
 				return childHarness.session;
 			},
 		});
@@ -966,7 +965,7 @@ describe("multi-agent extension tools", () => {
 
 		expect(childHarness).toBeDefined();
 		expect(waited).toMatchObject({
-			error: { message: "Child agent thinking phase exceeded 15 minutes" },
+			error: { message: "Child agent thinking phase exceeded 20 minutes" },
 			lifecycle: "failed",
 		});
 	});
@@ -1832,12 +1831,11 @@ describe("multi-agent extension tools", () => {
 						multiAgentStore: store,
 					});
 					childHarnesses.push(childHarness);
-					childHarness.setResponses([
-						async () => {
-							await delay(50);
-							return fauxAssistantMessage("too late");
-						},
-					]);
+					const slowResponse = async () => {
+						await delay(50);
+						return fauxAssistantMessage("too late");
+					};
+					childHarness.setResponses([slowResponse, slowResponse]);
 					return childHarness.session;
 				},
 			});
@@ -1849,7 +1847,7 @@ describe("multi-agent extension tools", () => {
 			const waited = await waitForTerminalAgent(harness, attached.details.agent.id);
 
 			expect(waited).toMatchObject({
-				error: { message: "Child agent thinking phase exceeded 15 minutes" },
+				error: { message: "Child agent thinking phase exceeded 20 minutes" },
 				lifecycle: "failed",
 				transcript: { sessionId: savedSessionId },
 			});

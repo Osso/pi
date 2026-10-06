@@ -146,6 +146,11 @@ const BUILT_IN_COMPACTION_DISABLED_MESSAGE =
 
 type PostAgentRunContinuation = "normal" | "queued";
 
+interface ThinkingTimeoutDispatch {
+	recoveryUsed: boolean;
+	cancelled: boolean;
+}
+
 function findLastUserText(messages: unknown[]): string | undefined {
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const message = messages[index];
@@ -432,7 +437,7 @@ export function createMultiAgentExecutionCapability(): MultiAgentExecutionCapabi
 
 export type SupervisorDecisionRequester = typeof requestSupervisorDecision;
 
-const THINKING_PHASE_TIMEOUT_MS = 15 * 60 * 1000;
+const THINKING_PHASE_TIMEOUT_MS = 20 * 60 * 1000;
 const SUPERVISOR_AUTO_APPROVED_READ_ONLY_TOOLS = new Set([
 	"find",
 	"grep",
@@ -893,6 +898,7 @@ export class AgentSession {
 	private readonly _thinkingPhaseTimeoutMs: number;
 	private _thinkingPhaseTimer: ReturnType<typeof setTimeout> | undefined;
 	private _thinkingPhaseTimeoutError: Error | undefined;
+	private _thinkingTimeoutDispatch: ThinkingTimeoutDispatch | undefined;
 	private _disableRuntimeCoordinationInbound: boolean;
 	private readonly _onSharedChannelMessageDelivered?: (prompt: string) => void;
 	private _systemPromptOverride?: string;
@@ -1567,7 +1573,7 @@ export class AgentSession {
 		this._thinkingPhaseTimer = setTimeout(() => {
 			this._thinkingPhaseTimer = undefined;
 			const subject = this._multiAgentAgentId ? "Child agent" : "Main session";
-			this._thinkingPhaseTimeoutError = new Error(`${subject} thinking phase exceeded 15 minutes`);
+			this._thinkingPhaseTimeoutError = new Error(`${subject} thinking phase exceeded 20 minutes`);
 			this.agent.abort();
 		}, this._thinkingPhaseTimeoutMs);
 	}
@@ -1781,6 +1787,9 @@ export class AgentSession {
 	}
 
 	private _willRetryAfterAgentEnd(event: Extract<AgentEvent, { type: "agent_end" }>): boolean {
+		const dispatch = this._thinkingTimeoutDispatch;
+		const recoveryAvailable = dispatch?.recoveryUsed === false && dispatch.cancelled === false;
+		if (this._thinkingPhaseTimeoutError && recoveryAvailable) return true;
 		for (let i = event.messages.length - 1; i >= 0; i--) {
 			const message = event.messages[i];
 			if (message.role !== "assistant") {
@@ -1870,18 +1879,53 @@ export class AgentSession {
 		}
 	}
 
-	private async _continueAgentWithThinkingTimeout(processQueuedMessagesFirst = false): Promise<void> {
+	private _continueAgentWithThinkingTimeout(
+		dispatch: ThinkingTimeoutDispatch,
+		processQueuedMessagesFirst = false,
+	): Promise<void> {
+		return this._runAgentWithThinkingTimeout(() => this.agent.continue({ processQueuedMessagesFirst }), dispatch);
+	}
+
+	private _isThinkingTimeoutDispatchActive(dispatch: ThinkingTimeoutDispatch): boolean {
+		const ownsDispatch = this._thinkingTimeoutDispatch === dispatch;
+		const stopped = dispatch.cancelled || this._disposed;
+		return ownsDispatch && !stopped;
+	}
+
+	private async _runAgentWithThinkingTimeout(
+		run: () => Promise<void>,
+		dispatch: ThinkingTimeoutDispatch,
+	): Promise<void> {
 		try {
-			if (processQueuedMessagesFirst) {
-				await this.agent.continue({ processQueuedMessagesFirst: true });
-			} else {
-				await this.agent.continue();
-			}
+			await run();
 		} catch (error) {
-			throw this._consumeThinkingPhaseTimeoutError() ?? error;
+			const timeoutError = this._consumeThinkingPhaseTimeoutError();
+			if (!timeoutError) throw error;
+			await this._recoverThinkingTimeout(dispatch, timeoutError);
+			return;
 		}
 		const timeoutError = this._consumeThinkingPhaseTimeoutError();
-		if (timeoutError) throw timeoutError;
+		if (timeoutError) await this._recoverThinkingTimeout(dispatch, timeoutError);
+	}
+
+	private async _recoverThinkingTimeout(dispatch: ThinkingTimeoutDispatch, timeoutError: Error): Promise<void> {
+		if (!this._isThinkingTimeoutDispatchActive(dispatch)) return;
+		if (dispatch.recoveryUsed) throw timeoutError;
+		dispatch.recoveryUsed = true;
+		this._emit({
+			type: "auto_retry_start",
+			attempt: 1,
+			maxAttempts: 1,
+			delayMs: 0,
+			errorMessage: timeoutError.message,
+		});
+		await this._withTurnStartLock(async (release) => {
+			if (!this._isThinkingTimeoutDispatchActive(dispatch)) return;
+			this._removeTrailingInterruptedAssistant(false);
+			const continuation = this._continueAgentWithThinkingTimeout(dispatch, true);
+			release();
+			await continuation;
+		});
 	}
 
 	private async _continueAfterManualCompaction(
@@ -1894,10 +1938,9 @@ export class AgentSession {
 			}
 
 			this._removeTrailingInterruptedAssistant(removeToolUseAssistant);
-			const continuation = this._continueAgentWithThinkingTimeout();
+			const continuation = this._runAgentContinuation();
 			releaseTurnStart();
 			await continuation;
-			await this._continuePostAgentRuns();
 		} finally {
 			this._flushPendingBashMessages();
 		}
@@ -2049,6 +2092,7 @@ export class AgentSession {
 			return;
 		}
 		this._disposed = true;
+		if (this._thinkingTimeoutDispatch) this._thinkingTimeoutDispatch.cancelled = true;
 		try {
 			this.abortRetry();
 			this.abortCompaction();
@@ -2426,52 +2470,58 @@ export class AgentSession {
 		}
 	}
 
-	private async _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
+	private _runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void> {
+		return this._runThinkingTimeoutDispatch(() => this.agent.prompt(messages));
+	}
+
+	private _runAgentContinuation(): Promise<void> {
+		return this._runThinkingTimeoutDispatch(() => this.agent.continue());
+	}
+
+	private async _runThinkingTimeoutDispatch(run: () => Promise<void>): Promise<void> {
+		const dispatch: ThinkingTimeoutDispatch = { recoveryUsed: false, cancelled: false };
+		this._thinkingTimeoutDispatch = dispatch;
 		this._thinkingPhaseTimeoutError = undefined;
+		let finalError: string | undefined;
 		try {
-			try {
-				await this.agent.prompt(messages);
-			} catch (error) {
-				throw this._consumeThinkingPhaseTimeoutError() ?? error;
-			}
-			const timeoutError = this._consumeThinkingPhaseTimeoutError();
-			if (timeoutError) throw timeoutError;
-			await this._continuePostAgentRuns();
+			await this._runAgentWithThinkingTimeout(run, dispatch);
+			await this._continuePostAgentRuns(dispatch);
+		} catch (error) {
+			finalError = errorMessage(error);
+			throw error;
 		} finally {
-			this._clearThinkingPhaseDeadline();
-			this._systemPromptOverride = undefined;
-			this._flushPendingBashMessages();
+			this._finishThinkingTimeoutDispatch(dispatch, finalError);
 		}
 	}
 
-	private async _runAgentContinuation(): Promise<void> {
-		this._thinkingPhaseTimeoutError = undefined;
-		try {
-			try {
-				await this.agent.continue();
-			} catch (error) {
-				throw this._consumeThinkingPhaseTimeoutError() ?? error;
-			}
-			const timeoutError = this._consumeThinkingPhaseTimeoutError();
-			if (timeoutError) throw timeoutError;
-			await this._continuePostAgentRuns();
-		} finally {
-			this._clearThinkingPhaseDeadline();
-			this._systemPromptOverride = undefined;
-			this._flushPendingBashMessages();
+	private _finishThinkingTimeoutDispatch(dispatch: ThinkingTimeoutDispatch, finalError?: string): void {
+		if (dispatch.recoveryUsed) {
+			const cancellationError = dispatch.cancelled ? "Retry cancelled" : undefined;
+			const reportedError = cancellationError ?? finalError ?? this._findLastAssistantMessage()?.errorMessage;
+			this._emit({
+				type: "auto_retry_end",
+				success: reportedError === undefined,
+				attempt: 1,
+				finalError: reportedError,
+			});
 		}
+		if (this._thinkingTimeoutDispatch !== dispatch) return;
+		this._thinkingTimeoutDispatch = undefined;
+		this._clearThinkingPhaseDeadline();
+		this._systemPromptOverride = undefined;
+		this._flushPendingBashMessages();
 	}
 
-	private async _continuePostAgentRuns(): Promise<void> {
-		if (this._disposed) return;
+	private async _continuePostAgentRuns(dispatch: ThinkingTimeoutDispatch): Promise<void> {
+		if (this._disposed || dispatch.cancelled) return;
 		while (
 			await this._withTurnStartLock(async (release) => {
-				if (this.isStreaming) return false;
+				if (this.isStreaming || !this._isThinkingTimeoutDispatchActive(dispatch)) return false;
 				const continuationKind = await this._handlePostAgentRun();
-				if (continuationKind === undefined) {
+				if (continuationKind === undefined || !this._isThinkingTimeoutDispatchActive(dispatch)) {
 					return false;
 				}
-				const continuation = this._continueAgentWithThinkingTimeout(continuationKind === "queued");
+				const continuation = this._continueAgentWithThinkingTimeout(dispatch, continuationKind === "queued");
 				release();
 				await continuation;
 				return true;
@@ -3645,6 +3695,7 @@ export class AgentSession {
 	 * Abort current operation and wait for agent to become idle.
 	 */
 	async abort(): Promise<void> {
+		if (this._thinkingTimeoutDispatch) this._thinkingTimeoutDispatch.cancelled = true;
 		this.abortRetry();
 		this._clearThinkingPhaseDeadline();
 		this._thinkingPhaseTimeoutError = undefined;
@@ -5269,6 +5320,12 @@ export class AgentSession {
 	 */
 	abortRetry(): void {
 		this._retryAbortController?.abort();
+		const dispatch = this._thinkingTimeoutDispatch;
+		if (!dispatch?.recoveryUsed) return;
+		dispatch.cancelled = true;
+		this._clearThinkingPhaseDeadline();
+		this._thinkingPhaseTimeoutError = undefined;
+		this.agent.abort();
 	}
 
 	/** Surface a provider-internal retry or transport fallback as a session event. */
@@ -5278,7 +5335,8 @@ export class AgentSession {
 
 	/** Whether an automatic retry attempt has started and has not yet settled. */
 	get hasActiveRetry(): boolean {
-		return this._retryAttempt > 0;
+		const dispatch = this._thinkingTimeoutDispatch;
+		return this._retryAttempt > 0 || (dispatch?.recoveryUsed === true && !dispatch.cancelled);
 	}
 
 	/** Whether auto-retry backoff sleep is currently in progress. */

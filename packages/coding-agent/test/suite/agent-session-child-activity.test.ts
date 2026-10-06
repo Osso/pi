@@ -13,7 +13,7 @@ interface AgentActivityPublisher {
 	_publishCurrentAgentActivity(event: AgentEvent): void;
 	_consumeThinkingPhaseTimeoutError(): Error | undefined;
 	_continuePostAgentRuns(): Promise<void>;
-	_handlePostAgentRun(): Promise<boolean>;
+	_handlePostAgentRun(): Promise<"normal" | "queued" | undefined>;
 	_queueSteer(text: string): Promise<void>;
 	_runAgentPrompt(messages: AgentMessage | AgentMessage[]): Promise<void>;
 }
@@ -126,22 +126,21 @@ describe("child agent current activity", () => {
 		const harness = await createHarness({ thinkingPhaseTimeoutMs: 15 * 60 * 1000 });
 		harnesses.push(harness);
 		const session = harness.session as unknown as AgentActivityPublisher;
-		vi.spyOn(session, "_handlePostAgentRun").mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+		vi.spyOn(session, "_handlePostAgentRun").mockResolvedValueOnce("normal").mockResolvedValueOnce(undefined);
+		vi.spyOn(harness.session.agent, "prompt").mockResolvedValue();
 		let finishContinuation: (() => void) | undefined;
-		vi.spyOn(harness.session.agent, "continue").mockImplementation(
-			async () =>
-				new Promise<void>((resolve) => {
-					finishContinuation = resolve;
-				}),
-		);
+		vi.spyOn(harness.session.agent, "continue").mockImplementation(async () => {
+			publishCurrentAgentActivity.call(harness.session, { type: "agent_start" });
+			return new Promise<void>((resolve) => {
+				finishContinuation = resolve;
+			});
+		});
 		vi.spyOn(harness.session.agent, "abort").mockImplementation(async () => {
 			finishContinuation?.();
 		});
-		publishCurrentAgentActivity.call(harness.session, { type: "agent_start" });
-
-		const continuation = session._continuePostAgentRuns();
-		const timeoutResult = expect(continuation).rejects.toThrow("Main session thinking phase exceeded 15 minutes");
-		await vi.advanceTimersByTimeAsync(15 * 60 * 1000);
+		const continuation = session._runAgentPrompt({ role: "user", content: "Work", timestamp: Date.now() });
+		const timeoutResult = expect(continuation).rejects.toThrow("Main session thinking phase exceeded 20 minutes");
+		await vi.advanceTimersByTimeAsync(30 * 60 * 1000);
 
 		await timeoutResult;
 	});
@@ -203,7 +202,7 @@ describe("child agent current activity", () => {
 			(AgentSession.prototype as unknown as AgentActivityPublisher)._consumeThinkingPhaseTimeoutError.call(
 				harness.session,
 			)?.message,
-		).toBe("Child agent thinking phase exceeded 15 minutes");
+		).toBe("Child agent thinking phase exceeded 20 minutes");
 	});
 
 	it("resets and clears child thinking deadlines on steering, end, abort, and disposal", async () => {

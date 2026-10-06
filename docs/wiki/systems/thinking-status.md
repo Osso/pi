@@ -14,7 +14,7 @@ Main and spawned or attached child `AgentSession` runtimes use a default 20-minu
 
 The selected policy keeps the first watchdog abort and its automatic continuation inside the same prompt or continuation dispatch promise. One continuation allowance belongs to that explicit operation and is shared through internal continuations, rather than reset at each `agent_start`, tool, or fresh phase deadline. A second watchdog timeout stops and surfaces the main- or child-specific timeout error. Spawned and attached child dispatches remain owned across the first timeout; exhaustion finalizes the child as failed. A new explicit operation may receive a new allowance.
 
-Manual cancellation never uses the watchdog allowance, including during the handoff to continuation. Queued steering and follow-up input retain normal delivery and precedence; recovery must not drop input or start a duplicate dispatch. This is core watchdog recovery, not goal-extension continuation or provider fallback. Implementation and regression proof for the changed policy remain pending in the [contract](../../specs/thinking-status.md#known-gaps-current-cycle).
+Manual cancellation never uses the watchdog allowance, including during the handoff to continuation. Queued steering and follow-up input retain normal delivery and precedence; recovery must not drop input or start a duplicate dispatch. This is core watchdog recovery, not goal-extension continuation or provider fallback. The [contract](../../specs/thinking-status.md) lists core and real-process regression coverage.
 
 ## Source and coverage
 

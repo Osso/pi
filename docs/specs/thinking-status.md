@@ -13,10 +13,10 @@ Module boundary: core subsystem. The interactive-mode default working indicator 
 
 ### Thinking-phase deadline
 
-- [ ] Main sessions and spawned or attached child sessions abort any single model-thinking phase that reaches the default 20-minute cap; observer runtimes are excluded, tool gate/review and interactive approval waits clear the deadline before waiting, tool execution remains uncapped, and each post-tool or steered model phase receives a fresh deadline. This is not a total request or turn timeout.
-- [ ] The first watchdog timeout automatically continues within the same prompt or continuation dispatch promise. One allowance is shared across that operation's internal continuations; agent starts, tools, and fresh phase deadlines do not replenish it. A new explicit prompt or continuation operation may receive a new allowance.
-- [ ] A second watchdog timeout in that operation stops and reports the main- or child-specific timeout; spawned and attached child dispatches then finalize as failed rather than terminalizing on the first timeout.
-- [ ] Manual cancellation never triggers watchdog continuation, including cancellation between timeout and continuation. Queued steering and follow-up input retain normal delivery and precedence without loss or duplicate dispatch.
+- [x] Main sessions and spawned or attached child sessions abort any single model-thinking phase that reaches the default 20-minute cap; observer runtimes are excluded, tool gate/review and interactive approval waits clear the deadline before waiting, tool execution remains uncapped, and each post-tool or steered model phase receives a fresh deadline. This is not a total request or turn timeout.
+- [x] The first watchdog timeout automatically continues within the same prompt or continuation dispatch promise. One allowance is shared across that operation's internal continuations; agent starts, tools, and fresh phase deadlines do not replenish it. A new explicit prompt or continuation operation may receive a new allowance.
+- [x] A second watchdog timeout in that operation stops and reports the main- or child-specific timeout; spawned and attached child dispatches then finalize as failed rather than terminalizing on the first timeout.
+- [x] Manual cancellation never triggers watchdog continuation, including cancellation between timeout and continuation. Queued steering and follow-up input retain normal delivery and precedence without loss or duplicate dispatch.
 
 ### Tool waits
 
@@ -51,10 +51,13 @@ Module boundary: core subsystem. The interactive-mode default working indicator 
 - `packages/coding-agent/test/suite/agent-session-approval-deadline.test.ts` — pending human approval exclusion from the model-thinking deadline.
 - `packages/coding-agent/test/suite/agent-session-child-activity.test.ts` — main/child per-phase deadlines, tool exclusion, continuation propagation, observer exclusion, and lifecycle cleanup.
 - `packages/coding-agent/test/multi-agent-extension.test.ts` — real spawned and attached child timeout terminalization.
+- `packages/coding-agent/test/suite/agent-session-thinking-recovery.test.ts` — default cap, one dispatch allowance, recovery, exhaustion, cancellation handoff, queued input, and post-compaction continuation.
+- `packages/coding-agent/test/suite/regressions/thinking-timeout-continuation.test.ts` — real-process recovery, exhaustion, cancellation, queued input, and supervisor restart with a live child.
+- `packages/coding-agent/test/suite/regressions/startup-resume-failure-input.test.ts` — usable input loop after watchdog continuation exhaustion.
 
 ## Known gaps (current cycle)
 
-- [ ] Verify the 20-minute default and one-continuation policy, including exhaustion, manual cancellation, queued input, startup continuation, and spawned/attached child dispatch ownership. Existing deadline tests do not prove the changed policy; real-process regression proof is assigned to `packages/coding-agent/test/suite/regressions/thinking-timeout-continuation.test.ts`.
+- None.
 
 ## Out of scope
 

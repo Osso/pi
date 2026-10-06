@@ -62,6 +62,8 @@ function waitForParentResponse(context: Context, options: StreamOptions | undefi
 	const response = new Promise<AssistantMessage>((resolve, reject) => {
 		const signal = options?.signal;
 		const onAbort = () => {
+			const abortLog = process.env.PI_HEADLESS_PROVIDER_ABORT_LOG;
+			if (abortLog) appendFileSync(abortLog, `${JSON.stringify({ requestId })}\n`);
 			pendingResponses.delete(requestId);
 			reject(signal?.reason instanceof Error ? signal.reason : new Error("aborted"));
 		};
