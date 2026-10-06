@@ -165,6 +165,7 @@
 
 ### Fixed
 
+- Fixed failed interactive startup model continuation leaving the normal input loop unavailable; the error is reported and built-in local commands, extension commands, and plain prompts remain usable in the same session.
 - Fixed partially streamed assistant responses disappearing when incoming steering interrupts a model request, including around Supervisor pending-input notices; the interrupted reply is retained instead of replaced by an empty message.
 - Fixed `pi -p` dropping final assistant text when a later textless `end_turn` call completed the current prompt; it now prints that current-prompt text without reusing stale prior-prompt output. JSON output remains unchanged and errors still exit nonzero.
 - Fixed OAuth refresh races that could lose a rotated refresh token and get the account's token family revoked (for example OpenAI Codex `refresh_token_invalidated`): a successful refresh is now persisted even when the auth lock is compromised before the write, and sync auth-file locks (used by every process start) share the async lock's 30-second stale threshold, so they no longer steal a refresh lock held for more than 10 seconds.
