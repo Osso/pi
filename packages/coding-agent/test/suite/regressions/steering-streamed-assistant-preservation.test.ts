@@ -1,9 +1,9 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentSessionEvent } from "../../../src/core/agent-session.ts";
 import type { AssistantMessage } from "@earendil-works/pi-ai/compat";
 import { fauxAssistantMessage, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { expect, it } from "vitest";
+import type { AgentSessionEvent } from "../../../src/core/agent-session.ts";
 import { SessionManager } from "../../../src/core/session-manager.ts";
 import { type HeadlessPi, withHeadlessPi } from "../headless-pi.ts";
 
