@@ -4,9 +4,9 @@ import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { AgentSessionEvent } from "../../src/core/agent-session.ts";
 import type { AssistantMessage, Message, Tool } from "@earendil-works/pi-ai/compat";
 import { inject } from "vitest";
+import type { AgentSessionEvent } from "../../src/core/agent-session.ts";
 import type { AgentMailboxMessage, AgentSnapshot } from "../../src/core/multi-agent-store.ts";
 import { MultiAgentStore } from "../../src/core/multi-agent-store.ts";
 import {

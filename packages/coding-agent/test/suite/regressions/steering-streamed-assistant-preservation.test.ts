@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import type { AgentSessionEvent } from "../../../src/core/agent-session.ts";
 import type { AssistantMessage } from "@earendil-works/pi-ai/compat";
 import { fauxAssistantMessage, fauxThinking, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { expect, it } from "vitest";
@@ -23,7 +23,7 @@ function respondWithInterruptibleMessage(agent: HeadlessPi, requestId: string, m
 	);
 }
 
-async function collectThroughFirstToolDelta(agent: HeadlessPi, events: AgentEvent[]): Promise<AssistantMessage> {
+async function collectThroughFirstToolDelta(agent: HeadlessPi, events: AgentSessionEvent[]): Promise<AssistantMessage> {
 	while (true) {
 		const event = await agent.waitForEvent(() => true);
 		events.push(event);
@@ -55,7 +55,7 @@ async function completeOrderedInputs(agent: HeadlessPi): Promise<void> {
 	);
 }
 
-async function collectThroughFinalAgentEnd(agent: HeadlessPi, events: AgentEvent[]): Promise<void> {
+async function collectThroughFinalAgentEnd(agent: HeadlessPi, events: AgentSessionEvent[]): Promise<void> {
 	let finalMessageEnded = false;
 	while (true) {
 		const event = await agent.waitForEvent(() => true);
@@ -70,7 +70,7 @@ async function collectThroughFinalAgentEnd(agent: HeadlessPi, events: AgentEvent
 }
 
 function assertInterruptedAssistantPreserved(
-	events: AgentEvent[],
+	events: AgentSessionEvent[],
 	streamed: AssistantMessage,
 	marker: string,
 ): AssistantMessage[] {
@@ -114,7 +114,7 @@ async function assertSessionSurvivesCrash(agent: HeadlessPi, endedMessages: Assi
 it("preserves streamed text and thinking exactly once across interrupt, ordered steering, and process reload", async () => {
 	await withHeadlessPi(
 		async (agent) => {
-			const events: AgentEvent[] = [];
+			const events: AgentSessionEvent[] = [];
 			await agent.send({ type: "prompt", message: "Original request" });
 			const first = await agent.waitForLlmRequest();
 			const marker = join(agent.paths.workspaceDir, "interrupted-tool-ran");
