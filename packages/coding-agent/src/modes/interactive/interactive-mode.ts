@@ -1120,12 +1120,7 @@ export class InteractiveMode {
 	 */
 	async run(): Promise<void> {
 		await this.init();
-		try {
-			await this.continueInterruptedResumedSession();
-		} catch (error: unknown) {
-			const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
-			this.showError(errorMessage);
-		}
+		await this.continueResumedSessionAtStartup();
 
 		// Check tmux keyboard setup asynchronously
 		this.checkTmuxKeyboardSetup().then((warning) => {
@@ -6578,6 +6573,15 @@ export class InteractiveMode {
 			if (aNamed !== bNamed) return aNamed ? -1 : 1;
 			return b.modified.getTime() - a.modified.getTime();
 		});
+	}
+
+	private async continueResumedSessionAtStartup(): Promise<void> {
+		try {
+			await this.continueInterruptedResumedSession();
+		} catch (error: unknown) {
+			const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+			this.showError(errorMessage);
+		}
 	}
 
 	private async continueInterruptedResumedSession(): Promise<void> {

@@ -6,8 +6,167 @@ import { stripVTControlCharacters } from "node:util";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
 import { getControlDbPath, readRuntimeMailboxListener } from "../../../src/core/session-control-db.ts";
-import { SessionManager } from "../../../src/core/session-manager.ts";
-import { withHeadlessPi } from "../headless-pi.ts";
+import { type SessionEntry, SessionManager } from "../../../src/core/session-manager.ts";
+import { type HeadlessPiPaths, withHeadlessPi } from "../headless-pi.ts";
+
+interface InterruptedSession {
+	sessionFile: string;
+	sessionId: string;
+	originalEntries: SessionEntry[];
+}
+
+interface StartupFailureFiles {
+	timeoutPreloadPath: string;
+	restoreAuthPath: string;
+}
+
+interface InteractiveProcessOutput {
+	stdout: string;
+	stderr: string;
+}
+
+function seedInterruptedSession(paths: HeadlessPiPaths): InterruptedSession {
+	const session = SessionManager.create(paths.workspaceDir, paths.sessionDir);
+	session.appendMessage({ role: "user", content: "Interrupted request", timestamp: Date.now() });
+	session.appendMessage(
+		fauxAssistantMessage(fauxToolCall("read", { path: "seed.txt" }, { id: "seed-read" }), {
+			stopReason: "toolUse",
+		}),
+	);
+	session.appendMessage({
+		role: "toolResult",
+		toolCallId: "seed-read",
+		toolName: "read",
+		content: [{ type: "text", text: "Seed result" }],
+		isError: false,
+		timestamp: Date.now(),
+	});
+	const sessionFile = session.getSessionFile();
+	if (!sessionFile) throw new Error("Missing interrupted session file");
+	return { sessionFile, sessionId: session.getSessionId(), originalEntries: session.getEntries() };
+}
+
+function writeStartupAuthentication(paths: HeadlessPiPaths, abortThinking: boolean): void {
+	const modelsPath = join(paths.agentDir, "models.json");
+	const models = JSON.parse(readFileSync(modelsPath, "utf8")) as {
+		providers: Record<string, { apiKey?: string }>;
+	};
+	if (!abortThinking) delete models.providers["headless-faux"].apiKey;
+	writeFileSync(modelsPath, JSON.stringify(models));
+}
+
+function writeFirstThinkingDeadlinePreload(paths: HeadlessPiPaths): string {
+	const timeoutPreloadPath = join(paths.tempDir, "shorten-first-thinking-phase.mjs");
+	writeFileSync(
+		timeoutPreloadPath,
+		`const startTimer = globalThis.setTimeout;
+const thinkingPhaseMs = 15 * 60 * 1000;
+const firstThinkingPhaseMs = 200;
+let shortened = false;
+globalThis.setTimeout = (callback, delay, ...args) => {
+	if (!shortened && delay === thinkingPhaseMs) {
+		shortened = true;
+		delay = firstThinkingPhaseMs;
+	}
+	return startTimer(callback, delay, ...args);
+};
+`,
+	);
+	return timeoutPreloadPath;
+}
+
+function writeAuthenticationRestoreExtension(paths: HeadlessPiPaths): string {
+	const restoreAuthPath = join(paths.tempDir, "restore-auth.ts");
+	writeFileSync(
+		restoreAuthPath,
+		`import { getApiProvider } from "@earendil-works/pi-ai/compat";
+export default function (pi) {
+	const provider = getApiProvider("headless-faux");
+	if (!provider) throw new Error("Missing preloaded faux provider");
+	pi.registerProvider("headless-faux", { api: "headless-faux", streamSimple: provider.streamSimple });
+	pi.registerCommand("restore-test-auth", {
+		handler: async (_args, ctx) => {
+			ctx.modelRegistry.authStorage.setRuntimeApiKey("headless-faux", "test-key");
+			ctx.ui.notify("Test authentication restored", "info");
+		},
+	});
+}
+`,
+	);
+	return restoreAuthPath;
+}
+
+function launchInteractiveSession(
+	paths: HeadlessPiPaths,
+	sessionFile: string,
+	files: StartupFailureFiles,
+	abortThinking: boolean,
+): ChildProcessWithoutNullStreams {
+	return spawn(
+		process.execPath,
+		[
+			"--experimental-strip-types",
+			"--import",
+			pathToFileURL(join(import.meta.dirname, "../fixtures/headless-pi-provider-preload.ts")).href,
+			"--import",
+			pathToFileURL(join(import.meta.dirname, "../fixtures/headless-pi-tty-preload.mjs")).href,
+			...(abortThinking ? ["--import", pathToFileURL(files.timeoutPreloadPath).href] : []),
+			join(import.meta.dirname, "../../../src/cli.ts"),
+			"--approve",
+			"--no-context-files",
+			"--no-skills",
+			"--no-themes",
+			"--provider",
+			"headless-faux",
+			"--model",
+			"headless-faux-1",
+			"--session",
+			sessionFile,
+			"--name",
+			"Startup failure regression",
+			"-e",
+			files.restoreAuthPath,
+		],
+		{
+			cwd: paths.workspaceDir,
+			env: {
+				...process.env,
+				PI_OFFLINE: "1",
+				NO_COLOR: "1",
+				TERM: "xterm-256color",
+				PI_CODING_AGENT_DIR: paths.agentDir,
+				PI_CODING_AGENT_SESSION_DIR: paths.sessionDir,
+				PI_CODING_AGENT_STATE_DIR: paths.agentDir,
+				PI_HEADLESS_PROVIDER_SOCKET: join(paths.tempDir, "provider.sock"),
+			},
+		},
+	);
+}
+
+function collectInteractiveProcessOutput(child: ChildProcessWithoutNullStreams): InteractiveProcessOutput {
+	const output = { stdout: "", stderr: "" };
+	child.stdout.on("data", (chunk: Buffer) => {
+		output.stdout += chunk.toString();
+	});
+	child.stderr.on("data", (chunk: Buffer) => {
+		output.stderr += chunk.toString();
+	});
+	return output;
+}
+
+function startStartupFailureFixture(paths: HeadlessPiPaths, abortThinking: boolean) {
+	const session = seedInterruptedSession(paths);
+	const controlDbPath = getControlDbPath(paths.agentDir);
+	writeStartupAuthentication(paths, abortThinking);
+	const files = {
+		timeoutPreloadPath: writeFirstThinkingDeadlinePreload(paths),
+		restoreAuthPath: writeAuthenticationRestoreExtension(paths),
+	};
+	const child = launchInteractiveSession(paths, session.sessionFile, files, abortThinking);
+	const output = collectInteractiveProcessOutput(child);
+	const readOutput = () => `${output.stdout}\n${output.stderr}`;
+	return { ...session, controlDbPath, child, output, readOutput };
+}
 
 async function stopProcess(child: ChildProcessWithoutNullStreams): Promise<void> {
 	if (child.exitCode !== null || child.signalCode !== null) return;
@@ -60,115 +219,8 @@ describe("interactive startup resumed continuation failure", () => {
 		"accepts extension commands and another request after $failure",
 		async ({ abortThinking, expectedError }) => {
 			await withHeadlessPi(async (agent) => {
-				// Restore a real post-tool transcript and fail its startup continuation.
-				const session = SessionManager.create(agent.paths.workspaceDir, agent.paths.sessionDir);
-				session.appendMessage({ role: "user", content: "Interrupted request", timestamp: Date.now() });
-				session.appendMessage(
-					fauxAssistantMessage(fauxToolCall("read", { path: "seed.txt" }, { id: "seed-read" }), {
-						stopReason: "toolUse",
-					}),
-				);
-				session.appendMessage({
-					role: "toolResult",
-					toolCallId: "seed-read",
-					toolName: "read",
-					content: [{ type: "text", text: "Seed result" }],
-					isError: false,
-					timestamp: Date.now(),
-				});
-				const sessionFile = session.getSessionFile();
-				if (!sessionFile) throw new Error("Missing interrupted session file");
-				const sessionId = session.getSessionId();
-				const controlDbPath = getControlDbPath(agent.paths.agentDir);
-				const originalEntries = session.getEntries();
-
-				const modelsPath = join(agent.paths.agentDir, "models.json");
-				const models = JSON.parse(readFileSync(modelsPath, "utf8")) as {
-					providers: Record<string, { apiKey?: string }>;
-				};
-				if (!abortThinking) delete models.providers["headless-faux"].apiKey;
-				writeFileSync(modelsPath, JSON.stringify(models));
-				const timeoutPreloadPath = join(agent.paths.tempDir, "shorten-first-thinking-phase.mjs");
-				writeFileSync(
-					timeoutPreloadPath,
-					`const startTimer = globalThis.setTimeout;
-const thinkingPhaseMs = 15 * 60 * 1000;
-const firstThinkingPhaseMs = 200;
-let shortened = false;
-globalThis.setTimeout = (callback, delay, ...args) => {
-	if (!shortened && delay === thinkingPhaseMs) {
-		shortened = true;
-		delay = firstThinkingPhaseMs;
-	}
-	return startTimer(callback, delay, ...args);
-};
-`,
-				);
-				const restoreAuthPath = join(agent.paths.tempDir, "restore-auth.ts");
-				writeFileSync(
-					restoreAuthPath,
-					`import { getApiProvider } from "@earendil-works/pi-ai/compat";
-export default function (pi) {
-	const provider = getApiProvider("headless-faux");
-	if (!provider) throw new Error("Missing preloaded faux provider");
-	pi.registerProvider("headless-faux", { api: "headless-faux", streamSimple: provider.streamSimple });
-	pi.registerCommand("restore-test-auth", {
-		handler: async (_args, ctx) => {
-			ctx.modelRegistry.authStorage.setRuntimeApiKey("headless-faux", "test-key");
-			ctx.ui.notify("Test authentication restored", "info");
-		},
-	});
-}
-`,
-				);
-				const child = spawn(
-					process.execPath,
-					[
-						"--experimental-strip-types",
-						"--import",
-						pathToFileURL(join(import.meta.dirname, "../fixtures/headless-pi-provider-preload.ts")).href,
-						"--import",
-						pathToFileURL(join(import.meta.dirname, "../fixtures/headless-pi-tty-preload.mjs")).href,
-						...(abortThinking ? ["--import", pathToFileURL(timeoutPreloadPath).href] : []),
-						join(import.meta.dirname, "../../../src/cli.ts"),
-						"--approve",
-						"--no-context-files",
-						"--no-skills",
-						"--no-themes",
-						"--provider",
-						"headless-faux",
-						"--model",
-						"headless-faux-1",
-						"--session",
-						sessionFile,
-						"--name",
-						"Startup failure regression",
-						"-e",
-						restoreAuthPath,
-					],
-					{
-						cwd: agent.paths.workspaceDir,
-						env: {
-							...process.env,
-							PI_OFFLINE: "1",
-							NO_COLOR: "1",
-							TERM: "xterm-256color",
-							PI_CODING_AGENT_DIR: agent.paths.agentDir,
-							PI_CODING_AGENT_SESSION_DIR: agent.paths.sessionDir,
-							PI_CODING_AGENT_STATE_DIR: agent.paths.agentDir,
-							PI_HEADLESS_PROVIDER_SOCKET: join(agent.paths.tempDir, "provider.sock"),
-						},
-					},
-				);
-				let stdout = "";
-				let stderr = "";
-				child.stdout.on("data", (chunk: Buffer) => {
-					stdout += chunk.toString();
-				});
-				child.stderr.on("data", (chunk: Buffer) => {
-					stderr += chunk.toString();
-				});
-				const readOutput = () => `${stdout}\n${stderr}`;
+				const { sessionFile, sessionId, originalEntries, controlDbPath, child, output, readOutput } =
+					startStartupFailureFixture(agent.paths, abortThinking);
 				try {
 					if (abortThinking) {
 						await agent.waitForLlmRequest(
@@ -180,7 +232,7 @@ export default function (pi) {
 					child.stdin.write("/session-id\r");
 					await waitForOutput(child, readOutput, `Session ID: ${sessionId}`);
 					// The error must be surfaced by the interactive UI, not the outer CLI catch.
-					expect(stdout).toContain(expectedError);
+					expect(output.stdout).toContain(expectedError);
 					child.stdin.write("/restore-test-auth\r");
 					await waitForOutput(child, readOutput, "Test authentication restored");
 					child.stdin.write("Normal request after startup failure\r");
