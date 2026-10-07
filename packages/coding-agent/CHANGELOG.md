@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed `!` and RPC `bash` output keeping fragments of color codes, such as a stray `m`, when a code was split across output chunks ([#10504](https://github.com/earendil-works/pi/issues/10504))
 - Fixed `SettingsManager.applyOverrides()` being discarded when settings reload (including the reload `createAgentSession()` performs) or when any setter saves; overrides now stay on top of global and project settings.
 - Fixed `--model provider/id:<thinking>` choosing an unauthenticated provider when an authenticated model has the literal id `provider/id`; the shorthand now resolves like `--thinking` and keeps its thinking level.
 - Fixed `--fork` of a legacy (v1/v2) session copying unmigrated entries under a v3 header, which dropped all but the last v1 message and kept v2 `hookMessage` roles.
