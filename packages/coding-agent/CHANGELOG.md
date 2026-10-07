@@ -4,6 +4,8 @@
 
 ### Breaking Changes
 
+- Changed `--mode json` to a lean wire stream without a compatibility mode: message starts contain metadata only; updates omit accumulated messages and partial/completed block bodies; full completed messages remain unchanged at `message_end`; turn and agent end events omit repeated messages while retaining retry/continuation metadata. Tool completion keeps metadata-only `result` without `content`/`details`; progress updates and `bash_messages_committed` bodies remain unchanged. SDK/internal/TUI/RPC payloads are unchanged. See [JSON migration](docs/json.md#migration-breaking-change).
+
 - Removed `message: string` from model-facing `send_agent_message` and `contact_parent` without compatibility or fallback. Emit the body as text in the executing assistant response containing both the expected mailbox tool name and exact `toolCallId`; metadata-only arguments retain routing, identity, `fileRefs`, and `threadId`. Optional `textIndex` selects a zero-based filtered text block and is required with multiple blocks; a sole block is selected by default. Bodies are sent verbatim, and missing, unmatched, empty, or ambiguous sources fail explicitly. Programmatic `pi.messages.send`/`enqueue` literal-body transport and `spawn_agent.prompt` are unchanged; synthetic mailbox calls through `pi.tools.call` fail explicitly because the reused outer `pyrun_eval` ID does not match the mailbox tool name, never sending outer commentary.
 
 - Replaced fixed `ask_secret` browser username/password selectors with ordered `{ type, name, selector }` field schemas; browser credential callers must provide `fields`, and only `password` fields are masked.
@@ -63,6 +65,7 @@
 
 ### Added
 
+- Added staging-only `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=skip` support in `deploy.sh` to leave local resident services untouched while staging paths for remote transfer.
 - Added [standalone workers](../../docs/specs/standalone-worker.md) via `--no-supervisor --no-session` and SDK `noSupervisor: true`, with canonical foreground Pyrun and no Supervisor or multi-agent orchestration.
 - Added interactive custom-entry renderer options for session identity, scoped same-height redraw attempts without generic fallback, and component-lifetime cleanup registration.
 - Added automatic session naming for persisted never-named main sessions in interactive TUI and RPC modes after a real-user agent turn; naming runs asynchronously, manual names win, and failures leave sessions unnamed.

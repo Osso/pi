@@ -23,6 +23,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 
 | Feature | Spec | Status | Notes |
 |---|---|---|---|
+| JSON event stream (`--mode json`) | [`json-event-stream.md`](json-event-stream.md) | **BUILD** | Lean wire projection; SDK/internal/TUI/RPC payloads unchanged. |
 | Goal system (`/goal`) | [`goal-system.md`](goal-system.md) | **BUILD** (primary) | Codex-style long-running objective with set/view/clear, persistence, context injection, and autonomous continuation. |
 | `/run-plan` command | [`run-plan-command.md`](run-plan-command.md) | **BUILD** | Trivial via `pi.registerCommand`; walks `PLAN.md`. |
 | `/spec-validation` command | [`spec-validation.md`](spec-validation.md) | **BUILD** (done) | First-party command that submits the exact validation prompt as one native agent turn, blocks while busy, and clears the composer. |

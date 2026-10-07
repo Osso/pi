@@ -255,7 +255,7 @@ systemctl --user enable --now pi-supervisor.service
 systemctl --user is-active pi-supervisor.service   # verify
 ```
 
-Deployments that build pi from source default to Pi-managed lazy startup. On Linux, `deploy.sh` invokes `scripts/configure-resident-services.sh <pi-binary> autostart` to stop, disable, and remove obsolete Architect and Supervisor user units; on Darwin it skips systemd configuration. Set `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1` for systemd mode; Darwin rejects that opt-in. The direct one-argument `scripts/configure-resident-services.sh <pi-binary>` form remains an explicit systemd installer. To run the service in the foreground, use `pi supervisor`.
+Deployments that build pi from source default to Pi-managed lazy startup. On Linux, `deploy.sh` invokes `scripts/configure-resident-services.sh <pi-binary> autostart` to stop, disable, and remove obsolete Architect and Supervisor user units; on Darwin it skips systemd configuration. Set `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1` for systemd mode; Darwin rejects that opt-in. For staging paths for remote transfer, set `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=skip` to leave local resident services untouched. The direct one-argument `scripts/configure-resident-services.sh <pi-binary>` form remains an explicit systemd installer. To run the service in the foreground, use `pi supervisor`.
 
 ## Sessions
 
@@ -560,7 +560,7 @@ pi config                    # Enable/disable package resources
 |------|-------------|
 | (default) | Interactive mode |
 | `-p`, `--print` | Print response and exit |
-| `--mode json` | Output all events as JSON lines (see [docs/json.md](docs/json.md)) |
+| `--mode json` | Lean JSON event stream: deltas, metadata, and completed messages at `message_end`; no compatibility mode (see [docs/json.md](docs/json.md)) |
 | `--mode rpc` | RPC mode for process integration (see [docs/rpc.md](docs/rpc.md)) |
 | `--export <in> [out]` | Export session to HTML |
 
