@@ -189,6 +189,15 @@ describe("resident service deployment", () => {
 		expect(readFileSync(fixture.configureLog, "utf8")).toBe(`${join(fixture.binDir, "pi")}\tautostart\n`);
 	});
 
+	it("stages a Linux bundle without changing resident services when explicitly skipped", () => {
+		const fixture = createDeployFixture(tempDir);
+		const result = runDeploy(fixture, { configureResidentServices: "skip" });
+
+		expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
+		expect(existsSync(join(fixture.installDir, "pi"))).toBe(true);
+		expect(readFileSync(fixture.configureLog, "utf8")).toBe("");
+	});
+
 	it("skips Linux resident-service configuration on macOS", () => {
 		const fixture = createDeployFixture(tempDir);
 		const result = runDeploy(fixture, { machine: "arm64", system: "Darwin" });

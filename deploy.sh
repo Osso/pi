@@ -64,8 +64,11 @@ case "$CONFIGURE_RESIDENT_SERVICES" in
 	1)
 		SUPERVISOR_SERVICE_MODE="systemd"
 		;;
+	skip)
+		SUPERVISOR_SERVICE_MODE="skip"
+		;;
 	*)
-		echo "PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES must be 0 or 1" >&2
+		echo "PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES must be 0, 1, or skip" >&2
 		exit 1
 		;;
 esac
@@ -130,7 +133,7 @@ DEPLOY_REPLACED_INSTALL=1
 ln -sfn "$INSTALL_DIR/pi" "$BIN_DIR/pi"
 
 "$BIN_DIR/pi" --version
-if [[ "$PLATFORM" == linux-* ]]; then
+if [[ "$PLATFORM" == linux-* && "$SUPERVISOR_SERVICE_MODE" != "skip" ]]; then
 	"$ROOT_DIR/scripts/configure-resident-services.sh" "$BIN_DIR/pi" "$SUPERVISOR_SERVICE_MODE"
 fi
 rm -rf "$OLD_INSTALL_DIR"
