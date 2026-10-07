@@ -230,11 +230,8 @@ describe("print-mode JSON wire output", () => {
 		const originals = structuredClone(events);
 		const output = await captureJsonEvents(events);
 		for (const [index, message] of messages.entries()) {
-			const { content, details, summary, ...metadata } = message as AgentMessage & {
-				content?: unknown;
-				details?: unknown;
-				summary?: unknown;
-			};
+			const bodyFields = new Set(["content", "details", "summary"]);
+			const metadata = Object.fromEntries(Object.entries(message).filter(([key]) => !bodyFields.has(key)));
 			expect(output[index * 2]).toEqual({ type: "message_start", message: JSON.parse(JSON.stringify(metadata)) });
 			expect(output[index * 2 + 1]).toEqual(JSON.parse(JSON.stringify({ type: "message_end", message })));
 		}

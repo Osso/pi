@@ -25,39 +25,49 @@ type JsonEvent<T extends AgentSessionEvent> = T extends { type: "message_start" 
 
 export type JsonPrintModeEvent = JsonEvent<AgentSessionEvent>;
 
-function messageMetadata(message: AgentMessage): MessageMetadata {
-	const { content, details, summary, output, providerNative, imageGenerationResult, ...metadata } =
-		message as AgentMessage & Partial<Record<MessageBodyKey, unknown>>;
-	return metadata;
-}
-
-function assistantEventMetadata(event: AssistantMessageEvent): JsonAssistantMessageEvent {
-	const { partial, content, toolCall, message, error, ...metadata } = event as AssistantMessageEvent &
-		Partial<Record<"partial" | "content" | "toolCall" | "message" | "error", unknown>>;
-	return metadata;
+function omitFields<T extends object, K extends string>(value: T, fields: readonly K[]): DistributiveOmit<T, K> {
+	const excludedFields = new Set<string>(fields);
+	const entries = Object.entries(value).filter(([key]) => !excludedFields.has(key));
+	return Object.fromEntries(entries) as DistributiveOmit<T, K>;
 }
 
 /** Shape only print-mode JSON; subscribed session events remain untouched. */
 export function toJsonPrintModeEvent(event: AgentSessionEvent): JsonPrintModeEvent {
 	switch (event.type) {
 		case "message_start":
-			return { ...event, message: messageMetadata(event.message) };
-		case "message_update": {
-			const { message, assistantMessageEvent, ...metadata } = event;
-			return { ...metadata, assistantMessageEvent: assistantEventMetadata(assistantMessageEvent) };
-		}
-		case "turn_end": {
-			const { message, toolResults, ...metadata } = event;
-			return metadata;
-		}
-		case "agent_end": {
-			const { messages, ...metadata } = event;
-			return metadata;
-		}
+			return {
+				...event,
+				message: omitFields(event.message, [
+					"content",
+					"details",
+					"summary",
+					"output",
+					"providerNative",
+					"imageGenerationResult",
+				]),
+			};
+		case "message_update":
+			return {
+				...omitFields(event, ["message"]),
+				assistantMessageEvent: omitFields(event.assistantMessageEvent, [
+					"partial",
+					"content",
+					"toolCall",
+					"message",
+					"error",
+				]),
+			};
+		case "turn_end":
+			return omitFields(event, ["message", "toolResults"]);
+		case "agent_end":
+			return omitFields(event, ["messages"]);
 		case "tool_execution_end": {
 			// The loop copies content/details into the subsequent toolResult message.
 			// Other result fields (notably terminate) have no message equivalent.
-			const { content, details, ...result } = event.result as AgentToolResult<unknown> & Record<string, unknown>;
+			const result = omitFields(event.result as AgentToolResult<unknown> & Record<string, unknown>, [
+				"content",
+				"details",
+			]);
 			return { ...event, result };
 		}
 		default:
