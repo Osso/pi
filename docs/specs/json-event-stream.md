@@ -7,12 +7,12 @@ Module boundary: core CLI output projection.
 ## What it must do
 
 - [ ] Preserve the session header, event order, and existing fields except the explicitly removed body fields; introduce no replacement IDs, counters, or summaries.
-- [ ] Emit `message_start.message` metadata without `content`, `details`, `summary`, `output`, `providerNative`, or `imageGenerationResult`.
-- [ ] Emit updates without top-level `message` or nested `partial`; retain delta strings and indexes, omit `text_end`/`thinking_end.content`, `toolcall_end.toolCall`, and nested completed `message`/`error` bodies.
-- [ ] Emit full completed messages only through `message_end`, preserving the existing event/message field order and all fields unchanged; retain `bash_messages_committed.messages` as the sole-body event for idle/deferred bash commits without message lifecycle emission.
-- [ ] Omit `turn_end.message` and `turn_end.toolResults`; omit `agent_end.messages` while preserving `willRetry` and optional `sessionContinuation`.
-- [ ] Remove only `tool_execution_end.result.content` and `.details`; retain metadata-only `result` including existing fields such as `terminate`, plus tool identity, timestamps, and error flag. Keep tool progress updates unchanged.
-- [ ] Leave other session events and SDK/internal/TUI/RPC payloads unchanged; provide no compatibility mode for the old JSON wire shape.
+- [x] Emit `message_start.message` metadata without `content`, `details`, `summary`, `output`, `providerNative`, or `imageGenerationResult`.
+- [x] Emit updates without top-level `message` or nested `partial`; retain delta strings and indexes, omit `text_end`/`thinking_end.content`, `toolcall_end.toolCall`, and nested completed `message`/`error` bodies.
+- [x] Emit full completed messages only through `message_end`, preserving the existing event/message field order and all fields unchanged; retain `bash_messages_committed.messages` as the sole-body event for idle/deferred bash commits without message lifecycle emission.
+- [x] Omit `turn_end.message` and `turn_end.toolResults`; omit `agent_end.messages` while preserving `willRetry` and optional `sessionContinuation`.
+- [x] Remove only `tool_execution_end.result.content` and `.details`; retain metadata-only `result` including existing fields such as `terminate`, plus tool identity, timestamps, and error flag. Keep tool progress updates unchanged.
+- [x] Leave other session events and SDK/internal/TUI/RPC payloads unchanged; provide no compatibility mode for the old JSON wire shape.
 
 ## How it works
 
@@ -29,14 +29,17 @@ Module boundary: core CLI output projection.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/print-mode.test.ts` — implementation-owned print-mode behavior tests; coverage and passing status not verified by this docs-only update.
+- `packages/coding-agent/test/print-mode.test.ts` — delta/block projection, completed user/assistant/tool/custom bodies, terminal retry/error metadata, unchanged progress/bash payloads, nonmutation, linear output growth, and a real faux-provider tool loop with exact `message_end` wire order.
+- `packages/coding-agent/test/rpc-jsonl.test.ts` — unchanged LF-only framing and Unicode payload handling.
+
+Native executable validation also exercised streaming, `read`, and `end_turn` through an isolated loopback faux provider on the remote host.
 
 ## Known gaps (current cycle)
 
-- [ ] Record verified behavioral coverage for each requirement after implementation validation; unchecked requirements are not claims of passing tests.
+- [ ] Add a dedicated session-header passthrough regression. Header code remains unchanged and native output includes it; the first requirement is not fully covered by a named repository test.
 
 ## Out of scope
 
 - SDK, internal event, TUI, and RPC schema changes: this contract applies only to print-mode JSON serialization.
 - Compatibility mode or alternate legacy wire output: explicitly excluded.
-- Deployment and validation execution: handled outside this docs-only update.
+- Tool progress redesign: existing `partialResult` payloads remain unchanged; assistant delta-growth evidence does not imply arbitrary tool progress is linear.
