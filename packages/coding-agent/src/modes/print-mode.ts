@@ -12,6 +12,7 @@ import type { AgentSessionRuntime } from "../core/agent-session-runtime.ts";
 import { flushRawStdout, writeRawStdout } from "../core/output-guard.ts";
 import { getControlDbPath } from "../core/session-control-db.ts";
 import { killTrackedDetachedChildren } from "../utils/shell.ts";
+import { toJsonPrintModeEvent } from "./json-event.ts";
 
 /**
  * Options for print mode.
@@ -124,7 +125,7 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 		unsubscribe?.();
 		unsubscribe = session.subscribe((event) => {
 			if (mode === "json") {
-				writeRawStdout(`${JSON.stringify(event)}\n`);
+				writeRawStdout(`${JSON.stringify(toJsonPrintModeEvent(event))}\n`);
 			}
 		});
 	};
