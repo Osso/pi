@@ -237,7 +237,9 @@ describe("print-mode JSON wire output", () => {
 		}
 		expect(events).toEqual(originals);
 	});
+});
 
+describe("print-mode JSON lifecycle output", () => {
 	it.each(["error", "aborted"] as const)(
 		"retains %s message and retry/continuation metadata without terminal copies",
 		async (stopReason) => {
@@ -339,7 +341,9 @@ describe("print-mode JSON wire output", () => {
 		expect(output[5]).toEqual(events[5]);
 		expect(events).toEqual(originals);
 	});
+});
 
+describe("print-mode JSON stream integration", () => {
 	it("scales linearly with emitted deltas rather than accumulated snapshots", async () => {
 		const captureSize = async (count: number): Promise<number> => {
 			const events: AgentSessionEvent[] = Array.from({ length: count }, (_, index) => {

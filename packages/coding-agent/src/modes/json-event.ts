@@ -4,12 +4,18 @@ import type { AgentSessionEvent } from "../core/agent-session.ts";
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
-type MessageBodyKey = "content" | "details" | "summary" | "output" | "providerNative" | "imageGenerationResult";
-type MessageMetadata = DistributiveOmit<AgentMessage, MessageBodyKey>;
-type JsonAssistantMessageEvent = DistributiveOmit<
-	AssistantMessageEvent,
-	"partial" | "content" | "toolCall" | "message" | "error"
->;
+const MESSAGE_BODY_FIELDS = [
+	"content",
+	"details",
+	"summary",
+	"output",
+	"providerNative",
+	"imageGenerationResult",
+] as const;
+const ASSISTANT_BODY_FIELDS = ["partial", "content", "toolCall", "message", "error"] as const;
+
+type MessageMetadata = DistributiveOmit<AgentMessage, (typeof MESSAGE_BODY_FIELDS)[number]>;
+type JsonAssistantMessageEvent = DistributiveOmit<AssistantMessageEvent, (typeof ASSISTANT_BODY_FIELDS)[number]>;
 
 type JsonEvent<T extends AgentSessionEvent> = T extends { type: "message_start" }
 	? Omit<T, "message"> & { message: MessageMetadata }
@@ -37,25 +43,12 @@ export function toJsonPrintModeEvent(event: AgentSessionEvent): JsonPrintModeEve
 		case "message_start":
 			return {
 				...event,
-				message: omitFields(event.message, [
-					"content",
-					"details",
-					"summary",
-					"output",
-					"providerNative",
-					"imageGenerationResult",
-				]),
+				message: omitFields(event.message, MESSAGE_BODY_FIELDS),
 			};
 		case "message_update":
 			return {
 				...omitFields(event, ["message"]),
-				assistantMessageEvent: omitFields(event.assistantMessageEvent, [
-					"partial",
-					"content",
-					"toolCall",
-					"message",
-					"error",
-				]),
+				assistantMessageEvent: omitFields(event.assistantMessageEvent, ASSISTANT_BODY_FIELDS),
 			};
 		case "turn_end":
 			return omitFields(event, ["message", "toolResults"]);
