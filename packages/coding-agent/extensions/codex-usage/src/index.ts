@@ -146,14 +146,7 @@ export default function codexUsageExtension(pi: ExtensionAPI) {
 		},
 		handler: async (args, ctx) => {
 			if (ctx.model?.provider === "claude-bridge") {
-				const request: { args: string; ctx: ExtensionCommandContext; handled?: Promise<void> } = { args, ctx };
-				// The bridge listener must assign handled synchronously before emit returns.
-				pi.events.emit("claude-bridge:usage-request", request);
-				if (!request.handled) {
-					ctx.ui.notify("Claude bridge usage handler unavailable.", "error");
-					return;
-				}
-				await request.handled;
+				await dispatchClaudeUsageRequest(args, ctx, pi);
 				return;
 			}
 			const commandArgs = args.trim();
@@ -168,6 +161,17 @@ export default function codexUsageExtension(pi: ExtensionAPI) {
 			await handleUsageRead(ctx, pi);
 		},
 	});
+}
+
+async function dispatchClaudeUsageRequest(args: string, ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
+	const request: { args: string; ctx: ExtensionCommandContext; handled?: Promise<void> } = { args, ctx };
+	// The bridge listener must assign handled synchronously before emit returns.
+	pi.events.emit("claude-bridge:usage-request", request);
+	if (!request.handled) {
+		ctx.ui.notify("Claude bridge usage handler unavailable.", "error");
+		return;
+	}
+	await request.handled;
 }
 
 function resolveEmailClaim(payload: CodexTokenPayload): string | null {
