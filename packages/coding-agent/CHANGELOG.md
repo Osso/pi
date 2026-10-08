@@ -65,6 +65,7 @@
 
 ### Added
 
+- Added the first-party `/daybreak [blue|off]` command: a main-thread, session-persisted opt-in that adds `access_programs.cyber: "daybreak_blue"` to Codex requests for GPT-6 Sol, GPT-6 Luna, GPT-5.6 Sol, and GPT-5.5 only. Other models, non-Codex providers, child runtimes, and the Supervisor are unchanged; the footer shows `daybreak blue inactive` when the current model is ineligible. Selection does not grant entitlement, and provider rejections surface unchanged without retry or fallback.
 - Added staging-only `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=skip` support in `deploy.sh` to leave local resident services untouched while staging paths for remote transfer.
 - Added [standalone workers](../../docs/specs/standalone-worker.md) via `--no-supervisor --no-session` and SDK `noSupervisor: true`, with canonical foreground Pyrun and no Supervisor or multi-agent orchestration.
 - Added interactive custom-entry renderer options for session identity, scoped same-height redraw attempts without generic fallback, and component-lifetime cleanup registration.

@@ -29,6 +29,7 @@ import bwrapExtension from "../extensions/bwrap/src/index.ts";
 import claudeBashHookExtension, { resolveClaudeBashHookCommand } from "../extensions/claude-bash-hook/src/index.ts";
 import claudeMemoryEnrichExtension from "../extensions/claude-memory-enrich/src/index.ts";
 import claudeMemorySessionEndExtension from "../extensions/claude-memory-session-end/src/index.ts";
+import codexDaybreakExtension from "../extensions/codex-daybreak/src/index.ts";
 import codexFastExtension, { type FastModeAuthority } from "../extensions/codex-fast/src/index.ts";
 import codexImageGenerationExtension from "../extensions/codex-image-generation/src/index.ts";
 import codexUsageExtension from "../extensions/codex-usage/src/index.ts";
@@ -686,6 +687,7 @@ function createFirstPartyExtensionFactories(
 		),
 		firstPartyExtensionFactory("claude-memory-enrich", claudeMemoryEnrichExtension),
 		firstPartyExtensionFactory("claude-memory-session-end", claudeMemorySessionEndExtension),
+		firstPartyExtensionFactory("codex-daybreak", codexDaybreakExtension),
 		firstPartyExtensionFactory("codex-fast", (pi) => codexFastExtension(pi, { authority: fastModeAuthority })),
 		firstPartyExtensionFactory("codex-image-generation", codexImageGenerationExtension),
 		firstPartyExtensionFactory("codex-usage", codexUsageExtension),
