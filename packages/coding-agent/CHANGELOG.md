@@ -24,6 +24,7 @@
 ### Changed
 
 - `ask_questions` transcript rows now list each question with its answer (or `(cancelled)`), visible even when `hideToolOutput` is enabled.
+- `ask_questions` now shows all questions in one tabbed panel: left/right (or tab/shift+tab) move between questions, earlier answers stay selected and can be changed, and a Submit tab sends them. Tab keys are configurable as `app.questions.next` / `app.questions.previous`.
 
 - `spawn_agent` now records the parent's model on children without a profile model, so agent metadata always names the model a child runs. Resumed and restart-recovered children keep that recorded model instead of adopting the parent's current model.
 - Increased the default main, spawned-child, and attached-child thinking-phase cap from 15 to 20 minutes and allowed one automatic watchdog continuation within the same prompt or continuation dispatch; internal continuations and tools share that allowance, a second timeout stops and reports failure, and manual cancellation never retries. Queued input retains normal delivery and precedence; observer exclusion and uncapped tool/approval waits are unchanged.

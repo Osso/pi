@@ -7,13 +7,11 @@ import {
 	sendDesktopNotification,
 } from "../desktop-notification.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import { type AskQuestionsPanelResult, createAskQuestionsPanel } from "./ask-questions-panel.ts";
 
 const MIN_OPTIONS = 2;
 const MAX_OPTIONS = 4;
 const MAX_QUESTIONS = 4;
-const OTHER_LABEL = "Other";
-const DONE_LABEL = "Done";
-const CANCEL_LABEL = "Cancel";
 const ASK_QUESTIONS_NOTIFICATION_TITLE = "Pi question needs input";
 
 const questionOptionSchema = Type.Object({
@@ -73,12 +71,6 @@ export interface AskQuestionsToolDetails {
 	metadata?: Record<string, unknown>;
 }
 
-interface SelectionOption {
-	label: string;
-	value: string;
-	custom: boolean;
-}
-
 function validateQuestions(questions: AskQuestionsToolInput["questions"]): void {
 	if (questions.length < 1 || questions.length > MAX_QUESTIONS) {
 		throw new Error(`ask_questions requires 1-${MAX_QUESTIONS} questions`);
@@ -102,99 +94,13 @@ function validateQuestions(questions: AskQuestionsToolInput["questions"]): void 
 	}
 }
 
-function formatOption(option: AskQuestionsToolInput["questions"][number]["options"][number], index: number): string {
-	const suffix = option.description ? ` — ${option.description}` : "";
-	return `${index + 1}. ${option.label}${suffix}`;
-}
-
-function buildSelectionOptions(question: AskQuestionsToolInput["questions"][number]): SelectionOption[] {
-	return [
-		...question.options.map((option, index) => ({
-			label: formatOption(option, index),
-			value: option.label,
-			custom: false,
-		})),
-		{ label: OTHER_LABEL, value: OTHER_LABEL, custom: true },
-	];
-}
-
-async function askCustomAnswer(ctx: ExtensionContext, title: string): Promise<string | undefined> {
-	const answer = await ctx.ui.input(title, "Type your answer");
-	const trimmed = answer?.trim();
-	return trimmed ? trimmed : undefined;
-}
-
-async function askSingleQuestion(
+async function askQuestions(
 	ctx: ExtensionContext,
-	question: AskQuestionsToolInput["questions"][number],
-): Promise<string | undefined> {
-	const options = buildSelectionOptions(question);
-	const choice = await ctx.ui.select(question.question, [...options.map((option) => option.label), CANCEL_LABEL]);
-	if (!choice || choice === CANCEL_LABEL) return undefined;
-	const selected = options.find((option) => option.label === choice);
-	if (!selected) return undefined;
-	if (selected.custom) return askCustomAnswer(ctx, question.question);
-	return selected.value;
-}
-
-function formatMultiSelectOption(option: SelectionOption, selected: ReadonlySet<string>): string {
-	if (option.custom) return option.label;
-	const marker = selected.has(option.value) ? "[x]" : "[ ]";
-	return `${marker} ${option.label}`;
-}
-
-function readMultiSelectChoice(
-	options: SelectionOption[],
-	choice: string,
-	selected: ReadonlySet<string>,
-): SelectionOption | undefined {
-	return options.find((option) => formatMultiSelectOption(option, selected) === choice);
-}
-
-function toggleSelectedOption(selected: Set<string>, value: string): void {
-	if (selected.has(value)) {
-		selected.delete(value);
-		return;
-	}
-	selected.add(value);
-}
-
-async function applyMultiSelectChoice(
-	ctx: ExtensionContext,
-	question: AskQuestionsToolInput["questions"][number],
-	option: SelectionOption,
-	selected: Set<string>,
-): Promise<void> {
-	if (!option.custom) {
-		toggleSelectedOption(selected, option.value);
-		return;
-	}
-	const customAnswer = await askCustomAnswer(ctx, question.question);
-	if (customAnswer) selected.add(customAnswer);
-}
-
-async function askMultiSelectQuestion(
-	ctx: ExtensionContext,
-	question: AskQuestionsToolInput["questions"][number],
-): Promise<string | undefined> {
-	const options = buildSelectionOptions(question);
-	const selected = new Set<string>();
-	for (;;) {
-		const labels = options.map((option) => formatMultiSelectOption(option, selected));
-		const choice = await ctx.ui.select(question.question, [...labels, DONE_LABEL, CANCEL_LABEL]);
-		if (!choice || choice === CANCEL_LABEL) return undefined;
-		if (choice === DONE_LABEL) return [...selected].join(", ");
-		const option = readMultiSelectChoice(options, choice, selected);
-		if (!option) return undefined;
-		await applyMultiSelectChoice(ctx, question, option, selected);
-	}
-}
-
-async function askQuestion(
-	ctx: ExtensionContext,
-	question: AskQuestionsToolInput["questions"][number],
-): Promise<string | undefined> {
-	return question.multiSelect ? askMultiSelectQuestion(ctx, question) : askSingleQuestion(ctx, question);
+	questions: AskQuestionsToolInput["questions"],
+): Promise<AskQuestionsPanelResult> {
+	return ctx.ui.custom<AskQuestionsPanelResult>((tui, theme, keybindings, done) =>
+		createAskQuestionsPanel({ questions, theme, keybindings, requestRender: () => tui.requestRender(), done }),
+	);
 }
 
 function formatAnswers(answers: Record<string, string>): string {
@@ -297,13 +203,8 @@ export function createAskQuestionsToolDefinition(): ToolDefinition<typeof askQue
 			validateQuestions(params.questions);
 			const notification = notifyAskQuestionsWaiting(params.questions.length);
 			try {
-				const answers: Record<string, string> = {};
-				for (const question of params.questions) {
-					const answer = await askQuestion(ctx, question);
-					if (answer === undefined) return cancelledResult(params, answers);
-					answers[question.question] = answer;
-				}
-				return answeredResult(params, answers);
+				const { answers, cancelled } = await askQuestions(ctx, params.questions);
+				return cancelled ? cancelledResult(params, answers) : answeredResult(params, answers);
 			} finally {
 				closeAskQuestionsNotification(notification);
 			}

@@ -65,6 +65,8 @@ export interface AppKeybindings {
 	"app.tree.filter.all": true;
 	"app.tree.filter.cycleForward": true;
 	"app.tree.filter.cycleBackward": true;
+	"app.questions.next": true;
+	"app.questions.previous": true;
 }
 
 export type AppKeybinding = keyof AppKeybindings;
@@ -260,6 +262,14 @@ export const KEYBINDINGS = {
 	"app.tree.filter.cycleBackward": {
 		defaultKeys: "shift+ctrl+o",
 		description: "Tree filter: cycle backward",
+	},
+	"app.questions.next": {
+		defaultKeys: ["right", "tab"],
+		description: "Next question in ask_questions",
+	},
+	"app.questions.previous": {
+		defaultKeys: ["left", "shift+tab"],
+		description: "Previous question in ask_questions",
 	},
 } as const satisfies KeybindingDefinitions;
 

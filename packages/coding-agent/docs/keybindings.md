@@ -155,6 +155,15 @@ Modifier combinations: `ctrl+shift+x`, `alt+ctrl+x`, `ctrl+shift+alt+x`, `ctrl+1
 | `app.tree.filter.cycleForward` | `ctrl+o` | Cycle tree filter forward |
 | `app.tree.filter.cycleBackward` | `shift+ctrl+o` | Cycle tree filter backward |
 
+### Ask Questions Panel
+
+Used inside the `ask_questions` panel. Up/down move within a question, Enter selects or toggles, Escape cancels.
+
+| Keybinding id | Default | Description |
+|--------|---------|-------------|
+| `app.questions.next` | `right`, `tab` | Next question tab |
+| `app.questions.previous` | `left`, `shift+tab` | Previous question tab |
+
 ### Scoped Models Selector
 
 Used inside the scoped models selector (opened via `/scoped-models`). Escape closes this selector without interrupting an active model response.
