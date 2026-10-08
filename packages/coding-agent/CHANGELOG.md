@@ -66,6 +66,7 @@
 
 ### Added
 
+- Added the supervisor-only `set_agent_model` tool to change a running child's model and/or reasoning effort by agent ID; the change applies from the child's next model request without interrupting in-flight work or changing parent and global defaults.
 - Added the first-party [agents status widget](../../docs/specs/agents-status-widget.md): up to 5 one-line rows above the editor showing each sub-agent's name, lifecycle, agent type and model, current tool with a one-line argument summary (or `thinking`), and elapsed time; children nest under parents, waiting agents sort first, and finished agents linger 10s. The above-editor widget area is now a render region, so widgets that call `requestComponentRender` update their own lines in place instead of redrawing the screen. Persisted child `currentActivity` tool entries now carry an optional `detail` argument summary.
 - Added the first-party `/daybreak [blue|off]` command: a main-thread, session-persisted opt-in that adds `access_programs.cyber: "daybreak_blue"` to Codex requests for GPT-6 Sol, GPT-6 Luna, GPT-5.6 Sol, and GPT-5.5 only. Other models, non-Codex providers, child runtimes, and the Supervisor are unchanged; the footer shows `daybreak blue inactive` when the current model is ineligible. Selection does not grant entitlement, and provider rejections surface unchanged without retry or fallback.
 - Added staging-only `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=skip` support in `deploy.sh` to leave local resident services untouched while staging paths for remote transfer.
@@ -172,6 +173,7 @@
 
 ### Fixed
 
+- Fixed viewed sub-agents showing `effort off` while running at another effort: spawned children now record their starting effort (the profile's level, else `medium`) and publish their effective model and clamped effort to the agent record at run start and on every model or effort change.
 - Fixed failed interactive startup model continuation leaving the normal input loop unavailable; the error is reported and built-in local commands, extension commands, and plain prompts remain usable in the same session.
 - Fixed partially streamed assistant responses disappearing when incoming steering interrupts a model request, including around Supervisor pending-input notices; the interrupted reply is retained instead of replaced by an empty message.
 - Fixed `pi -p` dropping final assistant text when a later textless `end_turn` call completed the current prompt; it now prints that current-prompt text without reusing stale prior-prompt output. JSON output remains unchanged and errors still exit nonzero.

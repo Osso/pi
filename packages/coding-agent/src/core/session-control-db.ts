@@ -5569,8 +5569,27 @@ export function updateMultiAgentAgentCurrentActivity(
 	currentActivity: AgentSnapshot["currentActivity"],
 	updatedAt: string,
 	ownership: { ownerSessionId: string; processIdentity: ProcessIdentity },
+	model?: NonNullable<AgentSnapshot["model"]>,
 ): AgentSnapshot | undefined {
-	return updateMultiAgentAgentMetadata(controlDbPath, sessionPath, agentId, { currentActivity }, updatedAt, ownership);
+	return updateMultiAgentAgentMetadata(
+		controlDbPath,
+		sessionPath,
+		agentId,
+		{ currentActivity, ...(model ? { model } : {}) },
+		updatedAt,
+		ownership,
+	);
+}
+
+export function updateMultiAgentAgentModel(
+	controlDbPath: string,
+	sessionPath: string,
+	agentId: string,
+	model: NonNullable<AgentSnapshot["model"]>,
+	updatedAt: string,
+	ownership: { ownerSessionId: string; processIdentity: ProcessIdentity },
+): AgentSnapshot | undefined {
+	return updateMultiAgentAgentMetadata(controlDbPath, sessionPath, agentId, { model }, updatedAt, ownership);
 }
 
 export function updateMultiAgentAgentSlot(
@@ -5608,7 +5627,8 @@ function multiAgentActivityOwnershipMatches(
 }
 
 type MultiAgentAgentMetadata =
-	| Pick<AgentSnapshot, "currentActivity">
+	| (Pick<AgentSnapshot, "currentActivity"> & Partial<Pick<AgentSnapshot, "model">>)
+	| Pick<AgentSnapshot, "model">
 	| Pick<AgentSnapshot, "lastActivity">
 	| Pick<AgentSnapshot, "slot">
 	| Pick<AgentSnapshot, "transcript">;

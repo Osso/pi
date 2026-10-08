@@ -3535,7 +3535,10 @@ export class InteractiveMode {
 		const sessionContext = this.childViewSessionManager.buildSessionContext();
 		const persistedSettings = this.childViewSessionManager.readPersistedSessionSettings();
 		const selectedAgent = this.childViewAgentId ? this.multiAgentStore?.getAgent(this.childViewAgentId) : undefined;
-		const selectedModel = persistedSettings?.model ?? sessionContext.model;
+		const publishedModel = selectedAgent?.model
+			? { provider: selectedAgent.model.providerId, modelId: selectedAgent.model.modelId }
+			: undefined;
+		const selectedModel = persistedSettings?.model ?? publishedModel ?? sessionContext.model;
 		const model = selectedModel
 			? this.session.modelRegistry.find(selectedModel.provider, selectedModel.modelId)
 			: undefined;
@@ -3603,7 +3606,7 @@ export class InteractiveMode {
 			return;
 		}
 
-		this.unsubscribeMultiAgentUpdates = this.multiAgentStore.subscribeAgentUpdates((_previous, current) => {
+		this.unsubscribeMultiAgentUpdates = this.multiAgentStore.subscribeAgentUpdates((previous, current) => {
 			if (this.multiAgentStore?.getSelectedAgentId() !== current.id) {
 				return;
 			}
@@ -3614,6 +3617,10 @@ export class InteractiveMode {
 			const transcriptPath = current.transcript?.path;
 			if (transcriptPath && transcriptPath !== this.childViewTranscriptPath) {
 				this.openChildAgentView(current);
+			}
+			if (JSON.stringify(previous.model) !== JSON.stringify(current.model)) {
+				InteractiveMode.prototype.refreshSelectedAgentFooterOverride.call(this);
+				this.footer.invalidate();
 			}
 			this.syncWorkingLoaderVisibility();
 			this.updateSelectedAgentSelectionWidgets();

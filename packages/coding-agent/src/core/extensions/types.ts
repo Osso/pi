@@ -1801,7 +1801,8 @@ export type SetLabelHandler = (entryId: string, label: string | undefined) => vo
 export interface SessionMutationTarget {
 	model: Model<any> | undefined;
 	thinkingLevel: ThinkingLevel;
-	setModel(model: Model<any>): Promise<void>;
+	/** Applies from the next model request; an optional thinking level is set together with the model. */
+	setModel(model: Model<any>, source?: "set" | "cycle", thinkingLevel?: ThinkingLevel): Promise<void>;
 	setThinkingLevel(level: ThinkingLevel): void;
 }
 

@@ -3,6 +3,7 @@ export const CHILD_DISABLED_AGENT_TOOL_NAMES = [
 	"attach_session_agent",
 	"close_agent",
 	"list_agents",
+	"set_agent_model",
 	"spawn_agent",
 	"steer_agent",
 	"wait_agent",

@@ -632,6 +632,7 @@ describe("multi-agent extension tools", () => {
 			"contact_parent",
 			"list_agents",
 			"send_agent_message",
+			"set_agent_model",
 			"spawn_agent",
 			"steer_agent",
 			"wait_agent",
@@ -659,6 +660,7 @@ describe("multi-agent extension tools", () => {
 			["contact_parent", false],
 			["list_agents", false],
 			["send_agent_message", false],
+			["set_agent_model", false],
 			["spawn_agent", false],
 			["steer_agent", false],
 			["wait_agent", false],
@@ -675,6 +677,7 @@ describe("multi-agent extension tools", () => {
 			"contact_parent",
 			"list_agents",
 			"send_agent_message",
+			"set_agent_model",
 			"spawn_agent",
 			"steer_agent",
 			"wait_agent",
@@ -1863,6 +1866,7 @@ describe("multi-agent extension tools", () => {
 			"attach_session_agent",
 			"close_agent",
 			"list_agents",
+			"set_agent_model",
 			"spawn_agent",
 			"steer_agent",
 			"wait_agent",
@@ -4278,6 +4282,7 @@ describe("multi-agent extension tools", () => {
 				"attach_session_agent",
 				"close_agent",
 				"list_agents",
+				"set_agent_model",
 				"spawn_agent",
 				"steer_agent",
 				"wait_agent",
@@ -4533,6 +4538,7 @@ describe("multi-agent extension tools", () => {
 				"attach_session_agent",
 				"close_agent",
 				"list_agents",
+				"set_agent_model",
 				"spawn_agent",
 				"steer_agent",
 				"wait_agent",
@@ -5116,6 +5122,7 @@ describe("multi-agent extension tools", () => {
 				"attach_session_agent",
 				"close_agent",
 				"list_agents",
+				"set_agent_model",
 				"spawn_agent",
 				"steer_agent",
 				"wait_agent",
@@ -5727,6 +5734,55 @@ describe("multi-agent extension tools", () => {
 
 		expect(sessionOptions?.model).toMatchObject({ provider: "faux", id: "implement-model" });
 		expect(sessionOptions?.thinkingLevel).toBe("medium");
+	});
+
+	it("starts children at the default effort unless their profile sets one, and records it on the agent", async () => {
+		const parentHarness = await createHarness({
+			models: [
+				{ id: "parent-model", reasoning: true },
+				{ id: "quiet-model", reasoning: true },
+			],
+			settings: { agents: { quiet: { model: "faux/quiet-model", thinkingLevel: "off" } } },
+		});
+		childHarnesses.push(parentHarness);
+		parentHarness.session.setThinkingLevel("xhigh");
+		let sessionOptions: CreateAgentSessionOptions | undefined;
+		const harness = createMultiAgentHarness({
+			ctx: {
+				model: parentHarness.getModel("parent-model"),
+				modelRegistry: parentHarness.session.modelRegistry,
+				sessionManager: parentHarness.sessionManager,
+				settingsManager: parentHarness.settingsManager,
+			},
+			createChildSession: createProductionChildAgentSessionFactory({
+				createSessionManager: SessionManager.create,
+				createSession: async (options) => {
+					sessionOptions = options;
+					const childHarness = await createHarness();
+					childHarnesses.push(childHarness);
+					childHarness.setResponses([fauxAssistantMessage("child done")]);
+					return { session: childHarness.session };
+				},
+			}),
+		});
+
+		const inherited = await harness.call<SpawnAgentDetails>("spawn_agent", { context: "fresh", prompt: "Inherit" });
+		await waitForTerminalAgent(harness, inherited.details.agent.id);
+		expect(inherited.details.agent.model).toEqual({
+			providerId: "faux",
+			modelId: "parent-model",
+			thinkingLevel: "medium",
+		});
+		expect(sessionOptions?.thinkingLevel).toBe("medium");
+
+		const quiet = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			agentType: "quiet",
+			context: "fresh",
+			prompt: "Explicit off",
+		});
+		await waitForTerminalAgent(harness, quiet.details.agent.id);
+		expect(quiet.details.agent.model).toEqual({ providerId: "faux", modelId: "quiet-model", thinkingLevel: "off" });
+		expect(sessionOptions?.thinkingLevel).toBe("off");
 	});
 
 	it("uses the parent session directory for production child sessions by default", async () => {

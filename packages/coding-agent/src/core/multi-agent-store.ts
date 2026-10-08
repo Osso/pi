@@ -6,6 +6,7 @@ import {
 	readMultiAgentState,
 	updateMultiAgentAgentActivity,
 	updateMultiAgentAgentCurrentActivity,
+	updateMultiAgentAgentModel,
 	updateMultiAgentAgentSlot,
 	updateMultiAgentAgentTranscript,
 	upsertMultiAgentMailboxMessage,
@@ -633,6 +634,7 @@ export class MultiAgentStore {
 		agentId: string,
 		currentActivity: AgentCurrentActivity | undefined,
 		ownership?: AgentCurrentActivityOwner,
+		model?: NonNullable<AgentSnapshot["model"]>,
 	): AgentSnapshot | undefined {
 		const current = this.agents.get(agentId);
 		if (!current) {
@@ -645,7 +647,19 @@ export class MultiAgentStore {
 			throw new Error(`Persisted agent ${agentId} activity update requires exact runtime ownership`);
 		}
 
-		return copyAgent(this.updateAgentMetadata(current, { currentActivity }, ownership));
+		return copyAgent(
+			this.updateAgentMetadata(current, { currentActivity, ...(model ? { model: { ...model } } : {}) }, ownership),
+		);
+	}
+
+	publishAgentModel(
+		agentId: string,
+		model: NonNullable<AgentSnapshot["model"]>,
+		ownership?: AgentCurrentActivityOwner,
+	): AgentSnapshot {
+		const current = this.agents.get(agentId);
+		if (!current) throw new Error(`Agent ${agentId} model metadata update requires an existing agent`);
+		return copyAgent(this.updateAgentMetadata(current, { model: { ...model } }, ownership));
 	}
 
 	updateAgentTranscript(agentId: string, transcript: AgentTranscriptMetadata): AgentTranscriptCommandResult {
@@ -986,7 +1000,7 @@ export class MultiAgentStore {
 
 	private persistAgentMetadata(
 		current: AgentNode,
-		updates: Partial<Pick<AgentNode, "currentActivity" | "lastActivity" | "slot" | "transcript">>,
+		updates: Partial<Pick<AgentNode, "currentActivity" | "lastActivity" | "model" | "slot" | "transcript">>,
 		updatedAt: string,
 		activityOwnership?: AgentCurrentActivityOwner,
 	): AgentNode | undefined {
@@ -1005,6 +1019,20 @@ export class MultiAgentStore {
 				updates.currentActivity,
 				updatedAt,
 				activityOwnership,
+				updates.model,
+			);
+		}
+		if ("model" in updates && updates.model) {
+			if (!activityOwnership) {
+				throw new Error(`Persisted agent ${current.id} model metadata update requires exact runtime ownership`);
+			}
+			return updateMultiAgentAgentModel(
+				controlDbPath,
+				sessionPath,
+				current.id,
+				updates.model,
+				updatedAt,
+				activityOwnership,
 			);
 		}
 		if ("transcript" in updates) {
@@ -1018,7 +1046,7 @@ export class MultiAgentStore {
 
 	private updateAgentMetadata(
 		current: AgentNode,
-		updates: Partial<Pick<AgentNode, "currentActivity" | "lastActivity" | "slot" | "transcript">>,
+		updates: Partial<Pick<AgentNode, "currentActivity" | "lastActivity" | "model" | "slot" | "transcript">>,
 		activityOwnership?: AgentCurrentActivityOwner,
 	): AgentNode {
 		const updatedAt = this.now();

@@ -1568,6 +1568,12 @@ export class AgentSession {
 		};
 	}
 
+	private _getCurrentAgentModel(): NonNullable<AgentSnapshot["model"]> {
+		const model = this.model;
+		if (!model) throw new Error(`Child agent ${this._multiAgentAgentId} has no effective model`);
+		return { providerId: model.provider, modelId: model.id, thinkingLevel: this.thinkingLevel };
+	}
+
 	private _startThinkingPhaseDeadline(): void {
 		if (this._multiAgentRuntimeRole === "observer" || this._thinkingPhaseTimeoutMs <= 0) return;
 		this._clearThinkingPhaseDeadline();
@@ -1626,11 +1632,16 @@ export class AgentSession {
 
 		switch (event.type) {
 			case "agent_start":
-				store.publishAgentCurrentActivity(
-					agentId,
-					{ phase: "thinking", startedAt: new Date().toISOString() },
-					ownership,
-				);
+				if (
+					!store.publishAgentCurrentActivity(
+						agentId,
+						{ phase: "thinking", startedAt: new Date().toISOString() },
+						ownership,
+						this._getCurrentAgentModel(),
+					)
+				) {
+					throw new Error(`Child agent ${agentId} model metadata update was rejected`);
+				}
 				break;
 			case "tool_execution_start": {
 				const activity = this._multiAgentActiveTools.get(event.toolCallId);
@@ -3848,6 +3859,13 @@ export class AgentSession {
 		const isChanging = effectiveLevel !== previousLevel;
 
 		this.agent.state.thinkingLevel = effectiveLevel;
+		if (this._multiAgentStore && this._multiAgentAgentId) {
+			this._multiAgentStore.publishAgentModel(
+				this._multiAgentAgentId,
+				this._getCurrentAgentModel(),
+				this._getCurrentAgentActivityOwner(),
+			);
+		}
 
 		if (isChanging) {
 			this.sessionManager.setSessionThinkingLevel(effectiveLevel);

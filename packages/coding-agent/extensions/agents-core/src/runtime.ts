@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { getAgentDir } from "../../../src/config.ts";
+import { DEFAULT_THINKING_LEVEL } from "../../../src/core/defaults.ts";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
 import {
@@ -79,6 +80,7 @@ import {
 	requestDirectDetachedRuntimeCancellations,
 	requestPersistedDetachedRuntimeCancellation,
 } from "./detached-runtime-cancellation.ts";
+import { registerSetAgentModelTool, resolveLiveAgentMutationTarget } from "./agent-model-tool.ts";
 import { bindProductionChildSession, type UnboundChildAgentSession } from "./child-session.ts";
 import { readCurrentChildAssistantText } from "./child-response.ts";
 import { waitForActiveDescendants } from "./descendant-settlement.ts";
@@ -372,26 +374,7 @@ export function resolveSelectedSessionMutationTarget(
 ): ViewedSessionMutationTarget | undefined {
 	const selectedAgentId = store.getSelectedAgentId();
 	if (!selectedAgentId || selectedAgentId === MAIN_THREAD_AGENT_ID) return undefined;
-	const agent = store.getAgent(selectedAgentId);
-	if (!agent) throw new Error(`Agent not found: ${selectedAgentId}`);
-	if (agent.agentType === "background") {
-		throw new Error(`Agent ${selectedAgentId} is detached and not a live child session`);
-	}
-	if (!isActiveLifecycle(agent.lifecycle)) throw new Error(formatInactiveAgentSelectionMessage(agent));
-	const session = runtimeHandles.sessions.get(selectedAgentId);
-	if (!session) throw new Error(`Agent ${selectedAgentId} is not a live child session`);
-	const mutationTarget = session as unknown as Partial<ViewedSessionMutationTarget>;
-	if (
-		!("model" in mutationTarget) ||
-		typeof mutationTarget.setModel !== "function" ||
-		typeof mutationTarget.setThinkingLevel !== "function" ||
-		typeof mutationTarget.thinkingLevel !== "string" ||
-		!mutationTarget.modelRegistry ||
-		!Array.isArray(mutationTarget.scopedModels)
-	) {
-		throw new Error(`Agent ${selectedAgentId} does not support live session mutation`);
-	}
-	return mutationTarget as ViewedSessionMutationTarget;
+	return resolveLiveAgentMutationTarget(store, runtimeHandles.sessions, selectedAgentId);
 }
 
 interface WaitingDesktopNotificationRegistration {
@@ -788,9 +771,18 @@ export function createProductionAttachedSessionFactory(
 	};
 }
 
-/** Records the parent's model on children without a profile model, so displays and resumes know what the child runs. */
-function inheritedModelMetadata(ctx: ExtensionContext): AgentSnapshot["model"] {
-	return ctx.model ? { providerId: ctx.model.provider, modelId: ctx.model.id } : undefined;
+/**
+ * Model and effort a spawned child starts with: the profile's values, else the parent's model and medium effort,
+ * independent of the parent's current effort. Recording both lets displays and resumes show what the child runs.
+ */
+function spawnModelMetadata(
+	profile: ResolvedAgentProfile | undefined,
+	ctx: ExtensionContext,
+): AgentSnapshot["model"] {
+	const inherited = ctx.model ? { providerId: ctx.model.provider, modelId: ctx.model.id } : undefined;
+	const model = profile?.modelMetadata ?? inherited;
+	if (!model) return undefined;
+	return { ...model, thinkingLevel: profile?.thinkingLevel ?? DEFAULT_THINKING_LEVEL };
 }
 
 function resolveChildAgentProfile(agent: AgentSnapshot, ctx: ExtensionContext): ResolvedAgentProfile {
@@ -1124,7 +1116,7 @@ async function spawnAgent(
 		agentType,
 		cwd: ctx.cwd,
 		displayName,
-		model: profile?.modelMetadata ?? inheritedModelMetadata(ctx),
+		model: spawnModelMetadata(profile, ctx),
 		parentId: params.parentId,
 		permission: { narrowed: true, policy: "on-request" },
 	});
@@ -3201,6 +3193,8 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			},
 		}),
 	);
+
+	registerSetAgentModelTool(pi, store, runtimeHandles.sessions);
 
 	pi.registerTool(
 		defineTool({

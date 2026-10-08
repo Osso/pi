@@ -1151,6 +1151,28 @@ describe("InteractiveMode key handlers", () => {
 		}
 	});
 
+	test("refreshes the selected child footer when the child publishes a new effective model or effort", () => {
+		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
+		try {
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fixture.fakeThis, fixture.childAgentId)).toBe(true);
+			interactiveModeKeyHandlers.subscribeToMultiAgentStore.call(fixture.fakeThis);
+
+			fixture.store.publishAgentModel(fixture.childAgentId, {
+				providerId: "faux",
+				modelId: "faux-2",
+				thinkingLevel: "medium",
+			});
+
+			for (const footer of [fixture.fakeThis.footer, fixture.fakeThis.footerDataProvider]) {
+				expect(footer.setSessionOverride).toHaveBeenLastCalledWith(
+					expect.objectContaining({ model: expect.objectContaining({ id: "faux-2" }), thinkingLevel: "medium" }),
+				);
+			}
+		} finally {
+			fixture.cleanup();
+		}
+	});
+
 	test("reloads the selected child transcript when new messages are appended", () => {
 		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
 		try {

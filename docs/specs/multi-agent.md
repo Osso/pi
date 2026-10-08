@@ -109,6 +109,12 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       names plus `contact_parent`, `send_agent_message`, and `end_turn`. `spawn_agent` rejects a non-empty explicit
       `agentType` when `SettingsManager` finds no matching built-in or configured profile, and the error lists
       configured profile keys; omitted or blank `agentType` still defaults to `default` and inherits the parent model.
+- [x] A spawned child starts at its profile's thinking level when set, including `off`; otherwise at `medium`,
+      independent of the parent's current effort. Non-reasoning models clamp to `off`. Spawn records the profile or
+      inherited model and this level on the agent (`packages/coding-agent/test/multi-agent-extension.test.ts`).
+- [x] A live child publishes its effective provider, model, and clamped thinking level to its agent record when a
+      run starts and on every model or effort change, through exact-runtime-owner metadata writes; a rejected write
+      fails explicitly (`packages/coding-agent/test/suite/child-effective-model-metadata.test.ts`).
 - [x] Browser agent runtimes add the standard `read` tool alongside `browser-cli` and lifecycle tools, even when
       a configured browser `tools` allowlist omits `read`. Browser `read` canonicalizes every target and permits
       only paths whose realpath is under `~/AgentConfig/**`;
@@ -528,6 +534,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       are rejected explicitly without falling back to the main session.
 - [x] Only `/model` and `/effort` use the viewed-session target; unrelated extension, tool, and event contexts
       remain session-local.
+- [x] The supervisor-only `set_agent_model { agentId, provider?, modelId?, thinkingLevel? }` tool changes a live
+      child's model and/or effort by ID without selecting it. Provider and model ID must be given together; a model
+      change with an effort applies both together. The in-flight model request and tool calls continue unchanged and
+      the change applies from the child's next model request. Non-live, background, missing, or unknown-model targets
+      are rejected; parent and global defaults are unchanged (`packages/coding-agent/test/suite/set-agent-model.test.ts`).
 - [x] Slash commands and `!` shell commands remain on the main thread while a child is selected.
 - [x] If the selected target is invalid or selected-child steering is rejected, the exact submitted editor text
       remains intact and is never submitted to the main thread.
