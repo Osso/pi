@@ -39,6 +39,7 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/model` | Switch models for the currently viewed live session |
 | `/scoped-models` | Enable/disable models for Ctrl+P cycling |
 | `/settings` | Thinking level, theme, message delivery, transport |
+| `/usage [reset]` | Account quota for the current Codex provider or `claude-bridge`; reset credits are Codex-only |
 | `/sandbox [<profile> <scope>]` | Select or set `read-only`, `workspace-write`, `full-access`, or session `inherit` for `session`, `project`, or `global` scope |
 | `/effort [level]` | Choose a supported thinking level (`max`/`ultra` when advertised), or set one directly |
 | `/multi-agent [proactive|explicit]` | Set delegation policy; defaults to proactive and persists in the session branch |
@@ -66,6 +67,8 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/quit` | Quit pi |
 
 When a running subagent is selected with `/agents`, `/model`, its selector, and Ctrl+P model cycling change that child session only. The footer updates immediately with the child's model and thinking level. Model and thinking changes persist to the selected session; they never rewrite `settings.json` defaults.
+
+`/usage` routes to the current provider: Codex models use their selected Codex provider account; `claude-bridge` delegates to the bridge through `claude-bridge:usage-request` and reports the currently selected Claude account's subscription windows and reset times without switching accounts. Other providers use the default `openai-codex` account. Claude requires the bridge usage handler; `/usage reset` is unsupported for Claude.
 
 After enabling `/debug`, attach from another terminal:
 

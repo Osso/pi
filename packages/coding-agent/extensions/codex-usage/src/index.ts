@@ -138,13 +138,24 @@ export function formatCodexUsage(usage: CodexUsage): string {
 
 export default function codexUsageExtension(pi: ExtensionAPI) {
 	pi.registerCommand("usage", {
-		description: "Show OpenAI Codex account usage and optionally consume a reset credit",
+		description: "Show Codex or Claude account usage; optionally reset Codex usage",
 		getArgumentCompletions: (prefix) => {
 			const options = ["reset"];
 			const matches = options.filter((option) => option.startsWith(prefix));
 			return matches.length > 0 ? matches.map((value) => ({ value, label: value })) : null;
 		},
 		handler: async (args, ctx) => {
+			if (ctx.model?.provider === "claude-bridge") {
+				const request: { args: string; ctx: ExtensionCommandContext; handled?: Promise<void> } = { args, ctx };
+				// The bridge listener must assign handled synchronously before emit returns.
+				pi.events.emit("claude-bridge:usage-request", request);
+				if (!request.handled) {
+					ctx.ui.notify("Claude bridge usage handler unavailable.", "error");
+					return;
+				}
+				await request.handled;
+				return;
+			}
 			const commandArgs = args.trim();
 			if (commandArgs === "reset") {
 				await handleUsageReset(ctx, pi);

@@ -134,6 +134,7 @@
 - Added `/login openai-codex-gc` and `/login openai-codex-team` support for independently authenticating additional OpenAI Codex backends; OAuth account or workspace selection remains upstream.
 - Added automatic same-model quota fallback among `openai-codex`, `openai-codex-gc`, and `openai-codex-team`: candidate orders are codex → gc → team, gc → codex → team, and team → codex → gc; each provider is attempted at most once per user turn without rewriting global defaults.
 - Added a first-party `/usage` extension command for OpenAI Codex account usage and reset credits.
+- Added current-provider `/usage` routing for `claude-bridge` through `claude-bridge:usage-request`, reporting the selected Claude account's subscription windows and reset times without switching accounts; `/usage reset` remains Codex-only.
 - Added a first-party `web_search` tool for OpenAI Responses hosted web search.
 - Added a generic Pyrun `pi.tools.call(name, params)` bridge for active Pi tools, with `pi.web_search(query)` as a convenience wrapper for `web_search`.
 - Added an `externalEditor` settings.json override for Ctrl+G external editor commands, with default fallbacks to Notepad on Windows and `nano` elsewhere ([#6122](https://github.com/earendil-works/pi/issues/6122)).
