@@ -8,6 +8,19 @@ TMP_INSTALL_DIR="${INSTALL_DIR}.tmp"
 OLD_INSTALL_DIR="${INSTALL_DIR}.old"
 BUILD_DIR="${PI_DEPLOY_BUILD_DIR:-$ROOT_DIR/packages/coding-agent/binaries}"
 CONFIGURE_RESIDENT_SERVICES="${PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES:-0}"
+DEPLOY_AGENT_SERVER=0
+
+case "$#:$*" in
+	0:)
+		;;
+	1:--agent-server)
+		DEPLOY_AGENT_SERVER=1
+		;;
+	*)
+		echo "Usage: $0 [--agent-server]" >&2
+		exit 1
+		;;
+esac
 
 require_safe_absolute_dir() {
 	local name="$1"
@@ -122,6 +135,9 @@ npm --prefix packages/coding-agent run clean
 npm --prefix packages/coding-agent run build
 
 "$ROOT_DIR/scripts/build-binaries.sh" --skip-install --skip-deps --skip-build --platform "$PLATFORM" --out "$BUILD_DIR"
+if [[ "$DEPLOY_AGENT_SERVER" -eq 1 ]]; then
+	cleanup_extension_build_outputs
+fi
 cp -R "$BUILD_DIR/$PLATFORM" "$TMP_INSTALL_DIR"
 
 if [[ -e "$INSTALL_DIR" || -L "$INSTALL_DIR" ]]; then
@@ -137,3 +153,8 @@ if [[ "$PLATFORM" == linux-* && "$SUPERVISOR_SERVICE_MODE" != "skip" ]]; then
 	"$ROOT_DIR/scripts/configure-resident-services.sh" "$BIN_DIR/pi" "$SUPERVISOR_SERVICE_MODE"
 fi
 rm -rf "$OLD_INSTALL_DIR"
+DEPLOY_REPLACED_INSTALL=0
+
+if [[ "$DEPLOY_AGENT_SERVER" -eq 1 ]]; then
+	python3 "$ROOT_DIR/scripts/deploy-agent-server-runtime.py" "$INSTALL_DIR"
+fi
