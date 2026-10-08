@@ -788,6 +788,11 @@ export function createProductionAttachedSessionFactory(
 	};
 }
 
+/** Records the parent's model on children without a profile model, so displays and resumes know what the child runs. */
+function inheritedModelMetadata(ctx: ExtensionContext): AgentSnapshot["model"] {
+	return ctx.model ? { providerId: ctx.model.provider, modelId: ctx.model.id } : undefined;
+}
+
 function resolveChildAgentProfile(agent: AgentSnapshot, ctx: ExtensionContext): ResolvedAgentProfile {
 	const configuredModel = agent.model ? ctx.modelRegistry.find(agent.model.providerId, agent.model.modelId) : undefined;
 	return {
@@ -1119,7 +1124,7 @@ async function spawnAgent(
 		agentType,
 		cwd: ctx.cwd,
 		displayName,
-		model: profile?.modelMetadata,
+		model: profile?.modelMetadata ?? inheritedModelMetadata(ctx),
 		parentId: params.parentId,
 		permission: { narrowed: true, policy: "on-request" },
 	});

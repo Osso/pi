@@ -12,6 +12,7 @@ import type { Theme } from "../../../src/modes/interactive/theme/theme.ts";
 const WIDGET_KEY = "agents-status";
 export const MAX_AGENT_ROWS = 5;
 const MAX_NAME_WIDTH = 24;
+const MAX_KIND_WIDTH = 28;
 const TERMINAL_LINGER_MS = 10_000;
 const REFRESH_INTERVAL_MS = 1000;
 
@@ -115,11 +116,32 @@ function singleLine(text: string): string {
 	return text.replace(/\s+/g, " ").trim();
 }
 
-function renderAgentRow(row: AgentRow, nameWidth: number, width: number, nowMs: number, theme: Theme): string {
+/** Agent type and model, e.g. `default · claude-opus-5-5`; the provider is omitted to save width. */
+export function describeAgentKind(agent: AgentSnapshot): string {
+	const modelId = agent.model?.modelId;
+	return modelId ? `${agent.agentType} · ${modelId}` : agent.agentType;
+}
+
+function padColumn(text: string, columnWidth: number): string {
+	const truncated = truncateToWidth(singleLine(text), columnWidth, "…");
+	return `${truncated}${" ".repeat(columnWidth - visibleWidth(truncated))}`;
+}
+
+interface ColumnWidths {
+	name: number;
+	kind: number;
+}
+
+function widestColumn(rows: AgentRow[], describe: (agent: AgentSnapshot) => string, cap: number): number {
+	const widest = Math.max(...rows.map((row) => visibleWidth(singleLine(describe(row.agent)))));
+	return Math.min(cap, widest);
+}
+
+function renderAgentRow(row: AgentRow, columns: ColumnWidths, width: number, nowMs: number, theme: Theme): string {
 	const indent = row.depth > 0 ? `${"  ".repeat(row.depth - 1)}└ ` : "";
-	const name = truncateToWidth(singleLine(row.agent.displayName), nameWidth, "…");
-	const namePadding = " ".repeat(nameWidth - visibleWidth(name));
-	const left = ` ${indent}${lifecycleIcon(row.agent.lifecycle, theme)} ${name}${namePadding}  `;
+	const name = padColumn(row.agent.displayName, columns.name);
+	const kind = theme.fg("dim", padColumn(describeAgentKind(row.agent), columns.kind));
+	const left = ` ${indent}${lifecycleIcon(row.agent.lifecycle, theme)} ${name}  ${kind}  `;
 	const elapsed = theme.fg("dim", formatElapsedDuration(elapsedMs(row.agent, nowMs)));
 	const activityWidth = Math.max(0, width - visibleWidth(left) - visibleWidth(elapsed) - 2);
 	const activity = truncateToWidth(singleLine(describeActivity(row.agent)), activityWidth, "…");
@@ -131,9 +153,11 @@ export function renderAgentsStatus(agents: AgentSnapshot[], width: number, nowMs
 	const rows = collectAgentRows(agents, nowMs);
 	if (rows.length === 0) return [];
 	const shown = rows.slice(0, MAX_AGENT_ROWS);
-	const longestName = Math.max(...shown.map((row) => visibleWidth(singleLine(row.agent.displayName))));
-	const nameWidth = Math.min(MAX_NAME_WIDTH, longestName);
-	const lines = shown.map((row) => renderAgentRow(row, nameWidth, width, nowMs, theme));
+	const columns: ColumnWidths = {
+		name: widestColumn(shown, (agent) => agent.displayName, MAX_NAME_WIDTH),
+		kind: widestColumn(shown, describeAgentKind, MAX_KIND_WIDTH),
+	};
+	const lines = shown.map((row) => renderAgentRow(row, columns, width, nowMs, theme));
 	if (rows.length > shown.length) {
 		lines.push(truncateToWidth(theme.fg("dim", ` +${rows.length - shown.length} more`), width, "…"));
 	}

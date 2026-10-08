@@ -23,6 +23,7 @@
 
 ### Changed
 
+- `spawn_agent` now records the parent's model on children without a profile model, so agent metadata always names the model a child runs. Resumed and restart-recovered children keep that recorded model instead of adopting the parent's current model.
 - Increased the default main, spawned-child, and attached-child thinking-phase cap from 15 to 20 minutes and allowed one automatic watchdog continuation within the same prompt or continuation dispatch; internal continuations and tools share that allowance, a second timeout stops and reports failure, and manual cancellation never retries. Queued input retains normal delivery and precedence; observer exclusion and uncapped tool/approval waits are unchanged.
 - Separated goal-tool results from human UI notifications: all `manage_goal` actions return useful results without duplicate `ctx.ui.notify` acknowledgements or errors; `/goal` acknowledgements, footer updates, and autonomous Supervisor waiting, failure, and decision status feedback remain unchanged.
 - Changed `pi --session <id>` to open a session found in a different project directly in its recorded cwd instead of prompting to fork it into the current directory.
@@ -65,7 +66,7 @@
 
 ### Added
 
-- Added the first-party [agents status widget](../../docs/specs/agents-status-widget.md): up to 5 one-line rows above the editor showing each sub-agent's name, lifecycle, current tool with a one-line argument summary (or `thinking`), and elapsed time; children nest under parents, waiting agents sort first, and finished agents linger 10s. The above-editor widget area is now a render region, so widgets that call `requestComponentRender` update their own lines in place instead of redrawing the screen. Persisted child `currentActivity` tool entries now carry an optional `detail` argument summary.
+- Added the first-party [agents status widget](../../docs/specs/agents-status-widget.md): up to 5 one-line rows above the editor showing each sub-agent's name, lifecycle, agent type and model, current tool with a one-line argument summary (or `thinking`), and elapsed time; children nest under parents, waiting agents sort first, and finished agents linger 10s. The above-editor widget area is now a render region, so widgets that call `requestComponentRender` update their own lines in place instead of redrawing the screen. Persisted child `currentActivity` tool entries now carry an optional `detail` argument summary.
 - Added the first-party `/daybreak [blue|off]` command: a main-thread, session-persisted opt-in that adds `access_programs.cyber: "daybreak_blue"` to Codex requests for GPT-6 Sol, GPT-6 Luna, GPT-5.6 Sol, and GPT-5.5 only. Other models, non-Codex providers, child runtimes, and the Supervisor are unchanged; the footer shows `daybreak blue inactive` when the current model is ineligible. Selection does not grant entitlement, and provider rejections surface unchanged without retry or fallback.
 - Added staging-only `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=skip` support in `deploy.sh` to leave local resident services untouched while staging paths for remote transfer.
 - Added [standalone workers](../../docs/specs/standalone-worker.md) via `--no-supervisor --no-session` and SDK `noSupervisor: true`, with canonical foreground Pyrun and no Supervisor or multi-agent orchestration.

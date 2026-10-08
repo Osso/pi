@@ -217,8 +217,9 @@ function createPyrunHarness(options: PyrunHarnessOptions = {}) {
 		}),
 		hasUI: false,
 		mode: "tui",
-		model: { id: "faux/model" },
+		model: { id: "faux/model", provider: "faux" },
 		modelRegistry: {
+			find: () => undefined,
 			getAvailable: () => [
 				{ id: "gpt-5.6-terra", name: "GPT-5.6 Terra", provider: "openai-codex", reasoning: true },
 			],

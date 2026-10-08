@@ -1,6 +1,11 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it } from "vitest";
-import { collectAgentRows, MAX_AGENT_ROWS, renderAgentsStatus } from "../extensions/agents-status/src/index.ts";
+import {
+	collectAgentRows,
+	describeAgentKind,
+	MAX_AGENT_ROWS,
+	renderAgentsStatus,
+} from "../extensions/agents-status/src/index.ts";
 import { summarizeToolArguments } from "../src/core/agent-activity-detail.ts";
 import type { AgentSnapshot } from "../src/core/multi-agent-store.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
@@ -69,7 +74,7 @@ describe("agents status widget", () => {
 			}),
 		]);
 		expect(lines).toHaveLength(1);
-		expect(lines[0]).toMatch(/● fix-footer {2}bash npm run test:coding-agent -- footer +12s$/);
+		expect(lines[0]).toMatch(/● fix-footer {2}test {2}bash npm run test:coding-agent -- footer +12s$/);
 	});
 
 	it("truncates long activity to the terminal width", () => {
@@ -113,7 +118,7 @@ describe("agents status widget", () => {
 		]);
 		const lines = render(rows.map((row) => row.agent));
 		expect(lines[0]).toContain("waiting for input");
-		expect(lines[2]).toMatch(/└ ● child +thinking/);
+		expect(lines[2]).toMatch(/└ ● child +test +thinking/);
 	});
 
 	it("keeps recently finished agents briefly and reports failures", () => {
@@ -126,8 +131,21 @@ describe("agents status widget", () => {
 				error: { message: "boom" },
 			}),
 		]);
-		expect(lines[0]).toMatch(/✗ broke +failed: boom +58s$/);
-		expect(lines[1]).toMatch(/✓ done +done +55s$/);
+		expect(lines[0]).toMatch(/✗ broke +test +failed: boom +58s$/);
+		expect(lines[1]).toMatch(/✓ done +test +done +55s$/);
+	});
+
+	it("shows the agent type and model id between the name and activity", () => {
+		const reviewer = agent({
+			id: "review",
+			agentType: "reviewer",
+			model: { providerId: "claude-bridge", modelId: "claude-opus-5-5" },
+		});
+		expect(describeAgentKind(reviewer)).toBe("reviewer · claude-opus-5-5");
+		expect(describeAgentKind(agent({ id: "plain" }))).toBe("test");
+		const lines = render([reviewer, agent({ id: "plain", updatedAt: "2026-10-08T11:59:40.000Z" })]);
+		expect(lines[0]).toMatch(/● review {2}reviewer · claude-opus-5-5 {2}starting/);
+		expect(lines[1]).toMatch(/● plain {3}test {24}starting/);
 	});
 
 	it(`caps the list at ${MAX_AGENT_ROWS} rows with an overflow line`, () => {

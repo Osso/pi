@@ -8,10 +8,12 @@ Module boundary: first-party extension at `packages/coding-agent/extensions/agen
 
 - [x] When a child tool call starts, its persisted `currentActivity` includes a `detail` summary built from the most descriptive string argument (`command`, `code`, `path`, `file_path`, `pattern`, `query`, `url`, `prompt`, `message`, `agentId`, in that priority order). The summary has its whitespace collapsed to one line and is truncated to 160 characters. It is omitted when no such argument exists (`packages/coding-agent/test/agents-status-extension.test.ts`, `packages/coding-agent/test/suite/agent-session-child-activity.test.ts`).
 
+- [x] `spawn_agent` records the child's model: the agent profile's model when configured, otherwise the parent's current model. A resumed or recovered child keeps that recorded model (`packages/coding-agent/test/pyrun-extension.test.ts`, spawn suites).
+
 ### Rendering
 
 - [x] Render nothing when no agent is active and none finished within the last 10 seconds.
-- [x] One line per agent: lifecycle icon, display name (padded to the widest shown name, capped at 24 columns), activity, and right-aligned elapsed time. A line never exceeds the terminal width; activity text is truncated first.
+- [x] One line per agent: lifecycle icon, display name (padded to the widest shown name, capped at 24 columns), a dim `<agentType> · <modelId>` column (padded to the widest shown, capped at 28 columns; the model is omitted when unknown), activity, and right-aligned elapsed time. A line never exceeds the terminal width; activity text is truncated first.
 - [x] Activity text is `<tool> <detail>` for tool calls, `thinking` while the model runs, and `waiting for input`, `steering pending`, `cancelling`, `done`, `failed: <message>`, or `aborted` for other lifecycles.
 - [x] For an active agent, elapsed time measures the current activity, falling back to agent creation when there is no activity. For a terminal agent, it is the total runtime.
 - [x] Order sibling agents as waiting-for-input, steering-pending, running, cancelling, then terminal, most recently updated first within each group. Children render directly under their parent and are indented with `└`.
