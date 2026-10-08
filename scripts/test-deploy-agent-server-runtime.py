@@ -72,12 +72,20 @@ class RuntimeDeploymentTests(unittest.TestCase):
         self.assert_preserved()
 
     def test_failed_activation_validation_rolls_back_atomic_exchange(self):
+        trace = self.home / "validation-locations.log"
         self.executable(
-            "import pathlib\nraise SystemExit(9 if pathlib.Path(__file__).parent.name == 'pi' else 0)\n"
+            "import pathlib\n"
+            "location = pathlib.Path(__file__).parent.name\n"
+            f"with pathlib.Path({str(trace)!r}).open('a') as log:\n"
+            "    log.write(location + '\\n')\n"
+            "if location == 'pi':\n"
+            "    raise SystemExit(9)\n"
+            "print('1.2.3')\n"
         )
         old_inode = self.install.stat().st_ino
         with self.assertRaisesRegex(RuntimeError, "validation"):
             self.module.activate(self.stage, self.install)
+        self.assertEqual(trace.read_text().splitlines(), ["runtime", "pi"])
         self.assertEqual(self.install.stat().st_ino, old_inode)
         self.assertEqual((self.install / "old-only").read_text(), "old runtime")
         self.assert_preserved()
