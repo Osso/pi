@@ -1,4 +1,4 @@
-import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { type Component, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ExtensionAPI } from "../../../src/core/extensions/types.ts";
 import {
 	type AgentLifecycleState,
@@ -140,21 +140,14 @@ export function renderAgentsStatus(agents: AgentSnapshot[], width: number, nowMs
 	return lines;
 }
 
-function createAgentsStatusComponent(
+/** Redraws only the widget's own lines; the TUI falls back to a full render when the row count changes. */
+export function createAgentsStatusComponent(
 	store: MultiAgentStore,
-	requestRender: () => void,
+	tui: Pick<TUI, "requestComponentRender">,
 	theme: Theme,
 ): Component & { dispose(): void } {
 	let hadRows = false;
-	const requestRenderWhileVisible = () => {
-		const hasRows = collectAgentRows(store.listAgents(), Date.now()).length > 0;
-		if (hasRows || hadRows) requestRender();
-		hadRows = hasRows;
-	};
-	const unsubscribe = store.subscribeAgentUpdates(requestRenderWhileVisible);
-	const timer = setInterval(requestRenderWhileVisible, REFRESH_INTERVAL_MS);
-	timer.unref();
-	return {
+	const component: Component & { dispose(): void } = {
 		dispose() {
 			clearInterval(timer);
 			unsubscribe();
@@ -164,6 +157,15 @@ function createAgentsStatusComponent(
 			return renderAgentsStatus(store.listAgents(), width, Date.now(), theme);
 		},
 	};
+	const requestRenderWhileVisible = () => {
+		const hasRows = collectAgentRows(store.listAgents(), Date.now()).length > 0;
+		if (hasRows || hadRows) tui.requestComponentRender(component);
+		hadRows = hasRows;
+	};
+	const unsubscribe = store.subscribeAgentUpdates(requestRenderWhileVisible);
+	const timer = setInterval(requestRenderWhileVisible, REFRESH_INTERVAL_MS);
+	timer.unref();
+	return component;
 }
 
 export default function agentsStatusExtension(pi: ExtensionAPI, options: AgentsStatusExtensionOptions = {}) {
@@ -171,7 +173,7 @@ export default function agentsStatusExtension(pi: ExtensionAPI, options: AgentsS
 	if (!store) return;
 	pi.on("session_start", async (_event, ctx) => {
 		ctx.ui.setWidget(WIDGET_KEY, (tui, theme) =>
-			createAgentsStatusComponent(store, () => tui.requestRender(), theme),
+			createAgentsStatusComponent(store, tui, theme),
 		);
 	});
 }

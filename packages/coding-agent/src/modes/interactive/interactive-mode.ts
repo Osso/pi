@@ -688,6 +688,7 @@ export class InteractiveMode {
 		this.footerContainer = new Container();
 		this.footerContainer.addChild(this.footer);
 		const statusRenderRegion = this.ui.createRenderRegion(this.statusContainer);
+		const widgetAboveRenderRegion = this.ui.createRenderRegion(this.widgetContainerAbove);
 		this.rootCompositor = createInteractiveRootCompositor({
 			getHeight: () => this.ui.terminal.rows,
 			header: this.headerContainer,
@@ -703,6 +704,7 @@ export class InteractiveMode {
 			widgetBelow: this.widgetContainerBelow,
 			footer: this.footerContainer,
 			onStatusLayout: statusRenderRegion.place,
+			onWidgetAboveLayout: widgetAboveRenderRegion.place,
 			onEditorLayout: (rect) => this.handleEditorLayout(rect),
 		});
 

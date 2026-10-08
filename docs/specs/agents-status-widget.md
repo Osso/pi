@@ -19,7 +19,7 @@ Module boundary: first-party extension at `packages/coding-agent/extensions/agen
 
 ### Liveness
 
-- [ ] Re-render on every store agent update, and once per second while rows are visible so elapsed times advance. Verified by manual tmux smoke test only.
+- [x] Re-render on every store agent update, and once per second while rows are visible so elapsed times advance. Updates rewrite only the widget's own terminal lines through the above-editor render region, without redrawing the chat or the rest of the screen; a change in row count falls back to a full layout render (`packages/coding-agent/test/agents-status-render.test.ts`).
 
 ## How it works
 
@@ -32,10 +32,12 @@ Module boundary: first-party extension at `packages/coding-agent/extensions/agen
 - `packages/coding-agent/src/core/agent-session.ts`: publishes child `currentActivity`, including `detail`.
 - `packages/coding-agent/src/core/multi-agent-store.ts`: `AgentCurrentActivity` type.
 - `packages/coding-agent/src/main.ts`: registers the extension alongside the other orchestration extensions.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts`, `interactive-root-compositor.ts`: place the above-editor widget container as a render region for in-place updates.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/agents-status-extension.test.ts`
+- `packages/coding-agent/test/agents-status-render.test.ts`
 - `packages/coding-agent/test/suite/agent-session-child-activity.test.ts`
 
 ## Known gaps (current cycle)
