@@ -23,6 +23,7 @@
 
 ### Changed
 
+- `end_turn` guidance now tells the model that thinking is never shown to the user, so replies must be written as text instead of only in thinking.
 - `ask_questions` transcript rows now list each question with its answer (or `(cancelled)`), visible even when `hideToolOutput` is enabled.
 - `ask_questions` now shows all questions in one tabbed panel: left/right (or tab/shift+tab) move between questions, earlier answers stay selected and can be changed, and a Submit tab sends them. Tab keys are configurable as `app.questions.next` / `app.questions.previous`.
 
