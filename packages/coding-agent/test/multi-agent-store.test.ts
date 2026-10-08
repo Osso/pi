@@ -138,6 +138,14 @@ describe("MultiAgentStore", () => {
 		}
 	});
 
+	it("skips model publication for a child not yet admitted to the store", () => {
+		const store = new MultiAgentStore({ now: () => "2026-10-08T12:00:00.000Z" });
+		expect(
+			store.publishAgentModel("agent_unadmitted", { providerId: "faux", modelId: "faux-1", thinkingLevel: "high" }),
+		).toBeUndefined();
+		expect(store.listAgents()).toEqual([]);
+	});
+
 	it("keeps view selection read-only", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const spawned = spawnScout(store);

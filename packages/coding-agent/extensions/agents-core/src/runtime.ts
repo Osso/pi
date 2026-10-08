@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { getAgentDir } from "../../../src/config.ts";
 import { DEFAULT_THINKING_LEVEL } from "../../../src/core/defaults.ts";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import { clampThinkingLevel } from "@earendil-works/pi-ai/compat";
 import { type Static, Type } from "typebox";
 import {
 	type AgentToolResult,
@@ -773,16 +774,17 @@ export function createProductionAttachedSessionFactory(
 
 /**
  * Model and effort a spawned child starts with: the profile's values, else the parent's model and medium effort,
- * independent of the parent's current effort. Recording both lets displays and resumes show what the child runs.
+ * independent of the parent's current effort, clamped to the model's capabilities. Recording both lets displays and
+ * resumes show what the child runs.
  */
 function spawnModelMetadata(
 	profile: ResolvedAgentProfile | undefined,
 	ctx: ExtensionContext,
 ): AgentSnapshot["model"] {
-	const inherited = ctx.model ? { providerId: ctx.model.provider, modelId: ctx.model.id } : undefined;
-	const model = profile?.modelMetadata ?? inherited;
+	const model = profile?.model ?? ctx.model;
 	if (!model) return undefined;
-	return { ...model, thinkingLevel: profile?.thinkingLevel ?? DEFAULT_THINKING_LEVEL };
+	const thinkingLevel = clampThinkingLevel(model, profile?.thinkingLevel ?? DEFAULT_THINKING_LEVEL) as ThinkingLevel;
+	return { providerId: model.provider, modelId: model.id, thinkingLevel };
 }
 
 function resolveChildAgentProfile(agent: AgentSnapshot, ctx: ExtensionContext): ResolvedAgentProfile {

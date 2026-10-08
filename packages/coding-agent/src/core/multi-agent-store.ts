@@ -652,13 +652,14 @@ export class MultiAgentStore {
 		);
 	}
 
+	/** Records a child's effective model and effort; a child not yet admitted to the store has no record to update. */
 	publishAgentModel(
 		agentId: string,
 		model: NonNullable<AgentSnapshot["model"]>,
 		ownership?: AgentCurrentActivityOwner,
-	): AgentSnapshot {
+	): AgentSnapshot | undefined {
 		const current = this.agents.get(agentId);
-		if (!current) throw new Error(`Agent ${agentId} model metadata update requires an existing agent`);
+		if (!current) return undefined;
 		return copyAgent(this.updateAgentMetadata(current, { model: { ...model } }, ownership));
 	}
 

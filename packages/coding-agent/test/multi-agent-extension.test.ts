@@ -5741,8 +5741,14 @@ describe("multi-agent extension tools", () => {
 			models: [
 				{ id: "parent-model", reasoning: true },
 				{ id: "quiet-model", reasoning: true },
+				{ id: "plain-model", reasoning: false },
 			],
-			settings: { agents: { quiet: { model: "faux/quiet-model", thinkingLevel: "off" } } },
+			settings: {
+				agents: {
+					quiet: { model: "faux/quiet-model", thinkingLevel: "off" },
+					plain: { model: "faux/plain-model", thinkingLevel: "high" },
+				},
+			},
 		});
 		childHarnesses.push(parentHarness);
 		parentHarness.session.setThinkingLevel("xhigh");
@@ -5783,6 +5789,14 @@ describe("multi-agent extension tools", () => {
 		await waitForTerminalAgent(harness, quiet.details.agent.id);
 		expect(quiet.details.agent.model).toEqual({ providerId: "faux", modelId: "quiet-model", thinkingLevel: "off" });
 		expect(sessionOptions?.thinkingLevel).toBe("off");
+
+		const plain = await harness.call<SpawnAgentDetails>("spawn_agent", {
+			agentType: "plain",
+			context: "fresh",
+			prompt: "Non-reasoning model",
+		});
+		await waitForTerminalAgent(harness, plain.details.agent.id);
+		expect(plain.details.agent.model).toEqual({ providerId: "faux", modelId: "plain-model", thinkingLevel: "off" });
 	});
 
 	it("uses the parent session directory for production child sessions by default", async () => {

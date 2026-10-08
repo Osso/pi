@@ -1569,9 +1569,25 @@ export class AgentSession {
 	}
 
 	private _getCurrentAgentModel(): NonNullable<AgentSnapshot["model"]> {
-		const model = this.model;
+		return this._describeAgentModel(this.model, this.thinkingLevel);
+	}
+
+	private _describeAgentModel(
+		model: Model<any> | undefined,
+		thinkingLevel: ThinkingLevel,
+	): NonNullable<AgentSnapshot["model"]> {
 		if (!model) throw new Error(`Child agent ${this._multiAgentAgentId} has no effective model`);
-		return { providerId: model.provider, modelId: model.id, thinkingLevel: this.thinkingLevel };
+		return { providerId: model.provider, modelId: model.id, thinkingLevel };
+	}
+
+	/** Publishes a child's model and effort before they take effect, so a rejected write leaves the child unchanged. */
+	private _publishChildAgentModel(model: Model<any> | undefined, thinkingLevel: ThinkingLevel): void {
+		if (!this._multiAgentStore || !this._multiAgentAgentId) return;
+		this._multiAgentStore.publishAgentModel(
+			this._multiAgentAgentId,
+			this._describeAgentModel(model, thinkingLevel),
+			this._getCurrentAgentActivityOwner(),
+		);
 	}
 
 	private _startThinkingPhaseDeadline(): void {
@@ -3769,6 +3785,7 @@ export class AgentSession {
 			throw new Error(`No API key for ${model.provider}/${model.id}`);
 		}
 
+		this._publishChildAgentModel(model, clampThinkingLevel(model, thinkingLevel) as ThinkingLevel);
 		const previousModel = this.model;
 		this.agent.state.model = model;
 		this.sessionManager.setSessionModel(model.provider, model.id);
@@ -3858,14 +3875,8 @@ export class AgentSession {
 		const previousLevel = this.agent.state.thinkingLevel;
 		const isChanging = effectiveLevel !== previousLevel;
 
+		this._publishChildAgentModel(this.model, effectiveLevel);
 		this.agent.state.thinkingLevel = effectiveLevel;
-		if (this._multiAgentStore && this._multiAgentAgentId) {
-			this._multiAgentStore.publishAgentModel(
-				this._multiAgentAgentId,
-				this._getCurrentAgentModel(),
-				this._getCurrentAgentActivityOwner(),
-			);
-		}
 
 		if (isChanging) {
 			this.sessionManager.setSessionThinkingLevel(effectiveLevel);

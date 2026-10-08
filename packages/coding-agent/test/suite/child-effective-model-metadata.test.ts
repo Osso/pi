@@ -151,12 +151,19 @@ describe("child effective model metadata", () => {
 					: { ownerSessionId: "different-supervisor" },
 			);
 			const before = readChild();
+			const modelBefore = child.session.model;
+			const thinkingBefore = child.session.thinkingLevel;
+			const persistedBefore = child.sessionManager.readPersistedSessionSettings();
 			expect(() => child.session.setThinkingLevel("high")).toThrow(/metadata update was rejected/);
 			expect(readChild()).toEqual(before);
+			expect(child.session.thinkingLevel).toBe(thinkingBefore);
 			await expect(child.session.setModel(child.getModel("reasoning-two")!)).rejects.toThrow(
 				/metadata update was rejected/,
 			);
 			expect(readChild()).toEqual(before);
+			expect(child.session.model).toBe(modelBefore);
+			expect(child.session.thinkingLevel).toBe(thinkingBefore);
+			expect(child.sessionManager.readPersistedSessionSettings()).toEqual(persistedBefore);
 		},
 	);
 });
