@@ -23,6 +23,8 @@
 
 ### Changed
 
+- `ask_questions` transcript rows now list each question with its answer (or `(cancelled)`), visible even when `hideToolOutput` is enabled.
+
 - `spawn_agent` now records the parent's model on children without a profile model, so agent metadata always names the model a child runs. Resumed and restart-recovered children keep that recorded model instead of adopting the parent's current model.
 - Increased the default main, spawned-child, and attached-child thinking-phase cap from 15 to 20 minutes and allowed one automatic watchdog continuation within the same prompt or continuation dispatch; internal continuations and tools share that allowance, a second timeout stops and reports failure, and manual cancellation never retries. Queued input retains normal delivery and precedence; observer exclusion and uncapped tool/approval waits are unchanged.
 - Separated goal-tool results from human UI notifications: all `manage_goal` actions return useful results without duplicate `ctx.ui.notify` acknowledgements or errors; `/goal` acknowledgements, footer updates, and autonomous Supervisor waiting, failure, and decision status feedback remain unchanged.

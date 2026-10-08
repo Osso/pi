@@ -25,6 +25,7 @@ The `ask_questions` built-in tool lets the model ask structured multiple-choice 
 
 - [x] Add prompt guidance telling the model when and how to use `ask_questions`.
 - [x] Render compact call/result summaries in the TUI.
+- [x] The transcript row lists each question and, once answered, `→ <answer>` (or `→ (cancelled)` for unanswered questions), and stays visible when `hideToolOutput` hides tool results.
 - [x] Point plan-mode guidance at `ask_questions` instead of the legacy questionnaire example.
 
 ## How it works
@@ -43,7 +44,7 @@ The `ask_questions` built-in tool lets the model ask structured multiple-choice 
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/ask-questions-tool.test.ts` — default registration, validation, single-select, multi-select, custom answers, cancellation, non-TUI failure, and desktop notification lifecycle.
+- `packages/coding-agent/test/ask-questions-tool.test.ts` — default registration, validation, single-select, multi-select, custom answers, cancellation, non-TUI failure, desktop notification lifecycle, and question/answer rendering with hidden tool output.
 - `packages/coding-agent/test/plan-mode-extension.test.ts`
 
 ## Known gaps (current cycle)

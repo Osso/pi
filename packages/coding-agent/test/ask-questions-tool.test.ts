@@ -12,8 +12,12 @@ vi.mock("../src/core/desktop-notification.ts", async (importOriginal) => {
 	};
 });
 
+import type { TUI } from "@earendil-works/pi-tui";
 import { createAllToolDefinitions, DEFAULT_ACTIVE_TOOL_NAMES } from "../src/core/tools/index.ts";
 import type { ExtensionContext } from "../src/index.ts";
+import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
+import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { stripAnsi } from "../src/utils/ansi.ts";
 
 function setup(options: { selectChoices: Array<string | undefined>; inputChoices?: Array<string | undefined> }) {
 	const selectChoices = [...options.selectChoices];
@@ -283,5 +287,50 @@ describe("ask_questions tool", () => {
 
 		expect(result.isError).toBe(true);
 		expect(result.details?.cancelled).toBe(true);
+	});
+
+	it("shows questions and answers in the transcript row while tool output is hidden", async () => {
+		initTheme("dark");
+		const tool = createAskQuestionsToolDefinition();
+		const args = {
+			questions: [
+				{ question: "Which database?", options: [{ label: "Postgres" }, { label: "SQLite" }] },
+				{ question: "Which cache?", options: [{ label: "Redis" }, { label: "None" }] },
+			],
+		};
+		const ui = { requestRender: () => {} } as unknown as TUI;
+		const component = new ToolExecutionComponent(
+			"ask_questions",
+			"call-6",
+			args,
+			{ hideOutput: true },
+			tool,
+			ui,
+			process.cwd(),
+		);
+
+		const pending = stripAnsi(component.render(120).join("\n"));
+		expect(pending).toContain("ask_questions 2 questions");
+		expect(pending).toContain("Which database?");
+		expect(pending).not.toContain("→");
+
+		const result = await tool.execute(
+			"call-6",
+			args,
+			undefined,
+			undefined,
+			setup({ selectChoices: ["1. Postgres", "Cancel"] }),
+		);
+		component.updateResult({ ...result, isError: false }, false);
+
+		const lines = stripAnsi(component.render(120).join("\n"))
+			.split("\n")
+			.map((line) => line.trim())
+			.filter(Boolean);
+		expect(lines.slice(0, 3)).toEqual([
+			"ask_questions 2 questions",
+			"Which database? → Postgres",
+			"Which cache? → (cancelled)",
+		]);
 	});
 });

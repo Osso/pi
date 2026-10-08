@@ -203,16 +203,29 @@ function formatAnswers(answers: Record<string, string>): string {
 		.join("\n");
 }
 
-function formatAskQuestionsCall(args: AskQuestionsToolInput | undefined, theme: Theme): string {
-	const count = args?.questions.length ?? 0;
-	const label = count === 1 ? "1 question" : `${count} questions`;
-	return `${theme.fg("toolTitle", theme.bold("ask_questions"))} ${theme.fg("accent", label)}`;
+interface AskQuestionsRenderState {
+	callText?: Text;
+	details?: AskQuestionsToolDetails;
 }
 
-function formatAskQuestionsResult(details: AskQuestionsToolDetails | undefined, theme: Theme): string {
-	if (!details) return "";
-	if (details.cancelled) return theme.fg("warning", "Questions cancelled");
-	return theme.fg("toolOutput", `User answered:\n${formatAnswers(details.answers)}`);
+function formatQuestionAnswer(question: string, details: AskQuestionsToolDetails | undefined, theme: Theme): string {
+	const line = `  ${theme.fg("toolOutput", question)}`;
+	if (!details) return line;
+	const answer = details.answers[question];
+	if (answer === undefined) return `${line} ${theme.fg("warning", "→ (cancelled)")}`;
+	return `${line} ${theme.fg("accent", `→ ${answer || "(no selection)"}`)}`;
+}
+
+// The call row carries the answers so they stay visible when tool output is hidden.
+function formatAskQuestionsCall(
+	args: AskQuestionsToolInput | undefined,
+	details: AskQuestionsToolDetails | undefined,
+	theme: Theme,
+): string {
+	const questions = args?.questions ?? [];
+	const label = questions.length === 1 ? "1 question" : `${questions.length} questions`;
+	const title = `${theme.fg("toolTitle", theme.bold("ask_questions"))} ${theme.fg("accent", label)}`;
+	return [title, ...questions.map((question) => formatQuestionAnswer(question.question, details, theme))].join("\n");
 }
 
 function unavailableResult(params: AskQuestionsToolInput) {
@@ -296,14 +309,17 @@ export function createAskQuestionsToolDefinition(): ToolDefinition<typeof askQue
 			}
 		},
 		renderCall(args, theme, context) {
+			const state = context.state as AskQuestionsRenderState;
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			text.setText(formatAskQuestionsCall(args, theme));
+			state.callText = text;
+			text.setText(formatAskQuestionsCall(args, state.details, theme));
 			return text;
 		},
 		renderResult(result, _options, theme, context) {
-			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			text.setText(formatAskQuestionsResult(result.details, theme));
-			return text;
+			const state = context.state as AskQuestionsRenderState;
+			state.details = result.details;
+			state.callText?.setText(formatAskQuestionsCall(context.args, state.details, theme));
+			return (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
 		},
 	};
 }
