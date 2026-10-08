@@ -22,6 +22,7 @@ import agentsCoreExtension, {
 	wakeWaitAgentsAfterSteering,
 } from "../extensions/agents-core/src/index.ts";
 import agentsMailboxExtension from "../extensions/agents-mailbox/src/index.ts";
+import agentsStatusExtension from "../extensions/agents-status/src/index.ts";
 import approvalControlsExtension from "../extensions/approval-controls/src/index.ts";
 import askSecretExtension from "../extensions/ask-secret/src/index.ts";
 import browserCliExtension from "../extensions/browser-cli/src/index.ts";
@@ -709,6 +710,9 @@ function createFirstPartyExtensionFactories(
 					),
 					firstPartyExtensionFactory("agents-mailbox", (pi) =>
 						agentsMailboxExtension(pi, { store: orchestration.store }),
+					),
+					firstPartyExtensionFactory("agents-status", (pi) =>
+						agentsStatusExtension(pi, { store: orchestration.store }),
 					),
 				]
 			: []),

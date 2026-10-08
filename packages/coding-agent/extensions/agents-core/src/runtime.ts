@@ -117,7 +117,11 @@ const fileReferenceSchema = Type.Object({
 const spawnAgentSchema = Type.Object({
 	agentType: Type.Optional(Type.String()),
 	context: Type.Optional(Type.Union([Type.Literal("fresh"), Type.Literal("inherit")])),
-	displayName: Type.Optional(Type.String()),
+	displayName: Type.Optional(
+		Type.String({
+			description: "Short task slug shown in the agent status list, e.g. fix-footer-count (max ~24 chars).",
+		}),
+	),
 	parentId: Type.Optional(Type.String()),
 	prompt: Type.String(),
 });

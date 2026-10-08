@@ -208,6 +208,7 @@ import {
 
 export { type ParsedSkillBlock, parseSkillBlock } from "./skill-block.ts";
 
+import { summarizeToolArguments } from "./agent-activity-detail.ts";
 import { type BuildSystemPromptOptions, buildSystemPrompt } from "./system-prompt.ts";
 import { STANDALONE_DISABLED_TOOL_NAMES } from "./tool-capabilities.ts";
 import { ToolDetachRegistry } from "./tool-detach-registry.ts";
@@ -891,7 +892,7 @@ export class AgentSession {
 	private _multiAgentAgentId: string | undefined;
 	private readonly _multiAgentActiveTools = new Map<
 		string,
-		{ startedAt: string; toolCallId: string; toolName: string }
+		{ startedAt: string; toolCallId: string; toolName: string; detail?: string }
 	>();
 	private _multiAgentParentSessionId: string | undefined;
 	private _multiAgentRequiresAgentId: boolean;
@@ -1612,6 +1613,7 @@ export class AgentSession {
 				startedAt: new Date(event.startedAt).toISOString(),
 				toolCallId: event.toolCallId,
 				toolName: event.toolName,
+				detail: summarizeToolArguments(event.args),
 			});
 		}
 		if (event.type === "tool_execution_end") this._multiAgentActiveTools.delete(event.toolCallId);

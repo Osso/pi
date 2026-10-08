@@ -70,6 +70,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | Codex Daybreak Blue (`/daybreak`) | [`codex-daybreak.md`](codex-daybreak.md) | **BUILD** | Main-thread, per-session opt-in that adds `access_programs.cyber: "daybreak_blue"` to Blue-eligible Codex requests; does not grant entitlement. |
 | TUI customization | [`tui-customization.md`](tui-customization.md) | **NATIVE** | Themes, keybindings, `registerShortcut`, header/footer/widget/editor swap, `ui.custom()`. |
 | Thinking status indicator | [`thinking-status.md`](thinking-status.md) | **BUILD** (done) | Default working ticker reports elapsed thinking time without replacing tool-wait messages. |
+| Agents status widget | [`agents-status-widget.md`](agents-status-widget.md) | **BUILD** (done) | Live one-line-per-agent list above the editor showing current tool, arguments, and elapsed time. |
 | Reasoning effort and delegation | [`reasoning-effort-delegation.md`](reasoning-effort-delegation.md) | **BUILD** (done) | GPT-5.6 Sol `max`/`ultra` effort plus active/disabled delegation control. |
 
 ## Build priority

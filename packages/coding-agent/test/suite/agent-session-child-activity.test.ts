@@ -71,6 +71,7 @@ describe("child agent current activity", () => {
 			startedAt: "1970-01-01T00:00:02.000Z",
 			toolCallId: "tool-b",
 			toolName: "edit",
+			detail: "B",
 		});
 
 		publishCurrentAgentActivity.call(harness.session, {

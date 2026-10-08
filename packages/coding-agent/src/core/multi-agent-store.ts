@@ -36,7 +36,7 @@ export interface AgentActivity {
 
 export type AgentCurrentActivity =
 	| { phase: "thinking"; startedAt: string }
-	| { phase: "tool"; startedAt: string; toolCallId: string; toolName: string };
+	| { phase: "tool"; startedAt: string; toolCallId: string; toolName: string; detail?: string };
 
 export interface AgentCurrentActivityOwner {
 	ownerSessionId: string;
