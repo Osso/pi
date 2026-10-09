@@ -115,6 +115,19 @@ describe("idle prompt-cache compaction", () => {
 		await expectIdleCompaction(harness);
 	});
 
+	it("does not compact while an agent-level message is still queued", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout", "Date"] });
+		const harness = await createIdleHarness({ api: "openai-codex-responses", provider: "openai-codex" });
+		harnesses.push(harness);
+
+		await runConversation(harness, LARGE_CONTEXT_PROMPT);
+		harness.session.agent.followUp({ role: "user", content: "queued follow-up", timestamp: Date.now() });
+		await advanceTo(lastRequestStartedAt(harness) + 3 * 60 * MINUTE_MS);
+
+		expect(harness.session.agent.hasQueuedMessages()).toBe(true);
+		expect(countCompactions(harness)).toBe(0);
+	});
+
 	it.each([
 		{
 			name: "context below 200K tokens",

@@ -4672,7 +4672,8 @@ export class AgentSession {
 	private async _runIdleCompaction(message: AssistantMessage): Promise<void> {
 		this._idleCompactionTimer = undefined;
 		await this._withTurnStartLock(async () => {
-			const sessionIsBusy = this.isStreaming || this.isCompacting || this.hasPendingMessages();
+			const hasQueuedInput = this.hasPendingMessages() || this.agent.hasQueuedMessages();
+			const sessionIsBusy = this.isStreaming || this.isCompacting || hasQueuedInput;
 			if (sessionIsBusy || this._findIdleCompactionTarget()?.message !== message) return;
 			await this._runAutoCompaction("idle", false);
 		});
