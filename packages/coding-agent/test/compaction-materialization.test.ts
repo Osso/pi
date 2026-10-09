@@ -4,10 +4,21 @@ import {
 	type AssistantMessageEvent,
 	type Context,
 	EventStream,
+	fauxAssistantMessage,
+	type FauxProviderRegistration,
 	getModel,
+	registerFauxProvider,
+	type SimpleStreamOptions,
+	streamSimple,
+	type StreamOptions,
 } from "@earendil-works/pi-ai/compat";
-import { describe, expect, it } from "vitest";
-import { materializeCompactionSummary } from "../src/core/compaction/index.ts";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	compact,
+	type CompactionPreparation,
+	generateBranchSummary,
+	materializeCompactionSummary,
+} from "../src/core/compaction/index.ts";
 import type { CompactionEntry } from "../src/core/session-manager.ts";
 
 class MockAssistantStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
@@ -78,8 +89,10 @@ describe("materializeCompactionSummary", () => {
 		if (!model) throw new Error("Expected OpenAI Codex test model");
 		const entry = createCompactionEntry();
 		let capturedContext: Context | undefined;
-		const streamFn: StreamFn = (_model, context) => {
+		let capturedOptions: SimpleStreamOptions | undefined;
+		const streamFn: StreamFn = (_model, context, options) => {
 			capturedContext = context;
+			capturedOptions = options;
 			const stream = new MockAssistantStream();
 			const response = createAssistantMessage(model, "## Goal\n\nContinue from the encrypted checkpoint.");
 			queueMicrotask(() => {
@@ -110,6 +123,7 @@ describe("materializeCompactionSummary", () => {
 		expect(instruction.role).toBe("user");
 		expect(getText(instruction)).toContain("complete plaintext continuation summary");
 		expect(getText(instruction)).toContain("Return only the summary text");
+		expect(capturedOptions?.cacheRetention).toBe("none");
 	});
 
 	it("reports an aborted provider response without producing a summary", async () => {
@@ -133,5 +147,81 @@ describe("materializeCompactionSummary", () => {
 				streamFn,
 			}),
 		).resolves.toEqual({ aborted: true });
+	});
+});
+
+describe.each(["default provider", "session streamFn"])("uncached summarization via %s", (dispatch) => {
+	let faux: FauxProviderRegistration;
+	let capturedOptions: (StreamOptions | undefined)[];
+	const streamFn: StreamFn | undefined = dispatch === "session streamFn" ? streamSimple : undefined;
+	const messages: AgentMessage[] = [{ role: "user", content: "Investigate the compaction bug.", timestamp: 1 }];
+
+	beforeEach(() => {
+		faux = registerFauxProvider({ api: "compaction-options-faux", provider: "compaction-options-faux" });
+		capturedOptions = [];
+		faux.setResponses(
+			Array.from({ length: 2 }, () => (_context: Context, options: StreamOptions | undefined) => {
+				capturedOptions.push(options);
+				return fauxAssistantMessage("## Goal\nFix compaction.");
+			}),
+		);
+	});
+
+	afterEach(() => faux.unregister());
+
+	it.each([false, true])(
+		"marks history and any split-turn prefix as one-off requests (split=%s)",
+		async (isSplitTurn) => {
+			const preparation: CompactionPreparation = {
+				firstKeptEntryId: "retained-message",
+				messagesToSummarize: messages,
+				turnPrefixMessages: isSplitTurn ? messages : [],
+				isSplitTurn,
+				tokensBefore: 100,
+				fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+				settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
+			};
+			const result = await compact(
+				preparation,
+				faux.getModel(),
+				"test-key",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				streamFn,
+			);
+
+			expect(result.summary).toContain("## Goal\nFix compaction.");
+			if (isSplitTurn) expect(result.summary).toContain("**Turn Context (split turn):**");
+			expect(capturedOptions).toHaveLength(isSplitTurn ? 2 : 1);
+			for (const options of capturedOptions) {
+				expect(options).toMatchObject({ apiKey: "test-key", cacheRetention: "none" });
+			}
+		},
+	);
+
+	it("marks branch summaries as one-off requests", async () => {
+		const result = await generateBranchSummary(
+			[
+				{
+					type: "message",
+					id: "branch-message",
+					parentId: null,
+					timestamp: "2026-10-09T00:00:00.000Z",
+					message: messages[0],
+				},
+			],
+			{
+				model: faux.getModel(),
+				apiKey: "test-key",
+				signal: new AbortController().signal,
+				streamFn,
+			},
+		);
+
+		expect(result.summary).toContain("## Goal\nFix compaction.");
+		expect(capturedOptions).toHaveLength(1);
+		expect(capturedOptions[0]).toMatchObject({ apiKey: "test-key", cacheRetention: "none" });
 	});
 });

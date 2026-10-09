@@ -260,6 +260,7 @@
 - Fixed the TUI footer showing a stale model and thinking level after `/model`, model cycling, or the model selector mutates the viewed live subagent; the footer override now refreshes from the live session immediately instead of waiting for the next transcript reload.
 - Fixed selected-child footer rendering requiring a live mutation capability: read-only display now reads the selected child session data, while model/thinking changes and steering retain their mutation guards.
 - Fixed subagent (spawned or attached) model and thinking level changes overwriting the global `settings.json` defaults (`defaultModel`, `defaultProvider`, `defaultThinkingLevel`); agent sessions now persist changes only to their own session.
+- Fixed compaction and branch summarization failing on claude-bridge with prompt-capture errors by marking summary requests as uncached one-off calls (`cacheRetention: "none"`).
 
 ### Changed
 

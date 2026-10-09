@@ -695,10 +695,11 @@ async function completeSummarization(
 	options: SimpleStreamOptions,
 	streamFn?: StreamFn,
 ): Promise<AssistantMessage> {
+	const requestOptions: SimpleStreamOptions = { ...options, cacheRetention: "none" };
 	if (!streamFn) {
-		return completeSimple(model, context, options);
+		return completeSimple(model, context, requestOptions);
 	}
-	const stream = await streamFn(model, context, options);
+	const stream = await streamFn(model, context, requestOptions);
 	return stream.result();
 }
 
