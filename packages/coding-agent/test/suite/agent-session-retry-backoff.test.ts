@@ -54,7 +54,7 @@ describe("AgentSession exponential retry backoff", () => {
 	});
 
 	it("uses an explicit session cap independently of provider retry limits", async () => {
-		const current = await setup({ baseDelayMs: 1000, maxDelayMs: 2500, provider: { maxRetryDelayMs: 60000 } });
+		const current = await setup({ baseDelayMs: 1000, maxBackoffMs: 2500, provider: { maxRetryDelayMs: 60000 } });
 		vi.spyOn(Math, "random").mockReturnValue(0.5);
 		current.setResponses([transientFailure(), transientFailure(), transientFailure(), fauxAssistantMessage("ok")]);
 		const prompt = current.session.prompt("test");

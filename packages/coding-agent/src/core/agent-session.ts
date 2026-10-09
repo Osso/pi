@@ -5600,7 +5600,7 @@ export class AgentSession {
 		const delayMs = calculateRetryDelayMs(
 			this._retryAttempt,
 			settings.baseDelayMs,
-			settings.maxDelayMs,
+			settings.maxBackoffMs,
 			Math.random(),
 		);
 
