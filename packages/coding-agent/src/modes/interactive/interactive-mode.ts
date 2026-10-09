@@ -4143,7 +4143,11 @@ export class InteractiveMode {
 			if (this.session.isStreaming) {
 				this.addSubmittedTextToHistory(text);
 				this.editor.setText("");
-				await this.session.prompt(text, { streamingBehavior: "steer" });
+				try {
+					await this.session.prompt(text, { streamingBehavior: "steer" });
+				} catch (error: unknown) {
+					this.showError(error instanceof Error ? error.message : String(error));
+				}
 				this.updatePendingMessagesDisplay();
 				this.ui.requestRender();
 				return;
@@ -5301,7 +5305,11 @@ export class InteractiveMode {
 		if (this.session.isStreaming) {
 			this.addSubmittedTextToHistory(text);
 			this.editor.setText("");
-			await this.session.prompt(text, { streamingBehavior: "followUp" });
+			try {
+				await this.session.prompt(text, { streamingBehavior: "followUp" });
+			} catch (error: unknown) {
+				this.showError(error instanceof Error ? error.message : String(error));
+			}
 			this.updatePendingMessagesDisplay();
 			this.ui.requestRender();
 		}
