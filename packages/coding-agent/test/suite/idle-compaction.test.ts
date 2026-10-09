@@ -1,7 +1,10 @@
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { type FauxResponseStep, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Settings } from "../../src/core/settings-manager.ts";
-import { createHarness, type Harness } from "./harness.ts";
+import type { ExtensionFactory } from "../../src/index.ts";
+import { createHarness, type Harness, type HarnessOptions } from "./harness.ts";
 
 const MINUTE_MS = 60_000;
 const SECOND_MS = 1_000;
@@ -13,6 +16,18 @@ interface IdleScenario {
 	api: string;
 	provider: string;
 	settings?: Partial<Settings>;
+	tools?: HarnessOptions["tools"];
+	extensionFactories?: ExtensionFactory[];
+}
+
+const CODEX_SCENARIO = { api: "openai-codex-responses", provider: "openai-codex" };
+
+function createDeferred(): { promise: Promise<void>; resolve: () => void } {
+	let resolve!: () => void;
+	const promise = new Promise<void>((done) => {
+		resolve = done;
+	});
+	return { promise, resolve };
 }
 
 /** Built at request time so the response carries the request-start timestamp, as real providers do. */
@@ -28,6 +43,8 @@ async function createIdleHarness(scenario: IdleScenario): Promise<Harness> {
 		fauxProvider: { api: scenario.api, provider: scenario.provider },
 		models: [{ id: `${scenario.provider}-model`, contextWindow: 2_000_000 }],
 		settings: scenario.settings,
+		tools: scenario.tools,
+		extensionFactories: scenario.extensionFactories,
 	});
 	harness.setResponses([endTurn("answer"), endTurn("follow-up answer"), fauxAssistantMessage("idle summary")]);
 	return harness;
@@ -113,6 +130,83 @@ describe("idle prompt-cache compaction", () => {
 		expect(countCompactions(harness)).toBe(0);
 		await advanceTo(secondDueAt + SECOND_MS);
 		await expectIdleCompaction(harness);
+	});
+
+	it("waits for a tool running past the deadline, then compacts from the run's latest request", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout", "Date"] });
+		const toolStarted = createDeferred();
+		const releaseTool = createDeferred();
+		const slowTool: AgentTool = {
+			name: "slow_tool",
+			label: "Slow Tool",
+			description: "Runs until the test releases it",
+			parameters: Type.Object({}),
+			execute: async () => {
+				toolStarted.resolve();
+				await releaseTool.promise;
+				return { content: [{ type: "text", text: "slow result" }], details: {} };
+			},
+		};
+		const harness = await createIdleHarness({ ...CODEX_SCENARIO, tools: [slowTool] });
+		harnesses.push(harness);
+		harness.setResponses([
+			endTurn("answer"),
+			endTurn("follow-up answer"),
+			() => fauxAssistantMessage(fauxToolCall("slow_tool", {}), { stopReason: "toolUse" }),
+			endTurn("after tool"),
+			fauxAssistantMessage("idle summary"),
+			fauxAssistantMessage("idle summary"),
+		]);
+
+		await runConversation(harness, LARGE_CONTEXT_PROMPT);
+		const firstDueAt = lastRequestStartedAt(harness) + 27 * MINUTE_MS;
+		await advanceTo(firstDueAt - 5 * MINUTE_MS);
+		const run = harness.session.prompt("run the slow tool");
+		await toolStarted.promise;
+
+		await advanceTo(firstDueAt + 10 * MINUTE_MS);
+		expect(countCompactions(harness)).toBe(0);
+		releaseTool.resolve();
+		await run;
+		const secondDueAt = lastRequestStartedAt(harness) + 27 * MINUTE_MS;
+		await advanceTo(secondDueAt - SECOND_MS);
+		expect(countCompactions(harness)).toBe(0);
+		await advanceTo(secondDueAt + SECOND_MS);
+		await expectIdleCompaction(harness);
+	});
+
+	it("does not add an idle compaction after a manual compaction spanning the deadline", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout", "Date"] });
+		const manualStarted = createDeferred();
+		const releaseManual = createDeferred();
+		const blockingCompaction: ExtensionFactory = (pi) => {
+			pi.on("compaction", async (event) => {
+				manualStarted.resolve();
+				await releaseManual.promise;
+				return {
+					compaction: {
+						summary: `${event.reason} summary`,
+						firstKeptEntryId: event.preparation.firstKeptEntryId,
+						tokensBefore: event.preparation.tokensBefore,
+					},
+				};
+			});
+		};
+		const harness = await createIdleHarness({ ...CODEX_SCENARIO, extensionFactories: [blockingCompaction] });
+		harnesses.push(harness);
+
+		await runConversation(harness, LARGE_CONTEXT_PROMPT);
+		const dueAt = lastRequestStartedAt(harness) + 27 * MINUTE_MS;
+		await advanceTo(dueAt - MINUTE_MS);
+		const manual = harness.session.compact();
+		await manualStarted.promise;
+		await advanceTo(dueAt + MINUTE_MS);
+		releaseManual.resolve();
+		await manual;
+		await advanceTo(Date.now() + 3 * 60 * MINUTE_MS);
+
+		expect(countCompactions(harness)).toBe(1);
+		expect(harness.eventsOfType("compaction_start").map((event) => event.reason)).toEqual(["manual"]);
 	});
 
 	it("does not compact while an agent-level message is still queued", async () => {
