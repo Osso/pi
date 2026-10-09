@@ -1,14 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getControlDbPath } from "../../../src/core/session-control-db.ts";
-import {
-	requestSupervisorDecision,
-	SUPERVISOR_REQUEST_CANCELLED_REASON,
-} from "../../../src/supervisor/client.ts";
-import {
-	DEFAULT_SUPERVISOR_KB_DIR,
-	resolveSupervisorProjectForCwd,
-} from "../../../src/supervisor/project-resolver.ts";
+import { requestSupervisorDecision, SUPERVISOR_REQUEST_CANCELLED_REASON } from "../../../src/supervisor/client.ts";
+import { DEFAULT_SUPERVISOR_KB_DIR, resolveSupervisorProjectForCwd } from "../../../src/supervisor/project-resolver.ts";
 import type { GoalSupervisorResponse, GoalSupervisorReview } from "./goal-types.ts";
 import type { AppendSupervisorStatus } from "./rendering.ts";
 
@@ -25,14 +19,20 @@ function supervisorReviewErrorReason(error: unknown): string {
 
 function reviewResultMessage(result: GoalSupervisorResponse): string {
 	switch (result.kind) {
-		case "continue": return result.instructions;
-		case "complete": return `Goal complete: ${result.reason}`;
-		case "set": return `Goal set: ${result.objective}`;
-		case "pause": return `Goal waiting: ${result.reason}`;
-		case "wait": return `Waiting: ${result.reason}`;
-		case "error": return result.reason === SUPERVISOR_REQUEST_CANCELLED_REASON
-			? "Supervisor review cancelled."
-			: `Goal review failed: ${result.reason}`;
+		case "continue":
+			return result.instructions;
+		case "complete":
+			return `Goal complete: ${result.reason}`;
+		case "set":
+			return `Goal set: ${result.objective}`;
+		case "pause":
+			return `Goal waiting: ${result.reason}`;
+		case "wait":
+			return `Waiting: ${result.reason}`;
+		case "error":
+			return result.reason === SUPERVISOR_REQUEST_CANCELLED_REASON
+				? "Supervisor review cancelled."
+				: `Goal review failed: ${result.reason}`;
 	}
 }
 
@@ -78,15 +78,15 @@ export async function reviewGoalWithResidentSupervisor(input: {
 			timeoutMs: GOAL_REVIEW_TIMEOUT_MS,
 		});
 		switch (response.kind) {
-		case "complete":
-		case "continue":
-		case "pause":
-		case "wait":
-		case "set":
-		case "error":
-			return response;
-		default:
-			return { kind: "error", reason: `Invalid goal review response: ${response.kind}` };
+			case "complete":
+			case "continue":
+			case "pause":
+			case "wait":
+			case "set":
+			case "error":
+				return response;
+			default:
+				return { kind: "error", reason: `Invalid goal review response: ${response.kind}` };
 		}
 	} finally {
 		unregisterCancellation?.();

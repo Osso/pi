@@ -7,6 +7,7 @@ import {
 } from "../extensions/goal/src/rendering.ts";
 import type { CustomEntry } from "../src/core/session-manager.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
+import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import { createWaitCountdownRefresher } from "../extensions/goal/src/wait-countdown.ts";
 import { CustomEntryComponent } from "../src/modes/interactive/components/custom-entry.ts";
 import { RenderRegionContainer } from "../src/modes/interactive/components/render-region-container.ts";
@@ -65,8 +66,7 @@ describe("goal Supervisor countdown rendering", () => {
 	});
 
 	it("relayouts a live waiting block when its persisted answer grows to multiple lines", async () => {
-		vi.useFakeTimers();
-		const terminal = new FakeTerminal();
+		const terminal = new VirtualTerminal(60, 18);
 		const tui = new TUI(terminal);
 		const chat = new RenderRegionContainer(tui);
 		const refresher = createWaitCountdownRefresher();
@@ -120,18 +120,19 @@ describe("goal Supervisor countdown rendering", () => {
 		tui.start();
 		try {
 			controller.append(ctx, "Waiting for Supervisor…", undefined, "review-1");
-			await flushRender();
+			await terminal.waitForRender();
 			const block = chat.children[0];
-			expect(terminal.writes.join("")).toContain("Waiting for Supervisor…");
-			terminal.writes = [];
+			expect(terminal.getViewport().join("\n")).toContain("Waiting for Supervisor…");
 			controller.append(ctx, "Run regression.\nInspect output.\nPreserve full scope.", undefined, "review-1");
-			await flushRender();
+			await terminal.waitForRender();
 			expect(chat.children).toEqual([block]);
-			const output = stripAnsi(terminal.writes.join(""));
+			const output = terminal.getViewport().join("\n");
 			expect(output).toContain("Run regression.");
 			expect(output).toContain("Inspect output.");
 			expect(output).toContain("Preserve full scope.");
 			expect(output).toContain("editor");
+			expect(output.match(/\[Supervisor\]/g)).toHaveLength(1);
+			expect(output).not.toContain("Waiting for Supervisor…");
 			expect(stripAnsi(chat.render(60).join("\n"))).not.toContain("Waiting for Supervisor…");
 		} finally {
 			controller.clearAll();
@@ -162,7 +163,7 @@ describe("goal Supervisor countdown rendering", () => {
 				parentId: null,
 				timestamp: "2026-08-17T12:00:00.000Z",
 				customType: "supervisor-status",
-				data: { message: "Waiting for child agents", reviewAt },
+				data: { displayId: "review-1", message: "Waiting for Supervisor…" },
 			},
 			renderer,
 			{
@@ -203,6 +204,24 @@ describe("goal Supervisor countdown rendering", () => {
 		tui.addChild(compositor);
 		tui.start();
 		await flushRender();
+		expect(terminal.writes.join("")).toContain("Waiting for Supervisor…");
+		const finalStatus = new CustomEntryComponent(
+			{
+				type: "custom",
+				id: "supervisor-answer-1",
+				parentId: "supervisor-status-1",
+				timestamp: "2026-08-17T12:00:00.000Z",
+				customType: "supervisor-status",
+				data: { displayId: "review-1", message: "Waiting for child agents", reviewAt },
+			},
+			renderer,
+			{ requestRender: (child) => chat.requestChildRender(child), sessionId: "session-1" },
+		);
+		expect(finalStatus.hasContent()).toBe(false);
+		finalStatus.dispose();
+		tui.requestRender();
+		await flushRender();
+		expect(chat.children).toEqual([staticBody, supervisorStatus]);
 
 		const initialWrites = terminal.writes.join("");
 		expect(initialWrites).toContain("Next review in 0:05");

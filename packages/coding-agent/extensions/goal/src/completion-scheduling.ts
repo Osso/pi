@@ -23,7 +23,13 @@ export interface CompletionWaitScheduler {
 	clearAll(): void;
 	clearSession(sessionId: string): void;
 	createReviewGuard(ctx: ExtensionContext): () => boolean;
-	wait(goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string, displayId?: string): Promise<void>;
+	wait(
+		goal: Goal,
+		ctx: ExtensionContext,
+		completionReport: string,
+		statusReason: string,
+		displayId?: string,
+	): Promise<void>;
 }
 
 type CompletionScheduler = ReturnType<typeof createGoalScheduler<CompletionWait, ReviewedGoalResponse>>;
@@ -60,7 +66,12 @@ async function applyCompletionDecision(
 			options.onStatus(ctx, `Goal review failed: ${decision.reason}`, undefined, decision.displayId);
 			return;
 		case "set":
-			options.onStatus(ctx, `Goal review failed: unexpected set decision: ${decision.reason}`, undefined, decision.displayId);
+			options.onStatus(
+				ctx,
+				`Goal review failed: unexpected set decision: ${decision.reason}`,
+				undefined,
+				decision.displayId,
+			);
 			return;
 	}
 	options.consumeReviewEvidence(ctx, waiting.goal, reviewed.evidenceCount);

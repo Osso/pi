@@ -1,9 +1,4 @@
-import type {
-	EntryRenderer,
-	ExtensionAPI,
-	ExtensionContext,
-	MessageRenderer,
-} from "@earendil-works/pi-coding-agent";
+import type { EntryRenderer, ExtensionAPI, ExtensionContext, MessageRenderer } from "@earendil-works/pi-coding-agent";
 import { Box, Spacer, Text } from "@earendil-works/pi-tui";
 import type { WaitCountdownRefresher } from "./wait-countdown.ts";
 
@@ -64,12 +59,15 @@ export function supervisorInstructionContent(instructions: string): string {
 }
 
 export function sendSupervisorInstructions(pi: ExtensionAPI, instructions: string, displayId?: string): void {
-	pi.sendMessage({
-		customType: "supervisor",
-		content: supervisorInstructionContent(instructions),
-		display: displayId === undefined,
-		...(displayId === undefined ? {} : { details: { displayId } }),
-	}, { deliverAs: "followUp", triggerTurn: true });
+	pi.sendMessage(
+		{
+			customType: "supervisor",
+			content: supervisorInstructionContent(instructions),
+			display: displayId === undefined,
+			...(displayId === undefined ? {} : { details: { displayId } }),
+		},
+		{ deliverAs: "followUp", triggerTurn: true },
+	);
 }
 
 function hasSupervisorInstructionWrapper(content: string): boolean {
@@ -184,7 +182,8 @@ export function createSupervisorStatusEntryRenderer(refresher: WaitCountdownRefr
 			display.component?.update(details.message, details.reviewAt);
 			display.cleanupCountdown?.();
 			display.cleanupCountdown = display.options
-				? bindSupervisorStatusCountdown(refresher, display.options, details.reviewAt) : undefined;
+				? bindSupervisorStatusCountdown(refresher, display.options, details.reviewAt)
+				: undefined;
 			return undefined;
 		}
 		const component = new SupervisorStatusComponent(display.details.message, display.details.reviewAt, {

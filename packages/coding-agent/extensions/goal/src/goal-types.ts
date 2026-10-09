@@ -1,9 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SupervisorResponse } from "../../../src/core/session-control-db.ts";
 
-export type GoalReviewEvidenceEvent =
-	| { kind: "user"; text: string }
-	| { kind: "end_turn"; reason: string };
+export type GoalReviewEvidenceEvent = { kind: "user"; text: string } | { kind: "end_turn"; reason: string };
 
 export interface Goal {
 	objective: string;

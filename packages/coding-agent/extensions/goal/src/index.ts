@@ -19,10 +19,7 @@ import { selectGoalForIdleReview } from "./goal-idle-selection.ts";
 import { deduplicateCurrentGoalScope } from "./goal-objective.ts";
 import { isRecord, optionalString, parseGoalJson } from "./goal-parsing.ts";
 import { goalFooterStatus, goalStartupMessage, goalSystemBlock, goalViewMessage } from "./goal-presentation.ts";
-import {
-	createGoalReviewEvidenceController,
-	type GoalReviewEvidenceController,
-} from "./goal-review-evidence.ts";
+import { createGoalReviewEvidenceController, type GoalReviewEvidenceController } from "./goal-review-evidence.ts";
 import { type GoalScheduler, createGoalScheduler } from "./goal-scheduling.ts";
 import {
 	clearGoal,
@@ -75,7 +72,13 @@ interface ManageGoalContext {
 	pi: ExtensionAPI;
 	reviewGoal: GoalEvidenceReview;
 	consumeReviewEvidence: (ctx: ExtensionContext, reviewedGoal: Goal, evidenceCount: number) => void;
-	onCompletionWait: (goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string, displayId?: string) => Promise<void>;
+	onCompletionWait: (
+		goal: Goal,
+		ctx: ExtensionContext,
+		completionReport: string,
+		statusReason: string,
+		displayId?: string,
+	) => Promise<void>;
 	appendStatus: AppendSupervisorStatus;
 	isCompletionReviewCurrent?: () => boolean;
 	beforeGoalSave?: () => void;
@@ -102,13 +105,15 @@ function sessionIdFromSessionFile(sessionFile: string): string | null {
 	try {
 		const [firstLine] = fs.readFileSync(sessionFile, "utf8").split("\n", 1);
 		const entry = JSON.parse(firstLine ?? "");
-		return isRecord(entry) ? optionalString(entry.id) ?? null : null;
+		return isRecord(entry) ? (optionalString(entry.id) ?? null) : null;
 	} catch {
 		return null;
 	}
 }
 
-function isGoalInheritanceEvent(event: SessionStartEvent): event is SessionStartEvent & { previousSessionFile: string } {
+function isGoalInheritanceEvent(
+	event: SessionStartEvent,
+): event is SessionStartEvent & { previousSessionFile: string } {
 	return event.reason === "fork" && Boolean(event.previousSessionFile);
 }
 
@@ -175,13 +180,12 @@ async function reviewGoalSetObjective(
 	reviewGoal: GoalEvidenceReview,
 ): Promise<string | AgentToolResult<unknown>> {
 	const activeGoal = loadOrMigrateActiveGoal(ctx);
-	const payload = activeGoal
-		? { currentObjective: activeGoal.objective, proposedObjective }
-		: { proposedObjective };
+	const payload = activeGoal ? { currentObjective: activeGoal.objective, proposedObjective } : { proposedObjective };
 	const reviewed = await reviewGoal({ ctx, kind: "goal_set_review", payload });
 	const currentGoal = loadOrMigrateActiveGoal(ctx);
 	const reviewStillApplies = activeGoal ? goalMatchesReview(currentGoal, activeGoal) : currentGoal === null;
-	if (!reviewStillApplies) return textResult("Goal changed while Supervisor review was in progress; stale decision ignored.");
+	if (!reviewStillApplies)
+		return textResult("Goal changed while Supervisor review was in progress; stale decision ignored.");
 	if (reviewed.decision.kind === "set") {
 		return activeGoal
 			? deduplicateCurrentGoalScope(reviewed.decision.objective, activeGoal.objective)
@@ -198,7 +202,9 @@ async function runSetGoalAction({
 	pi,
 	reviewGoal,
 	beforeGoalSave,
-}: Omit<ManageGoalContext, "consumeReviewEvidence" | "onCompletionWait" | "appendStatus">): Promise<AgentToolResult<unknown>> {
+}: Omit<ManageGoalContext, "consumeReviewEvidence" | "onCompletionWait" | "appendStatus">): Promise<
+	AgentToolResult<unknown>
+> {
 	const proposedObjective = params.objective?.trim() ?? "";
 	if (!proposedObjective) return textResult("Objective is required.");
 	const invalidResult = validateGoalObjective(proposedObjective);
@@ -263,7 +269,13 @@ async function applyCompletionDecision(
 	ctx: ExtensionContext,
 	pi: ExtensionAPI,
 	completionReport: string,
-	onWait: (goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string, displayId?: string) => Promise<void>,
+	onWait: (
+		goal: Goal,
+		ctx: ExtensionContext,
+		completionReport: string,
+		statusReason: string,
+		displayId?: string,
+	) => Promise<void>,
 	appendStatus: AppendSupervisorStatus,
 ): Promise<AgentToolResult<unknown>> {
 	if (decision.kind === "complete") {
@@ -273,7 +285,12 @@ async function applyCompletionDecision(
 		return textResult(`Goal marked complete: ${completionReport}`);
 	}
 	const rejection = `Completion report rejected: ${decision.reason}\n\nSubmitted report:\n${completionReport}`;
-	appendStatus(ctx, decision.kind === "continue" ? `${rejection}\n\n${decision.instructions}` : rejection, undefined, decision.displayId);
+	appendStatus(
+		ctx,
+		decision.kind === "continue" ? `${rejection}\n\n${decision.instructions}` : rejection,
+		undefined,
+		decision.displayId,
+	);
 	if (decision.kind === "continue") {
 		sendSupervisorInstructions(pi, decision.instructions, decision.displayId);
 		return textResult(`Goal remains active: ${decision.reason}`, { instructions: decision.instructions });
@@ -293,7 +310,13 @@ async function runCompleteGoalAction(
 	completionReportInput: string | undefined,
 	reviewGoal: GoalEvidenceReview,
 	pi: ExtensionAPI,
-	onWait: (goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string, displayId?: string) => Promise<void>,
+	onWait: (
+		goal: Goal,
+		ctx: ExtensionContext,
+		completionReport: string,
+		statusReason: string,
+		displayId?: string,
+	) => Promise<void>,
 	appendStatus: AppendSupervisorStatus,
 	isReviewCurrent: () => boolean,
 	consumeReviewEvidence: (ctx: ExtensionContext, reviewedGoal: Goal, evidenceCount: number) => void,
@@ -372,7 +395,13 @@ function completeGoalFromIdleDecision(goal: Goal, reason: string, ctx: Extension
 	ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
 }
 
-function continueGoalFromIdleDecision(goal: Goal, instructions: string, ctx: ExtensionContext, pi: ExtensionAPI, displayId?: string): void {
+function continueGoalFromIdleDecision(
+	goal: Goal,
+	instructions: string,
+	ctx: ExtensionContext,
+	pi: ExtensionAPI,
+	displayId?: string,
+): void {
 	const continuationTurns = goal.continuationTurns ?? 0;
 	saveGoal(ctx, { ...goal, continuationTurns: continuationTurns + 1 });
 	sendSupervisorInstructions(pi, instructions, displayId);
@@ -482,7 +511,10 @@ function sameRunningGoal(ctx: ExtensionContext, goal: Goal): boolean {
 	return activeGoal?.createdAt === goal.createdAt && activeGoal.objective === goal.objective;
 }
 
-function injectGoalContext(event: BeforeAgentStartEvent, ctx: ExtensionContext): BeforeAgentStartEventResult | undefined {
+function injectGoalContext(
+	event: BeforeAgentStartEvent,
+	ctx: ExtensionContext,
+): BeforeAgentStartEventResult | undefined {
 	const goal = loadOrMigrateRunningGoal(ctx);
 	if (!goal) return;
 	return { systemPrompt: `${event.systemPrompt}\n\n${goalSystemBlock(goal)}` };
@@ -588,12 +620,8 @@ function createGoalExtensionRuntime(
 	const emptyResponseScheduler = createEmptyResponseScheduler<Goal>({ pi, isSameRunningGoal: sameRunningGoal });
 	const errorStatusScheduler = createErrorStatusScheduler({ onStatus: status.append });
 	let clearGoalSchedules: (sessionId: string) => void;
-	const { scheduler, applyDecision } = createIdleGoalScheduler(
-		pi,
-		reviewGoal,
-		evidence,
-		status,
-		(sessionId) => clearGoalSchedules(sessionId),
+	const { scheduler, applyDecision } = createIdleGoalScheduler(pi, reviewGoal, evidence, status, (sessionId) =>
+		clearGoalSchedules(sessionId),
 	);
 	const completionScheduler = createCompletionScheduler(pi, reviewGoal, evidence, status);
 	clearGoalSchedules = (sessionId: string): void => {
@@ -695,11 +723,7 @@ function registerAgentGoalHandlers(
 	});
 }
 
-function selectIdleGoal(
-	event: AgentEndEvent,
-	ctx: ExtensionContext,
-	runtime: GoalExtensionRuntime,
-): Goal | null {
+function selectIdleGoal(event: AgentEndEvent, ctx: ExtensionContext, runtime: GoalExtensionRuntime): Goal | null {
 	return selectGoalForIdleReview({
 		event,
 		ctx,
@@ -713,7 +737,8 @@ function selectIdleGoal(
 
 function registerGoalCommand(pi: ExtensionAPI, runtime: GoalExtensionRuntime): void {
 	pi.registerCommand("goal", {
-		description: "Set, view, pause, resume, or clear the objective for a long-running task (/goal set <objective> | /goal | /goal pause | /goal resume | /goal clear)",
+		description:
+			"Set, view, pause, resume, or clear the objective for a long-running task (/goal set <objective> | /goal | /goal pause | /goal resume | /goal clear)",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			handleGoalCommand(args, ctx, pi, runtime.clearGoalSchedules);
 		},

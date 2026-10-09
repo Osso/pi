@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AssistantMessage, getModel, type Usage } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SUPERVISOR_REQUEST_CANCELLED_REASON } from "../src/supervisor/client.ts";
 import type { ManageGoalParams } from "../extensions/goal/src/goal-tool.ts";
 import goalExtension, {
 	type Goal,
@@ -982,6 +983,68 @@ describe("goal extension", () => {
 				{ deliverAs: "followUp", triggerTurn: true },
 			);
 			expect(readStoredGoal<Goal>(cwd).completedAt).toBeUndefined();
+		},
+	);
+
+	it.each<{ decision: GoalSupervisorResponse; visible: string; cancelled?: boolean }>([
+		{ decision: { kind: "complete", reason: "all proof passed" }, visible: "Goal complete: all proof passed" },
+		{ decision: { kind: "pause", reason: "user must choose" }, visible: "Goal waiting: user must choose" },
+		{ decision: { kind: "wait", reason: "child proof running" }, visible: "Waiting: child proof running" },
+		{ decision: { kind: "error", reason: "connection closed" }, visible: "Goal review failed: connection closed" },
+		{
+			decision: { kind: "error", reason: SUPERVISOR_REQUEST_CANCELLED_REASON },
+			visible: "Supervisor review cancelled.",
+			cancelled: true,
+		},
+	])(
+		"replays one final block for $visible without changing the goal decision",
+		async ({ decision, visible, cancelled }) => {
+			let finishReview: ((decision: GoalSupervisorResponse) => void) | undefined;
+			const harness = createGoalHarness(cwd, {
+				reviewGoal: async () =>
+					new Promise((resolve) => {
+						finishReview = resolve;
+					}),
+			});
+			await harness.runCommand("set retain goal decisions");
+			const review = harness.runAgentEnd();
+			await vi.waitFor(() => expect(finishReview).toBeDefined());
+			if (cancelled) await harness.runInput("Cancel the review.");
+			finishReview?.(decision);
+			await review;
+			const renderer = harness.getSupervisorStatusRenderer();
+			if (!renderer) throw new Error("Supervisor status renderer was not registered");
+			const identityTheme = {
+				bg: (_color: string, text: string) => text,
+				bold: (text: string) => text,
+				fg: (_color: string, text: string) => text,
+			} as Parameters<EntryRenderer>[2];
+			const blocks = harness.appendEntry.mock.calls
+				.map(([customType, data], index) =>
+					renderer(
+						{
+							type: "custom",
+							customType,
+							data,
+							id: `entry-${index}`,
+							parentId: null,
+							timestamp: "2026-10-08T00:00:00.000Z",
+						},
+						{ expanded: false, sessionId: "test-session" },
+						identityTheme,
+					),
+				)
+				.filter((block) => block !== undefined);
+			const output = blocks.flatMap((block) => block.render(120)).join("\n");
+			expect(blocks).toHaveLength(1);
+			expect(output).toContain(visible);
+			expect(output).not.toContain("Waiting for Supervisor…");
+			if (decision.kind === "wait" || (decision.kind === "error" && !cancelled))
+				expect(output).toContain("Next review in 15:00");
+			expect(Boolean(readStoredGoal<Goal>(cwd).completedAt)).toBe(decision.kind === "complete");
+			expect(readStoredGoal<Goal>(cwd).pausedAt).toBeUndefined();
+			expect(harness.sendMessage).not.toHaveBeenCalled();
+			await harness.runSessionShutdown();
 		},
 	);
 
