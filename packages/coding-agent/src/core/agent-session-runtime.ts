@@ -378,6 +378,14 @@ export class AgentSessionRuntime {
 		return this.runLifecycleTransition(() => this.restartUnlocked(options));
 	}
 
+	private persistSessionForProcessRestart(): void {
+		const sessionManager = this.session.sessionManager;
+		const model = this.session.model;
+		if (model) sessionManager.setSessionModel(model.provider, model.id);
+		sessionManager.setSessionThinkingLevel(this.session.thinkingLevel);
+		sessionManager.persistForRecovery();
+	}
+
 	private async restartUnlocked(options?: { notice?: string; process?: boolean }): Promise<void> {
 		const previousSessionFile = this.session.sessionFile;
 		const currentSessionManager = this.session.sessionManager;
@@ -386,10 +394,7 @@ export class AgentSessionRuntime {
 		this.session.detachAllRunningTools();
 
 		if (options?.process && currentSessionManager.isPersisted() && currentSessionFile) {
-			const model = this.session.model;
-			if (model) currentSessionManager.setSessionModel(model.provider, model.id);
-			currentSessionManager.setSessionThinkingLevel(this.session.thinkingLevel);
-			currentSessionManager.persistForRecovery();
+			this.persistSessionForProcessRestart();
 			await this.beforeProcessRestart?.();
 			await this.teardownCurrent("restart", currentSessionFile);
 			await this.processRestarter({
