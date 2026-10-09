@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
@@ -8,8 +8,8 @@ import { expect, it } from "vitest";
 import { MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
 import { getControlDbPath, readSessionMetadata } from "../../../src/core/session-control-db.ts";
 import { SessionManager } from "../../../src/core/session-manager.ts";
-import { createHeadlessPaths } from "../headless-pi.ts";
 import { startHeadlessSupervisorProbe } from "../fixtures/headless-supervisor-probe.ts";
+import { createHeadlessPaths } from "../headless-pi.ts";
 
 interface Observation {
 	sessionId: string;
@@ -163,9 +163,10 @@ function startProviderTransport(observationsPath: string) {
 				buffer = buffer.slice(index + 1);
 				if (!line) continue;
 				const wire = JSON.parse(line) as { id: string; sessionId: string; messages: Message[] };
-				const observation = readRecords<Observation>(observationsPath).findLast(
-					(entry) => entry.sessionId === wire.sessionId,
-				);
+				const observation = readRecords<Observation>(observationsPath)
+					.slice()
+					.reverse()
+					.find((entry) => entry.sessionId === wire.sessionId);
 				if (!observation) throw new Error("Missing actual provider observation");
 				requests.push({ ...observation, ...wire, socket });
 			}

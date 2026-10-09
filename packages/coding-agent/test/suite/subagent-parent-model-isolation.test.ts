@@ -27,7 +27,10 @@ function assertProviderRequest(logPath: string, request: HeadlessLlmRequest, mod
 		.trim()
 		.split("\n")
 		.map((line) => JSON.parse(line) as ObservedRequest);
-	const observed = observations.findLast((candidate) => candidate.sessionId === request.sessionId);
+	const observed = observations
+		.slice()
+		.reverse()
+		.find((candidate) => candidate.sessionId === request.sessionId);
 	expect(observed, `Actual provider invocation for ${request.sessionId}`).toBeDefined();
 	expect(observed).toMatchObject({
 		provider: "headless-faux",
