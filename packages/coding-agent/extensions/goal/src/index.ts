@@ -75,7 +75,7 @@ interface ManageGoalContext {
 	pi: ExtensionAPI;
 	reviewGoal: GoalEvidenceReview;
 	consumeReviewEvidence: (ctx: ExtensionContext, reviewedGoal: Goal, evidenceCount: number) => void;
-	onCompletionWait: (goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string) => Promise<void>;
+	onCompletionWait: (goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string, displayId?: string) => Promise<void>;
 	appendStatus: AppendSupervisorStatus;
 	isCompletionReviewCurrent?: () => boolean;
 	beforeGoalSave?: () => void;
@@ -263,7 +263,7 @@ async function applyCompletionDecision(
 	ctx: ExtensionContext,
 	pi: ExtensionAPI,
 	completionReport: string,
-	onWait: (goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string) => Promise<void>,
+	onWait: (goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string, displayId?: string) => Promise<void>,
 	appendStatus: AppendSupervisorStatus,
 ): Promise<AgentToolResult<unknown>> {
 	if (decision.kind === "complete") {
@@ -272,16 +272,17 @@ async function applyCompletionDecision(
 		updateGoalFooterStatus(ctx);
 		return textResult(`Goal marked complete: ${completionReport}`);
 	}
-	appendStatus(ctx, `Completion report rejected: ${decision.reason}\n\nSubmitted report:\n${completionReport}`);
+	const rejection = `Completion report rejected: ${decision.reason}\n\nSubmitted report:\n${completionReport}`;
+	appendStatus(ctx, decision.kind === "continue" ? `${rejection}\n\n${decision.instructions}` : rejection, undefined, decision.displayId);
 	if (decision.kind === "continue") {
-		sendSupervisorInstructions(pi, decision.instructions);
+		sendSupervisorInstructions(pi, decision.instructions, decision.displayId);
 		return textResult(`Goal remains active: ${decision.reason}`, { instructions: decision.instructions });
 	}
 	if (decision.kind === "pause") {
 		return textResult(`Goal remains active: ${decision.reason}`);
 	}
 	if (decision.kind === "wait") {
-		await onWait(activeGoal, ctx, completionReport, decision.reason);
+		await onWait(activeGoal, ctx, completionReport, decision.reason, decision.displayId);
 		return textResult(`Goal remains active: ${decision.reason}`);
 	}
 	return textResult(`Goal review failed: ${decision.reason}`);
@@ -292,7 +293,7 @@ async function runCompleteGoalAction(
 	completionReportInput: string | undefined,
 	reviewGoal: GoalEvidenceReview,
 	pi: ExtensionAPI,
-	onWait: (goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string) => Promise<void>,
+	onWait: (goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string, displayId?: string) => Promise<void>,
 	appendStatus: AppendSupervisorStatus,
 	isReviewCurrent: () => boolean,
 	consumeReviewEvidence: (ctx: ExtensionContext, reviewedGoal: Goal, evidenceCount: number) => void,
@@ -371,10 +372,10 @@ function completeGoalFromIdleDecision(goal: Goal, reason: string, ctx: Extension
 	ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
 }
 
-function continueGoalFromIdleDecision(goal: Goal, instructions: string, ctx: ExtensionContext, pi: ExtensionAPI): void {
+function continueGoalFromIdleDecision(goal: Goal, instructions: string, ctx: ExtensionContext, pi: ExtensionAPI, displayId?: string): void {
 	const continuationTurns = goal.continuationTurns ?? 0;
 	saveGoal(ctx, { ...goal, continuationTurns: continuationTurns + 1 });
-	sendSupervisorInstructions(pi, instructions);
+	sendSupervisorInstructions(pi, instructions, displayId);
 }
 
 async function applyGoalIdleDecision(
@@ -395,7 +396,7 @@ async function applyGoalIdleDecision(
 		case "error":
 			return onWait(`Goal review failed: ${decision.reason}`);
 		case "continue":
-			return continueGoalFromIdleDecision(goal, decision.instructions, ctx, pi);
+			return continueGoalFromIdleDecision(goal, decision.instructions, ctx, pi, decision.displayId);
 		case "set":
 			return appendStatus(ctx, `Goal review failed: unexpected set decision: ${decision.reason}`);
 	}
@@ -546,6 +547,8 @@ function createIdleGoalScheduler(
 	let scheduler: IdleGoalScheduler;
 	const applyDecision: ApplyIdleDecision = async (reviewed, goal, ctx, terminalTurn) => {
 		clearSchedules(ctx.sessionManager.getSessionId());
+		const appendReviewStatus: AppendSupervisorStatus = (statusCtx, message, reviewAt) =>
+			status.append(statusCtx, message, reviewAt, reviewed.decision.displayId);
 		await applyGoalIdleDecision(
 			reviewed.decision,
 			goal,
@@ -556,12 +559,12 @@ function createIdleGoalScheduler(
 					ctx,
 					goal,
 					terminalTurn,
-					createWaitStatusCallbacks(status.append, ctx, message, () =>
+					createWaitStatusCallbacks(appendReviewStatus, ctx, message, () =>
 						status.clearSession(ctx.sessionManager.getSessionId()),
 					),
 				);
 			},
-			status.append,
+			appendReviewStatus,
 		);
 		if (reviewed.decision.kind !== "error") evidence.consume(ctx, goal, reviewed.evidenceCount);
 	};
@@ -633,8 +636,8 @@ function registerManageGoal(
 			pi,
 			reviewGoal,
 			consumeReviewEvidence: evidence.consume,
-			onCompletionWait: async (goal, waitCtx, reason, statusReason) =>
-				runtime.completionScheduler.wait(goal, waitCtx, reason, statusReason),
+			onCompletionWait: async (goal, waitCtx, reason, statusReason, displayId) =>
+				runtime.completionScheduler.wait(goal, waitCtx, reason, statusReason, displayId),
 			appendStatus: runtime.status.append,
 			isCompletionReviewCurrent,
 			beforeGoalSave: () => runtime.clearGoalSchedules(ctx.sessionManager.getSessionId()),

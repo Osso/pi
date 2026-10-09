@@ -487,11 +487,17 @@ describe("goal extension", () => {
 		expect(readStoredGoal<Goal>(cwd)).toEqual(original);
 		expect(harness.notify).not.toHaveBeenCalled();
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
-		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", { message: "Waiting for Supervisor…" });
+		expect(harness.appendEntry).toHaveBeenCalledWith(
+			"supervisor-status",
+			expect.objectContaining({ message: "Waiting for Supervisor…" }),
+		);
 		if (action === "complete") {
-			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-				message: "Completion report rejected: Supervisor connection closed\n\nSubmitted report:\ndone",
-			});
+			expect(harness.appendEntry).toHaveBeenCalledWith(
+				"supervisor-status",
+				expect.objectContaining({
+					message: "Completion report rejected: Supervisor connection closed\n\nSubmitted report:\ndone",
+				}),
+			);
 		}
 	});
 
@@ -937,6 +943,48 @@ describe("goal extension", () => {
 		}
 	});
 
+	it.each(["idle", "completion"] as const)(
+		"persists the %s review answer before hiding its unchanged tagged follow-up",
+		async (kind) => {
+			let finishReview: ((decision: GoalSupervisorResponse) => void) | undefined;
+			const reviewGoal = vi.fn<GoalSupervisorReview>().mockImplementation(
+				async () =>
+					new Promise((resolve) => {
+						finishReview = resolve;
+					}),
+			);
+			const harness = createGoalHarness(cwd, { reviewGoal });
+			await harness.runCommand("set preserve continuation delivery");
+			const review = kind === "idle" ? harness.runAgentEnd() : harness.runGoalComplete("Submitted evidence");
+			await vi.waitFor(() => expect(finishReview).toBeDefined());
+			const waiting = harness.appendEntry.mock.calls[0]?.[1] as { message: string; displayId?: string };
+			const originalWaiting = JSON.stringify(waiting);
+			expect(waiting.message).toBe("Waiting for Supervisor…");
+			expect(waiting.displayId).toEqual(expect.any(String));
+			const instructions = "Run regression.\nInspect output.\nPreserve full scope.";
+			finishReview?.({ kind: "continue", reason: "proof missing", instructions });
+			await review;
+			expect(JSON.stringify(waiting)).toBe(originalWaiting);
+			const answerIndex = harness.appendEntry.mock.calls.findIndex(
+				([, data]) => data.displayId === waiting.displayId && data.message.includes(instructions),
+			);
+			expect(answerIndex).toBeGreaterThan(0);
+			expect(harness.appendEntry.mock.invocationCallOrder[answerIndex]).toBeLessThan(
+				harness.sendMessage.mock.invocationCallOrder[0]!,
+			);
+			expect(harness.sendMessage).toHaveBeenCalledExactlyOnceWith(
+				{
+					customType: "supervisor",
+					content: `<supervisor-instruction>\n${instructions}\n</supervisor-instruction>`,
+					display: false,
+					details: { displayId: waiting.displayId },
+				},
+				{ deliverAs: "followUp", triggerTurn: true },
+			);
+			expect(readStoredGoal<Goal>(cwd).completedAt).toBeUndefined();
+		},
+	);
+
 	it("shows a visible Supervisor wait status before awaiting idle review", async () => {
 		let finishReview: ((decision: GoalSupervisorResponse) => void) | undefined;
 		const reviewGoal = vi.fn<GoalSupervisorReview>().mockImplementation(
@@ -952,9 +1000,12 @@ describe("goal extension", () => {
 		const review = harness.runAgentEnd();
 		await vi.waitFor(() => expect(reviewGoal).toHaveBeenCalledTimes(1));
 
-		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-			message: "Waiting for Supervisor…",
-		});
+		expect(harness.appendEntry).toHaveBeenCalledWith(
+			"supervisor-status",
+			expect.objectContaining({
+				message: "Waiting for Supervisor…",
+			}),
+		);
 		finishReview?.({ kind: "continue", reason: "continue", instructions: "Continue." });
 		await review;
 	});
@@ -974,9 +1025,12 @@ describe("goal extension", () => {
 		const review = harness.runGoalComplete("done");
 		await vi.waitFor(() => expect(reviewGoal).toHaveBeenCalledTimes(1));
 
-		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-			message: "Waiting for Supervisor…",
-		});
+		expect(harness.appendEntry).toHaveBeenCalledWith(
+			"supervisor-status",
+			expect.objectContaining({
+				message: "Waiting for Supervisor…",
+			}),
+		);
 		finishReview?.({ kind: "complete", reason: "verified" });
 		await review;
 	});
@@ -1008,7 +1062,28 @@ describe("goal extension", () => {
 				.map((line) => line.trim())
 				.filter(Boolean) ?? [];
 
-		expect(renderedLines).toEqual(["[Supervisor]", "Run the exact regression."]);
+		expect(message.display).toBe(false);
+		const statusRenderer = harness.getSupervisorStatusRenderer();
+		if (!statusRenderer) throw new Error("Supervisor status renderer was not registered");
+		const status = harness.appendEntry.mock.calls.at(-1)?.[1];
+		const answer = statusRenderer(
+			{
+				type: "custom",
+				customType: "supervisor-status",
+				id: "answer",
+				parentId: null,
+				timestamp: "2026-10-08T00:00:00.000Z",
+				data: status,
+			},
+			{ expanded: false },
+			identityTheme,
+		);
+		expect(
+			answer
+				?.render(120)
+				.map((line) => line.trim())
+				.filter(Boolean),
+		).toEqual(["[Supervisor]", "Run the exact regression."]);
 		expect(renderedLines.join("\n")).not.toContain("supervisor-instruction");
 	});
 
@@ -1060,7 +1135,8 @@ describe("goal extension", () => {
 				customType: "supervisor",
 				content:
 					"<supervisor-instruction>\nContinue working toward this objective until it is achieved: continue this objective\n</supervisor-instruction>",
-				display: true,
+				display: false,
+				details: { displayId: expect.any(String) },
 			},
 			{ deliverAs: "followUp", triggerTurn: true },
 		);
@@ -1268,7 +1344,8 @@ describe("goal extension", () => {
 				customType: "supervisor",
 				content:
 					"<supervisor-instruction>\nContinue working toward this objective until it is achieved: continue from agent_end\n</supervisor-instruction>",
-				display: true,
+				display: false,
+				details: { displayId: expect.any(String) },
 			},
 			{ deliverAs: "followUp", triggerTurn: true },
 		);
@@ -1310,7 +1387,8 @@ describe("goal extension", () => {
 				{
 					customType: "supervisor",
 					content: "<supervisor-instruction>\ngoal continuation\n</supervisor-instruction>",
-					display: true,
+					display: false,
+					details: { displayId: expect.any(String) },
 				},
 				{ deliverAs: "followUp", triggerTurn: true },
 			);
@@ -1407,10 +1485,13 @@ describe("goal extension", () => {
 			expect(harness.callTool).toHaveBeenNthCalledWith(1, "list_agents", { parentId: "main" });
 			expect(harness.callTool.mock.calls[1]?.slice(0, 2)).toEqual(["wait_agent", {}]);
 			expect(harness.callTool.mock.calls[1]?.[2]).toBeInstanceOf(AbortSignal);
-			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-				message: "Waiting: child still running",
-				reviewAt: "2026-07-28T12:15:00.000Z",
-			});
+			expect(harness.appendEntry).toHaveBeenCalledWith(
+				"supervisor-status",
+				expect.objectContaining({
+					message: "Waiting: child still running",
+					reviewAt: "2026-07-28T12:15:00.000Z",
+				}),
+			);
 			expect(reviewGoal).toHaveBeenCalledTimes(1);
 
 			finishWait?.();
@@ -1421,7 +1502,8 @@ describe("goal extension", () => {
 			expect(harness.sendMessage.mock.calls.at(-1)?.[0]).toEqual({
 				customType: "supervisor",
 				content: "<supervisor-instruction>\nInspect child result.\n</supervisor-instruction>",
-				display: true,
+				display: false,
+				details: { displayId: expect.any(String) },
 			});
 		} finally {
 			await harness?.runSessionShutdown();
@@ -1496,10 +1578,13 @@ describe("goal extension", () => {
 			expect(harness.callTool).toHaveBeenNthCalledWith(1, "list_agents", { parentId: "main" });
 			expect(harness.callTool.mock.calls[1]?.slice(0, 2)).toEqual(["wait_agent", {}]);
 			expect(harness.callTool.mock.calls[1]?.[2]).toBeInstanceOf(AbortSignal);
-			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-				message: "Waiting: child still running",
-				reviewAt: "2026-07-28T12:15:00.000Z",
-			});
+			expect(harness.appendEntry).toHaveBeenCalledWith(
+				"supervisor-status",
+				expect.objectContaining({
+					message: "Waiting: child still running",
+					reviewAt: "2026-07-28T12:15:00.000Z",
+				}),
+			);
 
 			const renderer = harness.getSupervisorStatusRenderer();
 			if (!renderer) throw new Error("Supervisor status renderer was not registered");
@@ -1647,13 +1732,19 @@ describe("goal extension", () => {
 			await harness.runCommand("set recover scheduling");
 			await harness.runAgentEnd();
 
-			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-				message: "Goal wait failed: list_agents unavailable",
-			});
-			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-				message: "Waiting: agent state unavailable",
-				reviewAt: "2026-07-28T12:15:00.000Z",
-			});
+			expect(harness.appendEntry).toHaveBeenCalledWith(
+				"supervisor-status",
+				expect.objectContaining({
+					message: "Goal wait failed: list_agents unavailable",
+				}),
+			);
+			expect(harness.appendEntry).toHaveBeenCalledWith(
+				"supervisor-status",
+				expect.objectContaining({
+					message: "Waiting: agent state unavailable",
+					reviewAt: "2026-07-28T12:15:00.000Z",
+				}),
+			);
 			await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
 
 			expect(reviewGoal).toHaveBeenCalledTimes(2);
@@ -1684,13 +1775,19 @@ describe("goal extension", () => {
 			await harness.runCommand("set recover failed agent wait");
 			await harness.runAgentEnd();
 			await Promise.resolve();
-			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-				message: "Goal wait failed: wait_agent unavailable",
-			});
-			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-				message: "Waiting: child running",
-				reviewAt: "2026-07-28T12:15:00.000Z",
-			});
+			expect(harness.appendEntry).toHaveBeenCalledWith(
+				"supervisor-status",
+				expect.objectContaining({
+					message: "Goal wait failed: wait_agent unavailable",
+				}),
+			);
+			expect(harness.appendEntry).toHaveBeenCalledWith(
+				"supervisor-status",
+				expect.objectContaining({
+					message: "Waiting: child running",
+					reviewAt: "2026-07-28T12:15:00.000Z",
+				}),
+			);
 
 			await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
 
@@ -1748,10 +1845,13 @@ describe("goal extension", () => {
 			harness.sendMessage.mockClear();
 			await harness.runAgentEnd();
 			expect(reviewGoal).toHaveBeenCalledTimes(1);
-			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-				message: "Waiting: retry later",
-				reviewAt: "2026-07-28T12:15:00.000Z",
-			});
+			expect(harness.appendEntry).toHaveBeenCalledWith(
+				"supervisor-status",
+				expect.objectContaining({
+					message: "Waiting: retry later",
+					reviewAt: "2026-07-28T12:15:00.000Z",
+				}),
+			);
 
 			harness.appendEntry.mockClear();
 			harness.requestRender.mockClear();
@@ -1764,7 +1864,8 @@ describe("goal extension", () => {
 			expect(harness.sendMessage.mock.calls.at(-1)?.[0]).toEqual({
 				customType: "supervisor",
 				content: "<supervisor-instruction>\nRetry the check.\n</supervisor-instruction>",
-				display: true,
+				display: false,
+				details: { displayId: expect.any(String) },
 			});
 			const renderCountAtExpiry = harness.requestRender.mock.calls.length;
 			await vi.advanceTimersByTimeAsync(60_000);
@@ -1966,10 +2067,13 @@ describe("goal extension", () => {
 			const result = await harness.runGoalComplete("done");
 
 			expect(result?.content).toEqual([{ type: "text", text: "Goal remains active: child proof running" }]);
-			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-				message: "Waiting: child proof running",
-				reviewAt: "2026-07-28T12:15:00.000Z",
-			});
+			expect(harness.appendEntry).toHaveBeenCalledWith(
+				"supervisor-status",
+				expect.objectContaining({
+					message: "Waiting: child proof running",
+					reviewAt: "2026-07-28T12:15:00.000Z",
+				}),
+			);
 			expect(harness.callTool).toHaveBeenCalledWith("list_agents", { parentId: "main" });
 
 			await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
@@ -1996,9 +2100,12 @@ describe("goal extension", () => {
 
 		expect(readStoredGoal<{ pausedAt?: string }>(cwd).pausedAt).toBeUndefined();
 		expect(result?.content).toEqual([{ type: "text", text: "Goal remains active: waiting for external input" }]);
-		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-			message: "Completion report rejected: waiting for external input\n\nSubmitted report:\ndone",
-		});
+		expect(harness.appendEntry).toHaveBeenCalledWith(
+			"supervisor-status",
+			expect.objectContaining({
+				message: "Completion report rejected: waiting for external input\n\nSubmitted report:\ndone",
+			}),
+		);
 	});
 
 	it("discards a completion review canceled by user input", async () => {
@@ -2040,9 +2147,12 @@ describe("goal extension", () => {
 
 		expect(readStoredGoal<{ pausedAt?: string }>(cwd).pausedAt).toBeUndefined();
 		expect(result?.content).toEqual([{ type: "text", text: "Goal review failed: Supervisor connection closed" }]);
-		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-			message: "Completion report rejected: Supervisor connection closed\n\nSubmitted report:\ndone",
-		});
+		expect(harness.appendEntry).toHaveBeenCalledWith(
+			"supervisor-status",
+			expect.objectContaining({
+				message: "Completion report rejected: Supervisor connection closed\n\nSubmitted report:\ndone",
+			}),
+		);
 	});
 
 	it("durably reports a completion-review error", async () => {
@@ -2054,9 +2164,12 @@ describe("goal extension", () => {
 		const result = await harness.runGoalComplete("done");
 
 		expect(result?.content).toEqual([{ type: "text", text: "Goal review failed: service unavailable" }]);
-		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-			message: "Completion report rejected: service unavailable\n\nSubmitted report:\ndone",
-		});
+		expect(harness.appendEntry).toHaveBeenCalledWith(
+			"supervisor-status",
+			expect.objectContaining({
+				message: "Completion report rejected: service unavailable\n\nSubmitted report:\ndone",
+			}),
+		);
 	});
 
 	it("keeps the goal running and follows Supervisor instructions when completion is rejected", async () => {
@@ -2073,7 +2186,8 @@ describe("goal extension", () => {
 			{
 				customType: "supervisor",
 				content: "<supervisor-instruction>\nRun npm test.\n</supervisor-instruction>",
-				display: true,
+				display: false,
+				details: { displayId: expect.any(String) },
 			},
 			{ deliverAs: "followUp", triggerTurn: true },
 		);
@@ -2132,9 +2246,12 @@ describe("goal extension", () => {
 		const goal = readStoredGoal<{ objective: string; pausedAt?: string }>(cwd);
 		expect(goal.pausedAt).toBeUndefined();
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
-		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-			message: "Goal waiting: waiting for user input",
-		});
+		expect(harness.appendEntry).toHaveBeenCalledWith(
+			"supervisor-status",
+			expect.objectContaining({
+				message: "Goal waiting: waiting for user input",
+			}),
+		);
 	});
 
 	it("keeps a goal running without continuing automatically after Supervisor error", async () => {
@@ -2147,10 +2264,13 @@ describe("goal extension", () => {
 		await harness.runAgentEnd();
 
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
-		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-			message: "Goal review failed: service failed",
-			reviewAt: expect.any(String),
-		});
+		expect(harness.appendEntry).toHaveBeenCalledWith(
+			"supervisor-status",
+			expect.objectContaining({
+				message: "Goal review failed: service failed",
+				reviewAt: expect.any(String),
+			}),
+		);
 		expect(await harness.runBeforeAgentStart()).toBeDefined();
 	});
 
@@ -2506,9 +2626,12 @@ describe("goal extension", () => {
 			expect(harness.appendEntry).not.toHaveBeenCalled();
 			idle = true;
 			await vi.advanceTimersByTimeAsync(10);
-			expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-				message: "Goal continuation skipped: the model turn ended with an error.",
-			});
+			expect(harness.appendEntry).toHaveBeenCalledWith(
+				"supervisor-status",
+				expect.objectContaining({
+					message: "Goal continuation skipped: the model turn ended with an error.",
+				}),
+			);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -2521,12 +2644,18 @@ describe("goal extension", () => {
 		harness.appendEntry.mockClear();
 		await harness.runAgentEnd([createAssistantMessage("", "error")]);
 
-		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-			message: "Goal continuation deferred: pending input will run next.",
-		});
-		expect(harness.appendEntry).not.toHaveBeenCalledWith("supervisor-status", {
-			message: "Goal continuation skipped: the model turn ended with an error.",
-		});
+		expect(harness.appendEntry).toHaveBeenCalledWith(
+			"supervisor-status",
+			expect.objectContaining({
+				message: "Goal continuation deferred: pending input will run next.",
+			}),
+		);
+		expect(harness.appendEntry).not.toHaveBeenCalledWith(
+			"supervisor-status",
+			expect.objectContaining({
+				message: "Goal continuation skipped: the model turn ended with an error.",
+			}),
+		);
 	});
 
 	it("cancels deferred error status when input becomes pending", async () => {
@@ -2560,9 +2689,12 @@ describe("goal extension", () => {
 		expect(goal.pausedAt).toBeUndefined();
 		expect(harness.setStatus).not.toHaveBeenCalledWith("goal", "goal paused: continue after steering abort");
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
-		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-			message: "Goal continuation deferred: pending input will run next.",
-		});
+		expect(harness.appendEntry).toHaveBeenCalledWith(
+			"supervisor-status",
+			expect.objectContaining({
+				message: "Goal continuation deferred: pending input will run next.",
+			}),
+		);
 	});
 
 	it("keeps the active goal running when the agent turn is aborted without pending input", async () => {
@@ -2583,9 +2715,12 @@ describe("goal extension", () => {
 			"Goal continuation stopped because the last assistant response was empty",
 			"warning",
 		);
-		expect(harness.appendEntry).toHaveBeenCalledWith("supervisor-status", {
-			message: "Goal continuation skipped: the model turn was aborted.",
-		});
+		expect(harness.appendEntry).toHaveBeenCalledWith(
+			"supervisor-status",
+			expect.objectContaining({
+				message: "Goal continuation skipped: the model turn was aborted.",
+			}),
+		);
 	});
 
 	it("persists new goals without budget fields", async () => {
@@ -2647,7 +2782,8 @@ describe("goal extension", () => {
 				customType: "supervisor",
 				content:
 					"<supervisor-instruction>\nContinue working toward this objective until it is achieved: legacy budget objective\n</supervisor-instruction>",
-				display: true,
+				display: false,
+				details: { displayId: expect.any(String) },
 			},
 			{ deliverAs: "followUp", triggerTurn: true },
 		);

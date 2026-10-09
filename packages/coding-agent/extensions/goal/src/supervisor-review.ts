@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getControlDbPath } from "../../../src/core/session-control-db.ts";
 import {
@@ -22,21 +23,34 @@ function supervisorReviewErrorReason(error: unknown): string {
 	return reason || "Unknown Supervisor review error";
 }
 
+function reviewResultMessage(result: GoalSupervisorResponse): string {
+	switch (result.kind) {
+		case "continue": return result.instructions;
+		case "complete": return `Goal complete: ${result.reason}`;
+		case "set": return `Goal set: ${result.objective}`;
+		case "pause": return `Goal waiting: ${result.reason}`;
+		case "wait": return `Waiting: ${result.reason}`;
+		case "error": return result.reason === SUPERVISOR_REQUEST_CANCELLED_REASON
+			? "Supervisor review cancelled."
+			: `Goal review failed: ${result.reason}`;
+	}
+}
+
 export function withSupervisorReviewStatus(
 	appendStatus: AppendSupervisorStatus,
 	reviewGoal: GoalSupervisorReview,
 ): GoalSupervisorReview {
 	return async (input) => {
-		appendStatus(input.ctx, WAITING_FOR_SUPERVISOR_STATUS);
+		const displayId = randomUUID();
+		appendStatus(input.ctx, WAITING_FOR_SUPERVISOR_STATUS, undefined, displayId);
+		let result: GoalSupervisorResponse;
 		try {
-			const result = await reviewGoal(input);
-			if (result.kind === "error" && result.reason === SUPERVISOR_REQUEST_CANCELLED_REASON) {
-				appendStatus(input.ctx, "Supervisor review cancelled.");
-			}
-			return result;
+			result = await reviewGoal(input);
 		} catch (error) {
-			return { kind: "error", reason: supervisorReviewErrorReason(error) };
+			result = { kind: "error", reason: supervisorReviewErrorReason(error) };
 		}
+		appendStatus(input.ctx, reviewResultMessage(result), undefined, displayId);
+		return { ...result, displayId };
 	};
 }
 

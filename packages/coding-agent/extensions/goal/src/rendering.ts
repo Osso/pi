@@ -22,31 +22,36 @@ interface SupervisorStatusStyles {
 }
 
 class SupervisorStatusComponent extends Box {
-	private readonly countdownText: Text | undefined;
-	private readonly deadlineMs: number | undefined;
-	private readonly styleCountdown: TextStyle;
+	private countdownText: Text | undefined;
+	private deadlineMs: number | undefined;
+	private readonly styles: SupervisorStatusStyles;
 
 	constructor(message: string, reviewAt: string | undefined, styles: SupervisorStatusStyles) {
 		super(1, 1, styles.background);
-		this.styleCountdown = styles.countdown;
+		this.styles = styles;
+		this.update(message, reviewAt);
+	}
+
+	update(message: string, reviewAt: string | undefined): void {
+		this.clear();
 		this.deadlineMs = reviewAt === undefined ? undefined : Date.parse(reviewAt);
-		this.addChild(new Text(styles.label("[Supervisor]"), 0, 0));
+		this.addChild(new Text(this.styles.label("[Supervisor]"), 0, 0));
 		this.addChild(new Spacer(1));
-		this.addChild(new Text(styles.message(message), 0, 0));
+		this.addChild(new Text(this.styles.message(message), 0, 0));
 		this.countdownText = Number.isFinite(this.deadlineMs) ? new Text("", 0, 0) : undefined;
 		if (this.countdownText) this.addChild(this.countdownText);
 	}
 
 	override render(width: number): string[] {
 		if (this.countdownText && this.deadlineMs !== undefined) {
-			this.countdownText.setText(this.styleCountdown(formatReviewCountdown(this.deadlineMs, Date.now())));
+			this.countdownText.setText(this.styles.countdown(formatReviewCountdown(this.deadlineMs, Date.now())));
 		}
 		return super.render(width);
 	}
 }
 
 export interface SupervisorStatusController {
-	append(ctx: ExtensionContext, message: string, reviewAt?: string): void;
+	append(ctx: ExtensionContext, message: string, reviewAt?: string, displayId?: string): void;
 	clearAll(): void;
 	clearSession(sessionId: string): void;
 	restore(ctx: ExtensionContext): void;
@@ -58,16 +63,13 @@ export function supervisorInstructionContent(instructions: string): string {
 	return `${SUPERVISOR_INSTRUCTION_OPEN}\n${instructions}\n${SUPERVISOR_INSTRUCTION_CLOSE}`;
 }
 
-function supervisorMessage(content: string): { customType: string; content: string; display: true } {
-	return {
+export function sendSupervisorInstructions(pi: ExtensionAPI, instructions: string, displayId?: string): void {
+	pi.sendMessage({
 		customType: "supervisor",
-		content: supervisorInstructionContent(content),
-		display: true,
-	};
-}
-
-export function sendSupervisorInstructions(pi: ExtensionAPI, instructions: string): void {
-	pi.sendMessage(supervisorMessage(instructions), { deliverAs: "followUp", triggerTurn: true });
+		content: supervisorInstructionContent(instructions),
+		display: displayId === undefined,
+		...(displayId === undefined ? {} : { details: { displayId } }),
+	}, { deliverAs: "followUp", triggerTurn: true });
 }
 
 function hasSupervisorInstructionWrapper(content: string): boolean {
@@ -82,14 +84,21 @@ function supervisorInstructionBody(content: string): string {
 	return body;
 }
 
-function statusDetails(data: unknown): { message: string; reviewAt: string | undefined } {
+interface SupervisorStatusDetails {
+	message: string;
+	reviewAt: string | undefined;
+	displayId?: string;
+}
+
+function statusDetails(data: unknown): SupervisorStatusDetails {
 	if (typeof data !== "object" || data === null) {
 		return { message: "Supervisor status unavailable", reviewAt: undefined };
 	}
-	const details = data as { message?: unknown; reviewAt?: unknown };
+	const details = data as { message?: unknown; reviewAt?: unknown; displayId?: unknown };
 	return {
 		message: typeof details.message === "string" ? details.message : "Supervisor status unavailable",
 		reviewAt: typeof details.reviewAt === "string" ? details.reviewAt : undefined,
+		displayId: typeof details.displayId === "string" ? details.displayId : undefined,
 	};
 }
 
@@ -120,11 +129,17 @@ export function createSupervisorStatusController(
 	refresher: WaitCountdownRefresher,
 ): SupervisorStatusController {
 	return {
-		append(ctx, message, reviewAt) {
+		append(ctx, message, reviewAt, displayId) {
 			const sessionId = ctx.sessionManager.getSessionId();
 			refresher.clearSession(sessionId);
-			pi.appendEntry(SUPERVISOR_STATUS_TYPE, reviewAt ? { message, reviewAt } : { message });
+			pi.appendEntry(SUPERVISOR_STATUS_TYPE, {
+				message,
+				...(reviewAt ? { reviewAt } : {}),
+				...(displayId ? { displayId } : {}),
+			});
 			if (reviewAt) refresher.start(ctx, reviewAt);
+			// Grouped updates may change height; countdown ticks still use entry-only redraws.
+			if (displayId) ctx.ui.requestRender();
 		},
 		clearAll: () => refresher.clearAll(),
 		clearSession: (sessionId) => refresher.clearSession(sessionId),
@@ -141,23 +156,55 @@ function bindSupervisorStatusCountdown(
 	refresher: WaitCountdownRefresher,
 	rendererOptions: Parameters<EntryRenderer>[1],
 	reviewAt: string | undefined,
-): void {
-	if (!reviewAt) return;
-	const { registerCleanup, requestRender, sessionId } = rendererOptions;
-	if (!sessionId || !requestRender || !registerCleanup) return;
-	registerCleanup(refresher.bind(sessionId, reviewAt, requestRender));
+): (() => void) | undefined {
+	const { requestRender, sessionId } = rendererOptions;
+	if (!reviewAt || !sessionId || !requestRender) return;
+	return refresher.bind(sessionId, reviewAt, requestRender);
+}
+
+interface SupervisorDisplay {
+	entryId: string;
+	details: SupervisorStatusDetails;
+	component?: SupervisorStatusComponent;
+	options?: Parameters<EntryRenderer>[1];
+	cleanupCountdown?: () => void;
 }
 
 export function createSupervisorStatusEntryRenderer(refresher: WaitCountdownRefresher): EntryRenderer {
+	const displays = new Map<string, SupervisorDisplay>();
 	return (entry, rendererOptions, theme) => {
-		const { message, reviewAt } = statusDetails(entry.data);
-		bindSupervisorStatusCountdown(refresher, rendererOptions, reviewAt);
-		return new SupervisorStatusComponent(message, reviewAt, {
+		const details = statusDetails(entry.data);
+		const key = details.displayId ? `${rendererOptions.sessionId ?? ""}:${details.displayId}` : entry.id;
+		let display = displays.get(key);
+		if (!display) {
+			display = { entryId: entry.id, details };
+			displays.set(key, display);
+		} else if (display.entryId !== entry.id) {
+			display.details = details;
+			display.component?.update(details.message, details.reviewAt);
+			display.cleanupCountdown?.();
+			display.cleanupCountdown = display.options
+				? bindSupervisorStatusCountdown(refresher, display.options, details.reviewAt) : undefined;
+			return undefined;
+		}
+		const component = new SupervisorStatusComponent(display.details.message, display.details.reviewAt, {
 			background: (text) => theme.bg("customMessageBg", text),
 			countdown: (text) => theme.fg("dim", text),
 			label: (text) => theme.fg("customMessageLabel", theme.bold(text)),
 			message: (text) => theme.fg("customMessageText", text),
 		});
+		display.component = component;
+		display.options = rendererOptions;
+		display.cleanupCountdown = bindSupervisorStatusCountdown(refresher, rendererOptions, display.details.reviewAt);
+		const boundDisplay = display;
+		rendererOptions.registerCleanup?.(() => {
+			if (boundDisplay.component !== component) return;
+			boundDisplay.cleanupCountdown?.();
+			boundDisplay.component = undefined;
+			boundDisplay.options = undefined;
+			boundDisplay.cleanupCountdown = undefined;
+		});
+		return component;
 	};
 }
 

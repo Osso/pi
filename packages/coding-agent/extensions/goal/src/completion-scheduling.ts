@@ -13,8 +13,8 @@ interface CompletionSchedulingOptions {
 	consumeReviewEvidence: (ctx: ExtensionContext, reviewedGoal: Goal, evidenceCount: number) => void;
 	isSameGoal: (ctx: ExtensionContext, waiting: CompletionWait) => boolean;
 	onComplete: (waiting: CompletionWait, ctx: ExtensionContext) => void;
-	onContinue: (instructions: string) => void;
-	onStatus: (ctx: ExtensionContext, message: string, reviewAt?: string) => void;
+	onContinue: (instructions: string, displayId?: string) => void;
+	onStatus: (ctx: ExtensionContext, message: string, reviewAt?: string, displayId?: string) => void;
 	onClearStatus: (sessionId: string) => void;
 	onError: (error: unknown, ctx: ExtensionContext) => void;
 }
@@ -23,7 +23,7 @@ export interface CompletionWaitScheduler {
 	clearAll(): void;
 	clearSession(sessionId: string): void;
 	createReviewGuard(ctx: ExtensionContext): () => boolean;
-	wait(goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string): Promise<void>;
+	wait(goal: Goal, ctx: ExtensionContext, completionReport: string, statusReason: string, displayId?: string): Promise<void>;
 }
 
 type CompletionScheduler = ReturnType<typeof createGoalScheduler<CompletionWait, ReviewedGoalResponse>>;
@@ -42,25 +42,25 @@ async function applyCompletionDecision(
 			options.onComplete(waiting, ctx);
 			break;
 		case "continue":
-			options.onContinue(decision.instructions);
+			options.onContinue(decision.instructions, decision.displayId);
 			break;
 		case "wait": {
 			const message = `Waiting: ${decision.reason}`;
 			await scheduler.waitForAgentsOrScheduleReview(ctx, waiting, [], {
-				onAgentWait: (reviewAt) => options.onStatus(ctx, message, reviewAt),
+				onAgentWait: (reviewAt) => options.onStatus(ctx, message, reviewAt, decision.displayId),
 				onAgentWake: () => options.onClearStatus(ctx.sessionManager.getSessionId()),
-				onReviewScheduled: (reviewAt) => options.onStatus(ctx, message, reviewAt),
+				onReviewScheduled: (reviewAt) => options.onStatus(ctx, message, reviewAt, decision.displayId),
 			});
 			break;
 		}
 		case "pause":
-			options.onStatus(ctx, `Goal waiting: ${decision.reason}`);
+			options.onStatus(ctx, `Goal waiting: ${decision.reason}`, undefined, decision.displayId);
 			break;
 		case "error":
-			options.onStatus(ctx, `Goal review failed: ${decision.reason}`);
+			options.onStatus(ctx, `Goal review failed: ${decision.reason}`, undefined, decision.displayId);
 			return;
 		case "set":
-			options.onStatus(ctx, `Goal review failed: unexpected set decision: ${decision.reason}`);
+			options.onStatus(ctx, `Goal review failed: unexpected set decision: ${decision.reason}`, undefined, decision.displayId);
 			return;
 	}
 	options.consumeReviewEvidence(ctx, waiting.goal, reviewed.evidenceCount);
@@ -94,12 +94,12 @@ export function createCompletionWaitScheduler(options: CompletionSchedulingOptio
 		clearAll: () => scheduler.clearAll(),
 		clearSession: (sessionId) => scheduler.clearSession(sessionId),
 		createReviewGuard: (ctx) => createReviewGuard(scheduler, ctx),
-		wait: async (goal, ctx, completionReport, statusReason) => {
+		wait: async (goal, ctx, completionReport, statusReason, displayId) => {
 			const message = `Waiting: ${statusReason}`;
 			return scheduler.waitForAgentsOrScheduleReview(ctx, { goal, completionReport }, [], {
-				onAgentWait: (reviewAt) => options.onStatus(ctx, message, reviewAt),
+				onAgentWait: (reviewAt) => options.onStatus(ctx, message, reviewAt, displayId),
 				onAgentWake: () => options.onClearStatus(ctx.sessionManager.getSessionId()),
-				onReviewScheduled: (reviewAt) => options.onStatus(ctx, message, reviewAt),
+				onReviewScheduled: (reviewAt) => options.onStatus(ctx, message, reviewAt, displayId),
 			});
 		},
 	};

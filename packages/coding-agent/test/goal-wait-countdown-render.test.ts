@@ -1,7 +1,12 @@
-import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Loader, type Terminal, TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { createSupervisorStatusEntryRenderer } from "../extensions/goal/src/rendering.ts";
+import {
+	createSupervisorStatusController,
+	createSupervisorStatusEntryRenderer,
+} from "../extensions/goal/src/rendering.ts";
+import type { CustomEntry } from "../src/core/session-manager.ts";
+import { stripAnsi } from "../src/utils/ansi.ts";
 import { createWaitCountdownRefresher } from "../extensions/goal/src/wait-countdown.ts";
 import { CustomEntryComponent } from "../src/modes/interactive/components/custom-entry.ts";
 import { RenderRegionContainer } from "../src/modes/interactive/components/render-region-container.ts";
@@ -57,6 +62,82 @@ describe("goal Supervisor countdown rendering", () => {
 
 	afterEach(() => {
 		vi.useRealTimers();
+	});
+
+	it("relayouts a live waiting block when its persisted answer grows to multiple lines", async () => {
+		vi.useFakeTimers();
+		const terminal = new FakeTerminal();
+		const tui = new TUI(terminal);
+		const chat = new RenderRegionContainer(tui);
+		const refresher = createWaitCountdownRefresher();
+		const renderer = createSupervisorStatusEntryRenderer(refresher);
+		const entries: CustomEntry<unknown>[] = [];
+		const pi = {
+			appendEntry(customType: string, data: unknown) {
+				const entry: CustomEntry<unknown> = {
+					type: "custom",
+					id: `entry-${entries.length}`,
+					parentId: null,
+					timestamp: new Date().toISOString(),
+					customType,
+					data,
+				};
+				entries.push(entry);
+				const child = new CustomEntryComponent(entry, renderer, {
+					requestRender: (component) => chat.requestChildRender(component),
+					sessionId: "session-1",
+				});
+				if (child.hasContent()) {
+					chat.addChild(child);
+					chat.trackScopedChild(child);
+					tui.requestRender();
+				} else child.dispose();
+			},
+		} as unknown as ExtensionAPI;
+		const controller = createSupervisorStatusController(pi, refresher);
+		const ctx = {
+			sessionManager: { getSessionId: () => "session-1", getEntries: () => entries },
+			ui: { requestRender: () => tui.requestRender() },
+		} as unknown as ExtensionContext;
+		const compositor = createInteractiveRootCompositor({
+			getHeight: () => terminal.rows,
+			header: new Container(),
+			loadedResources: new Container(),
+			chat,
+			onChatLayout: (layout) => chat.place(layout),
+			transcriptTail: new Container(),
+			pendingMessages: new Container(),
+			onTranscriptTailLayout: () => {},
+			status: new Container(),
+			widgetAbove: new Container(),
+			editor: new RenderCountingComponent(["editor"]),
+			widgetBelow: new Container(),
+			footer: new RenderCountingComponent(["footer"]),
+			onStatusLayout: () => {},
+			onEditorLayout: () => {},
+		});
+		tui.addChild(compositor);
+		tui.start();
+		try {
+			controller.append(ctx, "Waiting for Supervisor…", undefined, "review-1");
+			await flushRender();
+			const block = chat.children[0];
+			expect(terminal.writes.join("")).toContain("Waiting for Supervisor…");
+			terminal.writes = [];
+			controller.append(ctx, "Run regression.\nInspect output.\nPreserve full scope.", undefined, "review-1");
+			await flushRender();
+			expect(chat.children).toEqual([block]);
+			const output = stripAnsi(terminal.writes.join(""));
+			expect(output).toContain("Run regression.");
+			expect(output).toContain("Inspect output.");
+			expect(output).toContain("Preserve full scope.");
+			expect(output).toContain("editor");
+			expect(stripAnsi(chat.render(60).join("\n"))).not.toContain("Waiting for Supervisor…");
+		} finally {
+			controller.clearAll();
+			chat.clear();
+			tui.stop();
+		}
 	});
 
 	it("advances beside Thinking elapsed status without rendering static chat again", async () => {

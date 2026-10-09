@@ -1,4 +1,6 @@
 import { Text, type TUI } from "@earendil-works/pi-tui";
+import { createSupervisorStatusEntryRenderer } from "../extensions/goal/src/rendering.ts";
+import { createWaitCountdownRefresher } from "../extensions/goal/src/wait-countdown.ts";
 import { beforeAll, describe, expect, test, vi } from "vitest";
 import type { AgentSessionEvent } from "../src/core/agent-session.ts";
 import type { EntryRenderer } from "../src/core/extensions/types.ts";
@@ -124,6 +126,61 @@ describe("InteractiveMode custom entry rendering", () => {
 
 		expect(renderChat(fakeThis.chatContainer)).toContain(SUPERVISOR_MESSAGE);
 		expect(fakeThis.ui.requestRender).toHaveBeenCalledTimes(1);
+	});
+
+	test("replaces waiting with a multiline answer in the same live Supervisor block", async () => {
+		const renderer = createSupervisorStatusEntryRenderer(createWaitCountdownRefresher());
+		const fakeThis = createFakeInteractiveModeThis(renderer);
+		const waiting = createSupervisorStatusEntry();
+		if (waiting.type !== "custom") throw new Error("expected custom entry");
+		waiting.data = { displayId: "review-1", message: "Waiting for Supervisor…" };
+		const persistedWaiting = JSON.stringify(waiting);
+		await handleEvent.call(fakeThis, { type: "entry_appended", entry: waiting });
+		const originalBlock = fakeThis.chatContainer.children[0];
+		expect(renderChat(fakeThis.chatContainer)).toContain("Waiting for Supervisor…");
+
+		await handleEvent.call(fakeThis, {
+			type: "entry_appended",
+			entry: {
+				...waiting,
+				id: "answer-1",
+				data: { displayId: "review-1", message: "Run regression.\nThen inspect output.\nPreserve full scope." },
+			},
+		});
+
+		const rendered = renderChat(fakeThis.chatContainer);
+		expect(fakeThis.chatContainer.children).toEqual([originalBlock]);
+		expect(rendered.match(/\[Supervisor\]/g)).toHaveLength(1);
+		expect(rendered).not.toContain("Waiting for Supervisor…");
+		expect(rendered).toContain("Run regression.");
+		expect(rendered).toContain("Then inspect output.");
+		expect(rendered).toContain("Preserve full scope.");
+		expect(JSON.stringify(waiting)).toBe(persistedWaiting);
+		fakeThis.chatContainer.invalidate();
+		expect(renderChat(fakeThis.chatContainer)).toContain("Preserve full scope.");
+	});
+
+	test("reload groups persisted review entries without merging separate reviews or unrelated statuses", () => {
+		const renderer = createSupervisorStatusEntryRenderer(createWaitCountdownRefresher());
+		const fakeThis = createFakeInteractiveModeThis(renderer);
+		const waiting = createSupervisorStatusEntry();
+		if (waiting.type !== "custom") throw new Error("expected custom entry");
+		const entries: SessionEntry[] = [
+			{ ...waiting, id: "waiting-1", data: { displayId: "review-1", message: "Waiting for Supervisor…" } },
+			{ ...waiting, id: "answer-1", data: { displayId: "review-1", message: "Run regression.\nInspect output." } },
+			{ ...waiting, id: "unrelated", data: { message: "Goal wait failed: discovery unavailable" } },
+			{ ...waiting, id: "waiting-2", data: { displayId: "review-2", message: "Waiting for Supervisor…" } },
+			{ ...waiting, id: "answer-2", data: { displayId: "review-2", message: "Goal complete: verified" } },
+		];
+		const persisted = JSON.stringify(entries);
+		renderSessionEntries.call(fakeThis, entries);
+		const rendered = renderChat(fakeThis.chatContainer);
+		expect(rendered.match(/\[Supervisor\]/g)).toHaveLength(3);
+		expect(rendered).not.toContain("Waiting for Supervisor…");
+		expect(rendered).toContain("Inspect output.");
+		expect(rendered).toContain("Goal wait failed: discovery unavailable");
+		expect(rendered).toContain("Goal complete: verified");
+		expect(JSON.stringify(entries)).toBe(persisted);
 	});
 
 	test("cleans up state registered by a rendered custom entry", async () => {

@@ -20,7 +20,7 @@ export interface Goal {
 export type GoalSupervisorResponse = Extract<
 	SupervisorResponse,
 	{ kind: "complete" | "continue" | "pause" | "wait" | "set" | "error" }
->;
+> & { displayId?: string };
 
 export interface GoalReviewInput {
 	kind: "goal_completion_review" | "goal_idle_review" | "goal_set_review";
