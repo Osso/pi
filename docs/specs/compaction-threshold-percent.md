@@ -4,11 +4,11 @@
 
 ## What it must do
 
-- [ ] Accept an optional finite number greater than 0 and at most 100, including fractional values; reject invalid configured values explicitly.
-- [ ] With a percentage configured, trigger when `contextTokens >= contextWindow * thresholdPercent / 100`, including equality at 100%, before considering model `autoCompactionThreshold` or `reserveTokens`.
-- [ ] With the percentage omitted, preserve existing model-threshold and reserve-based trigger defaults.
-- [ ] Apply global configuration across sessions and models, subject to normal project and explicit settings overrides.
-- [ ] Preserve `reserveTokens` summarization output budgets and `keepRecentTokens` behavior.
+- [x] Accept an optional finite number greater than 0 and at most 100, including fractional values; reject invalid configured values explicitly.
+- [x] With a percentage configured, trigger when `contextTokens >= contextWindow * thresholdPercent / 100`, including equality at 100%, before considering model `autoCompactionThreshold` or `reserveTokens`.
+- [x] With the percentage omitted, preserve existing model-threshold and reserve-based trigger defaults.
+- [x] Apply global configuration across sessions and models, subject to normal project and explicit settings overrides.
+- [x] Preserve `reserveTokens` summarization output budgets and `keepRecentTokens` behavior.
 
 ## How it works
 
@@ -29,7 +29,7 @@
 
 ## Known gaps (current cycle)
 
-- [ ] Implementation and test proof remain with the code owner; this documentation change does not certify passing tests.
+None in the percentage-threshold contract.
 
 ## Out of scope
 
