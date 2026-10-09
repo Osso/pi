@@ -1366,11 +1366,25 @@ export class AgentSession {
 		};
 	}
 
-	private async _installReadyBackgroundCompactionForNextTurn(
-		turn: PrepareNextTurnContext,
-	): Promise<PrepareNextTurnContext> {
-		if (!this._hasReadyBackgroundCompaction()) return turn;
-		await this._runAutoCompaction("threshold", false);
+	private async _compactForNextTurn(turn: PrepareNextTurnContext): Promise<PrepareNextTurnContext> {
+		const settings = this.settingsManager.getCompactionSettings();
+		const usage = this.getContextUsage();
+		const thresholdReached =
+			settings.thresholdPercent !== undefined &&
+			usage &&
+			shouldCompact(
+				usage.tokens,
+				usage.contextWindow,
+				{ ...settings, enabled: true },
+				this.model?.autoCompactionThreshold,
+			);
+		if (thresholdReached) {
+			await this._checkCompaction(turn.message, false);
+		} else if (this._hasReadyBackgroundCompaction()) {
+			await this._runAutoCompaction("threshold", false);
+		} else {
+			return turn;
+		}
 		return {
 			...turn,
 			context: { ...turn.context, messages: this.agent.state.messages.slice() },
@@ -1384,7 +1398,7 @@ export class AgentSession {
 				? async (_turn: PrepareNextTurnContext, signal?: AbortSignal) => await this.agent.prepareNextTurn?.(signal)
 				: undefined);
 		this.agent.prepareNextTurnWithContext = async (turn, signal) => {
-			const currentTurn = await this._installReadyBackgroundCompactionForNextTurn(turn);
+			const currentTurn = await this._compactForNextTurn(turn);
 			const previousSnapshot = await previousPrepareNextTurnWithContext?.(currentTurn, signal);
 			const previousContext = previousSnapshot?.context ?? currentTurn.context;
 			if (turn.toolResults.length > 0) {
@@ -4641,7 +4655,7 @@ export class AgentSession {
 
 	/**
 	 * Check if compaction is needed and run it.
-	 * Called after agent_end and before prompt submission.
+	 * Called after agent_end, before prompt submission, and between provider requests.
 	 *
 	 * Two cases:
 	 * 1. Overflow: LLM returned context overflow error, remove error message from agent state, compact, auto-retry
@@ -4649,8 +4663,8 @@ export class AgentSession {
 	 *    "length"-truncated (unfinished work); otherwise NO auto-retry (user continues manually)
 	 *
 	 * @param assistantMessage The assistant message to check
-	 * @param postRunCheck True when called after agent_end; false for the pre-prompt check.
-	 *   Pre-prompt checks include aborted messages and never resume a truncated turn. Default: true
+	 * @param postRunCheck True when called after agent_end; false before a prompt or next provider request.
+	 *   Checks inside an active run never start another continuation. Default: true
 	 */
 	private async _checkCompaction(assistantMessage: AssistantMessage, postRunCheck = true): Promise<boolean> {
 		const settings = this.settingsManager.getCompactionSettings();
@@ -4734,7 +4748,12 @@ export class AgentSession {
 			}
 			contextTokens = estimate.tokens;
 		} else {
-			contextTokens = directContextTokens;
+			// Include completed tool output without replacing the checked response's usage.
+			const assistantIndex =
+				settings.thresholdPercent === undefined ? -1 : this.agent.state.messages.indexOf(assistantMessage);
+			const trailingTokens =
+				assistantIndex < 0 ? 0 : estimateMessagesTokens(this.agent.state.messages.slice(assistantIndex + 1));
+			contextTokens = directContextTokens + trailingTokens;
 		}
 		if (shouldCompact(contextTokens, contextWindow, { ...settings, enabled: true }, model?.autoCompactionThreshold)) {
 			// A "length"-stopped turn was truncated mid-work: compact and resume it once.
