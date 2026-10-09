@@ -18,6 +18,7 @@
 ## Implementation inventory
 
 - `packages/coding-agent/src/core/settings-manager.ts` — settings loading and resolution.
+- `packages/coding-agent/src/core/compaction-threshold.ts` — shared percentage validation.
 - `packages/coding-agent/src/core/compaction/compaction.ts` — compaction settings and threshold evaluation.
 - `packages/coding-agent/src/core/agent-session.ts` — session automatic-compaction integration.
 
