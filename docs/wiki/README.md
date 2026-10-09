@@ -85,6 +85,7 @@ For installation, CLI usage, and extension APIs, start with the [coding-agent ma
 | Paired-provider quota handling | [Codex quota fallback](systems/codex-quota-fallback.md) |
 | Native replacement history, opt-in extension | [OpenAI remote compaction](systems/openai-remote-compaction.md) |
 | Length-truncated turn continuation | [Compaction length retry](systems/compaction-length-retry.md) |
+| Idle prompt-cache scheduling | [Idle compaction](systems/idle-compaction.md) |
 | Cache-only speculative preparation | [Background compaction cache](systems/speculative-background-compaction-cache.md) |
 
 ## Recorded experiments

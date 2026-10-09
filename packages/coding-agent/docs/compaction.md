@@ -17,7 +17,7 @@ Pi has two summarization mechanisms:
 
 | Mechanism | Trigger | Purpose |
 |-----------|---------|---------|
-| Compaction | Context exceeds threshold, or `/compact` | Summarize old messages to free up context |
+| Compaction | Context exceeds threshold, eligible session idles, or `/compact` | Summarize old messages to free up context |
 | Branch summarization | `/tree` navigation | Preserve context when switching branches |
 
 Both use the same structured summary format and track file operations cumulatively.
@@ -43,6 +43,16 @@ Set `"compaction": { "thresholdPercent": 50 }` in `~/.pi/agent/settings.json` to
 You can also trigger manually with `/compact [instructions]`, where optional instructions focus the summary.
 
 Overflow recovery treats Envoy HTTP 507 errors containing `exceeded request buffer limit while retrying upstream` as oversized-request overflow. Pi compacts the context and retries the interrupted request once through the bounded overflow path instead of ordinary transient-error retry; a repeated 507 is reported without retrying the unchanged request again.
+
+### Idle compaction
+
+With `compaction.idle` enabled (default `true`), Pi compacts an idle session once when the latest assistant request on the current model has at least 200,000 context tokens and has not been followed by compaction. The deadline is request-start timestamp + 90% of the assigned prompt-cache TTL: 54 minutes for `claude-bridge` (60-minute TTL), or 27 minutes for `openai-codex-responses` (assumed 30-minute TTL).
+
+The Claude bridge TTL comes from the Claude Agent SDK's automatic subscription default within usage limits. The Codex TTL is a user-approved assumption based on OpenAI's prompt-caching guide, **not verified ChatGPT Codex backend retention**. Other APIs, including direct Anthropic, are intentionally excluded. See [TTL evidence and assumptions](../../../docs/wiki/systems/idle-compaction.md#ttl-evidence-and-assumptions).
+
+Scheduling re-arms after session startup/resume and each run, using persisted request timestamps across restart. Eligibility is rechecked under the turn-start lock; idle compaction never interrupts streaming, tools, or another compaction. It uses normal compaction with reason `"idle"`, without retrying a turn. Interactive mode displays “Compacting idle context before its prompt cache expires”.
+
+Set `"compaction": { "idle": false }` to disable this trigger alone. `compaction.enabled: false` also disables idle compaction. Scheduling before assumed expiry does not guarantee cache retention or completion before eviction.
 
 ### Disabling built-in compaction
 
@@ -339,7 +349,7 @@ pi.on("session_before_compact", async (event, ctx) => {
   // preparation.settings - compaction settings
 
   // branchEntries - all entries on current branch (for custom state)
-  // reason - "manual" (/compact), "threshold", or "overflow"
+  // reason - "manual" (/compact), "threshold", "overflow", or "idle"
   // willRetry - whether the interrupted turn resumes after compaction
   //             (overflow recovery, or a "length"-truncated turn at the threshold)
   // signal - AbortSignal (pass to LLM calls)
@@ -443,6 +453,7 @@ Configure compaction in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settin
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `enabled` | `true` | Enable auto-compaction |
+| `idle` | `true` | Compact eligible idle sessions before assumed prompt-cache expiry; also requires `enabled` |
 | `thresholdPercent` | Unset | Auto-compaction percentage: finite, greater than 0 and at most 100; takes precedence over model/reserve thresholds |
 | `reserveTokens` | `16384` | Summarization output token budget; default trigger reserve when neither percentage nor model threshold applies |
 | `keepRecentTokens` | `20000` | Recent tokens to keep (not summarized) |
