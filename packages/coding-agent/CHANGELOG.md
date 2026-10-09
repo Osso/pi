@@ -180,6 +180,7 @@
 
 ### Fixed
 
+- Fixed session autoname failing on claude-bridge with `prompt-capture: no capture for this ... system prompt`: the title request is now marked as an uncached one-off call (`cacheRetention: "none"`), which claude-bridge routes outside the session like Pi's summarizer calls.
 - Fixed viewed sub-agents showing `effort off` while running at another effort: spawned children now record their starting effort (the profile's level, else `medium`) and publish their effective model and clamped effort to the agent record at run start and on every model or effort change.
 - Fixed failed interactive startup model continuation leaving the normal input loop unavailable; the error is reported and built-in local commands, extension commands, and plain prompts remain usable in the same session.
 - Fixed partially streamed assistant responses disappearing when incoming steering interrupts a model request, including around Supervisor pending-input notices; the interrupted reply is retained instead of replaced by an empty message.

@@ -267,6 +267,30 @@ describe("session autoname extension", () => {
 		);
 	});
 
+	it("sends the title request as an uncached one-off call", async () => {
+		const cacheRetention: { main?: string; title?: string } = {};
+		const harness = await createSessionAutonameHarness({ persistedSession: true });
+		harnesses.push(harness);
+		routeMainAndTitleResponses(harness, [
+			(_context, options) => {
+				cacheRetention.main = options?.cacheRetention ?? "default";
+				return completedAssistantMessage("Main reply.");
+			},
+			(_context, options) => {
+				cacheRetention.title = options?.cacheRetention ?? "default";
+				return fauxAssistantMessage("One-off Title");
+			},
+		]);
+
+		await harness.session.prompt("Name this session please");
+
+		expect(await waitUntil(() => harness.sessionManager.getSessionName() !== undefined)).toBe(true);
+		expect(harness.sessionManager.getSessionName()).toBe("One-off Title");
+		expect(cacheRetention.title).toBe("none");
+		expect(cacheRetention.main).toBeDefined();
+		expect(cacheRetention.main).not.toBe("none");
+	});
+
 	it("names persisted sessions in RPC mode", async () => {
 		const harness = await createSessionAutonameHarness({ mode: "rpc", persistedSession: true });
 		harnesses.push(harness);
