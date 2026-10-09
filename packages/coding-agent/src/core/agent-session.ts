@@ -138,6 +138,7 @@ import {
 	requestCodexRestrictionRescope,
 } from "./provider-restriction-recovery.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
+import { calculateRetryDelayMs } from "./retry-delay.ts";
 import { formatRuntimeMailboxPrompt, formatSharedChannelPrompt } from "./runtime-coordination-format.ts";
 import {
 	getRuntimeMessageMarker,
@@ -5579,7 +5580,7 @@ export class AgentSession {
 	}
 
 	/**
-	 * Prepare a retryable error for continuation with a fixed delay.
+	 * Prepare a retryable error for continuation with exponential backoff and jitter.
 	 * @returns true if the caller should continue the agent, false otherwise
 	 */
 	private async _prepareRetry(message: AssistantMessage): Promise<boolean> {
@@ -5596,7 +5597,12 @@ export class AgentSession {
 			return false;
 		}
 
-		const delayMs = settings.baseDelayMs;
+		const delayMs = calculateRetryDelayMs(
+			this._retryAttempt,
+			settings.baseDelayMs,
+			settings.maxDelayMs,
+			Math.random(),
+		);
 
 		this._emit({
 			type: "auto_retry_start",
@@ -5612,7 +5618,7 @@ export class AgentSession {
 			this.agent.state.messages = messages.slice(0, -1);
 		}
 
-		// Wait with fixed delay (abortable)
+		// Wait with the reported backoff delay (abortable)
 		this._retryAbortController = new AbortController();
 		try {
 			await sleep(delayMs, this._retryAbortController.signal);

@@ -91,7 +91,7 @@ describe("AgentSession retry and event characterization", () => {
 		await harness.session.prompt("test");
 
 		expect(retryEvents).toEqual(["start:1", "start:2", "end:true"]);
-		expect(retryDelays).toEqual([1, 1]);
+		expect(retryDelays).toEqual([1, 2]);
 		expect(harness.faux.state.callCount).toBe(3);
 	});
 

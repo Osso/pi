@@ -127,14 +127,62 @@ describe("SettingsManager", () => {
 	});
 
 	describe("retry", () => {
-		it("defaults to thirty retries with a fixed ten-second delay", () => {
+		it("defaults to thirty retries with a thirty-second base and five-minute cap", () => {
 			const settingsManager = SettingsManager.inMemory();
 
 			expect(settingsManager.getRetrySettings()).toEqual({
 				enabled: true,
 				maxRetries: 30,
-				baseDelayMs: 10_000,
+				baseDelayMs: 30_000,
+				maxDelayMs: 300_000,
 			});
+		});
+
+		it("preserves session maxDelayMs when loading and saving unrelated settings", async () => {
+			const settingsPath = join(agentDir, "settings.json");
+			writeFileSync(settingsPath, JSON.stringify({ retry: { baseDelayMs: 1000, maxDelayMs: 2500 } }));
+			const manager = SettingsManager.create(projectDir, agentDir);
+			expect(manager.getRetrySettings()).toMatchObject({ baseDelayMs: 1000, maxDelayMs: 2500 });
+			expect(manager.getProviderRetrySettings().maxRetryDelayMs).toBe(60000);
+			manager.setTheme("light");
+			await manager.flush();
+			expect(JSON.parse(readFileSync(settingsPath, "utf-8")).retry).toEqual({ baseDelayMs: 1000, maxDelayMs: 2500 });
+		});
+
+		it("merges project delay settings over global settings", () => {
+			const storage = new InMemorySettingsStorage();
+			storage.withLock("global", () => JSON.stringify({ retry: { baseDelayMs: 1000, maxDelayMs: 5000 } }));
+			storage.withLock("project", () => JSON.stringify({ retry: { maxDelayMs: 2500 } }));
+			expect(SettingsManager.fromStorage(storage).getRetrySettings()).toMatchObject({
+				baseDelayMs: 1000,
+				maxDelayMs: 2500,
+			});
+		});
+
+		it.each(["baseDelayMs", "maxDelayMs"] as const)(
+			"rejects invalid retry.%s without substituting defaults",
+			(field) => {
+				for (const value of [-1, 0.5, NaN, Infinity, 2_147_483_648]) {
+					const manager = SettingsManager.inMemory();
+					manager.applyOverrides({ retry: { [field]: value } });
+					expect(() => manager.getRetrySettings()).toThrow(`Invalid retry.${field} setting`);
+				}
+				for (const value of [null, "300000", false]) {
+					const storage = new InMemorySettingsStorage();
+					storage.withLock("global", () => JSON.stringify({ retry: { [field]: value } }));
+					expect(() => SettingsManager.fromStorage(storage).getRetrySettings()).toThrow(
+						`Invalid retry.${field} setting`,
+					);
+				}
+			},
+		);
+
+		it("rejects a cap below the base and accepts zero delays", () => {
+			const manager = SettingsManager.inMemory();
+			manager.applyOverrides({ retry: { baseDelayMs: 1000, maxDelayMs: 999 } });
+			expect(() => manager.getRetrySettings()).toThrow("retry.maxDelayMs must be at least retry.baseDelayMs");
+			manager.applyOverrides({ retry: { baseDelayMs: 0, maxDelayMs: 0 } });
+			expect(manager.getRetrySettings()).toMatchObject({ baseDelayMs: 0, maxDelayMs: 0 });
 		});
 	});
 

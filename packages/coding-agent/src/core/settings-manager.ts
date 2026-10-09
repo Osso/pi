@@ -38,7 +38,8 @@ export interface ProviderRetrySettings {
 export interface RetrySettings {
 	enabled?: boolean; // default: true
 	maxRetries?: number; // default: 30
-	baseDelayMs?: number; // default: 10000 (fixed delay between retries)
+	baseDelayMs?: number; // default: 30000 (exponential backoff base)
+	maxDelayMs?: number; // default: 300000 (session retry delay ceiling)
 	provider?: ProviderRetrySettings;
 }
 
@@ -454,30 +455,6 @@ export class SettingsManager {
 		// Migrate legacy LLM-approved preset to behavior-preserving split preset
 		if (settings.approvalPreset === "llm-approved") {
 			settings.approvalPreset = "llm-approved-deny";
-		}
-
-		// Migrate retry.maxDelayMs -> retry.provider.maxRetryDelayMs
-		if (
-			"retry" in settings &&
-			typeof settings.retry === "object" &&
-			settings.retry !== null &&
-			!Array.isArray(settings.retry)
-		) {
-			const retrySettings = settings.retry as Record<string, unknown>;
-			const providerSettings =
-				typeof retrySettings.provider === "object" && retrySettings.provider !== null
-					? (retrySettings.provider as Record<string, unknown>)
-					: undefined;
-			if (
-				typeof retrySettings.maxDelayMs === "number" &&
-				(providerSettings?.maxRetryDelayMs === undefined || providerSettings?.maxRetryDelayMs === null)
-			) {
-				retrySettings.provider = {
-					...(providerSettings ?? {}),
-					maxRetryDelayMs: retrySettings.maxDelayMs,
-				};
-			}
-			delete retrySettings.maxDelayMs;
 		}
 
 		return settings as Settings;
@@ -963,11 +940,28 @@ export class SettingsManager {
 		this.save();
 	}
 
-	getRetrySettings(): { enabled: boolean; maxRetries: number; baseDelayMs: number } {
+	getRetrySettings(): { enabled: boolean; maxRetries: number; baseDelayMs: number; maxDelayMs: number } {
+		const retry = this.settings.retry;
+		const baseDelayMs = retry?.baseDelayMs === undefined ? 30_000 : retry.baseDelayMs;
+		const maxDelayMs = retry?.maxDelayMs === undefined ? 300_000 : retry.maxDelayMs;
+		for (const [name, value] of [
+			["baseDelayMs", baseDelayMs],
+			["maxDelayMs", maxDelayMs],
+		] as const) {
+			if (!Number.isSafeInteger(value) || value < 0 || value > 2_147_483_647) {
+				throw new Error(
+					`Invalid retry.${name} setting: ${String(value)}; expected integer milliseconds between 0 and 2147483647`,
+				);
+			}
+		}
+		if (maxDelayMs < baseDelayMs) {
+			throw new Error("retry.maxDelayMs must be at least retry.baseDelayMs");
+		}
 		return {
 			enabled: this.getRetryEnabled(),
-			maxRetries: this.settings.retry?.maxRetries ?? 30,
-			baseDelayMs: this.settings.retry?.baseDelayMs ?? 10_000,
+			maxRetries: retry?.maxRetries ?? 30,
+			baseDelayMs,
+			maxDelayMs,
 		};
 	}
 
