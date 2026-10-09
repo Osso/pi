@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { createAllToolDefinitions, DEFAULT_ACTIVE_TOOL_NAMES } from "../src/core/tools/index.ts";
@@ -26,27 +27,33 @@ function toolContext(sessionManager: SessionManager) {
 	>[4];
 }
 
+function assistantMessage(content: AssistantMessage["content"]): AssistantMessage {
+	return {
+		role: "assistant",
+		content,
+		api: "openai-responses",
+		provider: "openai",
+		model: "gpt-5.5",
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "stop",
+		timestamp: 2,
+	};
+}
+
 describe("search_current_session_history", () => {
-	it("matches user messages without searching assistant or tool content", async () => {
+	it("matches user messages and assistant text case-insensitively", async () => {
 		const sessionManager = createSessionManager();
 		sessionManager.appendMessage({ role: "user", content: "list-skills", timestamp: 1 });
-		sessionManager.appendMessage({
-			role: "assistant",
-			content: [{ type: "text", text: "Available skills include reddit and /tmp/pi-clipboard-image.png" }],
-			api: "openai-responses",
-			provider: "openai",
-			model: "gpt-5.5",
-			usage: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 0,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
-			stopReason: "stop",
-			timestamp: 2,
-		});
+		sessionManager.appendMessage(
+			assistantMessage([{ type: "text", text: "Available skills include reddit and /tmp/pi-clipboard-image.png" }]),
+		);
 		const tool = createSearchCurrentSessionHistoryToolDefinition();
 
 		const userMatch = await tool.execute(
@@ -58,7 +65,7 @@ describe("search_current_session_history", () => {
 		);
 		const assistantMatch = await tool.execute(
 			"search-history",
-			{ query: "reddit" },
+			{ query: "REDDIT" },
 			undefined,
 			undefined,
 			toolContext(sessionManager),
@@ -68,8 +75,152 @@ describe("search_current_session_history", () => {
 		expect(userMatch.details?.entries).toEqual([
 			expect.objectContaining({ role: "user", content: "list-skills", matched: true }),
 		]);
-		expect(assistantMatch.details?.totalMatches).toBe(0);
-		expect(assistantMatch.details?.entries).toEqual([]);
+		expect(assistantMatch.details?.totalMatches).toBe(1);
+		expect(assistantMatch.details?.entries).toEqual([
+			expect.objectContaining({ role: "assistant", matched: true }),
+		]);
+	});
+
+	it("matches tool-call names and nested arguments, but not signatures", async () => {
+		const sessionManager = createSessionManager();
+		const callId = sessionManager.appendMessage(
+			assistantMessage([
+				{
+					type: "toolCall",
+					id: "read-config",
+					name: "read",
+					arguments: { path: "/etc/cobalt.conf", options: { offset: 42, enabled: true } },
+					thoughtSignature: "opaque-tool-signature",
+				},
+			]),
+		);
+		const tool = createSearchCurrentSessionHistoryToolDefinition();
+
+		for (const query of ["READ", "COBALT", "offset", "42", "true"]) {
+			const result = await tool.execute("search-history", { query }, undefined, undefined, toolContext(sessionManager));
+			expect(result.details?.totalMatches).toBe(1);
+			expect(result.details?.entries).toEqual([expect.objectContaining({ id: callId, matched: true })]);
+		}
+		const signature = await tool.execute(
+			"search-history",
+			{ query: "opaque-tool-signature" },
+			undefined,
+			undefined,
+			toolContext(sessionManager),
+		);
+		expect(signature.details?.totalMatches).toBe(0);
+	});
+
+	it("matches tool results hidden by compaction", async () => {
+		const sessionManager = createSessionManager();
+		sessionManager.appendMessage({ role: "user", content: "Read configuration", timestamp: 1 });
+		const resultId = sessionManager.appendMessage({
+			role: "toolResult",
+			toolCallId: "read-config",
+			toolName: "read",
+			content: [{ type: "text", text: "Deployment region: cobalt" }],
+			isError: false,
+			timestamp: 2,
+		});
+		const keptId = sessionManager.appendMessage({ role: "user", content: "Continue", timestamp: 3 });
+		sessionManager.appendCompaction("Configuration inspected", keptId, 1000);
+		const tool = createSearchCurrentSessionHistoryToolDefinition();
+		const result = await tool.execute(
+			"search-history",
+			{ query: "COBALT" },
+			undefined,
+			undefined,
+			toolContext(sessionManager),
+		);
+
+		expect(result.details?.totalMatches).toBe(1);
+		expect(result.details?.entries).toEqual([
+			expect.objectContaining({ id: resultId, role: "toolResult", matched: true, compacted: true }),
+		]);
+	});
+
+	it("matches custom messages, compaction summaries, and active branch summaries", async () => {
+		const sessionManager = createSessionManager();
+		const rootId = sessionManager.appendMessage({ role: "user", content: "Start deployment", timestamp: 1 });
+		sessionManager.appendMessage({ role: "user", content: "abandoned-path-marker", timestamp: 2 });
+		const branchId = sessionManager.branchWithSummary(rootId, "Cobalt branch decision");
+		const customId = sessionManager.appendCustomMessageEntry("deployment-note", "Cobalt custom note", true);
+		const compactionId = sessionManager.appendCompaction("Cobalt compaction summary", customId, 1000);
+		const tool = createSearchCurrentSessionHistoryToolDefinition();
+		const result = await tool.execute(
+			"search-history",
+			{ query: "COBALT" },
+			undefined,
+			undefined,
+			toolContext(sessionManager),
+		);
+
+		expect(result.details?.totalMatches).toBe(3);
+		expect(result.details?.entries).toEqual([
+			expect.objectContaining({ id: branchId, entryType: "branch_summary", matched: true, compacted: true }),
+			expect.objectContaining({ id: customId, entryType: "custom_message", matched: true, compacted: false }),
+			expect.objectContaining({ id: compactionId, entryType: "compaction", matched: true, compacted: false }),
+		]);
+		const inactive = await tool.execute(
+			"search-history",
+			{ query: "abandoned-path-marker" },
+			undefined,
+			undefined,
+			toolContext(sessionManager),
+		);
+		expect(inactive.details?.totalMatches).toBe(0);
+	});
+
+	it("does not match its own prior calls or results while searching other blocks in the same message", async () => {
+		const sessionManager = createSessionManager();
+		const assistantId = sessionManager.appendMessage(
+			assistantMessage([
+				{
+					type: "toolCall",
+					id: "prior-search",
+					name: "search_current_session_history",
+					arguments: { query: "self-match" },
+				},
+				{ type: "text", text: "Unrelated assistant marker" },
+				{ type: "toolCall", id: "other-call", name: "read", arguments: { path: "/etc/other-config" } },
+			]),
+		);
+		sessionManager.appendMessage({
+			role: "toolResult",
+			toolCallId: "prior-search",
+			toolName: "search_current_session_history",
+			content: [{ type: "text", text: "self-match returned-result-marker" }],
+			details: { query: "self-match" },
+			isError: false,
+			timestamp: 3,
+		});
+		const tool = createSearchCurrentSessionHistoryToolDefinition();
+
+		for (const query of ["self-match", "returned-result-marker", "search_current_session_history"]) {
+			const result = await tool.execute("search-history", { query }, undefined, undefined, toolContext(sessionManager));
+			expect(result.details?.totalMatches).toBe(0);
+			expect(result.details?.entries).toEqual([]);
+		}
+		for (const query of ["assistant marker", "other-config"]) {
+			const result = await tool.execute("search-history", { query }, undefined, undefined, toolContext(sessionManager));
+			expect(result.details?.entries).toEqual([expect.objectContaining({ id: assistantId, matched: true })]);
+		}
+	});
+
+	it("does not match thinking blocks or content signatures", async () => {
+		const sessionManager = createSessionManager();
+		sessionManager.appendMessage(
+			assistantMessage([
+				{ type: "thinking", thinking: "private-reasoning-marker", thinkingSignature: "opaque-thinking-signature" },
+				{ type: "text", text: "Visible answer", textSignature: "opaque-text-signature" },
+			]),
+		);
+		const tool = createSearchCurrentSessionHistoryToolDefinition();
+
+		for (const query of ["private-reasoning-marker", "opaque-thinking-signature", "opaque-text-signature"]) {
+			const result = await tool.execute("search-history", { query }, undefined, undefined, toolContext(sessionManager));
+			expect(result.details?.totalMatches).toBe(0);
+		}
 	});
 
 	it("searches full active-branch entries hidden by compaction and includes neighboring entries", async () => {
@@ -150,7 +301,7 @@ beta says "quoted" at C:\\tmp`;
 	it("paginates matches while returning full matching content", async () => {
 		const sessionManager = createSessionManager();
 		sessionManager.appendMessage({ role: "user", content: "needle one", timestamp: 1 });
-		sessionManager.appendMessage({ role: "user", content: "needle two", timestamp: 2 });
+		sessionManager.appendMessage(assistantMessage([{ type: "text", text: "needle two" }]));
 		const tool = createSearchCurrentSessionHistoryToolDefinition();
 
 		const firstPage = await tool.execute(
@@ -175,7 +326,9 @@ beta says "quoted" at C:\\tmp`;
 		expect(secondPage.details).toEqual(
 			expect.objectContaining({ totalMatches: 2, returnedMatches: 1, nextCursor: undefined }),
 		);
-		expect(secondPage.details?.entries[0]).toEqual(expect.objectContaining({ content: "needle two", matched: true }));
+		expect(secondPage.details?.entries[0]).toEqual(
+			expect.objectContaining({ role: "assistant", content: [{ type: "text", text: "needle two" }], matched: true }),
+		);
 	});
 
 	it("requires a persisted current session", async () => {

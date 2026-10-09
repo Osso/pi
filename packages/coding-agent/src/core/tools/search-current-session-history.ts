@@ -1,3 +1,5 @@
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { ImageContent, TextContent, ThinkingContent, ToolCall } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
@@ -47,11 +49,44 @@ interface SearchableSessionEntry {
 	searchTexts: string[];
 }
 
-function collectSearchTexts(value: unknown): string[] {
+function collectArgumentTexts(value: unknown): string[] {
 	if (typeof value === "string") return [value];
-	if (Array.isArray(value)) return value.flatMap(collectSearchTexts);
-	if (value && typeof value === "object") return Object.values(value).flatMap(collectSearchTexts);
+	if (typeof value === "number" || typeof value === "boolean" || value === null) return [String(value)];
+	if (Array.isArray(value)) return value.flatMap(collectArgumentTexts);
+	if (value && typeof value === "object") {
+		return Object.entries(value).flatMap(([key, argument]) => [key, ...collectArgumentTexts(argument)]);
+	}
 	return [];
+}
+
+function collectSearchTexts(content: string | (TextContent | ImageContent | ThinkingContent | ToolCall)[]): string[] {
+	if (typeof content === "string") return [content];
+	return content.flatMap((block) => {
+		switch (block.type) {
+			case "text":
+				return [block.text];
+			case "toolCall":
+				return block.name === "search_current_session_history"
+					? []
+					: [block.name, ...collectArgumentTexts(block.arguments)];
+			default:
+				return [];
+		}
+	});
+}
+
+function collectMessageSearchTexts(message: AgentMessage): string[] {
+	switch (message.role) {
+		case "toolResult":
+			return message.toolName === "search_current_session_history" ? [] : collectSearchTexts(message.content);
+		case "bashExecution":
+			return [message.command, message.output];
+		case "branchSummary":
+		case "compactionSummary":
+			return [message.summary];
+		default:
+			return collectSearchTexts(message.content);
+	}
 }
 
 function searchableEntry(entry: SessionEntry): SearchableSessionEntry | undefined {
@@ -62,7 +97,7 @@ function searchableEntry(entry: SessionEntry): SearchableSessionEntry | undefine
 				entry,
 				role: entry.message.role,
 				content,
-				searchTexts: entry.message.role === "user" ? collectSearchTexts(content) : [],
+				searchTexts: collectMessageSearchTexts(entry.message),
 			};
 		}
 		case "custom_message":
@@ -70,12 +105,12 @@ function searchableEntry(entry: SessionEntry): SearchableSessionEntry | undefine
 				entry,
 				role: "custom",
 				content: entry.content,
-				searchTexts: [],
+				searchTexts: collectSearchTexts(entry.content),
 			};
 		case "compaction":
-			return { entry, role: "compaction", content: entry.summary, searchTexts: [] };
+			return { entry, role: "compaction", content: entry.summary, searchTexts: [entry.summary] };
 		case "branch_summary":
-			return { entry, role: "branchSummary", content: entry.summary, searchTexts: [] };
+			return { entry, role: "branchSummary", content: entry.summary, searchTexts: [entry.summary] };
 		default:
 			return undefined;
 	}
@@ -116,11 +151,11 @@ export function createSearchCurrentSessionHistoryToolDefinition(): ToolDefinitio
 		name: "search_current_session_history",
 		label: "search_current_session_history",
 		description:
-			"Search user-message content in the current persisted session's active branch, including full entries hidden from model context by compaction.",
-		promptSnippet: "Search user messages in the current stored session history after compaction",
+			"Search conversational content in the current persisted session's active branch, including full entries hidden from model context by compaction.",
+		promptSnippet: "Search the current stored session history after compaction",
 		promptGuidelines: [
-			"Use search_current_session_history to recover user-message details from the current session that may have been omitted by compaction.",
-			"Matching searches only user messages; optional neighboring entries may include other entry types.",
+			"Use search_current_session_history to recover details from the current session that may have been omitted by compaction.",
+			"Matching includes user and assistant text, tool-call names and arguments, tool results, custom messages, and summaries; excludes thinking, signatures, and this tool's own calls and results.",
 		],
 		parameters: searchCurrentSessionHistorySchema,
 		executionMode: "parallel",

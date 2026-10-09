@@ -68,6 +68,7 @@
 - Changed `AssistantMessageComponent` streaming updates to retain child component identity, avoiding per-chunk component allocation and preserving Markdown instance caches.
 - Changed `send_agent_message` tool description, parameter schema descriptions, and prompt guidelines to document cross-session mailbox messaging via `toSessionId` and `toAgentId: "main"`.
 - Changed `channel_post` model-facing guidance to require short action-only broadcasts naming exact affected shared paths or installed artifacts, prefer targeted mailbox messaging, and exclude status, diagnostic, test, ownership, and conversational posts; delivered shared-channel prompts now include matching no-acknowledgement and no-echo handling guidance.
+- Expanded `search_current_session_history` matching from user-only content to all conversational active-branch history, including assistant text, tool-call names and arguments, tool results, custom messages, and summaries; thinking, signatures, and the tool's own calls and results remain excluded.
 
 ### Added
 

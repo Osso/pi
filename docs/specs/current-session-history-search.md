@@ -9,9 +9,11 @@ Module boundary: core built-in tool + session manager.
 ### Search surface
 
 - [x] Register `search_current_session_history` as a built-in tool active by default.
-- [x] Search case-insensitively across user-message content on the current active branch.
-- [x] Include full matching user-message content that compaction omitted from the model context and mark omitted entries as compacted.
-- [x] Return optional neighboring searchable entries around matches, including non-user entries when requested.
+- [x] Search case-insensitively across user messages, assistant text, assistant tool-call names and arguments, tool results, custom messages, compaction summaries, and branch summaries on the current active branch.
+- [x] Exclude the tool's own `search_current_session_history` calls and results from matching, while allowing other content in the same assistant message to match.
+- [x] Exclude thinking blocks and content signatures from matching.
+- [x] Include full matching content that compaction omitted from the model context and mark omitted entries as compacted.
+- [x] Return optional neighboring searchable entries around matches, regardless of entry type.
 - [x] Exclude entries that belong only to inactive branches.
 - [x] Include a configurable number of neighboring searchable entries around each match.
 - [x] Bound matching results with a limit and cursor-based pagination.
@@ -40,7 +42,6 @@ Module boundary: core built-in tool + session manager.
 
 - Searching other, archived, or parent sessions.
 - Searching inactive branches.
-- Matching assistant, tool, custom-message, compaction-summary, or branch-summary content.
 - Semantic or vector search.
 - Mutating session history.
 - Providing an ephemeral-session fallback.
