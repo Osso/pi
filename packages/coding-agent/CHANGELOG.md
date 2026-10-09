@@ -181,6 +181,7 @@
 
 ### Fixed
 
+- Fixed thinking-steering goal handling so queued replacement input runs next silently before abort, error-stop, or empty-response processing, without a local Supervisor deferral status or resident review request. Explicit no-input abort still reports continuation skipped; the independent Escape contract is unchanged.
 - Fixed Supervisor answers appearing in a separate duplicate `[Supervisor]` block: the answer replaces `Waiting for Supervisor…` in the same displayed block, without changing continuation payload or delivery.
 - Fixed missing creation timestamps on detached status, Pyrun bridge, and coordinator cancellation envelopes so 24-hour mailbox expiry preserves status exchange and cancellation, including after parent restart with a live job; cancellation uses the mutation creation clock, not an old-row fallback. Payloads, routing, and duplicate identity are unchanged.
 - Fixed terminal lifecycle duplicate lookup scanning unrelated mailbox history by selecting only the owning session, preserving duplicate matching and global administrative listing.
@@ -525,7 +526,7 @@
 - Fixed active tool elapsed timers disappearing when pending tool components are reconstructed.
 - Fixed reconstructed pending child-tool cards showing a frozen elapsed duration; restored cards now continue from their persisted start time until completion.
 - Fixed concurrent `./test.sh` runs destroying global Pi OAuth credentials by isolating each run with a unique temporary `PI_CODING_AGENT_DIR` instead of moving `auth.json` through a shared backup path.
-- Fixed `/goal` terminal-turn handling: aborted or error turns leave the active goal intact without queuing a continuation and append durable Supervisor status explaining why; an aborted turn with pending input reports that continuation is deferred because pending input runs next.
+- Fixed `/goal` terminal-turn handling: aborted or error turns leave the active goal intact without queuing a continuation; pending input takes silent precedence, while no-input aborts retain durable skipped status and errors use deferred skipped-status scheduling.
 - Fixed `/goal` continuation after an assistant error: it now leaves the active goal intact without queuing a follow-up or showing the empty-response warning; skipped-status output is deferred until idle, canceled by retry start or pending input, and emitted once after retry exhaustion or cancellation.
 - Fixed empty-response goal continuation to poll every second until the session is idle, canceling on goal changes, pending input, or shutdown.
 - Fixed bwrap sandbox profiles to run Pyrun through the shared bwrap runner backend; sandboxed runners receive filtered environments, fake HOME, workspace-scoped mounts, and no Pi bridge capabilities.
