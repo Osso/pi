@@ -66,7 +66,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 
 ### Supervisor answer display
 
-- [ ] The Supervisor answer replaces `Waiting for Supervisor…` in the same displayed block rather than adding a second `[Supervisor]` block. Rendering changes must not alter the underlying response or continuation payload, model-facing provenance, persistence, or delivery.
+- [x] The Supervisor answer replaces `Waiting for Supervisor…` in the same displayed block rather than adding a second `[Supervisor]` block. Rendering changes must not alter the underlying response or continuation payload, model-facing provenance, persistence, or delivery.
 
 ### Supervisor advisory
 
