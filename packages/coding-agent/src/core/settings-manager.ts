@@ -17,6 +17,8 @@ import {
 	type SandboxProfileName,
 } from "./permissions/presets.ts";
 
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
 export interface CompactionSettings {
 	thresholdPercent?: number; // optional trigger percentage, greater than 0 and at most 100
 	enabled?: boolean; // default: true
@@ -972,9 +974,10 @@ export class SettingsManager {
 			["baseDelayMs", baseDelayMs],
 			["maxBackoffMs", maxBackoffMs],
 		] as const) {
-			if (!Number.isSafeInteger(value) || value < 0 || value > 2_147_483_647) {
+			const isValidDelay = Number.isSafeInteger(value) && value >= 0 && value <= MAX_TIMER_DELAY_MS;
+			if (!isValidDelay) {
 				throw new Error(
-					`Invalid retry.${name} setting: ${String(value)}; expected integer milliseconds between 0 and 2147483647`,
+					`Invalid retry.${name} setting: ${String(value)}; expected integer milliseconds between 0 and ${MAX_TIMER_DELAY_MS}`,
 				);
 			}
 		}
