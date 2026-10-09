@@ -351,6 +351,23 @@ export function getControlDbPath(directory = getUserStateRoot()): string {
 	return join(directory, "control.sqlite");
 }
 
+/** Claims one recovery attempt per explicit request, independent of transcript ancestry. */
+export function claimCodexRestrictionRecovery(controlDbPath: string, userRequestId: string): boolean {
+	if (userRequestId.trim().length === 0) throw new Error("Codex restriction recovery request ID must not be empty");
+	return withControlDb(controlDbPath, (db) => {
+		const result = db
+			.prepare(
+				`
+				INSERT INTO codex_restriction_recovery_claims (user_request_id, claimed_at)
+				VALUES (?, ?)
+				ON CONFLICT(user_request_id) DO NOTHING
+				`,
+			)
+			.run(userRequestId, new Date().toISOString());
+		return result.changes === 1;
+	});
+}
+
 export function enqueueIncomingMessage(controlDbPath: string, content: string): number {
 	return withControlDb(controlDbPath, (db) => {
 		const result = db
@@ -6422,6 +6439,11 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 			claimed_at TEXT,
 			completed_at TEXT,
 			error TEXT
+		);
+
+		CREATE TABLE IF NOT EXISTS codex_restriction_recovery_claims (
+			user_request_id TEXT PRIMARY KEY NOT NULL,
+			claimed_at TEXT NOT NULL
 		);
 
 		CREATE TABLE IF NOT EXISTS last_message (
