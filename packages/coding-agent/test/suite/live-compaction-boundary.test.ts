@@ -89,6 +89,12 @@ describe("live compaction provider boundary", () => {
 				],
 			});
 			harnesses.push(harness);
+			const extensionErrors: string[] = [];
+			await harness.session.bindExtensions({
+				onError: (error) => {
+					extensionErrors.push(error.error);
+				},
+			});
 			for (let index = 0; index < 4; index++) {
 				harness.sessionManager.appendMessage({
 					role: "user",
@@ -120,8 +126,12 @@ describe("live compaction provider boundary", () => {
 				result: undefined,
 				willRetry: false,
 			});
-			if (outcome === "failure")
-				expect(harness.eventsOfType("compaction_end")[0].errorMessage).toContain("boundary summary unavailable");
+			if (outcome === "failure") {
+				expect(extensionErrors).toContain("boundary summary unavailable");
+				expect(harness.eventsOfType("compaction_end")[0].errorMessage).toContain("Built-in compaction is disabled");
+			} else {
+				expect(extensionErrors).toEqual([]);
+			}
 			expect(harness.faux.state.callCount).toBe(2);
 		},
 	);
