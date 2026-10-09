@@ -35,6 +35,21 @@ async function stopBridge(child: ChildProcessWithoutNullStreams): Promise<void> 
 	}
 }
 
+async function stopClipboardFixture(
+	bridge: ChildProcessWithoutNullStreams | undefined,
+	provider: Awaited<ReturnType<typeof createProviderServer>> | undefined,
+	tempDir: string,
+): Promise<void> {
+	if (bridge) await stopBridge(bridge);
+	provider?.getSocket()?.destroy();
+	if (provider) {
+		await new Promise<void>((resolve, reject) =>
+			provider.server.close((error) => (error ? reject(error) : resolve())),
+		);
+	}
+	rmSync(tempDir, { recursive: true, force: true });
+}
+
 function createHeadlessClipboardEnvironment(
 	paths: ReturnType<typeof createHeadlessPaths>,
 	binDir: string,
@@ -183,16 +198,7 @@ else:
 				expect(readdirSync(clipboardDir).filter((name) => name.startsWith("pi-clipboard-"))).toEqual(files);
 				expect(requests).toBe(0);
 			},
-			async () => {
-				if (bridge) await stopBridge(bridge);
-				provider?.getSocket()?.destroy();
-				if (provider) {
-					await new Promise<void>((resolve, reject) =>
-						provider?.server.close((error) => (error ? reject(error) : resolve())),
-					);
-				}
-				rmSync(paths.tempDir, { recursive: true, force: true });
-			},
+			() => stopClipboardFixture(bridge, provider, paths.tempDir),
 		);
 	},
 	40_000,
