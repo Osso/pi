@@ -18,7 +18,7 @@ export type ProviderDiagnosticInput = Readonly<{
 	requestId?: string;
 	delayMs?: number;
 	retryLayer?: "provider" | "session";
-	fallbackTransport?: ProviderTransport;
+	fallbackTransport?: ProviderTransport | "auto";
 }>;
 
 /** Pass the model from the callback's second argument, not the current session model. */

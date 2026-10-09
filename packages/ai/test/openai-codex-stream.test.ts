@@ -264,7 +264,7 @@ describe("Codex metadata diagnostics", () => {
 			undefined,
 		],
 		[
-			{ error: { code: "x".repeat(200), request_id: "req_" + "x".repeat(200), message: "secret" } },
+			{ error: { code: "x".repeat(200), request_id: `req_${"x".repeat(200)}`, message: "secret" } },
 			undefined,
 			undefined,
 		],

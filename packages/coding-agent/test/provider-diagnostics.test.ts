@@ -150,16 +150,17 @@ describe("provider diagnostics", () => {
 				upstreamErrorCode: ["SECRET"],
 			}),
 		).toEqual(serialized({ phase: "error", timestamp: 0 }));
-		expect(
-			serialized({
-				phase: "retry",
-				timestamp: 0,
-				attempt: 1.5,
-				maxAttempts: -1,
-				delayMs: -1,
-				fallbackTransport: "auto",
-			}),
-		).toEqual({ phase: "retry", timestamp: 0, provider: model.provider, model: model.id, ...context });
+		const autoFallbackEvent: ProviderDiagnosticInput = {
+			phase: "retry",
+			timestamp: 0,
+			attempt: 1.5,
+			maxAttempts: -1,
+			delayMs: -1,
+			fallbackTransport: "auto",
+		};
+		expect(serializeProviderDiagnostic(autoFallbackEvent, model, context)).toBe(
+			JSON.stringify({ phase: "retry", timestamp: 0, provider: model.provider, model: model.id, ...context }),
+		);
 		expect(serialized({ phase: "error", timestamp: NaN })).toBeUndefined();
 		expect(serialized({ phase: "unknown", timestamp: 0 })).toBeUndefined();
 	});
