@@ -47,6 +47,29 @@ function validatedTransport(value: unknown): ProviderTransport | undefined {
 	return value === "sse" || value === "websocket" || value === "websocket-cached" ? value : undefined;
 }
 
+const failureKinds = new Set<ProviderDiagnosticInput["failureKind"]>(["api", "transport", "protocol", "aborted"]);
+
+function serializeRetryFields(event: ProviderDiagnosticInput) {
+	return {
+		retryLayer: event.retryLayer === "provider" || event.retryLayer === "session" ? event.retryLayer : undefined,
+		delayMs: nonnegativeNumber(event.delayMs),
+		fallbackTransport: validatedTransport(event.fallbackTransport),
+	};
+}
+
+function serializeErrorFields(event: ProviderDiagnosticInput) {
+	const status = positiveInteger(event.httpStatus);
+	return {
+		elapsedMs: nonnegativeNumber(event.elapsedMs),
+		transport: validatedTransport(event.transport),
+		failureKind: failureKinds.has(event.failureKind) ? event.failureKind : undefined,
+		httpStatus: status !== undefined && status >= 100 && status <= 599 ? status : undefined,
+		retryAfterMs: nonnegativeNumber(event.retryAfterMs),
+		upstreamErrorCode: validatedIdentifier(event.upstreamErrorCode, 64),
+		requestId: validatedIdentifier(event.requestId, 128),
+	};
+}
+
 /** Pure JSON serializer. All timestamps and request identity come from the caller. */
 export function serializeProviderDiagnostic(
 	event: ProviderDiagnosticInput,
@@ -66,28 +89,8 @@ export function serializeProviderDiagnostic(
 		logicalRequestNumber: positiveInteger(context.logicalRequestNumber),
 		attempt: positiveInteger(event.attempt),
 		maxAttempts: positiveInteger(event.maxAttempts),
+		...(event.phase === "retry" ? serializeRetryFields(event) : serializeErrorFields(event)),
 	};
-	if (event.phase === "retry") {
-		record.retryLayer =
-			event.retryLayer === "provider" || event.retryLayer === "session" ? event.retryLayer : undefined;
-		record.delayMs = nonnegativeNumber(event.delayMs);
-		record.fallbackTransport = validatedTransport(event.fallbackTransport);
-	} else {
-		record.elapsedMs = nonnegativeNumber(event.elapsedMs);
-		record.transport = validatedTransport(event.transport);
-		record.failureKind =
-			event.failureKind === "api" ||
-			event.failureKind === "transport" ||
-			event.failureKind === "protocol" ||
-			event.failureKind === "aborted"
-				? event.failureKind
-				: undefined;
-		const status = positiveInteger(event.httpStatus);
-		record.httpStatus = status !== undefined && status >= 100 && status <= 599 ? status : undefined;
-		record.retryAfterMs = nonnegativeNumber(event.retryAfterMs);
-		record.upstreamErrorCode = validatedIdentifier(event.upstreamErrorCode, 64);
-		record.requestId = validatedIdentifier(event.requestId, 128);
-	}
 	return JSON.stringify(record);
 }
 

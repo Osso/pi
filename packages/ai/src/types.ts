@@ -7,9 +7,10 @@ import type { MistralOptions } from "./api/mistral-conversations.ts";
 import type { OpenAICodexResponsesOptions } from "./api/openai-codex-responses.ts";
 import type { OpenAICompletionsOptions } from "./api/openai-completions.ts";
 import type { OpenAIResponsesOptions } from "./api/openai-responses.ts";
+import type { ProviderDiagnosticEvent } from "./provider-diagnostic-event.ts";
 import type { AssistantMessageDiagnostic } from "./utils/diagnostics.ts";
 import type { AssistantMessageEventStream } from "./utils/event-stream.ts";
-
+export type { ProviderDiagnosticEvent } from "./provider-diagnostic-event.ts";
 export type { AssistantMessageEventStream } from "./utils/event-stream.ts";
 
 export type KnownApi =
@@ -123,26 +124,6 @@ export interface ProviderRetryEvent {
 	/** Transport the retry will use when it differs from the failed transport. */
 	fallbackTransport?: Transport;
 }
-
-/** Metadata-only observation of an actual failed provider attempt. No raw error or content fields. */
-export interface ProviderDiagnosticEvent {
-	phase: "error";
-	/** Unix epoch milliseconds. */
-	timestamp: number;
-	/** Time since this provider attempt started, in milliseconds. */
-	elapsedMs: number;
-	/** Actual transport, not the requested "auto" setting. */
-	transport: Exclude<Transport, "auto">;
-	/** Actual provider attempt, including internal retries (1-based). */
-	attempt: number;
-	maxAttempts?: number;
-	failureKind: "api" | "transport" | "protocol" | "aborted";
-	httpStatus?: number;
-	retryAfterMs?: number;
-	upstreamErrorCode?: string;
-	requestId?: string;
-}
-
 export interface StreamOptions {
 	/** Caller working directory for local/subprocess provider integrations; not a server payload field. */
 	cwd?: string;
