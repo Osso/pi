@@ -331,7 +331,7 @@
 - Changed the `pi -r` and `/resume` session selector default sort to recent sessions.
 - Changed project skill auto-discovery to include `.agents/skills/`, `.codex/skills/`, and `.claude/skills/` in ancestor directories above the git repo root.
 - Changed Pyrun `run.*`/`run.cmd` to return only an integer exit code while emitting stdout/stderr through tool output; use `cli.*` when a captured `CommandResult` is required.
-- Changed automatic agent-level retries to default to 30 retries after the initial request with fixed 10-second gaps; the interactive retry spinner continues into the resumed request, and Escape still cancels the retry wait.
+- Changed automatic agent-level retries for main and child sessions from fixed 10-second gaps to exponential backoff: `retry.baseDelayMs` defaults to 30,000ms, nominal delays double to the new `retry.maxDelayMs` default of 300,000ms, then ±20% jitter is applied and clamped to that cap. Existing custom `baseDelayMs` values now set the initial exponential base rather than a fixed gap. The budget remains 30 retries after the initial request; the cap limits each wait, not total wall-clock time. `auto_retry_start.delayMs` reports the sampled wait; cancellation, success reset, interactive spinner continuity, and provider-level `Retry-After` handling remain unchanged. See [retry settings](docs/settings.md#retry).
 - Cached session-derived footer statistics until session data changes, reducing repeated render work.
 - Coalesced partial tool-output renders within 50ms to reduce terminal redraws during rapid updates.
 - Changed interactive tool execution rendering to use `AgentEvent` start/end timestamps for elapsed durations.

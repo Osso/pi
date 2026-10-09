@@ -306,6 +306,8 @@ Compaction is lossy. The full history remains in the JSONL file; use `/tree` to 
 
 ## Settings
 
+Main and child sessions use [shared retry backoff](docs/settings.md#retry): 30 retries after the initial request, starting at 30 seconds, doubling with ±20% jitter, and capped at five minutes per wait. The cap does not limit total elapsed time. Escape cancels the retry wait.
+
 Use `/settings` to modify common options, or edit JSON files directly:
 
 | Location | Scope |

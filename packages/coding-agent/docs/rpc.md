@@ -1048,14 +1048,14 @@ If compaction failed (e.g., API quota exceeded), `result` is `null`, `aborted` i
 
 ### auto_retry_start / auto_retry_end
 
-Emitted when automatic retry is triggered after a transient error (overloaded, rate limit, 5xx).
+Emitted when automatic retry is triggered after a transient error (overloaded, rate limit, 5xx). `attempt` counts retries after the initial request; `maxAttempts` is the configured retry budget (default 30). `delayMs` reports the actual sampled wait after exponential backoff, ±20% jitter, and the final delay-cap clamp, not the nominal base. See [retry settings](settings.md#retry). `abort_retry` still cancels the wait and stops retrying.
 
 ```json
 {
   "type": "auto_retry_start",
   "attempt": 1,
-  "maxAttempts": 3,
-  "delayMs": 2000,
+  "maxAttempts": 30,
+  "delayMs": 32400,
   "errorMessage": "529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}"
 }
 ```
@@ -1073,7 +1073,7 @@ On final failure (max retries exceeded):
 {
   "type": "auto_retry_end",
   "success": false,
-  "attempt": 3,
+  "attempt": 30,
   "finalError": "529 overloaded_error: Overloaded"
 }
 ```
