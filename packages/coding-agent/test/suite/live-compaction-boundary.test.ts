@@ -1,6 +1,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { type Context, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
+import { Value } from "typebox/value";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, type Harness } from "./harness.ts";
 
@@ -147,12 +148,14 @@ describe("live compaction provider boundary", () => {
 		const requests: Array<{ context: Context; compactions: number; ended: number }> = [];
 		let assistantCount = 0;
 		let compactionCalls = 0;
+		const effectParameters = Type.Object({ index: Type.Number() });
 		const effect: AgentTool = {
 			name: "effect",
 			label: "Effect",
 			description: "Record an effect once",
-			parameters: Type.Object({ index: Type.Number() }),
+			parameters: effectParameters,
 			execute: async (_id, params) => {
+				if (!Value.Check(effectParameters, params)) throw new Error("Invalid effect parameters");
 				effects.push(params.index);
 				if (params.index === 1) {
 					started.resolve();
@@ -252,7 +255,7 @@ describe("live compaction provider boundary", () => {
 			expect(JSON.stringify(requests[0].context.messages)).toContain("live boundary summary");
 			expect(JSON.stringify(requests[0].context.messages)).not.toContain("old history 0");
 		}
-		expect(effects.toSorted()).toEqual([1, 2, 3]);
+		expect(effects.slice().sort((left, right) => left - right)).toEqual([1, 2, 3]);
 		expect(harness.faux.state.callCount).toBe(3);
 		expect(harness.eventsOfType("agent_start")).toHaveLength(1);
 		expect(harness.eventsOfType("agent_end")).toHaveLength(1);

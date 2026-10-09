@@ -1369,9 +1369,10 @@ export class AgentSession {
 	private async _compactForNextTurn(turn: PrepareNextTurnContext): Promise<PrepareNextTurnContext> {
 		const settings = this.settingsManager.getCompactionSettings();
 		const usage = this.getContextUsage();
+		const canCheckThreshold = settings.thresholdPercent !== undefined && usage !== undefined;
 		const thresholdReached =
-			settings.thresholdPercent !== undefined &&
-			usage &&
+			canCheckThreshold &&
+			usage.tokens !== null &&
 			shouldCompact(
 				usage.tokens,
 				usage.contextWindow,
