@@ -124,7 +124,8 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `compaction.enabled` | boolean | `true` | Enable auto-compaction |
-| `compaction.reserveTokens` | number | `16384` | Tokens reserved for LLM response |
+| `compaction.thresholdPercent` | number | - | Optional auto-compaction threshold as a percentage of the model context window; finite, greater than 0 and at most 100 |
+| `compaction.reserveTokens` | number | `16384` | Summarization output token budget; also determines the default trigger when no percentage or model threshold is set |
 | `compaction.keepRecentTokens` | number | `20000` | Recent tokens to keep (not summarized) |
 
 ```json
@@ -136,6 +137,18 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
   }
 }
 ```
+
+To trigger automatic compaction at 50% across projects and models, add this to `~/.pi/agent/settings.json`:
+
+```json
+{
+  "compaction": {
+    "thresholdPercent": 50
+  }
+}
+```
+
+Trusted project settings can override this global value. The configured percentage triggers at or above `contextWindow * thresholdPercent / 100`, taking precedence over the model's `autoCompactionThreshold` and the `reserveTokens`-based trigger. Omit it to retain existing defaults. `reserveTokens` still controls summarization output budgets; `keepRecentTokens` is unchanged. See [compaction.md](compaction.md#when-it-triggers) for trigger details.
 
 ### Branch Summary
 

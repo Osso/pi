@@ -26,15 +26,17 @@ Both use the same structured summary format and track file operations cumulative
 
 ### When It Triggers
 
-Auto-compaction normally triggers when:
+Automatic threshold compaction uses the first applicable rule:
 
-```
-contextTokens > contextWindow - reserveTokens
-```
+1. With `compaction.thresholdPercent` configured, trigger when `contextTokens >= contextWindow * thresholdPercent / 100`.
+2. Otherwise, if the model defines `autoCompactionThreshold`, trigger when `contextTokens >= autoCompactionThreshold`. GPT-5.6 Sol uses 272,000 tokens to avoid crossing its higher long-context pricing tier.
+3. Otherwise, trigger when `contextTokens > contextWindow - reserveTokens`.
 
-Models may define an exact `autoCompactionThreshold`; Pi compacts when `contextTokens >= autoCompactionThreshold` instead. GPT-5.6 Sol uses 272,000 tokens to avoid crossing its higher long-context pricing tier.
+`thresholdPercent` must be a finite number greater than 0 and at most 100; fractional percentages are supported. Equality triggers compaction, including at 100%. Omission preserves the existing model/reserve defaults.
 
-By default, `reserveTokens` is 16384 tokens (configurable in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`). This leaves room for the LLM's response.
+Set `"compaction": { "thresholdPercent": 50 }` in `~/.pi/agent/settings.json` to apply 50% across projects and models. Trusted `<project-dir>/.pi/settings.json` values can override the global setting; see [settings.md](settings.md#compaction).
+
+`reserveTokens` defaults to 16384 and still controls summarization output budgets even with a percentage configured. `keepRecentTokens` remains unchanged. The percentage does not change the separate speculative 70% cache boundary or add a UI control.
 
 You can also trigger manually with `/compact [instructions]`, where optional instructions focus the summary.
 
@@ -439,7 +441,8 @@ Configure compaction in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settin
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `enabled` | `true` | Enable auto-compaction |
-| `reserveTokens` | `16384` | Tokens to reserve for LLM response |
+| `thresholdPercent` | Unset | Auto-compaction percentage: finite, greater than 0 and at most 100; takes precedence over model/reserve thresholds |
+| `reserveTokens` | `16384` | Summarization output token budget; default trigger reserve when neither percentage nor model threshold applies |
 | `keepRecentTokens` | `20000` | Recent tokens to keep (not summarized) |
 
 Disable auto-compaction with `"enabled": false`. You can still compact manually with `/compact`.

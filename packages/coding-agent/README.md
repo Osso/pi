@@ -298,7 +298,7 @@ Long sessions can exhaust context windows. Compaction summarizes older messages 
 
 **Manual:** `/compact` or `/compact <custom instructions>`
 
-**Automatic:** Enabled by default. Triggers on context overflow (recovers and retries) or when approaching the limit (proactive). Configure via `/settings` or `settings.json`.
+**Automatic:** Enabled by default. Triggers on context overflow (recovers and retries) or when approaching the limit (proactive). For a 50% threshold across projects and models, set `"compaction": { "thresholdPercent": 50 }` in `~/.pi/agent/settings.json`; trusted project settings can override it. Configure the percentage in JSON, not `/settings`. See [compaction settings](docs/settings.md#compaction) for bounds and precedence.
 
 Compaction is lossy. The full history remains in the JSONL file; use `/tree` to revisit. Customize compaction behavior via [extensions](#extensions). See [docs/compaction.md](docs/compaction.md) for internals.
 
