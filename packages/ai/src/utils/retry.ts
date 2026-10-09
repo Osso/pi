@@ -1,5 +1,18 @@
 import type { AssistantMessage } from "../types.ts";
 
+const CODEX_CYBERSECURITY_RESTRICTION = "This content was flagged for possible cybersecurity risk.";
+
+/** Identifies the canonical Codex cybersecurity restriction, including provider suffixes and request IDs. */
+export function isCodexCybersecurityRestriction(message: AssistantMessage): boolean {
+	if (message.stopReason !== "error" || message.api !== "openai-codex-responses" || !message.errorMessage) {
+		return false;
+	}
+	return (
+		message.errorMessage.startsWith(CODEX_CYBERSECURITY_RESTRICTION) ||
+		message.errorMessage.startsWith(`Codex error: ${CODEX_CYBERSECURITY_RESTRICTION}`)
+	);
+}
+
 function buildProviderErrorPattern(patterns: readonly string[]): RegExp {
 	return new RegExp(patterns.join("|"), "i");
 }
@@ -105,6 +118,7 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
  */
 export function isRetryableAssistantError(message: AssistantMessage): boolean {
 	if (message.stopReason !== "error" || !message.errorMessage) return false;
+	if (isCodexCybersecurityRestriction(message)) return false;
 	const errorMessage = message.errorMessage;
 	if (NON_RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage)) return false;
 	return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);

@@ -8,6 +8,18 @@ const bedrockExplicitRetryMessage =
 	'{"message":"The system encountered an unexpected error during processing. Try your request again."}';
 
 describe("provider retry classification", () => {
+	it.each([
+		"This content was flagged for possible cybersecurity risk.\nOpenAI request ID: req_500",
+		"Codex error: This content was flagged for possible cybersecurity risk.\nOpenAI request ID: req_429",
+		"Codex error: This content was flagged for possible cybersecurity risk. You can retry your request.",
+	])("does not retry canonical Codex cybersecurity restrictions: %s", (errorMessage) => {
+		const message = {
+			...fauxAssistantMessage("", { stopReason: "error", errorMessage }),
+			api: "openai-codex-responses",
+		};
+		expect(isRetryableAssistantError(message)).toBe(false);
+	});
+
 	it("does not retry the legacy max-output error but retries generic incomplete responses", () => {
 		expect(
 			isRetryableAssistantError(
