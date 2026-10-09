@@ -31,7 +31,7 @@ afterEach(() => {
 	while (harnesses.length) harnesses.pop()?.cleanup();
 });
 
-describe("live compaction provider boundary", () => {
+describe("live compaction boundary cancellation and errors", () => {
 	it.each(["cancel", "failure", "abort"] as const)(
 		"reports %s at the boundary without replaying tool effects",
 		async (outcome) => {
@@ -136,6 +136,9 @@ describe("live compaction provider boundary", () => {
 			expect(harness.faux.state.callCount).toBe(2);
 		},
 	);
+});
+
+describe("live compaction provider threshold boundary", () => {
 	it.each([
 		{ usage: 500_000, output: "effect complete", compacts: true },
 		{ usage: 557_000, output: "effect complete", compacts: true },

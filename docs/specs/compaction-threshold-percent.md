@@ -9,8 +9,8 @@
 - [x] With the percentage omitted, preserve existing model-threshold and reserve-based trigger defaults.
 - [x] Apply global configuration across sessions and models, subject to normal project and explicit settings overrides.
 - [x] Preserve `reserveTokens` summarization output budgets and `keepRecentTokens` behavior.
-- [ ] During a running tool-bearing turn, check the configured threshold after current tool results are completed and committed, before the subsequent provider request; do not wait for the whole turn to end or require a ready speculative cache.
-- [ ] Preserve coherent tool-call/output pairs and continue the same active turn with compacted context; never interrupt an in-flight provider stream or uncommitted tool execution to enforce the threshold.
+- [x] During a running tool-bearing turn, check the configured threshold after current tool results are completed and committed, before the subsequent provider request; do not wait for the whole turn to end or require a ready speculative cache.
+- [x] Preserve coherent tool-call/output pairs and continue the same active turn with compacted context; never interrupt an in-flight provider stream or uncommitted tool execution to enforce the threshold.
 
 ## How it works
 
@@ -28,11 +28,12 @@
 
 - `packages/coding-agent/test/compaction-threshold-percent.test.ts` — percentage boundaries, precedence, validation, and settings resolution.
 - `packages/coding-agent/test/suite/compaction-threshold-percent.test.ts` — existing session threshold coverage; direct private `_checkCompaction` calls do not prove running-turn enforcement.
-- `packages/coding-agent/test/suite/live-compaction-boundary.test.ts` — public `session.prompt()` regression required to prove compaction between completed tool results and the next provider request at 50%, with coherent pairs and continued work; verification pending.
+- `packages/coding-agent/test/suite/live-compaction-boundary.test.ts` — public `session.prompt()` regression for compaction between completed tool results and the next provider request at 50%, with coherent pairs and continued work.
+- `packages/coding-agent/test/suite/live-compaction-restart.test.ts` — real-process supervisor restart with a live child; same session/assignment and one committed effect while the configured boundary executes.
 
 ## Known gaps (current cycle)
 
-- [ ] Obtain passing public `session.prompt()` regression proof for the running 50% boundary before checking the running-turn requirements above.
+None in the percentage-threshold contract.
 
 ## Out of scope
 

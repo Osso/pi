@@ -228,6 +228,19 @@ import {
 } from "./tools/index.ts";
 import { createToolDefinitionFromAgentTool } from "./tools/tool-definition-wrapper.ts";
 
+function estimateThresholdContextTokens(
+	messages: AgentMessage[],
+	assistantMessage: AssistantMessage,
+	directContextTokens: number,
+	thresholdPercent: number | undefined,
+): number {
+	if (thresholdPercent === undefined) return directContextTokens;
+	const assistantIndex = messages.indexOf(assistantMessage);
+	if (assistantIndex < 0) return directContextTokens;
+	const trailingMessages = messages.slice(assistantIndex + 1);
+	return directContextTokens + estimateMessagesTokens(trailingMessages);
+}
+
 const MCP_TOOL_NAME_PATTERN = /^mcp__[^_]+(?:_[^_]+)*__[^_]+(?:_[^_]+)*$/;
 const PERMISSION_PROMPT_TOOL_NAME = "approval_prompt";
 const PERMISSION_PROMPT_SCHEMA_FIELDS = ["tool_name", "input", "tool_use_id", "cwd"] as const;
@@ -4749,12 +4762,12 @@ export class AgentSession {
 			}
 			contextTokens = estimate.tokens;
 		} else {
-			// Include completed tool output without replacing the checked response's usage.
-			const assistantIndex =
-				settings.thresholdPercent === undefined ? -1 : this.agent.state.messages.indexOf(assistantMessage);
-			const trailingTokens =
-				assistantIndex < 0 ? 0 : estimateMessagesTokens(this.agent.state.messages.slice(assistantIndex + 1));
-			contextTokens = directContextTokens + trailingTokens;
+			contextTokens = estimateThresholdContextTokens(
+				this.agent.state.messages,
+				assistantMessage,
+				directContextTokens,
+				settings.thresholdPercent,
+			);
 		}
 		if (shouldCompact(contextTokens, contextWindow, { ...settings, enabled: true }, model?.autoCompactionThreshold)) {
 			// A "length"-stopped turn was truncated mid-work: compact and resume it once.
