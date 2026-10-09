@@ -12,6 +12,17 @@ const UNKNOWN_INPUT = "/not-a-command keep these arguments";
 const FEEDBACK = "Error: Unknown slash command: /not-a-command";
 
 type ProviderRequest = { id: string; messages: Message[] };
+type SubmissionScenario = { streaming: boolean; key: string };
+type TestFixture = {
+	paths: ReturnType<typeof createHeadlessPaths>;
+	terminal: VirtualTerminal;
+	requests: ProviderRequest[];
+	provider?: Awaited<ReturnType<typeof createProviderServer>>;
+	bridge?: ChildProcessWithoutNullStreams;
+	rawOutput: string;
+	stderr: string;
+};
+type RunningFixture = TestFixture & { bridge: ChildProcessWithoutNullStreams };
 
 function userTexts(request: ProviderRequest): string[] {
 	return request.messages.flatMap((message) => {
@@ -49,6 +60,228 @@ async function stopBridge(child: ChildProcessWithoutNullStreams): Promise<void> 
 	}
 }
 
+function screen(fixture: TestFixture): string {
+	return fixture.terminal.getViewport().join("\n");
+}
+
+function output(fixture: TestFixture): string {
+	return `${fixture.rawOutput.slice(-4000)}\n${fixture.stderr}`;
+}
+
+function readSessionEntries(fixture: TestFixture) {
+	const file = readdirSync(fixture.paths.sessionDir, { recursive: true }).find(
+		(entry) => typeof entry === "string" && entry.endsWith(".jsonl"),
+	);
+	return typeof file === "string" ? SessionManager.open(join(fixture.paths.sessionDir, file)).getEntries() : [];
+}
+
+function countCompletedTurns(fixture: TestFixture): number {
+	return readSessionEntries(fixture).filter(
+		(entry) =>
+			entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "end_turn",
+	).length;
+}
+
+function respondToRequest(fixture: TestFixture, request: ProviderRequest): void {
+	fixture.provider?.getSocket()?.write(
+		`${JSON.stringify({
+			type: "response",
+			requestId: request.id,
+			message: fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Test complete" }), {
+				stopReason: "toolUse",
+			}),
+		})}\n`,
+	);
+}
+
+function writeTestSettings(fixture: TestFixture): void {
+	mkdirSync(join(fixture.paths.agentDir, "prompts"));
+	writeFileSync(join(fixture.paths.agentDir, "prompts", "example.md"), "Expanded template: $ARGUMENTS");
+	writeFileSync(
+		join(fixture.paths.agentDir, "settings.json"),
+		JSON.stringify({ approvalPreset: "auto-approve", approvalPolicy: "auto-approve", quietStartup: true }),
+	);
+}
+
+function spawnPtyBridge(fixture: TestFixture): ChildProcessWithoutNullStreams {
+	const fixtureDir = join(import.meta.dirname, "..", "fixtures");
+	const bridge = spawn(
+		"python3",
+		[
+			join(fixtureDir, "interactive-pty-bridge.py"),
+			"24",
+			"100",
+			process.execPath,
+			"--experimental-strip-types",
+			"--import",
+			pathToFileURL(join(fixtureDir, "interactive-pty-provider-preload.ts")).href,
+			join(import.meta.dirname, "..", "..", "..", "src", "cli.ts"),
+			"--provider",
+			"headless-faux",
+			"--model",
+			"headless-faux-1",
+			"--session-dir",
+			fixture.paths.sessionDir,
+			"--no-context-files",
+			"--no-skills",
+			"--no-themes",
+			"--no-extensions",
+			"--extension",
+			join(fixtureDir, "interactive-pty-provider-extension.ts"),
+		],
+		{
+			cwd: fixture.paths.workspaceDir,
+			env: {
+				...process.env,
+				PI_OFFLINE: "1",
+				PI_TELEMETRY: "0",
+				PI_CODING_AGENT_DIR: fixture.paths.agentDir,
+				PI_CODING_AGENT_STATE_DIR: fixture.paths.agentDir,
+				PI_CODING_AGENT_SESSION_DIR: fixture.paths.sessionDir,
+				PI_HEADLESS_PROVIDER_SOCKET: fixture.paths.socketPath,
+				PI_TUI_WRITE_LOG: "",
+				PI_DEBUG_REDRAW: "0",
+				PI_TUI_DEBUG: "0",
+				TERM: "xterm-256color",
+				NO_COLOR: "1",
+			},
+		},
+	);
+	bridge.stdout.setEncoding("utf8");
+	bridge.stdout.on("data", (text: string) => {
+		fixture.rawOutput += text;
+		fixture.terminal.write(text);
+	});
+	bridge.stderr.on("data", (chunk: Buffer) => {
+		fixture.stderr += chunk.toString();
+	});
+	return bridge;
+}
+
+async function startInteractiveSession(fixture: TestFixture, streaming: boolean): Promise<RunningFixture> {
+	writeTestSettings(fixture);
+	fixture.provider = await createProviderServer(fixture.paths.socketPath, (request) => {
+		fixture.requests.push(request);
+		// Keep a real provider request open while testing the streaming rejection boundary.
+		if (streaming && fixture.requests.length === 1) return;
+		respondToRequest(fixture, request);
+	});
+	const bridge = spawnPtyBridge(fixture);
+	fixture.bridge = bridge;
+	await waitUntil(
+		() => screen(fixture).includes("headless-faux-1"),
+		"interactive startup",
+		() => output(fixture),
+	);
+	if (streaming) {
+		bridge.stdin.write("Start held turn\r");
+		await waitUntil(
+			() => fixture.requests.length === 1,
+			"held provider request",
+			() => output(fixture),
+		);
+	}
+	return Object.assign(fixture, { bridge });
+}
+
+async function submitUnknownCommandAndAssertRejection(
+	fixture: RunningFixture,
+	{ streaming, key }: SubmissionScenario,
+): Promise<void> {
+	fixture.bridge.stdin.write(`${UNKNOWN_INPUT}${key}`);
+	await waitUntil(
+		() => screen(fixture).includes(FEEDBACK) || fixture.rawOutput.includes("uncaughtException"),
+		"unknown-command feedback",
+		() => output(fixture),
+	);
+	await fixture.terminal.flush();
+	expect(screen(fixture), output(fixture)).toContain(FEEDBACK);
+	expect(fixture.rawOutput).not.toContain("uncaughtException");
+	expect(fixture.rawOutput).not.toMatch(/at AgentSession\.|agent-session\.ts:\d+/);
+	expect(fixture.bridge.exitCode).toBeNull();
+	expect(fixture.requests).toHaveLength(streaming ? 1 : 0);
+	expect(
+		readSessionEntries(fixture).some(
+			(entry) => entry.type === "message" && JSON.stringify(entry.message).includes(UNKNOWN_INPUT),
+		),
+	).toBe(false);
+}
+
+async function assertKeyboardRecovery(fixture: RunningFixture, streaming: boolean): Promise<void> {
+	// Rejected input remains recallable, but the editor is clear and still owns keyboard focus.
+	fixture.bridge.stdin.write("\x1b[A");
+	await waitUntil(
+		() => screen(fixture).includes(UNKNOWN_INPUT),
+		"rejected input in editor history",
+		() => output(fixture),
+	);
+	fixture.bridge.stdin.write("\x15/name after-rejection\r");
+	await waitUntil(
+		() => screen(fixture).includes("Session name set: after-rejection"),
+		"built-in command after rejection",
+		() => output(fixture),
+	);
+	expect(fixture.requests).toHaveLength(streaming ? 1 : 0);
+	if (!streaming) return;
+	const heldRequest = fixture.requests[0];
+	if (!heldRequest) throw new Error("Missing held provider request");
+	respondToRequest(fixture, heldRequest);
+	await waitUntil(
+		() => countCompletedTurns(fixture) === 1,
+		"held turn completion",
+		() => output(fixture),
+	);
+}
+
+async function submitPromptAndAssertText(
+	fixture: RunningFixture,
+	prompt: string,
+	expectedText: string,
+	expectedTurns: number,
+): Promise<void> {
+	fixture.bridge.stdin.write(`${prompt}\r`);
+	await waitUntil(
+		() => countCompletedTurns(fixture) === expectedTurns,
+		`${prompt} turn completion`,
+		() => output(fixture),
+	);
+	const request = fixture.requests.at(-1);
+	if (!request) throw new Error(`Missing provider request for ${prompt}`);
+	expect(userTexts(request)).toContain(expectedText);
+}
+
+async function assertSupportedPrompts(fixture: RunningFixture, streaming: boolean): Promise<void> {
+	await submitPromptAndAssertText(
+		fixture,
+		"/example preserved arguments",
+		"Expanded template: preserved arguments",
+		streaming ? 2 : 1,
+	);
+	await submitPromptAndAssertText(
+		fixture,
+		"Ordinary prompt after rejection",
+		"Ordinary prompt after rejection",
+		streaming ? 3 : 2,
+	);
+	expect(fixture.requests.every((request) => userTexts(request).every((text) => !text.includes(UNKNOWN_INPUT)))).toBe(
+		true,
+	);
+	expect(fixture.bridge.exitCode).toBeNull();
+	expect(fixture.stderr).toBe("");
+}
+
+async function cleanUpFixture(fixture: TestFixture): Promise<void> {
+	if (fixture.bridge) await stopBridge(fixture.bridge);
+	fixture.provider?.getSocket()?.destroy();
+	const provider = fixture.provider;
+	if (provider) {
+		await new Promise<void>((resolve, reject) =>
+			provider.server.close((error) => (error ? reject(error) : resolve())),
+		);
+	}
+	rmSync(fixture.paths.tempDir, { recursive: true, force: true });
+}
+
 it.skipIf(process.platform === "win32").each([
 	{ name: "idle Enter", streaming: false, key: "\r" },
 	{ name: "idle Alt+Enter", streaming: false, key: "\x1b\r" },
@@ -56,164 +289,22 @@ it.skipIf(process.platform === "win32").each([
 	{ name: "streaming Alt+Enter", streaming: true, key: "\x1b\r" },
 ])(
 	"rejects unknown slash input inside the live TUI ($name)",
-	async ({ streaming, key }) => {
-		const paths = createHeadlessPaths();
-		const terminal = new VirtualTerminal(100, 24);
-		const requests: ProviderRequest[] = [];
-		let provider: Awaited<ReturnType<typeof createProviderServer>> | undefined;
-		let bridge: ChildProcessWithoutNullStreams | undefined;
-		let rawOutput = "";
-		let stderr = "";
-		const output = () => `${rawOutput.slice(-4000)}\n${stderr}`;
-		const screen = () => terminal.getViewport().join("\n");
-		const sessionEntries = () => {
-			const file = readdirSync(paths.sessionDir, { recursive: true }).find(
-				(entry) => typeof entry === "string" && entry.endsWith(".jsonl"),
-			);
-			return typeof file === "string" ? SessionManager.open(join(paths.sessionDir, file)).getEntries() : [];
+	async (scenario) => {
+		const fixture: TestFixture = {
+			paths: createHeadlessPaths(),
+			terminal: new VirtualTerminal(100, 24),
+			requests: [],
+			rawOutput: "",
+			stderr: "",
 		};
-		const completedTurns = () =>
-			sessionEntries().filter(
-				(entry) =>
-					entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "end_turn",
-			).length;
-		const respond = (request: ProviderRequest) => {
-			provider?.getSocket()?.write(
-				`${JSON.stringify({
-					type: "response",
-					requestId: request.id,
-					message: fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Test complete" }), {
-						stopReason: "toolUse",
-					}),
-				})}\n`,
-			);
-		};
-
 		await runWithCleanup(
 			async () => {
-				mkdirSync(join(paths.agentDir, "prompts"));
-				writeFileSync(join(paths.agentDir, "prompts", "example.md"), "Expanded template: $ARGUMENTS");
-				writeFileSync(
-					join(paths.agentDir, "settings.json"),
-					JSON.stringify({ approvalPreset: "auto-approve", approvalPolicy: "auto-approve", quietStartup: true }),
-				);
-				provider = await createProviderServer(paths.socketPath, (request) => {
-					requests.push(request);
-					// Keep a real provider request open while testing the streaming rejection boundary.
-					if (streaming && requests.length === 1) return;
-					respond(request);
-				});
-				const fixtureDir = join(import.meta.dirname, "..", "fixtures");
-				bridge = spawn(
-					"python3",
-					[
-						join(fixtureDir, "interactive-pty-bridge.py"),
-						"24",
-						"100",
-						process.execPath,
-						"--experimental-strip-types",
-						"--import",
-						pathToFileURL(join(fixtureDir, "interactive-pty-provider-preload.ts")).href,
-						join(import.meta.dirname, "..", "..", "..", "src", "cli.ts"),
-						"--provider",
-						"headless-faux",
-						"--model",
-						"headless-faux-1",
-						"--session-dir",
-						paths.sessionDir,
-						"--no-context-files",
-						"--no-skills",
-						"--no-themes",
-						"--no-extensions",
-						"--extension",
-						join(fixtureDir, "interactive-pty-provider-extension.ts"),
-					],
-					{
-						cwd: paths.workspaceDir,
-						env: {
-							...process.env,
-							PI_OFFLINE: "1",
-							PI_TELEMETRY: "0",
-							PI_CODING_AGENT_DIR: paths.agentDir,
-							PI_CODING_AGENT_STATE_DIR: paths.agentDir,
-							PI_CODING_AGENT_SESSION_DIR: paths.sessionDir,
-							PI_HEADLESS_PROVIDER_SOCKET: paths.socketPath,
-							PI_TUI_WRITE_LOG: "",
-							PI_DEBUG_REDRAW: "0",
-							PI_TUI_DEBUG: "0",
-							TERM: "xterm-256color",
-							NO_COLOR: "1",
-						},
-					},
-				);
-				bridge.stdout.setEncoding("utf8");
-				bridge.stdout.on("data", (text: string) => {
-					rawOutput += text;
-					terminal.write(text);
-				});
-				bridge.stderr.on("data", (chunk: Buffer) => {
-					stderr += chunk.toString();
-				});
-				await waitUntil(() => screen().includes("headless-faux-1"), "interactive startup", output);
-				if (streaming) {
-					bridge.stdin.write("Start held turn\r");
-					await waitUntil(() => requests.length === 1, "held provider request", output);
-				}
-
-				bridge.stdin.write(`${UNKNOWN_INPUT}${key}`);
-				await waitUntil(
-					() => screen().includes(FEEDBACK) || rawOutput.includes("uncaughtException"),
-					"unknown-command feedback",
-					output,
-				);
-				await terminal.flush();
-				expect(screen(), output()).toContain(FEEDBACK);
-				expect(rawOutput).not.toContain("uncaughtException");
-				expect(rawOutput).not.toMatch(/at AgentSession\.|agent-session\.ts:\d+/);
-				expect(bridge.exitCode).toBeNull();
-				expect(requests).toHaveLength(streaming ? 1 : 0);
-				expect(
-					sessionEntries().some(
-						(entry) => entry.type === "message" && JSON.stringify(entry.message).includes(UNKNOWN_INPUT),
-					),
-				).toBe(false);
-
-				// Rejected input remains recallable, but the editor is clear and still owns keyboard focus.
-				bridge.stdin.write("\x1b[A");
-				await waitUntil(() => screen().includes(UNKNOWN_INPUT), "rejected input in editor history", output);
-				bridge.stdin.write("\x15/name after-rejection\r");
-				await waitUntil(
-					() => screen().includes("Session name set: after-rejection"),
-					"built-in command after rejection",
-					output,
-				);
-				expect(requests).toHaveLength(streaming ? 1 : 0);
-				if (streaming) {
-					respond(requests[0]);
-					await waitUntil(() => completedTurns() === 1, "held turn completion", output);
-				}
-
-				bridge.stdin.write("/example preserved arguments\r");
-				await waitUntil(() => completedTurns() === (streaming ? 2 : 1), "template turn completion", output);
-				expect(userTexts(requests.at(-1)!)).toContain("Expanded template: preserved arguments");
-				bridge.stdin.write("Ordinary prompt after rejection\r");
-				await waitUntil(() => completedTurns() === (streaming ? 3 : 2), "ordinary prompt completion", output);
-				expect(userTexts(requests.at(-1)!)).toContain("Ordinary prompt after rejection");
-				expect(requests.every((request) => userTexts(request).every((text) => !text.includes(UNKNOWN_INPUT)))).toBe(
-					true,
-				);
-				expect(bridge.exitCode).toBeNull();
-				expect(stderr).toBe("");
+				const running = await startInteractiveSession(fixture, scenario.streaming);
+				await submitUnknownCommandAndAssertRejection(running, scenario);
+				await assertKeyboardRecovery(running, scenario.streaming);
+				await assertSupportedPrompts(running, scenario.streaming);
 			},
-			async () => {
-				if (bridge) await stopBridge(bridge);
-				provider?.getSocket()?.destroy();
-				if (provider)
-					await new Promise<void>((resolve, reject) =>
-						provider?.server.close((error) => (error ? reject(error) : resolve())),
-					);
-				rmSync(paths.tempDir, { recursive: true, force: true });
-			},
+			() => cleanUpFixture(fixture),
 		);
 	},
 	40_000,

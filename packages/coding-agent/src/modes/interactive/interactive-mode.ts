@@ -3929,6 +3929,18 @@ export class InteractiveMode {
 		return this.submitSelectedAgentSteering(text, submittedText);
 	}
 
+	private async submitStreamingPrompt(text: string, streamingBehavior: "steer" | "followUp"): Promise<void> {
+		this.addSubmittedTextToHistory(text);
+		this.editor.setText("");
+		try {
+			await this.session.prompt(text, { streamingBehavior });
+		} catch (error: unknown) {
+			this.showError(error instanceof Error ? error.message : String(error));
+		}
+		this.updatePendingMessagesDisplay();
+		this.ui.requestRender();
+	}
+
 	private setupEditorSubmitHandler(): void {
 		this.defaultEditor.onSubmit = async (text: string) => {
 			const submittedText = text;
@@ -4141,15 +4153,7 @@ export class InteractiveMode {
 			// If streaming, use prompt() with steer behavior
 			// This handles extension commands (execute immediately), prompt template expansion, and queueing
 			if (this.session.isStreaming) {
-				this.addSubmittedTextToHistory(text);
-				this.editor.setText("");
-				try {
-					await this.session.prompt(text, { streamingBehavior: "steer" });
-				} catch (error: unknown) {
-					this.showError(error instanceof Error ? error.message : String(error));
-				}
-				this.updatePendingMessagesDisplay();
-				this.ui.requestRender();
+				await this.submitStreamingPrompt(text, "steer");
 				return;
 			}
 
@@ -5303,15 +5307,7 @@ export class InteractiveMode {
 		// Alt+Enter queues a follow-up message (waits until agent finishes)
 		// This handles extension commands (execute immediately), prompt template expansion, and queueing
 		if (this.session.isStreaming) {
-			this.addSubmittedTextToHistory(text);
-			this.editor.setText("");
-			try {
-				await this.session.prompt(text, { streamingBehavior: "followUp" });
-			} catch (error: unknown) {
-				this.showError(error instanceof Error ? error.message : String(error));
-			}
-			this.updatePendingMessagesDisplay();
-			this.ui.requestRender();
+			await this.submitStreamingPrompt(text, "followUp");
 		}
 		// If not streaming, Alt+Enter acts like regular Enter (trigger onSubmit)
 		else if (this.editor.onSubmit) {
