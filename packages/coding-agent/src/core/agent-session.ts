@@ -2810,7 +2810,9 @@ export class AgentSession {
 		if (this.hasPendingMessages() || this.agent.hasQueuedMessages()) return false;
 		const context = this._loadCodexRestrictionContext();
 		if (!context) return this._displayBlockedCodexRestriction("An explicit user request is required for review");
-		if (!claimCodexRestrictionRecovery(this._controlDbPath, context.requestId)) return false;
+		if (!claimCodexRestrictionRecovery(this._controlDbPath, context.requestId)) {
+			return this._displayBlockedCodexRestriction("Recovery was already used for this request; send a new request");
+		}
 		const snapshot = {
 			sessionId: this.sessionId,
 			requestId: context.requestId,

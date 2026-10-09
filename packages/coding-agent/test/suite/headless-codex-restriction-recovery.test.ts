@@ -39,6 +39,12 @@ function readRecoveryEntries(agent: HeadlessPi): SessionEntry[] {
 		.filter((entry) => entry.type === "custom_message" && entry.customType === "supervisor_restriction_recovery");
 }
 
+function expectBudgetUsedNotice(agent: HeadlessPi, count: number) {
+	const entries = readRecoveryEntries(agent);
+	expect(entries).toHaveLength(count);
+	expect(JSON.stringify(entries[entries.length - 1])).toContain("Recovery was already used for this request");
+}
+
 function readBudget(agent: HeadlessPi) {
 	return agent
 		.readSessionEntries(null)
@@ -292,7 +298,7 @@ describe("real-process Codex restriction recovery", () => {
 				);
 				await expectNoModelRequest(agent);
 				expect(agent.countSupervisorRequests("supervisor_advisory")).toBe(1);
-				expect(readRecoveryEntries(agent)).toHaveLength(1);
+				expectBudgetUsedNotice(agent, 2);
 				expect(readProviderRequests(agent)).toHaveLength(4);
 				expectOriginalHistory(agent, 2);
 				expectSpentBudget(agent);
@@ -453,7 +459,7 @@ describe("real-process Codex restriction recovery", () => {
 				);
 				await expectNoModelRequest(agent);
 				expect(agent.countSupervisorRequests("supervisor_advisory")).toBe(1);
-				expect(readRecoveryEntries(agent)).toHaveLength(0);
+				expectBudgetUsedNotice(agent, 1);
 				expectSpentBudget(agent);
 				expectOriginalHistory(agent, 2);
 				expect(agent.readSessionMetadata(null)).toEqual(model);
@@ -466,7 +472,7 @@ describe("real-process Codex restriction recovery", () => {
 				await finishSubset(agent);
 				await expectNoModelRequest(agent);
 				expect(agent.countSupervisorRequests("supervisor_advisory")).toBe(2);
-				expect(readRecoveryEntries(agent)).toHaveLength(1);
+				expect(readRecoveryEntries(agent)).toHaveLength(2);
 				expectSpentBudget(agent);
 				expectOriginalHistory(agent, 3);
 			});
@@ -495,7 +501,7 @@ describe("real-process Codex restriction recovery", () => {
 				);
 				await expectNoModelRequest(agent);
 				expect(agent.countSupervisorRequests("supervisor_advisory")).toBe(1);
-				expect(readRecoveryEntries(agent)).toHaveLength(1);
+				expectBudgetUsedNotice(agent, 2);
 				expectSpentBudget(agent);
 				expectOriginalHistory(agent, 2);
 				expect(await supervisor.ping()).toEqual({ pid: supervisor.pid, ready: true });
@@ -582,6 +588,12 @@ describe("real-process Codex restriction recovery", () => {
 				await expectNoModelRequest(agent);
 				expect(readProviderRequests(agent)).toHaveLength(4);
 				expect(agent.countSupervisorRequests("supervisor_advisory")).toBe(1);
+				const notices = SessionManager.open(transitionedFile)
+					.getBranch()
+					.filter(
+						(entry) => entry.type === "custom_message" && entry.customType === "supervisor_restriction_recovery",
+					);
+				expect(JSON.stringify(notices[notices.length - 1])).toContain("Recovery was already used for this request");
 				expect(await supervisor.ping()).toEqual({ pid: supervisor.pid, ready: true });
 				// The global helper intentionally reads its original file; return there for durable claim proof.
 				if (transition === "fork") await agent.send({ type: "switch_session", sessionPath: originalFile });
