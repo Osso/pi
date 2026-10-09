@@ -79,11 +79,15 @@ afterEach(() => {
 	for (const harness of harnesses.splice(0)) harness.cleanup();
 });
 
+type HarnessOptions = NonNullable<Parameters<typeof createHarness>[0]>;
+
 async function createRecoveryHarness(
-	requester: NonNullable<Parameters<typeof createHarness>[0]>["supervisorDecisionRequester"],
+	requester: HarnessOptions["supervisorDecisionRequester"],
 	tools: AgentTool[] = [],
+	extensionFactories?: HarnessOptions["extensionFactories"],
 ) {
 	const harness = await createHarness({
+		extensionFactories,
 		fauxProvider: { api: "openai-codex-responses", provider: "restriction-test" },
 		settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 } },
 		supervisorDecisionRequester: requester,
@@ -163,6 +167,51 @@ describe("Codex restriction rescope", () => {
 			),
 		).toBe(true);
 		expect(harness.eventsOfType("auto_retry_start")).toHaveLength(0);
+	});
+
+	it("tags only the validation agent_end and promises an attempt only when validation allows one", async () => {
+		const extensionContinuations: Array<string | undefined> = [];
+		const harness = await createRecoveryHarness(
+			async () => ({ kind: "advisory", answer: JSON.stringify(ADVICE) }),
+			[],
+			[
+				(pi) => {
+					pi.on("agent_end", async (event) => {
+						extensionContinuations.push(event.sessionContinuation);
+					});
+				},
+			],
+		);
+		harness.setResponses([restriction(), approvedValidation(), fauxAssistantMessage("Source names listed")]);
+		await harness.session.prompt(ORIGINAL);
+
+		const ends = harness
+			.eventsOfType("agent_end")
+			.map(({ willRetry, sessionContinuation }) => ({ willRetry, sessionContinuation }));
+		expect(ends).toEqual([
+			{ willRetry: false, sessionContinuation: undefined },
+			{ willRetry: true, sessionContinuation: "codex_restriction_validation" },
+			{ willRetry: false, sessionContinuation: undefined },
+		]);
+		expect(extensionContinuations).toEqual([undefined, "codex_restriction_validation", undefined]);
+
+		const denied = await createRecoveryHarness(async () => ({ kind: "advisory", answer: JSON.stringify(ADVICE) }));
+		denied.setResponses([
+			restriction(),
+			fauxAssistantMessage(
+				JSON.stringify({ allowed: false, task: SUBTASK, reason: "Not clearly authorized.", basisQuote: "" }),
+			),
+		]);
+		await denied.session.prompt(ORIGINAL);
+		expect(
+			denied
+				.eventsOfType("agent_end")
+				.map(({ willRetry, sessionContinuation }) => ({ willRetry, sessionContinuation })),
+		).toEqual([
+			{ willRetry: false, sessionContinuation: undefined },
+			{ willRetry: false, sessionContinuation: "codex_restriction_validation" },
+		]);
+		expect(denied.faux.state.callCount).toBe(2);
 	});
 
 	it("stops after a second flag instead of repeatedly rescoping", async () => {
