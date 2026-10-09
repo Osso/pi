@@ -132,8 +132,8 @@ async function expectSilentDetachedCleanupAndSingleParentCompletion(
 	detachedAgentId: string,
 	parentAgentId: string,
 ): Promise<void> {
-	await vi.waitFor(() => expect(pi.readTerminalOutboxStatuses(detachedAgentId)).toEqual(["delivered"]));
-	await vi.waitFor(() => expect(pi.readTerminalOutboxStatuses(parentAgentId)).toEqual(["delivered"]));
+	await vi.waitFor(() => expect(pi.readTerminalOutboxStatuses(detachedAgentId)).toEqual([]));
+	await vi.waitFor(() => expect(pi.readTerminalOutboxStatuses(parentAgentId)).toEqual([]));
 	expect(pi.listMailboxMessages().filter((message) => message.fromAgentId === detachedAgentId)).toHaveLength(0);
 	expect(pi.listRuntimeMailboxMessages().filter((message) => message.sender.agentId === detachedAgentId)).toHaveLength(
 		0,

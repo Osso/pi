@@ -266,7 +266,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   new message; production producers do not retry a delivered store reference. Detached terminal mirroring
   uses the terminal agent's `detached === true && suppressTerminalNotification !== true` predicate instead
   of mailbox history, preventing duplicate transport after deletion or listener rebind. Diagnostic output
-  artifacts retain their separate detached-job policy and never substitute for lifecycle state.
+  artifacts retain their separate detached-job policy and never substitute for lifecycle state. Terminal outbox
+  projection delivery separately deletes its claimed row on acknowledgement; mailbox deletion and diagnostic
+  artifact cleanup do not require a retained delivered outbox row.
 - Production exposes no generic runtime-ownership acquire/release writer. Tests that need historical or
   malformed ownership use an explicit raw fixture helper outside production; production attachment, creation,
   lifecycle, steering, recovery, and terminal writers are allowlisted to coordinator or detached-runner modules.
@@ -308,8 +310,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   whose `parentId` is the child, `agentType` is `"background"`, `worker.adapter` is `"runtime"`, and `detached` is
   `true`, then cancels those directly owned detached Bash/Pyrun jobs and waits for all descendants to settle. Those
   cleanup cancellations persist a silent terminal-notification policy; parent-cancellation cascades apply the same
-  policy to detached jobs in the cancelled subtree. Terminal rows and outbox evidence remain, while terminal-notification
-  projections, runtime terminal transport, and `detached_tool_call_completion` transcript entries are omitted.
+  policy to detached jobs in the cancelled subtree. Terminal agent rows remain; outbox rows are deleted after successful
+  projection acknowledgement. Terminal-notification projections, runtime terminal transport, and
+  `detached_tool_call_completion` transcript entries are omitted.
   Main-session detached jobs and directly closed detached jobs keep normal notifications. SQLite rejects any parent
   terminal mutation while a persisted descendant remains nonterminal; the coordinator resolves cancellation or exact
   owner-process loss for descendants before terminalizing the parent.
@@ -330,7 +333,13 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   confirmed abort.
 - Each terminal transition updates the agent row and enqueues exactly one pending completion or failure
   notification in the same SQLite transaction. The agent row is terminal truth; the outbox is only a
-  delivery queue. Redelivery and retries affect terminal-notification delivery only. `wait_agent` consumes every
+  delivery queue. Successful projection acknowledgement atomically deletes the exact claimed outbox row;
+  no delivered status, timestamp, receipt, or tombstone remains. Pending and claimed rows retain retry/claim
+  semantics; exhausted attempts remain poisoned failure records for seven days, with hourly cleanup.
+  Exact finalization retries use committed terminal lifecycle, revision, ownership, and matching result details,
+  not outbox history, and never enqueue another notification after deletion. Authorized dead-runtime recovery
+  retries return an already committed lost-runtime terminal revision with released ownership; reconciliation
+  excludes terminal agents. Redelivery and retries affect terminal-notification delivery only. `wait_agent` consumes every
   pending terminal notification already waiting and queries the current agent rows for agents active at invocation;
   terminal notifications only wake that query, while child steering and accepted ordinary main-session steering wake
   only a live wait. At 25 minutes after the latest foreground `model_request_start`, it returns an explicit
@@ -369,8 +378,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Child terminal paths select active direct children whose `parentId` is the child, `agentType` is `"background"`,
       `worker.adapter` is `"runtime"`, and `detached` is `true`, then cancel those directly owned detached Bash/Pyrun
       jobs before descendant settlement. Notification suppression is persisted with cancellation intent and survives
-      supervisor restart; cleanup keeps terminal outbox audit evidence but produces no terminal-notification projection,
-      runtime terminal transport, or `detached_tool_call_completion` transcript entry.
+      supervisor restart; cleanup preserves terminal agent state, deletes acknowledged outbox rows, and produces
+      no terminal-notification projection, runtime terminal transport, or `detached_tool_call_completion` transcript entry.
 - [x] Mailbox messages and completion results carry validated absolute `fileRefs` entries so logs,
       diffs, summaries, and findings are referenced directly without registry indirection.
 - [x] Persisted mailbox message IDs are stable within a session store. Reuse is checked

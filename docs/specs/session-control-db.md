@@ -99,8 +99,14 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       The agent row is terminal truth; the outbox is only a delivery queue.
       Exact retries return the committed terminal revision without rewriting rows; conflicting predicates fail
       without creating another notification. Outbox rows use atomic single-claim delivery; failures return
-      the same row to pending with an incremented attempt count and retained error, while successful delivery
-      finalizes only notification transport. An idle outbox claim performs a read-only eligibility probe and
+      the same row to pending with an incremented attempt count and retained error, while successful projection
+      acknowledgement atomically deletes the exact claimed outbox row. No delivered status, receipt, or tombstone
+      is retained; the legacy `delivered_at` column stays unused because dropping it needs a quiescent migration. Poisoned rows remain failure records for seven days and are cleaned hourly;
+      cleanup never expires pending or claimed outbox work. Exact terminal/finalization replays validate durable
+      terminal agent state and matching ownership/result details without requiring an outbox row or enqueueing again.
+      Authorized recovery replay returns the committed lost-runtime terminal revision only with released ownership;
+      ordinary reconciliation selects nonterminal agents. The schema version is unchanged, so old and new runtimes
+      share the control DB during rolling restarts. An idle outbox claim performs a read-only eligibility probe and
       returns without reserving the writer lock; when stale claims need recovery, that recovery remains in the
       immediate transaction, and the pending-row selection plus claim is one atomic `UPDATE ... RETURNING`.
       Runtime-mailbox claim, delivery, and dead-claim recovery prepare and serialize transition payloads before

@@ -3236,7 +3236,7 @@ export interface MultiAgentTerminalOutboxRecord {
 	agentId: string;
 	terminalRevision: number;
 	eventKind: string;
-	status: "claimed" | "delivered" | "pending" | "poisoned";
+	status: "claimed" | "pending" | "poisoned";
 	claimId?: string;
 	attemptCount: number;
 }
@@ -3466,15 +3466,25 @@ export function failMultiAgentTerminalOutbox(
 export function deliverMultiAgentTerminalOutbox(
 	controlDbPath: string,
 	record: MultiAgentTerminalOutboxRecord,
-	nowIso: string,
 ): boolean {
-	return updateClaimedTerminalOutbox(controlDbPath, record, "delivered", nowIso);
+	return withControlDb(
+		controlDbPath,
+		(db) =>
+			db
+				.prepare(
+					`DELETE FROM multi_agent_terminal_outbox
+				 WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ?
+				 AND status = 'claimed' AND claim_id = ?`,
+				)
+				.run(record.sessionPath, record.agentId, record.terminalRevision, record.eventKind, record.claimId ?? null)
+				.changes === 1,
+	);
 }
 
 function updateClaimedTerminalOutbox(
 	controlDbPath: string,
 	record: MultiAgentTerminalOutboxRecord,
-	status: "pending" | "delivered" | "poisoned",
+	status: "pending" | "poisoned",
 	nowIso: string,
 	error?: string,
 ): boolean {
@@ -3483,11 +3493,10 @@ function updateClaimedTerminalOutbox(
 		(db) =>
 			db
 				.prepare(
-					`UPDATE multi_agent_terminal_outbox SET status = ?, claim_id = NULL, claimed_at = NULL, delivered_at = ?, last_error = ?, updated_at = ? WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ? AND status = 'claimed' AND claim_id = ?`,
+					`UPDATE multi_agent_terminal_outbox SET status = ?, claim_id = NULL, claimed_at = NULL, last_error = ?, updated_at = ? WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ? AND status = 'claimed' AND claim_id = ?`,
 				)
 				.run(
 					status,
-					status === "delivered" ? nowIso : null,
 					error ?? null,
 					nowIso,
 					record.sessionPath,
@@ -3506,7 +3515,7 @@ export function cleanupMultiAgentTerminalOutbox(controlDbPath: string, olderThan
 			db
 				.prepare(
 					`DELETE FROM multi_agent_terminal_outbox
-					 WHERE status IN ('delivered', 'poisoned') AND updated_at < ?`,
+					 WHERE status = 'poisoned' AND updated_at < ?`,
 				)
 				.run(olderThan).changes,
 	);
@@ -4293,7 +4302,7 @@ function prepareMultiAgentTerminalMutation(
 		return { result: { ok: false, error: "mutation_mismatch" } };
 	}
 	if (agent.lifecycle === input.terminalLifecycle) {
-		return { result: terminalMutationReplayResult(db, input, agent, Number(agent.revision)) };
+		return { result: terminalMutationReplayResult(input, agent, Number(agent.revision)) };
 	}
 	const terminalRevision = Number(agent.revision) + 1;
 	if (!canPersistTerminalTransition(agent.lifecycle, input.terminalLifecycle)) {
@@ -4340,8 +4349,8 @@ function persistMultiAgentTerminalMutation(
 		db.prepare(
 			`INSERT INTO multi_agent_terminal_outbox (
 				session_path, agent_id, terminal_revision, event_kind, status,
-				claim_id, claimed_at, delivered_at, attempt_count, last_error, updated_at
-			) VALUES (?, ?, ?, ?, 'pending', NULL, NULL, NULL, 0, NULL, ?)`,
+				claim_id, claimed_at, attempt_count, last_error, updated_at
+			) VALUES (?, ?, ?, ?, 'pending', NULL, NULL, 0, NULL, ?)`,
 		).run(input.sessionPath, input.agentId, plan.terminalRevision, input.eventKind, input.updatedAt);
 		return { ok: true, terminalRevision: plan.terminalRevision };
 	});
@@ -4449,7 +4458,6 @@ function isNonterminalLifecycle(lifecycle: unknown): boolean {
 }
 
 function terminalMutationReplayResult(
-	db: SqliteDatabase,
 	input: CommitMultiAgentTerminalMutationInput,
 	agent: Record<string, unknown>,
 	terminalRevision: number,
@@ -4457,13 +4465,6 @@ function terminalMutationReplayResult(
 	for (const [key, value] of Object.entries(input.agentDetails ?? {})) {
 		if (JSON.stringify(agent[key]) !== JSON.stringify(value)) return { ok: false, error: "mutation_mismatch" };
 	}
-	const outbox = db
-		.prepare(
-			`SELECT 1 FROM multi_agent_terminal_outbox
-			 WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ?`,
-		)
-		.get(input.sessionPath, input.agentId, terminalRevision, input.eventKind);
-	if (!outbox) return { ok: false, error: "mutation_mismatch" };
 	return { ok: true, terminalRevision };
 }
 
@@ -4565,7 +4566,7 @@ function prepareDetachedJobFinalization(
 	}
 	if (agent.lifecycle === terminalLifecycle) {
 		return {
-			result: detachedJobReplayResult(db, sessionPath, terminal, agent, Number(agent.revision), eventKind),
+			result: detachedJobReplayResult(sessionPath, terminal, agent, Number(agent.revision)),
 		};
 	}
 	const terminalRevision = Number(agent.revision) + 1;
@@ -4635,12 +4636,10 @@ function detachedJobOwnershipMatches(
 }
 
 function detachedJobReplayResult(
-	db: SqliteDatabase,
 	sessionPath: string,
 	terminal: DetachedJobTerminalInput,
 	terminalAgent: Record<string, unknown>,
 	terminalRevision: number,
-	eventKind: string,
 ): FinalizeDetachedJobResult {
 	const expectedDetails = detachedJobAgentDetails(
 		terminalAgent,
@@ -4651,13 +4650,6 @@ function detachedJobReplayResult(
 		if (JSON.stringify(terminalAgent[key]) !== JSON.stringify(value))
 			return { ok: false, error: "mutation_mismatch" };
 	}
-	const outbox = db
-		.prepare(
-			`SELECT 1 FROM multi_agent_terminal_outbox
-			 WHERE session_path = ? AND agent_id = ? AND terminal_revision = ? AND event_kind = ?`,
-		)
-		.get(sessionPath, terminal.jobId, terminalRevision, eventKind);
-	if (!outbox) return { ok: false, error: "mutation_mismatch" };
 	validatePersistedAgentPayload(terminalAgent, `multi_agent_agents:${sessionPath}#${terminal.jobId}`);
 	return { ok: true, terminalAgent: terminalAgent as unknown as AgentSnapshot, terminalRevision };
 }
@@ -4805,6 +4797,8 @@ function recoverDeadMultiAgentRuntimeWithDb(
 			input.supervisor,
 		);
 		if (!supervisorAuthority) return { ok: false, error: "mutation_mismatch" };
+		const replay = readDeadRuntimeRecoveryReplay(db, input.expectedOwner);
+		if (replay) return replay;
 		const recoverable = readRecoverableMultiAgentRuntime(db, input.expectedOwner, input.supervisor.processIdentity);
 		if (!recoverable.ok) return recoverable;
 		const plan = prepareDeadRuntimeRecovery(recoverable, input.expectedOwner, input.nowIso);
@@ -4812,6 +4806,27 @@ function recoverDeadMultiAgentRuntimeWithDb(
 		if (result) return result;
 	}
 	return { ok: false, error: "mutation_mismatch" };
+}
+
+function readDeadRuntimeRecoveryReplay(
+	db: SqliteDatabase,
+	expectedOwner: MultiAgentRuntimeOwnershipIdentity,
+): RecoverDeadMultiAgentRuntimeResult | undefined {
+	const { agentId, sessionPath } = expectedOwner;
+	const row = db
+		.prepare("SELECT data FROM multi_agent_agents WHERE session_path = ? AND agent_id = ?")
+		.get(sessionPath, agentId) as { data: string } | undefined;
+	if (!row) return undefined;
+	const agent = parseStoredJsonObject(row.data, `multi_agent_agents:${sessionPath}#${agentId}`);
+	if (agent.lifecycle !== "failed" && agent.lifecycle !== "aborted") return undefined;
+	const error = agent.error as { code?: unknown } | undefined;
+	if (error?.code !== "lost_runtime") return undefined;
+	const owner = readMultiAgentRuntimeOwnershipRow(db, sessionPath, agentId);
+	if (!owner || owner.process_identity !== null || owner.owner_session_id !== null || owner.owner_agent_id !== null) {
+		return undefined;
+	}
+	validatePersistedAgentPayload(agent, `multi_agent_agents:${sessionPath}#${agentId}`);
+	return { agent, ok: true, terminalRevision: Number(agent.revision) };
 }
 
 function readSupervisorRecoveryAuthority(
@@ -5187,8 +5202,8 @@ function commitFailedMultiAgentChild(
 		db.prepare(
 			`INSERT INTO multi_agent_terminal_outbox (
 				session_path, agent_id, terminal_revision, event_kind, status,
-				claim_id, claimed_at, delivered_at, attempt_count, last_error, updated_at
-			) VALUES (?, ?, 1, 'failed', 'pending', NULL, NULL, NULL, 0, NULL, ?)`,
+				claim_id, claimed_at, attempt_count, last_error, updated_at
+			) VALUES (?, ?, 1, 'failed', 'pending', NULL, NULL, 0, NULL, ?)`,
 		).run(input.sessionPath, agent.id, input.nowIso);
 		return { ok: true, agent };
 	});
@@ -6671,6 +6686,7 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 			status TEXT NOT NULL,
 			claim_id TEXT,
 			claimed_at TEXT,
+			-- Unused since delivery deletes rows; dropping it needs a quiescent schema migration.
 			delivered_at TEXT,
 			attempt_count INTEGER NOT NULL DEFAULT 0,
 			last_error TEXT,
@@ -7050,7 +7066,7 @@ function migrateTerminalOutboxSchema(db: SqliteDatabase): void {
 			PRIMARY KEY (session_path, agent_id, terminal_revision, event_kind)
 		);
 		INSERT INTO multi_agent_terminal_outbox
-		SELECT * FROM multi_agent_terminal_outbox_v12;
+		SELECT * FROM multi_agent_terminal_outbox_v12 WHERE status != 'delivered';
 		DROP TABLE multi_agent_terminal_outbox_v12;
 		DROP TABLE multi_agent_terminal_events;
 		CREATE INDEX IF NOT EXISTS multi_agent_terminal_outbox_status_idx

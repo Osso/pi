@@ -11,7 +11,7 @@ import {
 const TERMINAL_OUTBOX_CLAIM_LEASE_MS = 30_000;
 const TERMINAL_OUTBOX_MAX_ATTEMPTS = 5;
 export const TERMINAL_OUTBOX_CLEANUP_INTERVAL_MS = 60 * 60 * 1_000;
-const TERMINAL_OUTBOX_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const POISONED_TERMINAL_OUTBOX_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface DeliverTerminalOutboxOptions {
 	artifactRoot?: string;
@@ -26,7 +26,7 @@ export function isTerminalOutboxCleanupDue(lastCleanupAt: number | undefined, no
 }
 
 export function terminalOutboxRetentionThreshold(now: number): string {
-	return new Date(now - TERMINAL_OUTBOX_RETENTION_MS).toISOString();
+	return new Date(now - POISONED_TERMINAL_OUTBOX_RETENTION_MS).toISOString();
 }
 
 export function deliverTerminalOutboxProjections(options: DeliverTerminalOutboxOptions): number {
@@ -67,7 +67,7 @@ function deliverTerminalOutboxProjection(
 			);
 		}
 		options.store.publishTerminalOutboxSnapshot(agent);
-		if (!deliverMultiAgentTerminalOutbox(options.controlDbPath, record, options.now())) {
+		if (!deliverMultiAgentTerminalOutbox(options.controlDbPath, record)) {
 			throw new Error(`Could not acknowledge terminal outbox projection for ${record.agentId}`);
 		}
 	} catch (error) {

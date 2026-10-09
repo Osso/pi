@@ -4,7 +4,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat
 import { expect, it, vi } from "vitest";
 import { withHeadlessPi } from "./headless-pi.ts";
 
-it("delivers one detached terminal notification after supervisor restart and never replays its deleted transport", async () => {
+it("delivers one detached terminal notification after supervisor restart and never replays its deleted transport or outbox", async () => {
 	await withHeadlessPi(
 		async (agent) => {
 			const startedPath = join(agent.paths.workspaceDir, "terminal-started");
@@ -56,7 +56,7 @@ it("delivers one detached terminal notification after supervisor restart and nev
 					stopReason: "toolUse",
 				}),
 			);
-			await vi.waitFor(() => expect(agent.readTerminalOutboxStatuses(job.id)).toEqual(["delivered"]));
+			await vi.waitFor(() => expect(agent.readTerminalOutboxStatuses(job.id)).toEqual([]));
 			await agent.waitForSessionEntry(
 				null,
 				(entry) =>
@@ -70,6 +70,7 @@ it("delivers one detached terminal notification after supervisor restart and nev
 			const probe = await agent.waitForLlmRequest((request) => request.agentId === null);
 			expect(probe.userMessages.filter((text) => text.includes(`- agent: ${job.id}`))).toHaveLength(1);
 			expect(agent.listRuntimeMailboxMessages().filter((message) => message.sender.agentId === job.id)).toEqual([]);
+			expect(agent.readTerminalOutboxStatuses(job.id)).toEqual([]);
 			expect(readFileSync(startedPath, "utf8")).toBe("x");
 			await agent.send({ type: "abort" });
 		},

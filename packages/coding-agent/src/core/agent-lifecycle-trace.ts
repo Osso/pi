@@ -61,12 +61,11 @@ export type AgentLifecycleTraceEvent =
 			attemptCount: number;
 			claimId?: string;
 			claimedAt?: string;
-			deliveredAt?: string;
 			eventKind: string;
 			kind: "terminal_outbox";
 			lastError?: string;
 			source: "control_db";
-			status: "claimed" | "delivered" | "pending" | "poisoned";
+			status: "claimed" | "pending" | "poisoned";
 			terminalRevision: number;
 			timestamp: string;
 			timestampSource: "outbox.updated_at";
@@ -98,10 +97,9 @@ interface TerminalOutboxRow {
 	attempt_count: number;
 	claim_id: string | null;
 	claimed_at: string | null;
-	delivered_at: string | null;
 	event_kind: string;
 	last_error: string | null;
-	status: "claimed" | "delivered" | "pending" | "poisoned";
+	status: "claimed" | "pending" | "poisoned";
 	terminal_revision: number;
 	updated_at: string;
 }
@@ -260,7 +258,7 @@ function readTerminalOutboxEvents(
 	return agentIds.flatMap((agentId) => {
 		const rows = database
 			.prepare(
-				`SELECT agent_id, terminal_revision, event_kind, status, claim_id, claimed_at, delivered_at,
+				`SELECT agent_id, terminal_revision, event_kind, status, claim_id, claimed_at,
 				        attempt_count, last_error, updated_at
 				 FROM multi_agent_terminal_outbox
 				 WHERE session_path = ? AND agent_id = ?
@@ -272,7 +270,6 @@ function readTerminalOutboxEvents(
 			attemptCount: row.attempt_count,
 			claimId: row.claim_id ?? undefined,
 			claimedAt: row.claimed_at ?? undefined,
-			deliveredAt: row.delivered_at ?? undefined,
 			eventKind: row.event_kind,
 			kind: "terminal_outbox" as const,
 			lastError: row.last_error ?? undefined,

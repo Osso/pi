@@ -2805,7 +2805,9 @@ Date.now = () => ${Date.now()};
 		expect(failMultiAgentTerminalOutbox(controlDbPath, claimed!, "temporary", "2026-07-11T00:02:00.000Z")).toBe(true);
 		const retried = claimMultiAgentTerminalOutbox(controlDbPath, "delivery-b", "2026-07-11T00:03:00.000Z");
 		expect(retried).toMatchObject({ attemptCount: 2, claimId: "delivery-b", status: "claimed" });
-		expect(deliverMultiAgentTerminalOutbox(controlDbPath, retried!, "2026-07-11T00:04:00.000Z")).toBe(true);
+		expect(deliverMultiAgentTerminalOutbox(controlDbPath, claimed!)).toBe(false);
+		expect(deliverMultiAgentTerminalOutbox(controlDbPath, retried!)).toBe(true);
+		expect(commitMultiAgentTerminalMutation(controlDbPath, mutation)).toEqual(committed);
 
 		const db = createSqliteDatabase(controlDbPath);
 		try {
@@ -2818,7 +2820,7 @@ Date.now = () => ${Date.now()};
 			) as Record<string, unknown>;
 			expect(agent).toMatchObject({ lifecycle: "completed", revision: 5 });
 			expect(agent).not.toHaveProperty("currentActivity");
-			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox").get()).toEqual({ count: 1 });
+			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox").get()).toEqual({ count: 0 });
 		} finally {
 			db.close();
 		}
@@ -2855,7 +2857,26 @@ Date.now = () => ${Date.now()};
 			}),
 		).toBe(true);
 		expect(claimMultiAgentTerminalOutbox(controlDbPath, "worker-c", "2026-07-11T00:04:00.000Z")).toBeUndefined();
+		const retained = createSqliteDatabase(controlDbPath);
+		try {
+			expect(
+				retained.prepare("SELECT status, attempt_count, last_error FROM multi_agent_terminal_outbox").get(),
+			).toEqual({ status: "poisoned", attempt_count: 2, last_error: "permanent" });
+			retained
+				.prepare(`INSERT INTO multi_agent_terminal_outbox
+				(session_path, agent_id, terminal_revision, event_kind, status, attempt_count, updated_at)
+				VALUES (?, 'old-pending', 1, 'completed', 'pending', 0, '2026-07-01T00:00:00.000Z')`)
+				.run(sessionPath);
+		} finally {
+			retained.close();
+		}
+		expect(cleanupMultiAgentTerminalOutbox(controlDbPath, "2026-07-11T00:03:00.000Z")).toBe(0);
 		expect(cleanupMultiAgentTerminalOutbox(controlDbPath, "2026-07-11T00:04:00.000Z")).toBe(1);
+		expect(claimMultiAgentTerminalOutbox(controlDbPath, "still-pending", "2026-07-11T00:05:00.000Z")).toMatchObject({
+			agentId: "old-pending",
+			status: "claimed",
+			attemptCount: 1,
+		});
 	});
 
 	it("rejects child activity from a stale runtime owner", () => {
@@ -3153,6 +3174,21 @@ Date.now = () => ${Date.now()};
 				},
 			},
 		]);
+		const notifications = claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "runner" });
+		expect(notifications).toHaveLength(1);
+		expect(deliverRuntimeMailboxMessage(controlDbPath, notifications[0]!.id)).toBe(true);
+		const outbox = claimMultiAgentTerminalOutbox(controlDbPath, "finalizer", terminal.terminalAt, { sessionPath });
+		expect(outbox).toBeDefined();
+		expect(deliverMultiAgentTerminalOutbox(controlDbPath, outbox!)).toBe(true);
+		expect(finalizeDetachedJob(controlDbPath, { sessionPath, terminal })).toEqual(finalized);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
+		expect(
+			finalizeDetachedJob(controlDbPath, {
+				sessionPath,
+				terminal: { ...terminal, outcome: { exitCode: 0, kind: "completed", summary: "conflicting result" } },
+			}),
+		).toEqual({ ok: false, error: "mutation_mismatch" });
+		expect(claimMultiAgentTerminalOutbox(controlDbPath, "duplicate", terminal.terminalAt)).toBeUndefined();
 		expect(
 			forceRuntimeOwnership(controlDbPath, {
 				agentId,
@@ -3168,7 +3204,7 @@ Date.now = () => ${Date.now()};
 		});
 		const db = createSqliteDatabase(controlDbPath);
 		try {
-			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox").get()).toEqual({ count: 1 });
+			expect(db.prepare("SELECT COUNT(*) AS count FROM multi_agent_terminal_outbox").get()).toEqual({ count: 0 });
 		} finally {
 			db.close();
 		}
@@ -3618,58 +3654,95 @@ Date.now = () => ${Date.now()};
 		).toMatchObject({ ok: false, error: "ownership_held" });
 	});
 
-	it("terminalizes an agent only after its exact owner process is dead", () => {
-		const sessionPath = "/sessions/dead-owner.jsonl";
-		const agentId = "agent-dead";
-		const processIdentity = testProcessIdentity("dead-owner");
-		const created = createMultiAgentChildWithRuntimeOwnership(controlDbPath, {
-			agent: {
-				agentType: "worker",
-				createdAt: "2026-07-11T00:00:00.000Z",
-				cwd: "/repo",
-				displayName: "Dead child",
-				id: agentId,
-				lifecycle: "running",
-				parentId: "main",
-				permission: { narrowed: true, policy: "on-request" },
-				revision: 1,
-				updatedAt: "2026-07-11T00:00:00.000Z",
-				worker: { adapter: "runtime", handleId: "runner-dead", toolCallId: "tool-dead" },
-			},
-			agentId,
-			nowIso: "2026-07-11T00:00:00.000Z",
-			owner: { agentId: null, sessionId: "supervisor-a" },
-			processIdentity,
-			sessionPath,
-		});
-		expect(created.ok).toBe(true);
-		const recoveryInput = {
-			expectedOwner: {
+	it.each(["running", "cancelling"] as const)(
+		"terminalizes a %s agent only after its exact owner process is dead",
+		(lifecycle) => {
+			const sessionPath = "/sessions/dead-owner.jsonl";
+			const agentId = "agent-dead";
+			const processIdentity = testProcessIdentity("dead-owner");
+			const supervisorIdentity = JSON.parse(getRuntimeProcessInstanceId()) as typeof CURRENT_PROCESS_IDENTITY;
+			const created = createMultiAgentChildWithRuntimeOwnership(controlDbPath, {
+				agent: {
+					agentType: "worker",
+					createdAt: "2026-07-11T00:00:00.000Z",
+					cwd: "/repo",
+					detached: true,
+					displayName: "Dead child",
+					id: agentId,
+					lifecycle: "running",
+					parentId: "main",
+					permission: { narrowed: true, policy: "on-request" },
+					revision: 1,
+					updatedAt: "2026-07-11T00:00:00.000Z",
+					worker: { adapter: "runtime", handleId: "runner-dead", toolCallId: "tool-dead" },
+				},
 				agentId,
+				nowIso: "2026-07-11T00:00:00.000Z",
 				owner: { agentId: null, sessionId: "supervisor-a" },
 				processIdentity,
 				sessionPath,
-			},
-			nowIso: "2026-07-11T00:00:01.000Z",
-			supervisor: { processIdentity: CURRENT_PROCESS_IDENTITY, sessionId: "supervisor-a" },
-		};
-		expect(recoverDeadMultiAgentRuntime(controlDbPath, recoveryInput)).toEqual({
-			ok: false,
-			error: "mutation_mismatch",
-		});
-		registerRuntimeMailboxListener(
-			controlDbPath,
-			{ agentId: null, sessionId: "supervisor-a" },
-			CURRENT_PROCESS_IDENTITY.pid,
-			sessionPath,
-			{ runtimeInstanceId: JSON.stringify(CURRENT_PROCESS_IDENTITY) },
-		);
-		const recovered = recoverDeadMultiAgentRuntime(controlDbPath, recoveryInput);
-		expect(recovered).toMatchObject({
-			ok: true,
-			agent: { lifecycle: "failed", result: { toolCallId: "tool-dead" }, revision: 2, worker: undefined },
-		});
-	});
+			});
+			expect(created.ok).toBe(true);
+			if (lifecycle === "cancelling") {
+				expect(
+					commitMultiAgentLifecycleMutation(controlDbPath, {
+						agentId,
+						owner: { agentId: null, sessionId: "supervisor-a" },
+						processIdentity,
+						requestedLifecycle: lifecycle,
+						sessionPath,
+						updatedAt: "2026-07-11T00:00:00.500Z",
+					}),
+				).toMatchObject({ ok: true });
+			}
+			const recoveryInput = {
+				expectedOwner: {
+					agentId,
+					owner: { agentId: null, sessionId: "supervisor-a" },
+					processIdentity,
+					sessionPath,
+				},
+				nowIso: "2026-07-11T00:00:01.000Z",
+				supervisor: { processIdentity: supervisorIdentity, sessionId: "supervisor-a" },
+			};
+			expect(recoverDeadMultiAgentRuntime(controlDbPath, recoveryInput)).toEqual({
+				ok: false,
+				error: "mutation_mismatch",
+			});
+			registerRuntimeMailboxListener(
+				controlDbPath,
+				{ agentId: null, sessionId: "supervisor-a" },
+				CURRENT_PROCESS_IDENTITY.pid,
+				sessionPath,
+				{ runtimeInstanceId: getRuntimeProcessInstanceId() },
+			);
+			const recovered = recoverDeadMultiAgentRuntime(controlDbPath, recoveryInput);
+			expect(recovered).toMatchObject({
+				ok: true,
+				agent: {
+					lifecycle: lifecycle === "cancelling" ? "aborted" : "failed",
+					result: { toolCallId: "tool-dead" },
+					revision: lifecycle === "cancelling" ? 3 : 2,
+					worker: undefined,
+				},
+			});
+			const notifications = claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "supervisor-a" });
+			expect(notifications).toHaveLength(1);
+			expect(deliverRuntimeMailboxMessage(controlDbPath, notifications[0]!.id)).toBe(true);
+			const outbox = claimMultiAgentTerminalOutbox(controlDbPath, "recovery-delivery", recoveryInput.nowIso);
+			expect(outbox).toMatchObject({ agentId, eventKind: "lost_runtime" });
+			expect(deliverMultiAgentTerminalOutbox(controlDbPath, outbox!)).toBe(true);
+			expect(recoverDeadMultiAgentRuntime(controlDbPath, recoveryInput)).toEqual(recovered);
+			expect(claimMultiAgentTerminalOutbox(controlDbPath, "recovery-replay", recoveryInput.nowIso)).toBeUndefined();
+			expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
+			expect(
+				recoverDeadMultiAgentRuntime(controlDbPath, {
+					...recoveryInput,
+					supervisor: { processIdentity: supervisorIdentity, sessionId: "unauthorized-supervisor" },
+				}),
+			).toEqual({ ok: false, error: "mutation_mismatch" });
+		},
+	);
 
 	it("does not acquire the writer lock before rejecting a live runtime owner", async () => {
 		const sessionPath = "/sessions/live-runtime-owner-contention.jsonl";
