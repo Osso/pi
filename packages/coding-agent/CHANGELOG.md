@@ -181,6 +181,7 @@
 
 ### Fixed
 
+- Fixed Supervisor answers appearing in a separate duplicate `[Supervisor]` block: the answer replaces `Waiting for Supervisor…` in the same displayed block, without changing continuation payload or delivery.
 - Fixed missing creation timestamps on detached status, Pyrun bridge, and coordinator cancellation envelopes so 24-hour mailbox expiry preserves status exchange and cancellation, including after parent restart with a live job; cancellation uses the mutation creation clock, not an old-row fallback. Payloads, routing, and duplicate identity are unchanged.
 - Fixed terminal lifecycle duplicate lookup scanning unrelated mailbox history by selecting only the owning session, preserving duplicate matching and global administrative listing.
 - Fixed session autoname failing on claude-bridge with `prompt-capture: no capture for this ... system prompt`: the title request is now marked as an uncached one-off call (`cacheRetention: "none"`), which claude-bridge routes outside the session like Pi's summarizer calls.

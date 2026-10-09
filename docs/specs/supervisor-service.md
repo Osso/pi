@@ -64,6 +64,10 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - [x] Require the model to call the terminating structured `supervisor_response` tool exactly once as the final action for each request; do not ask it to emit JSON text, markdown, or `end_turn` around that call. Extract only that current-request structured response, reject strict JSON text with trailing prose or malformed/partial content, and never reuse historical response text.
 - [x] Keep veto evaluation inside the original goal-review request deadline, caller-cancellation boundary, and approval-preemption/requeue boundary.
 
+### Supervisor answer display
+
+- [ ] The Supervisor answer replaces `Waiting for Supervisor…` in the same displayed block rather than adding a second `[Supervisor]` block. Rendering changes must not alter the underlying response or continuation payload, model-facing provenance, persistence, or delivery.
+
 ### Supervisor advisory
 
 - [x] Expose `ask_supervisor` only to current main/orchestrator runtimes; explicit runtime child identity
