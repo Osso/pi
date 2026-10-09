@@ -55,9 +55,9 @@ Request IDs come from supported structured fields or the producer's fixed server
 
 Verified operational state: 2026-10-09. Deployed source `43e048c00af26e0bf21999d51f5e404b8ec6e31d` from local `master` under the explicit user-approved deployment override; `./deploy.sh` exited 0. Receipt `/tmp/pi-diagnostics-deploy-result.json` records the source revision, launcher, build-tool provenance, installed hash, and `/tmp/pi-diagnostics-deploy.log`.
 
-Installed binary SHA-256: `0815da1d9e0c68bc3a660806661568c7c4b41b4f327eb8d5629e4d51e2a06b94`. `/tmp/pi-diagnostics-runtime-before.json` and `/tmp/pi-diagnostics-runtime-after.json` record both eligible main runtimes (`01a11b35`, `40fcbe4f`) restarting by same-PID exec and matching this artifact afterward; reported health checks were OK. This is runtime replacement evidence, not final feature acceptance.
+Installed binary SHA-256: `0815da1d9e0c68bc3a660806661568c7c4b41b4f327eb8d5629e4d51e2a06b94`. `/tmp/pi-diagnostics-runtime-before.json` and `/tmp/pi-diagnostics-runtime-after.json` record both eligible main runtimes (`01a11b35`, `40fcbe4f`) restarting by same-PID exec and matching this artifact afterward; reported health checks were OK. Main completed the bounded identity/health inventory; independent verifier 171 separately passed the artifact/source audit.
 
-Targeted source proof: producer 52 tests passed, recorded in `/tmp/codex-diag-async-observer.{log,json}`; typed SDK automatic-sink scope 10 tests passed, recorded in `/tmp/codex-diag-typed-autosink.{log,json}`. JSON receipts identify exact tested revision, scope, and file hashes; both report proof still current. Prior SDK 20-test proof covers unchanged scope, not a new run. These bounded tests do not establish the unknown upstream cause or independently prove all retry-policy behavior.
+Targeted source proof: producer 52 tests passed, recorded in `/tmp/codex-diag-async-observer.{log,json}`; typed SDK automatic-sink scope 10 tests passed, recorded in `/tmp/codex-diag-typed-autosink.{log,json}`. JSON receipts identify exact tested revision, scope, and file hashes; both report proof still current. Prior combined 20-test proof is historical: its SDK/stream-options subset remains applicable, while the sink portion is superseded by the inspected post-refactor 10-test run. These bounded tests do not establish the unknown upstream cause or independently prove all retry-policy behavior.
 
 Build used cached, provenance-verified Bun 1.4.0 with explicit launcher environment because the tmux shell resets PATH; global PATH was not changed. Dependency/package and browser-CLI work is separate from this feature.
 
@@ -65,7 +65,7 @@ Build used cached, provenance-verified Bun 1.4.0 with explicit launcher environm
 
 - [x] Commit SDK wiring, retry-layer serialization, and SDK integration tests (`df248e4f2`).
 - [x] Deploy the approved source and confirm both eligible main runtimes execute the installed artifact.
-- [ ] Receive independent verifier 171's final proof of producer metadata, sink permissions/redaction/failure isolation, SDK correlation, and unchanged stdout/retry behavior. Verification remains underway; no final pass claimed.
+- [x] Independent verifier 171 passed artifact/source audit at `43e048c00`: inspected deployment/check output, matching built/installed hashes, producer 52/52 and sink 10/10 logs/scope hashes, and applicable SDK evidence. Actual private log modes were 0700/0600; its 16 observed records were valid JSON with only allowlisted keys. No real provider probe or unsupported upstream-cause claim.
 
 ## Out of scope
 
