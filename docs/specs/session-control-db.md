@@ -301,11 +301,11 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - `packages/coding-agent/test/self-restart.test.ts`
 - `packages/coding-agent/test/interactive-mode-startup-input.test.ts`
 
-## Known gaps (current cycle)
+## Mailbox verification
 
-- [x] Latest default-birth proof: `packages/coding-agent/test/runtime-mailbox-retention.test.ts`
-      (24), `packages/coding-agent/test/runtime-mailbox-scope.test.ts` (4), and
-      `packages/coding-agent/test/session-control-db.test.ts` (145): 173 passing tests.
+- [x] Default-birth proof: `packages/coding-agent/test/runtime-mailbox-retention.test.ts`,
+      `packages/coding-agent/test/runtime-mailbox-scope.test.ts`, and
+      `packages/coding-agent/test/session-control-db.test.ts` passed.
       Covers missing/null creation, immutable birth and duplicate retries, invalid/stale rejection,
       legacy INSERT defaults independent of `updated_at`, preexisting unknown-birth deletion,
       and no repair on UPDATE. The retention file's live legacy SQL producer scenario keeps a
@@ -313,30 +313,36 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       afterward, and claims it alongside a new API envelope with fresh births; runner PIDs and
       job identity persist, one start marker proves no rerun, and the job completes. This uses
       Python sqlite3 with the legacy INSERT contract, not an archived old bridge binary.
-      Earlier 320-test evidence is separate, not a combined total or proof of this latest revision.
+      Merged integration and latest default-birth checks passed separately; neither extends proof to
+      unrelated descendant changes.
 
 - [x] Targeted tests prove exact-session terminal duplicate lookup, all-status creation-age expiry,
       invalid timestamps, the exact 24-hour boundary, startup/ongoing cleanup, and in-memory/restart
       resurrection prevention. Backing tests:
-      `packages/coding-agent/test/runtime-mailbox-scope.test.ts` (4),
-      `packages/coding-agent/test/runtime-lifecycle-mirror-scope.test.ts` (12),
-      `packages/coding-agent/test/runtime-mailbox-retention.test.ts` (16 in the earlier run; 24 latest),
-      `packages/coding-agent/test/multi-agent-mailbox-retention.test.ts` (3),
-      `packages/coding-agent/test/multi-agent-store.test.ts` (44), and
-      `packages/coding-agent/test/suite/regressions/agent-jsonl-restart.test.ts` (9 real-process tests).
+      `packages/coding-agent/test/runtime-mailbox-scope.test.ts`,
+      `packages/coding-agent/test/runtime-lifecycle-mirror-scope.test.ts`,
+      `packages/coding-agent/test/runtime-mailbox-retention.test.ts`,
+      `packages/coding-agent/test/multi-agent-mailbox-retention.test.ts`,
+      `packages/coding-agent/test/multi-agent-store.test.ts`, and
+      `packages/coding-agent/test/suite/regressions/agent-jsonl-restart.test.ts`.
 - [x] Producer integration evidence, recorded separately from broader retention runs:
-      `test/detached-job-control.test.ts` and `test/detached-pyrun-bridge.test.ts` (8 producer unit tests);
-      `test/detached-pyrun-runner.test.ts` (2 selected real-process runner tests);
-      `test/suite/detached-status-retention.test.ts` (2 headless real-process tests).
+      `test/detached-job-control.test.ts` and `test/detached-pyrun-bridge.test.ts`;
+      `test/detached-pyrun-runner.test.ts` (selected real-process cases);
+      `test/suite/detached-status-retention.test.ts` (headless real-process cases).
       The headless cases request status and coordinator cancellation after parent restart while the
       job remains live, preserving status exchange, cancellation delivery, and no job rerun.
       Paths are relative to `packages/coding-agent/`.
-- [ ] Final integration verification remains pending; targeted passes do not establish deployment.
+- [x] Merged integration and default-birth verification passed their scoped root checks and tests.
+      Deployment and activation evidence is recorded in the [system wiki](../wiki/systems/session-control-db.md).
 
 - [x] Wire SIGHUP startup consumption and last-message recording into
   interactive mode.
 - [x] Move runtime-mailbox selection and delivery marking to the recipient readiness boundary and
       remove volatile follow-up queuing for mailbox messages.
+
+## Known gaps (current cycle)
+
+No open mailbox contract gaps.
 
 ## Out of scope
 

@@ -54,23 +54,20 @@ Explicit producer timestamps remain at construction: status requests/responses i
 clock, not a fallback from the old agent row. Payloads, routing, duplicate identity, and exact
 runner ownership are unchanged.
 
-Producer proof is separate: 8 producer unit tests, 2 selected real-process runner tests, and
-2 headless real-process tests. The headless cases exchange status and deliver coordinator
-cancellation after parent restart while the job remains live, without rerunning the job.
-See the spec's [producer inventory and evidence](../../specs/session-control-db.md#known-gaps-current-cycle).
+Behavioral evidence:
 
-Latest default-birth evidence: 24 core retention + 4 scope + 145 DB tests = 173 passing tests.
-`packages/coding-agent/test/runtime-mailbox-retention.test.ts` includes a retained legacy SQL
-producer connection writing an undated envelope after parent restart; both legacy SQL and new API
-messages receive fresh, claimable births without rerunning the live job. This exercises the legacy
-INSERT contract through Python sqlite3, not an archived bridge binary.
-Earlier 320-test evidence and producer 8 + real-process 2 + headless 2 evidence remain separate;
-none establishes deployment.
+- [runtime-mailbox-retention.test.ts](../../../packages/coding-agent/test/runtime-mailbox-retention.test.ts): creation defaults, immutable birth, invalid/stale exclusion, cleanup and writer fences. A retained Python sqlite3 producer inserts an undated envelope after parent restart; legacy SQL and new API envelopes remain claimable without rerunning the live job. This proves the legacy INSERT boundary, not an archived bridge binary.
+- [runtime-mailbox-scope.test.ts](../../../packages/coding-agent/test/runtime-mailbox-scope.test.ts) and [runtime-lifecycle-mirror-scope.test.ts](../../../packages/coding-agent/test/runtime-lifecycle-mirror-scope.test.ts): exact-session lookup and lifecycle delivery.
+- [multi-agent-mailbox-retention.test.ts](../../../packages/coding-agent/test/multi-agent-mailbox-retention.test.ts) and [agent-jsonl-restart.test.ts](../../../packages/coding-agent/test/suite/regressions/agent-jsonl-restart.test.ts): projection expiry and real-process restart preservation.
+- [detached-status-retention.test.ts](../../../packages/coding-agent/test/suite/detached-status-retention.test.ts): status exchange and coordinator cancellation after parent restart with the job still live.
 
-Earlier targeted evidence: scope 4, lifecycle mirror 12, core retention 16, and Store retention 3 tests passed.
-The Store/retention/real-process restart run passed 56/56, including all 9 real-process crash/restart
-tests. Exact backing paths appear in the spec's [current-cycle evidence](../../specs/session-control-db.md#known-gaps-current-cycle).
-Final integration verification remains pending; no deployment is established.
+Verified 2026-10-08: merged integration and default-birth source gates passed separately.
+Revision `749bc4f1c` deployed to both hosts through `deploy.sh --agent-server`; final inventory
+found all eight eligible local mains and the resident current, no eligible remote mains or residents,
+and zero expired/invalid-birth mailbox rows with creation indexes present on both hosts.
+Stale health ghosts were excluded; existing detached runners were preserved. No user history was pruned.
+Both hosts now have the same peer-descendant artifact; exact peer source-to-artifact confirmation
+remains pending. Deployment does not expand test proof to unrelated descendant changes.
 
 ## Limits and evidence
 
