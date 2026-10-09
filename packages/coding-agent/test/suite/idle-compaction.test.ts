@@ -201,12 +201,34 @@ describe("idle prompt-cache compaction", () => {
 		const manual = harness.session.compact();
 		await manualStarted.promise;
 		await advanceTo(dueAt + MINUTE_MS);
+		expect(harness.eventsOfType("compaction_start").map((event) => event.reason)).toEqual(["manual"]);
 		releaseManual.resolve();
 		await manual;
 		await advanceTo(Date.now() + 3 * 60 * MINUTE_MS);
 
 		expect(countCompactions(harness)).toBe(1);
 		expect(harness.eventsOfType("compaction_start").map((event) => event.reason)).toEqual(["manual"]);
+	});
+
+	it("does not compact after the session switches to a model that did not write the cache", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout", "Date"] });
+		const harness = await createHarness({
+			fauxProvider: CODEX_SCENARIO,
+			models: [
+				{ id: "cache-writer", contextWindow: 2_000_000 },
+				{ id: "switched-to", contextWindow: 2_000_000 },
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([endTurn("answer"), endTurn("follow-up answer"), fauxAssistantMessage("idle summary")]);
+
+		await runConversation(harness, LARGE_CONTEXT_PROMPT);
+		const switchedModel = harness.getModel("switched-to");
+		if (!switchedModel) throw new Error("Missing switched-to model");
+		await harness.session.setModel(switchedModel);
+		await advanceTo(lastRequestStartedAt(harness) + 3 * 60 * MINUTE_MS);
+
+		expect(countCompactions(harness)).toBe(0);
 	});
 
 	it("does not compact while an agent-level message is still queued", async () => {

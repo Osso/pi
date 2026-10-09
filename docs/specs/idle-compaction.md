@@ -9,7 +9,7 @@ Idle compaction summarizes large idle sessions before their assumed provider pro
 - [x] Require at least 200,000 context tokens; skip APIs without an assigned TTL.
 - [x] Default `compaction.idle` to true; skip idle compaction when it or `compaction.enabled` is false.
 - [x] Run normal compaction with reason `"idle"`, saving a summary without retrying a turn.
-- [ ] Require the latest assistant request to match the current provider/model and not precede a later compaction.
+- [x] Require the latest assistant request to match the current provider/model and not precede a later compaction.
 - [x] Revalidate eligibility under the turn-start lock; never interrupt streaming, tools, pending messages (session or agent-level queue), or another compaction.
 - [x] Re-arm after `session_start` and each run, using persisted assistant request timestamps across restart.
 
@@ -34,13 +34,12 @@ Paths below are relative to `packages/coding-agent/`:
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/suite/idle-compaction.test.ts` — both TTL deadlines, latest-request timing, one saved compaction, idle reason/summary, tool run spanning the deadline (skip, then re-arm from the run's latest request), manual compaction spanning the deadline (single compaction), queued agent message, context minimum, unsupported API, and disable settings.
+- `packages/coding-agent/test/suite/idle-compaction.test.ts` — both TTL deadlines, latest-request timing, one saved compaction, idle reason/summary, tool run spanning the deadline (skip, then re-arm from the run's latest request), manual compaction spanning the deadline (no concurrent idle start, single compaction), model switch, queued agent message, context minimum, unsupported API, and disable settings.
 - `packages/coding-agent/test/suite/regressions/idle-compaction-restart.test.ts` — real process crashed before the deadline compacts after restart at the persisted deadline, same session, reason `"idle"`, no repeat; below-minimum context does not compact.
 
 ## Known gaps (current cycle)
 
 - [ ] Verify ChatGPT Codex backend cache retention. Its 30-minute TTL is a user-approved assumption, not a documented backend guarantee.
-- [ ] Add behavioral coverage for current-model filtering.
 
 ## Out of scope
 
