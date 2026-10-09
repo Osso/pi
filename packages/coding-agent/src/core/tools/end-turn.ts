@@ -20,6 +20,7 @@ export function createEndTurnToolDefinition(): ToolDefinition<typeof endTurnSche
 		promptGuidelines: [
 			"Call end_turn only when the task is complete, progress requires user input, or the user explicitly asks you to stop. If work remains and progress is possible, continue working instead of calling end_turn. Assistant text alone does not finish the turn.",
 			"Provide one concise, non-empty reason.",
+			"Thinking is never shown to the user. When responding to the user, write the reply as assistant text before calling end_turn; never leave an answer only in thinking.",
 		],
 		parameters: endTurnSchema,
 		executionMode: "sequential",

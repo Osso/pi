@@ -41,6 +41,8 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] Supervisor-only capability filtering removes every tool named `manage_goal` from production `spawn_agent`, `attach_session_agent`, and `/bg` runtimes even when an external extension registers it; the supervisor retains the tool.
 - [x] Calls to denied `manage_goal` tools fail as inactive, including calls issued through the Pyrun `pi.tools.call` bridge.
 
+- [ ] Preserve the original broader goal and its remaining criteria during [bounded Codex cybersecurity-risk recovery](supervisor-service.md#codex-cybersecurity-risk-advisory-recovery). A permitted subtask is not goal replacement; stopping that attempt surfaces required user action without stopping independent already-authorized work.
+
 ### Context anchoring
 
 - [x] Before each agent turn, the active objective is injected into the system prompt through `before_agent_start`.

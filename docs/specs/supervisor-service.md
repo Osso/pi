@@ -74,6 +74,17 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - [x] Enforce a three-minute request deadline.
 - [x] Schedule advisory requests below approval and goal reviews.
 
+### Codex cybersecurity-risk advisory recovery
+
+User basis (verbatim): “exact Codex cybersecurity-risk flag -> bounded advisory proposing only genuinely different/narrower permitted subtask withinoriginaluserauthorization; main caller autoattempt once sameprovider/model/accesssettings; originalrequest/refusal/history and broadergoal remain”. This preference authorizes bounded permitted-subtask recovery, not entitlement or access approval.
+
+- [ ] Trigger only for an assistant error from the `openai-codex-responses` API containing the exact canonical flag `This content was flagged for possible cybersecurity risk.`; classify that flag as nonretryable before generic status patterns. Do not treat it as transient failure, quota exhaustion, or permission to retry the refused request.
+- [ ] Request one bounded, text-only Supervisor advisory under the existing advisory input limits and three-minute deadline. Supply bounded current evidence, including the original user authorization quoted exactly and the refusal; never reconstruct authorization from assistant summaries or treat the recovery preference as approval of entitlement. The Supervisor may propose only a genuinely different or narrower permitted subtask already within that authorization, or state that no such subtask exists.
+- [ ] The main caller owns policy validation and operations, not the Supervisor. Automatically attempt a valid permitted subtask at most once using the same provider, model, account/backend, and access settings as the flagged request; advisory text cannot grant permissions, replace the goal, or compel execution.
+- [ ] Preserve the original request, refusal, and history as evidence and keep the broader goal, requirements, exclusions, and completion criteria intact. Identify the attempted subtask and advisory provenance visibly; do not camouflage the refused operation, conceal intent, or merely rephrase it to evade the restriction. Do not change permissions, access tier, account, backend, provider, or model to overcome the flag.
+- [ ] Keep the one-attempt guard bound to the originating flagged operation across process/session restart and cancellation; duplicate delivery, continuation, reload, or a repeated flag must not replenish it. Cancellation stops advisory evaluation and any queued attempt; late or stale responses cannot dispatch work. Restoring interrupted or uncertain attempt state must not replay it automatically.
+- [ ] If no allowed subset exists, policy validation fails, the attempt is flagged again, the caller cancels, or the advisory is unavailable, invalid, or times out, stop that recovery attempt and surface the reason and required user action without automatically retrying or escalating access. Continue independent already-authorized work when possible; the blocked attempt neither completes nor replaces the broader goal and does not pause unrelated work.
+
 ### Approval review
 
 - [x] Replace the existing LLM auto-reviewer with a Supervisor `approval_review` request while preserving the surrounding approval orchestrator and human-review paths.
@@ -190,6 +201,8 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - `packages/coding-agent/test/architect-service.test.ts` — explicit systemd rewrite/reload skip and lifecycle-action contract.
 
 ## Known gaps (current cycle)
+
+- [ ] Integrate and prove bounded Codex cybersecurity-risk advisory recovery, including real-process restart, cancellation, stale-result fencing, and one-attempt preservation. The requirements above are a feature contract, not claims that the in-progress core integration is complete.
 
 - [x] Define and test the typed Supervisor request and response protocol.
 - [x] Implement the persistent request/response repository with priority and preemption semantics.

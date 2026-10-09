@@ -24,8 +24,9 @@
 ### Changed
 
 - Expire all canonical multi-agent mailbox messages after 24 hours from creation, including pending/claimed messages and missing or invalid creation times; clean on database initialization and every 60 seconds while retained, preventing stale replay, delivery, and resurrection. Transcripts and shared-channel history are unchanged.
-
+- `end_turn` guidance now tells the model that thinking is never shown to the user, so replies must be written as text instead of only in thinking.
 - `ask_questions` transcript rows now list each question with its answer (or `(cancelled)`), visible even when `hideToolOutput` is enabled.
+- `ask_questions` now shows all questions in one tabbed panel: left/right (or tab/shift+tab) move between questions, earlier answers stay selected and can be changed, and a Submit tab sends them. Tab keys are configurable as `app.questions.next` / `app.questions.previous`.
 
 - `spawn_agent` now records the parent's model on children without a profile model, so agent metadata always names the model a child runs. Resumed and restart-recovered children keep that recorded model instead of adopting the parent's current model.
 - Increased the default main, spawned-child, and attached-child thinking-phase cap from 15 to 20 minutes and allowed one automatic watchdog continuation within the same prompt or continuation dispatch; internal continuations and tools share that allowance, a second timeout stops and reports failure, and manual cancellation never retries. Queued input retains normal delivery and precedence; observer exclusion and uncapped tool/approval waits are unchanged.
@@ -70,6 +71,7 @@
 
 ### Added
 
+- Added bounded Supervisor advisory recovery for the explicit Codex cybersecurity-risk flag: the main caller may automatically attempt one genuinely different or narrower permitted subtask within original user authorization, with unchanged provider/model/access settings and no permission, tier, account, or backend escalation. Original request, refusal, history, and broader goal remain; cancellation, unavailable advice, no allowed subset, or a repeated flag stops the attempt with visible user-action status while independent authorized work continues. See the [feature contract](../../docs/specs/supervisor-service.md#codex-cybersecurity-risk-advisory-recovery); core integration and lifecycle proof remain in progress.
 - Added the supervisor-only `set_agent_model` tool to change a running child's model and/or reasoning effort by agent ID; the change applies from the child's next model request without interrupting in-flight work or changing parent and global defaults.
 - Added the first-party [agents status widget](../../docs/specs/agents-status-widget.md): up to 5 one-line rows above the editor showing each sub-agent's name, lifecycle, agent type and model, current tool with a one-line argument summary (or `thinking`), and elapsed time; children nest under parents, waiting agents sort first, and finished agents linger 10s. The above-editor widget area is now a render region, so widgets that call `requestComponentRender` update their own lines in place instead of redrawing the screen. Persisted child `currentActivity` tool entries now carry an optional `detail` argument summary.
 - Added the first-party `/daybreak [blue|off]` command: a main-thread, session-persisted opt-in that adds `access_programs.cyber: "daybreak_blue"` to Codex requests for GPT-6 Sol, GPT-6 Luna, GPT-5.6 Sol, and GPT-5.5 only. Other models, non-Codex providers, child runtimes, and the Supervisor are unchanged; the footer shows `daybreak blue inactive` when the current model is ineligible. Selection does not grant entitlement, and provider rejections surface unchanged without retry or fallback.
@@ -180,7 +182,7 @@
 ### Fixed
 
 - Fixed terminal lifecycle duplicate lookup scanning unrelated mailbox history by selecting only the owning session, preserving duplicate matching and global administrative listing.
-
+- Fixed session autoname failing on claude-bridge with `prompt-capture: no capture for this ... system prompt`: the title request is now marked as an uncached one-off call (`cacheRetention: "none"`), which claude-bridge routes outside the session like Pi's summarizer calls.
 - Fixed viewed sub-agents showing `effort off` while running at another effort: spawned children now record their starting effort (the profile's level, else `medium`) and publish their effective model and clamped effort to the agent record at run start and on every model or effort change.
 - Fixed failed interactive startup model continuation leaving the normal input loop unavailable; the error is reported and built-in local commands, extension commands, and plain prompts remain usable in the same session.
 - Fixed partially streamed assistant responses disappearing when incoming steering interrupts a model request, including around Supervisor pending-input notices; the interrupted reply is retained instead of replaced by an empty message.

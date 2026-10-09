@@ -41,6 +41,7 @@ import {
 	clampThinkingLevel,
 	cleanupSessionResources,
 	getSupportedThinkingLevels,
+	isCodexCybersecurityRestriction,
 	isContextOverflow,
 	isRetryableAssistantError,
 	modelsAreEqual,
@@ -130,6 +131,7 @@ import { type ApprovalReviewer, orchestrateToolApproval } from "./permissions/or
 import { approvalPresetToBypassPermissions } from "./permissions/presets.ts";
 import { PermissionRuleStore } from "./permissions/rule-store.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
+import { type CodexRestrictionRescopeResult, requestCodexRestrictionRescope } from "./provider-restriction-recovery.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 import { formatRuntimeMailboxPrompt, formatSharedChannelPrompt } from "./runtime-coordination-format.ts";
 import {
@@ -292,6 +294,19 @@ const CODEX_FALLBACK_PROVIDERS = new Map([
 ]);
 const QUOTA_EXHAUSTION_PATTERN =
 	/GoUsageLimitError|FreeUsageLimitError|usage limit|available balance|insufficient_quota|out of budget|quota exceeded|billing (?:limit|quota|exhausted)/i;
+const CODEX_RESTRICTION_CONTEXT_ENTRY = "codex_restriction_context";
+
+interface CodexRestrictionContext {
+	userRequest: string;
+	spent: boolean;
+}
+
+interface CodexRestrictionSnapshot {
+	sessionId: string;
+	leafId: string | null;
+	model: Model<Api> | undefined;
+}
+
 const DUPLICATE_TURN_GUARD_PROMPT =
 	"You repeated the same response. Stop looping. Call `end_turn` with a concise reason describing the current state.";
 
@@ -852,6 +867,9 @@ export class AgentSession {
 	private _extensionCommandContextActions?: ExtensionCommandContextActions;
 	private _extensionAbortHandler?: () => void;
 	private _supervisorReviewCancellationHandler?: () => void;
+	private _codexRestrictionContext?: CodexRestrictionContext;
+	private _codexRestrictionContextSessionId?: string;
+	private _codexRestrictionAbort?: AbortController;
 	private _extensionShutdownHandler?: ShutdownHandler;
 	private _extensionErrorListener?: ExtensionErrorListener;
 	private _extensionErrorUnsubscriber?: () => void;
@@ -2121,6 +2139,7 @@ export class AgentSession {
 			return;
 		}
 		this._disposed = true;
+		this._codexRestrictionAbort?.abort();
 		if (this._thinkingTimeoutDispatch) this._thinkingTimeoutDispatch.cancelled = true;
 		try {
 			this.abortRetry();
@@ -2602,11 +2621,116 @@ export class AgentSession {
 		return coordinationMessageReady ? "normal" : undefined;
 	}
 
+	private _readStoredCodexRestrictionContext(): CodexRestrictionContext | undefined {
+		const entries = this.sessionManager.getBranch();
+		for (let index = entries.length - 1; index >= 0; index--) {
+			const entry = entries[index];
+			if (entry.type !== "custom" || entry.customType !== CODEX_RESTRICTION_CONTEXT_ENTRY) continue;
+			const data = entry.data;
+			if (typeof data !== "object" || data === null) return undefined;
+			const userRequest = "userRequest" in data ? data.userRequest : undefined;
+			const spent = "spent" in data ? data.spent : undefined;
+			return typeof userRequest === "string" && typeof spent === "boolean" ? { userRequest, spent } : undefined;
+		}
+		return undefined;
+	}
+
+	private _loadCodexRestrictionContext(): CodexRestrictionContext | undefined {
+		if (this._codexRestrictionContextSessionId !== this.sessionId) {
+			this._codexRestrictionContext = this._readStoredCodexRestrictionContext();
+			this._codexRestrictionContextSessionId = this.sessionId;
+		}
+		return this._codexRestrictionContext;
+	}
+
+	private _saveCodexRestrictionContext(context: CodexRestrictionContext): void {
+		this._codexRestrictionContext = context;
+		this._codexRestrictionContextSessionId = this.sessionId;
+		this.sessionManager.appendCustomEntry(CODEX_RESTRICTION_CONTEXT_ENTRY, context);
+	}
+
+	private _isSupervisedMainSession(): boolean {
+		return !this.noSupervisor && !this._multiAgentAgentId && !this._multiAgentRequiresAgentId;
+	}
+
+	private _recordCodexRestrictionUserRequest(text: string, source: InputSource | undefined): void {
+		if (source === "extension" || !this._isSupervisedMainSession()) return;
+		this._codexRestrictionAbort?.abort();
+		this._saveCodexRestrictionContext({ userRequest: text, spent: false });
+	}
+
+	private _canApplyCodexRestrictionAdvice(snapshot: CodexRestrictionSnapshot, cancelled: boolean): boolean {
+		if (cancelled || this._disposed || this._thinkingTimeoutDispatch?.cancelled) return false;
+		const sameSession = this.sessionId === snapshot.sessionId;
+		const sameBranch = this.sessionManager.getLeafId() === snapshot.leafId;
+		const sameModel = this.model === snapshot.model;
+		const sameContext = sameSession && sameBranch && sameModel;
+		if (!sameContext) return false;
+		return !this.hasPendingMessages() && !this.agent.hasQueuedMessages();
+	}
+
+	private async _requestCodexRestrictionAdvice(message: AssistantMessage, userRequest: string) {
+		const controller = new AbortController();
+		this._codexRestrictionAbort = controller;
+		const unregister = this.registerSupervisorReviewCancellation(() => controller.abort());
+		try {
+			const decision = await requestCodexRestrictionRescope({
+				requester: this._supervisorDecisionRequester,
+				controlDbPath: this._controlDbPath,
+				senderSessionId: this.sessionId,
+				cwd: this._cwd,
+				originalUserRequest: userRequest,
+				failure: message,
+				signal: controller.signal,
+				activeGoal: this.sessionManager.getSessionGoalJson(),
+			});
+			return { decision, cancelled: controller.signal.aborted };
+		} finally {
+			unregister();
+			if (this._codexRestrictionAbort === controller) this._codexRestrictionAbort = undefined;
+		}
+	}
+
+	private async _displayCodexRestrictionAdvice(
+		message: AssistantMessage,
+		decision: CodexRestrictionRescopeResult,
+	): Promise<boolean> {
+		const content =
+			decision.kind === "blocked"
+				? `No permitted narrower scope could be established: ${decision.reason}\nNo automatic resubmission; original request remains pending.`
+				: [
+						`Supervisor proposed a narrower task: ${decision.task}`,
+						`Reason: ${decision.reason}`,
+						`User authorization cited: ${decision.basisQuote}`,
+						`Original provider restriction: ${message.errorMessage}`,
+						"Attempt only this permitted subset. Original request and goal remain unchanged; this advice grants no new permission or access. Do not disguise refused work or repeat completed tool effects.",
+					].join("\n");
+		await this.sendCustomMessage({ customType: "supervisor_restriction_recovery", content, display: true });
+		return decision.kind === "rescope";
+	}
+
+	private async _prepareCodexRestrictionRecovery(message: AssistantMessage): Promise<boolean> {
+		if (!this._isSupervisedMainSession()) return false;
+		if (this.hasPendingMessages() || this.agent.hasQueuedMessages()) return false;
+		const context = this._loadCodexRestrictionContext();
+		if (context?.spent) return false;
+		this._saveCodexRestrictionContext({ userRequest: context?.userRequest ?? "", spent: true });
+		const snapshot = { sessionId: this.sessionId, leafId: this.sessionManager.getLeafId(), model: this.model };
+		const { decision, cancelled } = await this._requestCodexRestrictionAdvice(message, context?.userRequest ?? "");
+		if (!this._canApplyCodexRestrictionAdvice(snapshot, cancelled)) return false;
+		return this._displayCodexRestrictionAdvice(message, decision);
+	}
+
 	private async _handlePostAgentRun(): Promise<PostAgentRunContinuation | undefined> {
 		if (this._disposed) return undefined;
 		const message = this._lastAssistantMessage;
 		this._lastAssistantMessage = undefined;
 		if (!message) return undefined;
+		if (isCodexCybersecurityRestriction(message)) {
+			const rescope = await this._prepareCodexRestrictionRecovery(message);
+			this._finishExhaustedRetry(message);
+			return rescope ? "normal" : this._selectPostAgentRunContinuation();
+		}
 		if (await this._prepareQuotaFallback(message)) return "normal";
 		if (this._isRetryableError(message) && (await this._prepareRetry(message))) return "normal";
 		this._finishExhaustedRetry(message);
@@ -2709,6 +2833,8 @@ export class AgentSession {
 					currentImages = inputResult.images ?? currentImages;
 				}
 			}
+
+			this._recordCodexRestrictionUserRequest(text, options?.source);
 
 			// Expand skill commands (/skill:name args) and prompt templates (/template args)
 			let expandedText = currentText;
@@ -3672,6 +3798,7 @@ export class AgentSession {
 	}
 
 	reserveExternalUserInput(): () => void {
+		this._codexRestrictionAbort?.abort();
 		let released = false;
 		this._externalUserInputReservations++;
 		return () => {
@@ -3725,6 +3852,7 @@ export class AgentSession {
 	 * Abort current operation and wait for agent to become idle.
 	 */
 	async abort(): Promise<void> {
+		this._codexRestrictionAbort?.abort();
 		if (this._thinkingTimeoutDispatch) this._thinkingTimeoutDispatch.cancelled = true;
 		this.abortRetry();
 		this._clearThinkingPhaseDeadline();

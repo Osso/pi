@@ -69,6 +69,7 @@ export function getAssistantTexts(harness: Harness): string[] {
 }
 
 export interface HarnessOptions {
+	noSupervisor?: boolean;
 	models?: FauxModelDefinition[];
 	fauxProvider?: Pick<RegisterFauxProviderOptions, "api" | "provider">;
 	settings?: Partial<Settings>;
@@ -203,6 +204,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 		options.resourceLoader ?? createTestResourceLoader(extensionsResult ? { extensionsResult } : undefined);
 
 	const session = new AgentSession({
+		noSupervisor: options.noSupervisor,
 		agent,
 		sessionManager,
 		settingsManager,

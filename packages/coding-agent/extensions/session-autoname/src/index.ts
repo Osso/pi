@@ -131,7 +131,9 @@ async function sendTitleRequest(
 	const auth = await request.modelRegistry.getApiKeyAndHeaders(request.model);
 	if (!auth.ok) throw new Error(auth.error);
 	signal.throwIfAborted();
+	// A one-off side request: uncached, and routed by providers such as claude-bridge outside the session.
 	return completeSimple(request.model, buildTitleContext(userText), {
+		cacheRetention: "none",
 		apiKey: auth.apiKey,
 		env: auth.env,
 		headers: auth.headers,

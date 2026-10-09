@@ -13,10 +13,14 @@ The `ask_questions` built-in tool lets the model ask structured multiple-choice 
 
 ### Interaction
 
+- [x] Ask all questions in one tabbed panel: one tab per question plus a Submit tab when more than one question or a multi-select question is asked. A single single-select question has no tabs and returns on selection.
+- [x] Move between question tabs with `app.questions.next` / `app.questions.previous` (default right/tab and left/shift+tab); up/down move within a question. Selecting an answer advances to the next tab.
+- [x] Keep every answer while navigating; returning to an answered question shows the current answer and allows changing it before submitting.
 - [x] Ask single-select questions through the interactive UI and return the selected option label.
-- [x] Ask custom `Other` answers through text input and return the custom answer.
-- [x] Support multi-select questions and return comma-separated selected labels.
-- [x] Return a cancelled result if the user cancels before all questions are answered.
+- [x] Ask custom `Other` answers through inline text input and return the custom answer.
+- [x] Support multi-select questions, toggled with Enter, and return comma-separated selected labels.
+- [x] Submit only when every single-select question has an answer.
+- [x] Escape cancels and returns the answers given so far as a cancelled result.
 - [x] Return an error outside interactive TUI mode instead of hanging.
 - [x] Send a persistent desktop notification while waiting for answers and close it after the question flow answers or cancels.
   Persistent actionable notifications use a large non-zero timeout (`PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS`) because the live notification daemon treats `0` as too short; Pi still closes them explicitly by handle.
@@ -34,7 +38,9 @@ The `ask_questions` built-in tool lets the model ask structured multiple-choice 
 
 ## Implementation inventory
 
-- `packages/coding-agent/src/core/tools/ask-questions.ts` — built-in tool schema, validation, UI interaction, and rendering.
+- `packages/coding-agent/src/core/tools/ask-questions.ts` — built-in tool schema, validation, and transcript rendering.
+- `packages/coding-agent/src/core/tools/ask-questions-panel.ts` — tabbed question panel component.
+- `packages/coding-agent/src/core/keybindings.ts` — `app.questions.next` / `app.questions.previous` defaults.
 - `packages/coding-agent/src/core/tools/index.ts` — built-in tool registration and default active tool list.
 - `packages/coding-agent/src/index.ts` — public SDK exports.
 - `packages/coding-agent/examples/extensions/plan-mode/index.ts` — plan-mode active-tool set and prompt guidance.
@@ -44,7 +50,7 @@ The `ask_questions` built-in tool lets the model ask structured multiple-choice 
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/ask-questions-tool.test.ts` — default registration, validation, single-select, multi-select, custom answers, cancellation, non-TUI failure, desktop notification lifecycle, and question/answer rendering with hidden tool output.
+- `packages/coding-agent/test/ask-questions-tool.test.ts` — default registration, validation, single-select, multi-select, custom answers, tab navigation and answer revision, cancellation, non-TUI failure, desktop notification lifecycle, and question/answer rendering with hidden tool output.
 - `packages/coding-agent/test/plan-mode-extension.test.ts`
 
 ## Known gaps (current cycle)
