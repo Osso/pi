@@ -164,12 +164,12 @@ Trusted project settings can override this global value. The configured percenta
 | `retry.enabled` | boolean | `true` | Enable automatic agent-level retry on transient errors |
 | `retry.maxRetries` | number | `30` | Maximum agent-level retries after the initial request |
 | `retry.baseDelayMs` | number | `30000` | Initial exponential backoff delay in milliseconds (30s) |
-| `retry.maxDelayMs` | number | `300000` | Maximum individual agent-level retry delay in milliseconds (5min) |
+| `retry.maxBackoffMs` | number | `300000` | Maximum individual agent-level retry delay in milliseconds (5min) |
 | `retry.provider.timeoutMs` | number | SDK default | Provider/SDK request timeout in milliseconds |
 | `retry.provider.maxRetries` | number | `0` | Provider/SDK retry attempts |
 | `retry.provider.maxRetryDelayMs` | number | `60000` | Max server-requested delay before failing (60s) |
 
-Main and child Pi sessions share this agent-level policy through `AgentSession`. Each retry doubles the nominal delay from `retry.baseDelayMs`, caps it at `retry.maxDelayMs`, applies ±20% random jitter, then clamps the sampled wait to `retry.maxDelayMs`. Default nominal delays before jitter are 30s, 60s, 120s, 240s, 300s, 300s, … . Jitter has no configuration setting.
+Main and child Pi sessions share this agent-level policy through `AgentSession`. Each retry doubles the nominal delay from `retry.baseDelayMs`, caps it at `retry.maxBackoffMs`, applies ±20% random jitter, then clamps the sampled wait to `retry.maxBackoffMs`. Default nominal delays before jitter are 30s, 60s, 120s, 240s, 300s, 300s, … . Jitter has no configuration setting.
 
 The five-minute cap limits each delay, not the 30 retries after the initial request or total wall-clock time. Provider request latency and any provider-level retry waits add to elapsed time. Existing custom `baseDelayMs` values now set the initial exponential base, not a fixed gap. Success resets the retry sequence; cancellation still stops the wait, and the interactive retry spinner continues into the resumed request.
 
@@ -187,7 +187,7 @@ Codex paired-provider quota fallback is separate from these retry settings. When
     "enabled": true,
     "maxRetries": 30,
     "baseDelayMs": 30000,
-    "maxDelayMs": 300000,
+    "maxBackoffMs": 300000,
     "provider": {
       "timeoutMs": 3600000,
       "maxRetries": 0,
@@ -344,7 +344,7 @@ See [packages.md](packages.md) for package management details.
     "enabled": true,
     "maxRetries": 30,
     "baseDelayMs": 30000,
-    "maxDelayMs": 300000
+    "maxBackoffMs": 300000
   },
   "enabledModels": ["claude-*", "gpt-4o"],
   "warnings": {
