@@ -234,6 +234,52 @@ describe("Codex metadata diagnostics", () => {
 		expect(warning.mock.calls).toEqual(Array(2).fill(["Provider diagnostic observer failed"]));
 	});
 
+	it("preserves the SSE provider failure when a diagnostic observer rejects asynchronously", async () => {
+		const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const unhandledRejection = vi.fn((_reason: unknown) => {});
+		const payload = {
+			type: "response.failed",
+			response: { error: { code: "server_error", message: "original failure", secret: "secret raw body" } },
+		};
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(`data: ${JSON.stringify(payload)}\n\n`, {
+					headers: { "x-request-id": requestId, authorization: "secret header" },
+				}),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		const run = (onDiagnostic?: StreamOptions["onDiagnostic"]) =>
+			streamSimpleOpenAICodexResponses(model, context, {
+				apiKey: mockToken(),
+				transport: "sse",
+				onDiagnostic,
+			}).result();
+		const onDiagnostic = vi.fn(async () => {
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			throw new Error(`secret observer rejection: ${JSON.stringify(payload)}`);
+		});
+		process.on("unhandledRejection", unhandledRejection);
+		try {
+			const original = await run();
+			const observed = await run(onDiagnostic);
+			// Let the observer reject and cross another event-loop turn for unhandled-rejection delivery.
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			expect(original.errorMessage).toBe(`original failure\nOpenAI request ID: ${requestId}`);
+			expect(original.stopReason).toBe("error");
+			expect(observed.errorMessage).toBe(original.errorMessage);
+			expect(observed.stopReason).toBe(original.stopReason);
+			expect(observed.content).toEqual(original.content);
+			expect(observed.usage).toEqual(original.usage);
+			expect(fetchMock).toHaveBeenCalledTimes(2);
+			expect(onDiagnostic).toHaveBeenCalledTimes(1);
+			expect(warning.mock.calls).toEqual([["Provider diagnostic observer failed"]]);
+			expect(unhandledRejection).not.toHaveBeenCalled();
+		} finally {
+			process.off("unhandledRejection", unhandledRejection);
+		}
+	});
+
 	it.each([
 		[
 			{
