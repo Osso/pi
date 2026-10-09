@@ -85,11 +85,13 @@ async function createRecoveryHarness(
 	requester: HarnessOptions["supervisorDecisionRequester"],
 	tools: AgentTool[] = [],
 	extensionFactories?: HarnessOptions["extensionFactories"],
+	overrides: Partial<HarnessOptions> = {},
 ) {
 	const harness = await createHarness({
 		extensionFactories,
 		fauxProvider: { api: "openai-codex-responses", provider: "restriction-test" },
 		settings: { retry: { enabled: true, maxRetries: 3, baseDelayMs: 1 } },
+		...overrides,
 		supervisorDecisionRequester: requester,
 		tools,
 		initialActiveToolNames: tools.map((tool) => tool.name),
@@ -212,6 +214,82 @@ describe("Codex restriction rescope", () => {
 			{ willRetry: false, sessionContinuation: "codex_restriction_validation" },
 		]);
 		expect(denied.faux.state.callCount).toBe(2);
+	});
+
+	it("does not retry a transient error on the one recovery attempt", async () => {
+		const harness = await createRecoveryHarness(async () => ({ kind: "advisory", answer: JSON.stringify(ADVICE) }));
+		harness.setResponses([
+			restriction(),
+			approvedValidation(),
+			fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" }),
+			fauxAssistantMessage("Resent attempt"),
+		]);
+		await harness.session.prompt(ORIGINAL);
+		expect(harness.faux.state.callCount).toBe(3);
+		expect(harness.getPendingResponseCount()).toBe(1);
+		expect(harness.eventsOfType("auto_retry_start")).toHaveLength(0);
+		expect(harness.eventsOfType("agent_end").at(-1)?.willRetry).toBe(false);
+	});
+
+	it("does not switch to a quota fallback provider on the one recovery attempt", async () => {
+		const harness = await createRecoveryHarness(
+			async () => ({ kind: "advisory", answer: JSON.stringify(ADVICE) }),
+			[],
+			undefined,
+			{ fauxProvider: { api: "openai-codex-responses", provider: "openai-codex" } },
+		);
+		const model = harness.getModel();
+		harness.session.modelRegistry.registerProvider("openai-codex-gc", {
+			baseUrl: model.baseUrl,
+			apiKey: "faux-key",
+			api: model.api,
+			models: [{ ...model, input: model.input }],
+		});
+		harness.authStorage.setRuntimeApiKey("openai-codex-gc", "faux-key");
+		expect(harness.session.modelRegistry.find("openai-codex-gc", model.id)).toBeDefined();
+		const providers: string[] = [];
+		const record =
+			(response: ReturnType<typeof fauxAssistantMessage>) =>
+			(_context: Context, _options: SimpleStreamOptions | undefined, _state: unknown, active: Model<string>) => {
+				providers.push(active.provider);
+				return response;
+			};
+		harness.setResponses([
+			record(restriction()),
+			record(approvedValidation()),
+			record(
+				fauxAssistantMessage("", { stopReason: "error", errorMessage: "You have hit your ChatGPT usage limit" }),
+			),
+			record(fauxAssistantMessage("Fallback attempt")),
+		]);
+		await harness.session.prompt(ORIGINAL);
+		expect(providers).toEqual(["openai-codex", "openai-codex", "openai-codex"]);
+		expect(harness.session.model?.provider).toBe("openai-codex");
+		expect(harness.eventsOfType("agent_end").at(-1)?.willRetry).toBe(false);
+	});
+
+	it("does not resend the validation turn after a thinking timeout", async () => {
+		const harness = await createRecoveryHarness(
+			async () => ({ kind: "advisory", answer: JSON.stringify(ADVICE) }),
+			[],
+			undefined,
+			{ thinkingPhaseTimeoutMs: 200 },
+		);
+		harness.setResponses([
+			restriction(),
+			async (_context, options) => {
+				const signal = options?.signal;
+				if (!signal) throw new Error("Expected provider cancellation signal");
+				await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+				return fauxAssistantMessage("Never delivered");
+			},
+			approvedValidation(),
+			fauxAssistantMessage("Resent attempt"),
+		]);
+		await harness.session.prompt(ORIGINAL).catch((error: unknown) => error);
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(harness.getPendingResponseCount()).toBe(2);
+		expect(harness.eventsOfType("auto_retry_start")).toHaveLength(0);
 	});
 
 	it("stops after a second flag instead of repeatedly rescoping", async () => {

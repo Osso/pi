@@ -890,6 +890,7 @@ export class AgentSession {
 	private _codexRestrictionContextLeafId?: string | null;
 	private _codexRestrictionAbort?: AbortController;
 	private _codexRestrictionValidation?: CodexRestrictionValidation;
+	private _codexRestrictionAttemptActive = false;
 	private _activeToolsRevision = 0;
 	private _extensionShutdownHandler?: ShutdownHandler;
 	private _extensionErrorListener?: ExtensionErrorListener;
@@ -1868,6 +1869,7 @@ export class AgentSession {
 				parseCodexRestrictionValidation(message, pending.proposal, pending.context.userRequest).allowed
 			);
 		}
+		if (this._codexRestrictionAttemptActive) return false;
 		const dispatch = this._thinkingTimeoutDispatch;
 		const recoveryAvailable = dispatch?.recoveryUsed === false && dispatch.cancelled === false;
 		if (this._thinkingPhaseTimeoutError && recoveryAvailable) return true;
@@ -2768,6 +2770,8 @@ export class AgentSession {
 	): Promise<true> {
 		const originalTools = this.agent.state.tools;
 		this.agent.state.tools = [];
+		// Validation and the one attempt must not be resent by thinking-timeout recovery.
+		if (this._thinkingTimeoutDispatch) this._thinkingTimeoutDispatch.recoveryUsed = true;
 		this._codexRestrictionValidation = {
 			proposal,
 			context,
@@ -2802,6 +2806,7 @@ export class AgentSession {
 				"Perform only this bounded task within original constraints. No additional permission or access is granted; do not replay completed effects or attempt the refused portions.",
 			].join("\n"),
 		});
+		this._codexRestrictionAttemptActive = true;
 		return true;
 	}
 
@@ -2832,6 +2837,8 @@ export class AgentSession {
 		const message = this._lastAssistantMessage;
 		this._lastAssistantMessage = undefined;
 		if (!message) return undefined;
+		const restrictionAttempt = this._codexRestrictionAttemptActive;
+		this._codexRestrictionAttemptActive = false;
 		if (this._codexRestrictionValidation) {
 			const execute = await this._finishCodexRestrictionValidation(message);
 			return execute ? "normal" : this._selectPostAgentRunContinuation();
@@ -2840,6 +2847,11 @@ export class AgentSession {
 			const rescope = await this._prepareCodexRestrictionRecovery(message);
 			this._finishExhaustedRetry(message);
 			return rescope ? "normal" : this._selectPostAgentRunContinuation();
+		}
+		// The one recovery attempt gets no retry, quota fallback, or overflow resend.
+		if (restrictionAttempt) {
+			this._finishExhaustedRetry(message);
+			return this._selectPostAgentRunContinuation();
 		}
 		if (await this._prepareQuotaFallback(message)) return "normal";
 		if (this._isRetryableError(message) && (await this._prepareRetry(message))) return "normal";
