@@ -39,14 +39,7 @@ describe("live multi-agent mailbox retention", () => {
 	it("expires every status at creation age 24h, not update age, and preserves younger messages", () => {
 		let now = start;
 		const store = new MultiAgentStore({ now: () => new Date(now).toISOString() });
-		const statuses: AgentMailboxMessage["status"][] = [
-			"pending",
-			"claimed",
-			"accepted",
-			"rejected",
-			"delivered",
-			"failed",
-		];
+		const statuses: AgentMailboxMessage["status"][] = ["pending", "claimed", "accepted", "rejected", "failed"];
 		for (const status of statuses) store.publishLifecycleCoordinatorSteering(agent(start), message(status));
 		now = start + retentionMs - 1;
 		expect(store.listMailboxMessages()).toHaveLength(statuses.length);

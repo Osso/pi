@@ -77,20 +77,19 @@ describe("detached Pyrun bridge", () => {
 			sessionPath,
 			supervisorAddress,
 		});
+		const response = listRuntimeMailboxMessages(controlDbPath).find((row) => row.id !== message.id);
+		if (!response) throw new Error("Expected bridge response");
+		expect(response).toMatchObject({ createdAt: new Date(responseBornAt).toISOString(), status: "pending" });
 		expect(claimDetachedJobRuntimeCommands(controlDbPath, runnerAddress, identity)).toMatchObject([
 			{ command: "respond", requestId, result: [{ id: "model-1" }] },
 		]);
-		const response = listRuntimeMailboxMessages(controlDbPath).find((row) => row.id !== message.id);
-		if (!response) throw new Error("Expected bridge response");
-		expect(response).toMatchObject({ createdAt: new Date(responseBornAt).toISOString(), status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, response.id)).toBeUndefined();
 		const day = 24 * 60 * 60 * 1000;
 		vi.setSystemTime(bornAt + day - 1);
 		expect(readRuntimeMailboxMessage(controlDbPath, message.id)?.createdAt).toBe(new Date(bornAt).toISOString());
 		vi.setSystemTime(bornAt + day);
 		expect(readRuntimeMailboxMessage(controlDbPath, message.id)).toBeUndefined();
-		expect(readRuntimeMailboxMessage(controlDbPath, response.id)?.createdAt).toBe(
-			new Date(responseBornAt).toISOString(),
-		);
+		expect(readRuntimeMailboxMessage(controlDbPath, response.id)).toBeUndefined();
 		vi.setSystemTime(responseBornAt + day);
 		expect(readRuntimeMailboxMessage(controlDbPath, response.id)).toBeUndefined();
 	});

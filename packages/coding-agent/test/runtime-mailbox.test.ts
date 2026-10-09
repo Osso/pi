@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS } from "../src/core/desktop-notification.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
@@ -14,6 +14,7 @@ import {
 	consumeRuntimeMailboxMessageByStoreRef,
 	enqueueRuntimeMailboxMessage,
 	getControlDbPath,
+	getMultiAgentMailboxMessageStatus,
 	getRuntimeProcessInstanceId,
 	initializeSharedChannelCursorAtTail,
 	listRuntimeMailboxListeners,
@@ -296,6 +297,10 @@ function createRuntimeMailboxContext(input: {
 }
 
 describe("runtime SQLite mailbox delivery", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime("2026-07-01T00:00:00.000Z");
+	});
 	const harnesses: Harness[] = [];
 	let tempDir: string | undefined;
 
@@ -374,7 +379,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await expect(drainable._drainRuntimeCoordinationMessages({ triggerIfIdle: true })).resolves.toBe(false);
 		expect(handled).toHaveBeenCalledWith("protocol request");
-		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
 		expect(getUserTexts(harness)).toEqual([]);
 	});
 
@@ -410,7 +415,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await expect(drainable._drainRuntimeCoordinationMessages({ triggerIfIdle: true })).resolves.toBe(false);
 		expect(handled).toHaveBeenCalledWith("independent delivery");
-		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
 	});
 
 	it("keeps readiness-transaction delivery final when a mailbox extension handler throws", async () => {
@@ -438,7 +443,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		};
 
 		await expect(drainable._drainRuntimeCoordinationMessages({ triggerIfIdle: true })).resolves.toBe(false);
-		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
 		expect(getUserTexts(harness)).toEqual([]);
 	});
 
@@ -1367,7 +1372,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const waited = await handler({ method: "agents.wait", params: {} }, ctx, undefined);
 
 		expect(waited).toBeNull();
-		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([{ status: "delivered" }]);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
 	});
 
 	it("wait_agent observes the mirrored completion notification", async () => {
@@ -1405,9 +1410,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		expect(waited.content[0]).toMatchObject({ text: "Worker completed: tests passed" });
 		expect(waited.details).toMatchObject({ agent: { result: { summary: "tests passed" } } });
-		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
-			{ body: "Worker completed: tests passed", status: "delivered" },
-		]);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
 	});
 
 	it("wait_agent observes a failed detached Pyrun notification with duration details", async () => {
@@ -1454,9 +1457,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			},
 			message: { body: "Pyrun evaluation failed. Duration: 1234ms", status: "pending" },
 		});
-		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
-			{ body: "Pyrun evaluation failed. Duration: 1234ms", status: "delivered" },
-		]);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
 	});
 
 	it("wait_agent observes a detached Pyrun failure after waiting starts", async () => {
@@ -1505,9 +1506,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			},
 			message: { body: "Pyrun evaluation failed. Duration: 1234ms", status: "pending" },
 		});
-		expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
-			{ body: "Pyrun evaluation failed. Duration: 1234ms", status: "delivered" },
-		]);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
 	});
 
 	it.skipIf(process.platform === "win32")(
@@ -1564,7 +1563,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			expect(waited.content[0]).toMatchObject({
 				text: expect.stringContaining("Need parent review"),
 			});
-			expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+			expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
 			expect(process.listenerCount("SIGUSR2")).toBe(signalListenerCount);
 		},
 	);
@@ -1941,7 +1940,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			runtime.agent.id,
 			steeringPendingAgent.revision,
 			steeringMessage.id,
-			"delivered",
+			"consume",
 		);
 		expect(delivered.ok).toBe(true);
 		finalizeReservedRuntimeAgent(store, runtime, {
@@ -2120,7 +2119,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		);
 
 		expect(waited.content[0]).toMatchObject({ text: expect.stringContaining("Coordination without active agents") });
-		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
 	});
 
 	it("wait_agent returns each distinct coordination message exactly once", async () => {
@@ -2160,8 +2159,8 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(first.content[0]).toMatchObject({ text: expect.stringContaining("First coordination message") });
 		expect(first.content[0]).not.toMatchObject({ text: expect.stringContaining("Second coordination message") });
 		expect(second.content[0]).toMatchObject({ text: expect.stringContaining("Second coordination message") });
-		expect(readRuntimeMailboxMessage(controlDbPath, firstId)).toMatchObject({ status: "delivered" });
-		expect(readRuntimeMailboxMessage(controlDbPath, secondId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, firstId)).toBeUndefined();
+		expect(readRuntimeMailboxMessage(controlDbPath, secondId)).toBeUndefined();
 	});
 
 	it("wait_agent returns every coordination message pending at wake", async () => {
@@ -2194,7 +2193,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		expect(waited.content[0]).toMatchObject({ text: expect.stringContaining("Pending coordination 20") });
 		for (const messageId of messageIds) {
-			expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+			expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
 		}
 	});
 
@@ -2307,7 +2306,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		consumeRuntimeMailboxMessageByStoreRef(controlDbPath, { messageId, sessionPath });
 
-		expect(readRuntimeMailboxMessage(controlDbPath, runtimeMessageId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, runtimeMessageId)).toBeUndefined();
 	});
 
 	it("delivers a shared-channel message posted while an idle drain is already delivering", async () => {
@@ -2688,7 +2687,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		await harness.session.agent.waitForIdle();
 
 		expect(getUserTexts(harness)).toEqual(["hello", runtimeMailboxPrompt("Child finished tests")]);
-		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
 	});
 
 	it("leaves runtime mailbox messages pending instead of queuing them during post-turn coordination", async () => {
@@ -2738,7 +2737,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await drainableSession._drainRuntimeMailboxMessages({ triggerIfIdle: true });
 
-		expect(statusAtPromptEntry).toBe("delivered");
+		expect(statusAtPromptEntry).toBeUndefined();
 	});
 
 	it("steers idle delivery when another turn starts before the turn-start lock is acquired", async () => {
@@ -2787,7 +2786,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			"User turn",
 			runtimeMailboxPrompt("Child finished while another turn was starting"),
 		]);
-		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
 	});
 
 	it("joins a mailbox drain that changes from idle prompt delivery to active-turn steering", async () => {
@@ -2905,8 +2904,8 @@ describe("runtime SQLite mailbox delivery", () => {
 				],
 			}),
 		);
-		expect(readRuntimeMailboxMessage(controlDbPath, afterToolMessageId)).toMatchObject({ status: "delivered" });
-		expect(readRuntimeMailboxMessage(controlDbPath, nextModelMessageId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, afterToolMessageId)).toBeUndefined();
+		expect(readRuntimeMailboxMessage(controlDbPath, nextModelMessageId)).toBeUndefined();
 	});
 
 	it("steers checkpoint-eligible runtime mailbox messages into an active turn", async () => {
@@ -2947,7 +2946,7 @@ describe("runtime SQLite mailbox delivery", () => {
 				role: "user",
 			}),
 		);
-		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
 	});
 
 	it("interrupts model thinking for terminal runtime mailbox notifications", async () => {
@@ -3001,7 +3000,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		]);
 
 		expect(outcome).toBe("completed");
-		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
 		expect(getUserTexts(harness)).toContain(
 			runtimeMailboxPrompt(
 				JSON.stringify({
@@ -3037,7 +3036,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "pending" });
 	});
 
-	it("silently consumes transport rows whose store message was already delivered", async () => {
+	it("rejects routing a store message that was already delivered and deleted", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const harness = await createHarness();
@@ -3055,18 +3054,20 @@ describe("runtime SQLite mailbox delivery", () => {
 			toAgentId: "main",
 		});
 		markMultiAgentMailboxMessageDelivered(controlDbPath, sessionPath, messageId);
-		const runtimeMessageId = enqueueRuntimeMailboxMessage(controlDbPath, {
-			kind: "system",
-			recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
-			sender: { agentId: "agent_1", sessionId: "child-session" },
-			storeRef: { messageId, sessionPath },
-		});
+		expect(() =>
+			enqueueRuntimeMailboxMessage(controlDbPath, {
+				kind: "system",
+				recipient: { agentId: null, sessionId: harness.sessionManager.getSessionId() },
+				sender: { agentId: "agent_1", sessionId: "child-session" },
+				storeRef: { messageId, sessionPath },
+			}),
+		).toThrow("Runtime mailbox store reference does not exist");
 
 		await harness.session.prompt("hello");
 		await harness.session.agent.waitForIdle();
 
 		expect(getUserTexts(harness)).toEqual(["hello"]);
-		expect(readRuntimeMailboxMessage(controlDbPath, runtimeMessageId)).toMatchObject({ status: "delivered" });
+		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
 	});
 
 	it("marks runtime mailbox steer delivery and completion in the parent store", async () => {
@@ -3100,11 +3101,15 @@ describe("runtime SQLite mailbox delivery", () => {
 		await harness.session.prompt("hello");
 		await harness.session.agent.waitForIdle();
 
-		expect(readRuntimeMailboxMessage(controlDbPath, runtimeMessage.id)).toMatchObject({ status: "delivered" });
+		expect(
+			getMultiAgentMailboxMessageStatus(
+				controlDbPath,
+				runtimeMessage.storeRef.sessionPath,
+				runtimeMessage.storeRef.messageId,
+			),
+		).toBeUndefined();
 		expect(store.getAgent(spawned.agent.id)).toMatchObject({ lifecycle: "completed" });
-		expect(store.listMailboxMessages().find((message) => message.id === steered.message.id)).toMatchObject({
-			status: "delivered",
-		});
+		expect(store.listMailboxMessages().find((message) => message.id === steered.message.id)).toBeUndefined();
 	});
 
 	it("retries a steered parent terminal result after its active child completes", async () => {
@@ -3184,11 +3189,15 @@ describe("runtime SQLite mailbox delivery", () => {
 		}
 		await harness.session.agent.waitForIdle();
 
-		expect(readRuntimeMailboxMessage(controlDbPath, runtimeMessage.id)).toMatchObject({ status: "delivered" });
+		expect(
+			getMultiAgentMailboxMessageStatus(
+				controlDbPath,
+				runtimeMessage.storeRef.sessionPath,
+				runtimeMessage.storeRef.messageId,
+			),
+		).toBeUndefined();
 		expect(store.getAgent(spawned.agent.id)).toMatchObject({ lifecycle: "completed" });
-		expect(store.listMailboxMessages().find((message) => message.id === steered.message.id)).toMatchObject({
-			status: "delivered",
-		});
+		expect(store.listMailboxMessages().find((message) => message.id === steered.message.id)).toBeUndefined();
 	});
 
 	it("keeps idle runtime mailbox steer pending when prompt authentication is unavailable", async () => {
@@ -3255,7 +3264,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		await harness.session.agent.waitForIdle();
 
 		expect(getUserTexts(harness)).toEqual([runtimeMailboxPrompt("Constructor poll wake")]);
-		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
 	});
 
 	it("drains runtime mailbox using session metadata control DB fallback", async () => {
@@ -3277,7 +3286,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		await harness.session.agent.waitForIdle();
 
 		expect(getUserTexts(harness)).toEqual(["hello", runtimeMailboxPrompt("Fallback path notice")]);
-		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
 	});
 
 	it("polls the runtime mailbox while external input is reserved", async () => {
@@ -3307,7 +3316,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		}
 
 		expect(getUserTexts(harness)).toEqual([runtimeMailboxPrompt("Reserved input wake")]);
-		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
 	});
 
 	it("wakes the idle main session immediately when runtime mailbox delivery is signalled", async () => {
@@ -3330,6 +3339,6 @@ describe("runtime SQLite mailbox delivery", () => {
 		await harness.session.agent.waitForIdle();
 
 		expect(getUserTexts(harness)).toEqual([runtimeMailboxPrompt("Need parent review")]);
-		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
 	});
 });

@@ -43,7 +43,7 @@ export function legacyMultiAgentStore(store: MultiAgentStore) {
 			agentId: string,
 			expectedRevision: number,
 			messageId: string,
-			status: Exclude<MailboxMessageStatus, "pending">,
+			status: Exclude<MailboxMessageStatus, "pending"> | "consume",
 		) => acknowledgeSteering(store, agentId, expectedRevision, messageId, status),
 		attachSessionAgent: (parentId: string, input: AttachSessionAgentInput) =>
 			attachTestSessionAgent(store, parentId, input),
@@ -132,7 +132,7 @@ function acknowledgeSteering(
 	agentId: string,
 	expectedRevision: number,
 	messageId: string,
-	status: Exclude<MailboxMessageStatus, "pending">,
+	status: Exclude<MailboxMessageStatus, "pending"> | "consume",
 ) {
 	const reserved = reservedAgent(store, agentId);
 	if (!reserved) return acknowledgeUnreservedSteering(store, agentId, expectedRevision, messageId, status);
@@ -297,7 +297,7 @@ function acknowledgeUnreservedSteering(
 	agentId: string,
 	expectedRevision: number,
 	messageId: string,
-	status: Exclude<MailboxMessageStatus, "pending">,
+	status: Exclude<MailboxMessageStatus, "pending"> | "consume",
 ) {
 	const current = store.getAgent(agentId);
 	if (!current) return { agentId, error: "not_found" as const, ok: false as const };
@@ -308,13 +308,18 @@ function acknowledgeUnreservedSteering(
 	if (!message || message.toAgentId !== agentId || message.kind !== "steer") {
 		return { agent: current, error: "message_not_found" as const, messageId, ok: false as const };
 	}
-	const lifecycle = status === "delivered" ? ("running" as const) : current.lifecycle;
+	const lifecycle = status === "consume" ? ("running" as const) : current.lifecycle;
 	if (lifecycle !== current.lifecycle && !canTransition(current.lifecycle, lifecycle)) {
 		return { current, error: "invalid_transition" as const, ok: false as const, requested: lifecycle };
 	}
 	const updated = { ...current, lifecycle, revision: current.revision + 1, updatedAt: current.updatedAt };
-	const updatedMessage = { ...message, status, updatedAt: message.updatedAt };
-	store.publishLifecycleCoordinatorSteeringDelivery(updated, updatedMessage);
+	const updatedMessage = {
+		...message,
+		status: status === "consume" ? message.status : status,
+		updatedAt: message.updatedAt,
+	};
+	if (status === "consume") store.publishLifecycleCoordinatorSteeringDelivery(updated, updatedMessage);
+	else store.publishLifecycleCoordinatorSteering(updated, updatedMessage);
 	return { agent: updated, message: updatedMessage, ok: true as const };
 }
 

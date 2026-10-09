@@ -35,7 +35,7 @@ afterEach(() => {
 
 describe("detached job runtime mailbox control", () => {
 	it.each(["request", "response"] as const)(
-		"expires a status %s exactly 24 hours after birth, not delivery",
+		"deletes a delivered status %s immediately instead of retaining it for 24 hours",
 		(command) => {
 			vi.useFakeTimers();
 			const bornAt = Date.parse("2026-10-08T12:00:00.000Z");
@@ -71,10 +71,7 @@ describe("detached job runtime mailbox control", () => {
 			).toMatchObject([{ id }]);
 			expect(deliverRuntimeMailboxMessage(fixture.controlDbPath, id)).toBe(true);
 			vi.setSystemTime(bornAt + 24 * 60 * 60 * 1000 - 1);
-			expect(readRuntimeMailboxMessage(fixture.controlDbPath, id)).toMatchObject({
-				createdAt: new Date(bornAt).toISOString(),
-				status: "delivered",
-			});
+			expect(readRuntimeMailboxMessage(fixture.controlDbPath, id)).toBeUndefined();
 			vi.setSystemTime(bornAt + 24 * 60 * 60 * 1000);
 			expect(readRuntimeMailboxMessage(fixture.controlDbPath, id)).toBeUndefined();
 		},
@@ -91,7 +88,7 @@ describe("detached job runtime mailbox control", () => {
 		expect(claimDetachedJobControlCommands(fixture.controlDbPath, fixture.recipient, identity)).toEqual([
 			{ command: "cancel", identity, reason: "user requested", mailboxRowId: 1 },
 		]);
-		expect(listRuntimeMailboxMessages(fixture.controlDbPath)).toMatchObject([{ id: 1, status: "delivered" }]);
+		expect(listRuntimeMailboxMessages(fixture.controlDbPath)).toEqual([]);
 	});
 
 	it("accepts a status request only from the exact owner process", () => {

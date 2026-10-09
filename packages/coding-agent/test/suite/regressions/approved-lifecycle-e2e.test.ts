@@ -69,7 +69,7 @@ async function createSupervisorFixture(
 		createChildSession?: ChildAgentSessionFactory;
 	} = {},
 ): Promise<SupervisorFixture> {
-	const store = new MultiAgentStore({ now: () => "2026-07-12T00:00:00.000Z" });
+	const store = new MultiAgentStore();
 	const runtimeHandles = createMultiAgentRuntimeHandles();
 	const harness = await createHarness({
 		extensionFactories: [
@@ -222,9 +222,9 @@ describe("approved multi-agent lifecycle e2e", () => {
 		await childHarness.session.drainRuntimeCoordination();
 		await fixture.harness.session.agent.waitForIdle();
 		await fixture.harness.session.drainRuntimeCoordination();
-		expect(fixture.store.listMailboxMessages()).toEqual(
-			expect.arrayContaining([expect.objectContaining({ body: "also check the edge case", status: "delivered" })]),
-		);
+		expect(
+			fixture.store.listMailboxMessages().filter((message) => message.body === "also check the edge case"),
+		).toEqual([]);
 		expect(getUserTexts({ session: childHarness.session } as Harness)).toEqual(
 			expect.arrayContaining([expect.stringContaining("also check the edge case")]),
 		);

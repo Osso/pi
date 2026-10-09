@@ -53,7 +53,6 @@ import {
 	enqueueRuntimeMailboxMessage,
 	hasPendingRuntimeCoordinationMessage,
 	isRuntimeCoordinationMailboxMessage,
-	listRuntimeMailboxMessagesForSession,
 	listSharedChannelMessagesAfter,
 	readMultiAgentAgents,
 	readMultiAgentRuntimeOwnership,
@@ -2924,11 +2923,9 @@ function mirrorLifecycleRuntimeMailboxMessage(
 	}
 	const agent = store.getAgent(notification.fromAgentId);
 	if (
-		agent &&
-		listRuntimeMailboxMessagesForSession(ctx.controlDbPath, storeRef.sessionPath).some(
-			(message) =>
-				message.storeRef?.sessionPath === storeRef.sessionPath && isDetachedTerminalTransport(message, agent),
-		)
+		agent?.detached === true &&
+		agent.suppressTerminalNotification !== true &&
+		(agent.lifecycle === "completed" || agent.lifecycle === "failed" || agent.lifecycle === "aborted")
 	) {
 		return;
 	}
@@ -2945,16 +2942,6 @@ function mirrorLifecycleRuntimeMailboxMessage(
 		},
 		storeRef,
 	});
-}
-
-function isDetachedTerminalTransport(message: RuntimeMailboxMessage, agent: AgentSnapshot): boolean {
-	if (message.sender.agentId !== agent.id || message.kind !== "system") return false;
-	try {
-		const body = JSON.parse(message.body) as Record<string, unknown>;
-		return body.type === "multi_agent_terminal" && body.agentId === agent.id && body.terminalRevision === agent.revision;
-	} catch {
-		return false;
-	}
 }
 
 function isRuntimeMirroredLifecycle(

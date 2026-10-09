@@ -605,17 +605,14 @@ describe("headless Pi fixture", () => {
 			);
 			agent.respondToLlmRequest(mainAfterSpawn.id, fauxCompletedAssistantMessage("Worker started"));
 
-			const completion = await agent.waitForMailboxMessage(
-				(message) =>
-					message.toAgentId === "main" && message.fromAgentId === spawned.id && message.status === "delivered",
-			);
-			expect(completion.body).toContain("Authentication flow inspected");
-			expect(completion.status).toBe("delivered");
-
 			const completionRequest = await agent.waitForLlmRequest(
 				(request) =>
 					request.agentId === null && JSON.stringify(request.messages).includes("Authentication flow inspected"),
 			);
+			expect(completionRequest.userMessages).toContainEqual(
+				expect.stringContaining("Authentication flow inspected"),
+			);
+			expect(agent.listMailboxMessages().filter((message) => message.fromAgentId === spawned.id)).toEqual([]);
 			agent.respondToLlmRequest(
 				completionRequest.id,
 				fauxAssistantMessage(fauxToolCall("list_agents", {}), { stopReason: "toolUse" }),
@@ -896,15 +893,17 @@ describe("headless Pi fixture", () => {
 			await expect(
 				agent.waitForAgent((candidate) => candidate.id === spawned.id && candidate.lifecycle === "completed"),
 			).resolves.toMatchObject({ id: spawned.id, lifecycle: "completed" });
-			await agent.waitForMailboxMessage(
-				(message) =>
-					message.toAgentId === "main" && message.fromAgentId === spawned.id && message.status === "delivered",
+			const notification = await agent.waitForLlmRequest(
+				(request) =>
+					request.agentId === null &&
+					request.userMessages.some((text) => text.includes("Recovered review complete")),
 			);
+			expect(notification.userMessages.filter((text) => text.includes("Recovered review complete"))).toHaveLength(1);
 			expect(
 				agent
 					.listMailboxMessages()
 					.filter((message) => message.toAgentId === "main" && message.fromAgentId === spawned.id),
-			).toHaveLength(1);
+			).toEqual([]);
 		});
 	});
 
@@ -1175,12 +1174,9 @@ describe("headless Pi fixture", () => {
 					completionRequest.id,
 					fauxCompletedAssistantMessage("Detached completion recorded"),
 				);
-				await agent.waitForMailboxMessage(
-					(message) =>
-						message.fromAgentId === detachedJob.id &&
-						message.toAgentId === "main" &&
-						message.status === "delivered",
-				);
+				expect(
+					agent.listRuntimeMailboxMessages().filter((message) => message.sender.agentId === detachedJob.id),
+				).toEqual([]);
 				const completionEntry = (await agent.waitForSessionEntry(
 					null,
 					(entry) => entry.type === "custom" && entry.customType === "detached_tool_call_completion",
@@ -1452,18 +1448,14 @@ describe("headless Pi fixture", () => {
 					(request) => request.agentId === caller.id && request.id !== callerAfterDetach.id,
 				);
 				expect(JSON.stringify(completionRequest.messages)).toContain(detachedJob.id);
-				await agent.waitForMailboxMessage(
-					(message) => message.id === pendingCompletion.id && message.status === "delivered",
+				await vi.waitFor(() =>
+					expect(agent.listMailboxMessages().some((message) => message.id === pendingCompletion.id)).toBe(false),
 				);
 				await vi.waitFor(() => expect(agent.readTerminalOutboxStatuses(detachedJob.id)).toEqual(["delivered"]));
 				const terminalRuntimeMessages = agent
 					.listRuntimeMailboxMessages()
 					.filter((message) => message.sender.agentId === detachedJob.id);
-				expect(terminalRuntimeMessages).toHaveLength(1);
-				expect(terminalRuntimeMessages[0]?.recipient).toEqual({
-					agentId: caller.id,
-					sessionId: caller.transcript?.sessionId,
-				});
+				expect(terminalRuntimeMessages).toEqual([]);
 
 				const completionEntry = (await agent.waitForSessionEntry(
 					caller.id,

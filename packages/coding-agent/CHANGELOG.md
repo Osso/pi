@@ -69,6 +69,7 @@
 - Changed `send_agent_message` tool description, parameter schema descriptions, and prompt guidelines to document cross-session mailbox messaging via `toSessionId` and `toAgentId: "main"`.
 - Changed `channel_post` model-facing guidance to require short action-only broadcasts naming exact affected shared paths or installed artifacts, prefer targeted mailbox messaging, and exclude status, diagnostic, test, ownership, and conversational posts; delivered shared-channel prompts now include matching no-acknowledgement and no-echo handling guidance.
 - Expanded `search_current_session_history` matching from user-only content to all conversational active-branch history, including assistant text, tool-call names and arguments, tool results, custom messages, and summaries; thinking, signatures, and the tool's own calls and results remain excluded.
+- Changed runtime mailbox delivery to atomically delete the canonical sender/transport row and live projection, including steering acceptance; detached terminal dedupe uses agent state instead of retained mailbox history, and 24-hour expiry remains only for undelivered messages.
 
 ### Added
 

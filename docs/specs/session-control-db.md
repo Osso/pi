@@ -85,7 +85,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       snapshots and atomically updates the agent and persists the prepared canonical mailbox payload.
       Steering delivery validates the agent, exact ownership, transition, and canonical message payload before
       reserving the writer; the commit revalidates both payload snapshots and atomically updates the agent and
-      message rows. Terminal mutation preflights exact ownership, replay identity, transition legality, and
+      deletes the message row. Terminal mutation preflights exact ownership, replay identity, transition legality, and
       descendant state read-only; its commit revalidates the agent snapshot and owner predicate, recursively
       rechecks that no persisted descendant is nonterminal, and atomically persists the terminal agent and one
       outbox row. Detached-job finalization resolves the candidate session path from exact ownership rows and
@@ -149,12 +149,12 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       metadata; output artifacts remain diagnostic only. Migration is an intentional atomic writer fence: legacy payload
       enumeration, transformation, validation, serialization, and rewrites remain inside the one migration transaction
       after the quiescence snapshot is revalidated.
-- [x] Terminal lifecycle duplicate lookup lists only canonical mailbox rows owned by the exact
-      session path, across all recipients and statuses. Preserve matching on sender agent ID,
-      `system` kind, parsed body type `multi_agent_terminal`, body agent ID, and terminal revision.
-      Keep the global administrative mailbox listing available.
+- [x] Detached terminal lifecycle mirroring uses the committed agent's `detached === true` and
+      `suppressTerminalNotification !== true` predicate, not retained mailbox rows. Finalization and
+      dead-runtime recovery persist that job's terminal transport with the terminal agent row; delivery
+      deletion and listener rebind must not produce a second terminal transport.
 - [x] Delete every `multi_agent_mailbox_messages` row whose `createdAt` age is >=24 hours,
-      regardless of status (`pending`, `claimed`, `accepted`, `rejected`, `delivered`, or `failed`).
+      regardless of undelivered status (`pending`, `claimed`, `accepted`, `rejected`, or `failed`).
       Delete preexisting rows with missing/null or unparseable `createdAt`; never use `updated_at` as an age fallback.
       Do not backfill unknown births or repair them on update.
 - [x] Expired mailbox messages cannot replay, deliver, or resurrect from in-memory projections,
@@ -218,13 +218,17 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       externally observable.
 - [x] Store shared-channel messages and per-recipient cursors in `control.sqlite` so idle
       sessions can catch up from an append-only global coordination log.
-- [x] `multi_agent_mailbox_messages` is the sole per-message runtime-delivery authority: each row owns payload, routing, claim identity, status, failure, and delivery acknowledgment. Runtime listener rows provide address resolution and wakeups only; no per-message runtime transport table exists. Schema migration folds valid legacy routing and terminal status into canonical rows, resets legacy claims to reclaimable pending state, and drops the legacy table without a compatibility path. Dead claimed-row recovery scans authority and claimant liveness without reserving the writer lock, then revalidates each candidate and resets it to `pending` in a short immediate transaction. Runtime routing returns unchanged canonical payloads from read-only state; changed payloads use bounded compare-and-swap retries and fail explicitly if contention prevents routing.
+- [x] `multi_agent_mailbox_messages` is the sole per-message runtime-delivery authority: each row owns payload, routing, claim identity, status, and failure until delivery deletes it. Runtime listener rows provide address resolution and wakeups only; no per-message runtime transport table exists. Schema migration folds valid legacy routing into undelivered canonical rows, deletes already-delivered legacy messages, resets legacy claims to reclaimable pending state, and drops the legacy table without a compatibility path. Dead claimed-row recovery scans authority and claimant liveness without reserving the writer lock, then revalidates each candidate and resets it to `pending` in a short immediate transaction. Runtime routing returns unchanged canonical payloads from read-only state; changed payloads use bounded compare-and-swap retries and fail explicitly if contention prevents routing.
 - [x] A recipient that is not ready for direct active-input delivery leaves canonical mailbox rows
       `pending` and does not read their payloads into runtime memory. Once ready, delivery evaluates
-      eligibility without reserving the writer lock. Delivery and runtime-mailbox claim scans then prepare claim/delivery
-      transition payloads before each short transaction, revalidate exact listener/ownership authority and the observed
-      canonical payload, and perform atomic delivery or claim writes; already-claimed or direct terminal status transitions use single-statement compare-and-swap writes guarded by the
-      observed payload and claimant identity. Selected payloads proceed directly to active session
+      eligibility without reserving the writer lock. Claims prepare transition payloads before each short
+      transaction; delivery revalidates exact listener/ownership authority and the observed canonical
+      payload, then deletes the row atomically. Claimed delivery also validates exact claimant identity.
+      Steering acceptance deletes its mailbox row in the same transaction as its owned lifecycle mutation.
+      Live store projections discard delivered messages; status updates cannot recreate a deleted row.
+      No delivered status, tombstone, or receipt table remains. The 24-hour expiry applies only to messages
+      not yet delivered. A stored enqueue after delivery is a new message, not an idempotent retry; production
+      producers do not re-enqueue a delivered store reference. Selected payloads proceed directly to active session
       input without an intermediate volatile queue. `wait_agent({})`
       uses the same delivery boundary on a coordination wake and returns all currently pending
       deliverable runtime-mailbox inputs, preserving sender/body formatting. Restart before a
@@ -303,6 +307,13 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 
 ## Mailbox verification
 
+- [x] `test/runtime-mailbox-deletion.test.ts` proves canonical deletion, live sender projection cleanup,
+      restore without redelivery, claim/payload CAS, stale-status non-resurrection, and atomic steering
+      acceptance. `test/suite/runtime-mailbox-terminal-deletion.test.ts` keeps a detached child live across
+      supervisor restart, completes it once, delivers and deletes its terminal transport at a post-tool
+      checkpoint, then restarts/rebinds again and observes exactly one parent notification. The single start
+      marker proves no job rerun. Paths are relative to `packages/coding-agent/`.
+
 - [x] Default-birth proof: `packages/coding-agent/test/runtime-mailbox-retention.test.ts`,
       `packages/coding-agent/test/runtime-mailbox-scope.test.ts`, and
       `packages/coding-agent/test/session-control-db.test.ts` passed.
@@ -316,7 +327,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       Merged integration and latest default-birth checks passed separately; neither extends proof to
       unrelated descendant changes.
 
-- [x] Targeted tests prove exact-session terminal duplicate lookup, all-status creation-age expiry,
+- [x] Targeted tests prove detached agent-predicate terminal suppression, undelivered creation-age expiry,
       invalid timestamps, the exact 24-hour boundary, startup/ongoing cleanup, and in-memory/restart
       resurrection prevention. Backing tests:
       `packages/coding-agent/test/runtime-mailbox-scope.test.ts`,

@@ -256,13 +256,14 @@ describe("MultiAgentStore", () => {
 			spawned.agent.id,
 			accepted.agent.revision,
 			steer.message.id,
-			"delivered",
+			"consume",
 		);
 		expect(delivered.ok).toBe(true);
 		if (!delivered.ok) {
 			throw new Error("expected delivery to succeed");
 		}
-		expect(delivered.message.status).toBe("delivered");
+		expect(delivered.message.status).toBe("accepted");
+		expect(store.listMailboxMessages()).toEqual([]);
 		expect(delivered.agent.lifecycle).toBe("running");
 	});
 
@@ -1448,7 +1449,7 @@ describe("MultiAgentStore", () => {
 				spawned.agent.id,
 				steer.agent.revision,
 				steer.message.id,
-				"delivered",
+				"consume",
 			);
 			expect(delivered.ok).toBe(true);
 			if (!delivered.ok) {
@@ -1480,11 +1481,6 @@ describe("MultiAgentStore", () => {
 			expect(rehydrated.getSelectedAgentId()).toBeUndefined();
 			expect(rehydrated.getActiveAgentCount()).toBe(0);
 			expect(rehydrated.listMailboxMessages()).toMatchObject([
-				{
-					body: "Continue with tests",
-					kind: "steer",
-					status: "delivered",
-				},
 				{
 					body: "Scout completed.",
 					kind: "system",

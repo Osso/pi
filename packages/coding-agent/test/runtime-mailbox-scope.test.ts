@@ -36,7 +36,7 @@ function seedMailbox(controlDbPath: string, unrelatedBodySize = 32): RuntimeMail
 	try {
 		db.exec("BEGIN");
 		const kinds = ["system", "message", "ask", "reply", "steer", "parent_request"] as const;
-		const statuses = ["delivered", "pending", "failed", "claimed"] as const;
+		const statuses = ["pending", "failed", "claimed"] as const;
 		const own = kinds.map((kind, index): RuntimeMailboxMessage => {
 			const messageId = `own-${kinds.length - index}`;
 			const status = statuses[index % statuses.length];
@@ -44,7 +44,6 @@ function seedMailbox(controlDbPath: string, unrelatedBodySize = 32): RuntimeMail
 				body: `own body ${index}`,
 				claimedAt: status === "claimed" ? "2026-10-08T11:30:00.000Z" : undefined,
 				createdAt: "2026-10-08T11:00:00.000Z",
-				deliveredAt: status === "delivered" ? "2026-10-08T11:45:00.000Z" : undefined,
 				error: status === "failed" ? "concrete delivery failure" : undefined,
 				fileRefs: index === 0 ? [{ path: "/tmp/result.txt", label: "result" }] : undefined,
 				kind,
@@ -78,7 +77,7 @@ function seedMailbox(controlDbPath: string, unrelatedBodySize = 32): RuntimeMail
 				recipientSessionId: own[0].recipient.sessionId,
 				senderAgentId: own[0].sender.agentId,
 				senderSessionId: own[0].sender.sessionId,
-				status: "delivered",
+				status: "failed",
 			});
 		}
 		insertMessage(db, ownSessionPath, "unaddressed", { body: "local only", kind: "message", status: "pending" });

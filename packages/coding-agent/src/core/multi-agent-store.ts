@@ -3,6 +3,9 @@ import { isMailboxMessageExpired } from "./mailbox-retention.ts";
 import type { ProcessIdentity } from "./runtime-process.ts";
 import {
 	allocateMultiAgentCounter,
+	consumeRuntimeMailboxMessageByStoreRef,
+	getMultiAgentMailboxMessageStatus,
+	markMultiAgentMailboxMessageFailed,
 	type MultiAgentPersistedState,
 	readMultiAgentState,
 	updateMultiAgentAgentActivity,
@@ -29,7 +32,7 @@ export type SteeringCheckpoint = "next_model_call" | "after_tool_result" | "when
 
 export type MailboxMessageKind = "message" | "ask" | "reply" | "steer" | "parent_request" | "system";
 
-export type MailboxMessageStatus = "pending" | "claimed" | "accepted" | "rejected" | "delivered" | "failed";
+export type MailboxMessageStatus = "pending" | "claimed" | "accepted" | "rejected" | "failed";
 
 export interface AgentActivity {
 	description: string;
@@ -361,7 +364,8 @@ export class MultiAgentStore {
 	}
 
 	publishLifecycleCoordinatorSteeringDelivery(agent: AgentSnapshot, message: AgentMailboxMessage): void {
-		this.publishLifecycleCoordinatorSteering(agent, message);
+		this.mailboxMessages.delete(message.id);
+		this.publishLifecycleCoordinatorSnapshot(agent);
 	}
 
 	publishLifecycleCoordinatorSnapshot(agent: AgentSnapshot): void {
@@ -510,15 +514,20 @@ export class MultiAgentStore {
 
 	expireMailboxMessages(now: number): void {
 		for (const [id, message] of this.mailboxMessages) {
-			if (isMailboxMessageExpired(message.createdAt, now)) this.mailboxMessages.delete(id);
+			if (
+				isMailboxMessageExpired(message.createdAt, now) ||
+				(this.persistence &&
+					getMultiAgentMailboxMessageStatus(this.persistence.controlDbPath, this.persistence.sessionPath, id) ===
+						undefined)
+			) {
+				this.mailboxMessages.delete(id);
+			}
 		}
 	}
 
 	listMailboxMessages(): AgentMailboxMessage[] {
-		const now = Date.parse(this.now());
-		return Array.from(this.mailboxMessages.values())
-			.filter((message) => !isMailboxMessageExpired(message.createdAt, now))
-			.map(copyMessage);
+		this.expireMailboxMessages(Date.parse(this.now()));
+		return Array.from(this.mailboxMessages.values(), copyMessage);
 	}
 
 	listPendingMailboxMessagesForAgent(agentId: string): AgentMailboxMessage[] {
@@ -528,26 +537,39 @@ export class MultiAgentStore {
 	}
 
 	markMailboxMessageDelivered(messageId: string): AgentMailboxMessage | undefined {
-		return this.markMailboxMessageStatus(messageId, "delivered");
+		const message = this.mailboxMessages.get(messageId);
+		if (!message || isMailboxMessageExpired(message.createdAt, Date.parse(this.now()))) return undefined;
+		if (this.persistence) {
+			consumeRuntimeMailboxMessageByStoreRef(this.persistence.controlDbPath, {
+				messageId,
+				sessionPath: this.persistence.sessionPath,
+			});
+		}
+		this.mailboxMessages.delete(messageId);
+		return copyMessage(message);
 	}
 
 	markMailboxMessageFailed(messageId: string, error: string): AgentMailboxMessage | undefined {
-		return this.markMailboxMessageStatus(messageId, "failed", error);
-	}
-
-	private markMailboxMessageStatus(
-		messageId: string,
-		status: Exclude<MailboxMessageStatus, "pending">,
-		error?: string,
-	): AgentMailboxMessage | undefined {
 		const message = this.mailboxMessages.get(messageId);
 		if (!message || message.status !== "pending") return undefined;
 		if (isMailboxMessageExpired(message.createdAt, Date.parse(this.now()))) {
 			return undefined;
 		}
 
-		const updated = { ...message, error, status, updatedAt: this.now() };
-		this.putMailboxMessage(updated);
+		if (
+			this.persistence &&
+			!markMultiAgentMailboxMessageFailed(
+				this.persistence.controlDbPath,
+				this.persistence.sessionPath,
+				messageId,
+				error,
+			)
+		) {
+			this.mailboxMessages.delete(messageId);
+			return undefined;
+		}
+		const updated = { ...message, error, status: "failed" as const, updatedAt: this.now() };
+		this.mailboxMessages.set(messageId, updated);
 		return copyMessage(updated);
 	}
 
@@ -568,9 +590,8 @@ export class MultiAgentStore {
 			if (!isPendingLifecycleNotification(message, agentId, lifecycle)) {
 				continue;
 			}
-			const updated = { ...message, status: "delivered" as const, updatedAt: this.now() };
-			this.putMailboxMessage(updated);
-			consumed.push(copyMessage(updated));
+			const delivered = this.markMailboxMessageDelivered(message.id);
+			if (delivered) consumed.push(delivered);
 		}
 		return consumed;
 	}

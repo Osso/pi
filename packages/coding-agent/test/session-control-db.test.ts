@@ -21,11 +21,11 @@ import {
 	cleanupMultiAgentTerminalOutbox,
 	commitMultiAgentDetachMark,
 	commitMultiAgentLifecycleMutation,
+	commitMultiAgentSteeringDelivery,
 	commitMultiAgentSteeringMutation,
 	commitMultiAgentTerminalMutation,
 	completeArchitectRequest,
 	completeIncomingMessage,
-	consumeRuntimeMailboxMessage,
 	createMultiAgentChildWithRuntimeOwnership,
 	deliverMultiAgentTerminalOutbox,
 	deliverRuntimeMailboxMessage,
@@ -246,7 +246,7 @@ Date.now = () => ${Date.now()};
 					const messages = takeRuntimeMailboxMessagesForDelivery(
 						workerData.controlDbPath,
 						workerData.recipient,
-						() => true,
+						() => { parentPort?.postMessage({ type: "serialized" }); return true; },
 					);
 					parentPort?.postMessage({ statuses: messages.map((message) => message.status), type: "completed" });
 					return;
@@ -479,7 +479,7 @@ describe("session control DB", () => {
 			fromAgentId: "agent_3",
 			id: "message_2",
 			kind: "system",
-			status: "delivered",
+			status: "failed",
 			toAgentId: "main",
 		});
 
@@ -758,7 +758,7 @@ Date.now = () => ${Date.now()};
 			fromAgentId: "agent_3",
 			id: "message_2",
 			kind: "system",
-			status: "delivered",
+			status: "failed",
 			toAgentId: "main",
 		});
 
@@ -778,7 +778,7 @@ Date.now = () => ${Date.now()};
 			const row = db
 				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
 				.get(sessionPath, "message_2") as { data: string };
-			expect(JSON.parse(row.data)).toMatchObject({ body: "original", fromAgentId: "agent_3", status: "delivered" });
+			expect(JSON.parse(row.data)).toMatchObject({ body: "original", fromAgentId: "agent_3", status: "failed" });
 		} finally {
 			db.close();
 		}
@@ -793,7 +793,7 @@ Date.now = () => ${Date.now()};
 			fromAgentId: "agent-original",
 			id: messageId,
 			kind: "system" as const,
-			status: "delivered" as const,
+			status: "failed" as const,
 			toAgentId: "main",
 		};
 		const conflicting = {
@@ -939,19 +939,19 @@ Date.now = () => ${Date.now()};
 		});
 		claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "recipient-session" });
 		expect(deliverRuntimeMailboxMessage(controlDbPath, id)).toBe(true);
-		expect(readRuntimeMailboxMessage(controlDbPath, id)?.status).toBe("delivered");
+		expect(readRuntimeMailboxMessage(controlDbPath, id)).toBeUndefined();
 		const db = createSqliteDatabase(controlDbPath);
 		try {
 			const row = db
 				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
-				.get(sessionPath, messageId) as { data: string };
-			expect(JSON.parse(row.data).status).toBe("delivered");
+				.get(sessionPath, messageId);
+			expect(row).toBeUndefined();
 		} finally {
 			db.close();
 		}
 	});
 
-	it("rolls back canonical delivery when its row update fails", () => {
+	it("rolls back canonical delivery when its row deletion fails", () => {
 		const sessionPath = "/sessions/atomic-rollback.jsonl";
 		const messageId = "atomic-rollback";
 		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
@@ -974,8 +974,8 @@ Date.now = () => ${Date.now()};
 		try {
 			db.exec(`
 				CREATE TRIGGER reject_canonical_delivery
-				BEFORE UPDATE OF data ON multi_agent_mailbox_messages
-				WHEN OLD.rowid = ${id} AND json_extract(NEW.data, '$.status') = 'delivered'
+				BEFORE DELETE ON multi_agent_mailbox_messages
+				WHEN OLD.rowid = ${id}
 				BEGIN
 					SELECT RAISE(ABORT, 'reject canonical delivery');
 				END
@@ -1027,7 +1027,7 @@ Date.now = () => ${Date.now()};
 			db.close();
 		}
 
-		expect(consumeRuntimeMailboxMessage(controlDbPath, id)).toBe(false);
+		expect(deliverRuntimeMailboxMessage(controlDbPath, id)).toBe(false);
 		expect(readRuntimeMailboxMessage(controlDbPath, id)).toBeUndefined();
 		const reader = createSqliteDatabase(controlDbPath);
 		try {
@@ -1037,16 +1037,16 @@ Date.now = () => ${Date.now()};
 		}
 	});
 
-	it("consumes an already-resolved mailbox row by transport ID", () => {
+	it("deletes a claimed mailbox row by transport ID", () => {
 		const sessionPath = "/sessions/consumed.jsonl";
-		const messageId = "already-delivered";
+		const messageId = "once-delivered";
 		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
 			createdAt: "2026-07-11T00:00:00.000Z",
-			body: "already delivered",
+			body: "deliver once",
 			fromAgentId: "main",
 			id: messageId,
 			kind: "message",
-			status: "delivered",
+			status: "pending",
 			toAgentId: "main",
 		});
 		const id = enqueueRuntimeMailboxMessage(controlDbPath, {
@@ -1055,8 +1055,9 @@ Date.now = () => ${Date.now()};
 			sender: { agentId: null, sessionId: "sender-session" },
 			storeRef: { messageId, sessionPath },
 		});
-		expect(consumeRuntimeMailboxMessage(controlDbPath, id)).toBe(true);
-		expect(readRuntimeMailboxMessage(controlDbPath, id)?.status).toBe("delivered");
+		claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "recipient-session" });
+		expect(deliverRuntimeMailboxMessage(controlDbPath, id)).toBe(true);
+		expect(readRuntimeMailboxMessage(controlDbPath, id)).toBeUndefined();
 	});
 
 	it("rejects runtime mailbox references without a durable store message", () => {
@@ -2548,11 +2549,11 @@ Date.now = () => ${Date.now()};
 		expect(result.ok).toBe(true);
 		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject({
 			agents: [{ displayName: marker, lifecycle: "running", revision: 3 }],
-			mailboxMessages: [{ id: messageId, status: "delivered" }],
+			mailboxMessages: [],
 		});
 	});
 
-	it("prepares steering delivery message payload before acquiring the writer lock", async () => {
+	it("rolls back steering acceptance when mailbox deletion fails", () => {
 		const sessionPath = "/sessions/steering-delivery-message-payload.jsonl";
 		const agentId = "agent-steering-delivery-message-payload";
 		const messageId = "steering-delivery-message-payload-message";
@@ -2584,10 +2585,16 @@ Date.now = () => ${Date.now()};
 			updatedAt: "2026-08-09T00:00:00.000Z",
 		});
 
-		const result = await runMultiAgentPayloadPreparationContention(
-			controlDbPath,
-			"steering-delivery",
-			{
+		const before = readMultiAgentState(controlDbPath, sessionPath);
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.exec(`CREATE TRIGGER reject_steering_delivery BEFORE DELETE ON multi_agent_mailbox_messages
+				WHEN OLD.message_id = '${messageId}' BEGIN SELECT RAISE(ABORT, 'reject steering deletion'); END`);
+		} finally {
+			db.close();
+		}
+		expect(() =>
+			commitMultiAgentSteeringDelivery(controlDbPath, {
 				agentId,
 				messageId,
 				owner,
@@ -2595,15 +2602,9 @@ Date.now = () => ${Date.now()};
 				requestedLifecycle: "running",
 				sessionPath,
 				updatedAt: "2026-08-09T00:01:00.000Z",
-			},
-			marker,
-		);
-
-		expect(result.ok).toBe(true);
-		expect(readMultiAgentState(controlDbPath, sessionPath)).toMatchObject({
-			agents: [{ lifecycle: "running", revision: 3 }],
-			mailboxMessages: [{ body: marker, id: messageId, status: "delivered" }],
-		});
+			}),
+		).toThrow("reject steering deletion");
+		expect(readMultiAgentState(controlDbPath, sessionPath)).toEqual(before);
 	});
 
 	it("rejects steering to a dead recipient without advancing its counter", () => {
@@ -4704,7 +4705,7 @@ Date.now = () => ${Date.now()};
 		}
 	});
 
-	it("preserves canonical payloads and delivery while releasing legacy claims during v14 migration", () => {
+	it("preserves undelivered payloads, deletes delivered messages, and releases legacy claims during v14 migration", () => {
 		const sessionPath = "/sessions/legacy-authority.jsonl";
 		readMultiAgentState(controlDbPath, sessionPath);
 		const db = createSqliteDatabase(controlDbPath);
@@ -4819,14 +4820,7 @@ Date.now = () => ${Date.now()};
 				threadId: "thread-pending",
 			});
 			expect(payloads["pending-message"]).not.toHaveProperty("claimantProcessIdentity");
-			expect(payloads["delivered-message"]).toMatchObject({
-				body: "delivered body",
-				correlationId: "correlation-delivered",
-				deliveredAt: "2026-07-13T00:02:00.000Z",
-				kind: "system",
-				status: "delivered",
-				threadId: "thread-delivered",
-			});
+			expect(payloads["delivered-message"]).toBeUndefined();
 			expect((migrated.prepare("PRAGMA user_version").get() as { user_version: number }).user_version).toBe(15);
 			expect(
 				migrated
@@ -5184,10 +5178,8 @@ Date.now = () => ${Date.now()};
 
 		const result = await runRuntimeMailboxPayloadPreparationContention(controlDbPath, "deliver", recipient, marker);
 
-		expect(result.statuses).toEqual(["delivered"]);
-		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([
-			expect.objectContaining({ body: marker, status: "delivered", storeRef: { messageId, sessionPath } }),
-		]);
+		expect(result.statuses).toEqual(["pending"]);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
 	});
 
 	it("prepares recovered payload before acquiring the writer lock", async () => {
@@ -5314,14 +5306,8 @@ Date.now = () => ${Date.now()};
 				ignoredTypes: ["eligible"],
 				timeoutMessage: "delivery worker did not complete after lock release",
 			});
-			expect(result).toMatchObject({ count: 1, statuses: ["delivered"] });
-			expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([
-				expect.objectContaining({
-					body: "deliver under contention",
-					status: "delivered",
-					storeRef: { messageId, sessionPath },
-				}),
-			]);
+			expect(result).toMatchObject({ count: 1, statuses: ["pending"] });
+			expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
 		} finally {
 			try {
 				holder.exec("ROLLBACK");
@@ -6147,7 +6133,7 @@ Date.now = () => ${Date.now()};
 		}
 	});
 
-	it("marks persisted store mailbox messages delivered by reference", () => {
+	it("deletes persisted store mailbox messages on delivery by reference", () => {
 		upsertMultiAgentMailboxMessage(controlDbPath, "/sessions/supervisor.jsonl", "message_1", {
 			createdAt: "2026-07-11T00:00:00.000Z",
 			body: "stored supervisor request",
@@ -6164,19 +6150,18 @@ Date.now = () => ${Date.now()};
 		expect(markMultiAgentMailboxMessageDelivered(controlDbPath, "/sessions/supervisor.jsonl", "message_1")).toBe(
 			false,
 		);
-		const runtimeId = enqueueRuntimeMailboxMessage(controlDbPath, {
-			kind: "system",
-			recipient: { agentId: null, sessionId: "parent-session" },
-			sender: { agentId: "agent_1", sessionId: "child-session" },
-			storeRef: { messageId: "message_1", sessionPath: "/sessions/supervisor.jsonl" },
-		});
-
-		expect(readRuntimeMailboxMessage(controlDbPath, runtimeId)).toMatchObject({
-			body: "stored supervisor request",
-		});
+		expect(readMultiAgentState(controlDbPath, "/sessions/supervisor.jsonl")).toBeUndefined();
+		expect(() =>
+			enqueueRuntimeMailboxMessage(controlDbPath, {
+				kind: "system",
+				recipient: { agentId: null, sessionId: "parent-session" },
+				sender: { agentId: "agent_1", sessionId: "child-session" },
+				storeRef: { messageId: "message_1", sessionPath: "/sessions/supervisor.jsonl" },
+			}),
+		).toThrow("Runtime mailbox store reference does not exist");
 	});
 
-	it("reads completed mailbox state without acquiring the writer lock", async () => {
+	it("reads absent delivered mailbox state without acquiring the writer lock", async () => {
 		const storeRef = { messageId: "completed-lock-free", sessionPath: "/sessions/completed-lock-free.jsonl" };
 		upsertMultiAgentMailboxMessage(controlDbPath, storeRef.sessionPath, storeRef.messageId, {
 			body: "already delivered",
@@ -6184,7 +6169,7 @@ Date.now = () => ${Date.now()};
 			fromAgentId: "main",
 			id: storeRef.messageId,
 			kind: "message",
-			status: "delivered",
+			status: "pending",
 			toAgentId: "main",
 			updatedAt: "2026-08-09T00:00:00.000Z",
 		});
@@ -6194,6 +6179,7 @@ Date.now = () => ${Date.now()};
 			sender: { agentId: null, sessionId: "completed-sender" },
 			storeRef,
 		});
+		markRuntimeMailboxMessageDelivered(controlDbPath, messageId);
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
@@ -6233,7 +6219,7 @@ Date.now = () => ${Date.now()};
 				timeoutMessage: "completed mailbox reads waited for the writer lock",
 				timeoutMs: 1_000,
 			});
-			expect(result).toMatchObject({ consumed: 0, delivered: true });
+			expect(result).toMatchObject({ consumed: 0, delivered: false });
 		} finally {
 			holder.exec("ROLLBACK");
 			await worker.terminate();
@@ -6741,7 +6727,7 @@ Date.now = () => ${Date.now()};
 		markRuntimeMailboxMessageDelivered(controlDbPath, deliveredId);
 		failRuntimeMailboxMessage(controlDbPath, failedId, "enqueue failed");
 
-		expect(readRuntimeMailboxMessage(controlDbPath, deliveredId)).toMatchObject({ status: "delivered" });
+		expect(readRuntimeMailboxMessage(controlDbPath, deliveredId)).toBeUndefined();
 		expect(readRuntimeMailboxMessage(controlDbPath, failedId)).toMatchObject({
 			error: "enqueue failed",
 			status: "failed",

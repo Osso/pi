@@ -196,14 +196,19 @@ describe("thinking timeout automatic continuation (real process)", () => {
 				expect(agent.listMailboxMessages().filter((message) => message.fromAgentId === spawned.id)).toHaveLength(0);
 				await finishRequest(agent, retry, "Recovered child completed");
 				await agent.waitForAgent((candidate) => candidate.id === spawned.id && candidate.lifecycle === "completed");
-				await agent.waitForMailboxMessage(
-					(message) =>
-						message.fromAgentId === spawned.id && message.toAgentId === "main" && message.status === "delivered",
+				const notification = await agent.waitForLlmRequest(
+					(request) =>
+						request.agentId === null &&
+						request.userMessages.some((text) => text.includes("Recovered child completed")),
+					REQUEST_WAIT_MS,
+				);
+				expect(notification.userMessages.filter((text) => text.includes("Recovered child completed"))).toHaveLength(
+					1,
 				);
 				await expectNoRequest(agent, spawned.id);
 				expect(countUserInput(agent, assignment, spawned.id)).toBe(1);
 				expect(agent.readTerminalOutboxStatuses(spawned.id)).toHaveLength(1);
-				expect(agent.listMailboxMessages().filter((message) => message.fromAgentId === spawned.id)).toHaveLength(1);
+				expect(agent.listMailboxMessages().filter((message) => message.fromAgentId === spawned.id)).toHaveLength(0);
 			},
 			{ ...options, env: { PI_HEADLESS_THINKING_DEADLINE_MS: "2500" } },
 		);

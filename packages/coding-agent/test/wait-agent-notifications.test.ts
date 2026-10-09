@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { consumeNotifications, waitNotifications } from "../extensions/agents-core/src/index.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { getControlDbPath } from "../src/core/session-control-db.ts";
@@ -10,7 +10,13 @@ import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
 
 const tempDirs: string[] = [];
 
+beforeEach(() => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	vi.setSystemTime("2026-07-20T00:00:00.000Z");
+});
+
 afterEach(() => {
+	vi.useRealTimers();
 	for (const tempDir of tempDirs.splice(0)) rmSync(tempDir, { force: true, recursive: true });
 });
 
@@ -54,7 +60,7 @@ describe("agent notification waiting", () => {
 		const consumed = consumeNotifications(store, wake);
 
 		expect(consumed.content).toEqual([{ text: "Worker completed: done", type: "text" }]);
-		expect(store.listMailboxMessages()).toMatchObject([{ status: "delivered" }]);
+		expect(store.listMailboxMessages()).toEqual([]);
 	});
 
 	it("does not consume terminal notifications after a non-terminal wake", () => {

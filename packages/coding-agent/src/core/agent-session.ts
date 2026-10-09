@@ -190,10 +190,10 @@ import {
 	getRuntimeProcessInstanceId,
 	initializeSharedChannelCursorAtTail,
 	listSharedChannelMessagesAfter,
-	markMultiAgentMailboxMessageDelivered,
 	markMultiAgentMailboxMessageFailed,
 	type RuntimeMailboxAddress,
 	type RuntimeMailboxMessage,
+	readMultiAgentAgent,
 	readMultiAgentRuntimeOwnership,
 	readRuntimeMailboxListener,
 	readSharedChannelTail,
@@ -206,7 +206,6 @@ import {
 	writeLastMessage,
 } from "./session-control-db.ts";
 import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager } from "./session-manager.ts";
-
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
 import { BUILTIN_SLASH_COMMANDS, type SlashCommandInfo } from "./slash-commands.ts";
@@ -3481,6 +3480,7 @@ export class AgentSession {
 		}
 		const promptMessages: RuntimeMailboxMessage[] = [];
 		for (const message of messages) {
+			this._markStoreMailboxMessageDelivered(message);
 			this._recordDetachedToolCallCompletion(message);
 			if (await this._interceptRuntimeMailboxMessage(message)) continue;
 			promptMessages.push(message);
@@ -3496,12 +3496,10 @@ export class AgentSession {
 				inputSource: "extension",
 				timestamp: Date.now(),
 			});
-			for (const message of promptMessages) this._markStoreMailboxMessageDelivered(message);
 			return true;
 		}
 		delivery.releaseMailboxDrain();
 		await this._promptTurn(prompt, { expandPromptTemplates: false, source: "extension" }, delivery.releaseTurnStart);
-		for (const message of promptMessages) this._markStoreMailboxMessageDelivered(message);
 		this._completeRuntimeMailboxSteeringTurn(this.messages);
 		return false;
 	}
@@ -3553,7 +3551,6 @@ export class AgentSession {
 		try {
 			const result = await this._extensionRunner.emitRuntimeMailbox({ type: "runtime_mailbox", message });
 			if (!result.handled) return false;
-			this._markStoreMailboxMessageDelivered(message);
 			return true;
 		} catch (error) {
 			this._failStoreMailboxDelivery(message, error);
@@ -3657,12 +3654,6 @@ export class AgentSession {
 			this._multiAgentStore.markMailboxMessageDelivered(storeRef.messageId);
 			return undefined;
 		}
-		if (message.kind !== "steer") {
-			const controlDbPath = this._getRuntimeMailboxControlDbPath();
-			if (controlDbPath) {
-				markMultiAgentMailboxMessageDelivered(controlDbPath, storeRef.sessionPath, storeRef.messageId);
-			}
-		}
 		return undefined;
 	}
 
@@ -3671,24 +3662,12 @@ export class AgentSession {
 		if (!agentId || !this._multiAgentStore) {
 			return undefined;
 		}
-		const current = this._multiAgentStore.getAgent(agentId);
-		if (!current) {
-			return undefined;
-		}
 		const persistence = this._multiAgentStore.getPersistenceTarget();
 		if (!persistence) return undefined;
-		const ownership = readMultiAgentRuntimeOwnership(persistence.controlDbPath, persistence.sessionPath, agentId);
-		if (!ownership) return undefined;
-		const coordinator = new LifecycleCoordinator({
-			controlDbPath: persistence.controlDbPath,
-			createAgentId: () => this._multiAgentStore?.allocateAgentIdForLifecycleCoordinator() ?? "",
-			now: () => new Date().toISOString(),
-			processIdentity: this._detachedJobProcessIdentity,
-			sessionPath: persistence.sessionPath,
-		});
-		const delivered = coordinator.acknowledgeSteeringDelivery({ agent: current, messageId, ownership });
-		if (!delivered.ok) return undefined;
-		this._multiAgentStore.publishLifecycleCoordinatorSteeringDelivery(delivered.agent, delivered.message);
+		const agent = readMultiAgentAgent(persistence.controlDbPath, persistence.sessionPath, agentId);
+		if (!agent) return undefined;
+		this._multiAgentStore.markMailboxMessageDelivered(messageId);
+		this._multiAgentStore.publishLifecycleCoordinatorSnapshot(agent as unknown as AgentSnapshot);
 		this._runtimeMailboxSteeringAgentIds.add(agentId);
 		return agentId;
 	}

@@ -90,15 +90,9 @@ describe("sub-agent output_text mailbox delivery", () => {
 			await parent.session.drainRuntimeCoordination();
 			await parent.session.agent.waitForIdle();
 
-			const delivered = listRuntimeMailboxMessages(controlDbPath).find(
-				(message) => message.sender.agentId === agentId,
-			);
-			expect(delivered).toMatchObject({
-				body,
-				status: "delivered",
-				sender: { agentId, sessionId: child.session.sessionId },
-				recipient: { agentId: null, sessionId: parent.session.sessionId },
-			});
+			expect(
+				listRuntimeMailboxMessages(controlDbPath).filter((message) => message.sender.agentId === agentId),
+			).toEqual([]);
 			const prompt = getUserTexts(parent).find((text) => text.includes(`- session: ${child.session.sessionId}`));
 			expect(prompt).toBe(
 				["From:", `- session: ${child.session.sessionId}`, `- agent: ${agentId}`, "", "Message:", body].join("\n"),

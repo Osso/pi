@@ -259,12 +259,14 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   artifact paths, and launch manifest exist. The output artifact is retained for diagnostics and may be
   inspected after completion or failure, but it never substitutes for the agent row.
 
-  Retention and garbage collection follow agent-row and delivery references. A terminal runtime transport
-  row may be deleted only after delivery acknowledgement; its referenced mailbox payload may be deleted only
-  after no transport row references it and the terminal outbox is delivered. Diagnostic output artifacts are
-  retained according to the detached-job retention policy and are not lifecycle records. Interrupted garbage
-  collection is idempotent; missing referenced bytes are corruption, not permission to cascade-delete the
-  remaining evidence.
+  Runtime transport and sender mailbox payload are one canonical `multi_agent_mailbox_messages` row.
+  Delivery deletes that row atomically and removes its live store projection; later status updates must not
+  resurrect it. No delivered status, receipt, or tombstone is retained. Undelivered rows expire 24 hours after
+  creation, including sessions that never claim their messages. A stored enqueue after delivery creates a
+  new message; production producers do not retry a delivered store reference. Detached terminal mirroring
+  uses the terminal agent's `detached === true && suppressTerminalNotification !== true` predicate instead
+  of mailbox history, preventing duplicate transport after deletion or listener rebind. Diagnostic output
+  artifacts retain their separate detached-job policy and never substitute for lifecycle state.
 - Production exposes no generic runtime-ownership acquire/release writer. Tests that need historical or
   malformed ownership use an explicit raw fixture helper outside production; production attachment, creation,
   lifecycle, steering, recovery, and terminal writers are allowlisted to coordinator or detached-runner modules.
@@ -358,8 +360,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       buffer.
 - [x] A steering message can target a whole agent or a safe checkpoint such as the next model call,
       after a tool result, or while the child is waiting for input.
-- [x] Core exposes steering acknowledgement so the TUI can show pending, accepted, rejected, or
-      delivered state.
+- [x] Core exposes pending, accepted, and rejected steering state; successful delivery removes the message
+      atomically with its owned lifecycle acceptance.
 - [x] Child agents can contact their current direct parent without direct access to sibling internals.
 - [x] Spawned child dispatches perform a final runtime-coordination drain before end-of-turn completion;
       steering that races with turn end is delivered before terminalization and cannot remain pending
@@ -407,26 +409,22 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Runtime mailbox messages remain `pending` and unread until the recipient reaches an eligible
       delivery boundary. Idle delivery submits them directly as active session input; an active turn
       consumes checkpoint-eligible messages through the agent steering queue, never the follow-up queue.
-- [x] When the recipient session is ready, one immediate transaction selects its eligible pending
-      mailbox messages and marks those same rows `delivered`. Concurrent recipients cannot select
-      the same message, and no claim-before-read interval exists between mailbox selection and the
-      delivery-state update.
-- [x] Mailbox rows selected and marked `delivered` at the readiness boundary are submitted directly
-      as idle session input or active-turn steering. Restart before that boundary leaves the rows
-      pending and recoverable.
+- [x] At recipient readiness, eligibility is prepared read-only, then exact authority and payload CAS
+      deletes each selected canonical mailbox row in an immediate transaction. Concurrent recipients
+      cannot deliver the same row; owned steering acceptance and deletion commit together.
+- [x] Payloads taken at readiness are submitted directly as idle session input or active-turn steering.
+      Restart before that boundary leaves rows pending and recoverable; restore after delivery cannot
+      show or redeliver deleted rows.
 - [x] Idle prompt delivery releases its mailbox-drain critical-section guard before awaiting the agent
       run it starts, so the run can drain again at its first post-tool checkpoint without self-deadlocking.
-- [x] Runtime mailbox cleanup removes messages older than 30 days because stale coordination
-      messages are no longer actionable.
+- [x] Undelivered runtime mailbox messages expire 24 hours after creation; delivered rows are deleted immediately.
 - [x] Delivered mailbox prompts clearly identify their mailbox origin and sender address before the
       content is fed back to the model.
 - [x] Runtime mailbox writes are treated as a local trusted-boundary security surface; any process
       with control-DB write access can inject messages, so the feature must not hide message origin.
-- [x] A mailbox message has exactly one delivery transport: the runtime control-DB mailbox.
-      There is no in-store drain; transport rows reference the persisted store row (one transport
-      row per store message, enforced at enqueue), and the store record transitions to delivered
-      only when the recipient's process actually delivers the transport row. Steer messages are
-      exempt from delivery marking because the steering acknowledgement flow owns their status.
+- [x] A mailbox message has exactly one delivery transport: its canonical control-DB row also owns the
+      sender store's persisted payload. There is no separate transport table or in-store drain. Delivery
+      deletes that row; steering deletion commits atomically with the owned lifecycle acknowledgment.
 - [x] Multi-agent messaging requires a store persisted to the session control DB. There is no
       in-memory delivery mode: an unpersisted sender cannot enqueue transport rows, and the
       failure is reported explicitly rather than silently falling back.
@@ -448,7 +446,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       After every completed tool-result batch, the safe checkpoint delivers `after_tool_result` steering
       first and then `next_model_call` steering before the following provider request. Long tool loops must
       not defer `next_model_call` steering until `agent_end`; eligible messages are selected atomically,
-      marked delivered, and enqueued as steering, while non-eligible messages remain durable and pending.
+      deleted, and enqueued as steering, while non-eligible messages remain durable and pending.
 - [x] Interactive selected-child editor steering and the `steer_agent` tool use the exported
       `requestAgentSteering` path with an explicit scalar `AgentSteeringRuntimeBinding`. The shared path
       validates the binding against persisted ownership; one repository transaction under `BEGIN IMMEDIATE`
@@ -784,7 +782,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Replace eager runtime-mailbox claim and volatile follow-up enqueue with readiness-boundary
       selection and delivery marking in one transaction, then direct idle input or active-turn
       steering. Add restart coverage proving messages remain pending until an eligible boundary.
-- [x] Add 30-day cleanup for stale runtime mailbox rows.
+- [x] Add 24-hour creation-age expiry for undelivered runtime mailbox rows and immediate deletion on delivery.
 - [ ] Add true mid-flight detach for the currently running foreground turn; the current `/bg`
       command starts a new background child-agent prompt instead of transferring an active
       in-progress `AgentSession` run.

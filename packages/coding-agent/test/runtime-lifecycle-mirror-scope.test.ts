@@ -11,6 +11,7 @@ import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import {
 	getRuntimeProcessInstanceId,
+	markRuntimeMailboxMessageDelivered,
 	listRuntimeMailboxMessagesForSession,
 	type RuntimeMailboxMessage,
 	registerRuntimeMailboxListener,
@@ -41,7 +42,7 @@ function insertTransport(
 				recipientSessionId: "other-runtime",
 				senderAgentId: "agent-child",
 				senderSessionId: "other-sender-runtime",
-				status: "delivered",
+				status: "pending",
 				...fields,
 			}),
 			now,
@@ -122,24 +123,26 @@ describe("production lifecycle mirror session scope", () => {
 		rmSync(directory, { recursive: true, force: true });
 	});
 
-	it.each(["pending", "claimed", "delivered", "failed"] as const)(
-		"suppresses matching %s terminal transport regardless of recipient or sender session",
+	it.each(["pending", "claimed", "failed"] as const)(
+		"does not duplicate a detached terminal notification after its %s transport is deleted",
 		async (status) => {
 			insertTransport(controlDbPath, sessionPath, "existing-terminal", { body: terminalBody(agent), status });
 			const before = listRuntimeMailboxMessagesForSession(controlDbPath, sessionPath);
-			store.publishTerminalOutboxSnapshot(agent);
+			const terminal = { ...agent, detached: true };
+			store.publishTerminalOutboxSnapshot(terminal);
 			expect(listRuntimeMailboxMessagesForSession(controlDbPath, sessionPath)).toEqual(before);
-			expect(store.listPendingLifecycleNotificationsForAgent(agent.id, "failed")).toHaveLength(1);
+			markRuntimeMailboxMessageDelivered(controlDbPath, before[0].id);
+			expect(listRuntimeMailboxMessagesForSession(controlDbPath, sessionPath)).toEqual([]);
 
 			const rebound = createMultiAgentPiRequestHandler({ store });
 			handlers.push(rebound);
 			await rebound({ method: "agents.list", params: {} }, ctx, undefined);
-			expect(listRuntimeMailboxMessagesForSession(controlDbPath, sessionPath)).toEqual(before);
+			expect(listRuntimeMailboxMessagesForSession(controlDbPath, sessionPath)).toEqual([]);
 		},
 	);
 
 	const mismatches = ["sender", "kind", "body", "type", "agent", "revision", "session"] as const;
-	it.each(mismatches)("mirrors notification when existing terminal transport differs in %s", (mismatch) => {
+	it.each(mismatches)("mirrors an attended notification regardless of unrelated transport %s", (mismatch) => {
 		const fields: Record<string, unknown> = { body: terminalBody(agent) };
 		if (mismatch === "sender") fields.senderAgentId = "different-agent";
 		if (mismatch === "kind") fields.kind = "message";

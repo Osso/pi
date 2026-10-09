@@ -44,7 +44,7 @@ export interface IncomingControlMessage {
 }
 
 export type RuntimeMailboxMessageKind = "message" | "ask" | "reply" | "steer" | "parent_request" | "system";
-export type RuntimeMailboxMessageStatus = "pending" | "claimed" | "delivered" | "failed";
+export type RuntimeMailboxMessageStatus = "pending" | "claimed" | "failed";
 
 export interface RuntimeMailboxAddress {
 	sessionId: string;
@@ -64,7 +64,6 @@ export interface RuntimeMailboxMessage {
 	createdAt: string;
 	updatedAt: string;
 	claimedAt?: string;
-	deliveredAt?: string;
 	error?: string;
 }
 
@@ -633,10 +632,9 @@ function assertRuntimeMailboxRouting(message: Record<string, unknown>, input: En
 
 function stripRuntimeMailboxDeliveryState(serialized: string, omitDefaultedBirth: boolean): string {
 	const message = parseStoredJsonObject(serialized, "runtime_mailbox_identity");
-	const { claimedAt, claimantProcessIdentity, deliveredAt, error, status, updatedAt, ...identity } = message;
+	const { claimedAt, claimantProcessIdentity, error, status, updatedAt, ...identity } = message;
 	void claimedAt;
 	void claimantProcessIdentity;
-	void deliveredAt;
 	void error;
 	void status;
 	void updatedAt;
@@ -746,14 +744,38 @@ function deliverRuntimeMailboxCandidate(
 	candidate: RuntimeMailboxCandidate,
 	nowIso: string,
 ): RuntimeMailboxMessage | undefined {
-	const delivered = { ...candidate.data, status: "delivered", deliveredAt: nowIso, updatedAt: nowIso };
-	const serialized = JSON.stringify(delivered);
-	const updated = withImmediateTransaction(db, () => {
+	if (candidate.data.kind === "steer" && candidate.authority.ownership) {
+		return deliverRuntimeMailboxSteeringCandidate(db, recipient, candidate, nowIso);
+	}
+	const deleted = withImmediateTransaction(db, () => {
 		const currentAuthority = readRuntimeMailboxAuthoritySnapshot(db, recipient, candidate.row.session_path);
 		if (!runtimeMailboxAuthoritySnapshotsEqual(candidate.authority, currentAuthority)) return false;
-		return compareAndWriteSerializedCanonicalMailboxPayload(db, candidate.row, serialized, nowIso);
+		return compareAndDeleteCanonicalMailboxPayload(db, candidate.row);
 	});
-	return updated ? runtimeMailboxMessageFromCanonicalRow(candidate.row, delivered) : undefined;
+	return deleted ? runtimeMailboxMessageFromCanonicalRow(candidate.row, candidate.data) : undefined;
+}
+
+function deliverRuntimeMailboxSteeringCandidate(
+	db: SqliteDatabase,
+	recipient: RuntimeMailboxAddress,
+	candidate: RuntimeMailboxCandidate,
+	nowIso: string,
+): RuntimeMailboxMessage | undefined {
+	const ownership = candidate.authority.ownership;
+	if (!ownership?.process_identity || !ownership.owner_session_id) return undefined;
+	const input: CommitMultiAgentSteeringDeliveryInput = {
+		agentId: ownership.agent_id,
+		messageId: candidate.row.message_id,
+		owner: { agentId: ownership.owner_agent_id, sessionId: ownership.owner_session_id },
+		processIdentity: parseProcessIdentity(ownership.process_identity),
+		requestedLifecycle: "running",
+		sessionPath: candidate.row.session_path,
+		updatedAt: nowIso,
+	};
+	const preflight = prepareMultiAgentSteeringDelivery(db, input);
+	if ("result" in preflight || preflight.plan.messageData !== candidate.row.data) return undefined;
+	const result = persistMultiAgentSteeringDelivery(db, input, preflight.plan, { recipient, candidate });
+	return result?.ok ? runtimeMailboxMessageFromCanonicalRow(candidate.row, candidate.data) : undefined;
 }
 
 function readRuntimeMailboxAuthoritySnapshot(
@@ -986,6 +1008,25 @@ function compareAndWriteSerializedCanonicalMailboxPayload(
 	return updated.changes === 1;
 }
 
+function compareAndDeleteCanonicalMailboxPayload(db: SqliteDatabase, row: RuntimeMailboxRow): boolean {
+	return (
+		db
+			.prepare(
+				`DELETE FROM multi_agent_mailbox_messages
+		 WHERE rowid = ? AND session_path = ? AND message_id = ? AND data = ? AND updated_at = ?
+		 AND ${MAILBOX_CREATED_AT_MS_SQL} > ?`,
+			)
+			.run(
+				row.id,
+				row.session_path,
+				row.message_id,
+				row.data,
+				row.updated_at,
+				Date.now() - MAILBOX_MESSAGE_RETENTION_MS,
+			).changes === 1
+	);
+}
+
 export function readRuntimeMailboxMessageForDelivery(
 	controlDbPath: string,
 	id: number,
@@ -1002,23 +1043,22 @@ export function readRuntimeMailboxMessageForDelivery(
 	});
 }
 
-export function consumeRuntimeMailboxMessage(controlDbPath: string, id: number): boolean {
+export function deliverRuntimeMailboxMessage(controlDbPath: string, id: number, expectedPayloadData?: string): boolean {
 	return withControlDb(controlDbPath, (db) => {
 		const row = readCanonicalMailboxRowById(db, id);
 		if (!row) return false;
-		return parseCanonicalMailboxPayload(row).status === "delivered";
+		const message = parseCanonicalMailboxPayload(row);
+		if (message.status !== "claimed" || message.claimantProcessIdentity !== RUNTIME_PROCESS_INSTANCE_ID) return false;
+		if (expectedPayloadData !== undefined && row.data !== expectedPayloadData) return false;
+		return withImmediateTransaction(db, () => compareAndDeleteCanonicalMailboxPayload(db, row));
 	});
-}
-
-export function deliverRuntimeMailboxMessage(controlDbPath: string, id: number, expectedPayloadData?: string): boolean {
-	return updateClaimedCanonicalMailboxMessage(controlDbPath, id, expectedPayloadData, "delivered");
 }
 
 function updateClaimedCanonicalMailboxMessage(
 	controlDbPath: string,
 	id: number,
 	expectedPayloadData: string | undefined,
-	status: "delivered" | "failed" | "pending",
+	status: "failed" | "pending",
 	error?: string,
 ): boolean {
 	return withControlDb(controlDbPath, (db) =>
@@ -1030,7 +1070,7 @@ function updateClaimedCanonicalMailboxMessageRow(
 	db: SqliteDatabase,
 	id: number,
 	expectedPayloadData: string | undefined,
-	status: "delivered" | "failed" | "pending",
+	status: "failed" | "pending",
 	error: string | undefined,
 ): boolean {
 	const row = readCanonicalMailboxRowById(db, id);
@@ -1043,7 +1083,6 @@ function updateClaimedCanonicalMailboxMessageRow(
 	const updated: Record<string, unknown> = { ...message, status, updatedAt: now };
 	delete updated.claimedAt;
 	delete updated.claimantProcessIdentity;
-	if (status === "delivered") updated.deliveredAt = now;
 	if (status === "failed") updated.error = error;
 	const serialized = JSON.stringify(updated);
 	return withImmediateTransaction(db, () =>
@@ -1058,23 +1097,7 @@ export function consumeRuntimeMailboxMessageByStoreRef(
 	return withControlDb(controlDbPath, (db) => {
 		const row = readCanonicalMailboxRowByStoreRef(db, storeRef);
 		if (!row) return 0;
-		const message = parseCanonicalMailboxPayload(row);
-		if (message.status === "delivered") return 0;
-		const now = new Date().toISOString();
-		const delivered: Record<string, unknown> = {
-			...message,
-			status: "delivered",
-			deliveredAt: now,
-			updatedAt: now,
-		};
-		delete delivered.claimedAt;
-		delete delivered.claimantProcessIdentity;
-		const serialized = JSON.stringify(delivered);
-		return withImmediateTransaction(db, () =>
-			compareAndWriteSerializedCanonicalMailboxPayload(db, row, serialized, now),
-		)
-			? 1
-			: 0;
+		return Number(withImmediateTransaction(db, () => compareAndDeleteCanonicalMailboxPayload(db, row)));
 	});
 }
 
@@ -2190,19 +2213,7 @@ export function markRuntimeMailboxMessageDelivered(controlDbPath: string, id: nu
 	withControlDb(controlDbPath, (db) => {
 		const row = readCanonicalMailboxRowById(db, id);
 		if (!row) return;
-		const message = parseCanonicalMailboxPayload(row);
-		if (message.status === "delivered") return;
-		const now = new Date().toISOString();
-		const delivered: Record<string, unknown> = {
-			...message,
-			status: "delivered",
-			deliveredAt: now,
-			updatedAt: now,
-		};
-		delete delivered.claimedAt;
-		delete delivered.claimantProcessIdentity;
-		const serialized = JSON.stringify(delivered);
-		withImmediateTransaction(db, () => compareAndWriteSerializedCanonicalMailboxPayload(db, row, serialized, now));
+		withImmediateTransaction(db, () => compareAndDeleteCanonicalMailboxPayload(db, row));
 	});
 }
 
@@ -2277,7 +2288,6 @@ function runtimeMailboxMessageFromCanonicalRow(
 		createdAt: requireStringField(message, "createdAt", context),
 		updatedAt: typeof message.updatedAt === "string" ? message.updatedAt : row.updated_at,
 		claimedAt: optionalStringField(message, "claimedAt", context),
-		deliveredAt: optionalStringField(message, "deliveredAt", context),
 		error: optionalStringField(message, "error", context),
 	};
 }
@@ -2311,7 +2321,7 @@ function toRuntimeMailboxMessageKind(value: string): RuntimeMailboxMessageKind {
 }
 
 function toRuntimeMailboxMessageStatus(value: string): RuntimeMailboxMessageStatus {
-	if (value === "pending" || value === "claimed" || value === "delivered" || value === "failed") {
+	if (value === "pending" || value === "claimed" || value === "failed") {
 		return value;
 	}
 	return "failed";
@@ -3911,7 +3921,6 @@ type MultiAgentSteeringDeliveryPlan = {
 	updatedAgent: AgentSnapshot;
 	updatedAgentData: string;
 	updatedMessage: AgentMailboxMessage;
-	updatedMessageData: string;
 };
 
 type MultiAgentSteeringDeliveryPreflight =
@@ -3975,11 +3984,7 @@ function prepareMultiAgentSteeringDelivery(
 		revision: Number(agent.revision) + 1,
 		updatedAt: input.updatedAt,
 	} as unknown as AgentSnapshot;
-	const updatedMessage = {
-		...message,
-		status: "delivered",
-		updatedAt: input.updatedAt,
-	} as unknown as AgentMailboxMessage;
+	const updatedMessage = message as unknown as AgentMailboxMessage;
 	return {
 		plan: {
 			agentData: agentRow.data,
@@ -3988,7 +3993,6 @@ function prepareMultiAgentSteeringDelivery(
 			updatedAgent,
 			updatedAgentData: JSON.stringify(updatedAgent),
 			updatedMessage,
-			updatedMessageData: JSON.stringify(updatedMessage),
 		},
 	};
 }
@@ -3997,9 +4001,14 @@ function persistMultiAgentSteeringDelivery(
 	db: SqliteDatabase,
 	input: CommitMultiAgentSteeringDeliveryInput,
 	plan: MultiAgentSteeringDeliveryPlan,
+	mailbox?: { recipient: RuntimeMailboxAddress; candidate: RuntimeMailboxCandidate },
 ): CommitMultiAgentSteeringDeliveryResult | undefined {
 	const persisted = withImmediateTransaction(db, () => {
 		if (isMailboxMessageExpired(plan.updatedMessage.createdAt, Date.now())) return false;
+		if (mailbox) {
+			const authority = readRuntimeMailboxAuthoritySnapshot(db, mailbox.recipient, input.sessionPath);
+			if (!runtimeMailboxAuthoritySnapshotsEqual(mailbox.candidate.authority, authority)) return false;
+		}
 		const agentUpdated = db
 			.prepare(
 				`UPDATE multi_agent_agents SET data = ?, updated_at = ?
@@ -4032,10 +4041,10 @@ function persistMultiAgentSteeringDelivery(
 		if (agentUpdated !== 1) return false;
 		const messageUpdated = db
 			.prepare(
-				`UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ?
+				`DELETE FROM multi_agent_mailbox_messages
 				 WHERE session_path = ? AND message_id = ? AND data = ?`,
 			)
-			.run(plan.updatedMessageData, input.updatedAt, input.sessionPath, input.messageId, plan.messageData).changes;
+			.run(input.sessionPath, input.messageId, plan.messageData).changes;
 		if (messageUpdated !== 1) {
 			throw new Error(`Steering message changed during delivery ${input.sessionPath}#${input.messageId}`);
 		}
@@ -6113,7 +6122,7 @@ export function markMultiAgentMailboxMessageDelivered(
 	sessionPath: string,
 	messageId: string,
 ): boolean {
-	return updateMultiAgentMailboxMessageStatus(controlDbPath, sessionPath, messageId, "delivered");
+	return consumeRuntimeMailboxMessageByStoreRef(controlDbPath, { sessionPath, messageId }) === 1;
 }
 
 export function markMultiAgentMailboxMessageFailed(
@@ -6129,7 +6138,7 @@ function updateMultiAgentMailboxMessageStatus(
 	controlDbPath: string,
 	sessionPath: string,
 	messageId: string,
-	status: "delivered" | "failed",
+	status: "failed",
 	error?: string,
 ): boolean {
 	return withControlDb(controlDbPath, (db) => {
@@ -7233,7 +7242,6 @@ type LegacyRuntimeMailboxRow = {
 	status: string;
 	created_at: string;
 	updated_at: string;
-	delivered_at: string | null;
 	error: string | null;
 };
 
@@ -7252,8 +7260,7 @@ function migrateLegacyRuntimeMailboxMessages(db: SqliteDatabase, nowIso: string)
 	const rows = db
 		.prepare(
 			`SELECT recipient_session_id, recipient_agent_id, sender_session_id, sender_agent_id,
-			        kind, store_session_path, store_message_id, status, created_at, updated_at,
-			        delivered_at, error
+			        kind, store_session_path, store_message_id, status, created_at, updated_at, error
 			 FROM runtime_mailbox_messages
 			 WHERE store_session_path IS NOT NULL AND store_message_id IS NOT NULL
 			 ORDER BY CASE status WHEN 'delivered' THEN 4 WHEN 'failed' THEN 3 WHEN 'claimed' THEN 2 ELSE 1 END DESC,
@@ -7292,9 +7299,16 @@ function migrateLegacyRuntimeMailboxRow(db: SqliteDatabase, row: LegacyRuntimeMa
 		sender: { agentId: row.sender_agent_id, sessionId: row.sender_session_id ?? "" },
 		storeRef,
 	});
+	if (routed.status === "delivered" || row.status === "delivered") {
+		db.prepare("DELETE FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?").run(
+			storeRef.sessionPath,
+			storeRef.messageId,
+		);
+		return;
+	}
 	const canonicalStatus = toRuntimeMailboxMessageStatus(requireStringField(routed, "status", context));
 	const legacyStatus = row.status === "claimed" ? "pending" : toRuntimeMailboxMessageStatus(row.status);
-	const status = canonicalStatus === "delivered" || canonicalStatus === "failed" ? canonicalStatus : legacyStatus;
+	const status = canonicalStatus === "failed" ? canonicalStatus : legacyStatus;
 	const updated: Record<string, unknown> = {
 		...routed,
 		createdAt: typeof routed.createdAt === "string" ? routed.createdAt : row.created_at,
@@ -7303,10 +7317,6 @@ function migrateLegacyRuntimeMailboxRow(db: SqliteDatabase, row: LegacyRuntimeMa
 	};
 	delete updated.claimedAt;
 	delete updated.claimantProcessIdentity;
-	if (status === "delivered") {
-		updated.deliveredAt =
-			typeof routed.deliveredAt === "string" ? routed.deliveredAt : (row.delivered_at ?? row.updated_at);
-	}
 	if (status === "failed") {
 		updated.error = typeof routed.error === "string" ? routed.error : row.error;
 	}

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { Type } from "typebox";
-import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
 import agentsCoreExtension from "../extensions/agents-core/src/index.ts";
 import { appendParentAgentStart } from "../extensions/agents-core/src/parent-agent-journal.ts";
@@ -592,10 +592,15 @@ function restoreOptionalEnv(name: string, value: string | undefined): void {
 }
 
 describe("multi-agent extension tools", () => {
+	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime("2026-06-21T00:00:00.000Z");
+	});
 	const childHarnesses: Harness[] = [];
 	const childSessions: Harness["session"][] = [];
 
 	afterEach(async () => {
+		vi.useRealTimers();
 		const completedHarnesses = childHarnesses.splice(0);
 		const completedSessions = new Set([
 			...childSessions.splice(0),
@@ -874,7 +879,7 @@ describe("multi-agent extension tools", () => {
 				path: savedSession.getSessionFile(),
 				prompt: "Finish saved work",
 			});
-			const waited = await waitForTerminalAgent(harness, attached.details.agent.id);
+			const waited = await waitForAgentLifecycle(harness, attached.details.agent.id, "completed");
 
 			expect(waited).toMatchObject({
 				lifecycle: "completed",
@@ -888,6 +893,8 @@ describe("multi-agent extension tools", () => {
 					sender: { agentId: attached.details.agent.id, sessionId: savedSessionId },
 				},
 			]);
+			await waitForTerminalAgent(harness, attached.details.agent.id);
+			expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
 		} finally {
 			rmSync(tempDir, { force: true, recursive: true });
 		}
@@ -916,7 +923,7 @@ describe("multi-agent extension tools", () => {
 				displayName: "Failing worker",
 				prompt: "start",
 			});
-			const waited = await waitForTerminalAgent(harness, spawned.details.agent.id);
+			const waited = await waitForAgentLifecycle(harness, spawned.details.agent.id, "failed");
 
 			expect(waited).toMatchObject({
 				error: { message: "startup auth failed" },
@@ -929,6 +936,8 @@ describe("multi-agent extension tools", () => {
 					sender: { agentId: spawned.details.agent.id, sessionId: supervisorSessionId },
 				},
 			]);
+			await waitForTerminalAgent(harness, spawned.details.agent.id);
+			expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
 		} finally {
 			rmSync(tempDir, { force: true, recursive: true });
 		}
@@ -1087,7 +1096,7 @@ describe("multi-agent extension tools", () => {
 				path: savedSession.getSessionFile(),
 				prompt: "Finish saved work",
 			});
-			await waitForTerminalAgent(harness, attached.details.agent.id);
+			await waitForAgentLifecycle(harness, attached.details.agent.id, "completed");
 
 			expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
 				{
@@ -1451,7 +1460,7 @@ describe("multi-agent extension tools", () => {
 						agent.id,
 						current.revision,
 						message.id,
-						"delivered",
+						"consume",
 					);
 					if (!delivered.ok) throw new Error(`Expected recovery steering delivery: ${delivered.error}`);
 				},
@@ -1470,10 +1479,7 @@ describe("multi-agent extension tools", () => {
 
 		expect(prompts).toHaveLength(1);
 		expect(prompts[0]).toContain("Continue the conversation from where it left off");
-		expect(store.listMailboxMessages()).toEqual([
-			expect.objectContaining({ body: "Continue after recovery", status: "delivered" }),
-			expect.objectContaining({ kind: "system", status: "delivered" }),
-		]);
+		expect(store.listMailboxMessages()).toEqual([]);
 		expect(recovered).toMatchObject({
 			lifecycle: "completed",
 			result: { summary: "spawned recovery complete" },
@@ -3581,7 +3587,7 @@ describe("multi-agent extension tools", () => {
 		]);
 		expect(waited.details.messages).toHaveLength(2);
 		expect(waited.details.messages?.every((message) => message.status === "pending")).toBe(true);
-		expect(harness.store.listMailboxMessages().every((message) => message.status === "delivered")).toBe(true);
+		expect(harness.store.listMailboxMessages()).toEqual([]);
 	});
 
 	it("reconciles a dead detached child so its live parent can complete", async () => {
@@ -3732,7 +3738,7 @@ describe("multi-agent extension tools", () => {
 		]);
 		expect(getAssistantTexts(harness)).toContain("parent idle");
 		expect(getAssistantTexts(harness)).toContain("parent woke");
-		expect(store.listMailboxMessages()).toMatchObject([{ status: "delivered" }]);
+		expect(store.listMailboxMessages()).toEqual([]);
 	});
 
 	it("includes mailbox file references in the runtime mailbox follow-up", async () => {
@@ -3768,13 +3774,13 @@ describe("multi-agent extension tools", () => {
 		});
 		await harness.session.prompt("hello");
 		await harness.session.agent.waitForIdle();
-		for (let attempt = 0; attempt < 50 && store.listMailboxMessages()[0]?.status !== "delivered"; attempt += 1) {
+		for (let attempt = 0; attempt < 50 && store.listMailboxMessages().length > 0; attempt += 1) {
 			await delay(1);
 		}
 
 		const followUp = getUserTexts(harness).find((text) => text.includes("Review log"));
 		expect(followUp).toContain("Attached files:\n- Test log — /tmp/test.log");
-		expect(store.listMailboxMessages()).toMatchObject([{ id: contacted.message.id, status: "delivered" }]);
+		expect(store.listMailboxMessages()).toEqual([]);
 	});
 
 	it("lets simultaneous waiters observe completion while late waits return immediately", async () => {
@@ -3886,22 +3892,12 @@ describe("multi-agent extension tools", () => {
 				status: "pending",
 				toAgentId: parent.agent.id,
 			},
-			{
-				body: "Worker completed: done",
-				fromAgentId: spawned.details.agent.id,
-				kind: "system",
-				status: "delivered",
-				toAgentId: parent.agent.id,
-			},
 		]);
 		expect(
 			listRuntimeMailboxMessages(controlDbPath).filter(
 				(message) => message.sender.agentId === spawned.details.agent.id,
 			),
-		).toMatchObject([
-			{ kind: "system", status: "pending" },
-			{ kind: "system", status: "delivered" },
-		]);
+		).toMatchObject([{ kind: "system", status: "pending" }]);
 	});
 
 	it("routes completed notices for main-thread children to the main mailbox", () => {
@@ -4209,7 +4205,7 @@ describe("multi-agent extension tools", () => {
 							agent.id,
 							current.revision,
 							message.id,
-							"delivered",
+							"consume",
 						);
 						if (!delivered.ok) throw new Error(`expected steering delivery: ${delivered.error}`);
 					},
@@ -4233,10 +4229,7 @@ describe("multi-agent extension tools", () => {
 
 		expect(drainCalls).toBe(1);
 		expect(waited.lifecycle).toBe("completed");
-		expect(harness.store.listMailboxMessages()).toEqual([
-			expect.objectContaining({ body: "Check final blockers", status: "delivered" }),
-			expect.objectContaining({ kind: "system", status: "delivered" }),
-		]);
+		expect(harness.store.listMailboxMessages()).toEqual([]);
 	});
 
 	it("wires spawn_agent to a production child AgentSession factory with parent session metadata", async () => {

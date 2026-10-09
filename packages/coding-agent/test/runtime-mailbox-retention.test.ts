@@ -351,12 +351,7 @@ if (workerData.operation === "deliver") {
 }
 parentPort.postMessage("ready");
 parentPort.once("message", () => {
- const originalStringify = JSON.stringify;
- JSON.stringify = value => {
-  const serialized = originalStringify(value);
-  if (value?.id === "blocked") parentPort.postMessage("prepared");
-  return serialized;
- };
+ parentPort.postMessage("prepared");
  try {
   if (workerData.operation === "upsert") upsertMultiAgentMailboxMessage(workerData.path, workerData.sessionPath, "blocked", workerData.message);
   else if (workerData.operation === "enqueue") enqueueStoredRuntimeMailboxMessage(workerData.path, { recipient: workerData.recipient, sender: workerData.sender, kind: "message", storeRef: { sessionPath: workerData.sessionPath, messageId: "blocked" }, message: workerData.message });
@@ -376,7 +371,7 @@ parentPort.once("message", () => {
 						recipient,
 						sender,
 						operation,
-						message: message("blocked", createdAt, "delivered"),
+						message: message("blocked", createdAt, "failed"),
 					},
 				},
 			);
