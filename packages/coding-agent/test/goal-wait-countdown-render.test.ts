@@ -222,6 +222,9 @@ describe("goal Supervisor countdown rendering", () => {
 		tui.requestRender();
 		await flushRender();
 		expect(chat.children).toEqual([staticBody, supervisorStatus]);
+		chat.invalidate();
+		tui.requestRender();
+		await flushRender();
 
 		const initialWrites = terminal.writes.join("");
 		expect(initialWrites).toContain("Next review in 0:05");

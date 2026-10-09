@@ -34,6 +34,21 @@ export interface CompletionWaitScheduler {
 
 type CompletionScheduler = ReturnType<typeof createGoalScheduler<CompletionWait, ReviewedGoalResponse>>;
 
+async function scheduleCompletionReview(
+	options: CompletionSchedulingOptions,
+	scheduler: CompletionScheduler,
+	waiting: CompletionWait,
+	ctx: ExtensionContext,
+	decision: Extract<ReviewedGoalResponse["decision"], { kind: "wait" }>,
+): Promise<void> {
+	const message = `Waiting: ${decision.reason}`;
+	await scheduler.waitForAgentsOrScheduleReview(ctx, waiting, [], {
+		onAgentWait: (reviewAt) => options.onStatus(ctx, message, reviewAt, decision.displayId),
+		onAgentWake: () => options.onClearStatus(ctx.sessionManager.getSessionId()),
+		onReviewScheduled: (reviewAt) => options.onStatus(ctx, message, reviewAt, decision.displayId),
+	});
+}
+
 async function applyCompletionDecision(
 	options: CompletionSchedulingOptions,
 	scheduler: CompletionScheduler,
@@ -50,15 +65,9 @@ async function applyCompletionDecision(
 		case "continue":
 			options.onContinue(decision.instructions, decision.displayId);
 			break;
-		case "wait": {
-			const message = `Waiting: ${decision.reason}`;
-			await scheduler.waitForAgentsOrScheduleReview(ctx, waiting, [], {
-				onAgentWait: (reviewAt) => options.onStatus(ctx, message, reviewAt, decision.displayId),
-				onAgentWake: () => options.onClearStatus(ctx.sessionManager.getSessionId()),
-				onReviewScheduled: (reviewAt) => options.onStatus(ctx, message, reviewAt, decision.displayId),
-			});
+		case "wait":
+			await scheduleCompletionReview(options, scheduler, waiting, ctx, decision);
 			break;
-		}
 		case "pause":
 			options.onStatus(ctx, `Goal waiting: ${decision.reason}`, undefined, decision.displayId);
 			break;

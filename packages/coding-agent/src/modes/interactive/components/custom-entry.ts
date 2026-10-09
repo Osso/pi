@@ -51,14 +51,12 @@ export class CustomEntryComponent extends Container {
 	}
 
 	private rebuild(): void {
-		this.disposeRenderedComponent();
-		this.children = [];
-
+		const cleanupCallbacks = new Set<() => void>();
 		const renderOptions: EntryRenderOptions = {
 			expanded: this._expanded,
 			requestRender: () => this.options.requestRender(this),
 			sessionId: this.options.sessionId,
-			registerCleanup: (cleanup) => this.cleanupCallbacks.add(cleanup),
+			registerCleanup: (cleanup) => cleanupCallbacks.add(cleanup),
 		};
 		let component: Component | undefined;
 		try {
@@ -70,9 +68,11 @@ export class CustomEntryComponent extends Container {
 			component = box;
 		}
 
-		if (!component) {
-			return;
-		}
+		// Install the replacement before retiring the previous renderer's state.
+		this.disposeRenderedComponent();
+		this.cleanupCallbacks = cleanupCallbacks;
+		this.children = [];
+		if (!component) return;
 
 		this.customComponent = component;
 		this.addChild(new Spacer(1));

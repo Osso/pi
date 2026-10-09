@@ -4,7 +4,7 @@ import { handleGoalAgentEnd } from "./goal-agent-end.ts";
 import type { GoalScheduler } from "./goal-scheduling.ts";
 import type { Goal, GoalEvidenceReview, ReviewedGoalResponse } from "./goal-types.ts";
 
-type ApplyIdleDecision = (
+export type ApplyIdleDecision = (
 	reviewed: ReviewedGoalResponse,
 	goal: Goal,
 	ctx: ExtensionContext,
@@ -34,7 +34,6 @@ export async function runScheduledGoalAgentEnd(options: ScheduledGoalAgentEndOpt
 		applyDecision: options.applyDecision,
 		deferDecision: (decision, goal, pendingCtx, terminalTurn) =>
 			options.scheduler.deferDecision(decision, goal, pendingCtx, terminalTurn),
-		deferReview: (goal, pendingCtx, terminalTurn) =>
-			options.scheduler.deferReview(goal, pendingCtx, terminalTurn),
+		deferReview: (goal, pendingCtx, terminalTurn) => options.scheduler.deferReview(goal, pendingCtx, terminalTurn),
 	});
 }

@@ -2,7 +2,9 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import goalExtension from "../../extensions/goal/src/index.ts";
 import type { ExtensionAPI, ExtensionUIContext } from "../../src/core/extensions/index.ts";
-import { type Theme, theme } from "../../src/modes/interactive/theme/theme.ts";
+import { CustomEntryComponent } from "../../src/modes/interactive/components/custom-entry.ts";
+import { initTheme, type Theme, theme } from "../../src/modes/interactive/theme/theme.ts";
+import { stripAnsi } from "../../src/utils/ansi.ts";
 import { createHarness, getUserTexts, type Harness } from "./harness.ts";
 
 function goalTestExtension(pi: ExtensionAPI): void {
@@ -134,15 +136,37 @@ describe("goal extension runtime", () => {
 
 		await harness.session.prompt("resume guest sync");
 
-		const hasWaitingStatus = harness.sessionManager
+		const statuses = harness.sessionManager
 			.getEntries()
-			.some(
-				(entry) =>
-					entry.type === "custom" &&
-					entry.customType === "supervisor-status" &&
-					JSON.stringify(entry.data) === JSON.stringify({ message: "Goal waiting: waiting for user input" }),
-			);
-		expect(hasWaitingStatus).toBe(true);
+			.filter((entry) => entry.type === "custom" && entry.customType === "supervisor-status");
+		const waiting = statuses[0]?.data as { message: string; displayId: string };
+		expect(waiting).toMatchObject({ message: "Waiting for Supervisor…", displayId: expect.any(String) });
+		expect(waiting.displayId).not.toBe("");
+		expect(statuses.slice(1).map((entry) => entry.data)).toEqual([
+			{ message: "Goal waiting: waiting for user input", displayId: waiting.displayId },
+			{ message: "Goal waiting: waiting for user input", displayId: waiting.displayId },
+		]);
+		initTheme("dark");
+		const renderer = harness.session.extensionRunner?.getEntryRenderer("supervisor-status");
+		if (!renderer) throw new Error("expected registered Supervisor status renderer");
+		const components = statuses.map(
+			(entry) =>
+				new CustomEntryComponent(entry, renderer, {
+					requestRender: () => false,
+					sessionId: harness.sessionManager.getSessionId(),
+				}),
+		);
+		try {
+			expect(components.filter((component) => component.hasContent())).toHaveLength(1);
+			const displayed = stripAnsi(components.flatMap((component) => component.render(120)).join("\n"));
+			expect(displayed).toContain("Goal waiting: waiting for user input");
+			expect(displayed).not.toContain("Waiting for Supervisor…");
+			expect(displayed.match(/\[Supervisor\]/g)).toHaveLength(1);
+			expect(harness.faux.state.callCount).toBe(1);
+			expect(readStoredGoal(harness).pausedAt).toBeUndefined();
+		} finally {
+			for (const component of components) component.dispose();
+		}
 	});
 
 	it("reports one skipped status only after retryable errors are exhausted", async () => {

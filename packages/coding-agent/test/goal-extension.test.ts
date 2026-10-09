@@ -970,9 +970,9 @@ describe("goal extension", () => {
 				([, data]) => data.displayId === waiting.displayId && data.message.includes(instructions),
 			);
 			expect(answerIndex).toBeGreaterThan(0);
-			expect(harness.appendEntry.mock.invocationCallOrder[answerIndex]).toBeLessThan(
-				harness.sendMessage.mock.invocationCallOrder[0]!,
-			);
+			const sendOrder = harness.sendMessage.mock.invocationCallOrder[0];
+			if (sendOrder === undefined) throw new Error("expected Supervisor follow-up delivery");
+			expect(harness.appendEntry.mock.invocationCallOrder[answerIndex]).toBeLessThan(sendOrder);
 			expect(harness.sendMessage).toHaveBeenCalledExactlyOnceWith(
 				{
 					customType: "supervisor",

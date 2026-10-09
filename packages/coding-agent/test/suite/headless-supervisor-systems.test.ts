@@ -2,7 +2,13 @@ import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
+import { createSupervisorStatusEntryRenderer } from "../../extensions/goal/src/rendering.ts";
+import { createWaitCountdownRefresher } from "../../extensions/goal/src/wait-countdown.ts";
 import type { SupervisorResponse } from "../../src/core/session-control-db.ts";
+import type { CustomEntry } from "../../src/core/session-manager.ts";
+import { CustomEntryComponent } from "../../src/modes/interactive/components/custom-entry.ts";
+import { initTheme } from "../../src/modes/interactive/theme/theme.ts";
+import { stripAnsi } from "../../src/utils/ansi.ts";
 import { withHeadlessPi } from "./headless-pi.ts";
 
 const RUNNING_GOAL = "Finish the headless Supervisor objective";
@@ -50,6 +56,20 @@ function fauxCompletedAssistantMessage(text: string): ReturnType<typeof fauxAssi
 function expectRunningGoal(goal: Record<string, unknown> | undefined): void {
 	expect(goal).toMatchObject({ objective: RUNNING_GOAL });
 	expect(goal?.completedAt).toBeUndefined();
+}
+
+function renderSupervisorStatuses(entries: CustomEntry<unknown>[]): string {
+	initTheme("dark");
+	const renderer = createSupervisorStatusEntryRenderer(createWaitCountdownRefresher());
+	const components = entries.map(
+		(entry) => new CustomEntryComponent(entry, renderer, { requestRender: () => false, sessionId: "headless" }),
+	);
+	try {
+		expect(components.filter((component) => component.hasContent())).toHaveLength(1);
+		return stripAnsi(components.flatMap((component) => component.render(120)).join("\n"));
+	} finally {
+		for (const component of components) component.dispose();
+	}
 }
 
 describe("headless Supervisor advisory tool", () => {
@@ -267,7 +287,8 @@ describe("headless Supervisor goal system", () => {
 				(entry) =>
 					entry.type === "custom" &&
 					entry.customType === "supervisor-status" &&
-					JSON.stringify(entry.data).includes("waiting for background work"),
+					(entry.data as { message?: unknown }).message === "Waiting: waiting for background work" &&
+					typeof (entry.data as { reviewAt?: unknown }).reviewAt === "string",
 			);
 
 			expect(status).toMatchObject({
@@ -279,22 +300,37 @@ describe("headless Supervisor goal system", () => {
 				},
 			});
 			if (status.type !== "custom") throw new Error("Expected Supervisor custom status");
-			const reviewAt = (status.data as { reviewAt: string }).reviewAt;
+			const { reviewAt, displayId } = status.data as { reviewAt: string; displayId: string };
+			expect(displayId).toEqual(expect.any(String));
+			expect(displayId).not.toBe("");
+			const statuses = agent
+				.readSessionEntries(null)
+				.filter((entry) => entry.type === "custom" && entry.customType === "supervisor-status");
+			expect(statuses.map((entry) => entry.data)).toEqual([
+				{ message: "Waiting for Supervisor…", displayId },
+				{ message: "Waiting: waiting for background work", displayId },
+				{ message: "Waiting: waiting for background work", displayId, reviewAt },
+			]);
+			const deadlineMs = Date.parse(reviewAt) - Date.parse(status.timestamp);
+			expect(deadlineMs).toBeGreaterThanOrEqual(899_000);
+			expect(deadlineMs).toBeLessThanOrEqual(900_000);
+			const displayed = renderSupervisorStatuses(statuses);
+			expect(displayed).toContain("Waiting: waiting for background work");
+			expect(displayed).toContain("Next review in");
+			expect(displayed).not.toContain("Waiting for Supervisor…");
+			expect(displayed.match(/\[Supervisor\]/g)).toHaveLength(1);
 
 			await agent.restart();
 
 			const restoredStatuses = agent
 				.readSessionEntries(null)
-				.filter(
-					(entry) =>
-						entry.type === "custom" &&
-						entry.customType === "supervisor-status" &&
-						(entry.data as { message?: unknown }).message === "Waiting: waiting for background work",
-				);
-			expect(restoredStatuses).toHaveLength(1);
-			expect(restoredStatuses[0]).toMatchObject({
-				data: { message: "Waiting: waiting for background work", reviewAt },
-			});
+				.filter((entry) => entry.type === "custom" && entry.customType === "supervisor-status");
+			expect(restoredStatuses).toEqual(statuses);
+			const restoredDisplay = renderSupervisorStatuses(restoredStatuses);
+			expect(restoredDisplay).toContain("Waiting: waiting for background work");
+			expect(restoredDisplay).toContain("Next review in");
+			expect(restoredDisplay).not.toContain("Waiting for Supervisor…");
+			expect(restoredDisplay.match(/\[Supervisor\]/g)).toHaveLength(1);
 			expect(agent.readGoal()).toMatchObject({ objective: RUNNING_GOAL });
 			expect(agent.readGoal()).not.toHaveProperty("pausedAt");
 			expect(agent.countSupervisorRequests("goal_idle_review")).toBe(1);

@@ -168,6 +168,19 @@ interface SupervisorDisplay {
 	cleanupCountdown?: () => void;
 }
 
+function updateSupervisorDisplay(
+	display: SupervisorDisplay,
+	details: SupervisorStatusDetails,
+	refresher: WaitCountdownRefresher,
+): void {
+	display.details = details;
+	display.component?.update(details.message, details.reviewAt);
+	display.cleanupCountdown?.();
+	display.cleanupCountdown = display.options
+		? bindSupervisorStatusCountdown(refresher, display.options, details.reviewAt)
+		: undefined;
+}
+
 export function createSupervisorStatusEntryRenderer(refresher: WaitCountdownRefresher): EntryRenderer {
 	const displays = new Map<string, SupervisorDisplay>();
 	return (entry, rendererOptions, theme) => {
@@ -178,12 +191,7 @@ export function createSupervisorStatusEntryRenderer(refresher: WaitCountdownRefr
 			display = { entryId: entry.id, details };
 			displays.set(key, display);
 		} else if (display.entryId !== entry.id) {
-			display.details = details;
-			display.component?.update(details.message, details.reviewAt);
-			display.cleanupCountdown?.();
-			display.cleanupCountdown = display.options
-				? bindSupervisorStatusCountdown(refresher, display.options, details.reviewAt)
-				: undefined;
+			updateSupervisorDisplay(display, details, refresher);
 			return undefined;
 		}
 		const component = new SupervisorStatusComponent(display.details.message, display.details.reviewAt, {
@@ -192,6 +200,7 @@ export function createSupervisorStatusEntryRenderer(refresher: WaitCountdownRefr
 			label: (text) => theme.fg("customMessageLabel", theme.bold(text)),
 			message: (text) => theme.fg("customMessageText", text),
 		});
+		display.cleanupCountdown?.();
 		display.component = component;
 		display.options = rendererOptions;
 		display.cleanupCountdown = bindSupervisorStatusCountdown(refresher, rendererOptions, display.details.reviewAt);
@@ -199,9 +208,7 @@ export function createSupervisorStatusEntryRenderer(refresher: WaitCountdownRefr
 		rendererOptions.registerCleanup?.(() => {
 			if (boundDisplay.component !== component) return;
 			boundDisplay.cleanupCountdown?.();
-			boundDisplay.component = undefined;
-			boundDisplay.options = undefined;
-			boundDisplay.cleanupCountdown = undefined;
+			displays.delete(key);
 		});
 		return component;
 	};

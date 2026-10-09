@@ -13,7 +13,7 @@ import type {
 import { type CompletionWaitScheduler, createCompletionWaitScheduler } from "./completion-scheduling.ts";
 import { type EmptyResponseScheduler, createEmptyResponseScheduler } from "./empty-response-scheduling.ts";
 import { type ErrorStatusScheduler, createErrorStatusScheduler } from "./error-status-scheduling.ts";
-import { runScheduledGoalAgentEnd } from "./goal-agent-end-scheduling.ts";
+import { type ApplyIdleDecision, runScheduledGoalAgentEnd } from "./goal-agent-end-scheduling.ts";
 import { parseGoalArgs } from "./goal-args.ts";
 import { selectGoalForIdleReview } from "./goal-idle-selection.ts";
 import { deduplicateCurrentGoalScope } from "./goal-objective.ts";
@@ -72,13 +72,7 @@ interface ManageGoalContext {
 	pi: ExtensionAPI;
 	reviewGoal: GoalEvidenceReview;
 	consumeReviewEvidence: (ctx: ExtensionContext, reviewedGoal: Goal, evidenceCount: number) => void;
-	onCompletionWait: (
-		goal: Goal,
-		ctx: ExtensionContext,
-		completionReport: string,
-		statusReason: string,
-		displayId?: string,
-	) => Promise<void>;
+	onCompletionWait: CompletionWaitScheduler["wait"];
 	appendStatus: AppendSupervisorStatus;
 	isCompletionReviewCurrent?: () => boolean;
 	beforeGoalSave?: () => void;
@@ -269,13 +263,7 @@ async function applyCompletionDecision(
 	ctx: ExtensionContext,
 	pi: ExtensionAPI,
 	completionReport: string,
-	onWait: (
-		goal: Goal,
-		ctx: ExtensionContext,
-		completionReport: string,
-		statusReason: string,
-		displayId?: string,
-	) => Promise<void>,
+	onWait: CompletionWaitScheduler["wait"],
 	appendStatus: AppendSupervisorStatus,
 ): Promise<AgentToolResult<unknown>> {
 	if (decision.kind === "complete") {
@@ -310,13 +298,7 @@ async function runCompleteGoalAction(
 	completionReportInput: string | undefined,
 	reviewGoal: GoalEvidenceReview,
 	pi: ExtensionAPI,
-	onWait: (
-		goal: Goal,
-		ctx: ExtensionContext,
-		completionReport: string,
-		statusReason: string,
-		displayId?: string,
-	) => Promise<void>,
+	onWait: CompletionWaitScheduler["wait"],
 	appendStatus: AppendSupervisorStatus,
 	isReviewCurrent: () => boolean,
 	consumeReviewEvidence: (ctx: ExtensionContext, reviewedGoal: Goal, evidenceCount: number) => void,
@@ -551,13 +533,6 @@ function createCompletionScheduler(
 }
 
 type IdleGoalScheduler = GoalScheduler<Goal, ReviewedGoalResponse>;
-type ApplyIdleDecision = (
-	reviewed: ReviewedGoalResponse,
-	goal: Goal,
-	ctx: ExtensionContext,
-	terminalTurn: AgentEndEvent["messages"],
-) => Promise<void>;
-
 interface GoalExtensionRuntime {
 	emptyResponseScheduler: EmptyResponseScheduler<Goal>;
 	errorStatusScheduler: ErrorStatusScheduler;
@@ -600,15 +575,24 @@ function createIdleGoalScheduler(
 		);
 		if (reviewed.decision.kind !== "error") evidence.consume(ctx, goal, reviewed.evidenceCount);
 	};
-	scheduler = createGoalScheduler<Goal, ReviewedGoalResponse>({
+	scheduler = createIdleReviewScheduler(pi, reviewGoal, status.append, applyDecision);
+	return { scheduler, applyDecision };
+}
+
+function createIdleReviewScheduler(
+	pi: ExtensionAPI,
+	reviewGoal: GoalEvidenceReview,
+	appendStatus: AppendSupervisorStatus,
+	applyDecision: ApplyIdleDecision,
+): IdleGoalScheduler {
+	return createGoalScheduler<Goal, ReviewedGoalResponse>({
 		pi,
 		applyDecision,
 		isSameRunningGoal: sameRunningGoal,
-		reportError: appendGoalSchedulingError.bind(undefined, status.append),
+		reportError: appendGoalSchedulingError.bind(undefined, appendStatus),
 		reviewGoal: async (ctx, goal, _terminalTurn, wakeEvidence) =>
 			reviewGoal({ ctx, kind: "goal_idle_review", payload: { objective: goal.objective, wakeEvidence } }),
 	});
-	return { scheduler, applyDecision };
 }
 
 function createGoalExtensionRuntime(

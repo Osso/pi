@@ -5,6 +5,7 @@ import { createWaitCountdownRefresher } from "../extensions/goal/src/wait-countd
 import type { AgentSessionEvent } from "../src/core/agent-session.ts";
 import type { EntryRenderer } from "../src/core/extensions/types.ts";
 import type { SessionEntry } from "../src/core/session-manager.ts";
+import { CustomEntryComponent } from "../src/modes/interactive/components/custom-entry.ts";
 import { RenderRegionContainer } from "../src/modes/interactive/components/render-region-container.ts";
 import type { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
@@ -181,6 +182,73 @@ describe("InteractiveMode custom entry rendering", () => {
 		expect(rendered).toContain("Goal wait failed: discovery unavailable");
 		expect(rendered).toContain("Goal complete: verified");
 		expect(JSON.stringify(entries)).toBe(persisted);
+	});
+
+	test("replays a waiting-only branch without leaking its future answer or countdown", async () => {
+		const refresher = createWaitCountdownRefresher();
+		const fakeThis = createFakeInteractiveModeThis(createSupervisorStatusEntryRenderer(refresher));
+		const waiting = createSupervisorStatusEntry();
+		if (waiting.type !== "custom") throw new Error("expected custom entry");
+		waiting.data = { displayId: "review-1", message: "Waiting for Supervisor…" };
+		const answer = {
+			...waiting,
+			id: "answer-1",
+			data: {
+				displayId: "review-1",
+				message: "Future answer absent from rewound branch.",
+				reviewAt: "2099-01-01T00:00:00.000Z",
+			},
+		};
+		await handleEvent.call(fakeThis, { type: "entry_appended", entry: waiting });
+		await handleEvent.call(fakeThis, { type: "entry_appended", entry: answer });
+		const block = fakeThis.chatContainer.children[0];
+		if (!(block instanceof CustomEntryComponent)) throw new Error("expected Supervisor custom component");
+		block.setExpanded(true);
+		expect(renderChat(fakeThis.chatContainer)).toContain(answer.data.message);
+		fakeThis.chatContainer.invalidate();
+		expect(renderChat(fakeThis.chatContainer)).toContain(answer.data.message);
+		expect(renderChat(fakeThis.chatContainer)).toContain("Next review in");
+
+		fakeThis.chatContainer.clear();
+		renderSessionEntries.call(fakeThis, [waiting]);
+		const rewound = renderChat(fakeThis.chatContainer);
+		expect(rewound).toContain("Waiting for Supervisor…");
+		expect(rewound).not.toContain(answer.data.message);
+		expect(rewound).not.toContain("Next review");
+		expect(rewound.match(/\[Supervisor\]/g)).toHaveLength(1);
+
+		fakeThis.chatContainer.clear();
+		renderSessionEntries.call(fakeThis, [waiting, answer]);
+		const restored = renderChat(fakeThis.chatContainer);
+		expect(restored).toContain(answer.data.message);
+		expect(restored).toContain("Next review in");
+		expect(restored).not.toContain("Waiting for Supervisor…");
+		expect(restored.match(/\[Supervisor\]/g)).toHaveLength(1);
+		fakeThis.chatContainer.clear();
+		refresher.clearAll();
+	});
+
+	test("retires each replaced render resource without cleaning up its replacement", async () => {
+		const released: number[] = [];
+		let nextResourceId = 0;
+		const renderer: EntryRenderer = (_entry, options) => {
+			const resourceId = ++nextResourceId;
+			options.registerCleanup?.(() => released.push(resourceId));
+			return new Text(`resource ${resourceId}: ${options.expanded ? "expanded" : "collapsed"}`, 0, 0);
+		};
+		const fakeThis = createFakeInteractiveModeThis(renderer);
+		await handleEvent.call(fakeThis, { type: "entry_appended", entry: createSupervisorStatusEntry() });
+		expect(released).toEqual([]);
+		const block = fakeThis.chatContainer.children[0];
+		if (!(block instanceof CustomEntryComponent)) throw new Error("expected custom entry component");
+		block.setExpanded(true);
+		expect(renderChat(fakeThis.chatContainer)).toContain("resource 2: expanded");
+		expect(released).toEqual([1]);
+		fakeThis.chatContainer.invalidate();
+		expect(renderChat(fakeThis.chatContainer)).toContain("resource 3: expanded");
+		expect(released).toEqual([1, 2]);
+		fakeThis.chatContainer.clear();
+		expect(released).toEqual([1, 2, 3]);
 	});
 
 	test("cleans up state registered by a rendered custom entry", async () => {
