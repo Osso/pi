@@ -2,6 +2,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import goalExtension from "../../extensions/goal/src/index.ts";
 import type { ExtensionAPI, ExtensionUIContext } from "../../src/core/extensions/index.ts";
+import type { CustomEntry } from "../../src/core/session-manager.ts";
 import { CustomEntryComponent } from "../../src/modes/interactive/components/custom-entry.ts";
 import { initTheme, type Theme, theme } from "../../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../../src/utils/ansi.ts";
@@ -138,7 +139,7 @@ describe("goal extension runtime", () => {
 
 		const statuses = harness.sessionManager
 			.getEntries()
-			.filter((entry) => entry.type === "custom" && entry.customType === "supervisor-status");
+			.filter((entry): entry is CustomEntry => entry.type === "custom" && entry.customType === "supervisor-status");
 		const waiting = statuses[0]?.data as { message: string; displayId: string };
 		expect(waiting).toMatchObject({ message: "Waiting for Supervisor…", displayId: expect.any(String) });
 		expect(waiting.displayId).not.toBe("");

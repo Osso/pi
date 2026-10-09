@@ -305,7 +305,9 @@ describe("headless Supervisor goal system", () => {
 			expect(displayId).not.toBe("");
 			const statuses = agent
 				.readSessionEntries(null)
-				.filter((entry) => entry.type === "custom" && entry.customType === "supervisor-status");
+				.filter(
+					(entry): entry is CustomEntry => entry.type === "custom" && entry.customType === "supervisor-status",
+				);
 			expect(statuses.map((entry) => entry.data)).toEqual([
 				{ message: "Waiting for Supervisor…", displayId },
 				{ message: "Waiting: waiting for background work", displayId },
@@ -324,7 +326,9 @@ describe("headless Supervisor goal system", () => {
 
 			const restoredStatuses = agent
 				.readSessionEntries(null)
-				.filter((entry) => entry.type === "custom" && entry.customType === "supervisor-status");
+				.filter(
+					(entry): entry is CustomEntry => entry.type === "custom" && entry.customType === "supervisor-status",
+				);
 			expect(restoredStatuses).toEqual(statuses);
 			const restoredDisplay = renderSupervisorStatuses(restoredStatuses);
 			expect(restoredDisplay).toContain("Waiting: waiting for background work");
