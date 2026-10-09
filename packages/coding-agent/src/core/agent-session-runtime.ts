@@ -386,6 +386,9 @@ export class AgentSessionRuntime {
 		this.session.detachAllRunningTools();
 
 		if (options?.process && currentSessionManager.isPersisted() && currentSessionFile) {
+			const model = this.session.model;
+			if (model) currentSessionManager.setSessionModel(model.provider, model.id);
+			currentSessionManager.setSessionThinkingLevel(this.session.thinkingLevel);
 			currentSessionManager.persistForRecovery();
 			await this.beforeProcessRestart?.();
 			await this.teardownCurrent("restart", currentSessionFile);

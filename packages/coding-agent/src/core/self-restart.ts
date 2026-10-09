@@ -146,6 +146,9 @@ export function applySelfRestartRequest(parsed: Args, handoff: SelfRestartHandof
 	}
 
 	parsed.session = handoff.sessionFile;
+	parsed.provider = undefined;
+	parsed.model = undefined;
+	parsed.thinking = undefined;
 	parsed.resume = false;
 	parsed.continue = true;
 	parsed.fork = undefined;
