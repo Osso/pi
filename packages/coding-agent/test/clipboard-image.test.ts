@@ -145,7 +145,28 @@ describe("readClipboardImage", () => {
 		expect(Array.from(result?.bytes ?? [])).toEqual([4, 5, 6]);
 	});
 
-	test("Non-Wayland: uses clipboard", async () => {
+	test("Headless Linux: reads uploaded PNG from wl-paste without a display", async () => {
+		const png = Buffer.from(
+			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ1sAAAAASUVORK5CYII=",
+			"base64",
+		);
+		mocks.spawnSync.mockImplementation((command, args) => {
+			if (command === "wl-paste" && args[0] === "--list-types") {
+				return spawnOk(Buffer.from("image/png\n"));
+			}
+			if (command === "wl-paste" && args[0] === "--type") {
+				return spawnOk(png);
+			}
+			throw new Error(`Unexpected clipboard command: ${command} ${args.join(" ")}`);
+		});
+
+		const { readClipboardImage } = await import("../src/utils/clipboard-image.ts");
+		const result = await readClipboardImage({ platform: "linux", env: { XDG_SESSION_TYPE: "tty" } });
+		expect(result?.mimeType).toBe("image/png");
+		expect(Buffer.from(result?.bytes ?? [])).toEqual(png);
+	});
+
+	test("X11: uses clipboard", async () => {
 		mocks.spawnSync.mockImplementation(() => {
 			throw new Error("spawnSync should not be called for non-Wayland sessions");
 		});
@@ -154,13 +175,13 @@ describe("readClipboardImage", () => {
 		mocks.clipboard.getImageBinary.mockResolvedValue(new Uint8Array([7]));
 
 		const { readClipboardImage } = await import("../src/utils/clipboard-image.ts");
-		const result = await readClipboardImage({ platform: "linux", env: {} });
+		const result = await readClipboardImage({ platform: "linux", env: { DISPLAY: ":0" } });
 		expect(result).not.toBeNull();
 		expect(result?.mimeType).toBe("image/png");
 		expect(Array.from(result?.bytes ?? [])).toEqual([7]);
 	});
 
-	test("Non-Wayland: returns null when clipboard has no image", async () => {
+	test("X11: returns null when clipboard has no image", async () => {
 		mocks.spawnSync.mockImplementation(() => {
 			throw new Error("spawnSync should not be called for non-Wayland sessions");
 		});
@@ -168,7 +189,7 @@ describe("readClipboardImage", () => {
 		mocks.clipboard.hasImage.mockReturnValue(false);
 
 		const { readClipboardImage } = await import("../src/utils/clipboard-image.ts");
-		const result = await readClipboardImage({ platform: "linux", env: {} });
+		const result = await readClipboardImage({ platform: "linux", env: { DISPLAY: ":0" } });
 		expect(result).toBeNull();
 	});
 });

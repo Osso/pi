@@ -270,6 +270,8 @@ export async function readClipboardImage(options?: {
 
 		if (wayland || wsl) {
 			image = readClipboardImageViaWlPaste() ?? readClipboardImageViaXclip();
+		} else if (!env.DISPLAY) {
+			image = readClipboardImageViaWlPaste();
 		}
 
 		if (!image && wsl) {
