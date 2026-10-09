@@ -837,7 +837,7 @@ export interface ModelRequestEndEvent {
 	type: "model_request_end";
 }
 
-export type AgentEndSessionContinuation = "cwd_relocation";
+export type AgentEndSessionContinuation = "cwd_relocation" | "codex_restriction_validation";
 
 /** Fired when an agent loop ends */
 export interface AgentEndEvent {

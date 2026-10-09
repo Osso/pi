@@ -41,7 +41,9 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] Supervisor-only capability filtering removes every tool named `manage_goal` from production `spawn_agent`, `attach_session_agent`, and `/bg` runtimes even when an external extension registers it; the supervisor retains the tool.
 - [x] Calls to denied `manage_goal` tools fail as inactive, including calls issued through the Pyrun `pi.tools.call` bridge.
 
-- [ ] Preserve the original broader goal and its remaining criteria during [bounded Codex cybersecurity-risk recovery](supervisor-service.md#codex-cybersecurity-risk-advisory-recovery). A permitted subtask is not goal replacement; stopping that attempt surfaces required user action without stopping independent already-authorized work.
+- [x] Preserve the original broader goal and its remaining criteria during [bounded Codex cybersecurity-risk recovery](supervisor-service.md#codex-cybersecurity-risk-advisory-recovery). A main-validated permitted subtask is not goal replacement; controlled real-process tests preserve active and paused goal state.
+- [ ] Keep independent already-authorized work eligible after blocked recovery; recovery must neither complete the broader goal nor pause unrelated work. Automatic scheduling of unrelated work is not established by the recovery tests.
+- [ ] Ignore validation `agent_end` tagged `sessionContinuation: "codex_restriction_validation"` for completion and ordinary goal continuation: review JSON is not work-completion evidence. The tag is implemented; dedicated event-level assertions remain required.
 
 ### Context anchoring
 
@@ -125,6 +127,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `manage_goal`, Supervisor-reviewed additive `manage_goal set`, `/goal` set/view/pause/resume/clear, persisted and displayed pause reasons, Supervisor countdown persistence/rendering/expiry/cancellation/restore without generic render requests, active-agent deadline exclusion, wait fallback deadlines, completion-pause and thrown-error reason display, default replacement for `/goal`, objective length cap, context injection, continuation prompt state, footer status, resume/reload/fork notification, corrupt state handling, `agent_end` continuation, ordered running and paused conversation evidence, generated and failed-event filtering, stale/error evidence preservation, lifecycle clearing, busy guard, error-stop suppression, empty-response retry eligibility, and shutdown cancellation.
+- `packages/coding-agent/test/suite/headless-codex-restriction-recovery.test.ts` — controlled real-process recovery preserves active/paused goals, original request/refusal/history, and settings; no claim of real-provider classification or guaranteed flag avoidance.
 - `packages/coding-agent/test/goal-wait-countdown-render.test.ts` — scrolled-transcript integration coverage that concurrent Supervisor countdown and Thinking elapsed ticks update only their registered regions without rendering static chat or performing a full redraw.
 - `packages/tui/test/render-region-safety.test.ts` — no-fallback render-region coverage for unsafe partial redraw attempts.
 - `packages/coding-agent/test/multi-agent-extension.test.ts` — production child prompt validation and 10,000-character cap, absence of child goal state, exclusion of the goal extension from child sessions, supervisor-only `manage_goal` denial for spawned and attached children, Pyrun bridge denial, supervisor retention, and absence of goal continuation injection on child completion.

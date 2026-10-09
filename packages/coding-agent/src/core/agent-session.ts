@@ -131,7 +131,12 @@ import { type ApprovalReviewer, orchestrateToolApproval } from "./permissions/or
 import { approvalPresetToBypassPermissions } from "./permissions/presets.ts";
 import { PermissionRuleStore } from "./permissions/rule-store.ts";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.ts";
-import { type CodexRestrictionRescopeResult, requestCodexRestrictionRescope } from "./provider-restriction-recovery.ts";
+import {
+	type CodexRestrictionProposal,
+	formatCodexRestrictionValidation,
+	parseCodexRestrictionValidation,
+	requestCodexRestrictionRescope,
+} from "./provider-restriction-recovery.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 import { formatRuntimeMailboxPrompt, formatSharedChannelPrompt } from "./runtime-coordination-format.ts";
 import {
@@ -176,6 +181,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 import {
 	advanceSharedChannelCursor,
+	claimCodexRestrictionRecovery,
 	cleanupMultiAgentTerminalOutbox,
 	getControlDbPath,
 	getRuntimeProcessInstanceId,
@@ -297,14 +303,26 @@ const QUOTA_EXHAUSTION_PATTERN =
 const CODEX_RESTRICTION_CONTEXT_ENTRY = "codex_restriction_context";
 
 interface CodexRestrictionContext {
+	requestId: string;
 	userRequest: string;
-	spent: boolean;
 }
 
 interface CodexRestrictionSnapshot {
 	sessionId: string;
-	leafId: string | null;
+	requestId: string;
+	cwd: string;
+	goal: string | undefined;
 	model: Model<Api> | undefined;
+	messages: AgentMessage[];
+}
+
+interface CodexRestrictionValidation {
+	proposal: CodexRestrictionProposal;
+	failure: AssistantMessage;
+	context: CodexRestrictionContext;
+	snapshot: CodexRestrictionSnapshot;
+	originalTools: AgentTool[];
+	toolRevision: number;
 }
 
 const DUPLICATE_TURN_GUARD_PROMPT =
@@ -869,7 +887,10 @@ export class AgentSession {
 	private _supervisorReviewCancellationHandler?: () => void;
 	private _codexRestrictionContext?: CodexRestrictionContext;
 	private _codexRestrictionContextSessionId?: string;
+	private _codexRestrictionContextLeafId?: string | null;
 	private _codexRestrictionAbort?: AbortController;
+	private _codexRestrictionValidation?: CodexRestrictionValidation;
+	private _activeToolsRevision = 0;
 	private _extensionShutdownHandler?: ShutdownHandler;
 	private _extensionErrorListener?: ExtensionErrorListener;
 	private _extensionErrorUnsubscriber?: () => void;
@@ -1389,6 +1410,7 @@ export class AgentSession {
 	private _installAgentTurnStop(): void {
 		const previousShouldStopAfterTurn = this.agent.shouldStopAfterTurn;
 		this.agent.shouldStopAfterTurn = async (turn) =>
+			this._codexRestrictionValidation !== undefined ||
 			this._extensionRunner.hasPreparedToolResultRelocation() ||
 			this._duplicateTurnLoopDetected ||
 			((await previousShouldStopAfterTurn?.(turn)) ?? false);
@@ -1543,10 +1565,7 @@ export class AgentSession {
 	/** Internal handler for agent events - shared by subscribe and reconnect */
 	private _handleAgentEvent = async (event: AgentEvent): Promise<void> => {
 		const originalToolCallId = this._getTerminalToolCallId(event);
-		const sessionContinuation: AgentEndSessionContinuation | undefined =
-			event.type === "agent_end" && this._extensionRunner.hasPreparedToolResultRelocation()
-				? "cwd_relocation"
-				: undefined;
+		const sessionContinuation = this._readAgentEndSessionContinuation(event);
 		if (event.type === "tool_execution_start") this._resetDuplicateTurnGuard();
 		if (event.type === "message_end" && event.message.role === "assistant") {
 			this._markDuplicateAssistantMessageForPresentation(event.message);
@@ -1558,7 +1577,7 @@ export class AgentSession {
 			event.type === "agent_end"
 				? {
 						...event,
-						willRetry: sessionContinuation !== undefined || this._willRetryAfterAgentEnd(event),
+						willRetry: sessionContinuation === "cwd_relocation" || this._willRetryAfterAgentEnd(event),
 						sessionContinuation,
 					}
 				: event.type === "message_start" || event.type === "message_update" || event.type === "message_end"
@@ -1571,7 +1590,7 @@ export class AgentSession {
 				this._startBackgroundCompactionDuringToolTurn(event.message);
 			}
 		}
-		if (event.type === "agent_end" && sessionContinuation) {
+		if (event.type === "agent_end" && sessionContinuation === "cwd_relocation") {
 			await this._extensionRunner.activateToolResultRelocation();
 		}
 	};
@@ -1833,7 +1852,22 @@ export class AgentSession {
 		return undefined;
 	}
 
+	private _readAgentEndSessionContinuation(event: AgentEvent): AgentEndSessionContinuation | undefined {
+		if (event.type !== "agent_end") return undefined;
+		if (this._codexRestrictionValidation) return "codex_restriction_validation";
+		return this._extensionRunner.hasPreparedToolResultRelocation() ? "cwd_relocation" : undefined;
+	}
+
 	private _willRetryAfterAgentEnd(event: Extract<AgentEvent, { type: "agent_end" }>): boolean {
+		if (this._codexRestrictionValidation) {
+			const pending = this._codexRestrictionValidation;
+			const message = this._lastAssistantMessage;
+			return (
+				message !== undefined &&
+				this._canApplyCodexRestrictionAdvice(pending.snapshot, false, message) &&
+				parseCodexRestrictionValidation(message, pending.proposal, pending.context.userRequest).allowed
+			);
+		}
 		const dispatch = this._thinkingTimeoutDispatch;
 		const recoveryAvailable = dispatch?.recoveryUsed === false && dispatch.cancelled === false;
 		if (this._thinkingPhaseTimeoutError && recoveryAvailable) return true;
@@ -2140,6 +2174,7 @@ export class AgentSession {
 		}
 		this._disposed = true;
 		this._codexRestrictionAbort?.abort();
+		this._cancelCodexRestrictionValidation();
 		if (this._thinkingTimeoutDispatch) this._thinkingTimeoutDispatch.cancelled = true;
 		try {
 			this.abortRetry();
@@ -2341,6 +2376,7 @@ export class AgentSession {
 	 * Changes take effect on the next agent turn.
 	 */
 	setActiveToolsByName(toolNames: string[]): void {
+		this._activeToolsRevision++;
 		const tools: AgentTool[] = [];
 		const validToolNames: string[] = [];
 		for (const name of toolNames) {
@@ -2629,16 +2665,20 @@ export class AgentSession {
 			const data = entry.data;
 			if (typeof data !== "object" || data === null) return undefined;
 			const userRequest = "userRequest" in data ? data.userRequest : undefined;
-			const spent = "spent" in data ? data.spent : undefined;
-			return typeof userRequest === "string" && typeof spent === "boolean" ? { userRequest, spent } : undefined;
+			const requestId = "requestId" in data ? data.requestId : undefined;
+			return typeof userRequest === "string" && typeof requestId === "string" && requestId.length > 0
+				? { userRequest, requestId }
+				: undefined;
 		}
 		return undefined;
 	}
 
 	private _loadCodexRestrictionContext(): CodexRestrictionContext | undefined {
-		if (this._codexRestrictionContextSessionId !== this.sessionId) {
+		const leafId = this.sessionManager.getLeafId();
+		if (this._codexRestrictionContextSessionId !== this.sessionId || this._codexRestrictionContextLeafId !== leafId) {
 			this._codexRestrictionContext = this._readStoredCodexRestrictionContext();
 			this._codexRestrictionContextSessionId = this.sessionId;
+			this._codexRestrictionContextLeafId = leafId;
 		}
 		return this._codexRestrictionContext;
 	}
@@ -2647,6 +2687,7 @@ export class AgentSession {
 		this._codexRestrictionContext = context;
 		this._codexRestrictionContextSessionId = this.sessionId;
 		this.sessionManager.appendCustomEntry(CODEX_RESTRICTION_CONTEXT_ENTRY, context);
+		this._codexRestrictionContextLeafId = this.sessionManager.getLeafId();
 	}
 
 	private _isSupervisedMainSession(): boolean {
@@ -2656,16 +2697,31 @@ export class AgentSession {
 	private _recordCodexRestrictionUserRequest(text: string, source: InputSource | undefined): void {
 		if (source === "extension" || !this._isSupervisedMainSession()) return;
 		this._codexRestrictionAbort?.abort();
-		this._saveCodexRestrictionContext({ userRequest: text, spent: false });
+		this._cancelCodexRestrictionValidation();
+		this._saveCodexRestrictionContext({ requestId: randomUUID(), userRequest: text });
 	}
 
-	private _canApplyCodexRestrictionAdvice(snapshot: CodexRestrictionSnapshot, cancelled: boolean): boolean {
+	private _readCodexRestrictionMessages(): AgentMessage[] {
+		return this.agent.state.messages.filter(
+			(message) => message.role !== "custom" || message.customType !== "supervisor-status",
+		);
+	}
+
+	private _canApplyCodexRestrictionAdvice(
+		snapshot: CodexRestrictionSnapshot,
+		cancelled: boolean,
+		response?: AssistantMessage,
+	): boolean {
 		if (cancelled || this._disposed || this._thinkingTimeoutDispatch?.cancelled) return false;
-		const sameSession = this.sessionId === snapshot.sessionId;
-		const sameBranch = this.sessionManager.getLeafId() === snapshot.leafId;
-		const sameModel = this.model === snapshot.model;
-		const sameContext = sameSession && sameBranch && sameModel;
-		if (!sameContext) return false;
+		if (this.sessionId !== snapshot.sessionId || this._cwd !== snapshot.cwd) return false;
+		if (this.model !== snapshot.model || this._loadCodexRestrictionContext()?.requestId !== snapshot.requestId)
+			return false;
+		if (this.sessionManager.getSessionGoalJson() !== snapshot.goal) return false;
+		const messages = this._readCodexRestrictionMessages();
+		const expectedCount = snapshot.messages.length + (response ? 1 : 0);
+		if (messages.length !== expectedCount) return false;
+		if (!snapshot.messages.every((message, index) => messages[index] === message)) return false;
+		if (response && messages[messages.length - 1] !== response) return false;
 		return !this.hasPendingMessages() && !this.agent.hasQueuedMessages();
 	}
 
@@ -2691,34 +2747,82 @@ export class AgentSession {
 		}
 	}
 
-	private async _displayCodexRestrictionAdvice(
-		message: AssistantMessage,
-		decision: CodexRestrictionRescopeResult,
-	): Promise<boolean> {
-		const content =
-			decision.kind === "blocked"
-				? `No permitted narrower scope could be established: ${decision.reason}\nNo automatic resubmission; original request remains pending.`
-				: [
-						`Supervisor proposed a narrower task: ${decision.task}`,
-						`Reason: ${decision.reason}`,
-						`User authorization cited: ${decision.basisQuote}`,
-						`Original provider restriction: ${message.errorMessage}`,
-						"Attempt only this permitted subset. Original request and goal remain unchanged; this advice grants no new permission or access. Do not disguise refused work or repeat completed tool effects.",
-					].join("\n");
+	private async _displayBlockedCodexRestriction(reason: string): Promise<false> {
+		const content = `No validated narrower scope: ${reason}\nNo automatic task execution; original request remains pending.`;
 		await this.sendCustomMessage({ customType: "supervisor_restriction_recovery", content, display: true });
-		return decision.kind === "rescope";
+		return false;
+	}
+
+	private _cancelCodexRestrictionValidation(): CodexRestrictionValidation | undefined {
+		const pending = this._codexRestrictionValidation;
+		this._codexRestrictionValidation = undefined;
+		if (pending && this._activeToolsRevision === pending.toolRevision) this.agent.state.tools = pending.originalTools;
+		return pending;
+	}
+
+	private async _startCodexRestrictionValidation(
+		failure: AssistantMessage,
+		context: CodexRestrictionContext,
+		proposal: CodexRestrictionProposal,
+		snapshot: CodexRestrictionSnapshot,
+	): Promise<true> {
+		const originalTools = this.agent.state.tools;
+		this.agent.state.tools = [];
+		this._codexRestrictionValidation = {
+			proposal,
+			context,
+			failure,
+			snapshot,
+			originalTools,
+			toolRevision: this._activeToolsRevision,
+		};
+		await this.sendCustomMessage({
+			customType: "supervisor_restriction_validation",
+			content: formatCodexRestrictionValidation(context.userRequest, failure, proposal),
+			display: true,
+		});
+		this._codexRestrictionValidation.snapshot = { ...snapshot, messages: this._readCodexRestrictionMessages() };
+		return true;
+	}
+
+	private async _finishCodexRestrictionValidation(message: AssistantMessage): Promise<boolean> {
+		const pending = this._cancelCodexRestrictionValidation();
+		if (!pending || this._activeToolsRevision !== pending.toolRevision) return false;
+		if (!this._canApplyCodexRestrictionAdvice(pending.snapshot, false, message)) return false;
+		const decision = parseCodexRestrictionValidation(message, pending.proposal, pending.context.userRequest);
+		if (!decision.allowed) return this._displayBlockedCodexRestriction(decision.reason);
+		await this.sendCustomMessage({
+			customType: "supervisor_restriction_recovery",
+			display: true,
+			content: [
+				`Main validated the narrower task: ${decision.task}`,
+				`Reason: ${decision.reason}`,
+				`Original user text cited: ${decision.basisQuote}`,
+				`Original provider restriction: ${pending.failure.errorMessage}`,
+				"Perform only this bounded task within original constraints. No additional permission or access is granted; do not replay completed effects or attempt the refused portions.",
+			].join("\n"),
+		});
+		return true;
 	}
 
 	private async _prepareCodexRestrictionRecovery(message: AssistantMessage): Promise<boolean> {
 		if (!this._isSupervisedMainSession()) return false;
 		if (this.hasPendingMessages() || this.agent.hasQueuedMessages()) return false;
 		const context = this._loadCodexRestrictionContext();
-		if (context?.spent) return false;
-		this._saveCodexRestrictionContext({ userRequest: context?.userRequest ?? "", spent: true });
-		const snapshot = { sessionId: this.sessionId, leafId: this.sessionManager.getLeafId(), model: this.model };
-		const { decision, cancelled } = await this._requestCodexRestrictionAdvice(message, context?.userRequest ?? "");
+		if (!context) return this._displayBlockedCodexRestriction("An explicit user request is required for review");
+		if (!claimCodexRestrictionRecovery(this._controlDbPath, context.requestId)) return false;
+		const snapshot = {
+			sessionId: this.sessionId,
+			requestId: context.requestId,
+			cwd: this._cwd,
+			goal: this.sessionManager.getSessionGoalJson(),
+			model: this.model,
+			messages: this._readCodexRestrictionMessages(),
+		};
+		const { decision, cancelled } = await this._requestCodexRestrictionAdvice(message, context.userRequest);
 		if (!this._canApplyCodexRestrictionAdvice(snapshot, cancelled)) return false;
-		return this._displayCodexRestrictionAdvice(message, decision);
+		if (decision.kind === "blocked") return this._displayBlockedCodexRestriction(decision.reason);
+		return this._startCodexRestrictionValidation(message, context, decision, snapshot);
 	}
 
 	private async _handlePostAgentRun(): Promise<PostAgentRunContinuation | undefined> {
@@ -2726,6 +2830,10 @@ export class AgentSession {
 		const message = this._lastAssistantMessage;
 		this._lastAssistantMessage = undefined;
 		if (!message) return undefined;
+		if (this._codexRestrictionValidation) {
+			const execute = await this._finishCodexRestrictionValidation(message);
+			return execute ? "normal" : this._selectPostAgentRunContinuation();
+		}
 		if (isCodexCybersecurityRestriction(message)) {
 			const rescope = await this._prepareCodexRestrictionRecovery(message);
 			this._finishExhaustedRetry(message);
@@ -3799,6 +3907,7 @@ export class AgentSession {
 
 	reserveExternalUserInput(): () => void {
 		this._codexRestrictionAbort?.abort();
+		this._cancelCodexRestrictionValidation();
 		let released = false;
 		this._externalUserInputReservations++;
 		return () => {
@@ -3853,6 +3962,7 @@ export class AgentSession {
 	 */
 	async abort(): Promise<void> {
 		this._codexRestrictionAbort?.abort();
+		this._cancelCodexRestrictionValidation();
 		if (this._thinkingTimeoutDispatch) this._thinkingTimeoutDispatch.cancelled = true;
 		this.abortRetry();
 		this._clearThinkingPhaseDeadline();

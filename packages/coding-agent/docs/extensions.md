@@ -599,8 +599,13 @@ pi.on("agent_end", async (event, ctx) => {
   // event.messages - messages from this agent loop
   // event.sessionContinuation === "cwd_relocation" means the same prompt
   // continues after Pi rebuilds the runtime; defer idle/completion behavior.
+  // event.sessionContinuation === "codex_restriction_validation" identifies
+  // tool-free policy review, not operative work or goal-completion evidence.
+  // Defer ordinary idle/goal continuation for that validation event.
 });
 ```
+
+`codex_restriction_validation` marks the normal main agent's tool-free review of an untrusted Supervisor proposal. Its strict JSON decision is not task completion. `willRetry` reports whether a permitted follow-on attempt is actually eligible; it does not turn the proposal or validation call into authorization. Denied, malformed, errored, tool-calling, or canceled validation must not cause ordinary continuation from review JSON. See the [recovery contract](../../../docs/specs/supervisor-service.md#codex-cybersecurity-risk-advisory-recovery).
 
 #### model_request_start / model_request_end
 
