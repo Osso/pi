@@ -81,6 +81,7 @@ import {
 } from "../../core/desktop-notification.ts";
 import type {
 	AutocompleteProviderFactory,
+	CompactionReason,
 	SessionMutationTarget as CoreSessionMutationTarget,
 	EditorFactory,
 	ExtensionCommandContext,
@@ -7793,13 +7794,19 @@ export class InteractiveMode {
 }
 
 export function formatCompactionStartLabel(
-	reason: "manual" | "threshold" | "overflow",
+	reason: CompactionReason,
 	source: CompactionSourceInfo | undefined,
 	cancelHint: string,
 ): string {
-	const prefix = reason === "manual" ? "Compacting context" : "Auto-compacting";
+	const prefix = formatCompactionStartPrefix(reason);
 	const overflowPrefix = reason === "overflow" ? "Context overflow detected, " : "";
 	return `${overflowPrefix}${prefix}${formatCompactionSourceProgressSuffix(source)}... ${cancelHint}`;
+}
+
+function formatCompactionStartPrefix(reason: CompactionReason): string {
+	if (reason === "manual") return "Compacting context";
+	if (reason === "idle") return "Compacting idle context before its prompt cache expires";
+	return "Auto-compacting";
 }
 
 function formatCompactionSourceProgressSuffix(source: CompactionSourceInfo | undefined): string {
@@ -7813,7 +7820,7 @@ function formatCompactionSourceProgressSuffix(source: CompactionSourceInfo | und
 
 export function formatCompactionFailureMessage(input: {
 	errorMessage: string;
-	reason: "manual" | "threshold" | "overflow";
+	reason: CompactionReason;
 	sourceHint?: CompactionSourceInfo;
 }): string {
 	const originalError = formatCompactionOriginalError(input.errorMessage, input.reason);
@@ -7829,8 +7836,8 @@ export function formatCompactionFailureMessage(input: {
 	return lines.join("\n");
 }
 
-function formatCompactionSaveImpact(reason: "manual" | "threshold" | "overflow"): string {
-	return reason === "manual"
+function formatCompactionSaveImpact(reason: CompactionReason): string {
+	return reason === "manual" || reason === "idle"
 		? "No compaction was saved; context remains unchanged."
 		: "No compaction was saved; the previous context is still too large.";
 }
@@ -7839,7 +7846,7 @@ function formatSentence(text: string): string {
 	return /[.!?]$/.test(text) ? text : `${text}.`;
 }
 
-function formatCompactionFailureSummary(errorMessage: string, reason: "manual" | "threshold" | "overflow"): string {
+function formatCompactionFailureSummary(errorMessage: string, reason: CompactionReason): string {
 	if (/timed out/i.test(errorMessage)) {
 		return reason === "overflow"
 			? "Context overflow recovery failed after compaction timeout."
@@ -7848,7 +7855,7 @@ function formatCompactionFailureSummary(errorMessage: string, reason: "manual" |
 	return reason === "overflow" ? "Context overflow recovery failed during compaction." : "Compaction failed.";
 }
 
-function formatCompactionOriginalError(errorMessage: string, reason: "manual" | "threshold" | "overflow"): string {
+function formatCompactionOriginalError(errorMessage: string, reason: CompactionReason): string {
 	const prefixes =
 		reason === "overflow"
 			? ["Context overflow recovery failed: "]

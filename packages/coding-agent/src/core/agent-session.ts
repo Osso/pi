@@ -82,6 +82,7 @@ import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
 import {
 	type AgentEndSessionContinuation,
+	type CompactionReason,
 	type ContextUsage,
 	type ExtensionCommandContext,
 	type ExtensionCommandContextActions,
@@ -180,6 +181,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+import { computeIdleCompactionDueAt } from "./idle-compaction.ts";
 import {
 	advanceSharedChannelCursor,
 	claimCodexRestrictionRecovery,
@@ -438,7 +440,7 @@ export type AgentSessionEvent =
 			followUp: readonly string[];
 	  }
 	| { type: "steering_message_queued" }
-	| { type: "compaction_start"; reason: "manual" | "threshold" | "overflow"; sourceHint?: CompactionSourceInfo }
+	| { type: "compaction_start"; reason: CompactionReason; sourceHint?: CompactionSourceInfo }
 	| { type: "entry_appended"; entry: SessionEntry }
 	/** Emitted after bash messages are appended to agent state and session storage. */
 	| { type: "bash_messages_committed"; messages: readonly BashExecutionMessage[] }
@@ -446,7 +448,7 @@ export type AgentSessionEvent =
 	| { type: "thinking_level_changed"; level: ThinkingLevel }
 	| {
 			type: "compaction_end";
-			reason: "manual" | "threshold" | "overflow";
+			reason: CompactionReason;
 			result: CompactionResult | undefined;
 			aborted: boolean;
 			willRetry: boolean;
@@ -952,6 +954,7 @@ export class AgentSession {
 	private _multiAgentRequiresAgentId: boolean;
 	private readonly _thinkingPhaseTimeoutMs: number;
 	private _thinkingPhaseTimer: ReturnType<typeof setTimeout> | undefined;
+	private _idleCompactionTimer: ReturnType<typeof setTimeout> | undefined;
 	private _thinkingPhaseTimeoutError: Error | undefined;
 	private _thinkingTimeoutDispatch: ThinkingTimeoutDispatch | undefined;
 	private _disableRuntimeCoordinationInbound: boolean;
@@ -1060,7 +1063,7 @@ export class AgentSession {
 	}
 
 	private async getCompactionSourceHint(
-		reason: "manual" | "threshold" | "overflow",
+		reason: CompactionReason,
 		willRetry: boolean,
 	): Promise<CompactionSourceInfo | undefined> {
 		if (!this.model) {
@@ -2219,6 +2222,7 @@ export class AgentSession {
 		}
 
 		this._clearThinkingPhaseDeadline();
+		clearTimeout(this._idleCompactionTimer);
 		this._thinkingPhaseTimeoutError = undefined;
 		this._extensionRunner.invalidate(
 			"This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().",
@@ -2627,6 +2631,7 @@ export class AgentSession {
 		this._clearThinkingPhaseDeadline();
 		this._systemPromptOverride = undefined;
 		this._flushPendingBashMessages();
+		this._scheduleIdleCompaction();
 	}
 
 	private async _continuePostAgentRuns(dispatch: ThinkingTimeoutDispatch): Promise<void> {
@@ -4656,6 +4661,44 @@ export class AgentSession {
 		cache.promise = this._generateBackgroundCompaction(cache, model);
 	}
 
+	/** Arm one timer that compacts the idle session shortly before its provider prompt cache expires. */
+	private _scheduleIdleCompaction(): void {
+		clearTimeout(this._idleCompactionTimer);
+		this._idleCompactionTimer = undefined;
+		const target = this._findIdleCompactionTarget();
+		if (!target) return;
+		const delayMs = Math.max(0, target.dueAt - Date.now());
+		this._idleCompactionTimer = setTimeout(() => void this._runIdleCompaction(target.message), delayMs);
+		this._idleCompactionTimer.unref?.();
+	}
+
+	/** The latest request whose cache idle compaction would preserve, with the time it should run. */
+	private _findIdleCompactionTarget(): { message: AssistantMessage; dueAt: number } | undefined {
+		if (this._disposed || this._multiAgentRuntimeRole === "observer") return undefined;
+		const settingsAllowIdleCompaction =
+			this.settingsManager.getCompactionEnabled() && this.settingsManager.getIdleCompactionEnabled();
+		if (!settingsAllowIdleCompaction) return undefined;
+		const message = this._findLastAssistantMessage();
+		if (!message || message.stopReason === "error") return undefined;
+		// The cache only helps if the next request goes to the model that wrote it.
+		const isCurrentModel = message.provider === this.model?.provider && message.model === this.model?.id;
+		if (!isCurrentModel) return undefined;
+		const branchEntries = this.sessionManager.getBranch();
+		const compactionEntry = getLatestCompactionEntry(branchEntries);
+		if (assistantMessagePrecedesCompaction(branchEntries, message, compactionEntry)) return undefined;
+		const dueAt = computeIdleCompactionDueAt(message);
+		return dueAt === undefined ? undefined : { message, dueAt };
+	}
+
+	private async _runIdleCompaction(message: AssistantMessage): Promise<void> {
+		this._idleCompactionTimer = undefined;
+		await this._withTurnStartLock(async () => {
+			const sessionIsBusy = this.isStreaming || this.isCompacting || this.hasPendingMessages();
+			if (sessionIsBusy || this._findIdleCompactionTarget()?.message !== message) return;
+			await this._runAutoCompaction("idle", false);
+		});
+	}
+
 	/** Cancel in-progress compaction-summary materialization. */
 	abortCompactionSummaryMaterialization(): void {
 		this._compactionSummaryMaterializationAbortController?.abort();
@@ -4792,7 +4835,7 @@ export class AgentSession {
 	 * Internal: Run auto-compaction with events.
 	 */
 	private async _runAutoCompaction(
-		reason: "overflow" | "threshold",
+		reason: "overflow" | "threshold" | "idle",
 		willRetry: boolean,
 		continueAfterCompaction = willRetry,
 	): Promise<boolean> {
@@ -5079,6 +5122,7 @@ export class AgentSession {
 		await waitForHeadlessSessionStartRelease();
 		await this._extensionRunner.emit(this._sessionStartEvent);
 		await this.extendResourcesFromExtensions(this._sessionStartEvent.reason === "reload" ? "reload" : "startup");
+		this._scheduleIdleCompaction();
 	}
 
 	private async extendResourcesFromExtensions(reason: "startup" | "reload"): Promise<void> {

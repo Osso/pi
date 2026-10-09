@@ -670,14 +670,16 @@ export interface SessionBeforeForkEvent {
 	position: "before" | "at";
 }
 
+/** What triggered compaction: manual /compact, the context threshold, context overflow recovery, or idle prompt-cache expiry. */
+export type CompactionReason = "manual" | "threshold" | "overflow" | "idle";
+
 /** Fired before context compaction (can be cancelled or customized) */
 export interface SessionBeforeCompactEvent {
 	type: "session_before_compact";
 	preparation: CompactionPreparation;
 	branchEntries: SessionEntry[];
 	customInstructions?: string;
-	/** What triggered the compaction: manual /compact, the context threshold, or context overflow recovery */
-	reason: "manual" | "threshold" | "overflow";
+	reason: CompactionReason;
 	/** True when the aborted turn is retried after this compaction (overflow recovery) */
 	willRetry: boolean;
 	signal: AbortSignal;
@@ -689,8 +691,7 @@ export interface CompactionEvent {
 	preparation: CompactionPreparation;
 	branchEntries: SessionEntry[];
 	customInstructions?: string;
-	/** What triggered the compaction: manual /compact, the context threshold, or context overflow recovery */
-	reason: "manual" | "threshold" | "overflow";
+	reason: CompactionReason;
 	/** True when the aborted turn is retried after this compaction (overflow recovery) */
 	willRetry: boolean;
 	signal: AbortSignal;
@@ -699,8 +700,7 @@ export interface CompactionEvent {
 /** Fired before context compaction starts to describe the compaction implementation that will be used. */
 export interface SessionCompactionSourceEvent {
 	type: "session_compaction_source";
-	/** What triggered the compaction: manual /compact, the context threshold, or context overflow recovery */
-	reason: "manual" | "threshold" | "overflow";
+	reason: CompactionReason;
 	/** True when the aborted turn is retried after this compaction (overflow recovery) */
 	willRetry: boolean;
 }
@@ -720,8 +720,7 @@ export interface SessionCompactEvent {
 	type: "session_compact";
 	compactionEntry: CompactionEntry;
 	fromExtension: boolean;
-	/** What triggered the compaction: manual /compact, the context threshold, or context overflow recovery */
-	reason: "manual" | "threshold" | "overflow";
+	reason: CompactionReason;
 	/** True when the aborted turn is retried after this compaction (overflow recovery) */
 	willRetry: boolean;
 }

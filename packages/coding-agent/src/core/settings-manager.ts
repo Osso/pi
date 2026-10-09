@@ -24,6 +24,7 @@ export interface CompactionSettings {
 	enabled?: boolean; // default: true
 	reserveTokens?: number; // default: 16384
 	keepRecentTokens?: number; // default: 20000
+	idle?: boolean; // default: true - compact idle sessions before their provider prompt cache expires
 }
 
 export interface BranchSummarySettings {
@@ -908,6 +909,10 @@ export class SettingsManager {
 
 	getCompactionEnabled(): boolean {
 		return this.settings.compaction?.enabled ?? true;
+	}
+
+	getIdleCompactionEnabled(): boolean {
+		return this.settings.compaction?.idle ?? true;
 	}
 
 	setCompactionEnabled(enabled: boolean): void {

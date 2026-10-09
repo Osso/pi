@@ -41,6 +41,7 @@ export type {
 	BuildSystemPromptOptions,
 	CompactionEvent,
 	CompactionEventResult,
+	CompactionReason,
 	// Context
 	CompactOptions,
 	// Events - Agent

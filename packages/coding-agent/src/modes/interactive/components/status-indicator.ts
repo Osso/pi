@@ -1,5 +1,5 @@
 import { type Component, Loader, type TUI } from "@earendil-works/pi-tui";
-import type { WorkingIndicatorOptions } from "../../../core/extensions/index.ts";
+import type { CompactionReason, WorkingIndicatorOptions } from "../../../core/extensions/index.ts";
 import { theme } from "../theme/theme.ts";
 import { CountdownTimer } from "./countdown-timer.ts";
 import { keyText } from "./keybinding-hints.ts";
@@ -71,10 +71,8 @@ export class RetryStatusIndicator extends StatusIndicator {
 	}
 }
 
-export type CompactionStatusReason = "manual" | "threshold" | "overflow";
-
 export class CompactionStatusIndicator extends StatusIndicator {
-	constructor(ui: TUI, reason: CompactionStatusReason) {
+	constructor(ui: TUI, reason: CompactionReason) {
 		const cancelHint = `(${keyText("app.interrupt")} to cancel)`;
 		const label =
 			reason === "manual"
