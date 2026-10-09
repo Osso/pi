@@ -66,8 +66,9 @@ Revision `749bc4f1c` deployed to both hosts through `deploy.sh --agent-server`; 
 found all eight eligible local mains and the resident current, no eligible remote mains or residents,
 and zero expired/invalid-birth mailbox rows with creation indexes present on both hosts.
 Stale health ghosts were excluded; existing detached runners were preserved. No user history was pruned.
-Both hosts now have the same peer-descendant artifact; exact peer source-to-artifact confirmation
-remains pending. Deployment does not expand test proof to unrelated descendant changes.
+The deploying session confirmed descendant revision `3d303c762` on both hosts; its SHA-256
+`f35101140e608b8996e724ded8165149db753fbe78e4245864d8aac4ac743ce2` matches the final inventory.
+Deployment does not expand test proof to unrelated descendant changes.
 
 ## Limits and evidence
 
