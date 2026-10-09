@@ -7,8 +7,12 @@
 - [x] Add allowlisted provider-attempt diagnostic events with behavioral redaction tests.
 - [x] Persist metadata-only failure/retry records through existing SDK callbacks.
 - [x] Document field availability, log location, and exclusions.
-- [ ] Deploy from actual default `master` (user-approved override, 2026-10-09); verify checks, redaction, and runtime health.
-- [ ] Restart superseded installed runtimes without cancelling their agents.
+- [x] Deploy from actual default `master` (user-approved override, 2026-10-09): `43e048c00`, `./deploy.sh` exit 0.
+- [x] Restart both eligible installed main runtimes; same PIDs execute the deployed artifact, health checks OK.
+- [ ] Receive independent verifier 171's final acceptance; do not infer it from deployment or targeted tests.
+
+# Operational proof
+Deployment, artifact hash, runtime receipts, and targeted source-test evidence: [provider failure diagnostics](docs/specs/provider-failure-diagnostics.md#deployment-and-operational-proof).
 
 # Exclusions
 - No provider/model/retry-policy changes, raw messages, stacks, headers, bodies, prompts, tools, credentials, or binary patches.

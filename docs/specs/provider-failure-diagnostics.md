@@ -4,7 +4,7 @@ Sanitized Codex failure metadata supports diagnosis without capturing request co
 
 ## What it must do
 
-Checked criteria mean implemented in the inspected source, not deployed or independently verified. SDK wiring and `retryLayer` serialization were committed in `df248e4f2` during this documentation task.
+Checked requirements mean implemented in the inspected source, not independently verified. Deployment and execution evidence are recorded separately below. SDK wiring and `retryLayer` serialization were committed in `df248e4f2`.
 
 ### Metadata and correlation
 
@@ -51,11 +51,21 @@ Request IDs come from supported structured fields or the producer's fixed server
 | Sink | `packages/coding-agent/src/core/provider-diagnostics.ts`; `test/provider-diagnostics.test.ts` covers allowlisting, permissions and isolated write failures. | Base committed in `4f31df937`; `retryLayer` addition committed in `df248e4f2`. |
 | SDK | `packages/coding-agent/src/core/sdk.ts`; `test/sdk-provider-diagnostics.test.ts` asserts request correlation, callback preservation, retry-layer numbering, other-API exclusion and one safe warning. | Initially uncommitted source/test inspected, then committed in `df248e4f2`; no execution proof claimed. |
 
+## Deployment and operational proof
+
+Verified operational state: 2026-10-09. Deployed source `43e048c00af26e0bf21999d51f5e404b8ec6e31d` from local `master` under the explicit user-approved deployment override; `./deploy.sh` exited 0. Receipt `/tmp/pi-diagnostics-deploy-result.json` records the source revision, launcher, build-tool provenance, installed hash, and `/tmp/pi-diagnostics-deploy.log`.
+
+Installed binary SHA-256: `0815da1d9e0c68bc3a660806661568c7c4b41b4f327eb8d5629e4d51e2a06b94`. `/tmp/pi-diagnostics-runtime-before.json` and `/tmp/pi-diagnostics-runtime-after.json` record both eligible main runtimes (`01a11b35`, `40fcbe4f`) restarting by same-PID exec and matching this artifact afterward; reported health checks were OK. This is runtime replacement evidence, not final feature acceptance.
+
+Targeted source proof: producer 52 tests passed, recorded in `/tmp/codex-diag-async-observer.{log,json}`; typed SDK automatic-sink scope 10 tests passed, recorded in `/tmp/codex-diag-typed-autosink.{log,json}`. JSON receipts identify exact tested revision, scope, and file hashes; both report proof still current. Prior SDK 20-test proof covers unchanged scope, not a new run. These bounded tests do not establish the unknown upstream cause or independently prove all retry-policy behavior.
+
+Build used cached, provenance-verified Bun 1.4.0 with explicit launcher environment because the tmux shell resets PATH; global PATH was not changed. Dependency/package and browser-CLI work is separate from this feature.
+
 ## Pending acceptance
 
 - [x] Commit SDK wiring, retry-layer serialization, and SDK integration tests (`df248e4f2`).
-- [ ] Obtain independent proof of producer metadata, sink permissions/redaction/failure isolation, SDK correlation, and unchanged stdout/retry behavior.
-- [ ] Deploy and verify the installed runtime. Deployment status is not established by this documentation change.
+- [x] Deploy the approved source and confirm both eligible main runtimes execute the installed artifact.
+- [ ] Receive independent verifier 171's final proof of producer metadata, sink permissions/redaction/failure isolation, SDK correlation, and unchanged stdout/retry behavior. Verification remains underway; no final pass claimed.
 
 ## Out of scope
 
