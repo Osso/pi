@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDetachedJobArtifacts, createDetachedJobTerminalInput } from "../src/core/detached-job-runner.ts";
 import {
 	advanceSharedChannelCursor,
@@ -183,6 +183,7 @@ function enqueueStoredRuntimeMessage(
 	const sessionPath = "/sessions/test-sender.jsonl";
 	registerRuntimeMailboxListener(controlDbPath, input.recipient, process.pid);
 	upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+		createdAt: "2026-07-11T00:00:00.000Z",
 		fileRefs: input.fileRefs,
 		body: input.body,
 		fromAgentId: input.sender.agentId ?? "main",
@@ -209,6 +210,7 @@ async function runRuntimeMailboxPayloadPreparationContention(
 ): Promise<WorkerStatusMessage> {
 	const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 	const workerSource = `
+Date.now = () => ${Date.now()};
 		import { parentPort, workerData } from "node:worker_threads";
 		import {
 			claimRuntimeMailboxMessages,
@@ -322,6 +324,7 @@ async function runMultiAgentPayloadPreparationContention(
 ): Promise<WorkerStatusMessage> {
 	const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 	const workerSource = `
+Date.now = () => ${Date.now()};
 		import { parentPort, workerData } from "node:worker_threads";
 		import {
 			acquireAttachedRuntimeOwnership,
@@ -434,11 +437,14 @@ describe("session control DB", () => {
 	let controlDbPath: string;
 
 	beforeEach(() => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime("2026-07-11T00:00:00.000Z");
 		tempDir = mkdtempSync(join(tmpdir(), "pi-session-control-"));
 		controlDbPath = getControlDbPath(tempDir);
 	});
 
 	afterEach(() => {
+		vi.useRealTimers();
 		rmSync(tempDir, { force: true, recursive: true });
 	});
 
@@ -468,6 +474,7 @@ describe("session control DB", () => {
 	it("does not reuse mailbox IDs when persisted rows or an alternate counter table are ahead", () => {
 		const sessionPath = "/sessions/supervisor.jsonl";
 		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, "message_2", {
+			createdAt: "2026-07-11T00:00:00.000Z",
 			body: "already allocated",
 			fromAgentId: "agent_3",
 			id: "message_2",
@@ -571,6 +578,7 @@ describe("session control DB", () => {
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { claimPendingArchitectRequests } from ${JSON.stringify(moduleUrl)};
 
@@ -745,6 +753,7 @@ describe("session control DB", () => {
 	it("rejects mailbox ID reuse without overwriting the existing message", () => {
 		const sessionPath = "/sessions/supervisor.jsonl";
 		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, "message_2", {
+			createdAt: "2026-07-11T00:00:00.000Z",
 			body: "original",
 			fromAgentId: "agent_3",
 			id: "message_2",
@@ -755,6 +764,7 @@ describe("session control DB", () => {
 
 		expect(() =>
 			upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, "message_2", {
+				createdAt: "2026-07-11T00:00:00.000Z",
 				body: "replacement",
 				fromAgentId: "agent_13",
 				id: "message_2",
@@ -778,6 +788,7 @@ describe("session control DB", () => {
 		const sessionPath = "/sessions/mailbox-collision-contention.jsonl";
 		const messageId = "message-collision-contention";
 		const original = {
+			createdAt: "2026-07-11T00:00:00.000Z",
 			body: "original",
 			fromAgentId: "agent-original",
 			id: messageId,
@@ -786,6 +797,7 @@ describe("session control DB", () => {
 			toAgentId: "main",
 		};
 		const conflicting = {
+			createdAt: "2026-07-11T00:00:00.000Z",
 			body: "replacement",
 			fromAgentId: "agent-replacement",
 			id: messageId,
@@ -803,6 +815,7 @@ describe("session control DB", () => {
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { upsertMultiAgentMailboxMessage } from ${JSON.stringify(moduleUrl)};
 
@@ -888,6 +901,7 @@ describe("session control DB", () => {
 			storeRef: { messageId: "conflict", sessionPath: "/sessions/conflict.jsonl" },
 		};
 		upsertMultiAgentMailboxMessage(controlDbPath, input.storeRef.sessionPath, input.storeRef.messageId, {
+			createdAt: "2026-07-11T00:00:00.000Z",
 			body: "conflict",
 			fromAgentId: "main",
 			id: input.storeRef.messageId,
@@ -909,6 +923,7 @@ describe("session control DB", () => {
 		const sessionPath = "/sessions/atomic-delivery.jsonl";
 		const messageId = "atomic-delivery";
 		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			createdAt: "2026-07-11T00:00:00.000Z",
 			body: "atomic delivery",
 			fromAgentId: "main",
 			id: messageId,
@@ -940,6 +955,7 @@ describe("session control DB", () => {
 		const sessionPath = "/sessions/atomic-rollback.jsonl";
 		const messageId = "atomic-rollback";
 		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			createdAt: "2026-07-11T00:00:00.000Z",
 			body: "rollback",
 			fromAgentId: "main",
 			id: messageId,
@@ -985,6 +1001,7 @@ describe("session control DB", () => {
 		const sessionPath = "/sessions/malformed.jsonl";
 		const messageId = "malformed";
 		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			createdAt: "2026-07-11T00:00:00.000Z",
 			body: "malformed",
 			fromAgentId: "main",
 			id: messageId,
@@ -1010,14 +1027,21 @@ describe("session control DB", () => {
 			db.close();
 		}
 
-		expect(() => consumeRuntimeMailboxMessage(controlDbPath, id)).toThrow(/Invalid persisted JSON/);
-		expect(() => readRuntimeMailboxMessage(controlDbPath, id)).toThrow(/Invalid persisted JSON/);
+		expect(consumeRuntimeMailboxMessage(controlDbPath, id)).toBe(false);
+		expect(readRuntimeMailboxMessage(controlDbPath, id)).toBeUndefined();
+		const reader = createSqliteDatabase(controlDbPath);
+		try {
+			expect(reader.prepare("SELECT 1 FROM multi_agent_mailbox_messages WHERE rowid = ?").get(id)).toBeUndefined();
+		} finally {
+			reader.close();
+		}
 	});
 
 	it("consumes an already-resolved mailbox row by transport ID", () => {
 		const sessionPath = "/sessions/consumed.jsonl";
 		const messageId = "already-delivered";
 		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			createdAt: "2026-07-11T00:00:00.000Z",
 			body: "already delivered",
 			fromAgentId: "main",
 			id: messageId,
@@ -1214,6 +1238,7 @@ describe("session control DB", () => {
 				"/sessions/invalid-label.jsonl",
 				"invalid-label",
 				JSON.stringify({
+					createdAt: "2026-07-11T00:00:00.000Z",
 					body: "invalid",
 					fileRefs: [{ path: "/tmp/output.log", label: 42 }],
 				}),
@@ -1263,6 +1288,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { createFailedMultiAgentChild } from ${JSON.stringify(moduleUrl)};
 
@@ -1362,6 +1388,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { bootstrapMultiAgentAgent } from ${JSON.stringify(moduleUrl)};
 
@@ -1448,6 +1475,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { createMultiAgentAttachment } from ${JSON.stringify(moduleUrl)};
 
@@ -1597,6 +1625,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { createMultiAgentChildWithRuntimeOwnership } from ${JSON.stringify(moduleUrl)};
 
@@ -1717,6 +1746,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import {
 					createFailedMultiAgentChild,
@@ -1831,6 +1861,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		}
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const workerSource = `
+Date.now = () => ${Date.now()};
 			import { parentPort, workerData } from "node:worker_threads";
 			import { commitMultiAgentLifecycleMutation } from ${JSON.stringify(moduleUrl)};
 			parentPort?.postMessage(commitMultiAgentLifecycleMutation(workerData.controlDbPath, workerData.command));
@@ -1886,6 +1917,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { commitMultiAgentLifecycleMutation } from ${JSON.stringify(moduleUrl)};
 
@@ -2008,6 +2040,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { commitMultiAgentSteeringMutation } from ${JSON.stringify(moduleUrl)};
 
@@ -2410,6 +2443,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { commitMultiAgentSteeringDelivery } from ${JSON.stringify(moduleUrl)};
 
@@ -2486,6 +2520,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			sessionPath,
 		});
 		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			createdAt: "2026-07-11T00:00:00.000Z",
 			body: "deliver agent payload",
 			fromAgentId: "supervisor",
 			id: messageId,
@@ -2539,6 +2574,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			sessionPath,
 		});
 		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			createdAt: "2026-07-11T00:00:00.000Z",
 			body: marker,
 			fromAgentId: "supervisor",
 			id: messageId,
@@ -2653,6 +2689,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { commitMultiAgentTerminalMutation } from ${JSON.stringify(moduleUrl)};
 
@@ -2910,6 +2947,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { updateMultiAgentAgentCurrentActivity } from ${JSON.stringify(moduleUrl)};
 
@@ -3153,6 +3191,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { finalizeDetachedJob } from ${JSON.stringify(moduleUrl)};
 
@@ -3355,6 +3394,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { commitMultiAgentDetachMark } from ${JSON.stringify(moduleUrl)};
 
@@ -3678,6 +3718,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		};
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { recoverDeadMultiAgentRuntime } from ${JSON.stringify(moduleUrl)};
 
@@ -3827,6 +3868,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { acquireAttachedRuntimeOwnership } from ${JSON.stringify(moduleUrl)};
 
@@ -4144,6 +4186,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { readMultiAgentState } from ${JSON.stringify(moduleUrl)};
 
@@ -4290,7 +4333,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			).run(
 				sessionPath,
 				"message-1",
-				'{"artifactIds":["artifact-2"],"artifactRefs":[{"path":"/tmp/legacy-mailbox.log"}],"body":"legacy mailbox","fileRefs":[{"path":"/tmp/mailbox.log"}],"status":"pending"}',
+				'{"createdAt":"2026-07-11T00:00:00.000Z","artifactIds":["artifact-2"],"artifactRefs":[{"path":"/tmp/legacy-mailbox.log"}],"body":"legacy mailbox","fileRefs":[{"path":"/tmp/mailbox.log"}],"status":"pending"}',
 				"2026-07-11T00:00:00.000Z",
 			);
 		} finally {
@@ -4495,6 +4538,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		readMultiAgentState(controlDbPath, sessionPath);
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { readMultiAgentState } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href)};
 				parentPort?.postMessage("ready");
@@ -4565,6 +4609,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				sessionPath,
 				"message-1",
 				JSON.stringify({
+					createdAt: "2026-07-11T00:00:00.000Z",
 					body: "invalid",
 					fileRefs: [{ path: "/tmp/output.log", label: 42 }],
 				}),
@@ -4612,6 +4657,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				sessionPath,
 				messageId,
 				JSON.stringify({
+					createdAt: "2026-07-11T00:00:00.000Z",
 					body: "legacy",
 					fromAgentId: "agent_1",
 					id: messageId,
@@ -4707,6 +4753,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 				sessionPath,
 				"delivered-message",
 				JSON.stringify({
+					createdAt: "2026-07-11T00:00:00.000Z",
 					body: "delivered body",
 					correlationId: "correlation-delivered",
 					deliveredAt: "2026-07-13T00:02:00.000Z",
@@ -4863,6 +4910,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const sessionPath = "/sessions/concurrent-sender.jsonl";
 		const messageId = "message-concurrent";
 		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+			createdAt: "2026-07-11T00:00:00.000Z",
 			body: "one durable message",
 			fromAgentId: "main",
 			id: messageId,
@@ -4871,6 +4919,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			toAgentId: "main",
 		});
 		const workerSource = `
+Date.now = () => ${Date.now()};
 			import { parentPort, workerData } from "node:worker_threads";
 			import { enqueueRuntimeMailboxMessage } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href)};
 			const id = enqueueRuntimeMailboxMessage(workerData.controlDbPath, workerData.input);
@@ -4937,6 +4986,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		};
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { enqueueRuntimeMailboxMessage } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href)};
 
@@ -5029,6 +5079,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		};
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { enqueueStoredRuntimeMailboxMessage } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href)};
 
@@ -5189,6 +5240,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const messageId = "delivery-contention-message";
 		const timestamp = "2026-08-09T00:00:00.000Z";
 		const workerSource = `
+Date.now = () => ${Date.now()};
 			import { parentPort, workerData } from "node:worker_threads";
 			import {
 				registerRuntimeMailboxListener,
@@ -5322,6 +5374,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const workerCount = 8;
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const workerSource = `
+Date.now = () => ${Date.now()};
 			import { parentPort, workerData } from "node:worker_threads";
 			import { allocateMultiAgentCounter } from ${JSON.stringify(moduleUrl)};
 
@@ -5409,6 +5462,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const messageId = "same-message";
 		for (const sessionPath of [oldPath, newPath]) {
 			upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+				createdAt: "2026-07-11T00:00:00.000Z",
 				body: sessionPath,
 				fromAgentId: "main",
 				id: messageId,
@@ -5424,6 +5478,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			});
 		}
 		upsertMultiAgentMailboxMessage(controlDbPath, newPath, "destination-only", {
+			createdAt: "2026-07-11T00:00:00.000Z",
 			body: "stale destination",
 			fromAgentId: "main",
 			id: "destination-only",
@@ -5567,6 +5622,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		});
 
 		const workerSource = `
+Date.now = () => ${Date.now()};
 			import { parentPort, workerData } from "node:worker_threads";
 			import {
 				enqueueIncomingMessage,
@@ -5666,6 +5722,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { claimLatestIncomingMessage } from ${JSON.stringify(moduleUrl)};
 
@@ -5719,6 +5776,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { claimNextSupervisorRequest } from ${JSON.stringify(moduleUrl)};
 
@@ -5761,6 +5819,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { recoverSupervisorRequests } from ${JSON.stringify(moduleUrl)};
 
@@ -5804,6 +5863,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { claimMultiAgentTerminalOutbox } from ${JSON.stringify(moduleUrl)};
 
@@ -5850,6 +5910,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { readOrMigratePromptHistory } from ${JSON.stringify(moduleUrl)};
 
@@ -5892,6 +5953,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { readOrMigratePromptHistory } from ${JSON.stringify(moduleUrl)};
 
@@ -5962,6 +6024,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			const sessionPath = "/sessions/sender.jsonl";
 			const messageId = "reused-non-pi-pid-message";
 			upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, messageId, {
+				createdAt: "2026-07-11T00:00:00.000Z",
 				body: "wake",
 				id: messageId,
 				status: "pending",
@@ -6018,6 +6081,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 			revision: 1,
 		});
 		const request = {
+			createdAt: "2026-07-11T00:00:00.000Z",
 			body: "Need scope",
 			fromAgentId: "agent-child",
 			id: "message_1",
@@ -6039,6 +6103,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 
 	it("resolves store-referenced runtime mailbox bodies without copying them into transport rows", () => {
 		upsertMultiAgentMailboxMessage(controlDbPath, "/sessions/supervisor.jsonl", "message_1", {
+			createdAt: "2026-07-11T00:00:00.000Z",
 			fileRefs: [{ label: "Log", path: "/tmp/run.log" }],
 			body: "stored mailbox message",
 			fromAgentId: "agent_1",
@@ -6084,6 +6149,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 
 	it("marks persisted store mailbox messages delivered by reference", () => {
 		upsertMultiAgentMailboxMessage(controlDbPath, "/sessions/supervisor.jsonl", "message_1", {
+			createdAt: "2026-07-11T00:00:00.000Z",
 			body: "stored supervisor request",
 			fromAgentId: "agent_1",
 			id: "message_1",
@@ -6131,6 +6197,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import {
 					consumeRuntimeMailboxMessageByStoreRef,
@@ -6234,6 +6301,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { claimRuntimeMailboxMessages } from ${JSON.stringify(moduleUrl)};
 
@@ -6311,6 +6379,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { registerRuntimeMailboxListener } from ${JSON.stringify(moduleUrl)};
 
@@ -6389,6 +6458,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		retireRuntimeMailboxListener(controlDbPath, recipient, process.pid);
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const workerSource = `
+Date.now = () => ${Date.now()};
 			import { parentPort, workerData } from "node:worker_threads";
 			import { claimRuntimeMailboxMessages, registerRuntimeMailboxListener } from ${JSON.stringify(moduleUrl)};
 			let registered = false;
@@ -6545,6 +6615,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import {
 					claimRuntimeMailboxMessages,
@@ -6641,7 +6712,15 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		expect(claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" })).toEqual(
 			[],
 		);
-		expect(() => readRuntimeMailboxMessage(controlDbPath, messageId)).toThrow(/Invalid persisted JSON/);
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
+		const reader = createSqliteDatabase(controlDbPath);
+		try {
+			expect(
+				reader.prepare("SELECT 1 FROM multi_agent_mailbox_messages WHERE rowid = ?").get(messageId),
+			).toBeUndefined();
+		} finally {
+			reader.close();
+		}
 	});
 
 	it("marks canonical mailbox rows delivered or failed after claim", () => {
@@ -7277,6 +7356,7 @@ if (state?.agents.length !== 1) throw new Error("Bun lifecycle repository did no
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
+Date.now = () => ${Date.now()};
 				import { parentPort, workerData } from "node:worker_threads";
 				import { archiveSessionsOlderThan } from ${JSON.stringify(moduleUrl)};
 

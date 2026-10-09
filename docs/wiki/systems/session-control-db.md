@@ -17,6 +17,34 @@ Contract: [Session control DB](../../specs/session-control-db.md).
 
 JSONL remains conversation storage; control state is not a replacement transcript.
 
+## Mailbox lookup and retention
+
+[agents-core runtime.ts](../../../packages/coding-agent/extensions/agents-core/src/runtime.ts) uses
+`listRuntimeMailboxMessagesForSession()` for terminal duplicate lookup across all recipients/statuses
+in the exact owning `session_path`. Sender, `system` kind, parsed terminal body type, agent ID, and
+terminal revision matching are unchanged. Core retains `listRuntimeMailboxMessages()` for global
+administrative listing.
+
+`session-control-db.ts` indexes a creation-time expression over canonical payload `createdAt`, with
+missing/unparseable values ordered as expired. Initialization and one unref'ed 60-second timer per
+retained connection run cleanup; final release cancels the timer. Cleanup probes read-only and, when
+due, deletes all expired canonical rows in one statement, without a batch limit. Age never uses
+`updated_at`; the [retention contract](../../specs/session-control-db.md#what-it-must-do) defines its
+boundary and storage exclusions.
+
+Freshness predicates gate reads, restore, claims, and delivery CAS writes between cleanup ticks.
+Stale upserts skip persistence; stale enqueues fail explicitly. Updates preserve original creation time.
+[MultiAgentStore](../../../packages/coding-agent/src/core/multi-agent-store.ts) excludes expired
+messages from exposure, consumption, restore, and projection; terminal retries do not reemit old
+agent notifications based on `agent.updatedAt`.
+[AgentSession](../../../packages/coding-agent/src/core/agent-session.ts) prunes the memory projection
+when draining runtime coordination.
+
+Targeted evidence: scope 4, lifecycle mirror 12, core retention 16, and Store retention 3 tests passed.
+The Store/retention/real-process restart run passed 56/56, including all 9 real-process crash/restart
+tests. Exact backing paths appear in the spec's [current-cycle evidence](../../specs/session-control-db.md#known-gaps-current-cycle).
+Final integration verification remains pending; no deployment is established.
+
 ## Limits and evidence
 
 Harness input is global, not addressed to the PID supplied to `send`; another interactive startup can claim it. `last` is likewise global. `restart` checks the exact session ID's health row for a PID and `checkStatus=ok`, then signals it; this CLI path does not independently validate process start identity. Do not confuse that check with exact-owner mailbox/lifecycle validation.

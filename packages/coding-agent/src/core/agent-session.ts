@@ -3099,6 +3099,7 @@ export class AgentSession {
 		if (this._disableRuntimeCoordinationInbound || this._disposed) {
 			return false;
 		}
+		this._multiAgentStore?.expireMailboxMessages(Date.now());
 		try {
 			this._drainTerminalOutboxProjections();
 		} catch (error) {

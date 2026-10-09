@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MultiAgentStore, type SpawnAgentInput } from "../src/core/multi-agent-store.ts";
 import { getControlDbPath, readMultiAgentState } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
@@ -10,6 +10,13 @@ import { CURRENT_PROCESS_IDENTITY } from "./helpers/process-identity.ts";
 import { forceRuntimeOwnership } from "./helpers/runtime-ownership.ts";
 
 const managedTempDirs: string[] = [];
+
+beforeEach(() => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	vi.setSystemTime("2026-06-21T00:00:00.000Z");
+});
+
+afterEach(() => vi.useRealTimers());
 
 afterAll(() => {
 	for (const dir of managedTempDirs) {

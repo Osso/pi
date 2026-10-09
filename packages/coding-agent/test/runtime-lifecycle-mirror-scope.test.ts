@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createMultiAgentPiRequestHandler,
 	type MultiAgentPiRequestHandler,
@@ -12,8 +12,8 @@ import { type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-sto
 import {
 	getRuntimeProcessInstanceId,
 	listRuntimeMailboxMessagesForSession,
-	registerRuntimeMailboxListener,
 	type RuntimeMailboxMessage,
+	registerRuntimeMailboxListener,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
@@ -35,6 +35,7 @@ function insertTransport(
 			messageId,
 			JSON.stringify({
 				body: "history",
+				createdAt: now,
 				kind: "system",
 				recipientAgentId: "other-recipient",
 				recipientSessionId: "other-runtime",
@@ -69,6 +70,8 @@ describe("production lifecycle mirror session scope", () => {
 	const handlers: MultiAgentPiRequestHandler[] = [];
 
 	beforeEach(async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(now);
 		directory = mkdtempSync(join(tmpdir(), "pi-lifecycle-mirror-scope-"));
 		controlDbPath = join(directory, "control.sqlite");
 		const sessionManager = SessionManager.create(directory, join(directory, "sessions"), { id: "owner-runtime" });
@@ -114,6 +117,7 @@ describe("production lifecycle mirror session scope", () => {
 	});
 
 	afterEach(() => {
+		vi.useRealTimers();
 		for (const handler of handlers.splice(0)) handler.dispose();
 		rmSync(directory, { recursive: true, force: true });
 	});

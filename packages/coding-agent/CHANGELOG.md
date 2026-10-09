@@ -23,6 +23,8 @@
 
 ### Changed
 
+- Expire all canonical multi-agent mailbox messages after 24 hours from creation, including pending/claimed messages and missing or invalid creation times; clean on database initialization and every 60 seconds while retained, preventing stale replay, delivery, and resurrection. Transcripts and shared-channel history are unchanged.
+
 - `ask_questions` transcript rows now list each question with its answer (or `(cancelled)`), visible even when `hideToolOutput` is enabled.
 
 - `spawn_agent` now records the parent's model on children without a profile model, so agent metadata always names the model a child runs. Resumed and restart-recovered children keep that recorded model instead of adopting the parent's current model.
@@ -176,6 +178,8 @@
 - Added a seven-day runtime OpenRouter model catalog cache under the XDG cache root, with additive bundled-first merging and `--refresh-models` for forced refreshes.
 
 ### Fixed
+
+- Fixed terminal lifecycle duplicate lookup scanning unrelated mailbox history by selecting only the owning session, preserving duplicate matching and global administrative listing.
 
 - Fixed viewed sub-agents showing `effort off` while running at another effort: spawned children now record their starting effort (the profile's level, else `medium`) and publish their effective model and clamped effort to the agent record at run start and on every model or effort change.
 - Fixed failed interactive startup model continuation leaving the normal input loop unavailable; the error is reported and built-in local commands, extension commands, and plain prompts remain usable in the same session.

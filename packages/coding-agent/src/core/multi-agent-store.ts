@@ -1,4 +1,5 @@
 import { isAbsolute } from "node:path";
+import { isMailboxMessageExpired } from "./mailbox-retention.ts";
 import type { ProcessIdentity } from "./runtime-process.ts";
 import {
 	allocateMultiAgentCounter,
@@ -350,7 +351,9 @@ export class MultiAgentStore {
 	publishLifecycleCoordinatorSteering(agent: AgentSnapshot, message: AgentMailboxMessage): void {
 		const previous = this.agents.get(agent.id);
 		const current = copyAgent(agent);
-		this.mailboxMessages.set(message.id, copyMessage(message));
+		if (!isMailboxMessageExpired(message.createdAt, Date.parse(this.now()))) {
+			this.mailboxMessages.set(message.id, copyMessage(message));
+		}
 		this.agents.set(agent.id, current);
 		if (!previous) return;
 		this.notifyAgentUpdateListeners(previous, current);
@@ -505,14 +508,23 @@ export class MultiAgentStore {
 		return descendants.map(copyAgent);
 	}
 
+	expireMailboxMessages(now: number): void {
+		for (const [id, message] of this.mailboxMessages) {
+			if (isMailboxMessageExpired(message.createdAt, now)) this.mailboxMessages.delete(id);
+		}
+	}
+
 	listMailboxMessages(): AgentMailboxMessage[] {
-		return Array.from(this.mailboxMessages.values(), copyMessage);
+		const now = Date.parse(this.now());
+		return Array.from(this.mailboxMessages.values())
+			.filter((message) => !isMailboxMessageExpired(message.createdAt, now))
+			.map(copyMessage);
 	}
 
 	listPendingMailboxMessagesForAgent(agentId: string): AgentMailboxMessage[] {
-		return Array.from(this.mailboxMessages.values())
-			.filter((message) => message.toAgentId === agentId && message.status === "pending")
-			.map(copyMessage);
+		return this.listMailboxMessages().filter(
+			(message) => message.toAgentId === agentId && message.status === "pending",
+		);
 	}
 
 	markMailboxMessageDelivered(messageId: string): AgentMailboxMessage | undefined {
@@ -529,7 +541,8 @@ export class MultiAgentStore {
 		error?: string,
 	): AgentMailboxMessage | undefined {
 		const message = this.mailboxMessages.get(messageId);
-		if (!message || message.status !== "pending") {
+		if (!message || message.status !== "pending") return undefined;
+		if (isMailboxMessageExpired(message.createdAt, Date.parse(this.now()))) {
 			return undefined;
 		}
 
@@ -551,7 +564,7 @@ export class MultiAgentStore {
 		lifecycle: AgentLifecycleNotificationLifecycle,
 	): AgentMailboxMessage[] {
 		const consumed: AgentMailboxMessage[] = [];
-		for (const message of this.mailboxMessages.values()) {
+		for (const message of this.listMailboxMessages()) {
 			if (!isPendingLifecycleNotification(message, agentId, lifecycle)) {
 				continue;
 			}
@@ -566,9 +579,9 @@ export class MultiAgentStore {
 		agentId: string,
 		lifecycle: AgentLifecycleNotificationLifecycle,
 	): AgentMailboxMessage[] {
-		return Array.from(this.mailboxMessages.values())
-			.filter((message) => isPendingLifecycleNotification(message, agentId, lifecycle))
-			.map(copyMessage);
+		return this.listMailboxMessages().filter((message) =>
+			isPendingLifecycleNotification(message, agentId, lifecycle),
+		);
 	}
 
 	getProjectionSnapshot(): MultiAgentProjectionSnapshot {
@@ -884,8 +897,11 @@ export class MultiAgentStore {
 			const restored = this.restoreAgentSnapshot(agent);
 			this.agents.set(agent.id, restored.agent);
 		}
+		const now = Date.parse(this.now());
 		for (const message of state.mailboxMessages as AgentMailboxMessage[]) {
-			this.mailboxMessages.set(message.id, copyMessage(message));
+			if (!isMailboxMessageExpired(message.createdAt, now)) {
+				this.mailboxMessages.set(message.id, copyMessage(message));
+			}
 		}
 	}
 
@@ -900,6 +916,7 @@ export class MultiAgentStore {
 	}
 
 	private putMailboxMessage(message: AgentMailboxMessage): void {
+		if (isMailboxMessageExpired(message.createdAt, Date.parse(this.now()))) return;
 		this.mailboxMessages.set(message.id, message);
 		if (!this.persistence) {
 			return;
@@ -1115,6 +1132,7 @@ export class MultiAgentStore {
 
 	private recordLifecycleNotification(agent: AgentNode, input: AgentLifecycleNotificationInput): void {
 		const timestamp = this.now();
+		if (isMailboxMessageExpired(agent.updatedAt, Date.parse(timestamp))) return;
 		const message: AgentMailboxMessage = {
 			body: input.body,
 			createdAt: timestamp,
@@ -1165,7 +1183,7 @@ export class MultiAgentStore {
 	}
 
 	private hasPendingLifecycleNotification(agentId: string, lifecycle: AgentLifecycleNotificationLifecycle): boolean {
-		for (const message of this.mailboxMessages.values()) {
+		for (const message of this.listMailboxMessages()) {
 			if (isPendingLifecycleNotification(message, agentId, lifecycle)) {
 				return true;
 			}

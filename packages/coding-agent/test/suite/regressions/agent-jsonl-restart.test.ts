@@ -6,12 +6,69 @@ import {
 	readMultiAgentRuntimeOwnership,
 	readRuntimeMailboxListener,
 } from "../../../src/core/session-control-db.ts";
+import { createSqliteDatabase } from "../../../src/core/sqlite.ts";
 import { type HeadlessPi, requireHeadlessAgentSessionId, withHeadlessPi } from "../headless-pi.ts";
 
 function fauxCompletedAssistantMessage(text: string): ReturnType<typeof fauxAssistantMessage> {
 	return fauxAssistantMessage([{ type: "text", text }, fauxToolCall("end_turn", { reason: text })], {
 		stopReason: "toolUse",
 	});
+}
+
+function seedMailboxRetentionRegression(pi: HeadlessPi): void {
+	const db = createSqliteDatabase(getControlDbPath(pi.paths.agentDir));
+	const now = Date.now();
+	const old = new Date(now - 25 * 60 * 60 * 1000).toISOString();
+	const fresh = new Date(now).toISOString();
+	const statuses = ["pending", "claimed", "accepted", "rejected", "delivered", "failed"];
+	const entries = [
+		...statuses.map((status) => ({ status, createdAt: old })),
+		{ status: "pending", createdAt: undefined },
+		{ status: "pending", createdAt: "invalid" },
+		{ status: "delivered", createdAt: fresh },
+	];
+	try {
+		const insert = db.prepare(
+			"INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at) VALUES (?, ?, ?, ?)",
+		);
+		for (const [index, entry] of entries.entries()) {
+			const id = `retention-regression-${index}`;
+			insert.run(
+				pi.sessionFile,
+				id,
+				JSON.stringify({
+					...entry,
+					body: "Expired retention-regression input must not replay",
+					fromAgentId: "main",
+					id,
+					kind: "message",
+					recipientAgentId: null,
+					recipientSessionId: pi.sessionId,
+					senderAgentId: null,
+					senderSessionId: pi.sessionId,
+					toAgentId: "main",
+					updatedAt: fresh,
+				}),
+				fresh,
+			);
+		}
+	} finally {
+		db.close();
+	}
+}
+
+function readMailboxRetentionRegressionIds(pi: HeadlessPi): string[] {
+	const db = createSqliteDatabase(getControlDbPath(pi.paths.agentDir));
+	try {
+		const rows = db
+			.prepare(
+				"SELECT message_id FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id LIKE 'retention-regression-%' ORDER BY message_id",
+			)
+			.all(pi.sessionFile) as Array<{ message_id: string }>;
+		return rows.map((row) => row.message_id);
+	} finally {
+		db.close();
+	}
 }
 
 async function waitForGoalIdleReviewRequest(pi: HeadlessPi): Promise<void> {
@@ -378,7 +435,10 @@ describe("sub-agent parent JSONL restart recovery", () => {
 
 			await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);
 			await pi.crash();
+			seedMailboxRetentionRegression(pi);
+			expect(readMailboxRetentionRegressionIds(pi)).toHaveLength(9);
 			await pi.restart();
+			await vi.waitFor(() => expect(readMailboxRetentionRegressionIds(pi)).toEqual(["retention-regression-8"]));
 
 			const restoredRequest = await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);
 			const restored = pi.listAgents().find((agent) => agent.id === spawned.id);
@@ -388,6 +448,7 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			});
 
 			const restoredMainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
+			expect(restoredMainRequest.userMessages.join("\n")).not.toContain("Expired retention-regression input");
 			pi.respondToLlmRequest(restoredMainRequest.id, fauxCompletedAssistantMessage("Supervisor restored"));
 			pi.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Recovered review complete"));
 			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "completed");

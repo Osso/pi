@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { getUserStateRoot } from "../config.ts";
 import type { DetachedJobTerminalInput } from "./detached-job-runner.ts";
+import { isMailboxMessageExpired, MAILBOX_MESSAGE_RETENTION_MS } from "./mailbox-retention.ts";
 import {
 	type AgentFileReference,
 	type AgentMailboxMessage,
@@ -28,6 +29,14 @@ import { configureSharedSqliteDatabase, createSqliteDatabase, type SqliteDatabas
 
 const LIFECYCLE_PROTOCOL_SCHEMA_VERSION = 14;
 const CONTROL_DB_SCHEMA_VERSION = 15;
+
+// Round Julian-day arithmetic to integer milliseconds so the 24-hour boundary is exact.
+// Non-text, missing and unparseable timestamps sort before all valid creation dates.
+const MAILBOX_CREATED_AT_MS_SQL = `COALESCE(CASE WHEN json_valid(data) THEN
+	CASE WHEN json_type(data, '$.createdAt') = 'text' THEN
+	CAST(ROUND((julianday(json_extract(data, '$.createdAt')) - 2440587.5) * 86400000) AS INTEGER)
+	END END, -8640000000000000)`;
+const MAILBOX_RETENTION_POLL_MS = 60_000;
 
 export interface IncomingControlMessage {
 	id: number;
@@ -448,6 +457,12 @@ export function readIncomingMessageStatus(controlDbPath: string, id: number): st
 
 const RUNTIME_MAILBOX_ROUTING_MAX_ATTEMPTS = 3;
 
+function assertMailboxMessageFresh(message: Record<string, unknown>, context: string): void {
+	if (isMailboxMessageExpired(message.createdAt, Date.now())) {
+		throw new Error(`Expired mailbox message at ${context}`);
+	}
+}
+
 export function enqueueRuntimeMailboxMessage(controlDbPath: string, input: EnqueueRuntimeMailboxMessageInput): number {
 	const result = withControlDb(controlDbPath, (db) => routeRuntimeMailboxMessage(db, input));
 	notifyRuntimeMailboxListener(result.listener);
@@ -467,7 +482,13 @@ function routeRuntimeMailboxMessage(db: SqliteDatabase, input: EnqueueRuntimeMai
 		validateMailboxPayload(message, context);
 		const routed = addRuntimeMailboxRouting(message, input);
 		if (JSON.stringify(routed) === row.data) return { id: row.id, listener: undefined };
-		if (!compareAndWriteCanonicalMailboxPayload(db, row, routed, new Date().toISOString())) continue;
+		const serialized = JSON.stringify(routed);
+		if (
+			!withImmediateTransaction(db, () =>
+				compareAndWriteSerializedCanonicalMailboxPayload(db, row, serialized, new Date().toISOString()),
+			)
+		)
+			continue;
 		return { id: row.id, listener: readRuntimeMailboxListenerRow(db, input.recipient) };
 	}
 	throw new Error(
@@ -499,6 +520,7 @@ function prepareStoredRuntimeMailboxMessage(
 	validateMailboxPayload(input.message, context);
 	const incoming = parseStoredJsonObject(JSON.stringify(input.message), context);
 	const routed = addRuntimeMailboxRouting(incoming, input);
+	assertMailboxMessageFresh(routed, context);
 	return {
 		context,
 		routed,
@@ -512,15 +534,19 @@ function persistStoredRuntimeMailboxMessage(
 	input: EnqueueStoredRuntimeMailboxMessageInput,
 	prepared: PreparedStoredRuntimeMailboxMessage,
 ) {
+	assertMailboxMessageFresh(prepared.routed, prepared.context);
 	const existing = readCanonicalMailboxRowByStoreRef(db, input.storeRef);
 	if (existing) return validateExistingStoredRuntimeMailboxMessage(existing, input, prepared);
-	const inserted = db
-		.prepare(
-			`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
-			 VALUES (?, ?, ?, ?)
-			 ON CONFLICT(session_path, message_id) DO NOTHING`,
-		)
-		.run(input.storeRef.sessionPath, input.storeRef.messageId, prepared.serialized, prepared.updatedAt);
+	const inserted = withImmediateTransaction(db, () => {
+		assertMailboxMessageFresh(prepared.routed, prepared.context);
+		return db
+			.prepare(
+				`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+				 VALUES (?, ?, ?, ?)
+				 ON CONFLICT(session_path, message_id) DO NOTHING`,
+			)
+			.run(input.storeRef.sessionPath, input.storeRef.messageId, prepared.serialized, prepared.updatedAt);
+	});
 	if (inserted.changes === 1) {
 		return {
 			id: Number(inserted.lastInsertRowid),
@@ -542,6 +568,7 @@ function validateExistingStoredRuntimeMailboxMessage(
 	prepared: PreparedStoredRuntimeMailboxMessage,
 ) {
 	const previous = parseStoredJsonObject(existing.data, prepared.context);
+	assertMailboxMessageFresh(previous, prepared.context);
 	if (!sameMailboxMessageIdentity(previous, prepared.routed, input.storeRef.messageId)) {
 		throw new Error(`Mailbox message ID collision: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`);
 	}
@@ -851,10 +878,18 @@ function readCanonicalMailboxRowsForRecipient(
 			   AND CASE WHEN json_valid(data) THEN json_extract(data, '$.recipientSessionId') END = ?
 			   AND ((? IS NULL AND CASE WHEN json_valid(data) THEN json_extract(data, '$.recipientAgentId') END IS NULL)
 			        OR CASE WHEN json_valid(data) THEN json_extract(data, '$.recipientAgentId') END = ?)
+			 AND ${MAILBOX_CREATED_AT_MS_SQL} > ?
 			 ORDER BY rowid ASC
 			 LIMIT ?`,
 		)
-		.all(status, recipient.sessionId, recipient.agentId, recipient.agentId, limit) as RuntimeMailboxRow[];
+		.all(
+			status,
+			recipient.sessionId,
+			recipient.agentId,
+			recipient.agentId,
+			Date.now() - MAILBOX_MESSAGE_RETENTION_MS,
+			limit,
+		) as RuntimeMailboxRow[];
 }
 
 function readCanonicalMailboxRowByStoreRef(
@@ -864,18 +899,21 @@ function readCanonicalMailboxRowByStoreRef(
 	return db
 		.prepare(
 			`SELECT rowid AS id, session_path, message_id, data, updated_at
-			 FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?`,
+			 FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?
+			 AND ${MAILBOX_CREATED_AT_MS_SQL} > ?`,
 		)
-		.get(storeRef.sessionPath, storeRef.messageId) as RuntimeMailboxRow | undefined;
+		.get(storeRef.sessionPath, storeRef.messageId, Date.now() - MAILBOX_MESSAGE_RETENTION_MS) as
+		| RuntimeMailboxRow
+		| undefined;
 }
 
 function readCanonicalMailboxRowById(db: SqliteDatabase, id: number): RuntimeMailboxRow | undefined {
 	return db
 		.prepare(
 			`SELECT rowid AS id, session_path, message_id, data, updated_at
-			 FROM multi_agent_mailbox_messages WHERE rowid = ?`,
+			 FROM multi_agent_mailbox_messages WHERE rowid = ? AND ${MAILBOX_CREATED_AT_MS_SQL} > ?`,
 		)
-		.get(id) as RuntimeMailboxRow | undefined;
+		.get(id, Date.now() - MAILBOX_MESSAGE_RETENTION_MS) as RuntimeMailboxRow | undefined;
 }
 
 function parseCanonicalMailboxPayload(row: RuntimeMailboxRow): Record<string, unknown> {
@@ -897,15 +935,6 @@ function writeCanonicalMailboxPayload(
 	if (updated.changes !== 1) throw new Error(`Canonical mailbox mutation lost row ${id}`);
 }
 
-function compareAndWriteCanonicalMailboxPayload(
-	db: SqliteDatabase,
-	row: RuntimeMailboxRow,
-	message: Record<string, unknown>,
-	updatedAt: string,
-): boolean {
-	return compareAndWriteSerializedCanonicalMailboxPayload(db, row, JSON.stringify(message), updatedAt);
-}
-
 function compareAndWriteSerializedCanonicalMailboxPayload(
 	db: SqliteDatabase,
 	row: RuntimeMailboxRow,
@@ -915,9 +944,19 @@ function compareAndWriteSerializedCanonicalMailboxPayload(
 	const updated = db
 		.prepare(
 			`UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ?
-			 WHERE rowid = ? AND session_path = ? AND message_id = ? AND data = ? AND updated_at = ?`,
+			 WHERE rowid = ? AND session_path = ? AND message_id = ? AND data = ? AND updated_at = ?
+			 AND ${MAILBOX_CREATED_AT_MS_SQL} > ?`,
 		)
-		.run(serialized, updatedAt, row.id, row.session_path, row.message_id, row.data, row.updated_at);
+		.run(
+			serialized,
+			updatedAt,
+			row.id,
+			row.session_path,
+			row.message_id,
+			row.data,
+			row.updated_at,
+			Date.now() - MAILBOX_MESSAGE_RETENTION_MS,
+		);
 	return updated.changes === 1;
 }
 
@@ -980,7 +1019,10 @@ function updateClaimedCanonicalMailboxMessageRow(
 	delete updated.claimantProcessIdentity;
 	if (status === "delivered") updated.deliveredAt = now;
 	if (status === "failed") updated.error = error;
-	return compareAndWriteCanonicalMailboxPayload(db, row, updated, now);
+	const serialized = JSON.stringify(updated);
+	return withImmediateTransaction(db, () =>
+		compareAndWriteSerializedCanonicalMailboxPayload(db, row, serialized, now),
+	);
 }
 
 export function consumeRuntimeMailboxMessageByStoreRef(
@@ -1001,7 +1043,12 @@ export function consumeRuntimeMailboxMessageByStoreRef(
 		};
 		delete delivered.claimedAt;
 		delete delivered.claimantProcessIdentity;
-		return compareAndWriteCanonicalMailboxPayload(db, row, delivered, now) ? 1 : 0;
+		const serialized = JSON.stringify(delivered);
+		return withImmediateTransaction(db, () =>
+			compareAndWriteSerializedCanonicalMailboxPayload(db, row, serialized, now),
+		)
+			? 1
+			: 0;
 	});
 }
 
@@ -2128,7 +2175,8 @@ export function markRuntimeMailboxMessageDelivered(controlDbPath: string, id: nu
 		};
 		delete delivered.claimedAt;
 		delete delivered.claimantProcessIdentity;
-		compareAndWriteCanonicalMailboxPayload(db, row, delivered, now);
+		const serialized = JSON.stringify(delivered);
+		withImmediateTransaction(db, () => compareAndWriteSerializedCanonicalMailboxPayload(db, row, serialized, now));
 	});
 }
 
@@ -2149,15 +2197,32 @@ export function readRuntimeMailboxMessage(controlDbPath: string, id: number): Ru
 }
 
 export function listRuntimeMailboxMessages(controlDbPath: string): RuntimeMailboxMessage[] {
+	return listRuntimeMailboxMessagesBySessionPath(controlDbPath);
+}
+
+/** Lists addressed canonical mailbox messages owned by this exact session path, for all recipients and statuses. */
+export function listRuntimeMailboxMessagesForSession(
+	controlDbPath: string,
+	sessionPath: string,
+): RuntimeMailboxMessage[] {
+	return listRuntimeMailboxMessagesBySessionPath(controlDbPath, sessionPath);
+}
+
+function listRuntimeMailboxMessagesBySessionPath(controlDbPath: string, sessionPath?: string): RuntimeMailboxMessage[] {
 	return withControlDb(controlDbPath, (db) => {
 		const rows = db
 			.prepare(
 				`SELECT rowid AS id, session_path, message_id, data, updated_at
 				 FROM multi_agent_mailbox_messages
-				 WHERE json_valid(data) AND json_type(data, '$.recipientSessionId') = 'text'
+				 WHERE ${sessionPath === undefined ? "" : "session_path = ? AND "}json_valid(data)
+				   AND json_type(data, '$.recipientSessionId') = 'text'
+				   AND ${MAILBOX_CREATED_AT_MS_SQL} > ?
 				 ORDER BY rowid ASC`,
 			)
-			.all() as RuntimeMailboxRow[];
+			.all(
+				...(sessionPath === undefined ? [] : [sessionPath]),
+				Date.now() - MAILBOX_MESSAGE_RETENTION_MS,
+			) as RuntimeMailboxRow[];
 		return rows.map((row) => runtimeMailboxMessageFromCanonicalRow(row, parseCanonicalMailboxPayload(row)));
 	});
 }
@@ -2183,7 +2248,7 @@ function runtimeMailboxMessageFromCanonicalRow(
 		targetCheckpoint: parseSteeringCheckpoint(message.targetCheckpoint, context),
 		storeRef: { messageId: row.message_id, sessionPath: row.session_path },
 		status: toRuntimeMailboxMessageStatus(requireStringField(message, "status", context)),
-		createdAt: typeof message.createdAt === "string" ? message.createdAt : row.updated_at,
+		createdAt: requireStringField(message, "createdAt", context),
 		updatedAt: typeof message.updatedAt === "string" ? message.updatedAt : row.updated_at,
 		claimedAt: optionalStringField(message, "claimedAt", context),
 		deliveredAt: optionalStringField(message, "deliveredAt", context),
@@ -3660,6 +3725,10 @@ function persistPreparedSteeringMailboxMessage(
 	messageId: string,
 	prepared: PreparedSteeringMailboxMessage,
 ): void {
+	assertMailboxMessageFresh(
+		{ createdAt: prepared.updatedAt },
+		`multi_agent_mailbox_messages:${sessionPath}#${messageId}`,
+	);
 	db.prepare(
 		`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
 		 VALUES (?, ?, ? || json_quote(?) || ?, ?)`,
@@ -3862,8 +3931,11 @@ function prepareMultiAgentSteeringDelivery(
 		return { result: { ok: false, error: "invalid_transition" } };
 	}
 	const messageRow = db
-		.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
-		.get(input.sessionPath, input.messageId) as { data: string } | undefined;
+		.prepare(`SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?
+			AND ${MAILBOX_CREATED_AT_MS_SQL} > ?`)
+		.get(input.sessionPath, input.messageId, Date.now() - MAILBOX_MESSAGE_RETENTION_MS) as
+		| { data: string }
+		| undefined;
 	if (!messageRow) return { result: { ok: false, error: "message_not_found" } };
 	const messageContext = `multi_agent_mailbox_messages:${input.sessionPath}#${input.messageId}`;
 	const message = parseStoredJsonObject(messageRow.data, messageContext);
@@ -3901,6 +3973,7 @@ function persistMultiAgentSteeringDelivery(
 	plan: MultiAgentSteeringDeliveryPlan,
 ): CommitMultiAgentSteeringDeliveryResult | undefined {
 	const persisted = withImmediateTransaction(db, () => {
+		if (isMailboxMessageExpired(plan.updatedMessage.createdAt, Date.now())) return false;
 		const agentUpdated = db
 			.prepare(
 				`UPDATE multi_agent_agents SET data = ?, updated_at = ?
@@ -4078,6 +4151,10 @@ function persistDetachedCancellationCommand(
 	input: CommitMultiAgentLifecycleMutationInput,
 	command: DetachedCancellationCommand,
 ): void {
+	assertMailboxMessageFresh(
+		{ createdAt: input.updatedAt },
+		`multi_agent_mailbox_messages:${input.sessionPath}#${command.messageId}`,
+	);
 	db.prepare(
 		`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
 		 VALUES (?, ?, ?, ?)`,
@@ -4615,6 +4692,7 @@ function prepareDetachedAgentTerminalTransport(
 }
 
 function persistPreparedTerminalTransport(db: SqliteDatabase, transport: PreparedTerminalTransport): void {
+	assertMailboxMessageFresh(transport.prepared.routed, transport.prepared.context);
 	db.prepare(
 		`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
 		 VALUES (?, ?, ?, ?)`,
@@ -5827,9 +5905,17 @@ export function upsertMultiAgentMailboxMessage(
 	data: unknown,
 ): void {
 	validateMailboxPayload(data, `multi_agent_mailbox_messages:${sessionPath}#${id}`);
+	if (isMailboxMessageExpired((data as Record<string, unknown>).createdAt, Date.now())) return;
 	withControlDb(controlDbPath, (db) => {
 		for (let attempt = 1; attempt <= MULTI_AGENT_MAILBOX_UPSERT_MAX_ATTEMPTS; attempt += 1) {
 			const plan = prepareMultiAgentMailboxUpsert(db, sessionPath, id, data);
+			if (
+				isMailboxMessageExpired(
+					parseStoredJsonObject(plan.serialized, `${sessionPath}#${id}`).createdAt,
+					Date.now(),
+				)
+			)
+				return;
 			if (plan.existing?.data === plan.serialized) return;
 			if (commitMultiAgentMailboxUpsert(db, sessionPath, id, plan)) return;
 		}
@@ -5863,12 +5949,15 @@ function commitMultiAgentMailboxUpsert(
 	id: string,
 	plan: MultiAgentMailboxUpsertPlan,
 ): boolean {
+	const createdAt = parseStoredJsonObject(plan.serialized, `${sessionPath}#${id}`).createdAt;
 	const hasParentTarget = plan.parentTarget ? 1 : 0;
 	const hasExisting = plan.existing ? 1 : 0;
-	return (
-		db
-			.prepare(
-				`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+	return withImmediateTransaction(db, () => {
+		if (isMailboxMessageExpired(createdAt, Date.now())) return true;
+		return (
+			db
+				.prepare(
+					`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
 				 SELECT ?, ?, ?, ?
 				 WHERE (? = 0 OR EXISTS (
 					SELECT 1 FROM multi_agent_agents
@@ -5887,29 +5976,30 @@ function commitMultiAgentMailboxUpsert(
 				 WHERE ? = 1
 				 AND multi_agent_mailbox_messages.data = ?
 				 AND multi_agent_mailbox_messages.updated_at = ?`,
-			)
-			.run(
-				sessionPath,
-				id,
-				plan.serialized,
-				new Date().toISOString(),
-				hasParentTarget,
-				sessionPath,
-				plan.parentTarget?.agentId ?? null,
-				plan.parentTarget?.data ?? null,
-				hasExisting,
-				sessionPath,
-				id,
-				hasExisting,
-				sessionPath,
-				id,
-				plan.existing?.data ?? null,
-				plan.existing?.updated_at ?? null,
-				hasExisting,
-				plan.existing?.data ?? null,
-				plan.existing?.updated_at ?? null,
-			).changes === 1
-	);
+				)
+				.run(
+					sessionPath,
+					id,
+					plan.serialized,
+					new Date().toISOString(),
+					hasParentTarget,
+					sessionPath,
+					plan.parentTarget?.agentId ?? null,
+					plan.parentTarget?.data ?? null,
+					hasExisting,
+					sessionPath,
+					id,
+					hasExisting,
+					sessionPath,
+					id,
+					plan.existing?.data ?? null,
+					plan.existing?.updated_at ?? null,
+					hasExisting,
+					plan.existing?.data ?? null,
+					plan.existing?.updated_at ?? null,
+				).changes === 1
+		);
+	});
 }
 
 function readMultiAgentMailboxRowSnapshot(
@@ -5927,6 +6017,7 @@ function mergeCanonicalMailboxUpdate(
 	next: Record<string, unknown>,
 ): Record<string, unknown> {
 	const routing = {
+		createdAt: previous.createdAt,
 		recipientAgentId: previous.recipientAgentId,
 		recipientSessionId: previous.recipientSessionId,
 		senderAgentId: previous.senderAgentId,
@@ -5975,8 +6066,9 @@ export function getMultiAgentMailboxMessageStatus(
 ): string | undefined {
 	return withControlDb(controlDbPath, (db) => {
 		const row = db
-			.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
-			.get(sessionPath, messageId) as { data: string } | undefined;
+			.prepare(`SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?
+				AND ${MAILBOX_CREATED_AT_MS_SQL} > ?`)
+			.get(sessionPath, messageId, Date.now() - MAILBOX_MESSAGE_RETENTION_MS) as { data: string } | undefined;
 		if (!row) {
 			return undefined;
 		}
@@ -6011,20 +6103,16 @@ function updateMultiAgentMailboxMessageStatus(
 	error?: string,
 ): boolean {
 	return withControlDb(controlDbPath, (db) => {
-		const row = db
-			.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?")
-			.get(sessionPath, messageId) as { data: string } | undefined;
+		const row = readCanonicalMailboxRowByStoreRef(db, { sessionPath, messageId });
 		if (!row) return false;
 		const parsed = parseJsonObject(row.data);
 		if (!parsed || parsed.status !== "pending") return false;
 		const now = new Date().toISOString();
 		const updated = { ...parsed, status, updatedAt: now, ...(error === undefined ? {} : { error }) };
-		db.prepare(
-			`UPDATE multi_agent_mailbox_messages
-			 SET data = ?, updated_at = ?
-			 WHERE session_path = ? AND message_id = ?`,
-		).run(JSON.stringify(updated), now, sessionPath, messageId);
-		return true;
+		const serialized = JSON.stringify(updated);
+		return withImmediateTransaction(db, () =>
+			compareAndWriteSerializedCanonicalMailboxPayload(db, row, serialized, now),
+		);
 	});
 }
 
@@ -6290,23 +6378,27 @@ export function listDetachedArtifactAgentsUpdatedAtOrBefore(
 	});
 }
 
+function readPersistedMultiAgentRows(
+	db: SqliteDatabase,
+	table: "multi_agent_agents" | "multi_agent_mailbox_messages",
+	sessionPath: string,
+): unknown[] {
+	const mailbox = table === "multi_agent_mailbox_messages";
+	const rows = db
+		.prepare(`SELECT data FROM ${table} WHERE session_path = ?
+		${mailbox ? `AND ${MAILBOX_CREATED_AT_MS_SQL} > ?` : ""} ORDER BY rowid`)
+		.all(sessionPath, ...(mailbox ? [Date.now() - MAILBOX_MESSAGE_RETENTION_MS] : [])) as Array<{ data: string }>;
+	return rows.map((row, index) => {
+		const context = `${table}:${sessionPath}[${index}]`;
+		const data = parseStoredJsonObject(row.data, context);
+		if (mailbox) validateMailboxPayload(data, context);
+		else validatePersistedAgentPayload(data, context);
+		return data;
+	});
+}
+
 export function readMultiAgentState(controlDbPath: string, sessionPath: string): MultiAgentPersistedState | undefined {
 	return withControlDb(controlDbPath, (db) => {
-		const readRows = (table: "multi_agent_agents" | "multi_agent_mailbox_messages"): unknown[] =>
-			(
-				db.prepare(`SELECT data FROM ${table} WHERE session_path = ? ORDER BY rowid`).all(sessionPath) as Array<{
-					data: string;
-				}>
-			).map((row, index) => {
-				const context = `${table}:${sessionPath}[${index}]`;
-				const data = parseStoredJsonObject(row.data, context);
-				if (table === "multi_agent_agents") {
-					validatePersistedAgentPayload(data, context);
-				} else {
-					validateMailboxPayload(data, context);
-				}
-				return data;
-			});
 		const counters = db
 			.prepare(
 				`
@@ -6315,8 +6407,8 @@ export function readMultiAgentState(controlDbPath: string, sessionPath: string):
 				`,
 			)
 			.get(sessionPath) as { next_agent_number: number; next_message_number: number } | undefined;
-		const agents = readRows("multi_agent_agents");
-		const mailboxMessages = readRows("multi_agent_mailbox_messages");
+		const agents = readPersistedMultiAgentRows(db, "multi_agent_agents", sessionPath);
+		const mailboxMessages = readPersistedMultiAgentRows(db, "multi_agent_mailbox_messages", sessionPath);
 		if (!counters && agents.length === 0 && mailboxMessages.length === 0) {
 			return undefined;
 		}
@@ -6345,6 +6437,7 @@ type RetainedControlDb = {
 	activeCalls: number;
 	db: SqliteDatabase;
 	retainCount: number;
+	retentionTimer: ReturnType<typeof setInterval>;
 };
 
 const retainedControlDbs = new Map<string, RetainedControlDb>();
@@ -6376,13 +6469,24 @@ function openRetainedControlDb(controlDbPath: string): RetainedControlDb {
 		db.close();
 		throw error;
 	}
-	const retained = { activeCalls: 0, db, retainCount: 0 };
+	const retentionTimer = setInterval(() => {
+		try {
+			cleanupExpiredMailboxMessages(db);
+		} catch (error) {
+			console.error(`Mailbox retention cleanup failed for ${controlDbPath}:`, error);
+		} finally {
+			db.finalizeStatements?.();
+		}
+	}, MAILBOX_RETENTION_POLL_MS);
+	retentionTimer.unref();
+	const retained = { activeCalls: 0, db, retainCount: 0, retentionTimer };
 	retainedControlDbs.set(controlDbPath, retained);
 	return retained;
 }
 
 function closeReleasedControlDb(controlDbPath: string, retained: RetainedControlDb): void {
 	if (retained.retainCount > 0 || retained.activeCalls > 0) return;
+	clearInterval(retained.retentionTimer);
 	retainedControlDbs.delete(controlDbPath);
 	retained.db.close();
 }
@@ -6630,6 +6734,20 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 	migrateLegacySessionNames(db, selfRestartProcessId);
 	addMissingRuntimeMailboxListenerColumns(db);
 	addMissingArchitectRequestColumns(db);
+	db.exec(`CREATE INDEX IF NOT EXISTS multi_agent_mailbox_created_at_ms_idx
+		ON multi_agent_mailbox_messages(${MAILBOX_CREATED_AT_MS_SQL})`);
+	cleanupExpiredMailboxMessages(db);
+}
+
+function cleanupExpiredMailboxMessages(db: SqliteDatabase): void {
+	const cutoff = Date.now() - MAILBOX_MESSAGE_RETENTION_MS;
+	const due = db
+		.prepare(`SELECT 1 FROM multi_agent_mailbox_messages
+		WHERE ${MAILBOX_CREATED_AT_MS_SQL} <= ? LIMIT 1`)
+		.get(cutoff);
+	if (!due) return;
+	db.prepare(`DELETE FROM multi_agent_mailbox_messages
+		WHERE ${MAILBOX_CREATED_AT_MS_SQL} <= ?`).run(cutoff);
 }
 
 function assertSupportedControlDbSchemaVersion(db: SqliteDatabase): void {
@@ -7113,7 +7231,11 @@ function migrateLegacyRuntimeMailboxMessages(db: SqliteDatabase, nowIso: string)
 
 function migrateLegacyRuntimeMailboxRow(db: SqliteDatabase, row: LegacyRuntimeMailboxRow, nowIso: string): void {
 	const storeRef = { messageId: row.store_message_id, sessionPath: row.store_session_path };
-	const canonical = readCanonicalMailboxRowByStoreRef(db, storeRef);
+	// Migration must validate legacy payloads before initialization applies retention.
+	const canonical = db
+		.prepare(`SELECT rowid AS id, session_path, message_id, data, updated_at
+		FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?`)
+		.get(storeRef.sessionPath, storeRef.messageId) as RuntimeMailboxRow | undefined;
 	if (!canonical) return;
 	const context = `multi_agent_mailbox_messages:${row.store_session_path}#${row.store_message_id}`;
 	const message = parseStoredJsonObject(canonical.data, context);

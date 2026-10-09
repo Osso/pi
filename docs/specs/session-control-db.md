@@ -149,6 +149,25 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       metadata; output artifacts remain diagnostic only. Migration is an intentional atomic writer fence: legacy payload
       enumeration, transformation, validation, serialization, and rewrites remain inside the one migration transaction
       after the quiescence snapshot is revalidated.
+- [x] Terminal lifecycle duplicate lookup lists only canonical mailbox rows owned by the exact
+      session path, across all recipients and statuses. Preserve matching on sender agent ID,
+      `system` kind, parsed body type `multi_agent_terminal`, body agent ID, and terminal revision.
+      Keep the global administrative mailbox listing available.
+- [x] Delete every `multi_agent_mailbox_messages` row whose `createdAt` age is >=24 hours,
+      regardless of status (`pending`, `claimed`, `accepted`, `rejected`, `delivered`, or `failed`).
+      Delete rows with missing or unparseable `createdAt`; never use `updated_at` as an age fallback.
+- [x] Expired mailbox messages cannot replay, deliver, or resurrect from in-memory projections,
+      persisted state, or terminal-notification retries, including across restart. Reads, restore,
+      claims, and delivery compare-and-swap writes reject expired messages even between cleanup ticks.
+      Stale upserts skip persistence, enqueues fail explicitly, and updates preserve original `createdAt`.
+      Store exposure, consumption, and projection enforce expiry; coordination polling prunes memory.
+      Terminal retries do not reemit notifications for agents whose `updatedAt` is already expired.
+- [x] Automatically clean expired mailbox messages on database initialization and every 60 seconds
+      while a connection is retained. Stop maintenance after the final connection release; maintenance
+      must not keep the process alive. A no-due cleanup remains read-only; a due cleanup deletes all
+      expired canonical rows.
+      Retention applies only to `multi_agent_mailbox_messages`, not transcripts, other history,
+      or the separate shared-channel log.
 - [x] Stored runtime-mailbox enqueues prepare and validate payloads before writing. Existing duplicate or
       conflicting rows are handled read-only; absent rows use one conflict-safe insert and validate a
       concurrent winner without rewriting it.
@@ -226,6 +245,8 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 
 ## How it works
 
+- [docs/wiki/systems/session-control-db.md](../wiki/systems/session-control-db.md) — storage,
+  mailbox listing, and retention implementation status.
 - [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) — coordinator-owned startup
   recovery and persisted agent lifecycle.
 - [docs/wiki/systems/session-directory-tools.md](../wiki/systems/session-directory-tools.md) —
@@ -269,6 +290,17 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - `packages/coding-agent/test/interactive-mode-startup-input.test.ts`
 
 ## Known gaps (current cycle)
+
+- [x] Targeted tests prove exact-session terminal duplicate lookup, all-status creation-age expiry,
+      invalid timestamps, the exact 24-hour boundary, startup/ongoing cleanup, and in-memory/restart
+      resurrection prevention. Backing tests:
+      `packages/coding-agent/test/runtime-mailbox-scope.test.ts` (4),
+      `packages/coding-agent/test/runtime-lifecycle-mirror-scope.test.ts` (12),
+      `packages/coding-agent/test/runtime-mailbox-retention.test.ts` (16),
+      `packages/coding-agent/test/multi-agent-mailbox-retention.test.ts` (3),
+      `packages/coding-agent/test/multi-agent-store.test.ts` (44), and
+      `packages/coding-agent/test/suite/regressions/agent-jsonl-restart.test.ts` (9 real-process tests).
+- [ ] Final integration verification remains pending; targeted passes do not establish deployment.
 
 - [x] Wire SIGHUP startup consumption and last-message recording into
   interactive mode.
