@@ -53,7 +53,7 @@ import {
 	enqueueRuntimeMailboxMessage,
 	hasPendingRuntimeCoordinationMessage,
 	isRuntimeCoordinationMailboxMessage,
-	listRuntimeMailboxMessages,
+	listRuntimeMailboxMessagesForSession,
 	listSharedChannelMessagesAfter,
 	readMultiAgentAgents,
 	readMultiAgentRuntimeOwnership,
@@ -2925,7 +2925,7 @@ function mirrorLifecycleRuntimeMailboxMessage(
 	const agent = store.getAgent(notification.fromAgentId);
 	if (
 		agent &&
-		listRuntimeMailboxMessages(ctx.controlDbPath).some(
+		listRuntimeMailboxMessagesForSession(ctx.controlDbPath, storeRef.sessionPath).some(
 			(message) =>
 				message.storeRef?.sessionPath === storeRef.sessionPath && isDetachedTerminalTransport(message, agent),
 		)
