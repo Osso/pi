@@ -11,9 +11,9 @@ Idle compaction summarizes large idle sessions before their assumed provider pro
 - [x] Run normal compaction with reason `"idle"`, saving a summary without retrying a turn.
 - [ ] Require the latest assistant request to match the current provider/model and not precede a later compaction.
 - [ ] Revalidate eligibility under the turn-start lock; never interrupt streaming, tools, pending messages, or another compaction.
-- [ ] Re-arm after `session_start` and each run, using persisted assistant request timestamps across restart.
+- [x] Re-arm after `session_start` and each run, using persisted assistant request timestamps across restart.
 
-Checked items have assertions in the committed suite listed below; tests were not rerun for this docs-only update.
+Checked items have assertions in the committed suites listed below.
 
 ## How it works
 
@@ -35,10 +35,10 @@ Paths below are relative to `packages/coding-agent/`:
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/suite/idle-compaction.test.ts` — both TTL deadlines, latest-request timing, one saved compaction, idle reason/summary, context minimum, unsupported API, and disable settings.
+- `packages/coding-agent/test/suite/regressions/idle-compaction-restart.test.ts` — real process crashed before the deadline compacts after restart at the persisted deadline, same session, reason `"idle"`, no repeat; below-minimum context does not compact.
 
 ## Known gaps (current cycle)
 
-- [ ] Commit and pass the real-process restart regression in `packages/coding-agent/test/suite/regressions/idle-compaction-restart.test.ts`; currently in progress and uncommitted.
 - [ ] Verify ChatGPT Codex backend cache retention. Its 30-minute TTL is a user-approved assumption, not a documented backend guarantee.
 - [ ] Add behavioral coverage for current-model filtering and busy-session exclusion.
 
