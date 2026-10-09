@@ -11,7 +11,7 @@ import {
 	streamSimple as streamSimpleOpenAICodexResponses,
 } from "../src/api/openai-codex-responses.ts";
 import { OPENAI_CODEX_MODELS } from "../src/providers/openai-codex.models.ts";
-import type { AssistantMessage, Context, Model } from "../src/types.ts";
+import type { AssistantMessage, Context, Model, ProviderDiagnosticEvent, StreamOptions } from "../src/types.ts";
 import { isRetryableAssistantError } from "../src/utils/retry.ts";
 
 const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
@@ -93,6 +93,367 @@ function buildSSEPayload({
 
 	return `${events.join("\n\n")}\n\n`;
 }
+
+describe("Codex metadata diagnostics", () => {
+	const model = OPENAI_CODEX_MODELS["gpt-5.6-sol"];
+	const context: Context = { messages: [{ role: "user", content: "secret prompt", timestamp: 1 }] };
+	const requestId = "12345678-1234-1234-1234-123456789abc";
+
+	it.each(["error", "response.failed"])(
+		"observes structured %s before normalization through simple options",
+		async (type) => {
+			const error = {
+				code: "server_error",
+				message: "original failure",
+				request_id: "req_nested",
+				secret: "secret body",
+			};
+			const payload = type === "error" ? { type, error } : { type, response: { error } };
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(
+					async () =>
+						new Response(`data: ${JSON.stringify(payload)}\n\n`, {
+							headers: { "x-request-id": requestId, authorization: "secret header" },
+						}),
+				),
+			);
+			const events: ProviderDiagnosticEvent[] = [];
+			const models: Model<"openai-codex-responses">[] = [];
+			const before = Date.now();
+			const result = await streamSimpleOpenAICodexResponses(model, context, {
+				apiKey: mockToken(),
+				transport: "sse",
+				onDiagnostic: (event, observedModel) => {
+					events.push(event);
+					models.push(observedModel as Model<"openai-codex-responses">);
+				},
+			}).result();
+			expect(result.errorMessage).toBe(
+				`${type === "error" ? "Codex error: " : ""}original failure\nOpenAI request ID: ${requestId}`,
+			);
+			expect(models).toEqual([model]);
+			expect(events).toEqual([
+				{
+					phase: "error",
+					timestamp: expect.any(Number),
+					elapsedMs: expect.any(Number),
+					transport: "sse",
+					attempt: 1,
+					maxAttempts: 1,
+					failureKind: "api",
+					httpStatus: 200,
+					upstreamErrorCode: "server_error",
+					requestId,
+				},
+			]);
+			expect(events[0].timestamp).toBeGreaterThanOrEqual(before);
+			expect(events[0].elapsedMs).toBeGreaterThanOrEqual(0);
+			expect(JSON.stringify(events)).not.toContain("secret");
+		},
+	);
+
+	it("observes HTTP retry and final 4xx exactly once per actual attempt", async () => {
+		const events: ProviderDiagnosticEvent[] = [];
+		const retries: unknown[] = [];
+		let calls = 0;
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => {
+				calls++;
+				return new Response(
+					JSON.stringify({
+						error: { code: "invalid_request", message: "original HTTP error", request_id: "req_body" },
+					}),
+					{
+						status: calls === 1 ? 500 : 400,
+						headers: { "retry-after-ms": "0", "x-request-id": "req_http" },
+					},
+				);
+			}),
+		);
+		const result = await streamOpenAICodexResponses(model, context, {
+			apiKey: mockToken(),
+			transport: "sse",
+			maxRetries: 1,
+			onDiagnostic: (event) => {
+				events.push(event);
+			},
+			onRetry: (event) => {
+				retries.push(event);
+			},
+		}).result();
+		expect(calls).toBe(2);
+		expect(result.errorMessage).toBe("original HTTP error\nOpenAI request ID: req_http");
+		expect(retries).toEqual([{ attempt: 1, maxAttempts: 2, delayMs: 0, reason: "HTTP 500" }]);
+		expect(events.map(({ timestamp, elapsedMs, ...event }) => event)).toEqual(
+			[500, 400].map((httpStatus, index) => ({
+				phase: "error",
+				transport: "sse",
+				attempt: index + 1,
+				maxAttempts: 2,
+				failureKind: "api",
+				httpStatus,
+				retryAfterMs: 0,
+				upstreamErrorCode: "invalid_request",
+				requestId: "req_http",
+			})),
+		);
+	});
+
+	it("preserves existing permanent HTTP retry outcome when observers throw", async () => {
+		vi.useFakeTimers();
+		const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const requests: unknown[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_url, init?: RequestInit) => {
+				requests.push(decodeCodexRequestBody(init?.body));
+				return new Response(JSON.stringify({ error: { message: "permanent rejection" } }), { status: 403 });
+			}),
+		);
+		const run = async (onDiagnostic?: StreamOptions["onDiagnostic"]) => {
+			const pending = streamOpenAICodexResponses(model, context, {
+				apiKey: mockToken(),
+				transport: "sse",
+				maxRetries: 1,
+				onDiagnostic,
+			}).result();
+			await vi.advanceTimersByTimeAsync(1000);
+			return pending;
+		};
+		const original = await run();
+		const observed = await run(() => {
+			throw new Error("secret observer exception");
+		});
+		expect(original.errorMessage).toBe("permanent rejection");
+		expect(observed.errorMessage).toBe(original.errorMessage);
+		expect(observed.stopReason).toBe(original.stopReason);
+		expect(requests).toHaveLength(4);
+		expect(requests).toEqual(Array(4).fill(requests[0]));
+		expect(warning.mock.calls).toEqual(Array(2).fill(["Provider diagnostic observer failed"]));
+	});
+
+	it.each([
+		[
+			{
+				error: {
+					code: "server_error",
+					request_id: "req_supplied",
+					message: `Please include the request ID ${requestId} in your message.`,
+				},
+			},
+			"server_error",
+			"req_supplied",
+		],
+		[
+			{ error: { code: "server_error", message: `Please include the request ID ${requestId} in your message.` } },
+			"server_error",
+			requestId,
+		],
+		[
+			{
+				error: {
+					code: "secret\nBearer token",
+					request_id: "secret prompt text",
+					message: `Please include the request ID ${requestId} in your message.`,
+					nested: { token: "secret" },
+				},
+			},
+			undefined,
+			undefined,
+		],
+		[
+			{ error: { code: "x".repeat(200), request_id: "req_" + "x".repeat(200), message: "secret" } },
+			undefined,
+			undefined,
+		],
+		[{ message: `arbitrary secret text ${requestId}` }, undefined, undefined],
+		[{}, undefined, undefined],
+	] as const)("bounds metadata and omits unrecognized or secret fields (%#)", async (payload, code, id) => {
+		const events: ProviderDiagnosticEvent[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response(`data: ${JSON.stringify({ type: "error", ...payload })}\n\n`)),
+		);
+		await streamOpenAICodexResponses(model, context, {
+			apiKey: mockToken(),
+			transport: "sse",
+			onDiagnostic: (event) => {
+				events.push(event);
+			},
+		}).result();
+		expect(events).toEqual([
+			{
+				phase: "error",
+				timestamp: expect.any(Number),
+				elapsedMs: expect.any(Number),
+				transport: "sse",
+				attempt: 1,
+				maxAttempts: 1,
+				failureKind: "api",
+				httpStatus: 200,
+				...(code ? { upstreamErrorCode: code } : {}),
+				...(id ? { requestId: id } : {}),
+			},
+		]);
+	});
+
+	it("records network retries and final stream protocol failure without fabricated metadata", async () => {
+		vi.useFakeTimers();
+		let calls = 0;
+		const events: ProviderDiagnosticEvent[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => {
+				if (++calls === 1) throw new Error("secret network detail");
+				return new Response("data: not-json-secret\n\n");
+			}),
+		);
+		const pending = streamOpenAICodexResponses(model, context, {
+			apiKey: mockToken(),
+			transport: "sse",
+			maxRetries: 1,
+			onDiagnostic: (event) => {
+				events.push(event);
+			},
+		}).result();
+		await vi.advanceTimersByTimeAsync(1000);
+		expect((await pending).stopReason).toBe("error");
+		expect(events.map(({ timestamp, elapsedMs, ...event }) => event)).toEqual([
+			{ phase: "error", transport: "sse", attempt: 1, maxAttempts: 2, failureKind: "transport" },
+			{ phase: "error", transport: "sse", attempt: 2, maxAttempts: 2, failureKind: "protocol", httpStatus: 200 },
+		]);
+	});
+
+	it.each(["websocket", "websocket-cached", "auto"] as const)(
+		"observes %s timeout with no HTTP status and unchanged recovery diagnostics",
+		async (transport) => {
+			vi.useFakeTimers();
+			class MockWebSocket extends EventTarget {
+				constructor() {
+					super();
+					queueMicrotask(() => this.dispatchEvent(new Event("open")));
+				}
+				send(): void {}
+				close(): void {}
+			}
+			vi.stubGlobal("WebSocket", MockWebSocket);
+			const events: ProviderDiagnosticEvent[] = [];
+			const pending = streamOpenAICodexResponses(model, context, {
+				apiKey: mockToken(),
+				transport,
+				sessionId: "diagnostic-timeout",
+				timeoutMs: 50,
+				onDiagnostic: (event) => {
+					events.push(event);
+				},
+			}).result();
+			await vi.advanceTimersByTimeAsync(50);
+			const result = await pending;
+			expect(result.errorMessage).toBe("WebSocket idle timeout after 50ms");
+			expect(result.diagnostics?.map((diagnostic) => diagnostic.type)).toEqual([
+				"websocket_liveness",
+				"provider_transport_failure",
+			]);
+			expect(events).toEqual([
+				{
+					phase: "error",
+					timestamp: expect.any(Number),
+					elapsedMs: 50,
+					attempt: 1,
+					transport: transport === "auto" ? "websocket-cached" : transport,
+					failureKind: "transport",
+				},
+			]);
+		},
+	);
+
+	it("observes each failed websocket connection-limit attempt including final API failure", async () => {
+		let connections = 0;
+		class MockWebSocket extends EventTarget {
+			private readonly first = ++connections === 1;
+			constructor() {
+				super();
+				queueMicrotask(() => this.dispatchEvent(new Event("open")));
+			}
+			send(): void {
+				const error = {
+					code: this.first ? "websocket_connection_limit_reached" : "server_error",
+					request_id: "req_ws",
+					message: "WS original",
+				};
+				queueMicrotask(() =>
+					this.dispatchEvent(
+						Object.assign(new Event("message"), { data: JSON.stringify({ type: "error", error }) }),
+					),
+				);
+			}
+			close(): void {}
+		}
+		vi.stubGlobal("WebSocket", MockWebSocket);
+		const events: ProviderDiagnosticEvent[] = [];
+		const result = await streamOpenAICodexResponses(model, context, {
+			apiKey: mockToken(),
+			transport: "websocket",
+			onDiagnostic: (event) => {
+				events.push(event);
+			},
+		}).result();
+		expect(connections).toBe(2);
+		expect(result.errorMessage).toBe("Codex error: WS original\nOpenAI request ID: req_ws");
+		expect(events.map(({ timestamp, elapsedMs, ...event }) => event)).toEqual(
+			["websocket_connection_limit_reached", "server_error"].map((upstreamErrorCode, index) => ({
+				phase: "error",
+				transport: "websocket",
+				attempt: index + 1,
+				failureKind: "api",
+				upstreamErrorCode,
+				requestId: "req_ws",
+			})),
+		);
+	});
+
+	it("observes an actual aborted SSE attempt but not pre-request validation failures", async () => {
+		const controller = new AbortController();
+		const events: ProviderDiagnosticEvent[] = [];
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => {
+				controller.abort();
+				throw new Error("Request was aborted");
+			}),
+		);
+		const result = await streamOpenAICodexResponses(model, context, {
+			apiKey: mockToken(),
+			transport: "sse",
+			signal: controller.signal,
+			onDiagnostic: (event) => {
+				events.push(event);
+			},
+		}).result();
+		expect(result.stopReason).toBe("aborted");
+		expect(result.errorMessage).toBe("Request was aborted");
+		expect(events).toEqual([
+			{
+				phase: "error",
+				timestamp: expect.any(Number),
+				elapsedMs: expect.any(Number),
+				transport: "sse",
+				attempt: 1,
+				maxAttempts: 1,
+				failureKind: "aborted",
+			},
+		]);
+		await streamOpenAICodexResponses(model, context, {
+			transport: "sse",
+			onDiagnostic: (event) => {
+				events.push(event);
+			},
+		}).result();
+		expect(events).toHaveLength(1);
+	});
+});
 
 describe("openai-codex streaming", () => {
 	it("streams SSE responses into AssistantMessageEventStream", async () => {

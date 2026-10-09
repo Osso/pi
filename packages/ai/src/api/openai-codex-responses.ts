@@ -45,6 +45,7 @@ import { formatProviderError, normalizeProviderError } from "../utils/error-body
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { resolveHttpProxyUrlForTarget } from "../utils/node-http-proxy.ts";
+import { CodexDiagnosticObserver } from "./openai-codex-diagnostics.ts";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.ts";
 import { buildBaseOptions } from "./simple-options.ts";
@@ -233,6 +234,9 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 	options?: OpenAICodexResponsesOptions,
 ): AssistantMessageEventStream => {
 	const stream = new AssistantMessageEventStream();
+	const diagnostic = options?.onDiagnostic
+		? new CodexDiagnosticObserver(options.onDiagnostic, model, options.signal)
+		: undefined;
 
 	(async () => {
 		const output: AssistantMessage = {
@@ -284,6 +288,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 				let retriedWebSocketConnectionLimit = false;
 				while (true) {
 					websocketStarted = false;
+					diagnostic?.begin("websocket", retriedWebSocketConnectionLimit ? 2 : 1);
 					try {
 						await processWebSocketStream(
 							resolveCodexWebSocketUrl(model.baseUrl),
@@ -298,6 +303,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 							httpTimeoutMs,
 							websocketConnectTimeoutMs,
 							options,
+							diagnostic,
 						);
 
 						if (options?.signal?.aborted) {
@@ -311,6 +317,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 						stream.end();
 						return;
 					} catch (error) {
+						diagnostic?.fail(error);
 						const aborted = options?.signal?.aborted;
 						const connectionLimitBeforeStart = !websocketStarted && isWebSocketConnectionLimitReachedError(error);
 						if (!aborted && connectionLimitBeforeStart && !retriedWebSocketConnectionLimit) {
@@ -358,6 +365,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 					throw new Error("Request was aborted");
 				}
 
+				diagnostic?.begin("sse", attempt + 1, maxRetries + 1);
 				try {
 					const headerTimeoutSignal =
 						httpTimeoutMs !== undefined && httpTimeoutMs > 0 ? AbortSignal.timeout(httpTimeoutMs) : undefined;
@@ -377,6 +385,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 					} finally {
 						combinedSignal.cleanup();
 					}
+					diagnostic?.receiveResponse(response, getRetryAfterDelayMs(response.headers));
 					await options?.onResponse?.(
 						{ status: response.status, headers: headersToRecord(response.headers) },
 						model,
@@ -387,6 +396,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 					}
 
 					const errorText = await response.text();
+					diagnostic?.failHttp(errorText);
 					if (attempt < maxRetries && isRetryableError(response.status, errorText)) {
 						const retryAfterDelayMs = getRetryAfterDelayMs(response.headers);
 						const delayMs =
@@ -422,6 +432,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 						),
 					);
 				} catch (error) {
+					diagnostic?.fail(error);
 					if (error instanceof Error) {
 						if (error.name === "AbortError" || error.message === "Request was aborted") {
 							throw new Error("Request was aborted");
@@ -460,6 +471,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			stream.push({ type: "done", reason: output.stopReason as "stop" | "length" | "toolUse", message: output });
 			stream.end();
 		} catch (error) {
+			diagnostic?.fail(error);
 			for (const block of output.content) {
 				// partialJson is only a streaming scratch buffer; never persist it.
 				delete (block as { partialJson?: string }).partialJson;
@@ -1536,6 +1548,7 @@ async function processWebSocketStream(
 	idleTimeoutMs: number | undefined,
 	websocketConnectTimeoutMs: number | undefined,
 	options?: OpenAICodexResponsesOptions,
+	diagnostic?: CodexDiagnosticObserver,
 ): Promise<void> {
 	const { socket, entry, reused, release } = await acquireWebSocket(
 		url,
@@ -1547,6 +1560,7 @@ async function processWebSocketStream(
 	);
 	let keepConnection = true;
 	const useCachedContext = options?.transport === "websocket-cached" || options?.transport === "auto";
+	diagnostic?.setTransport(useCachedContext && entry ? "websocket-cached" : "websocket");
 	// ChatGPT Codex Responses rejects `store: true` ("Store must be set to false").
 	// WebSocket continuation still works via connection-scoped previous_response_id state.
 	const fullBody = body;

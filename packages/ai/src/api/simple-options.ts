@@ -38,6 +38,7 @@ export function buildBaseOptions(
 		onPayload: options?.onPayload,
 		onResponse: options?.onResponse,
 		onRetry: options?.onRetry,
+		onDiagnostic: options?.onDiagnostic,
 		timeoutMs: options?.timeoutMs,
 		websocketConnectTimeoutMs: options?.websocketConnectTimeoutMs,
 		maxRetries: options?.maxRetries,
