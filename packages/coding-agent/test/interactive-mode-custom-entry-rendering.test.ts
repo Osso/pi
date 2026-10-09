@@ -1,7 +1,7 @@
 import { Text, type TUI } from "@earendil-works/pi-tui";
+import { beforeAll, describe, expect, test, vi } from "vitest";
 import { createSupervisorStatusEntryRenderer } from "../extensions/goal/src/rendering.ts";
 import { createWaitCountdownRefresher } from "../extensions/goal/src/wait-countdown.ts";
-import { beforeAll, describe, expect, test, vi } from "vitest";
 import type { AgentSessionEvent } from "../src/core/agent-session.ts";
 import type { EntryRenderer } from "../src/core/extensions/types.ts";
 import type { SessionEntry } from "../src/core/session-manager.ts";

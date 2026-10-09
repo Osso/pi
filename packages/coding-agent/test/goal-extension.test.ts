@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type AssistantMessage, getModel, type Usage } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SUPERVISOR_REQUEST_CANCELLED_REASON } from "../src/supervisor/client.ts";
 import type { ManageGoalParams } from "../extensions/goal/src/goal-tool.ts";
 import goalExtension, {
 	type Goal,
@@ -36,6 +35,7 @@ import {
 	getControlDbPath,
 	readSupervisorRequest,
 } from "../src/core/session-control-db.ts";
+import { SUPERVISOR_REQUEST_CANCELLED_REASON } from "../src/supervisor/client.ts";
 
 vi.mock("../src/supervisor/ensure-running.ts", () => ({ ensureSupervisorRunning: async () => ({}) }));
 

@@ -1,18 +1,18 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type Component, Container, Loader, type Terminal, TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import {
 	createSupervisorStatusController,
 	createSupervisorStatusEntryRenderer,
 } from "../extensions/goal/src/rendering.ts";
-import type { CustomEntry } from "../src/core/session-manager.ts";
-import { stripAnsi } from "../src/utils/ansi.ts";
-import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import { createWaitCountdownRefresher } from "../extensions/goal/src/wait-countdown.ts";
+import type { CustomEntry } from "../src/core/session-manager.ts";
 import { CustomEntryComponent } from "../src/modes/interactive/components/custom-entry.ts";
 import { RenderRegionContainer } from "../src/modes/interactive/components/render-region-container.ts";
 import { createInteractiveRootCompositor } from "../src/modes/interactive/interactive-root-compositor.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { stripAnsi } from "../src/utils/ansi.ts";
 
 class RenderCountingComponent implements Component {
 	readonly lines: string[];
