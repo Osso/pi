@@ -345,6 +345,14 @@ session.subscribe((event) => {
 });
 ```
 
+### Provider failure diagnostics
+
+SDK-created requests using `openai-codex-responses` correlate sanitized error/retry diagnostics with `sessionId` and `logicalRequestNumber`. The counter identifies stream invocations after auth resolution, not internal provider attempts, and is not durable across restarts. Logging uses the configured `agentDir`, independently of resource discovery.
+
+`timestamp` is Unix epoch milliseconds. Retry records distinguish `retryLayer: "provider"` from `"session"`; session retry ordinals and budgets each gain `+1` so `attempt` and `maxAttempts` include the initial attempt. Session retries reference the preceding logical request; the next stream invocation gets a new number. Missing metadata is omitted. Caller callbacks remain chained; their raw retry reasons are not logged. Logger write failures emit one fixed safe stderr warning per logger instance without changing provider/model or retry behavior.
+
+See the [diagnostics contract](../../../docs/specs/provider-failure-diagnostics.md) for metadata, privacy, failure isolation, and integration verification status. CLI stdout formats remain unchanged.
+
 ## Options Reference
 
 ### Shared-channel wait wake callback

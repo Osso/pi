@@ -10,6 +10,7 @@ Pi supports subscription-based providers via OAuth and API key providers via env
 - [Cloud Providers](#cloud-providers)
 - [Custom Providers](#custom-providers)
 - [Resolution Order](#resolution-order)
+- [Failure Diagnostics](#failure-diagnostics)
 
 ## Subscriptions
 
@@ -269,6 +270,14 @@ Set the service-account JSON file to user-only permissions. A stored provider en
 **Via models.json:** Add Ollama, LM Studio, vLLM, or any provider that speaks a supported API (OpenAI Completions, OpenAI Responses, Anthropic Messages, Google Generative AI). See [models.md](models.md).
 
 **Via extensions:** For providers that need custom API implementations or OAuth flows, create an extension. See [custom-provider.md](custom-provider.md) and [examples/extensions/custom-provider-gitlab-duo](../examples/extensions/custom-provider-gitlab-duo/).
+
+## Failure Diagnostics
+
+Requests using `openai-codex-responses` write allowlisted error/retry metadata to `<agentDir>/logs/provider-diagnostics/codex.jsonl` (file `0600`, diagnostics directory `0700`). `timestamp` is Unix epoch milliseconds. No prompts, credentials, raw reasons/messages, header collections, or raw bodies are logged. Write failures emit the fixed safe stderr warning `Provider diagnostics could not be written.` once per logger instance.
+
+Missing metadata means unavailable, not zero or a known cause; WebSocket diagnostics have no HTTP status, Retry-After, or maximum-attempt budget. Use available server request IDs for upstream support. `sessionId` and `logicalRequestNumber` identify SDK stream invocations, not internal provider attempts. Retry records distinguish provider and session layers; `maxAttempts` includes the initial attempt.
+
+The [diagnostics contract](../../../docs/specs/provider-failure-diagnostics.md) defines the allowlist, permissions, failure isolation, and verification status. This instrumentation does not change retry or provider/model selection. Upstream cause remains unknown; generic provider errors alone do not establish quota exhaustion or excessive prompt size.
 
 ## Resolution Order
 

@@ -52,6 +52,7 @@
 ### Added
 
 - Added optional `StreamOptions.cwd` for per-call working-directory metadata in local/subprocess provider integrations; it is not a server payload field.
+- Added optional Codex `onDiagnostic` failed-attempt observations with Unix epoch millisecond timestamps, actual transport/attempt metadata, and validated available upstream codes/request IDs; excludes raw messages and content and isolates observer failures without changing retry or transport policy.
 - Added GPT-6 Sol and GPT-6 Luna to the `openai-codex`, `openai-codex-gc`, and `openai-codex-team` model catalogs with OpenAI's published per-million-token pricing: Sol $2 input/$10 output and Luna $0.10 input/$0.50 output.
 - Added GPT-6 Astra to the `openai-codex`, `openai-codex-gc`, and `openai-codex-team` model catalogs with 922,000-token effective input context and supported reasoning efforts.
 - Added GPT-6.1 Terra to the `openai-codex`, `openai-codex-gc`, and `openai-codex-team` model catalogs with 922,000-token effective input context and OpenAI's published pricing: $1 input/$5 output per million tokens.

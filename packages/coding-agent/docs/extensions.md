@@ -745,6 +745,8 @@ pi.on("after_provider_response", (event, ctx) => {
 
 Header availability depends on provider and transport. Providers that abstract HTTP responses may not expose headers.
 
+This hook exposes headers to extension code; it is not the sanitized diagnostics logger. The private log copies only validated metadata, never prompts, credentials, raw reasons/messages, payloads, header collections, or raw bodies. Caller-owned hook output is not sanitized by that logger. See the [provider failure diagnostics contract](../../../docs/specs/provider-failure-diagnostics.md) for its separate allowlist and request correlation.
+
 ### Model Events
 
 #### model_select
