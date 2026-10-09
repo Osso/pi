@@ -10,7 +10,7 @@ Idle compaction summarizes large idle sessions before their assumed provider pro
 - [x] Default `compaction.idle` to true; skip idle compaction when it or `compaction.enabled` is false.
 - [x] Run normal compaction with reason `"idle"`, saving a summary without retrying a turn.
 - [ ] Require the latest assistant request to match the current provider/model and not precede a later compaction.
-- [ ] Revalidate eligibility under the turn-start lock; never interrupt streaming, tools, pending messages, or another compaction.
+- [ ] Revalidate eligibility under the turn-start lock; never interrupt streaming, tools, pending messages (session or agent-level queue), or another compaction. Agent-level queue skip is tested; streaming/tool/compaction races are not.
 - [x] Re-arm after `session_start` and each run, using persisted assistant request timestamps across restart.
 
 Checked items have assertions in the committed suites listed below.
