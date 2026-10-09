@@ -31,6 +31,100 @@ afterEach(() => {
 });
 
 describe("live compaction provider boundary", () => {
+	it.each(["cancel", "failure", "abort"] as const)(
+		"reports %s at the boundary without replaying tool effects",
+		async (outcome) => {
+			let effects = 0;
+			let compactionCalls = 0;
+			let assistantCount = 0;
+			const harness = await createHarness({
+				models: [{ id: "faux-1", contextWindow: 128_000, maxTokens: 100 }],
+				settings: { compaction: { enabled: false, thresholdPercent: 50, keepRecentTokens: 1 } },
+				tools: [
+					{
+						name: "effect",
+						label: "Effect",
+						description: "Record one effect",
+						parameters: Type.Object({}),
+						execute: async () => {
+							effects++;
+							return { content: [{ type: "text", text: "effect recorded" }], details: {} };
+						},
+					},
+				],
+				extensionFactories: [
+					(pi) => {
+						pi.on("message_end", (event) => {
+							if (event.message.role !== "assistant") return;
+							const tokens = ++assistantCount === 1 ? 64_000 : 100;
+							return {
+								message: {
+									...event.message,
+									usage: {
+										input: tokens,
+										output: 0,
+										cacheRead: 0,
+										cacheWrite: 0,
+										totalTokens: tokens,
+										cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+									},
+								},
+							};
+						});
+						pi.on("compaction", (event) => {
+							compactionCalls++;
+							if (outcome === "failure") throw new Error("boundary summary unavailable");
+							if (outcome === "cancel") return { cancel: true };
+							harness.session.abortCompaction();
+							expect(event.signal.aborted).toBe(true);
+							return {
+								compaction: {
+									summary: "aborted summary",
+									firstKeptEntryId: event.preparation.firstKeptEntryId,
+									tokensBefore: event.preparation.tokensBefore,
+								},
+							};
+						});
+					},
+				],
+			});
+			harnesses.push(harness);
+			for (let index = 0; index < 4; index++) {
+				harness.sessionManager.appendMessage({
+					role: "user",
+					content: `history ${index}`,
+					timestamp: Date.now() - 1_000,
+				});
+			}
+			harness.session.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
+			let nextContext: Context | undefined;
+			let callsAtNextRequest = 0;
+			harness.setResponses([
+				fauxAssistantMessage(fauxToolCall("effect", {}), { stopReason: "toolUse" }),
+				(context) => {
+					nextContext = { messages: structuredClone(context.messages) };
+					callsAtNextRequest = compactionCalls;
+					return fauxAssistantMessage(fauxToolCall("end_turn", { reason: "complete" }), { stopReason: "toolUse" });
+				},
+			]);
+			await harness.session.prompt("run effect");
+			expect(callsAtNextRequest).toBe(1);
+			expect(compactionCalls).toBe(1);
+			expect(effects).toBe(1);
+			expect(harness.sessionManager.getBranch().filter((entry) => entry.type === "compaction")).toHaveLength(0);
+			expect(nextContext).toBeDefined();
+			if (nextContext) expectCoherentToolResults(nextContext);
+			expect(harness.eventsOfType("compaction_end")).toHaveLength(1);
+			expect(harness.eventsOfType("compaction_end")[0]).toMatchObject({
+				aborted: outcome !== "failure",
+				result: undefined,
+				willRetry: false,
+			});
+			if (outcome === "failure")
+				expect(harness.eventsOfType("compaction_end")[0].errorMessage).toContain("boundary summary unavailable");
+			expect(harness.faux.state.callCount).toBe(2);
+		},
+	);
 	it.each([
 		{ usage: 500_000, output: "effect complete", compacts: true },
 		{ usage: 557_000, output: "effect complete", compacts: true },
