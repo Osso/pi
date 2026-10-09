@@ -11,8 +11,8 @@ import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import {
 	getRuntimeProcessInstanceId,
-	markRuntimeMailboxMessageDelivered,
 	listRuntimeMailboxMessagesForSession,
+	markRuntimeMailboxMessageDelivered,
 	type RuntimeMailboxMessage,
 	registerRuntimeMailboxListener,
 } from "../src/core/session-control-db.ts";

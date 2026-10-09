@@ -76,9 +76,7 @@ describe("search_current_session_history", () => {
 			expect.objectContaining({ role: "user", content: "list-skills", matched: true }),
 		]);
 		expect(assistantMatch.details?.totalMatches).toBe(1);
-		expect(assistantMatch.details?.entries).toEqual([
-			expect.objectContaining({ role: "assistant", matched: true }),
-		]);
+		expect(assistantMatch.details?.entries).toEqual([expect.objectContaining({ role: "assistant", matched: true })]);
 	});
 
 	it("matches tool-call names and nested arguments, but not signatures", async () => {
@@ -97,7 +95,13 @@ describe("search_current_session_history", () => {
 		const tool = createSearchCurrentSessionHistoryToolDefinition();
 
 		for (const query of ["READ", "COBALT", "offset", "42", "true"]) {
-			const result = await tool.execute("search-history", { query }, undefined, undefined, toolContext(sessionManager));
+			const result = await tool.execute(
+				"search-history",
+				{ query },
+				undefined,
+				undefined,
+				toolContext(sessionManager),
+			);
 			expect(result.details?.totalMatches).toBe(1);
 			expect(result.details?.entries).toEqual([expect.objectContaining({ id: callId, matched: true })]);
 		}
@@ -197,12 +201,24 @@ describe("search_current_session_history", () => {
 		const tool = createSearchCurrentSessionHistoryToolDefinition();
 
 		for (const query of ["self-match", "returned-result-marker", "search_current_session_history"]) {
-			const result = await tool.execute("search-history", { query }, undefined, undefined, toolContext(sessionManager));
+			const result = await tool.execute(
+				"search-history",
+				{ query },
+				undefined,
+				undefined,
+				toolContext(sessionManager),
+			);
 			expect(result.details?.totalMatches).toBe(0);
 			expect(result.details?.entries).toEqual([]);
 		}
 		for (const query of ["assistant marker", "other-config"]) {
-			const result = await tool.execute("search-history", { query }, undefined, undefined, toolContext(sessionManager));
+			const result = await tool.execute(
+				"search-history",
+				{ query },
+				undefined,
+				undefined,
+				toolContext(sessionManager),
+			);
 			expect(result.details?.entries).toEqual([expect.objectContaining({ id: assistantId, matched: true })]);
 		}
 	});
@@ -218,7 +234,13 @@ describe("search_current_session_history", () => {
 		const tool = createSearchCurrentSessionHistoryToolDefinition();
 
 		for (const query of ["private-reasoning-marker", "opaque-thinking-signature", "opaque-text-signature"]) {
-			const result = await tool.execute("search-history", { query }, undefined, undefined, toolContext(sessionManager));
+			const result = await tool.execute(
+				"search-history",
+				{ query },
+				undefined,
+				undefined,
+				toolContext(sessionManager),
+			);
 			expect(result.details?.totalMatches).toBe(0);
 		}
 	});

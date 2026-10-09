@@ -4,18 +4,18 @@ import {
 	type AssistantMessageEvent,
 	type Context,
 	EventStream,
-	fauxAssistantMessage,
 	type FauxProviderRegistration,
+	fauxAssistantMessage,
 	getModel,
 	registerFauxProvider,
 	type SimpleStreamOptions,
-	streamSimple,
 	type StreamOptions,
+	streamSimple,
 } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-	compact,
 	type CompactionPreparation,
+	compact,
 	generateBranchSummary,
 	materializeCompactionSummary,
 } from "../src/core/compaction/index.ts";
