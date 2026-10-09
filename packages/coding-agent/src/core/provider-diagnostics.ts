@@ -17,6 +17,7 @@ export type ProviderDiagnosticInput = Readonly<{
 	upstreamErrorCode?: string;
 	requestId?: string;
 	delayMs?: number;
+	retryLayer?: "provider" | "session";
 	fallbackTransport?: ProviderTransport;
 }>;
 
@@ -67,6 +68,8 @@ export function serializeProviderDiagnostic(
 		maxAttempts: positiveInteger(event.maxAttempts),
 	};
 	if (event.phase === "retry") {
+		record.retryLayer =
+			event.retryLayer === "provider" || event.retryLayer === "session" ? event.retryLayer : undefined;
 		record.delayMs = nonnegativeNumber(event.delayMs);
 		record.fallbackTransport = validatedTransport(event.fallbackTransport);
 	} else {

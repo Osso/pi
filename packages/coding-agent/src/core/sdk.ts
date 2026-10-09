@@ -25,6 +25,11 @@ import { ModelRegistry } from "./model-registry.ts";
 import { findInitialModel } from "./model-resolver.ts";
 import type { MultiAgentStore } from "./multi-agent-store.ts";
 import { mergeProviderAttributionHeaders } from "./provider-attribution.ts";
+import {
+	createProviderDiagnosticsLogger,
+	type ProviderDiagnosticContext,
+	type ProviderDiagnosticModel,
+} from "./provider-diagnostics.ts";
 import type { ResourceLoader, RulesScope } from "./resource-loader.ts";
 import { DefaultResourceLoader } from "./resource-loader.ts";
 import { getDefaultSessionDir, SessionManager } from "./session-manager.ts";
@@ -358,6 +363,9 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 
 	const extensionRunnerRef: { current?: ExtensionRunner } = {};
 	const sessionRef: { current?: AgentSession } = {};
+	const providerDiagnostics = createProviderDiagnosticsLogger({ agentDir, warn: (warning) => console.warn(warning) });
+	let logicalRequestNumber = 0;
+	let lastDiagnosticRequest: { model: ProviderDiagnosticModel; context: ProviderDiagnosticContext } | undefined;
 
 	agent = new Agent({
 		initialState: {
@@ -372,6 +380,11 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 			if (!auth.ok) {
 				throw new Error(auth.error);
 			}
+			const diagnosticContext = {
+				sessionId: sessionManager.getSessionId(),
+				logicalRequestNumber: ++logicalRequestNumber,
+			};
+			lastDiagnosticRequest = { model, context: diagnosticContext };
 			const env = auth.env || options?.env ? { ...(auth.env ?? {}), ...(options?.env ?? {}) } : undefined;
 			const providerRetrySettings = settingsManager.getProviderRetrySettings();
 			const httpIdleTimeoutMs = settingsManager.getHttpIdleTimeoutMs();
@@ -384,6 +397,26 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 			return streamSimple(model, context, {
 				...options,
 				cwd,
+				onDiagnostic: (event, callbackModel) => {
+					providerDiagnostics.append(event, callbackModel, diagnosticContext);
+					return options?.onDiagnostic?.(event, callbackModel);
+				},
+				onRetry: (event, callbackModel) => {
+					providerDiagnostics.append(
+						{
+							phase: "retry",
+							timestamp: Date.now(),
+							retryLayer: "provider",
+							attempt: event.attempt,
+							maxAttempts: event.maxAttempts,
+							delayMs: event.delayMs,
+							fallbackTransport: event.fallbackTransport,
+						},
+						callbackModel,
+						diagnosticContext,
+					);
+					return options?.onRetry?.(event, callbackModel);
+				},
 				apiKey: auth.apiKey,
 				env,
 				timeoutMs,
@@ -465,6 +498,21 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 		supervisorDecisionRequester: options.supervisorDecisionRequester,
 	});
 	sessionRef.current = session;
+	session.subscribe((event) => {
+		if (event.type !== "auto_retry_start" || !lastDiagnosticRequest) return;
+		providerDiagnostics.append(
+			{
+				phase: "retry",
+				timestamp: Date.now(),
+				retryLayer: "session",
+				attempt: event.attempt + 1,
+				maxAttempts: event.maxAttempts + 1,
+				delayMs: event.delayMs,
+			},
+			lastDiagnosticRequest.model,
+			lastDiagnosticRequest.context,
+		);
+	});
 	const extensionsResult = resourceLoader.getExtensions();
 
 	return {
