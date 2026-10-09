@@ -147,7 +147,7 @@ describe("readClipboardImage", () => {
 
 	test("Headless Linux: reads uploaded PNG from wl-paste without a display", async () => {
 		const png = Buffer.from(
-			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ1sAAAAASUVORK5CYII=",
+			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==",
 			"base64",
 		);
 		mocks.spawnSync.mockImplementation((command, args) => {
