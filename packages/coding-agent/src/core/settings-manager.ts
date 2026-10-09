@@ -5,6 +5,7 @@ import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
+import { parseCompactionThresholdPercent } from "./compaction-threshold.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
 import { type ApprovalPolicy, normalizeApprovalPolicy } from "./permissions/policy.ts";
 import {
@@ -17,6 +18,7 @@ import {
 } from "./permissions/presets.ts";
 
 export interface CompactionSettings {
+	thresholdPercent?: number; // optional trigger percentage, greater than 0 and at most 100
 	enabled?: boolean; // default: true
 	reserveTokens?: number; // default: 16384
 	keepRecentTokens?: number; // default: 20000
@@ -922,8 +924,15 @@ export class SettingsManager {
 		return this.settings.compaction?.keepRecentTokens ?? 20000;
 	}
 
-	getCompactionSettings(): { enabled: boolean; reserveTokens: number; keepRecentTokens: number } {
+	getCompactionSettings(): {
+		enabled: boolean;
+		reserveTokens: number;
+		keepRecentTokens: number;
+		thresholdPercent?: number;
+	} {
+		const thresholdPercent = parseCompactionThresholdPercent(this.settings.compaction?.thresholdPercent);
 		return {
+			...(thresholdPercent === undefined ? {} : { thresholdPercent }),
 			enabled: this.getCompactionEnabled(),
 			reserveTokens: this.getCompactionReserveTokens(),
 			keepRecentTokens: this.getCompactionKeepRecentTokens(),

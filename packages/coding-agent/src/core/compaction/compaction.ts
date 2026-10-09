@@ -17,6 +17,7 @@ import type {
 	Usage,
 } from "@earendil-works/pi-ai/compat";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
+import { parseCompactionThresholdPercent } from "../compaction-threshold.ts";
 import {
 	convertToLlm,
 	createBranchSummaryMessage,
@@ -155,6 +156,7 @@ export interface CompactionResult<T = unknown> {
 // ============================================================================
 
 export interface CompactionSettings {
+	thresholdPercent?: number;
 	enabled: boolean;
 	reserveTokens: number;
 	keepRecentTokens: number;
@@ -269,7 +271,9 @@ export function shouldCompact(
 	settings: CompactionSettings,
 	autoCompactionThreshold?: number,
 ): boolean {
+	const thresholdPercent = parseCompactionThresholdPercent(settings.thresholdPercent);
 	if (!settings.enabled) return false;
+	if (thresholdPercent !== undefined) return contextTokens >= (contextWindow * thresholdPercent) / 100;
 	if (autoCompactionThreshold !== undefined) return contextTokens >= autoCompactionThreshold;
 	return contextTokens > contextWindow - settings.reserveTokens;
 }
