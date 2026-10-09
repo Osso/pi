@@ -204,7 +204,7 @@ describe("goal extension runtime", () => {
 		expect(skippedStatuses).toHaveLength(1);
 	});
 
-	it("reports pending input instead of an error when input is queued during agent_end", async () => {
+	it("silently prioritizes input queued during an error agent_end", async () => {
 		let releaseAgentEnd: (() => void) | undefined;
 		let markAgentEndReached: (() => void) | undefined;
 		const agentEndReached = new Promise<void>((resolve) => {
@@ -246,7 +246,8 @@ describe("goal extension runtime", () => {
 			.map((entry) => JSON.stringify(entry));
 		expect(
 			statuses.some((status) => status.includes("Goal continuation deferred: pending input will run next.")),
-		).toBe(true);
+		).toBe(false);
+		expect(getUserTexts(harness)).toEqual(["initial work", "queued after error"]);
 		expect(
 			statuses.some((status) => status.includes("Goal continuation skipped: the model turn ended with an error.")),
 		).toBe(false);

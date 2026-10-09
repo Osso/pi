@@ -16,21 +16,18 @@ export function selectGoalForIdleReview(options: GoalIdleSelectionOptions): Goal
 	const goal = options.selectGoal();
 	if (!goal) return null;
 	const sessionId = options.ctx.sessionManager.getSessionId();
+	if (options.ctx.hasPendingMessages()) {
+		options.clearRetry(sessionId);
+		return null;
+	}
 	if (didLastAssistantAbort(options.event)) {
 		options.clearRetry(sessionId);
-		const message = options.ctx.hasPendingMessages()
-			? "Goal continuation deferred: pending input will run next."
-			: "Goal continuation skipped: the model turn was aborted.";
-		options.reportSkipped(message);
+		options.reportSkipped("Goal continuation skipped: the model turn was aborted.");
 		return null;
 	}
 	if (findLastAssistantMessage(options.event)?.stopReason === "error") {
 		options.clearRetry(sessionId);
-		if (options.ctx.hasPendingMessages()) {
-			options.reportSkipped("Goal continuation deferred: pending input will run next.");
-		} else {
-			options.scheduleErrorStatus(options.ctx, "Goal continuation skipped: the model turn ended with an error.");
-		}
+		options.scheduleErrorStatus(options.ctx, "Goal continuation skipped: the model turn ended with an error.");
 		return null;
 	}
 	if (didLastAssistantReturnEmpty(options.event)) {

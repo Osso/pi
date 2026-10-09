@@ -1461,7 +1461,7 @@ describe("goal extension", () => {
 		}
 	});
 
-	it("starts Supervisor review after initial pending input drains without a turn", async () => {
+	it("does not schedule Supervisor review when input is already pending at agent_end", async () => {
 		vi.useFakeTimers();
 		try {
 			let pendingMessages = true;
@@ -1480,10 +1480,9 @@ describe("goal extension", () => {
 			pendingMessages = false;
 			await vi.advanceTimersByTimeAsync(1_000);
 
-			expect(reviewGoal).toHaveBeenCalledTimes(1);
-			expect(harness.sendMessage.mock.calls.at(-1)?.[0]).toMatchObject({
-				content: expect.stringContaining("Resume after pending input."),
-			});
+			expect(reviewGoal).not.toHaveBeenCalled();
+			expect(harness.sendMessage).not.toHaveBeenCalled();
+			expect(harness.appendEntry).not.toHaveBeenCalled();
 		} finally {
 			vi.useRealTimers();
 		}
@@ -2700,25 +2699,14 @@ describe("goal extension", () => {
 		}
 	});
 
-	it("reports pending input instead of an error stop", async () => {
+	it("silently prioritizes pending input over an error stop", async () => {
 		const harness = createGoalHarness(cwd, { hasPendingMessages: true });
 
 		await harness.runCommand("set process queued input");
 		harness.appendEntry.mockClear();
 		await harness.runAgentEnd([createAssistantMessage("", "error")]);
 
-		expect(harness.appendEntry).toHaveBeenCalledWith(
-			"supervisor-status",
-			expect.objectContaining({
-				message: "Goal continuation deferred: pending input will run next.",
-			}),
-		);
-		expect(harness.appendEntry).not.toHaveBeenCalledWith(
-			"supervisor-status",
-			expect.objectContaining({
-				message: "Goal continuation skipped: the model turn ended with an error.",
-			}),
-		);
+		expect(harness.appendEntry).not.toHaveBeenCalled();
 	});
 
 	it("cancels deferred error status when input becomes pending", async () => {
@@ -2752,13 +2740,37 @@ describe("goal extension", () => {
 		expect(goal.pausedAt).toBeUndefined();
 		expect(harness.setStatus).not.toHaveBeenCalledWith("goal", "goal paused: continue after steering abort");
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
-		expect(harness.appendEntry).toHaveBeenCalledWith(
-			"supervisor-status",
-			expect.objectContaining({
-				message: "Goal continuation deferred: pending input will run next.",
-			}),
-		);
+		expect(harness.appendEntry).not.toHaveBeenCalled();
 	});
+
+	it.each(["aborted", "error", "stop", "length"] as const)(
+		"clears an existing empty retry silently when input is pending at %s agent_end",
+		async (stopReason) => {
+			vi.useFakeTimers();
+			try {
+				let pending = false;
+				const reviewGoal = vi.fn<GoalSupervisorReview>();
+				const harness = createGoalHarness(cwd, { hasPendingMessages: () => pending, reviewGoal });
+				await harness.runCommand("set prefer pending input to empty retry");
+				harness.sendUserMessage.mockClear();
+				await harness.runAgentEnd([createAssistantMessage("", "stop")]);
+
+				pending = true;
+				await harness.runAgentEnd([createAssistantMessage("", stopReason)]);
+				pending = false;
+				await vi.advanceTimersByTimeAsync(1_000);
+
+				expect(harness.sendUserMessage).not.toHaveBeenCalled();
+				expect(harness.sendMessage).not.toHaveBeenCalled();
+				expect(harness.appendEntry).not.toHaveBeenCalled();
+				expect(reviewGoal).not.toHaveBeenCalled();
+				expect(readStoredGoal<Goal>(cwd)).toMatchObject({ objective: "prefer pending input to empty retry" });
+				expect(readStoredGoal<Goal>(cwd).pausedAt).toBeUndefined();
+			} finally {
+				vi.useRealTimers();
+			}
+		},
+	);
 
 	it("keeps the active goal running when the agent turn is aborted without pending input", async () => {
 		const harness = createGoalHarness(cwd);
