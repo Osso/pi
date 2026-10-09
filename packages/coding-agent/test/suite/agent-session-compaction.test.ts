@@ -1487,9 +1487,13 @@ describe("AgentSession compaction characterization", () => {
 				return { content: [{ type: "text", text: "tool completed" }], details: {} };
 			},
 		};
+		// Faux usage counts the production system prompt and tool schemas, so the run must stay
+		// between the 70% background trigger (7,000) and the threshold (9,000) with wide margins.
+		const contextWindow = 10_000;
+		const reserveTokens = 1_000;
 		const harness = await createHarness({
-			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 200 } },
-			models: [{ id: "faux-1", contextWindow: 1_000, maxTokens: 100 }],
+			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens } },
+			models: [{ id: "faux-1", contextWindow, maxTokens: 100 }],
 			tools: [compactableTool],
 			extensionFactories: [
 				(pi) => {
@@ -1504,7 +1508,7 @@ describe("AgentSession compaction characterization", () => {
 		const historyTimestamp = Date.now() - 1_000;
 		harness.sessionManager.appendMessage({
 			role: "user",
-			content: [{ type: "text", text: "older turn to compact" }],
+			content: [{ type: "text", text: `older turn to compact ${"x".repeat(27_200)}` }],
 			timestamp: historyTimestamp,
 		});
 		const historyAssistant = createAssistant(harness, {
@@ -1523,6 +1527,10 @@ describe("AgentSession compaction characterization", () => {
 		]);
 
 		await expect(harness.session.prompt("run multiple tool cycles")).resolves.toBeUndefined();
+		const finalAssistant = [...harness.session.messages].reverse().find((message) => message.role === "assistant");
+		expect(finalAssistant?.role === "assistant" ? finalAssistant.usage.totalTokens : 0).toBeLessThan(
+			contextWindow - reserveTokens,
+		);
 		expect(compactionCalls).toBe(1);
 		expect(errorSpy).toHaveBeenCalledTimes(1);
 		expect(errorSpy).toHaveBeenCalledWith(
