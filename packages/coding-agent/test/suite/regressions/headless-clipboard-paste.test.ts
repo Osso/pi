@@ -35,6 +35,35 @@ async function stopBridge(child: ChildProcessWithoutNullStreams): Promise<void> 
 	}
 }
 
+function createHeadlessClipboardEnvironment(
+	paths: ReturnType<typeof createHeadlessPaths>,
+	binDir: string,
+	clipboardDir: string,
+	cacheDir: string,
+): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = {
+		...process.env,
+		PATH: `${binDir}:${process.env.PATH ?? ""}`,
+		TMPDIR: clipboardDir,
+		XDG_SESSION_TYPE: "tty",
+		NODE_COMPILE_CACHE: cacheDir,
+		PI_CODING_AGENT_DIR: paths.agentDir,
+		PI_CODING_AGENT_STATE_DIR: paths.agentDir,
+		PI_CODING_AGENT_SESSION_DIR: paths.sessionDir,
+		PI_HEADLESS_PROVIDER_SOCKET: paths.socketPath,
+		PI_TUI_WRITE_LOG: "",
+		PI_DEBUG_REDRAW: "0",
+		PI_TUI_DEBUG: "0",
+		TERM: "xterm-256color",
+		NO_COLOR: "1",
+	};
+	const displayVariables = new Set(["DISPLAY", "WAYLAND_DISPLAY", "TERMUX_VERSION"]);
+	for (const key of Object.keys(env)) {
+		if (displayVariables.has(key) || key.startsWith("WSL")) delete env[key];
+	}
+	return env;
+}
+
 it.skipIf(process.platform !== "linux")(
 	"pastes exact PNG bytes through real interactive Ctrl+V without a display and leaves missing clipboard unchanged",
 	async () => {
@@ -68,27 +97,7 @@ else:
 `,
 			{ mode: 0o755 },
 		);
-		const env: NodeJS.ProcessEnv = {
-			...process.env,
-			PATH: `${binDir}:${process.env.PATH ?? ""}`,
-			TMPDIR: clipboardDir,
-			XDG_SESSION_TYPE: "tty",
-			NODE_COMPILE_CACHE: cacheDir,
-			PI_CODING_AGENT_DIR: paths.agentDir,
-			PI_CODING_AGENT_STATE_DIR: paths.agentDir,
-			PI_CODING_AGENT_SESSION_DIR: paths.sessionDir,
-			PI_HEADLESS_PROVIDER_SOCKET: paths.socketPath,
-			PI_TUI_WRITE_LOG: "",
-			PI_DEBUG_REDRAW: "0",
-			PI_TUI_DEBUG: "0",
-			TERM: "xterm-256color",
-			NO_COLOR: "1",
-		};
-		for (const key of Object.keys(env)) {
-			if (key === "DISPLAY" || key === "WAYLAND_DISPLAY" || key.startsWith("WSL") || key === "TERMUX_VERSION") {
-				delete env[key];
-			}
-		}
+		const env = createHeadlessClipboardEnvironment(paths, binDir, clipboardDir, cacheDir);
 		const terminal = new VirtualTerminal(160, 24);
 		let bridge: ChildProcessWithoutNullStreams | undefined;
 		let provider: Awaited<ReturnType<typeof createProviderServer>> | undefined;

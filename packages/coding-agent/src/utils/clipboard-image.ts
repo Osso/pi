@@ -251,6 +251,25 @@ async function readClipboardImageViaNativeClipboard(): Promise<ClipboardImage | 
 	return { bytes, mimeType: "image/png" };
 }
 
+async function readClipboardImageOnLinux(env: NodeJS.ProcessEnv): Promise<ClipboardImage | null> {
+	const wsl = isWSL(env);
+	const wayland = isWaylandSession(env);
+	let image: ClipboardImage | null = null;
+
+	if (wayland || wsl) {
+		image = readClipboardImageViaWlPaste() ?? readClipboardImageViaXclip();
+	} else if (!env.DISPLAY) {
+		image = readClipboardImageViaWlPaste();
+	}
+	if (!image && wsl) {
+		image = readClipboardImageViaPowerShell();
+	}
+	if (!image && !wayland) {
+		image = await readClipboardImageViaNativeClipboard();
+	}
+	return image;
+}
+
 export async function readClipboardImage(options?: {
 	env?: NodeJS.ProcessEnv;
 	platform?: NodeJS.Platform;
@@ -262,28 +281,8 @@ export async function readClipboardImage(options?: {
 		return null;
 	}
 
-	let image: ClipboardImage | null = null;
-
-	if (platform === "linux") {
-		const wsl = isWSL(env);
-		const wayland = isWaylandSession(env);
-
-		if (wayland || wsl) {
-			image = readClipboardImageViaWlPaste() ?? readClipboardImageViaXclip();
-		} else if (!env.DISPLAY) {
-			image = readClipboardImageViaWlPaste();
-		}
-
-		if (!image && wsl) {
-			image = readClipboardImageViaPowerShell();
-		}
-
-		if (!image && !wayland) {
-			image = await readClipboardImageViaNativeClipboard();
-		}
-	} else {
-		image = await readClipboardImageViaNativeClipboard();
-	}
+	const image =
+		platform === "linux" ? await readClipboardImageOnLinux(env) : await readClipboardImageViaNativeClipboard();
 
 	if (!image) {
 		return null;

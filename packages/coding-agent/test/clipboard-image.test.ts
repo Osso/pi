@@ -1,6 +1,7 @@
 import type { SpawnSyncReturns } from "child_process";
 import { writeFileSync } from "fs";
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { readClipboardImage } from "../src/utils/clipboard-image.ts";
 
 const mocks = vi.hoisted(() => {
 	return {
@@ -49,7 +50,6 @@ function spawnError(error: Error): SpawnSyncReturns<Buffer> {
 
 describe("readClipboardImage", () => {
 	beforeEach(() => {
-		vi.resetModules();
 		mocks.spawnSync.mockReset();
 		mocks.clipboard.hasImage.mockReset();
 		mocks.clipboard.getImageBinary.mockReset();
@@ -70,7 +70,6 @@ describe("readClipboardImage", () => {
 			throw new Error(`Unexpected spawnSync call: ${command} ${args.join(" ")}`);
 		});
 
-		const { readClipboardImage } = await import("../src/utils/clipboard-image.ts");
 		const result = await readClipboardImage({ platform: "linux", env: { WAYLAND_DISPLAY: "1" } });
 		expect(result).not.toBeNull();
 		expect(result?.mimeType).toBe("image/png");
@@ -101,7 +100,6 @@ describe("readClipboardImage", () => {
 			return spawnOk(Buffer.alloc(0));
 		});
 
-		const { readClipboardImage } = await import("../src/utils/clipboard-image.ts");
 		const result = await readClipboardImage({ platform: "linux", env: { XDG_SESSION_TYPE: "wayland" } });
 		expect(result).not.toBeNull();
 		expect(result?.mimeType).toBe("image/png");
@@ -138,7 +136,6 @@ describe("readClipboardImage", () => {
 			throw new Error(`Unexpected spawnSync call: ${command} ${args.join(" ")}`);
 		});
 
-		const { readClipboardImage } = await import("../src/utils/clipboard-image.ts");
 		const result = await readClipboardImage({ platform: "linux", env: { WSL_DISTRO_NAME: "Ubuntu" } });
 		expect(result).not.toBeNull();
 		expect(result?.mimeType).toBe("image/png");
@@ -160,7 +157,6 @@ describe("readClipboardImage", () => {
 			throw new Error(`Unexpected clipboard command: ${command} ${args.join(" ")}`);
 		});
 
-		const { readClipboardImage } = await import("../src/utils/clipboard-image.ts");
 		const result = await readClipboardImage({ platform: "linux", env: { XDG_SESSION_TYPE: "tty" } });
 		expect(result?.mimeType).toBe("image/png");
 		expect(Buffer.from(result?.bytes ?? [])).toEqual(png);
@@ -174,7 +170,6 @@ describe("readClipboardImage", () => {
 		mocks.clipboard.hasImage.mockReturnValue(true);
 		mocks.clipboard.getImageBinary.mockResolvedValue(new Uint8Array([7]));
 
-		const { readClipboardImage } = await import("../src/utils/clipboard-image.ts");
 		const result = await readClipboardImage({ platform: "linux", env: { DISPLAY: ":0" } });
 		expect(result).not.toBeNull();
 		expect(result?.mimeType).toBe("image/png");
@@ -188,7 +183,6 @@ describe("readClipboardImage", () => {
 
 		mocks.clipboard.hasImage.mockReturnValue(false);
 
-		const { readClipboardImage } = await import("../src/utils/clipboard-image.ts");
 		const result = await readClipboardImage({ platform: "linux", env: { DISPLAY: ":0" } });
 		expect(result).toBeNull();
 	});
