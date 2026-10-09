@@ -268,6 +268,7 @@ describe("Codex metadata diagnostics", () => {
 			undefined,
 			undefined,
 		],
+		[{ error: { code: "server_error\n", request_id: "req_injected\n" } }, undefined, undefined],
 		[{ message: `arbitrary secret text ${requestId}` }, undefined, undefined],
 		[{}, undefined, undefined],
 	] as const)("bounds metadata and omits unrecognized or secret fields (%#)", async (payload, code, id) => {
