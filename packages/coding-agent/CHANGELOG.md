@@ -182,6 +182,7 @@
 
 ### Fixed
 
+- Fixed configured compaction thresholds such as 50% being skipped during long tool-bearing turns: check after completed tool results are committed and before the next provider request, preserving coherent tool-call/output pairs and active-turn continuation without interrupting streaming or unfinished tools; no ready speculative cache is required.
 - Fixed image paste on headless Linux to query an existing `wl-paste` clipboard bridge without `DISPLAY` or `WAYLAND_DISPLAY`; no fake display, new flag, or setting is required.
 - Fixed thinking-steering goal handling so queued replacement input runs next silently before abort, error-stop, or empty-response processing, without a local Supervisor deferral status or resident review request. Explicit no-input abort still reports continuation skipped; the independent Escape contract is unchanged.
 - Fixed Supervisor answers appearing in a separate duplicate `[Supervisor]` block: the answer replaces `Waiting for Supervisor…` in the same displayed block, without changing continuation payload or delivery.

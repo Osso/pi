@@ -34,6 +34,8 @@ Automatic threshold compaction uses the first applicable rule:
 
 `thresholdPercent` must be a finite number greater than 0 and at most 100; fractional percentages are supported. Equality triggers compaction, including at 100%. Omission preserves the existing model/reserve defaults.
 
+During a running tool-bearing turn, Pi checks the configured threshold after current tool results are completed and committed, before the subsequent provider request. Compaction preserves coherent tool-call/output pairs and continues the same active turn with compacted context. It does not interrupt an in-flight provider stream or uncommitted tool execution. A 50% threshold therefore applies at this safe boundary without waiting for the whole turn to end or for a speculative 70% cache to become ready; usage can cross the threshold while the current response or tools finish.
+
 Set `"compaction": { "thresholdPercent": 50 }` in `~/.pi/agent/settings.json` to apply 50% across projects and models. Trusted `<project-dir>/.pi/settings.json` values can override the global setting; see [settings.md](settings.md#compaction).
 
 `reserveTokens` defaults to 16384 and still controls summarization output budgets even with a percentage configured. `keepRecentTokens` remains unchanged. The percentage does not change the separate speculative 70% cache boundary or add a UI control.
