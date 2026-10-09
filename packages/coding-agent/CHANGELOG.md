@@ -518,7 +518,8 @@
 - Fixed non-supervisor agent runtimes to deny the `manage_goal` capability even when an external extension re-registers the tool; spawned, attached, `/bg`, and Architect runtimes now exclude it while supervisors retain it.
 - Fixed disabled compaction handlers returning no result to fail explicitly without invoking built-in compaction.
 - Fixed live session-ownership conflicts to explain that another Pi process has the session open, include its PID and verified cwd when available, and suggest starting or selecting another session.
-- Fixed unknown slash commands to fail with `Unknown slash command: /name` instead of being sent to the model.
+- Fixed unknown slash commands to fail with `Unknown slash command: /name` instead of being sent to the model; idle and streaming Enter/Alt+Enter submissions render feedback inside the TUI without an uncaught stack, retaining editor history and subsequent input usability.
+- Documented pending self-restart selection correction: persist current provider/model/thinking before teardown and ignore stale parsed launch selection only for validated restart handoffs; initial CLI overrides and child profile/session arguments remain unchanged. Implementation and real-process verification are pending.
 - Fixed Codex paired-provider quota fallback to stay session-local without rewriting global defaults, require failed-message provider/model provenance, use narrowed quota matching, emit `model_select` source `fallback`, and continue the interrupted request without exposing retry state through the extension `agent_end` event.
 - Fixed spawned child dispatches leaving steering pending when it races with end-of-turn completion; child terminalization now drains runtime coordination first.
 - Fixed Ctrl+D session deletion leaving trashed sessions in metadata-backed resume lists.

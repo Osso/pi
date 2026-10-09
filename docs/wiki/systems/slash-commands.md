@@ -10,6 +10,10 @@ Unknown names throw `Unknown slash command: /name` before input hooks, provider 
 
 [`InteractiveMode`](../../../packages/coding-agent/src/modes/interactive/interactive-mode.ts) separately handles built-ins and constructs completion from [`BUILTIN_SLASH_COMMANDS`](../../../packages/coding-agent/src/core/slash-commands.ts), templates, registered extension invocation names, and enabled skill commands. Extension-name collisions with interactive built-ins produce warnings. [`RPC get_commands`](../../../packages/coding-agent/src/modes/rpc/rpc-mode.ts) returns extensions, templates, then skills, with `sourceInfo` provenance; it does not include interactive built-ins.
 
+## Interactive rejection feedback
+
+Commit `e20b2a828` catches streaming `prompt()` rejection for both Enter steering and Alt+Enter follow-up submission and renders `showError` inside the TUI. Idle submission uses existing error handling. The PTY regression covers all four idle/streaming key combinations, no uncaught stack or rejected provider/transcript input, editor recall, and subsequent built-in/template/plain-prompt usability. This does not change direct `steer()`/`followUp()` validation. Test source inspected, not executed here.
+
 ## Limits and unimplemented portions
 
 - Built-in metadata makes a name *known* to `prompt()` but does not execute its interactive handler there. SDK/RPC built-in dispatch parity is unimplemented; use dedicated RPC operations where available.

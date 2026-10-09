@@ -16,6 +16,14 @@ The handoff carries session file, notice, and old PID in `PI_SELF_RESTART_*` env
 
 [main.ts](../../../packages/coding-agent/src/main.ts) reopens the session, handles a deleted cwd by reopening at the existing parent selected by cwd recovery, resolves unfinished trailing tool calls, then appends the typed `self_restart` custom message. Missing results become restart success, detached-job references, or interrupted errors; existing results are not duplicated. The notice is not a user prompt or title/search input. TUI and [RPC startup](../../../packages/coding-agent/src/modes/rpc/rpc-mode.ts) continue interrupted context through `session.continue()`.
 
+## Current-selection bug and planned correction
+
+Confirmed failure: reexec retains launch `--provider`, `--model`, and `--thinking`; explicit startup options override saved metadata. A parent switched from original Luna to current Opus can therefore restart on Luna.
+
+Planned correction, not verified here: persist the runtime's current provider/model/thinking before teardown, then clear only those parsed options when startup accepts a validated self-restart handoff. Keep argv and child profile/session arguments unchanged. Ordinary initial startup retains explicit CLI precedence; invalid handoffs must not change it.
+
+Proposed proof: handoff parsing tests for all three cleared options, retained session/profile arguments, and invalid-handoff/ordinary-startup precedence; a real-process same-PID restart from stale Luna argv to saved Opus/current thinking, with a live child retaining its profile and session identity. These requirements are pending; no passing-test claim.
+
 ## Limits and evidence
 
 In-process replacement is selected when process restart is not requested or persistence is unavailable; it rebuilds the same session and emits restart lifecycle events. **The spec's Print/RPC in-process-only gap note does not match current source:** [print-mode.ts](../../../packages/coding-agent/src/modes/print-mode.ts) and [rpc-mode.ts](../../../packages/coding-agent/src/modes/rpc/rpc-mode.ts) forward restart options unchanged, so a persisted `process: true` request reaches the process restarter there too.

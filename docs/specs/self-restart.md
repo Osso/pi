@@ -35,6 +35,13 @@ runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
   before process handoff and does not append a `self_restart` entry, while a runtime opened as the
   main orchestrator may restart even when its transcript metadata has historical `is_subagent` provenance.
 
+### Current selection across process restart (pending implementation and verification)
+
+- [ ] Persist the current provider, model, and thinking level before process teardown, including a selection inherited at startup that was never changed through a setter.
+- [ ] For a validated self-restart handoff only, clear parsed `provider`, `model`, and `thinking` options so saved current selection wins over stale launch options; retain the original argv, session identity, and child profile/session arguments.
+- [ ] Preserve explicit CLI selection precedence on initial startup and when no valid self-restart handoff exists.
+- [ ] Prove same-process reexec after switching from original Luna launch options to current Opus selection resumes Opus and current thinking; verify a live child's profile/session remain intact across the supervisor restart.
+
 ### First-party Tool
 
 - [x] Register a `/restart` slash command from the first-party extension.

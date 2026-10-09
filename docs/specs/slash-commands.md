@@ -17,6 +17,7 @@ Slash commands provide the user-facing dispatch layer for built-in commands, ext
 
 - [x] Reject an unknown slash command passed to `AgentSession.prompt()` with `Unknown slash command: /name`.
 - [x] Do not send a rejected unknown slash command to the provider or add it as a normal session user message.
+- [x] Render unknown-command feedback inside the interactive TUI for idle and streaming Enter/Alt+Enter without an uncaught stack; preserve editor history and subsequent command/prompt usability.
 - [ ] Reject unknown slash commands consistently when queued through `steer()` or `followUp()`.
 
 ### Discovery and presentation
@@ -44,9 +45,9 @@ Slash commands provide the user-facing dispatch layer for built-in commands, ext
 - `packages/coding-agent/test/suite/agent-session-prompt.test.ts:280-296` — extension command handling and unknown-command rejection.
 - `packages/coding-agent/test/suite/agent-session-prompt.test.ts:312-318` — handled slash-command history persistence.
 
-## Known gaps (current cycle)
+- `packages/coding-agent/test/suite/regressions/interactive-unknown-slash-command.test.ts` — commit `e20b2a828` adds real-process PTY cases for idle/streaming Enter/Alt+Enter, visible feedback, no uncaught stack, no rejected provider/transcript input, editor recall, and subsequent built-in/template/plain-prompt usability. Source inspected; not executed in this docs task.
 
-- [ ] Add direct provider-call assertions for the unknown-command regression.
+## Known gaps (current cycle)
 - [ ] Add SDK/RPC coverage for unknown-command rejection.
 - [ ] Decide whether queued `steer()` and `followUp()` messages should reject unknown slash commands or intentionally treat them as ordinary prompt text.
 
