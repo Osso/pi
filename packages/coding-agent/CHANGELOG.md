@@ -181,6 +181,7 @@
 
 ### Fixed
 
+- Fixed image paste on headless Linux to query an existing `wl-paste` clipboard bridge without `DISPLAY` or `WAYLAND_DISPLAY`; no fake display, new flag, or setting is required.
 - Fixed thinking-steering goal handling so queued replacement input runs next silently before abort, error-stop, or empty-response processing, without a local Supervisor deferral status or resident review request. Explicit no-input abort still reports continuation skipped; the independent Escape contract is unchanged.
 - Fixed Supervisor answers appearing in a separate duplicate `[Supervisor]` block: the answer replaces `Waiting for Supervisor…` in the same displayed block, without changing continuation payload or delivery.
 - Fixed missing creation timestamps on detached status, Pyrun bridge, and coordinator cancellation envelopes so 24-hour mailbox expiry preserves status exchange and cancellation, including after parent restart with a live job; cancellation uses the mutation creation clock, not an old-row fallback. Payloads, routing, and duplicate identity are unchanged.

@@ -55,6 +55,14 @@ Without tmux extended keys, modified Enter keys collapse to legacy sequences:
 
 This affects the default keybindings (`Enter` to submit, `Shift+Enter` for newline) and any custom keybindings using modified Enter.
 
+## Image Paste over SSH
+
+`Ctrl+V` reads the clipboard on the server where Pi runs, not your local desktop. SSH and tmux do not transfer image clipboard contents.
+
+For headless Linux with the remote-agent clipboard bridge installed, run `remote-agent paste` locally to upload the image file to the server-side bridge, then press `Ctrl+V` in Pi. The bridge's `wl-paste` must be on Pi's `PATH`; Pi queries it even when neither `DISPLAY` nor `WAYLAND_DISPLAY` is set. No fake display, Pi flag, or setting is needed.
+
+The remote-agent worker accepts Pi's `wl-paste --list-types` and `wl-paste --type image/png --no-newline` calls while retaining Claude's clipboard forms.
+
 ## Requirements
 
 - tmux 3.5 or later for `extended-keys-format csi-u` (run `tmux -V` to check)
