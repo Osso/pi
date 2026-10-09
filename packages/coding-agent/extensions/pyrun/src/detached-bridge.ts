@@ -140,6 +140,7 @@ function persistBridgeMessage(input: {
 		kind: "system",
 		message: {
 			body: JSON.stringify(input.body),
+			createdAt: new Date().toISOString(),
 			fromAgentId: input.fromAgentId,
 			id: input.messageId,
 			kind: "system",

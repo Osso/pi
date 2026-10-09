@@ -406,6 +406,7 @@ describe("detached Pyrun runner", () => {
 				if (!cancelling.ok) return;
 				upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, "message_1", {
 					body: JSON.stringify({ command: "cancel", identity: ownership.identity, reason: "test cancellation" }),
+					createdAt: new Date().toISOString(),
 					fromAgentId: "main",
 					id: "message_1",
 					kind: "system",

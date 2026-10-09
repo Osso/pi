@@ -1,16 +1,20 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	claimDetachedJobControlCommands,
 	claimDetachedJobRuntimeCommands,
 	enqueueDetachedJobStatusRequest,
+	enqueueDetachedJobStatusResponse,
 } from "../src/core/detached-job-control.ts";
 import type { DetachedJobOwnershipIdentity } from "../src/core/detached-job-runner.ts";
 import {
+	claimRuntimeMailboxMessages,
+	deliverRuntimeMailboxMessage,
 	enqueueRuntimeMailboxMessage,
 	listRuntimeMailboxMessages,
+	readRuntimeMailboxMessage,
 	registerRuntimeMailboxListener,
 	upsertMultiAgentMailboxMessage,
 } from "../src/core/session-control-db.ts";
@@ -25,10 +29,57 @@ const identity: DetachedJobOwnershipIdentity = {
 };
 
 afterEach(() => {
+	vi.useRealTimers();
 	for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { force: true, recursive: true });
 });
 
 describe("detached job runtime mailbox control", () => {
+	it.each(["request", "response"] as const)(
+		"expires a status %s exactly 24 hours after birth, not delivery",
+		(command) => {
+			vi.useFakeTimers();
+			const bornAt = Date.parse("2026-10-08T12:00:00.000Z");
+			vi.setSystemTime(bornAt);
+			const fixture = createFixture();
+			const requesterAddress = { agentId: null, sessionId: "supervisor-1" };
+			registerRuntimeMailboxListener(fixture.controlDbPath, requesterAddress, process.pid);
+			const input = {
+				controlDbPath: fixture.controlDbPath,
+				identity,
+				requestId: "birth-status",
+				runnerAddress: fixture.recipient,
+				sessionPath: fixture.sessionPath,
+			};
+			const id =
+				command === "request"
+					? enqueueDetachedJobStatusRequest({ ...input, requesterAddress })
+					: enqueueDetachedJobStatusResponse({
+							...input,
+							replyTo: requesterAddress,
+							status: { state: "running" },
+						});
+			expect(readRuntimeMailboxMessage(fixture.controlDbPath, id)).toMatchObject({
+				createdAt: new Date(bornAt).toISOString(),
+				status: "pending",
+			});
+			vi.setSystemTime(bornAt + 60 * 60 * 1000);
+			expect(
+				claimRuntimeMailboxMessages(
+					fixture.controlDbPath,
+					command === "request" ? fixture.recipient : requesterAddress,
+				),
+			).toMatchObject([{ id }]);
+			expect(deliverRuntimeMailboxMessage(fixture.controlDbPath, id)).toBe(true);
+			vi.setSystemTime(bornAt + 24 * 60 * 60 * 1000 - 1);
+			expect(readRuntimeMailboxMessage(fixture.controlDbPath, id)).toMatchObject({
+				createdAt: new Date(bornAt).toISOString(),
+				status: "delivered",
+			});
+			vi.setSystemTime(bornAt + 24 * 60 * 60 * 1000);
+			expect(readRuntimeMailboxMessage(fixture.controlDbPath, id)).toBeUndefined();
+		},
+	);
+
 	it("accepts cancellation from the exact owner process and consumes the command", () => {
 		const fixture = createFixture();
 		enqueueControl(fixture, "message_1", {
@@ -118,6 +169,7 @@ function enqueueControl(
 ): void {
 	upsertMultiAgentMailboxMessage(fixture.controlDbPath, fixture.sessionPath, messageId, {
 		body: JSON.stringify(body),
+		createdAt: new Date().toISOString(),
 		fromAgentId: "main",
 		id: messageId,
 		kind: "system",

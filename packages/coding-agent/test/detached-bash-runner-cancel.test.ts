@@ -81,6 +81,7 @@ describe("detached Bash runner cancellation", () => {
 		if (!cancelling.ok) return;
 		upsertMultiAgentMailboxMessage(controlDbPath, sessionPath, "message_1", {
 			body: JSON.stringify({ command: "cancel", identity: ownership.identity, reason: "test cancel" }),
+			createdAt: new Date().toISOString(),
 			fromAgentId: "main",
 			id: "message_1",
 			kind: "system",

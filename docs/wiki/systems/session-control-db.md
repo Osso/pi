@@ -40,7 +40,34 @@ agent notifications based on `agent.updatedAt`.
 [AgentSession](../../../packages/coding-agent/src/core/agent-session.ts) prunes the memory projection
 when draining runtime coordination.
 
-Targeted evidence: scope 4, lifecycle mirror 12, core retention 16, and Store retention 3 tests passed.
+New missing/null `createdAt` defaults to now at creation: TypeScript enqueue preparation stamps
+new envelopes; upsert stamps only absent rows. Existing birth remains immutable. Enqueue's private
+`defaultedBirth` flag excludes only generated birth from retry comparison; explicit dates retain
+collision checks. An INSERT-only SQLite trigger, installed after migrations without a schema bump,
+stamps valid-JSON legacy-new missing/null envelopes using UTC now independently of `updated_at`.
+It never backfills preexisting rows or repairs UPDATEs. Existing unknown births still expire;
+supplied invalid/stale dates never default.
+
+Explicit producer timestamps remain at construction: status requests/responses in
+`detached-job-control.ts` and Pyrun requests/responses in `extensions/pyrun/src/detached-bridge.ts`.
+`buildDetachedCancellationMessage` uses `input.updatedAt`, the cancellation mutation's creation
+clock, not a fallback from the old agent row. Payloads, routing, duplicate identity, and exact
+runner ownership are unchanged.
+
+Producer proof is separate: 8 producer unit tests, 2 selected real-process runner tests, and
+2 headless real-process tests. The headless cases exchange status and deliver coordinator
+cancellation after parent restart while the job remains live, without rerunning the job.
+See the spec's [producer inventory and evidence](../../specs/session-control-db.md#known-gaps-current-cycle).
+
+Latest default-birth evidence: 24 core retention + 4 scope + 145 DB tests = 173 passing tests.
+`packages/coding-agent/test/runtime-mailbox-retention.test.ts` includes a retained legacy SQL
+producer connection writing an undated envelope after parent restart; both legacy SQL and new API
+messages receive fresh, claimable births without rerunning the live job. This exercises the legacy
+INSERT contract through Python sqlite3, not an archived bridge binary.
+Earlier 320-test evidence and producer 8 + real-process 2 + headless 2 evidence remain separate;
+none establishes deployment.
+
+Earlier targeted evidence: scope 4, lifecycle mirror 12, core retention 16, and Store retention 3 tests passed.
 The Store/retention/real-process restart run passed 56/56, including all 9 real-process crash/restart
 tests. Exact backing paths appear in the spec's [current-cycle evidence](../../specs/session-control-db.md#known-gaps-current-cycle).
 Final integration verification remains pending; no deployment is established.

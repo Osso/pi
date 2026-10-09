@@ -23,7 +23,7 @@
 
 ### Changed
 
-- Expire all canonical multi-agent mailbox messages after 24 hours from creation, including pending/claimed messages and missing or invalid creation times; clean on database initialization and every 60 seconds while retained, preventing stale replay, delivery, and resurrection. Transcripts and shared-channel history are unchanged.
+- Expire all canonical multi-agent mailbox messages after 24 hours from creation, including pending/claimed messages and preexisting unknown or invalid creation times; clean on database initialization and every 60 seconds while retained, preventing stale replay, delivery, and resurrection. Default missing/null creation dates once for genuinely new messages, including legacy SQL inserts from live jobs; preserve existing birth on updates and duplicate retries, never default supplied invalid/stale dates, and never backfill or repair old unknown births from mutation timestamps. Transcripts and shared-channel history are unchanged.
 - `end_turn` guidance now tells the model that thinking is never shown to the user, so replies must be written as text instead of only in thinking.
 - `ask_questions` transcript rows now list each question with its answer (or `(cancelled)`), visible even when `hideToolOutput` is enabled.
 - `ask_questions` now shows all questions in one tabbed panel: left/right (or tab/shift+tab) move between questions, earlier answers stay selected and can be changed, and a Submit tab sends them. Tab keys are configurable as `app.questions.next` / `app.questions.previous`.
@@ -181,6 +181,7 @@
 
 ### Fixed
 
+- Fixed missing creation timestamps on detached status, Pyrun bridge, and coordinator cancellation envelopes so 24-hour mailbox expiry preserves status exchange and cancellation, including after parent restart with a live job; cancellation uses the mutation creation clock, not an old-row fallback. Payloads, routing, and duplicate identity are unchanged.
 - Fixed terminal lifecycle duplicate lookup scanning unrelated mailbox history by selecting only the owning session, preserving duplicate matching and global administrative listing.
 - Fixed session autoname failing on claude-bridge with `prompt-capture: no capture for this ... system prompt`: the title request is now marked as an uncached one-off call (`cacheRetention: "none"`), which claude-bridge routes outside the session like Pi's summarizer calls.
 - Fixed viewed sub-agents showing `effort off` while running at another effort: spawned children now record their starting effort (the profile's level, else `medium`) and publish their effective model and clamped effort to the agent record at run start and on every model or effort change.

@@ -1,10 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
+import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isMailboxMessageExpired, MAILBOX_MESSAGE_RETENTION_MS } from "../src/core/mailbox-retention.ts";
 import {
@@ -12,6 +13,7 @@ import {
 	consumeRuntimeMailboxMessageByStoreRef,
 	deliverRuntimeMailboxMessage,
 	enqueueStoredRuntimeMailboxMessage,
+	getControlDbPath,
 	getMultiAgentMailboxMessageStatus,
 	listRuntimeMailboxMessages,
 	markMultiAgentMailboxMessageDelivered,
@@ -24,6 +26,7 @@ import {
 	upsertMultiAgentMailboxMessage,
 } from "../src/core/session-control-db.ts";
 import { createSqliteDatabase, type SqliteDatabase } from "../src/core/sqlite.ts";
+import { withHeadlessPi } from "./suite/headless-pi.ts";
 
 const now = Date.parse("2026-10-08T12:00:00.000Z");
 const day = 24 * 60 * 60 * 1000;
@@ -98,11 +101,11 @@ describe("canonical mailbox creation-age retention", () => {
 		rmSync(directory, { recursive: true, force: true });
 	});
 
-	it("startup deletes every status at the exact boundary, missing and invalid dates, never update age", () => {
+	it("startup deletes every status at the exact boundary and invalid dates, never update age", () => {
 		for (const status of ["pending", "claimed", "accepted", "rejected", "delivered", "failed"]) {
 			insert(db, status, new Date(now - day).toISOString(), status);
 		}
-		for (const [index, date] of [undefined, null, "invalid", "", 42].entries()) insert(db, `invalid-${index}`, date);
+		for (const [index, date] of ["invalid", "", 42].entries()) insert(db, `invalid-${index}`, date);
 		insert(db, "fresh", new Date(now - day + 1).toISOString());
 		db.prepare("UPDATE multi_agent_mailbox_messages SET updated_at = ? WHERE message_id = 'fresh'").run(
 			"2000-01-01T00:00:00.000Z",
@@ -110,6 +113,124 @@ describe("canonical mailbox creation-age retention", () => {
 		releases.push(retainControlDbConnection(path));
 		expect(rows(db)).toEqual(["fresh"]);
 	});
+
+	it("startup deletes unknown-age rows from the old schema without repairing them", () => {
+		const oldPath = join(directory, "old-control.sqlite");
+		const oldDb = createSqliteDatabase(oldPath);
+		try {
+			oldDb.exec(`CREATE TABLE multi_agent_mailbox_messages (
+				session_path TEXT NOT NULL, message_id TEXT NOT NULL, data TEXT NOT NULL,
+				updated_at TEXT NOT NULL, PRIMARY KEY (session_path, message_id));
+				PRAGMA user_version = 15;`);
+			insert(oldDb, "missing", undefined);
+			insert(oldDb, "null", null);
+			insert(oldDb, "fresh", new Date(now).toISOString());
+			releases.push(retainControlDbConnection(oldPath));
+			expect(rows(oldDb)).toEqual(["fresh"]);
+		} finally {
+			oldDb.close();
+		}
+	});
+
+	it.each([undefined, null])(
+		"new API messages default %s birth once and retain it on duplicates and updates",
+		(date) => {
+			releases.push(retainControlDbConnection(path));
+			const input = {
+				recipient,
+				sender,
+				kind: "message" as const,
+				storeRef: { sessionPath, messageId: "default-enqueue" },
+				message: message("default-enqueue", date),
+			};
+			const id = enqueueStoredRuntimeMailboxMessage(path, input);
+			expect(readRuntimeMailboxMessage(path, id)?.createdAt).toBe(new Date(now).toISOString());
+			upsertMultiAgentMailboxMessage(path, sessionPath, "default-upsert", message("default-upsert", date));
+			vi.setSystemTime(now + 60_000);
+			expect(enqueueStoredRuntimeMailboxMessage(path, input)).toBe(id);
+			expect(
+				enqueueStoredRuntimeMailboxMessage(path, {
+					...input,
+					message: message("default-enqueue", date === null ? undefined : null),
+				}),
+			).toBe(id);
+			expect(() =>
+				enqueueStoredRuntimeMailboxMessage(path, {
+					...input,
+					message: message("default-enqueue", new Date(now + 60_000).toISOString()),
+				}),
+			).toThrow(/collision/i);
+			upsertMultiAgentMailboxMessage(path, sessionPath, "default-upsert", {
+				...message("default-upsert", date),
+				body: "changed body",
+				status: "accepted",
+			});
+			const stored = db
+				.prepare("SELECT data FROM multi_agent_mailbox_messages WHERE message_id = ?")
+				.get("default-upsert") as { data: string };
+			expect(JSON.parse(stored.data)).toMatchObject({
+				createdAt: new Date(now).toISOString(),
+				body: "changed body",
+				status: "accepted",
+			});
+			expect(readRuntimeMailboxMessage(path, id)?.createdAt).toBe(new Date(now).toISOString());
+		},
+	);
+
+	it("legacy raw inserts default only missing and null births, not supplied invalid or stale dates", () => {
+		vi.useRealTimers();
+		releases.push(retainControlDbConnection(path));
+		const before = Date.now();
+		for (const [id, date] of [
+			["missing", undefined],
+			["null", null],
+			["invalid", "invalid"],
+			["stale", new Date(before - day).toISOString()],
+		] as const)
+			insert(db, id, date);
+		const after = Date.now();
+		for (const id of ["missing", "null"]) {
+			const stored = db
+				.prepare("SELECT rowid AS id, data FROM multi_agent_mailbox_messages WHERE message_id = ?")
+				.get(id) as { id: number; data: string };
+			const payload = JSON.parse(stored.data);
+			expect(Date.parse(payload.createdAt)).toBeGreaterThanOrEqual(before);
+			expect(Date.parse(payload.createdAt)).toBeLessThanOrEqual(after);
+			expect(payload).toEqual({ ...message(id, undefined), createdAt: payload.createdAt });
+			expect(readRuntimeMailboxMessage(path, stored.id)?.body).toBe(`body ${id}`);
+			expect(
+				enqueueStoredRuntimeMailboxMessage(path, {
+					recipient,
+					sender,
+					kind: "message",
+					storeRef: { sessionPath, messageId: id },
+					message: message(id, null),
+				}),
+			).toBe(stored.id);
+		}
+		expect(listRuntimeMailboxMessages(path).map((entry) => entry.storeRef.messageId)).toEqual(["missing", "null"]);
+		db.prepare(
+			"UPDATE multi_agent_mailbox_messages SET data = json_remove(data, '$.createdAt') WHERE message_id = 'missing'",
+		).run();
+		expect(listRuntimeMailboxMessages(path).map((entry) => entry.storeRef.messageId)).toEqual(["null"]);
+	});
+
+	it.each(["invalid", "", new Date(now - day).toISOString()])(
+		"supplied %s API dates never default to fresh",
+		(date) => {
+			expect(() =>
+				enqueueStoredRuntimeMailboxMessage(path, {
+					recipient,
+					sender,
+					kind: "message",
+					storeRef: { sessionPath, messageId: "invalid" },
+					message: message("invalid", date),
+				}),
+			).toThrow(/expired/i);
+			upsertMultiAgentMailboxMessage(path, sessionPath, "invalid", message("invalid", date));
+			expect(rows(db)).toEqual([]);
+		},
+	);
 
 	it("periodic cleanup follows one retained lifetime and stops after the final release", () => {
 		const release1 = retainControlDbConnection(path);
@@ -326,3 +447,81 @@ console.log(JSON.stringify(listRuntimeMailboxMessages(process.argv[2]).map(messa
 		expect(rows(db)).toEqual([]);
 	});
 });
+
+it("a live legacy SQL producer survives parent restart and exchanges fresh messages with the new API", async () => {
+	await withHeadlessPi(async (agent) => {
+		const startedPath = join(agent.paths.workspaceDir, "legacy-started");
+		const releasePath = join(agent.paths.workspaceDir, "legacy-write");
+		const donePath = join(agent.paths.workspaceDir, "legacy-done");
+		const controlDbPath = getControlDbPath(agent.paths.agentDir);
+		const legacyMessage = message("legacy-restart", undefined);
+		const code = [
+			"from pathlib import Path",
+			"import sqlite3, time",
+			`db = sqlite3.connect(${JSON.stringify(controlDbPath)}, timeout=10)`,
+			`started = Path(${JSON.stringify(startedPath)})`,
+			`release = Path(${JSON.stringify(releasePath)})`,
+			`done = Path(${JSON.stringify(donePath)})`,
+			'started.write_text((started.read_text() if started.exists() else "") + "x")',
+			"while not release.exists(): time.sleep(0.05)",
+			`db.execute("INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at) VALUES (?, ?, ?, ?)", (${JSON.stringify(agent.sessionFile)}, "legacy-restart", ${JSON.stringify(JSON.stringify(legacyMessage))}, "2000-01-01T00:00:00.000Z"))`,
+			"db.commit()",
+			"while not done.exists(): time.sleep(0.05)",
+			"db.close()",
+		].join("\n");
+		await agent.send({ type: "prompt", message: "Run the legacy SQL producer" });
+		const initial = await agent.waitForLlmRequest((request) => request.agentId === null);
+		agent.respondToLlmRequest(
+			initial.id,
+			fauxAssistantMessage(fauxToolCall("pyrun_eval", { code }), { stopReason: "toolUse" }),
+		);
+		await vi.waitFor(() => expect(existsSync(startedPath)).toBe(true), { timeout: 30_000 });
+		const runnerPids = agent.getPyrunRunnerPids();
+		expect(runnerPids.length).toBeGreaterThan(0);
+		void agent.send({ type: "prompt", message: "/restart" }).catch(() => undefined);
+		const restored = await agent.waitForLlmRequest(
+			(request) =>
+				request.agentId === null && JSON.stringify(request.messages).includes("The agent process was restarted"),
+		);
+		const job = await agent.waitForAgent(
+			(candidate) => candidate.displayName === "Pyrun evaluation" && candidate.lifecycle === "running",
+		);
+		expect(restored.messages.filter((entry) => entry.role === "toolResult")).toMatchObject([
+			{ isError: false, details: { backgroundJobId: job.id } },
+		]);
+		expect(agent.getPyrunRunnerPids()).toEqual(runnerPids);
+		agent.respondToLlmRequest(
+			restored.id,
+			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Wait for legacy producer" }), {
+				stopReason: "toolUse",
+			}),
+		);
+		registerRuntimeMailboxListener(controlDbPath, recipient, process.pid);
+		const before = Date.now();
+		writeFileSync(releasePath, "write");
+		await vi.waitFor(
+			() =>
+				expect(
+					listRuntimeMailboxMessages(controlDbPath).some((entry) => entry.storeRef.messageId === "legacy-restart"),
+				).toBe(true),
+			{ timeout: 10_000 },
+		);
+		enqueueStoredRuntimeMailboxMessage(controlDbPath, {
+			recipient,
+			sender,
+			kind: "message",
+			storeRef: { sessionPath: agent.sessionFile, messageId: "new-restart" },
+			message: message("new-restart", null),
+		});
+		const received = claimRuntimeMailboxMessages(controlDbPath, recipient);
+		expect(received.map((entry) => entry.storeRef.messageId)).toEqual(["legacy-restart", "new-restart"]);
+		for (const entry of received) {
+			expect(Date.parse(entry.createdAt)).toBeGreaterThanOrEqual(before);
+			expect(Date.parse(entry.createdAt)).toBeLessThanOrEqual(Date.now());
+			expect(entry.body).toBe(`body ${entry.storeRef.messageId}`);
+		}
+		expect(readFileSync(startedPath, "utf8")).toBe("x");
+		writeFileSync(donePath, "done");
+		await agent.waitForAgent((candidate) => candidate.id === job.id && candidate.lifecycle === "completed");
+	});
+}, 90_000);

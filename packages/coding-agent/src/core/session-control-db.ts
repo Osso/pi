@@ -514,6 +514,7 @@ function routeRuntimeMailboxMessage(db: SqliteDatabase, input: EnqueueRuntimeMai
 }
 
 type PreparedStoredRuntimeMailboxMessage = {
+	defaultedBirth: boolean;
 	context: string;
 	routed: Record<string, unknown>;
 	serialized: string;
@@ -536,9 +537,12 @@ function prepareStoredRuntimeMailboxMessage(
 	const context = `multi_agent_mailbox_messages:${input.storeRef.sessionPath}#${input.storeRef.messageId}`;
 	validateMailboxPayload(input.message, context);
 	const incoming = parseStoredJsonObject(JSON.stringify(input.message), context);
+	const defaultedBirth = incoming.createdAt == null;
+	if (defaultedBirth) incoming.createdAt = new Date().toISOString();
 	const routed = addRuntimeMailboxRouting(incoming, input);
 	assertMailboxMessageFresh(routed, context);
 	return {
+		defaultedBirth,
 		context,
 		routed,
 		serialized: JSON.stringify(routed),
@@ -590,7 +594,11 @@ function validateExistingStoredRuntimeMailboxMessage(
 		throw new Error(`Mailbox message ID collision: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`);
 	}
 	assertRuntimeMailboxRouting(previous, input);
-	if (stripRuntimeMailboxDeliveryState(existing.data) !== stripRuntimeMailboxDeliveryState(prepared.serialized)) {
+	// Omitted birth is not a new identity on retries; explicit dates still participate in collision checks.
+	if (
+		stripRuntimeMailboxDeliveryState(existing.data, prepared.defaultedBirth) !==
+		stripRuntimeMailboxDeliveryState(prepared.serialized, prepared.defaultedBirth)
+	) {
 		throw new Error(`Mailbox message ID collision: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`);
 	}
 	return { id: existing.id, listener: undefined };
@@ -623,7 +631,7 @@ function assertRuntimeMailboxRouting(message: Record<string, unknown>, input: En
 	);
 }
 
-function stripRuntimeMailboxDeliveryState(serialized: string): string {
+function stripRuntimeMailboxDeliveryState(serialized: string, omitDefaultedBirth: boolean): string {
 	const message = parseStoredJsonObject(serialized, "runtime_mailbox_identity");
 	const { claimedAt, claimantProcessIdentity, deliveredAt, error, status, updatedAt, ...identity } = message;
 	void claimedAt;
@@ -632,6 +640,7 @@ function stripRuntimeMailboxDeliveryState(serialized: string): string {
 	void error;
 	void status;
 	void updatedAt;
+	if (omitDefaultedBirth) delete identity.createdAt;
 	return JSON.stringify(identity);
 }
 
@@ -4197,6 +4206,7 @@ function buildDetachedCancellationMessage(
 	return {
 		message: JSON.stringify({
 			body,
+			createdAt: input.updatedAt,
 			fromAgentId: "main",
 			id: messageId,
 			kind: "system",
@@ -5922,7 +5932,8 @@ export function upsertMultiAgentMailboxMessage(
 	data: unknown,
 ): void {
 	validateMailboxPayload(data, `multi_agent_mailbox_messages:${sessionPath}#${id}`);
-	if (isMailboxMessageExpired((data as Record<string, unknown>).createdAt, Date.now())) return;
+	const createdAt = (data as Record<string, unknown>).createdAt;
+	if (createdAt != null && isMailboxMessageExpired(createdAt, Date.now())) return;
 	withControlDb(controlDbPath, (db) => {
 		for (let attempt = 1; attempt <= MULTI_AGENT_MAILBOX_UPSERT_MAX_ATTEMPTS; attempt += 1) {
 			const plan = prepareMultiAgentMailboxUpsert(db, sessionPath, id, data);
@@ -5956,6 +5967,8 @@ function prepareMultiAgentMailboxUpsert(
 			throw new Error(`Mailbox message ID collision: ${sessionPath}#${id}`);
 		}
 		serialized = JSON.stringify(mergeCanonicalMailboxUpdate(previous, next));
+	} else if ((data as Record<string, unknown>).createdAt == null) {
+		serialized = JSON.stringify({ ...(data as Record<string, unknown>), createdAt: new Date().toISOString() });
 	}
 	return { existing, parentTarget, serialized };
 }
@@ -6172,6 +6185,7 @@ function validateMailboxPayload(data: unknown, context: string): void {
 	}
 	rejectLegacyArtifactFields(data, context);
 	for (const field of ["id", "fromAgentId", "toAgentId", "kind", "status", "createdAt", "updatedAt"] as const) {
+		if (field === "createdAt" && payload[field] === null) continue;
 		if (payload[field] !== undefined) {
 			requireStringField(payload, field, context);
 		}
@@ -6756,6 +6770,16 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 	migrateLegacySessionNames(db, selfRestartProcessId);
 	addMissingRuntimeMailboxListenerColumns(db);
 	addMissingArchitectRequestColumns(db);
+	// Already-running legacy producers insert directly. Only new undated rows receive birth.
+	db.exec(`CREATE TRIGGER IF NOT EXISTS multi_agent_mailbox_default_birth
+		AFTER INSERT ON multi_agent_mailbox_messages
+		WHEN CASE WHEN json_valid(NEW.data) THEN
+			COALESCE(json_type(NEW.data, '$.createdAt'), 'null') = 'null' ELSE 0 END
+		BEGIN
+			UPDATE multi_agent_mailbox_messages
+			SET data = json_set(NEW.data, '$.createdAt', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+			WHERE rowid = NEW.rowid;
+		END`);
 	db.exec(`CREATE INDEX IF NOT EXISTS multi_agent_mailbox_created_at_ms_idx
 		ON multi_agent_mailbox_messages(${MAILBOX_CREATED_AT_MS_SQL})`);
 	cleanupExpiredMailboxMessages(db);
