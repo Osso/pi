@@ -1,4 +1,4 @@
-import type { Transport } from "./types.ts";
+export type Transport = "sse" | "websocket" | "websocket-cached" | "auto";
 
 /** Metadata-only observation of an actual failed provider attempt. No raw error or content fields. */
 export interface ProviderDiagnosticEvent {

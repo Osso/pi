@@ -4,8 +4,8 @@ import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	createProviderDiagnosticsLogger,
-	serializeProviderDiagnostic,
 	type ProviderDiagnosticInput,
+	serializeProviderDiagnostic,
 } from "../src/core/provider-diagnostics.ts";
 
 const model = { api: "openai-codex-responses", provider: "openai-codex-team", id: "gpt-6-astra" };

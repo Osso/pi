@@ -7,10 +7,11 @@ import type { MistralOptions } from "./api/mistral-conversations.ts";
 import type { OpenAICodexResponsesOptions } from "./api/openai-codex-responses.ts";
 import type { OpenAICompletionsOptions } from "./api/openai-completions.ts";
 import type { OpenAIResponsesOptions } from "./api/openai-responses.ts";
-import type { ProviderDiagnosticEvent } from "./provider-diagnostic-event.ts";
+import type { ProviderDiagnosticEvent, Transport } from "./provider-diagnostic-event.ts";
 import type { AssistantMessageDiagnostic } from "./utils/diagnostics.ts";
 import type { AssistantMessageEventStream } from "./utils/event-stream.ts";
-export type { ProviderDiagnosticEvent } from "./provider-diagnostic-event.ts";
+
+export type { ProviderDiagnosticEvent, Transport } from "./provider-diagnostic-event.ts";
 export type { AssistantMessageEventStream } from "./utils/event-stream.ts";
 
 export type KnownApi =
@@ -96,8 +97,6 @@ export interface ThinkingBudgets {
 
 // Base options all providers share
 export type CacheRetention = "none" | "short" | "long";
-
-export type Transport = "sse" | "websocket" | "websocket-cached" | "auto";
 
 /** Provider-scoped environment overrides. Values take precedence over process.env. */
 export type ProviderEnv = Record<string, string>;
