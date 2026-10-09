@@ -2592,6 +2592,8 @@ export class AgentSession {
 			});
 		}
 		if (this._thinkingTimeoutDispatch !== dispatch) return;
+		this._cancelCodexRestrictionValidation();
+		this._codexRestrictionAttemptActive = false;
 		this._thinkingTimeoutDispatch = undefined;
 		this._clearThinkingPhaseDeadline();
 		this._systemPromptOverride = undefined;

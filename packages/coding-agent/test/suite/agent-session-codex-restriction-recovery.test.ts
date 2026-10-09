@@ -268,16 +268,19 @@ describe("Codex restriction rescope", () => {
 		expect(harness.eventsOfType("agent_end").at(-1)?.willRetry).toBe(false);
 	});
 
-	it("does not resend the validation turn after a thinking timeout", async () => {
+	it("restores tools on validation timeout settlement without resending validation", async () => {
+		const reads: string[] = [];
 		const harness = await createRecoveryHarness(
 			async () => ({ kind: "advisory", answer: JSON.stringify(ADVICE) }),
-			[],
+			[createReadProbe(reads)],
 			undefined,
 			{ thinkingPhaseTimeoutMs: 200 },
 		);
 		harness.setResponses([
 			restriction(),
-			async (_context, options) => {
+			async (context, options) => {
+				expectValidationContext(context);
+				expect(harness.session.getActiveToolNames()).toEqual([]);
 				const signal = options?.signal;
 				if (!signal) throw new Error("Expected provider cancellation signal");
 				await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
@@ -286,11 +289,86 @@ describe("Codex restriction rescope", () => {
 			approvedValidation(),
 			fauxAssistantMessage("Resent attempt"),
 		]);
-		await harness.session.prompt(ORIGINAL).catch((error: unknown) => error);
+		await expect(harness.session.prompt(ORIGINAL)).rejects.toThrow("Main session thinking phase exceeded 20 minutes");
+		expect(harness.session.getActiveToolNames()).toEqual(["read"]);
+		expect(reads).toEqual([]);
 		expect(harness.faux.state.callCount).toBe(2);
 		expect(harness.getPendingResponseCount()).toBe(2);
 		expect(harness.eventsOfType("auto_retry_start")).toHaveLength(0);
 	});
+
+	it.each(["timeout", "abort"] as const)(
+		"retries a new human request normally after operative %s settlement",
+		async (interruption) => {
+			let requests = 0;
+			let entered: (() => void) | undefined;
+			const operativeStarted = new Promise<void>((resolve) => {
+				entered = resolve;
+			});
+			const harness = await createRecoveryHarness(
+				async () => {
+					requests++;
+					return { kind: "advisory", answer: JSON.stringify(ADVICE) };
+				},
+				[],
+				undefined,
+				{ thinkingPhaseTimeoutMs: interruption === "timeout" ? 200 : 0 },
+			);
+			harness.setResponses([
+				restriction(),
+				approvedValidation(),
+				async (_context, options) => {
+					const signal = options?.signal;
+					if (!signal) throw new Error("Expected provider cancellation signal");
+					const aborted = new Promise<void>((resolve) => {
+						signal.addEventListener("abort", () => resolve(), { once: true });
+					});
+					entered?.();
+					await aborted;
+					return fauxAssistantMessage("Never delivered");
+				},
+			]);
+			const run = harness.session.prompt(ORIGINAL);
+			await operativeStarted;
+			if (interruption === "timeout") {
+				await expect(run).rejects.toThrow("Main session thinking phase exceeded 20 minutes");
+			} else {
+				await harness.session.abort();
+				await run;
+			}
+			expect(harness.faux.state.callCount).toBe(3);
+			expect(harness.eventsOfType("auto_retry_start")).toHaveLength(0);
+			expect(harness.session.messages.at(-1)).toEqual(expect.objectContaining({ stopReason: "aborted" }));
+
+			const followUp = "Explain what a TypeScript filename extension means.";
+			harness.setResponses([
+				(context) => {
+					expect(textOf(context)).toContain(followUp);
+					return fauxAssistantMessage("", { stopReason: "error", errorMessage: "overloaded_error" });
+				},
+				fauxAssistantMessage("TypeScript source filenames use the .ts extension."),
+			]);
+			await harness.session.prompt(followUp);
+			expect(harness.faux.state.callCount).toBe(5);
+			expect(harness.getPendingResponseCount()).toBe(0);
+			expect(requests).toBe(1);
+			expect(harness.eventsOfType("auto_retry_start")).toEqual([
+				expect.objectContaining({ errorMessage: "overloaded_error", attempt: 1 }),
+			]);
+			expect(
+				harness
+					.eventsOfType("agent_end")
+					.slice(-2)
+					.map(({ willRetry }) => willRetry),
+			).toEqual([true, false]);
+			expect(harness.session.messages.at(-1)).toEqual(
+				expect.objectContaining({
+					role: "assistant",
+					content: [{ type: "text", text: "TypeScript source filenames use the .ts extension." }],
+				}),
+			);
+		},
+	);
 
 	it("stops after a second flag instead of repeatedly rescoping", async () => {
 		let requests = 0;
