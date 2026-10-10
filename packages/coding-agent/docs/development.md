@@ -34,6 +34,23 @@ Remote activation validates `pi --version` before and after replacement and roll
 
 This is not a transaction across both hosts: local installation may already be updated when the remote step fails. Failure returns nonzero and identifies the remote staging directory for inspection; a lost activation connection may leave remote success uncertain.
 
+### Fresh per-user public-runtime installation
+
+On Linux, run as the intended account with its explicit `HOME` and an already staged public bundle:
+
+```bash
+HOME=/home/allison python3 /path/to/pi/scripts/deploy-agent-server-runtime.py --install-local /path/to/public-runtime
+/home/allison/.local/bin/pi --version
+```
+
+`HOME` selects paths, not account identity: invoke as `allison`, not as `osso` or root. This installs into `Path.home()/.local/share/pi` and creates `~/.local/bin/pi` as an executable symlink. Both paths must be absent, including dangling symlinks; this mode never updates an existing installation. It rejects private entries and symlinks, copies into a current-user-owned private staging directory, validates the copy, atomically activates without replacing an existing target, then validates the installed version before linking the launcher. Validation or launcher creation failure removes the new runtime; staging is cleaned on exit.
+
+No configuration, credentials, sessions, profiles, services, or other accounts are modified. The fixed `osso@agent-server` shipping/update paths remain unchanged. Focused filesystem and subprocess tests:
+
+```bash
+python3 scripts/test-deploy-agent-server-runtime.py
+```
+
 ## Forking / Rebranding
 
 Configure via `package.json`:

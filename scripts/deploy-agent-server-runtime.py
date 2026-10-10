@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ship the public installed runtime to the fixed agent-server installation."""
+"""Ship a public runtime to agent-server or install it fresh for the current user."""
 
 import ctypes
 import fcntl
@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 
@@ -91,8 +92,7 @@ def validate_version(runtime):
     return version
 
 
-def exchange_directories(left, right):
-    # Linux renameat2 exchange keeps the installed path present throughout activation.
+def rename_directories(left, right, flags):
     libc = ctypes.CDLL(None, use_errno=True)
     rename = libc.renameat2
     rename.argtypes = [
@@ -103,9 +103,44 @@ def exchange_directories(left, right):
         ctypes.c_uint,
     ]
     rename.restype = ctypes.c_int
-    if rename(-100, os.fsencode(left), -100, os.fsencode(right), 2) != 0:
+    if rename(-100, os.fsencode(left), -100, os.fsencode(right), flags) != 0:
         error = ctypes.get_errno()
         raise OSError(error, os.strerror(error), str(right))
+
+
+def exchange_directories(left, right):
+    # Linux renameat2 exchange keeps the installed path present throughout activation.
+    rename_directories(left, right, 2)
+
+
+def install_local(runtime):
+    home = Path.home()
+    install = home / ".local/share/pi"
+    launcher = home / ".local/bin/pi"
+    for target in (install, launcher):
+        if target.exists() or target.is_symlink():
+            raise RuntimeError(f"fresh installation target already exists: {target}")
+    validate_public_runtime(runtime)
+    install.parent.mkdir(parents=True, exist_ok=True)
+    launcher.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix=".pi-runtime-", dir=install.parent
+    ) as workspace:
+        stage = Path(workspace) / "runtime"
+        shutil.copytree(runtime, stage, symlinks=True)
+        validate_public_runtime(stage)
+        expected_version = validate_version(stage)
+        # RENAME_NOREPLACE refuses even a target created during staging validation.
+        rename_directories(stage, install, 1)
+        try:
+            if validate_version(install) != expected_version:
+                raise RuntimeError(
+                    f"activation validation version changed at {install}"
+                )
+            launcher.symlink_to(install / "pi")
+        except BaseException:
+            shutil.rmtree(install)
+            raise
 
 
 def activate(stage, install):
@@ -170,6 +205,9 @@ def ship(runtime):
 
 
 def main():
+    if len(sys.argv) == 3 and sys.argv[1] == "--install-local":
+        install_local(Path(sys.argv[2]))
+        return
     if len(sys.argv) == 3 and sys.argv[1] == "--activate":
         token = sys.argv[2]
         if not re.fullmatch(r"\.pi-runtime-[0-9a-f]{32}", token):
@@ -188,7 +226,10 @@ def main():
             shutil.rmtree(workspace)
         return
     if len(sys.argv) != 2:
-        raise RuntimeError("usage: deploy-agent-server-runtime.py INSTALLED_RUNTIME")
+        raise RuntimeError(
+            "usage: deploy-agent-server-runtime.py INSTALLED_RUNTIME "
+            "| --install-local PUBLIC_RUNTIME"
+        )
     ship(Path(sys.argv[1]))
 
 
