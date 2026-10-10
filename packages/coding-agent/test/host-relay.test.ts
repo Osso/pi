@@ -93,11 +93,11 @@ describe("cross-host relay", () => {
 	}
 	it("forwards both ways and imports channels once across reconnect", async () => {
 		queue(dbA, "agent-server", "first", "from laptop");
-		postSharedChannelMessage(dbA, { sender: a, body: "Restart /tmp/shared" });
 		const first = connect();
 		await expect.poll(() => count(dbB)).toBe(1);
 		await expect.poll(() => count(dbA)).toBe(0);
 		expect(takeRuntimeMailboxMessagesForDelivery(dbB, b, () => true).map((m) => m.body)).toEqual(["from laptop"]);
+		postSharedChannelMessage(dbA, { sender: a, body: "Restart /tmp/shared" });
 		await expect
 			.poll(() => listSharedChannelMessagesAfter(dbB, 0))
 			.toMatchObject([{ originHost: "aso", body: "Restart /tmp/shared" }]);
@@ -114,6 +114,18 @@ describe("cross-host relay", () => {
 		expect(listSharedChannelMessagesAfter(dbB, 0)).toHaveLength(1);
 		second.stop();
 		await second.done;
+	});
+	it("starts a new peer at the channel tail instead of replaying history", async () => {
+		postSharedChannelMessage(dbA, { sender: a, body: "old broadcast" });
+		const session = connect();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(listSharedChannelMessagesAfter(dbB, 0)).toEqual([]);
+		postSharedChannelMessage(dbA, { sender: a, body: "new broadcast" });
+		await expect
+			.poll(() => listSharedChannelMessagesAfter(dbB, 0))
+			.toMatchObject([{ originHost: "aso", body: "new broadcast" }]);
+		session.stop();
+		await session.done;
 	});
 	it("keeps remote rows pending during outage without blocking local delivery", async () => {
 		queue(dbA, "agent-server", "remote", "remote pending");

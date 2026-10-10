@@ -117,12 +117,25 @@ export function importRelayMailbox(path: string, peer: string, message: RelayMai
 	if (applied) notifyRuntimeMailboxRecipient(path, recipient);
 }
 
+/** A new peer starts at the current tail; existing history is not broadcast as new. */
+function relayChannelCursor(db: SqliteDatabase, peer: string): number {
+	const key = `relay:${peer}`;
+	const existing = db
+		.prepare("SELECT last_seen_id FROM shared_channel_cursors WHERE session_id = ? AND agent_id_key = ''")
+		.get(key) as { last_seen_id: number } | undefined;
+	if (existing) return existing.last_seen_id;
+	const tail =
+		(db.prepare("SELECT MAX(id) AS tail FROM shared_channel_messages").get() as { tail: number | null }).tail ?? 0;
+	writeCounter(db, key, tail);
+	return tail;
+}
+
 export function nextRelayChannel(path: string, peer: string, host: string): RelayChannel | undefined {
 	return withControlDb(path, (db) => {
 		const row = db
 			.prepare(`SELECT id, sender_session_id, sender_agent_id, body, created_at FROM shared_channel_messages
    WHERE origin_host IS NULL AND id > ? ORDER BY id LIMIT 1`)
-			.get(readCounter(db, `relay:${peer}`)) as
+			.get(relayChannelCursor(db, peer)) as
 			| { id: number; sender_session_id: string; sender_agent_id: string | null; body: string; created_at: string }
 			| undefined;
 		return row

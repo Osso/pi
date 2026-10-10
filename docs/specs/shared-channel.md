@@ -42,6 +42,7 @@ once needed.
 - [x] Local-origin posts replicate both ways through the [host relay](multi-agent.md#cross-host-messaging); imported posts are never forwarded back.
 - [x] Imported posts preserve origin hostname and origin ID. Reconnect replay imports each origin pair only once, using a unique index rather than a separate receipt table.
 - [x] Relay acknowledgements advance one persistent forwarding cursor per peer; an outage leaves unacknowledged posts available for retry.
+- [x] A peer's first connection starts that cursor at the current channel tail, so existing local history is not broadcast to the other host as new.
 - [x] Imported channel prompts include origin hostname and sender session ID, including when that ID equals the receiving session ID, so replies can supply `toHost` and `toSessionId`.
 
 ### Tool surface
