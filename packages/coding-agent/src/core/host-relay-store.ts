@@ -1,4 +1,4 @@
-import { MAILBOX_MESSAGE_RETENTION_MS } from "./mailbox-retention.ts";
+import { isMailboxMessageExpired, MAILBOX_MESSAGE_RETENTION_MS } from "./mailbox-retention.ts";
 import {
 	enqueueStoredRuntimeMailboxMessageInTransaction,
 	notifyRuntimeMailboxRecipient,
@@ -156,6 +156,8 @@ export function ackRelayChannel(path: string, peer: string, id: number): void {
 	withControlDb(path, (db) => writeCounter(db, `relay:${peer}`, id));
 }
 export function importRelayChannel(path: string, message: RelayChannel): void {
+	// Expiry deletes the (origin_host, origin_id) dedup row; a late retry must not resurrect it.
+	if (isMailboxMessageExpired(message.createdAt, Date.now())) return;
 	const recipients = withControlDb(path, (db) => {
 		const result = db
 			.prepare(`INSERT INTO shared_channel_messages(sender_session_id, sender_agent_id, body, created_at, origin_host, origin_id)

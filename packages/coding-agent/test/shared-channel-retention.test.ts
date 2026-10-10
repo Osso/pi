@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { ackRelayChannel, nextRelayChannel } from "../src/core/host-relay-store.ts";
+import { ackRelayChannel, importRelayChannel, nextRelayChannel } from "../src/core/host-relay-store.ts";
 import {
 	advanceSharedChannelCursor,
 	hasPendingRuntimeCoordinationMessage,
@@ -71,4 +71,27 @@ it("startup removes channel messages already older than 24h", () => {
 	post("fresh");
 	releases.push(retainControlDbConnection(path));
 	expect(bodies()).toEqual(["fresh"]);
+});
+
+it("a relay retry arriving after expiry does not re-deliver the deleted message", () => {
+	releases.push(retainControlDbConnection(path));
+	const frame = {
+		type: "channel" as const,
+		originHost: "agent-server",
+		originId: 42,
+		senderSessionId: "remote",
+		senderAgentId: null,
+		body: "from peer",
+		createdAt: new Date(start).toISOString(),
+	};
+	importRelayChannel(path, frame);
+	const imported = listSharedChannelMessagesAfter(path, 0)[0].id;
+	advanceSharedChannelCursor(path, reader, imported);
+	vi.advanceTimersByTime(day);
+	expect(bodies()).toEqual([]);
+
+	importRelayChannel(path, frame);
+	importRelayChannel(path, { ...frame, originId: 43, createdAt: "not a date" });
+	expect(bodies()).toEqual([]);
+	expect(hasPendingRuntimeCoordinationMessage(path, reader)).toBe(false);
 });

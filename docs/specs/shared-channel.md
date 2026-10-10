@@ -11,7 +11,7 @@ once needed.
 
 ### Storage
 
-- [x] Store shared channel messages in `control.sqlite`; delete each message 24 hours after its `created_at` (the mailbox retention), at control-DB open and on the retained connection's periodic cleanup. IDs are never reused, so existing cursors, tail-initialized cursors, and relay forwarding cursors stay valid after deletion; a message unread or unforwarded for 24 hours is dropped.
+- [x] Store shared channel messages in `control.sqlite`; delete each message 24 hours after its `created_at` (the mailbox retention), at control-DB open and on the retained connection's periodic cleanup. IDs are never reused, so existing cursors, tail-initialized cursors, and relay forwarding cursors stay valid after deletion; a message unread or unforwarded for 24 hours is dropped. Relay import drops frames whose `created_at` is already expired or unparseable, so a retry after expiry cannot re-deliver a deleted message.
 - [x] Store recipient cursors keyed by `(session_id, agent_id_key)`.
 - [x] New recipients initialize their cursor at the current tail to avoid historical floods.
 - [x] Cursor advancement is monotonic and only moves forward.
