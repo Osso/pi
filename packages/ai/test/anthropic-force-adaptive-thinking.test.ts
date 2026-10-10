@@ -99,11 +99,14 @@ describe("Anthropic forceAdaptiveThinking compat override", () => {
 		},
 	);
 
-	it.each(["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"] as const)("sends native max effort for %s", async (id) => {
-		const payload = await capturePayload(getModel("anthropic", id), { reasoning: "max" });
+	it.each(["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"] as const)(
+		"sends native max effort for %s",
+		async (id) => {
+			const payload = await capturePayload(getModel("anthropic", id), { reasoning: "max" });
 
-		expect(payload.output_config).toEqual({ effort: "max" });
-	});
+			expect(payload.output_config).toEqual({ effort: "max" });
+		},
+	);
 
 	it("disables thinking for Claude Haiku 5.5 when reasoning is off", async () => {
 		const payload = await capturePayload(getModel("anthropic", "claude-haiku-5-5"));
