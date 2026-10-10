@@ -23,6 +23,7 @@
 
 ### Changed
 
+- Shared-channel messages are now deleted 24 hours after creation, matching mailbox retention, instead of accumulating indefinitely in `control.sqlite`.
 - Expire all canonical multi-agent mailbox messages after 24 hours from creation, including pending/claimed messages and preexisting unknown or invalid creation times; clean on database initialization and every 60 seconds while retained, preventing stale replay, delivery, and resurrection. Default missing/null creation dates once for genuinely new messages, including legacy SQL inserts from live jobs; preserve existing birth on updates and duplicate retries, never default supplied invalid/stale dates, and never backfill or repair old unknown births from mutation timestamps. Transcripts and shared-channel history are unchanged.
 - `end_turn` guidance now tells the model that thinking is never shown to the user, so replies must be written as text instead of only in thinking.
 - `ask_questions` transcript rows now list each question with its answer (or `(cancelled)`), visible even when `hideToolOutput` is enabled.

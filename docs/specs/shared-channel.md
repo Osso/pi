@@ -2,7 +2,7 @@
 
 Module boundary: core built-in tool + session control DB + runtime coordination drain.
 
-The shared channel is a global append-only coordination log replicated between hosts, each stored in its authoritative local `control.sqlite`.
+The shared channel is a global coordination log with 24-hour retention, replicated between hosts, each stored in its authoritative local `control.sqlite`.
 Agents do not join rooms; each recipient tracks a cursor and drains unread messages while idle.
 Implementation details may live in [`docs/wiki/systems/shared-channel.md`](../wiki/systems/shared-channel.md)
 once needed.
@@ -11,7 +11,7 @@ once needed.
 
 ### Storage
 
-- [x] Store shared channel messages in `control.sqlite` as an append-only table.
+- [x] Store shared channel messages in `control.sqlite`; delete each message 24 hours after its `created_at` (the mailbox retention), at control-DB open and on the retained connection's periodic cleanup. IDs are never reused, so existing cursors, tail-initialized cursors, and relay forwarding cursors stay valid after deletion; a message unread or unforwarded for 24 hours is dropped.
 - [x] Store recipient cursors keyed by `(session_id, agent_id_key)`.
 - [x] New recipients initialize their cursor at the current tail to avoid historical floods.
 - [x] Cursor advancement is monotonic and only moves forward.
@@ -74,6 +74,7 @@ once needed.
 - `packages/coding-agent/test/suite/host-relay-process.test.ts` — cross-host channel over real CLI stdio.
 
 - `packages/coding-agent/test/session-control-db.test.ts`
+- `packages/coding-agent/test/shared-channel-retention.test.ts` — 24h expiry at open and periodic cleanup; reader, late-joiner, and relay cursors after deletion.
 - `packages/coding-agent/test/runtime-coordination-format.test.ts` — asserts receive-side policy and sender/body formatting.
 - `packages/coding-agent/test/runtime-mailbox.test.ts` — asserts batched idle delivery, ordering/labels, skipped sender handling, and cursor failure semantics.
 - `packages/coding-agent/test/suite/agent-session-queue.test.ts` — asserts shared-channel prompts use the custom-message path.

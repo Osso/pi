@@ -6599,9 +6599,9 @@ function openRetainedControlDb(controlDbPath: string): RetainedControlDb {
 	}
 	const retentionTimer = setInterval(() => {
 		try {
-			cleanupExpiredMailboxMessages(db);
+			cleanupExpiredMessages(db);
 		} catch (error) {
-			console.error(`Mailbox retention cleanup failed for ${controlDbPath}:`, error);
+			console.error(`Message retention cleanup failed for ${controlDbPath}:`, error);
 		} finally {
 			db.finalizeStatements?.();
 		}
@@ -6848,6 +6848,9 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 		CREATE INDEX IF NOT EXISTS shared_channel_messages_id_idx
 		ON shared_channel_messages(id);
 
+		CREATE INDEX IF NOT EXISTS shared_channel_messages_created_at_idx
+		ON shared_channel_messages(created_at);
+
 		CREATE TABLE IF NOT EXISTS shared_channel_cursors (
 			session_id TEXT NOT NULL,
 			agent_id_key TEXT NOT NULL,
@@ -6881,18 +6884,25 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 		END`);
 	db.exec(`CREATE INDEX IF NOT EXISTS multi_agent_mailbox_created_at_ms_idx
 		ON multi_agent_mailbox_messages(${MAILBOX_CREATED_AT_MS_SQL})`);
-	cleanupExpiredMailboxMessages(db);
+	cleanupExpiredMessages(db);
 }
 
-function cleanupExpiredMailboxMessages(db: SqliteDatabase): void {
+/** Mailbox and shared-channel messages share one 24h creation-age retention. */
+function cleanupExpiredMessages(db: SqliteDatabase): void {
 	const cutoff = Date.now() - MAILBOX_MESSAGE_RETENTION_MS;
-	const due = db
+	const mailboxDue = db
 		.prepare(`SELECT 1 FROM multi_agent_mailbox_messages
 		WHERE ${MAILBOX_CREATED_AT_MS_SQL} <= ? LIMIT 1`)
 		.get(cutoff);
-	if (!due) return;
-	db.prepare(`DELETE FROM multi_agent_mailbox_messages
+	if (mailboxDue) {
+		db.prepare(`DELETE FROM multi_agent_mailbox_messages
 		WHERE ${MAILBOX_CREATED_AT_MS_SQL} <= ?`).run(cutoff);
+	}
+	const channelCutoff = new Date(cutoff).toISOString();
+	const channelDue = db
+		.prepare("SELECT 1 FROM shared_channel_messages WHERE created_at <= ? LIMIT 1")
+		.get(channelCutoff);
+	if (channelDue) db.prepare("DELETE FROM shared_channel_messages WHERE created_at <= ?").run(channelCutoff);
 }
 
 function assertSupportedControlDbSchemaVersion(db: SqliteDatabase): void {

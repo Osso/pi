@@ -6,7 +6,7 @@ Contract: [Shared channel](../../specs/shared-channel.md).
 
 The channel is one global log in the [control DB](session-control-db.md), not a room or directed mailbox. [channel-post.ts](../../../packages/coding-agent/src/core/tools/channel-post.ts) defines the default-active tool registered by [tools/index.ts](../../../packages/coding-agent/src/core/tools/index.ts). It rejects child contexts and blank text, appends a trimmed body with sender identity, returns its numeric ID, and advances the sender cursor to that ID.
 
-[session-control-db.ts](../../../packages/coding-agent/src/core/session-control-db.ts) stores `shared_channel_messages` (ID, sender session/agent, body, timestamp) and `shared_channel_cursors`, keyed by session ID and agent key. A new cursor starts at the current tail. Updates use `MAX` to prevent backward movement. Advancing the sender to its new post also skips earlier unread entries for that sender; this is not a per-message self-echo acknowledgment.
+[session-control-db.ts](../../../packages/coding-agent/src/core/session-control-db.ts) stores `shared_channel_messages` (ID, sender session/agent, body, timestamp) and `shared_channel_cursors`, keyed by session ID and agent key. `cleanupExpiredMessages` deletes channel rows with `created_at` older than the 24h mailbox retention at open and on the 60s retained-connection timer; `AUTOINCREMENT` IDs are never reused, so cursors stay valid. A new cursor starts at the current tail. Updates use `MAX` to prevent backward movement. Advancing the sender to its new post also skips earlier unread entries for that sender; this is not a per-message self-echo acknowledgment.
 
 ## Recipient flow
 
