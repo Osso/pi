@@ -60,6 +60,7 @@
 - Added Claude Sonnet 5 to the GitHub Copilot model catalog ([#6200](https://github.com/earendil-works/pi/issues/6200)).
 - Added zstd request-body compression for the OpenAI Codex Responses SSE transport. Requests are sent with `Content-Encoding: zstd` when Node/Bun zstd support is available; the WebSocket transport is unchanged.
 - Added built-in `gemini-3.7-flash` metadata for Google AI Studio and Google Vertex, including 1,048,576-token context, 65,536-token maximum output, current pricing, and low/medium/high thinking levels.
+- Added Claude Haiku 5.5 (`claude-haiku-5-5`) to the Anthropic catalog with adaptive thinking, native `low` through `max` effort, and no temperature.
 
 ## [0.80.3] - 2026-06-30
 

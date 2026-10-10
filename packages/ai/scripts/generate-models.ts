@@ -272,6 +272,8 @@ function isAnthropicAdaptiveThinkingModel(modelId: string): boolean {
 		modelId.includes("sonnet-4.6") ||
 		modelId.includes("sonnet-5") ||
 		modelId.includes("sonnet.5") ||
+		modelId.includes("haiku-5") ||
+		modelId.includes("haiku.5") ||
 		modelId.includes("fable-5") ||
 		modelId.includes("mythos-5")
 	);
@@ -287,7 +289,9 @@ function isAnthropicTemperatureUnsupportedModel(modelId: string): boolean {
 		id.includes("opus-5") ||
 		id.includes("opus.5") ||
 		id.includes("sonnet-5-5") ||
-		id.includes("sonnet-5.5")
+		id.includes("sonnet-5.5") ||
+		id.includes("haiku-5-5") ||
+		id.includes("haiku-5.5")
 	);
 }
 
@@ -1623,6 +1627,17 @@ async function generateModels() {
 		if (candidate.provider === "anthropic" && (candidate.id === "claude-opus-5-5" || candidate.id === "claude-sonnet-5-5")) {
 			mergeThinkingLevelMap(candidate, {
 				off: null,
+				minimal: null,
+				low: "low",
+				medium: "medium",
+				high: "high",
+				xhigh: "xhigh",
+				max: "max",
+			});
+		}
+		// Haiku 5.5 supports the same native efforts, and thinking can be disabled.
+		if (candidate.provider === "anthropic" && candidate.id === "claude-haiku-5-5") {
+			mergeThinkingLevelMap(candidate, {
 				minimal: null,
 				low: "low",
 				medium: "medium",
