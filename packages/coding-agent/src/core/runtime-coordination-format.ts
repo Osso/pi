@@ -15,10 +15,11 @@ export function formatRuntimeMailboxPrompt(message: RuntimeMailboxMessage, recip
 	const senderAgent = message.sender.agentId || "main";
 	const body = message.body.trim() ? message.body : "No message body.";
 	const senderLines =
-		senderSession === recipientSessionId
+		senderSession === recipientSessionId && !message.senderHost
 			? [`- agent: ${senderAgent}`]
 			: [`- session: ${senderSession}`, `- agent: ${senderAgent}`];
-	const sections = ["From:", ...senderLines, "", "Message:", body];
+	const hostLines = message.senderHost ? [`- host: ${message.senderHost} (reply with toHost and toSessionId)`] : [];
+	const sections = ["From:", ...hostLines, ...senderLines, "", "Message:", body];
 	return [...sections, ...formatRuntimeMailboxFileReferences(message)].join("\n");
 }
 

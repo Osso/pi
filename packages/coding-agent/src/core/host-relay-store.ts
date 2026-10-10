@@ -92,6 +92,7 @@ export function importRelayMailbox(path: string, peer: string, message: RelayMai
 	const data = { ...message.data };
 	delete data.recipientHost;
 	delete data.relaySeq;
+	data.senderHost = peer;
 	const recipient = {
 		sessionId: requireText(data.recipientSessionId, "recipientSessionId"),
 		agentId: nullableText(data.recipientAgentId, "recipientAgentId"),

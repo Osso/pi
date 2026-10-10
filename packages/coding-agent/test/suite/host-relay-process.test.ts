@@ -39,7 +39,6 @@ describe("pi relay serve process", () => {
 				createdAt: new Date().toISOString(),
 			},
 		});
-		postSharedChannelMessage(localDb, { sender, body: "Restart /tmp/native-relay" });
 		const child = spawn(
 			process.execPath,
 			["--experimental-strip-types", join(import.meta.dirname, "../../src/cli.ts"), "relay", "serve"],
@@ -77,6 +76,7 @@ describe("pi relay serve process", () => {
 			expect(
 				takeRuntimeMailboxMessagesForDelivery(remoteDb, recipient, () => true).map((message) => message.body),
 			).toEqual(["native relay message"]);
+			postSharedChannelMessage(localDb, { sender, body: "Restart /tmp/native-relay" });
 			await expect
 				.poll(() => listSharedChannelMessagesAfter(remoteDb, 0))
 				.toMatchObject([{ originHost: "stdio-client-host", body: "Restart /tmp/native-relay" }]);

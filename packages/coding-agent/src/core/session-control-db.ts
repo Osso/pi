@@ -56,6 +56,8 @@ export interface RuntimeMailboxMessage {
 	id: number;
 	recipient: RuntimeMailboxAddress;
 	sender: RuntimeMailboxAddress;
+	/** Set on messages imported by the host relay; replies need it as `toHost`. */
+	senderHost?: string;
 	kind: RuntimeMailboxMessageKind;
 	body: string;
 	fileRefs?: AgentFileReference[];
@@ -2320,6 +2322,7 @@ function runtimeMailboxMessageFromCanonicalRow(
 			agentId: nullableStringField(message, "senderAgentId", context),
 			sessionId: requireStringField(message, "senderSessionId", context),
 		},
+		senderHost: optionalStringField(message, "senderHost", context),
 		kind: toRuntimeMailboxMessageKind(requireStringField(message, "kind", context)),
 		body: requireStringField(message, "body", context),
 		fileRefs: parseFileRefs(message.fileRefs, context),

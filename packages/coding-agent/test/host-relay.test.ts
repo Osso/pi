@@ -5,6 +5,7 @@ import { PassThrough, Transform } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runHostRelay } from "../src/core/host-relay.ts";
 import { ackRelayMailbox, importRelayMailbox, nextRelayMailbox } from "../src/core/host-relay-store.ts";
+import { formatRuntimeMailboxPrompt } from "../src/core/runtime-coordination-format.ts";
 import {
 	claimRuntimeMailboxMessages,
 	consumeRuntimeMailboxMessageByStoreRef,
@@ -96,7 +97,11 @@ describe("cross-host relay", () => {
 		const first = connect();
 		await expect.poll(() => count(dbB)).toBe(1);
 		await expect.poll(() => count(dbA)).toBe(0);
-		expect(takeRuntimeMailboxMessagesForDelivery(dbB, b, () => true).map((m) => m.body)).toEqual(["from laptop"]);
+		const [delivered] = takeRuntimeMailboxMessagesForDelivery(dbB, b, () => true);
+		expect(delivered).toMatchObject({ body: "from laptop", senderHost: "aso" });
+		expect(formatRuntimeMailboxPrompt(delivered, b.sessionId)).toContain(
+			"- host: aso (reply with toHost and toSessionId)",
+		);
 		postSharedChannelMessage(dbA, { sender: a, body: "Restart /tmp/shared" });
 		await expect
 			.poll(() => listSharedChannelMessagesAfter(dbB, 0))
