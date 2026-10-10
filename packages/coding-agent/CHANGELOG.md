@@ -187,6 +187,7 @@
 
 ### Fixed
 
+- Fixed cross-host messages remaining queued until a Supervisor request by moving SSH relay into an independent `pi relay connect` resident, started nonblocking by main sessions with global relay settings; concurrent starts share one version-aware resident per control DB.
 - Fixed runtime mailbox loss between readiness and session acceptance: claim before hand-off, durably mark accepted transcript entries, then CAS-delete; startup drops already-accepted dead claims without replay and returns unaccepted claims to pending, with no receipt tables or schema change.
 - Fixed configured compaction thresholds such as 50% being skipped during long tool-bearing turns: check after completed tool results are committed and before the next provider request, preserving coherent tool-call/output pairs and active-turn continuation without interrupting streaming or unfinished tools; no ready speculative cache is required.
 - Fixed image paste on headless Linux to query an existing `wl-paste` clipboard bridge without `DISPLAY` or `WAYLAND_DISPLAY`; no fake display, new flag, or setting is required.

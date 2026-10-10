@@ -77,6 +77,7 @@ import { exportFromFile } from "./core/export-html/index.ts";
 import type { ExtensionFactory } from "./core/extensions/types.ts";
 import { importExternalSessionAlias, isExternalSessionAlias } from "./core/external-session-importer.ts";
 import { runRelayServe } from "./core/host-relay.ts";
+import { ensureRelayRunning, runRelayConnect } from "./core/host-relay-resident.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import { LifecycleCoordinator } from "./core/lifecycle-coordinator.ts";
 import {
@@ -824,6 +825,10 @@ export async function main(args: string[], options?: MainOptions) {
 		await runRelayServe();
 		return;
 	}
+	if (args.length === 2 && args[0] === "relay" && args[1] === "connect") {
+		await runRelayConnect();
+		process.exit(0);
+	}
 	// Validate worker persistence before resident-console dispatch or runtime initialization.
 	const initialArgs = parseArgs(args);
 	rejectInvalidStandaloneWorkerStartup(args, initialArgs);
@@ -1285,6 +1290,12 @@ export async function main(args: string[], options?: MainOptions) {
 	if (startupBenchmark && appMode !== "interactive") {
 		console.error(chalk.red("Error: PI_STARTUP_BENCHMARK only supports interactive mode"));
 		process.exit(1);
+	}
+
+	if (!parsed.noSupervisor) {
+		void ensureRelayRunning(controlDbPath, settingsManager.getGlobalSettings().relay).catch((error: unknown) => {
+			console.error(`Relay startup failed: ${error instanceof Error ? error.message : String(error)}`);
+		});
 	}
 
 	if (appMode === "rpc") {

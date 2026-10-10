@@ -12,7 +12,6 @@ import { getAgentDir, VERSION } from "../config.ts";
 import type { AgentSessionEvent } from "../core/agent-session.ts";
 import { AuthStorage } from "../core/auth-storage.ts";
 import type { LoadExtensionsResult } from "../core/extensions/types.ts";
-import { runSshRelayClient } from "../core/host-relay-client.ts";
 import { ModelRegistry } from "../core/model-registry.ts";
 import { mergeProviderAttributionHeaders } from "../core/provider-attribution.ts";
 import { ResidentConsoleServer, type ResidentConsoleSnapshot } from "../core/resident-console-transport.ts";
@@ -260,10 +259,6 @@ export async function runSupervisorService(): Promise<void> {
 	await wakeServer.start();
 	await consoleServer.start();
 	const abortController = new AbortController();
-	const relaySettings = SettingsManager.create(kbDir, agentDir, { projectTrusted: false }).getGlobalSettings().relay;
-	const relayTask = relaySettings
-		? runSshRelayClient(controlDbPath, relaySettings, abortController.signal)
-		: undefined;
 	const stop = () => abortController.abort();
 	process.once("SIGINT", stop);
 	process.once("SIGTERM", stop);
@@ -280,7 +275,6 @@ export async function runSupervisorService(): Promise<void> {
 		});
 	} finally {
 		abortController.abort();
-		await relayTask;
 		process.off("SIGINT", stop);
 		process.off("SIGTERM", stop);
 		await consoleServer.close();

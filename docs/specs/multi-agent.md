@@ -493,7 +493,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Imported direct messages record the peer as `senderHost`; the recipient prompt shows that host and the sender session so a reply can pass `toHost` and `toSessionId` without guessing.
 - [x] Mailbox forwarding uses persisted per-peer sequences, strictly ordered stop-and-wait forwarding and acknowledgements. Receiver import and high-water advancement are atomic; replay after delivery/deletion and a lost acknowledgement does not deliver twice. Delivered sender rows are deleted by exact-payload CAS; undelivered rows retain 24-hour creation-age expiry. No per-message receipt or tombstone is retained.
 - [x] `pi relay serve` exchanges newline-delimited JSON on stdin/stdout until EOF without initializing a provider session. Each endpoint announces its hostname and forwards local mailbox and channel entries.
-- [x] The laptop's resident Supervisor starts SSH relay from global settings `relay: { "peer": "agent-server" }`; optional `remoteCommand` defaults to `pi relay serve`. SSH uses batch mode and 15-second keepalives. Connection failures are logged and retried with capped exponential backoff and jitter without failing local sessions.
+- [x] `pi relay connect` runs SSH relay independently of the lazy resident Supervisor from global settings `relay: { "peer": "agent-server" }`; optional `remoteCommand` defaults to `pi relay serve`. Without relay settings it exits successfully. SIGTERM/SIGINT stop the client and its SSH child. SSH uses batch mode and 15-second keepalives; connection failures are logged and retried with capped exponential backoff and jitter.
+- [x] Main CLI session startup, including interactive and RPC modes, starts one detached Pi-managed relay resident per control DB when global relay settings exist. Startup never waits for relay readiness or fails because of relay errors; failures are logged. Subagents, standalone workers, detached runners, and metadata commands do not autostart it. Concurrent session starts reuse one resident; a verified resident with an incompatible Pi version is stopped before replacement. No systemd service or Supervisor-hosted relay path exists.
 
 The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the [control-DB contract](session-control-db.md) owns bounded relay state. There is no discovery, registry, session migration or extra delivery-history table.
 
@@ -633,6 +634,7 @@ The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the
 - `packages/coding-agent/test/host-relay.test.ts` — two-DB forwarding, replies, outages, lost acknowledgements, sequence ordering and bounded state.
 - `packages/coding-agent/test/host-relay-client.test.ts` — real SSH-process fixture, outage logging, reconnect, SSH arguments and shutdown.
 - `packages/coding-agent/test/suite/host-relay-process.test.ts` — native `pi relay serve` stdio forwarding and EOF exit using isolated headless paths.
+- `packages/coding-agent/test/suite/relay-resident.test.ts` — concurrent RPC autostart, queued delivery without Supervisor requests, reuse after restart, SIGTERM cleanup, incompatible-version replacement, nonblocking startup, absent settings, and standalone-worker exclusion using headless Pi and local fake SSH.
 
 - [`packages/coding-agent/test/multi-agent-store.test.ts`](../../packages/coding-agent/test/multi-agent-store.test.ts)
   asserts stale revision rejection, read-only view selection, steering acknowledgement, and
