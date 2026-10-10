@@ -1,6 +1,11 @@
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
+import { isServerNarrationSignature } from "../src/core/tools/end-turn.ts";
 import { createAllToolDefinitions, createTool, DEFAULT_ACTIVE_TOOL_NAMES } from "../src/core/tools/index.ts";
+
+// Leading bytes of signatures captured from a Claude Code bridge transcript.
+const NARRATION_SIGNATURE = "CAQS6BEKEQgSGAI4AUIJbmFycmF0aW9uEgyhMvH4";
+const THINKING_SIGNATURE = "CAQS6AkKEAgSGAI4AUIIdGhpbmtpbmcSDHvhDiEB";
 
 describe("end_turn tool", () => {
 	it("is a default built-in tool that terminates with its required reason", async () => {
@@ -19,6 +24,10 @@ describe("end_turn tool", () => {
 		await expect(tool.execute("end-blank", { reason: "  " })).rejects.toThrow(
 			"end_turn reason must be a non-empty string",
 		);
+
+		expect(isServerNarrationSignature(NARRATION_SIGNATURE)).toBe(true);
+		expect(isServerNarrationSignature(THINKING_SIGNATURE)).toBe(false);
+		expect(isServerNarrationSignature("rs_0123abc")).toBe(false);
 
 		const result = await tool.execute("end-valid", { reason: "Finished requested work" });
 		expect(result).toEqual({

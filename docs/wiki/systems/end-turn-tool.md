@@ -4,7 +4,7 @@
 
 ## Execution and loop
 
-[`end-turn.ts`](../../../packages/coding-agent/src/core/tools/end-turn.ts) defines default-active, sequential `end_turn({reason})`. Blank/whitespace-only reasons throw. Success returns text `Turn ended: …`, details containing the reason, and `terminate: true`. Registration is in [`tools/index.ts`](../../../packages/coding-agent/src/core/tools/index.ts).
+[`end-turn.ts`](../../../packages/coding-agent/src/core/tools/end-turn.ts) defines default-active, sequential `end_turn({reason})`. Blank/whitespace-only reasons throw. It also throws when the response that owns the call has no nonblank text but carries a thinking block whose signature decodes to block kind `narration`: Anthropic replaces prose emitted alongside a tool call with such a server summary, so the reply never reached the user, and the error makes the model resend it as a tool-free text response. Success returns text `Turn ended: …`, details containing the reason, and `terminate: true`. Registration is in [`tools/index.ts`](../../../packages/coding-agent/src/core/tools/index.ts).
 
 [`agent-loop.ts`](../../../packages/agent-core/src/agent-loop.ts) stops automatic tool follow-up only when every finalized result in the batch requests termination. Mixing `end_turn` with a nonterminating result therefore does not end that batch's loop. Error, abort and provider `length` results remain terminal.
 

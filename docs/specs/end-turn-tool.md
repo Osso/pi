@@ -10,6 +10,7 @@ The built-in `end_turn` tool gives normal coding-agent model turns an explicit c
 - [x] Require one nonblank free-form `reason` argument and reject a blank reason.
 - [x] Instruct the model to keep working while actionable task work remains and call `end_turn` only after completion, when progress requires user input, or when the user explicitly asks it to stop.
 - [x] Instruct the model that thinking is never shown to the user, so a reply must be written as assistant text before `end_turn`.
+- [x] Reject `end_turn` when its own assistant response has no nonblank text but contains a thinking block whose signature marks it as an Anthropic server narration summary (signature envelope field 2 → 1 → 8 equals `narration`). The server substitutes that summary for prose written alongside a tool call, so the user never saw the reply. The error instructs the model to rewrite the full reply as text in a response without tool calls, then call `end_turn`. Ordinary thinking, and textless responses without narration, still terminate.
 - [x] Return a terminating tool result when execution succeeds.
 
 ### Agent loop
@@ -37,6 +38,7 @@ The built-in `end_turn` tool gives normal coding-agent model turns an explicit c
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/end-turn-tool.test.ts`
+- `packages/coding-agent/test/suite/end-turn-summarized-reply.test.ts`
 - `packages/coding-agent/test/print-mode.test.ts`
 - `packages/coding-agent/test/suite/print-mode-cli.test.ts`
 - `packages/agent-core/test/agent-loop.test.ts`
