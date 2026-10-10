@@ -10,6 +10,10 @@ import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { type AgentMailboxMessage, type AgentSnapshot, MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { formatSharedChannelPrompt } from "../src/core/runtime-coordination-format.ts";
 import {
+	acceptRuntimeMailboxMessages,
+	type RuntimeMailboxToolDelivery,
+} from "../src/core/runtime-mailbox-acceptance.ts";
+import {
 	claimRuntimeMailboxMessages,
 	consumeRuntimeMailboxMessageByStoreRef,
 	enqueueRuntimeMailboxMessage,
@@ -90,7 +94,11 @@ import type {
 	RegisteredCommand,
 	ToolDefinition,
 } from "../src/index.ts";
-import { createHarness, getUserTexts, type Harness } from "./suite/harness.ts";
+import { createHarness as createBaseHarness, getUserTexts, type Harness } from "./suite/harness.ts";
+
+function createHarness(options: Parameters<typeof createBaseHarness>[0] = {}) {
+	return createBaseHarness({ persistedSession: true, ...options });
+}
 
 type RegisteredTool = Omit<ToolDefinition, "execute"> & {
 	execute: (
@@ -101,6 +109,19 @@ type RegisteredTool = Omit<ToolDefinition, "execute"> & {
 		ctx: ExtensionContext,
 	) => Promise<AgentToolResult<Record<string, unknown>>>;
 };
+
+function acceptWaitResult(session: SessionManager, waited: AgentToolResult<Record<string, unknown>>): void {
+	const delivery = waited.details.runtimeMailboxDelivery as RuntimeMailboxToolDelivery;
+	acceptRuntimeMailboxMessages(session, delivery.controlDbPath, delivery.messages, {
+		role: "toolResult",
+		toolCallId: "wait",
+		toolName: "wait_agent",
+		content: waited.content,
+		details: waited.details,
+		isError: false,
+		timestamp: Date.now(),
+	});
+}
 
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
@@ -418,7 +439,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
 	});
 
-	it("keeps readiness-transaction delivery final when a mailbox extension handler throws", async () => {
+	it("releases an unaccepted claim when a mailbox extension handler throws", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const harness = await createHarness({
@@ -442,9 +463,55 @@ describe("runtime SQLite mailbox delivery", () => {
 			_drainRuntimeCoordinationMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
 		};
 
-		await expect(drainable._drainRuntimeCoordinationMessages({ triggerIfIdle: true })).resolves.toBe(false);
-		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
+		await expect(drainable._drainRuntimeCoordinationMessages({ triggerIfIdle: true })).rejects.toThrow(
+			"protocol rejected",
+		);
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)?.status).toBe("pending");
 		expect(getUserTexts(harness)).toEqual([]);
+	});
+
+	it("releases prompt hand-off failures and preserves already accepted intercepts", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const handled = vi.fn();
+		const harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.on("runtime_mailbox", (event) => {
+						if (event.message.body !== "accepted protocol") return { handled: false };
+						handled();
+						return { handled: true };
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		const recipient = { agentId: null, sessionId: harness.session.sessionId };
+		const sender = { agentId: null, sessionId: "failure-sender" };
+		const acceptedId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "accepted protocol",
+			kind: "message",
+			recipient,
+			sender,
+		});
+		const pendingId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "retry this prompt",
+			kind: "message",
+			recipient,
+			sender,
+		});
+		const drainable = harness.session as unknown as { _promptTurn: () => Promise<void> };
+		const handoff = vi.spyOn(drainable, "_promptTurn").mockRejectedValue(new Error("handoff unavailable"));
+		await expect(harness.session.drainRuntimeCoordination()).rejects.toThrow("handoff unavailable");
+		expect(readRuntimeMailboxMessage(controlDbPath, acceptedId)).toBeUndefined();
+		expect(readRuntimeMailboxMessage(controlDbPath, pendingId)?.status).toBe("pending");
+		handoff.mockRestore();
+		harness.setResponses([fauxAssistantMessage("retry accepted")]);
+		await harness.session.drainRuntimeCoordination();
+		expect(readRuntimeMailboxMessage(controlDbPath, pendingId)).toBeUndefined();
+		expect(handled).toHaveBeenCalledOnce();
+		expect(getUserTexts(harness).filter((text) => text.includes("retry this prompt"))).toHaveLength(1);
 	});
 
 	it("does not drain runtime coordination after the session is disposed", async () => {
@@ -1349,6 +1416,35 @@ describe("runtime SQLite mailbox delivery", () => {
 		]);
 	});
 
+	it("Pyrun bridge wait releases coordination it does not accept as session input", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		const store = MultiAgentStore.fromSessionManager(parentSession);
+		registerRuntimeMailboxListener(
+			controlDbPath,
+			{ agentId: null, sessionId: parentSession.getSessionId() },
+			process.pid,
+			parentSession.getSessionFile(),
+		);
+		const id = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "Keep this coordination for session acceptance",
+			kind: "message",
+			recipient: { agentId: null, sessionId: parentSession.getSessionId() },
+			sender: { agentId: null, sessionId: "other-session" },
+		});
+		const handler = createMultiAgentPiRequestHandler({ store });
+		expect(
+			await handler(
+				{ method: "agents.wait", params: {} },
+				createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
+				undefined,
+			),
+		).toBeNull();
+		expect(readRuntimeMailboxMessage(controlDbPath, id)?.status).toBe("pending");
+	});
+
 	it("Pyrun multi-agent bridge agents.wait observes the mirrored completion notification", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
@@ -1569,6 +1665,8 @@ describe("runtime SQLite mailbox delivery", () => {
 			expect(waited.content[0]).toMatchObject({
 				text: expect.stringContaining("Need parent review"),
 			});
+			expect(readRuntimeMailboxMessage(controlDbPath, messageId)?.status).toBe("claimed");
+			acceptWaitResult(parentSession, waited);
 			expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
 			expect(process.listenerCount("SIGUSR2")).toBe(signalListenerCount);
 		},
@@ -2125,6 +2223,8 @@ describe("runtime SQLite mailbox delivery", () => {
 		);
 
 		expect(waited.content[0]).toMatchObject({ text: expect.stringContaining("Coordination without active agents") });
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)?.status).toBe("claimed");
+		acceptWaitResult(parentSession, waited);
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
 	});
 
@@ -2165,6 +2265,8 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(first.content[0]).toMatchObject({ text: expect.stringContaining("First coordination message") });
 		expect(first.content[0]).not.toMatchObject({ text: expect.stringContaining("Second coordination message") });
 		expect(second.content[0]).toMatchObject({ text: expect.stringContaining("Second coordination message") });
+		acceptWaitResult(parentSession, first);
+		acceptWaitResult(parentSession, second);
 		expect(readRuntimeMailboxMessage(controlDbPath, firstId)).toBeUndefined();
 		expect(readRuntimeMailboxMessage(controlDbPath, secondId)).toBeUndefined();
 	});
@@ -2198,6 +2300,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		);
 
 		expect(waited.content[0]).toMatchObject({ text: expect.stringContaining("Pending coordination 20") });
+		acceptWaitResult(parentSession, waited);
 		for (const messageId of messageIds) {
 			expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toBeUndefined();
 		}
@@ -2719,7 +2822,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, messageId)).toMatchObject({ status: "pending" });
 	});
 
-	it("marks runtime mailbox messages delivered in the transaction that reads them for idle delivery", async () => {
+	it("keeps messages claimed at idle hand-off and releases them if unaccepted", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const harness = await createHarness();
@@ -2743,7 +2846,8 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		await drainableSession._drainRuntimeMailboxMessages({ triggerIfIdle: true });
 
-		expect(statusAtPromptEntry).toBeUndefined();
+		expect(statusAtPromptEntry).toBe("claimed");
+		expect(readRuntimeMailboxMessage(controlDbPath, messageId)?.status).toBe("pending");
 	});
 
 	it("steers idle delivery when another turn starts before the turn-start lock is acquired", async () => {

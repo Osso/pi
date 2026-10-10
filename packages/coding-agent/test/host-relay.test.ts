@@ -6,7 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runHostRelay } from "../src/core/host-relay.ts";
 import { ackRelayMailbox, importRelayMailbox, nextRelayMailbox } from "../src/core/host-relay-store.ts";
 import { formatRuntimeMailboxPrompt } from "../src/core/runtime-coordination-format.ts";
+import { acceptRuntimeMailboxMessages } from "../src/core/runtime-mailbox-acceptance.ts";
 import {
+	takeRuntimeMailboxMessagesForDelivery as claimDelivery,
 	claimRuntimeMailboxMessages,
 	consumeRuntimeMailboxMessageByStoreRef,
 	enqueueStoredRuntimeMailboxMessage,
@@ -14,9 +16,9 @@ import {
 	markRuntimeMailboxMessageDelivered,
 	postSharedChannelMessage,
 	registerRuntimeMailboxListener,
-	takeRuntimeMailboxMessagesForDelivery,
 	withControlDb,
 } from "../src/core/session-control-db.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
 
 const a = { sessionId: "laptop-session", agentId: null };
 const b = { sessionId: "server-session", agentId: null };
@@ -26,16 +28,38 @@ describe("cross-host relay", () => {
 	let dbA: string;
 	let dbB: string;
 	const stops: (() => void)[] = [];
+	const recipients = new Map<string, SessionManager>();
+	function takeRuntimeMailboxMessagesForDelivery(...args: Parameters<typeof claimDelivery>) {
+		const messages = claimDelivery(...args);
+		const session = recipients.get(args[0]);
+		if (!session) throw new Error("Missing recipient transcript");
+		acceptRuntimeMailboxMessages(session, args[0], messages, {
+			role: "user",
+			content: messages.map((message) => ({ type: "text", text: message.body })),
+			timestamp: Date.now(),
+		});
+		return messages;
+	}
 	beforeEach(() => {
 		directory = mkdtempSync(join(tmpdir(), "pi-relay-"));
 		dbA = join(directory, "a.sqlite");
 		dbB = join(directory, "b.sqlite");
-		registerRuntimeMailboxListener(dbA, a, process.pid);
-		registerRuntimeMailboxListener(dbB, b, process.pid);
+		for (const [dbPath, address] of [
+			[dbA, a],
+			[dbB, b],
+		] as const) {
+			const session = SessionManager.create(directory, join(directory, address.sessionId), {
+				id: address.sessionId,
+			});
+			session.setMetadataControlDbPath(dbPath);
+			recipients.set(dbPath, session);
+			registerRuntimeMailboxListener(dbPath, address, process.pid, session.getSessionFile());
+		}
 	});
 	afterEach(async () => {
 		for (const stop of stops.splice(0)) stop();
 		await new Promise((resolve) => setTimeout(resolve, 20));
+		recipients.clear();
 		rmSync(directory, { recursive: true, force: true });
 	});
 	function queue(db: string, host: string, id: string, body: string, reverse = false) {

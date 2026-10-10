@@ -258,13 +258,23 @@ Date.now = () => ${Date.now()};
 			}
 		});
 	`;
+	const holder = createSqliteDatabase(controlDbPath);
+	configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+	const recoveryFixture =
+		operation === "recover"
+			? (holder
+					.prepare(
+						"SELECT session_path, message_id, data, updated_at FROM multi_agent_mailbox_messages WHERE json_extract(data, '$.body') = ?",
+					)
+					.get(marker) as
+					| { session_path: string; message_id: string; data: string; updated_at: string }
+					| undefined)
+			: undefined;
 	const worker = new Worker(workerSource, {
 		eval: true,
 		execArgv: ["--experimental-strip-types"],
 		workerData: { controlDbPath, marker, operation, recipient },
 	});
-	const holder = createSqliteDatabase(controlDbPath);
-	configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
 	let serializedBeforeRelease: WorkerStatusMessage | undefined;
 	let completed: WorkerStatusMessage | undefined;
 	let blockedBeforeSerialization: unknown;
@@ -272,7 +282,21 @@ Date.now = () => ${Date.now()};
 		await waitForWorkerStatus(worker, {
 			expectedType: "ready",
 			timeoutMessage: `${operation} payload worker did not load`,
+			ignoredTypes: ["serialized"],
 		});
+		// Registration now recovers dead claims. Inject this fixture after startup for the explicit recovery probe.
+		if (recoveryFixture) {
+			holder
+				.prepare(
+					"UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ? WHERE session_path = ? AND message_id = ?",
+				)
+				.run(
+					recoveryFixture.data,
+					recoveryFixture.updated_at,
+					recoveryFixture.session_path,
+					recoveryFixture.message_id,
+				);
+		}
 		holder.exec("BEGIN IMMEDIATE");
 		worker.postMessage("run");
 		try {
@@ -5251,8 +5275,10 @@ Date.now = () => ${Date.now()};
 
 		const result = await runRuntimeMailboxPayloadPreparationContention(controlDbPath, "deliver", recipient, marker);
 
-		expect(result.statuses).toEqual(["pending"]);
-		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
+		expect(result.statuses).toEqual(["claimed"]);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([
+			expect.objectContaining({ body: marker, status: "claimed", storeRef: { messageId, sessionPath } }),
+		]);
 	});
 
 	it("prepares recovered payload before acquiring the writer lock", async () => {
@@ -5379,8 +5405,10 @@ Date.now = () => ${Date.now()};
 				ignoredTypes: ["eligible"],
 				timeoutMessage: "delivery worker did not complete after lock release",
 			});
-			expect(result).toMatchObject({ count: 1, statuses: ["pending"] });
-			expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
+			expect(result).toMatchObject({ count: 1, statuses: ["claimed"] });
+			expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([
+				expect.objectContaining({ status: "claimed", storeRef: { messageId, sessionPath } }),
+			]);
 		} finally {
 			try {
 				holder.exec("ROLLBACK");

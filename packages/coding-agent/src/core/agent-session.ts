@@ -140,7 +140,15 @@ import {
 } from "./provider-restriction-recovery.ts";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.ts";
 import { calculateRetryDelayMs } from "./retry-delay.ts";
-import { formatRuntimeMailboxPrompt, formatSharedChannelPrompt } from "./runtime-coordination-format.ts";
+import { formatSharedChannelPrompt } from "./runtime-coordination-format.ts";
+import {
+	acceptRuntimeMailboxMessages,
+	isRuntimeMailboxMessagePersisted,
+	type RuntimeMailboxToolDelivery,
+	readRuntimeMailboxToolDelivery,
+	releaseUnacceptedRuntimeMailboxMessages,
+} from "./runtime-mailbox-acceptance.ts";
+import { createRuntimeMailboxUserMessage, deliverClaimedRuntimeMailboxMessages } from "./runtime-mailbox-delivery.ts";
 import {
 	getRuntimeMessageMarker,
 	isDuplicateTurnGuardMessage,
@@ -190,7 +198,6 @@ import {
 	getRuntimeProcessInstanceId,
 	initializeSharedChannelCursorAtTail,
 	listSharedChannelMessagesAfter,
-	markMultiAgentMailboxMessageFailed,
 	type RuntimeMailboxAddress,
 	type RuntimeMailboxMessage,
 	readMultiAgentAgent,
@@ -588,6 +595,8 @@ export interface PromptOptions {
 	preflightResult?: (success: boolean) => void;
 	/** Internal hook used by interactive mode to display accepted user input before turn-context hooks run. */
 	onUserMessagePrepared?: (message: AgentMessage) => void;
+	/** Internal mailbox acceptance boundary, after prompt preflight. */
+	acceptRuntimeMailbox?: (message?: AgentMessage) => void;
 }
 
 /** Result from cycleModel() */
@@ -1527,6 +1536,7 @@ export class AgentSession {
 	private async _persistCompletedMessage(
 		event: Extract<AgentEvent, { type: "message_end" }>,
 		originalToolCallId: string | undefined,
+		mailboxDelivery: RuntimeMailboxToolDelivery | undefined,
 	): Promise<void> {
 		const { message } = event;
 		const isInternalSteeringMessage = isDuplicateTurnGuardMessage(message);
@@ -1541,7 +1551,24 @@ export class AgentSession {
 			!isInternalSteeringMessage &&
 			(message.role === "user" || message.role === "assistant" || message.role === "toolResult")
 		) {
-			this.sessionManager.appendMessage(message);
+			if (mailboxDelivery) {
+				try {
+					acceptRuntimeMailboxMessages(
+						this.sessionManager,
+						mailboxDelivery.controlDbPath,
+						mailboxDelivery.messages,
+						message,
+					);
+				} finally {
+					releaseUnacceptedRuntimeMailboxMessages(
+						this.sessionManager,
+						mailboxDelivery.controlDbPath,
+						mailboxDelivery.messages,
+					);
+				}
+			} else if (!isRuntimeMailboxMessagePersisted(message)) {
+				this.sessionManager.appendMessage(message);
+			}
 		}
 		if (originalToolCallId !== undefined) {
 			await this._extensionRunner.deliverToolResultRelocation(originalToolCallId);
@@ -1601,6 +1628,7 @@ export class AgentSession {
 	/** Internal handler for agent events - shared by subscribe and reconnect */
 	private _handleAgentEvent = async (event: AgentEvent): Promise<void> => {
 		const originalToolCallId = this._getTerminalToolCallId(event);
+		const mailboxDelivery = event.type === "message_end" ? readRuntimeMailboxToolDelivery(event.message) : undefined;
 		const sessionContinuation = this._readAgentEndSessionContinuation(event);
 		if (event.type === "tool_execution_start") this._resetDuplicateTurnGuard();
 		if (event.type === "message_end" && event.message.role === "assistant") {
@@ -1621,7 +1649,7 @@ export class AgentSession {
 					: event;
 		this._emit(listenerEvent);
 		if (event.type === "message_end") {
-			await this._persistCompletedMessage(event, originalToolCallId);
+			await this._persistCompletedMessage(event, originalToolCallId, mailboxDelivery);
 			if (event.message.role === "assistant") {
 				this._startBackgroundCompactionDuringToolTurn(event.message);
 			}
@@ -2579,7 +2607,14 @@ export class AgentSession {
 		images: ImageContent[] | undefined,
 		streamingBehavior: PromptOptions["streamingBehavior"],
 		inputSource?: InputSource,
+		acceptRuntimeMailbox?: PromptOptions["acceptRuntimeMailbox"],
 	): Promise<void> {
+		if (acceptRuntimeMailbox) {
+			const message = createRuntimeMailboxUserMessage(text, inputSource ?? "extension", images);
+			this._steerAgent(message);
+			acceptRuntimeMailbox(message);
+			return;
+		}
 		if (!streamingBehavior) {
 			throw new Error(
 				"Agent is already processing. Specify streamingBehavior ('steer' or 'followUp') to queue the message.",
@@ -2986,6 +3021,7 @@ export class AgentSession {
 					this.isStreaming ? options?.streamingBehavior : undefined,
 				);
 				if (inputResult.action === "handled") {
+					options?.acceptRuntimeMailbox?.();
 					preflightResult?.(true);
 					return;
 				}
@@ -3011,6 +3047,7 @@ export class AgentSession {
 					currentImages,
 					options?.streamingBehavior,
 					options?.source,
+					options?.acceptRuntimeMailbox,
 				);
 				preflightResult?.(true);
 				return;
@@ -3037,6 +3074,7 @@ export class AgentSession {
 					currentImages,
 					options?.streamingBehavior,
 					options?.source,
+					options?.acceptRuntimeMailbox,
 				);
 				preflightResult?.(true);
 				return;
@@ -3103,6 +3141,7 @@ export class AgentSession {
 			return;
 		}
 
+		options?.acceptRuntimeMailbox?.(messages.find((message) => message.role === "user"));
 		preflightResult?.(true);
 		const run = this._runAgentPrompt(messages);
 		releaseTurnStart();
@@ -3482,30 +3521,28 @@ export class AgentSession {
 					this._runtimeMailboxCheckpointPriority(left) - this._runtimeMailboxCheckpointPriority(right),
 			);
 		}
-		const promptMessages: RuntimeMailboxMessage[] = [];
-		for (const message of messages) {
-			this._markStoreMailboxMessageDelivered(message);
-			this._recordDetachedToolCallCompletion(message);
-			if (await this._interceptRuntimeMailboxMessage(message)) continue;
-			promptMessages.push(message);
-		}
-		if (promptMessages.length === 0) return false;
-		const prompt = promptMessages
-			.map((message) => formatRuntimeMailboxPrompt(message, recipient.sessionId))
-			.join("\n\n");
-		if (delivery.mode === "steer") {
-			this._steerAgent({
-				role: "user",
-				content: [{ type: "text", text: prompt }],
-				inputSource: "extension",
-				timestamp: Date.now(),
-			});
-			return true;
-		}
-		delivery.releaseMailboxDrain();
-		await this._promptTurn(prompt, { expandPromptTemplates: false, source: "extension" }, delivery.releaseTurnStart);
-		this._completeRuntimeMailboxSteeringTurn(this.messages);
-		return false;
+		return deliverClaimedRuntimeMailboxMessages({
+			controlDbPath,
+			messages,
+			recipientSessionId: recipient.sessionId,
+			sessionManager: this.sessionManager,
+			intercept: (message) => this._interceptRuntimeMailboxMessage(message),
+			onAccepted: (message) => {
+				this._markStoreMailboxMessageDelivered(message);
+				this._recordDetachedToolCallCompletion(message);
+			},
+			steer: delivery.mode === "steer" ? (message) => this._steerAgent(message) : undefined,
+			prompt: async (prompt, accept) => {
+				if (delivery.mode !== "prompt") throw new Error("Mailbox prompt delivery requires the turn-start lock");
+				delivery.releaseMailboxDrain();
+				await this._promptTurn(
+					prompt,
+					{ expandPromptTemplates: false, source: "extension", acceptRuntimeMailbox: accept },
+					delivery.releaseTurnStart,
+				);
+				this._completeRuntimeMailboxSteeringTurn(this.messages);
+			},
+		});
 	}
 
 	private _isRuntimeMailboxMessageDue(
@@ -3552,14 +3589,8 @@ export class AgentSession {
 
 	private async _interceptRuntimeMailboxMessage(message: RuntimeMailboxMessage): Promise<boolean> {
 		if (!this._extensionRunner.hasHandlers("runtime_mailbox")) return false;
-		try {
-			const result = await this._extensionRunner.emitRuntimeMailbox({ type: "runtime_mailbox", message });
-			if (!result.handled) return false;
-			return true;
-		} catch (error) {
-			this._failStoreMailboxDelivery(message, error);
-			return true;
-		}
+		const result = await this._extensionRunner.emitRuntimeMailbox({ type: "runtime_mailbox", message });
+		return result.handled === true;
 	}
 
 	private async _drainSharedChannelMessages(options: { triggerIfIdle: boolean }): Promise<boolean> {
@@ -3645,7 +3676,7 @@ export class AgentSession {
 		return true;
 	}
 
-	// The readiness transaction already committed canonical delivery; this updates the live projection.
+	// Durable acceptance precedes canonical deletion and projection refresh.
 	private _markStoreMailboxMessageDelivered(message: RuntimeMailboxMessage): string | undefined {
 		const storeRef = message.storeRef;
 		if (!storeRef) {
@@ -3653,15 +3684,15 @@ export class AgentSession {
 		}
 		if (this._multiAgentStore?.getPersistenceTarget()?.sessionPath === storeRef.sessionPath) {
 			if (message.kind === "steer") {
-				return this._markStoreSteeringDelivered(message, storeRef.messageId);
+				return this._markStoreSteeringDelivered(message);
 			}
-			this._multiAgentStore.markMailboxMessageDelivered(storeRef.messageId);
+			this._multiAgentStore.expireMailboxMessages(Date.now());
 			return undefined;
 		}
 		return undefined;
 	}
 
-	private _markStoreSteeringDelivered(message: RuntimeMailboxMessage, messageId: string): string | undefined {
+	private _markStoreSteeringDelivered(message: RuntimeMailboxMessage): string | undefined {
 		const agentId = message.recipient.agentId;
 		if (!agentId || !this._multiAgentStore) {
 			return undefined;
@@ -3670,32 +3701,10 @@ export class AgentSession {
 		if (!persistence) return undefined;
 		const agent = readMultiAgentAgent(persistence.controlDbPath, persistence.sessionPath, agentId);
 		if (!agent) return undefined;
-		this._multiAgentStore.markMailboxMessageDelivered(messageId);
+		this._multiAgentStore.expireMailboxMessages(Date.now());
 		this._multiAgentStore.publishLifecycleCoordinatorSnapshot(agent as unknown as AgentSnapshot);
 		this._runtimeMailboxSteeringAgentIds.add(agentId);
 		return agentId;
-	}
-
-	private _failStoreMailboxDelivery(message: RuntimeMailboxMessage, error: unknown): void {
-		const storeRef = message.storeRef;
-		if (!storeRef) return;
-		const failure = errorMessage(error);
-		if (this._multiAgentStore?.getPersistenceTarget()?.sessionPath === storeRef.sessionPath) {
-			this._multiAgentStore.markMailboxMessageFailed(storeRef.messageId, failure);
-		} else {
-			const controlDbPath = this._getRuntimeMailboxControlDbPath();
-			if (controlDbPath) {
-				markMultiAgentMailboxMessageFailed(controlDbPath, storeRef.sessionPath, storeRef.messageId, failure);
-			}
-		}
-		if (message.kind !== "steer") return;
-		const agentId = message.recipient.agentId;
-		if (!agentId || !this._multiAgentStore) return;
-		this._runtimeMailboxSteeringAgentIds.delete(agentId);
-		const current = this._multiAgentStore.getAgent(agentId);
-		if (current && !this._isTerminalMultiAgentLifecycle(current.lifecycle)) {
-			this._finalizeReservedMultiAgent(current, "failed", { error: { message: failure } });
-		}
 	}
 
 	private _startRuntimeMailboxPolling(): void {
@@ -3749,7 +3758,12 @@ export class AgentSession {
 
 	private _registerRuntimeMailboxListeners(controlDbPath: string, agentId: string | null): void {
 		if (agentId) {
-			registerRuntimeMailboxListener(controlDbPath, { agentId, sessionId: this.sessionId }, process.pid);
+			registerRuntimeMailboxListener(
+				controlDbPath,
+				{ agentId, sessionId: this.sessionId },
+				process.pid,
+				this.sessionFile,
+			);
 			return;
 		}
 		registerRuntimeMailboxListener(

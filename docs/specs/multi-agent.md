@@ -260,8 +260,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   inspected after completion or failure, but it never substitutes for the agent row.
 
   Runtime transport and sender mailbox payload are one canonical `multi_agent_mailbox_messages` row.
-  Delivery deletes that row atomically and removes its live store projection; later status updates must not
-  resurrect it. No delivered status, receipt, or tombstone is retained. Undelivered rows expire 24 hours after
+  Delivery claims that row, durably records recipient acceptance, then CAS-deletes it and removes its live
+  store projection; later status updates must not resurrect it. No delivered status, receipt, or tombstone is retained. Undelivered rows expire 24 hours after
   creation, including sessions that never claim their messages. A stored enqueue after delivery creates a
   new message; production producers do not retry a delivered store reference. Detached terminal mirroring
   uses the terminal agent's `detached === true && suppressTerminalNotification !== true` predicate instead
@@ -386,8 +386,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       transactionally and allowed only when both stored and incoming identities are complete and
       sender, recipient, kind, thread, and message ID identity match; incomplete or conflicting
       reuse fails explicitly without overwriting the existing message.
-- [x] Cross-session mailbox transport is runtime coordination state and must not be persisted in
-      session JSONL transcripts or `MultiAgentStore` session snapshots.
+- [x] Cross-session mailbox transport remains control-DB state, never session snapshots or JSONL transport
+      copies. Accepted user/steer/tool-result entries carry only acceptance identity `(storeRef.sessionPath,
+      messageId)` as entry metadata; handled interception records a small custom acceptance entry.
 - [x] Cross-session mailbox recipients are addressed by `(session_id, agent_id)` where `agent_id`
       is absent/null for the main thread and present for a subagent in that session.
 - [x] `send_agent_message` failures identify the attempted agent ID and any supplied session ID while
@@ -419,11 +420,16 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       delivery boundary. Idle delivery submits them directly as active session input; an active turn
       consumes checkpoint-eligible messages through the agent steering queue, never the follow-up queue.
 - [x] At recipient readiness, eligibility is prepared read-only, then exact authority and payload CAS
-      deletes each selected canonical mailbox row in an immediate transaction. Concurrent recipients
-      cannot deliver the same row; owned steering acceptance and deletion commit together.
-- [x] Payloads taken at readiness are submitted directly as idle session input or active-turn steering.
-      Restart before that boundary leaves rows pending and recoverable; restore after delivery cannot
-      show or redeliver deleted rows.
+      claims each selected canonical row with `status: claimed`, `claimedAt`, and exact claimant process identity.
+      Owned steering lifecycle acknowledgment and claiming commit together; claiming never deletes the payload.
+- [x] Claim → accept → delete is the delivery boundary. Acceptance durably records the user/steer message,
+      wait coordination tool result, or handled-interception marker before exact-claim/payload CAS deletion.
+      Message and acceptance refs share one transcript entry, flushed even before the first assistant response.
+      Concurrent consumers cannot accept the same claim; failed unaccepted hand-offs release it to pending.
+- [x] Listener registration recovers claims from dead processes or superseded same-PID runtime incarnations.
+      Recipient transcript markers are authoritative: an accepted claim is CAS-deleted without replay; a claim
+      without a marker returns to pending. Scan the whole transcript, including inactive branches. No receipt
+      or tombstone tables are added; schema version remains 15.
 - [x] Idle prompt delivery releases its mailbox-drain critical-section guard before awaiting the agent
       run it starts, so the run can drain again at its first post-tool checkpoint without self-deadlocking.
 - [x] Undelivered runtime mailbox messages expire 24 hours after creation; delivered rows are deleted immediately.
@@ -433,14 +439,17 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       with control-DB write access can inject messages, so the feature must not hide message origin.
 - [x] A mailbox message has exactly one delivery transport: its canonical control-DB row also owns the
       sender store's persisted payload. There is no separate transport table or in-store drain. Delivery
-      deletes that row; steering deletion commits atomically with the owned lifecycle acknowledgment.
+      deletes that exact claimed row only after durable transcript acceptance.
 - [x] Multi-agent messaging requires a store persisted to the session control DB. There is no
       in-memory delivery mode: an unpersisted sender cannot enqueue transport rows, and the
       failure is reported explicitly rather than silently falling back.
 - [x] `wait_agent({})` consumes every pending terminal notification already waiting and queries agent rows for agents
       active at invocation until one reaches a terminal state. Terminal notifications only wake the query; child
       steering and accepted ordinary main-session steering wake only a live wait. Persisted coordination polling returns
-      and consumes all currently pending deliverable runtime-mailbox and shared-channel inputs; Pyrun uses the same operation.
+      and claims all currently pending deliverable runtime-mailbox inputs; acceptance and deletion follow durable
+      tool-result persistence. Capture acceptance identity before message-end interception, so replacing tool details
+      cannot discard it. Shared-channel cursor consumption is unchanged. Pyrun bridge wait returns only a wake,
+      not coordination content; it releases unaccepted coordination claims for normal session checkpoint delivery.
 - [x] `wait_agent({})` expires 25 minutes after the latest observed foreground `model_request_start` with an
       explicit still-running result, without cancelling agents, so a later model turn can wait again. Child model
       requests do not reset the deadline, and the deadline is not a cache-retention guarantee.
@@ -454,8 +463,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] While an agent turn is active, ordinary polling leaves pending messages unread and unchanged.
       After every completed tool-result batch, the safe checkpoint delivers `after_tool_result` steering
       first and then `next_model_call` steering before the following provider request. Long tool loops must
-      not defer `next_model_call` steering until `agent_end`; eligible messages are selected atomically,
-      deleted, and enqueued as steering, while non-eligible messages remain durable and pending.
+      not defer `next_model_call` steering until `agent_end`; eligible messages are claimed atomically,
+      enqueued as steering, durably recorded, then deleted; non-eligible messages remain durable and pending.
 - [x] Interactive selected-child editor steering and the `steer_agent` tool use the exported
       `requestAgentSteering` path with an explicit scalar `AgentSteeringRuntimeBinding`. The shared path
       validates the binding against persisted ownership; one repository transaction under `BEGIN IMMEDIATE`

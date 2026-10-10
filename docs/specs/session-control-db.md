@@ -30,7 +30,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
   or otherwise lost claim rolls back the entire renewal. Architect and Supervisor claim result rows are mapped to
   public request objects after the transaction releases the writer slot.
 - [x] A Supervisor caller can atomically cancel only its own pending or claimed request; cancellation stores terminal `cancelled` state and a typed error response, clears claim authority, excludes the row from future claims and recovery, and makes late completion fail closed.
-- [x] Claim, release, fail, and deliver runtime-directed messages only on their canonical `multi_agent_mailbox_messages` row. Claims record exact process identity and are reclaimable only after that exact process dies.
+- [x] Claim, release, fail, and deliver runtime-directed messages only on their canonical `multi_agent_mailbox_messages` row. Eligible delivery records `status: claimed`, `claimedAt`, and exact `claimantProcessIdentity`, never deleting at claim time.
+- [x] CAS-delete a claimed session-directed message only after recipient acceptance is durable in the transcript. Accepted user/steer/tool-result entries carry `(storeRef.sessionPath, messageId)` metadata in the same record; handled interception uses a small custom entry. Flush acceptance before the first assistant response and before deletion. Unaccepted hand-off failures return the claim to pending.
+- [x] At listener registration recover only exact dead claimants or superseded same-PID runtime incarnations. Inspect the registered recipient transcript, including inactive branches: marker present deletes the exact claim without redelivery; marker absent resets it to pending. No receipt/tombstone table or schema-version change (15).
 - [x] Store only the latest assistant message for external readers.
 - [x] Provide `pi control send`, `pi control restart --session-id <session-id>`,
   `pi control last`, and `pi control path` so harnesses and operators use the CLI
@@ -84,8 +86,8 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       the template, so rollback preserves numbering and agent/mailbox atomicity. The commit revalidates those
       snapshots and atomically updates the agent and persists the prepared canonical mailbox payload.
       Steering delivery validates the agent, exact ownership, transition, and canonical message payload before
-      reserving the writer; the commit revalidates both payload snapshots and atomically updates the agent and
-      deletes the message row. Terminal mutation preflights exact ownership, replay identity, transition legality, and
+      reserving the writer; the runtime-readiness commit revalidates both payload snapshots and atomically updates
+      the agent and claims the message row. Deletion follows durable recipient transcript acceptance. Terminal mutation preflights exact ownership, replay identity, transition legality, and
       descendant state read-only; its commit revalidates the agent snapshot and owner predicate, recursively
       rechecks that no persisted descendant is nonterminal, and atomically persists the terminal agent and one
       outbox row. Detached-job finalization resolves the candidate session path from exact ownership rows and

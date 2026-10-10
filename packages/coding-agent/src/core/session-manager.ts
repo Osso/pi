@@ -82,6 +82,8 @@ export interface SessionEntryBase {
 export interface SessionMessageEntry extends SessionEntryBase {
 	type: "message";
 	message: AgentMessage;
+	/** Durable mailbox acceptance identity, stored with the accepted message. */
+	mailboxStoreRefs?: { sessionPath: string; messageId: string }[];
 }
 
 export interface ThinkingLevelChangeEntry extends SessionEntryBase {
@@ -1712,13 +1714,17 @@ export class SessionManager {
 	 * so it is easier to find them.
 	 * These need to be appended via appendCompaction() and appendBranchSummary() methods.
 	 */
-	appendMessage(message: Message | CustomMessage | BashExecutionMessage): string {
+	appendMessage(
+		message: Message | CustomMessage | BashExecutionMessage,
+		mailboxStoreRefs?: SessionMessageEntry["mailboxStoreRefs"],
+	): string {
 		const entry: SessionMessageEntry = {
 			type: "message",
 			id: generateId(this.byId),
 			parentId: this.leafId,
 			timestamp: new Date().toISOString(),
 			message,
+			...(mailboxStoreRefs ? { mailboxStoreRefs } : {}),
 		};
 		this._appendEntry(entry);
 		return entry.id;

@@ -12,6 +12,7 @@ import {
 	isActiveLifecycle,
 } from "./multi-agent-store.ts";
 import { isSandboxProfileName, type SandboxProfileName } from "./permissions/presets.ts";
+import { mailboxStoreRefsEqual, readAcceptedRuntimeMailboxStoreRefs } from "./runtime-mailbox-transcript.ts";
 import {
 	isPiRuntimeProcessAlive,
 	isProcessIdentityAlive,
@@ -709,7 +710,7 @@ function readRecoverableRuntimeMailboxClaims(
 		if (!currentRuntimeOwnsMailboxAuthority(recipient, authority)) return [];
 		const data = parseCanonicalMailboxPayload(row);
 		const claimant = requireStringField(data, "claimantProcessIdentity", "runtime_mailbox_claim");
-		return runtimeMailboxClaimantIsLive(authority.listener, claimant) ? [] : [{ authority, data, row }];
+		return runtimeMailboxClaimantIsLive(claimant) ? [] : [{ authority, data, row }];
 	});
 }
 
@@ -719,6 +720,10 @@ function recoverRuntimeMailboxClaim(
 	candidate: RuntimeMailboxCandidate,
 	nowIso: string,
 ): boolean {
+	const accepted = readAcceptedRuntimeMailboxStoreRefs(candidate.authority.listener?.session_path ?? undefined).some(
+		(ref) =>
+			mailboxStoreRefsEqual(ref, { sessionPath: candidate.row.session_path, messageId: candidate.row.message_id }),
+	);
 	const pending: Record<string, unknown> = { ...candidate.data, status: "pending", updatedAt: nowIso };
 	delete pending.claimedAt;
 	delete pending.claimantProcessIdentity;
@@ -726,7 +731,9 @@ function recoverRuntimeMailboxClaim(
 	return withImmediateTransaction(db, () => {
 		const currentAuthority = readRuntimeMailboxAuthoritySnapshot(db, recipient, candidate.row.session_path);
 		if (!runtimeMailboxAuthoritySnapshotsEqual(candidate.authority, currentAuthority)) return false;
-		return compareAndWriteSerializedCanonicalMailboxPayload(db, candidate.row, serialized, nowIso);
+		return accepted
+			? compareAndDeleteCanonicalMailboxPayload(db, candidate.row)
+			: compareAndWriteSerializedCanonicalMailboxPayload(db, candidate.row, serialized, nowIso);
 	});
 }
 
@@ -782,12 +789,7 @@ function deliverRuntimeMailboxCandidate(
 	if (candidate.data.kind === "steer" && candidate.authority.ownership) {
 		return deliverRuntimeMailboxSteeringCandidate(db, recipient, candidate, nowIso);
 	}
-	const deleted = withImmediateTransaction(db, () => {
-		const currentAuthority = readRuntimeMailboxAuthoritySnapshot(db, recipient, candidate.row.session_path);
-		if (!runtimeMailboxAuthoritySnapshotsEqual(candidate.authority, currentAuthority)) return false;
-		return compareAndDeleteCanonicalMailboxPayload(db, candidate.row);
-	});
-	return deleted ? runtimeMailboxMessageFromCanonicalRow(candidate.row, candidate.data) : undefined;
+	return claimRuntimeMailboxCandidate(db, recipient, candidate, nowIso);
 }
 
 function deliverRuntimeMailboxSteeringCandidate(
@@ -810,7 +812,14 @@ function deliverRuntimeMailboxSteeringCandidate(
 	const preflight = prepareMultiAgentSteeringDelivery(db, input);
 	if ("result" in preflight || preflight.plan.messageData !== candidate.row.data) return undefined;
 	const result = persistMultiAgentSteeringDelivery(db, input, preflight.plan, { recipient, candidate });
-	return result?.ok ? runtimeMailboxMessageFromCanonicalRow(candidate.row, candidate.data) : undefined;
+	return result?.ok
+		? runtimeMailboxMessageFromCanonicalRow(candidate.row, {
+				...candidate.data,
+				status: "claimed",
+				claimedAt: nowIso,
+				updatedAt: nowIso,
+			})
+		: undefined;
 }
 
 function readRuntimeMailboxAuthoritySnapshot(
@@ -920,11 +929,11 @@ function claimRuntimeMailboxCandidate(
 	return updated ? runtimeMailboxMessageFromCanonicalRow(candidate.row, claimed) : undefined;
 }
 
-function runtimeMailboxClaimantIsLive(
-	listener: RuntimeMailboxListenerRow | undefined,
-	claimantProcessIdentity: string,
-): boolean {
-	if (listener) return listener.runtime_instance_id === claimantProcessIdentity;
+function runtimeMailboxClaimantIsLive(claimantProcessIdentity: string): boolean {
+	if (claimantProcessIdentity === RUNTIME_PROCESS_INSTANCE_ID) return true;
+	const claimant = parseProcessIdentity(claimantProcessIdentity);
+	const current = parseProcessIdentity(RUNTIME_PROCESS_INSTANCE_ID);
+	if (isSupersededRuntimeIdentity(claimant, current)) return false;
 	return persistedProcessIdentityIsLive(claimantProcessIdentity);
 }
 
@@ -1189,6 +1198,9 @@ export function registerRuntimeMailboxListener(
 		sessionPath,
 	};
 	withControlDb(controlDbPath, (db) => registerRuntimeMailboxListenerWithDb(db, registration));
+	if (pid === process.pid && registration.runtimeInstanceId === RUNTIME_PROCESS_INSTANCE_ID) {
+		recoverDeadRuntimeMailboxClaims(controlDbPath, recipient);
+	}
 }
 
 function registerRuntimeMailboxListenerWithDb(db: SqliteDatabase, registration: RuntimeMailboxRegistration): void {
@@ -4056,6 +4068,15 @@ function persistMultiAgentSteeringDelivery(
 	plan: MultiAgentSteeringDeliveryPlan,
 	mailbox?: { recipient: RuntimeMailboxAddress; candidate: RuntimeMailboxCandidate },
 ): CommitMultiAgentSteeringDeliveryResult | undefined {
+	const claimedPayload = mailbox
+		? JSON.stringify({
+				...mailbox.candidate.data,
+				status: "claimed",
+				claimedAt: input.updatedAt,
+				claimantProcessIdentity: RUNTIME_PROCESS_INSTANCE_ID,
+				updatedAt: input.updatedAt,
+			})
+		: undefined;
 	const persisted = withImmediateTransaction(db, () => {
 		if (isMailboxMessageExpired(plan.updatedMessage.createdAt, Date.now())) return false;
 		if (mailbox) {
@@ -4092,12 +4113,20 @@ function persistMultiAgentSteeringDelivery(
 				plan.messageData,
 			).changes;
 		if (agentUpdated !== 1) return false;
-		const messageUpdated = db
-			.prepare(
-				`DELETE FROM multi_agent_mailbox_messages
-				 WHERE session_path = ? AND message_id = ? AND data = ?`,
-			)
-			.run(input.sessionPath, input.messageId, plan.messageData).changes;
+		const messageUpdated =
+			mailbox && claimedPayload !== undefined
+				? Number(
+						compareAndWriteSerializedCanonicalMailboxPayload(
+							db,
+							mailbox.candidate.row,
+							claimedPayload,
+							input.updatedAt,
+						),
+					)
+				: db
+						.prepare(`DELETE FROM multi_agent_mailbox_messages
+				 WHERE session_path = ? AND message_id = ? AND data = ?`)
+						.run(input.sessionPath, input.messageId, plan.messageData).changes;
 		if (messageUpdated !== 1) {
 			throw new Error(`Steering message changed during delivery ${input.sessionPath}#${input.messageId}`);
 		}

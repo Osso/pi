@@ -25,10 +25,7 @@ import {
 	type DesktopNotificationHandle,
 	type DesktopNotifier,
 } from "../../../src/core/desktop-notification.ts";
-import {
-	LifecycleCoordinator,
-	type OwnedLifecycleCommandInput,
-} from "../../../src/core/lifecycle-coordinator.ts";
+import { LifecycleCoordinator, type OwnedLifecycleCommandInput } from "../../../src/core/lifecycle-coordinator.ts";
 import {
 	isProcessIdentityAlive,
 	isSupersededRuntimeIdentity,
@@ -47,7 +44,11 @@ import {
 	type SteeringCheckpoint,
 } from "../../../src/core/multi-agent-store.ts";
 import { findExactModelReferenceMatch } from "../../../src/core/model-resolver.ts";
-import { formatRuntimeMailboxPrompt, formatSharedChannelPrompt } from "../../../src/core/runtime-coordination-format.ts";
+import {
+	formatRuntimeMailboxPrompt,
+	formatSharedChannelPrompt,
+} from "../../../src/core/runtime-coordination-format.ts";
+import type { RuntimeMailboxToolDelivery } from "../../../src/core/runtime-mailbox-acceptance.ts";
 import {
 	advanceSharedChannelCursor,
 	enqueueRuntimeMailboxMessage,
@@ -59,19 +60,16 @@ import {
 	readMultiAgentState,
 	readSharedChannelCursor,
 	readSharedChannelTail,
+	releaseRuntimeMailboxMessageClaim,
 	resolveOwnMainRuntimeCoordinationRecipient,
 	type RuntimeMailboxAddress,
-	type RuntimeMailboxMessage,
 	type SharedChannelMessage,
 	takeRuntimeMailboxMessagesForDelivery,
 } from "../../../src/core/session-control-db.ts";
 import { SessionManager, type SessionEntry, type SessionInfo } from "../../../src/core/session-manager.ts";
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
 import { createAgentConfigReadToolDefinition } from "../../../src/core/tools/read.ts";
-import {
-	CHILD_DISABLED_AGENT_TOOL_NAMES,
-	SUPERVISOR_ONLY_TOOL_NAMES,
-} from "../../../src/core/tool-capabilities.ts";
+import { CHILD_DISABLED_AGENT_TOOL_NAMES, SUPERVISOR_ONLY_TOOL_NAMES } from "../../../src/core/tool-capabilities.ts";
 import { deliverTerminalOutboxProjections } from "../../../src/core/terminal-outbox-delivery.ts";
 import { registerAgentViewerTools } from "../../agent-viewer/src/runtime.ts";
 import {
@@ -329,6 +327,7 @@ interface WaitAgentsWakeUp {
 }
 
 interface WaitAgentsToolDetails {
+	runtimeMailboxDelivery?: RuntimeMailboxToolDelivery;
 	timedOut?: true;
 	agent?: AgentSnapshot;
 	agents?: AgentSnapshot[];
@@ -566,7 +565,10 @@ async function backgroundCommand(
 	background.ownerships.set(created.agent.id, runtime);
 	const agent = startBackgroundDispatch(background, runtime, prompt, ctx, childSession);
 	ctx.ui.setEditorText("");
-	ctx.ui.notify(`Background job ${agent.id} started. Use /jobs to inspect it or wait_agent to wait for any completion.`, "info");
+	ctx.ui.notify(
+		`Background job ${agent.id} started. Use /jobs to inspect it or wait_agent to wait for any completion.`,
+		"info",
+	);
 }
 
 function jobsCommand(store: MultiAgentStore, ctx: ExtensionCommandContext): void {
@@ -607,12 +609,14 @@ function getSessionTranscriptMetadata(
 }
 
 function findActiveToolCallEntry(branch: SessionEntry[], activeToolCallId: string): SessionEntry | undefined {
-	return [...branch].reverse().find(
-		(entry) =>
-			entry.type === "message" &&
-			entry.message.role === "assistant" &&
-			entry.message.content.some((part) => part.type === "toolCall" && part.id === activeToolCallId),
-	);
+	return [...branch]
+		.reverse()
+		.find(
+			(entry) =>
+				entry.type === "message" &&
+				entry.message.role === "assistant" &&
+				entry.message.content.some((part) => part.type === "toolCall" && part.id === activeToolCallId),
+		);
 }
 
 function findUnresolvedTurnParentId(branch: SessionEntry[], activeToolEntry: SessionEntry): string | null {
@@ -783,10 +787,7 @@ export function createProductionAttachedSessionFactory(
  * independent of the parent's current effort, clamped to the model's capabilities. Recording both lets displays and
  * resumes show what the child runs.
  */
-function spawnModelMetadata(
-	profile: ResolvedAgentProfile | undefined,
-	ctx: ExtensionContext,
-): AgentSnapshot["model"] {
+function spawnModelMetadata(profile: ResolvedAgentProfile | undefined, ctx: ExtensionContext): AgentSnapshot["model"] {
 	const model = profile?.model ?? ctx.model;
 	if (!model) return undefined;
 	const thinkingLevel = clampThinkingLevel(model, profile?.thinkingLevel ?? DEFAULT_THINKING_LEVEL) as ThinkingLevel;
@@ -794,7 +795,9 @@ function spawnModelMetadata(
 }
 
 function resolveChildAgentProfile(agent: AgentSnapshot, ctx: ExtensionContext): ResolvedAgentProfile {
-	const configuredModel = agent.model ? ctx.modelRegistry.find(agent.model.providerId, agent.model.modelId) : undefined;
+	const configuredModel = agent.model
+		? ctx.modelRegistry.find(agent.model.providerId, agent.model.modelId)
+		: undefined;
 	return {
 		model: configuredModel,
 		thinkingLevel: toThinkingLevel(agent.model?.thinkingLevel),
@@ -819,7 +822,9 @@ function resolveConfiguredAgentProfile(agentType: string, ctx: ExtensionContext)
 	return {
 		context: profile.context,
 		model,
-		modelMetadata: model ? { providerId: model.provider, modelId: model.id, thinkingLevel: profile.thinkingLevel } : undefined,
+		modelMetadata: model
+			? { providerId: model.provider, modelId: model.id, thinkingLevel: profile.thinkingLevel }
+			: undefined,
 		thinkingLevel: profile.thinkingLevel,
 		tools: profile.tools,
 	};
@@ -886,7 +891,13 @@ export function createMultiAgentPiRequestHandler(
 
 		if (request.method === "agents.wait") {
 			assertNoWaitAgentsParams(request.params, "pi.agents.wait");
-			await waitAgents(store, runtimeHandles, signal, ctx);
+			const waited = await waitAgents(store, runtimeHandles, signal, ctx);
+			// The bridge returns only a wake, not accepted session input. Leave coordination for the session checkpoint.
+			const delivery = waited.details.runtimeMailboxDelivery;
+			if (delivery) {
+				for (const message of delivery.messages)
+					releaseRuntimeMailboxMessageClaim(delivery.controlDbPath, message.id);
+			}
 			return null;
 		}
 
@@ -906,7 +917,8 @@ export function createMultiAgentPiRequestHandler(
 		}
 
 		if (request.method === "agents.list") {
-			const params = request.params === undefined || request.params === null ? {} : (request.params as ListAgentsParams);
+			const params =
+				request.params === undefined || request.params === null ? {} : (request.params as ListAgentsParams);
 			const result = listAgents(store, params);
 			return result.details;
 		}
@@ -1375,7 +1387,9 @@ function recoverAgents(input: Omit<AttachSessionDispatchInput, "prompt" | "targe
 		: input.store.listActiveAgents();
 	for (const agent of orderRecoveryAgents(activeAgents)) {
 		const hasJournalAdmission =
-			activeParentAgentIds === undefined || agent.transcript?.path === undefined || activeParentAgentIds.has(agent.id);
+			activeParentAgentIds === undefined ||
+			agent.transcript?.path === undefined ||
+			activeParentAgentIds.has(agent.id);
 		if (hasJournalAdmission) recoverAgent(input, agent);
 		else resolveDeadAgentRuntime(input, agent);
 	}
@@ -1502,7 +1516,10 @@ function spawnAttachedSessionAgent(
 	return attached;
 }
 
-function buildAttachedSessionPermission(store: MultiAgentStore, parentId: string | undefined): AgentSnapshot["permission"] {
+function buildAttachedSessionPermission(
+	store: MultiAgentStore,
+	parentId: string | undefined,
+): AgentSnapshot["permission"] {
 	if (!parentId) {
 		return { narrowed: true, policy: "on-request" };
 	}
@@ -1539,7 +1556,15 @@ async function resolveAttachSessionTarget(
 	if (match.status === "not_found") {
 		return { ok: false, message: "Could not attach session: session not found." };
 	}
-	return { ok: true, target: { cwd: match.session.cwd, name: match.session.name, path: match.session.path, sessionId: match.session.id } };
+	return {
+		ok: true,
+		target: {
+			cwd: match.session.cwd,
+			name: match.session.name,
+			path: match.session.path,
+			sessionId: match.session.id,
+		},
+	};
 }
 
 function countAttachSessionSelectors(target: { name?: string; path?: string; sessionId?: string }): number {
@@ -1832,7 +1857,8 @@ function finalizeReservedRuntime(
 	reservedRuntime: OwnedAgentRuntime,
 	expectedRestoreGeneration?: number,
 ): AgentSnapshot {
-	if (expectedRestoreGeneration !== undefined && store.getRestoreGeneration() !== expectedRestoreGeneration) return agent;
+	if (expectedRestoreGeneration !== undefined && store.getRestoreGeneration() !== expectedRestoreGeneration)
+		return agent;
 	if (!isActiveLifecycle(agent.lifecycle)) return agent;
 	const finalized = reservedRuntime.coordinator.finalizeChild({
 		agent,
@@ -1871,7 +1897,8 @@ function acknowledgeCancelledRuntime(
 	expectedRestoreGeneration?: number,
 ): AgentSnapshot | undefined {
 	if (!reservedRuntime) return undefined;
-	if (expectedRestoreGeneration !== undefined && store.getRestoreGeneration() !== expectedRestoreGeneration) return undefined;
+	if (expectedRestoreGeneration !== undefined && store.getRestoreGeneration() !== expectedRestoreGeneration)
+		return undefined;
 	const current = store.getAgent(agentId);
 	if (current?.lifecycle !== "cancelling") return undefined;
 	const acknowledged = reservedRuntime.coordinator.acknowledgeCancellation({
@@ -2047,10 +2074,7 @@ function sendMainRuntimeSessionMessage(
 	);
 }
 
-function markFailedMailboxTransportMessage(
-	store: MultiAgentStore,
-	message: AgentMailboxMessage,
-): AgentMailboxMessage {
+function markFailedMailboxTransportMessage(store: MultiAgentStore, message: AgentMailboxMessage): AgentMailboxMessage {
 	const error = "Runtime mailbox transport is unavailable.";
 	try {
 		return store.markMailboxMessageFailed(message.id, error) ?? { ...message, error, status: "failed" as const };
@@ -2358,8 +2382,11 @@ export function consumeNotifications(
 		case "cancelled":
 			return errorResult("Wait cancelled.", {});
 		case "coordination": {
-			const coordination = wake.prompt ?? takePendingWaitCoordination(store, runtimeCoordinationRecipient(ctx));
-			return result(coordination || "Coordination input changed before delivery.", {});
+			if (wake.prompt) return result(wake.prompt, {});
+			const coordination = takePendingWaitCoordination(runtimeCoordinationRecipient(ctx));
+			return result(coordination?.prompt || "Coordination input changed before delivery.", {
+				runtimeMailboxDelivery: coordination?.runtimeMailboxDelivery,
+			});
 		}
 		case "error": {
 			const message = wake.error instanceof Error ? wake.error.message : String(wake.error);
@@ -2396,9 +2423,8 @@ function runtimeCoordinationRecipient(ctx: ExtensionContext | undefined): Runtim
 }
 
 function takePendingWaitCoordination(
-	store: MultiAgentStore,
 	recipient: RuntimeCoordinationRecipient | undefined,
-): string | undefined {
+): { prompt: string; runtimeMailboxDelivery: RuntimeMailboxToolDelivery } | undefined {
 	if (!recipient) return undefined;
 	const mailboxMessages = takeRuntimeMailboxMessagesForDelivery(
 		recipient.controlDbPath,
@@ -2406,20 +2432,27 @@ function takePendingWaitCoordination(
 		isRuntimeCoordinationMailboxMessage,
 		Number.MAX_SAFE_INTEGER,
 	);
-	for (const message of mailboxMessages) markWaitMailboxStoreMessageDelivered(store, message);
-	const channelMessages = takePendingWaitSharedChannelMessages(recipient);
-	const sections = [
-		...mailboxMessages.map((message) => formatRuntimeMailboxPrompt(message, recipient.address.sessionId)),
-		...(channelMessages.length > 0
-			? [formatSharedChannelPrompt(channelMessages, recipient.address.sessionId)]
-			: []),
-	];
-	return sections.length > 0 ? sections.join("\n\n") : undefined;
-}
-
-function markWaitMailboxStoreMessageDelivered(store: MultiAgentStore, message: RuntimeMailboxMessage): void {
-	if (store.getPersistenceTarget()?.sessionPath !== message.storeRef.sessionPath) return;
-	store.markMailboxMessageDelivered(message.storeRef.messageId);
+	try {
+		const channelMessages = takePendingWaitSharedChannelMessages(recipient);
+		const sections = [
+			...mailboxMessages.map((message) => formatRuntimeMailboxPrompt(message, recipient.address.sessionId)),
+			...(channelMessages.length > 0
+				? [formatSharedChannelPrompt(channelMessages, recipient.address.sessionId)]
+				: []),
+		];
+		return sections.length > 0
+			? {
+					prompt: sections.join("\n\n"),
+					runtimeMailboxDelivery: {
+						controlDbPath: recipient.controlDbPath,
+						messages: mailboxMessages.map(({ id, storeRef }) => ({ id, storeRef })),
+					},
+				}
+			: undefined;
+	} catch (error) {
+		for (const message of mailboxMessages) releaseRuntimeMailboxMessageClaim(recipient.controlDbPath, message.id);
+		throw error;
+	}
 }
 
 function takePendingWaitSharedChannelMessages(recipient: RuntimeCoordinationRecipient): SharedChannelMessage[] {
@@ -2462,7 +2495,8 @@ function listPendingTerminalNotifications(
 ): PendingTerminalNotification[] {
 	const persistedAgents = (readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []) as AgentSnapshot[];
 	return persistedAgents.flatMap((agent) => {
-		const lifecycle = agent.lifecycle === "completed" ? "completed" : agent.lifecycle === "failed" ? "failed" : undefined;
+		const lifecycle =
+			agent.lifecycle === "completed" ? "completed" : agent.lifecycle === "failed" ? "failed" : undefined;
 		if (!lifecycle) return [];
 		const message = store.listPendingLifecycleNotificationsForAgent(agent.id, lifecycle)[0];
 		return message ? [{ agent, message }] : [];
@@ -2537,7 +2571,10 @@ export async function cancelOwnedAgentRuntime(
 	agentId: string,
 	reason?: string,
 ): Promise<CancelReservedAgentResult> {
-	const descendants = store.listDescendants(agentId).filter((agent) => isActiveLifecycle(agent.lifecycle)).reverse();
+	const descendants = store
+		.listDescendants(agentId)
+		.filter((agent) => isActiveLifecycle(agent.lifecycle))
+		.reverse();
 	const detachedRuntimeAgentIds = readDetachedRuntimeAgentIds(
 		store,
 		descendants.map((agent) => agent.id),
@@ -2596,7 +2633,8 @@ async function cancelAgent(
 ): Promise<AgentToolResult<AgentToolDetails>> {
 	const cancelled = await cancelOwnedAgentRuntime(store, runtimeHandles, params.agentId, params.reason);
 	if (!cancelled.ok) {
-		const error = cancelled.error === "runtime_ownership_unavailable" ? "runtime ownership unavailable" : cancelled.error;
+		const error =
+			cancelled.error === "runtime_ownership_unavailable" ? "runtime ownership unavailable" : cancelled.error;
 		return errorResult(`Could not cancel ${params.agentId}: ${error}`, {
 			agent: cancelled.agent ?? emptyAgent(params.agentId),
 			reason: params.reason,
@@ -2781,11 +2819,16 @@ function steerAgent(
 			message: emptyMessage(params.agentId, params.message),
 		});
 	}
-	const steered = requestAgentSteering(store, params, {
-		actorAgentId: senderId === "supervisor" ? null : senderId,
-		controlDbPath,
-		sessionId: ctx.sessionManager?.getSessionId() ?? persistence?.sessionPath ?? "",
-	}, runtimeHandles);
+	const steered = requestAgentSteering(
+		store,
+		params,
+		{
+			actorAgentId: senderId === "supervisor" ? null : senderId,
+			controlDbPath,
+			sessionId: ctx.sessionManager?.getSessionId() ?? persistence?.sessionPath ?? "",
+		},
+		runtimeHandles,
+	);
 	if (!steered.ok) {
 		return errorResult(steered.error, { agent: steered.agent, message: steered.message });
 	}
@@ -3276,8 +3319,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			description: "Close an agent through the multi-agent store using the current store revision.",
 			approvalRequired: false,
 			parameters: cancelAgentSchema,
-			execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) =>
-				cancelAgent(store, runtimeHandles, params),
+			execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) => cancelAgent(store, runtimeHandles, params),
 		}),
 	);
 

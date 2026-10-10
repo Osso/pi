@@ -4,7 +4,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { acceptRuntimeMailboxMessages } from "../src/core/runtime-mailbox-acceptance.ts";
 import {
+	takeRuntimeMailboxMessagesForDelivery as claimDelivery,
 	claimRuntimeMailboxMessages,
 	deliverRuntimeMailboxMessage,
 	enqueueRuntimeMailboxMessage,
@@ -14,7 +16,6 @@ import {
 	readMultiAgentState,
 	readRuntimeMailboxMessage,
 	registerRuntimeMailboxListener,
-	takeRuntimeMailboxMessagesForDelivery,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 
@@ -27,6 +28,15 @@ describe("once-only canonical mailbox deletion", () => {
 	let sessionManager: SessionManager;
 	let store: MultiAgentStore;
 	let sessionPath: string;
+	function takeRuntimeMailboxMessagesForDelivery(...args: Parameters<typeof claimDelivery>) {
+		const messages = claimDelivery(...args);
+		acceptRuntimeMailboxMessages(sessionManager, controlDbPath, messages, {
+			role: "user",
+			content: messages.map((message) => ({ type: "text", text: message.body })),
+			timestamp: Date.now(),
+		});
+		return messages;
+	}
 
 	beforeEach(() => {
 		directory = mkdtempSync(join(tmpdir(), "pi-mailbox-deletion-"));
