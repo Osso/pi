@@ -2,6 +2,24 @@ import { describe, expect, it } from "vitest";
 import { formatSharedChannelPrompt } from "../src/core/runtime-coordination-format.ts";
 
 describe("runtime coordination formatting", () => {
+	it("includes the imported origin host and session for cross-host replies", () => {
+		const prompt = formatSharedChannelPrompt(
+			[
+				{
+					id: 3,
+					originHost: "agent-server",
+					originId: 9,
+					sender: { sessionId: "same-session-id", agentId: null },
+					body: "Restart /tmp/shared",
+					createdAt: "2026-10-09T00:00:00.000Z",
+				},
+			],
+			"same-session-id",
+		);
+		expect(prompt).toContain("- host: agent-server (reply with toHost and toSessionId)");
+		expect(prompt).toContain("- session: same-session-id");
+		expect(prompt).toContain("Restart /tmp/shared");
+	});
 	it("adds mandatory receive-side policy while preserving shared-channel sender and body formatting", () => {
 		const prompt = formatSharedChannelPrompt(
 			[

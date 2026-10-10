@@ -34,10 +34,17 @@ function formatSharedChannelMessage(message: SharedChannelMessage, recipientSess
 	const senderAgent = message.sender.agentId || "main";
 	const body = message.body.trim() || "No message body.";
 	const senderLines =
-		senderSession === recipientSessionId
+		senderSession === recipientSessionId && !message.originHost
 			? [`- agent: ${senderAgent}`]
 			: [`- session: ${senderSession}`, `- agent: ${senderAgent}`];
-	return ["From shared channel:", ...senderLines, "", "Message:", body].join("\n");
+	return [
+		"From shared channel:",
+		...(message.originHost ? [`- host: ${message.originHost} (reply with toHost and toSessionId)`] : []),
+		...senderLines,
+		"",
+		"Message:",
+		body,
+	].join("\n");
 }
 
 function formatRuntimeMailboxFileReferences(message: RuntimeMailboxMessage): string[] {

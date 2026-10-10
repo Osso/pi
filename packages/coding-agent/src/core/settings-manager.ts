@@ -6,6 +6,7 @@ import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import { parseCompactionThresholdPercent } from "./compaction-threshold.ts";
+import type { RelaySettings } from "./host-relay-client.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
 import { type ApprovalPolicy, normalizeApprovalPolicy } from "./permissions/policy.ts";
 import {
@@ -106,6 +107,7 @@ export type PackageSource =
 	  };
 
 export interface Settings {
+	relay?: RelaySettings;
 	lastChangelogVersion?: string;
 	defaultProvider?: string;
 	defaultModel?: string;

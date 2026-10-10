@@ -2,7 +2,7 @@
 
 Module boundary: core built-in tool + session control DB + runtime coordination drain.
 
-The shared channel is a single global append-only coordination log stored in `control.sqlite`.
+The shared channel is a global append-only coordination log replicated between hosts, each stored in its authoritative local `control.sqlite`.
 Agents do not join rooms; each recipient tracks a cursor and drains unread messages while idle.
 Implementation details may live in [`docs/wiki/systems/shared-channel.md`](../wiki/systems/shared-channel.md)
 once needed.
@@ -37,6 +37,13 @@ once needed.
       accepted and the recipient cursor advances; an active `wait_agent({})` receives the exact formatted prompt,
       while a terminal agent notification takes precedence if both arrive together.
 
+### Cross-host delivery
+
+- [x] Local-origin posts replicate both ways through the [host relay](multi-agent.md#cross-host-messaging); imported posts are never forwarded back.
+- [x] Imported posts preserve origin hostname and origin ID. Reconnect replay imports each origin pair only once, using a unique index rather than a separate receipt table.
+- [x] Relay acknowledgements advance one persistent forwarding cursor per peer; an outage leaves unacknowledged posts available for retry.
+- [x] Imported channel prompts include origin hostname and sender session ID, including when that ID equals the receiving session ID, so replies can supply `toHost` and `toSessionId`.
+
 ### Tool surface
 
 - [x] `channel_post` is registered as a built-in tool and active by default.
@@ -61,6 +68,9 @@ once needed.
 - `packages/coding-agent/src/core/tools/index.ts` — built-in tool registration.
 
 ## Tests asserting this spec
+
+- `packages/coding-agent/test/host-relay.test.ts` — two-host channel import and reconnect deduplication.
+- `packages/coding-agent/test/suite/host-relay-process.test.ts` — cross-host channel over real CLI stdio.
 
 - `packages/coding-agent/test/session-control-db.test.ts`
 - `packages/coding-agent/test/runtime-coordination-format.test.ts` — asserts receive-side policy and sender/body formatting.

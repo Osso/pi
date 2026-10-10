@@ -76,6 +76,7 @@ import { sweepAbandonedEmptySessions } from "./core/empty-session-cleanup.ts";
 import { exportFromFile } from "./core/export-html/index.ts";
 import type { ExtensionFactory } from "./core/extensions/types.ts";
 import { importExternalSessionAlias, isExternalSessionAlias } from "./core/external-session-importer.ts";
+import { runRelayServe } from "./core/host-relay.ts";
 import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
 import { LifecycleCoordinator } from "./core/lifecycle-coordinator.ts";
 import {
@@ -819,6 +820,10 @@ function readStartupControlMessage(appMode: AppMode, controlDbPath: string, noSu
 }
 
 export async function main(args: string[], options?: MainOptions) {
+	if (args.length === 2 && args[0] === "relay" && args[1] === "serve") {
+		await runRelayServe();
+		return;
+	}
 	// Validate worker persistence before resident-console dispatch or runtime initialization.
 	const initialArgs = parseArgs(args);
 	rejectInvalidStandaloneWorkerStartup(args, initialArgs);

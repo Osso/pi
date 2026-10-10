@@ -262,6 +262,13 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] On SIGHUP, restart the interactive process so startup can consume the
   control DB incoming message.
 
+### Cross-host relay storage
+
+- [x] `shared_channel_messages` adds nullable `origin_host` and `origin_id` columns and a unique `(origin_host, origin_id)` index where `origin_host IS NOT NULL`. Local posts leave both NULL; imports preserve peer origin and do nothing on conflict. Initialization is additive; control schema version stays 15, avoiding a rolling-deployment quiescence fence.
+- [x] Canonical mailbox JSON carries optional `recipientHost` and persisted `relaySeq`. Foreign-host routing is excluded from local claims and delivery. Imported messages drop outbound host/sequence fields before local insertion; sender payloads remain pending until exact-payload acknowledgement deletion or 24-hour expiry.
+- [x] `shared_channel_cursors` reserves three rows per peer with empty `agent_id_key`: `relay:<peerHost>` for channel forwarding, `relay-out:<peerHost>` for the outbound mailbox counter, and `relay-in:<peerHost>` for the highest applied inbound sequence. Mailbox sequence allocation and payload persistence share one transaction; resends reuse the stored sequence. Receiver import and high-water advancement share one transaction, and sequences at/below the high-water mark are acknowledged without reinsertion even after recipient delivery deletes the row.
+- [x] Relay metadata stays bounded by peer count, without per-message receipts or tombstones. Sequence gaps caused by mailbox expiry are allowed; remaining messages forward in increasing sequence order.
+
 ## How it works
 
 - [docs/wiki/systems/session-control-db.md](../wiki/systems/session-control-db.md) — storage,
@@ -295,6 +302,9 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
   the resumed prompt list empty unless a caller explicitly provides a prompt.
 
 ## Tests asserting this spec
+
+- `packages/coding-agent/test/host-relay.test.ts` — atomic sequence persistence/import, deletion isolation, ordered retries and fixed cursor count.
+- `packages/coding-agent/test/suite/host-relay-process.test.ts` — native relay delivery on isolated control DBs.
 
 - `packages/coding-agent/test/session-control-db.test.ts`
 - `packages/coding-agent/test/session-name-schema-migration.test.ts`

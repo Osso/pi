@@ -18,6 +18,7 @@ export interface ContactParentMessageParams {
 export interface SendAgentMessageParams extends ContactParentMessageParams {
 	toAgentId: string;
 	toSessionId?: string;
+	toHost?: string;
 }
 
 interface MailboxToolTransports {
@@ -49,6 +50,12 @@ const sendAgentMessageSchema = Type.Object(
 		toAgentId: Type.String({
 			description: "Target agent ID, or 'main' when sending to another session's main thread.",
 		}),
+		toHost: Type.Optional(
+			Type.String({
+				description:
+					"Target hostname for a session on another host; requires toSessionId. Omit for local delivery.",
+			}),
+		),
 		toSessionId: Type.Optional(
 			Type.String({ description: "Optional target session ID for direct cross-session mailbox delivery." }),
 		),
@@ -64,8 +71,11 @@ function createSendAgentMessageTool(transports: MailboxToolTransports) {
 		name: "send_agent_message",
 		label: "Send Agent Message",
 		description:
-			"Send assistant text verbatim to a local child or sibling agent, or another session via toSessionId (with toAgentId 'main'). Write the outgoing body as assistant text alongside this tool call, then pass only metadata; use textIndex when there are multiple text blocks.",
-		promptGuidelines: [outgoingTextGuideline],
+			"Send assistant text verbatim to a local child or sibling agent, or another session via toSessionId (with toAgentId 'main'). For another host, also pass toHost; the message queues locally until relay delivery. Unknown local sessions are rejected. Write the outgoing body as assistant text alongside this tool call, then pass only metadata; use textIndex when there are multiple text blocks.",
+		promptGuidelines: [
+			outgoingTextGuideline,
+			"For a cross-host reply, use the sender's hostname as toHost plus its session ID as toSessionId. Never infer host ownership from a session ID.",
+		],
 		approvalRequired: false,
 		parameters: sendAgentMessageSchema,
 		execute: async (toolCallId, params, _signal, _onUpdate, ctx) =>
@@ -76,6 +86,7 @@ function createSendAgentMessageTool(transports: MailboxToolTransports) {
 					threadId: params.threadId,
 					toAgentId: params.toAgentId,
 					toSessionId: params.toSessionId,
+					toHost: params.toHost,
 				},
 				ctx,
 			),

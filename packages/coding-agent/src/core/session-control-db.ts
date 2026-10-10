@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
+import { hostname } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { getUserStateRoot } from "../config.ts";
 import type { DetachedJobTerminalInput } from "./detached-job-runner.ts";
@@ -73,6 +74,8 @@ export interface RuntimeMailboxStoreRef {
 }
 
 export interface SharedChannelMessage {
+	originHost?: string;
+	originId?: number;
 	id: number;
 	sender: RuntimeMailboxAddress;
 	body: string;
@@ -152,6 +155,7 @@ export interface EnqueueStoredRuntimeMailboxMessageInput extends EnqueueRuntimeM
 }
 
 export interface EnqueueRuntimeMailboxMessageInput {
+	recipientHost?: string;
 	recipient: RuntimeMailboxAddress;
 	sender: RuntimeMailboxAddress;
 	kind: RuntimeMailboxMessageKind;
@@ -296,6 +300,8 @@ type SessionHealthRow = {
 };
 
 type SharedChannelMessageRow = {
+	origin_host: string | null;
+	origin_id: number | null;
 	id: number;
 	sender_session_id: string;
 	sender_agent_id: string | null;
@@ -481,7 +487,7 @@ function assertMailboxMessageFresh(message: Record<string, unknown>, context: st
 
 export function enqueueRuntimeMailboxMessage(controlDbPath: string, input: EnqueueRuntimeMailboxMessageInput): number {
 	const result = withControlDb(controlDbPath, (db) => routeRuntimeMailboxMessage(db, input));
-	notifyRuntimeMailboxListener(result.listener);
+	if (!input.recipientHost || input.recipientHost === hostname()) notifyRuntimeMailboxListener(result.listener);
 	return result.id;
 }
 
@@ -525,9 +531,37 @@ export function enqueueStoredRuntimeMailboxMessage(
 	input: EnqueueStoredRuntimeMailboxMessageInput,
 ): number {
 	const prepared = prepareStoredRuntimeMailboxMessage(input);
-	const result = withControlDb(controlDbPath, (db) => persistStoredRuntimeMailboxMessage(db, input, prepared));
-	notifyRuntimeMailboxListener(result.listener);
+	const result = withControlDb(controlDbPath, (db) => {
+		const existing = readCanonicalMailboxRowByStoreRef(db, input.storeRef);
+		if (existing) return validateExistingStoredRuntimeMailboxMessage(existing, input, prepared);
+		return withImmediateTransaction(db, () => persistStoredRuntimeMailboxMessage(db, input, prepared));
+	});
+	if (!input.recipientHost || input.recipientHost === hostname()) notifyRuntimeMailboxListener(result.listener);
 	return result.id;
+}
+
+/** Caller owns the transaction and must notify the recipient after commit. */
+export function enqueueStoredRuntimeMailboxMessageInTransaction(
+	db: SqliteDatabase,
+	input: EnqueueStoredRuntimeMailboxMessageInput,
+): number {
+	return persistStoredRuntimeMailboxMessage(db, input, prepareStoredRuntimeMailboxMessage(input)).id;
+}
+
+export function notifyRuntimeMailboxRecipient(controlDbPath: string, recipient: RuntimeMailboxAddress): void {
+	withControlDb(controlDbPath, (db) => notifyRuntimeMailboxListener(readRuntimeMailboxListenerRow(db, recipient)));
+}
+
+export function isKnownLocalSession(controlDbPath: string, sessionId: string): boolean {
+	return withControlDb(controlDbPath, (db) =>
+		Boolean(
+			db
+				.prepare(
+					"SELECT 1 FROM session_metadata WHERE id = ? UNION ALL SELECT 1 FROM session_health WHERE session_id = ? LIMIT 1",
+				)
+				.get(sessionId, sessionId),
+		),
+	);
 }
 
 function prepareStoredRuntimeMailboxMessage(
@@ -557,16 +591,13 @@ function persistStoredRuntimeMailboxMessage(
 	assertMailboxMessageFresh(prepared.routed, prepared.context);
 	const existing = readCanonicalMailboxRowByStoreRef(db, input.storeRef);
 	if (existing) return validateExistingStoredRuntimeMailboxMessage(existing, input, prepared);
-	const inserted = withImmediateTransaction(db, () => {
-		assertMailboxMessageFresh(prepared.routed, prepared.context);
-		return db
-			.prepare(
-				`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
+	const inserted = db
+		.prepare(
+			`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
 				 VALUES (?, ?, ?, ?)
 				 ON CONFLICT(session_path, message_id) DO NOTHING`,
-			)
-			.run(input.storeRef.sessionPath, input.storeRef.messageId, prepared.serialized, prepared.updatedAt);
-	});
+		)
+		.run(input.storeRef.sessionPath, input.storeRef.messageId, prepared.serialized, prepared.updatedAt);
 	if (inserted.changes === 1) {
 		return {
 			id: Number(inserted.lastInsertRowid),
@@ -610,6 +641,7 @@ function addRuntimeMailboxRouting(
 	assertRuntimeMailboxRouting(message, input);
 	return {
 		...message,
+		...(input.recipientHost ? { recipientHost: input.recipientHost } : {}),
 		recipientSessionId: input.recipient.sessionId,
 		recipientAgentId: input.recipient.agentId,
 		senderSessionId: input.sender.sessionId,
@@ -624,7 +656,8 @@ function assertRuntimeMailboxRouting(message: Record<string, unknown>, input: En
 		message.recipientSessionId === input.recipient.sessionId && message.recipientAgentId === input.recipient.agentId;
 	const sameSender =
 		message.senderSessionId === input.sender.sessionId && message.senderAgentId === input.sender.agentId;
-	if (sameRecipient && sameSender && message.kind === input.kind) return;
+	const sameHost = (message.recipientHost ?? hostname()) === (input.recipientHost ?? hostname());
+	if (sameRecipient && sameSender && sameHost && message.kind === input.kind) return;
 	throw new Error(
 		`Runtime mailbox store reference conflicts with canonical mailbox row: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`,
 	);
@@ -924,6 +957,7 @@ function readCanonicalMailboxRowsForRecipient(
 			 FROM multi_agent_mailbox_messages
 			 WHERE CASE WHEN json_valid(data) THEN json_extract(data, '$.status') END = ?
 			   AND CASE WHEN json_valid(data) THEN json_extract(data, '$.recipientSessionId') END = ?
+			   AND (json_extract(data, '$.recipientHost') IS NULL OR json_extract(data, '$.recipientHost') = ?)
 			   AND ((? IS NULL AND CASE WHEN json_valid(data) THEN json_extract(data, '$.recipientAgentId') END IS NULL)
 			        OR CASE WHEN json_valid(data) THEN json_extract(data, '$.recipientAgentId') END = ?)
 			 AND ${MAILBOX_CREATED_AT_MS_SQL} > ?
@@ -933,6 +967,7 @@ function readCanonicalMailboxRowsForRecipient(
 		.all(
 			status,
 			recipient.sessionId,
+			hostname(),
 			recipient.agentId,
 			recipient.agentId,
 			Date.now() - MAILBOX_MESSAGE_RETENTION_MS,
@@ -1048,6 +1083,7 @@ export function deliverRuntimeMailboxMessage(controlDbPath: string, id: number, 
 		const row = readCanonicalMailboxRowById(db, id);
 		if (!row) return false;
 		const message = parseCanonicalMailboxPayload(row);
+		if (message.recipientHost && message.recipientHost !== hostname()) return false;
 		if (message.status !== "claimed" || message.claimantProcessIdentity !== RUNTIME_PROCESS_INSTANCE_ID) return false;
 		if (expectedPayloadData !== undefined && row.data !== expectedPayloadData) return false;
 		return withImmediateTransaction(db, () => compareAndDeleteCanonicalMailboxPayload(db, row));
@@ -1097,11 +1133,13 @@ export function consumeRuntimeMailboxMessageByStoreRef(
 	return withControlDb(controlDbPath, (db) => {
 		const row = readCanonicalMailboxRowByStoreRef(db, storeRef);
 		if (!row) return 0;
+		const host = parseCanonicalMailboxPayload(row).recipientHost;
+		if (host && host !== hostname()) return 0;
 		return Number(withImmediateTransaction(db, () => compareAndDeleteCanonicalMailboxPayload(db, row)));
 	});
 }
 
-function withImmediateTransaction<T>(db: SqliteDatabase, operation: () => T): T {
+export function withImmediateTransaction<T>(db: SqliteDatabase, operation: () => T): T {
 	db.exec("BEGIN IMMEDIATE");
 	try {
 		const result = operation();
@@ -1906,7 +1944,7 @@ export function listSharedChannelMessagesAfter(
 		const rows = db
 			.prepare(
 				`
-				SELECT id, sender_session_id, sender_agent_id, body, created_at
+				SELECT id, sender_session_id, sender_agent_id, body, created_at, origin_host, origin_id
 				FROM shared_channel_messages
 				WHERE id > ? AND id <= ?
 				ORDER BY id ASC
@@ -1952,7 +1990,7 @@ export function hasPendingRuntimeCoordinationMessage(controlDbPath: string, reci
 				FROM shared_channel_messages
 				WHERE id > ?
 					AND sender_agent_id IS NULL
-					AND sender_session_id <> ?
+					AND (origin_host IS NOT NULL OR sender_session_id <> ?)
 				LIMIT 1
 				`,
 			)
@@ -2046,6 +2084,7 @@ function writeSharedChannelCursorRow(db: SqliteDatabase, recipient: RuntimeMailb
 
 function sharedChannelMessageFromRow(row: SharedChannelMessageRow): SharedChannelMessage {
 	return {
+		...(row.origin_host ? { originHost: row.origin_host, originId: row.origin_id ?? undefined } : {}),
 		body: row.body,
 		createdAt: row.created_at,
 		id: row.id,
@@ -2213,6 +2252,8 @@ export function markRuntimeMailboxMessageDelivered(controlDbPath: string, id: nu
 	withControlDb(controlDbPath, (db) => {
 		const row = readCanonicalMailboxRowById(db, id);
 		if (!row) return;
+		const host = parseCanonicalMailboxPayload(row).recipientHost;
+		if (host && host !== hostname()) return;
 		withImmediateTransaction(db, () => compareAndDeleteCanonicalMailboxPayload(db, row));
 	});
 }
@@ -6546,7 +6587,7 @@ function closeReleasedControlDb(controlDbPath: string, retained: RetainedControl
 	retained.db.close();
 }
 
-function withControlDb<T>(controlDbPath: string, callback: (db: SqliteDatabase) => T): T {
+export function withControlDb<T>(controlDbPath: string, callback: (db: SqliteDatabase) => T): T {
 	const retained = retainedControlDbs.get(controlDbPath);
 	if (retained) {
 		retained.activeCalls += 1;
@@ -6795,6 +6836,7 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 	migrateLegacySessionNames(db, selfRestartProcessId);
 	addMissingRuntimeMailboxListenerColumns(db);
 	addMissingArchitectRequestColumns(db);
+	addMissingSharedChannelOriginColumns(db);
 	// Already-running legacy producers insert directly. Only new undated rows receive birth.
 	db.exec(`CREATE TRIGGER IF NOT EXISTS multi_agent_mailbox_default_birth
 		AFTER INSERT ON multi_agent_mailbox_messages
@@ -7337,6 +7379,17 @@ function migrateLegacyRuntimeMailboxRow(db: SqliteDatabase, row: LegacyRuntimeMa
 		updated.error = typeof routed.error === "string" ? routed.error : row.error;
 	}
 	writeCanonicalMailboxPayload(db, canonical.id, updated, row.updated_at || nowIso);
+}
+
+function addMissingSharedChannelOriginColumns(db: SqliteDatabase): void {
+	const columns = new Set(
+		(db.prepare("PRAGMA table_info(shared_channel_messages)").all() as TableInfoRow[]).map((column) => column.name),
+	);
+	if (!columns.has("origin_host")) db.exec("ALTER TABLE shared_channel_messages ADD COLUMN origin_host TEXT");
+	if (!columns.has("origin_id")) db.exec("ALTER TABLE shared_channel_messages ADD COLUMN origin_id INTEGER");
+	db.exec(
+		"CREATE UNIQUE INDEX IF NOT EXISTS shared_channel_origin_idx ON shared_channel_messages(origin_host, origin_id) WHERE origin_host IS NOT NULL",
+	);
 }
 
 function addMissingArchitectRequestColumns(db: SqliteDatabase): void {

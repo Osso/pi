@@ -183,6 +183,7 @@
 - Added the public `bash_messages_committed` session event for observing idle or deferred bash messages after they enter session state.
 - Added built-in `gemini-3.7-flash` availability for Google AI Studio and Google Vertex, with 1,048,576-token context, 65,536-token maximum output, current pricing, and low/medium/high thinking levels.
 - Added a seven-day runtime OpenRouter model catalog cache under the XDG cache root, with additive bundled-first merging and `--refresh-models` for forced refreshes.
+- Added cross-host agent messaging via `send_agent_message.toHost`, global shared-channel replication, `pi relay serve`, and an optional Supervisor SSH relay with bounded reconnect backoff. Persisted per-peer mailbox sequences prevent lost-ack replay after receiver deletion without receipts or tombstones; unknown local session targets now fail explicitly.
 
 ### Fixed
 

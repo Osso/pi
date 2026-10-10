@@ -476,6 +476,17 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       wake signal (stale listener row, signal pending across a session switch) terminate the
       process. Self-notification is skipped entirely when no wake handler is installed.
 
+### Cross-host messaging
+
+- [x] Hosts identify themselves by the OS hostname. Sessions remain on their host; each host's local control DB remains authoritative and local delivery works during peer outages.
+- [x] `send_agent_message` accepts optional `toHost` with `toSessionId`. A different hostname queues the canonical payload for relay without notifying local listeners; unknown local session IDs fail with guidance to supply `toHost`. Known local sessions come from metadata or health, not a discovery service.
+- [x] Foreign-host mailbox rows cannot be claimed or deleted by local delivery APIs. The receiver removes outbound host routing before making imported rows deliverable.
+- [x] Mailbox forwarding uses persisted per-peer sequences, strictly ordered stop-and-wait forwarding and acknowledgements. Receiver import and high-water advancement are atomic; replay after delivery/deletion and a lost acknowledgement does not deliver twice. Delivered sender rows are deleted by exact-payload CAS; undelivered rows retain 24-hour creation-age expiry. No per-message receipt or tombstone is retained.
+- [x] `pi relay serve` exchanges newline-delimited JSON on stdin/stdout until EOF without initializing a provider session. Each endpoint announces its hostname and forwards local mailbox and channel entries.
+- [x] The laptop's resident Supervisor starts SSH relay from global settings `relay: { "peer": "agent-server" }`; optional `remoteCommand` defaults to `pi relay serve`. SSH uses batch mode and 15-second keepalives. Connection failures are logged and retried with capped exponential backoff and jitter without failing local sessions.
+
+The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the [control-DB contract](session-control-db.md) owns bounded relay state. There is no discovery, registry, session migration or extra delivery-history table.
+
 ### Extension boundaries
 
 - [x] Multi-agent first-party capabilities are split into explicit extension modules:
@@ -608,6 +619,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
   external-extension and Claude Code audit that informs the first implementation slice.
 
 ## Tests asserting this spec
+
+- `packages/coding-agent/test/host-relay.test.ts` — two-DB forwarding, replies, outages, lost acknowledgements, sequence ordering and bounded state.
+- `packages/coding-agent/test/host-relay-client.test.ts` — real SSH-process fixture, outage logging, reconnect, SSH arguments and shutdown.
+- `packages/coding-agent/test/suite/host-relay-process.test.ts` — native `pi relay serve` stdio forwarding and EOF exit using isolated headless paths.
 
 - [`packages/coding-agent/test/multi-agent-store.test.ts`](../../packages/coding-agent/test/multi-agent-store.test.ts)
   asserts stale revision rejection, read-only view selection, steering acknowledgement, and

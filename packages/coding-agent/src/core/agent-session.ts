@@ -733,7 +733,11 @@ function readSharedChannelMessageSnapshot(
 }
 
 function isOwnSharedChannelMessage(message: SharedChannelMessage, recipient: RuntimeMailboxAddress): boolean {
-	return message.sender.sessionId === recipient.sessionId && message.sender.agentId === recipient.agentId;
+	return (
+		!message.originHost &&
+		message.sender.sessionId === recipient.sessionId &&
+		message.sender.agentId === recipient.agentId
+	);
 }
 
 function isSubagentSharedChannelMessage(message: SharedChannelMessage): boolean {

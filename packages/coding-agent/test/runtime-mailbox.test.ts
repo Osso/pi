@@ -565,6 +565,8 @@ describe("runtime SQLite mailbox delivery", () => {
 	it("sends direct messages to an explicit runtime session", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
+		const targetSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "target-session" });
+		targetSession.setMetadataControlDbPath(controlDbPath);
 		const senderSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "sender-session" });
 		senderSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
@@ -740,6 +742,8 @@ describe("runtime SQLite mailbox delivery", () => {
 	it("sends direct messages to an explicit main runtime session", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
+		const targetSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "target-session" });
+		targetSession.setMetadataControlDbPath(controlDbPath);
 		const senderSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "sender-session" });
 		senderSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
@@ -792,6 +796,8 @@ describe("runtime SQLite mailbox delivery", () => {
 	it("rejects explicit runtime sessions that do not match the target agent transcript", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
+		const targetSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "target-session" });
+		targetSession.setMetadataControlDbPath(controlDbPath);
 		const senderSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "sender-session" });
 		senderSession.setMetadataControlDbPath(controlDbPath);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });

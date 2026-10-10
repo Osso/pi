@@ -83,6 +83,7 @@ import {
 import { registerSetAgentModelTool, resolveLiveAgentMutationTarget } from "./agent-model-tool.ts";
 import { bindProductionChildSession, type UnboundChildAgentSession } from "./child-session.ts";
 import { readCurrentChildAssistantText } from "./child-response.ts";
+import { isRemoteSessionMessage, sessionMessageRouteError } from "./session-message-route.ts";
 import { waitForActiveDescendants } from "./descendant-settlement.ts";
 import { createLifecycleCoordinator, RUNTIME_PROCESS_IDENTITY } from "./lifecycle-runtime.ts";
 import {
@@ -439,7 +440,10 @@ function validateGoalObjective(prompt: string): GoalObjectiveValidation {
 function isProductionChildSessionFactory(
 	factory: ChildAgentSessionFactory | undefined,
 ): factory is ProductionChildAgentSessionFactory {
-	return (factory as Partial<ProductionChildAgentSessionFactory> | undefined)?.[productionChildSessionFactoryMarker] === true;
+	return (
+		(factory as Partial<ProductionChildAgentSessionFactory> | undefined)?.[productionChildSessionFactoryMarker] ===
+		true
+	);
 }
 
 function spawnPromptValidationMessage(validation: Exclude<GoalObjectiveValidation, { ok: true }>): string {
@@ -650,7 +654,10 @@ function createChildSessionManager(input: {
 	context: ChildAgentDispatchInput["context"];
 	ctx: ExtensionContext;
 	options: ProductionChildAgentSessionFactoryOptions;
-}): { parentSessionFile: string | undefined; sessionManager: NonNullable<CreateAgentSessionOptions["sessionManager"]> } {
+}): {
+	parentSessionFile: string | undefined;
+	sessionManager: NonNullable<CreateAgentSessionOptions["sessionManager"]>;
+} {
 	const parentSessionFile = input.ctx.sessionManager.getSessionFile();
 	if (input.context === "inherit" && !parentSessionFile) {
 		throw new Error("Cannot inherit context from an unpersisted parent session");
@@ -1307,9 +1314,7 @@ interface AttachSessionTarget {
 	sessionId: string;
 }
 
-type AttachSessionTargetResolution =
-	| { ok: true; target: AttachSessionTarget }
-	| { ok: false; message: string };
+type AttachSessionTargetResolution = { ok: true; target: AttachSessionTarget } | { ok: false; message: string };
 
 interface AttachSessionDispatchInput {
 	createAttachedSession: AttachedSessionFactory | undefined;
@@ -1324,9 +1329,7 @@ interface AttachSessionDispatchInput {
 	waitingDesktopNotifications: WaitingDesktopNotificationHandles;
 }
 
-type AttachSessionResult =
-	| { ok: true; agent: AgentSnapshot }
-	| { ok: false; error: string; parent?: AgentSnapshot };
+type AttachSessionResult = { ok: true; agent: AgentSnapshot } | { ok: false; error: string; parent?: AgentSnapshot };
 
 function dispatchAttachedSessionAgent(input: AttachSessionDispatchInput): AgentSnapshot | undefined {
 	const reservedRuntime = reserveAttachedRuntime(input);
@@ -1797,7 +1800,6 @@ async function runAgentSession(
 				throw new Error("Child session did not deliver pending steering before completion");
 			}
 		}
-
 	} catch (error) {
 		await settleDescendantsBeforeTerminalization(store, running.agent.id);
 		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
@@ -1915,6 +1917,14 @@ function sendAgentMessage(
 	onSessionMessageSent?: MultiAgentExtensionOptions["onSessionMessageSent"],
 ): AgentToolResult<SendAgentMessageToolDetails> {
 	const target = formatSentMessageTarget(params, params.toSessionId);
+	const senderId = currentMessageSenderId(store, ctx);
+	const routeError = senderId ? sessionMessageRouteError(ctx?.controlDbPath, params) : undefined;
+	if (routeError)
+		return errorResult(`Could not send agent message to ${target}: ${routeError}`, {
+			agent: currentMessageSenderAgent(store, ctx),
+			message: emptyDirectMessage(senderId ?? "unknown_subagent", params.toAgentId, params.message),
+		});
+	if (isRemoteSessionMessage(params)) return sendMainRuntimeSessionMessage(store, params, ctx, onSessionMessageSent);
 	if (params.toSessionId) {
 		if (isMainRuntimeTarget(params.toAgentId)) {
 			return sendMainRuntimeSessionMessage(store, params, ctx, onSessionMessageSent);
@@ -1935,7 +1945,6 @@ function sendAgentMessage(
 		}
 	}
 
-	const senderId = currentMessageSenderId(store, ctx);
 	if (!senderId) {
 		return errorResult(`Could not send agent message to ${target}: subagent runtime identity is unavailable.`, {
 			agent: emptyAgent("unknown_subagent"),
@@ -1961,7 +1970,13 @@ function sendAgentMessage(
 
 	if (params.toSessionId) {
 		const recipientAgentId = isMainRuntimeTarget(params.toAgentId) ? null : params.toAgentId;
-		if (!mirrorRuntimeSessionMessage(store, sent.message, params.toSessionId, ctx, recipientAgentId)) {
+		if (
+			!mirrorRuntimeSessionMessage(store, sent.message, ctx, {
+				sessionId: params.toSessionId,
+				agentId: recipientAgentId,
+				host: params.toHost,
+			})
+		) {
 			const failedMessage = markFailedMailboxTransportMessage(store, sent.message);
 			const error = `Could not send runtime session message to ${target}: runtime mailbox transport is unavailable.`;
 			return errorResult(error, { agent: sent.agent, message: failedMessage });
@@ -2008,16 +2023,28 @@ function sendMainRuntimeSessionMessage(
 		threadId: params.threadId,
 		toAgentId: params.toAgentId,
 	});
-	if (!mirrorRuntimeSessionMessage(store, message, params.toSessionId, ctx, null)) {
+	if (
+		!mirrorRuntimeSessionMessage(store, message, ctx, {
+			sessionId: params.toSessionId,
+			agentId: isMainRuntimeTarget(params.toAgentId) ? null : params.toAgentId,
+			host: params.toHost,
+		})
+	) {
 		const failedMessage = markFailedMailboxTransportMessage(store, message);
 		const error = `Could not send runtime session message to ${target}: runtime mailbox transport is unavailable.`;
 		return errorResult(error, { agent: sender, message: failedMessage });
 	}
-	onSessionMessageSent?.({ message, toSessionId: params.toSessionId });
-	return result(`Sent message to session ${params.toSessionId}.`, {
-		agent: sender,
-		message,
-	});
+	const remote = isRemoteSessionMessage(params);
+	if (!remote) onSessionMessageSent?.({ message, toSessionId: params.toSessionId });
+	return result(
+		remote
+			? `Queued message to session ${params.toSessionId} for relay to host ${params.toHost}.`
+			: `Sent message to session ${params.toSessionId}.`,
+		{
+			agent: sender,
+			message,
+		},
+	);
 }
 
 function markFailedMailboxTransportMessage(
@@ -2036,9 +2063,8 @@ function markFailedMailboxTransportMessage(
 function mirrorRuntimeSessionMessage(
 	store: MultiAgentStore,
 	message: AgentMailboxMessage,
-	toSessionId: string,
 	ctx: ExtensionContext | undefined,
-	recipientAgentId: string | null,
+	route: RuntimeMailboxAddress & { host?: string },
 ): boolean {
 	if (!ctx?.controlDbPath) {
 		return false;
@@ -2053,7 +2079,8 @@ function mirrorRuntimeSessionMessage(
 	try {
 		enqueueRuntimeMailboxMessage(ctx.controlDbPath, {
 			kind: message.kind,
-			recipient: { agentId: recipientAgentId, sessionId: toSessionId },
+			recipientHost: route.host,
+			recipient: { agentId: route.agentId, sessionId: route.sessionId },
 			sender: {
 				agentId: message.fromAgentId === MAIN_THREAD_AGENT_ID ? null : message.fromAgentId,
 				sessionId: ctx.sessionManager.getSessionId(),
@@ -2403,7 +2430,9 @@ function takePendingWaitSharedChannelMessages(recipient: RuntimeCoordinationReci
 	const messages = readSharedChannelMessagesThrough(recipient.controlDbPath, cursor, lastMessageId);
 	advanceSharedChannelCursor(recipient.controlDbPath, recipient.address, lastMessageId);
 	return messages.filter(
-		(message) => message.sender.agentId === null && message.sender.sessionId !== recipient.address.sessionId,
+		(message) =>
+			message.sender.agentId === null &&
+			(message.originHost !== undefined || message.sender.sessionId !== recipient.address.sessionId),
 	);
 }
 
@@ -2496,7 +2525,11 @@ function formatAgentStatus(agent: AgentSnapshot): string {
 
 export type CancelReservedAgentResult =
 	| { ok: true; agent: AgentSnapshot }
-	| { ok: false; error: "agent_not_found" | "runtime_ownership_unavailable" | "mutation_rejected"; agent?: AgentSnapshot };
+	| {
+			ok: false;
+			error: "agent_not_found" | "runtime_ownership_unavailable" | "mutation_rejected";
+			agent?: AgentSnapshot;
+	  };
 
 export async function cancelOwnedAgentRuntime(
 	store: MultiAgentStore,

@@ -3000,6 +3000,58 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
+	it("rejects an unknown local session and requires explicit toHost for remote sends", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-unknown-relay-session-"));
+		try {
+			const controlDbPath = join(tempDir, "control.sqlite");
+			const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "local-sender" });
+			sessionManager.setMetadataControlDbPath(controlDbPath);
+			const harness = createMultiAgentHarness({
+				ctx: { controlDbPath, sessionManager },
+				store: MultiAgentStore.fromSessionManager(sessionManager),
+			});
+			harness.appendMailboxResponse(
+				"Remote request",
+				fauxToolCall(
+					"send_agent_message",
+					{ toAgentId: "main", toSessionId: "unknown-local" },
+					{ id: "send_agent_message-call" },
+				),
+			);
+			const sent = await harness.call<SendAgentMessageDetails>("send_agent_message", {
+				toAgentId: "main",
+				toSessionId: "unknown-local",
+			});
+			expect(sent.content).toEqual([{ type: "text", text: expect.stringContaining("pass toHost") }]);
+			expect(harness.store.listMailboxMessages()).toEqual([]);
+			harness.appendMailboxResponse(
+				"Explicit remote request",
+				fauxToolCall(
+					"send_agent_message",
+					{ toAgentId: "main", toSessionId: "unknown-local", toHost: "relay-test-peer" },
+					{ id: "remote-send-call" },
+				),
+			);
+			const remoteTool = harness.tools.get("send_agent_message");
+			if (!remoteTool) throw new Error("Expected send_agent_message tool");
+			const queued = await remoteTool.execute(
+				"remote-send-call",
+				{ toAgentId: "main", toSessionId: "unknown-local", toHost: "relay-test-peer" },
+				undefined,
+				undefined,
+				{ cwd: tempDir, hasUI: false, mode: "print", controlDbPath, sessionManager } as unknown as ExtensionContext,
+			);
+			expect(queued.content).toEqual([
+				{ type: "text", text: "Queued message to session unknown-local for relay to host relay-test-peer." },
+			]);
+			expect(listRuntimeMailboxMessages(controlDbPath)).toMatchObject([
+				{ body: "Explicit remote request", recipient: { sessionId: "unknown-local", agentId: null } },
+			]);
+		} finally {
+			rmSync(tempDir, { recursive: true, force: true });
+		}
+	});
+
 	it.each([undefined, "missing-session"])(
 		"identifies a missing mailbox target with session %s without queuing delivery",
 		async (toSessionId) => {
