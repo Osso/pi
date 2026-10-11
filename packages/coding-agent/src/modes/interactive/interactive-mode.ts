@@ -69,6 +69,7 @@ import {
 	shouldContinueInterruptedSession,
 } from "../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
+import { isServerNarrationSignature } from "../../core/assistant-narration.ts";
 import {
 	type CompactionResult,
 	type CompactionSourceInfo,
@@ -4308,6 +4309,10 @@ export class InteractiveMode {
 		const update = event.assistantMessageEvent;
 		if (update.type === "text_delta") return update.delta.length > 0;
 		if (update.type === "thinking_delta") return !this.hideThinkingBlock && update.delta.length > 0;
+		if (update.type === "thinking_end") {
+			const content = update.partial.content[update.contentIndex];
+			return content?.type === "thinking" && isServerNarrationSignature(content.thinkingSignature);
+		}
 		return false;
 	}
 
