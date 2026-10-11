@@ -59,7 +59,10 @@ describe("InteractiveMode narration streaming", () => {
 			content: [ordinaryThinking, narration],
 		};
 		const original = structuredClone(completed);
-		const release = Promise.withResolvers<void>();
+		let releaseStream: (() => void) | undefined;
+		const released = new Promise<void>((resolve) => {
+			releaseStream = resolve;
+		});
 		let streamCompleted = false;
 		const stream = (async () => {
 			await handleEvent.call(mode, {
@@ -72,7 +75,7 @@ describe("InteractiveMode narration streaming", () => {
 					partial: completed,
 				},
 			});
-			await release.promise;
+			await released;
 			await handleEvent.call(mode, {
 				type: "message_end",
 				message: completed,
@@ -96,7 +99,8 @@ describe("InteractiveMode narration streaming", () => {
 			expect(completed).toEqual(original);
 			expect(partial.content[1]).not.toHaveProperty("thinkingSignature");
 		} finally {
-			release.resolve();
+			if (!releaseStream) throw new Error("Streaming release was not initialized");
+			releaseStream();
 			await stream;
 		}
 	});
