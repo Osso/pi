@@ -63,6 +63,7 @@ describe("InteractiveMode narration streaming", () => {
 		const released = new Promise<void>((resolve) => {
 			releaseStream = resolve;
 		});
+		if (!releaseStream) throw new Error("Streaming release was not initialized");
 		let streamCompleted = false;
 		const stream = (async () => {
 			await handleEvent.call(mode, {
@@ -99,7 +100,6 @@ describe("InteractiveMode narration streaming", () => {
 			expect(completed).toEqual(original);
 			expect(partial.content[1]).not.toHaveProperty("thinkingSignature");
 		} finally {
-			if (!releaseStream) throw new Error("Streaming release was not initialized");
 			releaseStream();
 			await stream;
 		}
