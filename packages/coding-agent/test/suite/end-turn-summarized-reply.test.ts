@@ -1,6 +1,5 @@
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { expect, it } from "vitest";
-import { SUMMARIZED_REPLY_ERROR } from "../../src/core/tools/end-turn.ts";
 import { withHeadlessPi } from "./headless-pi.ts";
 
 // Signature envelope as Anthropic returns it: field 2 -> field 1 -> field 8 holds the block kind.
@@ -16,10 +15,10 @@ const narration = {
 	thinkingSignature: blockSignature("narration"),
 };
 
-it("rejects end_turn when the reply was replaced by a server narration summary, then accepts the rewritten reply", async () => {
+it("accepts end_turn alongside public signed narration without asking for a regenerated reply", async () => {
 	await withHeadlessPi(async (agent) => {
 		await agent.send({ type: "prompt", message: "How does the relay run ssh?" });
-		let request = await agent.waitForLlmRequest();
+		const request = await agent.waitForLlmRequest();
 		agent.respondToLlmRequest(
 			request.id,
 			fauxAssistantMessage([narration, fauxToolCall("end_turn", { reason: "Explained relay ssh" })], {
@@ -27,16 +26,13 @@ it("rejects end_turn when the reply was replaced by a server narration summary, 
 			}),
 		);
 
-		const firstId = request.id;
-		request = await agent.waitForLlmRequest((candidate) => candidate.id !== firstId);
-		agent.respondToLlmRequest(request.id, fauxAssistantMessage("The relay spawns ssh with BatchMode=yes."));
-
-		const secondId = request.id;
-		request = await agent.waitForLlmRequest((candidate) => candidate.id !== secondId);
-		agent.respondToLlmRequest(
-			request.id,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Explained relay ssh" }), { stopReason: "toolUse" }),
+		const result = await agent.waitForSessionEntry(
+			null,
+			(entry) =>
+				entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "end_turn",
 		);
+		if (result.type !== "message" || result.message.role !== "toolResult") throw new Error("Expected tool result");
+		expect(result.message.isError).toBe(false);
 		await agent.waitForEvent((event) => event.type === "agent_end");
 
 		const results = agent
@@ -46,8 +42,12 @@ it("rejects end_turn when the reply was replaced by a server narration summary, 
 					? [entry.message]
 					: [],
 			);
-		expect(results.map((result) => result.isError)).toEqual([true, false]);
-		expect(results[0].content).toEqual([{ type: "text", text: SUMMARIZED_REPLY_ERROR }]);
+		expect(results.map((result) => result.isError)).toEqual([false]);
+		const replies = agent
+			.readSessionEntries(null)
+			.flatMap((entry) => (entry.type === "message" && entry.message.role === "assistant" ? [entry.message] : []));
+		expect(replies).toHaveLength(1);
+		expect(replies[0].content[0]).toEqual(narration);
 	});
 }, 60_000);
 

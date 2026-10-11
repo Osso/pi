@@ -4,7 +4,7 @@
 
 ## Execution and loop
 
-[`end-turn.ts`](../../../packages/coding-agent/src/core/tools/end-turn.ts) defines default-active, sequential `end_turn({reason})`. Blank/whitespace-only reasons throw. It also throws when the response that owns the call has no nonblank text but carries a thinking block whose signature decodes to block kind `narration`: Anthropic replaces prose emitted alongside a tool call with such a server summary, so the reply never reached the user, and the error makes the model resend it as a tool-free text response. Success returns text `Turn ended: …`, details containing the reason, and `terminate: true`. Registration is in [`tools/index.ts`](../../../packages/coding-agent/src/core/tools/index.ts).
+[`end-turn.ts`](../../../packages/coding-agent/src/core/tools/end-turn.ts) defines default-active, sequential `end_turn({reason})`. Blank/whitespace-only reasons throw. Signed public narration is a presentation concern under the [public-narration contract](../../specs/assistant-narration.md), not grounds for rejecting completion or requesting a regenerated answer. Success returns text `Turn ended: …`, details containing the reason, and `terminate: true`. Registration is in [`tools/index.ts`](../../../packages/coding-agent/src/core/tools/index.ts).
 
 [`agent-loop.ts`](../../../packages/agent-core/src/agent-loop.ts) stops automatic tool follow-up only when every finalized result in the batch requests termination. Mixing `end_turn` with a nonterminating result therefore does not end that batch's loop. Error, abort and provider `length` results remain terminal.
 
@@ -14,10 +14,18 @@ When `end_turn` is available, a text-only answer schedules another request. That
 
 [`print-mode.ts`](../../../packages/coding-agent/src/modes/print-mode.ts) searches backward through successful end-turn results/textless end-turn assistants to find printable text, stopping at other message boundaries. Errors preserve nonzero exits; JSON mode emits events.
 
+## Public narration presentation
+
+[`assistant-narration.ts`](../../../packages/coding-agent/src/core/assistant-narration.ts) classifies signatures whose base64 protobuf envelope field 2 → 1 → 8 equals `narration`. The interactive assistant renderer presents that block's returned text as ordinary Markdown, including when thinking is hidden, once the signature arrives. Print output must use the same classification. Original thinking content and signature remain unchanged for persistence, JSON output, and provider replay; genuine or unclassified thinking retains normal thinking visibility.
+
+The [captured incident fixture](../../../packages/coding-agent/test/fixtures/anthropic-narration.json), assistant entry `91f9866c`, contained ordinary thinking followed by signed narration; the original message then called Bash. Hiding both thinking blocks hid the returned public prose. The installed Claude Code decoder (`Osn`/`ebe`) uses the same signature path; its thinking renderer routes `Zwt(l)` narration through public assistant rendering (`Ha`/`Hm`, labelled summary), versus ordinary thinking (`Cs`). This identifies returned public summary text, not an exactly recoverable pre-summary full answer.
+
 ## Limits
 
 This ends the model loop, not Pi itself and not a running goal. Extensions can request further continuation. The completion-policy guidance is prompt text, not proof that task acceptance criteria were met.
 
 ## Test evidence
 
-Inspected, not run: [`end-turn-tool.test.ts`](../../../packages/coding-agent/test/end-turn-tool.test.ts), [`agent-loop.test.ts`](../../../packages/agent-core/test/agent-loop.test.ts), [`agent-session-prompt.test.ts`](../../../packages/coding-agent/test/suite/agent-session-prompt.test.ts), [`print-mode.test.ts`](../../../packages/coding-agent/test/print-mode.test.ts), and [`print-mode-cli.test.ts`](../../../packages/coding-agent/test/suite/print-mode-cli.test.ts) cover validation, termination/continuation, duplicate guards and printing. Resume evidence is in [`7421-resume-session-tool.test.ts`](../../../packages/coding-agent/test/suite/regressions/7421-resume-session-tool.test.ts) and [`resume-continuation-request.test.ts`](../../../packages/coding-agent/test/suite/resume-continuation-request.test.ts).
+The captured renderer, print-mode, end-turn narration and real CLI PTY tests pass. The PTY test asserts visibility before releasing a controlled tool and after reopening the persisted session in a new process. Signed blocks remain unchanged in persistence; the following provider request is also checked.
+
+Existing broader coverage (not rerun for this presentation repair): [`end-turn-tool.test.ts`](../../../packages/coding-agent/test/end-turn-tool.test.ts), [`agent-loop.test.ts`](../../../packages/agent-core/test/agent-loop.test.ts), [`agent-session-prompt.test.ts`](../../../packages/coding-agent/test/suite/agent-session-prompt.test.ts), [`print-mode.test.ts`](../../../packages/coding-agent/test/print-mode.test.ts), and [`print-mode-cli.test.ts`](../../../packages/coding-agent/test/suite/print-mode-cli.test.ts) cover validation, termination/continuation, duplicate guards and printing. Resume evidence is in [`7421-resume-session-tool.test.ts`](../../../packages/coding-agent/test/suite/regressions/7421-resume-session-tool.test.ts) and [`resume-continuation-request.test.ts`](../../../packages/coding-agent/test/suite/resume-continuation-request.test.ts).

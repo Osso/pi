@@ -188,7 +188,7 @@
 
 ### Fixed
 
-- `end_turn` now rejects a response whose reply Anthropic replaced with a server narration summary (textless response with a `narration`-tagged thinking signature), so the model resends the full reply as text instead of the user seeing only a summary in thinking.
+- Fixed signed Anthropic public narration being hidden as thinking: display returned prose directly in interactive and print output without an `end_turn` regeneration request. Genuine thinking retains normal visibility; malformed or unclassified signatures are not promoted to prose. Original thinking blocks and signatures remain unchanged for JSON output and provider replay; returned summaries do not recover an exact pre-summary answer.
 - Fixed cross-host messages remaining queued until a Supervisor request by moving SSH relay into an independent `pi relay connect` resident, started nonblocking by main sessions with global relay settings; concurrent starts share one version-aware resident per control DB.
 - Fixed runtime mailbox loss between readiness and session acceptance: claim before hand-off, durably mark accepted transcript entries, then CAS-delete; startup drops already-accepted dead claims without replay and returns unaccepted claims to pending, with no receipt tables or schema change.
 - Fixed configured compaction thresholds such as 50% being skipped during long tool-bearing turns: check after completed tool results are committed and before the next provider request, preserving coherent tool-call/output pairs and active-turn continuation without interrupting streaming or unfinished tools; no ready speculative cache is required.

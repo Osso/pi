@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, AssistantMessageEvent, ImageContent, ToolResultMessage } from "@earendil-works/pi-ai";
@@ -9,6 +10,10 @@ import { getControlDbPath } from "../src/core/session-control-db.ts";
 import type { SessionShutdownEvent } from "../src/index.ts";
 import { runPrintMode } from "../src/modes/print-mode.ts";
 import { createHarness } from "./suite/harness.ts";
+
+const narrationFixture = JSON.parse(
+	readFileSync(new URL("./fixtures/anthropic-narration.json", import.meta.url), "utf8"),
+) as { content: AssistantMessage["content"] };
 
 type EmitEvent = SessionShutdownEvent;
 
@@ -525,6 +530,26 @@ describe("runPrintMode", () => {
 		});
 		expect(exitCode).toBe(0);
 		expect(output.join("")).toBe("ordinary answer\n");
+	});
+
+	it("prints signed public narration before end_turn without exposing ordinary thinking or changing wire blocks", async () => {
+		const output = captureStdout();
+		const message = createAssistantMessage({ stopReason: "toolUse", endTurn: true });
+		message.content.unshift(...structuredClone(narrationFixture.content));
+		const original = structuredClone(message);
+		const runtimeHost = createRuntimeHost([
+			{ role: "user", content: "opinion?", timestamp: 1 },
+			message,
+			{ role: "toolResult", toolCallId: "finish", toolName: "end_turn", content: [], isError: false, timestamp: 2 },
+		]);
+		const exitCode = await runPrintMode(runtimeHost as unknown as Parameters<typeof runPrintMode>[0], {
+			mode: "text",
+		});
+		const narration = narrationFixture.content[1];
+		if (narration.type !== "thinking") throw new Error("Captured narration must preserve its thinking wire form");
+		expect(exitCode).toBe(0);
+		expect(output.join("")).toBe(`${narration.thinking}\n`);
+		expect(message).toEqual(original);
 	});
 
 	it("prints the last answer before a terminating tool result", async () => {

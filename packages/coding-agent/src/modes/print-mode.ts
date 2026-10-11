@@ -9,6 +9,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, ImageContent } from "@earendil-works/pi-ai";
 import type { AgentSessionRuntime } from "../core/agent-session-runtime.ts";
+import { getAssistantContentText } from "../core/assistant-narration.ts";
 import { flushRawStdout, writeRawStdout } from "../core/output-guard.ts";
 import { getControlDbPath } from "../core/session-control-db.ts";
 import { killTrackedDetachedChildren } from "../utils/shell.ts";
@@ -34,7 +35,7 @@ function findLastPrintableAssistant(messages: AgentMessage[]): AssistantMessage 
 		if (message.role === "toolResult" && message.toolName === "end_turn" && !message.isError) continue;
 		if (message.role !== "assistant") return undefined;
 		if (message.stopReason === "error" || message.stopReason === "aborted") return message;
-		if (message.content.some((content) => content.type === "text" && content.text)) return message;
+		if (message.content.some((content) => getAssistantContentText(content))) return message;
 		if (message.content.some((content) => content.type === "toolCall" && content.name === "end_turn")) continue;
 		return undefined;
 	}
@@ -157,9 +158,8 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 					exitCode = 1;
 				} else {
 					for (const content of assistantMsg.content) {
-						if (content.type === "text") {
-							writeRawStdout(`${content.text}\n`);
-						}
+						const text = getAssistantContentText(content);
+						if (text !== undefined) writeRawStdout(`${text}\n`);
 					}
 				}
 			}

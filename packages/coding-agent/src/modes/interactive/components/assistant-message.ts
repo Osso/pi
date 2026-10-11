@@ -1,5 +1,6 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { type Component, Container, Markdown, type MarkdownTheme, Spacer, Text } from "@earendil-works/pi-tui";
+import { isServerNarrationSignature } from "../../../core/assistant-narration.ts";
 import { getMarkdownTheme, theme } from "../theme/theme.ts";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
@@ -119,6 +120,9 @@ export class AssistantMessageComponent extends Container {
 		}
 
 		if (content.type === "thinking") {
+			if (isServerNarrationSignature(content.thinkingSignature)) {
+				return this.reconcileTextSlot(existing, content.thinking.trim());
+			}
 			return this.reconcileThinkingSlot(existing, content.thinking.trim());
 		}
 
