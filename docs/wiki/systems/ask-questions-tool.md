@@ -32,6 +32,8 @@ In a child runtime (`multiAgentAgentId` set) the override validates questions an
 
 `answer_question` resolves the target from the shared store, requires it to be an active direct child of the caller, and enqueues a `reply` row with message ID `ask_questions:<agentId>:<requestId>` keyed to the store's persistence session path. The body is `ask_questions_answer` JSON; a nonblocking child reads it from its normal inbox.
 
+Deployed 2026-10-12 at `e1dfeeda6` (installed SHA-256 `e160c456ac32d85af7ff4d8fb70d1643b3ce609b98c4095e7d098c39cbe02652`) locally and on agent-server for `osso` and Allison; the Allison update was the first via `deploy.sh --agent-server`. Four local and three remote mains restarted in place: same PID/start ticks, new hash, `checkStatus=ok`. Evidence: `/tmp/pi-askrelay-{local,osso,allison}-final.json`, `/tmp/pi-askrelay-allisonproc-final.json`.
+
 ## Prompting and rendering
 
 Guidance requires all user questions through the tool, including free text, never chat. Callers explicitly choose blocking when progress depends on an answer or nonblocking when independent work can continue. Choice callers omit Other; recommended choices go first with `(Recommended)` in the label.
