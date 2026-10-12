@@ -20,9 +20,11 @@ The report used ordinary custom-message delivery, which defaults to steering whi
 
 ### Deployment evidence — October 12, 2026
 
-Source `018a2f700`: reported source verification passed 29 tests, `npm run check`, and readability audit. `deploy.sh` exited 0; logs `/tmp/pi-usage-deploy.stdout` and `/tmp/pi-usage-deploy.stderr` record version `0.80.3` and check/build output. Installed SHA-256: `6c1f69a1b70d8fb82a002049821c017781222f2f86adb8500d1472ee01a25c95`.
+Source `018a2f700`: source verification passed 29 tests, `npm run check`, and readability audit. `deploy.sh` exited 0; logs `/tmp/pi-usage-deploy.stdout` and `/tmp/pi-usage-deploy.stderr` record version `0.80.3` and check/build output. Installed SHA-256: `6c1f69a1b70d8fb82a002049821c017781222f2f86adb8500d1472ee01a25c95`.
 
-Bounded local rollout covered four eligible installed-`pi` sessions, initially all on `e8df4db862f9b40380b4c7c5f111dce692222d4a8f8a4e256c7ac10bec2a2629`. Main restarted three by exact session ID through control restart and itself through `restart_self`. Final health inventory reported all four `running`/`checkStatus=ok`/eligible; `/tmp/pi-usage-runtime-before.json` and `/tmp/pi-usage-runtime-after.json` show every `/proc` executable matching the deployed hash with identical PID/start ticks. No `pi-dev` or remote `agent-server` coverage. Installed behavior smoke remains pending; deployed identity is not an installed behavior pass.
+Bounded local rollout covered four eligible installed-`pi` sessions, initially all on `e8df4db862f9b40380b4c7c5f111dce692222d4a8f8a4e256c7ac10bec2a2629`. Main restarted three by exact session ID through control restart and itself through `restart_self`. Final health inventory reported all four `running`/`checkStatus=ok`/eligible; `/tmp/pi-usage-runtime-before.json` and `/tmp/pi-usage-runtime-after.json` show every `/proc` executable matching the deployed hash with identical PID/start ticks. No `pi-dev` or remote `agent-server` coverage.
+
+Independent installed-binary verification passed `--version`, `--help`, and four real-PTY cases: pending tool and held provider, each with Enter/Alt+Enter. The full report appeared before work was released, without an extra provider request or abort, and reached the subsequent user turn and persisted transcript. The installed built-in command was exercised with isolated fake credentials, a faux provider, and a fetch mock that rejects unexpected URLs; real upstream API/auth behavior was not tested. Report: `/tmp/pi-usage-deployment-verification.md`; packet and logs: `/tmp/pi-usage-deploy-smoke/`.
 
 ## Limits and unimplemented portions
 
