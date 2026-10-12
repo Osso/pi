@@ -61,14 +61,25 @@ Behavioral evidence:
 - [multi-agent-mailbox-retention.test.ts](../../../packages/coding-agent/test/multi-agent-mailbox-retention.test.ts) and [agent-jsonl-restart.test.ts](../../../packages/coding-agent/test/suite/regressions/agent-jsonl-restart.test.ts): projection expiry and real-process restart preservation.
 - [detached-status-retention.test.ts](../../../packages/coding-agent/test/suite/detached-status-retention.test.ts): status exchange and coordinator cancellation after parent restart with the job still live.
 
-Verified 2026-10-08: merged integration and default-birth source gates passed separately.
-Revision `749bc4f1c` deployed to both hosts through `deploy.sh --agent-server`; final inventory
-found all eight eligible local mains and the resident current, no eligible remote mains or residents,
-and zero expired/invalid-birth mailbox rows with creation indexes present on both hosts.
-Stale health ghosts were excluded; existing detached runners were preserved. No user history was pruned.
-The deploying session confirmed descendant revision `3d303c762` on both hosts; its SHA-256
-`f35101140e608b8996e724ded8165149db753fbe78e4245864d8aac4ac743ce2` matches the final inventory.
-Deployment does not expand test proof to unrelated descendant changes.
+Verified 2026-10-08: merged integration and default-birth source gates passed separately;
+zero expired/invalid-birth mailbox rows and creation indexes verified on both hosts.
+Existing detached runners and user history were preserved.
+
+## Deployment state
+
+verified: 2026-10-11
+
+- `deploy.sh --agent-server`: revision `6f2e88dfe`, installed `/home/osso/.local/share/pi/pi`
+  on `aso` and `agent-server`; SHA-256
+  `e8df4db862f9b40380b4c7c5f111dce692222d4a8f8a4e256c7ac10bec2a2629`.
+- Final inventory: five `aso` and two `agent-server` mains, all current-hash and `checkStatus=ok`;
+  `pi` launchers and PID/start identities preserved, new incarnations, generations incremented once.
+  Evidence: `/tmp/pi-ask-inventory-aso-final.json`, `/tmp/pi-ask-inventory-agent-server-final.json`.
+- No resident Supervisors running; [lazy startup](supervisor-service.md) preserved, no systemd enabled.
+- Installed-artifact [ask_questions](ask-questions-tool.md) PTY smoke: blocking/nonblocking 2/2 passed
+  locally; `/tmp/pi-ask-installed-smoke/ledger.md`. No remote PTY proof.
+
+Deployment does not expand test proof to unrelated changes.
 
 ## Limits and evidence
 
