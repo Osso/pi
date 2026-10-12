@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { type Component, setKeybindings, type TUI } from "@earendil-works/pi-tui";
 import { Value } from "typebox/value";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -153,6 +153,82 @@ describe("asynchronous ask_questions", () => {
 		f.panels[0].handleInput?.("\r");
 		expect((await pending).details?.answers).toEqual({ "Which database?": "SQLite" });
 		expect(listRuntimeMailboxMessages(f.controlDbPath, f.recipient)).toEqual([]);
+	});
+
+	it("keeps a blocking request behind an unanswered nonblocking panel", async () => {
+		const f = fixture();
+		const tool = createAskQuestionsToolDefinition();
+		await tool.execute("queued-first", { blocking: false, questions }, undefined, undefined, f.ctx);
+		let returned = false;
+		const blocking = tool
+			.execute("blocking-second", { blocking: true, questions }, undefined, undefined, f.ctx)
+			.then((result) => {
+				returned = true;
+				return result;
+			});
+		await vi.waitFor(() => expect(f.panels).toHaveLength(1));
+		expect(returned).toBe(false);
+		f.panels[0].handleInput?.("\r");
+		await vi.waitFor(() => expect(f.panels).toHaveLength(2));
+		expect(returned).toBe(false);
+		f.panels[1].handleInput?.("\r");
+		expect((await blocking).details?.answers).toEqual({ "Which database?": "SQLite" });
+		expect(listRuntimeMailboxMessages(f.controlDbPath, f.recipient)).toHaveLength(1);
+	});
+
+	it("delivers panel failure and continues the next queued request", async () => {
+		const f = fixture();
+		vi.spyOn(f.ctx.ui, "custom").mockRejectedValueOnce(new Error("Panel cannot open"));
+		const tool = createAskQuestionsToolDefinition();
+		await tool.execute("failed-panel", { blocking: false, questions }, undefined, undefined, f.ctx);
+		await tool.execute("next-panel", { blocking: false, questions }, undefined, undefined, f.ctx);
+		await vi.waitFor(() => expect(f.panels).toHaveLength(1));
+		expect(f.errors).toEqual(["Questions failed (request failed-panel): Panel cannot open"]);
+		expect(listRuntimeMailboxMessages(f.controlDbPath, f.recipient)[0].body).toContain(
+			"Questions failed (request failed-panel)",
+		);
+		f.panels[0].handleInput?.("\r");
+		await vi.waitFor(() => expect(listRuntimeMailboxMessages(f.controlDbPath, f.recipient)).toHaveLength(2));
+		expect(listRuntimeMailboxMessages(f.controlDbPath, f.recipient)[1].body).toContain(
+			"User answered questions (request next-panel)",
+		);
+	});
+
+	it("reports a mailbox write failure instead of silently losing the submitted answer", async () => {
+		const f = fixture();
+		f.ctx.controlDbPath = dirname(f.controlDbPath);
+		const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			await createAskQuestionsToolDefinition().execute(
+				"write-failed",
+				{ blocking: false, questions },
+				undefined,
+				undefined,
+				f.ctx,
+			);
+			await vi.waitFor(() => expect(f.panels).toHaveLength(1));
+			f.panels[0].handleInput?.("\r");
+			await vi.waitFor(() => expect(f.errors).toHaveLength(1));
+			expect(f.errors[0]).toContain("Failed to deliver question answer (request write-failed)");
+			expect(logged).toHaveBeenCalledWith(f.errors[0]);
+			expect(listRuntimeMailboxMessages(f.controlDbPath, f.recipient)).toEqual([]);
+		} finally {
+			logged.mockRestore();
+		}
+	});
+
+	it("rejects free-text multiselect rather than displaying meaningless choices", async () => {
+		const f = fixture();
+		await expect(
+			createAskQuestionsToolDefinition().execute(
+				"invalid-free-text",
+				{ blocking: true, questions: [{ question: "Explain?", multiSelect: true }] },
+				undefined,
+				undefined,
+				f.ctx,
+			),
+		).rejects.toThrow(/cannot use multiSelect/);
+		expect(f.panels).toEqual([]);
 	});
 
 	it("rejects nonblocking delivery without a persisted session before opening a panel", async () => {

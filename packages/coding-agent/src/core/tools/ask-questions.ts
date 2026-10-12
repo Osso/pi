@@ -91,20 +91,24 @@ function validateQuestions(questions: AskQuestionsToolInput["questions"]): void 
 			throw new Error(`Duplicate question text: ${question.question}`);
 		}
 		questionTexts.add(question.question);
-		if (question.options === undefined) {
-			if (question.multiSelect) throw new Error(`Free-text question "${question.question}" cannot use multiSelect`);
-			continue;
+		validateQuestionOptions(question);
+	}
+}
+
+function validateQuestionOptions(question: AskQuestionsToolInput["questions"][number]): void {
+	if (question.options === undefined) {
+		if (question.multiSelect) throw new Error(`Free-text question "${question.question}" cannot use multiSelect`);
+		return;
+	}
+	if (question.options.length < MIN_OPTIONS || question.options.length > MAX_OPTIONS) {
+		throw new Error(`Question "${question.question}" requires ${MIN_OPTIONS}-${MAX_OPTIONS} options`);
+	}
+	const optionLabels = new Set<string>();
+	for (const option of question.options) {
+		if (optionLabels.has(option.label)) {
+			throw new Error(`Duplicate option label "${option.label}" in question "${question.question}"`);
 		}
-		if (question.options.length < MIN_OPTIONS || question.options.length > MAX_OPTIONS) {
-			throw new Error(`Question "${question.question}" requires ${MIN_OPTIONS}-${MAX_OPTIONS} options`);
-		}
-		const optionLabels = new Set<string>();
-		for (const option of question.options) {
-			if (optionLabels.has(option.label)) {
-				throw new Error(`Duplicate option label "${option.label}" in question "${question.question}"`);
-			}
-			optionLabels.add(option.label);
-		}
+		optionLabels.add(option.label);
 	}
 }
 
@@ -303,6 +307,32 @@ function closeAskQuestionsNotification(notification: DesktopNotificationHandle |
 	}
 }
 
+function startQueuedQuestionRequest(toolCallId: string, params: AskQuestionsToolInput, ctx: ExtensionContext) {
+	const ui = ctx.ui;
+	const target = captureQuestionInboxTarget(ctx);
+	const pending = queueQuestions(ui, params.questions);
+	void deliverQueuedAnswers(ui, target, toolCallId, pending).catch((error: unknown) => {
+		console.error(`Failed question delivery handler (request ${toolCallId}):`, error);
+	});
+	return {
+		content: [
+			{
+				type: "text" as const,
+				text: `Questions queued (request ${toolCallId}). Continue independent work; answers will arrive in your inbox.`,
+			},
+		],
+		details: {
+			blocking: false,
+			queued: true,
+			requestId: toolCallId,
+			questions: params.questions,
+			answers: {},
+			cancelled: false,
+			metadata: params.metadata,
+		},
+	};
+}
+
 export function createAskQuestionsToolDefinition(): ToolDefinition<typeof askQuestionsSchema, AskQuestionsToolDetails> {
 	return {
 		name: "ask_questions",
@@ -325,32 +355,8 @@ export function createAskQuestionsToolDefinition(): ToolDefinition<typeof askQue
 				throw new Error("ask_questions requires explicit blocking: true or false");
 			if (!ctx.hasUI || ctx.mode !== "tui") return unavailableResult(params);
 			validateQuestions(params.questions);
-			const ui = ctx.ui;
-			if (!params.blocking) {
-				const target = captureQuestionInboxTarget(ctx);
-				const pending = queueQuestions(ui, params.questions);
-				void deliverQueuedAnswers(ui, target, toolCallId, pending).catch((error: unknown) => {
-					console.error(`Failed question delivery handler (request ${toolCallId}):`, error);
-				});
-				return {
-					content: [
-						{
-							type: "text",
-							text: `Questions queued (request ${toolCallId}). Continue independent work; answers will arrive in your inbox.`,
-						},
-					],
-					details: {
-						blocking: false,
-						queued: true,
-						requestId: toolCallId,
-						questions: params.questions,
-						answers: {},
-						cancelled: false,
-						metadata: params.metadata,
-					},
-				};
-			}
-			const { answers, cancelled } = await queueQuestions(ui, params.questions);
+			if (!params.blocking) return startQueuedQuestionRequest(toolCallId, params, ctx);
+			const { answers, cancelled } = await queueQuestions(ctx.ui, params.questions);
 			return cancelled ? cancelledResult(params, answers) : answeredResult(params, answers);
 		},
 		renderCall(args, theme, context) {
