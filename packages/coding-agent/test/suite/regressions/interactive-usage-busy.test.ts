@@ -1,5 +1,5 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { fauxAssistantMessage, fauxToolCall, type Message } from "@earendil-works/pi-ai/compat";
@@ -71,8 +71,7 @@ function respond(fixture: Fixture, request: ProviderRequest, tool: string): void
 	);
 }
 
-async function startSession(fixture: Fixture, scenario: Scenario): Promise<ChildProcessWithoutNullStreams> {
-	const release = join(fixture.paths.tempDir, "release");
+function writeIsolatedUsageConfig(fixture: Fixture): void {
 	const payload = Buffer.from(
 		JSON.stringify({
 			email: "usage-pty@example.test",
@@ -89,61 +88,77 @@ async function startSession(fixture: Fixture, scenario: Scenario): Promise<Child
 		join(fixture.paths.agentDir, "settings.json"),
 		JSON.stringify({ approvalPreset: "auto-approve", approvalPolicy: "auto-approve", quietStartup: true }),
 	);
+}
+
+async function startHeldProvider(fixture: Fixture, scenario: Scenario): Promise<void> {
 	fixture.provider = await createProviderServer(fixture.paths.socketPath, (request) => {
 		fixture.requests.push(request);
 		if (scenario.state === "tool" && fixture.requests.length === 1) respond(fixture, request, "held_usage_tool");
 	});
+}
+
+function usageExtensionArgs(fixtures: string): string[] {
+	return [
+		"--extension",
+		join(fixtures, "interactive-pty-provider-extension.ts"),
+		"--extension",
+		join(fixtures, "interactive-usage-held-tool.ts"),
+		"--extension",
+		process.env.PI_TEST_USAGE_EXTENSION_PATH ??
+			join(import.meta.dirname, "..", "..", "..", "extensions", "codex-usage", "src", "index.ts"),
+	];
+}
+
+function usageBridgeArgs(fixture: Fixture): string[] {
 	const fixtures = join(import.meta.dirname, "..", "fixtures");
-	const bridge = spawn(
-		"python3",
-		[
-			join(fixtures, "interactive-pty-bridge.py"),
-			"50",
-			"120",
-			process.execPath,
-			"--experimental-strip-types",
-			"--import",
-			pathToFileURL(join(fixtures, "interactive-usage-preload.ts")).href,
-			join(import.meta.dirname, "..", "..", "..", "src", "cli.ts"),
-			"--provider",
-			"openai-codex",
-			"--model",
-			"headless-faux-codex",
-			"--session-dir",
-			fixture.paths.sessionDir,
-			"--no-context-files",
-			"--no-skills",
-			"--no-themes",
-			"--no-extensions",
-			"--extension",
-			join(fixtures, "interactive-pty-provider-extension.ts"),
-			"--extension",
-			join(fixtures, "interactive-usage-held-tool.ts"),
-			"--extension",
-			process.env.PI_TEST_USAGE_EXTENSION_PATH ??
-				join(import.meta.dirname, "..", "..", "..", "extensions", "codex-usage", "src", "index.ts"),
-		],
-		{
-			cwd: fixture.paths.workspaceDir,
-			env: {
-				...process.env,
-				PI_OFFLINE: "1",
-				PI_TELEMETRY: "0",
-				PI_CODING_AGENT_DIR: fixture.paths.agentDir,
-				PI_CODING_AGENT_STATE_DIR: fixture.paths.agentDir,
-				PI_CODING_AGENT_SESSION_DIR: fixture.paths.sessionDir,
-				PI_HEADLESS_PROVIDER_SOCKET: fixture.paths.socketPath,
-				PI_HEADLESS_PROVIDER_ABORT_LOG: join(fixture.paths.tempDir, "provider-aborted"),
-				PI_TEST_USAGE_FETCH_LOG: join(fixture.paths.tempDir, "usage-fetch"),
-				PI_TEST_USAGE_RELEASE: release,
-				PI_TUI_WRITE_LOG: "",
-				PI_DEBUG_REDRAW: "0",
-				PI_TUI_DEBUG: "0",
-				TERM: "xterm-256color",
-				NO_COLOR: "1",
-			},
-		},
-	);
+	return [
+		join(fixtures, "interactive-pty-bridge.py"),
+		"50",
+		"120",
+		process.execPath,
+		"--experimental-strip-types",
+		"--import",
+		pathToFileURL(join(fixtures, "interactive-usage-preload.ts")).href,
+		join(import.meta.dirname, "..", "..", "..", "src", "cli.ts"),
+		"--provider",
+		"openai-codex",
+		"--model",
+		"headless-faux-codex",
+		"--session-dir",
+		fixture.paths.sessionDir,
+		"--no-context-files",
+		"--no-skills",
+		"--no-themes",
+		"--no-extensions",
+		...usageExtensionArgs(fixtures),
+	];
+}
+
+function usageBridgeEnv(fixture: Fixture): NodeJS.ProcessEnv {
+	return {
+		...process.env,
+		PI_OFFLINE: "1",
+		PI_TELEMETRY: "0",
+		PI_CODING_AGENT_DIR: fixture.paths.agentDir,
+		PI_CODING_AGENT_STATE_DIR: fixture.paths.agentDir,
+		PI_CODING_AGENT_SESSION_DIR: fixture.paths.sessionDir,
+		PI_HEADLESS_PROVIDER_SOCKET: fixture.paths.socketPath,
+		PI_HEADLESS_PROVIDER_ABORT_LOG: join(fixture.paths.tempDir, "provider-aborted"),
+		PI_TEST_USAGE_FETCH_LOG: join(fixture.paths.tempDir, "usage-fetch"),
+		PI_TEST_USAGE_RELEASE: join(fixture.paths.tempDir, "release"),
+		PI_TUI_WRITE_LOG: "",
+		PI_DEBUG_REDRAW: "0",
+		PI_TUI_DEBUG: "0",
+		TERM: "xterm-256color",
+		NO_COLOR: "1",
+	};
+}
+
+function spawnUsageBridge(fixture: Fixture): ChildProcessWithoutNullStreams {
+	const bridge = spawn("python3", usageBridgeArgs(fixture), {
+		cwd: fixture.paths.workspaceDir,
+		env: usageBridgeEnv(fixture),
+	});
 	fixture.bridge = bridge;
 	bridge.stdout.setEncoding("utf8");
 	bridge.stdout.on("data", (text: string) => {
@@ -153,6 +168,15 @@ async function startSession(fixture: Fixture, scenario: Scenario): Promise<Child
 	bridge.stderr.on("data", (chunk: Buffer) => {
 		fixture.stderr += chunk.toString();
 	});
+	return bridge;
+}
+
+async function waitForOngoingWork(
+	fixture: Fixture,
+	scenario: Scenario,
+	bridge: ChildProcessWithoutNullStreams,
+): Promise<void> {
+	const release = join(fixture.paths.tempDir, "release");
 	await waitUntil(fixture, () => viewport(fixture).includes("headless-faux-codex"), "Codex model startup");
 	bridge.stdin.write("Start held usage turn\r");
 	await waitUntil(fixture, () => fixture.requests.length === 1, "first provider request");
@@ -163,11 +187,13 @@ async function startSession(fixture: Fixture, scenario: Scenario): Promise<Child
 			"pending held tool in real TUI",
 		);
 	}
-	return bridge;
 }
 
-async function assertBusyReport(fixture: Fixture, scenario: Scenario): Promise<void> {
-	const bridge = await startSession(fixture, scenario);
+async function assertImmediateBusyReport(
+	fixture: Fixture,
+	scenario: Scenario,
+	bridge: ChildProcessWithoutNullStreams,
+): Promise<void> {
 	bridge.stdin.write(`/usage${scenario.key}`);
 	const fetchLog = join(fixture.paths.tempDir, "usage-fetch");
 	await waitUntil(fixture, () => existsSync(fetchLog), "mock wham request from real usage extension");
@@ -184,20 +210,24 @@ async function assertBusyReport(fixture: Fixture, scenario: Scenario): Promise<v
 	expect(fixture.requests).toHaveLength(1);
 	expect(existsSync(join(fixture.paths.tempDir, "provider-aborted"))).toBe(false);
 	expect(bridge.exitCode).toBeNull();
+}
+
+async function releaseOngoingTool(fixture: Fixture): Promise<void> {
 	const release = join(fixture.paths.tempDir, "release");
-	if (scenario.state === "tool") {
-		expect(viewport(fixture)).toContain("Waiting for tool");
-		expect(existsSync(`${release}.completed`)).toBe(false);
-		expect(existsSync(`${release}.aborted`)).toBe(false);
-		writeFileSync(release, "release");
-		await waitUntil(fixture, () => fixture.requests.length === 2, "provider continuation after tool release");
-		expect(existsSync(`${release}.completed`)).toBe(true);
-		expect(fixture.requests[1]?.messages).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ role: "toolResult", toolName: "held_usage_tool", isError: false }),
-			]),
-		);
-	}
+	expect(viewport(fixture)).toContain("Waiting for tool");
+	expect(existsSync(`${release}.completed`)).toBe(false);
+	expect(existsSync(`${release}.aborted`)).toBe(false);
+	writeFileSync(release, "release");
+	await waitUntil(fixture, () => fixture.requests.length === 2, "provider continuation after tool release");
+	expect(existsSync(`${release}.completed`)).toBe(true);
+	expect(fixture.requests[1]?.messages).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({ role: "toolResult", toolName: "held_usage_tool", isError: false }),
+		]),
+	);
+}
+
+async function finishOriginalTurn(fixture: Fixture, completedRequests: number): Promise<void> {
 	const heldRequest = fixture.requests.at(-1);
 	if (!heldRequest) throw new Error("No held provider request");
 	respond(fixture, heldRequest, "end_turn");
@@ -210,9 +240,15 @@ async function assertBusyReport(fixture: Fixture, scenario: Scenario): Promise<v
 			),
 		"original turn finishes after explicit release",
 	);
-	const completedRequests = scenario.state === "tool" ? 2 : 1;
 	await new Promise((resolve) => setTimeout(resolve, 100));
 	expect(fixture.requests).toHaveLength(completedRequests);
+}
+
+async function assertNextTurnReport(
+	fixture: Fixture,
+	bridge: ChildProcessWithoutNullStreams,
+	completedRequests: number,
+): Promise<ProviderRequest> {
 	bridge.stdin.write("Next user turn consumes queued usage report\r");
 	await waitUntil(fixture, () => fixture.requests.length === completedRequests + 1, "next user turn request");
 	const nextRequest = fixture.requests.at(-1);
@@ -229,6 +265,14 @@ async function assertBusyReport(fixture: Fixture, scenario: Scenario): Promise<v
 			),
 		"queued report persists on subsequent user turn",
 	);
+	return nextRequest;
+}
+
+async function finishNextTurn(
+	fixture: Fixture,
+	nextRequest: ProviderRequest,
+	completedRequests: number,
+): Promise<void> {
 	respond(fixture, nextRequest, "end_turn");
 	await waitUntil(
 		fixture,
@@ -242,6 +286,19 @@ async function assertBusyReport(fixture: Fixture, scenario: Scenario): Promise<v
 	expect(fixture.requests).toHaveLength(completedRequests + 1);
 	expect(fixture.rawOutput).not.toContain("uncaughtException");
 	expect(fixture.stderr).toBe("");
+}
+
+async function assertBusyReport(fixture: Fixture, scenario: Scenario): Promise<void> {
+	writeIsolatedUsageConfig(fixture);
+	await startHeldProvider(fixture, scenario);
+	const bridge = spawnUsageBridge(fixture);
+	await waitForOngoingWork(fixture, scenario, bridge);
+	await assertImmediateBusyReport(fixture, scenario, bridge);
+	if (scenario.state === "tool") await releaseOngoingTool(fixture);
+	const completedRequests = scenario.state === "tool" ? 2 : 1;
+	await finishOriginalTurn(fixture, completedRequests);
+	const nextRequest = await assertNextTurnReport(fixture, bridge, completedRequests);
+	await finishNextTurn(fixture, nextRequest, completedRequests);
 }
 
 async function cleanup(fixture: Fixture): Promise<void> {

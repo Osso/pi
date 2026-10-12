@@ -45,9 +45,39 @@ function usageResponse(usedPercent: number, resetCredits: number): Response {
 	});
 }
 
-describe("registered /usage provider routing", () => {
-	afterEach(() => vi.unstubAllGlobals());
+afterEach(() => vi.unstubAllGlobals());
 
+const busyReports = [
+	{
+		args: "",
+		credits: 3,
+		responses: [usageResponse(42, 3)],
+		confirmationCount: 0,
+		requestCount: 1,
+		content:
+			"OpenAI Codex usage\nUser: usage@example.com\nAccount: acct_usage\nPlan: pro\nReset credits: 3 available\ncodex: 5-hour usage 42% of 300m window resets unknown",
+	},
+	{
+		args: "reset",
+		credits: 0,
+		responses: [usageResponse(42, 0)],
+		confirmationCount: 0,
+		requestCount: 1,
+		content:
+			"OpenAI Codex usage\nUser: usage@example.com\nAccount: acct_usage\nPlan: pro\nReset credits: 0 available\ncodex: 5-hour usage 42% of 300m window resets unknown\n\nNo reset credits available.",
+	},
+	{
+		args: "reset",
+		credits: 3,
+		responses: [usageResponse(42, 3), Response.json({ code: "reset", windows_reset: 1 }), usageResponse(0, 2)],
+		confirmationCount: 1,
+		requestCount: 3,
+		content:
+			"Consumed reset credit. Windows reset: 1\n\nOpenAI Codex usage\nUser: usage@example.com\nAccount: acct_usage\nPlan: pro\nReset credits: 2 available\ncodex: 5-hour usage 0% of 300m window resets unknown",
+	},
+];
+
+describe("registered /usage provider routing", () => {
 	it.each(["", "  ", "reset", "unknown"])(
 		"dispatches Claude args %j and awaits the claimed operation",
 		async (args) => {
@@ -171,34 +201,24 @@ describe("registered /usage provider routing", () => {
 			display: true,
 		});
 	});
+});
 
-	it.each([
-		{ args: "", credits: 3, reset: false },
-		{ args: "reset", credits: 0, reset: false },
-		{ args: "reset", credits: 3, reset: true },
-	])(
+describe("registered /usage busy delivery", () => {
+	it.each(busyReports)(
 		"shows the full busy Codex report immediately for $args with $credits credits",
-		async ({ args, credits, reset }) => {
+		async ({ args, responses, confirmationCount, requestCount, content }) => {
 			const h = registerUsage("openai-codex");
 			h.isIdle.mockReturnValue(false);
-			h.fetch.mockResolvedValueOnce(usageResponse(42, credits));
-			if (reset) {
-				h.fetch
-					.mockResolvedValueOnce(Response.json({ code: "reset", windows_reset: 1 }))
-					.mockResolvedValueOnce(usageResponse(0, 2));
-			}
+			for (const response of responses) h.fetch.mockResolvedValueOnce(response);
 			await h.command.handler(args, h.ctx);
-			const prefix = reset ? "Consumed reset credit. Windows reset: 1\n\n" : "";
-			const suffix = args === "reset" && !reset ? "\n\nNo reset credits available." : "";
-			const content = `${prefix}OpenAI Codex usage\nUser: usage@example.com\nAccount: acct_usage\nPlan: pro\nReset credits: ${reset ? 2 : credits} available\ncodex: 5-hour usage ${reset ? 0 : 42}% of 300m window resets unknown${suffix}`;
 			expect(h.notify).toHaveBeenCalledExactlyOnceWith(content, "info");
 			expect(h.sendMessage).toHaveBeenCalledExactlyOnceWith(
 				{ customType: "codex-usage", content, display: true },
 				{ deliverAs: "nextTurn" },
 			);
 			expect(h.notify.mock.invocationCallOrder[0]).toBeLessThan(h.sendMessage.mock.invocationCallOrder[0]);
-			expect(h.confirm).toHaveBeenCalledTimes(reset ? 1 : 0);
-			expect(h.fetch).toHaveBeenCalledTimes(reset ? 3 : 1);
+			expect(h.confirm).toHaveBeenCalledTimes(confirmationCount);
+			expect(h.fetch).toHaveBeenCalledTimes(requestCount);
 		},
 	);
 
