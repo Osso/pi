@@ -24,6 +24,14 @@ After submission or cancellation, the tool formats a reply containing the reques
 
 Pending panels and queued UI requests are **process-local**, like the current panel. Only submitted results use the durable mailbox. Restart does not recover unanswered questions; this change adds no durable question lifecycle.
 
+## Child-agent relay
+
+[`question-relay-tools.ts`](../../../packages/coding-agent/extensions/agents-core/src/question-relay-tools.ts), registered by `agents-mailbox`, overrides `ask_questions` by name (extension tools replace built-ins in `AgentSession._refreshToolRegistry`). Main runtimes call the core definition unchanged; renderers and `approvalRequired: false` come from it.
+
+In a child runtime (`multiAgentAgentId` set) the override validates questions and sends one formatted request through the same `contactParent` path as `contact_parent`, with `threadId` `ask_questions:<toolCallId>`. A blocking call then polls the child's own runtime mailbox every 500 ms via `takeRuntimeMailboxMessagesForDelivery`, claiming only the row whose store message ID is `ask_questions:<toolCallId>`. Normal mailbox drains do not run while the tool executes, so the waiting tool is the only consumer. The claimed row is returned in `details.runtimeMailboxDelivery`, so `AgentSession` accepts it with the tool result instead of re-prompting. Abort stops polling.
+
+`answer_question` resolves the target from the shared store, requires it to be an active direct child of the caller, and enqueues a `reply` row with message ID `ask_questions:<requestId>` keyed to the store's persistence session path. The body is `ask_questions_answer` JSON; a nonblocking child reads it from its normal inbox.
+
 ## Prompting and rendering
 
 Guidance requires all user questions through the tool, including free text, never chat. Callers explicitly choose blocking when progress depends on an answer or nonblocking when independent work can continue. Choice callers omit Other; recommended choices go first with `(Recommended)` in the label.
@@ -36,6 +44,7 @@ Call rows retain questions and blocking answers/cancellation even with hidden to
 - [`ask-questions-async.test.ts`](../../../packages/coding-agent/test/ask-questions-async.test.ts): required blocking, serial requests, mailbox routing/cancellation and persistence prerequisites.
 - [`ask-questions-panel-free-text.test.ts`](../../../packages/coding-agent/test/ask-questions-panel-free-text.test.ts): free-text editing, drafts, required input and preserved choice behaviors.
 - [`ask-questions-blocking-pty.test.ts`](../../../packages/coding-agent/test/suite/ask-questions-blocking-pty.test.ts): real TUI/model continuation boundary; intervening confirm closes back to the original question, whose answer reaches the correlated durable inbox, followed by a later queued question and reply. [`ask-questions-confirm-extension.ts`](../../../packages/coding-agent/test/suite/fixtures/ask-questions-confirm-extension.ts) opens the actual extension `ctx.ui.confirm` selector.
+- [`child-ask-questions.test.ts`](../../../packages/coding-agent/test/suite/child-ask-questions.test.ts): real parent/child sessions over one control DB: blocking relay and answer, nonblocking inbox delivery, abort, main-runtime delegation, non-parent rejection.
 - [`plan-mode-extension.test.ts`](../../../packages/coding-agent/test/plan-mode-extension.test.ts): plan-mode integration.
 
 Final acceptance and proof limits are recorded in the [contract](../../specs/ask-questions-tool.md#tests-asserting-this-spec). The confirm regression does not alone prove every dialog path.
