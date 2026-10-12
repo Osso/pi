@@ -6,7 +6,8 @@ import {
 	PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
 	sendDesktopNotification,
 } from "../desktop-notification.ts";
-import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
+import type { ExtensionContext, ExtensionUIContext, ToolDefinition } from "../extensions/types.ts";
+import { enqueueStoredRuntimeMailboxMessage, type RuntimeMailboxAddress } from "../session-control-db.ts";
 import { type AskQuestionsPanelResult, createAskQuestionsPanel } from "./ask-questions-panel.ts";
 
 const MIN_OPTIONS = 2;
@@ -38,18 +39,24 @@ const questionSchema = Type.Object({
 			description: "Very short label displayed in summaries. Examples: 'Auth', 'Library', 'Approach'.",
 		}),
 	),
-	options: Type.Array(questionOptionSchema, {
-		minItems: MIN_OPTIONS,
-		maxItems: MAX_OPTIONS,
-		description:
-			"Available choices for this question. Provide 2-4 distinct choices; the UI adds an Other option automatically.",
-	}),
+	options: Type.Optional(
+		Type.Array(questionOptionSchema, {
+			minItems: MIN_OPTIONS,
+			maxItems: MAX_OPTIONS,
+			description:
+				"Provide 2-4 distinct choices; Pi adds Other automatically. Omit options for a free-text question.",
+		}),
+	),
 	multiSelect: Type.Optional(
 		Type.Boolean({ description: "Set true to allow multiple answers instead of one mutually exclusive answer." }),
 	),
 });
 
 const askQuestionsSchema = Type.Object({
+	blocking: Type.Boolean({
+		description:
+			"Required. True waits for answers; false queues questions and returns immediately, with answers delivered later to your inbox. Continue only work independent of unanswered questions.",
+	}),
 	questions: Type.Array(questionSchema, {
 		minItems: 1,
 		maxItems: MAX_QUESTIONS,
@@ -65,6 +72,9 @@ const askQuestionsSchema = Type.Object({
 export type AskQuestionsToolInput = Static<typeof askQuestionsSchema>;
 
 export interface AskQuestionsToolDetails {
+	blocking: boolean;
+	queued?: boolean;
+	requestId?: string;
 	questions: AskQuestionsToolInput["questions"];
 	answers: Record<string, string>;
 	cancelled: boolean;
@@ -81,6 +91,10 @@ function validateQuestions(questions: AskQuestionsToolInput["questions"]): void 
 			throw new Error(`Duplicate question text: ${question.question}`);
 		}
 		questionTexts.add(question.question);
+		if (question.options === undefined) {
+			if (question.multiSelect) throw new Error(`Free-text question "${question.question}" cannot use multiSelect`);
+			continue;
+		}
 		if (question.options.length < MIN_OPTIONS || question.options.length > MAX_OPTIONS) {
 			throw new Error(`Question "${question.question}" requires ${MIN_OPTIONS}-${MAX_OPTIONS} options`);
 		}
@@ -94,13 +108,101 @@ function validateQuestions(questions: AskQuestionsToolInput["questions"]): void 
 	}
 }
 
-async function askQuestions(
-	ctx: ExtensionContext,
+const questionQueues = new WeakMap<ExtensionUIContext, Promise<void>>();
+
+async function showQuestions(
+	ui: ExtensionUIContext,
 	questions: AskQuestionsToolInput["questions"],
 ): Promise<AskQuestionsPanelResult> {
-	return ctx.ui.custom<AskQuestionsPanelResult>((tui, theme, keybindings, done) =>
-		createAskQuestionsPanel({ questions, theme, keybindings, requestRender: () => tui.requestRender(), done }),
+	const notification = notifyAskQuestionsWaiting(questions.length);
+	try {
+		return await ui.custom<AskQuestionsPanelResult>((tui, theme, keybindings, done) =>
+			createAskQuestionsPanel({ questions, theme, keybindings, requestRender: () => tui.requestRender(), done }),
+		);
+	} finally {
+		closeAskQuestionsNotification(notification);
+	}
+}
+
+function queueQuestions(
+	ui: ExtensionUIContext,
+	questions: AskQuestionsToolInput["questions"],
+): Promise<AskQuestionsPanelResult> {
+	const previous = questionQueues.get(ui) ?? Promise.resolve();
+	const result = previous.then(() => showQuestions(ui, questions));
+	// Each caller handles its own failure; a failed panel must not strand later requests.
+	const settled = result.then(
+		() => undefined,
+		() => undefined,
 	);
+	questionQueues.set(ui, settled);
+	void settled.then(() => {
+		if (questionQueues.get(ui) === settled) questionQueues.delete(ui);
+	});
+	return result;
+}
+
+interface QuestionInboxTarget {
+	controlDbPath: string;
+	sessionPath: string;
+	recipient: RuntimeMailboxAddress;
+}
+
+function captureQuestionInboxTarget(ctx: ExtensionContext): QuestionInboxTarget {
+	const controlDbPath = ctx.controlDbPath;
+	const sessionPath = ctx.sessionManager.getSessionFile();
+	if (!controlDbPath || !sessionPath)
+		throw new Error("Nonblocking ask_questions requires a persisted session and control database");
+	return {
+		controlDbPath,
+		sessionPath,
+		recipient: { sessionId: ctx.sessionManager.getSessionId(), agentId: ctx.multiAgentAgentId ?? null },
+	};
+}
+
+function enqueueQuestionAnswer(target: QuestionInboxTarget, requestId: string, body: string): void {
+	const messageId = `ask_questions:${requestId}`;
+	const sender = { sessionId: target.recipient.sessionId, agentId: null };
+	enqueueStoredRuntimeMailboxMessage(target.controlDbPath, {
+		kind: "reply",
+		message: {
+			body,
+			id: messageId,
+			kind: "reply",
+			status: "pending",
+			fromAgentId: "main",
+			toAgentId: target.recipient.agentId ?? "main",
+		},
+		recipient: target.recipient,
+		sender,
+		storeRef: { messageId, sessionPath: target.sessionPath },
+	});
+}
+
+async function deliverQueuedAnswers(
+	ui: ExtensionUIContext,
+	target: QuestionInboxTarget,
+	requestId: string,
+	pending: Promise<AskQuestionsPanelResult>,
+): Promise<void> {
+	let body: string;
+	try {
+		const { answers, cancelled } = await pending;
+		const title = cancelled
+			? `Questions cancelled (request ${requestId})`
+			: `User answered questions (request ${requestId}):`;
+		body = `${title}\n${formatAnswers(answers)}`;
+	} catch (error) {
+		body = `Questions failed (request ${requestId}): ${error instanceof Error ? error.message : String(error)}`;
+		ui.notify(body, "error");
+	}
+	try {
+		enqueueQuestionAnswer(target, requestId, body);
+	} catch (error) {
+		const message = `Failed to deliver question answer (request ${requestId}): ${error instanceof Error ? error.message : String(error)}`;
+		console.error(message);
+		ui.notify(message, "error");
+	}
 }
 
 function formatAnswers(answers: Record<string, string>): string {
@@ -117,6 +219,7 @@ interface AskQuestionsRenderState {
 function formatQuestionAnswer(question: string, details: AskQuestionsToolDetails | undefined, theme: Theme): string {
 	const line = `  ${theme.fg("toolOutput", question)}`;
 	if (!details) return line;
+	if (details.queued) return `${line} ${theme.fg("warning", "→ (queued)")}`;
 	const answer = details.answers[question];
 	if (answer === undefined) return `${line} ${theme.fg("warning", "→ (cancelled)")}`;
 	return `${line} ${theme.fg("accent", `→ ${answer || "(no selection)"}`)}`;
@@ -137,7 +240,13 @@ function formatAskQuestionsCall(
 function unavailableResult(params: AskQuestionsToolInput) {
 	return {
 		content: [{ type: "text" as const, text: "Error: ask_questions requires an interactive TUI session" }],
-		details: { questions: params.questions, answers: {}, cancelled: true, metadata: params.metadata },
+		details: {
+			blocking: params.blocking,
+			questions: params.questions,
+			answers: {},
+			cancelled: true,
+			metadata: params.metadata,
+		},
 		isError: true,
 	};
 }
@@ -145,14 +254,26 @@ function unavailableResult(params: AskQuestionsToolInput) {
 function cancelledResult(params: AskQuestionsToolInput, answers: Record<string, string>) {
 	return {
 		content: [{ type: "text" as const, text: "Questions cancelled" }],
-		details: { questions: params.questions, answers, cancelled: true, metadata: params.metadata },
+		details: {
+			blocking: params.blocking,
+			questions: params.questions,
+			answers,
+			cancelled: true,
+			metadata: params.metadata,
+		},
 	};
 }
 
 function answeredResult(params: AskQuestionsToolInput, answers: Record<string, string>) {
 	return {
 		content: [{ type: "text" as const, text: `User answered questions:\n${formatAnswers(answers)}` }],
-		details: { questions: params.questions, answers, cancelled: false, metadata: params.metadata },
+		details: {
+			blocking: params.blocking,
+			questions: params.questions,
+			answers,
+			cancelled: false,
+			metadata: params.metadata,
+		},
 	};
 }
 
@@ -187,27 +308,50 @@ export function createAskQuestionsToolDefinition(): ToolDefinition<typeof askQue
 		name: "ask_questions",
 		label: "ask_questions",
 		description:
-			"Ask the user multiple-choice questions to clarify requirements, gather preferences, or choose between approaches. Similar to Claude Code's AskUserQuestion tool.",
-		promptSnippet: "Ask the user structured multiple-choice clarifying questions",
+			"Ask the user questions with choices or free-text answers. Explicitly choose blocking to wait, or nonblocking to queue questions and receive answers through your inbox while work continues.",
+		promptSnippet: "Ask all user questions through this tool; explicitly choose blocking or nonblocking",
 		promptGuidelines: [
 			"Use ask_questions only in interactive TUI sessions when you need user preferences, requirement clarification, or a decision between approaches.",
-			"Do not ask free-form clarifying questions in chat when ask_questions can present clear options.",
-			"Provide 2-4 distinct options. Do not include an Other option; Pi adds it automatically.",
+			"Always use ask_questions for questions to the user; never ask for user input in chat. Omit options for free-text questions.",
+			"Always specify blocking explicitly. Use true when progress depends on the answer; use false to queue questions and continue independent authorized work. Nonblocking answers and cancellation arrive as inbox messages correlated by requestId.",
+			"For multiple-choice questions, provide 2-4 distinct options. Do not include an Other option; Pi adds it automatically.",
 			"If you recommend an option, make it first and add '(Recommended)' to its label.",
 		],
 		parameters: askQuestionsSchema,
 		approvalRequired: false,
 		executionMode: "sequential",
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+		async execute(toolCallId, params, _signal, _onUpdate, ctx) {
+			if (typeof params.blocking !== "boolean")
+				throw new Error("ask_questions requires explicit blocking: true or false");
 			if (!ctx.hasUI || ctx.mode !== "tui") return unavailableResult(params);
 			validateQuestions(params.questions);
-			const notification = notifyAskQuestionsWaiting(params.questions.length);
-			try {
-				const { answers, cancelled } = await askQuestions(ctx, params.questions);
-				return cancelled ? cancelledResult(params, answers) : answeredResult(params, answers);
-			} finally {
-				closeAskQuestionsNotification(notification);
+			const ui = ctx.ui;
+			if (!params.blocking) {
+				const target = captureQuestionInboxTarget(ctx);
+				const pending = queueQuestions(ui, params.questions);
+				void deliverQueuedAnswers(ui, target, toolCallId, pending).catch((error: unknown) => {
+					console.error(`Failed question delivery handler (request ${toolCallId}):`, error);
+				});
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Questions queued (request ${toolCallId}). Continue independent work; answers will arrive in your inbox.`,
+						},
+					],
+					details: {
+						blocking: false,
+						queued: true,
+						requestId: toolCallId,
+						questions: params.questions,
+						answers: {},
+						cancelled: false,
+						metadata: params.metadata,
+					},
+				};
 			}
+			const { answers, cancelled } = await queueQuestions(ui, params.questions);
+			return cancelled ? cancelledResult(params, answers) : answeredResult(params, answers);
 		},
 		renderCall(args, theme, context) {
 			const state = context.state as AskQuestionsRenderState;

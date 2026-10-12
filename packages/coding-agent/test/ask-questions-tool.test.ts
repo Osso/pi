@@ -104,6 +104,7 @@ describe("ask_questions tool", () => {
 		const result = await tool.execute(
 			"call-1",
 			{
+				blocking: true,
 				questions: [
 					{
 						question: "Which approach should we use?",
@@ -134,6 +135,7 @@ describe("ask_questions tool", () => {
 		const result = await tool.execute(
 			"call-2",
 			{
+				blocking: true,
 				questions: [
 					{
 						question: "What should we build?",
@@ -156,6 +158,7 @@ describe("ask_questions tool", () => {
 		const result = await tool.execute(
 			"call-3",
 			{
+				blocking: true,
 				questions: [
 					{
 						question: "Which follow-ups should be included?",
@@ -180,7 +183,7 @@ describe("ask_questions tool", () => {
 
 		const result = await tool.execute(
 			"call-notify",
-			{ questions: [{ question: "Proceed?", options: [{ label: "Yes" }, { label: "No" }] }] },
+			{ blocking: true, questions: [{ question: "Proceed?", options: [{ label: "Yes" }, { label: "No" }] }] },
 			undefined,
 			undefined,
 			ctx,
@@ -204,7 +207,7 @@ describe("ask_questions tool", () => {
 
 		const result = await tool.execute(
 			"call-notify-cancel",
-			{ questions: [{ question: "Proceed?", options: [{ label: "Yes" }, { label: "No" }] }] },
+			{ blocking: true, questions: [{ question: "Proceed?", options: [{ label: "Yes" }, { label: "No" }] }] },
 			undefined,
 			undefined,
 			ctx,
@@ -223,6 +226,7 @@ describe("ask_questions tool", () => {
 		await tool.execute(
 			"call-notify-redacted",
 			{
+				blocking: true,
 				questions: [
 					{
 						question: "Should we use token secret-question-token?",
@@ -248,6 +252,7 @@ describe("ask_questions tool", () => {
 			tool.execute(
 				"call-duplicate-options",
 				{
+					blocking: true,
 					questions: [
 						{
 							question: "Pick one?",
@@ -269,6 +274,7 @@ describe("ask_questions tool", () => {
 		const result = await tool.execute(
 			"call-cancel-partial",
 			{
+				blocking: true,
 				questions: [
 					{ question: "First?", options: [{ label: "First" }, { label: "Second" }] },
 					{ question: "Second?", options: [{ label: "Third" }, { label: "Fourth" }] },
@@ -286,6 +292,7 @@ describe("ask_questions tool", () => {
 	});
 
 	const twoQuestions = {
+		blocking: true,
 		questions: [
 			{ question: "First?", header: "One", options: [{ label: "First" }, { label: "Second" }] },
 			{ question: "Second?", header: "Two", options: [{ label: "Third" }, { label: "Fourth" }] },
@@ -363,6 +370,7 @@ describe("ask_questions tool", () => {
 			tool.execute(
 				"call-4",
 				{
+					blocking: true,
 					questions: [
 						{ question: "Duplicate?", options: [{ label: "A" }, { label: "B" }] },
 						{ question: "Duplicate?", options: [{ label: "C" }, { label: "D" }] },
@@ -381,7 +389,7 @@ describe("ask_questions tool", () => {
 
 		const result = await tool.execute(
 			"call-5",
-			{ questions: [{ question: "Proceed?", options: [{ label: "Yes" }, { label: "No" }] }] },
+			{ blocking: true, questions: [{ question: "Proceed?", options: [{ label: "Yes" }, { label: "No" }] }] },
 			undefined,
 			undefined,
 			ctx,
@@ -394,6 +402,7 @@ describe("ask_questions tool", () => {
 	it("shows questions and answers in the transcript row while tool output is hidden", async () => {
 		const tool = createAskQuestionsToolDefinition();
 		const args = {
+			blocking: true,
 			questions: [
 				{ question: "Which database?", options: [{ label: "Postgres" }, { label: "SQLite" }] },
 				{ question: "Which cache?", options: [{ label: "Redis" }, { label: "None" }] },
