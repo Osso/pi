@@ -51,6 +51,23 @@ No configuration, credentials, sessions, profiles, services, or other accounts a
 python3 scripts/test-deploy-agent-server-runtime.py
 ```
 
+### Existing per-user public-runtime update
+
+On `agent-server`, run as `allison` with its explicit `HOME` and a staged verified public bundle:
+
+```bash
+HOME=/home/allison python3 /path/to/pi/scripts/deploy-agent-server-runtime.py --update-local /path/to/public-runtime
+HOME=/home/allison /home/allison/.local/bin/pi --version
+```
+
+`--update-local` selects the effective account's home from the account database, not `HOME`. Setting `HOME` does not switch identity; never invoke as `osso` or root to update Allison. Explicit `HOME` keeps subsequent Pi invocations in Allison's environment.
+
+The mode requires a current-account-owned real `~/.local/share/pi` directory and a current-account-owned `~/.local/bin/pi` symlink resolving to its existing `pi` executable. Missing installations, custom wrappers, wrong targets, and dangling launchers fail explicitly; there is no fresh-install fallback.
+
+Only the public bundle is copied into a private current-account staging directory. Private entries and symlinks are rejected. Existing atomic activation validates the staged and installed versions and rolls back on post-activation validation failure; staging is cleaned on exit. The launcher, authentication, settings, sessions, and other accounts remain unchanged. Never stage another account's private state. This mode neither restarts live sessions nor proves their adoption of the updated runtime.
+
+Default `osso@agent-server` shipping and fresh `--install-local` behavior are unchanged. The focused test command above covers account selection with mismatched `HOME`, launcher/private-state preservation, invalid targets and payloads, and validation rollback; test coverage is not deployment proof.
+
 ## Forking / Rebranding
 
 Configure via `package.json`:
