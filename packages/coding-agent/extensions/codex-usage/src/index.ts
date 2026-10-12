@@ -235,7 +235,8 @@ function formatLimit(limit: CodexRateLimit): string {
 function formatLimitDetails(limit: CodexRateLimit): string[] {
 	const details: string[] = [];
 	if (limit.primary) details.push(`${formatWindowLabel(limit.primary, "primary")} ${formatWindow(limit.primary)}`);
-	if (limit.secondary) details.push(`${formatWindowLabel(limit.secondary, "secondary")} ${formatWindow(limit.secondary)}`);
+	if (limit.secondary)
+		details.push(`${formatWindowLabel(limit.secondary, "secondary")} ${formatWindow(limit.secondary)}`);
 	if (limit.credits) details.push(formatCredits(limit.credits));
 	return details;
 }
@@ -273,19 +274,25 @@ function pad(value: number): string {
 	return value.toString().padStart(2, "0");
 }
 
+function sendCodexUsageReport(ctx: ExtensionCommandContext, pi: ExtensionAPI, content: string): void {
+	const message = { customType: "codex-usage", content, display: true };
+	if (!ctx.isIdle()) {
+		ctx.ui.notify(content, "info");
+		pi.sendMessage(message, { deliverAs: "nextTurn" });
+		return;
+	}
+	pi.sendMessage(message);
+}
+
 async function handleUsageRead(ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
 	const usage = await readCodexUsage(ctx);
-	pi.sendMessage({ customType: "codex-usage", content: formatCodexUsage(usage), display: true });
+	sendCodexUsageReport(ctx, pi, formatCodexUsage(usage));
 }
 
 async function handleUsageReset(ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
 	const before = await readCodexUsage(ctx);
 	if (before.resetCreditsAvailable <= 0) {
-		pi.sendMessage({
-			customType: "codex-usage",
-			content: `${formatCodexUsage(before)}\n\nNo reset credits available.`,
-			display: true,
-		});
+		sendCodexUsageReport(ctx, pi, `${formatCodexUsage(before)}\n\nNo reset credits available.`);
 		return;
 	}
 
@@ -303,11 +310,7 @@ async function handleUsageReset(ctx: ExtensionCommandContext, pi: ExtensionAPI):
 	});
 	const payload = (await decodeJsonResponse(response)) as ConsumeResetCreditResponse;
 	const after = await readCodexUsage(ctx);
-	pi.sendMessage({
-		customType: "codex-usage",
-		content: `${formatResetResponse(payload)}\n\n${formatCodexUsage(after)}`,
-		display: true,
-	});
+	sendCodexUsageReport(ctx, pi, `${formatResetResponse(payload)}\n\n${formatCodexUsage(after)}`);
 }
 
 async function readCodexUsage(ctx: ExtensionCommandContext): Promise<CodexUsage> {

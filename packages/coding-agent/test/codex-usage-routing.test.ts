@@ -25,14 +25,16 @@ function registerUsage(provider: string) {
 	const get = vi.fn(() => null);
 	const notify = vi.fn();
 	const confirm = vi.fn(async () => true);
+	const isIdle = vi.fn(() => true);
 	const ctx = {
+		isIdle,
 		model: { provider, api: "openai-codex-responses" },
 		modelRegistry: { authStorage: { getApiKey, get } },
 		ui: { notify, confirm },
 	} as unknown as ExtensionCommandContext;
 	const fetch = vi.fn<typeof globalThis.fetch>(async () => usageResponse(42, 3));
 	vi.stubGlobal("fetch", fetch);
-	return { command, events, ctx, getApiKey, get, notify, confirm, sendMessage, fetch, token };
+	return { command, events, ctx, getApiKey, get, notify, confirm, isIdle, sendMessage, fetch, token };
 }
 
 function usageResponse(usedPercent: number, resetCredits: number): Response {
@@ -166,6 +168,84 @@ describe("registered /usage provider routing", () => {
 			customType: "codex-usage",
 			content:
 				"Consumed reset credit. Windows reset: 1\n\nOpenAI Codex usage\nUser: usage@example.com\nAccount: acct_usage\nPlan: pro\nReset credits: 2 available\ncodex: 5-hour usage 0% of 300m window resets unknown",
+			display: true,
+		});
+	});
+
+	it.each([
+		{ args: "", credits: 3, reset: false },
+		{ args: "reset", credits: 0, reset: false },
+		{ args: "reset", credits: 3, reset: true },
+	])(
+		"shows the full busy Codex report immediately for $args with $credits credits",
+		async ({ args, credits, reset }) => {
+			const h = registerUsage("openai-codex");
+			h.isIdle.mockReturnValue(false);
+			h.fetch.mockResolvedValueOnce(usageResponse(42, credits));
+			if (reset) {
+				h.fetch
+					.mockResolvedValueOnce(Response.json({ code: "reset", windows_reset: 1 }))
+					.mockResolvedValueOnce(usageResponse(0, 2));
+			}
+			await h.command.handler(args, h.ctx);
+			const prefix = reset ? "Consumed reset credit. Windows reset: 1\n\n" : "";
+			const suffix = args === "reset" && !reset ? "\n\nNo reset credits available." : "";
+			const content = `${prefix}OpenAI Codex usage\nUser: usage@example.com\nAccount: acct_usage\nPlan: pro\nReset credits: ${reset ? 2 : credits} available\ncodex: 5-hour usage ${reset ? 0 : 42}% of 300m window resets unknown${suffix}`;
+			expect(h.notify).toHaveBeenCalledExactlyOnceWith(content, "info");
+			expect(h.sendMessage).toHaveBeenCalledExactlyOnceWith(
+				{ customType: "codex-usage", content, display: true },
+				{ deliverAs: "nextTurn" },
+			);
+			expect(h.notify.mock.invocationCallOrder[0]).toBeLessThan(h.sendMessage.mock.invocationCallOrder[0]);
+			expect(h.confirm).toHaveBeenCalledTimes(reset ? 1 : 0);
+			expect(h.fetch).toHaveBeenCalledTimes(reset ? 3 : 1);
+		},
+	);
+
+	it.each([true, false])("uses delivery-time idle state when a fetch starts with idle=%s", async (initiallyIdle) => {
+		const h = registerUsage("openai-codex");
+		h.isIdle.mockReturnValue(initiallyIdle);
+		let release!: (response: Response) => void;
+		const pending = new Promise<Response>((resolve) => {
+			release = resolve;
+		});
+		let started!: () => void;
+		const fetching = new Promise<void>((resolve) => {
+			started = resolve;
+		});
+		h.fetch.mockImplementationOnce(() => {
+			started();
+			return pending;
+		});
+		const operation = h.command.handler("", h.ctx);
+		await fetching;
+		expect(h.notify).not.toHaveBeenCalled();
+		expect(h.sendMessage).not.toHaveBeenCalled();
+		h.isIdle.mockReturnValue(!initiallyIdle);
+		release(usageResponse(42, 3));
+		await operation;
+		const content =
+			"OpenAI Codex usage\nUser: usage@example.com\nAccount: acct_usage\nPlan: pro\nReset credits: 3 available\ncodex: 5-hour usage 42% of 300m window resets unknown";
+		const message = { customType: "codex-usage", content, display: true };
+		if (initiallyIdle) {
+			expect(h.notify).toHaveBeenCalledExactlyOnceWith(content, "info");
+			expect(h.sendMessage).toHaveBeenCalledExactlyOnceWith(message, { deliverAs: "nextTurn" });
+		} else {
+			expect(h.notify).not.toHaveBeenCalled();
+			expect(h.sendMessage).toHaveBeenCalledExactlyOnceWith(message);
+		}
+	});
+
+	it("keeps idle no-credit reports as custom messages without notification", async () => {
+		const h = registerUsage("openai-codex");
+		h.fetch.mockResolvedValueOnce(usageResponse(42, 0));
+		await h.command.handler("reset", h.ctx);
+		expect(h.notify).not.toHaveBeenCalled();
+		expect(h.confirm).not.toHaveBeenCalled();
+		expect(h.sendMessage).toHaveBeenCalledExactlyOnceWith({
+			customType: "codex-usage",
+			content:
+				"OpenAI Codex usage\nUser: usage@example.com\nAccount: acct_usage\nPlan: pro\nReset credits: 0 available\ncodex: 5-hour usage 42% of 300m window resets unknown\n\nNo reset credits available.",
 			display: true,
 		});
 	});

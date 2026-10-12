@@ -70,6 +70,8 @@ When a running subagent is selected with `/agents`, `/model`, its selector, and 
 
 `/usage` routes to the current provider: Codex models use their selected Codex provider account; `claude-bridge` delegates to the bridge through `claude-bridge:usage-request` and reports the currently selected Claude account's subscription windows and reset times without switching accounts. Other providers use the default `openai-codex` account. Claude requires the bridge usage handler; `/usage reset` is unsupported for Claude.
 
+Codex `/usage` and `/usage reset` reports, including no-reset-credits results, show the full report immediately in a UI notification when the session is busy, including during `Waiting for tool`. The custom report is also retained for the next turn (`deliverAs: "nextTurn"`), without steering or interrupting active work. Idle sessions keep the existing custom-report display. Claude bridge reporting is unchanged.
+
 After enabling `/debug`, attach from another terminal:
 
 ```bash

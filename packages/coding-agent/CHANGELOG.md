@@ -191,6 +191,7 @@
 
 ### Fixed
 
+- Fixed Codex `/usage` reports staying invisible during tool waits: busy sessions show the full report immediately in a UI notification and retain the custom report for the next turn without steering or interruption. Covers `/usage`, `/usage reset`, and no-reset-credits results; idle display and Claude bridge routing are unchanged.
 - Fixed signed Anthropic public narration being hidden as thinking: display returned prose directly in interactive and print output without an `end_turn` regeneration request. Genuine thinking retains normal visibility; malformed or unclassified signatures are not promoted to prose. Original thinking blocks and signatures remain unchanged for JSON output and provider replay; returned summaries do not recover an exact pre-summary answer.
 - Fixed cross-host messages remaining queued until a Supervisor request by moving SSH relay into an independent `pi relay connect` resident, started nonblocking by main sessions with global relay settings; concurrent starts share one version-aware resident per control DB.
 - Fixed runtime mailbox loss between readiness and session acceptance: claim before hand-off, durably mark accepted transcript entries, then CAS-delete; startup drops already-accepted dead claims without replay and returns unaccepted claims to pending, with no receipt tables or schema change.

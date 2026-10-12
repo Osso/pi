@@ -20,6 +20,12 @@ Slash commands provide the user-facing dispatch layer for built-in commands, ext
 - [x] Render unknown-command feedback inside the interactive TUI for idle and streaming Enter/Alt+Enter without an uncaught stack; preserve editor history and subsequent command/prompt usability.
 - [ ] Reject unknown slash commands consistently when queued through `steer()` or `followUp()`.
 
+### Account usage presentation
+
+- [ ] Show the full Codex `/usage` and `/usage reset` report immediately through a UI notification when busy, including during tool waits and for no-reset-credits results.
+- [ ] Preserve the busy-session custom report for the next turn without steering or interrupting active work; retain the existing idle custom-report display.
+- [ ] Keep Claude bridge `/usage` routing and reporting unchanged.
+
 ### Discovery and presentation
 
 - [ ] Expose the currently available built-in, extension, skill, and prompt-template commands to completion UIs and RPC `get_commands` consumers.
