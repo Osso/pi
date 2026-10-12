@@ -52,35 +52,42 @@ async function createPair() {
 		processIdentity: JSON.parse(getRuntimeProcessInstanceId()) as ProcessIdentity,
 		sessionPath: persistence.sessionPath,
 	});
-	const prepared = coordinator.prepareChild({
-		agentType: "worker",
-		cwd: parent.tempDir,
-		displayName: "Worker",
-		permission: { narrowed: true, policy: "on-request" },
-	});
-	const child = await createHarness({
-		persistedSession: true,
-		multiAgentStore: store,
-		multiAgentRuntimeRole: "child",
-		multiAgentAgentId: prepared.id,
-		multiAgentParentSessionId: parent.session.sessionId,
-		fauxProvider: { api: `child-ask-${fixtureId}`, provider: `child-ask-${fixtureId}` },
-		extensionFactories: [(pi) => agentsMailboxExtension(pi, { store })],
-	});
-	harnesses.push(child);
-	child.sessionManager.setMetadataControlDbPath(controlDbPath);
-	child.sessionManager.persistForRecovery();
-	const committed = coordinator.commitRunningChild(
-		{
-			...prepared,
-			transcript: { path: child.sessionManager.getSessionFile(), sessionId: child.session.sessionId },
-		},
-		parent.session.sessionId,
-	);
-	if (!committed.ok) throw new Error(`Child fixture admission failed: ${committed.error}`);
-	store.publishLifecycleCoordinatorSnapshot(committed.agent);
-	await child.session.bindExtensions({ controlDbPath });
-	return { parent, child, controlDbPath, agentId: committed.agent.id };
+	let childCount = 0;
+	const addChild = async (displayName: string) => {
+		childCount += 1;
+		const prepared = coordinator.prepareChild({
+			agentType: "worker",
+			cwd: parent.tempDir,
+			displayName,
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const provider = `child-ask-${fixtureId}-${childCount}`;
+		const child = await createHarness({
+			persistedSession: true,
+			multiAgentStore: store,
+			multiAgentRuntimeRole: "child",
+			multiAgentAgentId: prepared.id,
+			multiAgentParentSessionId: parent.session.sessionId,
+			fauxProvider: { api: provider, provider },
+			extensionFactories: [(pi) => agentsMailboxExtension(pi, { store })],
+		});
+		harnesses.push(child);
+		child.sessionManager.setMetadataControlDbPath(controlDbPath);
+		child.sessionManager.persistForRecovery();
+		const committed = coordinator.commitRunningChild(
+			{
+				...prepared,
+				transcript: { path: child.sessionManager.getSessionFile(), sessionId: child.session.sessionId },
+			},
+			parent.session.sessionId,
+		);
+		if (!committed.ok) throw new Error(`Child fixture admission failed: ${committed.error}`);
+		store.publishLifecycleCoordinatorSnapshot(committed.agent);
+		await child.session.bindExtensions({ controlDbPath });
+		return { child, agentId: committed.agent.id };
+	};
+	const { child, agentId } = await addChild("Worker");
+	return { parent, child, controlDbPath, agentId, addChild };
 }
 
 async function waitFor(condition: () => boolean, timeoutMs = 10_000): Promise<void> {
@@ -180,6 +187,52 @@ describe("child ask_questions relay", () => {
 				cancelled: false,
 			}),
 		);
+		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
+	});
+
+	it("keeps answers separate for children that reuse a tool-call ID", async () => {
+		const { parent, child, controlDbPath, agentId, addChild } = await createPair();
+		const second = await addChild("Reviewer");
+		for (const asker of [child, second.child]) {
+			asker.setResponses([
+				fauxAssistantMessage(fauxToolCall("ask_questions", askParams(false), { id: "ask-same" }), {
+					stopReason: "toolUse",
+				}),
+				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Queued" }), { stopReason: "toolUse" }),
+				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Read answer" }), { stopReason: "toolUse" }),
+			]);
+		}
+		parent.setResponses([
+			fauxAssistantMessage(
+				[
+					fauxToolCall("answer_question", { agentId, requestId: "ask-same", answers: { [QUESTION]: "Postgres" } }),
+					fauxToolCall("answer_question", {
+						agentId: second.agentId,
+						requestId: "ask-same",
+						answers: { [QUESTION]: "SQLite" },
+					}),
+				],
+				{ stopReason: "toolUse" },
+			),
+			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Answered both" }), { stopReason: "toolUse" }),
+		]);
+
+		await child.session.prompt("Migrate the database");
+		await second.child.session.prompt("Migrate the database");
+		await parent.session.drainRuntimeCoordination();
+		await parent.session.agent.waitForIdle();
+		for (const asker of [child, second.child]) {
+			await asker.session.drainRuntimeCoordination();
+			await asker.session.agent.waitForIdle();
+		}
+
+		const answerTexts = parent.session.messages
+			.filter((message) => message.role === "toolResult" && message.toolName === "answer_question")
+			.map((message) => (message.role === "toolResult" ? textOf(message) : ""));
+		expect(answerTexts).toEqual(["Answered Worker (request ask-same).", "Answered Reviewer (request ask-same)."]);
+		const inboxAnswer = (asker: Harness) => getUserTexts(asker).find((text) => text.includes("ask_questions_answer"));
+		expect(inboxAnswer(child)).toContain(`"answers":{"${QUESTION}":"Postgres"}`);
+		expect(inboxAnswer(second.child)).toContain(`"answers":{"${QUESTION}":"SQLite"}`);
 		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
 	});
 

@@ -26,7 +26,7 @@ The `ask_questions` built-in tool lets the model ask choice or free-text questio
 ### Child-agent relay
 
 - [x] In a child agent runtime, `ask_questions` sends the questions to the direct parent through the `contact_parent` mailbox path instead of failing for lack of a TUI. The parent message names the child agent ID, the `requestId` (the child's `toolCallId`), whether the child is blocked, and each question with header, options, and multi-select/free-text form.
-- [x] The parent answers with `answer_question { agentId, requestId, answers, cancelled? }`. It accepts only an active direct child of the caller and enqueues one correlated reply; `answers` is keyed by exact question text.
+- [x] The parent answers with `answer_question { agentId, requestId, answers, cancelled? }`. It accepts only an active direct child of the caller and enqueues one reply correlated by child agent ID plus `requestId`, so children reusing a tool-call ID stay separate; `answers` is keyed by exact question text.
 - [x] A blocking child call waits without model calls until that correlated reply arrives, then returns it as the original `ask_questions` result (`Parent answered questions:` or `Parent cancelled questions:`) with structured `answers`/`cancelled` details. The reply is accepted into the child transcript with the tool result and never redelivered as an inbox prompt.
 - [x] A nonblocking child call returns a queued result immediately; the parent's reply arrives through the child's normal inbox as an `ask_questions_answer` JSON message correlated by `requestId`.
 - [x] Aborting the child while it waits ends the wait; the core replaces the result with `Agent run aborted`.
@@ -77,7 +77,7 @@ The `ask_questions` built-in tool lets the model ask choice or free-text questio
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/suite/child-ask-questions.test.ts` — child-to-parent relay through real parent/child sessions and control DB: blocking answer resumes the original tool call, nonblocking inbox delivery, abort, main-runtime delegation, and non-parent rejection.
+- `packages/coding-agent/test/suite/child-ask-questions.test.ts` — child-to-parent relay through real parent/child sessions and control DB: blocking answer resumes the original tool call, nonblocking inbox delivery, children reusing one tool-call ID, abort, main-runtime delegation, and non-parent rejection.
 
 - `packages/coding-agent/test/ask-questions-tool.test.ts` — default registration, validation, single-select, multi-select, custom answers, tab navigation and answer revision, cancellation, non-TUI failure, desktop notification lifecycle, and question/answer rendering with hidden tool output.
 - `packages/coding-agent/test/plan-mode-extension.test.ts`

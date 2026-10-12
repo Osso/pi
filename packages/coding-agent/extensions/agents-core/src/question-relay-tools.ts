@@ -54,8 +54,9 @@ const answerQuestionSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-function answerMessageId(requestId: string): string {
-	return `ask_questions:${requestId}`;
+// Tool-call IDs are not unique across children of one parent store, so scope by child agent.
+function answerMessageId(agentId: string, requestId: string): string {
+	return `ask_questions:${agentId}:${requestId}`;
 }
 
 function isChildRuntime(ctx: ExtensionContext): boolean {
@@ -101,14 +102,16 @@ function parseQuestionAnswer(message: RuntimeMailboxMessage): QuestionAnswer {
 }
 
 interface QuestionAnswerInbox {
+	agentId: string;
 	controlDbPath: string;
-	recipient: RuntimeMailboxAddress;
+	sessionId: string;
 }
 
 function takeQuestionAnswer(inbox: QuestionAnswerInbox, requestId: string): RuntimeMailboxMessage | undefined {
-	const messageId = answerMessageId(requestId);
+	const messageId = answerMessageId(inbox.agentId, requestId);
+	const recipient = { agentId: inbox.agentId, sessionId: inbox.sessionId };
 	const isAnswer = (message: RuntimeMailboxMessage) => message.storeRef.messageId === messageId;
-	return takeRuntimeMailboxMessagesForDelivery(inbox.controlDbPath, inbox.recipient, isAnswer, 1)[0];
+	return takeRuntimeMailboxMessagesForDelivery(inbox.controlDbPath, recipient, isAnswer, 1)[0];
 }
 
 function waitForQuestionAnswer(
@@ -172,13 +175,13 @@ function sendQuestionsToParent(
 	if (!agentId || !controlDbPath)
 		throw new Error("ask_questions in a child agent requires its agent identity and control database");
 	const message = formatParentQuestionRequest(agentId, toolCallId, params);
-	const sent = transports.contactParent({ message, threadId: answerMessageId(toolCallId) }, ctx);
+	const sent = transports.contactParent({ message, threadId: answerMessageId(agentId, toolCallId) }, ctx);
 	const request = sent.details.message;
 	if (!request.id || request.status === "failed") {
 		const reason = sent.content.map((part) => (part.type === "text" ? part.text : "")).join("");
 		throw new Error(`Could not send questions to parent: ${reason}`);
 	}
-	return { controlDbPath, recipient: { agentId, sessionId: ctx.sessionManager.getSessionId() } };
+	return { agentId, controlDbPath, sessionId: ctx.sessionManager.getSessionId() };
 }
 
 function deliveredAnswerResult(
@@ -285,7 +288,7 @@ function answerQuestion(
 		answers: params.answers,
 		cancelled: params.cancelled === true,
 	};
-	const messageId = answerMessageId(params.requestId);
+	const messageId = answerMessageId(params.agentId, params.requestId);
 	enqueueStoredRuntimeMailboxMessage(route.controlDbPath, {
 		kind: "reply",
 		message: {
