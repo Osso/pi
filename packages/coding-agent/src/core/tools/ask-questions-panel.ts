@@ -7,7 +7,7 @@ const OTHER_LABEL = "Other";
 export interface AskQuestionsPanelQuestion {
 	question: string;
 	header?: string;
-	options: Array<{ label: string; description?: string }>;
+	options?: Array<{ label: string; description?: string }>;
 	multiSelect?: boolean;
 }
 
@@ -30,7 +30,7 @@ interface QuestionAnswer {
 }
 
 function formatAnswer(question: AskQuestionsPanelQuestion, answer: QuestionAnswer): string {
-	if (!question.multiSelect) return answer.custom ?? answer.selected[0] ?? "";
+	if (!question.options || !question.multiSelect) return answer.custom ?? answer.selected[0] ?? "";
 	const picked = question.options.map((option) => option.label).filter((label) => answer.selected.includes(label));
 	return [...picked, ...(answer.custom ? [answer.custom] : [])].join(", ");
 }
@@ -46,13 +46,18 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 	const hasSubmitTab = questions.length > 1 || questions[0]?.multiSelect === true;
 	const tabCount = questions.length + (hasSubmitTab ? 1 : 0);
 	const cursors = questions.map(() => 0);
-	const input = new Input();
+	const inputs = questions.map(() => new Input());
+	let focused = false;
 	let tab = 0;
-	let editing = false;
+	let editing = questions[0]?.options === undefined;
 	let finished = false;
 
 	const isSubmitTab = () => hasSubmitTab && tab === questions.length;
-	const canSubmit = () => questions.every((question, index) => question.multiSelect || hasAnswer(answers[index]));
+	const isFreeText = () => !isSubmitTab() && questions[tab].options === undefined;
+	const canSubmit = () =>
+		questions.every(
+			(question, index) => (question.options !== undefined && question.multiSelect) || hasAnswer(answers[index]),
+		);
 
 	function finish(cancelled: boolean): void {
 		if (finished) return;
@@ -67,6 +72,7 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 
 	function moveToTab(next: number): void {
 		tab = Math.max(0, Math.min(tabCount - 1, next));
+		editing = isFreeText();
 	}
 
 	function advanceAfterAnswer(): void {
@@ -77,29 +83,33 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 		moveToTab(tab + 1);
 	}
 
-	input.onSubmit = (value) => {
-		const text = value.trim();
-		const answer = answers[tab];
-		editing = false;
-		answer.custom = text || undefined;
-		if (!questions[tab].multiSelect && text) {
-			answer.selected = [];
-			advanceAfterAnswer();
-		}
-		requestRender();
-	};
-	input.onEscape = () => {
-		editing = false;
-		requestRender();
-	};
+	inputs.forEach((input, index) => {
+		input.onSubmit = (value) => {
+			const text = value.trim();
+			const answer = answers[index];
+			answer.custom = text || undefined;
+			if (isFreeText() && !text) return;
+			editing = false;
+			if (!questions[index].multiSelect && text) {
+				answer.selected = [];
+				advanceAfterAnswer();
+			}
+			requestRender();
+		};
+		input.onEscape = () => {
+			if (isFreeText()) finish(true);
+			else editing = false;
+			requestRender();
+		};
+	});
 
 	function activateRow(): void {
 		const question = questions[tab];
 		const answer = answers[tab];
-		const option = question.options[cursors[tab]];
+		const option = question.options?.[cursors[tab]];
 		if (!option) {
 			editing = true;
-			input.setValue(answer.custom ?? "");
+			inputs[tab].setValue(answer.custom ?? "");
 			return;
 		}
 		if (question.multiSelect) {
@@ -114,7 +124,20 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 
 	function handleKey(data: string): void {
 		if (editing) {
-			input.handleInput(data);
+			if (isFreeText()) {
+				if (kb.matches(data, "app.questions.next") && !kb.matches(data, "tui.editor.cursorRight")) {
+					moveToTab(tab + 1);
+					return;
+				}
+				if (kb.matches(data, "app.questions.previous") && !kb.matches(data, "tui.editor.cursorLeft")) {
+					moveToTab(tab - 1);
+					return;
+				}
+			}
+			const index = tab;
+			const freeText = isFreeText();
+			inputs[index].handleInput(data);
+			if (freeText) answers[index].custom = inputs[index].getValue().trim() || undefined;
 			return;
 		}
 		if (kb.matches(data, "app.questions.next")) moveToTab(tab + 1);
@@ -124,7 +147,7 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 			if (kb.matches(data, "tui.select.confirm") && canSubmit()) finish(false);
 		} else if (kb.matches(data, "tui.select.up")) cursors[tab] = Math.max(0, cursors[tab] - 1);
 		else if (kb.matches(data, "tui.select.down")) {
-			cursors[tab] = Math.min(questions[tab].options.length, cursors[tab] + 1);
+			cursors[tab] = Math.min(questions[tab].options?.length ?? 0, cursors[tab] + 1);
 		} else if (kb.matches(data, "tui.select.confirm")) activateRow();
 	}
 
@@ -144,6 +167,7 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 	function renderOptionRows(width: number): string[] {
 		const question = questions[tab];
 		const answer = answers[tab];
+		if (!question.options) return [];
 		const rows = question.options.map((option, index) => {
 			const chosen = answer.selected.includes(option.label);
 			const marker = question.multiSelect ? (chosen ? "[x] " : "[ ] ") : chosen ? "● " : "○ ";
@@ -175,11 +199,15 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 			(line) => ` ${line}`,
 		);
 		lines.push("", ...renderOptionRows(width));
-		if (editing) lines.push("", ` ${theme.fg("muted", "Your answer:")}`, ...input.render(Math.max(1, width - 2)));
+		if (editing) {
+			inputs[tab].focused = focused;
+			lines.push("", ` ${theme.fg("muted", "Your answer:")}`, ...inputs[tab].render(Math.max(1, width - 2)));
+		}
 		return lines;
 	}
 
 	function renderHelp(): string {
+		if (isFreeText()) return `${tabCount > 1 ? "Tab/Shift+Tab questions • " : ""}Enter save • Esc cancel`;
 		if (editing) return "Enter save • Esc back";
 		const navigation = tabCount > 1 ? "←→ questions • " : "";
 		return `${navigation}↑↓ move • Enter ${questions[tab]?.multiSelect ? "toggle" : "select"} • Esc cancel`;
@@ -187,10 +215,10 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 
 	return {
 		get focused() {
-			return input.focused;
+			return focused;
 		},
 		set focused(value: boolean) {
-			input.focused = value;
+			focused = value;
 		},
 		handleInput(data: string): void {
 			handleKey(data);
