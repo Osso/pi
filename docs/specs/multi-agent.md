@@ -66,6 +66,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `(session_id, agent_id)` from the runtime context instead of accepting a caller-supplied agent ID, parentless runtimes are rejected, persisted `parent_request` rows must target
       that agent's current direct parent, the resident Supervisor and arbitrary siblings cannot be targeted,
       and the old `contact_supervisor` name has no compatibility alias.
+- [x] A child's `ask_questions` call relays to its direct parent; the parent replies with `answer_question`, which
+      only targets an active direct child. See [Ask questions tool](ask-questions-tool.md#child-agent-relay).
 - [x] `send_agent_message` creates direct mailbox messages only across one immediate parent-child edge;
       siblings and transitive ancestors or descendants cannot target each other directly.
 - [x] Parent sessions can spawn child agents, wait for status/result updates, cancel children, and
@@ -106,7 +108,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `explore`, `verifier`, `documentation-update`, `implement`, and `reviewer` provide the other defaults.
       If an allowlisted optional tool is not registered because its executable is unavailable, the child exposes
       the remaining registered tools only. When a profile specifies `tools`, production child and attached sessions expose only those registered tool
-      names plus `contact_parent`, `send_agent_message`, and `end_turn`. `spawn_agent` rejects a non-empty explicit
+      names plus `ask_questions`, `contact_parent`, `send_agent_message`, and `end_turn`. `spawn_agent` rejects a non-empty explicit
       `agentType` when `SettingsManager` finds no matching built-in or configured profile, and the error lists
       configured profile keys; omitted or blank `agentType` still defaults to `default` and inherits the parent model.
 - [x] A spawned child starts at its profile's thinking level when set, including `off`; otherwise at `medium`,

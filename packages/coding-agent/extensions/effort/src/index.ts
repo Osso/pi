@@ -26,6 +26,7 @@ const SUBAGENT_TOOLS = new Set([
 	"agent_viewer",
 	"send_agent_message",
 	"contact_parent",
+	"answer_question",
 ]);
 
 interface DelegationState {

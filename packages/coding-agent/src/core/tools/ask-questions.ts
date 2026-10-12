@@ -81,7 +81,7 @@ export interface AskQuestionsToolDetails {
 	metadata?: Record<string, unknown>;
 }
 
-function validateQuestions(questions: AskQuestionsToolInput["questions"]): void {
+export function validateQuestions(questions: AskQuestionsToolInput["questions"]): void {
 	if (questions.length < 1 || questions.length > MAX_QUESTIONS) {
 		throw new Error(`ask_questions requires 1-${MAX_QUESTIONS} questions`);
 	}

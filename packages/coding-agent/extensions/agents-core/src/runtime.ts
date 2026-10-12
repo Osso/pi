@@ -89,6 +89,7 @@ import {
 	registerModelMailboxTools,
 	type SendAgentMessageParams,
 } from "./mailbox-tools.ts";
+import { registerQuestionRelayTools } from "./question-relay-tools.ts";
 import {
 	appendParentAgentCompletion,
 	appendParentAgentStart,
@@ -189,7 +190,7 @@ type ResolvedAgentProfile = {
 };
 
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
-const CHILD_AGENT_CONTROL_TOOL_NAMES = ["contact_parent", "send_agent_message", "end_turn"] as const;
+const CHILD_AGENT_CONTROL_TOOL_NAMES = ["ask_questions", "contact_parent", "send_agent_message", "end_turn"] as const;
 const MAIN_THREAD_AGENT_ID = "main";
 const CANCELLATION_SETTLEMENT_TIMEOUT_MS = 5_000;
 const SUBAGENT_TERMINAL_CLEANUP_REASON = "Owning subagent reached a terminal path";
@@ -3343,6 +3344,7 @@ export function registerAgentsMailboxTools(pi: ExtensionAPI, options: MultiAgent
 		contactParent: (params, ctx) => contactParent(store, params, ctx),
 		sendAgentMessage: (params, ctx) => sendAgentMessage(store, params, ctx, options.onSessionMessageSent),
 	});
+	registerQuestionRelayTools(pi, store, { contactParent: (params, ctx) => contactParent(store, params, ctx) });
 }
 
 export default function multiAgentExtension(pi: ExtensionAPI, options: MultiAgentExtensionOptions = {}) {

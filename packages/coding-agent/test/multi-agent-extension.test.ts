@@ -632,6 +632,8 @@ describe("multi-agent extension tools", () => {
 		expect(harness.tools.has("wait_agents")).toBe(false);
 		expect([...harness.tools.keys()].sort()).toEqual([
 			"agent_viewer",
+			"answer_question",
+			"ask_questions",
 			"attach_session_agent",
 			"close_agent",
 			"contact_parent",
@@ -660,6 +662,8 @@ describe("multi-agent extension tools", () => {
 
 		expect([...harness.tools.values()].map((tool) => [tool.name, tool.approvalRequired]).sort()).toEqual([
 			["agent_viewer", false],
+			["answer_question", false],
+			["ask_questions", false],
 			["attach_session_agent", false],
 			["close_agent", false],
 			["contact_parent", false],
@@ -677,6 +681,8 @@ describe("multi-agent extension tools", () => {
 
 		expect([...harness.tools.keys()].sort()).toEqual([
 			"agent_viewer",
+			"answer_question",
+			"ask_questions",
 			"attach_session_agent",
 			"close_agent",
 			"contact_parent",
@@ -1879,6 +1885,8 @@ describe("multi-agent extension tools", () => {
 		]);
 		expect(collectTools((pi) => agentViewerExtension(pi, { store }))).toEqual(["agent_viewer"]);
 		expect(collectTools((pi) => agentsMailboxExtension(pi, { store }))).toEqual([
+			"answer_question",
+			"ask_questions",
 			"contact_parent",
 			"send_agent_message",
 		]);
@@ -4324,6 +4332,7 @@ describe("multi-agent extension tools", () => {
 			cwd: "/repo",
 			excludeTools: [
 				"agent_viewer",
+				"answer_question",
 				"attach_session_agent",
 				"close_agent",
 				"list_agents",
@@ -4436,7 +4445,7 @@ describe("multi-agent extension tools", () => {
 		expect(runCommand).toHaveBeenCalledWith("browser-cli", ["get", "title"], undefined);
 		expect(pyrunCallError).toBe("Tool is not active: pyrun_eval");
 		expect([...activeToolNames].sort()).toEqual(
-			["browser-cli", "read", "contact_parent", "send_agent_message", "end_turn"].sort(),
+			["browser-cli", "read", "ask_questions", "contact_parent", "send_agent_message", "end_turn"].sort(),
 		);
 	});
 
@@ -4580,6 +4589,7 @@ describe("multi-agent extension tools", () => {
 		expect(childSessionOptions).toMatchObject({
 			excludeTools: [
 				"agent_viewer",
+				"answer_question",
 				"attach_session_agent",
 				"close_agent",
 				"list_agents",
@@ -5164,6 +5174,7 @@ describe("multi-agent extension tools", () => {
 		expect(sessionOptions).toMatchObject({
 			excludeTools: [
 				"agent_viewer",
+				"answer_question",
 				"attach_session_agent",
 				"close_agent",
 				"list_agents",

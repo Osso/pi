@@ -1,5 +1,6 @@
 export const CHILD_DISABLED_AGENT_TOOL_NAMES = [
 	"agent_viewer",
+	"answer_question",
 	"attach_session_agent",
 	"close_agent",
 	"list_agents",
