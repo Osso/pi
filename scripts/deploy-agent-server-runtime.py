@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Ship a public runtime to agent-server or install it fresh for the current user."""
+"""Ship a public runtime to agent-server or install/update it for the current user."""
 
 import ctypes
 import fcntl
 import os
 from pathlib import Path
+import pwd
 import random
 import re
 import shutil
@@ -143,6 +144,33 @@ def install_local(runtime):
             raise
 
 
+def update_local(runtime):
+    uid = os.geteuid()
+    home = Path(pwd.getpwuid(uid).pw_dir)
+    install = home / ".local/share/pi"
+    launcher = home / ".local/bin/pi"
+    if install.is_symlink() or not install.is_dir():
+        raise RuntimeError(f"requires existing real installation: {install}")
+    if install.stat().st_uid != uid:
+        raise RuntimeError(f"installation must belong to current account: {install}")
+    if (
+        not launcher.is_symlink()
+        or launcher.lstat().st_uid != uid
+        or launcher.resolve() != install / "pi"
+        or not (install / "pi").is_file()
+    ):
+        raise RuntimeError(
+            f"requires current account launcher pointing to {install / 'pi'}: {launcher}"
+        )
+    validate_public_runtime(runtime)
+    with tempfile.TemporaryDirectory(
+        prefix=".pi-runtime-", dir=install.parent
+    ) as workspace:
+        stage = Path(workspace) / "runtime"
+        shutil.copytree(runtime, stage, symlinks=True)
+        activate(stage, install)
+
+
 def activate(stage, install):
     if install.is_symlink() or not install.is_dir():
         raise RuntimeError(f"requires existing real installation: {install}")
@@ -205,6 +233,9 @@ def ship(runtime):
 
 
 def main():
+    if len(sys.argv) == 3 and sys.argv[1] == "--update-local":
+        update_local(Path(sys.argv[2]))
+        return
     if len(sys.argv) == 3 and sys.argv[1] == "--install-local":
         install_local(Path(sys.argv[2]))
         return
@@ -228,7 +259,7 @@ def main():
     if len(sys.argv) != 2:
         raise RuntimeError(
             "usage: deploy-agent-server-runtime.py INSTALLED_RUNTIME "
-            "| --install-local PUBLIC_RUNTIME"
+            "| --install-local PUBLIC_RUNTIME | --update-local PUBLIC_RUNTIME"
         )
     ship(Path(sys.argv[1]))
 

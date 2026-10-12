@@ -355,5 +355,164 @@ class LocalRuntimeInstallationTests(unittest.TestCase):
                 self.assertFalse(list(self.install.parent.glob(".pi-runtime-*")))
 
 
+class LocalRuntimeUpdateTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = pathlib.Path(self.temp.name)
+        self.home = root / "allison"
+        self.install = self.home / ".local/share/pi"
+        self.launcher = self.home / ".local/bin/pi"
+        self.install.mkdir(parents=True)
+        self.launcher.parent.mkdir(parents=True)
+        self.launcher.symlink_to(self.install / "pi")
+        (self.install / "pi").write_text("old executable")
+        (self.install / "old-only").write_text("old runtime")
+        self.runtime = root / "public-runtime"
+        self.runtime.mkdir()
+        self.preserved = {}
+        for home in (self.home, root / "osso"):
+            for name in (
+                ".pi/agent/auth.json",
+                ".pi/agent/settings.json",
+                ".pi/agent/sessions/session.jsonl",
+                ".local/bin/pi-dev",
+            ):
+                path = home / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(str(path))
+                self.preserved[path] = (path.read_bytes(), path.stat().st_ino)
+        self.wrapper = root / "invoke.py"
+        self.wrapper.write_text(
+            "import pwd,runpy,sys\n"
+            "from types import SimpleNamespace\n"
+            "from unittest.mock import patch\n"
+            f"sys.argv = [{str(SCRIPT)!r}, '--update-local', {str(self.runtime)!r}]\n"
+            f"with patch.object(pwd, 'getpwuid', return_value=SimpleNamespace(pw_dir={str(self.home)!r})):\n"
+            f"    runpy.run_path({str(SCRIPT)!r}, run_name='__main__')\n"
+        )
+        self.executable("print('1.2.3')\n")
+
+    def executable(self, body):
+        path = self.runtime / "pi"
+        path.write_text("#!/usr/bin/env python3\n" + body)
+        path.chmod(0o755)
+
+    def invoke(self):
+        return subprocess.run(
+            [sys.executable, str(self.wrapper)],
+            env={**os.environ, "HOME": str(self.home.parent / "osso")},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+    def assert_preserved(self):
+        for path, expected in self.preserved.items():
+            self.assertEqual((path.read_bytes(), path.stat().st_ino), expected)
+
+    def assert_rejected(self, message):
+        old_inode = self.install.lstat().st_ino if self.install.exists() else None
+        launcher_inode = self.launcher.lstat().st_ino
+        result = self.invoke()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(message, result.stderr)
+        if old_inode is not None:
+            self.assertEqual(self.install.lstat().st_ino, old_inode)
+        self.assertEqual(self.launcher.lstat().st_ino, launcher_inode)
+        self.assertFalse(list(self.install.parent.glob(".pi-runtime-*")))
+        self.assert_preserved()
+
+    def test_update_uses_effective_account_and_preserves_launcher_and_private_state(
+        self,
+    ):
+        launcher_stat = self.launcher.lstat()
+        old_inode = self.install.stat().st_ino
+        trace = self.home / "validation.log"
+        self.executable(
+            "import os,pathlib,stat\n"
+            "runtime = pathlib.Path(__file__).resolve().parent\n"
+            "assert runtime.stat().st_uid == os.geteuid()\n"
+            "if runtime.name != 'pi':\n"
+            "    assert stat.S_IMODE(runtime.parent.stat().st_mode) == 0o700\n"
+            f"with pathlib.Path({str(trace)!r}).open('a') as log:\n"
+            "    log.write(str(runtime) + '\\n')\n"
+            "print('1.2.3')\n"
+        )
+        result = self.invoke()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        validations = [pathlib.Path(path) for path in trace.read_text().splitlines()]
+        self.assertEqual(len(validations), 2)
+        self.assertEqual(validations[0].parent.parent, self.install.parent)
+        self.assertEqual(validations[1], self.install)
+        self.assertFalse(validations[0].exists())
+        self.assertNotEqual(self.install.stat().st_ino, old_inode)
+        self.assertEqual(self.install.stat().st_uid, os.geteuid())
+        self.assertFalse((self.install / "old-only").exists())
+        self.assertEqual(self.launcher.lstat().st_ino, launcher_stat.st_ino)
+        self.assertEqual(self.launcher.lstat().st_uid, launcher_stat.st_uid)
+        self.assertEqual(self.launcher.readlink(), self.install / "pi")
+        version = subprocess.run(
+            [str(self.launcher), "--version"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(version.stdout.strip(), "1.2.3")
+        self.assertTrue((self.runtime / "pi").exists())
+        self.assert_preserved()
+
+    def test_update_rejects_missing_or_symlink_installation(self):
+        self.install.rename(self.install.with_name("original"))
+        self.assert_rejected("existing real installation")
+        self.install.symlink_to(self.install.with_name("original"))
+        self.assert_rejected("existing real installation")
+
+    def test_update_rejects_wrong_regular_or_dangling_launcher(self):
+        for kind in ("wrong", "regular", "dangling"):
+            with self.subTest(kind=kind):
+                self.launcher.unlink()
+                if kind == "regular":
+                    self.launcher.write_text("custom launcher")
+                else:
+                    target = (
+                        self.runtime / "pi"
+                        if kind == "wrong"
+                        else self.home / "missing"
+                    )
+                    self.launcher.symlink_to(target)
+                self.assert_rejected("launcher")
+        self.launcher.unlink()
+        result = self.invoke()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("launcher", result.stderr)
+        self.assertEqual((self.install / "old-only").read_text(), "old runtime")
+
+    def test_update_rejects_private_runtime_and_symlinks(self):
+        secret = self.runtime / "auth.json"
+        secret.write_text("private")
+        self.assert_rejected("public runtime")
+        secret.unlink()
+        (self.runtime / "README.md").symlink_to(self.home / ".pi/agent/auth.json")
+        self.assert_rejected("symlink")
+
+    def test_update_validation_failure_preserves_or_rolls_back_installation(self):
+        for body in (
+            "raise SystemExit(7)\n",
+            "pass\n",
+            "import pathlib\n"
+            "if pathlib.Path(__file__).parent.name == 'pi':\n"
+            "    raise SystemExit(9)\n"
+            "print('1.2.3')\n",
+            "import pathlib\n"
+            "print('2.0.0' if pathlib.Path(__file__).parent.name == 'pi' else '1.2.3')\n",
+        ):
+            with self.subTest(body=body):
+                self.executable(body)
+                self.assert_rejected("validation")
+                self.assertEqual((self.install / "old-only").read_text(), "old runtime")
+
+
 if __name__ == "__main__":
     unittest.main()
