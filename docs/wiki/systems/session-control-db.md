@@ -75,7 +75,7 @@ verified: 2026-10-11
 - Final inventory: five `aso` and two `agent-server` mains, all current-hash and `checkStatus=ok`;
   `pi` launchers and PID/start identities preserved, new incarnations, generations incremented once.
   Evidence: `/tmp/pi-ask-inventory-aso-final.json`, `/tmp/pi-ask-inventory-agent-server-final.json`.
-- No resident Supervisors running; [lazy startup](supervisor-service.md) preserved, no systemd enabled.
+- Obsolete resident Supervisors stopped; [lazy startup](supervisor-service.md) preserved, no systemd enabled.
 - Installed-artifact [ask_questions](ask-questions-tool.md) PTY smoke: blocking/nonblocking 2/2 passed
   locally; `/tmp/pi-ask-installed-smoke/ledger.md`. No remote PTY proof.
 
