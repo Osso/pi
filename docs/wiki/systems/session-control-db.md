@@ -72,12 +72,19 @@ verified: 2026-10-11
 - `deploy.sh --agent-server`: revision `6f2e88dfe`, installed `/home/osso/.local/share/pi/pi`
   on `aso` and `agent-server`; SHA-256
   `e8df4db862f9b40380b4c7c5f111dce692222d4a8f8a4e256c7ac10bec2a2629`.
-- Final inventory: five `aso` and two `agent-server` mains, all current-hash and `checkStatus=ok`;
+- Final `osso` inventory: five `aso` and two `agent-server` mains, all current-hash and `checkStatus=ok`;
   `pi` launchers and PID/start identities preserved, new incarnations, generations incremented once.
   Evidence: `/tmp/pi-ask-inventory-aso-final.json`, `/tmp/pi-ask-inventory-agent-server-final.json`.
 - Obsolete resident Supervisors stopped; [lazy startup](supervisor-service.md) preserved, no systemd enabled.
+- Allison's independent `agent-server` install: `/home/allison/.local/share/pi/pi`, same artifact,
+  owned by UID 1001. [Current-account update](../../../packages/coding-agent/docs/development.md)
+  preserved private auth/settings/session paths during activation; one live main resumed with the
+  same PID/start/session/launcher, generation 6→7, new incarnation and `checkStatus=ok`.
+  Evidence: `/tmp/pi-allison-deployment.log`, `/tmp/pi-allison-runtime-final.json`.
 - Installed-artifact [ask_questions](ask-questions-tool.md) PTY smoke: blocking/nonblocking 2/2 passed
-  locally; `/tmp/pi-ask-installed-smoke/ledger.md`. No remote PTY proof.
+  for `osso` on `aso` and for Allison on `agent-server`, using isolated faux providers.
+  Evidence: `/tmp/pi-ask-installed-smoke/ledger.md`, `/tmp/pi-allison-remote-smoke.log`.
+  No real-provider or `osso` remote PTY proof.
 
 Deployment does not expand test proof to unrelated changes.
 
