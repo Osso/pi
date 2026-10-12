@@ -22,9 +22,9 @@ Slash commands provide the user-facing dispatch layer for built-in commands, ext
 
 ### Account usage presentation
 
-- [ ] Show the full Codex `/usage` and `/usage reset` report immediately through a UI notification when busy, including during tool waits and for no-reset-credits results.
-- [ ] Preserve the busy-session custom report for the next turn without steering or interrupting active work; retain the existing idle custom-report display.
-- [ ] Keep Claude bridge `/usage` routing and reporting unchanged.
+- [x] Show the full Codex `/usage` and `/usage reset` report immediately through a UI notification when busy, including during tool waits and for no-reset-credits results.
+- [x] Preserve the busy-session custom report for the next turn without steering or interrupting active work; retain the existing idle custom-report display.
+- [x] Keep Claude bridge `/usage` routing and reporting unchanged.
 
 ### Discovery and presentation
 
