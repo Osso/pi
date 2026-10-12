@@ -140,6 +140,106 @@ async function readEntries(probe: Probe) {
 	return SessionManager.open(sessions[0].path).getEntries();
 }
 
+async function assertBlockingWaitThenAnswer(probe: Probe, workPath: string): Promise<void> {
+	// Observe a bounded no-answer interval after the real panel has painted.
+	await new Promise((resolve) => setTimeout(resolve, 500));
+	expect(probe.requests).toHaveLength(1);
+	expect(existsSync(workPath)).toBe(false);
+	const entries = await readEntries(probe);
+	expect(entries.some((entry) => entry.type === "message" && entry.message.role === "toolResult")).toBe(false);
+	probe.bridge?.stdin.write("\r");
+}
+
+async function readAndAssertQuestionResult(probe: Probe, blocking: boolean, requestId: string) {
+	await waitUntil(probe, () => probe.requests.length === 2, "model continuation after ask_questions result");
+	const results = questionResults(probe.requests[1]);
+	expect(results).toHaveLength(1);
+	if (blocking) {
+		expect(JSON.stringify(results[0].content)).toContain(`${QUESTION} → ${ANSWER}`);
+		return results;
+	}
+
+	expect(JSON.stringify(results[0].content)).toContain(`Questions queued (request ${requestId})`);
+	const queuedResults = (await readEntries(probe)).flatMap((entry) =>
+		entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolName === "ask_questions"
+			? [entry.message]
+			: [],
+	);
+	expect(queuedResults).toHaveLength(1);
+	expect(queuedResults[0].details).toMatchObject({
+		queued: true,
+		requestId,
+		blocking: false,
+		answers: {},
+		cancelled: false,
+	});
+	expect(JSON.stringify(results[0].content)).not.toContain(`${QUESTION} → ${ANSWER}`);
+	expect(await panelVisible(probe)).toBe(true);
+	return results;
+}
+
+async function writeAndAssertAuthorizedWork(probe: Probe, workPath: string): Promise<void> {
+	respond(
+		probe,
+		1,
+		fauxAssistantMessage(fauxToolCall("write", { path: workPath, content: "independent work complete" }), {
+			stopReason: "toolUse",
+		}),
+	);
+	await waitUntil(probe, () => probe.requests.length === 3, "model sees authorized write completion");
+	expect(readFileSync(workPath, "utf8")).toBe("independent work complete");
+}
+
+async function answerQueuedPanelDuringProviderRequest(probe: Probe): Promise<void> {
+	expect(await panelVisible(probe)).toBe(true);
+	expect(
+		probe.requests[2].messages.some(
+			(message) => message.role === "user" && JSON.stringify(message.content).includes(ANSWER),
+		),
+	).toBe(false);
+	// Enter arrives while the next faux model request is live, not after agent completion.
+	probe.bridge?.stdin.write("\r");
+	await waitUntil(probe, async () => !(await panelVisible(probe)), "Enter closes queued panel");
+}
+
+async function assertDurableInboxThenRespond(
+	probe: Probe,
+	requestId: string,
+	originalResults: ReturnType<typeof questionResults>,
+): Promise<void> {
+	await waitUntil(probe, () => probe.requests.length === 4, "answer delivered to originating agent inbox");
+	const delivered = probe.requests[3];
+	const inboxPrefix = `User answered questions (request ${requestId}):`;
+	const inbox = delivered.messages.filter(
+		(message) => message.role === "user" && JSON.stringify(message.content).includes(inboxPrefix),
+	);
+	expect(inbox, JSON.stringify(delivered.messages)).toHaveLength(1);
+	expect(JSON.stringify(inbox[0].content)).toContain(`${QUESTION} → ${ANSWER}`);
+	expect(questionResults(delivered)).toEqual(originalResults);
+	await waitUntil(
+		probe,
+		async () =>
+			(await readEntries(probe)).some((entry) => {
+				if (entry.type !== "message" || entry.message.role !== "user") return false;
+				const containsAnswer = JSON.stringify(entry.message.content).includes(inboxPrefix);
+				const hasMailboxIdentity = (entry.mailboxStoreRefs?.length ?? 0) > 0;
+				return containsAnswer && hasMailboxIdentity;
+			}),
+		"durable inbox acceptance with mailbox identity",
+	);
+	respond(
+		probe,
+		3,
+		fauxAssistantMessage(
+			[
+				{ type: "text", text: "Inbox answer received." },
+				fauxToolCall("end_turn", { reason: "Question answer acknowledged" }),
+			],
+			{ stopReason: "toolUse" },
+		),
+	);
+}
+
 it.skipIf(process.platform === "win32").each([false, true])(
 	"real PTY honors ask_questions blocking=%s across model work and Enter answer delivery",
 	async (blocking) => {
@@ -160,64 +260,10 @@ it.skipIf(process.platform === "win32").each([false, true])(
 				await waitUntil(probe, () => panelVisible(probe), "question panel awaiting actual keyboard input");
 				const workPath = join(probe.paths.workspaceDir, "authorized-work.txt");
 
-				if (blocking) {
-					// Observe a bounded no-answer interval after the real panel has painted.
-					await new Promise((resolve) => setTimeout(resolve, 500));
-					expect(probe.requests).toHaveLength(1);
-					expect(existsSync(workPath)).toBe(false);
-					const entries = await readEntries(probe);
-					expect(entries.some((entry) => entry.type === "message" && entry.message.role === "toolResult")).toBe(
-						false,
-					);
-					probe.bridge?.stdin.write("\r");
-				}
-
-				await waitUntil(probe, () => probe.requests.length === 2, "model continuation after ask_questions result");
-				const results = questionResults(probe.requests[1]);
-				expect(results).toHaveLength(1);
-				if (blocking) {
-					expect(JSON.stringify(results[0].content)).toContain(`${QUESTION} → ${ANSWER}`);
-				} else {
-					expect(JSON.stringify(results[0].content)).toContain(`Questions queued (request ${call.id})`);
-					const queuedResults = (await readEntries(probe)).flatMap((entry) =>
-						entry.type === "message" &&
-						entry.message.role === "toolResult" &&
-						entry.message.toolName === "ask_questions"
-							? [entry.message]
-							: [],
-					);
-					expect(queuedResults).toHaveLength(1);
-					expect(queuedResults[0].details).toMatchObject({
-						queued: true,
-						requestId: call.id,
-						blocking: false,
-						answers: {},
-						cancelled: false,
-					});
-					expect(JSON.stringify(results[0].content)).not.toContain(`${QUESTION} → ${ANSWER}`);
-					expect(await panelVisible(probe)).toBe(true);
-				}
-				respond(
-					probe,
-					1,
-					fauxAssistantMessage(fauxToolCall("write", { path: workPath, content: "independent work complete" }), {
-						stopReason: "toolUse",
-					}),
-				);
-				await waitUntil(probe, () => probe.requests.length === 3, "model sees authorized write completion");
-				expect(readFileSync(workPath, "utf8")).toBe("independent work complete");
-
-				if (!blocking) {
-					expect(await panelVisible(probe)).toBe(true);
-					expect(
-						probe.requests[2].messages.some(
-							(message) => message.role === "user" && JSON.stringify(message.content).includes(ANSWER),
-						),
-					).toBe(false);
-					// Enter arrives while the next faux model request is live, not after agent completion.
-					probe.bridge?.stdin.write("\r");
-					await waitUntil(probe, async () => !(await panelVisible(probe)), "Enter closes queued panel");
-				}
+				if (blocking) await assertBlockingWaitThenAnswer(probe, workPath);
+				const results = await readAndAssertQuestionResult(probe, blocking, call.id);
+				await writeAndAssertAuthorizedWork(probe, workPath);
+				if (!blocking) await answerQueuedPanelDuringProviderRequest(probe);
 				respond(
 					probe,
 					2,
@@ -230,43 +276,7 @@ it.skipIf(process.platform === "win32").each([false, true])(
 					),
 				);
 
-				if (!blocking) {
-					await waitUntil(probe, () => probe.requests.length === 4, "answer delivered to originating agent inbox");
-					const delivered = probe.requests[3];
-					const inbox = delivered.messages.filter(
-						(message) =>
-							message.role === "user" &&
-							JSON.stringify(message.content).includes(`User answered questions (request ${call.id}):`),
-					);
-					expect(inbox, JSON.stringify(delivered.messages)).toHaveLength(1);
-					expect(JSON.stringify(inbox[0].content)).toContain(`${QUESTION} → ${ANSWER}`);
-					expect(questionResults(delivered)).toEqual(results);
-					await waitUntil(
-						probe,
-						async () =>
-							(await readEntries(probe)).some(
-								(entry) =>
-									entry.type === "message" &&
-									entry.message.role === "user" &&
-									JSON.stringify(entry.message.content).includes(
-										`User answered questions (request ${call.id}):`,
-									) &&
-									(entry.mailboxStoreRefs?.length ?? 0) > 0,
-							),
-						"durable inbox acceptance with mailbox identity",
-					);
-					respond(
-						probe,
-						3,
-						fauxAssistantMessage(
-							[
-								{ type: "text", text: "Inbox answer received." },
-								fauxToolCall("end_turn", { reason: "Question answer acknowledged" }),
-							],
-							{ stopReason: "toolUse" },
-						),
-					);
-				}
+				if (!blocking) await assertDurableInboxThenRespond(probe, call.id, results);
 				const finalText = blocking ? "Independent work completed." : "Inbox answer received.";
 				await waitUntil(
 					probe,
