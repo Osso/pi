@@ -18,6 +18,9 @@ import uuid
 HOST = "osso@agent-server"
 SHARE = Path("/home/osso/.local/share")
 INSTALL = SHARE / "pi"
+# Other agent-server accounts with their own installation, updated after osso's.
+ACCOUNTS = ("allison",)
+ACCOUNT_PATH = "PATH=/usr/local/bin:/usr/bin:/bin"
 SSH = [
     "ssh",
     "-o",
@@ -186,6 +189,35 @@ def activate(stage, install):
     shutil.rmtree(stage)
 
 
+def update_account(account, runtime):
+    home = pwd.getpwnam(account).pw_dir
+    # The account cannot read osso's private home, so it updates from a public /tmp stage.
+    with tempfile.TemporaryDirectory(prefix="pi-runtime-") as workspace:
+        stage = Path(workspace)
+        stage.chmod(0o755)
+        shutil.copytree(runtime, stage / "runtime", symlinks=True)
+        helper = stage / "deploy.py"
+        shutil.copy2(Path(__file__).resolve(), helper)
+        command = [
+            "authsudo",
+            "-u",
+            account,
+            "env",
+            "-i",
+            f"HOME={home}",
+            ACCOUNT_PATH,
+            sys.executable,
+            str(helper),
+            "--update-local",
+            str(stage / "runtime"),
+        ]
+        result = subprocess.run(
+            command, cwd="/", capture_output=True, text=True, timeout=180
+        )
+    if result.returncode != 0:
+        raise RuntimeError(f"{account} runtime update failed: {result.stderr.strip()}")
+
+
 def run_transport(command, timeout, retry_codes=()):
     for attempt in range(3):
         try:
@@ -254,6 +286,8 @@ def main():
                     "another runtime activation is in progress"
                 ) from error
             activate(workspace / "runtime", INSTALL)
+            for account in ACCOUNTS:
+                update_account(account, INSTALL)
             shutil.rmtree(workspace)
         return
     if len(sys.argv) != 2:

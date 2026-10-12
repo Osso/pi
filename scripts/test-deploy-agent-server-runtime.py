@@ -2,6 +2,7 @@
 """Focused filesystem tests; never connects to agent-server."""
 
 import importlib.util
+import json
 import pathlib
 import os
 import tempfile
@@ -137,6 +138,7 @@ else:
     spec.loader.exec_module(module)
     module.SHARE = home/'.local/share'
     module.INSTALL = module.SHARE/'pi'
+    module.ACCOUNTS = ()
     sys.argv = [str(path), *command[2:]]
     module.main()
 """
@@ -512,6 +514,121 @@ class LocalRuntimeUpdateTests(unittest.TestCase):
                 self.executable(body)
                 self.assert_rejected("validation")
                 self.assertEqual((self.install / "old-only").read_text(), "old runtime")
+
+
+class AccountRuntimeUpdateTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        root = pathlib.Path(self.temp.name)
+        self.install = root / "osso/.local/share/pi"
+        self.install.mkdir(parents=True)
+        (self.install / "pi").write_text("installed executable")
+        (self.install / "theme").mkdir()
+        (self.install / "theme/dark.json").write_text('{"name":"dark"}')
+        self.bin = root / "bin"
+        self.bin.mkdir()
+        self.trace = root / "authsudo.log"
+        spec = importlib.util.spec_from_file_location("runtime_deploy", SCRIPT)
+        self.module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.module)
+        self.account = patch.object(
+            self.module.pwd,
+            "getpwnam",
+            return_value=type("Account", (), {"pw_dir": "/home/allison"})(),
+        )
+        self.account.start()
+        self.addCleanup(self.account.stop)
+
+    def authsudo(self, status):
+        # Records what the account-side command would see, then exits like authsudo.
+        path = self.bin / "authsudo"
+        path.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json,os,pathlib,stat,sys\n"
+            "argv = sys.argv[1:]\n"
+            "runtime = pathlib.Path(argv[argv.index('--update-local') + 1])\n"
+            "stage = runtime.parent\n"
+            "record = {'argv': argv, 'cwd': os.getcwd(),\n"
+            "  'stageMode': stat.S_IMODE(stage.stat().st_mode),\n"
+            "  'helper': (stage / 'deploy.py').read_text() == pathlib.Path(argv[argv.index('--update-local') - 1]).read_text(),\n"
+            "  'files': sorted(str(p.relative_to(runtime)) for p in runtime.rglob('*')),\n"
+            "  'theme': (runtime / 'theme/dark.json').read_text()}\n"
+            f"pathlib.Path({str(self.trace)!r}).write_text(json.dumps(record))\n"
+            f"print('update failed for test', file=sys.stderr) if {status} else None\n"
+            f"sys.exit({status})\n"
+        )
+        path.chmod(0o755)
+
+    def update(self):
+        with patch.dict(
+            os.environ, {"PATH": str(self.bin) + os.pathsep + os.environ["PATH"]}
+        ):
+            self.module.update_account("allison", self.install)
+
+    def test_account_update_runs_as_account_from_readable_public_stage(self):
+        self.authsudo(0)
+        self.update()
+        record = json.loads(self.trace.read_text())
+        runtime = record["argv"][record["argv"].index("--update-local") + 1]
+        self.assertEqual(
+            record["argv"][:7],
+            [
+                "-u",
+                "allison",
+                "env",
+                "-i",
+                "HOME=/home/allison",
+                "PATH=/usr/local/bin:/usr/bin:/bin",
+                sys.executable,
+            ],
+        )
+        self.assertEqual(record["cwd"], "/")
+        self.assertEqual(record["stageMode"], 0o755)
+        self.assertTrue(record["helper"])
+        self.assertEqual(record["files"], ["pi", "theme", "theme/dark.json"])
+        self.assertEqual(record["theme"], '{"name":"dark"}')
+        self.assertFalse(pathlib.Path(runtime).exists())
+
+    def test_account_update_failure_names_account_and_removes_stage(self):
+        self.authsudo(3)
+        with self.assertRaisesRegex(
+            RuntimeError, "allison runtime update failed: update failed for test"
+        ):
+            self.update()
+        record = json.loads(self.trace.read_text())
+        runtime = record["argv"][record["argv"].index("--update-local") + 1]
+        self.assertFalse(pathlib.Path(runtime).parent.exists())
+
+    def test_activation_updates_own_install_before_each_account(self):
+        share = pathlib.Path(self.temp.name) / "share"
+        token = ".pi-runtime-" + "a" * 32
+        (share / token / "runtime").mkdir(parents=True)
+        calls = []
+        with (
+            patch.object(self.module, "SHARE", share),
+            patch.object(self.module, "INSTALL", self.install),
+            patch.object(
+                self.module,
+                "activate",
+                lambda stage, install: calls.append(("activate", stage, install)),
+            ),
+            patch.object(
+                self.module,
+                "update_account",
+                lambda account, runtime: calls.append(("account", account, runtime)),
+            ),
+            patch.object(sys, "argv", ["deploy.py", "--activate", token]),
+        ):
+            self.module.main()
+        self.assertEqual(
+            calls,
+            [
+                ("activate", share / token / "runtime", self.install),
+                ("account", "allison", self.install),
+            ],
+        )
+        self.assertFalse((share / token).exists())
 
 
 if __name__ == "__main__":
