@@ -2,9 +2,9 @@ import { CURSOR_MARKER, setKeybindings } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import {
-	createAskQuestionsPanel,
 	type AskQuestionsPanelQuestion,
 	type AskQuestionsPanelResult,
+	createAskQuestionsPanel,
 } from "../src/core/tools/ask-questions-panel.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
@@ -36,7 +36,10 @@ function setup(questions: AskQuestionsPanelQuestion[]) {
 		panel,
 		results,
 		text: () => stripAnsi(panel.render(80).join("\n")),
-		press: (...keys: string[]) => keys.forEach((key) => panel.handleInput?.(key)),
+		press: (...keys: string[]) =>
+			keys.forEach((key) => {
+				panel.handleInput?.(key);
+			}),
 	};
 }
 

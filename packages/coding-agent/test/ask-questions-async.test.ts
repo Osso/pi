@@ -10,7 +10,7 @@ import {
 	listRuntimeMailboxMessages as listAllRuntimeMailboxMessages,
 	type RuntimeMailboxAddress,
 } from "../src/core/session-control-db.ts";
-import { createAskQuestionsToolDefinition, type AskQuestionsToolInput } from "../src/core/tools/ask-questions.ts";
+import { type AskQuestionsToolInput, createAskQuestionsToolDefinition } from "../src/core/tools/ask-questions.ts";
 import { initTheme, type Theme, theme } from "../src/modes/interactive/theme/theme.ts";
 
 vi.mock("../src/core/desktop-notification.ts", () => ({
