@@ -203,6 +203,7 @@ import { type FilterMode, TreeSelectorComponent } from "./components/tree-select
 import { TrustSelectorComponent } from "./components/trust-selector.ts";
 import { UserMessageComponent } from "./components/user-message.ts";
 import { UserMessageSelectorComponent } from "./components/user-message-selector.ts";
+import { captureEditorDialogRestore } from "./editor-dialog-restore.ts";
 import { createInteractiveRootCompositor } from "./interactive-root-compositor.ts";
 import { getModelSearchCandidates } from "./model-search.ts";
 import {
@@ -582,6 +583,9 @@ export class InteractiveMode {
 	private extensionSelector: ExtensionSelectorComponent | undefined = undefined;
 	private extensionInput: ExtensionInputComponent | undefined = undefined;
 	private extensionEditor: ExtensionEditorComponent | undefined = undefined;
+	private restoreExtensionSelectorEditor: (() => void) | undefined;
+	private restoreExtensionInputEditor: (() => void) | undefined;
+	private restoreExtensionEditor: (() => void) | undefined;
 	private extensionTerminalInputUnsubscribers = new Set<() => void>();
 
 	// Extension widgets (components rendered above/below the editor)
@@ -2859,6 +2863,7 @@ export class InteractiveMode {
 			};
 			opts?.signal?.addEventListener("abort", onAbort, { once: true });
 
+			this.restoreExtensionSelectorEditor = captureEditorDialogRestore(this.editorContainer, this.ui);
 			this.extensionSelector = new ExtensionSelectorComponent(
 				title,
 				options,
@@ -2887,11 +2892,10 @@ export class InteractiveMode {
 	 */
 	private hideExtensionSelector(): void {
 		this.extensionSelector?.dispose();
-		this.editorContainer.clear();
-		this.editorContainer.addChild(this.editor);
 		this.extensionSelector = undefined;
-		this.ui.setFocus(this.editor);
-		this.ui.requestRender();
+		const restoreEditor = this.restoreExtensionSelectorEditor;
+		this.restoreExtensionSelectorEditor = undefined;
+		restoreEditor?.();
 	}
 
 	/**
@@ -2934,6 +2938,7 @@ export class InteractiveMode {
 			};
 			opts?.signal?.addEventListener("abort", onAbort, { once: true });
 
+			this.restoreExtensionInputEditor = captureEditorDialogRestore(this.editorContainer, this.ui);
 			this.extensionInput = new ExtensionInputComponent(
 				title,
 				placeholder,
@@ -2962,11 +2967,10 @@ export class InteractiveMode {
 	 */
 	private hideExtensionInput(): void {
 		this.extensionInput?.dispose();
-		this.editorContainer.clear();
-		this.editorContainer.addChild(this.editor);
 		this.extensionInput = undefined;
-		this.ui.setFocus(this.editor);
-		this.ui.requestRender();
+		const restoreEditor = this.restoreExtensionInputEditor;
+		this.restoreExtensionInputEditor = undefined;
+		restoreEditor?.();
 	}
 
 	/**
@@ -2974,6 +2978,7 @@ export class InteractiveMode {
 	 */
 	private showExtensionEditor(title: string, prefill?: string): Promise<string | undefined> {
 		return new Promise((resolve) => {
+			this.restoreExtensionEditor = captureEditorDialogRestore(this.editorContainer, this.ui);
 			this.extensionEditor = new ExtensionEditorComponent(
 				this.ui,
 				this.keybindings,
@@ -3002,11 +3007,10 @@ export class InteractiveMode {
 	 * Hide the extension editor.
 	 */
 	private hideExtensionEditor(): void {
-		this.editorContainer.clear();
-		this.editorContainer.addChild(this.editor);
 		this.extensionEditor = undefined;
-		this.ui.setFocus(this.editor);
-		this.ui.requestRender();
+		const restoreEditor = this.restoreExtensionEditor;
+		this.restoreExtensionEditor = undefined;
+		restoreEditor?.();
 	}
 
 	/**
@@ -3111,13 +3115,11 @@ export class InteractiveMode {
 	): Promise<T> {
 		const savedText = this.editor.getText();
 		const isOverlay = options?.overlay ?? false;
+		const restoreEditorSlot = captureEditorDialogRestore(this.editorContainer, this.ui);
 
 		const restoreEditor = () => {
-			this.editorContainer.clear();
-			this.editorContainer.addChild(this.editor);
 			this.editor.setText(savedText);
-			this.ui.setFocus(this.editor);
-			this.ui.requestRender();
+			restoreEditorSlot();
 		};
 
 		return new Promise((resolve, reject) => {
