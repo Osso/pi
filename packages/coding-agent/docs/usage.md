@@ -237,6 +237,16 @@ Built-in tools: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`, `outline`
 
 `change_working_directory` changes the session's working directory without switching sessions. When used during an active agent turn, Pi continues that turn after the change without requiring another user prompt.
 
+### Asking questions
+
+In interactive TUI sessions, agents must use `ask_questions` for all user questions, never chat. Every call requires `blocking`: `true` waits for answers; `false` queues a panel and lets independent authorized work continue. Nonblocking requests require a persisted session and control database. Panels run serially; answers and cancellation arrive through the runtime inbox with `requestId` equal to the originating `toolCallId`.
+
+Omit `options` for free-text input; otherwise provide 2–4 choices and let Pi add Other. Existing choice, multi-select and tab navigation remain available. Pending questions are process-local and are not recovered after restart; only submitted results use the durable mailbox. See the [question contract](../../../docs/specs/ask-questions-tool.md).
+
+```json
+{"blocking": false, "questions": [{"question": "What should the project be named?"}]}
+```
+
 ### Resource Options
 
 | Option | Description |

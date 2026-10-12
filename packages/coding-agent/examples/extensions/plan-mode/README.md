@@ -34,6 +34,12 @@ Plan:
 5. During execution, the agent marks steps complete with `[DONE:n]` tags
 6. Progress widget shows completion status
 
+## Clarifying Questions
+
+Ask all user questions through built-in `ask_questions`, never chat. Specify `blocking: true` when the plan depends on an answer; use `blocking: false` to queue questions while continuing independent read-only exploration. Omit `options` for free-text questions; supplied choices retain Other, multi-select and tab navigation.
+
+Nonblocking calls require an interactive TUI, persisted session and control database. Answers/cancellation arrive through the runtime inbox with `requestId` equal to the originating `toolCallId`. Pending panels are process-local, not restart-recoverable. See the [question contract](../../../../../docs/specs/ask-questions-tool.md).
+
 ## How It Works
 
 ### Plan Mode (Read-Only)
