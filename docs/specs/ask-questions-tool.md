@@ -18,6 +18,7 @@ The `ask_questions` built-in tool lets the model ask choice or free-text questio
 - [ ] `blocking: false` returns a queued result immediately, allowing independent authorized work to continue. Deliver answers, partial answers on cancellation, or panel failure through the runtime inbox.
 - [ ] Correlate queued results and inbox messages by `requestId`, equal to the originating `toolCallId`.
 - [ ] Serialize panel requests for the same UI context, including mixed blocking/nonblocking requests, without replacing an unanswered panel.
+- [ ] Restore a pending question and its keyboard focus after an intervening extension selector/confirm, input, editor, or non-overlay custom dialog closes. Answering the restored nonblocking question must deliver its correlated inbox reply and allow later queued questions to progress.
 - [ ] Require a persisted session and control database for nonblocking calls; reject missing prerequisites before opening a panel.
 - [ ] Route submitted nonblocking results to the originating session/agent even if the active session changes.
 - [ ] Keep pending UI requests process-local like the existing panel; only submitted results enter the durable mailbox. Do not promise recovery of unanswered questions after restart.
@@ -53,6 +54,8 @@ The `ask_questions` built-in tool lets the model ask choice or free-text questio
 
 - `packages/coding-agent/src/core/tools/ask-questions.ts` — built-in tool schema, validation, and transcript rendering.
 - `packages/coding-agent/src/core/tools/ask-questions-panel.ts` — tabbed question panel component.
+- `packages/coding-agent/src/modes/interactive/interactive-mode.ts` — extension dialogs restore the prior editor-container contents and focus.
+- `packages/coding-agent/src/modes/interactive/editor-dialog-restore.ts` — captures editor-container children and keyboard focus for restoration.
 - `packages/coding-agent/src/core/keybindings.ts` — `app.questions.next` / `app.questions.previous` defaults.
 - `packages/coding-agent/src/core/tools/index.ts` — built-in tool registration and default active tool list.
 - `packages/coding-agent/src/index.ts` — public SDK exports.
@@ -67,7 +70,8 @@ The `ask_questions` built-in tool lets the model ask choice or free-text questio
 - `packages/coding-agent/test/plan-mode-extension.test.ts`
 - `packages/coding-agent/test/ask-questions-async.test.ts` — required blocking, queued delivery, original recipient routing, serial panels, cancellation, and persistence prerequisite.
 - `packages/coding-agent/test/ask-questions-panel-free-text.test.ts` — free-text input, drafts, required answers, cancellation, and mixed choice/multi-select panels.
-- `packages/coding-agent/test/suite/ask-questions-blocking-pty.test.ts` — real TUI/model continuation and answer delivery boundary.
+- `packages/coding-agent/test/suite/ask-questions-blocking-pty.test.ts` — real TUI/model continuation, answer delivery, and intervening confirm restoration with correlated durable inbox replies and later queue progress.
+- `packages/coding-agent/test/suite/fixtures/ask-questions-confirm-extension.ts` — extension tool opening the intervening `ctx.ui.confirm` in the PTY regression.
 
 New contract bullets remain unchecked until their tests pass; this documentation audit did not run core tests.
 

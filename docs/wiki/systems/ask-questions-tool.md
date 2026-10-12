@@ -14,6 +14,8 @@ Every call requires `blocking: true` or `false`. Requests contain 1–4 unique q
 
 A process-local WeakMap keyed by UI context chains panel promises. Requests share this serial queue in both modes; a failed panel does not strand later requests. A desktop notification opens when a panel is shown and closes when it settles. Notification failures are logged without preventing questions.
 
+[`interactive-mode.ts`](../../../packages/coding-agent/src/modes/interactive/interactive-mode.ts) captures the prior editor-container children and keyboard focus before extension selector/confirm, input, editor and custom dialogs. [`editor-dialog-restore.ts`](../../../packages/coding-agent/src/modes/interactive/editor-dialog-restore.ts) restores those same children and focus on dialog close rather than installing the normal editor unconditionally. An intervening dialog therefore returns to the pending question; its answer can settle the panel, deliver the correlated inbox reply and release later queued questions. Custom overlays retain their separate overlay handling. This changes UI restoration, not agent lifecycle or pending-question persistence.
+
 `blocking: true` awaits the panel and returns answers/cancellation in tool details. It sends no separate inbox reply.
 
 `blocking: false` first captures the control DB path, persisted session path, and originating session/agent address. Missing persistence or control DB fails before a panel opens. It queues the panel and returns `queued: true`, `requestId: toolCallId`, empty answers and `cancelled: false`; this is acceptance, not a completed answer. The agent may continue only independent authorized work.
@@ -33,7 +35,7 @@ Call rows retain questions and blocking answers/cancellation even with hidden to
 - [`ask-questions-tool.test.ts`](../../../packages/coding-agent/test/ask-questions-tool.test.ts): choice/Other/multi-select, tabs, cancellation, modes, notifications and rendering.
 - [`ask-questions-async.test.ts`](../../../packages/coding-agent/test/ask-questions-async.test.ts): required blocking, serial requests, mailbox routing/cancellation and persistence prerequisites.
 - [`ask-questions-panel-free-text.test.ts`](../../../packages/coding-agent/test/ask-questions-panel-free-text.test.ts): free-text editing, drafts, required input and preserved choice behaviors.
-- [`ask-questions-blocking-pty.test.ts`](../../../packages/coding-agent/test/suite/ask-questions-blocking-pty.test.ts): real TUI/model continuation boundary.
+- [`ask-questions-blocking-pty.test.ts`](../../../packages/coding-agent/test/suite/ask-questions-blocking-pty.test.ts): real TUI/model continuation boundary; intervening confirm closes back to the original question, whose answer reaches the correlated durable inbox, followed by a later queued question and reply. [`ask-questions-confirm-extension.ts`](../../../packages/coding-agent/test/suite/fixtures/ask-questions-confirm-extension.ts) opens the actual extension `ctx.ui.confirm` selector.
 - [`plan-mode-extension.test.ts`](../../../packages/coding-agent/test/plan-mode-extension.test.ts): plan-mode integration.
 
-Documentation audit inspected implementation and async/free-text tests; it did not run core tests.
+Documentation audit inspected restoration commit `0c9dc9393`, the PTY regression and its confirm fixture; it did not run tests. Final acceptance remains pending in the contract; the confirm regression does not alone prove every dialog path.
