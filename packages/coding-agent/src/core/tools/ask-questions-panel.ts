@@ -39,6 +39,17 @@ function hasAnswer(answer: QuestionAnswer): boolean {
 	return answer.selected.length > 0 || answer.custom !== undefined;
 }
 
+function findFreeTextTabOffset(kb: KeybindingsManager, data: string): number {
+	if (kb.matches(data, "app.questions.next") && !kb.matches(data, "tui.editor.cursorRight")) return 1;
+	if (kb.matches(data, "app.questions.previous") && !kb.matches(data, "tui.editor.cursorLeft")) return -1;
+	return 0;
+}
+
+function formatOptionMarker(multiSelect: boolean | undefined, selected: boolean): string {
+	if (multiSelect) return selected ? "[x] " : "[ ] ";
+	return selected ? "● " : "○ ";
+}
+
 /** Tabbed question panel: one tab per question plus a Submit tab when more than one answer is collected. */
 export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Component & Focusable {
 	const { questions, theme, keybindings: kb, requestRender, done } = options;
@@ -122,22 +133,21 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 		advanceAfterAnswer();
 	}
 
+	function editAnswer(data: string): void {
+		const freeText = isFreeText();
+		const tabOffset = freeText ? findFreeTextTabOffset(kb, data) : 0;
+		if (tabOffset !== 0) {
+			moveToTab(tab + tabOffset);
+			return;
+		}
+		const index = tab;
+		inputs[index].handleInput(data);
+		if (freeText) answers[index].custom = inputs[index].getValue().trim() || undefined;
+	}
+
 	function handleKey(data: string): void {
 		if (editing) {
-			if (isFreeText()) {
-				if (kb.matches(data, "app.questions.next") && !kb.matches(data, "tui.editor.cursorRight")) {
-					moveToTab(tab + 1);
-					return;
-				}
-				if (kb.matches(data, "app.questions.previous") && !kb.matches(data, "tui.editor.cursorLeft")) {
-					moveToTab(tab - 1);
-					return;
-				}
-			}
-			const index = tab;
-			const freeText = isFreeText();
-			inputs[index].handleInput(data);
-			if (freeText) answers[index].custom = inputs[index].getValue().trim() || undefined;
+			editAnswer(data);
 			return;
 		}
 		if (kb.matches(data, "app.questions.next")) moveToTab(tab + 1);
@@ -170,7 +180,7 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 		if (!question.options) return [];
 		const rows = question.options.map((option, index) => {
 			const chosen = answer.selected.includes(option.label);
-			const marker = question.multiSelect ? (chosen ? "[x] " : "[ ] ") : chosen ? "● " : "○ ";
+			const marker = formatOptionMarker(question.multiSelect, chosen);
 			const description = option.description ? theme.fg("muted", ` — ${option.description}`) : "";
 			return { text: `${marker}${index + 1}. ${option.label}${description}`, active: index === cursors[tab] };
 		});
