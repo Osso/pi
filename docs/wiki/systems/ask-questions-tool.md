@@ -38,4 +38,4 @@ Call rows retain questions and blocking answers/cancellation even with hidden to
 - [`ask-questions-blocking-pty.test.ts`](../../../packages/coding-agent/test/suite/ask-questions-blocking-pty.test.ts): real TUI/model continuation boundary; intervening confirm closes back to the original question, whose answer reaches the correlated durable inbox, followed by a later queued question and reply. [`ask-questions-confirm-extension.ts`](../../../packages/coding-agent/test/suite/fixtures/ask-questions-confirm-extension.ts) opens the actual extension `ctx.ui.confirm` selector.
 - [`plan-mode-extension.test.ts`](../../../packages/coding-agent/test/plan-mode-extension.test.ts): plan-mode integration.
 
-Documentation audit inspected restoration commit `0c9dc9393`, the PTY regression and its confirm fixture; it did not run tests. Final acceptance remains pending in the contract; the confirm regression does not alone prove every dialog path.
+Final acceptance and proof limits are recorded in the [contract](../../specs/ask-questions-tool.md#tests-asserting-this-spec). The confirm regression does not alone prove every dialog path.
