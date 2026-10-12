@@ -6,6 +6,7 @@ import { type AssistantMessage, fauxAssistantMessage, fauxToolCall } from "@eare
 import { expect, it } from "vitest";
 import { VirtualTerminal } from "../../../tui/test/virtual-terminal.ts";
 import { SessionManager } from "../../src/core/session-manager.ts";
+import { CONFIRM_MESSAGE, CONFIRM_TITLE } from "./fixtures/ask-questions-confirm-extension.ts";
 import {
 	cleanupHeadlessPiResources,
 	createHeadlessPaths,
@@ -55,7 +56,7 @@ function respond(probe: Probe, index: number, message: AssistantMessage): void {
 	socket.write(`${JSON.stringify({ type: "response", requestId: request.id, message })}\n`);
 }
 
-async function startProbe(probe: Probe): Promise<void> {
+async function startProbe(probe: Probe, extraExtension?: string): Promise<void> {
 	writeFileSync(
 		join(probe.paths.agentDir, "settings.json"),
 		JSON.stringify({ approvalPolicy: "auto-approve", approvalPreset: "auto-approve" }),
@@ -84,6 +85,7 @@ async function startProbe(probe: Probe): Promise<void> {
 			"--no-extensions",
 			"--extension",
 			join(FIXTURES, "interactive-pty-provider-extension.ts"),
+			...(extraExtension ? ["--extension", join(FIXTURES, extraExtension)] : []),
 		],
 		{
 			cwd: probe.paths.workspaceDir,
@@ -289,6 +291,135 @@ it.skipIf(process.platform === "win32").each([false, true])(
 						),
 					"final faux response persisted before process cleanup",
 				);
+			},
+			() =>
+				cleanupHeadlessPiResources({
+					stopClient: () => stopBridge(probe.bridge),
+					destroyProviderSocket: () => probe.provider?.getSocket()?.destroy(),
+					closeProviderServer: () =>
+						probe.provider
+							? new Promise<void>((resolve, reject) =>
+									probe.provider?.server.close((error) => (error ? reject(error) : resolve())),
+								)
+							: Promise.resolve(),
+					removeTempDir: () => rmSync(probe.paths.tempDir, { recursive: true, force: true }),
+				}),
+		);
+	},
+	45_000,
+);
+
+async function confirmThenAssertRestoredQuestion(probe: Probe): Promise<void> {
+	respond(probe, 2, fauxAssistantMessage(fauxToolCall("test_question_confirm", {}), { stopReason: "toolUse" }));
+	await waitUntil(
+		probe,
+		async () => {
+			await probe.terminal.flush();
+			const viewport = probe.terminal.getViewport().join("\n");
+			return viewport.includes(CONFIRM_TITLE) && viewport.includes(CONFIRM_MESSAGE);
+		},
+		"confirm selector replacing queued question",
+	);
+	expect(await panelVisible(probe)).toBe(false);
+	expect(probe.requests).toHaveLength(3);
+	probe.bridge?.stdin.write("\r");
+	await waitUntil(probe, () => probe.requests.length === 4, "confirm completion and model continuation");
+	const confirmation = probe.requests[3].messages.filter(
+		(message) => message.role === "toolResult" && message.toolName === "test_question_confirm",
+	);
+	expect(confirmation).toHaveLength(1);
+	expect(confirmation[0]).toMatchObject({ isError: false, details: { confirmed: true } });
+	await waitUntil(probe, () => panelVisible(probe), "original pending question restored after confirm Enter");
+}
+
+async function assertCorrelatedDurableAnswer(probe: Probe, index: number, requestId: string): Promise<void> {
+	await waitUntil(probe, () => probe.requests.length === index + 1, `inbox request ${index}`);
+	const prefix = `User answered questions (request ${requestId}):`;
+	const inbox = probe.requests[index].messages.filter(
+		(message) => message.role === "user" && JSON.stringify(message.content).includes(prefix),
+	);
+	expect(inbox).toHaveLength(1);
+	expect(JSON.stringify(inbox[0].content)).toContain(`${QUESTION} → ${ANSWER}`);
+	const entries = await readEntries(probe);
+	const durableAnswers = entries.filter(
+		(entry) =>
+			entry.type === "message" &&
+			entry.message.role === "user" &&
+			JSON.stringify(entry.message.content).includes(prefix),
+	);
+	expect(durableAnswers).toHaveLength(1);
+	expect(durableAnswers[0]).toMatchObject({ mailboxStoreRefs: [expect.anything()] });
+}
+
+function finishProviderRequest(probe: Probe, index: number, text: string): void {
+	respond(
+		probe,
+		index,
+		fauxAssistantMessage([{ type: "text", text }, fauxToolCall("end_turn", { reason: text })], {
+			stopReason: "toolUse",
+		}),
+	);
+}
+
+async function answerRestoredQuestion(probe: Probe, index: number, requestId: string): Promise<void> {
+	expect(await panelVisible(probe)).toBe(true);
+	probe.bridge?.stdin.write("\r");
+	await waitUntil(probe, async () => !(await panelVisible(probe)), "Enter answers restored question");
+	finishProviderRequest(probe, index, "Work completed while restored question was pending.");
+	await assertCorrelatedDurableAnswer(probe, index + 1, requestId);
+}
+
+async function assertLaterQuestionProgress(probe: Probe): Promise<void> {
+	const later = fauxToolCall("ask_questions", {
+		blocking: false,
+		questions: [{ question: QUESTION, options: [{ label: ANSWER }, { label: "Drop PTY coverage" }] }],
+	});
+	respond(probe, 4, fauxAssistantMessage(later, { stopReason: "toolUse" }));
+	await waitUntil(probe, () => probe.requests.length === 6, "later queued question returns without blocking");
+	const results = questionResults(probe.requests[5]);
+	expect(results).toHaveLength(2);
+	expect(results[1]).toMatchObject({ details: { queued: true, requestId: later.id, blocking: false } });
+	await waitUntil(probe, () => panelVisible(probe), "later queued question is not stranded");
+	await answerRestoredQuestion(probe, 5, later.id);
+	finishProviderRequest(probe, 6, "Both queued answers acknowledged.");
+	await waitUntil(
+		probe,
+		async () =>
+			(await readEntries(probe)).some(
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "assistant" &&
+					entry.message.content.some(
+						(block) => block.type === "text" && block.text === "Both queued answers acknowledged.",
+					),
+			),
+		"final response persistence",
+	);
+}
+
+it.skipIf(process.platform === "win32")(
+	"real PTY restores queued question after intervening confirm and advances later requests",
+	async () => {
+		const probe: Probe = {
+			paths: createHeadlessPaths(),
+			terminal: new VirtualTerminal(100, 32),
+			requests: [],
+			output: "",
+		};
+		await runWithCleanup(
+			async () => {
+				await startProbe(probe, "ask-questions-confirm-extension.ts");
+				const question = fauxToolCall("ask_questions", {
+					blocking: false,
+					questions: [{ question: QUESTION, options: [{ label: ANSWER }, { label: "Drop PTY coverage" }] }],
+				});
+				respond(probe, 0, fauxAssistantMessage(question, { stopReason: "toolUse" }));
+				await waitUntil(probe, () => panelVisible(probe), "initial nonblocking question panel");
+				await readAndAssertQuestionResult(probe, false, question.id);
+				await writeAndAssertAuthorizedWork(probe, join(probe.paths.workspaceDir, "authorized-work.txt"));
+				await confirmThenAssertRestoredQuestion(probe);
+				await answerRestoredQuestion(probe, 3, question.id);
+				await assertLaterQuestionProgress(probe);
 			},
 			() =>
 				cleanupHeadlessPiResources({
