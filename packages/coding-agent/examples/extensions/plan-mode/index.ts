@@ -211,7 +211,7 @@ Restrictions:
 - Other currently active tools remain available
 - Bash is restricted to an allowlist of read-only commands
 
-Ask clarifying questions using the ask_questions tool.
+Ask all user questions through ask_questions, never chat. Always specify blocking: true when planning depends on an answer, false to continue independent read-only exploration while answers arrive through the inbox. Omit options for free-text questions.
 Use brave-search skill via bash for web research.
 
 Create a detailed numbered plan under a "Plan:" header:
