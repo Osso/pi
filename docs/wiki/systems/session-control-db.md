@@ -67,11 +67,17 @@ Existing detached runners and user history were preserved.
 
 ## Deployment state
 
-verified: 2026-10-11
+verified: 2026-10-12
+
+Current artifact, account rollout, runtime identity/health evidence, and remote smoke:
+[/usage deployment evidence](slash-commands.md#current-deployment-evidence--october-12-2026).
+
+### Historical ask_questions rollout — October 11, 2026
+
+The following evidence describes the earlier deployment, not current runtime state.
 
 - `deploy.sh --agent-server`: revision `6f2e88dfe`, installed `/home/osso/.local/share/pi/pi`
-  on `aso` and `agent-server`; SHA-256
-  `e8df4db862f9b40380b4c7c5f111dce692222d4a8f8a4e256c7ac10bec2a2629`.
+  on `aso` and `agent-server`.
 - Final `osso` inventory: five `aso` and two `agent-server` mains, all current-hash and `checkStatus=ok`;
   `pi` launchers and PID/start identities preserved, new incarnations, generations incremented once.
   Evidence: `/tmp/pi-ask-inventory-aso-final.json`, `/tmp/pi-ask-inventory-agent-server-final.json`.
