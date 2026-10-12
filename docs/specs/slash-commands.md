@@ -44,6 +44,7 @@ Slash commands provide the user-facing dispatch layer for built-in commands, ext
 - `packages/coding-agent/src/core/slash-commands.ts` — defines built-in slash-command metadata.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts` — handles interactive built-ins, submission routing, and command completion.
 - `packages/coding-agent/src/modes/rpc/rpc-mode.ts` — exposes prompt, queueing, and command-discovery RPC entry points.
+- `packages/coding-agent/extensions/codex-usage/src/index.ts` — reports Codex usage immediately while busy and retains the custom report for the next turn.
 
 ## Tests asserting this spec
 
@@ -52,6 +53,9 @@ Slash commands provide the user-facing dispatch layer for built-in commands, ext
 - `packages/coding-agent/test/suite/agent-session-prompt.test.ts:312-318` — handled slash-command history persistence.
 
 - `packages/coding-agent/test/suite/regressions/interactive-unknown-slash-command.test.ts` — commit `e20b2a828` adds real-process PTY cases for idle/streaming Enter/Alt+Enter, visible feedback, no uncaught stack, no rejected provider/transcript input, editor recall, and subsequent built-in/template/plain-prompt usability. Source inspected; not executed in this docs task.
+
+- `packages/coding-agent/test/codex-usage-routing.test.ts` — provider routing, busy read/reset/no-credit reports, idle reporting, and idle-state changes during a fetch.
+- `packages/coding-agent/test/suite/regressions/interactive-usage-busy.test.ts` — real PTY Enter/Alt+Enter during held tools and provider requests, immediate full report, uninterrupted work, and next-turn persistence.
 
 ## Known gaps (current cycle)
 - [ ] Add SDK/RPC coverage for unknown-command rejection.
