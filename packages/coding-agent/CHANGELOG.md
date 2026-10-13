@@ -78,6 +78,7 @@
 
 ### Added
 
+- Added readonly `ExtensionAPI.cwd` for extension factory-time loader cwd; provider stream calls now receive each calling session's cwd through `StreamOptions.cwd` for local/subprocess integrations.
 - Added `/settings` → **Hide coordination messages** (`hideCoordinationMessages`, default `false`) to hide mailbox notices, broadcasts, and shared-channel messages from live/restored interactive chat and queued previews without changing delivery, stored messages, model context, cursors, or typed prompt history. Typed envelope-like prompts and unrelated extension messages remain visible. `AgentSession.getQueuedMessagePreviews()` provides read-only queue display snapshots with existing input provenance; string queue APIs remain unchanged.
 - Child agents can now use `ask_questions`: questions go to the direct parent, which replies with the new `answer_question` tool. A blocking child waits and receives the answer as its original `ask_questions` result; nonblocking children get it in their inbox.
 - Added default-on `compaction.idle` to compact idle sessions with at least 200K context tokens at 90% of assigned Claude bridge or assumed Codex prompt-cache TTL, using reason `"idle"` without interrupting active turns.
@@ -193,6 +194,7 @@
 
 ### Fixed
 
+- Fixed deleted working directories in runtime-hosted sessions before idle prompt/continuation and between completed turns: missing session cwd relocates to the nearest existing directory parent with `cwd_changed`, rebuilt resources, and preserved session identity; invalid process cwd is repaired only when needed with visible `process_cwd_recovered`, without cancelling in-flight tools.
 - Fixed Codex `/usage` reports staying invisible during tool waits: busy sessions show the full report immediately in a UI notification and retain the custom report for the next turn without steering or interruption. Covers `/usage`, `/usage reset`, and no-reset-credits results; idle display and Claude bridge routing are unchanged.
 - Fixed signed Anthropic public narration being hidden as thinking: display returned prose directly in interactive and print output without an `end_turn` regeneration request. Genuine thinking retains normal visibility; malformed or unclassified signatures are not promoted to prose. Original thinking blocks and signatures remain unchanged for JSON output and provider replay; returned summaries do not recover an exact pre-summary answer.
 - Fixed cross-host messages remaining queued until a Supervisor request by moving SSH relay into an independent `pi relay connect` resident, started nonblocking by main sessions with global relay settings; concurrent starts share one version-aware resident per control DB.

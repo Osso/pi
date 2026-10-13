@@ -45,6 +45,7 @@
 
 ### Added
 
+- Added optional `StreamOptions.cwd` for per-call working-directory metadata in local/subprocess provider integrations; it is not a server payload field.
 - Added GPT-6 Sol and GPT-6 Luna to the `openai-codex`, `openai-codex-gc`, and `openai-codex-team` model catalogs with OpenAI's published per-million-token pricing: Sol $2 input/$10 output and Luna $0.10 input/$0.50 output.
 - Added GPT-6 Astra to the `openai-codex`, `openai-codex-gc`, and `openai-codex-team` model catalogs with 922,000-token effective input context and supported reasoning efforts.
 - Added optional persisted `ToolCall.execution.agentId` metadata for application-owned durable tool execution identity; provider adapters ignore it.

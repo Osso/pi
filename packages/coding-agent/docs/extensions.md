@@ -985,7 +985,9 @@ Current run mode: `"tui"`, `"rpc"`, `"json"`, or `"print"`. Use `ctx.mode === "t
 
 ### ctx.cwd
 
-Current working directory.
+Current session working directory, not necessarily `process.cwd()`. Use this value for paths and subprocesses in handlers. For initialization inside the extension factory, use [`pi.cwd`](#picwd).
+
+Runtime-hosted sessions recover a deleted session cwd at safe run/turn boundaries by relocating to the nearest existing directory parent, emitting `cwd_changed`, and rebuilding tools, resources, and extension instances without changing session ID. In-flight tools are not cancelled. If only process cwd is invalid, Pi repairs it to the valid session cwd with visible `process_cwd_recovered`, without relocating the session. See the [cwd recovery contract](../../../docs/specs/change-working-directory-tool.md#automatic-deleted-cwd-recovery).
 
 Use `CONFIG_DIR_NAME` instead of hardcoding `.pi` when constructing project-local config paths. Rebranded distributions can use a different config directory name.
 
@@ -1411,6 +1413,10 @@ export default function (pi: ExtensionAPI) {
 ```
 
 ## ExtensionAPI Methods
+
+### pi.cwd
+
+Readonly loader cwd bound to this extension instance, available inside its factory before `session_start`. Use it for factory-time project paths instead of `process.cwd()`. It does not track other sessions or update an old extension instance after relocation; use current handler `ctx.cwd` for session-scoped work.
 
 ### pi.on(event, handler)
 
@@ -1844,7 +1850,7 @@ pi.registerProvider("corporate-ai", {
 - `authHeader` - If true, adds `Authorization: Bearer` header automatically.
 - `models` - Array of model definitions. If provided, replaces all existing models for this provider. Model definitions can set `baseUrl` to override the provider endpoint for that model.
 - `oauth` - OAuth provider config for `/login` support. When provided, the provider appears in the login menu.
-- `streamSimple` - Custom streaming implementation for non-standard APIs.
+- `streamSimple` - Custom streaming implementation for non-standard APIs. `options.cwd` (`StreamOptions.cwd?: string`) supplies the calling session's cwd on each Pi session stream call. Shared local/subprocess providers must use that per-call value, not captured `pi.cwd` or `process.cwd()`, for session-scoped subprocess execution. The option is integration metadata, not a server payload field.
 
 See [custom-provider.md](custom-provider.md) for advanced topics: custom streaming APIs, OAuth details, model definition reference.
 
