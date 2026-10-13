@@ -315,6 +315,8 @@ Use `/settings` to modify common options, or edit JSON files directly:
 | `~/.pi/agent/settings.json` | Global (all projects) |
 | `.pi/settings.json` | Project (overrides global) |
 
+Use `/settings` → **Hide coordination messages**, or set `"hideCoordinationMessages": true`, to hide mailbox notices and broadcasts in the interactive transcript and queued previews. Delivery and model context stay unchanged; typed prompts and unrelated errors remain visible. Default: `false`.
+
 See [docs/settings.md](docs/settings.md) for all options. Sandbox profiles resolve as session override, project setting, then global setting. Use `/sandbox <read-only|workspace-write|full-access|inherit> <session|project|global>` for direct control; session `inherit` removes the exact session's override. Session overrides live in the control-session database, survive restart/resume, and do not carry into new or forked sessions. Sandboxed Pyrun runners resolve symlinked commands to their canonical executable target before bwrap mounts and invokes them.
 
 ### Project Trust

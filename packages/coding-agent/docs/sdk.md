@@ -238,6 +238,8 @@ await session.followUp("After you're done, also do this");
 
 `steer()` interrupts an active model request and automatically continues with the steering message. It does not abort active tool execution; steering queued during a tool runs before the next model call. `followUp()` still waits until the agent finishes. Both methods expand file-based prompt templates but error on extension commands (extension commands cannot be queued).
 
+For display-only queue inspection, `session.getQueuedMessagePreviews()` returns copied `steering` and `followUp` arrays of read-only records: `{ text, inputSource?, customType? }`. Provenance is available during `queue_update`; `inputSource` distinguishes extension-origin input from typed prompts, and `customType: "shared_channel"` identifies channel previews. Reading or modifying a returned snapshot does not consume or mutate either delivery queue. Existing `getSteeringMessages()`, `getFollowUpMessages()`, `queue_update` payloads, and `clearQueue()` retain their string interfaces.
+
 ### Agent and AgentState
 
 The `Agent` class (from `@earendil-works/pi-agent-core`) handles the core LLM interaction. Access it via `session.agent`.

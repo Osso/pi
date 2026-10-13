@@ -2084,6 +2084,7 @@ describe("InteractiveMode key handlers", () => {
 			availableThemes: ["dark"],
 			hideThinkingBlock: false,
 			hideToolOutput: false,
+			hideCoordinationMessages: false,
 			collapseChangelog: false,
 			enableInstallTelemetry: false,
 			doubleEscapeAction: "none",

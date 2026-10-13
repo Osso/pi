@@ -438,7 +438,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 - [x] Delivered mailbox prompts clearly identify their mailbox origin and sender address before the
       content is fed back to the model.
 - [x] Runtime mailbox writes are treated as a local trusted-boundary security surface; any process
-      with control-DB write access can inject messages, so the feature must not hide message origin.
+      with control-DB write access can inject messages, so model context and persisted messages must retain message origin; the optional TUI visibility setting does not remove that provenance.
 - [x] A mailbox message has exactly one delivery transport: its canonical control-DB row also owns the
       sender store's persisted payload. There is no separate transport table or in-store drain. Delivery
       deletes that exact claimed row only after durable transcript acceptance.
@@ -533,6 +533,8 @@ The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the
       mailbox, and lifecycle contracts.
 
 ### TUI behavior
+
+- [x] `/settings` exposes **Hide coordination messages** (`hideCoordinationMessages: boolean`, default `false`). It hides extension-origin canonical mailbox envelopes, including batched child-failure notices and broadcasts, from live/restored chat and queued previews. Typed envelope-like prompts, unrelated extension input, system notices, and tool errors remain visible. Delivery, persisted roles/content, model context, errors, cursors, editor history, and lifecycle remain unchanged; toggling preserves streaming and pending tool components. Shared-channel visibility uses the [same setting](shared-channel.md#delivery).
 
 - [x] `Alt+1` through `Alt+9` switch visible agent slots without mutating agent lifecycle state.
 - [x] Slot bindings are stable while an agent exists, and pinned slots survive list refreshes.
@@ -632,6 +634,8 @@ The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the
   external-extension and Claude Code audit that informs the first implementation slice.
 
 ## Tests asserting this spec
+
+- `packages/coding-agent/test/interactive-mode-coordination-visibility.test.ts` — mailbox and broadcast visibility, provenance-aware queue previews, reversible toggles, unchanged delivery and context.
 
 - `packages/coding-agent/test/host-relay.test.ts` — two-DB forwarding, replies, outages, lost acknowledgements, sequence ordering and bounded state.
 - `packages/coding-agent/test/host-relay-client.test.ts` — real SSH-process fixture, outage logging, reconnect, SSH arguments and shutdown.

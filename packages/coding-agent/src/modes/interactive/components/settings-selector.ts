@@ -68,6 +68,7 @@ export interface SettingsConfig {
 	availableThemes: string[];
 	hideThinkingBlock: boolean;
 	hideToolOutput: boolean;
+	hideCoordinationMessages: boolean;
 	collapseChangelog: boolean;
 	enableInstallTelemetry: boolean;
 	doubleEscapeAction: "fork" | "tree" | "none";
@@ -99,6 +100,7 @@ export interface SettingsCallbacks {
 	onThemePreview?: (theme: string) => void;
 	onHideThinkingBlockChange: (hidden: boolean) => void;
 	onHideToolOutputChange: (hidden: boolean) => void;
+	onHideCoordinationMessagesChange: (hidden: boolean) => void;
 	onCollapseChangelogChange: (collapsed: boolean) => void;
 	onEnableInstallTelemetryChange: (enabled: boolean) => void;
 	onDoubleEscapeActionChange: (action: "fork" | "tree" | "none") => void;
@@ -533,6 +535,13 @@ export class SettingsSelectorComponent extends Container {
 				values: ["true", "false"],
 			},
 			{
+				id: "hide-coordination-messages",
+				label: "Hide coordination messages",
+				description: "Hide mailbox notices and broadcasts in chat and queued previews; delivery stays unchanged",
+				currentValue: config.hideCoordinationMessages ? "true" : "false",
+				values: ["true", "false"],
+			},
+			{
 				id: "collapse-changelog",
 				label: "Collapse changelog",
 				description: "Show condensed changelog after updates",
@@ -777,6 +786,9 @@ export class SettingsSelectorComponent extends Container {
 						break;
 					case "hide-tool-output":
 						callbacks.onHideToolOutputChange(newValue === "true");
+						break;
+					case "hide-coordination-messages":
+						callbacks.onHideCoordinationMessagesChange(newValue === "true");
 						break;
 					case "collapse-changelog":
 						callbacks.onCollapseChangelogChange(newValue === "true");

@@ -23,6 +23,7 @@ once needed.
 - [x] Subagent sessions do not drain shared-channel messages by default.
 - [x] Every delivered channel entry is clearly tagged as shared-channel input and includes its sender session/agent.
 - [x] Delivered channel entries use the `role: "custom"` / `customType: "shared_channel"` message path and persist as `custom_message` entries, so live and rebuilt transcript views preserve channel classification instead of rendering them as typed user messages.
+- [x] `hideCoordinationMessages` defaults to `false`; `/settings` → **Hide coordination messages** hides shared-channel transcript entries and queued previews without changing delivery, persisted roles/content, model context, cursor advancement, or typed prompt history. Disabling it restores visible entries without disturbing active streaming or pending tools. Mailbox visibility shares this setting; see [multi-agent TUI behavior](multi-agent.md#tui-behavior).
 - [x] When a shared-channel custom message is consumed as a follow-up after `end_turn`, its entry is removed from the pending follow-up preview when the continuation starts.
 - [x] Shared-channel turns retain extension input provenance and never enter the interactive editor's typed prompt history, including post-run follow-up delivery.
 - [x] The cursor advances through a batch only after its combined prompt is successfully delivered; a failed batch remains unread.
@@ -69,6 +70,8 @@ once needed.
 - `packages/coding-agent/src/core/tools/index.ts` — built-in tool registration.
 
 ## Tests asserting this spec
+
+- `packages/coding-agent/test/interactive-mode-coordination-visibility.test.ts` — live/history visibility, queue-update provenance, toggle restoration, unchanged delivery/context/persistence and channel cursors.
 
 - `packages/coding-agent/test/host-relay.test.ts` — two-host channel import and reconnect deduplication.
 - `packages/coding-agent/test/suite/host-relay-process.test.ts` — cross-host channel over real CLI stdio.

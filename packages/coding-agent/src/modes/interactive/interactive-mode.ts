@@ -177,6 +177,7 @@ import { BorderedLoader } from "./components/bordered-loader.ts";
 import { BranchSummaryMessageComponent } from "./components/branch-summary-message.ts";
 import { CompactionSummaryMessageComponent } from "./components/compaction-summary-message.ts";
 import { CountdownTimer } from "./components/countdown-timer.ts";
+import { CoordinationMessageComponent } from "./components/coordination-message.ts";
 import { CustomEditor } from "./components/custom-editor.ts";
 import { CustomEntryComponent } from "./components/custom-entry.ts";
 import { CustomMessageComponent } from "./components/custom-message.ts";
@@ -203,6 +204,7 @@ import { type FilterMode, TreeSelectorComponent } from "./components/tree-select
 import { TrustSelectorComponent } from "./components/trust-selector.ts";
 import { UserMessageComponent } from "./components/user-message.ts";
 import { UserMessageSelectorComponent } from "./components/user-message-selector.ts";
+import { isCoordinationMessage, isCoordinationPreview } from "./coordination-visibility.ts";
 import { captureEditorDialogRestore } from "./editor-dialog-restore.ts";
 import { createInteractiveRootCompositor } from "./interactive-root-compositor.ts";
 import { getModelSearchCandidates } from "./model-search.ts";
@@ -1275,7 +1277,9 @@ export class InteractiveMode {
 
 	private setUserMessagesInTransit(components: readonly Component[], inTransit: boolean): void {
 		for (const component of components) {
-			if (component instanceof UserMessageComponent) component.setInTransit(inTransit);
+			if (component instanceof UserMessageComponent || component instanceof CoordinationMessageComponent) {
+				component.setInTransit(inTransit);
+			}
 		}
 	}
 
@@ -4777,6 +4781,8 @@ export class InteractiveMode {
 	}
 
 	private addMessageToChat(message: AgentMessage, options?: { populateHistory?: boolean }): void {
+		const coordination = isCoordinationMessage(message);
+		const previousChildCount = this.chatContainer.children.length;
 		switch (message.role) {
 			case "bashExecution": {
 				const component = new BashExecutionComponent(message.command, this.ui, message.excludeFromContext, {
@@ -4868,6 +4874,12 @@ export class InteractiveMode {
 			default: {
 				const _exhaustive: never = message;
 			}
+		}
+		if (coordination && this.chatContainer.children.length > previousChildCount) {
+			const components = this.chatContainer.children.splice(previousChildCount);
+			this.chatContainer.addChild(
+				new CoordinationMessageComponent(components, () => this.settingsManager.getHideCoordinationMessages()),
+			);
 		}
 	}
 
@@ -5495,14 +5507,24 @@ export class InteractiveMode {
 	 * Get all queued messages (read-only).
 	 * Combines session queue and compaction queue.
 	 */
-	private getAllQueuedMessages(): { steering: string[]; followUp: string[] } {
+	private getAllQueuedMessages(visibleOnly = false): { steering: string[]; followUp: string[] } {
+		const queued =
+			visibleOnly && this.settingsManager.getHideCoordinationMessages()
+				? this.session.getQueuedMessagePreviews()
+				: undefined;
+		const steering = queued
+			? queued.steering.filter((message) => !isCoordinationPreview(message)).map((message) => message.text)
+			: this.session.getSteeringMessages();
+		const followUp = queued
+			? queued.followUp.filter((message) => !isCoordinationPreview(message)).map((message) => message.text)
+			: this.session.getFollowUpMessages();
 		return {
 			steering: [
-				...this.session.getSteeringMessages(),
+				...steering,
 				...this.compactionQueuedMessages.filter((msg) => msg.mode === "steer").map((msg) => msg.text),
 			],
 			followUp: [
-				...this.session.getFollowUpMessages(),
+				...followUp,
 				...this.compactionQueuedMessages.filter((msg) => msg.mode === "followUp").map((msg) => msg.text),
 			],
 		};
@@ -5529,7 +5551,7 @@ export class InteractiveMode {
 
 	private updatePendingMessagesDisplay(): void {
 		this.pendingMessagesContainer.clear();
-		const { steering: steeringMessages, followUp: followUpMessages } = this.getAllQueuedMessages();
+		const { steering: steeringMessages, followUp: followUpMessages } = this.getAllQueuedMessages(true);
 		if (steeringMessages.length > 0 || followUpMessages.length > 0) {
 			this.pendingMessagesContainer.addChild(new Spacer(1));
 			for (const message of steeringMessages) {
@@ -5733,6 +5755,7 @@ export class InteractiveMode {
 					availableThemes: getAvailableThemes(),
 					hideThinkingBlock: this.hideThinkingBlock,
 					hideToolOutput: this.settingsManager.getHideToolOutput(),
+					hideCoordinationMessages: this.settingsManager.getHideCoordinationMessages(),
 					collapseChangelog: this.settingsManager.getCollapseChangelog(),
 					enableInstallTelemetry: this.settingsManager.getEnableInstallTelemetry(),
 					doubleEscapeAction: this.settingsManager.getDoubleEscapeAction(),
@@ -5759,6 +5782,11 @@ export class InteractiveMode {
 								child.setHideOutput(hidden);
 							}
 						}
+					},
+					onHideCoordinationMessagesChange: (hidden) => {
+						this.settingsManager.setHideCoordinationMessages(hidden);
+						this.updatePendingMessagesDisplay();
+						this.ui.requestRender();
 					},
 					onShowImagesChange: (enabled) => {
 						this.settingsManager.setShowImages(enabled);

@@ -122,6 +122,7 @@ export interface Settings {
 	retry?: RetrySettings;
 	hideThinkingBlock?: boolean;
 	hideToolOutput?: boolean; // Hide tool result output in the interactive transcript; call lines stay visible
+	hideCoordinationMessages?: boolean; // Display-only hiding of mailbox and shared-channel messages
 	externalEditor?: string; // Command for Ctrl+G external editor; takes precedence over VISUAL/EDITOR
 	shellPath?: string; // Custom shell path (e.g., for Cygwin users on Windows)
 	quietStartup?: boolean;
@@ -1035,6 +1036,16 @@ export class SettingsManager {
 	setHideToolOutput(hide: boolean): void {
 		this.globalSettings.hideToolOutput = hide;
 		this.markModified("hideToolOutput");
+		this.save();
+	}
+
+	getHideCoordinationMessages(): boolean {
+		return this.settings.hideCoordinationMessages ?? false;
+	}
+
+	setHideCoordinationMessages(hide: boolean): void {
+		this.globalSettings.hideCoordinationMessages = hide;
+		this.markModified("hideCoordinationMessages");
 		this.save();
 	}
 
