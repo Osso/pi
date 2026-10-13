@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 import { SessionManager } from "./session-manager.ts";
 
@@ -13,14 +13,19 @@ interface SessionCwdSource {
 	getSessionFile(): string | undefined;
 }
 
-function findNearestExistingCwd(cwd: string): string {
+export function findNearestExistingCwd(cwd: string): string {
 	let candidate = cwd;
-	while (!existsSync(candidate)) {
+	while (true) {
+		try {
+			if (statSync(candidate).isDirectory()) return candidate;
+		} catch (error) {
+			const code = (error as NodeJS.ErrnoException).code;
+			if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
+		}
 		const parent = dirname(candidate);
-		if (parent === candidate) return candidate;
+		if (parent === candidate) throw new Error(`No existing directory found for cwd: ${cwd}`);
 		candidate = parent;
 	}
-	return candidate;
 }
 
 export function getMissingSessionCwdIssue(

@@ -19,7 +19,7 @@ import { removeAbandonedEmptySession } from "./empty-session-cleanup.ts";
 import { type ProcessRestarter, resolveRestartInterruptedToolCalls, restartCurrentProcess } from "./self-restart.ts";
 import { restoreArchivedSession } from "./session-archive-storage.ts";
 import { assertMainSessionRuntimeAvailable, removeSessionMetadata } from "./session-control-db.ts";
-import { assertSessionCwdExists } from "./session-cwd.ts";
+import { assertSessionCwdExists, findNearestExistingCwd } from "./session-cwd.ts";
 import { SessionImportFileNotFoundError } from "./session-errors.ts";
 import { SessionManager } from "./session-manager.ts";
 
@@ -58,6 +58,19 @@ interface PreparedCwdRelocation {
 interface PreparedToolResultRelocation {
 	relocation: PreparedCwdRelocation;
 	releaseLifecycleTransition: () => void;
+}
+
+function repairDeletedProcessCwd(targetCwd: string): string | undefined {
+	let previousCwd: string | undefined;
+	try {
+		previousCwd = process.cwd();
+		if (statSync(previousCwd).isDirectory()) return undefined;
+	} catch (error) {
+		if (!(error instanceof Error) || !("code" in error) || (error.code !== "ENOENT" && error.code !== "ENOTDIR"))
+			throw error;
+	}
+	process.chdir(targetCwd);
+	return `Deleted process working directory${previousCwd ? ` ${previousCwd}` : ""}; recovered in ${targetCwd}.`;
 }
 
 function extractUserMessageText(content: string | Array<{ type: string; text?: string }>): string {
@@ -216,11 +229,41 @@ export class AgentSessionRuntime {
 	}
 
 	private bindSessionRuntimeActions(): void {
+		this.session.setWorkingDirectoryRecoveryHandlers({
+			beforeRun: () => this.recoverWorkingDirectoryBeforeRun(),
+			afterTurn: () => this.prepareWorkingDirectoryRecovery(),
+		});
 		this.session.extensionRunner.setRelocateHandler((targetCwd) => this.relocate(targetCwd));
 		this.session.extensionRunner.setToolResultRelocationHandlers({
 			prepare: (targetCwd) => this.prepareToolResultRelocation(targetCwd),
 			activate: () => this.activateToolResultRelocation(),
 		});
+	}
+
+	private async recoverWorkingDirectoryBeforeRun(): Promise<AgentSession | undefined> {
+		const targetCwd = findNearestExistingCwd(this.cwd);
+		await this.repairProcessWorkingDirectory(targetCwd);
+		if (targetCwd === this.cwd) return undefined;
+		await this.relocate(targetCwd);
+		return this.session;
+	}
+
+	private async prepareWorkingDirectoryRecovery(): Promise<void> {
+		const runner = this.session.extensionRunner;
+		if (runner.hasPreparedToolResultRelocation()) return;
+		const targetCwd = findNearestExistingCwd(this.cwd);
+		await this.repairProcessWorkingDirectory(targetCwd);
+		if (targetCwd !== this.cwd) await runner.prepareWorkingDirectoryRelocation(targetCwd);
+	}
+
+	private async repairProcessWorkingDirectory(targetCwd: string): Promise<void> {
+		const notice = repairDeletedProcessCwd(targetCwd);
+		if (notice)
+			await this.session.sendCustomMessage({
+				customType: "process_cwd_recovered",
+				content: notice,
+				display: true,
+			});
 	}
 
 	private apply(result: CreateAgentSessionRuntimeResult): void {
@@ -314,6 +357,7 @@ export class AgentSessionRuntime {
 	}
 
 	private async activateRelocation(prepared: PreparedCwdRelocation): Promise<void> {
+		await this.repairProcessWorkingDirectory(prepared.sessionManager.getCwd());
 		await this.teardownCurrent("resume", prepared.sessionManager.getSessionFile());
 		this.apply(
 			await this.createRuntime({

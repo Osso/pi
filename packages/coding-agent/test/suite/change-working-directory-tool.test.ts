@@ -202,7 +202,7 @@ async function changeHeadlessWorkingDirectory(agent: HeadlessPi, targetCwd: stri
 		(candidate) => candidate.agentId === null && candidate.id !== request.id,
 	);
 	const settledMessage = `settled after ${toolCallId}`;
-	agent.respondToLlmRequest(settledRequest.id, fauxAssistantMessage(settledMessage));
+	agent.respondToLlmRequest(settledRequest.id, fauxCompletedAssistantMessage(settledMessage));
 	await agent.waitForSessionEntry(
 		null,
 		(entry) =>
@@ -405,6 +405,131 @@ describe("change_working_directory first-party tool", () => {
 		expect(shutdownRuntimeInstances).toEqual([1, 2]);
 		expect(nextRuntimeInstance).toBe(3);
 		expect(runtime.cwd).toBe(targetCwd);
+	});
+});
+
+describe("deleted working-directory recovery", () => {
+	it("moves a deleted session cwd to its nearest parent before the next prompt", async () => {
+		const { faux, runtime, tempDir } = await createRuntimeForTest();
+		const deletedCwd = join(tempDir, "removed-worktree");
+		mkdirSync(deletedCwd);
+		await runtime.relocate(deletedCwd);
+		const sessionId = runtime.session.sessionId;
+		writeFileSync(join(tempDir, "recovery-marker.txt"), "read from nearest surviving parent");
+		rmSync(deletedCwd, { recursive: true });
+		faux.setResponses([
+			fauxAssistantMessage(fauxToolCall("read", { path: "recovery-marker.txt" })),
+			fauxCompletedAssistantMessage("recovered cwd"),
+		]);
+
+		await runtime.session.prompt("Read recovery-marker.txt");
+
+		expect(runtime.session.sessionId).toBe(sessionId);
+		expect(runtime.cwd).toBe(tempDir);
+		expect(runtime.session.sessionManager.getCwd()).toBe(tempDir);
+		expect(JSON.stringify(runtime.session.messages)).toContain("read from nearest surviving parent");
+		expect(
+			runtime.session.sessionManager
+				.getEntries()
+				.some(
+					(entry) =>
+						entry.type === "custom_message" &&
+						entry.customType === "cwd_changed" &&
+						typeof entry.content === "string" &&
+						entry.content.includes(tempDir),
+				),
+		).toBe(true);
+	});
+});
+
+describe("deleted working-directory real-process recovery", () => {
+	it("repairs a deleted process cwd without replacing a valid relocated session cwd", async () => {
+		await withHeadlessPi(async (agent) => {
+			const targetCwd = join(agent.paths.tempDir, "valid-relocated-cwd");
+			mkdirSync(targetCwd);
+			await changeHeadlessWorkingDirectory(agent, targetCwd, "change-before-cwd-deletion");
+			rmSync(agent.paths.workspaceDir, { recursive: true });
+
+			await agent.send({ type: "prompt", message: "Check launch from surviving cwd" });
+			const request = await agent.waitForLlmRequest((candidate) =>
+				candidate.userMessages.includes("Check launch from surviving cwd"),
+			);
+			agent.respondToLlmRequest(
+				request.id,
+				fauxAssistantMessage(
+					fauxToolCall(
+						"bash",
+						{
+							command: "pwd",
+						},
+						{ id: "pwd-after-deleted-process-cwd" },
+					),
+				),
+			);
+			const result = await agent.waitForSessionEntry(
+				null,
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "toolResult" &&
+					entry.message.toolCallId === "pwd-after-deleted-process-cwd",
+			);
+			expect(JSON.stringify(result)).toContain(targetCwd);
+			expect(openHeadlessSession(agent).getCwd()).toBe(targetCwd);
+			await agent.waitForSessionEntry(
+				null,
+				(entry) => entry.type === "custom_message" && entry.customType === "process_cwd_recovered",
+			);
+			const finished = await agent.waitForLlmRequest((candidate) => candidate.id !== request.id);
+			agent.respondToLlmRequest(finished.id, fauxCompletedAssistantMessage("launch recovered"));
+		});
+	});
+
+	it("relocates between turns when the live session directory disappears", async () => {
+		await withHeadlessPi(async (agent) => {
+			const targetCwd = join(agent.paths.tempDir, "deleted-active-cwd");
+			mkdirSync(targetCwd);
+			writeFileSync(join(agent.paths.tempDir, "parent-marker.txt"), "surviving parent artwork");
+			await changeHeadlessWorkingDirectory(agent, targetCwd, "change-to-deleted-active-cwd");
+			await agent.send({ type: "prompt", message: "Continue after live deletion" });
+			const request = await agent.waitForLlmRequest((candidate) =>
+				candidate.userMessages.includes("Continue after live deletion"),
+			);
+			rmSync(targetCwd, { recursive: true });
+			agent.respondToLlmRequest(
+				request.id,
+				fauxAssistantMessage(
+					fauxToolCall("end_turn", {
+						reason: "checkpoint after deletion",
+					}),
+				),
+			);
+			const recoveredRequest = await agent.waitForLlmRequest((candidate) => candidate.id !== request.id);
+			expect(openHeadlessSession(agent).getCwd()).toBe(agent.paths.tempDir);
+			agent.respondToLlmRequest(
+				recoveredRequest.id,
+				fauxAssistantMessage(
+					fauxToolCall(
+						"read",
+						{
+							path: "parent-marker.txt",
+						},
+						{ id: "read-after-automatic-cwd-recovery" },
+					),
+				),
+			);
+			const result = await agent.waitForSessionEntry(
+				null,
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "toolResult" &&
+					entry.message.toolCallId === "read-after-automatic-cwd-recovery",
+			);
+			expect(JSON.stringify(result)).toContain("surviving parent artwork");
+			const finished = await agent.waitForLlmRequest(
+				(candidate) => candidate.id !== request.id && candidate.id !== recoveredRequest.id,
+			);
+			agent.respondToLlmRequest(finished.id, fauxCompletedAssistantMessage("parent recovery complete"));
+		});
 	});
 });
 
