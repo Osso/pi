@@ -10,14 +10,14 @@ import {
 	getControlDbPath,
 	listRuntimeMailboxMessages,
 	postSharedChannelMessage,
-	readSharedChannelCursor,
 	type RuntimeMailboxMessage,
+	readSharedChannelCursor,
 	upsertMultiAgentMailboxMessage,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { InMemorySettingsStorage, SettingsManager } from "../src/core/settings-manager.ts";
 import { AssistantMessageComponent } from "../src/modes/interactive/components/assistant-message.ts";
-import { SettingsSelectorComponent } from "../src/modes/interactive/components/settings-selector.ts";
+import type { SettingsSelectorComponent } from "../src/modes/interactive/components/settings-selector.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { getMarkdownTheme, initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
@@ -204,7 +204,8 @@ describe("coordination visibility", () => {
 		for (const message of messages) {
 			if (message.role === "custom")
 				harness.sessionManager.appendCustomMessageEntry(message.customType, message.content, message.display);
-			else harness.sessionManager.appendMessage(message);
+			else if (message.role === "user") harness.sessionManager.appendMessage(message);
+			else throw new Error(`Unexpected coordination fixture role: ${message.role}`);
 		}
 		const entries = harness.sessionManager.buildContextEntries();
 		const saved = JSON.stringify(entries);
