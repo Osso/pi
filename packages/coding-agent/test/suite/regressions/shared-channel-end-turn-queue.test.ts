@@ -31,20 +31,23 @@ describe("shared-channel follow-up queue", () => {
 			sender: { agentId: null, sessionId: "deployment-session" },
 		});
 
-		let sharedPrompt = "";
+		const lastRequestMessages: string[] = [];
 		harness.setResponses([
-			fauxEndTurn("Initial work finished."),
-			fauxEndTurn("Continuation settled before the queued follow-up."),
 			(context) => {
-				const sharedMessage = context.messages.find((message) => getMessageText(message).includes(sharedBody));
-				sharedPrompt = getMessageText(sharedMessage);
+				lastRequestMessages.push(getMessageText(context.messages.at(-1)));
+				return fauxEndTurn("Initial work finished.");
+			},
+			(context) => {
+				lastRequestMessages.push(getMessageText(context.messages.at(-1)));
 				return fauxEndTurn("Shared-channel follow-up processed.");
 			},
 		]);
 
 		await harness.session.prompt("Finish the current task.");
 
-		expect(sharedPrompt).toContain(sharedBody);
+		// The queued channel message starts the next request; no request may resend the ended end_turn result.
+		expect(lastRequestMessages).toHaveLength(2);
+		expect(lastRequestMessages[1]).toContain(sharedBody);
 		expect(harness.eventsOfType("queue_update")).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ followUp: [expect.stringContaining(sharedBody)] }),

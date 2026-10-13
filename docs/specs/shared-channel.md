@@ -25,6 +25,7 @@ once needed.
 - [x] Delivered channel entries use the `role: "custom"` / `customType: "shared_channel"` message path and persist as `custom_message` entries, so live and rebuilt transcript views preserve channel classification instead of rendering them as typed user messages.
 - [x] `hideCoordinationMessages` defaults to `false`; `/settings` → **Hide coordination messages** hides shared-channel transcript entries and queued previews without changing delivery, persisted roles/content, model context, cursor advancement, or typed prompt history. Disabling it restores visible entries without disturbing active streaming or pending tools. Mailbox visibility shares this setting; see [multi-agent TUI behavior](multi-agent.md#tui-behavior).
 - [x] When a shared-channel custom message is consumed as a follow-up after `end_turn`, its entry is removed from the pending follow-up preview when the continuation starts.
+- [x] A shared-channel message drained after a run ends with `end_turn` starts the next model request itself; Pi never sends a bare continuation that resends the ended transcript first.
 - [x] Shared-channel turns retain extension input provenance and never enter the interactive editor's typed prompt history, including post-run follow-up delivery.
 - [x] The cursor advances through a batch only after its combined prompt is successfully delivered; a failed batch remains unread.
 - [x] Messages posted by the same recipient are skipped and marked seen to avoid self-echo.
@@ -81,7 +82,7 @@ once needed.
 - `packages/coding-agent/test/runtime-coordination-format.test.ts` — asserts receive-side policy and sender/body formatting.
 - `packages/coding-agent/test/runtime-mailbox.test.ts` — asserts batched idle delivery, ordering/labels, skipped sender handling, and cursor failure semantics.
 - `packages/coding-agent/test/suite/agent-session-queue.test.ts` — asserts shared-channel prompts use the custom-message path.
-- `packages/coding-agent/test/suite/regressions/shared-channel-end-turn-queue.test.ts` — asserts consumed follow-ups clear after `end_turn`.
+- `packages/coding-agent/test/suite/regressions/shared-channel-end-turn-queue.test.ts` — asserts consumed follow-ups clear after `end_turn` and that the channel message, not a resent `end_turn` result, starts the next request.
 - `packages/coding-agent/test/suite/headless-pi.test.ts` — asserts real-process shared-channel delivery persists as a custom message.
 - `packages/coding-agent/test/list-sessions-broadcast-tools.test.ts`
 

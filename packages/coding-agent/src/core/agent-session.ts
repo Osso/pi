@@ -2748,11 +2748,13 @@ export class AgentSession {
 		// The agent loop drains both queues before emitting agent_end. Any messages
 		// here were queued by agent_end extension handlers and need a continuation.
 		if (this.agent.hasQueuedMessages()) return "queued";
+		// Ready coordination is queued as an agent follow-up, so it must start the next request instead
+		// of a bare continuation that resends the ended transcript.
 		const coordinationMessageReady = await this._drainRuntimeCoordinationMessages({
 			checkpoint: "next_model_call",
 			triggerIfIdle: false,
 		});
-		return coordinationMessageReady ? "normal" : undefined;
+		return coordinationMessageReady ? "queued" : undefined;
 	}
 
 	private _readStoredCodexRestrictionContext(): CodexRestrictionContext | undefined {
