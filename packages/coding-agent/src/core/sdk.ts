@@ -383,6 +383,7 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 				options?.websocketConnectTimeoutMs ?? settingsManager.getWebSocketConnectTimeoutMs();
 			return streamSimple(model, context, {
 				...options,
+				cwd,
 				apiKey: auth.apiKey,
 				env,
 				timeoutMs,

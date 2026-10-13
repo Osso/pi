@@ -125,6 +125,8 @@ export interface ProviderRetryEvent {
 }
 
 export interface StreamOptions {
+	/** Caller working directory for local/subprocess provider integrations; not a server payload field. */
+	cwd?: string;
 	temperature?: number;
 	maxTokens?: number;
 	signal?: AbortSignal;

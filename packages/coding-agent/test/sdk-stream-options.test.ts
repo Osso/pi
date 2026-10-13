@@ -113,6 +113,78 @@ describe("createAgentSession stream options", () => {
 		}
 	}
 
+	it("passes each embedded session cwd to a shared provider while preserving request options", async () => {
+		const api = "capture-session-cwd";
+		const model = createModel(api);
+		const otherCwd = join(tempDir, "other-project");
+		mkdirSync(otherCwd);
+		const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
+		authStorage.setRuntimeApiKey(model.provider, "test-api-key");
+		const modelRegistry = ModelRegistry.create(authStorage, join(agentDir, "models.json"));
+		const capturedOptions: SimpleStreamOptions[] = [];
+		modelRegistry.registerProvider(model.provider, {
+			api,
+			streamSimple: (_model, _context, options) => {
+				capturedOptions.push(options ?? {});
+				return createDoneStream(api);
+			},
+		});
+		const commonOptions = {
+			agentDir,
+			model,
+			authStorage,
+			modelRegistry,
+			noSupervisor: true,
+			tools: [],
+		};
+		const sessions = await Promise.all(
+			[cwd, otherCwd].map(async (sessionCwd) => {
+				const { session } = await createAgentSession({
+					...commonOptions,
+					sessionManager: SessionManager.inMemory(sessionCwd),
+					settingsManager: SettingsManager.inMemory(),
+				});
+				return session;
+			}),
+		);
+		const signal = new AbortController().signal;
+		const onPayload = (payload: unknown) => payload;
+		const requestOptions: SimpleStreamOptions = {
+			temperature: 0.25,
+			maxTokens: 123,
+			signal,
+			onPayload,
+			transport: "sse",
+			cacheRetention: "long",
+			timeoutMs: 456,
+			websocketConnectTimeoutMs: 789,
+			maxRetries: 2,
+			maxRetryDelayMs: 321,
+			headers: { "x-capture": "preserved" },
+			env: { CAPTURE_ENV: "preserved" },
+			metadata: { caller: "embedded" },
+		};
+		try {
+			await Promise.all(
+				sessions.map((session, index) =>
+					session.agent.streamFn(model, { messages: [] }, { ...requestOptions, sessionId: `session-${index}` }),
+				),
+			);
+			expect(capturedOptions).toHaveLength(2);
+			for (const [index, sessionCwd] of [cwd, otherCwd].entries()) {
+				expect(capturedOptions.find((options) => options.sessionId === `session-${index}`)).toMatchObject({
+					...requestOptions,
+					cwd: sessionCwd,
+					apiKey: "test-api-key",
+				});
+			}
+			expect(requestOptions).not.toHaveProperty("cwd");
+		} finally {
+			for (const session of sessions) session.dispose();
+			modelRegistry.unregisterProvider(model.provider);
+		}
+	});
+
 	it("forwards httpIdleTimeoutMs as timeoutMs for OpenAI Codex", async () => {
 		const options = await captureStreamOptions("openai-codex-responses", { httpIdleTimeoutMs: 1234 });
 
