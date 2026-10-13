@@ -763,6 +763,49 @@ describe("change_working_directory process restart", () => {
 					readTextContent(entry.message.content).includes("cwd survived process restart"),
 			);
 
+			const settledRead = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.id !== readRequest.id,
+			);
+			agent.respondToLlmRequest(settledRead.id, fauxCompletedAssistantMessage("restart target read complete"));
+			await agent.waitForSessionEntry(
+				null,
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "assistant" &&
+					readTextContent(entry.message.content).includes("restart target read complete"),
+			);
+			writeFileSync(
+				join(agent.paths.tempDir, "recovery-after-restart.txt"),
+				"parent survives while child stays live",
+			);
+			rmSync(targetCwd, { recursive: true });
+			await agent.send({ type: "prompt", message: "Read recovery-after-restart.txt" });
+			const recoveryRequest = await agent.waitForLlmRequest(
+				(request) => request.agentId === null && request.userMessages.includes("Read recovery-after-restart.txt"),
+			);
+			agent.respondToLlmRequest(
+				recoveryRequest.id,
+				fauxAssistantMessage(
+					fauxToolCall(
+						"read",
+						{
+							path: "recovery-after-restart.txt",
+						},
+						{ id: "recover-cwd-with-live-child-after-restart" },
+					),
+				),
+			);
+			const recovered = await agent.waitForSessionEntry(
+				null,
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "toolResult" &&
+					entry.message.toolCallId === "recover-cwd-with-live-child-after-restart",
+			);
+			expect(JSON.stringify(recovered)).toContain("parent survives while child stays live");
+			expect(openHeadlessSession(agent).getCwd()).toBe(agent.paths.tempDir);
+			expect(agent.listAgents().find((candidate) => candidate.id === spawned.id)?.lifecycle).toBe("running");
+
 			const persistedHeader = JSON.parse(readFileSync(agent.sessionFile, "utf8").split("\n")[0] ?? "{}") as {
 				cwd?: string;
 			};
