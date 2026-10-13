@@ -78,8 +78,7 @@
 
 ### Added
 
-- Added `/settings` → **Hide coordination messages** (`hideCoordinationMessages`, default `false`) to hide mailbox notices and broadcasts from interactive chat and queued previews without changing delivery, stored messages, model context, cursors, or typed prompt history.
-- Added `AgentSession.getQueuedMessagePreviews()` for read-only queue display snapshots with existing input provenance; string queue APIs and delivery remain unchanged.
+- Added `/settings` → **Hide coordination messages** (`hideCoordinationMessages`, default `false`) to hide mailbox notices, broadcasts, and shared-channel messages from live/restored interactive chat and queued previews without changing delivery, stored messages, model context, cursors, or typed prompt history. Typed envelope-like prompts and unrelated extension messages remain visible. `AgentSession.getQueuedMessagePreviews()` provides read-only queue display snapshots with existing input provenance; string queue APIs remain unchanged.
 - Child agents can now use `ask_questions`: questions go to the direct parent, which replies with the new `answer_question` tool. A blocking child waits and receives the answer as its original `ask_questions` result; nonblocking children get it in their inbox.
 - Added default-on `compaction.idle` to compact idle sessions with at least 200K context tokens at 90% of assigned Claude bridge or assumed Codex prompt-cache TTL, using reason `"idle"` without interrupting active turns.
 - Added optional `compaction.thresholdPercent` (finite, greater than 0 and at most 100) to trigger automatic compaction at or above a percentage of the model context window, overriding model and reserve-based thresholds; omission preserves defaults, and summarization budgets remain unchanged.
