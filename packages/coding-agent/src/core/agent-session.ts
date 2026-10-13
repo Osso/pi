@@ -872,6 +872,8 @@ export class AgentSession {
 	private _turnStartLockTail: Promise<void> = Promise.resolve();
 	/** Whether an extension requested one continuation after session resume. */
 	private _resumeContinuationRequested = false;
+	private _beforeWorkingDirectoryRecoveryRun?: () => Promise<AgentSession | undefined>;
+	private _afterWorkingDirectoryRecoveryTurn?: () => Promise<void>;
 
 	// Compaction state
 	private _compactionAbortController: AbortController | undefined = undefined;
@@ -1461,11 +1463,15 @@ export class AgentSession {
 
 	private _installAgentTurnStop(): void {
 		const previousShouldStopAfterTurn = this.agent.shouldStopAfterTurn;
-		this.agent.shouldStopAfterTurn = async (turn) =>
-			this._codexRestrictionValidation !== undefined ||
-			this._extensionRunner.hasPreparedToolResultRelocation() ||
-			this._duplicateTurnLoopDetected ||
-			((await previousShouldStopAfterTurn?.(turn)) ?? false);
+		this.agent.shouldStopAfterTurn = async (turn) => {
+			await this._afterWorkingDirectoryRecoveryTurn?.();
+			return (
+				this._codexRestrictionValidation !== undefined ||
+				this._extensionRunner.hasPreparedToolResultRelocation() ||
+				this._duplicateTurnLoopDetected ||
+				((await previousShouldStopAfterTurn?.(turn)) ?? false)
+			);
+		};
 	}
 
 	// =========================================================================
@@ -2307,6 +2313,14 @@ export class AgentSession {
 		return this._retryAttempt;
 	}
 
+	setWorkingDirectoryRecoveryHandlers(handlers: {
+		beforeRun(): Promise<AgentSession | undefined>;
+		afterTurn(): Promise<void>;
+	}): void {
+		this._beforeWorkingDirectoryRecoveryRun = handlers.beforeRun;
+		this._afterWorkingDirectoryRecoveryTurn = handlers.afterTurn;
+	}
+
 	/** Request one continuation turn after the current session is resumed. */
 	requestResumeContinuation(): void {
 		this._resumeContinuationRequested = true;
@@ -2947,6 +2961,13 @@ export class AgentSession {
 	 * @throws Error if streaming, no model is selected, or no API key is available
 	 */
 	async continue(): Promise<void> {
+		if (!this.isStreaming) {
+			const replacement = await this._beforeWorkingDirectoryRecoveryRun?.();
+			if (replacement && replacement !== this) {
+				await replacement.continue();
+				return;
+			}
+		}
 		await this._withTurnStartLock(async (release) => {
 			if (this.isStreaming) {
 				throw new Error("Agent is already processing. Wait for completion before continuing.");
@@ -2990,6 +3011,13 @@ export class AgentSession {
 	 * @throws Error if no model selected or no API key available (when not streaming)
 	 */
 	async prompt(text: string, options?: PromptOptions): Promise<void> {
+		if (!this.isStreaming) {
+			const replacement = await this._beforeWorkingDirectoryRecoveryRun?.();
+			if (replacement && replacement !== this) {
+				await replacement.prompt(text, options);
+				return;
+			}
+		}
 		const expandPromptTemplates = options?.expandPromptTemplates ?? true;
 		if (expandPromptTemplates && text.startsWith("/")) {
 			const handled = await this._tryExecuteExtensionCommand(text);

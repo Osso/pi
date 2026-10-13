@@ -490,6 +490,10 @@ export class ExtensionRunner {
 		const targetCwd = this.pendingToolResultRelocations.get(toolCallId);
 		if (targetCwd === undefined) return;
 		this.pendingToolResultRelocations.delete(toolCallId);
+		await this.prepareWorkingDirectoryRelocation(targetCwd);
+	}
+
+	async prepareWorkingDirectoryRelocation(targetCwd: string): Promise<void> {
 		await this.prepareToolResultRelocationHandler(targetCwd);
 		this.isToolResultRelocationPrepared = true;
 	}
