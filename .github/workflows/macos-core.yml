@@ -32,6 +32,10 @@ jobs:
           - runner: macos-15-intel
             arch: x64
             clang_arch: x86_64
+    env:
+      # macOS's default per-user TMPDIR (/var/folders/...) pushes test fixtures'
+      # Unix socket paths past Darwin's 104-byte sun_path limit; Linux uses /tmp.
+      TMPDIR: /tmp
     steps:
       # runner.temp is unavailable in job-level env; isolate agent state per job.
       - name: Isolate Pi agent state
