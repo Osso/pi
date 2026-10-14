@@ -45,8 +45,8 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 
 ### Deletion responsiveness and completion
 
-- [ ] Session-tree deletion must not freeze the UI through synchronous trash processes.
-- [ ] The picker and `/delete` quit teardown must await deletion completion, preserving unrelated sessions and metadata for files that could not be deleted.
+- [x] Session-tree deletion must not freeze the UI through synchronous trash processes (`session-delete.test.ts`).
+- [x] The picker and `/delete` quit teardown must await deletion completion, preserving unrelated sessions and metadata for files that could not be deleted (`session-delete.test.ts`, `session-selector-path-delete.test.ts`, `session-archive-extension.test.ts`).
 
 ### First-party `/unarchive` command
 
@@ -80,6 +80,8 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/session-archive-extension.test.ts`
+- `packages/coding-agent/test/session-delete.test.ts`
+- `packages/coding-agent/test/session-control-db-batch-delete.test.ts`
 - `packages/coding-agent/test/session-control-db.test.ts`
 - `packages/coding-agent/test/sessions-command.test.ts`
 - `packages/coding-agent/test/session-selector-path-delete.test.ts`
