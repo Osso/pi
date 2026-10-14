@@ -11,6 +11,7 @@ import {
 import { getAgentDir, VERSION } from "../config.ts";
 import type { AgentSessionEvent } from "../core/agent-session.ts";
 import { AuthStorage } from "../core/auth-storage.ts";
+import { CODEX_FALLBACK_PROVIDERS, isQuotaExhaustionError } from "../core/codex-quota-fallback.ts";
 import type { LoadExtensionsResult } from "../core/extensions/types.ts";
 import { ModelRegistry } from "../core/model-registry.ts";
 import { mergeProviderAttributionHeaders } from "../core/provider-attribution.ts";
@@ -124,10 +125,20 @@ export function createSupervisorSettingsManager(): SettingsManager {
 	});
 }
 
-function requireSupervisorModel(modelRegistry: ModelRegistry): Model<Api> {
-	const model = modelRegistry.find("openai-codex", "gpt-6.1-sol");
-	if (!model) throw new Error("Pi Supervisor requires openai-codex/gpt-6.1-sol");
-	return model;
+const SUPERVISOR_MODEL_ID = "gpt-6.1-sol";
+const SUPERVISOR_PROVIDERS = ["openai-codex", ...(CODEX_FALLBACK_PROVIDERS.get("openai-codex") ?? [])];
+
+function requireSupervisorModels(modelRegistry: ModelRegistry): Model<Api>[] {
+	const models = SUPERVISOR_PROVIDERS.flatMap((provider) => {
+		const model = modelRegistry.find(provider, SUPERVISOR_MODEL_ID);
+		return model && modelRegistry.hasConfiguredAuth(model) ? [model] : [];
+	});
+	if (models.length === 0) {
+		throw new Error(
+			`Pi Supervisor requires ${SUPERVISOR_MODEL_ID} on an authenticated provider: ${SUPERVISOR_PROVIDERS.join(", ")}`,
+		);
+	}
+	return models;
 }
 
 function readSupervisorInstructionReviewText(message: AssistantMessage): string | undefined {
@@ -142,16 +153,15 @@ function readSupervisorInstructionReviewText(message: AssistantMessage): string 
 export function createSupervisorInstructionEvaluator(agentDir: string): SupervisorInstructionEvaluator {
 	const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
 	const modelRegistry = ModelRegistry.create(authStorage, join(agentDir, "models.json"));
-	const model = requireSupervisorModel(modelRegistry);
+	const models = requireSupervisorModels(modelRegistry);
 	const settingsManager = createSupervisorSettingsManager();
-	return async (instructions, signal) => {
-		if (signal.aborted) return undefined;
+	const evaluateWith = async (model: Model<Api>, instructions: string, signal: AbortSignal) => {
 		const auth = await modelRegistry.getApiKeyAndHeaders(model);
 		if (!auth.ok) throw new Error(auth.error);
 		const retrySettings = settingsManager.getProviderRetrySettings();
 		const configuredIdleTimeoutMs = settingsManager.getHttpIdleTimeoutMs();
 		const effectiveIdleTimeoutMs = configuredIdleTimeoutMs === 0 ? 2_147_483_647 : configuredIdleTimeoutMs;
-		const response = await streamSimple(model, buildSupervisorInstructionReviewContext(instructions, Date.now()), {
+		return streamSimple(model, buildSupervisorInstructionReviewContext(instructions, Date.now()), {
 			apiKey: auth.apiKey,
 			env: auth.env,
 			headers: mergeProviderAttributionHeaders(model, settingsManager, undefined, auth.headers),
@@ -162,8 +172,15 @@ export function createSupervisorInstructionEvaluator(agentDir: string): Supervis
 			timeoutMs: retrySettings.timeoutMs ?? effectiveIdleTimeoutMs,
 			websocketConnectTimeoutMs: settingsManager.getWebSocketConnectTimeoutMs(),
 		}).result();
-		if (signal.aborted) return undefined;
-		return readSupervisorInstructionReviewText(response);
+	};
+	return async (instructions, signal) => {
+		for (const model of models) {
+			if (signal.aborted) return undefined;
+			const response = await evaluateWith(model, instructions, signal);
+			if (signal.aborted) return undefined;
+			if (!isQuotaExhaustionError(response)) return readSupervisorInstructionReviewText(response);
+		}
+		return undefined;
 	};
 }
 
@@ -290,7 +307,7 @@ async function createSupervisorAgentSession(
 ): Promise<SupervisorSession> {
 	const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
 	const modelRegistry = ModelRegistry.create(authStorage, join(agentDir, "models.json"));
-	const model = requireSupervisorModel(modelRegistry);
+	const [model] = requireSupervisorModels(modelRegistry);
 	const settingsManager = createSupervisorSettingsManager();
 	const resourceLoader = await createSupervisorResourceLoader(agentDir, kbDir, settingsManager);
 	const { session } = await createAgentSession({

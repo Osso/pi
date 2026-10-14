@@ -59,6 +59,7 @@ import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
+import { CODEX_FALLBACK_PROVIDERS, isQuotaExhaustionError } from "./codex-quota-fallback.ts";
 import {
 	type CompactionPreparation,
 	type CompactionResult,
@@ -315,13 +316,6 @@ function assistantMessagePrecedesCompaction(
 	return assistantMessage.timestamp <= new Date(compactionEntry.timestamp).getTime();
 }
 
-const CODEX_FALLBACK_PROVIDERS = new Map([
-	["openai-codex", ["openai-codex-gc", "openai-codex-team"]],
-	["openai-codex-gc", ["openai-codex", "openai-codex-team"]],
-	["openai-codex-team", ["openai-codex", "openai-codex-gc"]],
-]);
-const QUOTA_EXHAUSTION_PATTERN =
-	/GoUsageLimitError|FreeUsageLimitError|usage limit|available balance|insufficient_quota|out of budget|quota exceeded|billing (?:limit|quota|exhausted)/i;
 const CODEX_RESTRICTION_CONTEXT_ENTRY = "codex_restriction_context";
 
 interface CodexRestrictionContext {
@@ -5629,12 +5623,7 @@ export class AgentSession {
 	}
 
 	private _findQuotaFallbackModel(message: AssistantMessage): Model<any> | undefined {
-		if (message.stopReason !== "error" || !message.errorMessage) {
-			return undefined;
-		}
-		if (!QUOTA_EXHAUSTION_PATTERN.test(message.errorMessage)) {
-			return undefined;
-		}
+		if (!isQuotaExhaustionError(message)) return undefined;
 
 		const currentModel = this.model;
 		if (!currentModel || message.provider !== currentModel.provider || message.model !== currentModel.id) {

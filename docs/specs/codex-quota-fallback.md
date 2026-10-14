@@ -48,6 +48,8 @@ behavior; it changes the active session model without rewriting global defaults.
 
 - `packages/coding-agent/src/core/agent-session.ts` — detects eligible exhaustion errors, switches
   the model, keeps fallback session-local, and drives fallback continuation state.
+- `packages/coding-agent/src/core/codex-quota-fallback.ts` — provider fallback order and quota-exhaustion
+  classification shared with the [Supervisor](supervisor-service.md).
 - `packages/coding-agent/src/core/extensions/types.ts` — defines the `model_select` fallback source.
 
 ## Tests asserting this spec
