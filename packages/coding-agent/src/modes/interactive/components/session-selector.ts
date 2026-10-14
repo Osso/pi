@@ -860,7 +860,7 @@ export class SessionSelectorComponent extends Container implements Focusable {
 
 		// Handle session deletion
 		this.sessionList.onDeleteSession = async (sessionPath: string) => {
-			const result = deleteSessionTree(sessionPath, this.controlDbPath);
+			const result = await deleteSessionTree(sessionPath, this.controlDbPath);
 
 			if (result.ok) {
 				if (this.currentSessions) {

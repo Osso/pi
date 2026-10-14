@@ -140,9 +140,9 @@ describe("session archive extension", () => {
 		const childPath = writeSession("child", { parentSession: sessionPath });
 		const otherPath = writeSession("other");
 		const commands = new Map<string, RegisteredCommand>();
-		const shutdownHandlers: Array<(event: { reason: string }) => void> = [];
+		const shutdownHandlers: Array<(event: { reason: string }) => void | Promise<void>> = [];
 		sessionArchiveExtension({
-			on(event: string, handler: (event: { reason: string }) => void) {
+			on(event: string, handler: (event: { reason: string }) => void | Promise<void>) {
 				if (event === "session_shutdown") shutdownHandlers.push(handler);
 			},
 			registerCommand(name: string, options: Omit<RegisteredCommand, "name" | "sourceInfo">) {
@@ -162,8 +162,8 @@ describe("session archive extension", () => {
 			shutdown,
 			ui: { confirm, notify },
 		} as unknown as ExtensionCommandContext;
-		const teardown = (reason: string) => {
-			for (const handler of shutdownHandlers) handler({ reason });
+		const teardown = async (reason: string) => {
+			for (const handler of shutdownHandlers) await handler({ reason });
 		};
 		const quit = () => teardown("quit");
 		return {
@@ -187,7 +187,7 @@ describe("session archive extension", () => {
 
 		expect(f.shutdown).toHaveBeenCalledOnce();
 		expect(existsSync(f.sessionPath)).toBe(true);
-		f.quit();
+		await f.quit();
 
 		const archivedPath = `${f.sessionPath}.zst`;
 		expect(existsSync(f.sessionPath)).toBe(false);
@@ -202,7 +202,7 @@ describe("session archive extension", () => {
 
 		expect(f.confirm).toHaveBeenCalledOnce();
 		expect(f.shutdown).toHaveBeenCalledOnce();
-		f.quit();
+		await f.quit();
 
 		expect([f.sessionPath, f.childPath].map((path) => existsSync(path))).toEqual([false, false]);
 		expect(readSessionMetadata(f.controlDbPath, f.sessionPath)).toBeUndefined();
@@ -215,7 +215,7 @@ describe("session archive extension", () => {
 		const f = quitCommandFixture();
 		f.confirm.mockResolvedValueOnce(false);
 		await f.commands.get("delete")!.handler("", f.ctx);
-		f.quit();
+		await f.quit();
 
 		expect(f.shutdown).not.toHaveBeenCalled();
 		expect([f.sessionPath, f.childPath].map((path) => existsSync(path))).toEqual([true, true]);
@@ -224,8 +224,8 @@ describe("session archive extension", () => {
 	it("does not archive when the pending teardown is not a quit", async () => {
 		const f = quitCommandFixture();
 		await f.commands.get("archive")!.handler("", f.ctx);
-		f.teardown("reload");
-		f.quit();
+		await f.teardown("reload");
+		await f.quit();
 
 		expect(existsSync(f.sessionPath)).toBe(true);
 		expect(readSessionMetadata(f.controlDbPath, f.sessionPath)?.isArchived).toBe(false);

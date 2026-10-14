@@ -34,7 +34,7 @@ async function flushPromises(): Promise<void> {
 async function waitFor(predicate: () => boolean): Promise<void> {
 	for (let attempt = 0; attempt < 50; attempt++) {
 		if (predicate()) return;
-		await flushPromises();
+		await new Promise<void>((resolve) => setTimeout(resolve, 20));
 	}
 	throw new Error("Timed out waiting for session selector mutation");
 }
@@ -586,7 +586,7 @@ describe("session selector path/delete interactions", () => {
 		expect(list.getSelectedSessionPath()).toBe(parentPath);
 		list.handleInput(CTRL_D);
 		list.handleInput("\r");
-		await waitFor(() => !existsSync(parentPath));
+		await waitFor(() => readSessionMetadata(controlDbPath, parentPath) === undefined);
 
 		const remainingPaths = listSessionMetadata(controlDbPath).map((metadata) => metadata.sessionPath);
 		expect(remainingPaths).toEqual([keptPath]);

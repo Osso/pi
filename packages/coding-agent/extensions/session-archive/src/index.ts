@@ -47,24 +47,28 @@ function archiveAtQuit(session: CurrentSession): void {
 	}
 }
 
-function deleteAtQuit(session: CurrentSession): void {
-	const result = deleteSessionTree(session.sessionPath, session.controlDbPath);
+async function deleteAtQuit(session: CurrentSession): Promise<void> {
+	const result = await deleteSessionTree(session.sessionPath, session.controlDbPath);
 	if (!result.ok) throw new Error(`Failed to delete session: ${result.error}`);
 }
 
 export default function sessionArchiveExtension(pi: ExtensionAPI): void {
 	// Archive/delete run at quit teardown, after the last session write and before the resume hint is printed.
-	let pendingQuitAction: (() => void) | undefined;
-	const quitWith = (action: (session: CurrentSession) => void, session: CurrentSession, ctx: ExtensionCommandContext) => {
+	let pendingQuitAction: (() => void | Promise<void>) | undefined;
+	const quitWith = (
+		action: (session: CurrentSession) => void | Promise<void>,
+		session: CurrentSession,
+		ctx: ExtensionCommandContext,
+	) => {
 		pendingQuitAction = () => action(session);
 		ctx.shutdown();
 	};
-	pi.on("session_shutdown", (event) => {
+	pi.on("session_shutdown", async (event) => {
 		const action = pendingQuitAction;
 		pendingQuitAction = undefined;
 		if (event.reason !== "quit" || !action) return;
 		try {
-			action();
+			await action();
 		} catch (error) {
 			// The TUI is already stopped at quit, so report on stderr where it stays visible after exit.
 			process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
