@@ -1,7 +1,12 @@
 import type { ChildProcess } from "node:child_process";
 import { spawnProcess, waitForChildProcess } from "../../../src/utils/child-process.ts";
 import { isExecutableAvailable } from "../../../src/utils/executable.ts";
-import type { AgentToolResult, ExtensionAPI, ToolDefinition } from "../../../src/core/extensions/types.ts";
+import type {
+	AgentToolResult,
+	ExtensionAPI,
+	ExtensionContext,
+	ToolDefinition,
+} from "../../../src/core/extensions/types.ts";
 import { Type, type Static } from "typebox";
 
 export interface BrowserCliCommandResult {
@@ -21,6 +26,7 @@ export interface BrowserCliBatchResult {
 export type BrowserCliCommandRunner = (
 	executable: string,
 	args: string[],
+	session: string,
 	signal?: AbortSignal,
 ) => Promise<BrowserCliCommandResult>;
 
@@ -33,6 +39,7 @@ const BROWSER_CLI_EXECUTABLE = "browser-cli";
 const BROWSER_CLI_PROMPT_GUIDELINES = [
 	'When spawn_agent is available, use a fresh agentType "browser" for multi-step browser workflows; direct browser-cli use remains allowed for simple actions.',
 	"Pass deterministic command sequences in one ordered commands batch. Use separate calls when an intermediate result determines the next action.",
+	"Each agent drives its own dedicated background tab (BROWSER_CLI_SESSION is set automatically); `tabs list` marks it with *. Never activate or navigate other tabs.",
 	"Observe with snapshot --interactive --compact before interacting. Re-observe after navigation or page mutation instead of repeatedly guessing selectors.",
 	"Use open for navigation; fill, click, and press for interaction. `press` takes only a key, not a selector. Wait for bounded delays or selectors; use get url, get title, and visible text for completion proof.",
 	"When a login form appears, attempt mapped authentication with broker-unlock --current-origin followed by broker-fill --current-origin. Never request or pass credential values.",
@@ -75,9 +82,9 @@ export function createBrowserCliToolDefinition(
 			params: BrowserCliInput,
 			signal,
 			_onUpdate,
-			_ctx,
+			ctx,
 		): Promise<AgentToolResult<BrowserCliBatchResult>> {
-			const commands = await runBrowserCliBatch(runCommand, params.commands, signal);
+			const commands = await runBrowserCliBatch(runCommand, params.commands, browserCliSession(ctx), signal);
 			return {
 				content: [{ type: "text", text: formatBrowserCliBatchOutput(commands) }],
 				details: { commands },
@@ -86,14 +93,22 @@ export function createBrowserCliToolDefinition(
 	};
 }
 
+/** One dedicated browser tab per session agent, so concurrent agents never drive each other's tabs. */
+export function browserCliSession(ctx: ExtensionContext): string {
+	const sessionId = ctx?.sessionManager?.getSessionId();
+	if (!sessionId) throw new Error("browser-cli needs a session ID to select its dedicated tab");
+	return `${sessionId}:${ctx.toolExecutionAgentId ?? ctx.multiAgentAgentId ?? "main"}`;
+}
+
 async function runBrowserCliBatch(
 	runCommand: BrowserCliCommandRunner,
 	commands: string[][],
+	session: string,
 	signal?: AbortSignal,
 ): Promise<BrowserCliCommandExecution[]> {
 	const results: BrowserCliCommandExecution[] = [];
 	for (const [index, args] of commands.entries()) {
-		const result = await waitForAbort(runCommand(BROWSER_CLI_EXECUTABLE, args, signal), signal);
+		const result = await waitForAbort(runCommand(BROWSER_CLI_EXECUTABLE, args, session, signal), signal);
 		const execution = { args: [...args], ...result };
 		if (result.exitCode !== 0) {
 			throw new Error(formatBrowserCliFailure(index, execution));
@@ -106,10 +121,14 @@ async function runBrowserCliBatch(
 async function runBrowserCliCommand(
 	executable: string,
 	args: string[],
+	session: string,
 	signal?: AbortSignal,
 ): Promise<BrowserCliCommandResult> {
 	throwIfAborted(signal);
-	const child = spawnProcess(executable, args, { stdio: ["ignore", "pipe", "pipe"] });
+	const child = spawnProcess(executable, args, {
+		stdio: ["ignore", "pipe", "pipe"],
+		env: { ...process.env, BROWSER_CLI_TAB: undefined, BROWSER_CLI_SESSION: session },
+	});
 	let stdout = "";
 	let stderr = "";
 	let aborted = false;

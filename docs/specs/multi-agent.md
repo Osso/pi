@@ -514,6 +514,9 @@ The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the
       actions but routes multi-step work to a fresh `browser` agent; mapped login uses
       `broker-unlock --current-origin` followed by `broker-fill --current-origin`, the agent submits the form,
       and MFA/CAPTCHA remains user-driven.
+- [x] Each `browser-cli` invocation runs with `BROWSER_CLI_SESSION=<sessionId>:<agentId or main>` and no inherited
+      `BROWSER_CLI_TAB`, so every session agent drives its own background tab; a missing session ID fails before
+      spawning.
 - [x] Background logs remain visible through direct absolute `fileRefs` on active and completed agent state.
 - [x] Workflow extensions compile higher-level patterns into core spawn/message/wait operations
       rather than owning a separate runtime.
