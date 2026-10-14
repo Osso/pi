@@ -285,9 +285,10 @@ export async function createProviderServer(
 	recordRequest: (request: WireLlmRequest) => void,
 ): Promise<ProviderServerControl> {
 	let providerSocket: Socket | undefined;
-	let inputBuffer = "";
 	const server = createServer((socket) => {
 		providerSocket = socket;
+		// Per connection: a crashed Pi can leave a partial line that must not prefix its replacement's requests.
+		let inputBuffer = "";
 		socket.on("error", throwUnexpectedProviderSocketError);
 		socket.setEncoding("utf8");
 		socket.on("data", (chunk: string) => {
