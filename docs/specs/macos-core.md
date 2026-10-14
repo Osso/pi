@@ -13,7 +13,8 @@ Native macOS core removes Linux-only process inspection from core startup and de
 
 ### Runtime and packaging
 
-- [ ] Build and load the coding-agent-owned process addon on macOS arm64 and x64 under both Node and Bun; missing required native assets fail explicitly.
+- [ ] Build real-SDK process and Tui addons on macOS arm64 and x64 in reusable/manual CI; validate native loading and offline core scenarios with Node 22 and Bun 1.4.0. Missing required assets fail explicitly.
+- [ ] Gate release binary builds and npm publication on native validation, restoring both architectures' process and Tui artifacts at their package-root loader paths.
 - [ ] Start and restart a native macOS supervisor with a live child, preserving exact ownership, session identity, and completion routing.
 - [ ] Permit default/full-access unsandboxed core execution on macOS; explicitly protected sandbox profiles remain unsupported and fail closed. See [sandbox contract](bwrap-sandbox.md).
 - [ ] Failed deployment restores the prior launcher inode/link/bytes, or preserves launcher absence on first install without a dangling link.
@@ -37,14 +38,17 @@ Unchecked items mark missing native acceptance proof, not missing implementation
 - `packages/coding-agent/extensions/bwrap/src/backend.ts` and `src/index.ts` — unsupported protected-profile rejection and unsandboxed routing.
 - `packages/coding-agent/src/core/permissions/presets.ts`, `src/core/extensions/runner.ts`, `src/modes/interactive/interactive-mode.ts`, and `src/modes/interactive/components/sandbox-selector.ts` — platform capability and honest startup, profile-selection, and command reporting.
 - `deploy.sh` — rollback of the prior launcher or initial absence.
+- `.github/workflows/macos-core.yml` and `build-binaries.yml` — native runner validation and release artifact handoff.
+- `packages/coding-agent/src/modes/rpc/rpc-client.ts` — optional runtime executable, defaulting to Node; see [RPC client options](../../packages/coding-agent/docs/rpc.md#typed-nodejs-client).
+- `packages/coding-agent/test/suite/headless-pi.ts` — fixture-only `PI_HEADLESS_RUNTIME=node|bun` selects the actual CLI runtime.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/runtime-process-darwin.test.ts` — six fake-binding adapter cases: identity matching, PID reuse, zombie/absence, inspection denial, group lookup, malformed identity.
 - `packages/coding-agent/test/runtime-process-darwin-loader.test.ts` — lazy Linux loading, architecture-specific package paths, binding failures, and malformed-result rejection.
 - `packages/coding-agent/test/runtime-process-darwin-binding.test.ts` — thirteen Linux-controlled libproc/N-API cases, including Node and Bun loading, exact numeric encoding, zombie state, errno/ABI failures, and invalid PID inputs.
-- `packages/coding-agent/test/runtime-process.test.ts` — real Linux live identity, unreaped zombie, and gated exec preservation; live-self and exec cases can also run on Mac with a real addon, but no Mac pass is recorded.
-- `packages/coding-agent/test/detached-job-bootstrap.test.ts` — Linux-only real gated payload, identity persistence, output descriptors, and release ordering.
+- `packages/coding-agent/test/runtime-process.test.ts` — real Linux live identity, unreaped zombie, and gated exec preservation; live-self, zombie, group, and exec cases also run on Mac with a real addon; native CI results remain pending.
+- `packages/coding-agent/test/detached-job-bootstrap.test.ts` — real Linux/Darwin gated payload, identity persistence, output, release ordering, and explicit Bun subprocess probes; procfs descriptor assertions remain Linux-only.
 - `packages/coding-agent/test/bwrap-platform.test.ts`, `approval-selector.test.ts`, and `session-sandbox-profile.test.ts` — simulated Darwin unsandboxed execution, protected-profile denial, unsupported labels, and profile-change status without substitution.
 - `packages/coding-agent/test/darwin-native-packaging.test.ts` — controlled compiler/assets, npm file inclusion, release archives, and missing-asset preflight; reported 16 passed, not real SDK compilation or Mac package execution.
 - `packages/coding-agent/test/darwin-npm-publication.test.ts` — required arm64/x64 asset checks before npm queries, packing, or publication; temporary fixture assets and a mocked npm boundary, not real publication.
@@ -53,8 +57,8 @@ Unchecked items mark missing native acceptance proof, not missing implementation
 
 ## Known gaps (current cycle)
 
-- [ ] Compile against a real macOS SDK and produce actual arm64/x64 prebuilds; controlled Linux fixtures cannot validate SDK layout or kernel behavior.
-- [ ] Run Node and Bun native startup, identity, process-group, and supervisor-restart/live-child checks on macOS.
+- [ ] Execute the native CI matrix and record genuine Actions revision/results for SDK compilation, arm64/x64 prebuilds, Node/Bun kernel/bootstrap probes, package/binary startup, and supervisor-restart/live-child checks. Local Mac absence is not a blocker to CI execution; no native pass is claimed yet.
+- [ ] Integrate and execute forthcoming offline persisted-goal/restart and actual resident-autostart scenarios in native CI; keep acceptance pending until results are recorded.
 - [x] Complete Linux real-process restart/live-child rerun; two selected scenarios passed. Actual Mac package execution remains unproven.
 - [x] Run final integrated `npm run check` after the publication/status changes and test readability fixes; exit 0, 1,199 files, no fixes. All targeted Linux gates passed; native Mac gaps above remain open.
 

@@ -1438,7 +1438,9 @@ await agent.stop();
 
 `stop()` rejects pending commands, sends `SIGTERM`, escalates to `SIGKILL` after one second, and resolves only after the child exits. It rejects if the child remains alive after forced termination.
 
-`RpcClientOptions.nodeArgs` inserts Node arguments before the CLI entry point. This supports preload modules and runtime instrumentation without changing the RPC protocol:
+`RpcClientOptions.executablePath` selects the runtime executable and defaults to `"node"`. Set `executablePath: "bun"` to launch the actual CLI under Bun. `cliPath` selects the CLI entry point.
+
+`RpcClientOptions.nodeArgs` inserts arguments before the CLI entry point for the selected runtime. Supply runtime-compatible flags: Node uses `--import` for preloads; Bun uses `--preload`. This supports runtime instrumentation without changing the RPC protocol:
 
 ```typescript
 const agent = new RpcClient({

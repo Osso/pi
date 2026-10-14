@@ -1,0 +1,174 @@
+name: macOS Core
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: 'Source ref to validate (defaults to workflow ref)'
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      source_ref:
+        description: 'Source ref to validate (defaults to workflow ref)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: macOS ${{ matrix.arch }} native and runtime
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+            clang_arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+            clang_arch: x86_64
+    steps:
+      # runner.temp is unavailable in job-level env; isolate agent state per job.
+      - name: Isolate Pi agent state
+        run: echo "PI_CODING_AGENT_DIR=${RUNNER_TEMP}/pi-macos-core-state" >> "$GITHUB_ENV"
+
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.source_ref || github.ref }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: '22'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+
+      - name: Verify host architectures
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          for runtime in node bun; do
+            "$runtime" -e 'if (process.platform !== "darwin" || process.arch !== process.env.EXPECTED_ARCH) throw new Error(`Unexpected host: ${process.platform}-${process.arch}`); console.log(process.execPath, process.version, process.arch)'
+          done
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      # Pyrun is an external core-tool prerequisite; use its canonical package,
+      # pinned to an immutable public revision, not a replacement test runner.
+      - name: Setup uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: '0.13.1'
+
+      - name: Install canonical Pyrun JSONL runner
+        env:
+          UV_TOOL_DIR: ${{ runner.temp }}/pyrun-tools
+          UV_TOOL_BIN_DIR: ${{ runner.temp }}/pyrun-bin
+        run: |
+          set -euo pipefail
+          uv tool install --python 3.13 'git+https://github.com/Osso/pyrun.git@0c6a16f46a50aff7a8e2df6b308b590f0020dbbd'
+          echo "$UV_TOOL_BIN_DIR" >> "$GITHUB_PATH"
+          "$UV_TOOL_BIN_DIR/pyrun-jsonl" --help
+
+      # The coding-agent build generates both process prebuilds. Tui has no
+      # native build hook, so compile and load its host addon separately.
+      - name: Build packages and host Tui addon
+        env:
+          HOST_ARCH: ${{ matrix.arch }}
+          CLANG_ARCH: ${{ matrix.clang_arch }}
+        run: |
+          set -euo pipefail
+          npm run build
+          addon_dir="packages/tui/native/darwin/prebuilds/darwin-${HOST_ARCH}"
+          mkdir -p "$addon_dir"
+          xcrun --sdk macosx clang -arch "$CLANG_ARCH" -mmacosx-version-min=11.0 \
+            -std=c11 -O2 -Wall -Wextra -Werror -bundle -undefined dynamic_lookup \
+            -framework CoreGraphics packages/tui/native/darwin/src/darwin-modifiers.c \
+            -o "$addon_dir/darwin-modifiers.node"
+          node packages/coding-agent/native/darwin/build.mjs check host
+          for runtime in node bun; do
+            "$runtime" -e 'const addon = require(`./packages/tui/native/darwin/prebuilds/darwin-${process.arch}/darwin-modifiers.node`); if (typeof addon.isModifierPressed("shift") !== "boolean") throw new Error("Invalid native Tui result")'
+          done
+
+      # Vitest always runs under Node. Native tests exercise Node kernel state
+      # plus explicit Bun subprocess probes, not Vitest hosted by Bun.
+      - name: Native process identity and bootstrap
+        run: npm run test:coding-agent -- test/runtime-process.test.ts test/detached-job-bootstrap.test.ts
+
+      # The fixture selects the actual Pi child runtime; the test host is Node.
+      - name: Headless runtime, goals, restart and live runners (Node and Bun)
+        run: |
+          set -euo pipefail
+          for runtime in node bun; do
+            PI_HEADLESS_RUNTIME="$runtime" npm run test:coding-agent -- \
+              test/suite/headless-runtime.test.ts test/suite/headless-pi.test.ts \
+              --testNamePattern 'headless Pi subprocess runtime|resumes a spawned agent that was thinking when its supervisor process died|reattaches a live (Bash|Pyrun) runner when restoring its unfinished JSONL tool call|moves a foreground Bash command into a background job across /restart'
+          done
+
+      - name: Actual resident Supervisor startup (Node and Bun)
+        run: |
+          set -euo pipefail
+          for runtime in node bun; do
+            PI_HEADLESS_RUNTIME="$runtime" npm run test:coding-agent -- test/suite/supervisor-autostart-runtime.test.ts
+          done
+
+      - name: Unsandboxed defaults and fail-closed protected profiles
+        run: npm run test:coding-agent -- test/bwrap-platform.test.ts test/approval-selector.test.ts test/session-sandbox-profile.test.ts
+
+      - name: Pack and smoke Node CLI outside checkout
+        run: |
+          set -euo pipefail
+          smoke_root="${RUNNER_TEMP}/pi-macos-core-package"
+          mkdir -p "$smoke_root/tarballs" "$smoke_root/node"
+          npm pack --ignore-scripts --pack-destination "$smoke_root/tarballs" \
+            --workspace packages/ai --workspace packages/tui \
+            --workspace packages/agent-core --workspace packages/coding-agent
+          SMOKE_ROOT="$smoke_root" node --input-type=module <<'NODE'
+          import { readdirSync, writeFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const root = process.env.SMOKE_ROOT;
+          const dependencies = Object.fromEntries(['ai', 'tui', 'agent-core', 'coding-agent'].map(name => {
+            const prefix = `earendil-works-pi-${name}-`;
+            const files = readdirSync(join(root, 'tarballs')).filter(file => file.startsWith(prefix) && file.endsWith('.tgz'));
+            if (files.length !== 1) throw new Error(`Expected one tarball for ${name}, found ${files.length}`);
+            return [`@earendil-works/pi-${name}`, `file:${join(root, 'tarballs', files[0])}`];
+          }));
+          writeFileSync(join(root, 'node', 'package.json'), JSON.stringify({ private: true, dependencies, overrides: dependencies }));
+          NODE
+          npm install --prefix "$smoke_root/node" --omit=dev --ignore-scripts
+          cd "$smoke_root/node"
+          node node_modules/@earendil-works/pi-coding-agent/dist/runtime/src/cli.js --help
+          node node_modules/@earendil-works/pi-coding-agent/dist/runtime/src/cli.js --version
+
+      - name: Compile and smoke host Bun binary
+        run: |
+          set -euo pipefail
+          ./scripts/build-binaries.sh --skip-install --skip-deps --skip-build \
+            --platform darwin-${{ matrix.arch }} --out "${RUNNER_TEMP}/pi-macos-core-binaries"
+          cd "${RUNNER_TEMP}/pi-macos-core-binaries/darwin-${{ matrix.arch }}"
+          ./pi --help
+          ./pi --version
+
+      # Upload's least common ancestor is packages/. Download with path:
+      # packages and merge-multiple: true to restore both package-root loaders.
+      - name: Upload host native addons
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-native-${{ matrix.arch }}
+          path: |
+            packages/coding-agent/native/darwin/prebuilds/darwin-${{ matrix.arch }}/*.node
+            packages/tui/native/darwin/prebuilds/darwin-${{ matrix.arch }}/*.node
+          if-no-files-found: error
+          retention-days: 14

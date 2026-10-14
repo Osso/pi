@@ -22,10 +22,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  macos-native:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/macos-core.yml
+    with:
+      source_ref: ${{ github.event.inputs.source_ref || github.event.inputs.tag || github.ref_name }}
+
   # Keep the public GitHub Release publication last. Binary assets are staged in
   # a draft release first; cleanup removes the draft if later publishing fails.
   build:
     runs-on: ubuntu-latest
+    needs: macos-native
     permissions:
       contents: read
     env:
@@ -48,6 +56,14 @@ jobs:
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
+
+      # macOS uploads use packages/ as their least common ancestor.
+      - name: Download validated macOS native addons
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: macos-native-*
+          path: packages
+          merge-multiple: true
 
       - name: Build binaries
         run: ./scripts/build-binaries.sh
@@ -221,6 +237,13 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --ignore-scripts
+
+      - name: Download validated macOS native addons
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: macos-native-*
+          path: packages
+          merge-multiple: true
 
       - name: Build
         run: npm run build

@@ -25,6 +25,8 @@ type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : n
 export type RpcCommandBody = DistributiveOmit<RpcCommand, "id">;
 
 export interface RpcClientOptions {
+	/** Runtime executable used to launch the CLI (default: node). */
+	executablePath?: string;
 	/** Path to the CLI entry point (default: searches for dist/cli.js) */
 	cliPath?: string;
 	/** Working directory for the agent */
@@ -35,7 +37,7 @@ export interface RpcClientOptions {
 	provider?: string;
 	/** Model ID to use */
 	model?: string;
-	/** Additional arguments passed to Node before the CLI entry point. */
+	/** Additional arguments passed to the runtime executable before the CLI entry point. */
 	nodeArgs?: string[];
 	/** Additional CLI arguments */
 	args?: string[];
@@ -94,11 +96,15 @@ export class RpcClient {
 			args.push(...this.options.args);
 		}
 
-		const childProcess = spawn("node", [...(this.options.nodeArgs ?? []), cliPath, ...args], {
-			cwd: this.options.cwd,
-			env: { ...process.env, ...this.options.env },
-			stdio: ["pipe", "pipe", "pipe"],
-		});
+		const childProcess = spawn(
+			this.options.executablePath ?? "node",
+			[...(this.options.nodeArgs ?? []), cliPath, ...args],
+			{
+				cwd: this.options.cwd,
+				env: { ...process.env, ...this.options.env },
+				stdio: ["pipe", "pipe", "pipe"],
+			},
+		);
 		this.process = childProcess;
 
 		// Collect stderr for debugging

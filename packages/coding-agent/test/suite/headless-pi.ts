@@ -312,6 +312,10 @@ function createHeadlessRpcClient(
 	providerSocketPath = paths.socketPath,
 	sessionStartReleasePath?: string,
 ): RpcClient {
+	const runtime = process.env.PI_HEADLESS_RUNTIME ?? "node";
+	if (runtime !== "node" && runtime !== "bun") {
+		throw new Error(`Invalid PI_HEADLESS_RUNTIME ${JSON.stringify(runtime)}: expected node or bun`);
+	}
 	const preloadPath = join(import.meta.dirname, "fixtures", "headless-pi-provider-preload.ts");
 	const deleteCwdPreloadPath = join(import.meta.dirname, "fixtures", "delete-cwd-self-restart-preload.mjs");
 	const cliPath = options.cliPath ?? join(import.meta.dirname, "..", "..", "src", "cli.ts");
@@ -320,12 +324,13 @@ function createHeadlessRpcClient(
 	if (sessionFile) args.push("--session", sessionFile);
 	const selectedProvider = options.provider ?? "headless-faux";
 	const defaultModel = selectedProvider === "openai-codex" ? "headless-faux-codex" : "headless-faux-1";
-	const compileCacheDir = readHeadlessCompileCacheDir();
+	const preloadPaths = [preloadPath, ...(options.deleteCwdBeforeSelfRestart ? [deleteCwdPreloadPath] : [])];
 	return new RpcClient({
+		executablePath: runtime,
 		cliPath,
 		cwd: paths.workspaceDir,
 		env: {
-			NODE_COMPILE_CACHE: compileCacheDir,
+			...(runtime === "node" ? { NODE_COMPILE_CACHE: readHeadlessCompileCacheDir() } : {}),
 			PI_CODING_AGENT_DIR: paths.agentDir,
 			PI_CODING_AGENT_STATE_DIR: paths.agentDir,
 			PI_CODING_AGENT_SESSION_DIR: paths.sessionDir,
@@ -339,12 +344,10 @@ function createHeadlessRpcClient(
 		},
 		provider: selectedProvider,
 		model: options.model === false ? undefined : (options.model ?? defaultModel),
-		nodeArgs: [
-			"--experimental-strip-types",
-			"--import",
-			pathToFileURL(preloadPath).href,
-			...(options.deleteCwdBeforeSelfRestart ? ["--import", pathToFileURL(deleteCwdPreloadPath).href] : []),
-		],
+		nodeArgs:
+			runtime === "bun"
+				? preloadPaths.flatMap((path) => ["--preload", path])
+				: ["--experimental-strip-types", ...preloadPaths.flatMap((path) => ["--import", pathToFileURL(path).href])],
 		args,
 	});
 }
@@ -1091,6 +1094,15 @@ async function startHeadlessPi(fixtureOptions: HeadlessPiOptions = {}): Promise<
 		join(testExtensionDir, "selected-runtime-target.ts"),
 		`import { Type } from "typebox";
 export default function(pi) {
+	pi.registerTool({
+		name: "test_runtime_identity",
+		description: "Report the actual Pi process runtime",
+		parameters: Type.Object({}),
+		execute: async () => {
+			const identity = { pid: process.pid, bun: process.versions.bun ?? null };
+			return { content: [{ type: "text", text: JSON.stringify(identity) }], details: identity };
+		},
+	});
 	pi.registerCommand("model", {
 		description: "Set model through the selected runtime target command context",
 		handler: async (_args, ctx) => {
