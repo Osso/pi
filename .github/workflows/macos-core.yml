@@ -82,15 +82,22 @@ jobs:
           echo "$UV_TOOL_BIN_DIR" >> "$GITHUB_PATH"
           "$UV_TOOL_BIN_DIR/pyrun-jsonl" --help
 
-      # The coding-agent build generates both process prebuilds. Tui has no
-      # native build hook, so compile and load its host addon separately.
+      # Validate the source revision as committed: compile the checked-in model
+      # catalogs instead of regenerating them from live provider APIs, which
+      # makes the build depend on unrelated upstream catalog drift. The
+      # coding-agent build generates both process prebuilds. Tui has no native
+      # build hook, so compile and load its host addon separately.
       - name: Build packages and host Tui addon
         env:
           HOST_ARCH: ${{ matrix.arch }}
           CLANG_ARCH: ${{ matrix.clang_arch }}
         run: |
           set -euo pipefail
-          npm run build
+          npm --prefix packages/tui run build
+          (cd packages/ai && npx --no-install tsgo -p tsconfig.build.json)
+          git diff --exit-code -- packages/ai/src
+          npm --prefix packages/agent-core run build
+          npm --prefix packages/coding-agent run build
           addon_dir="packages/tui/native/darwin/prebuilds/darwin-${HOST_ARCH}"
           mkdir -p "$addon_dir"
           xcrun --sdk macosx clang -arch "$CLANG_ARCH" -mmacosx-version-min=11.0 \
