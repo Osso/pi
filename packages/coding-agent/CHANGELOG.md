@@ -194,6 +194,7 @@
 
 ### Fixed
 
+- Fixed slow session-tree deletion in the resume picker and `/delete`, avoiding synchronous trash-process freezes while preserving recursive child deletion and unrelated sessions.
 - Fixed a shared-channel post that arrived during a run ending in `end_turn` causing an extra model request that resent the ended transcript before delivering the post; providers such as claude-bridge answered it with an empty reply followed by a redundant `end_turn`.
 - Fixed deleted working directories in runtime-hosted sessions before idle prompt/continuation and between completed turns: missing session cwd relocates to the nearest existing directory parent with `cwd_changed`, rebuilt resources, and preserved session identity; invalid process cwd is repaired only when needed with visible `process_cwd_recovered`, without cancelling in-flight tools.
 - Fixed Codex `/usage` reports staying invisible during tool waits: busy sessions show the full report immediately in a UI notification and retain the custom report for the next turn without steering or interruption. Covers `/usage`, `/usage reset`, and no-reset-credits results; idle display and Claude bridge routing are unchanged.

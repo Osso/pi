@@ -14,6 +14,8 @@ implicitly archive child rows. Archived scope preserves recent ordering instead 
 
 `/delete` asks for confirmation, then quits Pi and, during quit teardown, deletes the current session and every child agent session recorded under it (by `parent_session_path` and `is_subagent`, recursively), using the `trash` CLI when it works and permanent deletion otherwise, and removes their metadata. The resume picker's Ctrl+D delete uses the same removal. `/delete` refuses while a child agent session is still running, since an aborted child keeps writing its transcript until it settles.
 
+The planned deletion performance fix resolves transitive descendants with one indexed lookup, invokes `trash` asynchronously in batches with bounded argument size, and retains permanent unlink when trash fails. One metadata-cleanup transaction covers only files actually deleted. The picker and `/delete` quit teardown await completion. This avoids synchronous trash-process freezes; deletion latency remains unmeasured.
+
 `/archive`, `/delete`, and `/unarchive` report usage guidance when given arguments, report when the current session is not persisted, and report when no control database is available.
 
 `/unarchive` clears only the current persisted session's archive metadata using the control-DB API. It leaves the active manager and transcript unchanged, with no picker, ID lookup, or session replacement. An already-unarchived session produces an informational notification without a metadata write. Compressed sessions are restored by the existing storage path when resumed, before becoming the current session.

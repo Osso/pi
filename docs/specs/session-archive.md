@@ -43,6 +43,11 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 
 - [x] Ctrl+D, then confirm, deletes the selected session and every child agent session recorded under it with the same removal as `/delete` (`session-selector-path-delete.test.ts`).
 
+### Deletion responsiveness and completion
+
+- [ ] Session-tree deletion must not freeze the UI through synchronous trash processes.
+- [ ] The picker and `/delete` quit teardown must await deletion completion, preserving unrelated sessions and metadata for files that could not be deleted.
+
 ### First-party `/unarchive` command
 
 - [x] Accept no arguments; reject arguments with `/unarchive` usage guidance.
