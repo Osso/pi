@@ -3,10 +3,15 @@ import {
 	chmodSync,
 	copyFileSync,
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	mkdtempSync,
+	readdirSync,
 	readFileSync,
+	readlinkSync,
 	rmSync,
+	type Stats,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,6 +34,7 @@ interface DeployFixture {
 }
 
 interface DeployRunOptions {
+	versionExitCode?: number;
 	configureResidentServices?: string;
 	machine?: string;
 	system?: string;
@@ -42,6 +48,20 @@ interface ResidentServiceFixture {
 	systemctlState: string;
 	systemdUserDir: string;
 }
+
+interface InstallTransactionCase {
+	oldInstall: boolean;
+	launcher: "managed symlink" | "dangling symlink" | "regular file" | "absent";
+	versionExitCode: number;
+}
+
+interface InstallTransactionFixture extends DeployFixture, InstallTransactionCase {
+	launcherPath: string;
+	previousTarget: string;
+	previousStat: Stats | undefined;
+}
+
+const previousBinary = "#!/usr/bin/env bash\nprintf '%s\\n' 'previous version'\n";
 
 const NOOP_STUB = `#!/usr/bin/env bash
 set -euo pipefail
@@ -66,7 +86,7 @@ while (($# > 0)); do
 	esac
 done
 mkdir -p "$out/$platform"
-printf '%s\\n' '#!/usr/bin/env bash' 'if [[ "\${1:-}" == "--version" ]]; then printf "%s\\n" "0.80.3"; fi' > "$out/$platform/pi"
+printf '%s\\n' '#!/usr/bin/env bash' 'if [[ "\${1:-}" == "--version" ]]; then printf "%s\\n" "0.80.3"; exit "$PI_TEST_VERSION_EXIT_CODE"; fi' > "$out/$platform/pi"
 chmod 755 "$out/$platform/pi"
 `;
 const CONFIGURE_RESIDENT_SERVICES_STUB = `#!/usr/bin/env bash
@@ -138,6 +158,7 @@ function runDeploy(fixture: DeployFixture, options: DeployRunOptions = {}) {
 		PI_DEPLOY_BUILD_DIR: fixture.buildDir,
 		PI_DEPLOY_INSTALL_DIR: fixture.installDir,
 		PI_DEPLOY_CONFIGURE_LOG: fixture.configureLog,
+		PI_TEST_VERSION_EXIT_CODE: String(options.versionExitCode ?? 0),
 		PI_TEST_UNAME_MACHINE: options.machine ?? "x86_64",
 		PI_TEST_UNAME_SYSTEM: options.system ?? "Linux",
 	};
@@ -168,6 +189,63 @@ function createResidentServiceFixture(parentDir: string): ResidentServiceFixture
 	writeFileSync(fixture.supervisorUnit, "previous supervisor unit");
 	writeExecutable(join(fakeBinDir, "systemctl"), SYSTEMCTL_STUB);
 	return fixture;
+}
+
+function createPreviousLauncher(fixture: Omit<InstallTransactionFixture, "previousStat">): Stats | undefined {
+	mkdirSync(fixture.binDir, { recursive: true });
+	if (fixture.launcher === "regular file") writeExecutable(fixture.launcherPath, previousBinary);
+	else if (fixture.launcher !== "absent") symlinkSync(fixture.previousTarget, fixture.launcherPath);
+	return fixture.launcher === "absent" ? undefined : lstatSync(fixture.launcherPath);
+}
+
+function createInstallTransactionFixture(
+	parentDir: string,
+	testCase: InstallTransactionCase,
+): InstallTransactionFixture {
+	const fixture = createDeployFixture(parentDir);
+	if (testCase.oldInstall) {
+		mkdirSync(fixture.installDir, { recursive: true });
+		writeExecutable(join(fixture.installDir, "pi"), previousBinary);
+		writeFileSync(join(fixture.installDir, "old-only"), "previous install data");
+	}
+	const transaction = {
+		...fixture,
+		...testCase,
+		launcherPath: join(fixture.binDir, "pi"),
+		previousTarget:
+			testCase.launcher === "managed symlink" ? join(fixture.installDir, "pi") : "../unrelated-missing-pi",
+	};
+	return { ...transaction, previousStat: createPreviousLauncher(transaction) };
+}
+
+function assertSuccessfulInstall(fixture: InstallTransactionFixture, system: string): void {
+	expect(readlinkSync(fixture.launcherPath)).toBe(join(fixture.installDir, "pi"));
+	expect(readFileSync(fixture.launcherPath, "utf8")).not.toBe(previousBinary);
+	expect(existsSync(join(fixture.installDir, "old-only"))).toBe(false);
+	expect(readFileSync(fixture.configureLog, "utf8")).toBe(
+		system === "Linux" ? `${fixture.launcherPath}\tautostart\n` : "",
+	);
+}
+
+function assertRestoredLauncher(fixture: InstallTransactionFixture): void {
+	if (fixture.launcher === "absent") {
+		expect(() => lstatSync(fixture.launcherPath)).toThrow(/ENOENT/);
+		return;
+	}
+	const restoredStat = lstatSync(fixture.launcherPath);
+	expect(restoredStat.ino).toBe(fixture.previousStat?.ino);
+	expect(restoredStat.mode).toBe(fixture.previousStat?.mode);
+	if (fixture.launcher === "regular file") expect(readFileSync(fixture.launcherPath, "utf8")).toBe(previousBinary);
+	else expect(readlinkSync(fixture.launcherPath)).toBe(fixture.previousTarget);
+}
+
+function assertRolledBackInstall(fixture: InstallTransactionFixture): void {
+	expect(readFileSync(fixture.configureLog, "utf8")).toBe("");
+	if (fixture.oldInstall) {
+		expect(readFileSync(join(fixture.installDir, "pi"), "utf8")).toBe(previousBinary);
+		expect(readFileSync(join(fixture.installDir, "old-only"), "utf8")).toBe("previous install data");
+	} else expect(existsSync(fixture.installDir)).toBe(false);
+	assertRestoredLauncher(fixture);
 }
 
 describe("resident service deployment", () => {
@@ -204,6 +282,31 @@ describe("resident service deployment", () => {
 
 		expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(0);
 		expect(readFileSync(fixture.configureLog, "utf8")).toBe("");
+	});
+
+	describe.each(["Linux", "Darwin"])("%s install transaction", (system) => {
+		const cases = [false, true].flatMap((oldInstall) =>
+			(["managed symlink", "dangling symlink", "regular file", "absent"] as const).flatMap((launcher) =>
+				[0, 42].map((versionExitCode) => ({ oldInstall, launcher, versionExitCode })),
+			),
+		);
+
+		it.each(cases)(
+			"preserves transaction outcome with old install=$oldInstall, launcher=$launcher, version exit=$versionExitCode",
+			(testCase) => {
+				const fixture = createInstallTransactionFixture(tempDir, testCase);
+				const { launcher, versionExitCode } = testCase;
+				const result = runDeploy(fixture, { system, versionExitCode });
+
+				expect(result.status, `${result.stdout}\n${result.stderr}`).toBe(versionExitCode);
+				expect(result.stdout).toContain("0.80.3");
+				expect(existsSync(`${fixture.installDir}.old`)).toBe(false);
+				expect(existsSync(`${fixture.installDir}.tmp`)).toBe(false);
+				expect(readdirSync(fixture.binDir)).toEqual(versionExitCode !== 0 && launcher === "absent" ? [] : ["pi"]);
+				if (versionExitCode === 0) assertSuccessfulInstall(fixture, system);
+				else assertRolledBackInstall(fixture);
+			},
+		);
 	});
 
 	it("configures a systemd-owned Supervisor only when explicitly enabled", () => {

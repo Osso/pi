@@ -4,7 +4,7 @@ import { closeSync, existsSync, openSync, readSync, realpathSync } from "node:fs
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
 import type { BashOperations } from "../../../src/index.ts";
 import { createLocalBashOperations } from "../../../src/index.ts";
-import type { SandboxProfileName } from "../../../src/core/permissions/presets.ts";
+import { isSandboxPlatformSupported, type SandboxProfileName } from "../../../src/core/permissions/presets.ts";
 
 export type BwrapSandboxProfile = Exclude<SandboxProfileName, "full-access">;
 
@@ -37,6 +37,9 @@ export function resolveBwrapSandboxProfile(profile: SandboxProfileName): BwrapSa
 }
 
 export function runBwrapAvailabilityCheck(bwrapCommand: string): void {
+	if (!isSandboxPlatformSupported()) {
+		throw new Error(`bubblewrap sandbox is unsupported on ${process.platform}; sandbox-required profiles need Linux`);
+	}
 	const result = spawnSync(bwrapCommand, ["--version"], { encoding: "utf8" });
 	if (result.error) {
 		throw new Error(`bubblewrap is required for sandbox profile but is unavailable: ${result.error.message}`);

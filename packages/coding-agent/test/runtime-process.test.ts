@@ -43,6 +43,38 @@ describe("runtime process identity", () => {
 		},
 	);
 
+	test.runIf(process.platform === "linux" || process.platform === "darwin")(
+		"preserves process identity across a real exec and rejects it after exit",
+		async () => {
+			const child = spawn(
+				"/bin/sh",
+				[
+					"-c",
+					'IFS= read -r _ || exit 125; exec "$@"',
+					"identity-exec-gate",
+					process.execPath,
+					"-e",
+					"process.stdout.write('READY ' + process.pid + '\\n'); setInterval(() => {}, 1000);",
+				],
+				{ stdio: ["pipe", "pipe", "inherit"] },
+			);
+			if (!child.pid || !child.stdin || !child.stdout) throw new Error("Expected an exec-gated child");
+			const identity = readProcessIdentity(child.pid);
+			const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
+			try {
+				child.stdin.end("EXEC\n");
+				const ready = await lines.next();
+				expect(ready.value).toBe(`READY ${identity.pid}`);
+				expect(readProcessIdentity(identity.pid)).toEqual(identity);
+				expect(isProcessIdentityAlive(identity)).toBe(true);
+			} finally {
+				child.kill("SIGTERM");
+				if (child.exitCode === null && child.signalCode === null) await once(child, "exit");
+			}
+			expect(isProcessIdentityAlive(identity)).toBe(false);
+		},
+	);
+
 	test("matches a live process only at its exact start time", () => {
 		const identity = readProcessIdentity(process.pid);
 

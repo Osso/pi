@@ -118,8 +118,11 @@ wall-clock time, or mailbox delivery:
    to `cancelling`. The exact owner process identity produces `aborted` when the runtime acknowledges
    exit; timeout alone leaves the row `cancelling`. Dead-owner recovery settles an existing cancellation
    intent as `aborted/lost_runtime`; terminal fencing rejects a late natural result from the cancelled dispatch.
-3. Runtime ownership is agent-scoped and uses exact Linux process identity `(pid, /proc/<pid>/stat startTimeTicks)`
-   plus the current runtime incarnation. Ownership for one agent cannot authorize another agent even under the
+3. Runtime ownership is agent-scoped and uses exact process identity `(pid, startTimeTicks)`
+   plus the current runtime incarnation. Linux reads kernel start jiffies from `/proc/<pid>/stat`;
+   Darwin reads exact kernel creation microseconds through the native adapter. Darwin inspection
+   failures other than process absence propagate rather than proving a dead owner. Native Mac
+   validation remains pending; see [macOS core proof scope](macos-core.md). Ownership for one agent cannot authorize another agent even under the
    same supervisor process. After an exec-in-place restart, unchanged PID and `startTimeTicks` with a different
    incarnation makes the persisted owner stale; the resumed supervisor may replace that ownership and continue
    active `steering_pending` recovery, or settle an existing cancellation intent as `aborted/lost_runtime` after

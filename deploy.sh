@@ -53,6 +53,12 @@ rollback_install_on_failure() {
 	local status="$1"
 
 	if [[ "$status" -ne 0 ]]; then
+		if [[ "$DEPLOY_REPLACED_LAUNCHER" -eq 1 ]]; then
+			rm -f "$BIN_DIR/pi"
+			if [[ -e "$OLD_LAUNCHER_DIR/pi" || -L "$OLD_LAUNCHER_DIR/pi" ]]; then
+				mv "$OLD_LAUNCHER_DIR/pi" "$BIN_DIR/pi"
+			fi
+		fi
 		if [[ "$DEPLOY_REPLACED_INSTALL" -eq 1 ]]; then
 			rm -rf "$INSTALL_DIR"
 			if [[ -e "$OLD_INSTALL_DIR" || -L "$OLD_INSTALL_DIR" ]]; then
@@ -60,6 +66,9 @@ rollback_install_on_failure() {
 			fi
 		fi
 		rm -rf "$TMP_INSTALL_DIR" "$OLD_INSTALL_DIR"
+		if [[ -n "$OLD_LAUNCHER_DIR" ]]; then
+			rm -rf "$OLD_LAUNCHER_DIR"
+		fi
 	fi
 }
 
@@ -91,6 +100,8 @@ require_safe_absolute_dir "PI_DEPLOY_BIN_DIR" "$BIN_DIR"
 
 cd "$ROOT_DIR"
 DEPLOY_REPLACED_INSTALL=0
+DEPLOY_REPLACED_LAUNCHER=0
+OLD_LAUNCHER_DIR=""
 trap on_exit EXIT
 
 case "$(uname -s)-$(uname -m)" in
@@ -143,17 +154,24 @@ cp -R "$BUILD_DIR/$PLATFORM" "$TMP_INSTALL_DIR"
 if [[ -e "$INSTALL_DIR" || -L "$INSTALL_DIR" ]]; then
 	mv "$INSTALL_DIR" "$OLD_INSTALL_DIR"
 fi
-mv "$TMP_INSTALL_DIR" "$INSTALL_DIR"
 DEPLOY_REPLACED_INSTALL=1
+mv "$TMP_INSTALL_DIR" "$INSTALL_DIR"
 
-ln -sfn "$INSTALL_DIR/pi" "$BIN_DIR/pi"
+OLD_LAUNCHER_DIR="$(mktemp -d "$BIN_DIR/.pi-launcher.XXXXXX")"
+if [[ -e "$BIN_DIR/pi" || -L "$BIN_DIR/pi" ]]; then
+	mv "$BIN_DIR/pi" "$OLD_LAUNCHER_DIR/pi"
+fi
+DEPLOY_REPLACED_LAUNCHER=1
+ln -s "$INSTALL_DIR/pi" "$BIN_DIR/pi"
 
 "$BIN_DIR/pi" --version
 if [[ "$PLATFORM" == linux-* && "$SUPERVISOR_SERVICE_MODE" != "skip" ]]; then
 	"$ROOT_DIR/scripts/configure-resident-services.sh" "$BIN_DIR/pi" "$SUPERVISOR_SERVICE_MODE"
 fi
-rm -rf "$OLD_INSTALL_DIR"
+rm -rf "$OLD_INSTALL_DIR" "$OLD_LAUNCHER_DIR"
 DEPLOY_REPLACED_INSTALL=0
+DEPLOY_REPLACED_LAUNCHER=0
+OLD_LAUNCHER_DIR=""
 
 if [[ "$DEPLOY_AGENT_SERVER" -eq 1 ]]; then
 	python3 "$ROOT_DIR/scripts/deploy-agent-server-runtime.py" "$INSTALL_DIR"

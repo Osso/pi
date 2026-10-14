@@ -105,6 +105,7 @@ import {
 	formatInactiveAgentSelectionMessage,
 	type MultiAgentStore,
 } from "../../core/multi-agent-store.ts";
+import { isSandboxPlatformSupported } from "../../core/permissions/presets.ts";
 import { expandPromptTemplate, type PromptTemplate, parseCommandArgs } from "../../core/prompt-templates.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
@@ -6067,6 +6068,10 @@ export class InteractiveMode {
 		const profile = this.settingsManager.getExplicitSandboxProfile();
 		if (!profile || profile === "full-access") {
 			this.setExtensionStatus("bwrap", theme.fg("muted", "bwrap: full access"));
+			return;
+		}
+		if (!isSandboxPlatformSupported()) {
+			this.setExtensionStatus("bwrap", theme.fg("error", `bwrap unsupported on ${process.platform}`));
 			return;
 		}
 		const bwrapAvailable = spawnSync("bwrap", ["--version"], { stdio: "ignore" }).status === 0;

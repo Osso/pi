@@ -15,6 +15,9 @@ The bubblewrap sandbox backend is a Linux extension that routes selected Pi tool
 - [x] Let `/sandbox` select global, project, or session scope; session scope can explicitly inherit project/global settings.
 - [x] Support deterministic `/sandbox <read-only|workspace-write|full-access|inherit> <session|project|global>` arguments; `inherit` is valid only for session scope.
 - [x] Fail closed when a sandbox-required profile is active and `bwrap` is unavailable.
+- [x] On non-Linux platforms, reject sandbox-required execution before probing or launching bubblewrap, with an explicit unsupported-platform error; never downgrade an explicit protected profile to full access.
+- [x] Keep missing-profile and `full-access` file tools unsandboxed on macOS without probing bubblewrap.
+- [x] Mark sandbox-required profiles unsupported on non-Linux platforms in the selector, startup/profile-change status, `/bwrap`, and model context; do not claim unsupported workers are sandboxed.
 
 ### Filesystem and environment isolation
 
@@ -50,17 +53,18 @@ The bubblewrap sandbox backend is a Linux extension that routes selected Pi tool
 - `packages/coding-agent/src/core/sdk.ts` — restores or clears the session overlay before runtime construction.
 - `packages/coding-agent/src/core/extensions/runner.ts` — applies selector and direct-command changes to settings or control-session state.
 - `packages/coding-agent/src/core/extensions/types.ts` — exposes sandbox mutation to extension command handlers.
-- `packages/coding-agent/src/core/permissions/presets.ts` — defines sandbox profiles and persistence scopes.
+- `packages/coding-agent/src/core/permissions/presets.ts` — defines sandbox profiles, persistence scopes, and Linux-only sandbox capability.
 - `packages/coding-agent/src/modes/interactive/components/sandbox-selector.ts` — selects profile and persistence scope, including session inheritance.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts` — connects selector choices to the active session runtime.
 - `packages/coding-agent/extensions/pyrun/src/index.ts` — default-loaded Pyrun extension; selects local or bwrap runner execution by profile.
 
 ## Tests asserting this spec
 
+- `packages/coding-agent/test/bwrap-platform.test.ts` — mocked Darwin/native-command boundary, real unsandboxed file operations, protected-profile denial, honest startup/command/model status, and Linux availability failure.
 - `packages/coding-agent/test/bwrap-extension.test.ts` — bwrap invocation shape, profile mapping, fail-closed availability checks, environment filtering, canonical runner/resolver target validation, file-worker workspace containment, and real bwrap read-only/workspace-write enforcement when bubblewrap is executable.
-- `packages/coding-agent/test/session-sandbox-profile.test.ts` — control-DB persistence, validation, relocation, cleanup, runtime restoration, precedence, and new/forked-session isolation.
+- `packages/coding-agent/test/session-sandbox-profile.test.ts` — control-DB persistence, validation, relocation, cleanup, runtime restoration, precedence, new/forked-session isolation, and honest Darwin profile-change status without probing or substituting the persisted choice.
 - `packages/coding-agent/test/settings-manager.test.ts` — session/project/global sandbox-profile precedence.
-- `packages/coding-agent/test/approval-selector.test.ts` — session scope and inheritance visibility/selection.
+- `packages/coding-agent/test/approval-selector.test.ts` — session scope, inheritance visibility/selection, and Darwin unsupported-profile labels without silent profile substitution.
 - `packages/coding-agent/test/approval-slash-commands.test.ts` — deterministic profile/scope arguments and inherit validation.
 - `packages/coding-agent/test/pyrun-extension.test.ts` — sandboxed Pyrun runner and disabled Pi bridge.
 - `packages/coding-agent/test/suite/regressions/session-sandbox-profile-restart.test.ts` — real-process session override, restart persistence, read-only write denial, sandboxed Pyrun execution, and new-session isolation.
@@ -68,7 +72,7 @@ The bubblewrap sandbox backend is a Linux extension that routes selected Pi tool
 
 ## Known gaps (current cycle)
 
-No current-cycle gaps.
+- [ ] Validate unsandboxed core tools and unsupported-profile reporting on real macOS hardware; platform tests currently mock Darwin on Linux.
 
 ## Out of scope
 

@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
+import { readDarwinProcessInfo } from "./runtime-process-darwin.ts";
 
 export interface ProcessIdentity {
 	pid: number;
@@ -14,8 +15,26 @@ const PI_RUNTIME_ENTRYPOINT_SUFFIXES = [
 	"packages/coding-agent/dist/cli.js",
 ];
 
-function readProcessStat(pid: number): { identity: ProcessIdentity; state: string } {
-	if (process.platform !== "linux") throw new Error("Exact process identity requires Linux /proc");
+interface ProcessStat {
+	identity: ProcessIdentity;
+	state: string;
+	processGroupId: number;
+}
+
+function readProcessStat(pid: number): ProcessStat {
+	if (process.platform === "linux") return readLinuxProcessStat(pid);
+	if (process.platform === "darwin") {
+		const info = readDarwinProcessInfo(pid);
+		return {
+			identity: { pid, startTimeTicks: info.startTimeTicks },
+			state: info.state,
+			processGroupId: info.processGroupId,
+		};
+	}
+	throw new Error(`Exact process identity is unsupported on ${process.platform}`);
+}
+
+function readLinuxProcessStat(pid: number): ProcessStat {
 	const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
 	const commandEnd = stat.lastIndexOf(")");
 	if (commandEnd < 0) throw new Error(`Invalid /proc stat for process ${pid}`);
@@ -28,11 +47,17 @@ function readProcessStat(pid: number): { identity: ProcessIdentity; state: strin
 	if (!state || !Number.isSafeInteger(startTimeTicks) || startTimeTicks <= 0) {
 		throw new Error(`Invalid process stat for process ${pid}`);
 	}
-	return { identity: { pid, startTimeTicks }, state };
+	return { identity: { pid, startTimeTicks }, state, processGroupId: Number(fields[2]) };
 }
 
 export function readProcessIdentity(pid: number): ProcessIdentity {
 	return readProcessStat(pid).identity;
+}
+
+export function readProcessGroupId(pid: number): number {
+	const group = readProcessStat(pid).processGroupId;
+	if (!Number.isSafeInteger(group)) throw new Error(`Invalid process group for process ${pid}`);
+	return group;
 }
 
 export function isProcessIdentityAlive(identity: ProcessIdentity): boolean {
@@ -43,7 +68,8 @@ export function isProcessIdentityAlive(identity: ProcessIdentity): boolean {
 			processStat.state !== "Z" &&
 			processStat.state !== "X"
 		);
-	} catch {
+	} catch (error) {
+		if (process.platform === "darwin" && (error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
 		return false;
 	}
 }

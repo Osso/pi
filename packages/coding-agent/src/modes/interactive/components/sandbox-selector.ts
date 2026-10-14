@@ -1,5 +1,6 @@
 import { Container, getKeybindings, Spacer, Text } from "@earendil-works/pi-tui";
 import {
+	isSandboxPlatformSupported,
 	SANDBOX_PROFILES,
 	type SandboxProfileName,
 	type SandboxProfileScope,
@@ -71,7 +72,13 @@ export class SandboxSelectorComponent extends Container {
 	}
 
 	private optionsForScope(): SandboxSelectorOption[] {
-		const profiles = SANDBOX_PROFILES.map((profile) => ({ label: profile.label, profile: profile.name }));
+		const profiles = SANDBOX_PROFILES.map((profile) => ({
+			label:
+				profile.name === "full-access" || isSandboxPlatformSupported()
+					? profile.label
+					: `${profile.label} (unsupported on ${process.platform}; Linux only)`,
+			profile: profile.name,
+		}));
 		return this.scope === "session" ? [SESSION_INHERIT_OPTION, ...profiles] : profiles;
 	}
 

@@ -10,7 +10,11 @@ import type { ResourceDiagnostic } from "../diagnostics.ts";
 import type { ReadonlyFooterDataProvider } from "../footer-data-provider.ts";
 import type { KeybindingsConfig } from "../keybindings.ts";
 import type { ModelRegistry } from "../model-registry.ts";
-import type { SandboxProfileName, SandboxProfileScope } from "../permissions/presets.ts";
+import {
+	isSandboxPlatformSupported,
+	type SandboxProfileName,
+	type SandboxProfileScope,
+} from "../permissions/presets.ts";
 import type { SessionManager } from "../session-manager.ts";
 import type { SettingsManager } from "../settings-manager.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
@@ -952,6 +956,13 @@ export class ExtensionRunner {
 		}
 		const effectiveProfile = settingsManager.getExplicitSandboxProfile();
 		const fullAccess = !effectiveProfile || effectiveProfile === "full-access";
+		if (!fullAccess && !isSandboxPlatformSupported()) {
+			this.uiContext.setStatus(
+				"bwrap",
+				this.uiContext.theme.fg("error", `bwrap unsupported on ${process.platform}`),
+			);
+			return;
+		}
 		const statusText = fullAccess ? "bwrap: full access" : `bwrap: ${effectiveProfile}`;
 		this.uiContext.setStatus("bwrap", this.uiContext.theme.fg(fullAccess ? "muted" : "accent", statusText));
 	}

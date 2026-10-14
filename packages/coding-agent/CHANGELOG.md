@@ -78,6 +78,7 @@
 
 ### Added
 
+- Added [macOS core implementation](../../docs/specs/macos-core.md): libproc-backed process identity/group lookup, native build and publication asset checks, explicit unsupported protected profiles, and deployment launcher rollback. Real Mac SDK compilation and Node/Bun startup/restart remain unvalidated; prebuilds are required before release. Reference-safe artifact eviction remains Linux-only.
 - Added readonly `ExtensionAPI.cwd` for extension factory-time loader cwd; provider stream calls now receive each calling session's cwd through `StreamOptions.cwd` for local/subprocess integrations.
 - Added `/settings` → **Hide coordination messages** (`hideCoordinationMessages`, default `false`) to hide mailbox notices, broadcasts, and shared-channel messages from live/restored interactive chat and queued previews without changing delivery, stored messages, model context, cursors, or typed prompt history. Typed envelope-like prompts and unrelated extension messages remain visible. `AgentSession.getQueuedMessagePreviews()` provides read-only queue display snapshots with existing input provenance; string queue APIs remain unchanged.
 - Child agents can now use `ask_questions`: questions go to the direct parent, which replies with the new `answer_question` tool. A blocking child waits and receives the answer as its original `ask_questions` result; nonblocking children get it in their inbox.

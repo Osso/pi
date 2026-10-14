@@ -20,7 +20,7 @@ if (unknownArgs.length > 0) {
 }
 
 function commandForPlatform(command) {
-	return process.platform === "win32" ? `${command}.cmd` : command;
+	return process.platform === "win32" && command === "npm" ? `${command}.cmd` : command;
 }
 
 function run(command, args, options = {}) {
@@ -72,6 +72,8 @@ function isPublished(name, version) {
 
 	throw new Error(output ? `Failed to query ${name}@${version}\n${output}` : `Failed to query ${name}@${version}`);
 }
+
+run(process.execPath, ["packages/coding-agent/native/darwin/build.mjs", "check", "darwin-arm64", "darwin-x64"]);
 
 const packageVersions = new Map();
 for (const pkg of packages) {

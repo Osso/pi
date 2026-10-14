@@ -57,6 +57,10 @@ export const SANDBOX_PROFILES = [
 export type SandboxProfileName = (typeof SANDBOX_PROFILES)[number]["name"];
 export type SandboxProfileScope = "global" | "project" | "session";
 
+export function isSandboxPlatformSupported(platform: NodeJS.Platform = process.platform): boolean {
+	return platform === "linux";
+}
+
 export function isSandboxProfileName(value: unknown): value is SandboxProfileName {
 	return typeof value === "string" && SANDBOX_PROFILES.some((profile) => profile.name === value);
 }

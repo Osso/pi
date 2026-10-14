@@ -23,7 +23,7 @@ import {
 	type ReadOperations,
 	type WriteOperations,
 } from "../../../src/index.ts";
-import type { SandboxProfileName } from "../../../src/core/permissions/presets.ts";
+import { isSandboxPlatformSupported, type SandboxProfileName } from "../../../src/core/permissions/presets.ts";
 import {
 	runBwrapAvailabilityCheck,
 	buildBwrapInvocation,
@@ -325,7 +325,8 @@ function registerBwrapSessionStart(pi: ExtensionAPI, runtime: BwrapExtensionRunt
 			ctx.ui.setStatus("bwrap", ctx.ui.theme.fg("accent", `bwrap: ${profile}`));
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
-			ctx.ui.setStatus("bwrap", ctx.ui.theme.fg("error", "bwrap unavailable"));
+			const status = isSandboxPlatformSupported() ? "bwrap unavailable" : `bwrap unsupported on ${process.platform}`;
+			ctx.ui.setStatus("bwrap", ctx.ui.theme.fg("error", status));
 			ctx.ui.notify(message, "error");
 		}
 	});
@@ -432,7 +433,9 @@ function registerBeforeAgentStartHandler(pi: ExtensionAPI): void {
 		const profile = readSandboxProfile(ctx);
 		if (!profile) return;
 		const localLine = `Current working directory: ${ctx.cwd}`;
-		const sandboxLine = `Current working directory: ${ctx.cwd} (Linux bubblewrap sandbox, profile ${profile}; HOME is fake, only runtime paths plus workspace are mounted, and Pyrun executes inside the sandbox without Pi bridge capabilities)`;
+		const sandboxLine = isSandboxPlatformSupported()
+			? `Current working directory: ${ctx.cwd} (Linux bubblewrap sandbox, profile ${profile}; HOME is fake, only runtime paths plus workspace are mounted, and Pyrun executes inside the sandbox without Pi bridge capabilities)`
+			: `Current working directory: ${ctx.cwd} (bubblewrap sandbox profile ${profile} is unsupported on ${process.platform}; Linux only; tools are blocked, not sandboxed)`;
 		const systemPrompt = event.systemPrompt.includes(localLine)
 			? event.systemPrompt.replace(localLine, sandboxLine)
 			: `${event.systemPrompt}\n\n${sandboxLine}`;
@@ -440,15 +443,26 @@ function registerBeforeAgentStartHandler(pi: ExtensionAPI): void {
 	});
 }
 
+function describeBwrapMode(profile: BwrapSandboxProfile | undefined, bwrapCommand: string) {
+	if (!profile) return { mode: "unsandboxed/full-access", unavailable: false };
+	try {
+		runBwrapAvailabilityCheck(bwrapCommand);
+		return { mode: `sandboxed (${profile})`, unavailable: false };
+	} catch (error) {
+		const reason = error instanceof Error ? error.message : String(error);
+		return { mode: `${profile}: ${reason}; tools blocked`, unavailable: true };
+	}
+}
+
 function registerBwrapStatusCommand(pi: ExtensionAPI, runtime: BwrapExtensionRuntime): void {
 	pi.registerCommand("bwrap", {
 		description: "Show bubblewrap sandbox status",
 		handler: async (_args, ctx) => {
 			const profile = readSandboxProfile(ctx);
-			const mode = profile ? `sandboxed (${profile})` : "unsandboxed/full-access";
+			const { mode, unavailable } = describeBwrapMode(profile, runtime.bwrapCommand);
 			ctx.ui.notify(
 				[`bwrap backend: ${mode}`, `cwd: ${ctx.cwd}`, `bwrap: ${runtime.bwrapCommand}`].join("\n"),
-				"info",
+				unavailable ? "error" : "info",
 			);
 		},
 	});

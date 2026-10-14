@@ -2,7 +2,14 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getModel } from "@earendil-works/pi-ai/compat";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { setKeybindings } from "@earendil-works/pi-tui";
+import * as childProcess from "child_process";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { AuthStorage } from "../src/core/auth-storage.ts";
+import { createExtensionRuntime } from "../src/core/extensions/loader.ts";
+import { ExtensionRunner } from "../src/core/extensions/runner.ts";
+import { KeybindingsManager } from "../src/core/keybindings.ts";
+import { ModelRegistry } from "../src/core/model-registry.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import {
 	clearSessionSandboxProfile,
@@ -16,6 +23,14 @@ import {
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
+import type { SandboxSelectorComponent } from "../src/modes/interactive/components/sandbox-selector.ts";
+import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
+import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
+
+vi.mock("child_process", async (importOriginal) => {
+	const actual = await importOriginal<typeof childProcess>();
+	return { ...actual, spawnSync: vi.fn(actual.spawnSync) };
+});
 
 function writeTestSessionMetadata(controlDbPath: string, sessionPath: string, sessionId: string): void {
 	writeSessionMetadata(controlDbPath, {
@@ -28,6 +43,114 @@ function writeTestSessionMetadata(controlDbPath: string, sessionPath: string, se
 		sessionPath,
 	});
 }
+
+type StatusProfile = "read-only" | "workspace-write" | "full-access" | undefined;
+
+function createStatusFixture(tempDir: string) {
+	const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
+	sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
+	sessionManager.setSessionSandboxProfile("workspace-write");
+	const settingsManager = SettingsManager.inMemory({ sandboxProfile: "full-access" });
+	settingsManager.setSessionSandboxProfile("workspace-write");
+	const runner = new ExtensionRunner(
+		[],
+		createExtensionRuntime(),
+		tempDir,
+		sessionManager,
+		ModelRegistry.create(AuthStorage.create(join(tempDir, "auth.json"))),
+		settingsManager,
+	);
+	const setStatus = vi.fn();
+	runner.setUIContext({ ...runner.getUIContext(), setStatus, theme }, "tui");
+	return { sessionManager, settingsManager, runner, setStatus };
+}
+
+function driveSandboxSelector(fixture: ReturnType<typeof createStatusFixture>, profile: StatusProfile): void {
+	const uiContext = {
+		settingsManager: fixture.settingsManager,
+		session: { extensionRunner: fixture.runner },
+		setExtensionStatus: fixture.setStatus,
+		updateBwrapStatusForSandboxProfile: Reflect.get(InteractiveMode.prototype, "updateBwrapStatusForSandboxProfile"),
+		showStatus: () => {},
+		showSelector: (factory: (done: () => void) => { component: SandboxSelectorComponent }) => {
+			const { component } = factory(() => {});
+			component.handleInput("\t");
+			component.handleInput("\t");
+			component.handleInput("k");
+			component.handleInput("k");
+			const steps = [undefined, "read-only", "workspace-write", "full-access"].indexOf(profile);
+			for (let step = 0; step < steps; step++) component.handleInput("j");
+			component.handleInput("\n");
+		},
+	};
+	Reflect.get(InteractiveMode.prototype, "showSandboxSelector").call(uiContext);
+}
+
+function setSandboxProfileThroughRoute(
+	fixture: ReturnType<typeof createStatusFixture>,
+	profile: StatusProfile,
+	route: "runner" | "selector",
+): void {
+	if (route === "runner") {
+		fixture.runner.createCommandContext().setSandboxProfile(profile, "session");
+		return;
+	}
+	driveSandboxSelector(fixture, profile);
+}
+
+describe.each(["runner", "selector"] as const)("sandbox status through %s", (route) => {
+	let tempDir: string;
+
+	beforeAll(() => initTheme("dark"));
+	beforeEach(() => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-sandbox-status-"));
+		setKeybindings(new KeybindingsManager());
+		vi.mocked(childProcess.spawnSync).mockClear();
+	});
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.mocked(childProcess.spawnSync).mockReset();
+		rmSync(tempDir, { recursive: true, force: true });
+	});
+
+	it.each([
+		{ platform: "darwin", profile: "read-only", color: "error", text: "bwrap unsupported on darwin" },
+		{ platform: "darwin", profile: "workspace-write", color: "error", text: "bwrap unsupported on darwin" },
+		{ platform: "darwin", profile: "full-access", color: "muted", text: "bwrap: full access" },
+		{ platform: "darwin", profile: undefined, color: "muted", text: "bwrap: full access" },
+		{ platform: "linux", profile: "read-only", color: "accent", text: "bwrap: read-only" },
+		{ platform: "linux", profile: "workspace-write", color: "accent", text: "bwrap: workspace-write" },
+		{ platform: "linux", profile: "full-access", color: "muted", text: "bwrap: full access" },
+		{ platform: "linux", profile: undefined, color: "muted", text: "bwrap: full access" },
+		{ platform: "linux", profile: "read-only", color: "error", text: "bwrap unavailable" },
+	] as const)(
+		"displays $text for $profile on $platform without changing the choice",
+		({ platform, profile, color, text }) => {
+			vi.stubGlobal("process", Object.create(process, { platform: { value: platform } }));
+			vi.mocked(childProcess.spawnSync).mockReturnValue({
+				status: text === "bwrap unavailable" ? 1 : 0,
+				stdout: Buffer.alloc(0),
+				stderr: Buffer.alloc(0),
+				pid: 1,
+				output: [null, Buffer.alloc(0), Buffer.alloc(0)],
+				signal: null,
+			});
+			const fixture = createStatusFixture(tempDir);
+			const { sessionManager, settingsManager, setStatus } = fixture;
+			setSandboxProfileThroughRoute(fixture, profile, route);
+			const runnerOnlyMissingBwrap = route === "runner" && text === "bwrap unavailable";
+			const expectedStatus = runnerOnlyMissingBwrap ? theme.fg("accent", "bwrap: read-only") : theme.fg(color, text);
+			expect(setStatus).toHaveBeenLastCalledWith("bwrap", expectedStatus);
+			expect(settingsManager.getSessionSandboxProfile()).toBe(profile);
+			expect(settingsManager.getExplicitSandboxProfile()).toBe(profile ?? "full-access");
+			expect(sessionManager.readPersistedSessionSettings()?.sandboxProfile).toBe(profile);
+			const isProtectedProfile = profile === "read-only" || profile === "workspace-write";
+			const requiresLinuxProbe = platform === "linux" && isProtectedProfile;
+			const probes = route === "selector" && requiresLinuxProbe ? 1 : 0;
+			expect(childProcess.spawnSync).toHaveBeenCalledTimes(probes);
+		},
+	);
+});
 
 describe("session sandbox profile control state", () => {
 	let tempDir: string;

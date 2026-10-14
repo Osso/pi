@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
-import { closeSync, constants, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fsyncSync, openSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Writable } from "node:stream";
-import { readProcessIdentity } from "./runtime-process.ts";
+import { readProcessGroupId, readProcessIdentity } from "./runtime-process.ts";
 
 const PAYLOAD_GATE_SCRIPT = 'IFS= read -r _ <&3 || exit 125; exec "$@"';
 
@@ -71,7 +71,7 @@ function openSharedOutputFile(stdoutPath: string, stderrPath: string): number {
 function persistPayloadIdentity(path: string, pid: number): void {
 	const processIdentity = readProcessIdentity(pid);
 	const identity = {
-		pgid: readLinuxProcessGroupId(pid),
+		pgid: readProcessGroupId(pid),
 		...processIdentity,
 	};
 	const temporaryPath = `${path}.tmp`;
@@ -79,19 +79,6 @@ function persistPayloadIdentity(path: string, pid: number): void {
 	fsyncFile(temporaryPath);
 	renameSync(temporaryPath, path);
 	fsyncDirectory(dirname(path));
-}
-
-function readLinuxProcessGroupId(pid: number): number {
-	const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-	const commandEnd = stat.lastIndexOf(")");
-	if (commandEnd < 0) throw new Error(`Invalid /proc stat for detached payload ${pid}`);
-	const fields = stat
-		.slice(commandEnd + 2)
-		.trim()
-		.split(/\s+/);
-	const processGroupId = Number(fields[2]);
-	if (!Number.isSafeInteger(processGroupId)) throw new Error(`Invalid process group for detached payload ${pid}`);
-	return processGroupId;
 }
 
 function fsyncFile(path: string): void {

@@ -1,5 +1,5 @@
 import { setKeybindings } from "@earendil-works/pi-tui";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import { ApprovalSelectorComponent } from "../src/modes/interactive/components/approval-selector.ts";
 import { SandboxSelectorComponent } from "../src/modes/interactive/components/sandbox-selector.ts";
@@ -13,7 +13,10 @@ describe("approval and sandbox selectors", () => {
 
 	beforeEach(() => {
 		setKeybindings(new KeybindingsManager());
+		vi.stubGlobal("process", Object.create(process, { platform: { value: "linux" } }));
 	});
+
+	afterEach(() => vi.unstubAllGlobals());
 
 	it("renders approval presets with the active preset marked", () => {
 		const selector = new ApprovalSelectorComponent({
@@ -62,6 +65,23 @@ describe("approval and sandbox selectors", () => {
 		expect(output).toContain("Full Access");
 		expect(output).not.toContain("auto-approve");
 		expect(output).not.toContain("never");
+	});
+
+	it("marks sandbox-required profiles unsupported on Darwin without changing explicit selections", () => {
+		vi.stubGlobal("process", Object.create(process, { platform: { value: "darwin" } }));
+		const onSelect = vi.fn();
+		const selector = new SandboxSelectorComponent({
+			currentProfile: "read-only",
+			onCancel: () => {},
+			onSelect,
+		});
+		const output = stripAnsi(selector.render(140).join("\n"));
+		expect(output).toContain("Read Only (unsupported on darwin; Linux only) ✓");
+		expect(output).toContain("Default/Workspace Write (unsupported on darwin; Linux only)");
+		expect(output).toContain("Full Access");
+		expect(output).not.toContain("Full Access (unsupported");
+		selector.handleInput("\n");
+		expect(onSelect).toHaveBeenCalledWith({ profile: "read-only", scope: "global" });
 	});
 
 	it("selects a sandbox profile for global settings", () => {

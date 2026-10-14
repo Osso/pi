@@ -118,16 +118,25 @@ fi
 echo "==> Building binaries..."
 cd packages/coding-agent
 
-# Clean previous builds
-rm -rf "$OUTPUT_DIR"
-mkdir -p "$OUTPUT_DIR"/{darwin-arm64,darwin-x64,linux-x64,linux-arm64,windows-x64,windows-arm64}
-
 # Determine which platforms to build
 if [[ -n "$PLATFORM" ]]; then
     PLATFORMS=("$PLATFORM")
 else
     PLATFORMS=(darwin-arm64 darwin-x64 linux-x64 linux-arm64 windows-x64 windows-arm64)
 fi
+
+# Reject missing cross-Mac assets before compiling binaries or replacing output.
+node native/darwin/build.mjs check "${PLATFORMS[@]}"
+for platform in "${PLATFORMS[@]}"; do
+    if [[ "$platform" == darwin-* && ! -f "../tui/native/darwin/prebuilds/$platform/darwin-modifiers.node" ]]; then
+        echo "Missing Darwin terminal prebuild: $platform/darwin-modifiers.node" >&2
+        exit 1
+    fi
+done
+
+# Clean previous builds only after native asset preflight succeeds.
+rm -rf "$OUTPUT_DIR"
+mkdir -p "$OUTPUT_DIR"/{darwin-arm64,darwin-x64,linux-x64,linux-arm64,windows-x64,windows-arm64}
 
 for platform in "${PLATFORMS[@]}"; do
     echo "Building for $platform..."
@@ -182,10 +191,11 @@ for platform in "${PLATFORMS[@]}"; do
     cp -r ../../node_modules/@mariozechner/clipboard "$OUTPUT_DIR/$platform/node_modules/@mariozechner/"
     cp -r ../../node_modules/@mariozechner/$clipboard_native_package "$OUTPUT_DIR/$platform/node_modules/@mariozechner/"
 
-    # Copy terminal input native helpers next to compiled binaries.
+    # Copy native helpers at their package-root loader paths.
     if [[ "$platform" == darwin-* ]]; then
         mkdir -p "$OUTPUT_DIR/$platform/native/darwin/prebuilds/$platform"
         cp ../tui/native/darwin/prebuilds/$platform/darwin-modifiers.node "$OUTPUT_DIR/$platform/native/darwin/prebuilds/$platform/"
+        node native/darwin/build.mjs copy "$platform" "$OUTPUT_DIR/$platform"
     fi
     if [[ "$platform" == windows-* ]]; then
         if [[ "$platform" == "windows-arm64" ]]; then
