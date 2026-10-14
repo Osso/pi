@@ -43,8 +43,13 @@ describe("runtime process identity", () => {
 			helper.stdin.write("EXIT\n");
 			const zombie = await lines.next();
 			expect(zombie.value).toBe("ZOMBIE");
-			// The unreaped PID must still exist with the same creation marker.
-			expect(readProcessIdentity(childPid)).toEqual(identity);
+			if (process.platform === "linux") {
+				// procfs keeps the unreaped PID's creation marker readable.
+				expect(readProcessIdentity(childPid)).toEqual(identity);
+			} else {
+				// XNU proc_pidinfo excludes zombies, so inspection reports absence.
+				expect(() => readProcessIdentity(childPid)).toThrow(expect.objectContaining({ code: "ESRCH" }));
+			}
 			expect(isProcessIdentityAlive(identity)).toBe(false);
 		} finally {
 			helper.stdin.end("EXIT\nREAP\n");
