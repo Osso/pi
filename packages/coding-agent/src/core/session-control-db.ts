@@ -2590,17 +2590,50 @@ export function listSubagentSessionPaths(controlDbPath: string, parentSessionPat
 	);
 }
 
+/** Lists unique transitive child agent paths, excluding both aliases of the root. */
+export function listDescendantSessionPaths(controlDbPath: string, parentPath: string): string[] {
+	const plainPath = parentPath.endsWith(".zst") ? parentPath.slice(0, -".zst".length) : parentPath;
+	return withControlDb(controlDbPath, (db) =>
+		(
+			db
+				.prepare(
+					`WITH RECURSIVE descendants(session_path) AS (
+						SELECT session_path FROM session_metadata
+						WHERE is_subagent = 1 AND parent_session_path IN (?, ?)
+						UNION
+						SELECT child.session_path
+						FROM descendants AS parent JOIN session_metadata AS child
+						ON child.parent_session_path IN (
+							CASE WHEN substr(parent.session_path, -4) = '.zst'
+								THEN substr(parent.session_path, 1, length(parent.session_path) - 4)
+								ELSE parent.session_path END,
+							CASE WHEN substr(parent.session_path, -4) = '.zst'
+								THEN parent.session_path ELSE parent.session_path || '.zst' END
+						)
+						WHERE child.is_subagent = 1
+					)
+					SELECT session_path FROM descendants WHERE session_path NOT IN (?, ?)`,
+				)
+				.all(plainPath, `${plainPath}.zst`, plainPath, `${plainPath}.zst`) as Array<{ session_path: string }>
+		).map((row) => row.session_path),
+	);
+}
+
 export function removeSessionMetadata(controlDbPath: string, sessionPath: string): void {
+	removeSessionsMetadata(controlDbPath, [sessionPath]);
+}
+
+export function removeSessionsMetadata(controlDbPath: string, paths: readonly string[]): void {
+	if (paths.length === 0) return;
 	withControlDb(controlDbPath, (db) => {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			db.prepare("DELETE FROM session_sandbox_profiles WHERE session_path = ?").run(sessionPath);
-			db.prepare("DELETE FROM session_metadata WHERE session_path = ?").run(sessionPath);
-			db.exec("COMMIT");
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		withImmediateTransaction(db, () => {
+			const removeSandboxProfile = db.prepare("DELETE FROM session_sandbox_profiles WHERE session_path = ?");
+			const removeMetadata = db.prepare("DELETE FROM session_metadata WHERE session_path = ?");
+			for (const path of paths) {
+				removeSandboxProfile.run(path);
+				removeMetadata.run(path);
+			}
+		});
 	});
 }
 
@@ -6864,6 +6897,9 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 	migrateLegacyMultiAgentPayloads(db, selfRestartProcessId);
 	addMissingSessionMetadataColumns(db);
 	db.exec(`
+		CREATE INDEX IF NOT EXISTS session_metadata_parent_session_path_idx
+		ON session_metadata(parent_session_path);
+
 		CREATE INDEX IF NOT EXISTS session_metadata_empty_main_idx
 		ON session_metadata(id, session_path)
 		WHERE archived_at IS NULL AND is_subagent = 0 AND message_count = 0;
@@ -7464,6 +7500,9 @@ function addMissingSessionMetadataColumns(db: SqliteDatabase): void {
 	);
 	if (!columns.has("name")) {
 		db.exec("ALTER TABLE session_metadata ADD COLUMN name TEXT");
+	}
+	if (!columns.has("parent_session_path")) {
+		db.exec("ALTER TABLE session_metadata ADD COLUMN parent_session_path TEXT");
 	}
 	if (!columns.has("archived_at")) {
 		db.exec("ALTER TABLE session_metadata ADD COLUMN archived_at TEXT");
