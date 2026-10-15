@@ -9,6 +9,7 @@
 ### Changed
 
 - Added optional `UserMessage.inputSource` metadata so clients can distinguish interactive, RPC, and extension-origin prompts.
+- Changed `npm run build` to compile the committed model catalogs without fetching provider APIs; refresh them manually with `npm run generate-models` and `npm run generate-image-models`. Builds no longer depend on live catalog drift.
 - Removed `azure-openai-responses` from the built-in provider/catalog entries. Its API implementation remains available to explicitly configured custom providers via `api: "azure-openai-responses"`.
 
 ### Fixed
