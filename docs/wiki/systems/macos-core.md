@@ -1,6 +1,6 @@
 # Native macOS core implementation
 
-Contract: [Native macOS core](../../specs/macos-core.md). Snapshot: 2026-10-14. Native evidence: Osso/pi Actions run `38651327008`, revision `bcaee48e5`, workflow `.github/workflows/macos-core.yml`; `macos-15` arm64 passed in 2m51s and `macos-15-intel` x64 in 6m41s. Release execution and native deployment rollback remain unproven.
+Contract: [Native macOS core](../../specs/macos-core.md). Snapshot: 2026-10-14. Native evidence: Osso/pi Actions run `38651327008`, revision `bcaee48e5`, workflow `.github/workflows/macos-core.yml`; `macos-15` arm64 passed in 2m51s and `macos-15-intel` x64 in 6m41s. Run `38658162451` at `d6635a884` repeated all results through the standard `npm run build`. Release execution and native deployment rollback remain unproven.
 
 ## Process representation
 
@@ -41,7 +41,7 @@ Native identity/bootstrap passed 5/5 per architecture, including the explicit Bu
 
 Production `ensureSupervisorRunning` with isolated inert Sol auth started, concurrently reused, and exited one resident per runtime on each architecture; zero fetch/WebSocket requests. Runtime scenarios use offline faux-provider control; dependency installation is not offline.
 
-Native-run fixes: `TMPDIR=/tmp` avoids Darwin fixture socket paths reaching 112 bytes beyond the 104-byte `sun_path` limit; provider buffering is per connection so a crashed process's partial line cannot corrupt a replacement request under macOS 8 KiB chunks (`headless-provider-server.test.ts` supplies Linux regression proof). Validation compiles committed model catalogs because live regeneration encountered upstream type drift. Release still regenerates: this pre-existing risk is unchanged.
+Native-run fixes: `TMPDIR=/tmp` avoids Darwin fixture socket paths reaching 112 bytes beyond the 104-byte `sun_path` limit; provider buffering is per connection so a crashed process's partial line cannot corrupt a replacement request under macOS 8 KiB chunks (`headless-provider-server.test.ts` supplies Linux regression proof). `npm run build` compiles committed model catalogs and no longer fetches provider APIs (regeneration is manual), so validation and release builds no longer depend on live catalog drift; native CI asserts the build leaves `packages/ai/src` unchanged.
 
 `build-binaries.yml` calls native validation at the release source ref before binary builds. Binary build and npm publication jobs download `macos-native-*` artifacts into `packages` with merged contents, restoring both architectures' process and Tui assets at package-root loader paths. This is configured handoff, not proof of a completed release or publication.
 

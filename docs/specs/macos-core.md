@@ -64,7 +64,7 @@ Unchecked items retain acceptance gaps: release gating is wired and merged nativ
 - [x] Execute native CI: `.github/workflows/macos-core.yml`, Osso/pi run `38651327008`, revision `bcaee48e5`; `macos-15` arm64 succeeded in 2m51s, `macos-15-intel` x64 in 6m41s. Real SDK builds, Node/Bun loading, installed Node tarballs and host Bun `--help`/`--version`, and live-child restart passed.
 - [x] Execute offline persisted-goal/restart and production resident-autostart scenarios under Node and Bun on both architectures.
 - [x] Complete Linux real-process restart/live-child rerun; two selected scenarios passed.
-- [x] Run final integrated `npm run check` after publication/status changes and test readability fixes; exit 0, 1,199 files, no fixes. Native CI validates committed model catalogs; release regeneration retains an unchanged upstream-drift type-check risk.
+- [x] Run final integrated `npm run check` after publication/status changes and test readability fixes; exit 0, 1,199 files, no fixes. `npm run build` compiles committed model catalogs without regeneration; run `38658162451` at `d6635a884` passed both architectures through the standard build.
 
 ## Out of scope
 
