@@ -82,10 +82,10 @@ it.each(["attached", "spawned"] as const)(
 			const recovered = agent.listAgents().find((candidate) => candidate.id === child.id);
 			expect(recovered, JSON.stringify(recovered)).toMatchObject({
 				id: child.id,
-				parentId: child.parentId,
 				lifecycle: "running",
 				transcript,
 			});
+			expect(recovered?.parentId).toBe(child.parentId);
 			expect(recovered?.error).toBeUndefined();
 			const restoredChild = await agent.waitForLlmRequest((request) => request.sessionId === childSessionId);
 			expect(restoredChild.agentId).toBe(child.id);
