@@ -40,6 +40,7 @@ Type `/` in the editor to open command completion. Extensions can register custo
 | `/scoped-models` | Enable/disable models for Ctrl+P cycling |
 | `/settings` | Thinking level, theme, message delivery, transport |
 | `/usage [reset]` | Account quota for the current Codex provider or `claude-bridge`; reset credits are Codex-only |
+| `/usage all` | Consolidated Codex provider and Claude account usage, regardless of the current model |
 | `/sandbox [<profile> <scope>]` | Select or set `read-only`, `workspace-write`, `full-access`, or session `inherit` for `session`, `project`, or `global` scope |
 | `/effort [level]` | Choose a supported thinking level (`max`/`ultra` when advertised), or set one directly |
 | `/multi-agent [proactive|explicit]` | Set delegation policy; defaults to proactive and persists in the session branch |
@@ -69,6 +70,8 @@ Type `/` in the editor to open command completion. Extensions can register custo
 When a running subagent is selected with `/agents`, `/model`, its selector, and Ctrl+P model cycling change that child session only. The footer updates immediately with the child's model and thinking level. Model and thinking changes persist to the selected session; they never rewrite `settings.json` defaults.
 
 `/usage` routes to the current provider: Codex models use their selected Codex provider account; `claude-bridge` delegates to the bridge through `claude-bridge:usage-request` and reports the currently selected Claude account's subscription windows and reset times without switching accounts. Other providers use the default `openai-codex` account. Claude requires the bridge usage handler; `/usage reset` is unsupported for Claude.
+
+`/usage all` shows every Codex provider and Claude bridge account in one report, with usage windows and reset times. The active Codex provider and selected Claude account are marked (`*` for Claude); logged-out providers, unavailable data, and account errors remain visible. Claude reporting requires the bridge. The command does not switch accounts or models; provider IDs and matching emails do not establish whether quotas are separate. See the [consolidated usage spec](../../../docs/specs/consolidated-usage-view.md).
 
 Codex `/usage` and `/usage reset` reports, including no-reset-credits results, show the full report immediately in a UI notification when the session is busy, including during `Waiting for tool`. The custom report is also retained for the next turn (`deliverAs: "nextTurn"`), without steering or interrupting active work. Idle sessions keep the existing custom-report display. Claude bridge reporting is unchanged.
 
