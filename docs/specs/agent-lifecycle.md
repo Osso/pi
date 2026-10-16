@@ -207,13 +207,16 @@ SQLite connection access control and arbitrary same-UID raw SQL are outside this
 
 ### Restore, restart reconstruction, and recovery (derived liveness)
 
-Parent-session JSONL custom records are authoritative for restart reconstruction. `agent_start` is
-appended after the child agent's `running` lifecycle commits but before dispatch begins and records the
-agent and transcript identity. Append failure disposes the unstarted child and compensates the durable row
-to `failed/parent_journal_failed`. `agent_complete` is appended only after a committed `completed`, `failed`, or `aborted`
-lifecycle. Unmatched `agent_start` records identify restart candidates; a matching `agent_complete`
-record prevents recovery. The control DB remains the source of lifecycle and ownership state, but it is
-not sufficient alone for restart admission. There is no compatibility fallback.
+Control-DB lifecycle and exact ownership rows, scoped to the current supervisor session path, are
+restart authority. Recovery validates the persisted child transcript file and its session header against
+the recorded transcript identity before reacquiring ownership and dispatching the same child. Missing
+or mismatched transcripts fail explicitly; recovery never creates a blank replacement. Forked supervisor
+session paths must not inherit the source session's agents or ownership.
+
+Production must not write parent-session `agent_start`/`agent_complete` journal records or use their
+presence or absence for recovery admission, terminalization, or compaction repair. Historical records
+remain readable by the lifecycle trace as audit evidence only. This deliberate contract change is
+approved; attached/resumed-child restart verification remains pending (see Known gaps).
 
 Shutdown ordering is strict. The runtime first stops accepting orchestration work, then invalidates
 the local dispatch generation so late callbacks cannot publish into a rebound store. It locally aborts
@@ -241,14 +244,13 @@ directory is a launch failure, never reusable state. This prevents sessions shar
 folder from reading stale manifests or output belonging to another supervisor.
 
 - [x] Session startup completes runtime-listener registration before emitting `session_start`; a registration failure aborts startup without emitting that event. Concurrent startup peers serialize through the detached-runtime recovery transaction so only one can commit terminal state. Exact live-runner identity prevents recovery while the recorded runner is live; PID reuse with different start ticks proves the recorded identity is dead.
-- [x] Restore never rewrites lifecycle state directly: it clears stale worker handles from active agents,
-      and persisted metadata is never proof of liveness. Restart admission still requires an unmatched
-      parent-session JSONL `agent_start`; control-DB state alone cannot admit recovery. Startup submits
-      dead-owned active rows without journal admission through coordinator lost-runtime terminalization,
-      while rows whose exact persisted owner is still live remain untouched.
-- [x] The session's supervisor binding registers the current lifecycle mailbox listener, refreshes canonical runtime
-      bindings after that registration, and reconciles only orphaned active rows identified by unmatched
-      parent-session JSONL `agent_start` records through coordinator recovery commands,
+- [ ] Restore clears stale worker handles without directly rewriting lifecycle. Recovery admission uses
+      session-path-scoped control-DB lifecycle and ownership plus validated transcript file/header identity,
+      never parent-journal membership. Exact live owners remain untouched; missing journal records alone
+      cannot justify `lost_runtime`. Forked supervisor paths cannot recover source-session children.
+- [ ] The session's supervisor binding registers the current lifecycle mailbox listener, refreshes canonical runtime
+      bindings after that registration, and reconciles eligible orphaned active control-DB rows for its
+      asserted session path through coordinator recovery commands,
       deepest descendants first so parent graph guards cannot strand an earlier parent row. Startup also globally scans
       detached `running` and `cancelling` rows across persisted sessions, but only settles a row when the exact recorded
       runner identity is dead, matches the persisted runtime worker handle, has no active descendant, still matches the exact
@@ -273,11 +275,10 @@ folder from reading stale manifests or output belonging to another supervisor.
       current-live, and uncertain process-backed rows follow their explicit recovery policy.
 - [x] Agents already `waiting_for_input` are idle and are not auto-prompted after restore; they resume
       only when a new prompt or mailbox message arrives.
-- [x] Any agent identified by an unmatched parent-session JSONL `agent_start` record with a valid
-      transcript identity is resumed through the same session dispatch path; the `origin` field records
-      construction provenance and does not select runtime behavior. A matching `agent_complete` record
-      prevents recovery, and `cancelling` agents resolve through dead-owner recovery without restarting
-      a prompt.
+- [ ] Eligible spawned and attached/resumed agents with validated transcript file/header identity resume
+      through the same session dispatch path from control-DB lifecycle and ownership. `origin` records
+      construction provenance only. Terminal DB rows prevent recovery; `cancelling` agents resolve through
+      dead-owner recovery without restarting a prompt. Historical journal records cannot override DB state.
 - [x] Reattaching a runtime to a detached `running` agent is not a lifecycle transition: the agent stays
       `running` while the dispatch and handle are re-established under the new process identity.
 - [x] A detached in-flight agent whose runner died before terminal commit is marked `failed/lost_runtime`
@@ -334,6 +335,11 @@ folder from reading stale manifests or output belonging to another supervisor.
   asserts one terminal outbox row and idempotent replay.
 
 ## Known gaps (current cycle)
+
+- [ ] `95c4f552e` adds `test/suite/regressions/restart-attached-agent.test.ts`: reported attached-child
+      restart result is RED (`lost_runtime`), while the spawned control is GREEN. Control-DB-only recovery,
+      transcript validation, fork isolation, and removal of production journal writes require code-owner
+      proof; this documentation update does not establish a passing or deployed runtime fix.
 
 - [ ] Add `interrupted`: persisted state for agents deliberately paused by the user — a policy
       difference (never auto-restarted) that cannot be derived, unlike crash detachment.

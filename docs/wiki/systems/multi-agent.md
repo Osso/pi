@@ -42,7 +42,8 @@ tools and do not mutate agent lifecycle by themselves. With a persisted `storeSe
 `trace: true`, it also reads the current runtime-owner row plus a timestamp-ordered diagnostic timeline
 from the selected agent snapshot, descendant admissions and current snapshots, terminal outbox for that
 agent tree, successful child `end_turn` results, and matching parent `agent_start`/`agent_complete` records.
-The trace reports missing evidence as absent and never mutates or repairs lifecycle state.
+The trace reports missing evidence as absent and never mutates or repairs lifecycle state. Historical
+parent-journal rows are audit evidence only, never restart authority; this read-only trace API remains supported.
 Higher-level workflow extensions must invoke the registered agent tools or Pyrun request handler;
 they cannot create dormant agent rows or call store lifecycle mutators. Coordinator child creation
 inherits parent model/account budget metadata and rejects permission broadening.
@@ -82,21 +83,14 @@ those tools as a second boundary.
 
 At supervisor start, there are no persisted `queued` or `starting` startup rows. Child construction
 happens first; successful construction persists `running` revision 1, while interruption or failure
-persists `failed` revision 1. After the `running` commit, the parent session appends an `agent_start`
-custom JSONL record containing the agent ID and child transcript identity. A committed `completed`,
-`failed`, or `aborted` transition appends the matching `agent_complete` record. When session-manager
-context and a child transcript path are present, unmatched starts admit restart candidates and matching
-completions prevent journal admission. Control-DB lifecycle and ownership rows remain required.
-`recoverAgents` skips journal-membership filtering when either context or transcript path is absent;
-see [lifecycle qualifications](agent-lifecycle.md#limits-and-evidence). This is not proof that ordinary
-startup omits those identities or that transcript-less jobs resume as child sessions. After parent-session
-compaction, active child admissions are refreshed with `agent_start` records so the active branch retains
-restart visibility. For a legacy compacted session whose active branch lacks an admission, startup checks the
-full parent JSONL and restores an unmatched `agent_start` before child recovery. This repairs journal admission
-only; lifecycle, ownership, and transcript identity remain authoritative. Journal repair restores only
-unmatched starts found in the parent transcript; it does not synthesize journal records from control-DB rows.
-Detached Bash and Pyrun jobs retain their separate tool-call JSONL and runner
-recovery contract and do not use these child-agent records. After the one registered supervisor binding
+persists `failed` revision 1. The approved restart contract selects candidates from control-DB lifecycle
+and exact ownership rows for the current supervisor session path, validating each child transcript file
+and session header against its persisted identity before dispatch. Spawned and attached/resumed children
+use the same admission rule; forks at a new supervisor path do not inherit source-session agents.
+Production must neither append `agent_start`/`agent_complete` parent-journal records nor filter or repair
+recovery admissions through them, including after compaction. Historical records remain trace evidence only.
+Detached Bash and Pyrun jobs retain their separate tool-call JSONL and runner recovery contract.
+Implementation and proof status: [lifecycle qualifications](agent-lifecycle.md#limits-and-evidence). After the one registered supervisor binding
 for the session path registers, that supervisor reconstructs eligible active children through coordinator
 recovery commands while preserving agent and transcript identity.
 Runtime ownership is the exact Linux process identity `(pid, /proc/<pid>/stat startTimeTicks)`; recovery
@@ -427,11 +421,10 @@ path.
 ### Persistence
 
 Persisted lifecycle, ownership, agent, and mailbox state lives in control-DB rows keyed by session path.
-The parent session JSONL additionally carries `agent_start` and `agent_complete` custom records as the
-restart-admission journal for transcript-backed child agents. These records do not replace control-DB
-lifecycle truth: with session-manager context and a child transcript path, recovery admission requires
-an unmatched start alongside valid persisted agent/transcript identity. The conditional filtering exceptions
-are described under [runtime ownership and recovery](#runtime-ownership-and-recovery).
+The approved contract uses only control-DB lifecycle and ownership for restart authority, with child
+transcript file/header validation as a dispatch prerequisite. Parent-session journal records are neither
+required nor authoritative, and production journal writes and compaction admission repair must be removed.
+Historical rows remain available to the read-only lifecycle trace.
 Runtime mailbox transport rows reference stored mailbox messages by
 `(store_session_path, store_message_id)` instead of copying bodies; payload bodies and absolute `fileRefs`
 resolve from `multi_agent_mailbox_messages`.
@@ -442,11 +435,11 @@ are dropped so relocation cannot resurrect stale state or reuse IDs. Mailbox mes
 only when stored and incoming identities are complete and their sender, recipient, kind, thread, and
 message ID identity match; incomplete or conflicting reuse fails without overwriting the existing row.
 
-With session-manager context present, runtime handles for transcript-backed children are reconstructed
-only for unmatched parent JSONL starts.
-Restart preserves the same agent and transcript identity, then reacquires exact process ownership before
-resuming the child transcript. A matching completion record prevents reconstruction. Missing or mismatched
-transcript identity commits explicit failure; recovery never invents success from a missing handle.
+Recovery must reconstruct eligible transcript-backed children from the current session path's DB rows,
+preserve agent and transcript identity, and reacquire exact process ownership before dispatch. Terminal DB
+state prevents reconstruction, regardless of historical journal rows. Missing or mismatched transcript
+file/header identity fails explicitly; recovery never invents success or a blank session from a missing handle.
+Attached-child restart proof remains pending; see [lifecycle evidence](agent-lifecycle.md#limits-and-evidence).
 
 ## Extension audit
 
