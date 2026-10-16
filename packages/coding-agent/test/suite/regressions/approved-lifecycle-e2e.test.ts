@@ -341,7 +341,7 @@ describe("approved multi-agent lifecycle e2e", () => {
 		]);
 	});
 
-	it("resumes persisted running work with no local runtime on session_start", async () => {
+	it("resumes DB-only persisted running work with no local runtime or parent journal on session_start", async () => {
 		const prompts: string[] = [];
 		const createAttachedSession: AttachedSessionFactory = async ({ agent, sessionPath }) => ({
 			messages: [fauxAssistantMessage("resumed complete")],
@@ -371,22 +371,15 @@ describe("approved multi-agent lifecycle e2e", () => {
 		expect(created.ok).toBe(true);
 		if (!created.ok) throw new Error("expected persisted running agent");
 		fixture.store.publishLifecycleCoordinatorSnapshot(created.agent);
-		fixture.harness.session.sessionManager.appendCustomEntry("agent_start", {
-			agentId: created.agent.id,
-			childSessionId: created.agent.transcript?.sessionId,
-			lifecycle: "running",
-			transcriptPath: created.agent.transcript?.path,
-		});
 		expect(
-			fixture.harness.session.sessionManager
+			fixture.harness.sessionManager
 				.getEntries()
-				.some(
+				.filter(
 					(entry) =>
 						entry.type === "custom" &&
-						entry.customType === "agent_start" &&
-						(entry.data as { agentId?: string } | undefined)?.agentId === created.agent.id,
+						(entry.customType === "agent_start" || entry.customType === "agent_complete"),
 				),
-		).toBe(true);
+		).toEqual([]);
 		fixture.store.restoreFromSessionManager(fixture.harness.sessionManager);
 		expect(fixture.runtimeHandles.sessions).toEqual(new Map());
 		expect(fixture.store.getAgent(created.agent.id)).toMatchObject({ lifecycle: "running" });
@@ -397,5 +390,17 @@ describe("approved multi-agent lifecycle e2e", () => {
 			"persisted running agent to resume",
 		);
 		expect(prompts).toEqual([expect.stringContaining("Continue the conversation")]);
+		expect(fixture.store.listAgents()).toMatchObject([
+			{ id: created.agent.id, lifecycle: "completed", transcript: created.agent.transcript },
+		]);
+		expect(
+			fixture.harness.sessionManager
+				.getEntries()
+				.filter(
+					(entry) =>
+						entry.type === "custom" &&
+						(entry.customType === "agent_start" || entry.customType === "agent_complete"),
+				),
+		).toEqual([]);
 	});
 });

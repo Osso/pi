@@ -1,4 +1,4 @@
-import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { unlinkSync } from "node:fs";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -75,88 +75,21 @@ async function waitForGoalIdleReviewRequest(pi: HeadlessPi): Promise<void> {
 	await vi.waitFor(() => expect(pi.countSupervisorRequests("goal_idle_review")).toBe(1));
 }
 
-interface ParentAgentRecord {
-	type: "custom";
-	customType: "agent_start" | "agent_complete";
-	data?: {
-		agentId?: string;
-		childSessionId?: string;
-		lifecycle?: string;
-		transcriptPath?: string;
-	};
-}
-
-interface SessionLineRecord extends Record<string, unknown> {
-	id?: string;
-	parentId?: string | null;
-	type?: string;
-	customType?: string;
-	data?: { agentId?: string };
-}
-
-function readParentAgentRecord(
-	sessionFile: string,
-	customType: ParentAgentRecord["customType"],
-	agentId: string,
-): ParentAgentRecord | undefined {
-	return readFileSync(sessionFile, "utf8")
-		.trimEnd()
-		.split("\n")
-		.map((line) => JSON.parse(line) as unknown)
-		.find(
-			(entry): entry is ParentAgentRecord =>
-				typeof entry === "object" &&
-				entry !== null &&
-				"type" in entry &&
-				entry.type === "custom" &&
-				"customType" in entry &&
-				entry.customType === customType &&
-				"data" in entry &&
-				typeof entry.data === "object" &&
-				entry.data !== null &&
-				"agentId" in entry.data &&
-				entry.data.agentId === agentId,
-		);
-}
-
-function removeParentAgentRecords(sessionFile: string, agentId: string): void {
-	const entries = readFileSync(sessionFile, "utf8")
-		.trimEnd()
-		.split("\n")
-		.map((line) => JSON.parse(line) as SessionLineRecord);
-	const removedParents = new Map<string, string | null>();
-	for (const entry of entries) {
-		if (entry.type === "custom" && entry.data?.agentId === agentId && entry.id) {
-			removedParents.set(entry.id, entry.parentId ?? null);
-		}
+function expectNoAgentJournal(pi: HeadlessPi, agentId: string): void {
+	for (const sessionAgentId of [null, agentId]) {
+		expect(
+			pi
+				.readSessionEntries(sessionAgentId)
+				.filter(
+					(entry) =>
+						entry.type === "custom" &&
+						(entry.customType === "agent_start" || entry.customType === "agent_complete"),
+				),
+		).toEqual([]);
 	}
-	const retained = entries
-		.filter((entry) => !(entry.type === "custom" && entry.data?.agentId === agentId))
-		.map((entry) => {
-			let parentId = entry.parentId;
-			while (typeof parentId === "string" && removedParents.has(parentId)) {
-				parentId = removedParents.get(parentId) ?? null;
-			}
-			return parentId === entry.parentId ? entry : { ...entry, parentId };
-		});
-	writeFileSync(sessionFile, `${retained.map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf8");
 }
 
-async function waitForParentAgentRecord(
-	sessionFile: string,
-	customType: ParentAgentRecord["customType"],
-	agentId: string,
-): Promise<ParentAgentRecord> {
-	const deadline = Date.now() + 10_000;
-	while (Date.now() < deadline) {
-		const record = readParentAgentRecord(sessionFile, customType, agentId);
-		if (record) return record;
-		await new Promise((resolve) => setTimeout(resolve, 20));
-	}
-	throw new Error(`Timed out waiting for ${customType} record for ${agentId} in ${sessionFile}`);
-}
-
-describe("sub-agent parent JSONL restart recovery", () => {
+describe("sub-agent ControlDB restart recovery", () => {
 	it("keeps a spawned child visible and its listener alive through completion report routing", async () => {
 		await withHeadlessPi(async (pi) => {
 			await pi.send({ type: "prompt", message: "Spawn a child and inspect it immediately" });
@@ -405,7 +338,7 @@ describe("sub-agent parent JSONL restart recovery", () => {
 		});
 	});
 
-	it("reconstructs the same child from parent start and completion records after a supervisor crash", async () => {
+	it("restores the same DB child and completes once without journal writes after a supervisor crash", async () => {
 		await withHeadlessPi(async (pi) => {
 			await pi.send({ type: "prompt", message: "Start a reviewer that survives restart" });
 			const mainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
@@ -425,13 +358,7 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			const childSessionId = requireHeadlessAgentSessionId(spawned);
 			const transcriptPath = spawned.transcript?.path;
 			expect(transcriptPath).toBeDefined();
-			const startRecord = await waitForParentAgentRecord(pi.sessionFile, "agent_start", spawned.id);
-			expect(startRecord.data).toMatchObject({
-				agentId: spawned.id,
-				childSessionId,
-				lifecycle: "running",
-				transcriptPath,
-			});
+			expectNoAgentJournal(pi, spawned.id);
 
 			await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);
 			await pi.crash();
@@ -444,6 +371,7 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			const restored = pi.listAgents().find((agent) => agent.id === spawned.id);
 			expect(restored).toMatchObject({
 				id: spawned.id,
+				lifecycle: "running",
 				transcript: { sessionId: childSessionId, path: transcriptPath },
 			});
 
@@ -453,19 +381,16 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			pi.respondToLlmRequest(restoredRequest.id, fauxCompletedAssistantMessage("Recovered review complete"));
 			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "completed");
 
-			const completionRecord = await waitForParentAgentRecord(pi.sessionFile, "agent_complete", spawned.id);
-			expect(completionRecord.data).toMatchObject({
-				agentId: spawned.id,
-				childSessionId,
-				lifecycle: "completed",
-				transcriptPath,
-			});
+			expect(restoredRequest.userMessages).toContain("Review until Pi restarts");
+			await vi.waitFor(() => expect(pi.readTerminalOutboxStatuses(spawned.id)).toEqual(["delivered"]));
+			expect(pi.listAgents().filter((agent) => agent.id === spawned.id)).toHaveLength(1);
+			expectNoAgentJournal(pi, spawned.id);
 		});
 	});
 
-	it("fails a dead-owned child that has no parent restart journal record", async () => {
+	it("recovers a dead-owned DB child without any parent restart journal", async () => {
 		await withHeadlessPi(async (pi) => {
-			await pi.send({ type: "prompt", message: "Start a legacy unjournaled child" });
+			await pi.send({ type: "prompt", message: "Start a DB-only child" });
 			const mainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
 			pi.respondToLlmRequest(
 				mainRequest.id,
@@ -479,8 +404,8 @@ describe("sub-agent parent JSONL restart recovery", () => {
 				),
 			);
 			const spawned = await pi.waitForAgent((agent) => agent.displayName === "Unjournaled child");
-			await waitForParentAgentRecord(pi.sessionFile, "agent_start", spawned.id);
 			await pi.waitForLlmRequest((request) => request.agentId === spawned.id);
+			expectNoAgentJournal(pi, spawned.id);
 			await pi.waitForSessionEntry(
 				null,
 				(entry) =>
@@ -489,20 +414,22 @@ describe("sub-agent parent JSONL restart recovery", () => {
 					entry.message.toolName === "spawn_agent",
 			);
 			await pi.crash();
-			removeParentAgentRecords(pi.sessionFile, spawned.id);
 			await pi.restart();
 
-			const failed = await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "failed");
-			expect(failed.error).toMatchObject({ code: "lost_runtime" });
-			const recovered = await Promise.race([
-				pi.waitForLlmRequest((request) => request.agentId === spawned.id).then(() => true),
-				new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500)),
-			]);
-			expect(recovered).toBe(false);
+			const recovered = await pi.waitForLlmRequest((request) => request.agentId === spawned.id);
+			expect(recovered.sessionId).toBe(requireHeadlessAgentSessionId(spawned));
+			expect(recovered.userMessages).toContain("Wait for restart");
+			expect(pi.listAgents().find((agent) => agent.id === spawned.id)).toMatchObject({
+				lifecycle: "running",
+				transcript: spawned.transcript,
+			});
+			pi.respondToLlmRequest(recovered.id, fauxCompletedAssistantMessage("Unjournaled recovery complete"));
+			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "completed");
+			expectNoAgentJournal(pi, spawned.id);
 		});
 	});
 
-	it("records a failed child in the parent JSONL when restart reconstruction cannot open its transcript", async () => {
+	it("persists a failed DB child without journal writes when recovery cannot open its transcript", async () => {
 		await withHeadlessPi(async (pi) => {
 			await pi.send({ type: "prompt", message: "Start a child whose transcript will be lost" });
 			const mainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
@@ -524,13 +451,21 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			await pi.crash();
 			unlinkSync(transcriptPath);
 			await pi.restart();
-			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "failed");
-			const record = await waitForParentAgentRecord(pi.sessionFile, "agent_complete", spawned.id);
-			expect(record.data).toMatchObject({ agentId: spawned.id, lifecycle: "failed" });
+			const failed = await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "failed");
+			expect(failed.transcript).toEqual(spawned.transcript);
+			expect(
+				pi
+					.readSessionEntries(null)
+					.filter(
+						(entry) =>
+							entry.type === "custom" &&
+							(entry.customType === "agent_start" || entry.customType === "agent_complete"),
+					),
+			).toEqual([]);
 		});
 	});
 
-	it("records an aborted child in the parent JSONL", async () => {
+	it("persists an aborted DB child without journal writes", async () => {
 		await withHeadlessPi(async (pi) => {
 			await pi.send({ type: "prompt", message: "Start and cancel a child" });
 			const mainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
@@ -555,12 +490,11 @@ describe("sub-agent parent JSONL restart recovery", () => {
 				fauxAssistantMessage(fauxToolCall("close_agent", { agentId: spawned.id }), { stopReason: "toolUse" }),
 			);
 			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "aborted");
-			const record = await waitForParentAgentRecord(pi.sessionFile, "agent_complete", spawned.id);
-			expect(record.data).toMatchObject({ agentId: spawned.id, lifecycle: "aborted" });
+			expectNoAgentJournal(pi, spawned.id);
 		});
 	});
 
-	it("does not recover a child whose parent JSONL has a completion record", async () => {
+	it("does not resurrect a DB-terminal child after restart without journal records", async () => {
 		await withHeadlessPi(async (pi) => {
 			await pi.send({ type: "prompt", message: "Complete a child before restart" });
 			const mainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
@@ -579,7 +513,7 @@ describe("sub-agent parent JSONL restart recovery", () => {
 			const childRequest = await pi.waitForLlmRequest((request) => request.agentId === spawned.id);
 			pi.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Done before restart"));
 			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "completed");
-			await waitForParentAgentRecord(pi.sessionFile, "agent_complete", spawned.id);
+			expectNoAgentJournal(pi, spawned.id);
 
 			await pi.crash();
 			await pi.restart();
@@ -594,6 +528,8 @@ describe("sub-agent parent JSONL restart recovery", () => {
 				new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 500)),
 			]);
 			expect(recovered).toBe(false);
+			expect(pi.listAgents().find((agent) => agent.id === spawned.id)?.transcript).toEqual(spawned.transcript);
+			expectNoAgentJournal(pi, spawned.id);
 		});
 	});
 });

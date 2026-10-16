@@ -64,22 +64,6 @@ async function completeChildTextResponse(
 	);
 }
 
-function replaceLatestParentAgentStartWithLegacyMarker(pi: HeadlessPi, agentId: string): void {
-	const lines = readFileSync(pi.sessionFile, "utf8").trimEnd().split("\n");
-	const entries = lines.map(
-		(line) => JSON.parse(line) as { type?: string; customType?: string; data?: { agentId?: string } },
-	);
-	const startIndexes = entries.flatMap((entry, index) =>
-		entry.type === "custom" && entry.customType === "agent_start" && entry.data?.agentId === agentId ? [index] : [],
-	);
-	const latestStartIndex = startIndexes.at(-1);
-	if (latestStartIndex === undefined) throw new Error(`No parent agent_start record found for ${agentId}`);
-	const latestStart = entries[latestStartIndex];
-	if (!latestStart) throw new Error(`Parent agent_start record ${latestStartIndex} is missing`);
-	entries[latestStartIndex] = { ...latestStart, customType: "legacy_compacted_agent_start" };
-	writeFileSync(pi.sessionFile, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`, "utf8");
-}
-
 function waitForMainRequest(pi: HeadlessPi, timeoutMs?: number) {
 	return pi.waitForLlmRequest((request) => request.agentId === null, timeoutMs);
 }
@@ -107,13 +91,15 @@ function waitForSteeredChildRequest(pi: HeadlessPi, agentId: string) {
 	);
 }
 
-function expectOneActiveParentAgentStart(pi: HeadlessPi, agentId: string): void {
-	const activeStarts = pi.readSessionEntries(null).filter((entry) => {
-		if (entry.type !== "custom" || entry.customType !== "agent_start") return false;
-		const data = entry.data as { agentId?: unknown } | undefined;
-		return data?.agentId === agentId;
-	});
-	expect(activeStarts).toHaveLength(1);
+function expectNoParentAgentJournal(pi: HeadlessPi): void {
+	expect(
+		pi
+			.readSessionEntries(null)
+			.filter(
+				(entry) =>
+					entry.type === "custom" && (entry.customType === "agent_start" || entry.customType === "agent_complete"),
+			),
+	).toEqual([]);
 }
 
 function expectFailedToolResult(request: HeadlessLlmRequest, toolName: string, errorMessage: string): void {
@@ -296,7 +282,11 @@ it("recovers and cancels a compacted logical child after restart_self changes th
 		const compactionResponse = await compaction;
 		expect(compactionResponse).toMatchObject({ command: "compact", success: true });
 		await pi.waitForSessionEntry(null, (entry) => entry.type === "compaction");
-		replaceLatestParentAgentStartWithLegacyMarker(pi, child.id);
+		expectNoParentAgentJournal(pi);
+		expect(pi.listAgents().find((agent) => agent.id === child.id)).toMatchObject({
+			lifecycle: "running",
+			transcript: child.transcript,
+		});
 
 		await pi.send({ type: "prompt", message: "Queue steering for the compacted child" });
 		const steerRequest = await waitForMainRequest(pi);
@@ -327,7 +317,10 @@ it("recovers and cancels a compacted logical child after restart_self changes th
 			(entry) => entry.type === "custom_message" && entry.customType === "self_restart",
 		);
 		const restoredChildRequest = await waitForChildRequest(pi, child.id);
-		expectOneActiveParentAgentStart(pi, child.id);
+		expectNoParentAgentJournal(pi);
+		expect(restoredChildRequest.sessionId).toBe(requireHeadlessAgentSessionId(child));
+		expect(restoredChildRequest.userMessages).toContain("Remain live through restart");
+		expect(pi.listAgents().find((agent) => agent.id === child.id)?.transcript).toEqual(child.transcript);
 		const ownershipAfter = readMultiAgentRuntimeOwnership(controlDbPath, pi.sessionFile, child.id);
 		expect(ownershipAfter?.processIdentity).toMatchObject({
 			pid: ownershipBefore.processIdentity.pid,
@@ -367,5 +360,6 @@ it("recovers and cancels a compacted logical child after restart_self changes th
 		expect(serializedListResult).not.toContain(child.id);
 		const mainAfterList = await waitForMainRequest(pi);
 		await completeParentTurn(pi, mainAfterList.id, "Recovered cancellation and listing verified");
+		expectNoParentAgentJournal(pi);
 	});
 }, 30_000);
