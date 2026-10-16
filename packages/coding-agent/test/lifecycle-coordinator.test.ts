@@ -18,9 +18,10 @@ import { forceRuntimeOwnership } from "./helpers/runtime-ownership.ts";
 function createCoordinator(
 	controlDbPath: string,
 	sessionPath: string,
-	now: () => string = () => "2026-07-11T20:00:00.000Z",
+	now?: () => string,
 	createAgentId: () => string = () => "agent-child",
 ): LifecycleCoordinator {
+	const baseNow = new Date().toISOString();
 	registerRuntimeMailboxListener(
 		controlDbPath,
 		{ agentId: null, sessionId: "supervisor-session" },
@@ -31,7 +32,7 @@ function createCoordinator(
 	return new LifecycleCoordinator({
 		controlDbPath,
 		createAgentId,
-		now,
+		now: now ?? (() => baseNow),
 		processIdentity: CURRENT_PROCESS_IDENTITY,
 		sessionPath,
 	});

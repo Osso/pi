@@ -15,7 +15,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentSession } from "../src/core/agent-session.ts";
 import { type AgentSessionServices, createAgentSessionRuntime } from "../src/core/agent-session-runtime.ts";
 import { cleanupDetachedJobArtifacts } from "../src/core/detached-job-cleanup.ts";
@@ -32,6 +32,7 @@ import {
 } from "../src/core/session-control-db.ts";
 import { reopenSessionWithCwd } from "../src/core/session-cwd.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
+import { createSqliteDatabase } from "../src/core/sqlite.ts";
 import { deliverTerminalOutboxProjections } from "../src/core/terminal-outbox-delivery.ts";
 import {
 	createProductionAttachedSessionFactory,
@@ -39,10 +40,14 @@ import {
 } from "../src/extensions/multi-agent.ts";
 import { createTestExtensionsResult } from "./utilities.ts";
 
-const NOW = Date.parse("2026-07-23T18:00:00.000Z");
+let NOW: number;
 const ONE_GIB = 1024 ** 3;
 const temporaryDirectories = new Set<string>();
 const childProcesses = new Set<ChildProcess>();
+
+beforeEach(() => {
+	NOW = Date.now();
+});
 
 afterEach(async () => {
 	for (const child of childProcesses) {
@@ -173,6 +178,7 @@ async function createRuntimeResult(root: string) {
 		extensionsResult: await createTestExtensionsResult([], root),
 		services: { agentDir: root, cwd: root } as AgentSessionServices,
 		session: {
+			setWorkingDirectoryRecoveryHandlers: () => {},
 			extensionRunner: {
 				setRelocateHandler: () => {},
 				setToolResultRelocationHandlers: () => {},
@@ -218,7 +224,7 @@ describe("detached job artifact cleanup", () => {
 			lifecycle: "completed",
 			root,
 			sessionName: "without-metadata",
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 			writeMetadata: false,
 		});
 
@@ -238,7 +244,7 @@ describe("detached job artifact cleanup", () => {
 			lifecycle: "completed",
 			root: agentRoot,
 			sessionName: "distinct-roots",
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 
 		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: agentRoot, now: NOW });
@@ -256,7 +262,7 @@ describe("detached job artifact cleanup", () => {
 			lifecycle: "completed",
 			root,
 			sessionName: "expired",
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 		const running = persistArtifact({
 			controlDbPath,
@@ -264,7 +270,7 @@ describe("detached job artifact cleanup", () => {
 			lifecycle: "running",
 			root,
 			sessionName: "running",
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 		const referenced = persistArtifact({
 			controlDbPath,
@@ -272,7 +278,7 @@ describe("detached job artifact cleanup", () => {
 			lifecycle: "completed",
 			root,
 			sessionName: "referenced",
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 		const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
 			cwd: referenced,
@@ -303,7 +309,7 @@ describe("detached job artifact cleanup", () => {
 			lifecycle: "completed",
 			root: linkedRoot,
 			sessionName: "symlink-referenced",
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 		const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
 			cwd: realpathSync(referenced),
@@ -327,7 +333,7 @@ describe("detached job artifact cleanup", () => {
 			lifecycle: "completed",
 			root,
 			sessionName: "executable-referenced",
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 		const executablePath = join(referenced, "sleep");
 		copyFileSync("/usr/bin/sleep", executablePath);
@@ -350,7 +356,7 @@ describe("detached job artifact cleanup", () => {
 			lifecycle: "completed",
 			root,
 			sessionName: "descriptor-referenced",
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 		const descriptor = openSync(join(referenced, "output.log"), "r");
 		try {
@@ -372,7 +378,7 @@ describe("detached job artifact cleanup", () => {
 			lifecycle: "completed",
 			root,
 			sessionName: "quarantine-race",
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 
 		const result = cleanupDetachedJobArtifacts(controlDbPath, {
@@ -402,7 +408,7 @@ describe("detached job artifact cleanup", () => {
 			lifecycle: "completed",
 			root,
 			sessionName: "argument-only",
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 		const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", join(expired, "output.log")], {
 			cwd: root,
@@ -427,19 +433,19 @@ describe("detached job artifact cleanup", () => {
 		mkdirSync(externalDirectory, { recursive: true });
 		writeFileSync(outputPath, "output", { mode: 0o600 });
 		writeSessionMetadata(controlDbPath, {
-			createdAt: "2026-07-19T18:00:00.000Z",
+			createdAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 			cwd: root,
 			firstMessage: sessionName,
 			id: `session-${sessionName}`,
 			messageCount: 1,
-			modifiedAt: "2026-07-19T18:00:00.000Z",
+			modifiedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 			name: undefined,
 			parentSessionPath: undefined,
 			sessionPath,
 		});
 		bootstrapMultiAgentAgent(controlDbPath, sessionPath, jobId, {
 			agentType: "background",
-			createdAt: "2026-07-19T18:00:00.000Z",
+			createdAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 			cwd: root,
 			displayName: "Detached job",
 			id: jobId,
@@ -448,7 +454,7 @@ describe("detached job artifact cleanup", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			result: { fileRefs: [{ label: "Pyrun output", path: outputPath }] },
 			revision: 2,
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 
 		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
@@ -472,19 +478,19 @@ describe("detached job artifact cleanup", () => {
 		const outputPath = join(detachedRoot, sessionName, jobId, "output.log");
 		writeFileSync(outputPath, "output", { mode: 0o600 });
 		writeSessionMetadata(controlDbPath, {
-			createdAt: "2026-07-19T18:00:00.000Z",
+			createdAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 			cwd: root,
 			firstMessage: sessionName,
 			id: `session-${sessionName}`,
 			messageCount: 1,
-			modifiedAt: "2026-07-19T18:00:00.000Z",
+			modifiedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 			name: undefined,
 			parentSessionPath: undefined,
 			sessionPath,
 		});
 		bootstrapMultiAgentAgent(controlDbPath, sessionPath, jobId, {
 			agentType: "background",
-			createdAt: "2026-07-19T18:00:00.000Z",
+			createdAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 			cwd: root,
 			displayName: "Detached job",
 			id: jobId,
@@ -493,7 +499,7 @@ describe("detached job artifact cleanup", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			result: { fileRefs: [{ label: "Bash output", path: outputPath }] },
 			revision: 2,
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 
 		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
@@ -513,19 +519,19 @@ describe("detached job artifact cleanup", () => {
 		mkdirSync(escapedDirectory, { recursive: true });
 		writeFileSync(outputPath, "output", { mode: 0o600 });
 		writeSessionMetadata(controlDbPath, {
-			createdAt: "2026-07-19T18:00:00.000Z",
+			createdAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 			cwd: root,
 			firstMessage: sessionName,
 			id: `session-${sessionName}`,
 			messageCount: 1,
-			modifiedAt: "2026-07-19T18:00:00.000Z",
+			modifiedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 			name: undefined,
 			parentSessionPath: undefined,
 			sessionPath,
 		});
 		bootstrapMultiAgentAgent(controlDbPath, sessionPath, jobId, {
 			agentType: "background",
-			createdAt: "2026-07-19T18:00:00.000Z",
+			createdAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 			cwd: root,
 			displayName: "Detached job",
 			id: jobId,
@@ -534,7 +540,7 @@ describe("detached job artifact cleanup", () => {
 			permission: { narrowed: true, policy: "on-request" },
 			result: { fileRefs: [{ label: "Pyrun output", path: outputPath }] },
 			revision: 2,
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 
 		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
@@ -552,7 +558,7 @@ describe("detached job artifact cleanup", () => {
 			lifecycle: "completed",
 			root,
 			sessionName: "..",
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 
 		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
@@ -571,7 +577,7 @@ describe("detached job artifact cleanup", () => {
 			root,
 			sessionName: "oldest",
 			size: Math.ceil(1.1 * ONE_GIB),
-			updatedAt: "2026-07-22T16:00:00.000Z",
+			updatedAt: new Date(NOW - 26 * 60 * 60 * 1_000).toISOString(),
 		});
 		const newest = persistArtifact({
 			controlDbPath,
@@ -580,7 +586,7 @@ describe("detached job artifact cleanup", () => {
 			root,
 			sessionName: "newest",
 			size: Math.ceil(1.1 * ONE_GIB),
-			updatedAt: "2026-07-22T17:00:00.000Z",
+			updatedAt: new Date(NOW - 25 * 60 * 60 * 1_000).toISOString(),
 		});
 
 		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
@@ -604,7 +610,7 @@ describe("detached job artifact cleanup", () => {
 			root,
 			sessionName: "dead-runtime",
 			size: 3 * ONE_GIB,
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 		expect(existsSync(artifact)).toBe(true);
 		await stopChildProcess(child);
@@ -625,7 +631,7 @@ describe("detached job artifact cleanup", () => {
 			lifecycle: "completed",
 			root,
 			sessionName: "replaced-startup-expired",
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 		const sessionDir = join(root, "sessions", "resumed");
 		const sessionFile = join(sessionDir, "missing-cwd.jsonl");
@@ -665,7 +671,7 @@ describe("detached job artifact cleanup", () => {
 			lifecycle: "completed",
 			root,
 			sessionName: "startup-expired",
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 		const sessionManager = SessionManager.create(root, join(root, "sessions", "current"));
 		sessionManager.setMetadataControlDbPath(controlDbPath);
@@ -689,7 +695,7 @@ describe("detached job artifact cleanup", () => {
 			lifecycle: "completed",
 			root: agentRoot,
 			sessionName: "attached-root-expired",
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 		const sessionManager = SessionManager.create(agentRoot, join(agentRoot, "sessions", "current"));
 		sessionManager.setMetadataControlDbPath(controlDbPath);
@@ -725,7 +731,7 @@ describe("detached job artifact cleanup", () => {
 			lifecycle: "completed",
 			root,
 			sessionName: "delivery-expired",
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 		const sessionManager = SessionManager.create(root, join(root, "sessions", "current"));
 		sessionManager.setMetadataControlDbPath(controlDbPath);
@@ -758,7 +764,7 @@ describe("detached job artifact cleanup", () => {
 			lifecycle: "completed",
 			root,
 			sessionName: "partial-delivery-expired",
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 96 * 60 * 60 * 1_000).toISOString(),
 		});
 		const sessionManager = SessionManager.create(root, join(root, "sessions", "current"));
 		sessionManager.setMetadataControlDbPath(controlDbPath);
@@ -766,14 +772,23 @@ describe("detached job artifact cleanup", () => {
 		if (!sessionPath) throw new Error("Expected persisted session path");
 		const completedAt = new Date(NOW).toISOString();
 		persistFailedOutboxAgent({ completedAt, controlDbPath, id: "agent_first", root, sessionPath });
-		persistFailedOutboxAgent({ completedAt, controlDbPath, id: "agent_second", root, sessionPath });
+		persistFailedOutboxAgent({
+			completedAt: new Date(NOW + 1).toISOString(),
+			controlDbPath,
+			id: "agent_second",
+			root,
+			sessionPath,
+		});
 		const store = new MultiAgentStore();
 		store.setPersistenceSessionManager(sessionManager);
-		let projectionCount = 0;
-		const unsubscribe = store.subscribeLifecycleNotifications(() => {
-			projectionCount += 1;
-			if (projectionCount === 2) throw new Error("later projection failed");
-		});
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.prepare(
+				"UPDATE multi_agent_terminal_outbox SET terminal_revision = 2 WHERE session_path = ? AND agent_id = ?",
+			).run(sessionPath, "agent_second");
+		} finally {
+			db.close();
+		}
 
 		expect(() =>
 			deliverTerminalOutboxProjections({
@@ -783,9 +798,29 @@ describe("detached job artifact cleanup", () => {
 				now: () => completedAt,
 				store,
 			}),
-		).toThrow("later projection failed");
-		unsubscribe();
+		).toThrow("Terminal outbox projection does not match agent agent_second revision 2");
 
+		expect(store.getAgent("agent_first")).toMatchObject({ lifecycle: "failed", revision: 1 });
+		expect(store.getAgent("agent_second")).toBeUndefined();
+		const resultDb = createSqliteDatabase(controlDbPath);
+		try {
+			expect(
+				resultDb
+					.prepare(
+						"SELECT agent_id, status, attempt_count, last_error FROM multi_agent_terminal_outbox WHERE session_path = ?",
+					)
+					.all(sessionPath),
+			).toEqual([
+				{
+					agent_id: "agent_second",
+					status: "pending",
+					attempt_count: 1,
+					last_error: "Terminal outbox projection does not match agent agent_second revision 2",
+				},
+			]);
+		} finally {
+			resultDb.close();
+		}
 		expect(existsSync(expired)).toBe(false);
 	});
 });

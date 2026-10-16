@@ -21,9 +21,9 @@ import {
 import { emptySessionHealth } from "../src/core/session-health.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
 
-const CREATED_AT = "2026-07-16T12:00:00.000Z";
-const CANCELLED_AT = "2026-07-16T12:00:01.000Z";
-const RECONCILED_AT = "2026-07-16T12:00:02.000Z";
+let CREATED_AT: string;
+let CANCELLED_AT: string;
+let RECONCILED_AT: string;
 const DEAD_RUNNER = { pid: 2_000_000_000, startTimeTicks: 1 };
 const OWNER_SESSION_ID = "dead-owner-session";
 const SESSION_PATH = "/sessions/dead-owner.jsonl";
@@ -152,6 +152,10 @@ describe("orphaned detached runtime reconciliation", () => {
 	let controlDbPath: string;
 
 	beforeEach(() => {
+		const baseNow = Date.now();
+		CREATED_AT = new Date(baseNow - 2_000).toISOString();
+		CANCELLED_AT = new Date(baseNow - 1_000).toISOString();
+		RECONCILED_AT = new Date(baseNow).toISOString();
 		tempDir = mkdtempSync(join(tmpdir(), "pi-orphaned-detached-"));
 		controlDbPath = getControlDbPath(tempDir);
 		createOwnerSession(controlDbPath);

@@ -32,10 +32,11 @@ function createFixture(
 	const controlDbPath = join(root, "control.sqlite");
 	const sessionPath = join(root, options.sessionName ?? "session.jsonl");
 	const store = new MultiAgentStore();
+	const baseNow = Date.now();
 	const coordinator = new LifecycleCoordinator({
 		controlDbPath,
 		createAgentId: () => "unused",
-		now: () => "2026-07-11T22:00:00.000Z",
+		now: () => new Date(baseNow).toISOString(),
 		processIdentity: testProcessIdentity("runtime-1"),
 		sessionPath,
 	});
@@ -48,7 +49,7 @@ function createFixture(
 		store,
 		writeBashLaunchManifest: options.writeBashLaunchManifest,
 	});
-	return { controlDbPath, controller, sessionPath, store };
+	return { baseNow, controlDbPath, controller, sessionPath, store };
 }
 
 describe("detached job lifecycle controller", () => {
@@ -83,13 +84,14 @@ describe("detached job lifecycle controller", () => {
 			const sessionPath = sessionManager.getSessionFile();
 			if (!sessionPath) throw new Error("Expected persisted session path");
 
+			const baseNow = Date.now();
 			const store = new MultiAgentStore();
 			store.setPersistenceSessionManager(sessionManager);
 			writeMultiAgentCounters(controlDbPath, sessionPath, { nextAgentNumber: 1, nextMessageNumber: 1 });
 			const coordinator = new LifecycleCoordinator({
 				controlDbPath,
 				createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
-				now: () => "2026-07-11T22:00:00.000Z",
+				now: () => new Date(baseNow).toISOString(),
 				processIdentity: testProcessIdentity(`persisted-${agentType}-runtime`),
 				sessionPath,
 			});
@@ -172,7 +174,7 @@ describe("detached job lifecycle controller", () => {
 			artifacts,
 			ownership.identity,
 			{ exitCode: 0, kind: "completed", summary: "done" },
-			"2026-07-11T22:00:30.000Z",
+			new Date(fixture.baseNow + 30_000).toISOString(),
 		);
 		expect(finalizeDetachedJob(fixture.controlDbPath, { sessionPath: fixture.sessionPath, terminal })).toMatchObject({
 			ok: true,
@@ -203,7 +205,7 @@ describe("detached job lifecycle controller", () => {
 			firstArtifacts,
 			first.identity,
 			{ error: { code: "exit_nonzero", message: "failed" }, kind: "failed" },
-			"2026-07-11T22:00:10.000Z",
+			new Date(fixture.baseNow + 10_000).toISOString(),
 			undefined,
 			toolCallId,
 		);
@@ -275,7 +277,7 @@ describe("detached job lifecycle controller", () => {
 			artifacts,
 			ownership.identity,
 			{ exitCode: 0, kind: "completed" },
-			"2026-07-11T22:00:30.000Z",
+			new Date(fixture.baseNow + 30_000).toISOString(),
 		);
 		expect(finalizeDetachedJob(fixture.controlDbPath, { sessionPath: fixture.sessionPath, terminal })).toMatchObject({
 			ok: true,
