@@ -8,7 +8,15 @@ Contract: [Codex fast mode](../../specs/codex-fast-mode.md).
 
 [`main.ts`](../../../packages/coding-agent/src/main.ts) constructs a mutable `FastModeAuthority` shared through first-party extension factories. Explicit child identity (`multiAgentAgentId` or `multiAgentRequiresAgentId`) prevents command mutation; historical subagent transcript provenance does not.
 
-Every `before_provider_request` reads current authority. Supported Codex object payloads are shallow-copied with `service_tier: "priority"` or `"ultrafast"`. Unsupported providers and disabled mode leave payloads unchanged. Non-object payloads warn for that request without clearing the tier. Footer key `codex-fast` shows `fast` or `fast ultra` only on supported models; switching providers hides status without discarding selection.
+Every `before_provider_request` reads current authority. Supported Codex object payloads are shallow-copied with `service_tier: "priority"` or `"ultrafast"`. Unsupported providers and disabled mode leave payloads unchanged. Non-object payloads warn for that request without clearing the tier. Footer behavior is independent of command targeting and request mutation; selecting a child does not change either.
+
+## Displayed-session footer
+
+Footer key `codex-fast` registers a pure `ctx.ui.setStatus` callback. [`FooterDataProvider.getExtensionStatuses()`](../../../packages/coding-agent/src/core/footer-data-provider.ts) resolves it on each read with the current `FooterSessionOverride`, so switching views does not require a main-model change event.
+
+The callback reads shared authority and checks the displayed model's provider. A supported Codex child shows `fast` for priority or `fast ultra` for ultrafast even when the main model is Opus. An unsupported or unknown selected-child model returns `undefined`, hiding the status without substituting the main model or clearing the selected tier. With no override (including after returning to main), it checks the main model instead. Disabled authority hides the status in every view.
+
+See the [extension status API](../../../packages/coding-agent/docs/extensions.md#widgets-status-and-footer) for callback purity and clearing semantics.
 
 ## Persistence and limits
 

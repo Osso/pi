@@ -20,6 +20,9 @@ export type FooterSessionOverride = {
 	contextUsage: ContextUsage | undefined;
 };
 
+/** Footer text or a pure callback evaluated on each read with the displayed session override. */
+export type ExtensionStatus = string | ((sessionOverride: FooterSessionOverride | undefined) => string | undefined);
+
 /**
  * Find git metadata paths by walking up from cwd.
  * Handles both regular git repos (.git is a directory) and worktrees (.git is a file).
@@ -131,7 +134,7 @@ export class FooterDataProvider {
 	private static readonly WATCH_DEBOUNCE_MS = 500;
 	private static readonly GIT_FILE_POLL_INTERVAL_MS = 1000;
 
-	private extensionStatuses = new Map<string, string>();
+	private extensionStatuses = new Map<string, ExtensionStatus>();
 	private cachedBranch: string | null | undefined = undefined;
 	private gitPaths: GitPaths | null | undefined = undefined;
 	private headWatcher: FSWatcher | null = null;
@@ -169,7 +172,14 @@ export class FooterDataProvider {
 
 	/** Extension status texts set via ctx.ui.setStatus() */
 	getExtensionStatuses(): ReadonlyMap<string, string> {
-		return this.extensionStatuses;
+		const statuses = new Map<string, string>();
+		for (const [key, status] of this.extensionStatuses) {
+			const text = typeof status === "function" ? status(this.sessionOverride) : status;
+			if (text !== undefined) {
+				statuses.set(key, text);
+			}
+		}
+		return statuses;
 	}
 
 	/** Subscribe to git branch changes. Returns unsubscribe function. */
@@ -191,11 +201,11 @@ export class FooterDataProvider {
 	}
 
 	/** Internal: set extension status */
-	setExtensionStatus(key: string, text: string | undefined): void {
-		if (text === undefined) {
+	setExtensionStatus(key: string, status: ExtensionStatus | undefined): void {
+		if (status === undefined) {
 			this.extensionStatuses.delete(key);
 		} else {
-			this.extensionStatuses.set(key, text);
+			this.extensionStatuses.set(key, status);
 		}
 	}
 

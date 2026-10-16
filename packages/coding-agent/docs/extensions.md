@@ -2430,6 +2430,12 @@ See [examples/extensions/timed-confirm.ts](../examples/extensions/timed-confirm.
 
 ### Widgets, Status, and Footer
 
+`ctx.ui.setStatus(key, status)` accepts a static `string`, `undefined` to remove the registration, or a pure synchronous callback `(sessionOverride: FooterSessionOverride | undefined) => string | undefined`. `FooterSessionOverride` is exported from `@earendil-works/pi-coding-agent`.
+
+In TUI mode, `FooterDataProvider.getExtensionStatuses()` evaluates registered callbacks on every read with the current displayed-session override. A selected child supplies its override, whose `model` may be `null`; no selected override means the main session and passes `undefined`. Use main-session data only when the override itself is absent, not when a selected child's model is unknown. Returning `undefined` hides that status for the current read without unregistering its callback.
+
+Callbacks run during footer reads: keep them side-effect-free. Do not mutate state or the override, perform I/O, send notifications, or request renders from them. Read current extension state and return text only. After changing extension-owned state outside normal UI updates, request a redraw separately with `ctx.ui.requestRender()`. Custom footers receive resolved strings from `getExtensionStatuses()`, not callbacks.
+
 ```typescript
 // Status in footer (persistent until cleared)
 ctx.ui.setStatus("my-ext", "Processing...");

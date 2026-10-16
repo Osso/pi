@@ -14,7 +14,8 @@ Codex fast mode provides a main-thread-owned runtime `/fast` authority that sele
 - [x] Allow only the current main/orchestrator runtime to mutate the shared authority; spawned and attached
   child `/fast` commands warn and leave it unchanged. Explicit runtime child identity is authoritative;
   historical `is_subagent` transcript provenance alone does not classify a runtime opened as main.
-- [x] Show `fast` in footer status while enabled on a supported provider, hide it after switching away, and restore it after switching back without changing the selected tier.
+- [x] Show `fast` or `fast ultra` in footer status for the selected tier while enabled on a supported provider, hide it after switching away, and restore it after switching back without changing the selected tier.
+- [ ] In a switched-child view, evaluate shared fast-mode authority against the displayed child's provider, not the main model: show the selected tier for a supported Codex child even with an Opus main; hide it for unsupported or unknown selected models without using the main model as a substitute. Returning to main restores main-model status. Viewing a child must not change `/fast` control or request semantics.
 
 ### Request behavior
 
@@ -34,12 +35,13 @@ Codex fast mode provides a main-thread-owned runtime `/fast` authority that sele
 
 ## How it works
 
-- [`docs/wiki/systems/codex-fast-mode.md`](../wiki/systems/codex-fast-mode.md) (stub)
+- [`docs/wiki/systems/codex-fast-mode.md`](../wiki/systems/codex-fast-mode.md)
 
 ## Implementation inventory
 
 - `packages/coding-agent/extensions/codex-fast/src/index.ts` — handles `/fast`, persists and restores session state, prevents child mutation, and reads shared authority for footer status and Codex request payload mutation.
 - `packages/coding-agent/src/main.ts` — creates one authority per main runtime and passes it to spawned and attached child extension runtimes.
+- `packages/coding-agent/src/core/footer-data-provider.ts` — resolves extension status callbacks against the current displayed-session override on read.
 - `packages/coding-agent/src/core/settings-manager.ts` — defines the `defaultCodexFastMode` settings value in the merged global/project settings type.
 - `packages/coding-agent/src/core/agent-session-runtime.ts` — flushes pending session entries before process restart handoff.
 

@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { createDefaultFooterComponent } from "../extensions/default-footer/src/index.ts";
 import codexFastExtension from "../extensions/codex-fast/src/index.ts";
 import type {
 	BeforeProviderRequestEvent,
@@ -8,7 +9,10 @@ import type {
 	RegisteredCommand,
 	SessionStartEvent,
 } from "../src/core/extensions/types.ts";
+import { FooterDataProvider, type FooterSessionOverride } from "../src/core/footer-data-provider.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../src/core/slash-commands.ts";
+import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
+import { stripAnsi } from "../src/utils/ansi.ts";
 
 type BeforeProviderRequestHandler = (event: BeforeProviderRequestEvent, ctx: ExtensionContext) => unknown;
 type ModelSelectHandler = (event: { model: ExtensionContext["model"] }, ctx: ExtensionContext) => void;
@@ -58,7 +62,10 @@ function createHarness(options: FastHarnessOptions = {}) {
 
 	const notify = vi.fn();
 	const setEditorText = vi.fn();
-	const setStatus = vi.fn();
+	const footerData = new FooterDataProvider("/tmp/pi-codex-fast-footer-test");
+	onTestFinished(() => footerData.dispose());
+	const setStatus: ExtensionCommandContext["ui"]["setStatus"] = (key, status) =>
+		footerData.setExtensionStatus(key, status);
 	const ctx = {
 		model: {
 			api: provider.startsWith("openai-codex") ? "openai-codex-responses" : "anthropic-messages",
@@ -68,11 +75,16 @@ function createHarness(options: FastHarnessOptions = {}) {
 		multiAgentAgentId: options.child ? "child-agent" : undefined,
 		sessionManager: {
 			getBranch: () => options.branch ?? [],
+			getCwd: () => "/tmp/pi-codex-fast-footer-test",
+			getEntries: () => [],
+			getSessionName: () => "",
 			isSubagentSession: () => options.historicalSubagent === true,
 		},
 		settingsManager: {
 			getMergedSettings: () => ({ defaultCodexFastMode: options.defaultCodexFastMode }),
 		},
+		getContextUsage: () => undefined,
+		getThinkingLevel: () => "off",
 		ui: { notify, setEditorText, setStatus },
 	} as unknown as ExtensionCommandContext;
 	if (!command) throw new Error("/fast command was not registered");
@@ -85,11 +97,11 @@ function createHarness(options: FastHarnessOptions = {}) {
 		command,
 		commandName,
 		ctx,
+		footerData,
 		modelSelect,
 		notify,
 		sessionStart,
 		setEditorText,
-		setStatus,
 	};
 }
 
@@ -99,17 +111,17 @@ describe("Codex fast mode extension", () => {
 	});
 
 	it("toggles priority mode and footer status for the current runtime", async () => {
-		const { command, commandName, ctx, notify, setEditorText, setStatus } = createHarness();
+		const { command, commandName, ctx, footerData, notify, setEditorText } = createHarness();
 
 		expect(commandName).toBe("fast");
 
 		await command.handler("", ctx);
 		expect(notify).toHaveBeenLastCalledWith("Fast mode: on", "info");
-		expect(setStatus).toHaveBeenLastCalledWith("codex-fast", "fast");
+		expect(footerData.getExtensionStatuses().get("codex-fast")).toBe("fast");
 
 		await command.handler("", ctx);
 		expect(notify).toHaveBeenLastCalledWith("Fast mode: off", "info");
-		expect(setStatus).toHaveBeenLastCalledWith("codex-fast", undefined);
+		expect(footerData.getExtensionStatuses().get("codex-fast")).toBeUndefined();
 		expect(setEditorText).toHaveBeenCalledTimes(2);
 	});
 
@@ -126,7 +138,7 @@ describe("Codex fast mode extension", () => {
 	});
 
 	it("enables fast mode and annotates requests for the team provider", async () => {
-		const { beforeProviderRequest, command, ctx, notify, setStatus } = createHarness({
+		const { beforeProviderRequest, command, ctx, footerData, notify } = createHarness({
 			provider: "openai-codex-team",
 		});
 		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
@@ -134,18 +146,18 @@ describe("Codex fast mode extension", () => {
 		await command.handler("on", ctx);
 
 		expect(notify).toHaveBeenLastCalledWith("Fast mode: on", "info");
-		expect(setStatus).toHaveBeenLastCalledWith("codex-fast", "fast");
+		expect(footerData.getExtensionStatuses().get("codex-fast")).toBe("fast");
 		expect(beforeProviderRequest(event, ctx)).toEqual({ model: "test-model", service_tier: "priority" });
 	});
 
 	it("selects ultrafast processing until fast mode is disabled", async () => {
-		const { beforeProviderRequest, command, ctx, notify, setStatus } = createHarness();
+		const { beforeProviderRequest, command, ctx, footerData, notify } = createHarness();
 		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
 
 		await command.handler("ultra", ctx);
 
 		expect(notify).toHaveBeenLastCalledWith("Fast mode: ultra", "info");
-		expect(setStatus).toHaveBeenLastCalledWith("codex-fast", "fast ultra");
+		expect(footerData.getExtensionStatuses().get("codex-fast")).toBe("fast ultra");
 		expect(beforeProviderRequest(event, ctx)).toEqual({
 			model: "test-model",
 			service_tier: "ultrafast",
@@ -156,12 +168,12 @@ describe("Codex fast mode extension", () => {
 	});
 
 	it("rejects enabling fast mode for unsupported providers", async () => {
-		const { command, ctx, notify, setStatus } = createHarness({ provider: "anthropic" });
+		const { command, ctx, footerData, notify } = createHarness({ provider: "anthropic" });
 
 		await command.handler("on", ctx);
 
 		expect(notify).toHaveBeenCalledWith("Fast mode requires a Codex provider", "warning");
-		expect(setStatus).not.toHaveBeenCalledWith("codex-fast", "fast");
+		expect(footerData.getExtensionStatuses().get("codex-fast")).toBeUndefined();
 	});
 
 	it("rejects ordinary OpenAI providers", async () => {
@@ -184,24 +196,24 @@ describe("Codex fast mode extension", () => {
 	});
 
 	it("updates footer activity across provider switches without losing the runtime toggle", async () => {
-		const { beforeProviderRequest, command, ctx, modelSelect, setStatus } = createHarness();
+		const { beforeProviderRequest, command, ctx, footerData, modelSelect } = createHarness();
 		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
 		await command.handler("on", ctx);
 		const mutableContext = ctx as unknown as { model: ExtensionContext["model"] };
 		mutableContext.model = { ...ctx.model!, api: "anthropic-messages", provider: "anthropic" };
 		modelSelect({ model: mutableContext.model }, ctx);
 
-		expect(setStatus).toHaveBeenLastCalledWith("codex-fast", undefined);
+		expect(footerData.getExtensionStatuses().get("codex-fast")).toBeUndefined();
 		expect(beforeProviderRequest(event, ctx)).toBeUndefined();
 
 		mutableContext.model = { ...ctx.model!, api: "openai-codex-responses", provider: "openai-codex" };
 		modelSelect({ model: mutableContext.model }, ctx);
-		expect(setStatus).toHaveBeenLastCalledWith("codex-fast", "fast");
+		expect(footerData.getExtensionStatuses().get("codex-fast")).toBe("fast");
 		expect(beforeProviderRequest(event, ctx)).toEqual({ model: "test-model", service_tier: "priority" });
 	});
 
 	it("preserves fast mode after warning about a non-object Codex request payload", async () => {
-		const { beforeProviderRequest, command, ctx, notify, setStatus } = createHarness();
+		const { beforeProviderRequest, command, ctx, footerData, notify } = createHarness();
 		await command.handler("on", ctx);
 		const invalidEvent = { payload: "unexpected", type: "before_provider_request" } as BeforeProviderRequestEvent;
 		const validEvent = {
@@ -211,7 +223,7 @@ describe("Codex fast mode extension", () => {
 
 		expect(beforeProviderRequest(invalidEvent, ctx)).toBeUndefined();
 		expect(notify).toHaveBeenLastCalledWith("Fast mode skipped: provider payload is not an object", "warning");
-		expect(setStatus).not.toHaveBeenCalledWith("codex-fast", undefined);
+		expect(footerData.getExtensionStatuses().get("codex-fast")).toBe("fast");
 		expect(beforeProviderRequest(validEvent, ctx)).toEqual({ model: "test-model", service_tier: "priority" });
 	});
 
@@ -257,6 +269,82 @@ describe("Codex fast mode extension", () => {
 	});
 });
 
+describe("Codex fast mode selected-agent footer", () => {
+	it.each(["priority", "ultrafast"] as const)(
+		"shows effective %s processing for a Codex child under an Opus main",
+		(serviceTier) => {
+			initTheme(undefined, false);
+			const main = createHarness({ provider: "anthropic", defaultCodexFastMode: serviceTier });
+			const child = createHarness({ authority: main.authority, child: true });
+			if (!main.sessionStart) throw new Error("session_start handler was not registered");
+			main.sessionStart({ reason: "startup", type: "session_start" }, main.ctx);
+			const footer = createDefaultFooterComponent({ ctx: main.ctx, footerData: main.footerData, theme });
+			const output = () => footer.render(160).map(stripAnsi).slice(2);
+			const childView: FooterSessionOverride = {
+				cwd: "/tmp/child",
+				sessionManager: null,
+				model: child.ctx.model ?? null,
+				thinkingLevel: "medium",
+				contextUsage: undefined,
+			};
+			const event = {
+				payload: { model: "test-model" },
+				type: "before_provider_request",
+			} as BeforeProviderRequestEvent;
+
+			expect(output()).toEqual([]);
+			expect(main.beforeProviderRequest(event, main.ctx)).toBeUndefined();
+			main.footerData.setSessionOverride(childView);
+			expect(output()).toEqual([serviceTier === "ultrafast" ? "fast ultra" : "fast"]);
+			expect(child.beforeProviderRequest(event, child.ctx)).toEqual({
+				model: "test-model",
+				service_tier: serviceTier,
+			});
+
+			main.footerData.setSessionOverride({ ...childView, model: main.ctx.model ?? null });
+			expect(output()).toEqual([]);
+			main.footerData.setSessionOverride({ ...childView, model: null });
+			expect(output()).toEqual([]);
+			main.footerData.setSessionOverride(childView);
+			expect(output()).toHaveLength(1);
+			main.footerData.clearSessionOverride();
+			expect(output()).toEqual([]);
+		},
+	);
+
+	it("hides fast mode for an unsupported child and updates the selected Codex child after /fast off", async () => {
+		initTheme(undefined, false);
+		const main = createHarness();
+		const child = createHarness({ authority: main.authority, child: true });
+		const unsupportedChild = createHarness({ provider: "anthropic", child: true, authority: main.authority });
+		await main.command.handler("on", main.ctx);
+		const footer = createDefaultFooterComponent({ ctx: main.ctx, footerData: main.footerData, theme });
+		const output = () => footer.render(160).map(stripAnsi).slice(2);
+		const childView: FooterSessionOverride = {
+			cwd: "/tmp/child",
+			sessionManager: null,
+			model: unsupportedChild.ctx.model ?? null,
+			thinkingLevel: "medium",
+			contextUsage: undefined,
+		};
+		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
+
+		expect(output()).toEqual(["fast"]);
+		main.footerData.setSessionOverride(childView);
+		expect(output()).toEqual([]);
+		expect(unsupportedChild.beforeProviderRequest(event, unsupportedChild.ctx)).toBeUndefined();
+		main.footerData.setSessionOverride({ ...childView, model: null });
+		expect(output()).toEqual([]);
+		main.footerData.setSessionOverride({ ...childView, model: child.ctx.model ?? null });
+		expect(output()).toEqual(["fast"]);
+		await main.command.handler("off", main.ctx);
+		expect(output()).toEqual([]);
+		expect(child.beforeProviderRequest(event, child.ctx)).toBeUndefined();
+		main.footerData.clearSessionOverride();
+		expect(output()).toEqual([]);
+	});
+});
+
 describe("Codex fast mode session startup", () => {
 	it("restores the latest persisted fast mode on main session startup", () => {
 		const authority: FastModeAuthority = { serviceTier: undefined };
@@ -273,7 +361,7 @@ describe("Codex fast mode session startup", () => {
 		expect(authority.serviceTier).toBeUndefined();
 		main.sessionStart({ reason: "startup", type: "session_start" }, main.ctx);
 		expect(authority.serviceTier).toBe("ultrafast");
-		expect(main.setStatus).toHaveBeenLastCalledWith("codex-fast", "fast ultra");
+		expect(main.footerData.getExtensionStatuses().get("codex-fast")).toBe("fast ultra");
 	});
 
 	it.each(["priority", "ultrafast"] as const)(

@@ -20,6 +20,7 @@ import type {
 	ExtensionWidgetOptions,
 	WorkingIndicatorOptions,
 } from "../../core/extensions/index.ts";
+import type { ExtensionStatus } from "../../core/footer-data-provider.ts";
 import {
 	flushRawStdout,
 	takeOverStdout,
@@ -170,14 +171,14 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			return () => {};
 		},
 
-		setStatus(key: string, text: string | undefined): void {
+		setStatus(key: string, status: ExtensionStatus | undefined): void {
 			// Fire and forget - no response needed
 			output({
 				type: "extension_ui_request",
 				id: crypto.randomUUID(),
 				method: "setStatus",
 				statusKey: key,
-				statusText: text,
+				statusText: typeof status === "function" ? status(undefined) : status,
 			} as RpcExtensionUIRequest);
 		},
 

@@ -17,8 +17,8 @@ type FastModeEntry = {
 	serviceTier: FastServiceTier | null;
 };
 
-function supportsFastMode(model: Model<string> | undefined): boolean {
-	return model !== undefined && SUPPORTED_PROVIDERS.has(model.provider);
+function supportsFastMode(model: Model<string> | null | undefined): boolean {
+	return model != null && SUPPORTED_PROVIDERS.has(model.provider);
 }
 
 function requestedFastMode(
@@ -43,9 +43,11 @@ function fastModeLabel(serviceTier: FastServiceTier | undefined): "off" | "on" |
 }
 
 function updateFastStatus(ctx: ExtensionContext, state: FastModeAuthority, model = ctx.model): void {
-	const label = fastModeLabel(state.serviceTier);
-	const status = label === "ultra" ? "fast ultra" : "fast";
-	ctx.ui.setStatus(FAST_STATUS_KEY, state.serviceTier && supportsFastMode(model) ? status : undefined);
+	ctx.ui.setStatus(FAST_STATUS_KEY, (sessionOverride) => {
+		const displayedModel = sessionOverride === undefined ? model : sessionOverride.model;
+		if (!state.serviceTier || !supportsFastMode(displayedModel)) return undefined;
+		return state.serviceTier === ULTRAFAST_SERVICE_TIER ? "fast ultra" : "fast";
+	});
 }
 
 export interface FastModeAuthority {

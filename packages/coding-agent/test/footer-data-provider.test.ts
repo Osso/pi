@@ -1,3 +1,4 @@
+import type { Api, Model } from "@earendil-works/pi-ai/compat";
 import { execFile, spawnSync } from "child_process";
 import type * as Fs from "fs";
 import { existsSync, type FSWatcher, mkdirSync, mkdtempSync, rmSync, watchFile, writeFileSync } from "fs";
@@ -47,7 +48,11 @@ vi.mock("child_process", () => ({
 	}),
 }));
 
-import { FooterDataProvider, resolveFooterExecutableName } from "../src/core/footer-data-provider.ts";
+import {
+	FooterDataProvider,
+	type FooterSessionOverride,
+	resolveFooterExecutableName,
+} from "../src/core/footer-data-provider.ts";
 
 type WorktreeFixture = {
 	worktreeDir: string;
@@ -114,6 +119,86 @@ describe("resolveFooterExecutableName", () => {
 		process.env.PI_EXECUTABLE_NAME = "pi-dev";
 
 		expect(resolveFooterExecutableName(["/repo/pi-test.sh"])).toBe("pi-dev");
+	});
+});
+
+describe("FooterDataProvider extension statuses", () => {
+	let tempDir: string;
+	let provider: FooterDataProvider;
+
+	beforeEach(() => {
+		tempDir = mkdtempSync(join(tmpdir(), "footer-statuses-"));
+		provider = new FooterDataProvider(tempDir);
+	});
+
+	afterEach(() => {
+		provider.dispose();
+		rmSync(tempDir, { recursive: true, force: true });
+	});
+
+	it("resolves callbacks against the current displayed session, including unknown models and clearing", () => {
+		const model: Model<Api> = {
+			id: "child-model",
+			name: "Child model",
+			api: "openai-responses",
+			provider: "openai",
+			baseUrl: "https://example.com",
+			reasoning: false,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 10000,
+			maxTokens: 1000,
+		};
+		const override: FooterSessionOverride = {
+			cwd: tempDir,
+			sessionManager: null,
+			model,
+			thinkingLevel: "off",
+			contextUsage: undefined,
+		};
+		provider.setExtensionStatus("displayed-model", (sessionOverride) =>
+			sessionOverride ? (sessionOverride.model?.id ?? "unknown model") : "main session",
+		);
+
+		expect(provider.getExtensionStatuses().get("displayed-model")).toBe("main session");
+		provider.setSessionOverride(override);
+		expect(provider.getExtensionStatuses().get("displayed-model")).toBe("child-model");
+		provider.setSessionOverride({ ...override, model: null });
+		expect(provider.getExtensionStatuses().get("displayed-model")).toBe("unknown model");
+		provider.clearSessionOverride();
+		expect(provider.getExtensionStatuses().get("displayed-model")).toBe("main session");
+	});
+
+	it("reads live closure values without registering the callback again", () => {
+		let status = "idle";
+		provider.setExtensionStatus("activity", () => status);
+
+		expect(provider.getExtensionStatuses().get("activity")).toBe("idle");
+		status = "running";
+		expect(provider.getExtensionStatuses().get("activity")).toBe("running");
+	});
+
+	it("preserves ordinary and empty text while suppressing undefined callback results", () => {
+		let visible = false;
+		provider.setExtensionStatus("text", "ordinary text");
+		provider.setExtensionStatus("empty", "");
+		provider.setExtensionStatus("conditional", () => (visible ? "visible" : undefined));
+
+		expect([...provider.getExtensionStatuses()]).toEqual([
+			["text", "ordinary text"],
+			["empty", ""],
+		]);
+		visible = true;
+		expect(provider.getExtensionStatuses().get("conditional")).toBe("visible");
+		visible = false;
+		expect(provider.getExtensionStatuses().has("conditional")).toBe(false);
+
+		provider.setExtensionStatus("text", undefined);
+		provider.setExtensionStatus("conditional", undefined);
+		visible = true;
+		expect([...provider.getExtensionStatuses()]).toEqual([["empty", ""]]);
+		provider.clearExtensionStatuses();
+		expect(provider.getExtensionStatuses().size).toBe(0);
 	});
 });
 

@@ -93,7 +93,11 @@ import type {
 	ExtensionWidgetOptions,
 	ProjectTrustContext,
 } from "../../core/extensions/index.ts";
-import { FooterDataProvider, type ReadonlyFooterDataProvider } from "../../core/footer-data-provider.ts";
+import {
+	type ExtensionStatus,
+	FooterDataProvider,
+	type ReadonlyFooterDataProvider,
+} from "../../core/footer-data-provider.ts";
 import { configureHttpDispatcher, formatHttpIdleTimeoutMs } from "../../core/http-dispatcher.ts";
 import { type AppKeybinding, KeybindingsManager } from "../../core/keybindings.ts";
 import { createCompactionSummaryMessage } from "../../core/messages.ts";
@@ -2266,8 +2270,8 @@ export class InteractiveMode {
 	/**
 	 * Set extension status text in the footer.
 	 */
-	private setExtensionStatus(key: string, text: string | undefined): void {
-		this.footerDataProvider.setExtensionStatus(key, text);
+	private setExtensionStatus(key: string, status: ExtensionStatus | undefined): void {
+		this.footerDataProvider.setExtensionStatus(key, status);
 		this.ui.requestRender();
 	}
 

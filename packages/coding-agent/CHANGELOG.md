@@ -78,6 +78,7 @@
 
 ### Added
 
+- Added pure displayed-session callbacks to `ctx.ui.setStatus`: `FooterDataProvider.getExtensionStatuses()` resolves them on read with the current `FooterSessionOverride` (or `undefined` for main); returning `undefined` hides the status while static strings and explicit clearing remain supported.
 - Added [macOS core implementation](../../docs/specs/macos-core.md): libproc-backed identity/group lookup, unsupported protected-profile rejection, and launcher rollback. Reusable/manual macOS arm64/x64 CI builds real-SDK process/Tui addons and validates Node 22/Bun 1.4.0 offline runtime scenarios; release binary builds and npm publication consume its artifacts. Native Actions run `38651327008` at `bcaee48e5` passed both architectures: Node/Bun addon loading, goal/live-child/runner restart, resident autostart, and installed CLI startup; tagged release and native deployment rollback remain unproven. `RpcClientOptions.executablePath` selects the CLI runtime (default `node`); headless tests select Node/Bun through fixture-only `PI_HEADLESS_RUNTIME`. Reference-safe artifact eviction remains Linux-only.
 - Added readonly `ExtensionAPI.cwd` for extension factory-time loader cwd; provider stream calls now receive each calling session's cwd through `StreamOptions.cwd` for local/subprocess integrations.
 - Added `/settings` → **Hide coordination messages** (`hideCoordinationMessages`, default `false`) to hide mailbox notices, broadcasts, and shared-channel messages from live/restored interactive chat and queued previews without changing delivery, stored messages, model context, cursors, or typed prompt history. Typed envelope-like prompts and unrelated extension messages remain visible. `AgentSession.getQueuedMessagePreviews()` provides read-only queue display snapshots with existing input provenance; string queue APIs remain unchanged.
@@ -195,6 +196,7 @@
 
 ### Fixed
 
+- Fixed switched-child Codex fast-mode footer status to check shared authority against the displayed child's provider, showing `fast`/`fast ultra` for supported Codex children even with an Opus main, hiding unsupported or unknown selected models, and restoring main-model status on return; `/fast` control and request semantics are unchanged.
 - Fixed slow session-tree deletion in the resume picker and `/delete`, avoiding synchronous trash-process freezes while preserving recursive child deletion and unrelated sessions.
 - Fixed a shared-channel post that arrived during a run ending in `end_turn` causing an extra model request that resent the ended transcript before delivering the post; providers such as claude-bridge answered it with an empty reply followed by a redundant `end_turn`.
 - Fixed deleted working directories in runtime-hosted sessions before idle prompt/continuation and between completed turns: missing session cwd relocates to the nearest existing directory parent with `cwd_changed`, rebuilt resources, and preserved session identity; invalid process cwd is repaired only when needed with visible `process_cwd_recovered`, without cancelling in-flight tools.

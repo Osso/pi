@@ -764,6 +764,8 @@ ctx.ui.setStatus("my-ext", ctx.ui.theme.fg("accent", "● active"));
 ctx.ui.setStatus("my-ext", undefined);
 ```
 
+For displayed-session-dependent text, `setStatus` also accepts a pure synchronous callback `(sessionOverride: FooterSessionOverride | undefined) => string | undefined`. It is resolved on every footer status read; return `undefined` to hide it for that read, or pass `undefined` directly to `setStatus` to unregister it. An absent override means main is displayed; an override with `model: null` means the selected child's model is unknown, not main. Keep callbacks side-effect-free; see the [status API contract](extensions.md#widgets-status-and-footer).
+
 **Examples:** [status-line.ts](../examples/extensions/status-line.ts), [plan-mode/index.ts](../examples/extensions/plan-mode/index.ts), [preset.ts](../examples/extensions/preset.ts)
 
 ### Pattern 4b: Working Indicator Customization
@@ -858,7 +860,7 @@ ctx.ui.setFooter((tui, theme, footerData) => ({
 ctx.ui.setFooter(undefined); // restore default
 ```
 
-Token stats are available via `ctx.sessionManager` and `ctx.model`. When the TUI displays a selected child agent, `footerData.getSessionOverride()` supplies that child's session manager, model, thinking level, context usage, and cwd. It becomes `undefined` again when the main session is selected.
+Token stats are available via `ctx.sessionManager` and `ctx.model`. When the TUI displays a selected child agent, `footerData.getSessionOverride()` supplies that child's session manager, model, thinking level, context usage, and cwd. It becomes `undefined` again when the main session is selected. `getExtensionStatuses()` resolves status callbacks using that same current override and returns only visible string entries; custom footers should read it during rendering rather than cache the returned map across view changes.
 
 **Examples:** [custom-footer.ts](../examples/extensions/custom-footer.ts)
 
