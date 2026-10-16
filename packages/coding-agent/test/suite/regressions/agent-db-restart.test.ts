@@ -33,24 +33,27 @@ function seedMailboxRetentionRegression(pi: HeadlessPi): void {
 		);
 		for (const [index, entry] of entries.entries()) {
 			const id = `retention-regression-${index}`;
-			insert.run(
-				pi.sessionFile,
+			const payload = JSON.stringify({
+				...entry,
+				body: "Expired retention-regression input must not replay",
+				fromAgentId: "main",
 				id,
-				JSON.stringify({
-					...entry,
-					body: "Expired retention-regression input must not replay",
-					fromAgentId: "main",
-					id,
-					kind: "message",
-					recipientAgentId: null,
-					recipientSessionId: pi.sessionId,
-					senderAgentId: null,
-					senderSessionId: pi.sessionId,
-					toAgentId: "main",
-					updatedAt: fresh,
-				}),
-				fresh,
-			);
+				kind: "message",
+				recipientAgentId: null,
+				recipientSessionId: pi.sessionId,
+				senderAgentId: null,
+				senderSessionId: pi.sessionId,
+				toAgentId: "main",
+				updatedAt: fresh,
+			});
+			insert.run(pi.sessionFile, id, payload, fresh);
+			if (entry.createdAt === undefined) {
+				// New undated inserts receive a birth timestamp. Restore the legacy snapshot
+				// afterward so startup cleanup sees an already-existing undated record.
+				db.prepare(
+					"UPDATE multi_agent_mailbox_messages SET data = ? WHERE session_path = ? AND message_id = ?",
+				).run(payload, pi.sessionFile, id);
+			}
 		}
 	} finally {
 		db.close();
