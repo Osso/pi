@@ -13,6 +13,14 @@ import { createHarness, getUserTexts, type Harness } from "../harness.ts";
 
 const harnesses: Harness[] = [];
 let fixtureId = 0;
+const outputCases = [
+	{ name: "narration", content: [{ type: "text" as const, text: "Unrelated narration must never be delivered" }] },
+	{ name: "tool-only", content: [] },
+	{
+		name: "reasoning-only",
+		content: [{ type: "thinking" as const, thinking: "Private reasoning must never be delivered" }],
+	},
+];
 afterEach(() => {
 	for (const harness of harnesses.splice(0).reverse()) harness.cleanup();
 });
@@ -77,20 +85,15 @@ describe("native explicit-body mailbox delivery in real AgentSessions", () => {
 	it.each(["send_agent_message", "contact_parent"])(
 		"delivers %s bodies independently of text and reasoning",
 		async (tool) => {
-			for (const output of ["narration", "tool-only", "reasoning-only"]) {
+			for (const output of outputCases) {
 				const { parent, child, controlDbPath, agentId } = await createPair();
-				const body = `\n  Explicit ${tool}/${output}: café/Étain;  two spaces;\ttab; 雪.\n`;
+				const body = `\n  Explicit ${tool}/${output.name}: café/Étain;  two spaces;\ttab; 雪.\n`;
 				const params =
 					tool === "send_agent_message"
 						? { toAgentId: "main", toSessionId: parent.session.sessionId, body }
 						: { body };
 				const call = fauxToolCall(tool, params);
-				const content =
-					output === "narration"
-						? [{ type: "text" as const, text: "Unrelated narration must never be delivered" }, call]
-						: output === "reasoning-only"
-							? [{ type: "thinking" as const, thinking: "Private reasoning must never be delivered" }, call]
-							: [call];
+				const content = [...output.content, call];
 				child.setResponses([
 					fauxAssistantMessage(content, { stopReason: "toolUse" }),
 					fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Report delivered" }), {
