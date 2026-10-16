@@ -63,6 +63,14 @@ Earlier verifier report `/tmp/pi-diagnostics-verification-report.txt` predates f
 
 Fresh artifact observation on 2026-10-09: `/home/osso/.local/share/pi/pi` hashes `337a761af432e265368d81a05d58bf5b414d3aed9c8179d115ca0ebf50729495`, **not** the historical diagnostics-deployment hash. Exact metadata receipt: `/tmp/pi-diagnostics-current-artifact-check.json`. Committed paths after `43e048c00` are only `PLAN.md` and this spec; that does not establish the currently installed artifact's source. Historical deployment/runtime acceptance remains historical. One bounded live-artifact observation (`/tmp/pi-diagnostics-live-artifact-check.json`) hashes both eligible main PIDs 59748/52211 as `816307a52d4f42598f556032ca5415a0a86a517bf91825188711959a28aeb9a9`, distinct from both installed and historical hashes. Current replacement provenance and diagnostics runtime applicability are UNPROVEN; main requested the other live session's deployment receipt. No redeploy, restart, provider request, policy change or source test rerun performed.
 
+## Offline combined proof status
+
+Actual offline execution at partially associated canonical source `854f221661663b5b2d1473a2caa82fcb4f08113d`, with corrected private, uncommitted SSE test overlay SHA-256 `e9acf20b6b5e328384db32d0c911c97cbfb26291e0160ca6386c6242b68bbad0`: saved stdout reports one file, one passing test (85 ms; total 6.23 s); systemd exit 0, runtime 7.107 s. Independent audit of the saved report is pending; execution is recorded, acceptance is pending that report.
+
+Two sequential mock HTTP 400/422 responses exercised the actual Codex producer → SDK normal `streamFn` → real private JSONL sink, asserting the exact 14-field allowlist, correlation `[1, 2]`, caller results and sensitive-data exclusion. Neither provider nor logger was fabricated. Execution used network-isolated bwrap, a cleared environment and private HOME/config, without real provider credentials or API calls. The test read and asserted the real file, then cleaned it; the private observer retained zero JSONL snapshots. This is not retained JSONL-record evidence.
+
+Before/after fingerprints matched for selected canonical text/config/source/test/dist, the overlay and seven selected dependency texts. This is partial association, not whole-transitive-dependency, source-only, build, installed or live-artifact proof. Current installed/live provenance, actual provider failure and credit units remain separately UNPROVEN.
+
 ## Out of scope
 
 Retry fixes, transport fallback changes, provider/model policy changes, dependency changes, and CLI output redesign.
