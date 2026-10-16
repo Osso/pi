@@ -365,7 +365,6 @@ describe("sub-agent ControlDB restart recovery", () => {
 			seedMailboxRetentionRegression(pi);
 			expect(readMailboxRetentionRegressionIds(pi)).toHaveLength(9);
 			await pi.restart();
-			await vi.waitFor(() => expect(readMailboxRetentionRegressionIds(pi)).toEqual(["retention-regression-8"]));
 
 			const restoredRequest = await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);
 			const restored = pi.listAgents().find((agent) => agent.id === spawned.id);
@@ -385,6 +384,7 @@ describe("sub-agent ControlDB restart recovery", () => {
 			await vi.waitFor(() => expect(pi.readTerminalOutboxStatuses(spawned.id)).toEqual(["delivered"]));
 			expect(pi.listAgents().filter((agent) => agent.id === spawned.id)).toHaveLength(1);
 			expectNoAgentJournal(pi, spawned.id);
+			await vi.waitFor(() => expect(readMailboxRetentionRegressionIds(pi)).toEqual(["retention-regression-8"]));
 		});
 	});
 
