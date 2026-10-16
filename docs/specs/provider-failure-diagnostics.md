@@ -65,7 +65,7 @@ Fresh artifact observation on 2026-10-09: `/home/osso/.local/share/pi/pi` hashes
 
 ## Offline combined proof status
 
-Actual offline execution at partially associated canonical source `854f221661663b5b2d1473a2caa82fcb4f08113d`, with corrected private, uncommitted SSE test overlay SHA-256 `e9acf20b6b5e328384db32d0c911c97cbfb26291e0160ca6386c6242b68bbad0`: saved stdout reports one file, one passing test (85 ms; total 6.23 s); systemd exit 0, runtime 7.107 s. Independent audit of the saved report is pending; execution is recorded, acceptance is pending that report.
+Actual offline execution at partially associated canonical source `854f221661663b5b2d1473a2caa82fcb4f08113d`, with corrected private, uncommitted SSE test overlay SHA-256 `e9acf20b6b5e328384db32d0c911c97cbfb26291e0160ca6386c6242b68bbad0`: saved stdout reports one file, one passing test (85 ms; total 6.23 s); systemd exit 0, runtime 7.107 s. Independent saved-output and assertion audit accepts this bounded source proof; no runtime rerun. It covers direct SDK stream invocation, not `session.prompt`, a full agent turn, successful SSE parsing, or WebSocket behavior.
 
 Two sequential mock HTTP 400/422 responses exercised the actual Codex producer → SDK normal `streamFn` → real private JSONL sink, asserting the exact 14-field allowlist, correlation `[1, 2]`, caller results and sensitive-data exclusion. Neither provider nor logger was fabricated. Execution used network-isolated bwrap, a cleared environment and private HOME/config, without real provider credentials or API calls. The test read and asserted the real file, then cleaned it; the private observer retained zero JSONL snapshots. This is not retained JSONL-record evidence.
 
