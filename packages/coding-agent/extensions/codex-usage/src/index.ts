@@ -177,11 +177,22 @@ type ClaudeAccountUsage =
 	| { account: string; selected: boolean; fiveHour: UsageWindow | null; weekly: UsageWindow | null }
 	| { account: string; selected: boolean; error: string };
 
+interface UsageCell {
+	percent: number;
+	/** Epoch seconds. */
+	resetsAt: number | null;
+}
+
 interface AccountUsageRow {
 	provider: string;
 	account: string;
-	details: string[];
+	fiveHour: UsageCell | null;
+	weekly: UsageCell | null;
+	/** Error or login state; replaces the reset details. */
+	status?: string;
 }
+
+const MISSING = "-";
 
 async function handleUsageAll(ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
 	const [claudeRows, codexRows] = await Promise.all([
@@ -190,23 +201,20 @@ async function handleUsageAll(ctx: ExtensionCommandContext, pi: ExtensionAPI): P
 	]);
 	const rows = [...claudeRows, ...codexRows];
 	const accountWidth = Math.max("Account".length, ...rows.map((row) => row.account.length));
-	const header = {
-		provider: "Provider",
-		account: "Account",
-		details: ["5-hour", "resets (UTC)", "Weekly", "resets (UTC)"],
-	};
+	const header = ["5h", "Week", "Provider", "Account", "Resets UTC (5h | week)"];
 	const content = [
-		"Account usage (all accounts)",
-		...[header, ...rows].map((row) => formatAccountRow(row, accountWidth)),
+		`Account usage (all accounts); ${MISSING} = not reported`,
+		formatAccountColumns(header, accountWidth),
+		...rows.map((row) => formatAccountRow(row, accountWidth)),
 	].join("\n");
 	sendCodexUsageReport(ctx, pi, content, "usage-all");
 }
 
 async function readCodexAccountRow(ctx: ExtensionCommandContext, providerId: string): Promise<AccountUsageRow> {
 	const selected = ctx.model?.provider === providerId ? " *" : "";
-	const row = { provider: "Codex", account: `${providerId}${selected}`, details: [] as string[] };
+	const row = { provider: "Codex", account: `${providerId}${selected}`, fiveHour: null, weekly: null };
 	try {
-		if (!ctx.modelRegistry.authStorage.has(providerId)) return { ...row, details: ["not logged in"] };
+		if (!ctx.modelRegistry.authStorage.has(providerId)) return { ...row, status: "not logged in" };
 		const usage = await readCodexUsage(ctx, providerId);
 		const plan = usage.planType ? ` (${sanitizeUsageText(usage.planType)})` : "";
 		const account = `${sanitizeUsageText(usage.email ?? usage.accountId ?? providerId)}${plan} [${providerId}]${selected}`;
@@ -215,22 +223,16 @@ async function readCodexAccountRow(ctx: ExtensionCommandContext, providerId: str
 		return {
 			provider: "Codex",
 			account,
-			details: [
-				...formatCodexAccountWindow(windows.find((window) => window?.windowMinutes === 300)),
-				...formatCodexAccountWindow(windows.find((window) => window?.windowMinutes === 10_080)),
-			],
+			fiveHour: toCodexUsageCell(windows.find((window) => window?.windowMinutes === 300)),
+			weekly: toCodexUsageCell(windows.find((window) => window?.windowMinutes === 10_080)),
 		};
 	} catch (error) {
-		return { ...row, details: [`error: ${formatUsageError(error)}`] };
+		return { ...row, status: `error: ${formatUsageError(error)}` };
 	}
 }
 
-function formatCodexAccountWindow(window: CodexRateLimitWindow | null | undefined): string[] {
-	if (!window) return ["unavailable", "unavailable"];
-	return [
-		formatPercent(window.usedPercent),
-		window.resetsAt === null ? "unavailable" : formatResetTime(window.resetsAt),
-	];
+function toCodexUsageCell(window: CodexRateLimitWindow | null | undefined): UsageCell | null {
+	return window ? { percent: window.usedPercent, resetsAt: window.resetsAt } : null;
 }
 
 async function readClaudeAccountRows(pi: ExtensionAPI): Promise<AccountUsageRow[]> {
@@ -238,26 +240,27 @@ async function readClaudeAccountRows(pi: ExtensionAPI): Promise<AccountUsageRow[
 	try {
 		// The bridge must claim the request synchronously; await its work alongside Codex reads.
 		pi.events.emit("claude-bridge:usage-all-request", request);
-		if (!request.accounts) return [{ provider: "Claude", account: "", details: ["bridge not loaded"] }];
+		if (!request.accounts) return [claudeStatusRow("bridge not loaded")];
 		const accounts: unknown = await request.accounts;
 		if (!Array.isArray(accounts)) throw new Error("malformed Claude account usage response");
 		return accounts.map(formatClaudeAccountRow);
 	} catch (error) {
-		return [{ provider: "Claude", account: "", details: [`error: ${formatUsageError(error)}`] }];
+		return [claudeStatusRow(`error: ${formatUsageError(error)}`)];
 	}
+}
+
+function claudeStatusRow(status: string): AccountUsageRow {
+	return { provider: "Claude", account: "", fiveHour: null, weekly: null, status };
 }
 
 function formatClaudeAccountRow(value: unknown): AccountUsageRow {
 	const account =
 		isUsageRecord(value) && typeof value.account === "string" ? sanitizeUsageText(value.account) : "unknown";
 	const selected = isUsageRecord(value) && value.selected === true ? " *" : "";
-	const row = { provider: "Claude", account: `${account}${selected}`, details: [] as string[] };
-	if (!isClaudeAccountUsage(value)) return { ...row, details: ["error: malformed Claude account usage entry"] };
-	if ("error" in value) return { ...row, details: [`error: ${sanitizeUsageText(value.error)}`] };
-	return {
-		...row,
-		details: [...formatClaudeAccountWindow(value.fiveHour), ...formatClaudeAccountWindow(value.weekly)],
-	};
+	const row = { provider: "Claude", account: `${account}${selected}`, fiveHour: null, weekly: null };
+	if (!isClaudeAccountUsage(value)) return { ...row, status: "error: malformed Claude account usage entry" };
+	if ("error" in value) return { ...row, status: `error: ${sanitizeUsageText(value.error)}` };
+	return { ...row, fiveHour: toClaudeUsageCell(value.fiveHour), weekly: toClaudeUsageCell(value.weekly) };
 }
 
 function isUsageRecord(value: unknown): value is Record<string, unknown> {
@@ -293,20 +296,32 @@ function isUsageWindow(value: unknown): value is UsageWindow | null {
 	return value.resetsAt === null || isUtcIsoTimestamp(value.resetsAt);
 }
 
-function formatClaudeAccountWindow(window: UsageWindow | null): string[] {
-	if (!window) return ["unavailable", "unavailable"];
-	return [
-		formatPercent(window.percent),
-		window.resetsAt === null ? "unavailable" : formatResetTime(Date.parse(window.resetsAt) / 1000),
-	];
+function toClaudeUsageCell(window: UsageWindow | null): UsageCell | null {
+	if (!window) return null;
+	const resetsAt = window.resetsAt === null ? null : Date.parse(window.resetsAt) / 1000;
+	return { percent: window.percent, resetsAt };
 }
 
 function formatAccountRow(row: AccountUsageRow, accountWidth: number): string {
-	const details = row.details
-		.map((cell, index) => cell.padEnd(index % 2 === 0 ? 11 : 18))
+	const resets = `${formatUsageReset(row.fiveHour)} | ${formatUsageReset(row.weekly)}`;
+	const percents = [formatUsagePercent(row.fiveHour), formatUsagePercent(row.weekly)];
+	return formatAccountColumns([...percents, row.provider, row.account, row.status ?? resets], accountWidth);
+}
+
+/** Percent columns first: fixed width so they line up regardless of account name length. */
+function formatAccountColumns(cells: string[], accountWidth: number): string {
+	const [fiveHour, weekly, provider, account, details] = cells;
+	return [fiveHour.padEnd(5), weekly.padEnd(5), provider.padEnd(8), account.padEnd(accountWidth), details]
 		.join("  ")
 		.trimEnd();
-	return `${row.provider.padEnd(8)}  ${row.account.padEnd(accountWidth)}  ${details}`;
+}
+
+function formatUsagePercent(cell: UsageCell | null): string {
+	return cell ? formatPercent(cell.percent) : MISSING;
+}
+
+function formatUsageReset(cell: UsageCell | null): string {
+	return cell?.resetsAt == null ? MISSING : formatResetTime(cell.resetsAt);
 }
 
 function formatUsageError(error: unknown): string {

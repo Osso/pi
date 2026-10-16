@@ -24,8 +24,10 @@ model. It is a report, not an account-switching or quota-fallback operation. See
       weekly usage (10080-minute window), including used percentages and UTC reset times.
 - [x] Mark the active Codex provider, show unauthenticated providers as `not logged in`, and
       preserve per-provider failures as error rows without losing other providers' results.
-- [x] Show missing windows or missing `used_percent` as unavailable, never as 0%. Codex currently
-      returns only a weekly window for some plans; the 5-hour column is then unavailable.
+- [x] Show missing windows or missing `used_percent` as `-` (legend: `- = not reported`), never as 0%.
+      Codex currently returns only a weekly window for some plans; the 5-hour column is then `-`.
+- [x] Order columns 5-hour %, weekly % (fixed width), provider, account, then resets
+      (`5h | week`, UTC) or the row's error / `not logged in` status.
 - [x] Obtain each provider's token through normal auth storage; an expired OAuth token is refreshed
       and persisted exactly as on any other request for that provider.
 - [x] Keep provider identities distinct in the report without claiming separate quotas: the same
