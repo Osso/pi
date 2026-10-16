@@ -341,9 +341,18 @@ folder from reading stale manifests or output belonging to another supervisor.
   extension tests 153/153, and DB tests 146/146. Fixture corrections in `aa41238fe` and `ea21a0da1`
   supersede the earlier attached-child RED result. `npm run check` exits 0 without mutations.
   The safe `./test.sh` run exits 1: 5209 passed, 34 failed, 760 skipped, and 2 unhandled errors.
-  Broader failure provenance is unknown; rollout remains **HELD**, pending the user's scope-expansion
-  decision. No deployment or fix for the original mailbox bug is established. Evidence:
-  `/tmp/pi-db-restart-final-report.md` and `/tmp/pi-db-restart-final-ledger.json`.
+  This is retained broad-suite evidence, not a result for the later fixture repairs through `c002b1e1f`.
+  The repair ledger attributes 27 failures to repaired fixtures/assertions: lifecycle `d12564aad`
+  (18 failures; targeted 59/59), contract `b27e5acd3` (4 failures; ledger-reported targeted 47/47),
+  interactive `c002b1e1f` (4 failures plus 2 unhandled errors; targeted 21/21 without unhandled errors),
+  and goal deadline `0828ccc38` (1 failure; targeted 1 passed, 17 skipped, asserting the documented
+  25-minute deadline). Seven failures remain unresolved: provider terminal (4), Pyrun notification (1),
+  channel start race (1), and channel wait wake (1); their root causes remain unestablished.
+  Rollout remains **HELD** pending final green integration proof and a coordinated rollout window.
+  Production is not deployed; neither full-suite success nor a fix for the original mailbox bug is established.
+  Evidence: `/tmp/pi-db-restart-final-report.md`, `/tmp/pi-db-restart-final-ledger.json`,
+  `/tmp/pi-integration-repair-ledger.json`, `/tmp/pi-detached-cluster-green.log`,
+  `/tmp/pi-interactive-fixture-green.log`, and `/tmp/pi-goal-deadline-green.log`.
 
 - [ ] Add `interrupted`: persisted state for agents deliberately paused by the user — a policy
       difference (never auto-restarted) that cannot be derived, unlike crash detachment.
