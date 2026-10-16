@@ -343,6 +343,8 @@ See [Pyrun adapter messaging](../../../packages/coding-agent/extensions/pyrun/RE
 
 `spawn_agent.prompt` is unchanged. This migration changes the native mailbox body argument
 only; it does not establish a historical backend root cause or constitute live-fix verification.
+Pre-deployment body proof and pending runtime adoption are tracked in
+[mailbox proof](../../specs/multi-agent.md#mailbox-proof-current-cycle).
 
 ### Direct file references
 
@@ -439,7 +441,7 @@ Recovery must reconstruct eligible transcript-backed children from the current s
 preserve agent and transcript identity, and reacquire exact process ownership before dispatch. Terminal DB
 state prevents reconstruction, regardless of historical journal rows. Missing or mismatched transcript
 file/header identity fails explicitly; recovery never invents success or a blank session from a missing handle.
-Restart and integration repair proof, pending full integration, and rollout limits live in [current-cycle evidence](../../specs/agent-lifecycle.md#known-gaps-current-cycle). Targeted repairs do not resolve the original mailbox missing-text diagnosis.
+Restart and GREEN pre-deployment integration/source proof, with pending main-owned full-check/deployment/runtime-adoption gates, live in [current-cycle evidence](../../specs/agent-lifecycle.md#known-gaps-current-cycle). Historical mailbox diagnosis limits live in [mailbox proof](../../specs/multi-agent.md#mailbox-proof-current-cycle).
 
 ## Extension audit
 

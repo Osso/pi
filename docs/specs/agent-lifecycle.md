@@ -339,28 +339,28 @@ folder from reading stale manifests or output belonging to another supervisor.
 
 ## Known gaps (current cycle)
 
-- DB-only restart verification at `ea21a0da1` (production source unchanged since `818e48cf2`):
-  attached and spawned production `/restart` cases pass 2/2; four recovery regression files pass 21/21,
-  extension tests 153/153, and DB tests 146/146. Fixture corrections in `aa41238fe` and `ea21a0da1`
-  supersede the earlier attached-child RED result. `npm run check` exits 0 without mutations.
-  The safe `./test.sh` run exits 1: 5209 passed, 34 failed, 760 skipped, and 2 unhandled errors.
-  This is retained broad-suite evidence, not a result for the later repairs through `1f413c31c`.
-  The repair ledger attributes 27 failures to repaired fixtures/assertions: lifecycle `d12564aad`
-  (18 failures; targeted 59/59), contract `b27e5acd3` (4 failures; ledger-reported targeted 47/47),
-  interactive `c002b1e1f` (4 failures plus 2 unhandled errors; targeted 21/21 without unhandled errors),
-  and goal deadline `0828ccc38` (1 failure; targeted 1 passed, 17 skipped, asserting the documented
-  25-minute deadline). Subsequent targeted repairs cover provider terminal fixtures (`e9b1ae931`),
-  Pyrun notification expiry (`5723db0ee`), channel start ordering (`011b30ee7`), and channel-only wait
-  persistence (`1f413c31c`). All 34 failures and both unhandled errors now have targeted repair evidence;
-  full integration remains pending. The channel-only result reached the provider but empty mailbox acceptance
-  metadata bypassed normal transcript persistence. Its unchanged real-process regression passes 1/1 and
-  targeted mailbox acceptance/coordination cases pass 7/7; actual/mixed mailbox claim handling is unchanged.
-  Proof: `/tmp/pi-channel-wait-proof.md`; repair inventory: `/tmp/pi-integration-repair-ledger.json`.
-  Rollout remains **HELD** pending final green integration proof and a coordinated rollout window.
-  Production is not deployed; neither full-suite success nor a fix for the original mailbox bug is established.
-  Evidence: `/tmp/pi-db-restart-final-report.md`, `/tmp/pi-db-restart-final-ledger.json`,
-  `/tmp/pi-integration-repair-ledger.json`, `/tmp/pi-detached-cluster-green.log`,
-  `/tmp/pi-interactive-fixture-green.log`, and `/tmp/pi-goal-deadline-green.log`.
+- **GREEN pre-deployment:** independent final proof at
+  `29873beaee359a4514dee8a08fbd1cd86600465c` on October 16, 2026: safe `./test.sh`
+  exits 0 with 5244 passed, 760 skipped, 0 failed, and 0 unhandled errors. All 1694 tracked-file
+  hashes and the revision remained unchanged during execution. The original 34-failure scope,
+  including DB restart, channel wake, interactive startup/status, terminal errors, Pyrun notification,
+  and goal deadline, passes; the induced registered-command lock regression also passes in its
+  complete 13-case file. This supersedes the retained failing broad-suite result, not its history.
+  Earlier attached/spawned production `/restart` fixture proof remains recorded in
+  `/tmp/pi-db-restart-final-report.md`; repair provenance remains in
+  `/tmp/pi-integration-repair-ledger.json` and `/tmp/pi-channel-wait-proof.md`.
+  Source/readability audit clears all 11 remaining canonical agents-core source files and changed
+  agent-session/tests, with no new or worsened scoped findings; unchanged baseline violations remain.
+  Final evidence: `/tmp/pi-explicit-mailbox-final-report.md`,
+  `/tmp/pi-explicit-mailbox-final-proof.json`, `/tmp/pi-explicit-mailbox-final-audit.md`, and
+  `/tmp/pi-explicit-mailbox-final-suite.log`. Explicit-body coverage and historical diagnosis limits:
+  [mailbox proof](multi-agent.md#mailbox-proof-current-cycle).
+- **PENDING main-owned rollout proof:** current-revision full `npm run check` through `deploy.sh`,
+  laptop and agent-server deployment, exact installed artifact/source revisions, launcher-preserving
+  live-session restart/health/continuity inventory, and separate resident PID/hash adoption.
+  Rollout remains **HELD** for the coordinated live window; pre-deployment GREEN is not shipment
+  or running-schema/guidance adoption. Retain source/suite proof unless relevant source/config changes
+  invalidate it; rollout milestones alone do not require a rerun.
 
 - [ ] Add `interrupted`: persisted state for agents deliberately paused by the user — a policy
       difference (never auto-restarted) that cannot be derived, unlike crash detachment.

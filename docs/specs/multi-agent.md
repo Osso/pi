@@ -475,6 +475,26 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       wake signal (stale listener row, signal pending across a session switch) terminate the
       process. Self-notification is skipped entirely when no wake handler is installed.
 
+### Mailbox proof (current cycle)
+
+- [x] Independent pre-deployment proof at `29873beaee359a4514dee8a08fbd1cd86600465c`
+      verifies required literal bodies, rejected legacy/unknown arguments, verbatim whitespace/CRLF/Unicode,
+      absent or unrelated narration/reasoning, distinct later same-turn sends, routing guards, attachments,
+      threads, and unchanged programmatic explicit-message APIs. Wiring, in-process integration, and
+      real-process later-send coverage pass; the latter uses an offline faux provider while the parent is busy,
+      observes each exact envelope once, preserves the original assignment, and verifies completion routing.
+      Maintained tool descriptions and prompt guidance require `body`. Shared TypeBox coercion is unchanged;
+      this is not strict original-type rejection or a live cross-host byte probe.
+- [x] Full safe-suite and source/readability proof are GREEN; counts, artifacts, and remaining main-owned
+      full-check/deployment/runtime-adoption gates live in
+      [lifecycle evidence](agent-lifecycle.md#known-gaps-current-cycle).
+- [ ] Establish deployed schemas/guidance and runtime adoption through main-owned rollout proof.
+      Source proof does not establish every historical live-provider incident is solved.
+
+Historical diagnosis remains bounded: exact call `toolu_01RX4YZcgwb17bxhuAH4Acfk` lacked normal
+assistant text at the SDK event boundary. Model-versus-SDK responsibility and any length threshold
+are not established. The explicit-body contract does not depend on assistant text.
+
 ### Cross-host messaging
 
 - [x] Hosts identify themselves by the OS hostname. Sessions remain on their host; each host's local control DB remains authoritative and local delivery works during peer outages.
@@ -632,8 +652,10 @@ The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the
   assistant text, later same-turn bodies, active-tool bridge calls, nonblank validation, rejected implicit
   inputs and unknown arguments, routing/attachments/thread preservation, sender/recipient guards, and
   unchanged programmatic explicit-message sending.
-- `packages/coding-agent/test/suite/regressions/mailbox-explicit-body.test.ts` — integration coverage for
-  explicit model bodies; migration and proof are tracked by the dependent integration slice.
+- `packages/coding-agent/test/suite/regressions/mailbox-explicit-body.test.ts` — passing in-process
+  explicit-body integration coverage.
+- `packages/coding-agent/test/suite/regressions/mailbox-explicit-body-headless.test.ts` — real-process
+  later-send coverage; proof scope and rollout limits live in [mailbox proof](#mailbox-proof-current-cycle).
 
 - `packages/coding-agent/test/interactive-mode-coordination-visibility.test.ts` — mailbox and broadcast visibility, provenance-aware queue previews, reversible toggles, unchanged delivery and context.
 
