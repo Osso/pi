@@ -3035,7 +3035,8 @@ export class AgentSession {
 			}
 		}
 		const expandPromptTemplates = options?.expandPromptTemplates ?? true;
-		if (expandPromptTemplates && text.startsWith("/") && !this._isKnownSlashCommand(text)) {
+		const shouldExpandSlashCommand = expandPromptTemplates && text.startsWith("/");
+		if (shouldExpandSlashCommand && !this._isKnownSlashCommand(text)) {
 			throw new Error(`Unknown slash command: ${this._slashCommandName(text)}`);
 		}
 
@@ -3226,7 +3227,8 @@ export class AgentSession {
 	}
 
 	private _tryExecuteExtensionCommand(text: string, options?: PromptOptions): Promise<void> | undefined {
-		if (!(options?.expandPromptTemplates ?? true) || !text.startsWith("/")) return undefined;
+		const shouldExpandSlashCommand = (options?.expandPromptTemplates ?? true) && text.startsWith("/");
+		if (!shouldExpandSlashCommand) return undefined;
 		const spaceIndex = text.indexOf(" ");
 		const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
 		const args = spaceIndex === -1 ? "" : text.slice(spaceIndex + 1);
