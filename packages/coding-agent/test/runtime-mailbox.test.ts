@@ -2508,6 +2508,169 @@ describe("runtime SQLite mailbox delivery", () => {
 		).toBe(messageId);
 	});
 
+	it.each(["unchanged", "same session"])(
+		"reserves user input before gated cwd recovery returns %s during channel delivery",
+		async (recoveryResult) => {
+			tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+			const controlDbPath = getControlDbPath(tempDir);
+			const harness = await createHarness();
+			harnesses.push(harness);
+			await harness.session.bindExtensions({ controlDbPath });
+			const recoveryEntered = deferred<void>();
+			const releaseRecovery = deferred<void>();
+			const requestEntered = deferred<void>();
+			const releaseResponse = deferred<void>();
+			const order: string[] = [];
+			harness.session.setWorkingDirectoryRecoveryHandlers({
+				beforeRun: async () => {
+					order.push("recovery entered");
+					recoveryEntered.resolve();
+					await releaseRecovery.promise;
+					order.push("recovery finished");
+					return recoveryResult === "same session" ? harness.session : undefined;
+				},
+				afterTurn: async () => {},
+			});
+			harness.setResponses([
+				async () => {
+					order.push("request started");
+					requestEntered.resolve();
+					await releaseResponse.promise;
+					return fauxAssistantMessage([
+						{ type: "text", text: "user reply" },
+						fauxToolCall("end_turn", { reason: "user answered" }),
+					]);
+				},
+				fauxAssistantMessage([
+					{ type: "text", text: "channel reply" },
+					fauxToolCall("end_turn", { reason: "channel answered" }),
+				]),
+			]);
+			const recipient = { agentId: null, sessionId: harness.session.sessionId };
+			const initialCursor = initializeSharedChannelCursorAtTail(controlDbPath, recipient);
+			const messageId = postSharedChannelMessage(controlDbPath, {
+				body: "Status while cwd recovery is pending",
+				sender: { agentId: null, sessionId: "sender-session" },
+			});
+			const activePrompt = harness.session.prompt("User before recovery", {
+				onUserMessagePrepared: () => order.push("user prepared"),
+			});
+			// Attach rejection handling before allowing the competing channel turn to start.
+			const promptOutcome = activePrompt.then(
+				() => undefined,
+				(error: unknown) => error,
+			);
+			await recoveryEntered.promise;
+			const drainable = harness.session as unknown as {
+				_drainSharedChannelMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
+			};
+			const channelDrain = drainable._drainSharedChannelMessages({ triggerIfIdle: true });
+			expect(harness.session.isStreaming).toBe(false);
+			expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(initialCursor);
+			releaseRecovery.resolve();
+			await requestEntered.promise;
+			try {
+				expect(order).toEqual(["recovery entered", "recovery finished", "user prepared", "request started"]);
+				expect(getUserTexts(harness)).toEqual(["User before recovery"]);
+				await channelDrain;
+				// Acceptance queues the custom follow-up and advances the cursor before the user response ends.
+				expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(messageId);
+				await drainable._drainSharedChannelMessages({ triggerIfIdle: true });
+			} finally {
+				releaseResponse.resolve();
+				await promptOutcome;
+				await channelDrain;
+			}
+			expect(await promptOutcome).toBeUndefined();
+			await harness.session.drainRuntimeCoordination();
+			expect(harness.session.messages.map((message) => message.role)).toEqual([
+				"user",
+				"assistant",
+				"toolResult",
+				"custom",
+				"assistant",
+				"toolResult",
+			]);
+			expect(harness.session.messages[3]).toMatchObject({
+				customType: "shared_channel",
+				content: sharedChannelBatchPrompt(
+					[{ body: "Status while cwd recovery is pending", sessionId: "sender-session" }],
+					recipient.sessionId,
+				),
+			});
+			expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "custom_message")).toHaveLength(1);
+			expect(readSharedChannelCursor(controlDbPath, recipient)).toBe(messageId);
+		},
+	);
+
+	it("preserves user submission order while cwd preflight is gated", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		const recoveryEntered = deferred<void>();
+		const releaseRecovery = deferred<void>();
+		let recoveryChecks = 0;
+		harness.session.setWorkingDirectoryRecoveryHandlers({
+			beforeRun: async () => {
+				recoveryChecks++;
+				recoveryEntered.resolve();
+				await releaseRecovery.promise;
+				return undefined;
+			},
+			afterTurn: async () => {},
+		});
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "first answered" })),
+			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "second answered" })),
+		]);
+		const first = harness.session.prompt("First user input");
+		await recoveryEntered.promise;
+		const second = harness.session.prompt("Second user input", { streamingBehavior: "followUp" });
+		releaseRecovery.resolve();
+		await Promise.all([first, second]);
+		expect(getUserTexts(harness)).toEqual(["First user input", "Second user input"]);
+		expect(recoveryChecks).toBe(1);
+	});
+
+	it("releases prompt start serialization when cwd preflight fails", async () => {
+		const harness = await createHarness();
+		harnesses.push(harness);
+		let rejectRecovery = true;
+		harness.session.setWorkingDirectoryRecoveryHandlers({
+			beforeRun: async () => {
+				if (rejectRecovery) throw new Error("cwd recovery failed");
+				return undefined;
+			},
+			afterTurn: async () => {},
+		});
+		await expect(harness.session.prompt("Rejected user input")).rejects.toThrow("cwd recovery failed");
+		rejectRecovery = false;
+		harness.setResponses([fauxAssistantMessage(fauxToolCall("end_turn", { reason: "accepted" }))]);
+		await harness.session.prompt("Accepted user input");
+		expect(getUserTexts(harness)).toEqual(["Accepted user input"]);
+	});
+
+	it("releases prompt start serialization before a command awaits another prompt", async () => {
+		let harness: Harness;
+		harness = await createHarness({
+			extensionFactories: [
+				(pi) => {
+					pi.registerCommand("nested", {
+						description: "Dispatch another prompt",
+						handler: async () => {
+							await harness.session.prompt("Command user input");
+						},
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		harness.setResponses([fauxAssistantMessage(fauxToolCall("end_turn", { reason: "command answered" }))]);
+		const accepted: boolean[] = [];
+		await harness.session.prompt("/nested", { preflightResult: (result) => accepted.push(result) });
+		expect(accepted).toEqual([true]);
+		expect(getUserTexts(harness)).toEqual(["Command user input"]);
+	});
+
 	it("marks post-run shared channel follow-ups as extension input", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);

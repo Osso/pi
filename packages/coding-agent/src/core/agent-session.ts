@@ -3007,28 +3007,33 @@ export class AgentSession {
 	 * @throws Error if no model selected or no API key available (when not streaming)
 	 */
 	async prompt(text: string, options?: PromptOptions): Promise<void> {
-		if (!this.isStreaming) {
-			const replacement = await this._beforeWorkingDirectoryRecoveryRun?.();
-			if (replacement && replacement !== this) {
-				await replacement.prompt(text, options);
-				return;
+		// Reserve the start before cwd recovery yields, so idle coordination cannot overtake this input.
+		const prompted = await this._withTurnStartLock(async (release) => {
+			if (!this.isStreaming) {
+				const replacement = await this._beforeWorkingDirectoryRecoveryRun?.();
+				if (replacement && replacement !== this) {
+					release();
+					await replacement.prompt(text, options);
+					return false;
+				}
 			}
-		}
-		const expandPromptTemplates = options?.expandPromptTemplates ?? true;
-		if (expandPromptTemplates && text.startsWith("/")) {
-			const handled = await this._tryExecuteExtensionCommand(text);
-			if (handled) {
-				this._recordHandledSlashCommandHistory(text);
-				options?.preflightResult?.(true);
-				return;
+			const expandPromptTemplates = options?.expandPromptTemplates ?? true;
+			if (expandPromptTemplates && text.startsWith("/")) {
+				const handled = await this._tryExecuteExtensionCommand(text, release);
+				if (handled) {
+					this._recordHandledSlashCommandHistory(text);
+					options?.preflightResult?.(true);
+					return false;
+				}
+				if (!this._isKnownSlashCommand(text)) {
+					throw new Error(`Unknown slash command: ${this._slashCommandName(text)}`);
+				}
 			}
-			if (!this._isKnownSlashCommand(text)) {
-				throw new Error(`Unknown slash command: ${this._slashCommandName(text)}`);
-			}
-		}
 
-		await this._withTurnStartLock((release) => this._promptTurn(text, options, release));
-		await this._drainRuntimeCoordinationMessages({ triggerIfIdle: true });
+			await this._promptTurn(text, options, release);
+			return true;
+		});
+		if (prompted) await this._drainRuntimeCoordinationMessages({ triggerIfIdle: true });
 	}
 
 	private async _promptTurn(
@@ -3213,7 +3218,7 @@ export class AgentSession {
 		return this.promptTemplates.some((template) => template.name === commandName);
 	}
 
-	private async _tryExecuteExtensionCommand(text: string): Promise<boolean> {
+	private async _tryExecuteExtensionCommand(text: string, releaseTurnStart: () => void): Promise<boolean> {
 		// Parse command name and args
 		const spaceIndex = text.indexOf(" ");
 		const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
@@ -3222,6 +3227,8 @@ export class AgentSession {
 		const command = this._extensionRunner.getPromptCommand(commandName);
 		if (!command) return false;
 
+		// Commands may await another prompt or compaction, both of which acquire the start lock.
+		releaseTurnStart();
 		try {
 			await command.handler(args, this._createCommandContext(commandName));
 			return true;
