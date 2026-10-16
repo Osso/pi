@@ -15,7 +15,7 @@ Codex fast mode provides a main-thread-owned runtime `/fast` authority that sele
   child `/fast` commands warn and leave it unchanged. Explicit runtime child identity is authoritative;
   historical `is_subagent` transcript provenance alone does not classify a runtime opened as main.
 - [x] Show `fast` or `fast ultra` in footer status for the selected tier while enabled on a supported provider, hide it after switching away, and restore it after switching back without changing the selected tier.
-- [ ] In a switched-child view, evaluate shared fast-mode authority against the displayed child's provider, not the main model: show the selected tier for a supported Codex child even with an Opus main; hide it for unsupported or unknown selected models without using the main model as a substitute. Returning to main restores main-model status. Viewing a child must not change `/fast` control or request semantics.
+- [x] In a switched-child view, evaluate shared fast-mode authority against the displayed child's provider, not the main model: show the selected tier for a supported Codex child even with an Opus main; hide it for unsupported or unknown selected models without using the main model as a substitute. Returning to main restores main-model status. Viewing a child must not change `/fast` control or request semantics.
 
 ### Request behavior
 
