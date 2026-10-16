@@ -18,18 +18,25 @@ Foreground Pyrun does not require a persisted main session. [Standalone workers]
 
 ## Mailbox API Boundary
 
-`pi.messages.send` and `pi.messages.enqueue` remain programmatic raw literal-body transport
-APIs; their body and routing contracts are unchanged.
+`pi.messages.send` and `pi.messages.enqueue` remain independent programmatic raw literal-body
+transport APIs; their `message` field and routing contracts are unchanged. Do not rename
+that transport field to `body`.
 
-Model-facing `send_agent_message` and `contact_parent` instead accept metadata plus optional
-`textIndex`, not `message: string`. They send verbatim text from the executing assistant
-response matched by both the expected mailbox tool name and exact `toolCallId`. `textIndex` selects a zero-based filtered text block;
-multiple blocks require it, while one block is selected by default. Missing, unmatched,
-empty, or ambiguous source text fails without compatibility or stale-transcript fallback.
+Native `send_agent_message` and `contact_parent` require a nonblank `body` string, sent
+verbatim. Assistant narration, reasoning, and transcript text are never read to obtain it.
+No accompanying assistant text is required; multiple calls can send distinct bodies.
 
-A synthetic `pi.tools.call` mailbox invocation must fail explicitly: reusing the outer
-`pyrun_eval` ID does not match the mailbox tool name and cannot send outer commentary.
-Use the raw messaging APIs for programmatic literal bodies, not a mailbox-tool wrapper. Commentary is never automatically broadcast, and `spawn_agent.prompt` is unchanged.
+`pi.tools.call` uses native parameters, including required `body`:
+
+```python
+pi.tools.call("send_agent_message", {"toAgentId": "agent_7", "body": "Review complete."})
+pi.tools.call("contact_parent", {"body": "Review complete."})
+```
+
+Migration: move the outgoing assistant-text message into `body` and remove `textIndex`.
+Native tools do not accept `message` as an alias. Missing or blank bodies fail explicitly;
+there is no compatibility or implicit-text fallback. Commentary is never automatically
+broadcast, and `spawn_agent.prompt` is unchanged.
 See [mailbox migration examples](../../../../docs/wiki/systems/multi-agent.md#model-facing-mailbox-body-and-migration).
 
 ## Runner Configuration

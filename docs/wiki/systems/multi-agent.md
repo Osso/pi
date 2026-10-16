@@ -310,39 +310,39 @@ must remain tagged as protocol/system messages until explicitly rendered for the
 
 ### Model-facing mailbox body and migration
 
-`send_agent_message` and `contact_parent` no longer accept `message: string`; there is no
-compatibility alias or argument-body fallback. Routing, sender identity, `fileRefs`, and
-`threadId` are unchanged. The body is the verbatim `TextContent` (provider `output_text`)
-from the executing assistant response containing both the expected mailbox tool name and exact
-`toolCallId`, not prior transcript text.
+`send_agent_message` and `contact_parent` require an explicit nonblank `body` string,
+sent verbatim. Routing, sender identity, `fileRefs`, and `threadId` are unchanged.
+Assistant narration, reasoning, and transcript text are never read to obtain the body;
+no accompanying assistant text is required. Multiple calls in one turn can send distinct bodies.
 
-Migration from `send_agent_message({ toAgentId: "agent_7", message: "Review complete." })`:
-emit `Review complete.` as a text block in the same assistant response as the tool call, then
-supply only metadata:
+Migrate implicit assistant-text sends by moving the complete outgoing message into `body`
+and removing `textIndex`. Native tools do not accept `message` as a body alias. There is
+no compatibility or implicit-text fallback; missing or blank bodies fail explicitly.
 
 ```json
-{ "toAgentId": "agent_7", "threadId": "review" }
+{ "toAgentId": "agent_7", "body": "Review complete.", "threadId": "review" }
 ```
 
-For direct-parent contact, emit the body in that response and call `contact_parent` with
-`{}` or existing `fileRefs`/`threadId` metadata. With one text block, selection defaults to
-that block. With multiple text blocks, supply `textIndex`: a zero-based index into the
-filtered text blocks, excluding thinking and tool-call blocks. For text blocks
-`["Local status.", "Review complete."]`, `textIndex: 1` sends only `Review complete.`.
-The selected bytes are not trimmed, joined, or rewritten. Missing, unmatched, empty, or
-ambiguous source text fails explicitly; no historical text substitutes for it.
-Commentary is not automatically broadcast: delivery still requires an explicit mailbox call.
+For direct-parent contact:
 
-Programmatic `pi.messages.send` and `pi.messages.enqueue` remain separate raw literal-body
-transport APIs, unchanged by this model-tool migration. Do not replace a literal-body send
-with `pi.tools.call("send_agent_message", ...)` or `pi.tools.call("contact_parent", ...)`:
-a synthetic mailbox invocation must fail explicitly. Its reused outer `pyrun_eval` ID does not
-match the mailbox tool name, so outer commentary cannot become the body.
+```json
+{ "body": "Review complete." }
+```
+
+`pi.tools.call` uses the native tool parameters, including required `body`:
+
+```python
+pi.tools.call("send_agent_message", {"toAgentId": "agent_7", "body": "Review complete."})
+pi.tools.call("contact_parent", {"body": "Review complete."})
+```
+
+Programmatic `pi.messages.send` and `pi.messages.enqueue` remain independent raw literal-body
+transport APIs: their `message` field and routing contracts are unchanged. Do not rename
+that transport field to `body`. Commentary is never automatically broadcast.
 See [Pyrun adapter messaging](../../../packages/coding-agent/extensions/pyrun/README.md#mailbox-api-boundary).
 
-`spawn_agent.prompt` is unchanged; original parent assignments can still join. This fix
-changes the mailbox body data channel only. It does not establish a historical backend root
-cause, describe unknown provider internals, or constitute live-fix verification.
+`spawn_agent.prompt` is unchanged. This migration changes the native mailbox body argument
+only; it does not establish a historical backend root cause or constitute live-fix verification.
 
 ### Direct file references
 
