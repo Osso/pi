@@ -1,3 +1,4 @@
+import { CODEX_FALLBACK_PROVIDERS } from "../../../src/core/codex-quota-fallback.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "../../../src/core/extensions/types.ts";
 
 const DEFAULT_CODEX_PROVIDER_ID = "openai-codex";
@@ -138,29 +139,187 @@ export function formatCodexUsage(usage: CodexUsage): string {
 
 export default function codexUsageExtension(pi: ExtensionAPI) {
 	pi.registerCommand("usage", {
-		description: "Show Codex or Claude account usage; optionally reset Codex usage",
+		description: "Show Codex or Claude usage, all accounts, or reset Codex usage",
 		getArgumentCompletions: (prefix) => {
-			const options = ["reset"];
+			const options = ["all", "reset"];
 			const matches = options.filter((option) => option.startsWith(prefix));
 			return matches.length > 0 ? matches.map((value) => ({ value, label: value })) : null;
 		},
 		handler: async (args, ctx) => {
+			const commandArgs = args.trim();
+			if (commandArgs === "all") {
+				await handleUsageAll(ctx, pi);
+				return;
+			}
 			if (ctx.model?.provider === "claude-bridge") {
 				await dispatchClaudeUsageRequest(args, ctx, pi);
 				return;
 			}
-			const commandArgs = args.trim();
 			if (commandArgs === "reset") {
 				await handleUsageReset(ctx, pi);
 				return;
 			}
 			if (commandArgs.length > 0) {
-				ctx.ui.notify("Usage: /usage [reset]", "warning");
+				ctx.ui.notify("Usage: /usage [all|reset]", "warning");
 				return;
 			}
 			await handleUsageRead(ctx, pi);
 		},
 	});
+}
+
+interface UsageWindow {
+	percent: number;
+	resetsAt: string | null;
+}
+
+type ClaudeAccountUsage =
+	| { account: string; selected: boolean; fiveHour: UsageWindow | null; weekly: UsageWindow | null }
+	| { account: string; selected: boolean; error: string };
+
+interface AccountUsageRow {
+	provider: string;
+	account: string;
+	details: string[];
+}
+
+async function handleUsageAll(ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
+	const [claudeRows, codexRows] = await Promise.all([
+		readClaudeAccountRows(pi),
+		Promise.all([...CODEX_FALLBACK_PROVIDERS.keys()].map((id) => readCodexAccountRow(ctx, id))),
+	]);
+	const rows = [...claudeRows, ...codexRows];
+	const accountWidth = Math.max("Account".length, ...rows.map((row) => row.account.length));
+	const header = {
+		provider: "Provider",
+		account: "Account",
+		details: ["5-hour", "resets (UTC)", "Weekly", "resets (UTC)"],
+	};
+	const content = [
+		"Account usage (all accounts)",
+		...[header, ...rows].map((row) => formatAccountRow(row, accountWidth)),
+	].join("\n");
+	sendCodexUsageReport(ctx, pi, content, "usage-all");
+}
+
+async function readCodexAccountRow(ctx: ExtensionCommandContext, providerId: string): Promise<AccountUsageRow> {
+	const selected = ctx.model?.provider === providerId ? " *" : "";
+	const row = { provider: "Codex", account: `${providerId}${selected}`, details: [] as string[] };
+	try {
+		if (!ctx.modelRegistry.authStorage.has(providerId)) return { ...row, details: ["not logged in"] };
+		const usage = await readCodexUsage(ctx, providerId);
+		const plan = usage.planType ? ` (${sanitizeUsageText(usage.planType)})` : "";
+		const account = `${sanitizeUsageText(usage.email ?? usage.accountId ?? providerId)}${plan} [${providerId}]${selected}`;
+		const limit = usage.limits.find((entry) => entry.limitId === "codex");
+		const windows = [limit?.primary, limit?.secondary];
+		return {
+			provider: "Codex",
+			account,
+			details: [
+				...formatCodexAccountWindow(windows.find((window) => window?.windowMinutes === 300)),
+				...formatCodexAccountWindow(windows.find((window) => window?.windowMinutes === 10_080)),
+			],
+		};
+	} catch (error) {
+		return { ...row, details: [`error: ${formatUsageError(error)}`] };
+	}
+}
+
+function formatCodexAccountWindow(window: CodexRateLimitWindow | null | undefined): string[] {
+	if (!window) return ["unavailable", "unavailable"];
+	return [
+		formatPercent(window.usedPercent),
+		window.resetsAt === null ? "unavailable" : formatResetTime(window.resetsAt),
+	];
+}
+
+async function readClaudeAccountRows(pi: ExtensionAPI): Promise<AccountUsageRow[]> {
+	const request: { accounts?: Promise<ClaudeAccountUsage[]> } = {};
+	try {
+		// The bridge must claim the request synchronously; await its work alongside Codex reads.
+		pi.events.emit("claude-bridge:usage-all-request", request);
+		if (!request.accounts) return [{ provider: "Claude", account: "", details: ["bridge not loaded"] }];
+		const accounts: unknown = await request.accounts;
+		if (!Array.isArray(accounts)) throw new Error("malformed Claude account usage response");
+		return accounts.map(formatClaudeAccountRow);
+	} catch (error) {
+		return [{ provider: "Claude", account: "", details: [`error: ${formatUsageError(error)}`] }];
+	}
+}
+
+function formatClaudeAccountRow(value: unknown): AccountUsageRow {
+	const account =
+		isUsageRecord(value) && typeof value.account === "string" ? sanitizeUsageText(value.account) : "unknown";
+	const selected = isUsageRecord(value) && value.selected === true ? " *" : "";
+	const row = { provider: "Claude", account: `${account}${selected}`, details: [] as string[] };
+	if (!isClaudeAccountUsage(value)) return { ...row, details: ["error: malformed Claude account usage entry"] };
+	if ("error" in value) return { ...row, details: [`error: ${sanitizeUsageText(value.error)}`] };
+	return {
+		...row,
+		details: [...formatClaudeAccountWindow(value.fiveHour), ...formatClaudeAccountWindow(value.weekly)],
+	};
+}
+
+function isUsageRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function isClaudeAccountUsage(value: unknown): value is ClaudeAccountUsage {
+	if (
+		!isUsageRecord(value) ||
+		typeof value.account !== "string" ||
+		!value.account.trim() ||
+		typeof value.selected !== "boolean"
+	)
+		return false;
+	if ("error" in value) return typeof value.error === "string";
+	return isUsageWindow(value.fiveHour) && isUsageWindow(value.weekly);
+}
+
+function isUsageWindow(value: unknown): value is UsageWindow | null {
+	if (value === null) return true;
+	if (
+		!isUsageRecord(value) ||
+		typeof value.percent !== "number" ||
+		!Number.isFinite(value.percent) ||
+		value.percent < 0
+	)
+		return false;
+	return (
+		value.resetsAt === null ||
+		(typeof value.resetsAt === "string" &&
+			/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value.resetsAt) &&
+			Number.isFinite(Date.parse(value.resetsAt)))
+	);
+}
+
+function formatClaudeAccountWindow(window: UsageWindow | null): string[] {
+	if (!window) return ["unavailable", "unavailable"];
+	return [
+		formatPercent(window.percent),
+		window.resetsAt === null ? "unavailable" : formatResetTime(Date.parse(window.resetsAt) / 1000),
+	];
+}
+
+function formatAccountRow(row: AccountUsageRow, accountWidth: number): string {
+	const details = row.details
+		.map((cell, index) => cell.padEnd(index % 2 === 0 ? 11 : 18))
+		.join("  ")
+		.trimEnd();
+	return `${row.provider.padEnd(8)}  ${row.account.padEnd(accountWidth)}  ${details}`;
+}
+
+function formatUsageError(error: unknown): string {
+	return sanitizeUsageText(error instanceof Error ? error.message : String(error));
+}
+
+function sanitizeUsageText(value: string): string {
+	return value
+		.replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+		.replace(/\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, "[redacted]")
+		.replace(/\b(?:sk-|sk-ant-)[A-Za-z0-9_-]+/g, "[redacted]")
+		.replace(/[\x00-\x1f\x7f-\x9f]/g, " ")
+		.slice(0, 300);
 }
 
 async function dispatchClaudeUsageRequest(args: string, ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
@@ -207,11 +366,11 @@ function mapCodexRateLimit(
 }
 
 function mapWindow(window: NullableBox<CodexRateLimitWindowPayload>): CodexRateLimitWindow | null {
-	if (!window) return null;
+	if (typeof window?.used_percent !== "number" || !Number.isFinite(window.used_percent)) return null;
 	const windowSeconds = window.limit_window_seconds;
 	const windowMinutes = windowSeconds !== undefined && windowSeconds > 0 ? Math.ceil(windowSeconds / 60) : null;
 	return {
-		usedPercent: window.used_percent ?? 0,
+		usedPercent: window.used_percent,
 		windowMinutes,
 		resetsAt: window.reset_at ?? null,
 	};
@@ -274,8 +433,13 @@ function pad(value: number): string {
 	return value.toString().padStart(2, "0");
 }
 
-function sendCodexUsageReport(ctx: ExtensionCommandContext, pi: ExtensionAPI, content: string): void {
-	const message = { customType: "codex-usage", content, display: true };
+function sendCodexUsageReport(
+	ctx: ExtensionCommandContext,
+	pi: ExtensionAPI,
+	content: string,
+	customType = "codex-usage",
+): void {
+	const message = { customType, content, display: true };
 	if (!ctx.isIdle()) {
 		ctx.ui.notify(content, "info");
 		pi.sendMessage(message, { deliverAs: "nextTurn" });
@@ -313,20 +477,29 @@ async function handleUsageReset(ctx: ExtensionCommandContext, pi: ExtensionAPI):
 	sendCodexUsageReport(ctx, pi, `${formatResetResponse(payload)}\n\n${formatCodexUsage(after)}`);
 }
 
-async function readCodexUsage(ctx: ExtensionCommandContext): Promise<CodexUsage> {
-	const token = await getCodexAccessToken(ctx);
-	const accountInfo = resolveCodexAccountInfo(token);
-	const storedEmail = resolveStoredCodexEmail(ctx);
-	const response = await fetch(CODEX_USAGE_URL, { headers: createCodexHeaders(token) });
-	return {
-		...mapCodexUsagePayload((await decodeJsonResponse(response)) as CodexUsagePayload),
-		accountId: accountInfo.accountId,
-		email: resolveCodexDisplayEmail(token, storedEmail),
-	};
+async function readCodexUsage(
+	ctx: ExtensionCommandContext,
+	providerId = resolveCodexProviderId(ctx),
+): Promise<CodexUsage> {
+	const token = await getCodexAccessToken(ctx, providerId);
+	try {
+		const accountInfo = resolveCodexAccountInfo(token);
+		const storedEmail = resolveStoredCodexEmail(ctx, providerId);
+		const response = await fetch(CODEX_USAGE_URL, { headers: createCodexHeaders(token) });
+		return {
+			...mapCodexUsagePayload((await decodeJsonResponse(response)) as CodexUsagePayload),
+			accountId: accountInfo.accountId,
+			email: resolveCodexDisplayEmail(token, storedEmail),
+		};
+	} catch (error) {
+		// An upstream error body may echo the request credentials.
+		const message = error instanceof Error ? error.message : String(error);
+		throw new Error(message.replaceAll(token, "[redacted]"));
+	}
 }
 
-function resolveStoredCodexEmail(ctx: ExtensionCommandContext): string | null {
-	const credential = ctx.modelRegistry.authStorage.get(resolveCodexProviderId(ctx));
+function resolveStoredCodexEmail(ctx: ExtensionCommandContext, providerId: string): string | null {
+	const credential = ctx.modelRegistry.authStorage.get(providerId);
 	const email = credential && "email" in credential ? credential.email : undefined;
 	return typeof email === "string" && email.length > 0 ? email : null;
 }
@@ -337,8 +510,10 @@ function resolveCodexProviderId(ctx: ExtensionCommandContext): string {
 	return DEFAULT_CODEX_PROVIDER_ID;
 }
 
-async function getCodexAccessToken(ctx: ExtensionCommandContext): Promise<string> {
-	const providerId = resolveCodexProviderId(ctx);
+async function getCodexAccessToken(
+	ctx: ExtensionCommandContext,
+	providerId = resolveCodexProviderId(ctx),
+): Promise<string> {
 	const token = await ctx.modelRegistry.authStorage.getApiKey(providerId, { includeFallback: false });
 	if (!token) throw new Error(`OpenAI Codex provider ${providerId} is not logged in. Run /login ${providerId}.`);
 	return token;

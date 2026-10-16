@@ -46,6 +46,22 @@ describe("codex usage extension", () => {
 		});
 	});
 
+	it("does not present a window with missing usage as zero in the existing report", () => {
+		const text = formatCodexUsage(
+			mapCodexUsagePayload(
+				usagePayload({
+					rate_limit: {
+						primary_window: { limit_window_seconds: 18_000, reset_at: 1_800_000_000 },
+						secondary_window: { used_percent: 28, limit_window_seconds: 604_800 },
+					},
+				}),
+			),
+		);
+		expect(text).not.toContain("0%");
+		expect(text).not.toContain("5-hour usage");
+		expect(text).toContain("weekly usage 28%");
+	});
+
 	it("includes additional Codex rate limits", () => {
 		const usage = mapCodexUsagePayload(
 			usagePayload({
