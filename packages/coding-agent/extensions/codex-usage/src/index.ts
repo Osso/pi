@@ -264,33 +264,33 @@ function isUsageRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }
 
+function hasClaudeAccountIdentity(value: Record<string, unknown>): boolean {
+	if (typeof value.account !== "string") return false;
+	return value.account.trim().length > 0 && typeof value.selected === "boolean";
+}
+
 function isClaudeAccountUsage(value: unknown): value is ClaudeAccountUsage {
-	if (
-		!isUsageRecord(value) ||
-		typeof value.account !== "string" ||
-		!value.account.trim() ||
-		typeof value.selected !== "boolean"
-	)
-		return false;
+	if (!isUsageRecord(value)) return false;
+	if (!hasClaudeAccountIdentity(value)) return false;
 	if ("error" in value) return typeof value.error === "string";
 	return isUsageWindow(value.fiveHour) && isUsageWindow(value.weekly);
 }
 
+function isValidPercent(value: unknown): boolean {
+	if (typeof value !== "number") return false;
+	return Number.isFinite(value) && value >= 0;
+}
+
+function isUtcIsoTimestamp(value: unknown): boolean {
+	if (typeof value !== "string") return false;
+	return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value) && Number.isFinite(Date.parse(value));
+}
+
 function isUsageWindow(value: unknown): value is UsageWindow | null {
 	if (value === null) return true;
-	if (
-		!isUsageRecord(value) ||
-		typeof value.percent !== "number" ||
-		!Number.isFinite(value.percent) ||
-		value.percent < 0
-	)
-		return false;
-	return (
-		value.resetsAt === null ||
-		(typeof value.resetsAt === "string" &&
-			/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value.resetsAt) &&
-			Number.isFinite(Date.parse(value.resetsAt)))
-	);
+	if (!isUsageRecord(value)) return false;
+	if (!isValidPercent(value.percent)) return false;
+	return value.resetsAt === null || isUtcIsoTimestamp(value.resetsAt);
 }
 
 function formatClaudeAccountWindow(window: UsageWindow | null): string[] {
