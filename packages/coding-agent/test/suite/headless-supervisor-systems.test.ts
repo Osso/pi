@@ -314,8 +314,8 @@ describe("headless Supervisor goal system", () => {
 				{ message: "Waiting: waiting for background work", displayId, reviewAt },
 			]);
 			const deadlineMs = Date.parse(reviewAt) - Date.parse(status.timestamp);
-			expect(deadlineMs).toBeGreaterThanOrEqual(899_000);
-			expect(deadlineMs).toBeLessThanOrEqual(900_000);
+			expect(deadlineMs).toBeGreaterThanOrEqual(1_499_000);
+			expect(deadlineMs).toBeLessThanOrEqual(1_500_000);
 			const displayed = renderSupervisorStatuses(statuses);
 			expect(displayed).toContain("Waiting: waiting for background work");
 			expect(displayed).toContain("Next review in");
