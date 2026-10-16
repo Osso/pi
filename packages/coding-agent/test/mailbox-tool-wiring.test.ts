@@ -199,7 +199,8 @@ describe("model-facing mailbox tool wiring", () => {
 		const child = fixture.spawn(parent.id);
 		fixture.ctx.multiAgentAgentId = child.id;
 		const routing = name === "send_agent_message" ? { toAgentId: parent.id } : {};
-		for (const body of [undefined, "", " \t\r\n"]) {
+		// Shared argument validation coerces null to "null"; objects remain invalid strings.
+		for (const body of [undefined, "", " \t\r\n", {}]) {
 			const args = body === undefined ? routing : { ...routing, body };
 			await expect(fixture.execute(name, "invalid-body", args)).rejects.toThrow(/Validation failed/);
 		}
