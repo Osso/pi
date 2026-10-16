@@ -62,7 +62,7 @@ function createFixture() {
 	return { controlDbPath, ctx, execute, sessionManager, spawn, store, tool };
 }
 
-describe("model-facing mailbox tool wiring", () => {
+describe("model-facing mailbox body delivery", () => {
 	it.each(["send_agent_message", "contact_parent"])(
 		"sends explicit %s body through the active-tool bridge without matching assistant identity",
 		async (name) => {
@@ -167,7 +167,9 @@ describe("model-facing mailbox tool wiring", () => {
 		});
 		expect(fixture.store.listMailboxMessages()[0]?.body).toBe(body);
 	});
+});
 
+describe("model-facing mailbox argument validation", () => {
 	it.each(["send_agent_message", "contact_parent"])("rejects legacy message arguments for %s", (name) => {
 		const fixture = createFixture();
 		const args = {
@@ -226,7 +228,9 @@ describe("model-facing mailbox tool wiring", () => {
 		expect(fixture.store.listMailboxMessages()).toEqual([]);
 		expect(listRuntimeMailboxMessages(fixture.controlDbPath)).toEqual([]);
 	});
+});
 
+describe("mailbox context independence and routing", () => {
 	it.each(["send_agent_message", "contact_parent"])("sends %s body without any assistant response", async (name) => {
 		const fixture = createFixture();
 		const parent = fixture.spawn();
