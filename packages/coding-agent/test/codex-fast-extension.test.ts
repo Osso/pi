@@ -1,6 +1,6 @@
 import { describe, expect, it, onTestFinished, vi } from "vitest";
-import { createDefaultFooterComponent } from "../extensions/default-footer/src/index.ts";
 import codexFastExtension from "../extensions/codex-fast/src/index.ts";
+import { createDefaultFooterComponent } from "../extensions/default-footer/src/index.ts";
 import type {
 	BeforeProviderRequestEvent,
 	ExtensionAPI,
