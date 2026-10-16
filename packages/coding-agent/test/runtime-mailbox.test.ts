@@ -596,13 +596,16 @@ describe("runtime SQLite mailbox delivery", () => {
 
 		childSession.appendMessage(
 			fauxAssistantMessage(
-				[{ type: "text", text: "Need scope" }, fauxToolCall("contact_parent", {}, { id: "contact" })],
+				[
+					{ type: "text", text: "Need scope" },
+					fauxToolCall("contact_parent", { body: "Need scope" }, { id: "contact" }),
+				],
 				{ stopReason: "toolUse" },
 			),
 		);
 		await contactParent.execute(
 			"contact",
-			{},
+			{ body: "Need scope" },
 			undefined,
 			undefined,
 			createRuntimeMailboxContext({
@@ -667,7 +670,7 @@ describe("runtime SQLite mailbox delivery", () => {
 					{ type: "text", text: "Hello other session" },
 					fauxToolCall(
 						"send_agent_message",
-						{ toAgentId: child.agent.id, toSessionId: "target-session" },
+						{ body: "Hello other session", toAgentId: child.agent.id, toSessionId: "target-session" },
 						{ id: "send" },
 					),
 				],
@@ -677,6 +680,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		await sendAgentMessage.execute(
 			"send",
 			{
+				body: "Hello other session",
 				toAgentId: child.agent.id,
 				toSessionId: "target-session",
 			},
@@ -733,7 +737,11 @@ describe("runtime SQLite mailbox delivery", () => {
 					{ type: "text", text: "Hello unreachable child session" },
 					fauxToolCall(
 						"send_agent_message",
-						{ toAgentId: child.agent.id, toSessionId: "target-session" },
+						{
+							body: "Hello unreachable child session",
+							toAgentId: child.agent.id,
+							toSessionId: "target-session",
+						},
 						{ id: "send-child-unavailable" },
 					),
 				],
@@ -743,6 +751,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const sent = await sendAgentMessage.execute(
 			"send-child-unavailable",
 			{
+				body: "Hello unreachable child session",
 				toAgentId: child.agent.id,
 				toSessionId: "target-session",
 			},
@@ -779,7 +788,11 @@ describe("runtime SQLite mailbox delivery", () => {
 					{ type: "text", text: "Hello unreachable main session" },
 					fauxToolCall(
 						"send_agent_message",
-						{ toAgentId: "main", toSessionId: "target-session" },
+						{
+							body: "Hello unreachable main session",
+							toAgentId: "main",
+							toSessionId: "target-session",
+						},
 						{ id: "send-main-unavailable" },
 					),
 				],
@@ -789,6 +802,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const sent = await sendAgentMessage.execute(
 			"send-main-unavailable",
 			{
+				body: "Hello unreachable main session",
 				toAgentId: "main",
 				toSessionId: "target-session",
 			},
@@ -827,7 +841,7 @@ describe("runtime SQLite mailbox delivery", () => {
 					{ type: "text", text: "Hello main session" },
 					fauxToolCall(
 						"send_agent_message",
-						{ toAgentId: "main", toSessionId: "target-session" },
+						{ body: "Hello main session", toAgentId: "main", toSessionId: "target-session" },
 						{ id: "send-main" },
 					),
 				],
@@ -837,6 +851,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		await sendAgentMessage.execute(
 			"send-main",
 			{
+				body: "Hello main session",
 				toAgentId: "main",
 				toSessionId: "target-session",
 			},
@@ -896,7 +911,7 @@ describe("runtime SQLite mailbox delivery", () => {
 					{ type: "text", text: "Hello wrong session" },
 					fauxToolCall(
 						"send_agent_message",
-						{ toAgentId: child.agent.id, toSessionId: "target-session" },
+						{ body: "Hello wrong session", toAgentId: child.agent.id, toSessionId: "target-session" },
 						{ id: "send-mismatch" },
 					),
 				],
@@ -906,6 +921,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const sent = await sendAgentMessage.execute(
 			"send-mismatch",
 			{
+				body: "Hello wrong session",
 				toAgentId: child.agent.id,
 				toSessionId: "target-session",
 			},
