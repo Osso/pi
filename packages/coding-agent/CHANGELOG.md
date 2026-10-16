@@ -196,6 +196,7 @@
 
 ### Fixed
 
+- Fixed idle shared-channel delivery overtaking user input during awaited working-directory recovery; prompt submission now reserves turn-start ordering before recovery and releases it before delegation or extension command handlers. See [prompt ordering](../../docs/specs/shared-channel.md#prompt-ordering).
 - Attached/resumed-agent loss on supervisor restart: `818e48cf2` uses control-DB lifecycle and ownership plus transcript file/header validation, never parent-journal membership. At `ea21a0da1`, attached and spawned production `/restart` tests pass 2/2, superseding the earlier attached-child RED result. Rollout remains held: broader integration proof is incomplete and production is not deployed. See [verification status](../../docs/specs/agent-lifecycle.md#known-gaps-current-cycle).
 - Fixed switched-child Codex fast-mode footer status to check shared authority against the displayed child's provider, showing `fast`/`fast ultra` for supported Codex children even with an Opus main, hiding unsupported or unknown selected models, and restoring main-model status on return; `/fast` control and request semantics are unchanged.
 - Fixed slow session-tree deletion in the resume picker and `/delete`, avoiding synchronous trash-process freezes while preserving recursive child deletion and unrelated sessions.

@@ -39,6 +39,11 @@ once needed.
       accepted and the recipient cursor advances; an active `wait_agent({})` receives the exact formatted prompt,
       while a terminal agent notification takes precedence if both arrive together.
 
+### Prompt ordering
+
+- [x] `AgentSession.prompt()` reserves turn-start ordering before awaiting working-directory recovery, so later idle shared-channel delivery cannot overtake submitted user input. If recovery keeps the same session, the user input starts first and channel input queues as a custom follow-up; cursor advancement still follows successful acceptance.
+- [x] Release the turn-start reservation on preflight failure, before delegating to a replacement session, and before invoking an extension command handler, so subsequent or reentrant prompts do not deadlock.
+
 ### Cross-host delivery
 
 - [x] Local-origin posts replicate both ways through the [host relay](multi-agent.md#cross-host-messaging); imported posts are never forwarded back.
@@ -80,7 +85,8 @@ once needed.
 - `packages/coding-agent/test/session-control-db.test.ts`
 - `packages/coding-agent/test/shared-channel-retention.test.ts` — 24h expiry at open and periodic cleanup; reader, late-joiner, and relay cursors after deletion.
 - `packages/coding-agent/test/runtime-coordination-format.test.ts` — asserts receive-side policy and sender/body formatting.
-- `packages/coding-agent/test/runtime-mailbox.test.ts` — asserts batched idle delivery, ordering/labels, skipped sender handling, and cursor failure semantics.
+- `packages/coding-agent/test/runtime-mailbox.test.ts` — asserts batched idle delivery, ordering/labels, skipped sender handling, cursor failure semantics, user-first ordering during gated cwd recovery, submission order, and reservation release after preflight failure or before reentrant commands.
+- `packages/coding-agent/test/suite/working-directory-recovery-hooks.test.ts` — asserts replacement-session prompt delegation and unchanged/same-session recovery behavior.
 - `packages/coding-agent/test/suite/agent-session-queue.test.ts` — asserts shared-channel prompts use the custom-message path.
 - `packages/coding-agent/test/suite/regressions/shared-channel-end-turn-queue.test.ts` — asserts consumed follow-ups clear after `end_turn` and that the channel message, not a resent `end_turn` result, starts the next request.
 - `packages/coding-agent/test/suite/headless-pi.test.ts` — asserts real-process shared-channel delivery persists as a custom message.
