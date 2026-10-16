@@ -98,6 +98,7 @@ import {
 	type ModelRequestEndEvent,
 	type ModelRequestStartEvent,
 	type ReplacedSessionContext,
+	type ResolvedCommand,
 	type SessionBeforeTreeResult,
 	type SessionStartEvent,
 	type ShutdownHandler,
@@ -3007,6 +3008,12 @@ export class AgentSession {
 	 * @throws Error if no model selected or no API key available (when not streaming)
 	 */
 	async prompt(text: string, options?: PromptOptions): Promise<void> {
+		// Registered commands must remain available while recovery or compaction owns the start lock.
+		const command = this._tryExecuteExtensionCommand(text, options);
+		if (command) {
+			await command;
+			return;
+		}
 		// Reserve the start before cwd recovery yields, so idle coordination cannot overtake this input.
 		const prompted = await this._withTurnStartLock((release) =>
 			this._promptWithWorkingDirectoryRecovery(text, options, release),
@@ -3028,16 +3035,8 @@ export class AgentSession {
 			}
 		}
 		const expandPromptTemplates = options?.expandPromptTemplates ?? true;
-		if (expandPromptTemplates && text.startsWith("/")) {
-			const handled = await this._tryExecuteExtensionCommand(text, release);
-			if (handled) {
-				this._recordHandledSlashCommandHistory(text);
-				options?.preflightResult?.(true);
-				return false;
-			}
-			if (!this._isKnownSlashCommand(text)) {
-				throw new Error(`Unknown slash command: ${this._slashCommandName(text)}`);
-			}
+		if (expandPromptTemplates && text.startsWith("/") && !this._isKnownSlashCommand(text)) {
+			throw new Error(`Unknown slash command: ${this._slashCommandName(text)}`);
 		}
 
 		await this._promptTurn(text, options, release);
@@ -3226,29 +3225,40 @@ export class AgentSession {
 		return this.promptTemplates.some((template) => template.name === commandName);
 	}
 
-	private async _tryExecuteExtensionCommand(text: string, releaseTurnStart: () => void): Promise<boolean> {
-		// Parse command name and args
+	private _tryExecuteExtensionCommand(text: string, options?: PromptOptions): Promise<void> | undefined {
+		if (!(options?.expandPromptTemplates ?? true) || !text.startsWith("/")) return undefined;
 		const spaceIndex = text.indexOf(" ");
 		const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
 		const args = spaceIndex === -1 ? "" : text.slice(spaceIndex + 1);
-
 		const command = this._extensionRunner.getPromptCommand(commandName);
-		if (!command) return false;
+		if (!command) return undefined;
+		return this._executeExtensionCommand(text, args, command, options);
+	}
 
-		// Commands may await another prompt or compaction, both of which acquire the start lock.
-		releaseTurnStart();
+	private async _executeExtensionCommand(
+		text: string,
+		args: string,
+		command: ResolvedCommand,
+		options?: PromptOptions,
+	): Promise<void> {
+		if (!this.isStreaming) {
+			const replacement = await this._beforeWorkingDirectoryRecoveryRun?.();
+			if (replacement && replacement !== this) {
+				await replacement.prompt(text, options);
+				return;
+			}
+		}
 		try {
-			await command.handler(args, this._createCommandContext(commandName));
-			return true;
+			await command.handler(args, this._createCommandContext(command.invocationName));
 		} catch (err) {
-			// Emit error via extension runner
 			this._extensionRunner.emitError({
-				extensionPath: `command:${commandName}`,
+				extensionPath: `command:${command.invocationName}`,
 				event: "command",
 				error: err instanceof Error ? err.message : String(err),
 			});
-			return true;
 		}
+		this._recordHandledSlashCommandHistory(text);
+		options?.preflightResult?.(true);
 	}
 
 	/**
