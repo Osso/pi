@@ -38,6 +38,7 @@ import { isProcessIdentityAlive, type ProcessIdentity, readProcessIdentity } fro
 import {
 	getControlDbPath,
 	readMultiAgentAgent,
+	readMultiAgentState,
 	readMultiAgentRuntimeOwnership,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
@@ -2420,7 +2421,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 	});
 
 	it("marks detached Pyrun evaluation errors as failed jobs", async () => {
-		const store = new MultiAgentStore({ now: () => "2026-07-05T00:00:00.000Z" });
+		const store = new MultiAgentStore();
 		const detachRegistry = new ToolDetachRegistry();
 		const harness = createPyrunHarness({ backgroundJobs: { store }, detachRegistry });
 		const updates: Array<AgentToolResult<PyrunEvalDetails | PyrunProgressDetails>> = [];
@@ -2445,7 +2446,24 @@ for await (const line of createInterface({ input: process.stdin })) {
 		expect(store.getAgent(job.id)?.result?.fileRefs).toEqual(runningFileRefs);
 		expect(store.getAgent(job.id)?.result?.summary).toContain("detached boom");
 		expect(store.getAgent(job.id)?.result?.durationMs).toBeGreaterThanOrEqual(1_000);
-		expect(store.listPendingLifecycleNotificationsForAgent(job.id, "failed")[0]?.body).toMatch(/Duration: \d+ms/);
+		const notifications = store.listPendingLifecycleNotificationsForAgent(job.id, "failed");
+		expect(notifications).toHaveLength(1);
+		expect(notifications[0]?.body).toContain("Pyrun evaluation failed: detached boom");
+		expect(notifications[0]?.body).toMatch(/Duration: \d+ms/);
+		expect(notifications[0]?.body).toContain(`Duration: ${store.getAgent(job.id)?.result?.durationMs}ms`);
+		expect(notifications[0]?.fileRefs).toEqual(runningFileRefs);
+		const persistence = store.getPersistenceTarget();
+		if (!persistence) throw new Error("Expected persisted multi-agent store");
+		expect(readMultiAgentState(persistence.controlDbPath, persistence.sessionPath)?.mailboxMessages).toEqual(
+			expect.arrayContaining(notifications),
+		);
+		expect(hasProjectedLifecycle(store, job.id, "failed")).toBe(true);
+		expect(store.listPendingLifecycleNotificationsForAgent(job.id, "failed")).toEqual(notifications);
+		expect(store.consumeFailureNotificationsForAgent(job.id)).toEqual(notifications);
+		expect(store.consumeFailureNotificationsForAgent(job.id)).toEqual([]);
+		expect(readMultiAgentState(persistence.controlDbPath, persistence.sessionPath)?.mailboxMessages).not.toEqual(
+			expect.arrayContaining(notifications),
+		);
 	});
 
 	it("aborts a detached Pyrun evaluation through its agent runtime handle", async () => {
