@@ -37,6 +37,16 @@ interface FastHarnessOptions {
 	provider?: string;
 }
 
+function createSessionManagerFixture(options: FastHarnessOptions) {
+	return {
+		getBranch: () => options.branch ?? [],
+		getCwd: () => "/tmp/pi-codex-fast-footer-test",
+		getEntries: () => [],
+		getSessionName: () => "",
+		isSubagentSession: () => options.historicalSubagent === true,
+	};
+}
+
 function createHarness(options: FastHarnessOptions = {}) {
 	const authority = options.authority ?? { serviceTier: undefined };
 	const provider = options.provider ?? "openai-codex";
@@ -73,13 +83,7 @@ function createHarness(options: FastHarnessOptions = {}) {
 			provider,
 		},
 		multiAgentAgentId: options.child ? "child-agent" : undefined,
-		sessionManager: {
-			getBranch: () => options.branch ?? [],
-			getCwd: () => "/tmp/pi-codex-fast-footer-test",
-			getEntries: () => [],
-			getSessionName: () => "",
-			isSubagentSession: () => options.historicalSubagent === true,
-		},
+		sessionManager: createSessionManagerFixture(options),
 		settingsManager: {
 			getMergedSettings: () => ({ defaultCodexFastMode: options.defaultCodexFastMode }),
 		},
