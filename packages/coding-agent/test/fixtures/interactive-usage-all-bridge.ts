@@ -6,9 +6,10 @@ type ClaudeAccountUsage =
 	| { account: string; selected: boolean; error: string };
 
 export default function registerUsageAllBridge(pi: ExtensionAPI): void {
-	pi.events.on("claude-bridge:usage-all-request", (payload: { accounts?: Promise<ClaudeAccountUsage[]> }) => {
+	pi.events.on("claude-bridge:usage-all-request", (data: unknown) => {
+		const request = data as { accounts?: Promise<ClaudeAccountUsage[]> };
 		// Assignment must happen during emit, not after an await.
-		payload.accounts = Promise.resolve([
+		request.accounts = Promise.resolve([
 			{
 				account: "claude-selected@example.test",
 				selected: true,
