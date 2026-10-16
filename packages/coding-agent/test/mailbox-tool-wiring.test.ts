@@ -52,16 +52,19 @@ function createFixture() {
 		if (!definition) throw new Error(`Missing tool ${name}`);
 		return definition;
 	};
-	const execute = async (name: string, id: string, params: Record<string, unknown>) =>
-		(await tool(name).execute(id, params, undefined, undefined, ctx)) as AgentToolResult<{
+	const execute = async (name: string, id: string, params: Record<string, unknown>) => {
+		const definition = tool(name);
+		const validated = validateToolArguments(definition, fauxToolCall(name, params, { id }));
+		return (await definition.execute(id, validated, undefined, undefined, ctx)) as AgentToolResult<{
 			message: AgentMailboxMessage;
 		}>;
+	};
 	return { controlDbPath, ctx, execute, sessionManager, spawn, store, tool };
 }
 
 describe("model-facing mailbox tool wiring", () => {
 	it.each(["send_agent_message", "contact_parent"])(
-		"rejects synthetic %s through the active-tool bridge with an enclosing pyrun_eval identity",
+		"sends explicit %s body through the active-tool bridge without matching assistant identity",
 		async (name) => {
 			const fixture = createFixture();
 			const parent = fixture.spawn();
@@ -91,33 +94,36 @@ describe("model-facing mailbox tool wiring", () => {
 				};
 				const result = await bridgedSession._callActiveTool(
 					name,
-					name === "send_agent_message" ? { toAgentId: parent.id } : {},
+					{ body: "  Explicit bridge body\n", ...(name === "send_agent_message" ? { toAgentId: parent.id } : {}) },
 					undefined,
 					outerId,
 				);
-				expect(result.isError).toBe(true);
-				expect(result.content).toEqual([
-					{ type: "text", text: expect.stringMatching(/one assistant response for mailbox tool/) },
+				expect(result.isError).not.toBe(true);
+				expect(fixture.store.listMailboxMessages().map((message) => message.body)).toEqual([
+					"  Explicit bridge body\n",
 				]);
-				expect(fixture.store.listMailboxMessages()).toEqual([]);
-				expect(listRuntimeMailboxMessages(fixture.controlDbPath)).toEqual([]);
+				expect(listRuntimeMailboxMessages(fixture.controlDbPath).map((message) => message.body)).toEqual([
+					"  Explicit bridge body\n",
+				]);
 			} finally {
 				harness.cleanup();
 			}
 		},
 	);
-	it("sends exact executing assistant text unchanged, with routing and attachments", async () => {
+	it("sends exact body instead of unrelated narration, with routing and attachments", async () => {
 		const fixture = createFixture();
 		const recipient = fixture.spawn();
 		const body = "  Keep all spaces\r\n\tand Unicode: café  ";
 		const params = {
+			body,
 			toAgentId: recipient.id,
 			threadId: "thread-1",
 			fileRefs: [{ path: "/tmp/report", label: "Report" }],
 		};
 		fixture.sessionManager.appendMessage(
 			fauxAssistantMessage([
-				{ type: "text", text: body },
+				{ type: "text", text: "Unrelated narration" },
+				{ type: "thinking", thinking: "Private reasoning must never be sent" },
 				fauxToolCall("send_agent_message", params, { id: "send-exact" }),
 			]),
 		);
@@ -131,22 +137,21 @@ describe("model-facing mailbox tool wiring", () => {
 			threadId: "thread-1",
 			toAgentId: recipient.id,
 		});
-		expect(fixture.store.listMailboxMessages()[0]?.body).toBe(body);
-		expect(listRuntimeMailboxMessages(fixture.controlDbPath)[0]?.body).toBe(body);
+		expect(fixture.store.listMailboxMessages().map((message) => message.body)).toEqual([body]);
+		expect(listRuntimeMailboxMessages(fixture.controlDbPath).map((message) => message.body)).toEqual([body]);
 	});
 
-	it("uses a filtered text block index for contact_parent", async () => {
+	it("sends contact_parent body without normal assistant text", async () => {
 		const fixture = createFixture();
 		const parent = fixture.spawn();
 		const child = fixture.spawn(parent.id);
 		fixture.ctx.multiAgentAgentId = child.id;
 		const body = "  Parent request\nunchanged  ";
-		const params = { textIndex: 1, threadId: "parent-thread", fileRefs: [{ path: "/tmp/question" }] };
+		const params = { body, threadId: "parent-thread", fileRefs: [{ path: "/tmp/question" }] };
 		fixture.sessionManager.appendMessage(
 			fauxAssistantMessage([
-				{ type: "text", text: "Not this block" },
+				{ type: "thinking", thinking: "Reasoning is not a mailbox body" },
 				fauxToolCall("contact_parent", params, { id: "parent-exact" }),
-				{ type: "text", text: body },
 			]),
 		);
 
@@ -165,7 +170,11 @@ describe("model-facing mailbox tool wiring", () => {
 
 	it.each(["send_agent_message", "contact_parent"])("rejects legacy message arguments for %s", (name) => {
 		const fixture = createFixture();
-		const args = { message: "Legacy body", ...(name === "send_agent_message" ? { toAgentId: "main" } : {}) };
+		const args = {
+			body: "Explicit body",
+			message: "Legacy body",
+			...(name === "send_agent_message" ? { toAgentId: "main" } : {}),
+		};
 		expect(() => validateToolArguments(fixture.tool(name), fauxToolCall(name, args, { id: "legacy" }))).toThrow(
 			/Validation failed/,
 		);
@@ -174,33 +183,95 @@ describe("model-facing mailbox tool wiring", () => {
 
 	it.each(["send_agent_message", "contact_parent"])("rejects unknown metadata before %s delivery", (name) => {
 		const fixture = createFixture();
-		const args = { contentIndex: 0, ...(name === "send_agent_message" ? { toAgentId: "main" } : {}) };
+		const args = {
+			body: "Explicit body",
+			contentIndex: 0,
+			...(name === "send_agent_message" ? { toAgentId: "main" } : {}),
+		};
 		expect(() => validateToolArguments(fixture.tool(name), fauxToolCall(name, args, { id: "unknown" }))).toThrow(
 			/Validation failed/,
 		);
 	});
 
-	it.each(["send_agent_message", "contact_parent"])("accepts metadata-only %s arguments", (name) => {
+	it.each(["send_agent_message", "contact_parent"])("validates required literal %s body", async (name) => {
 		const fixture = createFixture();
-		const args = {
-			textIndex: 0,
-			...(name === "send_agent_message" ? { toAgentId: "main", toSessionId: "other-session" } : {}),
-		};
-		expect(validateToolArguments(fixture.tool(name), fauxToolCall(name, args, { id: "metadata" }))).toEqual(args);
-	});
-
-	it("does not write a mailbox message when executing tool identity is absent", async () => {
-		const fixture = createFixture();
-		const recipient = fixture.spawn();
-		fixture.sessionManager.appendMessage(fauxAssistantMessage("Not an executing tool message"));
-		await expect(fixture.execute("send_agent_message", "missing", { toAgentId: recipient.id })).rejects.toThrow();
+		const parent = fixture.spawn();
+		const child = fixture.spawn(parent.id);
+		fixture.ctx.multiAgentAgentId = child.id;
+		const routing = name === "send_agent_message" ? { toAgentId: parent.id } : {};
+		for (const body of [undefined, "", " \t\r\n"]) {
+			const args = body === undefined ? routing : { ...routing, body };
+			await expect(fixture.execute(name, "invalid-body", args)).rejects.toThrow(/Validation failed/);
+		}
 		expect(fixture.store.listMailboxMessages()).toEqual([]);
+		expect(listRuntimeMailboxMessages(fixture.controlDbPath)).toEqual([]);
 	});
 
-	it("retains sender identity guards after selecting assistant text", async () => {
+	it.each(["send_agent_message", "contact_parent"])("rejects replaced implicit %s inputs", async (name) => {
+		const fixture = createFixture();
+		const parent = fixture.spawn();
+		const child = fixture.spawn(parent.id);
+		fixture.ctx.multiAgentAgentId = child.id;
+		const routing = name === "send_agent_message" ? { toAgentId: parent.id } : {};
+		fixture.sessionManager.appendMessage(
+			fauxAssistantMessage([
+				{ type: "text", text: "Old implicit body" },
+				fauxToolCall(name, routing, { id: "implicit" }),
+			]),
+		);
+		for (const args of [routing, { ...routing, textIndex: 0 }, { ...routing, body: "Body", textIndex: 0 }]) {
+			await expect(fixture.execute(name, "implicit", args)).rejects.toThrow(/Validation failed/);
+		}
+		expect(fixture.store.listMailboxMessages()).toEqual([]);
+		expect(listRuntimeMailboxMessages(fixture.controlDbPath)).toEqual([]);
+	});
+
+	it.each(["send_agent_message", "contact_parent"])("sends %s body without any assistant response", async (name) => {
+		const fixture = createFixture();
+		const parent = fixture.spawn();
+		const child = fixture.spawn(parent.id);
+		fixture.ctx.multiAgentAgentId = child.id;
+		const body = "  No assistant response\r\n";
+		const params = { body, ...(name === "send_agent_message" ? { toAgentId: parent.id } : {}) };
+		const sent = await fixture.execute(name, "not-in-transcript", params);
+		expect(sent.isError).not.toBe(true);
+		expect(sent.details.message.body).toBe(body);
+		expect(fixture.store.listMailboxMessages().map((message) => message.body)).toEqual([body]);
+		expect(listRuntimeMailboxMessages(fixture.controlDbPath).map((message) => message.body)).toEqual([body]);
+	});
+
+	it.each(["send_agent_message", "contact_parent"])(
+		"delivers distinct bodies for later same-turn %s calls",
+		async (name) => {
+			const fixture = createFixture();
+			const parent = fixture.spawn();
+			const child = fixture.spawn(parent.id);
+			fixture.ctx.multiAgentAgentId = child.id;
+			const bodies = ["  First body\n", "Second body\t", "Third body: café"];
+			const calls = bodies.map((body, index) =>
+				fauxToolCall(
+					name,
+					{ body, ...(name === "send_agent_message" ? { toAgentId: parent.id } : {}) },
+					{ id: `later-${index}` },
+				),
+			);
+			fixture.sessionManager.appendMessage(
+				fauxAssistantMessage([{ type: "text", text: "Narration is unrelated to all three bodies" }, ...calls]),
+			);
+			for (const call of calls) {
+				const sent = await fixture.execute(name, call.id, call.arguments);
+				expect(sent.isError).not.toBe(true);
+				expect(sent.details.message.body).toBe(call.arguments.body);
+			}
+			expect(fixture.store.listMailboxMessages().map((message) => message.body)).toEqual(bodies);
+			expect(listRuntimeMailboxMessages(fixture.controlDbPath).map((message) => message.body)).toEqual(bodies);
+		},
+	);
+
+	it("retains sender identity guards with explicit body", async () => {
 		const fixture = createFixture();
 		fixture.ctx.multiAgentRequiresAgentId = true;
-		const params = { toAgentId: "main", toSessionId: "other-session" };
+		const params = { body: "Explicit request", toAgentId: "main", toSessionId: "other-session" };
 		fixture.sessionManager.appendMessage(
 			fauxAssistantMessage([
 				{ type: "text", text: "Request" },
@@ -223,7 +294,7 @@ describe("model-facing mailbox tool wiring", () => {
 		const child = fixture.spawn(parent.id);
 		const unrelated = fixture.spawn();
 		fixture.ctx.multiAgentAgentId = child.id;
-		const params = { toAgentId: unrelated.id };
+		const params = { body: "Explicit request", toAgentId: unrelated.id };
 		fixture.sessionManager.appendMessage(
 			fauxAssistantMessage([
 				{ type: "text", text: "Request" },

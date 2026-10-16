@@ -6,7 +6,6 @@ import {
 	type ExtensionContext,
 } from "../../../src/core/extensions/types.ts";
 import type { AgentFileReference } from "../../../src/core/multi-agent-store.ts";
-import { readCurrentToolCallText } from "./current-tool-text.ts";
 
 /** Literal transport inputs, including programmatic pi.messages.send requests. */
 export interface ContactParentMessageParams {
@@ -31,22 +30,20 @@ const fileReferenceSchema = Type.Object({
 	label: Type.Optional(Type.String()),
 });
 
-const mailboxMetadata = {
+const mailboxParameters = {
+	body: Type.String({
+		minLength: 1,
+		pattern: "\\S",
+		description: "Required nonblank message body, sent verbatim. Independent of assistant text or reasoning.",
+	}),
 	fileRefs: Type.Optional(Type.Array(fileReferenceSchema, { description: "Optional file references to attach." })),
-	textIndex: Type.Optional(
-		Type.Integer({
-			minimum: 0,
-			description:
-				"Zero-based index among text blocks in the assistant message containing this tool call, not among all content blocks. Required when that message has multiple text blocks; omit for one text block.",
-		}),
-	),
 	threadId: Type.Optional(Type.String({ description: "Optional thread identifier for conversation correlation." })),
 };
 
-const contactParentSchema = Type.Object(mailboxMetadata, { additionalProperties: false });
+const contactParentSchema = Type.Object(mailboxParameters, { additionalProperties: false });
 const sendAgentMessageSchema = Type.Object(
 	{
-		...mailboxMetadata,
+		...mailboxParameters,
 		toAgentId: Type.String({
 			description: "Target agent ID, or 'main' when sending to another session's main thread.",
 		}),
@@ -63,26 +60,26 @@ const sendAgentMessageSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-const outgoingTextGuideline =
-	"For send_agent_message and contact_parent, write the outgoing body as assistant text in the same message as the mailbox tool call, then call that tool with routing/fileRefs/thread metadata only. The selected assistant text is sent verbatim. With multiple text blocks, set textIndex to the zero-based index among text blocks, not all content blocks; omit it when there is exactly one text block.";
+const outgoingBodyGuideline =
+	"For send_agent_message and contact_parent, put the complete outgoing message in the required body argument. It is sent verbatim; assistant narration and reasoning are never read. No assistant text is required, and multiple calls in one turn can send distinct bodies.";
 
 function createSendAgentMessageTool(transports: MailboxToolTransports) {
 	return defineTool({
 		name: "send_agent_message",
 		label: "Send Agent Message",
 		description:
-			"Send assistant text verbatim to a local child or sibling agent, or another session via toSessionId (with toAgentId 'main'). For another host, also pass toHost; the message queues locally until relay delivery. Unknown local sessions are rejected. Write the outgoing body as assistant text alongside this tool call, then pass only metadata; use textIndex when there are multiple text blocks.",
+			"Send the required body verbatim across a direct parent-child edge, or to another session via toSessionId (with toAgentId 'main'). For another host, also pass toHost; the message queues locally until relay delivery. Unknown local sessions are rejected. Supply the complete message in body; assistant narration and reasoning are never read.",
 		promptGuidelines: [
-			outgoingTextGuideline,
+			outgoingBodyGuideline,
 			"For a cross-host reply, use the sender's hostname as toHost plus its session ID as toSessionId. Never infer host ownership from a session ID.",
 		],
 		approvalRequired: false,
 		parameters: sendAgentMessageSchema,
-		execute: async (toolCallId, params, _signal, _onUpdate, ctx) =>
+		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
 			transports.sendAgentMessage(
 				{
 					fileRefs: params.fileRefs,
-					message: readCurrentToolCallText(ctx, toolCallId, "send_agent_message", params.textIndex),
+					message: params.body,
 					threadId: params.threadId,
 					toAgentId: params.toAgentId,
 					toSessionId: params.toSessionId,
@@ -98,15 +95,15 @@ function createContactParentTool(transports: MailboxToolTransports) {
 		name: "contact_parent",
 		label: "Contact Parent",
 		description:
-			"Send assistant text verbatim as a child-agent mailbox request to its direct parent. Write the outgoing body as assistant text alongside this tool call, then pass only metadata; use textIndex when there are multiple text blocks.",
-		promptGuidelines: [outgoingTextGuideline],
+			"Send the required body verbatim as a child-agent mailbox request to its direct parent. Supply the complete message in body; assistant narration and reasoning are never read.",
+		promptGuidelines: [outgoingBodyGuideline],
 		approvalRequired: false,
 		parameters: contactParentSchema,
-		execute: async (toolCallId, params, _signal, _onUpdate, ctx) =>
+		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
 			transports.contactParent(
 				{
 					fileRefs: params.fileRefs,
-					message: readCurrentToolCallText(ctx, toolCallId, "contact_parent", params.textIndex),
+					message: params.body,
 					threadId: params.threadId,
 				},
 				ctx,

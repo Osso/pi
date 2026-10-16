@@ -343,18 +343,17 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 
 ### Mailbox and steering
 
-- [x] Model-facing `send_agent_message` and `contact_parent` accept routing/file-reference/thread
-      metadata and optional `textIndex`, never `message: string`. The body is sent verbatim from
-      `TextContent` (provider `output_text`) in the executing assistant response matched by both the expected
-      mailbox tool name and exact `toolCallId`. `textIndex` is zero-based over filtered text blocks, not all content blocks;
-      it is required when multiple text blocks exist and defaults to the sole block otherwise.
-      Missing, unmatched, empty, or ambiguous source text fails explicitly. No argument-body
-      compatibility, historical-text fallback, or automatic broadcast of commentary is allowed.
+- [x] Model-facing `send_agent_message` and `contact_parent` require `body: string` containing
+      at least one non-whitespace character. They deliver that argument verbatim, including surrounding
+      whitespace and Unicode, independently of absent or unrelated assistant narration. Multiple calls
+      in one turn deliver their distinct bodies. Neither tool reads assistant text, reasoning, or
+      historical messages to obtain a body. Missing, empty, and whitespace-only bodies fail validation;
+      `message`, `textIndex`, and unknown top-level arguments are rejected without compatibility or fallback.
 - [x] Routing, sender identity, `fileRefs`, and `threadId` retain their existing contracts.
-      Programmatic `pi.messages.send` and `pi.messages.enqueue` remain separate raw literal-body
-      transport APIs. A synthetic `pi.tools.call` mailbox invocation fails explicitly;
-      reusing the outer `pyrun_eval` ID cannot match the mailbox tool name or send outer commentary. `spawn_agent.prompt` is unchanged; original parent assignments
-      can still join. This change concerns the mailbox body data channel, not unknown provider internals.
+      Model `body` maps to the internal transport's `message` field; programmatic `pi.messages.send`
+      and `pi.messages.enqueue` remain separate explicit-`message` APIs. Active `pi.tools.call`
+      mailbox invocations supply `body` without requiring an enclosing assistant mailbox call or
+      extracting outer commentary. `spawn_agent.prompt` is unchanged.
 
 - [x] Steering is delivered through the mailbox as a command, not by editing a live prompt/input
       buffer.
@@ -599,6 +598,8 @@ The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the
 - [`packages/coding-agent/extensions/agents-core/src/runtime.ts`](../../packages/coding-agent/extensions/agents-core/src/runtime.ts)
   provides capability-gated tools, coordinator-backed child dispatch/cancellation/steering/recovery,
   background jobs, fan-out waits, and the production child-session factory.
+- [`packages/coding-agent/extensions/agents-core/src/mailbox-tools.ts`](../../packages/coding-agent/extensions/agents-core/src/mailbox-tools.ts)
+  defines required literal-body model schemas and maps them to the separate explicit-message transports.
 - [`packages/coding-agent/extensions/agents-core/src/detached-runtime-cancellation.ts`](../../packages/coding-agent/extensions/agents-core/src/detached-runtime-cancellation.ts)
   classifies directly owned detached Bash/Pyrun jobs and persists silent cancellation before child terminalization.
 - [`packages/coding-agent/extensions/agents-core/src/lifecycle-runtime.ts`](../../packages/coding-agent/extensions/agents-core/src/lifecycle-runtime.ts)
@@ -626,6 +627,13 @@ The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the
   external-extension and Claude Code audit that informs the first implementation slice.
 
 ## Tests asserting this spec
+
+- `packages/coding-agent/test/mailbox-tool-wiring.test.ts` — literal-body delivery with absent or unrelated
+  assistant text, later same-turn bodies, active-tool bridge calls, nonblank validation, rejected implicit
+  inputs and unknown arguments, routing/attachments/thread preservation, sender/recipient guards, and
+  unchanged programmatic explicit-message sending.
+- `packages/coding-agent/test/suite/regressions/mailbox-explicit-body.test.ts` — integration coverage for
+  explicit model bodies; migration and proof are tracked by the dependent integration slice.
 
 - `packages/coding-agent/test/interactive-mode-coordination-visibility.test.ts` — mailbox and broadcast visibility, provenance-aware queue previews, reversible toggles, unchanged delivery and context.
 
