@@ -439,7 +439,7 @@ Recovery must reconstruct eligible transcript-backed children from the current s
 preserve agent and transcript identity, and reacquire exact process ownership before dispatch. Terminal DB
 state prevents reconstruction, regardless of historical journal rows. Missing or mismatched transcript
 file/header identity fails explicitly; recovery never invents success or a blank session from a missing handle.
-Attached-child restart proof remains pending; see [lifecycle evidence](agent-lifecycle.md#limits-and-evidence).
+Attached and spawned production `/restart` proof passes 2/2 at `ea21a0da1`; the broader suite fails with unknown failure provenance, so rollout remains **HELD**. See [lifecycle evidence](agent-lifecycle.md#limits-and-evidence) for verified scope and limitations.
 
 ## Extension audit
 

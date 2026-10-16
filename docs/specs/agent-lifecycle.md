@@ -216,7 +216,7 @@ session paths must not inherit the source session's agents or ownership.
 Production must not write parent-session `agent_start`/`agent_complete` journal records or use their
 presence or absence for recovery admission, terminalization, or compaction repair. Historical records
 remain readable by the lifecycle trace as audit evidence only. This deliberate contract change is
-approved; attached/resumed-child restart verification remains pending (see Known gaps).
+approved; attached/resumed-child production `/restart` proof passes (see verification status below).
 
 Shutdown ordering is strict. The runtime first stops accepting orchestration work, then invalidates
 the local dispatch generation so late callbacks cannot publish into a rebound store. It locally aborts
@@ -336,10 +336,14 @@ folder from reading stale manifests or output belonging to another supervisor.
 
 ## Known gaps (current cycle)
 
-- [ ] `95c4f552e` adds `test/suite/regressions/restart-attached-agent.test.ts`: reported attached-child
-      restart result is RED (`lost_runtime`), while the spawned control is GREEN. Control-DB-only recovery,
-      transcript validation, fork isolation, and removal of production journal writes require code-owner
-      proof; this documentation update does not establish a passing or deployed runtime fix.
+- DB-only restart verification at `ea21a0da1` (production source unchanged since `818e48cf2`):
+  attached and spawned production `/restart` cases pass 2/2; four recovery regression files pass 21/21,
+  extension tests 153/153, and DB tests 146/146. Fixture corrections in `aa41238fe` and `ea21a0da1`
+  supersede the earlier attached-child RED result. `npm run check` exits 0 without mutations.
+  The safe `./test.sh` run exits 1: 5209 passed, 34 failed, 760 skipped, and 2 unhandled errors.
+  Broader failure provenance is unknown; rollout remains **HELD**, pending the user's scope-expansion
+  decision. No deployment or fix for the original mailbox bug is established. Evidence:
+  `/tmp/pi-db-restart-final-report.md` and `/tmp/pi-db-restart-final-ledger.json`.
 
 - [ ] Add `interrupted`: persisted state for agents deliberately paused by the user — a policy
       difference (never auto-restarted) that cannot be derived, unlike crash detachment.
