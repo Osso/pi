@@ -123,24 +123,16 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       direct paths and symlink aliases inside that tree succeed, while ordinary outside paths and symlink escapes
       fail. Spawned and attached browser sessions share this restriction; main and non-browser reads are unchanged.
 - [x] Agent transcripts and event streams are durable enough for restart/resume and are bounded so
-      large child output does not become an unbounded event log. The parent session JSONL contains
-      authoritative custom `agent_start` and `agent_complete` records for restart reconstruction.
-      `agent_start` is appended after the child `running` lifecycle commit but before dispatch begins and includes
-      the agent identity and transcript identity. Active child admissions are refreshed after parent-session
-      compaction so the active branch retains restart records. Append failure disposes the unstarted child and
-      compensates the durable row to explicit `failed/parent_journal_failed`. `agent_complete` is appended only
-      after a committed `completed`, `failed`, or `aborted` lifecycle. Recovery rejects missing transcript files
-      or a header session ID that differs from persisted transcript metadata.
-- [x] Supervisor session resume reconstructs restart candidates from the parent session JSONL:
-      unmatched `agent_start` records identify candidates, while matching `agent_complete` records
-      prevent recovery. If compaction removed an admission from the active branch, startup checks the full
-      parent JSONL and restores an unmatched record for the active child before recovery. The control DB
-      restores lifecycle and ownership state, but is not sufficient alone for restart admission. The selected
-      view is ephemeral UI state and is not persisted.
+      large child output does not become an unbounded event log. Production orchestration never appends custom
+      `agent_start` or `agent_complete` records, including during compaction or restore. Historical records remain
+      available to read-only lifecycle traces but never authorize or prevent recovery. Recovery rejects missing
+      transcript files or a header session ID that differs from persisted transcript metadata.
+- [x] Supervisor session resume admits restart candidates solely from persisted control-DB lifecycle,
+      exact runtime ownership, and transcript identity for both spawned and attached workers. Parent-session
+      compaction does not change recovery admission. The selected view is ephemeral UI state and is not persisted.
 - [x] Multi-agent lifecycle and ownership state persists as per-entity rows in the session control DB
-      (one upsert per mutated agent or mailbox message). Parent-session JSONL custom agent records are
-      authoritative for restart reconstruction; there is no compatibility fallback to control-DB-only
-      recovery.
+      (one upsert per mutated agent or mailbox message). The control DB is the only restart authority;
+      parent-session JSONL custom records are neither required nor used as an alternate admission path.
 - [x] A running child publishes its authoritative current activity phase (`thinking` or `tool`),
       phase start timestamp, and tool call ID/name when applicable into its agent row. Each activity write
       must match the agent's exact persisted runtime process and owning supervisor session. Phase transitions,
@@ -161,20 +153,17 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       auto-restart the same child transcripts.
 - [x] Production multi-agent orchestration requires a persisted supervisor session/control-DB key and
       a transcript-backed child-session factory, and fails closed without either. There is no custom
-      dispatcher or alternate lifecycle path; every spawned child has transcript identity and writes
-      parent `agent_start` and `agent_complete` restart records.
+      dispatcher or alternate lifecycle path; every spawned child has persisted transcript identity.
 - [x] Restore never rewrites lifecycle state: the last committed lifecycle is the truth, and restore
-      only clears stale worker handles. Restart admission requires an unmatched parent-session JSONL
-      `agent_start`; control-DB lifecycle and ownership state alone never admits recovery. Dead-owned active rows
-      without journal admission are terminalized as `failed/lost_runtime`, while exact live owners remain untouched.
+      only clears stale worker handles. Active rows enter coordinator recovery without parent-session journal
+      admission. Exact live ownership remains protected; missing journal records never cause `failed/lost_runtime`.
       After an exec-in-place restart, persisted ownership with unchanged PID and `startTimeTicks` but a prior
       runtime incarnation is stale; the resumed supervisor may reclaim it and continue active `steering_pending`
       recovery. See [agent-lifecycle.md](agent-lifecycle.md).
-- [x] On supervisor session start, only agents identified by unmatched parent-session JSONL
-      `agent_start` records restart through exact process-ownership reacquisition, preserving agent and
-      transcript identity. A matching `agent_complete` record prevents recovery, including for
-      `completed`, `failed`, or `aborted` lifecycle state; agents already waiting for input are not
-      auto-prompted. After listener registration, the owning supervisor reconciles candidates through
+- [x] On supervisor session start, eligible persisted active spawned and attached agents restart through
+      exact process-ownership reacquisition, preserving agent and transcript identity. Persisted terminal
+      `completed`, `failed`, or `aborted` agents never restart, regardless of historical JSONL records;
+      agents already waiting for input are not auto-prompted. After listener registration, the owning supervisor reconciles candidates through
       coordinator/repository commands using exact path assertion and `(pid, startTimeTicks, incarnation)` identity.
       A changed incarnation with unchanged PID and start time identifies a prior exec-restarted runtime and permits
       ownership replacement for active `steering_pending` recovery; queued steering remains deliverable, and

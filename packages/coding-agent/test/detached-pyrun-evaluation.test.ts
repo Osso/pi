@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	createMultiAgentPiRequestHandler,
 	createProductionChildAgentSessionFactory,
-	type ParentAgentJournalWriter,
 } from "../extensions/agents-core/src/runtime.ts";
 import { runDurableDetachablePyrunEvaluation } from "../extensions/pyrun/src/detached-evaluation.ts";
 import { readDetachedPyrunLaunchManifest } from "../extensions/pyrun/src/detached-runner.ts";
@@ -165,9 +164,7 @@ describe("durable detached Pyrun evaluation", () => {
 				};
 			},
 		});
-		const dispatchPiRequest = createMultiAgentPiRequestHandler({ createChildSession, store }, {
-			appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
-		} satisfies ParentAgentJournalWriter);
+		const dispatchPiRequest = createMultiAgentPiRequestHandler({ createChildSession, store });
 		const detachRegistry = new ToolDetachRegistry();
 
 		await runDurableDetachablePyrunEvaluation({

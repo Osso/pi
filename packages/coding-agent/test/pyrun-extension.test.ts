@@ -19,7 +19,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createMultiAgentPiRequestHandler,
 	createProductionChildAgentSessionFactory,
-	type ParentAgentJournalWriter,
 } from "../extensions/agents-core/src/runtime.ts";
 import {
 	readDetachedPyrunLaunchManifest,
@@ -1801,9 +1800,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 					};
 				},
 			});
-			const handler = createMultiAgentPiRequestHandler({ createChildSession, store }, {
-				appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
-			} satisfies ParentAgentJournalWriter);
+			const handler = createMultiAgentPiRequestHandler({ createChildSession, store });
 			let bridgeContext: ExtensionContext;
 			const harness = createPyrunHarness({
 				callTool: async (name, params, signal, toolCallId) => {
@@ -1846,11 +1843,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			};
 		});
 		const harness = createPyrunHarness({
-			piRequestHandlers: [
-				createMultiAgentPiRequestHandler({ createChildSession, store }, {
-					appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
-				} satisfies ParentAgentJournalWriter),
-			],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ createChildSession, store })],
 		});
 
 		const result = await harness.evaluate({ code: "pi.agents.spawn({'prompt': 'inspect X'})" });
@@ -1870,11 +1863,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			prompt: async () => {},
 		}));
 		const harness = createPyrunHarness({
-			piRequestHandlers: [
-				createMultiAgentPiRequestHandler({ createChildSession, store }, {
-					appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
-				} satisfies ParentAgentJournalWriter),
-			],
+			piRequestHandlers: [createMultiAgentPiRequestHandler({ createChildSession, store })],
 		});
 
 		const result = await harness.evaluate({
@@ -1899,9 +1888,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			messages: [fauxAssistantMessage("done")],
 			prompt: async () => {},
 		}));
-		const handler = createMultiAgentPiRequestHandler({ createChildSession, store }, {
-			appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
-		} satisfies ParentAgentJournalWriter);
+		const handler = createMultiAgentPiRequestHandler({ createChildSession, store });
 		const harness = createPyrunHarness();
 		const bridgeContext = { ...harness.evaluateContext, sessionManager } as ExtensionContext;
 
@@ -1933,28 +1920,22 @@ for await (const line of createInterface({ input: process.stdin })) {
 		store.setPersistenceSessionManager(sessionManager);
 		const harness = createPyrunHarness({
 			piRequestHandlers: [
-				createMultiAgentPiRequestHandler(
-					{
-						createChildSession: async ({ agent }) => {
-							const messages: ReturnType<typeof fauxAssistantMessage>[] = [];
-							return {
-								messages,
-								prompt: async () => {
-									messages.push(fauxAssistantMessage("done"));
-								},
-								transcript: {
-									path: join(tempDir, `${agent.id}.jsonl`),
-									sessionId: `session-${agent.id}`,
-								},
-							};
-						},
-						store,
+				createMultiAgentPiRequestHandler({
+					createChildSession: async ({ agent }) => {
+						const messages: ReturnType<typeof fauxAssistantMessage>[] = [];
+						return {
+							messages,
+							prompt: async () => {
+								messages.push(fauxAssistantMessage("done"));
+							},
+							transcript: {
+								path: join(tempDir, `${agent.id}.jsonl`),
+								sessionId: `session-${agent.id}`,
+							},
+						};
 					},
-					{
-						appendEntry: (customType: string, data?: unknown) =>
-							sessionManager.appendCustomEntry(customType, data),
-					} satisfies ParentAgentJournalWriter,
-				),
+					store,
+				}),
 			],
 		});
 

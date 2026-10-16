@@ -76,7 +76,6 @@ import {
 	consumeNotifications,
 	createMultiAgentPiRequestHandler,
 	createMultiAgentRuntimeHandles,
-	type ParentAgentJournalWriter,
 	requestAgentSteering,
 	requestInteractiveAgentSteering,
 	waitNotifications,
@@ -1456,9 +1455,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			lifecycle: "completed",
 			result: { summary: "tests passed" },
 		}));
-		const handler = createMultiAgentPiRequestHandler({ createChildSession, store }, {
-			appendEntry: (customType: string, data?: unknown) => parentSession.appendCustomEntry(customType, data),
-		} satisfies ParentAgentJournalWriter);
+		const handler = createMultiAgentPiRequestHandler({ createChildSession, store });
 		const ctx = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 
 		await handler(

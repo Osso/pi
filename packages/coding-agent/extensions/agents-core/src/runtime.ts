@@ -90,18 +90,6 @@ import {
 	type SendAgentMessageParams,
 } from "./mailbox-tools.ts";
 import { registerQuestionRelayTools } from "./question-relay-tools.ts";
-import {
-	appendParentAgentCompletion,
-	appendParentAgentStart,
-	isTerminalAgentLifecycle,
-	readActiveParentAgentIds,
-	registerParentAgentCompactionRefresh,
-	restoreCompactedParentAgentRecords,
-	type ParentAgentJournalWriter,
-} from "./parent-agent-journal.ts";
-
-export type { ParentAgentJournalWriter } from "./parent-agent-journal.ts";
-
 const MAX_GOAL_OBJECTIVE_CHARS = 10_000;
 const GOAL_EXTENSION_PATH = "<first-party:goal>";
 
@@ -853,10 +841,7 @@ function toThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
 	return value && THINKING_LEVELS.has(value as ThinkingLevel) ? (value as ThinkingLevel) : undefined;
 }
 
-export function createMultiAgentPiRequestHandler(
-	options: MultiAgentExtensionOptions,
-	pi?: ParentAgentJournalWriter,
-): MultiAgentPiRequestHandler {
+export function createMultiAgentPiRequestHandler(options: MultiAgentExtensionOptions): MultiAgentPiRequestHandler {
 	const store = resolveMultiAgentStore(options);
 	const runtimeHandles = options.runtimeHandles ?? createMultiAgentRuntimeHandles();
 	const activeDispatches = runtimeHandles.dispatches;
@@ -883,7 +868,6 @@ export function createMultiAgentPiRequestHandler(
 				ctx,
 				desktopNotifier,
 				waitingDesktopNotifications,
-				pi,
 				backgroundSessions,
 				activeToolCallId,
 			);
@@ -1084,7 +1068,6 @@ async function spawnAgent(
 	ctx: ExtensionContext,
 	desktopNotifier: AgentDesktopNotifier,
 	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
-	pi: ParentAgentJournalWriter | undefined,
 	handles?: BackgroundSessionHandles,
 	activeToolCallId?: string,
 ): Promise<AgentToolResult<AgentToolDetails>> {
@@ -1108,13 +1091,6 @@ async function spawnAgent(
 	}
 	if (!createChildSession) {
 		return errorResult("spawn_agent is unavailable: no child session runtime is configured.", {
-			agent: emptyAgent("spawn_agent"),
-			dispatched: false,
-			prompt: params.prompt,
-		});
-	}
-	if (!pi) {
-		return errorResult("spawn_agent is unavailable: parent session journaling is not configured.", {
 			agent: emptyAgent("spawn_agent"),
 			dispatched: false,
 			prompt: params.prompt,
@@ -1181,24 +1157,6 @@ async function spawnAgent(
 		});
 	}
 	store.publishLifecycleCoordinatorSnapshot(created.agent);
-	try {
-		appendParentAgentStart(pi, created.agent);
-	} catch (error) {
-		await childSession?.dispose?.();
-		const message = error instanceof Error ? error.message : String(error);
-		const failed = coordinator.finalizeChild({
-			agent: created.agent,
-			error: { code: "parent_journal_failed", message },
-			ownership: created.ownership,
-			terminalLifecycle: "failed",
-		});
-		if (failed.ok) publishCoordinatorSnapshot(store, failed.agent);
-		return errorResult(`spawn_agent failed to persist parent journal: ${message}`, {
-			agent: failed.ok ? failed.agent : created.agent,
-			dispatched: false,
-			prompt: params.prompt,
-		});
-	}
 	const lifecycle: OwnedLifecycleCommandInput = { agent: created.agent, ownership: created.ownership };
 	const runtime = { abortController, coordinator, lifecycle };
 	ownerships.set(created.agent.id, runtime);
@@ -1382,18 +1340,10 @@ function reserveAttachedRuntime(input: AttachSessionDispatchInput): OwnedAgentRu
 }
 
 function recoverAgents(input: Omit<AttachSessionDispatchInput, "prompt" | "target">): void {
-	const activeParentAgentIds = input.ctx.sessionManager ? readActiveParentAgentIds(input.ctx) : undefined;
 	const activeAgents = input.ctx.multiAgentAgentId
 		? input.store.listActiveAgents().filter((agent) => agent.parentId === input.ctx.multiAgentAgentId)
 		: input.store.listActiveAgents();
-	for (const agent of orderRecoveryAgents(activeAgents)) {
-		const hasJournalAdmission =
-			activeParentAgentIds === undefined ||
-			agent.transcript?.path === undefined ||
-			activeParentAgentIds.has(agent.id);
-		if (hasJournalAdmission) recoverAgent(input, agent);
-		else resolveDeadAgentRuntime(input, agent);
-	}
+	for (const agent of orderRecoveryAgents(activeAgents)) recoverAgent(input, agent);
 }
 
 function orderRecoveryAgents(agents: AgentSnapshot[]): AgentSnapshot[] {
@@ -3170,28 +3120,14 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 		store,
 	};
 	const runtimeLifecycleMirror = createRuntimeLifecycleMirror(store);
-	let unbindParentAgentJournal: (() => void) | undefined;
 
 	pi.on?.("model_request_start", (_event, ctx) => {
 		if (!isChildAgentRuntime(ctx)) runtimeHandles.latestModelRequestStartedAt = Date.now();
 	});
 
 	pi.on?.("session_start", async (_event, ctx) => {
-		unbindParentAgentJournal?.();
-		restoreCompactedParentAgentRecords(pi, store, ctx);
 		if (!isChildAgentRuntime(ctx)) {
 			runtimeHandles.latestModelRequestStartedAt = undefined;
-			if (ctx.sessionManager) {
-				unbindParentAgentJournal = store.subscribeAgentTransitions((previous, current) => {
-					if (
-						!isTerminalAgentLifecycle(previous.lifecycle) &&
-						isTerminalAgentLifecycle(current.lifecycle) &&
-						readActiveParentAgentIds(ctx).has(current.id)
-					) {
-						appendParentAgentCompletion(pi, current);
-					}
-				});
-			}
 			runtimeLifecycleMirror.bind(ctx);
 		}
 		recoverAgents({
@@ -3205,10 +3141,7 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			waitingDesktopNotifications,
 		});
 	});
-	registerParentAgentCompactionRefresh(pi, store);
 	pi.on?.("session_shutdown", async (event, ctx) => {
-		unbindParentAgentJournal?.();
-		unbindParentAgentJournal = undefined;
 		runtimeLifecycleMirror.dispose();
 		if (event.reason === "reload" || isChildAgentRuntime(ctx)) {
 			return;
@@ -3252,7 +3185,6 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 					ctx,
 					desktopNotifier,
 					waitingDesktopNotifications,
-					pi,
 					runtimeHandles.sessions,
 					_toolCallId,
 				);

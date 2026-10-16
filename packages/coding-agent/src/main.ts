@@ -638,16 +638,13 @@ function createPyrunFirstPartyExtensionFactory(
 	orchestration: FirstPartyOrchestration,
 ): ExtensionFactory {
 	return (pi) => {
-		const multiAgentPiRequestHandler = createMultiAgentPiRequestHandler(
-			{
-				createAttachedSession,
-				createChildSession,
-				runtimeHandles: orchestration.runtimeHandles,
-				selectAgentView: orchestration.selectAgentView,
-				store: orchestration.store,
-			},
-			pi,
-		);
+		const multiAgentPiRequestHandler = createMultiAgentPiRequestHandler({
+			createAttachedSession,
+			createChildSession,
+			runtimeHandles: orchestration.runtimeHandles,
+			selectAgentView: orchestration.selectAgentView,
+			store: orchestration.store,
+		});
 		pyrunExtension(pi, { piRequestHandlers: [multiAgentPiRequestHandler] });
 	};
 }

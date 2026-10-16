@@ -9,12 +9,10 @@ import { Type } from "typebox";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import agentViewerExtension from "../extensions/agent-viewer/src/index.ts";
 import agentsCoreExtension from "../extensions/agents-core/src/index.ts";
-import { appendParentAgentStart } from "../extensions/agents-core/src/parent-agent-journal.ts";
 import {
 	cancelOwnedAgentRuntime,
 	createMultiAgentPiRequestHandler,
 	createMultiAgentRuntimeHandles,
-	type ParentAgentJournalWriter,
 	requestAgentSteering,
 	resolveSelectedSessionMutationTarget,
 	waitNotifications,
@@ -170,12 +168,6 @@ function appendMailboxResponse(
 	toolCall: ReturnType<typeof fauxToolCall>,
 ): void {
 	sessionManager.appendMessage(fauxAssistantMessage([{ type: "text", text }, toolCall], { stopReason: "toolUse" }));
-}
-
-function createTestEntryWriter(sessionManager: SessionManager): ParentAgentJournalWriter {
-	return {
-		appendEntry: (customType: string, data?: unknown) => sessionManager.appendCustomEntry(customType, data),
-	};
 }
 
 function ensureTranscriptBackedFactory(
@@ -1134,53 +1126,162 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
-	it("restarts recovered attached agents on session start without treating old handles as live", async () => {
+	it.each(["attached", "spawned"] as const)(
+		"recovers %s agents from control DB without journal admission",
+		async (origin) => {
+			const session = createControlDbSession();
+			const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			source.setPersistenceSessionManager(session);
+			const interrupted = legacyMultiAgentStore(source).spawnAgent({
+				agentType: "resumed-session",
+				cwd: "/repo",
+				displayName: "Recovered work",
+				origin,
+				permission: { narrowed: true, policy: "on-request" },
+				transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
+			});
+			addDeadProcessOwner(source, interrupted.agent.id);
+			const store = MultiAgentStore.fromSessionManager(session, {
+				now: () => "2026-06-21T00:00:00.000Z",
+			});
+			const recovered = store.getAgent(interrupted.agent.id);
+			if (!recovered) throw new Error("expected recovered agent");
+			const prompts: string[] = [];
+			const createAttachedSession: AttachedSessionFactory = async ({ agent, sessionPath }) => {
+				expect(agent.id).toBe(recovered.id);
+				expect(agent.permission).toEqual(recovered.permission);
+				expect(sessionPath).toBe("/sessions/recovered.jsonl");
+				const messages: ReturnType<typeof fauxAssistantMessage>[] = [];
+				return {
+					messages,
+					prompt: async (prompt) => {
+						prompts.push(prompt);
+						messages.push(fauxAssistantMessage("recovered complete"));
+					},
+					transcript: agent.transcript,
+				};
+			};
+			const harness = createMultiAgentHarness({ createAttachedSession, ctx: { sessionManager: session }, store });
+
+			await harness.emit("session_start", { reason: "resume", type: "session_start" });
+			const waited = await waitForTerminalAgent(harness, recovered.id);
+
+			expect(prompts).toHaveLength(1);
+			expect(prompts[0]).toContain("Continue the conversation from where it left off");
+			await harness.emit("session_start", { reason: "reload", type: "session_start" });
+			expect(prompts).toHaveLength(1);
+			expect(waited).toMatchObject({
+				lifecycle: "completed",
+				permission: recovered.permission,
+				result: { summary: "recovered complete" },
+				transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
+			});
+		},
+	);
+
+	it("ignores legacy completion records during compaction and DB-only recovery", async () => {
 		const session = createControlDbSession();
-		const source = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+		const source = new MultiAgentStore();
 		source.setPersistenceSessionManager(session);
-		const interrupted = legacyMultiAgentStore(source).spawnAgent({
+		const child = legacyMultiAgentStore(source).spawnAgent({
 			agentType: "resumed-session",
 			cwd: "/repo",
-			displayName: "Recovered work",
-			origin: "attached",
+			displayName: "Legacy child",
 			permission: { narrowed: true, policy: "on-request" },
-			transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
+			transcript: { path: "/sessions/legacy.jsonl", sessionId: "legacy-child" },
+		}).agent;
+		addDeadProcessOwner(source, child.id);
+		for (const customType of ["agent_start", "agent_complete"]) {
+			session.appendCustomEntry(customType, {
+				agentId: child.id,
+				childSessionId: "legacy-child",
+				lifecycle: customType === "agent_start" ? "running" : "completed",
+				transcriptPath: "/sessions/legacy.jsonl",
+			});
+		}
+		const kept = session.appendMessage({ role: "user", content: "Parent continuation", timestamp: 1 });
+		session.appendCompaction("Parent summary", kept, 1000);
+		const entriesBefore = session.getEntries();
+		const store = MultiAgentStore.fromSessionManager(session);
+		const harness = createMultiAgentHarness({
+			ctx: { sessionManager: session },
+			store,
+			createAttachedSession: async ({ agent }) => {
+				const messages: ReturnType<typeof fauxAssistantMessage>[] = [];
+				return {
+					messages,
+					prompt: async () => {
+						messages.push(fauxAssistantMessage("DB-authorized recovery"));
+					},
+					transcript: agent.transcript,
+				};
+			},
 		});
-		const store = MultiAgentStore.fromSessionManager(session, {
-			now: () => "2026-06-21T00:00:00.000Z",
-		});
-		const recovered = store.getAgent(interrupted.agent.id);
-		if (!recovered) throw new Error("expected recovered agent");
-		const prompts: string[] = [];
-		const createAttachedSession: AttachedSessionFactory = async ({ agent, sessionPath }) => {
-			expect(agent.id).toBe(recovered.id);
-			expect(agent.permission).toEqual(recovered.permission);
-			expect(sessionPath).toBe("/sessions/recovered.jsonl");
-			const messages: ReturnType<typeof fauxAssistantMessage>[] = [];
-			return {
-				messages,
-				prompt: async (prompt) => {
-					prompts.push(prompt);
-					messages.push(fauxAssistantMessage("recovered complete"));
-				},
-				transcript: agent.transcript,
-			};
-		};
-		const harness = createMultiAgentHarness({ createAttachedSession, store });
 
+		await harness.emit("session_compact");
 		await harness.emit("session_start", { reason: "resume", type: "session_start" });
-		const waited = await waitForTerminalAgent(harness, recovered.id);
+		const completed = await waitForTerminalAgent(harness, child.id);
 
-		expect(prompts).toHaveLength(1);
-		expect(prompts[0]).toContain("Continue the conversation from where it left off");
-		await harness.emit("session_start", { reason: "reload", type: "session_start" });
-		expect(prompts).toHaveLength(1);
-		expect(waited).toMatchObject({
-			lifecycle: "completed",
-			permission: recovered.permission,
-			result: { summary: "recovered complete" },
-			transcript: { path: "/sessions/recovered.jsonl", sessionId: "recovered-session" },
-		});
+		expect(completed).toMatchObject({ lifecycle: "completed", result: { summary: "DB-authorized recovery" } });
+		expect(session.getEntries()).toEqual(entriesBefore);
+	});
+
+	it.each(["completed", "failed", "aborted"] as const)(
+		"does not resurrect DB-terminal %s agents from legacy starts",
+		async (lifecycle) => {
+			const session = createControlDbSession();
+			const source = new MultiAgentStore();
+			source.setPersistenceSessionManager(session);
+			const child = legacyMultiAgentStore(source).spawnAgent({
+				agentType: "worker",
+				cwd: "/repo",
+				displayName: "Terminal child",
+				permission: { narrowed: true, policy: "on-request" },
+				transcript: { path: "/sessions/terminal.jsonl", sessionId: "terminal-child" },
+			}).agent;
+			session.appendCustomEntry("agent_start", { agentId: child.id });
+			const terminal = legacyMultiAgentStore(source).transitionAgent(child.id, child.revision, lifecycle);
+			if (!terminal.ok) throw new Error("Expected terminal fixture");
+			const store = MultiAgentStore.fromSessionManager(session);
+			const createAttachedSession = vi.fn<AttachedSessionFactory>();
+			const harness = createMultiAgentHarness({ createAttachedSession, ctx: { sessionManager: session }, store });
+
+			await harness.emit("session_start", { reason: "resume", type: "session_start" });
+
+			expect(createAttachedSession).not.toHaveBeenCalled();
+			expect(store.getAgent(child.id)).toEqual(terminal.agent);
+		},
+	);
+
+	it("does not recover parent agents from a forked session's copied legacy records", async () => {
+		const session = createControlDbSession();
+		session.appendMessage({ role: "user", content: "Parent history", timestamp: 1 });
+		session.appendMessage(fauxAssistantMessage("Parent checkpoint"));
+		const source = new MultiAgentStore();
+		source.setPersistenceSessionManager(session);
+		const child = legacyMultiAgentStore(source).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Parent child",
+			permission: { narrowed: true, policy: "on-request" },
+			transcript: { path: "/sessions/parent-child.jsonl", sessionId: "parent-child" },
+		}).agent;
+		addDeadProcessOwner(source, child.id);
+		session.appendCustomEntry("agent_start", { agentId: child.id });
+		const parentPath = session.getSessionFile();
+		if (!parentPath) throw new Error("Expected persisted parent");
+		const fork = SessionManager.forkFrom(parentPath, "/repo", session.getSessionDir());
+		fork.setMetadataControlDbPath(session.getMetadataControlDbPath());
+		const store = MultiAgentStore.fromSessionManager(fork);
+		const createAttachedSession = vi.fn<AttachedSessionFactory>();
+		const harness = createMultiAgentHarness({ createAttachedSession, ctx: { sessionManager: fork }, store });
+
+		await harness.emit("session_start", { reason: "fork", type: "session_start" });
+
+		expect(fork.getSessionFile()).not.toBe(parentPath);
+		expect(store.listAgents()).toEqual([]);
+		expect(createAttachedSession).not.toHaveBeenCalled();
+		expect(MultiAgentStore.fromSessionManager(session).getAgent(child.id)).toEqual(child);
 	});
 
 	it("resumes a persisted running agent when its owning supervisor has no local runtime handle", async () => {
@@ -1207,7 +1308,6 @@ describe("multi-agent extension tools", () => {
 		expect(created.ok).toBe(true);
 		if (!created.ok) throw new Error("expected running child");
 		source.publishLifecycleCoordinatorSnapshot(created.agent);
-		appendParentAgentStart(createTestEntryWriter(session), created.agent);
 		const prompts: string[] = [];
 		const store = MultiAgentStore.fromSessionManager(session, { now: () => "2026-06-21T00:00:01.000Z" });
 		const harness = createMultiAgentHarness({
@@ -2359,10 +2459,7 @@ describe("multi-agent extension tools", () => {
 			await finishGate.promise;
 			return { lifecycle: "completed", result: { summary: "pyrun bridge done" } };
 		});
-		const handler = createMultiAgentPiRequestHandler(
-			{ createChildSession, runtimeHandles, store },
-			createTestEntryWriter(sessionManager),
-		);
+		const handler = createMultiAgentPiRequestHandler({ createChildSession, runtimeHandles, store });
 		const harness = createMultiAgentHarness({
 			createChildSession,
 			ctx: { sessionManager },
@@ -2405,10 +2502,7 @@ describe("multi-agent extension tools", () => {
 			prompt: async () => childPrompt.promise,
 			transcript: { path: join(tmpdir(), `${agent.id}.jsonl`), sessionId: `session-${agent.id}` },
 		});
-		const handler = createMultiAgentPiRequestHandler(
-			{ createChildSession, runtimeHandles, store },
-			createTestEntryWriter(sessionManager),
-		);
+		const handler = createMultiAgentPiRequestHandler({ createChildSession, runtimeHandles, store });
 		const harness = createMultiAgentHarness({
 			createChildSession,
 			ctx: { sessionManager },
@@ -4153,7 +4247,7 @@ describe("multi-agent extension tools", () => {
 		).toHaveLength(0);
 	});
 
-	it("fails without dispatch when parent journal persistence fails", async () => {
+	it("dispatches successfully without writing parent lifecycle records", async () => {
 		const prompt = vi.fn(async () => {});
 		const dispose = vi.fn();
 		const harness = createMultiAgentHarness({
@@ -4173,14 +4267,10 @@ describe("multi-agent extension tools", () => {
 			prompt: "Review without journal",
 		});
 
-		expect(spawned.content).toEqual([
-			{ text: "spawn_agent failed to persist parent journal: journal disk full", type: "text" },
-		]);
-		expect(spawned.details.agent).toMatchObject({
-			error: { code: "parent_journal_failed", message: "journal disk full" },
-			lifecycle: "failed",
-		});
-		expect(prompt).not.toHaveBeenCalled();
+		expect(spawned.details.dispatched).toBe(true);
+		const completed = await waitForTerminalAgent(harness, spawned.details.agent.id);
+		expect(completed).toMatchObject({ lifecycle: "completed", error: undefined });
+		expect(prompt).toHaveBeenCalledOnce();
 		expect(dispose).toHaveBeenCalledOnce();
 	});
 
@@ -5502,7 +5592,7 @@ describe("multi-agent extension tools", () => {
 		expect(harness.store.listAgents()).toEqual([]);
 	});
 
-	it("preserves the original prompt and journals transcript-backed child lifecycle", async () => {
+	it("preserves the original prompt without custom lifecycle records", async () => {
 		let dispatchedPrompt: string | undefined;
 		const createChildSession = createTranscriptBackedFauxSessionFactory(async ({ prompt }) => {
 			dispatchedPrompt = prompt;
@@ -5527,10 +5617,7 @@ describe("multi-agent extension tools", () => {
 					(entry.customType === "agent_start" || entry.customType === "agent_complete") &&
 					(entry.data as { agentId?: string } | undefined)?.agentId === spawned.details.agent.id,
 			);
-		expect(journalRecords.map((entry) => entry.type === "custom" && entry.customType)).toEqual([
-			"agent_start",
-			"agent_complete",
-		]);
+		expect(journalRecords).toEqual([]);
 	});
 
 	it("rejects oversized prompts without persisting when no executable runtime exists", async () => {
