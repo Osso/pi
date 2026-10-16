@@ -3008,32 +3008,40 @@ export class AgentSession {
 	 */
 	async prompt(text: string, options?: PromptOptions): Promise<void> {
 		// Reserve the start before cwd recovery yields, so idle coordination cannot overtake this input.
-		const prompted = await this._withTurnStartLock(async (release) => {
-			if (!this.isStreaming) {
-				const replacement = await this._beforeWorkingDirectoryRecoveryRun?.();
-				if (replacement && replacement !== this) {
-					release();
-					await replacement.prompt(text, options);
-					return false;
-				}
-			}
-			const expandPromptTemplates = options?.expandPromptTemplates ?? true;
-			if (expandPromptTemplates && text.startsWith("/")) {
-				const handled = await this._tryExecuteExtensionCommand(text, release);
-				if (handled) {
-					this._recordHandledSlashCommandHistory(text);
-					options?.preflightResult?.(true);
-					return false;
-				}
-				if (!this._isKnownSlashCommand(text)) {
-					throw new Error(`Unknown slash command: ${this._slashCommandName(text)}`);
-				}
-			}
-
-			await this._promptTurn(text, options, release);
-			return true;
-		});
+		const prompted = await this._withTurnStartLock((release) =>
+			this._promptWithWorkingDirectoryRecovery(text, options, release),
+		);
 		if (prompted) await this._drainRuntimeCoordinationMessages({ triggerIfIdle: true });
+	}
+
+	private async _promptWithWorkingDirectoryRecovery(
+		text: string,
+		options: PromptOptions | undefined,
+		release: () => void,
+	): Promise<boolean> {
+		if (!this.isStreaming) {
+			const replacement = await this._beforeWorkingDirectoryRecoveryRun?.();
+			if (replacement && replacement !== this) {
+				release();
+				await replacement.prompt(text, options);
+				return false;
+			}
+		}
+		const expandPromptTemplates = options?.expandPromptTemplates ?? true;
+		if (expandPromptTemplates && text.startsWith("/")) {
+			const handled = await this._tryExecuteExtensionCommand(text, release);
+			if (handled) {
+				this._recordHandledSlashCommandHistory(text);
+				options?.preflightResult?.(true);
+				return false;
+			}
+			if (!this._isKnownSlashCommand(text)) {
+				throw new Error(`Unknown slash command: ${this._slashCommandName(text)}`);
+			}
+		}
+
+		await this._promptTurn(text, options, release);
+		return true;
 	}
 
 	private async _promptTurn(
