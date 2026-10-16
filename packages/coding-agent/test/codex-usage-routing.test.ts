@@ -243,8 +243,25 @@ describe("registered /usage all", () => {
 		await operation;
 		reportLines(h);
 		const message = h.sendMessage.mock.calls[0][0];
-		expect(h.notify).toHaveBeenCalledExactlyOnceWith(message.content, "info");
+		const notification = h.notify.mock.calls[0][0] as string;
+		expect(notification).toMatch(/^- {6}- {6}Codex {5}openai-codex-team +not logged in$/m);
+		expect(notification).not.toContain("```");
+		const unfenced = message.content.split("\n").filter((line: string) => line !== "```" && line !== "");
+		expect(unfenced).toEqual(notification.split("\n"));
+		expect(h.notify).toHaveBeenCalledOnce();
 		expect(h.sendMessage).toHaveBeenCalledWith(message, { deliverAs: "nextTurn" });
+	});
+
+	it("fences the table so Markdown keeps dash cells and column padding literal", async () => {
+		const h = registerUsage("openai-codex");
+		h.fetch.mockImplementation(async () => allUsageResponse());
+		await h.command.handler("all", h.ctx);
+		const [title, blank, open, header, ...rest] = h.sendMessage.mock.calls[0][0].content.split("\n");
+		expect([title, blank, open]).toEqual(["Account usage (all accounts); - = not reported", "", "```"]);
+		expect(header.startsWith("5h     Week   Provider")).toBe(true);
+		expect(rest.at(-1)).toBe("```");
+		const teamRow = rest.find((line: string) => line.includes("openai-codex-team"));
+		expect(teamRow).toMatch(/^- {6}- {6}Codex {5}openai-codex-team +not logged in$/);
 	});
 
 	it("completes the all argument", () => {

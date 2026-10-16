@@ -202,12 +202,14 @@ async function handleUsageAll(ctx: ExtensionCommandContext, pi: ExtensionAPI): P
 	const rows = [...claudeRows, ...codexRows];
 	const accountWidth = Math.max("Account".length, ...rows.map((row) => row.account.length));
 	const header = ["5h", "Week", "Provider", "Account", "Resets UTC (5h | week)"];
-	const content = [
-		`Account usage (all accounts); ${MISSING} = not reported`,
+	const title = `Account usage (all accounts); ${MISSING} = not reported`;
+	const table = [
 		formatAccountColumns(header, accountWidth),
 		...rows.map((row) => formatAccountRow(row, accountWidth)),
 	].join("\n");
-	sendCodexUsageReport(ctx, pi, content, "usage-all");
+	// Custom messages render as Markdown: fence the table so `-` cells and column padding stay literal.
+	const content = `${title}\n\n\`\`\`\n${table}\n\`\`\``;
+	sendCodexUsageReport(ctx, pi, content, "usage-all", `${title}\n${table}`);
 }
 
 async function readCodexAccountRow(ctx: ExtensionCommandContext, providerId: string): Promise<AccountUsageRow> {
@@ -453,10 +455,11 @@ function sendCodexUsageReport(
 	pi: ExtensionAPI,
 	content: string,
 	customType = "codex-usage",
+	notification = content,
 ): void {
 	const message = { customType, content, display: true };
 	if (!ctx.isIdle()) {
-		ctx.ui.notify(content, "info");
+		ctx.ui.notify(notification, "info");
 		pi.sendMessage(message, { deliverAs: "nextTurn" });
 		return;
 	}
