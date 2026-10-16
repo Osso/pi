@@ -197,11 +197,16 @@ describe("AgentSession bash and persistence characterization", () => {
 		const entries = harness.sessionManager.getEntries();
 		expect(entries.map((entry) => entry.type)).toEqual([
 			"custom_message",
+			"custom",
 			"message",
 			"message",
 			"message",
 			"message",
 		]);
+		expect(entries[1]).toMatchObject({
+			customType: "codex_restriction_context",
+			data: { requestId: expect.any(String), userRequest: "start" },
+		});
 		expect(harness.session.messages.map((message) => message.role)).toEqual([
 			"custom",
 			"user",

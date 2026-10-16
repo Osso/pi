@@ -19,7 +19,14 @@ import { createTestExtensionsResult, createTestResourceLoader } from "./utilitie
 
 const FILE_CONTENT = "browser instructions\n";
 const RULES_CONTENT = "global rules\n";
-const EXPECTED_BROWSER_TOOLS = ["browser-cli", "contact_parent", "end_turn", "read", "send_agent_message"];
+const EXPECTED_BROWSER_TOOLS = [
+	"ask_questions",
+	"browser-cli",
+	"contact_parent",
+	"end_turn",
+	"read",
+	"send_agent_message",
+];
 
 interface ReadAccessFixture {
 	agentConfigRoot: string;

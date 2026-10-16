@@ -300,6 +300,7 @@ describe("SessionManager relocate", () => {
 			kind: "message",
 			storeRef: { sessionPath: sourceFile!, messageId: "message_1" },
 		});
+		const sourceState = readMultiAgentState(controlDbPath, sourceFile!);
 		session.relocate(projectB, agentDir);
 
 		const movedFile = session.getSessionFile();
@@ -323,10 +324,12 @@ describe("SessionManager relocate", () => {
 		});
 		expect(readSessionGoal(controlDbPath, movedFile!)).toBe(JSON.stringify({ objective: "keep goal" }));
 		expect(readMultiAgentState(controlDbPath, sourceFile!)).toBeUndefined();
+		expect(readMultiAgentState(controlDbPath, movedFile!)).toEqual(sourceState);
 		expect(readMultiAgentState(controlDbPath, movedFile!)).toEqual({
 			agents: [{ id: "agent_1" }],
 			mailboxMessages: [
 				{
+					createdAt: expect.any(String),
 					messageId: "message_1",
 					recipientAgentId: "agent_1",
 					recipientSessionId: "recipient",
