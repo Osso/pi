@@ -381,7 +381,33 @@ describe("sub-agent ControlDB restart recovery", () => {
 			await pi.waitForAgent((agent) => agent.id === spawned.id && agent.lifecycle === "completed");
 
 			expect(restoredRequest.userMessages).toContain("Review until Pi restarts");
-			await vi.waitFor(() => expect(pi.readTerminalOutboxStatuses(spawned.id)).toEqual(["delivered"]));
+			const completionRequest = await pi.waitForLlmRequest(
+				(request) =>
+					request.agentId === null &&
+					request.userMessages.some((message) => message.includes("Recovered review complete")),
+			);
+			expect(
+				completionRequest.userMessages.filter((message) => message.includes("Recovered review complete")),
+			).toHaveLength(1);
+			pi.respondToLlmRequest(completionRequest.id, fauxCompletedAssistantMessage("Recovered report received"));
+			await pi.waitForSessionEntry(
+				null,
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "toolResult" &&
+					entry.message.toolName === "end_turn" &&
+					JSON.stringify(entry.message).includes("Recovered report received"),
+			);
+			expect(
+				pi
+					.readSessionEntries(null)
+					.filter(
+						(entry) =>
+							entry.type === "message" &&
+							entry.message.role === "user" &&
+							JSON.stringify(entry.message).includes("Recovered review complete"),
+					),
+			).toHaveLength(1);
 			expect(pi.listAgents().filter((agent) => agent.id === spawned.id)).toHaveLength(1);
 			expectNoAgentJournal(pi, spawned.id);
 			await vi.waitFor(() => expect(readMailboxRetentionRegressionIds(pi)).toEqual(["retention-regression-8"]));
