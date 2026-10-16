@@ -2391,18 +2391,17 @@ function takePendingWaitCoordination(
 				? [formatSharedChannelPrompt(channelMessages, recipient.address.sessionId)]
 				: []),
 		];
-		return sections.length > 0
-			? {
-					prompt: sections.join("\n\n"),
-					runtimeMailboxDelivery:
-						mailboxMessages.length > 0
-							? {
-									controlDbPath: recipient.controlDbPath,
-									messages: mailboxMessages.map(({ id, storeRef }) => ({ id, storeRef })),
-								}
-							: undefined,
-				}
-			: undefined;
+		if (sections.length === 0) return undefined;
+		return {
+			prompt: sections.join("\n\n"),
+			runtimeMailboxDelivery:
+				mailboxMessages.length > 0
+					? {
+							controlDbPath: recipient.controlDbPath,
+							messages: mailboxMessages.map(({ id, storeRef }) => ({ id, storeRef })),
+						}
+					: undefined,
+		};
 	} catch (error) {
 		for (const message of mailboxMessages) releaseRuntimeMailboxMessageClaim(recipient.controlDbPath, message.id);
 		throw error;
