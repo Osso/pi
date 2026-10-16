@@ -73,6 +73,7 @@ type SubmitContext = {
 	showError: (message: string) => void;
 	showSettingsSelector: () => void;
 	submitSelectedAgentSteering(this: SubmitContext, message: string, submittedText?: string): Promise<boolean>;
+	submitStreamingPrompt(this: SubmitContext, text: string, streamingBehavior: "steer" | "followUp"): Promise<void>;
 	ui: { requestRender: () => void };
 	updateEditorBorderColor: () => void;
 	updatePendingMessagesDisplay: () => void;
@@ -104,6 +105,7 @@ type InteractiveModePrivate = {
 	setupEditorSubmitHandler(this: SubmitContext): void;
 	subscribeToAgent(this: SubmitContext): void;
 	submitSelectedAgentSteering(this: SubmitContext, message: string, submittedText?: string): Promise<boolean>;
+	submitStreamingPrompt(this: SubmitContext, text: string, streamingBehavior: "steer" | "followUp"): Promise<void>;
 	getUserInput(this: InputContext): Promise<string>;
 	submitMainLoopInput(this: MainLoopContext, userInput: string): Promise<void>;
 	processControlMessage(
@@ -157,6 +159,7 @@ function createSubmitContext(): SubmitContext {
 		showError: vi.fn(),
 		showSettingsSelector: vi.fn(),
 		submitSelectedAgentSteering: interactiveModePrototype.submitSelectedAgentSteering,
+		submitStreamingPrompt: interactiveModePrototype.submitStreamingPrompt,
 		ui: { requestRender: vi.fn() },
 		updateEditorBorderColor: vi.fn(),
 		updatePendingMessagesDisplay: vi.fn(),

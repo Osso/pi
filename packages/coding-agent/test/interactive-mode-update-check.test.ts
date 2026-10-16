@@ -10,7 +10,7 @@ describe("InteractiveMode update checks", () => {
 		const context = {
 			checkForPackageUpdates,
 			checkTmuxKeyboardSetup: async () => undefined,
-			continueInterruptedResumedSession: async () => undefined,
+			continueResumedSessionAtStartup: async () => undefined,
 			getUserInput: async () => {
 				throw sentinel;
 			},

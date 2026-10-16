@@ -45,6 +45,8 @@ function createEditorFixture(harness: Harness, wake: () => void) {
 		addSubmittedTextToHistory: (text: string): void => {
 			fixture.editor.addToHistory(text);
 		},
+		submitStreamingPrompt: (text: string, streamingBehavior: "steer" | "followUp"): Promise<void> =>
+			methods.submitStreamingPrompt.call(fixture, text, streamingBehavior),
 		isExtensionCommand: (text: string): boolean => methods.isExtensionCommand.call(fixture, text),
 		queueCompactionMessage: (text: string, mode: "steer" | "followUp"): void =>
 			methods.queueCompactionMessage.call(fixture, text, mode),
@@ -59,6 +61,7 @@ function createEditorFixture(harness: Harness, wake: () => void) {
 type EditorFixture = ReturnType<typeof createEditorFixture>;
 const methods = InteractiveMode.prototype as unknown as {
 	setupEditorSubmitHandler(this: EditorFixture): void;
+	submitStreamingPrompt(this: EditorFixture, text: string, streamingBehavior: "steer" | "followUp"): Promise<void>;
 	handleEvent(this: EditorFixture, event: AgentSessionEvent): Promise<void>;
 	isExtensionCommand(this: EditorFixture, text: string): boolean;
 	queueCompactionMessage(this: EditorFixture, text: string, mode: "steer" | "followUp"): void;
