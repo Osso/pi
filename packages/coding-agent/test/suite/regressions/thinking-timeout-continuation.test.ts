@@ -207,7 +207,7 @@ describe("thinking timeout automatic continuation (real process)", () => {
 				);
 				await expectNoRequest(agent, spawned.id);
 				expect(countUserInput(agent, assignment, spawned.id)).toBe(1);
-				expect(agent.readTerminalOutboxStatuses(spawned.id)).toHaveLength(1);
+				expect(agent.readTerminalOutboxStatuses(spawned.id)).toEqual([]);
 				expect(agent.listMailboxMessages().filter((message) => message.fromAgentId === spawned.id)).toHaveLength(0);
 			},
 			{ ...options, env: { PI_HEADLESS_THINKING_DEADLINE_MS: "2500" } },

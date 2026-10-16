@@ -1,5 +1,6 @@
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
+import { SettingsManager } from "../../../src/core/settings-manager.ts";
 import { getMessageText } from "../harness.ts";
 import { type HeadlessPi, withHeadlessPi } from "../headless-pi.ts";
 
@@ -55,11 +56,21 @@ describe("child provider failure completion", () => {
 		{ restart: false, partialText: "Unfinished child output" },
 	])("preserves provider errors instead of inherited success: %j", async ({ restart, partialText }) => {
 		await withHeadlessPi(async (agent) => {
+			expect(await agent.send({ type: "set_auto_retry", enabled: false })).toMatchObject({
+				command: "set_auto_retry",
+				success: true,
+			});
+			await expect
+				.poll(() => SettingsManager.create(agent.paths.workspaceDir, agent.paths.agentDir).getRetryEnabled())
+				.toBe(false);
 			const { child, request } = await spawnInheritedChild(agent);
 			let currentRequest = request;
 			if (restart) {
 				await agent.crash();
 				await agent.restart();
+				expect(SettingsManager.create(agent.paths.workspaceDir, agent.paths.agentDir).getRetryEnabled()).toBe(
+					false,
+				);
 				currentRequest = await agent.waitForLlmRequest(
 					(candidate) => candidate.sessionId === child.transcript?.sessionId,
 				);
