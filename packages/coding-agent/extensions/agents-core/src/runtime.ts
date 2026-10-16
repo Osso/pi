@@ -2375,7 +2375,7 @@ function runtimeCoordinationRecipient(ctx: ExtensionContext | undefined): Runtim
 
 function takePendingWaitCoordination(
 	recipient: RuntimeCoordinationRecipient | undefined,
-): { prompt: string; runtimeMailboxDelivery: RuntimeMailboxToolDelivery } | undefined {
+): { prompt: string; runtimeMailboxDelivery?: RuntimeMailboxToolDelivery } | undefined {
 	if (!recipient) return undefined;
 	const mailboxMessages = takeRuntimeMailboxMessagesForDelivery(
 		recipient.controlDbPath,
@@ -2394,10 +2394,13 @@ function takePendingWaitCoordination(
 		return sections.length > 0
 			? {
 					prompt: sections.join("\n\n"),
-					runtimeMailboxDelivery: {
-						controlDbPath: recipient.controlDbPath,
-						messages: mailboxMessages.map(({ id, storeRef }) => ({ id, storeRef })),
-					},
+					runtimeMailboxDelivery:
+						mailboxMessages.length > 0
+							? {
+									controlDbPath: recipient.controlDbPath,
+									messages: mailboxMessages.map(({ id, storeRef }) => ({ id, storeRef })),
+								}
+							: undefined,
 				}
 			: undefined;
 	} catch (error) {
