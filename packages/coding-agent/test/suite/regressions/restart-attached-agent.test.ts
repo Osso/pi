@@ -66,8 +66,8 @@ it.each(["attached", "spawned"] as const)(
 			const beforeRestart = readRuntimeMailboxListener(controlDbPath, parentAddress);
 			expect(beforeRestart?.pid).toBeGreaterThan(0);
 
-			// RPC SIGHUP exits rather than restarting. /restart uses the production
-			// exec-in-place handoff and executes the same startup recovery journal gate.
+			// RPC SIGHUP exits rather than restarting. /restart exercises the production
+			// exec-in-place handoff and control-DB child recovery.
 			// Exec replaces the process before the command can answer its RPC request.
 			void agent.send({ type: "prompt", message: "/restart" }).catch(() => undefined);
 			const restoredMain = await agent.waitForLlmRequest(
