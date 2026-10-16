@@ -441,7 +441,7 @@ Recovery must reconstruct eligible transcript-backed children from the current s
 preserve agent and transcript identity, and reacquire exact process ownership before dispatch. Terminal DB
 state prevents reconstruction, regardless of historical journal rows. Missing or mismatched transcript
 file/header identity fails explicitly; recovery never invents success or a blank session from a missing handle.
-Restart and GREEN pre-deployment integration/source proof, with pending main-owned full-check/deployment/runtime-adoption gates, live in [current-cycle evidence](../../specs/agent-lifecycle.md#known-gaps-current-cycle). Historical mailbox diagnosis limits live in [mailbox proof](../../specs/multi-agent.md#mailbox-proof-current-cycle).
+Restart, GREEN integration/source proof, completed rollout/adoption evidence, and remaining verification limits live in [current-cycle evidence](../../specs/agent-lifecycle.md#known-gaps-current-cycle). Historical mailbox diagnosis limits live in [mailbox proof](../../specs/multi-agent.md#mailbox-proof-current-cycle).
 
 ## Extension audit
 

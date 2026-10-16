@@ -355,12 +355,31 @@ folder from reading stale manifests or output belonging to another supervisor.
   `/tmp/pi-explicit-mailbox-final-proof.json`, `/tmp/pi-explicit-mailbox-final-audit.md`, and
   `/tmp/pi-explicit-mailbox-final-suite.log`. Explicit-body coverage and historical diagnosis limits:
   [mailbox proof](multi-agent.md#mailbox-proof-current-cycle).
-- **PENDING main-owned rollout proof:** current-revision full `npm run check` through `deploy.sh`,
-  laptop and agent-server deployment, exact installed artifact/source revisions, launcher-preserving
-  live-session restart/health/continuity inventory, and separate resident PID/hash adoption.
-  Rollout remains **HELD** for the coordinated live window; pre-deployment GREEN is not shipment
-  or running-schema/guidance adoption. Retain source/suite proof unless relevant source/config changes
-  invalidate it; rollout milestones alone do not require a rerun.
+- **DEPLOYED October 16, 2026:** `deploy.sh --agent-server` completed check, build, and shipment
+  with exit 0 (`/tmp/pi-explicit-mailbox-deploy.log`). Artifact source includes docs-only `67421691d`
+  after tested `29873beaee359a4514dee8a08fbd1cd86600465c`; check's two import-order lines in a
+  Pyrun test were committed as `179553687`, without runtime-code changes. Installed SHA-256:
+  `ac152e9eb70448b2d5ca12d7b9fb3d14beba6a3856cf1c034d537cbb5e2626f7`.
+  `/tmp/pi-rollout-comparison.json` records PASS for seven installed interactive mains across
+  laptop osso and agent-server osso/allison: session IDs, PIDs, and launchers retained;
+  generations and runtime incarnations advanced. All 24 pre-existing active agents retained
+  identities, parents, and transcripts: 23 remained active and one completed normally, with no new
+  `lost_runtime` or terminal resurrection. The parent restart also preserved/resumed verifier 152
+  and an old durable `answer_question` request remained answerable.
+- **Resident and relay adoption:** three managed residents were ready on the same artifact,
+  protocol 1: local PID 1509898, server osso PID 279381, allison PID 269166. Evidence:
+  `/tmp/pi-rollout-local-resident-adoption.json`, `/tmp/pi-rollout-server-resident-adoption.json`,
+  and `/tmp/pi-rollout-allison-after.json`. Old managed residents were gracefully replaced.
+  Local/server lazy services did not autostart from metadata tools or main boot; the documented
+  `pi supervisor` entrypoint started managed residents without code changes. Configured native relay
+  client and peer adopted the artifact (`/tmp/pi-rollout-relay-adoption.json`,
+  `/tmp/pi-rollout-relay-server-after.json`); profiles without extra resident identities were not enabled.
+- **Remaining proof limits:** independent verifier 152's post-deploy final report is not established
+  here. Local metadata CLI emitted four unmatched OpenRouter-pattern warnings; their configuration
+  baseline is unestablished, distinct from the clean check/suite. No preferences were changed or
+  warnings suppressed. Historical mailbox attribution remains bounded by the linked mailbox proof.
+  Retain source/suite proof unless relevant source/config changes invalidate it; markdown-only
+  reconciliation and rollout milestones do not require a rerun.
 
 - [ ] Add `interrupted`: persisted state for agents deliberately paused by the user — a policy
       difference (never auto-restarted) that cannot be derived, unlike crash detachment.

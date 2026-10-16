@@ -485,15 +485,20 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       observes each exact envelope once, preserves the original assignment, and verifies completion routing.
       Maintained tool descriptions and prompt guidance require `body`. Shared TypeBox coercion is unchanged;
       this is not strict original-type rejection or a live cross-host byte probe.
-- [x] Full safe-suite and source/readability proof are GREEN; counts, artifacts, and remaining main-owned
-      full-check/deployment/runtime-adoption gates live in
+- [x] Full safe-suite and source/readability proof are GREEN. Mandatory deployment check/build/ship
+      and retained main/resident/relay adoption evidence are recorded in
       [lifecycle evidence](agent-lifecycle.md#known-gaps-current-cycle).
-- [ ] Establish deployed schemas/guidance and runtime adoption through main-owned rollout proof.
-      Source proof does not establish every historical live-provider incident is solved.
+- [x] Actual deployed tool metadata requires `body` and states that no assistant text is needed.
+      The coordinated rollout completed; the lead cleared the window and the main released the bot
+      hold with a new-body operational message, not a probe. This establishes deployed schemas/guidance
+      and observed runtime adoption, not resolution of every historical live-provider incident.
+      Independent verifier 152's final post-deploy report remains unestablished; its retained partial
+      audit is `/tmp/pi-explicit-mailbox-postdeploy-audit.md`.
 
 Historical diagnosis remains bounded: exact call `toolu_01RX4YZcgwb17bxhuAH4Acfk` lacked normal
 assistant text at the SDK event boundary. Model-versus-SDK responsibility and any length threshold
-are not established. The explicit-body contract does not depend on assistant text.
+are not established. Old incident IDs from an untraced PID remain unattributed. The explicit-body
+contract does not depend on assistant text.
 
 ### Cross-host messaging
 
