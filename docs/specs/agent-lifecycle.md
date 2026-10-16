@@ -292,7 +292,10 @@ folder from reading stale manifests or output belonging to another supervisor.
       notification already waiting, then queries current agent rows until one snapshot member is terminal. A coordination
       wake returns and consumes all currently pending deliverable runtime-mailbox and shared-channel inputs, preserving
       sender/body formatting; mailbox rows become `delivered` and the shared-channel cursor advances. Each distinct
-      coordination message is visible exactly once. Detached Bash and Pyrun jobs use a transient `runtime` worker marker;
+      coordination message is visible exactly once. Channel-only results must persist in the session transcript
+      through normal tool-result persistence, without mailbox acceptance metadata. Only nonempty actual mailbox
+      references carry acceptance metadata; actual and mixed mailbox claim/acceptance handling remains unchanged.
+      Detached Bash and Pyrun jobs use a transient `runtime` worker marker;
       restore clears it without rewriting durable lifecycle.
 
 ## How it works
@@ -341,13 +344,18 @@ folder from reading stale manifests or output belonging to another supervisor.
   extension tests 153/153, and DB tests 146/146. Fixture corrections in `aa41238fe` and `ea21a0da1`
   supersede the earlier attached-child RED result. `npm run check` exits 0 without mutations.
   The safe `./test.sh` run exits 1: 5209 passed, 34 failed, 760 skipped, and 2 unhandled errors.
-  This is retained broad-suite evidence, not a result for the later fixture repairs through `c002b1e1f`.
+  This is retained broad-suite evidence, not a result for the later repairs through `1f413c31c`.
   The repair ledger attributes 27 failures to repaired fixtures/assertions: lifecycle `d12564aad`
   (18 failures; targeted 59/59), contract `b27e5acd3` (4 failures; ledger-reported targeted 47/47),
   interactive `c002b1e1f` (4 failures plus 2 unhandled errors; targeted 21/21 without unhandled errors),
   and goal deadline `0828ccc38` (1 failure; targeted 1 passed, 17 skipped, asserting the documented
-  25-minute deadline). Seven failures remain unresolved: provider terminal (4), Pyrun notification (1),
-  channel start race (1), and channel wait wake (1); their root causes remain unestablished.
+  25-minute deadline). Subsequent targeted repairs cover provider terminal fixtures (`e9b1ae931`),
+  Pyrun notification expiry (`5723db0ee`), channel start ordering (`011b30ee7`), and channel-only wait
+  persistence (`1f413c31c`). All 34 failures and both unhandled errors now have targeted repair evidence;
+  full integration remains pending. The channel-only result reached the provider but empty mailbox acceptance
+  metadata bypassed normal transcript persistence. Its unchanged real-process regression passes 1/1 and
+  targeted mailbox acceptance/coordination cases pass 7/7; actual/mixed mailbox claim handling is unchanged.
+  Proof: `/tmp/pi-channel-wait-proof.md`; repair inventory: `/tmp/pi-integration-repair-ledger.json`.
   Rollout remains **HELD** pending final green integration proof and a coordinated rollout window.
   Production is not deployed; neither full-suite success nor a fix for the original mailbox bug is established.
   Evidence: `/tmp/pi-db-restart-final-report.md`, `/tmp/pi-db-restart-final-ledger.json`,
