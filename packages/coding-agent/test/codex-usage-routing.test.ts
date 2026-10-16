@@ -151,6 +151,36 @@ describe("registered /usage all", () => {
 		expect(lines.join("\n")).not.toMatch(/\b0%/);
 	});
 
+	it("renders the live weekly-only Codex payload without inventing 5-hour usage", async () => {
+		const h = registerUsage("openai-codex");
+		h.has.mockReturnValue(true);
+		h.fetch.mockImplementation(async () =>
+			Response.json({
+				plan_type: "pro",
+				rate_limit: {
+					primary_window: {
+						used_percent: 56,
+						limit_window_seconds: 604_800,
+						reset_after_seconds: 500_000,
+						reset_at: 1_792_650_775,
+					},
+					secondary_window: null,
+				},
+				additional_rate_limits: null,
+			}),
+		);
+
+		await h.command.handler("all", h.ctx);
+
+		const lines = reportLines(h);
+		for (const provider of ["openai-codex", "openai-codex-gc", "openai-codex-team"]) {
+			expect(lines).toContain(
+				`Codex usage@example.com (pro) [${provider}]${provider === "openai-codex" ? " *" : ""} unavailable unavailable 56% 2026-10-22 06:32`,
+			);
+		}
+		expect(lines.join("\n")).not.toMatch(/\b0%/);
+	});
+
 	it.each([null, { percent: "42", resetsAt: null }, { percent: 42, resetsAt: "tomorrow" }])(
 		"isolates malformed Claude entries (%j)",
 		async (fiveHour) => {
