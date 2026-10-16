@@ -38,8 +38,8 @@ import { isProcessIdentityAlive, type ProcessIdentity, readProcessIdentity } fro
 import {
 	getControlDbPath,
 	readMultiAgentAgent,
-	readMultiAgentState,
 	readMultiAgentRuntimeOwnership,
+	readMultiAgentState,
 } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
