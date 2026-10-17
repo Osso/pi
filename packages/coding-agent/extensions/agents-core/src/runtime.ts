@@ -58,6 +58,7 @@ import {
 	readMultiAgentAgents,
 	readMultiAgentRuntimeOwnership,
 	readMultiAgentState,
+	readSessionMetadata,
 	readSharedChannelCursor,
 	readSharedChannelTail,
 	releaseRuntimeMailboxMessageClaim,
@@ -1490,12 +1491,14 @@ async function resolveAttachSessionTarget(
 	}
 	if (path) {
 		const session = SessionManager.open(path, ctx.sessionManager?.getSessionDir());
+		const sessionPath = session.getSessionFile() ?? path;
+		const metadata = ctx.controlDbPath ? readSessionMetadata(ctx.controlDbPath, sessionPath) : undefined;
 		return {
 			ok: true,
 			target: {
 				cwd: session.getCwd(),
-				name: session.getSessionName(),
-				path: session.getSessionFile() ?? path,
+				name: metadata?.name || metadata?.subagentName,
+				path: sessionPath,
 				sessionId: session.getSessionId(),
 			},
 		};

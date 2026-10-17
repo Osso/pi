@@ -1908,6 +1908,44 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
+	it("names a path-attached session from its persisted session or subagent name", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-attach-session-name-"));
+		try {
+			const controlDbPath = join(tempDir, "control.sqlite");
+			const subagentSession = SessionManager.create("/repo", tempDir, {
+				id: "019f29f4-0000-7000-8000-000000000031",
+				isSubagent: true,
+				subagentName: "trading-post-ui",
+			});
+			const namedSession = SessionManager.create("/repo", tempDir, { id: "019f29f4-0000-7000-8000-000000000032" });
+			for (const saved of [subagentSession, namedSession]) {
+				saved.appendMessage({ role: "user", content: "saved prompt", timestamp: 1 });
+				saved.appendMessage(fauxAssistantMessage("saved response"));
+				saved.setMetadataControlDbPath(controlDbPath);
+			}
+			namedSession.setSessionName("Bot Harness");
+			const supervisorSession = SessionManager.create("/repo", tempDir, {
+				id: "019f29f4-0000-7000-8000-000000000033",
+			});
+			supervisorSession.setMetadataControlDbPath(controlDbPath);
+			const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
+			store.setPersistenceSessionManager(supervisorSession);
+			const harness = createMultiAgentHarness({ ctx: { controlDbPath, sessionManager: supervisorSession }, store });
+
+			const attachedSubagent = await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+				path: subagentSession.getSessionFile(),
+			});
+			const attachedNamed = await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+				path: namedSession.getSessionFile(),
+			});
+
+			expect(attachedSubagent.details.agent.displayName).toBe("trading-post-ui");
+			expect(attachedNamed.details.agent.displayName).toBe("Bot Harness");
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
 	it("terminalizes a real attached child AgentSession thinking timeout as failed", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-timeout-attached-session-"));
 		try {
