@@ -33,7 +33,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 
 ### Authority boundary
 
-- [x] Ground binding requirements in explicit user instructions or applicable persistent project contracts. `userRequest` and user-kind conversation events supply user evidence; objectives, plans, summaries, assistant end-turn reports, and prior Supervisor decisions do not establish provenance by repetition. Remove unsupported constraints; disposable pilot IDs are diagnostic unless explicitly required. Apply this rule to goal creation, idle review, and completion review.
+- [x] Ground binding requirements in explicit user instructions or applicable persistent project contracts. `userRequest`, `userAnswers` (blocking `ask_questions` answers), and user-kind conversation events supply user evidence; objectives, plans, summaries, assistant end-turn reports, and prior Supervisor decisions do not establish provenance by repetition. Remove unsupported constraints; disposable pilot IDs are diagnostic unless explicitly required. Apply this rule to goal creation, idle review, and completion review.
 
 - [x] Keep the resident Supervisor as the first-level goal and completion reviewer: it remains a peer-unblocking policy engine, not a routine task manager, preserves agent autonomy and cumulative parent-goal consistency across requests, and intervenes only on evidence-backed exceptions; the calling subsystem enforces the typed response.
 - [x] Detect narrowed or lost goals, dropped requirements, exclusions, or completion criteria, contradictions between claims and evidence, repeated or circular work, and missing completion proof without prescribing routine decomposition; only an explicit user instruction may reset or narrow a known parent objective.

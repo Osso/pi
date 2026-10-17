@@ -1,4 +1,9 @@
-import type { ExtensionContext, InputEvent, ToolResultEvent } from "@earendil-works/pi-coding-agent";
+import type {
+	AskQuestionsToolDetails,
+	ExtensionContext,
+	InputEvent,
+	ToolResultEvent,
+} from "@earendil-works/pi-coding-agent";
 import type {
 	Goal,
 	GoalEvidenceReview,
@@ -45,6 +50,15 @@ function appendEndTurnEvidence(
 	appendEvidence(store, ctx, { kind: "end_turn", reason });
 }
 
+// Blocking ask_questions answers are user input delivered through a tool result.
+function answeredQuestionsText(event: ToolResultEvent): string | undefined {
+	if (event.toolName !== "ask_questions" || event.isError) return undefined;
+	const details = event.details as AskQuestionsToolDetails | undefined;
+	if (!details || details.cancelled || details.queued) return undefined;
+	const text = event.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+	return text.length > 0 ? text : undefined;
+}
+
 function consumeEvidence(
 	store: GoalReviewEvidenceStore,
 	ctx: ExtensionContext,
@@ -77,21 +91,37 @@ export function createGoalReviewEvidenceController(
 	reviewGoal: GoalSupervisorReview,
 ): GoalReviewEvidenceController {
 	const userRequests = new Map<string, string>();
+	const userAnswers = new Map<string, string[]>();
 	const review = createEvidenceReview(store, reviewGoal);
 	return {
 		appendInput(event, ctx) {
 			if (event.source !== "extension" && event.text.length > 0) {
-				userRequests.set(ctx.sessionManager.getSessionId(), event.text);
+				const sessionId = ctx.sessionManager.getSessionId();
+				userRequests.set(sessionId, event.text);
+				userAnswers.delete(sessionId);
 			}
 			appendInputEvidence(store, event, ctx);
 		},
-		appendToolResult: appendEndTurnEvidence.bind(undefined, store),
+		appendToolResult(event, ctx) {
+			appendEndTurnEvidence(store, event, ctx);
+			const answers = answeredQuestionsText(event);
+			if (!answers) return;
+			const sessionId = ctx.sessionManager.getSessionId();
+			userAnswers.set(sessionId, [...(userAnswers.get(sessionId) ?? []), answers]);
+			appendEvidence(store, ctx, { kind: "user", text: answers });
+		},
 		consume: consumeEvidence.bind(undefined, store),
 		review(input) {
-			const userRequest = userRequests.get(input.ctx.sessionManager.getSessionId());
+			const sessionId = input.ctx.sessionManager.getSessionId();
+			const userRequest = userRequests.get(sessionId);
+			const answers = userAnswers.get(sessionId);
 			return review({
 				...input,
-				payload: userRequest ? { ...input.payload, userRequest } : input.payload,
+				payload: {
+					...input.payload,
+					...(userRequest ? { userRequest } : {}),
+					...(answers ? { userAnswers: answers } : {}),
+				},
 			});
 		},
 	};
