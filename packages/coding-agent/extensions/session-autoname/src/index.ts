@@ -25,6 +25,7 @@ class TitleRequestError extends Error {
 }
 
 interface TitleRequest {
+	cwd: string;
 	model: NonNullable<ExtensionContext["model"]>;
 	modelRegistry: ExtensionContext["modelRegistry"];
 	sessionManager: ReadonlySessionManager;
@@ -46,7 +47,12 @@ export default function sessionAutonameExtension(pi: ExtensionAPI): void {
 		attempted = true;
 		const controller = new AbortController();
 		pendingController = controller;
-		const request = { model: ctx.model, modelRegistry: ctx.modelRegistry, sessionManager: ctx.sessionManager };
+		const request = {
+			cwd: ctx.cwd,
+			model: ctx.model,
+			modelRegistry: ctx.modelRegistry,
+			sessionManager: ctx.sessionManager,
+		};
 		void generateAndSetTitle(pi, request, userText, controller)
 			.catch((error: unknown) => reportAutonameFailure(error, controller.signal))
 			.finally(() => {
@@ -134,6 +140,7 @@ async function sendTitleRequest(
 	// A one-off side request: uncached, and routed by providers such as claude-bridge outside the session.
 	return completeSimple(request.model, buildTitleContext(userText), {
 		cacheRetention: "none",
+		cwd: request.cwd,
 		apiKey: auth.apiKey,
 		env: auth.env,
 		headers: auth.headers,

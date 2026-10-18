@@ -10,6 +10,7 @@ Session autonaming is a default first-party extension that gives persisted never
 - [x] An `agent_end`, including a cwd-relocation completion, never independently triggers title generation.
 - [x] Persist the generated title through the existing session-naming behavior in `session_metadata.name`; no JSONL name entry is written.
 - [x] Do not delay completion of the originating user exchange while generating the title.
+- [x] Capture the current session cwd when starting each title request and pass it to the provider on every attempt; retries retain that request's cwd rather than reading a later session cwd or process cwd.
 
 ### Eligibility and exclusions
 

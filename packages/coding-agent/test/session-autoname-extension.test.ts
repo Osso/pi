@@ -94,9 +94,16 @@ describe("session autoname extension", () => {
 
 	it("retries a transient title failure without another user message", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => {});
+		const attemptCwds: (string | undefined)[] = [];
 		const harness = await startTitleAttempt([
-			fauxAssistantMessage("", { stopReason: "error", errorMessage: "503 service unavailable" }),
-			fauxAssistantMessage("Recovered Session Title"),
+			(_context, options) => {
+				attemptCwds.push(options?.cwd);
+				return fauxAssistantMessage("", { stopReason: "error", errorMessage: "503 service unavailable" });
+			},
+			(_context, options) => {
+				attemptCwds.push(options?.cwd);
+				return fauxAssistantMessage("Recovered Session Title");
+			},
 		]);
 		expect(harness.faux.state.callCount).toBe(1);
 		await delay(900);
@@ -104,6 +111,7 @@ describe("session autoname extension", () => {
 		expect(await waitUntil(() => harness.faux.state.callCount === 2, 1_500)).toBe(true);
 		await vi.advanceTimersByTimeAsync(0);
 		expect(harness.sessionManager.getSessionName()).toBe("Recovered Session Title");
+		expect(attemptCwds).toEqual([harness.tempDir, harness.tempDir]);
 	});
 
 	it.each(["invalid_api_key", "retry delay exceeds configured maximum"])(
@@ -265,6 +273,40 @@ describe("session autoname extension", () => {
 		expect(readSessionMetadata(getControlDbPath(harness.tempDir), sessionFile ?? "")?.name).toBe(
 			"Automatic Session Naming",
 		);
+	});
+
+	it.each(["tui", "rpc"] as const)("passes the session cwd to %s title generation", async (mode) => {
+		const harness = await createSessionAutonameHarness({ mode, persistedSession: true });
+		harnesses.push(harness);
+		let titleCwd: string | undefined;
+		let titleRequested = false;
+		routeMainAndTitleResponses(harness, [
+			completedAssistantMessage("Substantive answer."),
+			(_context, options) => {
+				titleRequested = true;
+				titleCwd = options?.cwd;
+				if (titleCwd !== harness.tempDir) {
+					return fauxAssistantMessage("", {
+						stopReason: "error",
+						errorMessage: "Claude bridge launch requires the current Pi session cwd",
+					});
+				}
+				return fauxAssistantMessage("Session Cwd Title");
+			},
+		]);
+
+		expect(harness.tempDir).not.toBe(process.cwd());
+		await harness.session.prompt("Name this session using its working directory.", {
+			source: mode === "rpc" ? "rpc" : "interactive",
+		});
+
+		expect(await waitUntil(() => titleRequested)).toBe(true);
+		expect(titleCwd).toBe(harness.tempDir);
+		expect(await waitUntil(() => harness.sessionManager.getSessionName() !== undefined)).toBe(true);
+		expect(harness.sessionManager.getSessionName()).toBe("Session Cwd Title");
+		const sessionFile = harness.sessionManager.getSessionFile();
+		expect(sessionFile).toBeDefined();
+		expect(readSessionMetadata(getControlDbPath(harness.tempDir), sessionFile ?? "")?.name).toBe("Session Cwd Title");
 	});
 
 	it("sends the title request as an uncached one-off call", async () => {
