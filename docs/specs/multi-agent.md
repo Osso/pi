@@ -53,6 +53,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       and attached sessions also exclude `spawn_agent`, `attach_session_agent`, `wait_agent`,
       `list_agents`, `agent_viewer`, `steer_agent`, and `close_agent` as defense in depth, while retaining
       direct child communication through `contact_parent` and `send_agent_message`.
+- [ ] Spawned and attached subagents must not expose `change_working_directory`: child runtimes lack
+      relocation support. Explicit stale or indirect calls must fail before scheduling relocation or requesting
+      turn termination, leaving the child cwd and runtime unchanged. Main and standalone behavior remains
+      governed by the [working-directory tool contract](change-working-directory-tool.md); this restriction
+      does not provide child relocation support.
 - [x] When multi-agent mode is disabled in a main runtime, remove the active orchestration and mailbox tool
       surface (`spawn_agent`, `list_agents`, `attach_session_agent`, `wait_agent`, `close_agent`,
       `steer_agent`, `agent_viewer`, `send_agent_message`, and `contact_parent`) without cancelling

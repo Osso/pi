@@ -196,6 +196,7 @@
 
 ### Fixed
 
+- Fixed `change_working_directory` terminating spawned and attached subagents by disabling it in child runtimes and rejecting stale or indirect calls before relocation or turn termination; main and standalone behavior is unchanged.
 - Fixed channel-only `wait_agent` results missing from session transcripts despite reaching the provider; omit empty mailbox acceptance metadata so normal tool-result persistence applies, preserving actual and mixed mailbox claim handling.
 - Fixed idle shared-channel delivery overtaking user input during awaited working-directory recovery; prompt submission now reserves turn-start ordering before recovery and releases it before delegation or extension command handlers. See [prompt ordering](../../docs/specs/shared-channel.md#prompt-ordering).
 - Fixed attached/resumed-agent loss on supervisor restart by recovering from control-DB lifecycle and ownership plus transcript file/header validation, never parent-journal membership. Attached/spawned restart tests and deployed live-agent continuity evidence are recorded in [verification status](../../docs/specs/agent-lifecycle.md#known-gaps-current-cycle).
