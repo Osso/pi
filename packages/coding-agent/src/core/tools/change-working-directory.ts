@@ -103,6 +103,9 @@ const executeChangeWorkingDirectory: ChangeWorkingDirectoryTool["execute"] = asy
 	_onUpdate,
 	ctx,
 ) => {
+	if (ctx.multiAgentAgentId || ctx.multiAgentRequiresAgentId) {
+		throw new Error("change_working_directory is not available from child agent runtimes");
+	}
 	if (!ctx.relocateAfterToolResult) {
 		throw new Error("change_working_directory is not available in this session mode");
 	}
