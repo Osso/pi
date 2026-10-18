@@ -53,7 +53,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       and attached sessions also exclude `spawn_agent`, `attach_session_agent`, `wait_agent`,
       `list_agents`, `agent_viewer`, `steer_agent`, and `close_agent` as defense in depth, while retaining
       direct child communication through `contact_parent` and `send_agent_message`.
-- [ ] Spawned and attached subagents must not expose `change_working_directory`: child runtimes lack
+- [x] Spawned and attached subagents must not expose `change_working_directory`: child runtimes lack
       relocation support. Explicit stale or indirect calls must fail before scheduling relocation or requesting
       turn termination, leaving the child cwd and runtime unchanged. Main and standalone behavior remains
       governed by the [working-directory tool contract](change-working-directory-tool.md); this restriction
@@ -658,6 +658,8 @@ The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the
 
 ## Tests asserting this spec
 
+- `packages/coding-agent/test/suite/child-working-directory-tool.test.ts` — spawned and attached child
+  tool exclusion and stale-call rejection, before and after supervisor restart, preserving child cwd and runtime.
 - `packages/coding-agent/test/mailbox-tool-wiring.test.ts` — literal-body delivery with absent or unrelated
   assistant text, later same-turn bodies, active-tool bridge calls, nonblank validation, rejected implicit
   inputs and unknown arguments, routing/attachments/thread preservation, sender/recipient guards, and
