@@ -180,6 +180,11 @@ type ResolvedAgentProfile = {
 
 const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
 const CHILD_AGENT_CONTROL_TOOL_NAMES = ["ask_questions", "contact_parent", "send_agent_message", "end_turn"] as const;
+const CHILD_EXCLUDED_TOOL_NAMES = [
+	...CHILD_DISABLED_AGENT_TOOL_NAMES,
+	...SUPERVISOR_ONLY_TOOL_NAMES,
+	"change_working_directory",
+];
 const MAIN_THREAD_AGENT_ID = "main";
 const CANCELLATION_SETTLEMENT_TIMEOUT_MS = 5_000;
 const SUBAGENT_TERMINAL_CLEANUP_REASON = "Owning subagent reached a terminal path";
@@ -694,7 +699,7 @@ export function createProductionChildAgentSessionFactory(
 			agentDir: options.agentDir,
 			customTools: createBrowserReadTools(agent, options),
 			cwd: agent.cwd,
-			excludeTools: [...CHILD_DISABLED_AGENT_TOOL_NAMES, ...SUPERVISOR_ONLY_TOOL_NAMES, "change_working_directory"],
+			excludeTools: CHILD_EXCLUDED_TOOL_NAMES,
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
 			model: profile.model ?? ctx.model,
 			modelRegistry: ctx.modelRegistry,
@@ -751,7 +756,7 @@ export function createProductionAttachedSessionFactory(
 			agentDir: options.agentDir,
 			customTools: createBrowserReadTools(agent, options),
 			cwd: agent.cwd,
-			excludeTools: [...CHILD_DISABLED_AGENT_TOOL_NAMES, ...SUPERVISOR_ONLY_TOOL_NAMES, "change_working_directory"],
+			excludeTools: CHILD_EXCLUDED_TOOL_NAMES,
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
 			model: profile.model ?? ctx.model,
 			modelRegistry: ctx.modelRegistry,
