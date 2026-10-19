@@ -67,15 +67,19 @@ class WaitCountdownRefresherImpl implements WaitCountdownRefresher {
 	private scheduleNextRender(sessionId: string, countdown: ActiveCountdown): void {
 		const now = Date.now();
 		const remainingMs = countdown.deadlineMs - now;
-		if (remainingMs <= 0) return;
 		const remainingSeconds = Math.ceil(remainingMs / 1_000);
-		const nextChangeAt = countdown.deadlineMs - (remainingSeconds - 1) * 1_000;
-		countdown.timer = setTimeout(() => {
-			if (this.activeCountdowns.get(sessionId) !== countdown) return;
-			countdown.timer = undefined;
-			this.renderBindings.get(sessionId)?.get(countdown.reviewAt)?.requestRender();
-			this.scheduleNextRender(sessionId, countdown);
-		}, Math.max(1, nextChangeAt - now));
+		const nextChangeAt = remainingMs > 0 ? countdown.deadlineMs - (remainingSeconds - 1) * 1_000 : now + 1_000;
+		countdown.timer = setTimeout(
+			() => {
+				if (this.activeCountdowns.get(sessionId) !== countdown) return;
+				countdown.timer = undefined;
+				const rendered = this.renderBindings.get(sessionId)?.get(countdown.reviewAt)?.requestRender();
+				const isExpired = Date.now() >= countdown.deadlineMs;
+				if (isExpired && rendered !== false) return;
+				this.scheduleNextRender(sessionId, countdown);
+			},
+			Math.max(1, nextChangeAt - now),
+		);
 		countdown.timer.unref?.();
 	}
 }

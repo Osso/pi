@@ -16,6 +16,19 @@ interface SupervisorStatusStyles {
 	message: TextStyle;
 }
 
+class CountdownText extends Text {
+	private previousWidth = 0;
+	private reservedHeight = 0;
+
+	override render(width: number): string[] {
+		const lines = super.render(width);
+		// Keep the entry region stable when an expiring countdown wraps onto fewer rows.
+		this.reservedHeight = width === this.previousWidth ? Math.max(this.reservedHeight, lines.length) : lines.length;
+		this.previousWidth = width;
+		return [...lines, ...Array.from({ length: this.reservedHeight - lines.length }, () => "")];
+	}
+}
+
 class SupervisorStatusComponent extends Box {
 	private countdownText: Text | undefined;
 	private countdownLabel = "";
@@ -37,7 +50,7 @@ class SupervisorStatusComponent extends Box {
 		this.countdownText = undefined;
 		if (this.deadlineMs !== undefined && Number.isFinite(this.deadlineMs)) {
 			this.countdownLabel = this.styles.countdown(formatReviewCountdown(this.deadlineMs, Date.now()));
-			this.countdownText = new Text(this.countdownLabel, 0, 0);
+			this.countdownText = new CountdownText(this.countdownLabel, 0, 0);
 			this.addChild(this.countdownText);
 		}
 	}
@@ -163,12 +176,12 @@ export function createSupervisorStatusController(
 
 function bindSupervisorStatusCountdown(
 	refresher: WaitCountdownRefresher,
-	rendererOptions: Parameters<EntryRenderer>[1],
-	reviewAt: string | undefined,
-	component: SupervisorStatusComponent | undefined,
+	display: SupervisorDisplay,
 ): (() => void) | undefined {
-	if (!component) return;
-	const { requestRender, sessionId } = rendererOptions;
+	const { component, options, details } = display;
+	if (!component || !options) return;
+	const { requestRender, sessionId } = options;
+	const { reviewAt } = details;
 	if (!reviewAt || !sessionId || !requestRender) return;
 	return refresher.bind(sessionId, reviewAt, () => component.refreshCountdown(requestRender));
 }
@@ -189,9 +202,7 @@ function updateSupervisorDisplay(
 	display.details = details;
 	display.component?.update(details.message, details.reviewAt);
 	display.cleanupCountdown?.();
-	display.cleanupCountdown = display.options
-		? bindSupervisorStatusCountdown(refresher, display.options, details.reviewAt, display.component)
-		: undefined;
+	display.cleanupCountdown = bindSupervisorStatusCountdown(refresher, display);
 }
 
 export function createSupervisorStatusEntryRenderer(refresher: WaitCountdownRefresher): EntryRenderer {
@@ -216,12 +227,7 @@ export function createSupervisorStatusEntryRenderer(refresher: WaitCountdownRefr
 		display.cleanupCountdown?.();
 		display.component = component;
 		display.options = rendererOptions;
-		display.cleanupCountdown = bindSupervisorStatusCountdown(
-			refresher,
-			rendererOptions,
-			display.details.reviewAt,
-			component,
-		);
+		display.cleanupCountdown = bindSupervisorStatusCountdown(refresher, display);
 		const boundDisplay = display;
 		rendererOptions.registerCleanup?.(() => {
 			if (boundDisplay.component !== component) return;
