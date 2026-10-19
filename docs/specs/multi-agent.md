@@ -189,7 +189,8 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       exactly once. Restore clears transient `runtime` worker metadata without rewriting durable lifecycle.
 - [x] `wait_agent({})` expires 25 minutes after the latest observed foreground `model_request_start`, returning an
       explicit still-running result without cancelling snapshotted agents; the model can take another turn and wait
-      again. Child model requests do not reset the deadline, and the timeout is not a cache-retention guarantee.
+      again. The slice ends with the foreground turn (`agent_end`): an idle wait started outside a model turn, such as
+      a goal review's automatic wait, is not bounded by a finished turn's deadline and relies on its caller's bound. Child model requests do not reset the deadline, and the timeout is not a cache-retention guarantee.
       After suspend/wake delays its timer callback, the existing three-second coordination poll rechecks the absolute
       deadline only after terminal and coordination checks, preserving their precedence.
 

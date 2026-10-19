@@ -221,6 +221,51 @@ describe("wait_agent request-relative deadline", () => {
 		expectTimeout();
 	});
 
+	it("does not time out an idle extension wait from a finished model turn's deadline", async () => {
+		vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+		vi.setSystemTime(REQUEST_START);
+		store = new MultiAgentStore();
+		runtimeHandles = createMultiAgentRuntimeHandles();
+		let api: ExtensionAPI | undefined;
+		harness = await createHarness({
+			persistedSession: true,
+			multiAgentStore: store,
+			extensionFactories: [
+				(pi) => {
+					api = pi;
+					agentsCoreExtension(pi, { store, runtimeHandles, createChildSession });
+				},
+			],
+		});
+		store.setPersistenceSessionManager(harness.sessionManager);
+		await harness.session.bindExtensions({});
+		harness.session.setActiveToolsByName(["spawn_agent", "wait_agent"]);
+		harness.setResponses([
+			fauxAssistantMessage([fauxToolCall("spawn_agent", { prompt: "Keep working", context: "fresh" })], {
+				stopReason: "toolUse",
+			}),
+			fauxAssistantMessage("spawned"),
+		]);
+		await harness.session.prompt("Spawn a child.");
+		expect(store.listActiveAgents()).toHaveLength(1);
+
+		// An idle goal review waits for agents through callTool, outside any model turn.
+		vi.setSystemTime(REQUEST_START + 26 * MINUTE);
+		let settled = false;
+		const wait = api!.callTool("wait_agent", {}).then((result) => {
+			settled = true;
+			return result;
+		});
+		await vi.advanceTimersByTimeAsync(3_000);
+		expect(settled).toBe(false);
+
+		finishChild?.();
+		await vi.advanceTimersByTimeAsync(0);
+		const result = await wait;
+		expect(result.details).not.toHaveProperty("timedOut");
+		expect(getMessageText(result)).toContain("child finished");
+	});
+
 	it("starts a new slice after the next model request and preserves completion delivery", async () => {
 		await startWait(20 * MINUTE, 2);
 		await vi.advanceTimersByTimeAsync(5 * MINUTE);

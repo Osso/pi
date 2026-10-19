@@ -3151,6 +3151,10 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 	pi.on?.("model_request_start", (_event, ctx) => {
 		if (!isChildAgentRuntime(ctx)) runtimeHandles.latestModelRequestStartedAt = Date.now();
 	});
+	// The wait slice bounds a foreground turn; idle waits (goal reviews) are bounded by their caller.
+	pi.on?.("agent_end", (_event, ctx) => {
+		if (!isChildAgentRuntime(ctx)) runtimeHandles.latestModelRequestStartedAt = undefined;
+	});
 
 	pi.on?.("session_start", async (_event, ctx) => {
 		if (!isChildAgentRuntime(ctx)) {
