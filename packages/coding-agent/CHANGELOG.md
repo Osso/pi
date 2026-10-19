@@ -57,7 +57,7 @@
 - Changed completed interactive tool rows, including `end_turn`, to show a grey local `HH:mm:ss` completion clock alongside their elapsed duration.
 - Changed goal status rendering to use its own footer line while keeping other extension statuses grouped.
 - Increased the automatic Supervisor goal-review wait interval from five to twenty-five minutes.
-- Changed Supervisor wait countdown repainting to update only its rendered custom status entry; unsafe or offscreen ticks are skipped without requesting a generic root render.
+- Changed Supervisor wait countdown repainting to update only its rendered custom status entry; unsafe or offscreen ticks restore the prior label without requesting a generic root render.
 - Changed the built-in `end_turn` instruction to keep working while actionable task work remains and only end after completion, when progress requires user input, or when the user explicitly asks it to stop.
 - Increased the maximum `/goal` objective and production child prompt length from 4,000 to 10,000 characters.
 - Temporarily disabled the resident Architect service and removed the `ask_architect` built-in tool while retaining the implementation and service template for rework; default deployment now uses Pi-managed lazy Supervisor startup, cleans up Architect and Supervisor user units on Linux, skips systemd configuration on Darwin, rejects the systemd opt-in there, and leaves systemd opt-in via `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1`.
@@ -197,6 +197,7 @@
 
 ### Fixed
 
+- Fixed offscreen Supervisor countdowns making later live updates replay terminal history. Rejected scoped updates now leave historical labels unchanged; visible countdowns, saved deadlines, and full backlog reconstruction are preserved.
 - Fixed `change_working_directory` terminating spawned and attached subagents by disabling it in child runtimes and rejecting stale or indirect calls before relocation or turn termination; main and standalone behavior is unchanged.
 - Fixed channel-only `wait_agent` results missing from session transcripts despite reaching the provider; omit empty mailbox acceptance metadata so normal tool-result persistence applies, preserving actual and mixed mailbox claim handling.
 - Fixed idle shared-channel delivery overtaking user input during awaited working-directory recovery; prompt submission now reserves turn-start ordering before recovery and releases it before delegation or extension command handlers. See [prompt ordering](../../docs/specs/shared-channel.md#prompt-ordering).

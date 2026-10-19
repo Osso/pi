@@ -1150,7 +1150,7 @@ describe("goal extension", () => {
 		expect(renderedLines.join("\n")).not.toContain("supervisor-instruction");
 	});
 
-	it("renders a persisted Supervisor review countdown and due state", () => {
+	it("reconstructs a persisted Supervisor review countdown and due state", () => {
 		vi.useFakeTimers();
 		try {
 			vi.setSystemTime(new Date("2026-07-28T12:00:00.000Z"));
@@ -1162,25 +1162,28 @@ describe("goal extension", () => {
 				bold: (text: string) => text,
 				fg: (_color: string, text: string) => text,
 			} as Parameters<EntryRenderer>[2];
-			const component = renderer(
-				{
-					type: "custom",
-					id: "status-1",
-					parentId: null,
-					timestamp: "2026-07-28T12:00:00.000Z",
-					customType: "supervisor-status",
-					data: { message: "Waiting: backfills advancing", reviewAt: "2026-07-28T12:25:00.000Z" },
-				},
-				{ expanded: false },
-				identityTheme,
-			);
-			if (!component) throw new Error("Supervisor status renderer returned no component");
+			const entry: Parameters<EntryRenderer>[0] = {
+				type: "custom",
+				id: "status-1",
+				parentId: null,
+				timestamp: "2026-07-28T12:00:00.000Z",
+				customType: "supervisor-status",
+				data: { message: "Waiting: backfills advancing", reviewAt: "2026-07-28T12:25:00.000Z" },
+			};
+			const reconstructComponent = () => {
+				const component = renderer(entry, { expanded: false }, identityTheme);
+				if (!component) throw new Error("Supervisor status renderer returned no component");
+				return component;
+			};
+			const component = reconstructComponent();
 
 			expect(component.render(120).join("\n")).toContain("Next review in 25:00");
 			vi.setSystemTime(new Date("2026-07-28T12:00:01.000Z"));
-			expect(component.render(120).join("\n")).toContain("Next review in 24:59");
+			expect(component.render(120).join("\n")).toContain("Next review in 25:00");
+			expect(reconstructComponent().render(120).join("\n")).toContain("Next review in 24:59");
 			vi.setSystemTime(new Date("2026-07-28T12:25:00.000Z"));
-			expect(component.render(120).join("\n")).toContain("Review due…");
+			expect(component.render(120).join("\n")).toContain("Next review in 25:00");
+			expect(reconstructComponent().render(120).join("\n")).toContain("Review due…");
 		} finally {
 			vi.useRealTimers();
 		}
