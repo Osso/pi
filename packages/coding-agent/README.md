@@ -278,7 +278,7 @@ Use `/session` in interactive mode to see the current session ID before reusing 
 
 ### Terminal History Export
 
-See [read-only terminal history export](docs/terminal-history-export.md) for ANSI output, saved-branch coverage, and transport integration.
+See [read-only terminal history export](docs/terminal-history-export.md) for ANSI output, current compaction-aware history, and transport integration.
 
 ### Branching
 
@@ -571,7 +571,7 @@ pi config                    # Enable/disable package resources
 | `--mode json` | Lean JSON event stream: deltas, metadata, and completed messages at `message_end`; no compatibility mode (see [docs/json.md](docs/json.md)) |
 | `--mode rpc` | RPC mode for process integration (see [docs/rpc.md](docs/rpc.md)) |
 | `--export <in> [out]` | Export session to HTML |
-| `--export-terminal <file\|id>` | Read-only saved active-branch ANSI history to stdout; requires `--export-columns` |
+| `--export-terminal <file\|id>` | Read-only current compaction-aware ANSI history to stdout; requires `--export-columns` |
 | `--export-columns <columns>` | Positive safe integer width for terminal export |
 
 In print mode, pi also reads piped stdin and merges it into the initial prompt:

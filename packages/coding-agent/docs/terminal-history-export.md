@@ -13,7 +13,7 @@ The command accepts only `--session-dir` and `--offline` in addition to the two 
 
 ## Included history
 
-Export follows the full saved active parent chain, including available pre-compaction ancestors. It excludes discarded sibling branches, hidden custom messages, and non-message state metadata. Legacy sessions are migrated only in memory. Missing ancestors cannot be regenerated: export reports a broken active parent chain rather than inventing history.
+Export uses the normal compaction-aware loaded history: the compaction summary and retained/current active-branch messages. It excludes the pre-compaction archive, discarded branches, hidden custom messages, and non-message state metadata. Legacy sessions are migrated only in memory. There is no archive mode.
 
 Existing message components render user and assistant messages, tool calls/results, bash executions, visible custom messages, and saved compaction/branch summaries. Tools, thinking, and summaries keep their normal collapsed presentation; this is not an expanded raw transcript or an extension-renderer snapshot.
 
@@ -25,6 +25,6 @@ A consumer can transport this output over a reliable connection such as SSH and 
 
 ## Source API
 
-`src/core/export-terminal.ts` exposes `exportSessionToTerminal(sessionPath, columns): string` for source integrations. Initialize theme/capabilities before calling it; the CLI handles this initialization. It does not construct an agent or start a terminal. `loadFullSessionBranch(filePath)` in `src/core/session-manager.ts` returns `{ header, entries }` for the complete saved branch without changing the normal compaction-aware session loader or model context. Its entries include non-message state; the exporter selects visible conversation content.
+`src/core/export-terminal.ts` exposes `exportSessionToTerminal(sessionPath, columns): string` for source integrations. Initialize theme/capabilities before calling it; the CLI handles this initialization. Export reuses normal session loading and `buildContextEntries()` without writes. It does not construct an agent, start a terminal, or change model context.
 
 This export is separate from existing `--export` HTML output and interactive `/export`; their behavior is unchanged. See the [feature contract](../../../docs/specs/terminal-history-export.md) and [session format](session-format.md).

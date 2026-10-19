@@ -19,7 +19,7 @@ Use `/session` in interactive mode to see the current session file, session ID, 
 
 For the JSONL file format and SessionManager API, see [Session Format](session-format.md).
 
-For read-only ANSI output without resuming, see [terminal history export](terminal-history-export.md).
+For read-only ANSI output of the current compaction-aware history (summary and retained/current active-branch messages), without resuming or exporting the pre-compaction archive, see [terminal history export](terminal-history-export.md).
 
 ## Session Commands
 

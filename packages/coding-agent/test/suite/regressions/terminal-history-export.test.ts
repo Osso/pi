@@ -1,11 +1,11 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import xterm from "@xterm/headless";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as terminalExport from "../../../src/core/export-terminal.ts";
-import { type FileEntry, SessionManager } from "../../../src/core/session-manager.ts";
+import { type FileEntry, SessionManager, sessionEntryToContextMessages } from "../../../src/core/session-manager.ts";
 import { initTheme } from "../../../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../../../src/utils/ansi.ts";
 
@@ -71,13 +71,13 @@ describe("saved terminal history export", () => {
 		rmSync(dir, { recursive: true, force: true });
 	});
 
-	it("keeps all numbered exchanges before and after compaction in native scrollback, excluding siblings", async () => {
+	it("matches normal loaded history in native scrollback, excluding summarized exchanges and siblings", async () => {
 		const session = SessionManager.inMemory(dir);
 		let kept = "";
 		for (let i = 1; i <= 100; i++) {
 			const id = session.appendMessage({
 				role: "user",
-				content: `USER-${i.toString().padStart(3, "0")}`,
+				content: `USER-${i.toString().padStart(3, "0")} ${i >= 90 ? "retained text ".repeat(200) : ""}`,
 				timestamp: 0,
 			});
 			if (i === 90) kept = id;
@@ -100,6 +100,13 @@ describe("saved terminal history export", () => {
 		session.appendCustomMessageEntry("notice", "VISIBLE-NOTICE", true);
 		session.appendMessage(assistant("AFTER-COMPACTION-END"));
 		save(path, session);
+		const normalPath = join(dir, "normal-copy.jsonl");
+		copyFileSync(path, normalPath);
+		const normalEntries = SessionManager.open(normalPath).buildContextEntries();
+		const normalMessages = normalEntries.flatMap(sessionEntryToContextMessages);
+		const expectedMarkers = JSON.stringify(normalMessages).match(/USER-\d{3}|ASSISTANT-\d{3}|RESULT-\d+/g);
+		expect(expectedMarkers).toHaveLength(33);
+		expect(normalEntries[0]).toMatchObject({ type: "compaction", summary: "saved summary" });
 		const before = readFileSync(path);
 		const mtime = statSync(path).mtimeMs;
 		const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(() => {
@@ -107,7 +114,8 @@ describe("saved terminal history export", () => {
 		});
 		const output = terminalExport.exportSessionToTerminal(path, 80);
 		const text = await terminalText(output);
-		for (let i = 1; i <= 100; i++) {
+		expect(text.match(/USER-\d{3}|ASSISTANT-\d{3}|RESULT-\d+/g)).toEqual(expectedMarkers);
+		for (let i = 90; i <= 100; i++) {
 			expect(text).toContain(`USER-${i.toString().padStart(3, "0")}`);
 			expect(text).toContain(`ASSISTANT-${i.toString().padStart(3, "0")}`);
 			expect(text).toContain(`RESULT-${i}`);
@@ -115,11 +123,11 @@ describe("saved terminal history export", () => {
 		expect(text).toContain("AFTER-COMPACTION-END");
 		expect(text).toContain("VISIBLE-NOTICE");
 		expect(text).toContain("Compacted from");
-		expect(text).not.toMatch(/ABANDONED-SIBLING|HIDDEN-METADATA|HIDDEN-STATE/);
+		expect(text).not.toMatch(/USER-001|ASSISTANT-089|ABANDONED-SIBLING|HIDDEN-METADATA|HIDDEN-STATE/);
 		expect(output.endsWith("\n")).toBe(true);
 		expect(readFileSync(path)).toEqual(before);
 		expect(statSync(path).mtimeMs).toBe(mtime);
-		expect(readdirSync(dir)).toEqual(["history.jsonl"]);
+		expect(readdirSync(dir).sort()).toEqual(["history.jsonl", "normal-copy.jsonl"]);
 		expect(fetch).not.toHaveBeenCalled();
 	});
 

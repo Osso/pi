@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { describe, expect, it } from "vitest";
-import { SessionManager } from "../../src/core/session-manager.ts";
+import { SessionManager, sessionEntryToContextMessages } from "../../src/core/session-manager.ts";
 import { createHeadlessPaths } from "./headless-pi.ts";
 
 function snapshotFiles(root: string): Record<string, string> {
@@ -51,10 +51,23 @@ function createSavedFixture(paths: ReturnType<typeof createHeadlessPaths>): stri
 		summary: "Compacted history",
 		tokensBefore: 200000,
 	});
+	for (let index = 0; index < 1200; index++) {
+		entries.push({
+			type: "message",
+			id: `retained-${index}`,
+			parentId: index === 0 ? "compact" : `retained-${index - 1}`,
+			timestamp,
+			message: {
+				role: "user",
+				content: `RETAINED-${index.toString().padStart(4, "0")} ${"saved text ".repeat(12)}`,
+				timestamp: 0,
+			},
+		});
+	}
 	entries.push({
 		type: "message",
 		id: "last",
-		parentId: "compact",
+		parentId: "retained-1199",
 		timestamp,
 		message: { role: "user", content: "ACTIVE-BRANCH-LAST", timestamp: 0 },
 	});
@@ -152,12 +165,18 @@ describe("read-only terminal export CLI", () => {
 	});
 
 	it.each(["path", "id"])(
-		"flushes the entire saved branch by %s without startup side effects",
+		"flushes current loaded history by %s without startup side effects",
 		async (lookup) => {
 			const paths = createHeadlessPaths();
 			try {
 				const sessionPath = createSavedFixture(paths);
 				installStartupTraps(paths);
+				const normalPath = join(paths.workspaceDir, "normal-copy.jsonl");
+				copyFileSync(sessionPath, normalPath);
+				const normalEntries = SessionManager.open(normalPath).buildContextEntries();
+				const expectedMarkers = JSON.stringify(normalEntries.flatMap(sessionEntryToContextMessages)).match(
+					/HISTORY-\d{4}|RETAINED-\d{4}/g,
+				);
 				const before = snapshotFiles(paths.agentDir);
 				const sessionsBefore = snapshotFiles(paths.sessionDir);
 				const result = await runExport(paths, [
@@ -171,11 +190,14 @@ describe("read-only terminal export CLI", () => {
 				expect(result.stdout).toContain("\x1b[");
 				const text = stripVTControlCharacters(result.stdout);
 				expect(text.length).toBeGreaterThan(150000);
-				expect(text.match(/HISTORY-\d{4}/g)).toHaveLength(1200);
-				for (const marker of ["HISTORY-0000", "HISTORY-0600", "HISTORY-1199", "ACTIVE-BRANCH-LAST"]) {
+				expect(text.match(/HISTORY-\d{4}/g)).toHaveLength(100);
+				expect(text.match(/RETAINED-\d{4}/g)).toHaveLength(1200);
+				expect(text.match(/HISTORY-\d{4}|RETAINED-\d{4}/g)).toEqual(expectedMarkers);
+				for (const marker of ["RETAINED-0000", "RETAINED-0600", "RETAINED-1199", "ACTIVE-BRANCH-LAST"]) {
 					expect(text).toContain(marker);
 				}
-				expect(text).not.toContain("ABANDONED-BRANCH-NOT-EXPORTED");
+				expect(text).toContain("Compacted from");
+				expect(text).not.toMatch(/HISTORY-0000|HISTORY-0600|ABANDONED-BRANCH-NOT-EXPORTED/);
 				expect(result.stdout.endsWith("\n")).toBe(true);
 				expect(snapshotFiles(paths.agentDir)).toEqual(before);
 				expect(snapshotFiles(paths.sessionDir)).toEqual(sessionsBefore);

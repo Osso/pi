@@ -10,7 +10,7 @@ import { ToolExecutionComponent } from "../modes/interactive/components/tool-exe
 import { UserMessageComponent } from "../modes/interactive/components/user-message.ts";
 import { stripAnsi } from "../utils/ansi.ts";
 import { sanitizeBinaryOutput } from "../utils/shell.ts";
-import { loadFullSessionBranch, sessionEntryToContextMessages } from "./session-manager.ts";
+import { loadSessionContextEntries, sessionEntryToContextMessages } from "./session-manager.ts";
 import { parseSkillBlock } from "./skill-block.ts";
 import type { TruncationResult } from "./tools/truncate.ts";
 
@@ -153,7 +153,7 @@ function addMessage(
 }
 
 /**
- * Render all available saved active-branch history, not the compacted model context.
+ * Render current loaded history, matching the normal compaction-aware session view.
  * Caller initializes the theme/capabilities. No agent, extensions, settings, or terminal is started.
  * Tools and summaries retain their normal collapsed presentation; images are disabled.
  * Returns LF-terminated ANSI text. A local terminal writer must translate LF to CRLF when needed.
@@ -161,7 +161,7 @@ function addMessage(
 export function exportSessionToTerminal(sessionPath: string, columns: number): string {
 	if (!Number.isSafeInteger(columns) || columns <= 0)
 		throw new Error("Terminal columns must be a positive safe integer");
-	const { header, entries } = loadFullSessionBranch(sessionPath);
+	const { header, entries } = loadSessionContextEntries(sessionPath);
 	const chat = new Container();
 	const pending = new Map<string, ToolExecutionComponent>();
 	const ui = new ExportUI(new ProcessTerminal());

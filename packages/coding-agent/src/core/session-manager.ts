@@ -842,8 +842,8 @@ function loadSessionFileEntries(filePath: string): LoadedCurrentVersionSession {
 	return { fileEntries: loadEntriesFromFile(filePath) };
 }
 
-/** Load persisted entries without migration or writes. Strict mode rejects malformed complete lines. */
-export function loadEntriesFromFile(filePath: string, strict = false): FileEntry[] {
+/** Load persisted entries without migration or writes. */
+export function loadEntriesFromFile(filePath: string): FileEntry[] {
 	const resolvedFilePath = normalizePath(filePath);
 	if (!existsSync(resolvedFilePath)) return [];
 
@@ -864,9 +864,6 @@ export function loadEntriesFromFile(filePath: string, strict = false): FileEntry
 			while (newlineIndex !== -1) {
 				const line = pending.slice(lineStart, newlineIndex);
 				const entry = parseSessionEntryLine(line);
-				if (strict && line.trim() && (!entry || typeof entry !== "object")) {
-					throw new Error(`Session file contains malformed JSONL entry: ${filePath}`);
-				}
 				if (entry) entries.push(entry);
 				lineStart = newlineIndex + 1;
 				newlineIndex = pending.indexOf("\n", lineStart);
@@ -891,29 +888,15 @@ export function loadEntriesFromFile(filePath: string, strict = false): FileEntry
 	return entries;
 }
 
-/** Read the complete saved active branch, including pre-compaction ancestors, without changing normal loading. */
-export function loadFullSessionBranch(filePath: string): { header: SessionHeader; entries: SessionEntry[] } {
+/** Read the normal compaction-aware loaded history, migrating legacy entries only in memory. */
+export function loadSessionContextEntries(filePath: string): { header: SessionHeader; entries: SessionEntry[] } {
 	const resolvedPath = resolvePath(filePath);
 	if (!existsSync(resolvedPath)) throw new Error(`Session file does not exist: ${resolvedPath}`);
-	const fileEntries = loadEntriesFromFile(resolvedPath, true);
+	const { fileEntries } = loadSessionFileEntries(resolvedPath);
 	const header = fileEntries[0];
 	if (!header || header.type !== "session") throw new Error(`Session file has no valid header: ${resolvedPath}`);
-	migrateSessionEntries(fileEntries);
-	const entries = fileEntries.filter(isSessionEntry);
-	const index = buildEntryIndex(entries);
-	const visited = new Set<string>();
-	let current = entries.at(-1);
-	while (current) {
-		if (typeof current.id !== "string" || visited.has(current.id)) {
-			throw new Error(`Session file contains an invalid or cyclic active parent chain: ${resolvedPath}`);
-		}
-		visited.add(current.id);
-		if (current.parentId === null) break;
-		const parent = index.get(current.parentId);
-		if (!parent) throw new Error(`Session file contains a broken active parent chain: ${resolvedPath}`);
-		current = parent;
-	}
-	return { header, entries: buildSessionPath(entries, undefined, index) };
+	migrateToCurrentVersion(fileEntries);
+	return { header, entries: buildContextEntries(fileEntries.filter(isSessionEntry)) };
 }
 
 function readFirstLine(filePath: string): string | undefined {
