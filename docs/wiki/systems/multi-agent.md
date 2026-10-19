@@ -331,6 +331,14 @@ active child IDs/transcript identities remained present, running or completed. I
 main-to-child-session addressing returned the explicit error; agent-ID delivery reached the same
 verifier across restart. Historical queued messages were not replayed or deleted.
 
+A subsequent explicit redeploy on October 19 settled at canonical `84bd13ad7`, after a concurrent
+rollout superseded the initial `4dc302c13` artifact. Local Osso and agent-server Osso/Allison installs
+matched SHA-256 `558aabebffa2c4b5ffab84d8659b0ace2d96d8b41ddca5f6988ff5e7a6ffb539`.
+Final inventory found eleven healthy current main sessions and four current resident/relay processes;
+all 22 active child identities from the second transition remained present. One earlier main session
+exited during rollout and was excluded after exact process/health checks. The reporting session
+confirmed receipt of all nine affected message IDs and that none would be resent or executed.
+
 ### Model-facing mailbox body and migration
 
 `send_agent_message` and `contact_parent` require an explicit nonblank `body` string,
