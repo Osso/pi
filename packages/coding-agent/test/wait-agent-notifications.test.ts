@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { consumeNotifications, waitNotifications } from "../extensions/agents-core/src/index.ts";
+import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { getControlDbPath } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
@@ -16,6 +17,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	vi.restoreAllMocks();
 	vi.useRealTimers();
 	for (const tempDir of tempDirs.splice(0)) rmSync(tempDir, { force: true, recursive: true });
 });
@@ -70,6 +72,26 @@ describe("agent notification waiting", () => {
 
 		expect(result.content).toEqual([{ text: "Wait failed: listener failed", type: "text" }]);
 		expect(store.listMailboxMessages()).toMatchObject([{ status: "pending" }]);
+	});
+
+	it("reports a reconciliation failure on a poll tick as a wait error instead of throwing from the timer", async () => {
+		const store = createPersistedStore();
+		legacyMultiAgentStore(store).spawnAgent({
+			agentType: "implement",
+			cwd: "/repo",
+			displayName: "Worker",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		vi.spyOn(LifecycleCoordinator, "reconcileDeadDetachedRuntimes")
+			.mockReturnValueOnce(0)
+			.mockImplementation(() => {
+				throw new Error("control db locked");
+			});
+
+		const wake = await waitNotifications(store);
+		const result = consumeNotifications(store, wake);
+
+		expect(result.content).toEqual([{ text: "Wait failed: control db locked", type: "text" }]);
 	});
 
 	it("preserves direct availability errors when waiting cannot start", async () => {

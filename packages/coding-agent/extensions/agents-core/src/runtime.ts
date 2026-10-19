@@ -2221,15 +2221,18 @@ class WaitAgentsWakeWatcher {
 			this.finish({ kind: "timeout" });
 			return;
 		}
-		this.deadlineTimer = setTimeout(() => {
-			const terminal = readTrackedTerminal();
-			if (terminal) {
-				this.finish({ agent: terminal, kind: "agent" });
-				return;
-			}
-			this.checkCoordination();
-			this.finish({ kind: "timeout" });
-		}, remainingMs);
+		this.deadlineTimer = setTimeout(
+			this.finishOnError(() => {
+				const terminal = readTrackedTerminal();
+				if (terminal) {
+					this.finish({ agent: terminal, kind: "agent" });
+					return;
+				}
+				this.checkCoordination();
+				this.finish({ kind: "timeout" });
+			}),
+			remainingMs,
+		);
 	}
 
 	private reconcileDeadDetachedRuntimes(): void {
@@ -2246,16 +2249,30 @@ class WaitAgentsWakeWatcher {
 	}
 
 	private startRuntimeCoordinationWatch(readTrackedTerminal: () => AgentSnapshot | undefined): void {
-		this.pollTimer = setInterval(() => {
-			this.reconcileDeadDetachedRuntimes();
-			const terminal = readTrackedTerminal();
-			if (terminal) {
-				this.finish({ agent: terminal, kind: "agent" });
-				return;
+		this.pollTimer = setInterval(
+			this.finishOnError(() => {
+				this.reconcileDeadDetachedRuntimes();
+				const terminal = readTrackedTerminal();
+				if (terminal) {
+					this.finish({ agent: terminal, kind: "agent" });
+					return;
+				}
+				this.checkCoordination();
+				if (this.deadline !== undefined && Date.now() >= this.deadline) this.finish({ kind: "timeout" });
+			}),
+			RUNTIME_COORDINATION_POLL_INTERVAL_MS,
+		);
+	}
+
+	/** Timer callbacks settle the wait with an error wake instead of throwing an uncaught exception. */
+	private finishOnError(tick: () => void): () => void {
+		return () => {
+			try {
+				tick();
+			} catch (error) {
+				this.finish({ error, kind: "error" });
 			}
-			this.checkCoordination();
-			if (this.deadline !== undefined && Date.now() >= this.deadline) this.finish({ kind: "timeout" });
-		}, RUNTIME_COORDINATION_POLL_INTERVAL_MS);
+		};
 	}
 
 	private readonly onAbort = () => {
