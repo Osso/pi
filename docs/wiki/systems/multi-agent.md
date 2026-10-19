@@ -322,6 +322,15 @@ recipient, replays historical messages, or changes relay/lifecycle semantics. Th
 [addressing contract and behavioral tests](../../specs/multi-agent.md#mailbox-and-steering)
 cover attachment before rejection, retained offline messages, and successful agent-ID delivery.
 
+Verification on October 19, 2026, at `e5a56d77b`: 17 new and 397 existing targeted tests passed;
+`deploy.sh --agent-server` passed check/build/deployment. Build and installed artifacts on both hosts
+matched SHA-256 `67292d8ab72ec45713a320297081fae8090f6e0eecfe148cde95e574b75f469e`.
+Eleven superseded main sessions restarted with launcher/session identity preserved; final inventory
+found twelve healthy current sessions and five current resident/relay processes. All 24 previously
+active child IDs/transcript identities remained present, running or completed. Installed
+main-to-child-session addressing returned the explicit error; agent-ID delivery reached the same
+verifier across restart. Historical queued messages were not replayed or deleted.
+
 ### Model-facing mailbox body and migration
 
 `send_agent_message` and `contact_parent` require an explicit nonblank `body` string,
