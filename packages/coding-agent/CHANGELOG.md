@@ -193,6 +193,7 @@
 - Added built-in `gemini-3.7-flash` availability for Google AI Studio and Google Vertex, with 1,048,576-token context, 65,536-token maximum output, current pricing, and low/medium/high thinking levels.
 - Added a seven-day runtime OpenRouter model catalog cache under the XDG cache root, with additive bundled-first merging and `--refresh-models` for forced refreshes.
 - Added cross-host agent messaging via `send_agent_message.toHost`, global shared-channel replication, `pi relay serve`, and an optional Supervisor SSH relay with bounded reconnect backoff. Persisted per-peer mailbox sequences prevent lost-ack replay after receiver deletion without receipts or tombstones; unknown local session targets now fail explicitly.
+- Added read-only `--export-terminal <file-or-id> --export-columns <columns>` to render the full saved active branch, including available pre-compaction history, as collapsed SGR-only ANSI text on stdout without provider/extension startup or session/settings writes. Unresolved session IDs exit `4`; other failures exit `1`. Existing HTML export and live history rendering are unchanged. See [terminal history export](docs/terminal-history-export.md).
 
 ### Fixed
 

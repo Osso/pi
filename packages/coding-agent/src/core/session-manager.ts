@@ -2352,7 +2352,7 @@ export class SessionManager {
 		onProgress?: SessionListProgress,
 		controlDbPath?: string,
 	): Promise<SessionInfo[]> {
-		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDir(cwd);
+		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDirPath(cwd);
 		const metadataSessions = listMetadataSessions(controlDbPath, { cwd, dir, archived: false });
 		if (metadataSessions) return metadataSessions;
 

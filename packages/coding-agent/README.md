@@ -276,6 +276,10 @@ pi --fork <path|id>    # Fork specific session file or ID into a new session
 
 Use `/session` in interactive mode to see the current session ID before reusing it with `--session <id>` or `--fork <id>`. In interactive TUI and RPC modes, persisted unnamed main sessions are automatically given a short title after the first completed substantive real-user exchange; see [docs/sessions.md](docs/sessions.md) for exclusions and manual override behavior.
 
+### Terminal History Export
+
+See [read-only terminal history export](docs/terminal-history-export.md) for ANSI output, saved-branch coverage, and transport integration.
+
 ### Branching
 
 **`/tree`** - Navigate the session tree in-place. Select any previous point, continue from there, and switch between branches. All history preserved in a single file.
@@ -567,6 +571,8 @@ pi config                    # Enable/disable package resources
 | `--mode json` | Lean JSON event stream: deltas, metadata, and completed messages at `message_end`; no compatibility mode (see [docs/json.md](docs/json.md)) |
 | `--mode rpc` | RPC mode for process integration (see [docs/rpc.md](docs/rpc.md)) |
 | `--export <in> [out]` | Export session to HTML |
+| `--export-terminal <file\|id>` | Read-only saved active-branch ANSI history to stdout; requires `--export-columns` |
+| `--export-columns <columns>` | Positive safe integer width for terminal export |
 
 In print mode, pi also reads piped stdin and merges it into the initial prompt:
 

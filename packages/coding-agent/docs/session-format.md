@@ -328,6 +328,10 @@ Current cwd, model, and thinking level are authoritative in control SQLite. Exis
 
 Active-slice loading does not trim JSONL, create a sidecar/index, lazily expose full history, restore historical model/thinking state, backfill existing-session settings, checkpoint omitted extension/label state, or guarantee bounded disk reads in worst-case or uncompacted files.
 
+## Read-only Full-Branch Loading
+
+For the separate `loadFullSessionBranch()` source API and its distinction from normal retained-slice loading, see [terminal history export](terminal-history-export.md#source-api).
+
 ## Context Building
 
 `buildContextEntries()` walks from the current leaf to the retained root, producing the active entry list while honoring compaction:

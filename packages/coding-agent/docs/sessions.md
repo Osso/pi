@@ -19,6 +19,8 @@ Use `/session` in interactive mode to see the current session file, session ID, 
 
 For the JSONL file format and SessionManager API, see [Session Format](session-format.md).
 
+For read-only ANSI output without resuming, see [terminal history export](terminal-history-export.md).
+
 ## Session Commands
 
 | Command | Description |

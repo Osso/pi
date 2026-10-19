@@ -3,6 +3,7 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { join, relative } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { describe, expect, it } from "vitest";
+import { SessionManager } from "../../src/core/session-manager.ts";
 import { createHeadlessPaths } from "./headless-pi.ts";
 
 function snapshotFiles(root: string): Record<string, string> {
@@ -62,7 +63,7 @@ function createSavedFixture(paths: ReturnType<typeof createHeadlessPaths>): stri
 	return path;
 }
 
-async function runExport(paths: ReturnType<typeof createHeadlessPaths>, args: string[]) {
+async function runExport(paths: ReturnType<typeof createHeadlessPaths>, args: string[], useDefaultSessionDir = false) {
 	const env = Object.fromEntries(
 		Object.entries(process.env).filter(([key]) => !/KEY|TOKEN|SECRET|PASSWORD|NODE_OPTIONS/.test(key)),
 	);
@@ -84,7 +85,7 @@ async function runExport(paths: ReturnType<typeof createHeadlessPaths>, args: st
 				NODE_COMPILE_CACHE: join(paths.tempDir, "compile-cache"),
 				PI_CODING_AGENT_DIR: paths.agentDir,
 				PI_CODING_AGENT_STATE_DIR: paths.agentDir,
-				PI_CODING_AGENT_SESSION_DIR: paths.sessionDir,
+				PI_CODING_AGENT_SESSION_DIR: useDefaultSessionDir ? undefined : paths.sessionDir,
 				COLORTERM: "truecolor",
 			},
 			stdio: ["ignore", "pipe", "pipe"],
@@ -135,6 +136,21 @@ function installStartupTraps(paths: ReturnType<typeof createHeadlessPaths>) {
 }
 
 describe("read-only terminal export CLI", () => {
+	it("SessionManager.list returns no sessions without creating a missing default directory", async () => {
+		const paths = createHeadlessPaths();
+		const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+		try {
+			process.env.PI_CODING_AGENT_DIR = paths.agentDir;
+			const before = readdirSync(paths.agentDir, { recursive: true });
+			expect(await SessionManager.list(paths.workspaceDir)).toEqual([]);
+			expect(readdirSync(paths.agentDir, { recursive: true })).toEqual(before);
+		} finally {
+			if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+			else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+			rmSync(paths.tempDir, { recursive: true, force: true });
+		}
+	});
+
 	it.each(["path", "id"])(
 		"flushes the entire saved branch by %s without startup side effects",
 		async (lookup) => {
@@ -164,6 +180,34 @@ describe("read-only terminal export CLI", () => {
 				expect(snapshotFiles(paths.agentDir)).toEqual(before);
 				expect(snapshotFiles(paths.sessionDir)).toEqual(sessionsBefore);
 				expect(readdirSync(paths.tempDir)).not.toContain("network-called");
+			} finally {
+				rmSync(paths.tempDir, { recursive: true, force: true });
+			}
+		},
+		30000,
+	);
+
+	it.each([false, true])(
+		"default ID lookup does not create directories (saved=%s)",
+		async (saved) => {
+			const paths = createHeadlessPaths();
+			try {
+				if (saved) {
+					const otherProjectDir = join(paths.agentDir, "sessions", "--other-project--");
+					mkdirSync(otherProjectDir, { recursive: true });
+					createSavedFixture({ ...paths, sessionDir: otherProjectDir });
+				}
+				const before = readdirSync(paths.agentDir, { recursive: true });
+				const filesBefore = snapshotFiles(paths.agentDir);
+				const result = await runExport(
+					paths,
+					["--export-terminal", "terminal-export-fixture", "--export-columns", "100"],
+					true,
+				);
+				expect(result.code, result.stderr).toBe(saved ? 0 : 4);
+				if (saved) expect(stripVTControlCharacters(result.stdout)).toContain("ACTIVE-BRANCH-LAST");
+				expect(readdirSync(paths.agentDir, { recursive: true })).toEqual(before);
+				expect(snapshotFiles(paths.agentDir)).toEqual(filesBefore);
 			} finally {
 				rmSync(paths.tempDir, { recursive: true, force: true });
 			}
