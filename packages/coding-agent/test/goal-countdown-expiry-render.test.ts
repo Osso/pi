@@ -158,7 +158,7 @@ describe("Supervisor countdown expiry through the live timer", () => {
 			for (const fixture of fixtures) fixture.start();
 			vi.setSystemTime(DEADLINE);
 			await new Promise((resolve) => setTimeout(resolve, 1_100));
-			for (const fixture of fixtures) await fixture.terminal.waitForRender();
+			await Promise.all(fixtures.map(({ terminal }) => terminal.waitForRender()));
 			for (const attempt of attempts) {
 				expect(attempt).toHaveBeenCalledTimes(1);
 				expect(attempt.mock.results[0]?.value).toBe(false);
@@ -170,12 +170,14 @@ describe("Supervisor countdown expiry through the live timer", () => {
 			for (const fixture of fixtures) fixture.terminal.writes = [];
 			vi.setSystemTime(DEADLINE + 2_000);
 			await new Promise((resolve) => setTimeout(resolve, 2_100));
-			for (const fixture of fixtures) await fixture.terminal.waitForRender();
-			for (const attempt of attempts) expect(attempt).not.toHaveBeenCalled();
-			for (const request of rootRequests) expect(request).not.toHaveBeenCalled();
-			for (const fixture of fixtures) expect(fixture.terminal.writes).toEqual([]);
+			await Promise.all(fixtures.map(({ terminal }) => terminal.waitForRender()));
+			expect({
+				scopedAttempts: attempts.map((attempt) => attempt.mock.calls.length),
+				rootRequests: rootRequests.map((request) => request.mock.calls.length),
+				writes: fixtures.map(({ terminal }) => terminal.writes),
+			}).toEqual({ scopedAttempts: [0, 0], rootRequests: [0, 0], writes: [[], []] });
 		} finally {
-			for (const fixture of fixtures) await fixture.dispose();
+			await Promise.all(fixtures.map((fixture) => fixture.dispose()));
 		}
 	});
 });
