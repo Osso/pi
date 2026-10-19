@@ -42,7 +42,7 @@ The current-context exporter, CLI, and existing active-slice loader suites passe
 
 ## Known gaps (current cycle)
 
-- [ ] Installed-binary and consuming-client scrollback integration verification remains pending.
+Installed export was exercised through the consuming client's SSH request. The client separately verified two real Mosh attachments against complete current-history terminal-buffer captures; native application rendering remains a client-side proof boundary.
 
 ## Out of scope
 
