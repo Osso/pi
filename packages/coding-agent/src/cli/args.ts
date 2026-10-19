@@ -42,6 +42,8 @@ export interface Args {
 	noExtensions?: boolean;
 	print?: boolean;
 	export?: string;
+	exportTerminal?: string;
+	exportColumns?: number;
 	noSkills?: boolean;
 	skills?: string[];
 	promptTemplates?: string[];
@@ -196,6 +198,23 @@ export function parseArgs(args: string[]): Args {
 				result.messages.push(next);
 				i++;
 			}
+		} else if (arg === "--export-terminal") {
+			const value = args[i + 1];
+			if (value && !value.startsWith("-")) {
+				result.exportTerminal = value;
+				i++;
+			} else {
+				result.diagnostics.push({ type: "error", message: "--export-terminal requires a session file or ID" });
+			}
+		} else if (arg === "--export-columns") {
+			const value = args[i + 1];
+			if (value !== undefined && !value.startsWith("--")) i++;
+			const columns = Number(value);
+			if (value !== undefined && /^\d+$/.test(value) && Number.isSafeInteger(columns) && columns > 0) {
+				result.exportColumns = columns;
+			} else {
+				result.diagnostics.push({ type: "error", message: "--export-columns requires a positive integer" });
+			}
 		} else if (arg === "--export" && i + 1 < args.length) {
 			result.export = args[++i];
 		} else if ((arg === "--extension" || arg === "-e") && i + 1 < args.length) {
@@ -273,7 +292,43 @@ export function parseArgs(args: string[]): Args {
 	}
 
 	result.diagnostics.push(...collectStandaloneWorkerDiagnostics(result));
+	if (args.some((arg) => /^--export-(terminal|columns)(=|$)/.test(arg))) {
+		result.diagnostics.push(...collectTerminalExportDiagnostics(result));
+	}
 	return result;
+}
+
+function collectTerminalExportDiagnostics(parsed: Args): Args["diagnostics"] {
+	const diagnostics: Args["diagnostics"] = [];
+	if (parsed.exportTerminal === undefined) {
+		diagnostics.push({ type: "error", message: "--export-columns requires --export-terminal <session-file-or-id>" });
+	}
+	if (parsed.exportColumns === undefined) {
+		diagnostics.push({ type: "error", message: "--export-terminal requires --export-columns <positive integer>" });
+	}
+	const allowed = new Set([
+		"exportTerminal",
+		"exportColumns",
+		"sessionDir",
+		"offline",
+		"messages",
+		"fileArgs",
+		"unknownFlags",
+		"diagnostics",
+	]);
+	const incompatible = Object.keys(parsed).filter((key) => !allowed.has(key));
+	if (
+		incompatible.length > 0 ||
+		parsed.unknownFlags.size > 0 ||
+		parsed.messages.length > 0 ||
+		parsed.fileArgs.length > 0
+	) {
+		diagnostics.push({
+			type: "error",
+			message: "--export-terminal accepts only --export-columns, --session-dir, and --offline",
+		});
+	}
+	return diagnostics;
 }
 
 function collectStandaloneWorkerDiagnostics(parsed: Args): Args["diagnostics"] {
@@ -371,6 +426,8 @@ ${chalk.bold("Options:")}
   --no-themes                    Disable theme discovery and loading
   --no-context-files, -nc        Disable AGENTS.md, AGENTS.local.md, CLAUDE.md, and CLAUDE.local.md discovery/loading
   --export <file>                Export session file to HTML and exit
+  --export-terminal <file|id>    Read-only ANSI history to stdout (exit 4: session ID not found)
+  --export-columns <columns>     Positive integer width, required with --export-terminal
   --list-models [search]         List available models (with optional fuzzy search)
   --refresh-models               Refresh the cached OpenRouter model catalog and exit
   --verbose                      Force verbose startup (overrides quietStartup setting)

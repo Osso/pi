@@ -222,6 +222,52 @@ describe("parseArgs", () => {
 		});
 	});
 
+	describe("terminal export", () => {
+		test("parses an explicit session and terminal width", () => {
+			const result = parseArgs(["--export-terminal", "saved.jsonl", "--export-columns", "120"]);
+			expect(result).toMatchObject({ exportTerminal: "saved.jsonl", exportColumns: 120 });
+			expect(result.unknownFlags.size).toBe(0);
+			expect(result.diagnostics).toEqual([]);
+		});
+
+		test.each([
+			["--export-terminal"],
+			["--export-terminal", "--export-columns", "80"],
+			["--export-terminal", "saved.jsonl"],
+			["--export-columns", "80"],
+			["--export-terminal", "saved.jsonl", "--export-columns"],
+		])("rejects missing export arguments: %j", (...args) => {
+			expect(parseArgs(args).diagnostics.some((d) => d.type === "error")).toBe(true);
+		});
+
+		test.each(["0", "-1", "1.5", "NaN", "Infinity", "80px", "1e2", "9007199254740992", ""])(
+			"rejects invalid column count %j",
+			(columns) => {
+				expect(
+					parseArgs(["--export-terminal", "saved.jsonl", "--export-columns", columns]).diagnostics,
+				).toContainEqual({ type: "error", message: "--export-columns requires a positive integer" });
+			},
+		);
+
+		test.each([
+			["--provider", "openai"],
+			["--model", "anything"],
+			["--extension", "side-effect.ts"],
+			["--print"],
+			["--export", "other.jsonl"],
+			["--session", "other.jsonl"],
+			["--unknown"],
+			["prompt"],
+			["@file"],
+		])("rejects unrelated startup arguments: %j", (...args) => {
+			expect(
+				parseArgs(["--export-terminal", "saved.jsonl", "--export-columns", "80", ...args]).diagnostics.some(
+					(d) => d.type === "error",
+				),
+			).toBe(true);
+		});
+	});
+
 	describe("--name flag", () => {
 		test("parses --name flag with value", () => {
 			const result = parseArgs(["--name", "my-session"]);

@@ -5,7 +5,8 @@
  * createAgentSession() options. The SDK does the heavy lifting.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { type ImageContent, modelsAreEqual } from "@earendil-works/pi-ai";
 import { isTerminalRawModeFailure } from "@earendil-works/pi-tui";
 import chalk from "chalk";
@@ -74,6 +75,7 @@ import { AuthStorage } from "./core/auth-storage.ts";
 import { DebugReplServer } from "./core/debug-repl.ts";
 import { sweepAbandonedEmptySessions } from "./core/empty-session-cleanup.ts";
 import { exportFromFile } from "./core/export-html/index.ts";
+import { exportSessionToTerminal } from "./core/export-terminal.ts";
 import type { ExtensionFactory } from "./core/extensions/types.ts";
 import { importExternalSessionAlias, isExternalSessionAlias } from "./core/external-session-importer.ts";
 import { runRelayServe } from "./core/host-relay.ts";
@@ -127,7 +129,12 @@ import {
 	bindInteractiveModeSessionMutationTargetResolver,
 	type InteractiveModeOptions,
 } from "./modes/interactive/interactive-mode.ts";
-import { initTheme, stopThemeWatcher } from "./modes/interactive/theme/theme.ts";
+import {
+	detectTerminalBackgroundFromEnv,
+	initTheme,
+	resolveThemeSetting,
+	stopThemeWatcher,
+} from "./modes/interactive/theme/theme.ts";
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
 import { runSupervisorService } from "./supervisor/main.ts";
 import { isExecutableAvailable } from "./utils/executable.ts";
@@ -817,6 +824,49 @@ function readStartupControlMessage(appMode: AppMode, controlDbPath: string, noSu
 	return claimLatestIncomingMessage(controlDbPath);
 }
 
+async function exportTerminalHistory(parsed: Args): Promise<void> {
+	reportDiagnostics(parsed.diagnostics);
+	if (parsed.diagnostics.some((diagnostic) => diagnostic.type === "error")) {
+		process.exitCode = 1;
+		return;
+	}
+	if (parsed.exportTerminal === undefined || parsed.exportColumns === undefined) {
+		throw new Error("Terminal export requires a session and explicit columns");
+	}
+	if (isExternalSessionAlias(parsed.exportTerminal)) {
+		throw new Error("External session aliases are not supported by read-only terminal export");
+	}
+	const settingsPath = join(getAgentDir(), "settings.json");
+	const settings = SettingsManager.fromStorage(
+		{
+			withLock: (_scope, read) => {
+				read(existsSync(settingsPath) ? readFileSync(settingsPath, "utf8") : undefined);
+			},
+		},
+		{ projectTrusted: false },
+	);
+	const settingsErrors = settings.drainErrors();
+	if (settingsErrors.length > 0) throw settingsErrors[0].error;
+	const envSessionDir = process.env[ENV_SESSION_DIR];
+	const sessionDir =
+		(parsed.sessionDir ? normalizePath(parsed.sessionDir) : undefined) ??
+		(envSessionDir ? expandTildePath(envSessionDir) : undefined) ??
+		settings.getSessionDir();
+	// Omitting controlDbPath keeps ID lookup from caching metadata or creating a control DB.
+	const resolved = await resolveSessionPath(parsed.exportTerminal, process.cwd(), sessionDir);
+	if (resolved.type === "not_found") {
+		console.error(`Error: No session found matching '${resolved.arg}'`);
+		process.exitCode = 4;
+		return;
+	}
+	initTheme(resolveThemeSetting(settings.getThemeSetting(), detectTerminalBackgroundFromEnv().theme), false);
+	const output = exportSessionToTerminal(resolved.path, parsed.exportColumns);
+	// Await the write callback rather than force-exiting with buffered pipe output.
+	await new Promise<void>((resolve, reject) => {
+		process.stdout.write(output, (error) => (error ? reject(error) : resolve()));
+	});
+}
+
 export async function main(args: string[], options?: MainOptions) {
 	if (args.length === 2 && args[0] === "relay" && args[1] === "serve") {
 		await runRelayServe();
@@ -828,6 +878,10 @@ export async function main(args: string[], options?: MainOptions) {
 	}
 	// Validate worker persistence before resident-console dispatch or runtime initialization.
 	const initialArgs = parseArgs(args);
+	if (args.some((arg) => /^--export-(terminal|columns)(=|$)/.test(arg))) {
+		await exportTerminalHistory(initialArgs);
+		return;
+	}
 	rejectInvalidStandaloneWorkerStartup(args, initialArgs);
 	const residentConsoleCommand = parseResidentConsoleArgs(args);
 	if (residentConsoleCommand) {
