@@ -824,6 +824,21 @@ function readStartupControlMessage(appMode: AppMode, controlDbPath: string, noSu
 	return claimLatestIncomingMessage(controlDbPath);
 }
 
+function readTerminalExportSettings(): SettingsManager {
+	const settingsPath = join(getAgentDir(), "settings.json");
+	const settings = SettingsManager.fromStorage(
+		{
+			withLock: (_scope, read) => {
+				read(existsSync(settingsPath) ? readFileSync(settingsPath, "utf8") : undefined);
+			},
+		},
+		{ projectTrusted: false },
+	);
+	const settingsErrors = settings.drainErrors();
+	if (settingsErrors.length > 0) throw settingsErrors[0].error;
+	return settings;
+}
+
 async function exportTerminalHistory(parsed: Args): Promise<void> {
 	reportDiagnostics(parsed.diagnostics);
 	if (parsed.diagnostics.some((diagnostic) => diagnostic.type === "error")) {
@@ -836,17 +851,7 @@ async function exportTerminalHistory(parsed: Args): Promise<void> {
 	if (isExternalSessionAlias(parsed.exportTerminal)) {
 		throw new Error("External session aliases are not supported by read-only terminal export");
 	}
-	const settingsPath = join(getAgentDir(), "settings.json");
-	const settings = SettingsManager.fromStorage(
-		{
-			withLock: (_scope, read) => {
-				read(existsSync(settingsPath) ? readFileSync(settingsPath, "utf8") : undefined);
-			},
-		},
-		{ projectTrusted: false },
-	);
-	const settingsErrors = settings.drainErrors();
-	if (settingsErrors.length > 0) throw settingsErrors[0].error;
+	const settings = readTerminalExportSettings();
 	const envSessionDir = process.env[ENV_SESSION_DIR];
 	const sessionDir =
 		(parsed.sessionDir ? normalizePath(parsed.sessionDir) : undefined) ??

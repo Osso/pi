@@ -1,4 +1,5 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { ToolCall } from "@earendil-works/pi-ai";
 import { type Component, Container, ProcessTerminal, Spacer, TUI } from "@earendil-works/pi-tui";
 import { AssistantMessageComponent } from "../modes/interactive/components/assistant-message.ts";
 import { BashExecutionComponent } from "../modes/interactive/components/bash-execution.ts";
@@ -76,6 +77,18 @@ function renderBashMessage(message: Extract<AgentMessage, { role: "bashExecution
 	return component;
 }
 
+function createHistoryToolComponent(toolCall: ToolCall, ui: TUI, cwd: string): ToolExecutionComponent {
+	return new ToolExecutionComponent(
+		toolCall.name,
+		toolCall.id,
+		toolCall.arguments,
+		{ showImages: false },
+		undefined,
+		ui,
+		cwd,
+	);
+}
+
 function addAssistantMessage(
 	chat: Container,
 	message: Extract<AgentMessage, { role: "assistant" }>,
@@ -86,15 +99,7 @@ function addAssistantMessage(
 	chat.addChild(new AssistantMessageComponent(message));
 	for (const content of message.content) {
 		if (content.type !== "toolCall") continue;
-		const component = new ToolExecutionComponent(
-			content.name,
-			content.id,
-			content.arguments,
-			{ showImages: false },
-			undefined,
-			ui,
-			cwd,
-		);
+		const component = createHistoryToolComponent(content, ui, cwd);
 		chat.addChild(component);
 		if (message.stopReason === "aborted" || message.stopReason === "error") {
 			component.updateResult(
