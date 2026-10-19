@@ -1906,10 +1906,13 @@ function sendAgentMessage(
 	const senderId = currentMessageSenderId(store, ctx);
 	const routeError = senderId ? sessionMessageRouteError(ctx?.controlDbPath, params) : undefined;
 	if (routeError)
-		return errorResult(`Could not send agent message to ${target}: ${routeError}`, {
-			agent: currentMessageSenderAgent(store, ctx),
-			message: emptyDirectMessage(senderId ?? "unknown_subagent", params.toAgentId, params.message),
-		});
+		return {
+			...errorResult(`Could not send agent message to ${target}: ${routeError}`, {
+				agent: currentMessageSenderAgent(store, ctx),
+				message: emptyDirectMessage(senderId ?? "unknown_subagent", params.toAgentId, params.message),
+			}),
+			isError: true,
+		};
 	if (isRemoteSessionMessage(params)) return sendMainRuntimeSessionMessage(store, params, ctx, onSessionMessageSent);
 	if (params.toSessionId) {
 		if (isMainRuntimeTarget(params.toAgentId)) {

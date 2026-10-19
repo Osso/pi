@@ -197,6 +197,7 @@
 
 ### Fixed
 
+- Fixed local `send_agent_message` main/supervisor session addressing to reject live child-only listener targets with explicit agent-ID guidance instead of queueing to an unclaimed main inbox; live main listeners and offline main queueing remain allowed, excluding dead or superseded listener identities from the check.
 - Fixed offscreen Supervisor countdowns making later live updates replay terminal history. Rejected scoped updates now leave historical labels unchanged; visible countdowns, saved deadlines, and full backlog reconstruction are preserved.
 - Fixed `change_working_directory` terminating spawned and attached subagents by disabling it in child runtimes and rejecting stale or indirect calls before relocation or turn termination; main and standalone behavior is unchanged.
 - Fixed channel-only `wait_agent` results missing from session transcripts despite reaching the provider; omit empty mailbox acceptance metadata so normal tool-result persistence applies, preserving actual and mixed mailbox claim handling.

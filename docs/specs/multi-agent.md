@@ -387,6 +387,13 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       messageId)` as entry metadata; handled interception records a small custom acceptance entry.
 - [x] Cross-session mailbox recipients are addressed by `(session_id, agent_id)` where `agent_id`
       is absent/null for the main thread and present for a subagent in that session.
+- [x] Local `send_agent_message` with `toAgentId: "main"` or `"supervisor"` and `toSessionId`
+      rejects before enqueue when the target session has live child listeners but no live main listener.
+      The tool error identifies the available child agent IDs and instructs callers to use the intended
+      child ID as `toAgentId`. A live main listener permits main-thread addressing even when
+      child listeners coexist; no live listeners preserves offline main-session queueing. Dead or
+      superseded same-PID listener identities do not count as live. Never rewrite the requested address.
+      This guard does not replay or delete historical messages or change relay or lifecycle semantics.
 - [x] `send_agent_message` failures identify the attempted agent ID and any supplied session ID while
       preserving the underlying failure reason and routing context.
 - [x] Every `AgentSession` owns exactly one runtime listener address: a main runtime uses
@@ -658,6 +665,10 @@ The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the
   external-extension and Claude Code audit that informs the first implementation slice.
 
 ## Tests asserting this spec
+
+- `packages/coding-agent/test/suite/regressions/mailbox-child-session-address.test.ts` — real-process attachment, explicit main/supervisor rejection without enqueue, preserved offline-main queue, and actual agent-ID delivery.
+- `packages/coding-agent/test/session-message-route.test.ts` — local-host validation, main/child coexistence, and unchanged remote/agent-ID routing.
+- `packages/coding-agent/test/runtime-mailbox-session-addresses.test.ts` — exact-session listener queries and dead, missing, mismatched-start, and superseded same-PID identities.
 
 - `packages/coding-agent/test/suite/child-working-directory-tool.test.ts` — spawned and attached child
   tool exclusion and stale-call rejection, before and after supervisor restart, preserving child cwd and runtime.

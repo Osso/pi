@@ -1,5 +1,5 @@
 import { hostname } from "node:os";
-import { isKnownLocalSession } from "../../../src/core/session-control-db.ts";
+import { isKnownLocalSession, readLiveRuntimeMailboxSessionAgentIds } from "../../../src/core/session-control-db.ts";
 import type { SendAgentMessageParams } from "./mailbox-tools.ts";
 
 export function isRemoteSessionMessage(params: SendAgentMessageParams): boolean {
@@ -12,8 +12,12 @@ export function sessionMessageRouteError(
 ): string | undefined {
 	if (params.toHost !== undefined && !params.toHost.trim()) return "toHost must be non-empty.";
 	if (isRemoteSessionMessage(params)) return params.toSessionId ? undefined : "toHost requires toSessionId.";
-	if (controlDbPath && params.toSessionId && !isKnownLocalSession(controlDbPath, params.toSessionId)) {
+	if (!controlDbPath || !params.toSessionId) return undefined;
+	if (!isKnownLocalSession(controlDbPath, params.toSessionId)) {
 		return `Unknown local session ${params.toSessionId}; pass toHost for a session on another host.`;
 	}
-	return undefined;
+	if (params.toAgentId !== "main" && params.toAgentId !== "supervisor") return undefined;
+	const agentIds = readLiveRuntimeMailboxSessionAgentIds(controlDbPath, params.toSessionId);
+	if (agentIds.length === 0 || agentIds.includes(null)) return undefined;
+	return `Session ${params.toSessionId} has child-agent listeners (${agentIds.join(", ")}) but no main-thread listener. Set toAgentId to the intended child agent ID; "main" and "supervisor" address only a main thread.`;
 }

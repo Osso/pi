@@ -308,6 +308,20 @@ not mutate message body.
 Structured protocol messages such as cancellation, max-turn wrap-up, and permission clarifications
 must remain tagged as protocol/system messages until explicitly rendered for the model.
 
+### Local main-address validation
+
+`extensions/agents-core/src/session-message-route.ts` under `packages/coding-agent` validates
+local main/supervisor destinations before enqueue. `readLiveRuntimeMailboxSessionAgentIds`
+queries the exact session's listener addresses using the existing process-identity check. Dead,
+missing-identity and superseded current-PID listeners are excluded; another PID is checked by OS
+PID/start identity, not by an independently verified runtime incarnation.
+
+Child-only addresses produce a tool error naming the child IDs. A live main listener permits
+main-thread addressing; no live listeners preserves offline-main queueing. Nothing rewrites the
+recipient, replays historical messages, or changes relay/lifecycle semantics. The
+[addressing contract and behavioral tests](../../specs/multi-agent.md#mailbox-and-steering)
+cover attachment before rejection, retained offline messages, and successful agent-ID delivery.
+
 ### Model-facing mailbox body and migration
 
 `send_agent_message` and `contact_parent` require an explicit nonblank `body` string,

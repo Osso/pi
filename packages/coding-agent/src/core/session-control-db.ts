@@ -1456,6 +1456,22 @@ export function readRuntimeMailboxListener(
 	});
 }
 
+export function readLiveRuntimeMailboxSessionAgentIds(controlDbPath: string, sessionId: string): Array<string | null> {
+	return withControlDb(controlDbPath, (db) => {
+		const rows = db
+			.prepare(
+				`SELECT recipient_agent_id_key, runtime_instance_id
+				 FROM runtime_mailbox_listeners
+				 WHERE recipient_session_id = ?`,
+			)
+			.all(sessionId) as Array<Pick<RuntimeMailboxListedRow, "recipient_agent_id_key" | "runtime_instance_id">>;
+		return rows.flatMap((row) => {
+			if (!row.runtime_instance_id || !runtimeMailboxClaimantIsLive(row.runtime_instance_id)) return [];
+			return [row.recipient_agent_id_key === "" ? null : row.recipient_agent_id_key];
+		});
+	});
+}
+
 export function assertMainSessionRuntimeAvailable(controlDbPath: string, sessionId: string): void {
 	withControlDb(controlDbPath, (db) => {
 		const registration: RuntimeMailboxRegistration = {
