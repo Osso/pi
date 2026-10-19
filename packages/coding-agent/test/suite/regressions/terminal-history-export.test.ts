@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
@@ -35,7 +35,7 @@ function assistant(text: string, toolId?: string): AssistantMessage {
 }
 
 function save(path: string, session: SessionManager): void {
-	writeFileSync(path, [session.getHeader(), ...session.getEntries()].map((e) => JSON.stringify(e)).join("\n") + "\n");
+	writeFileSync(path, `${[session.getHeader(), ...session.getEntries()].map((e) => JSON.stringify(e)).join("\n")}\n`);
 }
 
 async function terminalText(output: string, columns = 80): Promise<string> {
@@ -156,7 +156,7 @@ describe("saved terminal history export", () => {
 			{ type: "message", message: { role: "user", content: "LEGACY-FIRST", timestamp: 0 } },
 			{ type: "message", message: assistant("LEGACY-LAST") },
 		];
-		writeFileSync(path, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
+		writeFileSync(path, `${entries.map((e) => JSON.stringify(e)).join("\n")}\n`);
 		const before = readFileSync(path);
 		expect(stripAnsi(terminalExport.exportSessionToTerminal(path, 80))).toContain("LEGACY-FIRST");
 		expect(stripAnsi(terminalExport.exportSessionToTerminal(path, 80))).toContain("LEGACY-LAST");
@@ -184,7 +184,7 @@ describe("saved terminal history export", () => {
 			.map((line) => JSON.parse(line)) as FileEntry[];
 		const leaf = entries.at(-1)!;
 		if (leaf.type !== "session") leaf.parentId = leaf.id;
-		writeFileSync(path, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+		writeFileSync(path, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
 		expect(() => terminalExport.exportSessionToTerminal(path, 80)).toThrow(/parent|cycle/i);
 	});
 });

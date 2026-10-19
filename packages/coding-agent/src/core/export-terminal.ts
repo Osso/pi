@@ -33,12 +33,11 @@ function sanitizeMessage(message: AgentMessage): AgentMessage {
 
 /** Preserve renderer styles only: no shell integration, image, clipboard, or cursor protocols. */
 function renderLine(line: string): string {
-	return (
-		line
-			.split(/(\x1b\[[0-9;:]*m)/g)
-			.map((part) => (/^\x1b\[[0-9;:]*m$/.test(part) ? part : sanitizeSavedText(part)))
-			.join("") + "\x1b[0m"
-	);
+	const rendered = line
+		.split(/(\x1b\[[0-9;:]*m)/g)
+		.map((part) => (/^\x1b\[[0-9;:]*m$/.test(part) ? part : sanitizeSavedText(part)))
+		.join("");
+	return `${rendered}\x1b[0m`;
 }
 
 function addUserMessage(chat: Container, message: Extract<AgentMessage, { role: "user" }>): void {
@@ -171,5 +170,5 @@ export function exportSessionToTerminal(sessionPath: string, columns: number): s
 			addMessage(chat, sanitizeMessage(message), pending, ui, header.cwd);
 		}
 	}
-	return chat.render(columns).map(renderLine).join("\n") + "\n";
+	return `${chat.render(columns).map(renderLine).join("\n")}\n`;
 }
