@@ -1,8 +1,10 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { zstdCompressSync } from "node:zlib";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
+import { restoreArchivedSessionFile } from "../src/core/session-archive-storage.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { createAllToolDefinitions, DEFAULT_ACTIVE_TOOL_NAMES } from "../src/core/tools/index.ts";
 import { createSearchCurrentSessionHistoryToolDefinition } from "../src/core/tools/search-current-session-history.ts";
@@ -45,6 +47,81 @@ function assistantMessage(content: AssistantMessage["content"]): AssistantMessag
 		stopReason: "stop",
 		timestamp: 2,
 	};
+}
+
+function appendConversationalEntries(manager: SessionManager, phase: string): string[] {
+	const leaf = manager.getLeafId();
+	if (!leaf) throw new Error("Expected branch leaf");
+	const ids = [manager.branchWithSummary(leaf, `needle ${phase} branch summary`)];
+	ids.push(manager.appendMessage({ role: "user", content: `needle ${phase} user`, timestamp: 10 }));
+	ids.push(
+		manager.appendMessage(
+			assistantMessage([
+				{ type: "text", text: `needle ${phase} assistant`, textSignature: "signature-marker" },
+				{ type: "thinking", thinking: "private-marker", thinkingSignature: "signature-marker" },
+				{
+					type: "toolCall",
+					id: `${phase}-search`,
+					name: "search_current_session_history",
+					arguments: { query: "self-only" },
+				},
+			]),
+		),
+	);
+	ids.push(
+		manager.appendMessage(
+			assistantMessage([
+				{
+					type: "toolCall",
+					id: `${phase}-read`,
+					name: "read",
+					arguments: { path: { nested: [`needle ${phase} call`, 42, true, null] } },
+					thoughtSignature: "signature-marker",
+				},
+			]),
+		),
+	);
+	ids.push(
+		manager.appendMessage({
+			role: "toolResult",
+			toolCallId: `${phase}-read`,
+			toolName: "read",
+			content: [{ type: "text", text: `needle ${phase} result` }],
+			isError: false,
+			timestamp: 11,
+		}),
+	);
+	ids.push(manager.appendCustomMessageEntry("note", `needle ${phase} custom`, true));
+	ids.push(
+		manager.appendMessage({
+			role: "custom",
+			customType: "injected",
+			content: [{ type: "text", text: `needle ${phase} injected` }],
+			display: false,
+			timestamp: 12,
+		}),
+	);
+	ids.push(
+		manager.appendMessage({
+			role: "bashExecution",
+			command: `echo needle ${phase}`,
+			output: "command output",
+			exitCode: 0,
+			cancelled: false,
+			truncated: false,
+			timestamp: 12,
+		}),
+	);
+	manager.appendMessage({
+		role: "toolResult",
+		toolCallId: `${phase}-search`,
+		toolName: "search_current_session_history",
+		content: [{ type: "text", text: "needle self-only" }],
+		isError: false,
+		timestamp: 15,
+	});
+	manager.appendCustomEntry("opaque", { text: "needle extension-only" });
+	return ids;
 }
 
 describe("search_current_session_history", () => {
@@ -352,6 +429,87 @@ beta says "quoted" at C:\\tmp`;
 			expect.objectContaining({ role: "assistant", content: [{ type: "text", text: "needle two" }], matched: true }),
 		);
 	});
+
+	it.each(["linear", "tree", "fork"])(
+		"preserves all conversational history across %s resume and archive pagination",
+		async (topology) => {
+			const original = createSessionManager();
+			const root = original.appendMessage({ role: "user", content: "shared root", timestamp: 1 });
+			if (topology !== "linear") {
+				original.appendMessage({ role: "user", content: "needle abandoned-path", timestamp: 2 });
+				original.branch(root);
+			}
+			const beforeIds = appendConversationalEntries(original, "before");
+			if (topology === "fork") {
+				const leaf = original.getLeafId();
+				if (!leaf) throw new Error("Expected fork leaf");
+				original.createBranchedSession(leaf);
+			}
+			original.appendMessage({ role: "user", content: "é🧭".repeat(20000), timestamp: 3 });
+			const kept = original.appendMessage({ role: "user", content: "first retained", timestamp: 4 });
+			const firstCompaction = original.appendCompaction("needle first summary", kept, 1000);
+			const middleIds = appendConversationalEntries(original, "middle");
+			const last = original.appendMessage({ role: "user", content: "last retained", timestamp: 5 });
+			const latestCompaction = original.appendCompaction("needle latest summary", last, 1000);
+			const afterIds = appendConversationalEntries(original, "after");
+			original.persistForRecovery();
+			const file = original.getSessionFile();
+			if (!file) throw new Error("Expected persisted transcript");
+			const bytes = readFileSync(file);
+			const context = original.buildSessionContext();
+			const tool = createSearchCurrentSessionHistoryToolDefinition();
+			const search = (manager: SessionManager, params: Parameters<typeof tool.execute>[1]) =>
+				tool.execute("history", params, undefined, undefined, toolContext(manager));
+			const expectedIds = [...beforeIds, firstCompaction, ...middleIds, latestCompaction, ...afterIds];
+			const complete = await search(original, { query: "needle", limit: 50 });
+			expect(complete.details?.entries.map((entry) => entry.id)).toEqual(expectedIds);
+
+			const switched = createSessionManager();
+			switched.setSessionFile(file);
+			await assertHistoryParity(SessionManager.open(file));
+			await assertHistoryParity(switched);
+			const archivedAfterOpen = SessionManager.open(file);
+			writeFileSync(`${file}.zst`, zstdCompressSync(bytes));
+			rmSync(file);
+			// Keep the plain path absent while exercising archive resolution and streaming.
+			await assertHistoryParity(SessionManager.openReadOnly(`${file}.zst`));
+			await assertHistoryParity(archivedAfterOpen);
+			restoreArchivedSessionFile(`${file}.zst`);
+			expect(readFileSync(file)).toEqual(bytes);
+			await assertHistoryParity(SessionManager.open(file));
+
+			async function assertHistoryParity(reopened: SessionManager) {
+				const loadedEntries = reopened.getEntries();
+				expect(reopened.buildSessionContext()).toEqual(context);
+				for (const context_entries of [0, 2, 10]) {
+					for (const limit of [1, 4, 50]) {
+						for (const cursor of ["0", "1", "4", "10", "20", "25", "100"]) {
+							const params = { query: "NeEdLe", context_entries, limit, cursor };
+							expect(await search(reopened, params)).toEqual(await search(original, params));
+						}
+					}
+				}
+				for (const query of [
+					"abandoned-path",
+					"private-marker",
+					"signature-marker",
+					"self-only",
+					"extension-only",
+				]) {
+					const result = await search(reopened, { query });
+					expect(result.details?.totalMatches).toBe(0);
+				}
+				const all = await search(reopened, { query: "needle", limit: 50 });
+				expect(all.details?.entries.filter((entry) => entry.compacted).map((entry) => entry.id)).toEqual([
+					...beforeIds,
+					firstCompaction,
+					...middleIds,
+				]);
+				expect(reopened.buildSessionContext()).toEqual(context);
+				expect(reopened.getEntries()).toEqual(loadedEntries);
+			}
+		},
+	);
 
 	it("requires a persisted current session", async () => {
 		const tool = createSearchCurrentSessionHistoryToolDefinition();
