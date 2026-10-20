@@ -281,10 +281,19 @@ export class ResidentConsoleClient<Entry, Event> {
 		}
 	}
 
+	private emitEvent(event: ResidentConsoleEvent<Event>): void {
+		for (const listener of this.listeners) {
+			try {
+				listener(event);
+			} catch (error) {
+				console.error("Resident console event listener failed:", error);
+			}
+		}
+	}
+
 	private handleMessage(message: Record<string, unknown>): void {
 		if (message.type === "event" && typeof message.sequence === "number" && "event" in message) {
-			const event = { sequence: message.sequence, event: message.event as Event };
-			for (const listener of this.listeners) listener(event);
+			this.emitEvent({ sequence: message.sequence, event: message.event as Event });
 			return;
 		}
 		if ((message.type === "prompt_accepted" || message.type === "error") && typeof message.id === "string") {
@@ -306,7 +315,13 @@ export class ResidentConsoleClient<Entry, Event> {
 		const failure = error ?? new Error("Resident console disconnected");
 		for (const pending of this.pendingPrompts.values()) pending.reject(failure);
 		this.pendingPrompts.clear();
-		for (const listener of this.closeListeners) listener(error);
+		for (const listener of this.closeListeners) {
+			try {
+				listener(error);
+			} catch (listenerError) {
+				console.error("Resident console disconnect listener failed:", listenerError);
+			}
+		}
 	}
 
 	private write(message: object): void {

@@ -682,7 +682,11 @@ export class ExtensionRunner {
 
 	emitError(error: ExtensionError): void {
 		for (const listener of this.errorListeners) {
-			listener(error);
+			try {
+				listener(error);
+			} catch (listenerError) {
+				console.error("Extension error listener failed:", listenerError);
+			}
 		}
 	}
 

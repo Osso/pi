@@ -269,7 +269,7 @@ await session.agent.waitForIdle();
 
 ### Events
 
-Subscribe to events to receive streaming output and lifecycle notifications. Event delivery includes every listener registered when the event begins, even if an earlier listener unsubscribes during its callback; unsubscription takes effect for subsequent events.
+Subscribe to events to receive streaming output and lifecycle notifications. Listeners run synchronously in registration order. A listener that throws is reported through `console.error`; delivery continues to later listeners without failing the session operation. This synchronous API does not await listener promises. Event delivery includes every listener registered when the event begins, even if an earlier listener unsubscribes during its callback; unsubscription takes effect for subsequent events.
 
 ```typescript
 session.subscribe((event) => {

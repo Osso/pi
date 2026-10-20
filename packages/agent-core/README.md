@@ -159,7 +159,7 @@ await agent.continue({ processQueuedMessagesFirst: true });
 | `tool_execution_update` | Tool streams progress |
 | `tool_execution_end` | Tool completes; includes `startedAt` and `finishedAt` |
 
-`Agent.subscribe()` listeners are awaited in registration order. `agent_end` means no more loop events will be emitted, but `await agent.waitForIdle()` and `await agent.prompt(...)` only settle after awaited `agent_end` listeners finish.
+`Agent.subscribe()` listeners are awaited in registration order. Thrown errors and rejected listener promises are reported through `console.error`; later listeners and the agent run continue. `agent_end` means no more loop events will be emitted, but `await agent.waitForIdle()` and `await agent.prompt(...)` only settle after awaited `agent_end` listeners finish.
 
 ## Agent Options
 

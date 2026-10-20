@@ -1173,7 +1173,11 @@ export class MultiAgentStore {
 	private notifyLifecycleNotificationListeners(message: AgentMailboxMessage): void {
 		const snapshot = copyMessage(message);
 		for (const listener of this.lifecycleNotificationListeners) {
-			listener(snapshot);
+			try {
+				listener(snapshot);
+			} catch (error) {
+				console.error("MultiAgentStore lifecycle notification listener failed:", error);
+			}
 		}
 	}
 
@@ -1187,7 +1191,11 @@ export class MultiAgentStore {
 		const previousSnapshot = copyAgent(previous);
 		const currentSnapshot = copyAgent(current);
 		for (const listener of this.transitionListeners) {
-			listener(previousSnapshot, currentSnapshot);
+			try {
+				listener(previousSnapshot, currentSnapshot);
+			} catch (error) {
+				console.error("MultiAgentStore transition listener failed:", error);
+			}
 		}
 	}
 

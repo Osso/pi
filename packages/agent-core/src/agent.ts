@@ -613,7 +613,11 @@ export class Agent {
 			throw new Error("Agent listener invoked outside active run");
 		}
 		for (const listener of this.listeners) {
-			await listener(event, signal);
+			try {
+				await listener(event, signal);
+			} catch (error) {
+				console.error(`Agent event listener error (${event.type}):`, error);
+			}
 		}
 	}
 }
