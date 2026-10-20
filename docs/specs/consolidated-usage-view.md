@@ -21,13 +21,14 @@ model. It is a report, not an account-switching or quota-fallback operation. See
 - [x] Include every provider keyed by `CODEX_FALLBACK_PROVIDERS`: `openai-codex`,
       `openai-codex-gc`, and `openai-codex-team`.
 - [x] Show logged-in providers' identity (email and plan), 5-hour usage (300-minute window), and
-      weekly usage (10080-minute window), including used percentages and UTC reset times.
+      weekly usage (10080-minute window), including used percentages and US Central reset times
+      (`America/Chicago`, automatically observing CST/CDT daylight-saving transitions).
 - [x] Mark the active Codex provider, show unauthenticated providers as `not logged in`, and
       preserve per-provider failures as error rows without losing other providers' results.
 - [x] Show missing windows or missing `used_percent` as `-` (legend: `- = not reported`), never as 0%.
       Codex currently returns only a weekly window for some plans; the 5-hour column is then `-`.
 - [x] Order columns 5-hour %, weekly % (fixed width), provider, account, then resets
-      (`5h | week`, UTC) or the row's error / `not logged in` status.
+      (`5h | week`, heading `Central` instead of `UTC`) or the row's error / `not logged in` status.
 - [x] Obtain each provider's token through normal auth storage; an expired OAuth token is refreshed
       and persisted exactly as on any other request for that provider.
 - [x] Keep provider identities distinct in the report without claiming separate quotas: the same
@@ -39,7 +40,7 @@ model. It is a report, not an account-switching or quota-fallback operation. See
       `{ accounts?: Promise<ClaudeAccountUsage[]> }`.
 - [x] Accept successful entries shaped as `{ account, selected, fiveHour, weekly }` and failed entries
       shaped as `{ account, selected, error }`; display account usage or its error and mark the selected
-      account with `*`.
+      account with `*`. Format Claude reset timestamps in the same `America/Chicago` timezone.
 - [x] Show `Claude bridge not loaded` when no listener supplies the accounts promise, show an error
       line when the promise rejects, and show error rows for malformed entries.
 

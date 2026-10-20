@@ -193,6 +193,15 @@ interface AccountUsageRow {
 }
 
 const MISSING = "-";
+const CENTRAL_RESET_FORMAT = new Intl.DateTimeFormat("sv-SE", {
+	timeZone: "America/Chicago",
+	year: "numeric",
+	month: "2-digit",
+	day: "2-digit",
+	hour: "2-digit",
+	minute: "2-digit",
+	hourCycle: "h23",
+});
 
 async function handleUsageAll(ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
 	const [claudeRows, codexRows] = await Promise.all([
@@ -201,7 +210,7 @@ async function handleUsageAll(ctx: ExtensionCommandContext, pi: ExtensionAPI): P
 	]);
 	const rows = [...claudeRows, ...codexRows];
 	const accountWidth = Math.max("Account".length, ...rows.map((row) => row.account.length));
-	const header = ["5h", "Week", "Provider", "Account", "Resets UTC (5h | week)"];
+	const header = ["5h", "Week", "Provider", "Account", "Resets Central (5h | week)"];
 	const title = `Account usage (all accounts); ${MISSING} = not reported`;
 	const table = [
 		formatAccountColumns(header, accountWidth),
@@ -323,7 +332,9 @@ function formatUsagePercent(cell: UsageCell | null): string {
 }
 
 function formatUsageReset(cell: UsageCell | null): string {
-	return cell?.resetsAt == null ? MISSING : formatResetTime(cell.resetsAt);
+	if (cell?.resetsAt == null) return MISSING;
+	const date = new Date(cell.resetsAt * 1000);
+	return Number.isNaN(date.getTime()) ? "unknown" : CENTRAL_RESET_FORMAT.format(date);
 }
 
 function formatUsageError(error: unknown): string {

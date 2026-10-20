@@ -25,6 +25,7 @@
 
 ### Changed
 
+- Changed `/usage all` reset timestamps from UTC to US Central (`America/Chicago`), automatically observing CST/CDT daylight-saving transitions, and renamed the reset heading to `Central`.
 - Compaction prompt guidance now asks local initial/update/split-turn summarization and opt-in OpenAI remote compaction to derive continuation from the conversation: preserve ongoing work, unanswered user questions/requests, user decisions/corrections, relevant context, and unresolved uncertainty; keep completed work historical and do not infer user intent or authority from cwd or another session's coordination. No purpose/assignment field or routing change; model compliance is not guaranteed.
 - Tool wait status now reads `Waiting for command... 2s` / `Waiting for tool: read... 2s`, matching the `Thinking... 2s` status, instead of `Waiting for command... Elapsed: 2s`.
 - Session naming is model-driven: the session-autoname extension now registers a `set_session_name` tool and no longer issues its own title request, so naming costs no extra provider call and no longer fails on endpoints that require reasoning. The tool names only persisted main sessions, never overwrites a `/name` or `--name` value, and leaves explicitly cleared sessions unnamed.

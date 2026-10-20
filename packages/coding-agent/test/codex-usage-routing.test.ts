@@ -66,6 +66,41 @@ function reportLines(h: ReturnType<typeof registerUsage>): string[] {
 	return message.content.split("\n").map((line: string) => line.trim().replace(/ +/g, " "));
 }
 
+describe("registered /usage all Central timezone resets", () => {
+	it.each([
+		["summer", "2026-07-15T18:30:00Z", "2026-07-15 13:30"],
+		["winter", "2026-01-15T18:30:00Z", "2026-01-15 12:30"],
+		["summer date boundary", "2026-07-16T00:30:00Z", "2026-07-15 19:30"],
+		["winter date boundary", "2026-01-01T00:30:00Z", "2025-12-31 18:30"],
+		["Central midnight", "2026-07-15T05:00:00Z", "2026-07-15 00:00"],
+	])("formats %s resets in Central time for both providers", async (_label, resetsAt, expected) => {
+		const h = registerUsage("openai-codex");
+		h.fetch.mockImplementation(async () =>
+			Response.json({
+				rate_limit: {
+					primary_window: {
+						used_percent: 42,
+						limit_window_seconds: 18_000,
+						reset_at: Date.parse(resetsAt) / 1000,
+					},
+				},
+			}),
+		);
+		h.events.on("claude-bridge:usage-all-request", (data) => {
+			(data as { accounts?: Promise<unknown> }).accounts = Promise.resolve([
+				{ account: "alessio", selected: false, fiveHour: { percent: 42, resetsAt }, weekly: null },
+			]);
+		});
+
+		await h.command.handler("all", h.ctx);
+
+		const lines = reportLines(h);
+		expect(lines).toContain("5h Week Provider Account Resets Central (5h | week)");
+		expect(lines).toContain(`42% - Claude alessio ${expected} | -`);
+		expect(lines).toContain(`42% - Codex usage@example.com [openai-codex] * ${expected} | -`);
+	});
+});
+
 describe("registered /usage all", () => {
 	it.each(["openai-codex-gc", "claude-bridge"])(
 		"reports every account when selected provider is %s",
@@ -99,14 +134,14 @@ describe("registered /usage all", () => {
 
 			const lines = reportLines(h);
 			expect(lines).toContain("Account usage (all accounts); - = not reported");
-			expect(lines).toContain("5h Week Provider Account Resets UTC (5h | week)");
-			expect(lines).toContain("42% 61% Claude alessio * 2026-10-16 14:00 | 2026-10-20 09:00");
+			expect(lines).toContain("5h Week Provider Account Resets Central (5h | week)");
+			expect(lines).toContain("42% 61% Claude alessio * 2026-10-16 09:00 | 2026-10-20 04:00");
 			expect(lines).toContain("- - Claude gc error: Claude usage HTTP 401: expired");
 			expect(lines).toContain(
-				"10% 63% Codex user@example.com (pro) [openai-codex] 2026-10-16 10:00 | 2026-10-20 06:00",
+				"10% 63% Codex user@example.com (pro) [openai-codex] 2026-10-16 05:00 | 2026-10-20 01:00",
 			);
 			expect(lines).toContain(
-				`25% 75% Codex gc@example.co.uk (pro) [openai-codex-gc]${provider === "openai-codex-gc" ? " *" : ""} 2026-10-16 10:00 | 2026-10-20 06:00`,
+				`25% 75% Codex gc@example.co.uk (pro) [openai-codex-gc]${provider === "openai-codex-gc" ? " *" : ""} 2026-10-16 05:00 | 2026-10-20 01:00`,
 			);
 			expect(lines).toContain("- - Codex openai-codex-team not logged in");
 		},
@@ -122,7 +157,7 @@ describe("registered /usage all", () => {
 			true,
 		);
 		expect(lines).toContain(
-			"10% 63% Codex usage@example.com (pro) [openai-codex-gc] 2026-10-16 10:00 | 2026-10-20 06:00",
+			"10% 63% Codex usage@example.com (pro) [openai-codex-gc] 2026-10-16 05:00 | 2026-10-20 01:00",
 		);
 		expect(lines.join("\n")).not.toContain(h.token);
 	});
@@ -134,7 +169,7 @@ describe("registered /usage all", () => {
 		const lines = reportLines(h);
 		expect(lines).toContain("- - Claude bridge not loaded");
 		expect(lines).toContain(
-			"10% 63% Codex usage@example.com (pro) [openai-codex] * 2026-10-16 10:00 | 2026-10-20 06:00",
+			"10% 63% Codex usage@example.com (pro) [openai-codex] * 2026-10-16 05:00 | 2026-10-20 01:00",
 		);
 	});
 
@@ -178,7 +213,7 @@ describe("registered /usage all", () => {
 		const lines = reportLines(h);
 		for (const provider of ["openai-codex", "openai-codex-gc", "openai-codex-team"]) {
 			expect(lines).toContain(
-				`- 56% Codex usage@example.com (pro) [${provider}]${provider === "openai-codex" ? " *" : ""} - | 2026-10-22 06:32`,
+				`- 56% Codex usage@example.com (pro) [${provider}]${provider === "openai-codex" ? " *" : ""} - | 2026-10-22 01:32`,
 			);
 		}
 		expect(lines.join("\n")).not.toMatch(/\b0%/);
