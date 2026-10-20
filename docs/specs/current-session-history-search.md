@@ -13,8 +13,8 @@ Module boundary: core built-in tool + session manager.
 - [x] Exclude the tool's own `search_current_session_history` calls and results from matching, while allowing other content in the same assistant message to match.
 - [x] Exclude thinking blocks and content signatures from matching.
 - [x] Include full matching content that compaction omitted from the model context and mark omitted entries as compacted, including after reopening or resuming the session.
-- [x] Preserve the original in-process manager's search scope, chronological order, neighboring entries, and cursor pagination for plain and archived (`.jsonl.zst`) transcripts.
-- [x] Stream earlier active-branch ancestors for search without installing them in the manager or expanding the compacted model context. Archived ancestors may be decompressed to a temporary disk spool, removed after traversal.
+- [x] Preserve the original in-process manager's search scope, chronological order, neighboring entries, and cursor pagination for plain and archived (`.jsonl.zst`) transcripts, including restored writable resumes.
+- [x] Stream earlier active-branch ancestors for search without installing them in the manager or expanding the compacted model context; bound additional memory by the largest record, retained context, and requested result page. Archived ancestors may be decompressed to a temporary disk spool, removed after traversal.
 - [x] Return optional neighboring searchable entries around matches, regardless of entry type.
 - [x] Exclude entries that belong only to inactive branches.
 - [x] Include a configurable number of neighboring searchable entries around each match.

@@ -357,6 +357,92 @@ describe("search_current_session_history", () => {
 		});
 	});
 
+	it.each(["plain", "archived", "restored", "archived-after-open"])(
+		"searches earlier content after %s resume without expanding context",
+		async (storage) => {
+			const original = createSessionManager();
+			original.appendMessage({ role: "user", content: "earlier archival needle", timestamp: 1 });
+			const kept = original.appendMessage({ role: "user", content: "retained message", timestamp: 2 });
+			original.appendCompaction("compacted summary", kept, 1000);
+			original.appendMessage({ role: "user", content: "later archival needle", timestamp: 3 });
+			original.persistForRecovery();
+			const file = original.getSessionFile()!;
+			const transcript = readFileSync(file);
+			const tool = createSearchCurrentSessionHistoryToolDefinition();
+			const search = (manager: SessionManager, cursor?: string) =>
+				tool.execute(
+					"history",
+					{ query: "archival needle", context_entries: 1, limit: 1, cursor },
+					undefined,
+					undefined,
+					toolContext(manager),
+				);
+			const expected = await search(original);
+			const expectedNext = await search(original, expected.details?.nextCursor);
+			expect(expected.details?.totalMatches).toBe(2);
+			expect(expected.details?.entries.map((entry) => entry.content)).toEqual([
+				"earlier archival needle",
+				"retained message",
+			]);
+			expect(expectedNext.details?.entries.map((entry) => entry.content)).toEqual([
+				"compacted summary",
+				"later archival needle",
+			]);
+			const context = original.buildSessionContext();
+			const beforeArchive = storage === "archived-after-open" ? SessionManager.open(file) : undefined;
+			if (storage !== "plain") {
+				writeFileSync(`${file}.zst`, zstdCompressSync(readFileSync(file)));
+				rmSync(file);
+			}
+			if (storage === "restored") {
+				// Restore the exact transcript bytes before opening it writable.
+				writeFileSync(file, transcript);
+			}
+			const reopened =
+				beforeArchive ??
+				(storage === "archived" ? SessionManager.openReadOnly(`${file}.zst`) : SessionManager.open(file));
+			const loadedEntries = reopened.getEntries();
+			expect(reopened.buildSessionContext()).toEqual(context);
+			expect(
+				reopened
+					.buildContextEntries()
+					.some(
+						(entry) =>
+							entry.type === "message" &&
+							entry.message.role === "user" &&
+							entry.message.content === "earlier archival needle",
+					),
+			).toBe(false);
+			expect(await search(reopened)).toEqual(expected);
+			expect(await search(reopened, expected.details?.nextCursor)).toEqual(expectedNext);
+			expect(reopened.buildSessionContext()).toEqual(context);
+			expect(reopened.getEntries()).toEqual(loadedEntries);
+		},
+	);
+
+	it("preserves branch order, overlapping context and pagination across multiple compacted slices", async () => {
+		const original = createSessionManager();
+		const root = original.appendMessage({ role: "user", content: "needle root", timestamp: 1 });
+		original.appendMessage({ role: "user", content: "needle inactive", timestamp: 2 });
+		original.branch(root);
+		original.appendCustomEntry("hidden", { needle: "not a searchable entry" });
+		original.appendMessage({ role: "user", content: `${"é🧭".repeat(20000)} needle large`, timestamp: 3 });
+		const kept = original.appendMessage({ role: "user", content: "needle retained", timestamp: 4 });
+		original.appendCompaction("first summary", kept, 1000);
+		const last = original.appendMessage({ role: "user", content: "needle last", timestamp: 5 });
+		original.appendCompaction("second summary", last, 1000);
+		original.persistForRecovery();
+		const reopened = SessionManager.open(original.getSessionFile()!);
+		const tool = createSearchCurrentSessionHistoryToolDefinition();
+		for (const cursor of ["0", "1", "2", "4", "99"]) {
+			const params = { query: "needle", context_entries: 2, limit: 2, cursor };
+			const expected = await tool.execute("history", params, undefined, undefined, toolContext(original));
+			expect(expected.details?.totalMatches).toBe(4);
+			expect(expected.details?.entries.some((entry) => entry.content === "needle inactive")).toBe(false);
+			expect(await tool.execute("history", params, undefined, undefined, toolContext(reopened))).toEqual(expected);
+		}
+	});
+
 	it("excludes entries from inactive branches", async () => {
 		const sessionManager = createSessionManager();
 		const rootId = sessionManager.appendMessage({ role: "user", content: "shared root", timestamp: 1 });
