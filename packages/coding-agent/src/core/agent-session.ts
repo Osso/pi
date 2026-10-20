@@ -1473,10 +1473,14 @@ export class AgentSession {
 	// Event Subscription
 	// =========================================================================
 
-	/** Emit an event to all listeners */
+	/** Emit in registration order; subscriber failures must not interrupt session operations. */
 	private _emit(event: AgentSessionEvent): void {
 		for (const listener of [...this._eventListeners]) {
-			listener(event);
+			try {
+				listener(event);
+			} catch (error) {
+				console.error(`Session event listener error (${event.type}):`, error);
+			}
 		}
 	}
 
