@@ -122,7 +122,8 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 ## Known gaps (current cycle)
 
 - [x] Host `aso`: `claude-memory` (628b22d) indexes Pi `.jsonl.zst` transcripts with unchanged session identity; `agent-history` searches through `claude-memory`.
-- [ ] History search in a resumed session does not find entries before its latest compaction, for plain and archived transcripts alike (reopen loads the active slice).
+- [x] History search in a resumed session finds entries before its latest compaction, for plain and archived transcripts (27a561265; streamed ancestor read, model context unchanged).
+- [ ] Opening a very large session holds the pre-cwd-change prefix (plain) or the full decoded transcript (archived) in memory: a 517 MiB transcript peaks at 728 MiB plain / 1.7 GiB archived. Pre-existing loader behavior; search itself streams.
 
 - [x] Persist dedicated Supervisor and Architect transcripts with `archived_at` set while retaining their live plain `.jsonl` storage.
 
