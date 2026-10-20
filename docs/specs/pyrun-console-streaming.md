@@ -19,10 +19,19 @@ Pyrun console streaming exposes evaluated Python stdout and stderr through incre
 - [x] Foreground results, including immediate failures, render elapsed durations below one second in milliseconds.
 - [x] Durable foreground evaluations use the same visible progress formatter and console accumulator as direct foreground evaluations.
 - [x] Durable foreground artifact readers consume append-only JSONL bytes in bounded chunks, retaining an incomplete line once rather than rereading the growing artifact on every poll.
-- [x] Durable artifact observation wakes on artifact-directory activity, drains remaining bounded chunks before waiting again, and retains a one-second fallback check; dense durable console records are batched before live tool updates while the append-only artifact retains every original record.
+- [x] Durable artifact observation wakes on artifact-directory activity, drains remaining bounded chunks before waiting again, and retains a one-second fallback check; dense durable console records are batched before live tool updates while the append-only artifact retains original records subject to the durable-log cap below.
 - [x] Large newline-free console records remain memory-bounded across exec restart, restored child execution, and a parent blocked in `wait_agent`.
 - [x] Detached success and failure results retain duration from the original foreground tool invocation.
 - [x] Detached completion and failure notifications render the persisted duration consistently.
+
+### Durable output.log cap
+
+- [x] Each new durable Pyrun job limits `output.log` to 50 MiB (52,428,800 bytes), except mandatory terminal-only overflow below; no configuration flag is added.
+- [x] Preserve a whole-record head, then the latest whole progress records, dropping the middle without rewriting previously appended bytes.
+- [x] At settlement, insert a `kind: "truncation"` marker before the tail with exact omitted JSONL byte and record counts (including UTF-8 encoding and newline bytes).
+- [x] Preserve the exact terminal `result` or `error` record. Shrink the tail to accommodate it; only the immutable head, marker, and mandatory terminal may exceed the cap when the terminal cannot fit.
+- [x] Under-cap jobs produce byte-identical completed artifacts. Live observation and manifest replay distinguish truncation markers from terminal records, including error settlement.
+- [x] A surviving runner remains resumable while buffering; runner death preserves the appended head and reports `lost_runtime`, never success. Volatile tail records and omission counters can be lost before settlement.
 
 ## How it works
 
@@ -37,7 +46,8 @@ Pyrun console streaming exposes evaluated Python stdout and stderr through incre
 - `packages/coding-agent/src/core/tools/tool-definition-wrapper.ts` — exposes the shared invocation start timestamp to extension tool context.
 - `packages/coding-agent/extensions/pyrun/src/index.ts` — registers `pyrun_eval` and renders live and final tool output.
 - `packages/coding-agent/extensions/pyrun/src/detached-evaluation.ts` — carries the foreground invocation timestamp into durable runner launch metadata, wakes artifact observation from filesystem activity with a one-second fallback, drains unread bounded chunks, and incrementally parses append-only artifact JSONL without rereading partial records.
-- `packages/coding-agent/extensions/pyrun/src/detached-progress.ts` — batches durable console progress updates while preserving complete artifact records.
+- `packages/coding-agent/extensions/pyrun/src/detached-progress.ts` — defines artifact records and batches durable console updates.
+- `packages/coding-agent/extensions/pyrun/src/detached-output.ts` — caps append-only progress artifacts while preserving exact terminal records.
 - `packages/coding-agent/extensions/pyrun/src/detached-runner.ts` — computes one terminal duration for detached success, failure, and cancellation settlement.
 
 ## Tests asserting this spec
@@ -48,6 +58,7 @@ Pyrun console streaming exposes evaluated Python stdout and stderr through incre
 - `packages/coding-agent/test/session-control-db.test.ts`
 - `packages/coding-agent/test/pyrun-extension.test.ts` — includes dense durable console flooding with bounded live updates and complete artifact retention.
 - `packages/coding-agent/test/suite/regressions/post-restart-pyrun-memory.test.ts`
+- `packages/coding-agent/test/detached-pyrun-log-cap.test.ts` — real durable runners exceeding 50 MiB; immutable prefix, exact omission counts, latest tail, byte identity, large terminals, detached finalization, live replay, and runner-death replay.
 - Canonical runner: `tests/test_jsonl.py` in the Pyrun repository.
 
 ## Known gaps (current cycle)
@@ -58,3 +69,5 @@ None.
 
 - Byte-by-byte console events; evaluated streams are line-buffered to avoid excessive JSONL and TUI updates.
 - OS-level pipe streaming for command-builder pipelines; this contract covers evaluated Python stdout and stderr.
+- Bash logs: detached Bash redirects raw payload stdout/stderr directly to file descriptors, not the Pyrun JSONL writer.
+- Reformatting or bounding canonical terminal payloads before persistence: terminal console arrays and arbitrary values remain unchanged and may trigger mandatory overflow.

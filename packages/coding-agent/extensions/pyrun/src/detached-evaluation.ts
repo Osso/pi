@@ -347,7 +347,7 @@ function pyrunConsoleRecords(records: PyrunArtifactRecord[]): string[] {
 function restoreTerminalPyrunResult(records: PyrunArtifactRecord[]): CanonicalPyrunEvalResult | undefined {
 	let terminalResult: CanonicalPyrunEvalResult | undefined;
 	for (const record of records) {
-		if (record.kind === "progress") continue;
+		if (record.kind === "progress" || record.kind === "truncation") continue;
 		if (terminalResult) throw new Error("Pyrun output artifact contains multiple terminal records");
 		terminalResult =
 			record.kind === "result"

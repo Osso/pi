@@ -3,7 +3,8 @@ import type { CanonicalPyrunEvalResult, CanonicalPyrunProgressUpdate } from "./r
 export type PyrunArtifactRecord =
 	| { kind: "error"; error: string }
 	| { kind: "progress"; update: CanonicalPyrunProgressUpdate }
-	| { kind: "result"; result: CanonicalPyrunEvalResult };
+	| { kind: "result"; result: CanonicalPyrunEvalResult }
+	| { kind: "truncation"; message: string; omittedBytes: number; omittedRecords: number };
 
 export type ConsoleProgressUpdate = CanonicalPyrunProgressUpdate & { text: string; type: "console" };
 

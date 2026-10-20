@@ -24,10 +24,10 @@ import {
 } from "../../../src/core/session-control-db.ts";
 import { finalizeDetachedJobWithRetry } from "../../../src/core/detached-bash-runner.ts";
 import { enqueueDetachedPyrunBridgeRequest } from "./detached-bridge.ts";
+import { PyrunArtifactWriter } from "./detached-output.ts";
 import {
 	type CanonicalPyrunEvalParams,
 	type CanonicalPyrunEvalResult,
-	type CanonicalPyrunProgressUpdate,
 	PyrunRunnerClient,
 	type PyrunRunnerOptions,
 } from "./runner.ts";
@@ -135,8 +135,9 @@ export async function runDetachedPyrunRunner(manifestPath: string): Promise<{ te
 			inheritedProcessGroupId: process.pid,
 		});
 		try {
-			const settlement = await waitForDetachedPyrunSettlement(manifest, runner);
-			appendPyrunSettlementRecord(manifest, settlement);
+			const output = new PyrunArtifactWriter(manifest.artifacts.outputPath);
+			const settlement = await waitForDetachedPyrunSettlement(manifest, runner, output);
+			appendPyrunSettlementRecord(output, settlement);
 			const identity = settlement.identity ?? (await waitForPyrunOwnershipDecision(manifest));
 			if (!identity) return {};
 			return finalizeDetachedPyrunSettlement(manifest, { ...settlement, identity });
@@ -151,6 +152,7 @@ export async function runDetachedPyrunRunner(manifestPath: string): Promise<{ te
 async function waitForDetachedPyrunSettlement(
 	manifest: DetachedPyrunLaunchManifest,
 	runner: PyrunRunnerClient,
+	output: PyrunArtifactWriter,
 ): Promise<PyrunSettlement> {
 	const abort = new AbortController();
 	const control: DetachedPyrunControlState = {};
@@ -162,7 +164,7 @@ async function waitForDetachedPyrunSettlement(
 	const settled = runner
 		.evaluate(
 			manifest.params,
-			(update) => appendArtifactRecord(manifest.artifacts.outputPath, { kind: "progress", update }),
+			(update) => output.appendProgress(update),
 			abort.signal,
 			dispatchPiRequest,
 		)
@@ -286,11 +288,11 @@ function settleBridgeResponse(
 	else pending.resolve(response.result);
 }
 
-function appendPyrunSettlementRecord(manifest: DetachedPyrunLaunchManifest, settlement: PyrunSettlement): void {
+function appendPyrunSettlementRecord(output: PyrunArtifactWriter, settlement: PyrunSettlement): void {
 	const record = "result" in settlement
-		? { kind: "result", result: settlement.result }
-		: { error: errorMessage(settlement.error), kind: "error" };
-	appendArtifactRecord(manifest.artifacts.outputPath, record);
+		? { kind: "result" as const, result: settlement.result }
+		: { error: errorMessage(settlement.error), kind: "error" as const };
+	output.finish(record);
 }
 
 async function finalizeDetachedPyrunSettlement(
