@@ -237,7 +237,7 @@ export default function questionnaire(pi: ExtensionAPI) {
 						return;
 					}
 					if (matchesKey(data, Key.down)) {
-						optionIndex = Math.min(opts.length - 1, optionIndex + 1);
+						optionIndex = Math.max(0, Math.min(opts.length - 1, optionIndex + 1));
 						refresh();
 						return;
 					}
@@ -245,6 +245,7 @@ export default function questionnaire(pi: ExtensionAPI) {
 					// Select option
 					if (matchesKey(data, Key.enter) && q) {
 						const opt = opts[optionIndex];
+						if (!opt) return;
 						if (opt.isOther) {
 							inputMode = true;
 							inputQuestionId = q.id;
