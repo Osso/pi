@@ -1025,6 +1025,8 @@ Use this before reading project-local extension configuration that should only b
 
 Read-only access to session state. See [Session Format](session-format.md) for the full SessionManager API and entry types.
 
+Object-valued reads (`getEntries`, `getBranch`, `getEntry`, `getLeafEntry`, `buildContextEntries`, `getHeader`, and `getTree`) return deep copies, including nested custom-entry data and tool-result details. Copies are mutable: extensions may keep and update local state without changing stored entries or what later readers see. Each read returns a fresh snapshot; object identity is not stable across reads. Persist updates explicitly with the extension write APIs (for example, `pi.appendEntry`).
+
 For `tool_call`, this state is synchronized through the current assistant message before handlers run. In parallel tool execution mode it is still not guaranteed to include sibling tool results from the same assistant message.
 
 ```typescript
@@ -1321,7 +1323,7 @@ Lifecycle and footguns:
 - `withSession` runs only after the old session has emitted `session_shutdown`, the old runtime has been torn down, the replacement session has been rebound, and the new extension instance has already received `session_start`.
 - The callback still executes in the original closure, not inside the new extension instance. That means your old extension instance may already have run its shutdown cleanup before `withSession` starts.
 - Captured old `pi` / old command `ctx` session-bound objects are stale after replacement and will throw if used. Use only the `ctx` passed to `withSession` for session-bound work.
-- Previously extracted raw objects are still your responsibility. For example, if you capture `const sm = ctx.sessionManager` before replacement, `sm` is still the old `SessionManager` object. Do not reuse it after replacement.
+- Previously extracted raw objects are still your responsibility. For example, if you capture `const sm = ctx.sessionManager` before replacement, `sm` is still the old session's read-only view. Do not reuse it after replacement.
 - Code in `withSession` should assume any state invalidated by your `session_shutdown` handler is already gone. Only capture plain data that survives shutdown cleanly, such as strings, ids, and serialized config.
 
 Safe pattern:

@@ -15,7 +15,8 @@ import {
 	type SandboxProfileName,
 	type SandboxProfileScope,
 } from "../permissions/presets.ts";
-import type { SessionManager } from "../session-manager.ts";
+import { createReadonlySessionManager } from "../readonly-session-manager.ts";
+import type { ReadonlySessionManager, SessionManager } from "../session-manager.ts";
 import type { SettingsManager } from "../settings-manager.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
 import type {
@@ -305,6 +306,7 @@ export class ExtensionRunner {
 	private mode: ExtensionMode = "print";
 	private cwd: string;
 	private sessionManager: SessionManager;
+	private readonly sessionManagerReadView: ReadonlySessionManager;
 	private modelRegistry: ModelRegistry;
 	private settingsManager: SettingsManager | undefined;
 	private errorListeners: Set<ExtensionErrorListener> = new Set();
@@ -373,6 +375,7 @@ export class ExtensionRunner {
 		this.uiContext = noOpUIContext;
 		this.cwd = cwd;
 		this.sessionManager = sessionManager;
+		this.sessionManagerReadView = createReadonlySessionManager(sessionManager);
 		this.modelRegistry = modelRegistry;
 		this.settingsManager = settingsManager;
 		this.internalCommands = internalCommands;
@@ -828,7 +831,7 @@ export class ExtensionRunner {
 			},
 			get sessionManager() {
 				runner.assertActive();
-				return runner.sessionManager;
+				return runner.sessionManagerReadView;
 			},
 			get modelRegistry() {
 				runner.assertActive();
