@@ -2356,7 +2356,7 @@ export class InteractiveMode {
 		if (elapsedMs < MIN_VISIBLE_ELAPSED_MS) {
 			return baseMessage;
 		}
-		return `${baseMessage} Elapsed: ${formatElapsedDuration(elapsedMs)}`;
+		return `${baseMessage} ${formatElapsedDuration(elapsedMs)}`;
 	}
 
 	private setDefaultWorkingMessage(message: string): void {

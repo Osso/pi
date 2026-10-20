@@ -42,7 +42,7 @@ describe("InteractiveMode tool waiting timing", () => {
 
 		setWorkingMessageForActiveTools.call(fakeThis);
 
-		expect(fakeThis.setDefaultWorkingMessage).toHaveBeenCalledWith("Waiting for tool: slow_tool... Elapsed: 3s");
+		expect(fakeThis.setDefaultWorkingMessage).toHaveBeenCalledWith("Waiting for tool: slow_tool... 3s");
 	});
 
 	test("shows status elapsed for a pending main-view tool", () => {
@@ -52,6 +52,16 @@ describe("InteractiveMode tool waiting timing", () => {
 
 		setWorkingMessageForActiveTools.call(fakeThis);
 
-		expect(fakeThis.setDefaultWorkingMessage).toHaveBeenCalledWith("Waiting for tool: pyrun_eval... Elapsed: 3s");
+		expect(fakeThis.setDefaultWorkingMessage).toHaveBeenCalledWith("Waiting for tool: pyrun_eval... 3s");
+	});
+
+	test("shows command status elapsed without a trailing label", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(4_000);
+		const fakeThis = createContext(false, "bash");
+
+		setWorkingMessageForActiveTools.call(fakeThis);
+
+		expect(fakeThis.setDefaultWorkingMessage).toHaveBeenCalledWith("Waiting for command... 3s");
 	});
 });

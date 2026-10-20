@@ -502,7 +502,7 @@ describe("InteractiveMode streaming render throttling", () => {
 		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: pyrun_eval...");
 
 		await vi.advanceTimersByTimeAsync(47_001);
-		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: pyrun_eval... Elapsed: 48s");
+		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: pyrun_eval... 48s");
 	});
 
 	test("updates wait_agent elapsed time through the waiting status", async () => {
@@ -523,7 +523,7 @@ describe("InteractiveMode streaming render throttling", () => {
 		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: wait_agent...");
 
 		await vi.advanceTimersByTimeAsync(1_000);
-		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: wait_agent... Elapsed: 1s");
+		expect(setMessage).toHaveBeenLastCalledWith("Waiting for tool: wait_agent... 1s");
 	});
 
 	test("clears main session tool waiting state while viewing an agent session", async () => {
@@ -624,7 +624,7 @@ describe("InteractiveMode streaming render throttling", () => {
 			getSelectedAgentId: () => "agent_1",
 		};
 
-		expect(workingLoader.getWorkingLoaderMessage.call(fakeThis)).toBe("Waiting for tool: read... Elapsed: 5s");
+		expect(workingLoader.getWorkingLoaderMessage.call(fakeThis)).toBe("Waiting for tool: read... 5s");
 	});
 
 	test("keeps extension working message override during tool execution", async () => {
