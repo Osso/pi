@@ -2,14 +2,15 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { type FauxResponseStep, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { computeIdleCompactionDueAt } from "../../src/core/idle-compaction.ts";
 import type { Settings } from "../../src/core/settings-manager.ts";
 import type { ExtensionFactory } from "../../src/index.ts";
 import { createHarness, type Harness, type HarnessOptions } from "./harness.ts";
 
 const MINUTE_MS = 60_000;
 const SECOND_MS = 1_000;
-// The faux provider counts four characters per token, so this prompt alone exceeds the 200K-token minimum.
-const LARGE_CONTEXT_PROMPT = `large context ${"x".repeat(820_000)}`;
+// The faux provider counts four characters per token, so this prompt alone exceeds the 100K-token minimum.
+const LARGE_CONTEXT_PROMPT = `large context ${"x".repeat(410_000)}`;
 const SMALL_CONTEXT_PROMPT = "small context";
 
 interface IdleScenario {
@@ -77,6 +78,28 @@ async function expectIdleCompaction(harness: Harness): Promise<void> {
 	expect(summary?.role).toBe("compactionSummary");
 	expect(summary?.role === "compactionSummary" && summary.summary).toContain("idle summary");
 }
+
+describe("idle compaction 100K-token boundary", () => {
+	it.each([
+		{ api: "openai-codex-responses", dueAfterMs: 27 * MINUTE_MS },
+		{ api: "claude-bridge", dueAfterMs: 54 * MINUTE_MS },
+	])("checks context below, at, and above the minimum for $api", ({ api, dueAfterMs }) => {
+		for (const contextTokens of [99_999, 100_000, 100_001]) {
+			const message = fauxAssistantMessage("answer", { timestamp: 1_700_000_000_000 });
+			message.api = api;
+			message.usage = {
+				...message.usage,
+				input: 40_000,
+				output: 0,
+				cacheRead: contextTokens - 40_000,
+				cacheWrite: 0,
+				totalTokens: contextTokens,
+			};
+			const expectedDueAt = contextTokens < 100_000 ? undefined : message.timestamp + dueAfterMs;
+			expect(computeIdleCompactionDueAt(message), `${contextTokens} context tokens`).toBe(expectedDueAt);
+		}
+	});
+});
 
 describe("idle prompt-cache compaction", () => {
 	const harnesses: Harness[] = [];
@@ -246,7 +269,7 @@ describe("idle prompt-cache compaction", () => {
 
 	it.each([
 		{
-			name: "context below 200K tokens",
+			name: "context below 100K tokens",
 			prompt: SMALL_CONTEXT_PROMPT,
 			scenario: { api: "openai-codex-responses", provider: "openai-codex" },
 		},

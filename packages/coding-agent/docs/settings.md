@@ -152,7 +152,7 @@ To trigger automatic compaction at 50% across projects and models, add this to `
 
 Trusted project settings can override this global value. The configured percentage triggers at or above `contextWindow * thresholdPercent / 100`, taking precedence over the model's `autoCompactionThreshold` and the `reserveTokens`-based trigger. Omit it to retain existing defaults. `reserveTokens` still controls summarization output budgets; `keepRecentTokens` is unchanged. See [compaction.md](compaction.md#when-it-triggers) for trigger details.
 
-Idle compaction requires at least 200,000 context tokens in the latest assistant request on the current model, with no later compaction. It schedules at request start + 54 minutes for `claude-bridge`, or + 27 minutes for `openai-codex-responses`. Codex's 30-minute TTL is an assumption, not verified ChatGPT backend retention. Other APIs, including direct Anthropic, are excluded. Set `"compaction": { "idle": false }` to disable only this trigger; `enabled: false` also disables it. See [idle compaction](compaction.md#idle-compaction) for lifecycle and TTL details.
+Idle compaction requires at least 100,000 context tokens in the latest assistant request on the current model, with no later compaction. It schedules at request start + 54 minutes for `claude-bridge`, or + 27 minutes for `openai-codex-responses`. Codex's 30-minute TTL is an assumption, not verified ChatGPT backend retention. Other APIs, including direct Anthropic, are excluded. Set `"compaction": { "idle": false }` to disable only this trigger; `enabled: false` also disables it. See [idle compaction](compaction.md#idle-compaction) for lifecycle and TTL details.
 
 ### Branch Summary
 

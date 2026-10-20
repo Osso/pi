@@ -4,7 +4,7 @@ Contract: [idle-compaction spec](../../specs/idle-compaction.md). Implementation
 
 ## Scheduling and execution
 
-`computeIdleCompactionDueAt` uses the latest assistant message's usage and request-start timestamp. Context must be at least 200,000 tokens. The deadline is `message.timestamp + 0.9 * API TTL`; it is not measured from response completion.
+`computeIdleCompactionDueAt` uses the latest assistant message's usage and request-start timestamp. Context must be at least 100,000 tokens. The deadline is `message.timestamp + 0.9 * API TTL`; it is not measured from response completion.
 
 `AgentSession._scheduleIdleCompaction` replaces its timer after `session_start` and each run. Persisted message timestamps allow resumed sessions to recover the deadline; an overdue eligible request schedules immediately. Disposal clears the timer.
 

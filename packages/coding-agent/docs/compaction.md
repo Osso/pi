@@ -46,7 +46,7 @@ Overflow recovery treats Envoy HTTP 507 errors containing `exceeded request buff
 
 ### Idle compaction
 
-With `compaction.idle` enabled (default `true`), Pi compacts an idle session once when the latest assistant request on the current model has at least 200,000 context tokens and has not been followed by compaction. The deadline is request-start timestamp + 90% of the assigned prompt-cache TTL: 54 minutes for `claude-bridge` (60-minute TTL), or 27 minutes for `openai-codex-responses` (assumed 30-minute TTL).
+With `compaction.idle` enabled (default `true`), Pi compacts an idle session once when the latest assistant request on the current model has at least 100,000 context tokens and has not been followed by compaction. The deadline is request-start timestamp + 90% of the assigned prompt-cache TTL: 54 minutes for `claude-bridge` (60-minute TTL), or 27 minutes for `openai-codex-responses` (assumed 30-minute TTL).
 
 The Claude bridge TTL comes from the Claude Agent SDK's automatic subscription default within usage limits. The Codex TTL is a user-approved assumption based on OpenAI's prompt-caching guide, **not verified ChatGPT Codex backend retention**. Other APIs, including direct Anthropic, are intentionally excluded. See [TTL evidence and assumptions](../../../docs/wiki/systems/idle-compaction.md#ttl-evidence-and-assumptions).
 

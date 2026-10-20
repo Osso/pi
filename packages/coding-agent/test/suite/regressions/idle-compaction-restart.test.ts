@@ -72,7 +72,7 @@ if (!faux) throw new Error("Missing headless faux provider");
 function rewriteMessage(message, model) {
  const isSource = message.content.some((part) => part.type === "text" && part.text.includes("IDLE_SOURCE:"));
  return { ...message, api: model.api, provider: model.provider, model: model.id,
-  ...(isSource ? { usage: { input: 100000, output: 0, cacheRead: ${contextTokens - 100_000}, cacheWrite: 0,
+  ...(isSource ? { usage: { input: 50000, output: 0, cacheRead: ${contextTokens - 50_000}, cacheWrite: 0,
    totalTokens: ${contextTokens}, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } } : {}) };
 }
 function wrap(stream) {
@@ -157,7 +157,7 @@ async function persistResponseThenCrash(runtime: HeadlessPi, observationsPath: s
 			provider: "openai-codex",
 			model: MODEL_ID,
 			timestamp,
-			usage: { input: 100_000, cacheRead: contextTokens - 100_000, output: 0, cacheWrite: 0 },
+			usage: { input: 50_000, cacheRead: contextTokens - 50_000, output: 0, cacheWrite: 0 },
 		},
 	});
 	await runtime.waitForEvent((event) => event.type === "agent_end");
@@ -206,8 +206,8 @@ function isSummarizationPrompt(prompt: string): boolean {
 
 describe("idle compaction across real-process restart", () => {
 	it("re-arms the persisted cache deadline and compacts exactly once while idle", async () => {
-		await withIdleProvider(200_000, async (runtime, logPath) => {
-			const { dueAt } = await persistResponseThenCrash(runtime, logPath, 200_000);
+		await withIdleProvider(100_000, async (runtime, logPath) => {
+			const { dueAt } = await persistResponseThenCrash(runtime, logPath, 100_000);
 			const restartedPid = await restartSameSession(runtime, logPath);
 			const summaryRequest = await runtime.waitForLlmRequest(
 				(request) => request.userMessages.some(isSummarizationPrompt),
@@ -241,9 +241,9 @@ describe("idle compaction across real-process restart", () => {
 		});
 	}, 60_000);
 
-	it("does not compact a persisted context below 200,000 tokens after its cache deadline", async () => {
-		await withIdleProvider(199_999, async (runtime, logPath) => {
-			const { dueAt } = await persistResponseThenCrash(runtime, logPath, 199_999);
+	it("does not compact a persisted context below 100,000 tokens after its cache deadline", async () => {
+		await withIdleProvider(99_999, async (runtime, logPath) => {
+			const { dueAt } = await persistResponseThenCrash(runtime, logPath, 99_999);
 			await restartSameSession(runtime, logPath);
 			await delay(Math.max(0, dueAt - Date.now()) + OBSERVATION_WINDOW_MS);
 			expect(readProviderObservations(logPath).filter((entry) => entry.type === "request")).toHaveLength(2);

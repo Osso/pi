@@ -6,7 +6,7 @@ Idle compaction summarizes large idle sessions before their assumed provider pro
 
 - [x] Compact idle `claude-bridge` sessions at request start + 54 minutes and `openai-codex-responses` sessions at request start + 27 minutes, once per eligible request.
 - [x] Measure the deadline from the latest assistant request, not the first request.
-- [x] Require at least 200,000 context tokens; skip APIs without an assigned TTL.
+- [x] Require at least 100,000 context tokens; skip APIs without an assigned TTL.
 - [x] Default `compaction.idle` to true; skip idle compaction when it or `compaction.enabled` is false.
 - [x] Run normal compaction with reason `"idle"`, saving a summary without retrying a turn.
 - [x] Require the latest assistant request to match the current provider/model and not precede a later compaction.
@@ -24,7 +24,7 @@ Checked items have assertions in the committed suites listed below.
 
 Paths below are relative to `packages/coding-agent/`:
 
-- `src/core/idle-compaction.ts` — API TTLs, 90% deadline, and 200K context minimum.
+- `src/core/idle-compaction.ts` — API TTLs, 90% deadline, and 100K context minimum.
 - `src/core/agent-session.ts` — `_scheduleIdleCompaction`, `_findIdleCompactionTarget`, and `_runIdleCompaction`; lifecycle arming and locked normal compaction.
 - `src/core/settings-manager.ts` — `compaction.idle` and its default-true getter.
 - `src/core/extensions/types.ts` — shared `CompactionReason`, including `"idle"`, for extension events.

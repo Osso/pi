@@ -19,7 +19,7 @@ const PROMPT_CACHE_TTL_MS_BY_API: Readonly<Record<string, number>> = {
 const IDLE_COMPACTION_TTL_FRACTION = 0.9;
 
 /** Smaller contexts are cheap to re-cache and lose detail when summarized. */
-const IDLE_COMPACTION_MIN_CONTEXT_TOKENS = 200_000;
+const IDLE_COMPACTION_MIN_CONTEXT_TOKENS = 100_000;
 
 /**
  * Time at which an idle session whose latest request is `message` should compact, or undefined when
