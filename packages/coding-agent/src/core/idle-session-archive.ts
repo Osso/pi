@@ -121,9 +121,11 @@ function readProtectedTranscriptPaths(controlDbPath: string): Set<string> {
 
 async function archiveIdleTranscript(controlDbPath: string, path: string, cutoff: number): Promise<boolean> {
 	const before = lstatSync(path);
-	if (!before.isFile() || before.mtimeMs >= cutoff || existsSync(`${path}.zst`)) return false;
-	const metadata = readSessionMetadata(controlDbPath, path);
+	if (!before.isFile()) return false;
+	const metadata = readSessionMetadata(controlDbPath, path) ?? readSessionMetadata(controlDbPath, `${path}.zst`);
 	if (metadata && isResidentSession({ id: metadata.id, path })) return false;
+	if (existsSync(`${path}.zst`)) return recoverPublishedArchive(controlDbPath, path, before);
+	if (before.mtimeMs >= cutoff) return false;
 	const temp = `${path}.archive-temp-${randomUUID()}`;
 	try {
 		await pipeline(
@@ -131,7 +133,7 @@ async function archiveIdleTranscript(controlDbPath: string, path: string, cutoff
 			createZstdCompress(),
 			createWriteStream(temp, { flags: "wx", mode: before.mode & 0o777 }),
 		);
-		await verifyArchiveBytes(path, temp);
+		if (!(await readArchiveMatchesOriginal(path, temp))) throw new Error(`Archive differs from original: ${path}`);
 		if (!metadata && !(await indexTranscript(controlDbPath, path))) return false;
 		if (!canPublishArchivedTranscript(controlDbPath, path, before)) return false;
 		chmodSync(temp, before.mode & 0o777);
@@ -141,6 +143,25 @@ async function archiveIdleTranscript(controlDbPath: string, path: string, cutoff
 	} finally {
 		rmSync(temp, { force: true });
 	}
+}
+
+/** Recover publication interrupted between the hard link, DB relocation, and source unlink. */
+async function recoverPublishedArchive(controlDbPath: string, path: string, before: Stats): Promise<boolean> {
+	const archive = `${path}.zst`;
+	const identical = await readArchiveMatchesOriginal(path, archive);
+	if (!canPublishArchivedTranscript(controlDbPath, path, before)) return false;
+	if (!identical) {
+		// Appends to the surviving plain file supersede the published snapshot.
+		if (readSessionMetadata(controlDbPath, archive)) relocateAndUnarchiveSession(controlDbPath, archive, path);
+		unlinkSync(archive);
+		return false;
+	}
+	if (!readSessionMetadata(controlDbPath, archive)) {
+		if (!readSessionMetadata(controlDbPath, path) && !(await indexTranscript(controlDbPath, path))) return false;
+		relocateAndArchiveSession(controlDbPath, path, archive);
+	}
+	unlinkSync(path);
+	return true;
 }
 
 function canPublishArchivedTranscript(controlDbPath: string, path: string, before: Stats): boolean {
@@ -178,7 +199,7 @@ async function indexTranscript(controlDbPath: string, path: string): Promise<boo
 }
 
 /** Exact bounded-memory comparison, including original EOF; not just a decompressor CRC check. */
-async function verifyArchiveBytes(original: string, archive: string): Promise<void> {
+async function readArchiveMatchesOriginal(original: string, archive: string): Promise<boolean> {
 	const source = await open(original, "r");
 	try {
 		const decoded = createReadStream(archive).compose(createZstdDecompress());
@@ -189,13 +210,13 @@ async function verifyArchiveBytes(original: string, archive: string): Promise<vo
 			let read = 0;
 			while (read < bytes.length) {
 				const part = await source.read(expected, read, bytes.length - read, position + read);
-				if (part.bytesRead === 0) throw new Error(`Archive differs from original: ${original}`);
+				if (part.bytesRead === 0) return false;
 				read += part.bytesRead;
 			}
-			if (!expected.equals(bytes)) throw new Error(`Archive differs from original: ${original}`);
+			if (!expected.equals(bytes)) return false;
 			position += bytes.length;
 		}
-		if ((await source.stat()).size !== position) throw new Error(`Archive length differs from original: ${original}`);
+		return (await source.stat()).size === position;
 	} finally {
 		await source.close();
 	}

@@ -23,8 +23,17 @@ export function archivePersistedSession(controlDbPath: string, sessionPath: stri
 
 export function restoreArchivedSession(controlDbPath: string, sessionPath: string): string {
 	sessionPath = readSessionTranscriptPath(sessionPath);
+	const archivedPath = isArchivedSessionFile(sessionPath) ? sessionPath : `${sessionPath}${ARCHIVED_SESSION_SUFFIX}`;
+	const restoredPath = archivedPath.slice(0, -ARCHIVED_SESSION_SUFFIX.length);
+	if (existsSync(restoredPath)) {
+		// A surviving writable transcript may include appends newer than the archive.
+		if (readSessionMetadata(controlDbPath, archivedPath)) {
+			relocateAndUnarchiveSession(controlDbPath, archivedPath, restoredPath);
+		}
+		rmSync(archivedPath, { force: true });
+		return restoredPath;
+	}
 	if (!isArchivedSessionFile(sessionPath)) return sessionPath;
-	const restoredPath = sessionPath.slice(0, -ARCHIVED_SESSION_SUFFIX.length);
 	const needsMetadataRestore =
 		existsSync(sessionPath) || readSessionMetadata(controlDbPath, sessionPath) !== undefined;
 	if (!needsMetadataRestore) return restoredPath;

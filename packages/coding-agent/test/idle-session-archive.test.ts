@@ -1,6 +1,7 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 import {
+	appendFileSync,
 	chmodSync,
 	closeSync,
 	existsSync,
@@ -26,7 +27,7 @@ import {
 	registerRuntimeMailboxListener,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
-import { SessionManager } from "../src/core/session-manager.ts";
+import { loadEntriesFromFile, SessionManager } from "../src/core/session-manager.ts";
 
 const roots: string[] = [];
 const now = Date.parse("2026-10-20T12:00:00Z");
@@ -56,6 +57,97 @@ function fixture(age = 31) {
 	});
 	return { root, dir, file, content, db };
 }
+
+type CrashPoint = "after-link" | "before-unlink" | "after-unlink";
+const crashPoints: CrashPoint[] = ["after-link", "before-unlink", "after-unlink"];
+
+function crashArchive(point: CrashPoint) {
+	const f = fixture();
+	const child = spawnSync(
+		process.execPath,
+		[
+			"--import",
+			import.meta.resolve("tsx"),
+			new URL("./fixtures/idle-archive-crash.ts", import.meta.url).pathname,
+			f.root,
+			f.file,
+			f.db,
+			point,
+			String(now),
+		],
+		{ encoding: "utf8", timeout: 15000 },
+	);
+	expect(child.signal, child.stderr).toBe("SIGKILL");
+	expect(existsSync(f.file)).toBe(point !== "after-unlink");
+	expect(zstdDecompressSync(readFileSync(`${f.file}.zst`))).toEqual(Buffer.from(f.content));
+	const dbPath = point === "after-link" ? f.file : `${f.file}.zst`;
+	expect(readSessionMetadata(f.db, dbPath)).toMatchObject({ id: "old", isArchived: point !== "after-link" });
+	expect(readSessionMetadata(f.db, point === "after-link" ? `${f.file}.zst` : f.file)).toBeUndefined();
+	return f;
+}
+
+function assertWritableRestore(f: ReturnType<typeof fixture>, input: string, content = f.content) {
+	const restored = restoreArchivedSession(f.db, input);
+	expect(restored).toBe(f.file);
+	expect(readFileSync(restored, "utf8")).toBe(content);
+	expect(existsSync(`${f.file}.zst`)).toBe(false);
+	expect(readSessionMetadata(f.db, `${f.file}.zst`)).toBeUndefined();
+	expect(readSessionMetadata(f.db, restored)).toMatchObject({ id: "old", isArchived: false });
+	const manager = SessionManager.open(restored);
+	manager.setMetadataControlDbPath(f.db);
+	manager.appendMessage({ role: "user", content: "post-restore append", timestamp: 2 });
+	manager.persistForRecovery();
+	expect(readFileSync(restored, "utf8").startsWith(content)).toBe(true);
+	expect(loadEntriesFromFile(restored)).toContainEqual(
+		expect.objectContaining({ message: expect.objectContaining({ content: "post-restore append" }) }),
+	);
+	expect(readSessionMetadata(f.db, restored)?.isArchived).toBe(false);
+	expect(readSessionMetadata(f.db, `${f.file}.zst`)).toBeUndefined();
+}
+
+function appendAfterCrash(f: ReturnType<typeof fixture>) {
+	const appended = `${JSON.stringify({ type: "message", id: "two", parentId: "one", timestamp: "2026-10-20T11:00:00Z", message: { role: "user", content: "appended after crash", timestamp: 2 } })}\n`;
+	appendFileSync(f.file, appended);
+	return f.content + appended;
+}
+
+describe("idle transcript archival crash recovery", () => {
+	it.each(crashPoints)("finishes archival after %s and restores a writable transcript", async (point) => {
+		const f = crashArchive(point);
+		const result = await storage.archiveIdleSessionTranscripts(f.db, { agentDir: f.root, now });
+		expect(result.errors).toEqual([]);
+		expect(result.archivedPaths).toEqual(point === "after-unlink" ? [] : [`${f.file}.zst`]);
+		expect(existsSync(f.file)).toBe(false);
+		expect(zstdDecompressSync(readFileSync(`${f.file}.zst`))).toEqual(Buffer.from(f.content));
+		expect(readSessionMetadata(f.db, f.file)).toBeUndefined();
+		expect(readSessionMetadata(f.db, `${f.file}.zst`)).toMatchObject({ id: "old", isArchived: true });
+		assertWritableRestore(f, `${f.file}.zst`);
+	});
+	for (const point of crashPoints) {
+		it.each(["plain", "archive"])(`restores via %s immediately after ${point}`, (reference) => {
+			const f = crashArchive(point);
+			assertWritableRestore(f, reference === "plain" ? f.file : `${f.file}.zst`);
+		});
+	}
+	for (const point of ["after-link", "before-unlink"] as const) {
+		it(`keeps appended plain bytes on the next archive pass after ${point}`, async () => {
+			const f = crashArchive(point);
+			const content = appendAfterCrash(f);
+			const result = await storage.archiveIdleSessionTranscripts(f.db, { agentDir: f.root, now });
+			expect(result).toEqual({ archivedPaths: [], errors: [] });
+			expect(readFileSync(f.file, "utf8")).toBe(content);
+			expect(existsSync(`${f.file}.zst`)).toBe(false);
+			expect(readSessionMetadata(f.db, `${f.file}.zst`)).toBeUndefined();
+			expect(readSessionMetadata(f.db, f.file)).toMatchObject({ id: "old", isArchived: false });
+			assertWritableRestore(f, f.file, content);
+		});
+		it.each(["plain", "archive"])(`restores appended bytes via %s after ${point}`, (reference) => {
+			const f = crashArchive(point);
+			const content = appendAfterCrash(f);
+			assertWritableRestore(f, reference === "plain" ? f.file : `${f.file}.zst`, content);
+		});
+	}
+});
 
 describe("idle transcript archival", () => {
 	it("compresses an old transcript byte-identically and relocates metadata for listing and resume", async () => {
