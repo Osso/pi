@@ -32,6 +32,7 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 - [x] Read compressed headers, full entries, fork sources, viewer/history data, goal references, HTML exports, and all seven repository transcript/statistics scripts without unarchiving them. Old literal `.jsonl` references resolve to an existing `.jsonl.zst` when no plain file exists.
 - [x] Explicit archived attach restores writable storage before opening the session.
 - [x] Core header/entry readers handle compressed transcripts exceeding Node's maximum string length, parsing one line at a time rather than decoding the entire file as one string.
+- [x] Interrupted archival converges: when both `.jsonl` and `.jsonl.zst` exist, the next pass completes archival if the archive decodes byte-identical, otherwise keeps the appended plain file canonical and removes the stale archive. Restoring through either path in either state returns writable plain storage with control-DB metadata pointing to it (`idle-session-archive.test.ts`).
 
 ### First-party `/archive` command
 
@@ -111,7 +112,8 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 
 ## Known gaps (current cycle)
 
-- [ ] Before deploying on host `aso`, update its external `agent-history` CLI/skill and `claude-memory` transcript indexing readers to include and decode `.jsonl.zst` while preserving searchability. Those repositories and installed tools are absent on `agent-server` and are not modified here. Deployment on `aso` is gated on this dependency.
+- [x] Host `aso`: `claude-memory` (628b22d) indexes Pi `.jsonl.zst` transcripts with unchanged session identity; `agent-history` searches through `claude-memory`.
+- [ ] History search in a resumed session does not find entries before its latest compaction, for plain and archived transcripts alike (reopen loads the active slice).
 
 - [x] Persist dedicated Supervisor and Architect transcripts with `archived_at` set while retaining their live plain `.jsonl` storage.
 
