@@ -46,7 +46,7 @@ class ModalEditor extends CustomEditor {
 		}
 
 		// Normal mode: check mapped keys
-		if (data in NORMAL_KEYS) {
+		if (Object.hasOwn(NORMAL_KEYS, data)) {
 			const seq = NORMAL_KEYS[data];
 			if (data === "i") {
 				this.mode = "insert";
