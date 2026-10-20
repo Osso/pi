@@ -32,6 +32,8 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 - [x] Read compressed headers, full entries, fork sources, viewer/history data, goal references, HTML exports, and all seven repository transcript/statistics scripts without unarchiving them. Old literal `.jsonl` references resolve to an existing `.jsonl.zst` when no plain file exists.
 - [x] Explicit archived attach restores writable storage before opening the session.
 - [x] Core header/entry readers handle compressed transcripts exceeding Node's maximum string length, parsing one line at a time rather than decoding the entire file as one string.
+- [x] Opening compacted current-version plain or archived sessions retains only the plain loader's active slice, header, and existing manager metadata; scanning summarized ancestors must not retain their payloads. Archived viewer, HTML/terminal export, history-search input, and fork outputs match the same plain transcript. Explicit full-entry reads remain full-entry reads.
+- [x] A fresh child opening a generated 500+ MiB compacted transcript without a preceding cwd marker stays below 256 MiB peak RSS for both storage formats (`session-load-memory.test.ts`).
 - [x] Interrupted archival converges: when both `.jsonl` and `.jsonl.zst` exist, the next pass completes archival if the archive decodes byte-identical, otherwise keeps the appended plain file canonical and removes the stale archive. Restoring through either path in either state returns writable plain storage with control-DB metadata pointing to it (`idle-session-archive.test.ts`).
 
 ### First-party `/archive` command
@@ -96,6 +98,9 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 
 - `packages/coding-agent/test/idle-session-archive.test.ts` — age boundary, byte identity, metadata, permissions, real-process file references, active DB agents/listeners, and no-clobber.
 - `packages/coding-agent/test/archived-transcript-readers.test.ts` — read-only history, headers, entries, fork, goal references, export, and resumed search parity.
+- `packages/coding-agent/test/session-manager/session-load-parity.test.ts` — baseline plain-loader state, zero/one/two compactions, cwd ancestors, abandoned branches, viewer state, HTML/terminal exports, search, forks, SQLite settings, and goal-reference parity.
+- `packages/coding-agent/test/session-manager/session-load-memory.test.ts` — fresh-process peak RSS on a generated 500+ MiB transcript in both formats.
+- `packages/coding-agent/test/session-manager/session-transcript-spool.test.ts` — byte-exact decoding, temporary-file cleanup, and corrupt-archive errors.
 - `packages/coding-agent/test/archived-transcript-scripts.test.ts` — all seven scripts read real compressed fixtures in child CLI processes.
 - `packages/coding-agent/test/goal-extension.test.ts` — archived legacy-parent goal inheritance.
 - `packages/coding-agent/test/multi-agent-extension.test.ts` — explicit-path archived attachment preserves transcript identity.

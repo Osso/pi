@@ -51,11 +51,8 @@ import {
 	writeSessionThinkingLevel,
 } from "./session-control-db.ts";
 import { serializeSessionEntryForPersistence } from "./session-tool-output.ts";
-import {
-	createSessionTranscriptReadStream,
-	readSessionTranscriptBytes,
-	readSessionTranscriptPath,
-} from "./session-transcript.ts";
+import { createSessionTranscriptReadStream, readSessionTranscriptPath } from "./session-transcript.ts";
+import { withSeekableSessionTranscript } from "./session-transcript-spool.ts";
 
 export const CURRENT_SESSION_VERSION = 3;
 export const MAX_KEPT_PRE_COMPACTION_BYTES = 20_000;
@@ -687,8 +684,8 @@ function parseSessionEntryLine(line: string): FileEntry | null {
 }
 
 interface ReverseSessionScan {
-	allEntries: SessionEntry[];
 	activePath: SessionEntry[];
+	hasInactiveEntries: boolean;
 	isReadingLeaf: boolean;
 	requiredParentId: string | null;
 	latestCompaction: CompactionEntry | undefined;
@@ -714,8 +711,8 @@ interface ReverseLineScanResult {
 
 function createReverseSessionScan(): ReverseSessionScan {
 	return {
-		allEntries: [],
 		activePath: [],
+		hasInactiveEntries: false,
 		isReadingLeaf: true,
 		requiredParentId: null,
 		latestCompaction: undefined,
@@ -747,10 +744,12 @@ function cwdFromChangedEntry(entry: SessionEntry): string | undefined {
 
 function scanSessionEntryReverse(scan: ReverseSessionScan, entry: FileEntry): boolean {
 	if (entry.type === "session") return false;
-	scan.allEntries.push(entry);
 
 	const isActiveEntry = scan.isReadingLeaf || entry.id === scan.requiredParentId;
-	if (!isActiveEntry) return false;
+	if (!isActiveEntry) {
+		scan.hasInactiveEntries = true;
+		return false;
+	}
 
 	scan.isReadingLeaf = false;
 	if (!scan.foundFirstKeptEntry) {
@@ -803,7 +802,11 @@ function validateCompleteReverseScan(scan: ReverseSessionScan, filePath: string)
 	}
 }
 
-function readCurrentVersionSessionEntries(fd: number, fileSize: number, filePath: string): LoadedSessionEntries {
+function readCurrentVersionSessionEntries(
+	fd: number,
+	fileSize: number,
+	filePath: string,
+): LoadedSessionEntries | undefined {
 	const scan = createReverseSessionScan();
 	let position = fileSize;
 	let pending: Buffer<ArrayBufferLike> = Buffer.alloc(0);
@@ -825,13 +828,16 @@ function readCurrentVersionSessionEntries(fd: number, fileSize: number, filePath
 		return loadedActiveSlice(scan);
 	}
 	validateCompleteReverseScan(scan, filePath);
-	return scan.foundFirstKeptEntry ? loadedActiveSlice(scan) : { entries: scan.allEntries.reverse() };
+	return scan.foundFirstKeptEntry || !scan.hasInactiveEntries ? loadedActiveSlice(scan) : undefined;
 }
 
 function loadCurrentVersionEntriesFromFile(filePath: string, header: SessionHeader): LoadedCurrentVersionSession {
 	const fd = openSync(filePath, "r");
 	try {
 		const loaded = readCurrentVersionSessionEntries(fd, statSync(filePath).size, filePath);
+		// An uncompacted tree needs its inactive branches too. Defer their payloads
+		// until we know there is no cutoff; linear histories need no second read.
+		if (!loaded) return { fileEntries: loadEntriesFromFile(filePath) };
 		return { fileEntries: [header, ...loaded.entries], precedingCwd: loaded.precedingCwd };
 	} finally {
 		closeSync(fd);
@@ -839,26 +845,13 @@ function loadCurrentVersionEntriesFromFile(filePath: string, header: SessionHead
 }
 
 function loadSessionFileEntries(filePath: string): LoadedCurrentVersionSession {
-	const header = readSessionHeader(filePath);
-	if (isArchivedSessionFile(readSessionTranscriptPath(filePath)))
-		return { fileEntries: loadEntriesFromFile(filePath) };
-	if (header?.version === CURRENT_SESSION_VERSION) {
-		return loadCurrentVersionEntriesFromFile(filePath, header);
-	}
-	return { fileEntries: loadEntriesFromFile(filePath) };
-}
-
-function parseSessionBufferEntries(content: Buffer): FileEntry[] {
-	const entries: FileEntry[] = [];
-	let start = 0;
-	while (start < content.length) {
-		const newline = content.indexOf(0x0a, start);
-		const end = newline < 0 ? content.length : newline;
-		const entry = parseSessionEntryLine(content.subarray(start, end).toString("utf8"));
-		if (entry) entries.push(entry);
-		start = end + 1;
-	}
-	return entries;
+	return withSeekableSessionTranscript(filePath, (plain) => {
+		const header = readSessionHeader(plain);
+		if (header?.version === CURRENT_SESSION_VERSION) {
+			return loadCurrentVersionEntriesFromFile(plain, header);
+		}
+		return { fileEntries: loadEntriesFromFile(plain) };
+	});
 }
 
 /** Load persisted entries without migration or writes. */
@@ -866,9 +859,7 @@ export function loadEntriesFromFile(filePath: string): FileEntry[] {
 	const resolvedFilePath = readSessionTranscriptPath(normalizePath(filePath));
 	if (!existsSync(resolvedFilePath)) return [];
 	if (isArchivedSessionFile(resolvedFilePath)) {
-		const entries = parseSessionBufferEntries(readSessionTranscriptBytes(resolvedFilePath));
-		const header = entries[0];
-		return header?.type === "session" && typeof header.id === "string" ? entries : [];
+		return withSeekableSessionTranscript(resolvedFilePath, loadEntriesFromFile);
 	}
 
 	const entries: FileEntry[] = [];
@@ -926,9 +917,7 @@ export function loadSessionContextEntries(filePath: string): { header: SessionHe
 function readFirstLine(filePath: string): string | undefined {
 	const source = readSessionTranscriptPath(filePath);
 	if (isArchivedSessionFile(source)) {
-		const bytes = readSessionTranscriptBytes(source);
-		const newline = bytes.indexOf(0x0a);
-		return bytes.subarray(0, newline < 0 ? bytes.length : newline).toString("utf8");
+		return withSeekableSessionTranscript(source, readFirstLine);
 	}
 	const fd = openSync(source, "r");
 	const chunks: Buffer[] = [];

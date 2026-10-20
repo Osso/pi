@@ -3,7 +3,8 @@ import type { ImageContent, TextContent, ThinkingContent, ToolCall } from "@eare
 import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
-import type { SessionEntry } from "../session-manager.ts";
+import { readSessionHistoryReverse } from "../session-history.ts";
+import type { ReadonlySessionManager, SessionEntry } from "../session-manager.ts";
 
 const DEFAULT_LIMIT = 20;
 
@@ -124,16 +125,55 @@ function parseCursor(cursor: string | undefined): number {
 	return Number(cursor);
 }
 
-function selectedIndexes(matchIndexes: number[], contextEntries: number, entryCount: number): Set<number> {
-	const indexes = new Set<number>();
-	for (const matchIndex of matchIndexes) {
-		const firstIndex = Math.max(0, matchIndex - contextEntries);
-		const lastIndex = Math.min(entryCount - 1, matchIndex + contextEntries);
-		for (let index = firstIndex; index <= lastIndex; index += 1) {
-			indexes.add(index);
-		}
+async function* readSearchableHistoryReverse(manager: ReadonlySessionManager, query: string) {
+	for await (const entry of readSessionHistoryReverse(manager)) {
+		const searchable = searchableEntry(entry);
+		if (!searchable) continue;
+		const matches = searchable.searchTexts.some((text) => text.toLocaleLowerCase().includes(query));
+		yield { ...searchable, matches };
 	}
-	return indexes;
+}
+
+async function readHistoryPage(
+	manager: ReadonlySessionManager,
+	query: string,
+	totalMatches: number,
+	params: SearchCurrentSessionHistoryToolInput,
+): Promise<SessionHistorySearchEntry[]> {
+	const cursor = parseCursor(params.cursor);
+	const limit = params.limit ?? DEFAULT_LIMIT;
+	const contextEntries = params.context_entries ?? 0;
+	const contextIds = new Set(manager.buildContextEntries().map((entry) => entry.id));
+	const included = new Map<number, SessionHistorySearchEntry>();
+	const neighbors: { index: number; entry: SessionHistorySearchEntry }[] = [];
+	let matchOffset = totalMatches;
+	let remainingContext = 0;
+	let index = 0;
+	for await (const searchable of readSearchableHistoryReverse(manager, query)) {
+		if (searchable.matches) matchOffset--;
+		const matched = searchable.matches && matchOffset >= cursor && matchOffset < cursor + limit;
+		const entry: SessionHistorySearchEntry = {
+			id: searchable.entry.id,
+			timestamp: searchable.entry.timestamp,
+			entryType: searchable.entry.type as SessionHistorySearchEntry["entryType"],
+			role: searchable.role,
+			content: searchable.content,
+			matched,
+			compacted: !contextIds.has(searchable.entry.id),
+		};
+		if (matched) {
+			for (const neighbor of neighbors) included.set(neighbor.index, neighbor.entry);
+			remainingContext = contextEntries + 1;
+		}
+		if (remainingContext > 0) {
+			included.set(index, entry);
+			remainingContext--;
+		}
+		neighbors.push({ index, entry });
+		if (neighbors.length > contextEntries) neighbors.shift();
+		index++;
+	}
+	return [...included].sort(([left], [right]) => right - left).map(([, entry]) => entry);
 }
 
 function requirePersistedSession(ctx: ExtensionContext | undefined): ExtensionContext {
@@ -166,49 +206,26 @@ export function createSearchCurrentSessionHistoryToolDefinition(): ToolDefinitio
 				throw new Error("search_current_session_history query must not be empty");
 			}
 
-			const branch = ctx.sessionManager.getBranch();
-			const searchableEntries = branch.flatMap((entry) => {
-				const searchable = searchableEntry(entry);
-				return searchable ? [searchable] : [];
-			});
-			const normalizedQuery = query.toLocaleLowerCase();
-			const allMatchIndexes = searchableEntries.flatMap((entry, index) =>
-				entry.searchTexts.some((text) => text.toLocaleLowerCase().includes(normalizedQuery)) ? [index] : [],
-			);
 			const cursor = parseCursor(params.cursor);
-			const limit = params.limit ?? DEFAULT_LIMIT;
-			const pageMatchIndexes = allMatchIndexes.slice(cursor, cursor + limit);
-			const contextEntries = params.context_entries ?? 0;
-			const includedIndexes = selectedIndexes(pageMatchIndexes, contextEntries, searchableEntries.length);
-			const matchIndexSet = new Set(pageMatchIndexes);
-			const contextEntryIds = new Set(ctx.sessionManager.buildContextEntries().map((entry) => entry.id));
-			const entries = searchableEntries.flatMap((searchable, index): SessionHistorySearchEntry[] => {
-				if (!includedIndexes.has(index)) return [];
-				return [
-					{
-						id: searchable.entry.id,
-						timestamp: searchable.entry.timestamp,
-						entryType: searchable.entry.type as SessionHistorySearchEntry["entryType"],
-						role: searchable.role,
-						content: searchable.content,
-						matched: matchIndexSet.has(index),
-						compacted: !contextEntryIds.has(searchable.entry.id),
-					},
-				];
-			});
-			const nextOffset = cursor + pageMatchIndexes.length;
-			const nextCursor = nextOffset < allMatchIndexes.length ? String(nextOffset) : undefined;
+			const normalizedQuery = query.toLocaleLowerCase();
+			let totalMatches = 0;
+			for await (const searchable of readSearchableHistoryReverse(ctx.sessionManager, normalizedQuery)) {
+				if (searchable.matches) totalMatches++;
+			}
+			const returnedMatches = Math.min(params.limit ?? DEFAULT_LIMIT, Math.max(0, totalMatches - cursor));
+			const entries =
+				returnedMatches > 0 ? await readHistoryPage(ctx.sessionManager, normalizedQuery, totalMatches, params) : [];
+			const nextOffset = cursor + returnedMatches;
+			const nextCursor = nextOffset < totalMatches ? String(nextOffset) : undefined;
 			const details: SearchCurrentSessionHistoryToolDetails = {
 				query,
-				totalMatches: allMatchIndexes.length,
-				returnedMatches: pageMatchIndexes.length,
+				totalMatches,
+				returnedMatches,
 				nextCursor,
 				entries,
 			};
 			const text =
-				allMatchIndexes.length === 0
-					? "No matches found in current session history."
-					: JSON.stringify(details, null, 2);
+				totalMatches === 0 ? "No matches found in current session history." : JSON.stringify(details, null, 2);
 			return { content: [{ type: "text", text }], details };
 		},
 		renderCall(args, theme, context) {

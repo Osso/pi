@@ -1,0 +1,2790 @@
+{
+  "0-false": {
+    "header": {
+      "type": "session",
+      "version": 3,
+      "id": "load-parity",
+      "timestamp": "2026-10-20T00:00:00.000Z",
+      "cwd": "/repo",
+      "parentSession": "/parent.jsonl"
+    },
+    "entries": [
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "old-model",
+        "id": "entry-1",
+        "parentId": null,
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "high",
+        "id": "entry-2",
+        "parentId": "entry-1",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle historical café 🧭",
+          "timestamp": 1
+        },
+        "id": "entry-3",
+        "parentId": "entry-2",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle first retained",
+          "timestamp": 1
+        },
+        "id": "entry-4",
+        "parentId": "entry-3",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle middle",
+          "timestamp": 1
+        },
+        "id": "entry-5",
+        "parentId": "entry-4",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle abandoned branch",
+          "timestamp": 1
+        },
+        "id": "entry-6",
+        "parentId": "entry-3",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom_message",
+        "customType": "cwd_changed",
+        "content": "wrong cwd",
+        "details": {
+          "cwd": "/abandoned"
+        },
+        "display": true,
+        "id": "entry-7",
+        "parentId": "entry-6",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        "id": "entry-8",
+        "parentId": "entry-5",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "current-model",
+        "id": "entry-9",
+        "parentId": "entry-8",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "medium",
+        "id": "entry-10",
+        "parentId": "entry-9",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom",
+        "customType": "extension-state",
+        "data": {
+          "active": true
+        },
+        "id": "entry-11",
+        "parentId": "entry-10",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "label",
+        "targetId": "entry-8",
+        "label": "retained label",
+        "id": "entry-12",
+        "parentId": "entry-11",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        },
+        "id": "entry-13",
+        "parentId": "entry-12",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "branch": [
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "old-model",
+        "id": "entry-1",
+        "parentId": null,
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "high",
+        "id": "entry-2",
+        "parentId": "entry-1",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle historical café 🧭",
+          "timestamp": 1
+        },
+        "id": "entry-3",
+        "parentId": "entry-2",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle first retained",
+          "timestamp": 1
+        },
+        "id": "entry-4",
+        "parentId": "entry-3",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle middle",
+          "timestamp": 1
+        },
+        "id": "entry-5",
+        "parentId": "entry-4",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        "id": "entry-8",
+        "parentId": "entry-5",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "current-model",
+        "id": "entry-9",
+        "parentId": "entry-8",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "medium",
+        "id": "entry-10",
+        "parentId": "entry-9",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom",
+        "customType": "extension-state",
+        "data": {
+          "active": true
+        },
+        "id": "entry-11",
+        "parentId": "entry-10",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "label",
+        "targetId": "entry-8",
+        "label": "retained label",
+        "id": "entry-12",
+        "parentId": "entry-11",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        },
+        "id": "entry-13",
+        "parentId": "entry-12",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "contextEntries": [
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "old-model",
+        "id": "entry-1",
+        "parentId": null,
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "high",
+        "id": "entry-2",
+        "parentId": "entry-1",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle historical café 🧭",
+          "timestamp": 1
+        },
+        "id": "entry-3",
+        "parentId": "entry-2",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle first retained",
+          "timestamp": 1
+        },
+        "id": "entry-4",
+        "parentId": "entry-3",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle middle",
+          "timestamp": 1
+        },
+        "id": "entry-5",
+        "parentId": "entry-4",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        "id": "entry-8",
+        "parentId": "entry-5",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "current-model",
+        "id": "entry-9",
+        "parentId": "entry-8",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "medium",
+        "id": "entry-10",
+        "parentId": "entry-9",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom",
+        "customType": "extension-state",
+        "data": {
+          "active": true
+        },
+        "id": "entry-11",
+        "parentId": "entry-10",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "label",
+        "targetId": "entry-8",
+        "label": "retained label",
+        "id": "entry-12",
+        "parentId": "entry-11",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        },
+        "id": "entry-13",
+        "parentId": "entry-12",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "context": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "needle historical café 🧭",
+          "timestamp": 1
+        },
+        {
+          "role": "user",
+          "content": "needle first retained",
+          "timestamp": 1
+        },
+        {
+          "role": "user",
+          "content": "needle middle",
+          "timestamp": 1
+        },
+        {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        }
+      ],
+      "thinkingLevel": "medium",
+      "model": {
+        "provider": "openai",
+        "modelId": "current-model"
+      }
+    },
+    "tree": [
+      {
+        "entry": {
+          "type": "model_change",
+          "provider": "openai",
+          "modelId": "old-model",
+          "id": "entry-1",
+          "parentId": null,
+          "timestamp": "2026-10-20T00:00:00.000Z"
+        },
+        "children": [
+          {
+            "entry": {
+              "type": "thinking_level_change",
+              "thinkingLevel": "high",
+              "id": "entry-2",
+              "parentId": "entry-1",
+              "timestamp": "2026-10-20T00:00:00.000Z"
+            },
+            "children": [
+              {
+                "entry": {
+                  "type": "message",
+                  "message": {
+                    "role": "user",
+                    "content": "needle historical café 🧭",
+                    "timestamp": 1
+                  },
+                  "id": "entry-3",
+                  "parentId": "entry-2",
+                  "timestamp": "2026-10-20T00:00:00.000Z"
+                },
+                "children": [
+                  {
+                    "entry": {
+                      "type": "message",
+                      "message": {
+                        "role": "user",
+                        "content": "needle first retained",
+                        "timestamp": 1
+                      },
+                      "id": "entry-4",
+                      "parentId": "entry-3",
+                      "timestamp": "2026-10-20T00:00:00.000Z"
+                    },
+                    "children": [
+                      {
+                        "entry": {
+                          "type": "message",
+                          "message": {
+                            "role": "user",
+                            "content": "needle middle",
+                            "timestamp": 1
+                          },
+                          "id": "entry-5",
+                          "parentId": "entry-4",
+                          "timestamp": "2026-10-20T00:00:00.000Z"
+                        },
+                        "children": [
+                          {
+                            "entry": {
+                              "type": "message",
+                              "message": {
+                                "role": "user",
+                                "content": "needle second retained",
+                                "timestamp": 1
+                              },
+                              "id": "entry-8",
+                              "parentId": "entry-5",
+                              "timestamp": "2026-10-20T00:00:00.000Z"
+                            },
+                            "children": [
+                              {
+                                "entry": {
+                                  "type": "model_change",
+                                  "provider": "openai",
+                                  "modelId": "current-model",
+                                  "id": "entry-9",
+                                  "parentId": "entry-8",
+                                  "timestamp": "2026-10-20T00:00:00.000Z"
+                                },
+                                "children": [
+                                  {
+                                    "entry": {
+                                      "type": "thinking_level_change",
+                                      "thinkingLevel": "medium",
+                                      "id": "entry-10",
+                                      "parentId": "entry-9",
+                                      "timestamp": "2026-10-20T00:00:00.000Z"
+                                    },
+                                    "children": [
+                                      {
+                                        "entry": {
+                                          "type": "custom",
+                                          "customType": "extension-state",
+                                          "data": {
+                                            "active": true
+                                          },
+                                          "id": "entry-11",
+                                          "parentId": "entry-10",
+                                          "timestamp": "2026-10-20T00:00:00.000Z"
+                                        },
+                                        "children": [
+                                          {
+                                            "entry": {
+                                              "type": "label",
+                                              "targetId": "entry-8",
+                                              "label": "retained label",
+                                              "id": "entry-12",
+                                              "parentId": "entry-11",
+                                              "timestamp": "2026-10-20T00:00:00.000Z"
+                                            },
+                                            "children": [
+                                              {
+                                                "entry": {
+                                                  "type": "message",
+                                                  "message": {
+                                                    "role": "user",
+                                                    "content": "needle current",
+                                                    "timestamp": 1
+                                                  },
+                                                  "id": "entry-13",
+                                                  "parentId": "entry-12",
+                                                  "timestamp": "2026-10-20T00:00:00.000Z"
+                                                },
+                                                "children": []
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ],
+                            "label": "retained label",
+                            "labelTimestamp": "2026-10-20T00:00:00.000Z"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "entry": {
+                      "type": "message",
+                      "message": {
+                        "role": "user",
+                        "content": "needle abandoned branch",
+                        "timestamp": 1
+                      },
+                      "id": "entry-6",
+                      "parentId": "entry-3",
+                      "timestamp": "2026-10-20T00:00:00.000Z"
+                    },
+                    "children": [
+                      {
+                        "entry": {
+                          "type": "custom_message",
+                          "customType": "cwd_changed",
+                          "content": "wrong cwd",
+                          "details": {
+                            "cwd": "/abandoned"
+                          },
+                          "display": true,
+                          "id": "entry-7",
+                          "parentId": "entry-6",
+                          "timestamp": "2026-10-20T00:00:00.000Z"
+                        },
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "leaf": {
+      "type": "message",
+      "message": {
+        "role": "user",
+        "content": "needle current",
+        "timestamp": 1
+      },
+      "id": "entry-13",
+      "parentId": "entry-12",
+      "timestamp": "2026-10-20T00:00:00.000Z"
+    },
+    "cwd": "/repo",
+    "hasName": false
+  },
+  "0-true": {
+    "header": {
+      "type": "session",
+      "version": 3,
+      "id": "load-parity",
+      "timestamp": "2026-10-20T00:00:00.000Z",
+      "cwd": "/repo",
+      "parentSession": "/parent.jsonl"
+    },
+    "entries": [
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "old-model",
+        "id": "entry-1",
+        "parentId": null,
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "high",
+        "id": "entry-2",
+        "parentId": "entry-1",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle historical café 🧭",
+          "timestamp": 1
+        },
+        "id": "entry-3",
+        "parentId": "entry-2",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom_message",
+        "customType": "cwd_changed",
+        "content": "cwd changed",
+        "details": {
+          "cwd": "/relocated"
+        },
+        "display": true,
+        "id": "entry-4",
+        "parentId": "entry-3",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle first retained",
+          "timestamp": 1
+        },
+        "id": "entry-5",
+        "parentId": "entry-4",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle middle",
+          "timestamp": 1
+        },
+        "id": "entry-6",
+        "parentId": "entry-5",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle abandoned branch",
+          "timestamp": 1
+        },
+        "id": "entry-7",
+        "parentId": "entry-3",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom_message",
+        "customType": "cwd_changed",
+        "content": "wrong cwd",
+        "details": {
+          "cwd": "/abandoned"
+        },
+        "display": true,
+        "id": "entry-8",
+        "parentId": "entry-7",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        "id": "entry-9",
+        "parentId": "entry-6",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "current-model",
+        "id": "entry-10",
+        "parentId": "entry-9",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "medium",
+        "id": "entry-11",
+        "parentId": "entry-10",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom",
+        "customType": "extension-state",
+        "data": {
+          "active": true
+        },
+        "id": "entry-12",
+        "parentId": "entry-11",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "label",
+        "targetId": "entry-9",
+        "label": "retained label",
+        "id": "entry-13",
+        "parentId": "entry-12",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        },
+        "id": "entry-14",
+        "parentId": "entry-13",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "branch": [
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "old-model",
+        "id": "entry-1",
+        "parentId": null,
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "high",
+        "id": "entry-2",
+        "parentId": "entry-1",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle historical café 🧭",
+          "timestamp": 1
+        },
+        "id": "entry-3",
+        "parentId": "entry-2",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom_message",
+        "customType": "cwd_changed",
+        "content": "cwd changed",
+        "details": {
+          "cwd": "/relocated"
+        },
+        "display": true,
+        "id": "entry-4",
+        "parentId": "entry-3",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle first retained",
+          "timestamp": 1
+        },
+        "id": "entry-5",
+        "parentId": "entry-4",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle middle",
+          "timestamp": 1
+        },
+        "id": "entry-6",
+        "parentId": "entry-5",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        "id": "entry-9",
+        "parentId": "entry-6",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "current-model",
+        "id": "entry-10",
+        "parentId": "entry-9",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "medium",
+        "id": "entry-11",
+        "parentId": "entry-10",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom",
+        "customType": "extension-state",
+        "data": {
+          "active": true
+        },
+        "id": "entry-12",
+        "parentId": "entry-11",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "label",
+        "targetId": "entry-9",
+        "label": "retained label",
+        "id": "entry-13",
+        "parentId": "entry-12",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        },
+        "id": "entry-14",
+        "parentId": "entry-13",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "contextEntries": [
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "old-model",
+        "id": "entry-1",
+        "parentId": null,
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "high",
+        "id": "entry-2",
+        "parentId": "entry-1",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle historical café 🧭",
+          "timestamp": 1
+        },
+        "id": "entry-3",
+        "parentId": "entry-2",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom_message",
+        "customType": "cwd_changed",
+        "content": "cwd changed",
+        "details": {
+          "cwd": "/relocated"
+        },
+        "display": true,
+        "id": "entry-4",
+        "parentId": "entry-3",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle first retained",
+          "timestamp": 1
+        },
+        "id": "entry-5",
+        "parentId": "entry-4",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle middle",
+          "timestamp": 1
+        },
+        "id": "entry-6",
+        "parentId": "entry-5",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        "id": "entry-9",
+        "parentId": "entry-6",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "current-model",
+        "id": "entry-10",
+        "parentId": "entry-9",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "medium",
+        "id": "entry-11",
+        "parentId": "entry-10",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom",
+        "customType": "extension-state",
+        "data": {
+          "active": true
+        },
+        "id": "entry-12",
+        "parentId": "entry-11",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "label",
+        "targetId": "entry-9",
+        "label": "retained label",
+        "id": "entry-13",
+        "parentId": "entry-12",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        },
+        "id": "entry-14",
+        "parentId": "entry-13",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "context": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "needle historical café 🧭",
+          "timestamp": 1
+        },
+        {
+          "role": "custom",
+          "customType": "cwd_changed",
+          "content": "cwd changed",
+          "display": true,
+          "details": {
+            "cwd": "/relocated"
+          },
+          "timestamp": 1792454400000
+        },
+        {
+          "role": "user",
+          "content": "needle first retained",
+          "timestamp": 1
+        },
+        {
+          "role": "user",
+          "content": "needle middle",
+          "timestamp": 1
+        },
+        {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        }
+      ],
+      "thinkingLevel": "medium",
+      "model": {
+        "provider": "openai",
+        "modelId": "current-model"
+      }
+    },
+    "tree": [
+      {
+        "entry": {
+          "type": "model_change",
+          "provider": "openai",
+          "modelId": "old-model",
+          "id": "entry-1",
+          "parentId": null,
+          "timestamp": "2026-10-20T00:00:00.000Z"
+        },
+        "children": [
+          {
+            "entry": {
+              "type": "thinking_level_change",
+              "thinkingLevel": "high",
+              "id": "entry-2",
+              "parentId": "entry-1",
+              "timestamp": "2026-10-20T00:00:00.000Z"
+            },
+            "children": [
+              {
+                "entry": {
+                  "type": "message",
+                  "message": {
+                    "role": "user",
+                    "content": "needle historical café 🧭",
+                    "timestamp": 1
+                  },
+                  "id": "entry-3",
+                  "parentId": "entry-2",
+                  "timestamp": "2026-10-20T00:00:00.000Z"
+                },
+                "children": [
+                  {
+                    "entry": {
+                      "type": "custom_message",
+                      "customType": "cwd_changed",
+                      "content": "cwd changed",
+                      "details": {
+                        "cwd": "/relocated"
+                      },
+                      "display": true,
+                      "id": "entry-4",
+                      "parentId": "entry-3",
+                      "timestamp": "2026-10-20T00:00:00.000Z"
+                    },
+                    "children": [
+                      {
+                        "entry": {
+                          "type": "message",
+                          "message": {
+                            "role": "user",
+                            "content": "needle first retained",
+                            "timestamp": 1
+                          },
+                          "id": "entry-5",
+                          "parentId": "entry-4",
+                          "timestamp": "2026-10-20T00:00:00.000Z"
+                        },
+                        "children": [
+                          {
+                            "entry": {
+                              "type": "message",
+                              "message": {
+                                "role": "user",
+                                "content": "needle middle",
+                                "timestamp": 1
+                              },
+                              "id": "entry-6",
+                              "parentId": "entry-5",
+                              "timestamp": "2026-10-20T00:00:00.000Z"
+                            },
+                            "children": [
+                              {
+                                "entry": {
+                                  "type": "message",
+                                  "message": {
+                                    "role": "user",
+                                    "content": "needle second retained",
+                                    "timestamp": 1
+                                  },
+                                  "id": "entry-9",
+                                  "parentId": "entry-6",
+                                  "timestamp": "2026-10-20T00:00:00.000Z"
+                                },
+                                "children": [
+                                  {
+                                    "entry": {
+                                      "type": "model_change",
+                                      "provider": "openai",
+                                      "modelId": "current-model",
+                                      "id": "entry-10",
+                                      "parentId": "entry-9",
+                                      "timestamp": "2026-10-20T00:00:00.000Z"
+                                    },
+                                    "children": [
+                                      {
+                                        "entry": {
+                                          "type": "thinking_level_change",
+                                          "thinkingLevel": "medium",
+                                          "id": "entry-11",
+                                          "parentId": "entry-10",
+                                          "timestamp": "2026-10-20T00:00:00.000Z"
+                                        },
+                                        "children": [
+                                          {
+                                            "entry": {
+                                              "type": "custom",
+                                              "customType": "extension-state",
+                                              "data": {
+                                                "active": true
+                                              },
+                                              "id": "entry-12",
+                                              "parentId": "entry-11",
+                                              "timestamp": "2026-10-20T00:00:00.000Z"
+                                            },
+                                            "children": [
+                                              {
+                                                "entry": {
+                                                  "type": "label",
+                                                  "targetId": "entry-9",
+                                                  "label": "retained label",
+                                                  "id": "entry-13",
+                                                  "parentId": "entry-12",
+                                                  "timestamp": "2026-10-20T00:00:00.000Z"
+                                                },
+                                                "children": [
+                                                  {
+                                                    "entry": {
+                                                      "type": "message",
+                                                      "message": {
+                                                        "role": "user",
+                                                        "content": "needle current",
+                                                        "timestamp": 1
+                                                      },
+                                                      "id": "entry-14",
+                                                      "parentId": "entry-13",
+                                                      "timestamp": "2026-10-20T00:00:00.000Z"
+                                                    },
+                                                    "children": []
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ],
+                                "label": "retained label",
+                                "labelTimestamp": "2026-10-20T00:00:00.000Z"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "entry": {
+                      "type": "message",
+                      "message": {
+                        "role": "user",
+                        "content": "needle abandoned branch",
+                        "timestamp": 1
+                      },
+                      "id": "entry-7",
+                      "parentId": "entry-3",
+                      "timestamp": "2026-10-20T00:00:00.000Z"
+                    },
+                    "children": [
+                      {
+                        "entry": {
+                          "type": "custom_message",
+                          "customType": "cwd_changed",
+                          "content": "wrong cwd",
+                          "details": {
+                            "cwd": "/abandoned"
+                          },
+                          "display": true,
+                          "id": "entry-8",
+                          "parentId": "entry-7",
+                          "timestamp": "2026-10-20T00:00:00.000Z"
+                        },
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "leaf": {
+      "type": "message",
+      "message": {
+        "role": "user",
+        "content": "needle current",
+        "timestamp": 1
+      },
+      "id": "entry-14",
+      "parentId": "entry-13",
+      "timestamp": "2026-10-20T00:00:00.000Z"
+    },
+    "cwd": "/repo",
+    "hasName": false
+  },
+  "1-false": {
+    "header": {
+      "type": "session",
+      "version": 3,
+      "id": "load-parity",
+      "timestamp": "2026-10-20T00:00:00.000Z",
+      "cwd": "/repo",
+      "parentSession": "/parent.jsonl"
+    },
+    "entries": [
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle first retained",
+          "timestamp": 1
+        },
+        "id": "entry-4",
+        "parentId": "entry-3",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "compaction",
+        "summary": "first summary",
+        "firstKeptEntryId": "entry-4",
+        "tokensBefore": 1000,
+        "id": "entry-5",
+        "parentId": "entry-4",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle middle",
+          "timestamp": 1
+        },
+        "id": "entry-6",
+        "parentId": "entry-5",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        "id": "entry-9",
+        "parentId": "entry-6",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "current-model",
+        "id": "entry-10",
+        "parentId": "entry-9",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "medium",
+        "id": "entry-11",
+        "parentId": "entry-10",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom",
+        "customType": "extension-state",
+        "data": {
+          "active": true
+        },
+        "id": "entry-12",
+        "parentId": "entry-11",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "label",
+        "targetId": "entry-9",
+        "label": "retained label",
+        "id": "entry-13",
+        "parentId": "entry-12",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        },
+        "id": "entry-14",
+        "parentId": "entry-13",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "branch": [
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle first retained",
+          "timestamp": 1
+        },
+        "id": "entry-4",
+        "parentId": "entry-3",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "compaction",
+        "summary": "first summary",
+        "firstKeptEntryId": "entry-4",
+        "tokensBefore": 1000,
+        "id": "entry-5",
+        "parentId": "entry-4",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle middle",
+          "timestamp": 1
+        },
+        "id": "entry-6",
+        "parentId": "entry-5",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        "id": "entry-9",
+        "parentId": "entry-6",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "current-model",
+        "id": "entry-10",
+        "parentId": "entry-9",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "medium",
+        "id": "entry-11",
+        "parentId": "entry-10",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom",
+        "customType": "extension-state",
+        "data": {
+          "active": true
+        },
+        "id": "entry-12",
+        "parentId": "entry-11",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "label",
+        "targetId": "entry-9",
+        "label": "retained label",
+        "id": "entry-13",
+        "parentId": "entry-12",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        },
+        "id": "entry-14",
+        "parentId": "entry-13",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "contextEntries": [
+      {
+        "type": "compaction",
+        "summary": "first summary",
+        "firstKeptEntryId": "entry-4",
+        "tokensBefore": 1000,
+        "id": "entry-5",
+        "parentId": "entry-4",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle first retained",
+          "timestamp": 1
+        },
+        "id": "entry-4",
+        "parentId": "entry-3",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle middle",
+          "timestamp": 1
+        },
+        "id": "entry-6",
+        "parentId": "entry-5",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        "id": "entry-9",
+        "parentId": "entry-6",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "current-model",
+        "id": "entry-10",
+        "parentId": "entry-9",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "medium",
+        "id": "entry-11",
+        "parentId": "entry-10",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom",
+        "customType": "extension-state",
+        "data": {
+          "active": true
+        },
+        "id": "entry-12",
+        "parentId": "entry-11",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "label",
+        "targetId": "entry-9",
+        "label": "retained label",
+        "id": "entry-13",
+        "parentId": "entry-12",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        },
+        "id": "entry-14",
+        "parentId": "entry-13",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "context": {
+      "messages": [
+        {
+          "role": "compactionSummary",
+          "summary": "first summary",
+          "tokensBefore": 1000,
+          "timestamp": 1792454400000
+        },
+        {
+          "role": "user",
+          "content": "needle first retained",
+          "timestamp": 1
+        },
+        {
+          "role": "user",
+          "content": "needle middle",
+          "timestamp": 1
+        },
+        {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        }
+      ],
+      "thinkingLevel": "medium",
+      "model": {
+        "provider": "openai",
+        "modelId": "current-model"
+      }
+    },
+    "tree": [
+      {
+        "entry": {
+          "type": "message",
+          "message": {
+            "role": "user",
+            "content": "needle first retained",
+            "timestamp": 1
+          },
+          "id": "entry-4",
+          "parentId": "entry-3",
+          "timestamp": "2026-10-20T00:00:00.000Z"
+        },
+        "children": [
+          {
+            "entry": {
+              "type": "compaction",
+              "summary": "first summary",
+              "firstKeptEntryId": "entry-4",
+              "tokensBefore": 1000,
+              "id": "entry-5",
+              "parentId": "entry-4",
+              "timestamp": "2026-10-20T00:00:00.000Z"
+            },
+            "children": [
+              {
+                "entry": {
+                  "type": "message",
+                  "message": {
+                    "role": "user",
+                    "content": "needle middle",
+                    "timestamp": 1
+                  },
+                  "id": "entry-6",
+                  "parentId": "entry-5",
+                  "timestamp": "2026-10-20T00:00:00.000Z"
+                },
+                "children": [
+                  {
+                    "entry": {
+                      "type": "message",
+                      "message": {
+                        "role": "user",
+                        "content": "needle second retained",
+                        "timestamp": 1
+                      },
+                      "id": "entry-9",
+                      "parentId": "entry-6",
+                      "timestamp": "2026-10-20T00:00:00.000Z"
+                    },
+                    "children": [
+                      {
+                        "entry": {
+                          "type": "model_change",
+                          "provider": "openai",
+                          "modelId": "current-model",
+                          "id": "entry-10",
+                          "parentId": "entry-9",
+                          "timestamp": "2026-10-20T00:00:00.000Z"
+                        },
+                        "children": [
+                          {
+                            "entry": {
+                              "type": "thinking_level_change",
+                              "thinkingLevel": "medium",
+                              "id": "entry-11",
+                              "parentId": "entry-10",
+                              "timestamp": "2026-10-20T00:00:00.000Z"
+                            },
+                            "children": [
+                              {
+                                "entry": {
+                                  "type": "custom",
+                                  "customType": "extension-state",
+                                  "data": {
+                                    "active": true
+                                  },
+                                  "id": "entry-12",
+                                  "parentId": "entry-11",
+                                  "timestamp": "2026-10-20T00:00:00.000Z"
+                                },
+                                "children": [
+                                  {
+                                    "entry": {
+                                      "type": "label",
+                                      "targetId": "entry-9",
+                                      "label": "retained label",
+                                      "id": "entry-13",
+                                      "parentId": "entry-12",
+                                      "timestamp": "2026-10-20T00:00:00.000Z"
+                                    },
+                                    "children": [
+                                      {
+                                        "entry": {
+                                          "type": "message",
+                                          "message": {
+                                            "role": "user",
+                                            "content": "needle current",
+                                            "timestamp": 1
+                                          },
+                                          "id": "entry-14",
+                                          "parentId": "entry-13",
+                                          "timestamp": "2026-10-20T00:00:00.000Z"
+                                        },
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    "label": "retained label",
+                    "labelTimestamp": "2026-10-20T00:00:00.000Z"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "leaf": {
+      "type": "message",
+      "message": {
+        "role": "user",
+        "content": "needle current",
+        "timestamp": 1
+      },
+      "id": "entry-14",
+      "parentId": "entry-13",
+      "timestamp": "2026-10-20T00:00:00.000Z"
+    },
+    "cwd": "/repo",
+    "hasName": false
+  },
+  "1-true": {
+    "header": {
+      "type": "session",
+      "version": 3,
+      "id": "load-parity",
+      "timestamp": "2026-10-20T00:00:00.000Z",
+      "cwd": "/repo",
+      "parentSession": "/parent.jsonl"
+    },
+    "entries": [
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle first retained",
+          "timestamp": 1
+        },
+        "id": "entry-5",
+        "parentId": "entry-4",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "compaction",
+        "summary": "first summary",
+        "firstKeptEntryId": "entry-5",
+        "tokensBefore": 1000,
+        "id": "entry-6",
+        "parentId": "entry-5",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle middle",
+          "timestamp": 1
+        },
+        "id": "entry-7",
+        "parentId": "entry-6",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        "id": "entry-10",
+        "parentId": "entry-7",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "current-model",
+        "id": "entry-11",
+        "parentId": "entry-10",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "medium",
+        "id": "entry-12",
+        "parentId": "entry-11",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom",
+        "customType": "extension-state",
+        "data": {
+          "active": true
+        },
+        "id": "entry-13",
+        "parentId": "entry-12",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "label",
+        "targetId": "entry-10",
+        "label": "retained label",
+        "id": "entry-14",
+        "parentId": "entry-13",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        },
+        "id": "entry-15",
+        "parentId": "entry-14",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "branch": [
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle first retained",
+          "timestamp": 1
+        },
+        "id": "entry-5",
+        "parentId": "entry-4",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "compaction",
+        "summary": "first summary",
+        "firstKeptEntryId": "entry-5",
+        "tokensBefore": 1000,
+        "id": "entry-6",
+        "parentId": "entry-5",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle middle",
+          "timestamp": 1
+        },
+        "id": "entry-7",
+        "parentId": "entry-6",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        "id": "entry-10",
+        "parentId": "entry-7",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "current-model",
+        "id": "entry-11",
+        "parentId": "entry-10",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "medium",
+        "id": "entry-12",
+        "parentId": "entry-11",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom",
+        "customType": "extension-state",
+        "data": {
+          "active": true
+        },
+        "id": "entry-13",
+        "parentId": "entry-12",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "label",
+        "targetId": "entry-10",
+        "label": "retained label",
+        "id": "entry-14",
+        "parentId": "entry-13",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        },
+        "id": "entry-15",
+        "parentId": "entry-14",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "contextEntries": [
+      {
+        "type": "compaction",
+        "summary": "first summary",
+        "firstKeptEntryId": "entry-5",
+        "tokensBefore": 1000,
+        "id": "entry-6",
+        "parentId": "entry-5",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle first retained",
+          "timestamp": 1
+        },
+        "id": "entry-5",
+        "parentId": "entry-4",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle middle",
+          "timestamp": 1
+        },
+        "id": "entry-7",
+        "parentId": "entry-6",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        "id": "entry-10",
+        "parentId": "entry-7",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "current-model",
+        "id": "entry-11",
+        "parentId": "entry-10",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "medium",
+        "id": "entry-12",
+        "parentId": "entry-11",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom",
+        "customType": "extension-state",
+        "data": {
+          "active": true
+        },
+        "id": "entry-13",
+        "parentId": "entry-12",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "label",
+        "targetId": "entry-10",
+        "label": "retained label",
+        "id": "entry-14",
+        "parentId": "entry-13",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        },
+        "id": "entry-15",
+        "parentId": "entry-14",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "context": {
+      "messages": [
+        {
+          "role": "compactionSummary",
+          "summary": "first summary",
+          "tokensBefore": 1000,
+          "timestamp": 1792454400000
+        },
+        {
+          "role": "user",
+          "content": "needle first retained",
+          "timestamp": 1
+        },
+        {
+          "role": "user",
+          "content": "needle middle",
+          "timestamp": 1
+        },
+        {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        }
+      ],
+      "thinkingLevel": "medium",
+      "model": {
+        "provider": "openai",
+        "modelId": "current-model"
+      }
+    },
+    "tree": [
+      {
+        "entry": {
+          "type": "message",
+          "message": {
+            "role": "user",
+            "content": "needle first retained",
+            "timestamp": 1
+          },
+          "id": "entry-5",
+          "parentId": "entry-4",
+          "timestamp": "2026-10-20T00:00:00.000Z"
+        },
+        "children": [
+          {
+            "entry": {
+              "type": "compaction",
+              "summary": "first summary",
+              "firstKeptEntryId": "entry-5",
+              "tokensBefore": 1000,
+              "id": "entry-6",
+              "parentId": "entry-5",
+              "timestamp": "2026-10-20T00:00:00.000Z"
+            },
+            "children": [
+              {
+                "entry": {
+                  "type": "message",
+                  "message": {
+                    "role": "user",
+                    "content": "needle middle",
+                    "timestamp": 1
+                  },
+                  "id": "entry-7",
+                  "parentId": "entry-6",
+                  "timestamp": "2026-10-20T00:00:00.000Z"
+                },
+                "children": [
+                  {
+                    "entry": {
+                      "type": "message",
+                      "message": {
+                        "role": "user",
+                        "content": "needle second retained",
+                        "timestamp": 1
+                      },
+                      "id": "entry-10",
+                      "parentId": "entry-7",
+                      "timestamp": "2026-10-20T00:00:00.000Z"
+                    },
+                    "children": [
+                      {
+                        "entry": {
+                          "type": "model_change",
+                          "provider": "openai",
+                          "modelId": "current-model",
+                          "id": "entry-11",
+                          "parentId": "entry-10",
+                          "timestamp": "2026-10-20T00:00:00.000Z"
+                        },
+                        "children": [
+                          {
+                            "entry": {
+                              "type": "thinking_level_change",
+                              "thinkingLevel": "medium",
+                              "id": "entry-12",
+                              "parentId": "entry-11",
+                              "timestamp": "2026-10-20T00:00:00.000Z"
+                            },
+                            "children": [
+                              {
+                                "entry": {
+                                  "type": "custom",
+                                  "customType": "extension-state",
+                                  "data": {
+                                    "active": true
+                                  },
+                                  "id": "entry-13",
+                                  "parentId": "entry-12",
+                                  "timestamp": "2026-10-20T00:00:00.000Z"
+                                },
+                                "children": [
+                                  {
+                                    "entry": {
+                                      "type": "label",
+                                      "targetId": "entry-10",
+                                      "label": "retained label",
+                                      "id": "entry-14",
+                                      "parentId": "entry-13",
+                                      "timestamp": "2026-10-20T00:00:00.000Z"
+                                    },
+                                    "children": [
+                                      {
+                                        "entry": {
+                                          "type": "message",
+                                          "message": {
+                                            "role": "user",
+                                            "content": "needle current",
+                                            "timestamp": 1
+                                          },
+                                          "id": "entry-15",
+                                          "parentId": "entry-14",
+                                          "timestamp": "2026-10-20T00:00:00.000Z"
+                                        },
+                                        "children": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ],
+                    "label": "retained label",
+                    "labelTimestamp": "2026-10-20T00:00:00.000Z"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "leaf": {
+      "type": "message",
+      "message": {
+        "role": "user",
+        "content": "needle current",
+        "timestamp": 1
+      },
+      "id": "entry-15",
+      "parentId": "entry-14",
+      "timestamp": "2026-10-20T00:00:00.000Z"
+    },
+    "cwd": "/relocated",
+    "hasName": false
+  },
+  "2-false": {
+    "header": {
+      "type": "session",
+      "version": 3,
+      "id": "load-parity",
+      "timestamp": "2026-10-20T00:00:00.000Z",
+      "cwd": "/repo",
+      "parentSession": "/parent.jsonl"
+    },
+    "entries": [
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        "id": "entry-9",
+        "parentId": "entry-6",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "compaction",
+        "summary": "second summary",
+        "firstKeptEntryId": "entry-9",
+        "tokensBefore": 2000,
+        "id": "entry-10",
+        "parentId": "entry-9",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "current-model",
+        "id": "entry-11",
+        "parentId": "entry-10",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "medium",
+        "id": "entry-12",
+        "parentId": "entry-11",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom",
+        "customType": "extension-state",
+        "data": {
+          "active": true
+        },
+        "id": "entry-13",
+        "parentId": "entry-12",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "label",
+        "targetId": "entry-9",
+        "label": "retained label",
+        "id": "entry-14",
+        "parentId": "entry-13",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        },
+        "id": "entry-15",
+        "parentId": "entry-14",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "branch": [
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        "id": "entry-9",
+        "parentId": "entry-6",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "compaction",
+        "summary": "second summary",
+        "firstKeptEntryId": "entry-9",
+        "tokensBefore": 2000,
+        "id": "entry-10",
+        "parentId": "entry-9",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "current-model",
+        "id": "entry-11",
+        "parentId": "entry-10",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "medium",
+        "id": "entry-12",
+        "parentId": "entry-11",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom",
+        "customType": "extension-state",
+        "data": {
+          "active": true
+        },
+        "id": "entry-13",
+        "parentId": "entry-12",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "label",
+        "targetId": "entry-9",
+        "label": "retained label",
+        "id": "entry-14",
+        "parentId": "entry-13",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        },
+        "id": "entry-15",
+        "parentId": "entry-14",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "contextEntries": [
+      {
+        "type": "compaction",
+        "summary": "second summary",
+        "firstKeptEntryId": "entry-9",
+        "tokensBefore": 2000,
+        "id": "entry-10",
+        "parentId": "entry-9",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        "id": "entry-9",
+        "parentId": "entry-6",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "current-model",
+        "id": "entry-11",
+        "parentId": "entry-10",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "medium",
+        "id": "entry-12",
+        "parentId": "entry-11",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom",
+        "customType": "extension-state",
+        "data": {
+          "active": true
+        },
+        "id": "entry-13",
+        "parentId": "entry-12",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "label",
+        "targetId": "entry-9",
+        "label": "retained label",
+        "id": "entry-14",
+        "parentId": "entry-13",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        },
+        "id": "entry-15",
+        "parentId": "entry-14",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "context": {
+      "messages": [
+        {
+          "role": "compactionSummary",
+          "summary": "second summary",
+          "tokensBefore": 2000,
+          "timestamp": 1792454400000
+        },
+        {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        }
+      ],
+      "thinkingLevel": "medium",
+      "model": {
+        "provider": "openai",
+        "modelId": "current-model"
+      }
+    },
+    "tree": [
+      {
+        "entry": {
+          "type": "message",
+          "message": {
+            "role": "user",
+            "content": "needle second retained",
+            "timestamp": 1
+          },
+          "id": "entry-9",
+          "parentId": "entry-6",
+          "timestamp": "2026-10-20T00:00:00.000Z"
+        },
+        "children": [
+          {
+            "entry": {
+              "type": "compaction",
+              "summary": "second summary",
+              "firstKeptEntryId": "entry-9",
+              "tokensBefore": 2000,
+              "id": "entry-10",
+              "parentId": "entry-9",
+              "timestamp": "2026-10-20T00:00:00.000Z"
+            },
+            "children": [
+              {
+                "entry": {
+                  "type": "model_change",
+                  "provider": "openai",
+                  "modelId": "current-model",
+                  "id": "entry-11",
+                  "parentId": "entry-10",
+                  "timestamp": "2026-10-20T00:00:00.000Z"
+                },
+                "children": [
+                  {
+                    "entry": {
+                      "type": "thinking_level_change",
+                      "thinkingLevel": "medium",
+                      "id": "entry-12",
+                      "parentId": "entry-11",
+                      "timestamp": "2026-10-20T00:00:00.000Z"
+                    },
+                    "children": [
+                      {
+                        "entry": {
+                          "type": "custom",
+                          "customType": "extension-state",
+                          "data": {
+                            "active": true
+                          },
+                          "id": "entry-13",
+                          "parentId": "entry-12",
+                          "timestamp": "2026-10-20T00:00:00.000Z"
+                        },
+                        "children": [
+                          {
+                            "entry": {
+                              "type": "label",
+                              "targetId": "entry-9",
+                              "label": "retained label",
+                              "id": "entry-14",
+                              "parentId": "entry-13",
+                              "timestamp": "2026-10-20T00:00:00.000Z"
+                            },
+                            "children": [
+                              {
+                                "entry": {
+                                  "type": "message",
+                                  "message": {
+                                    "role": "user",
+                                    "content": "needle current",
+                                    "timestamp": 1
+                                  },
+                                  "id": "entry-15",
+                                  "parentId": "entry-14",
+                                  "timestamp": "2026-10-20T00:00:00.000Z"
+                                },
+                                "children": []
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "label": "retained label",
+        "labelTimestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "leaf": {
+      "type": "message",
+      "message": {
+        "role": "user",
+        "content": "needle current",
+        "timestamp": 1
+      },
+      "id": "entry-15",
+      "parentId": "entry-14",
+      "timestamp": "2026-10-20T00:00:00.000Z"
+    },
+    "cwd": "/repo",
+    "hasName": false
+  },
+  "2-true": {
+    "header": {
+      "type": "session",
+      "version": 3,
+      "id": "load-parity",
+      "timestamp": "2026-10-20T00:00:00.000Z",
+      "cwd": "/repo",
+      "parentSession": "/parent.jsonl"
+    },
+    "entries": [
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        "id": "entry-10",
+        "parentId": "entry-7",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "compaction",
+        "summary": "second summary",
+        "firstKeptEntryId": "entry-10",
+        "tokensBefore": 2000,
+        "id": "entry-11",
+        "parentId": "entry-10",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "current-model",
+        "id": "entry-12",
+        "parentId": "entry-11",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "medium",
+        "id": "entry-13",
+        "parentId": "entry-12",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom",
+        "customType": "extension-state",
+        "data": {
+          "active": true
+        },
+        "id": "entry-14",
+        "parentId": "entry-13",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "label",
+        "targetId": "entry-10",
+        "label": "retained label",
+        "id": "entry-15",
+        "parentId": "entry-14",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        },
+        "id": "entry-16",
+        "parentId": "entry-15",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "branch": [
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        "id": "entry-10",
+        "parentId": "entry-7",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "compaction",
+        "summary": "second summary",
+        "firstKeptEntryId": "entry-10",
+        "tokensBefore": 2000,
+        "id": "entry-11",
+        "parentId": "entry-10",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "current-model",
+        "id": "entry-12",
+        "parentId": "entry-11",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "medium",
+        "id": "entry-13",
+        "parentId": "entry-12",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom",
+        "customType": "extension-state",
+        "data": {
+          "active": true
+        },
+        "id": "entry-14",
+        "parentId": "entry-13",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "label",
+        "targetId": "entry-10",
+        "label": "retained label",
+        "id": "entry-15",
+        "parentId": "entry-14",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        },
+        "id": "entry-16",
+        "parentId": "entry-15",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "contextEntries": [
+      {
+        "type": "compaction",
+        "summary": "second summary",
+        "firstKeptEntryId": "entry-10",
+        "tokensBefore": 2000,
+        "id": "entry-11",
+        "parentId": "entry-10",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        "id": "entry-10",
+        "parentId": "entry-7",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "model_change",
+        "provider": "openai",
+        "modelId": "current-model",
+        "id": "entry-12",
+        "parentId": "entry-11",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "thinking_level_change",
+        "thinkingLevel": "medium",
+        "id": "entry-13",
+        "parentId": "entry-12",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "custom",
+        "customType": "extension-state",
+        "data": {
+          "active": true
+        },
+        "id": "entry-14",
+        "parentId": "entry-13",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "label",
+        "targetId": "entry-10",
+        "label": "retained label",
+        "id": "entry-15",
+        "parentId": "entry-14",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      },
+      {
+        "type": "message",
+        "message": {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        },
+        "id": "entry-16",
+        "parentId": "entry-15",
+        "timestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "context": {
+      "messages": [
+        {
+          "role": "compactionSummary",
+          "summary": "second summary",
+          "tokensBefore": 2000,
+          "timestamp": 1792454400000
+        },
+        {
+          "role": "user",
+          "content": "needle second retained",
+          "timestamp": 1
+        },
+        {
+          "role": "user",
+          "content": "needle current",
+          "timestamp": 1
+        }
+      ],
+      "thinkingLevel": "medium",
+      "model": {
+        "provider": "openai",
+        "modelId": "current-model"
+      }
+    },
+    "tree": [
+      {
+        "entry": {
+          "type": "message",
+          "message": {
+            "role": "user",
+            "content": "needle second retained",
+            "timestamp": 1
+          },
+          "id": "entry-10",
+          "parentId": "entry-7",
+          "timestamp": "2026-10-20T00:00:00.000Z"
+        },
+        "children": [
+          {
+            "entry": {
+              "type": "compaction",
+              "summary": "second summary",
+              "firstKeptEntryId": "entry-10",
+              "tokensBefore": 2000,
+              "id": "entry-11",
+              "parentId": "entry-10",
+              "timestamp": "2026-10-20T00:00:00.000Z"
+            },
+            "children": [
+              {
+                "entry": {
+                  "type": "model_change",
+                  "provider": "openai",
+                  "modelId": "current-model",
+                  "id": "entry-12",
+                  "parentId": "entry-11",
+                  "timestamp": "2026-10-20T00:00:00.000Z"
+                },
+                "children": [
+                  {
+                    "entry": {
+                      "type": "thinking_level_change",
+                      "thinkingLevel": "medium",
+                      "id": "entry-13",
+                      "parentId": "entry-12",
+                      "timestamp": "2026-10-20T00:00:00.000Z"
+                    },
+                    "children": [
+                      {
+                        "entry": {
+                          "type": "custom",
+                          "customType": "extension-state",
+                          "data": {
+                            "active": true
+                          },
+                          "id": "entry-14",
+                          "parentId": "entry-13",
+                          "timestamp": "2026-10-20T00:00:00.000Z"
+                        },
+                        "children": [
+                          {
+                            "entry": {
+                              "type": "label",
+                              "targetId": "entry-10",
+                              "label": "retained label",
+                              "id": "entry-15",
+                              "parentId": "entry-14",
+                              "timestamp": "2026-10-20T00:00:00.000Z"
+                            },
+                            "children": [
+                              {
+                                "entry": {
+                                  "type": "message",
+                                  "message": {
+                                    "role": "user",
+                                    "content": "needle current",
+                                    "timestamp": 1
+                                  },
+                                  "id": "entry-16",
+                                  "parentId": "entry-15",
+                                  "timestamp": "2026-10-20T00:00:00.000Z"
+                                },
+                                "children": []
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "label": "retained label",
+        "labelTimestamp": "2026-10-20T00:00:00.000Z"
+      }
+    ],
+    "leaf": {
+      "type": "message",
+      "message": {
+        "role": "user",
+        "content": "needle current",
+        "timestamp": 1
+      },
+      "id": "entry-16",
+      "parentId": "entry-15",
+      "timestamp": "2026-10-20T00:00:00.000Z"
+    },
+    "cwd": "/relocated",
+    "hasName": false
+  }
+}

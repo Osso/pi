@@ -26,4 +26,14 @@ Session deletion resolves transitive descendants with one indexed lookup, invoke
 
 Automatic archives have the same visibility and restore semantics as manual ones. Read-only callers use `SessionManager.openReadOnly` or `session-transcript.ts`; they do not clear archive state. Writable resume/attach restore first. Literal old `.jsonl` references resolve to `.jsonl.zst` only when the plain file is missing. The seven repository stats/transcript scripts use the same decoding helpers. External reader deployment prerequisites are tracked in the [spec](../../specs/session-archive.md#known-gaps-current-cycle).
 
+## Bounded session opening
+
+Current-version archived opens use the same active-slice loader as plain opens. The child-agent viewer, HTML/terminal exports, history-search input, and forks therefore receive the same loaded entries, context, and tree for either format; SQLite settings and goal references remain separate. `loadEntriesFromFile` still explicitly returns the full transcript.
+
+The reverse scanner retains only active ancestors while locating the latest compaction and its preceding cwd marker, never summarized payloads or discarded branches. For an uncompacted tree with inactive branches, a second forward read preserves the original full-tree behavior; linear histories reuse the scanned path. Memory scales with retained state, read chunks, and the largest record, not the summarized prefix.
+
+`session-transcript-spool.ts` bridges the synchronous manager API to the existing asynchronous zstd stream in a worker. A private temporary plain file permits the same reverse scan; success, decoding errors, and reader exceptions remove it without restoring the archive or changing metadata. Decompression has a 90-second completion bound; disk space proportional to decoded size is required. Full-entry/header archive readers share this bridge rather than allocating a complete decompressed Buffer.
+
+`session-load-parity.test.ts` compares six complete state snapshots captured from the original plain loader at `af8182e1f`, plus caller outputs and SQLite metadata. `session-load-memory.test.ts` generates a 500+ MiB transcript and measures kernel peak RSS in fresh child processes, with a 256 MiB bound for both formats. For a pre-activation compiled-runtime check, run `node scripts/smoke-archived-session-open.mjs /path/to/compiled/pi`; it verifies the exported loaded entry IDs, unchanged archive, and empty temporary spool directory using isolated Pi paths.
+
 See [`docs/specs/session-archive.md`](../../specs/session-archive.md) for the contract and test coverage.
