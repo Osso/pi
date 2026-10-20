@@ -95,6 +95,35 @@ const writeCases: WriteCase[] = [
 	},
 ];
 
+type SetupWritePath = "custom entry" | "message" | "custom message" | "compaction" | "branch summary";
+
+function appendSetupEntry(sm: SessionManager, path: SetupWritePath, payload: Payload): void {
+	const root = sm.appendMessage(fauxAssistantMessage("root"));
+	switch (path) {
+		case "custom entry":
+			sm.appendCustomEntry("plan-mode", payload.details);
+			return;
+		case "message":
+			sm.appendMessage({
+				role: "toolResult",
+				toolName: "plan",
+				toolCallId: "plan",
+				isError: false,
+				timestamp: 1,
+				...payload,
+			});
+			return;
+		case "custom message":
+			sm.appendCustomMessageEntry("plan-mode", payload.content, true, payload.details);
+			return;
+		case "compaction":
+			sm.appendCompaction("written", root, 100, payload.details);
+			return;
+		case "branch summary":
+			sm.branchWithSummary(root, "written", payload.details);
+	}
+}
+
 function finalResponse() {
 	return fauxAssistantMessage([fauxToolCall("end_turn", { reason: "done" })], { stopReason: "toolUse" });
 }
@@ -296,23 +325,7 @@ describe("session entry write isolation", () => {
 					},
 				});
 				await harness.session.extensionRunner.createCommandContext().newSession({
-					setup: async (sm: SessionManager) => {
-						const root = sm.appendMessage(fauxAssistantMessage("root"));
-						if (path === "custom entry") sm.appendCustomEntry("plan-mode", payload.details);
-						if (path === "message")
-							sm.appendMessage({
-								role: "toolResult",
-								toolName: "plan",
-								toolCallId: "plan",
-								isError: false,
-								timestamp: 1,
-								...payload,
-							});
-						if (path === "custom message")
-							sm.appendCustomMessageEntry("plan-mode", payload.content, true, payload.details);
-						if (path === "compaction") sm.appendCompaction("written", root, 100, payload.details);
-						if (path === "branch summary") sm.branchWithSummary(root, "written", payload.details);
-					},
+					setup: async (sm) => appendSetupEntry(sm, path, payload),
 				});
 				const entries = structuredClone(harness.sessionManager.getEntries());
 				expect(JSON.stringify(entries)).toContain("written");
