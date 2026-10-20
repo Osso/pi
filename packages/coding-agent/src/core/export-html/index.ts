@@ -7,6 +7,7 @@ import { normalizePath, resolvePath } from "../../utils/paths.ts";
 import type { ToolDefinition } from "../extensions/types.ts";
 import type { SessionEntry } from "../session-manager.ts";
 import { SessionManager } from "../session-manager.ts";
+import { readSessionTranscriptPath } from "../session-transcript.ts";
 
 /**
  * Interface for rendering custom tools to HTML.
@@ -287,14 +288,13 @@ export async function exportSessionToHtml(
  */
 export async function exportFromFile(inputPath: string, options?: ExportOptions | string): Promise<string> {
 	const opts: ExportOptions = typeof options === "string" ? { outputPath: options } : options || {};
-	const resolvedInputPath = resolvePath(inputPath);
+	const resolvedInputPath = readSessionTranscriptPath(resolvePath(inputPath));
 
 	if (!existsSync(resolvedInputPath)) {
 		throw new Error(`File not found: ${resolvedInputPath}`);
 	}
 
-	const sm = SessionManager.open(resolvedInputPath);
-
+	const sm = SessionManager.openReadOnly(resolvedInputPath);
 	const sessionData: SessionData = {
 		header: sm.getHeader(),
 		entries: sm.getEntries(),

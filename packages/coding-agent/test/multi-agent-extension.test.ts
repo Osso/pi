@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
@@ -52,6 +52,7 @@ import {
 	ENV_SELF_RESTART_PROMPT,
 	ENV_SELF_RESTART_SESSION,
 } from "../src/core/self-restart.ts";
+import { archiveSessionFile } from "../src/core/session-archive-storage.ts";
 import {
 	createMultiAgentChildWithRuntimeOwnership,
 	enqueueRuntimeMailboxMessage,
@@ -1039,6 +1040,39 @@ describe("multi-agent extension tools", () => {
 			});
 
 			expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
+		} finally {
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
+	it("attaches an archived transcript by explicit path without changing its identity", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-attach-archive-"));
+		try {
+			const saved = SessionManager.create(tempDir, tempDir);
+			saved.appendMessage({ role: "user", content: "archived attach needle", timestamp: 1 });
+			saved.persistForRecovery();
+			const archivedPath = archiveSessionFile(saved.getSessionFile()!);
+			const supervisor = SessionManager.create(tempDir, tempDir);
+			const controlDbPath = getControlDbPath(tempDir);
+			supervisor.setMetadataControlDbPath(controlDbPath);
+			const store = new MultiAgentStore();
+			store.setPersistenceSessionManager(supervisor);
+			const harness = createMultiAgentHarness({
+				store,
+				ctx: { controlDbPath, sessionManager: supervisor },
+				createAttachedSession: async ({ agent }) => ({
+					messages: [],
+					prompt: async () => {},
+					transcript: agent.transcript,
+				}),
+			});
+			const attached = await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+				path: archivedPath,
+				prompt: "Continue",
+			});
+			expect(attached.details.agent.transcript?.sessionId).toBe(saved.getSessionId());
+			expect(existsSync(archivedPath)).toBe(false);
+			expect(readFileSync(saved.getSessionFile()!, "utf8")).toContain("archived attach needle");
 		} finally {
 			rmSync(tempDir, { force: true, recursive: true });
 		}

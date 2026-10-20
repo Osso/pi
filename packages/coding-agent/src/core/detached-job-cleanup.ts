@@ -254,7 +254,7 @@ function readDirectoryByteSize(directoryPath: string, errors: string[]): number 
 	}
 }
 
-function readLinuxProcessReferences(): Set<string> | undefined {
+export function readLinuxProcessReferences(): Set<string> | undefined {
 	if (process.platform !== "linux" || !existsSync("/proc")) return undefined;
 	const references = new Set<string>();
 	for (const processEntry of readdirSync("/proc", { withFileTypes: true })) {

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import * as fs from "node:fs";
+import { readSessionHeader } from "../../../src/core/session-manager.ts";
 import type {
 	AgentEndEvent,
 	AgentToolResult,
@@ -96,13 +96,7 @@ function readCurrentBranch(cwd: string): string {
 }
 
 function sessionIdFromSessionFile(sessionFile: string): string | null {
-	try {
-		const [firstLine] = fs.readFileSync(sessionFile, "utf8").split("\n", 1);
-		const entry = JSON.parse(firstLine ?? "");
-		return isRecord(entry) ? (optionalString(entry.id) ?? null) : null;
-	} catch {
-		return null;
-	}
+	return readSessionHeader(sessionFile)?.id ?? null;
 }
 
 function isGoalInheritanceEvent(

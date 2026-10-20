@@ -68,6 +68,7 @@ import {
 	takeRuntimeMailboxMessagesForDelivery,
 } from "../../../src/core/session-control-db.ts";
 import { SessionManager, type SessionEntry, type SessionInfo } from "../../../src/core/session-manager.ts";
+import { restoreArchivedSession } from "../../../src/core/session-archive-storage.ts";
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
 import { createAgentConfigReadToolDefinition } from "../../../src/core/tools/read.ts";
 import { CHILD_DISABLED_AGENT_TOOL_NAMES, SUPERVISOR_ONLY_TOOL_NAMES } from "../../../src/core/tool-capabilities.ts";
@@ -731,6 +732,7 @@ export function createProductionAttachedSessionFactory(
 		if (!sessionPath) {
 			throw new Error("Cannot resume attached session without a session path");
 		}
+		sessionPath = ctx.controlDbPath ? restoreArchivedSession(ctx.controlDbPath, sessionPath) : sessionPath;
 		if (!existsSync(sessionPath)) {
 			throw new Error(`Child agent transcript does not exist: ${sessionPath}`);
 		}
@@ -1495,8 +1497,9 @@ async function resolveAttachSessionTarget(
 		return { ok: false, message: "Could not attach session: provide exactly one of path, sessionId, or name." };
 	}
 	if (path) {
-		const session = SessionManager.open(path, ctx.sessionManager?.getSessionDir());
-		const sessionPath = session.getSessionFile() ?? path;
+		const restoredPath = ctx.controlDbPath ? restoreArchivedSession(ctx.controlDbPath, path) : path;
+		const session = SessionManager.open(restoredPath, ctx.sessionManager?.getSessionDir());
+		const sessionPath = session.getSessionFile() ?? restoredPath;
 		const metadata = ctx.controlDbPath ? readSessionMetadata(ctx.controlDbPath, sessionPath) : undefined;
 		return {
 			ok: true,

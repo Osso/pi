@@ -2,6 +2,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { isSessionTranscriptFile, readSessionTranscriptText } from "../packages/coding-agent/src/core/session-transcript.ts";
 
 // Parse args
 const args = process.argv.slice(2);
@@ -67,7 +68,7 @@ interface Stats {
 const stats: Stats = {};
 
 // Process session files
-const files = fs.readdirSync(sessionsDir).filter((f) => f.endsWith(".jsonl"));
+const files = fs.readdirSync(sessionsDir).filter(isSessionTranscriptFile);
 
 for (const file of files) {
 	// Extract timestamp from filename: <timestamp>_<uuid>.jsonl
@@ -80,7 +81,7 @@ for (const file of files) {
 	if (fileDate < cutoff) continue;
 
 	const filepath = path.join(sessionsDir, file);
-	const content = fs.readFileSync(filepath, "utf8");
+	const content = readSessionTranscriptText(filepath);
 	const lines = content.trim().split("\n");
 
 	for (const line of lines) {

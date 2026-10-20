@@ -5,7 +5,6 @@ import {
 	appendFileSync,
 	closeSync,
 	copyFileSync,
-	createReadStream,
 	existsSync,
 	constants as fsConstants,
 	mkdirSync,
@@ -52,6 +51,11 @@ import {
 	writeSessionThinkingLevel,
 } from "./session-control-db.ts";
 import { serializeSessionEntryForPersistence } from "./session-tool-output.ts";
+import {
+	createSessionTranscriptReadStream,
+	readSessionTranscriptBytes,
+	readSessionTranscriptPath,
+} from "./session-transcript.ts";
 
 export const CURRENT_SESSION_VERSION = 3;
 export const MAX_KEPT_PRE_COMPACTION_BYTES = 20_000;
@@ -836,16 +840,36 @@ function loadCurrentVersionEntriesFromFile(filePath: string, header: SessionHead
 
 function loadSessionFileEntries(filePath: string): LoadedCurrentVersionSession {
 	const header = readSessionHeader(filePath);
+	if (isArchivedSessionFile(readSessionTranscriptPath(filePath)))
+		return { fileEntries: loadEntriesFromFile(filePath) };
 	if (header?.version === CURRENT_SESSION_VERSION) {
 		return loadCurrentVersionEntriesFromFile(filePath, header);
 	}
 	return { fileEntries: loadEntriesFromFile(filePath) };
 }
 
+function parseSessionBufferEntries(content: Buffer): FileEntry[] {
+	const entries: FileEntry[] = [];
+	let start = 0;
+	while (start < content.length) {
+		const newline = content.indexOf(0x0a, start);
+		const end = newline < 0 ? content.length : newline;
+		const entry = parseSessionEntryLine(content.subarray(start, end).toString("utf8"));
+		if (entry) entries.push(entry);
+		start = end + 1;
+	}
+	return entries;
+}
+
 /** Load persisted entries without migration or writes. */
 export function loadEntriesFromFile(filePath: string): FileEntry[] {
-	const resolvedFilePath = normalizePath(filePath);
+	const resolvedFilePath = readSessionTranscriptPath(normalizePath(filePath));
 	if (!existsSync(resolvedFilePath)) return [];
+	if (isArchivedSessionFile(resolvedFilePath)) {
+		const entries = parseSessionBufferEntries(readSessionTranscriptBytes(resolvedFilePath));
+		const header = entries[0];
+		return header?.type === "session" && typeof header.id === "string" ? entries : [];
+	}
 
 	const entries: FileEntry[] = [];
 	const fd = openSync(resolvedFilePath, "r");
@@ -900,7 +924,13 @@ export function loadSessionContextEntries(filePath: string): { header: SessionHe
 }
 
 function readFirstLine(filePath: string): string | undefined {
-	const fd = openSync(filePath, "r");
+	const source = readSessionTranscriptPath(filePath);
+	if (isArchivedSessionFile(source)) {
+		const bytes = readSessionTranscriptBytes(source);
+		const newline = bytes.indexOf(0x0a);
+		return bytes.subarray(0, newline < 0 ? bytes.length : newline).toString("utf8");
+	}
+	const fd = openSync(source, "r");
 	const chunks: Buffer[] = [];
 	const buffer = Buffer.alloc(4096);
 	let position = 0;
@@ -1051,13 +1081,13 @@ function finishSessionInfo(
 	};
 }
 
-async function buildSessionInfo(filePath: string): Promise<SessionInfo | null> {
+export async function buildSessionInfo(filePath: string): Promise<SessionInfo | null> {
 	try {
 		const stats = await stat(filePath);
 		let header: SessionHeader | null = null;
 		const accumulator = createSessionInfoAccumulator();
 		const rl = createInterface({
-			input: createReadStream(filePath, { encoding: "utf8" }),
+			input: createSessionTranscriptReadStream(filePath),
 			crlfDelay: Infinity,
 		});
 
@@ -1329,7 +1359,7 @@ export class SessionManager {
 
 	/** Switch to a different session file (used for resume and branching) */
 	setSessionFile(sessionFile: string): void {
-		this.sessionFile = resolvePath(sessionFile);
+		this.sessionFile = readSessionTranscriptPath(resolvePath(sessionFile));
 		assertUnarchivedSessionFile(this.sessionFile);
 		this.resetSessionNameState();
 		if (existsSync(this.sessionFile)) {
@@ -1576,7 +1606,7 @@ export class SessionManager {
 
 	getSessionGoalJsonForSession(sessionFile: string): string | undefined {
 		if (!this.metadataControlDbPath) return undefined;
-		return readSessionGoal(this.metadataControlDbPath, resolvePath(sessionFile));
+		return readSessionGoal(this.metadataControlDbPath, readSessionTranscriptPath(resolvePath(sessionFile)));
 	}
 
 	setSessionGoalJson(goalJson: string): void {
@@ -2221,7 +2251,7 @@ export class SessionManager {
 	 * @param cwdOverride Optional cwd override instead of the session header cwd.
 	 */
 	static open(path: string, sessionDir?: string, cwdOverride?: string): SessionManager {
-		const resolvedPath = resolvePath(path);
+		const resolvedPath = readSessionTranscriptPath(resolvePath(path));
 		assertUnarchivedSessionFile(resolvedPath);
 		// Extract cwd from session header if possible, otherwise use process.cwd()
 		const header = readSessionHeader(resolvedPath);
@@ -2231,6 +2261,22 @@ export class SessionManager {
 		const sessionManager = new SessionManager(cwd, dir, resolvedPath, true);
 		if (cwdOverride) sessionManager.cwd = resolvePath(cwdOverride);
 		return sessionManager;
+	}
+
+	/** Open a transcript for inspection without restoring archives or writing migrations. */
+	static openReadOnly(path: string, sessionDir?: string): SessionManager {
+		const source = readSessionTranscriptPath(resolvePath(path));
+		const loaded = loadSessionFileEntries(source);
+		const header = loaded.fileEntries[0];
+		if (header?.type !== "session") throw new Error(`Invalid session file: ${source}`);
+		const cwd = loaded.precedingCwd ?? header.cwd ?? process.cwd();
+		const manager = new SessionManager(cwd, sessionDir ?? resolve(source, ".."), undefined, false);
+		manager.sessionFile = source;
+		manager.sessionId = header.id;
+		manager.fileEntries = loaded.fileEntries;
+		migrateToCurrentVersion(manager.fileEntries);
+		manager._buildIndex();
+		return manager;
 	}
 
 	/**
@@ -2269,11 +2315,7 @@ export class SessionManager {
 	): SessionManager {
 		const resolvedSourcePath = resolvePath(sourcePath);
 		const resolvedTargetCwd = resolvePath(targetCwd);
-		const sourceHeader = readSessionHeader(resolvedSourcePath);
-		const sourceEntries =
-			sourceHeader?.version === CURRENT_SESSION_VERSION
-				? loadCurrentVersionEntriesFromFile(resolvedSourcePath, sourceHeader).fileEntries
-				: loadEntriesFromFile(resolvedSourcePath);
+		const sourceEntries = loadSessionFileEntries(resolvedSourcePath).fileEntries;
 		if (sourceEntries.length === 0) {
 			throw new Error(`Cannot fork: source session file is empty or invalid: ${resolvedSourcePath}`);
 		}

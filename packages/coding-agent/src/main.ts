@@ -104,7 +104,7 @@ import {
 	resolveRestartInterruptedToolCalls,
 	waitForSelfRestartParentExit,
 } from "./core/self-restart.ts";
-import { isArchivedSessionFile, restoreArchivedSession } from "./core/session-archive-storage.ts";
+import { restoreArchivedSession } from "./core/session-archive-storage.ts";
 import {
 	assertMainSessionRuntimeAvailable,
 	claimLatestIncomingMessage,
@@ -120,6 +120,7 @@ import {
 } from "./core/session-cwd.ts";
 import { reconcileSessionRuntimeBindings } from "./core/session-directory.ts";
 import { assertValidSessionId, SessionManager } from "./core/session-manager.ts";
+import { isSessionTranscriptFile } from "./core/session-transcript.ts";
 import { SettingsManager } from "./core/settings-manager.ts";
 import { printTimings, resetTimings, time } from "./core/timings.ts";
 import { hasTrustRequiringProjectResources, ProjectTrustStore } from "./core/trust-manager.ts";
@@ -280,9 +281,9 @@ async function resolveSessionPath(
 	sessionDir?: string,
 	controlDbPath?: string,
 ): Promise<ResolvedSession> {
-	const pathLike = sessionArg.includes("/") || sessionArg.includes("\\") || sessionArg.endsWith(".jsonl");
+	const pathLike = sessionArg.includes("/") || sessionArg.includes("\\") || isSessionTranscriptFile(sessionArg);
 	const resolvedSessionArgPath = pathLike ? resolvePath(sessionArg, cwd) : undefined;
-	if (resolvedSessionArgPath && (sessionArg.endsWith(".jsonl") || existsSync(resolvedSessionArgPath))) {
+	if (resolvedSessionArgPath && (isSessionTranscriptFile(sessionArg) || existsSync(resolvedSessionArgPath))) {
 		return { type: "path", path: resolvedSessionArgPath };
 	}
 
@@ -388,8 +389,7 @@ export async function runInteractiveActionOrReportTerminalError(
 
 function openSessionOrExit(path: string, sessionDir?: string, controlDbPath?: string): SessionManager {
 	try {
-		const restoredPath =
-			controlDbPath && isArchivedSessionFile(path) ? restoreArchivedSession(controlDbPath, path) : path;
+		const restoredPath = controlDbPath ? restoreArchivedSession(controlDbPath, path) : path;
 		return SessionManager.open(restoredPath, sessionDir);
 	} catch (error: unknown) {
 		const message = error instanceof Error ? error.message : String(error);
@@ -997,10 +997,7 @@ export async function main(args: string[], options?: MainOptions) {
 		let result: string;
 		try {
 			const outputPath = parsed.messages.length > 0 ? parsed.messages[0] : undefined;
-			const sessionPath = isArchivedSessionFile(parsed.export)
-				? restoreArchivedSession(getControlDbPath(), parsed.export)
-				: parsed.export;
-			result = await exportFromFile(sessionPath, outputPath);
+			result = await exportFromFile(parsed.export, outputPath);
 		} catch (error: unknown) {
 			const message = error instanceof Error ? error.message : "Failed to export session";
 			console.error(chalk.red(`Error: ${message}`));

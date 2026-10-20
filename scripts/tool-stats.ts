@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { isSessionTranscriptFile, readSessionTranscriptText } from "../packages/coding-agent/src/core/session-transcript.ts";
 import { openBrowser } from "../packages/coding-agent/src/utils/open-browser.ts";
 
 interface TextContent { type: "text"; text: string }
@@ -38,7 +39,7 @@ function jsonlFiles(dir: string): string[] {
 	for (const entry of readdirSync(dir, { withFileTypes: true })) {
 		const path = join(dir, entry.name);
 		if (entry.isDirectory()) out.push(...jsonlFiles(path));
-		else if (entry.isFile() && entry.name.endsWith(".jsonl")) out.push(path);
+		else if (entry.isFile() && isSessionTranscriptFile(entry.name)) out.push(path);
 	}
 	return out;
 }
@@ -114,7 +115,7 @@ let parseErrors = 0;
 const files = jsonlFiles(sessionsDir);
 
 for (const file of files) {
-	for (const line of readFileSync(file, "utf8").split("\n")) {
+	for (const line of readSessionTranscriptText(file).split("\n")) {
 		if (!line.trim()) continue;
 		let entry: Entry;
 		try { entry = JSON.parse(line) as Entry; } catch { parseErrors++; continue; }

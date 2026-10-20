@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
 import { readSessionMetadata, relocateAndArchiveSession, relocateAndUnarchiveSession } from "./session-control-db.ts";
+import { readSessionTranscriptPath } from "./session-transcript.ts";
 
 export const ARCHIVED_SESSION_SUFFIX = ".zst";
 
@@ -21,6 +22,7 @@ export function archivePersistedSession(controlDbPath: string, sessionPath: stri
 }
 
 export function restoreArchivedSession(controlDbPath: string, sessionPath: string): string {
+	sessionPath = readSessionTranscriptPath(sessionPath);
 	if (!isArchivedSessionFile(sessionPath)) return sessionPath;
 	const restoredPath = sessionPath.slice(0, -ARCHIVED_SESSION_SUFFIX.length);
 	const needsMetadataRestore =

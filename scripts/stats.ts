@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
+import { isSessionTranscriptFile, readSessionTranscriptText } from "../packages/coding-agent/src/core/session-transcript.ts";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -177,10 +178,10 @@ const stats = new Map<string, DayStats>();
 const grandTotal = createTotals();
 
 for (const file of readdirSync(sessionsDir)) {
-	if (!file.endsWith(".jsonl")) continue;
+	if (!isSessionTranscriptFile(file)) continue;
 
 	const path = join(sessionsDir, file);
-	const lines = readFileSync(path, "utf8").split("\n");
+	const lines = readSessionTranscriptText(path).split("\n");
 	for (const line of lines) {
 		if (!line.trim()) continue;
 

@@ -16,6 +16,7 @@ export { SessionImportFileNotFoundError } from "./session-errors.ts";
 
 import { runDetachedJobArtifactCleanup } from "./detached-job-cleanup.ts";
 import { removeAbandonedEmptySession } from "./empty-session-cleanup.ts";
+import { runIdleSessionArchive } from "./idle-session-archive.ts";
 import { type ProcessRestarter, resolveRestartInterruptedToolCalls, restartCurrentProcess } from "./self-restart.ts";
 import { restoreArchivedSession } from "./session-archive-storage.ts";
 import { assertMainSessionRuntimeAvailable, removeSessionMetadata } from "./session-control-db.ts";
@@ -693,7 +694,10 @@ export async function createAgentSessionRuntime(
 		throw new Error("Standalone worker requires an in-memory session");
 	assertSessionCwdExists(options.sessionManager, options.cwd);
 	const controlDbPath = options.sessionManager.getMetadataControlDbPath();
-	if (controlDbPath && !options.noSupervisor) runDetachedJobArtifactCleanup(controlDbPath, options.agentDir);
+	if (controlDbPath && !options.noSupervisor) {
+		runDetachedJobArtifactCleanup(controlDbPath, options.agentDir);
+		runIdleSessionArchive(controlDbPath, options.agentDir, options.sessionManager.getSessionFile());
+	}
 	const result = await createRuntime(options);
 	return new AgentSessionRuntime(
 		result.session,

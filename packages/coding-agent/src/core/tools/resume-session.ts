@@ -12,6 +12,7 @@ import {
 } from "../session-control-db.ts";
 import type { SessionInfo } from "../session-manager.ts";
 import { SessionManager } from "../session-manager.ts";
+import { readSessionTranscriptPath } from "../session-transcript.ts";
 
 const resumeSessionSchema = Type.Object({
 	path: Type.Optional(Type.String({ description: "Path to a Pi .jsonl session file to resume." })),
@@ -74,6 +75,7 @@ function normalizeResumeSessionParams(params: unknown): ResumeSessionParams {
 }
 
 function assertResumeSessionPath(path: string): string {
+	path = readSessionTranscriptPath(path);
 	if (!existsSync(path) || !statSync(path).isFile()) {
 		throw new Error(`Session file does not exist: ${path}`);
 	}

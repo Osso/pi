@@ -22,6 +22,17 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 - [x] Preserve recent ordering in Archived scope instead of promoting named sessions, while displaying session names (`session-picker-selection.test.ts`).
 - [x] Archive the selected picker session when Ctrl+A is pressed (`session-selector-path-delete.test.ts`).
 
+### Automatic idle archival
+
+- [x] At runtime startup, alongside detached artifact cleanup, asynchronously archive normal project `.jsonl` transcripts whose filesystem mtime is strictly more than 30 days old.
+- [x] Reuse `.jsonl.zst` and existing control-DB path relocation/archive state. Keep automatic archives hidden from normal listing and resume by ID/name, just like manual archives; explicit paths and Archived picker restore them.
+- [x] Skip recent files, the starting runtime's transcript, `/proc`-referenced files, and transcripts owned by live session listeners/health records or nonterminal agents (including separate child transcript paths).
+- [x] Stream compression and verify decompressed bytes against the original before atomically publishing without overwriting an existing archive. Recheck source identity/mtime/size and live ownership before removing the plain file.
+- [x] Preserve permissions and archive listing metadata; restore identical content and session identity on explicit resume.
+- [x] Read compressed headers, full entries, fork sources, viewer/history data, goal references, HTML exports, and all seven repository transcript/statistics scripts without unarchiving them. Old literal `.jsonl` references resolve to an existing `.jsonl.zst` when no plain file exists.
+- [x] Explicit archived attach restores writable storage before opening the session.
+- [x] Core header/entry readers handle compressed transcripts exceeding Node's maximum string length, parsing one line at a time rather than decoding the entire file as one string.
+
 ### First-party `/archive` command
 
 - [x] Register `/archive` in the session-archive extension (`session-archive-extension.test.ts`).
@@ -71,13 +82,22 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 - `packages/coding-agent/extensions/session-archive/src/index.ts` — registers argument-free `/archive`, `/delete`, and `/unarchive` commands targeting only the current persisted session.
 - `packages/coding-agent/src/core/session-delete.ts` — shared session and child-agent-session deletion used by `/delete` and the picker.
 - `packages/coding-agent/src/core/session-control-db.ts` — archive metadata schema, migration, listing, and archive APIs.
-- `packages/coding-agent/src/core/session-manager.ts` — active and archived session loaders.
+- `packages/coding-agent/src/core/session-manager.ts` — active, archived, and read-only session loaders.
+- `packages/coding-agent/src/core/idle-session-archive.ts` — age/ownership screening, streamed byte-verified automatic archival.
+- `packages/coding-agent/src/core/session-transcript.ts` — shared archived path resolution and text/stream readers.
+- `scripts/{session-transcripts,cost,stats,tool-stats}.ts`, `scripts/{session-context-stats,read-tool-stats,edit-tool-stats}.mjs` — read both plain and compressed transcripts.
 - `packages/coding-agent/src/cli/sessions-command.ts` — age-based administrative archive command.
 - `packages/coding-agent/src/cli/session-picker.ts` — startup picker archive loader.
 - `packages/coding-agent/src/modes/interactive/components/session-selector.ts` — Archived picker scope and Ctrl+A archive action.
 - `packages/coding-agent/src/main.ts` — default first-party extension registration and picker wiring.
 
 ## Tests asserting this spec
+
+- `packages/coding-agent/test/idle-session-archive.test.ts` — age boundary, byte identity, metadata, permissions, real-process file references, active DB agents/listeners, and no-clobber.
+- `packages/coding-agent/test/archived-transcript-readers.test.ts` — read-only history, headers, entries, fork, goal references, export, and resumed search parity.
+- `packages/coding-agent/test/archived-transcript-scripts.test.ts` — all seven scripts read real compressed fixtures in child CLI processes.
+- `packages/coding-agent/test/goal-extension.test.ts` — archived legacy-parent goal inheritance.
+- `packages/coding-agent/test/multi-agent-extension.test.ts` — explicit-path archived attachment preserves transcript identity.
 
 - `packages/coding-agent/test/session-archive-extension.test.ts`
 - `packages/coding-agent/test/session-delete.test.ts`
@@ -91,11 +111,13 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 
 ## Known gaps (current cycle)
 
+- [ ] Before deploying on host `aso`, update its external `agent-history` CLI/skill and `claude-memory` transcript indexing readers to include and decode `.jsonl.zst` while preserving searchability. Those repositories and installed tools are absent on `agent-server` and are not modified here. Deployment on `aso` is gated on this dependency.
+
 - [x] Persist dedicated Supervisor and Architect transcripts with `archived_at` set while retaining their live plain `.jsonl` storage.
 
 ## Out of scope
 
 - Moving session JSONL files into a separate filesystem directory.
-- Automatic scheduled archival; archive actions are explicit.
+- A second gzip compression format; automatic archival deliberately reuses existing zstd storage.
 - Permanent deletion or trash cleanup.
 - Archiving sessions by age through `/archive`; use `pi sessions archive` for age-based administrative archival.

@@ -29,6 +29,7 @@ import type {
 	ToolDefinition,
 	ToolResultEvent,
 } from "../src/core/extensions/types.ts";
+import { archiveSessionFile } from "../src/core/session-archive-storage.ts";
 import {
 	claimNextSupervisorRequest,
 	completeSupervisorRequest,
@@ -817,29 +818,41 @@ describe("goal extension", () => {
 		expect(childPrompt?.systemPrompt).not.toContain("parent objective");
 	});
 
-	it("inherits the parent goal when a fork starts with a new session id", async () => {
-		const parentSessionId = "parent-session";
-		const childSessionId = "child-session";
-		const parentHarness = createGoalHarness(cwd, { sessionId: parentSessionId });
-		await parentHarness.runCommand("set carry goal into fork");
-		const previousSessionFile = join(cwd, "parent-session.jsonl");
-		const parentSessionHeader = {
-			type: "session",
-			id: parentSessionId,
-			timestamp: "2026-01-01T00:00:00.000Z",
-			cwd,
-		};
-		writeFileSync(previousSessionFile, `${JSON.stringify(parentSessionHeader)}\n`, "utf8");
+	it.each([false, true])(
+		"inherits the parent goal when a fork starts with a new session id (archived=%s)",
+		async (archived) => {
+			const parentSessionId = "parent-session";
+			const childSessionId = "child-session";
+			const parentHarness = createGoalHarness(cwd, { sessionId: parentSessionId });
+			await parentHarness.runCommand("set carry goal into fork");
+			const previousSessionFile = join(cwd, "parent-session.jsonl");
+			const parentSessionHeader = {
+				type: "session",
+				id: parentSessionId,
+				timestamp: "2026-01-01T00:00:00.000Z",
+				cwd,
+			};
+			writeFileSync(previousSessionFile, `${JSON.stringify(parentSessionHeader)}\n`, "utf8");
+			if (archived) {
+				archiveSessionFile(previousSessionFile);
+				const legacyGoals = join(cwd, ".pi", "goals");
+				mkdirSync(legacyGoals, { recursive: true });
+				writeFileSync(
+					join(legacyGoals, `${parentSessionId}.json`),
+					JSON.stringify(readStoredGoal(cwd, parentSessionId)),
+				);
+			}
 
-		const childHarness = createGoalHarness(cwd, { sessionId: childSessionId });
-		await childHarness.runSessionStart("fork", previousSessionFile);
+			const childHarness = createGoalHarness(cwd, { sessionId: childSessionId });
+			await childHarness.runSessionStart("fork", previousSessionFile);
 
-		const inheritedGoal = readStoredGoal<{ objective: string }>(cwd, childSessionId);
-		const childPrompt = await childHarness.runBeforeAgentStart();
-		expect(inheritedGoal.objective).toBe("carry goal into fork");
-		expect(childPrompt?.systemPrompt).toContain("Long-running objective: carry goal into fork");
-		expect(childHarness.notify).toHaveBeenCalledWith("Active goal: carry goal into fork", "info");
-	});
+			const inheritedGoal = readStoredGoal<{ objective: string }>(cwd, childSessionId);
+			const childPrompt = await childHarness.runBeforeAgentStart();
+			expect(inheritedGoal.objective).toBe("carry goal into fork");
+			expect(childPrompt?.systemPrompt).toContain("Long-running objective: carry goal into fork");
+			expect(childHarness.notify).toHaveBeenCalledWith("Active goal: carry goal into fork", "info");
+		},
+	);
 
 	it("does not inherit a previous session goal when resuming a different session", async () => {
 		const previousSessionId = "session-a";

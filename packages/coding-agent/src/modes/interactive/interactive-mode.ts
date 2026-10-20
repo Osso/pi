@@ -114,6 +114,7 @@ import { expandPromptTemplate, type PromptTemplate, parseCommandArgs } from "../
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "../../core/provider-display-names.ts";
 import type { ResourceDiagnostic } from "../../core/resource-loader.ts";
 import { isDuplicateTurnAssistantMessage, isDuplicateTurnGuardMessage } from "../../core/runtime-message-markers.ts";
+import { isArchivedSessionFile } from "../../core/session-archive-storage.ts";
 import {
 	completeIncomingMessage,
 	failIncomingMessage,
@@ -132,6 +133,7 @@ import {
 	SessionManager,
 	sessionEntryToContextMessages,
 } from "../../core/session-manager.ts";
+import { readSessionTranscriptPath } from "../../core/session-transcript.ts";
 import type { SettingsScope } from "../../core/settings-manager.ts";
 import { parseSkillBlock } from "../../core/skill-block.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
@@ -3322,7 +3324,7 @@ export class InteractiveMode {
 	}
 
 	private openChildAgentView(agent: AgentSnapshot): boolean {
-		const transcriptPath = agent.transcript?.path;
+		const transcriptPath = agent.transcript?.path ? readSessionTranscriptPath(agent.transcript.path) : undefined;
 		this.clearChildAgentView();
 		this.childViewAgentId = agent.id;
 		this.childViewTranscriptPath = transcriptPath;
@@ -3332,7 +3334,10 @@ export class InteractiveMode {
 		}
 
 		try {
-			this.childViewSessionManager = SessionManager.open(transcriptPath, this.sessionManager.getSessionDir());
+			this.childViewSessionManager = SessionManager.openReadOnly(
+				transcriptPath,
+				this.sessionManager.getSessionDir(),
+			);
 		} catch {
 			this.renderLiveAgentPlaceholder(agent, transcriptPath);
 			this.scheduleSelectedAgentTranscriptReload(false);
@@ -3428,6 +3433,7 @@ export class InteractiveMode {
 		if (this.multiAgentStore?.getSelectedAgentId() !== this.childViewAgentId) {
 			return;
 		}
+		this.childViewTranscriptPath = readSessionTranscriptPath(this.childViewTranscriptPath);
 		if (!fs.existsSync(this.childViewTranscriptPath)) {
 			if (this.childViewTranscriptWatchPath === this.childViewTranscriptPath) {
 				this.watchSelectedAgentTranscript(this.childViewTranscriptPath);
@@ -3436,7 +3442,10 @@ export class InteractiveMode {
 		}
 
 		try {
-			if (!isCompleteJsonlFile(this.childViewTranscriptPath)) {
+			if (
+				!isArchivedSessionFile(this.childViewTranscriptPath) &&
+				!isCompleteJsonlFile(this.childViewTranscriptPath)
+			) {
 				this.retrySelectedAgentTranscriptReload();
 				return;
 			}
@@ -3446,7 +3455,10 @@ export class InteractiveMode {
 		}
 
 		try {
-			const sessionManager = SessionManager.open(this.childViewTranscriptPath, this.sessionManager.getSessionDir());
+			const sessionManager = SessionManager.openReadOnly(
+				this.childViewTranscriptPath,
+				this.sessionManager.getSessionDir(),
+			);
 			this.childViewSessionManager = sessionManager;
 			this.childViewTranscriptReloadRetries = 0;
 			if (this.childViewTranscriptWatchPath !== this.childViewTranscriptPath) {

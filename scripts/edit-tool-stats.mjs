@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createReadStream } from "node:fs";
+import { createSessionTranscriptReadStream, isSessionTranscriptFile } from "../packages/coding-agent/src/core/session-transcript.ts";
 import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -121,7 +121,7 @@ async function* walkJsonlFiles(dir) {
 		const fullPath = path.join(dir, entry.name);
 		if (entry.isDirectory()) {
 			yield* walkJsonlFiles(fullPath);
-		} else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+		} else if (entry.isFile() && isSessionTranscriptFile(entry.name)) {
 			yield fullPath;
 		}
 	}
@@ -718,7 +718,7 @@ async function scanSessions(sessionsDir, since) {
 		meta.sessionFilesIncluded++;
 		const pending = new Map();
 		let fileHadEditCall = false;
-		const input = createReadStream(sessionFile, { encoding: "utf8" });
+		const input = createSessionTranscriptReadStream(sessionFile);
 		const rl = createInterface({ input, crlfDelay: Infinity });
 
 		for await (const line of rl) {
