@@ -4,6 +4,7 @@ import { existsSync, type FSWatcher, readFileSync, type Stats, statSync, unwatch
 import { basename, dirname, join, resolve } from "path";
 import { closeWatcher, FS_WATCH_RETRY_DELAY_MS, watchWithErrorHandler } from "../utils/fs-watch.ts";
 import type { ContextUsage } from "./extensions/types.ts";
+import { createReadonlySessionManager } from "./readonly-session-manager.ts";
 import type { ReadonlySessionManager } from "./session-manager.ts";
 
 type GitPaths = {
@@ -193,7 +194,10 @@ export class FooterDataProvider {
 	}
 
 	setSessionOverride(override: FooterSessionOverride): void {
-		this.sessionOverride = override;
+		this.sessionOverride = {
+			...override,
+			sessionManager: override.sessionManager ? createReadonlySessionManager(override.sessionManager) : null,
+		};
 	}
 
 	clearSessionOverride(): void {
