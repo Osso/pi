@@ -12,7 +12,6 @@ import { listDetachedArtifactAgentsUpdatedAtOrBefore } from "./session-control-d
 const DETACHED_ARTIFACT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1_000;
 const DETACHED_ARTIFACT_MAX_BYTES = 2 * 1024 ** 3;
 const ALL_TERMINAL_AGENTS_CUTOFF = "9999-12-31T23:59:59.999Z";
-const NO_BYTE_CAP = Number.MAX_SAFE_INTEGER;
 const DETACHED_OUTPUT_LABELS = new Set(["Bash output", "Pyrun output"]);
 const DELETED_PATH_SUFFIX = " (deleted)";
 
@@ -58,33 +57,11 @@ export function runDetachedJobArtifactCleanup(
 	now = Date.now(),
 ): void {
 	try {
-		const errors = cleanupExpiredDetachedJobArtifacts(controlDbPath, artifactRoot, now);
-		if (detachedArtifactBytes(artifactRoot, errors) > DETACHED_ARTIFACT_MAX_BYTES) {
-			errors.push(...cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot, now }).errors);
-		}
+		const { errors } = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot, now });
 		for (const error of errors) console.error(`Detached artifact cleanup: ${error}`);
 	} catch (error) {
 		console.error(`Detached artifact cleanup failed: ${errorMessage(error)}`);
 	}
-}
-
-function cleanupExpiredDetachedJobArtifacts(controlDbPath: string, artifactRoot: string, now: number): string[] {
-	const processReferences = readLinuxProcessReferences();
-	if (!processReferences) return [];
-	const errors: string[] = [];
-	const cutoff = new Date(now - DETACHED_ARTIFACT_MAX_AGE_MS).toISOString();
-	const candidates = collectTerminalArtifactCandidates(controlDbPath, artifactRoot, processReferences, errors, cutoff);
-	const pathsToDelete = selectDetachedArtifactDirectoriesToDelete(candidates, {
-		maxAge: DETACHED_ARTIFACT_MAX_AGE_MS,
-		maxBytes: NO_BYTE_CAP,
-		now,
-	});
-	deleteSelectedArtifactDirectories(candidates, pathsToDelete, errors);
-	return errors;
-}
-
-function detachedArtifactBytes(artifactRoot: string, errors: string[]): number {
-	return readDirectoryByteSize(join(artifactRoot, "detached-jobs"), errors) ?? 0;
 }
 
 function emptyCleanupResult(skippedReason: string): DetachedJobCleanupResult {
@@ -232,14 +209,16 @@ function detachedArtifactDirectory(
 	const directoryPath = resolve(dirname(outputPath));
 	const sessionName = basename(sessionPath, extname(sessionPath));
 	if (!isPathSegment(sessionName)) return undefined;
-	const expectedDirectoryPath = resolve(artifactRoot, "detached-jobs", sessionName, jobId);
-	if (directoryPath !== expectedDirectoryPath) return undefined;
+	// Bash jobs write under the agent directory; Pyrun jobs write beside the session file.
+	const owningRoot = [artifactRoot, dirname(sessionPath)].find(
+		(root) => directoryPath === resolve(root, "detached-jobs", sessionName, jobId),
+	);
+	if (!owningRoot) return undefined;
 	try {
 		const directory = lstatSync(directoryPath);
 		if (!directory.isDirectory() || directory.isSymbolicLink()) return undefined;
 		const canonicalDirectoryPath = realpathSync(directoryPath);
-		const canonicalArtifactRoot = realpathSync(artifactRoot);
-		const expectedCanonicalPath = join(canonicalArtifactRoot, "detached-jobs", sessionName, jobId);
+		const expectedCanonicalPath = join(realpathSync(owningRoot), "detached-jobs", sessionName, jobId);
 		return canonicalDirectoryPath === expectedCanonicalPath ? canonicalDirectoryPath : undefined;
 	} catch (error) {
 		if (isMissingPathError(error)) return undefined;

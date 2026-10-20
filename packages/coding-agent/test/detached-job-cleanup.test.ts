@@ -18,7 +18,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentSession } from "../src/core/agent-session.ts";
 import { type AgentSessionServices, createAgentSessionRuntime } from "../src/core/agent-session-runtime.ts";
-import { cleanupDetachedJobArtifacts } from "../src/core/detached-job-cleanup.ts";
+import { cleanupDetachedJobArtifacts, runDetachedJobArtifactCleanup } from "../src/core/detached-job-cleanup.ts";
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import type { AgentSnapshot } from "../src/core/multi-agent-store.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
@@ -75,10 +75,17 @@ function persistArtifact(input: {
 	size?: number;
 	updatedAt: string;
 	writeMetadata?: boolean;
+	/** Pyrun writes beside the session file; Bash writes under the agent directory. */
+	besideSession?: boolean;
 }): string {
 	const sessionDirectory = join(input.root, "sessions", "project");
 	const sessionPath = join(sessionDirectory, `${input.sessionName}.jsonl`);
-	const artifactDirectory = join(input.root, "detached-jobs", input.sessionName, input.jobId);
+	const artifactDirectory = join(
+		input.besideSession ? sessionDirectory : input.root,
+		"detached-jobs",
+		input.sessionName,
+		input.jobId,
+	);
 	const outputPath = join(artifactDirectory, "output.log");
 	mkdirSync(artifactDirectory, { recursive: true });
 	writeFileSync(outputPath, "output", { mode: 0o600 });
@@ -594,6 +601,46 @@ describe("detached job artifact cleanup", () => {
 		expect(result.deletedDirectories).toEqual([oldest]);
 		expect(existsSync(oldest)).toBe(false);
 		expect(existsSync(newest)).toBe(true);
+	});
+
+	it("applies age and byte retention to Pyrun artifacts stored beside the session file", () => {
+		const root = createRoot();
+		const controlDbPath = getControlDbPath(root);
+		const expired = persistArtifact({
+			besideSession: true,
+			controlDbPath,
+			jobId: "pyrun_session_expired",
+			lifecycle: "completed",
+			root,
+			sessionName: "session-expired",
+			updatedAt: "2026-07-19T18:00:00.000Z",
+		});
+		const overCap = persistArtifact({
+			besideSession: true,
+			controlDbPath,
+			jobId: "pyrun_session_over_cap",
+			lifecycle: "completed",
+			root,
+			sessionName: "session-over-cap",
+			size: Math.ceil(1.1 * ONE_GIB),
+			updatedAt: "2026-07-22T16:00:00.000Z",
+		});
+		const retained = persistArtifact({
+			besideSession: true,
+			controlDbPath,
+			jobId: "pyrun_session_retained",
+			lifecycle: "completed",
+			root,
+			sessionName: "session-retained",
+			size: Math.ceil(1.1 * ONE_GIB),
+			updatedAt: "2026-07-22T17:00:00.000Z",
+		});
+
+		runDetachedJobArtifactCleanup(controlDbPath, root, NOW);
+
+		expect(existsSync(expired)).toBe(false);
+		expect(existsSync(overCap)).toBe(false);
+		expect(existsSync(retained)).toBe(true);
 	});
 
 	it("cleans over-cap artifacts after startup reconciliation terminalizes a dead detached job", async () => {
