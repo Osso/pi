@@ -1,37 +1,39 @@
-# Session autonaming
+# Session naming
 
-Session autonaming is a default first-party extension that gives persisted never-named main sessions a short 2–4 word title after a real-user message. This document defines the behavior contract; implementation details belong in [`docs/wiki/systems/session-autoname.md`](../wiki/systems/session-autoname.md).
+Session naming is a default first-party extension that lets the model name the current session through the `set_session_name` tool. This document defines the behavior contract; implementation details belong in [`docs/wiki/systems/session-autoname.md`](../wiki/systems/session-autoname.md).
 
 ## What it must do
 
-### Trigger and title
+### Naming through the tool
 
-- [x] In interactive TUI and RPC modes, start asynchronous title generation from the first real-user `message_start`, using its user text; do not wait for the first assistant response or completed exchange.
-- [x] An `agent_end`, including a cwd-relocation completion, never independently triggers title generation.
-- [x] Persist the generated title through the existing session-naming behavior in `session_metadata.name`; no JSONL name entry is written.
-- [x] Do not delay completion of the originating user exchange while generating the title.
-- [x] Capture the current session cwd when starting each title request and pass it to the provider on every attempt; retries retain that request's cwd rather than reading a later session cwd or process cwd.
+- [x] Expose a `set_session_name` tool that stores a session display name for the current session.
+- [x] The extension never issues a provider request of its own; naming costs no extra model call, and no session title is generated outside the model's own turn.
+- [x] The tool is available in every mode that owns a session; a session that cannot be named reports an error result instead of failing silently.
 
 ### Eligibility and exclusions
 
-- [x] Trigger only for persisted never-named main sessions: `session_metadata.name IS NULL`.
-- [x] Do not trigger in print or JSON modes, ephemeral sessions, or child-agent sessions.
-- [x] Do not trigger for already-named sessions or sessions explicitly cleared with `session_metadata.name = ''`.
-- [x] Extension-only activity and turns without a real user message cannot trigger from an older real-user message elsewhere on the branch.
+- [x] Name only persisted main sessions: a session file must exist and the runtime must not be a child agent.
+- [x] Refuse to name ephemeral sessions and child-agent sessions, with an explicit error result.
+- [x] Never write a name into a JSONL transcript entry; persist through the existing session-naming behavior in `session_metadata.name`.
 
-### Manual control and failure
+### Manual control
 
-- [x] A manual `/name`, `/unname`, or active-session selector rename/clear during title generation or retry backoff wins over the generated title; active-session changes emit `session_info_changed`, and `/unname` stores `session_metadata.name = ''`, remains cleared after restart, and blocks later autonaming.
-- [x] Make at most three total title attempts for transient provider failures and timeouts, with 1s then 2s exponential delays plus at most 250ms jitter. Provider-internal retries honor its retry-delay cap.
-- [x] Do not retry permanent failures or provider retry-delay-cap failures. A timeout, exhausted transient attempts, or permanent failure leaves the session unnamed and reports the failure to stderr; failure state is not persisted.
+- [x] A name set outside the tool (for example `/name` or `--name`) is not overwritten by the tool.
+- [x] A name explicitly cleared with `/unname` blocks later tool naming; the session stays unnamed.
+- [x] The tool may correct a name it set earlier in the same session.
+
+### Normalization
+
+- [x] Collapse whitespace and newlines into single spaces, trim the result, and bound it to 80 characters.
+- [x] Reject an empty or whitespace-only name with an error result. **Word count is not validated.**
 
 ## How it works
 
-- [`docs/wiki/systems/session-autoname.md`](../wiki/systems/session-autoname.md) — implementation description (stub).
+- [`docs/wiki/systems/session-autoname.md`](../wiki/systems/session-autoname.md) — implementation description.
 
 ## Implementation inventory
 
-- `packages/coding-agent/extensions/session-autoname/src/index.ts` — first-party session-autonaming extension.
+- `packages/coding-agent/extensions/session-autoname/src/index.ts` — first-party session-naming extension.
 - `packages/coding-agent/src/main.ts` — default first-party extension registration.
 
 ## Tests asserting this spec
@@ -44,7 +46,7 @@ None.
 
 ## Out of scope
 
-- Automatic naming in print or JSON modes.
-- Naming ephemeral, child-agent, or already-named sessions.
-- Renaming sessions as the conversation evolves.
-- Replacing manual session naming or defining a title policy beyond the 2–4 word contract.
+- Automatic naming in print or JSON modes beyond what the model itself requests.
+- Naming ephemeral or child-agent sessions.
+- Renaming sessions as the conversation evolves, except corrections to a name the tool set itself.
+- Replacing manual session naming or defining a title policy beyond the 2–4 word guidance in the tool description.

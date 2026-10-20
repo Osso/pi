@@ -95,7 +95,7 @@ pi --name "CI audit" -p "Review this build failure"
 
 Named sessions are easier to find in `/resume` and `pi -r`.
 
-In interactive TUI and RPC modes, the default session-autoname extension asynchronously asks the active model for a short 3–6 word title after the first completed substantive real-user exchange in a persisted unnamed main session. It does not name print/JSON, ephemeral, child-agent, already-named, non-substantive, failed, later-turn, or cwd-relocation intermediate sessions. Manual `/name` or `/unname` changes win, and failures leave the session unnamed.
+The default session-autoname extension lets the model name the current session itself through the `set_session_name` tool, so a session gets a short title describing your request without any extra model call. It only names persisted main sessions, never overwrites a name you set with `/name` or `--name`, and leaves a session unnamed after `/unname`.
 
 ## Branching with `/tree`
 

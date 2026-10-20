@@ -27,7 +27,7 @@ For installation, CLI usage, and extension APIs, start with the [coding-agent ma
 | Persistent cwd changes | [Change working directory](systems/change-working-directory-tool.md) |
 | Runtime inventory and delivery eligibility | [Session directory tools](systems/session-directory-tools.md) |
 | Archive, restore, and deletion | [Session archive](systems/session-archive.md) |
-| Automatic session titles | [Session autonaming](systems/session-autoname.md) |
+| Model-driven session naming | [Session naming](systems/session-autoname.md) |
 | Resume-picker matching | [Session selector search](systems/session-selector-search.md) |
 | Active-branch history retrieval | [Current session history search](systems/current-session-history-search.md) |
 | Persistence-only output cap | [Session tool output](systems/session-tool-output.md) |

@@ -697,7 +697,7 @@ async function startRpcClientSession(
 	if (!state.sessionName) await nameHeadlessSession(client);
 }
 
-// Named sessions skip session-autoname, whose title request would otherwise consume scripted LLM responses.
+// Named sessions keep the harness session identifiable without relying on model-driven naming.
 function nameHeadlessSession(client: RpcClient): Promise<void> {
 	return client.setSessionName("Headless Pi");
 }

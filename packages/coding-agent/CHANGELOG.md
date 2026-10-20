@@ -26,6 +26,7 @@
 ### Changed
 
 - Tool wait status now reads `Waiting for command... 2s` / `Waiting for tool: read... 2s`, matching the `Thinking... 2s` status, instead of `Waiting for command... Elapsed: 2s`.
+- Session naming is model-driven: the session-autoname extension now registers a `set_session_name` tool and no longer issues its own title request, so naming costs no extra provider call and no longer fails on endpoints that require reasoning. The tool names only persisted main sessions, never overwrites a `/name` or `--name` value, and leaves explicitly cleared sessions unnamed.
 - Lowered the idle-compaction context minimum from 200,000 to 100,000 tokens; TTLs and eligibility exclusions are unchanged.
 - Shared-channel messages are now deleted 24 hours after creation, matching mailbox retention, instead of accumulating indefinitely in `control.sqlite`.
 - Expire all canonical multi-agent mailbox messages after 24 hours from creation, including pending/claimed messages and preexisting unknown or invalid creation times; clean on database initialization and every 60 seconds while retained, preventing stale replay, delivery, and resurrection. Default missing/null creation dates once for genuinely new messages, including legacy SQL inserts from live jobs; preserve existing birth on updates and duplicate retries, never default supplied invalid/stale dates, and never backfill or repair old unknown births from mutation timestamps. Transcripts and shared-channel history are unchanged.
