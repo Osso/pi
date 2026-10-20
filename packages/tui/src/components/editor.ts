@@ -161,9 +161,9 @@ export function wordWrapLine(line: string, maxWidth: number, preSegmented?: Intl
 			wrapOppIndex = -1;
 		}
 
-		if (gWidth > maxWidth) {
-			// Single atomic segment wider than maxWidth (e.g. paste marker
-			// in a narrow terminal). Re-wrap it at grapheme granularity.
+		if (gWidth > maxWidth && [...graphemeSegmenter.segment(grapheme)].length > 1) {
+			// Split merged segments (e.g. paste markers), never an indivisible
+			// grapheme: it overflows alone rather than recursing without progress.
 
 			// The segment remains logically atomic for cursor
 			// movement / editing — the split is purely visual for word-wrap layout.
