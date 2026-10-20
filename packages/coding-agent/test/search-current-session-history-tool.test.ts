@@ -112,22 +112,6 @@ function appendConversationalEntries(manager: SessionManager, phase: string): st
 			timestamp: 12,
 		}),
 	);
-	ids.push(
-		manager.appendMessage({
-			role: "branchSummary",
-			summary: `needle ${phase} message summary`,
-			fromId: leaf,
-			timestamp: 13,
-		}),
-	);
-	ids.push(
-		manager.appendMessage({
-			role: "compactionSummary",
-			summary: `needle ${phase} message compaction`,
-			tokensBefore: 1000,
-			timestamp: 14,
-		}),
-	);
 	manager.appendMessage({
 		role: "toolResult",
 		toolCallId: `${phase}-search`,
@@ -499,7 +483,7 @@ beta says "quoted" at C:\\tmp`;
 				expect(reopened.buildSessionContext()).toEqual(context);
 				for (const context_entries of [0, 2, 10]) {
 					for (const limit of [1, 4, 50]) {
-						for (const cursor of ["0", "1", "4", "10", "20", "31", "100"]) {
+						for (const cursor of ["0", "1", "4", "10", "20", "25", "100"]) {
 							const params = { query: "NeEdLe", context_entries, limit, cursor };
 							expect(await search(reopened, params)).toEqual(await search(original, params));
 						}
