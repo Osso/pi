@@ -19,6 +19,7 @@ import { createReadonlySessionManager } from "../readonly-session-manager.ts";
 import type { ReadonlySessionManager, SessionManager } from "../session-manager.ts";
 import type { SettingsManager } from "../settings-manager.ts";
 import type { BuildSystemPromptOptions } from "../system-prompt.ts";
+import { createSessionSetupWriteView } from "./session-entry-writes.ts";
 import type {
 	ApprovalReviewerResult,
 	BeforeAgentStartEvent,
@@ -1001,7 +1002,15 @@ export class ExtensionRunner {
 		};
 		context.newSession = (options) => {
 			this.assertActive();
-			return this.newSessionHandler(options);
+			const setup = options?.setup;
+			return this.newSessionHandler(
+				setup
+					? {
+							...options,
+							setup: (session) => setup(createSessionSetupWriteView(session)),
+						}
+					: options,
+			);
 		};
 		context.fork = (entryId, options) => {
 			this.assertActive();
@@ -1049,14 +1058,14 @@ export class ExtensionRunner {
 
 					if (this.isSessionBeforeEvent(event) && handlerResult) {
 						const beforeResult = handlerResult as SessionBeforeEventResult;
-						result = beforeResult;
+						result = structuredClone(beforeResult);
 						if (beforeResult.cancel) {
-							return beforeResult as RunnerEmitResult<TEvent>;
+							return result as RunnerEmitResult<TEvent>;
 						}
 					}
 
 					if (event.type === "compaction" && handlerResult) {
-						const compactionResult = handlerResult as CompactionEventResult;
+						const compactionResult = structuredClone(handlerResult as CompactionEventResult);
 						result = compactionResult;
 						if (compactionResult.cancel || compactionResult.compaction) {
 							return compactionResult as RunnerEmitResult<TEvent>;
@@ -1133,7 +1142,7 @@ export class ExtensionRunner {
 						continue;
 					}
 
-					currentMessage = handlerResult.message;
+					currentMessage = structuredClone(handlerResult.message);
 					modified = true;
 				} catch (err) {
 					const message = err instanceof Error ? err.message : String(err);
@@ -1166,11 +1175,11 @@ export class ExtensionRunner {
 					if (!handlerResult) continue;
 
 					if (handlerResult.content !== undefined) {
-						currentEvent.content = handlerResult.content;
+						currentEvent.content = structuredClone(handlerResult.content);
 						modified = true;
 					}
 					if (handlerResult.details !== undefined) {
-						currentEvent.details = handlerResult.details;
+						currentEvent.details = structuredClone(handlerResult.details);
 						modified = true;
 					}
 					if (handlerResult.isError !== undefined) {
@@ -1390,7 +1399,7 @@ export class ExtensionRunner {
 					if (handlerResult) {
 						const result = handlerResult as BeforeAgentStartEventResult;
 						if (result.message) {
-							messages.push(result.message);
+							messages.push(structuredClone(result.message));
 						}
 						if (result.systemPrompt !== undefined) {
 							currentSystemPrompt = result.systemPrompt;
@@ -1493,7 +1502,7 @@ export class ExtensionRunner {
 					if (result?.action === "handled") return result;
 					if (result?.action === "transform") {
 						currentText = result.text;
-						currentImages = result.images ?? currentImages;
+						currentImages = result.images ? structuredClone(result.images) : currentImages;
 					}
 				} catch (err) {
 					this.emitError({

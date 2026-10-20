@@ -6425,8 +6425,8 @@ export class AgentSession {
 			{},
 			Object.getOwnPropertyDescriptors(this._extensionRunner.createCommandContext()),
 		) as ReplacedSessionContext;
-		context.sendMessage = (message, options) => this.sendCustomMessage(message, options);
-		context.sendUserMessage = (content, options) => this.sendUserMessage(content, options);
+		context.sendMessage = (message, options) => this.sendCustomMessage(structuredClone(message), options);
+		context.sendUserMessage = (content, options) => this.sendUserMessage(structuredClone(content), options);
 		return context;
 	}
 

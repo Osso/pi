@@ -815,6 +815,8 @@ await runtime.fork("entry-id", { position: "at" });
 
 Extensions loaded through the SDK receive an isolated `ReadonlySessionManager` view in `ctx.sessionManager`, including command, tool, event, and shortcut contexts. Its entry, branch, context-entry, header, and tree reads return fresh deep copies, not frozen objects. Mutating these copies changes only extension-local state; use extension write APIs to persist updates. Compare entry IDs rather than object identity across reads. Direct SDK access to the full `SessionManager` remains a trusted, low-level API: its reads may share stored objects and must not be mutated. Core reads avoid the extension boundary's copying cost.
 
+Extension-facing writes copy structured-cloneable entry data before core retains it: custom entries/messages, user-message content/images, tool results/updates and execution metadata, and message/input/compaction/branch-summary hook outputs. This includes replacement-context send helpers and object-valued entry writes through `ctx.newSession({ setup })`. Queued sends snapshot on submission. Caller objects remain mutable without changing earlier entries. Direct SDK `SessionManager` writes remain trusted and do not acquire extension-boundary copying. See [extension session access](extensions.md#ctxsessionmanager).
+
 ```typescript
 const sm = SessionManager.open("/path/to/session.jsonl");
 
