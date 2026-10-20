@@ -323,17 +323,17 @@ function createExtensionAPI(
 		// Action methods - delegate to shared runtime
 		sendMessage(message, options): void {
 			runtime.assertActive();
-			runtime.sendMessage(message, options);
+			runtime.sendMessage(structuredClone(message), options);
 		},
 
 		sendUserMessage(content, options): void {
 			runtime.assertActive();
-			runtime.sendUserMessage(content, options);
+			runtime.sendUserMessage(structuredClone(content), options);
 		},
 
 		appendEntry(customType: string, data?: unknown): void {
 			runtime.assertActive();
-			runtime.appendEntry(customType, data);
+			runtime.appendEntry(customType, structuredClone(data));
 		},
 
 		requestResumeContinuation(): void {

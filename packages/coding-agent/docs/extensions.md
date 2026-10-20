@@ -1027,6 +1027,10 @@ Read-only access to session state. See [Session Format](session-format.md) for t
 
 Object-valued reads (`getEntries`, `getBranch`, `getEntry`, `getLeafEntry`, `buildContextEntries`, `getHeader`, and `getTree`) return deep copies, including nested custom-entry data and tool-result details. Copies are mutable: extensions may keep and update local state without changing stored entries or what later readers see. Each read returns a fresh snapshot; object identity is not stable across reads. Persist updates explicitly with the extension write APIs (for example, `pi.appendEntry`).
 
+Session-entry writes also take deep copies at the extension boundary: `pi.appendEntry`, `pi.sendMessage` (content and details), `pi.sendUserMessage` (including images), and the send helpers in `withSession` contexts. Queued messages are copied when submitted, not when delivered. Tool results and updates, tool execution metadata, `before_agent_start` messages, `message_end` replacements, `tool_result` replacements, transformed input images, and compaction/branch-summary results are copied when handed back to core. Later mutations of extension-owned objects cannot change retained messages or stored entries; caller objects are not frozen. Supply structured-cloneable data (plain session-serializable objects are recommended).
+
+The full `SessionManager` supplied to `ctx.newSession({ setup })` also copies arguments to its object-valued entry writes: `appendMessage`, `appendCustomEntry`, `appendCustomMessageEntry`, `appendCompaction`, and `branchWithSummary`. Other low-level setup access is unchanged.
+
 For `tool_call`, this state is synchronized through the current assistant message before handlers run. In parallel tool execution mode it is still not guaranteed to include sibling tool results from the same assistant message.
 
 ```typescript
