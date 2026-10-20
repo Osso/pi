@@ -659,7 +659,12 @@ Keep each section concise. Preserve exact file paths, function names, and error 
 
 const CONTINUATION_SUMMARIZATION_GUIDANCE = `Continuation rules:
 - Deduplicate repeated or semantically equivalent content. Represent each fact, message, and tool result once.
-- Preserve the active goal, user-stated constraints, decisions and reasons, completed work, current status, unresolved blockers, next steps, and exact artifacts needed to continue.
+- Derive ongoing work from the actual conversation, including research and discussion; do not invent a fixed session purpose.
+- Preserve pending user questions and requests, user decisions and corrections, relevant context, and unfinished work.
+- Distinguish completed historical work from ongoing work; do not revive it as a current task.
+- Do not infer the current task or authority from the working directory or messages addressed to another session.
+- Represent ambiguity or missing intent explicitly rather than inventing a goal, assignment, or authorization.
+- Preserve user-stated goals and constraints, reasons for decisions, current status, unresolved blockers, next steps, and exact artifacts needed to continue.
 - Prefer the latest confirmed state over superseded state. Record unresolved contradictions explicitly.
 - Do not invent completion, evidence, file changes, commands, test results, or deployment state.
 - Prioritize the current task, then parked tasks, then only earlier history needed to continue.`;

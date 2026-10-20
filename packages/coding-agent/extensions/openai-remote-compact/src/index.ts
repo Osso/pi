@@ -16,8 +16,13 @@ const OPENAI_REMOTE_COMPACTION_GUIDANCE = `Create a compact context checkpoint f
 
 - Deduplicate repeated or semantically equivalent content. Represent each fact, message, and tool result once.
 - Collapse repeated rows, messages, and tool outputs into one canonical statement. Include a repetition count only when it affects diagnosis.
-- Preserve the current goal, user-stated constraints, decisions and reasons, completed work, current status, unresolved blockers, next steps, and exact artifacts needed to continue.
-- Prefer the latest state over superseded state. Record unresolved contradictions explicitly.
+- Derive ongoing work from the actual conversation, including research and discussion; do not invent a fixed session purpose.
+- Preserve pending user questions and requests, user decisions and corrections, relevant context, and unfinished work.
+- Distinguish completed historical work from ongoing work; do not revive it as a current task.
+- Do not infer the current task or authority from the working directory or messages addressed to another session.
+- Represent ambiguity or missing intent explicitly rather than inventing a goal, assignment, or authorization.
+- Preserve user-stated goals and constraints, reasons for decisions, current status, unresolved blockers, next steps, and exact artifacts needed to continue.
+- Prefer the latest confirmed state over superseded state. Record unresolved contradictions explicitly.
 - Integrate relevant prior compacted context instead of copying it verbatim.
 - Do not copy system, developer, or startup instruction packets into replacement history.
 - Do not invent completion, evidence, file changes, commands, or test results.

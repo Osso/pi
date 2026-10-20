@@ -7,6 +7,7 @@ OpenAI remote compaction uses OpenAI's `/responses/compact` endpoint for first-p
 - [ ] Only first-party `openai` provider models using `openai-responses` and first-party `openai-codex`, `openai-codex-gc`, and `openai-codex-team` provider models using `openai-codex-responses` are eligible for remote compaction.
 - [x] Remote compaction requests must serialize compacted Pi messages into OpenAI Responses input items and send them to the provider's compact endpoint.
 - [x] Remote compaction requests must preserve Pi's system instructions, append compaction-only guidance that prioritizes deduplicated continuation context, and include optional user-provided `/compact` instructions.
+- [x] Compaction-only guidance must ask for conversation-derived continuation: preserve ongoing work, unanswered user questions/requests, user decisions/corrections, relevant context, and unresolved uncertainty; keep completed work historical; do not infer user intent or authority from cwd or coordination concerning another session. See [continuation guidance](../../packages/coding-agent/docs/compaction.md#continuation-guidance).
 - [x] Codex remote compaction must use the active Codex provider, account, and model while preserving native history across generation-model switches on that provider.
 - [x] Remote compaction results must keep OpenAI's native replacement history in both the compaction entry's provider-native checkpoint and its OpenAI remote-compaction details, while the persisted summary remains a synthetic placeholder.
 - [x] When the compact endpoint returns provider-generated `message` rows that are identical except for response-item `id`, remote compaction must keep only the latest row while preserving every non-message item unchanged.
@@ -35,6 +36,7 @@ OpenAI remote compaction uses OpenAI's `/responses/compact` endpoint for first-p
 
 ## Tests asserting this spec
 
+- `packages/coding-agent/test/compaction-continuity-request.test.ts` — conversation-continuity guidance and input in local and remote initial/update/split requests; not model adherence.
 - `packages/coding-agent/test/compaction-materialization.test.ts` — materialization request context, plaintext output, and abort behavior.
 - `packages/coding-agent/test/agent-session-compaction-summary-edit.test.ts` — matching-model materialization, no pre-save mutation, and mismatch rejection.
 - `packages/coding-agent/test/interactive-mode-compaction-edit.test.ts` — plaintext/native editor flows, cancellation, failure, and command routing.
@@ -49,5 +51,6 @@ OpenAI remote compaction uses OpenAI's `/responses/compact` endpoint for first-p
 
 ## Out of scope
 
+- Explicit session-purpose/assignment metadata, message-routing redesign, and guaranteed model compliance; continuation preservation here is prompt guidance only.
 - Azure OpenAI support is not enabled until its `/responses/compact` URL and response contract are verified.
 - The experimental `context_compaction` Responses item is not used because the public API rejected it in live probing.

@@ -272,6 +272,17 @@ Same as compaction, extensions can store custom data in `details`.
 
 See [`collectEntriesForBranchSummary()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/branch-summarization.ts), [`prepareBranchEntries()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/branch-summarization.ts), and [`generateBranchSummary()`](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/compaction/branch-summarization.ts) for the implementation.
 
+## Continuation guidance
+
+Built-in compaction uses shared `CONTINUATION_SUMMARIZATION_GUIDANCE` for initial summaries, iterative updates, and split-turn prefix summaries. It asks the summarizer to derive continuation from the actual conversation:
+
+- Preserve ongoing work, unanswered user questions and requests, user decisions and corrections with their reasons, and relevant context needed to continue.
+- Keep completed work historical, not current work to restart. Prefer the latest confirmed state while retaining unresolved uncertainty and contradictions without inventing intent, completion, or evidence.
+- Treat cwd as location context, not evidence of user intent or authority. Coordination concerning another session does not become this session's user request or authorization.
+- Deduplicate repeated context without dropping unresolved work; retain parked tasks and earlier history only as needed for continuation.
+
+The [opt-in OpenAI remote-compaction extension](../../../docs/specs/openai-remote-compaction.md) supplies equivalent guidance through `OPENAI_REMOTE_COMPACTION_GUIDANCE`. This is bounded prompt guidance, not a guarantee that summarization or continuation models comply. It adds no explicit session-purpose or assignment field and does not change message routing, session ownership, or authorization.
+
 ## Summary Format
 
 Both compaction and branch summarization use the same structured format:
