@@ -398,6 +398,7 @@ export class TUI extends Container {
 	public onDebug?: () => void;
 	private renderRequested = false;
 	private forceRenderRequested = false;
+	private viewportRenderRequested = false;
 	private renderTimer: NodeJS.Timeout | undefined;
 	private lastRenderAt = 0;
 	private terminalFocused = true;
@@ -876,7 +877,12 @@ export class TUI extends Container {
 		this.renderRequested = false;
 		this.terminal.start(
 			(data) => this.handleInput(data),
-			() => this.requestRender(),
+			() => {
+				if (this.previousWidth === this.terminal.columns && this.previousHeight === this.terminal.rows) {
+					this.viewportRenderRequested = true;
+				}
+				this.requestRender();
+			},
 		);
 		if (!this.focusReportingEnabled) {
 			this.terminal.write(ENABLE_TERMINAL_FOCUS_REPORTING);
@@ -1918,6 +1924,8 @@ export class TUI extends Container {
 		height: number,
 		allowFullRender: boolean,
 	): boolean {
+		const repaintViewport = this.viewportRenderRequested;
+		this.viewportRenderRequested = false;
 		const widthChanged = this.previousWidth !== 0 && this.previousWidth !== width;
 		const heightChanged = this.previousHeight !== 0 && this.previousHeight !== height;
 		const previousBufferLength = this.previousHeight > 0 ? this.previousViewportTop + this.previousHeight : height;
@@ -1974,7 +1982,7 @@ export class TUI extends Container {
 			this.previousHeight = height;
 		};
 
-		// Repaint only the visible window after a shrink moved the viewport up. Lines already pushed into scrollback
+		// Repaint only the visible window after reattachment or a shrink. Lines already pushed into scrollback
 		// cannot scroll back down, so the window is rewritten in place instead of clearing and replaying the history.
 		const viewportRender = (nextViewportTop: number): void => {
 			let buffer = "\x1b[?2026h\x1b[H";
@@ -2022,6 +2030,13 @@ export class TUI extends Container {
 		// In that environment, a full redraw causes the entire history to replay on every toggle.
 		if (heightChanged && !isTermuxSession()) {
 			return fallbackToFullRender(`terminal height changed (${this.previousHeight} -> ${height})`, true);
+		}
+
+		// Same-size SIGWINCH can mean dtach erased the screen. Do not trust the
+		// differential cache or replay history: restore only the live viewport.
+		if (repaintViewport) {
+			viewportRender(Math.max(0, newLines.length - height));
+			return true;
 		}
 
 		// Content shrunk below the working area and no overlays - re-render to clear empty rows

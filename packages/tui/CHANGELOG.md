@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed blank or stale TUI output after same-size native dtach reattachment by repainting the visible viewport without clearing terminal scrollback.
 - Prevented global debug shortcuts from firing again for Kitty keyboard repeat and release events.
 - Preserved terminal viewport and scrollback when content grows before following lines by using differential rendering instead of clearing the screen and scrollback. This avoids disruptive redraws in terminals such as Ghostty.
 - Reset an upward-moving viewport when content shrinks after a tall temporary editor or selector closes, restoring bottom-anchored editor and footer rows (`root-compositor.test.ts`: "restores bottom anchoring after a tall editor replacement closes with Escape").

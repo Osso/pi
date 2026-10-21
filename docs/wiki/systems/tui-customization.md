@@ -21,6 +21,8 @@ Pi currently reads JSON settings, not the contract's target TOML `[tui]` section
 
 [`interactive-root-compositor.ts`](../../../packages/coding-agent/src/modes/interactive/interactive-root-compositor.ts) separates normal transcript flow from bottom-anchored status/widgets/editor/footer. [`working-editor.ts`](../../../packages/coding-agent/src/modes/interactive/working-editor.ts) enables prompt-cell animation only for compatible editors and one-cell frames; unsupported editors/wider frames keep static status text. [`tui.ts`](../../../packages/tui/src/tui.ts) handles safe full-width region updates and fixed-cell placement. Rendered component lines must fit the supplied width; theme-dependent caches must rebuild on invalidation.
 
+On Unix, [`ProcessTerminal`](../../../packages/tui/src/terminal.ts) listens for `SIGWINCH` as well as dimension-changing resize events and removes both listeners on stop. A same-size notification makes the TUI repaint the visible window and restore cursor/cache alignment without clearing scrollback or replaying history. Changed-size rendering keeps its existing behavior. [`dtach-viewport.test.ts`](../../../packages/tui/test/dtach-viewport.test.ts) covers visible recovery, subsequent updates, cursor alignment, and retained external history; its native dtach/PTY case also exercises repeated attachment and listener cleanup. This is not SSH/Mosh or desktop-pixel acceptance.
+
 Component factories are TUI-only. RPC supports selected dialogs/text updates, not custom TUI components; print/JSON UI methods are generally inert. Use `ctx.mode === "tui"`, not merely `ctx.hasUI`, for component APIs.
 
 ## Test locations and limits

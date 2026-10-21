@@ -163,6 +163,11 @@ export class ProcessTerminal implements Terminal {
 
 		// Set up resize handler immediately
 		process.stdout.on("resize", this.resizeHandler);
+		// dtach reattachment can clear the viewport without changing the PTY size.
+		// Node emits stdout.resize only when dimensions change.
+		if (process.platform !== "win32") {
+			process.on("SIGWINCH", this.resizeHandler);
+		}
 
 		// Refresh terminal dimensions - they may be stale after suspend/resume
 		// (SIGWINCH is lost while process is stopped). Unix only.
@@ -452,6 +457,9 @@ export class ProcessTerminal implements Terminal {
 		this.inputHandler = undefined;
 		if (this.resizeHandler) {
 			process.stdout.removeListener("resize", this.resizeHandler);
+			if (process.platform !== "win32") {
+				process.removeListener("SIGWINCH", this.resizeHandler);
+			}
 			this.resizeHandler = undefined;
 		}
 

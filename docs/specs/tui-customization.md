@@ -37,6 +37,7 @@ terminal_resize_reflow_max_rows = 5000
 
 ### Layout
 
+- [x] Same-size native dtach reattachment restores the visible TUI after `SIGWINCH` without clearing terminal scrollback or replaying history; changed-size resize behavior remains unchanged.
 - [ ] `ctx.ui.setHeader(factory | undefined)` / `setFooter(factory | undefined)` replace the startup header / footer (footer factory receives a `ReadonlyFooterDataProvider`); passing `undefined` restores the built-in.
 - [ ] `ctx.ui.setWidget(key, content, options?)` shows a string-array or component widget above/below the editor.
 - [ ] `ctx.ui.setEditorComponent(factory | undefined)` replaces the core input editor (subclass `CustomEditor`, call `super.handleInput` for app keybindings); `getEditorComponent()` reads the current factory.
@@ -118,6 +119,8 @@ terminal_resize_reflow_max_rows = 5000
 - `packages/tui/src/components/editor.ts` and terminal resize handling — resize reflow behavior and any future `[tui].terminal_resize_reflow_max_rows` cap.
 
 ## Tests asserting this spec
+
+- `packages/tui/test/dtach-viewport.test.ts` — "same-size resize restores only the visible viewport and keeps differential updates aligned" and "native dtach same-size SIGWINCH restores viewport, scrollback, cursor, and listener lifecycle" cover repeated same-size restoration, subsequent updates, cursor alignment, retained external history, changed-size behavior, and native listener cleanup.
 
 - `packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts` — main/child working labels remain static; invisible thinking, partial tool-call, and hidden main-session message updates do not request renders; assistant start and visible updates route through the transcript-tail region; completion consolidates the tail before one normal render.
 - `packages/coding-agent/test/interactive-mode-working-editor.test.ts` and `working-editor.test.ts` — main/child prompt routing, static status loaders, incompatible/wider custom indicators, temporary editor replacement, and prompt placement coordination.
