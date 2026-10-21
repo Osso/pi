@@ -14,6 +14,8 @@
 
 ### Fixed
 
+- Image model getters return deep copies so caller changes to model fields, input/output arrays, and costs cannot mutate the catalog.
+
 - Nullable array tool arguments now validate through the null arm instead of throwing from TypeBox array checks; array item validation remains enforced.
 
 - Fixed retry classification for the explicit Codex flag `This content was flagged for possible cybersecurity risk.` to remain nonretryable before generic status-pattern matching.

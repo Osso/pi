@@ -25,7 +25,7 @@ export function getImageModel<
 	TModelId extends keyof (typeof IMAGE_MODELS)[TProvider],
 >(provider: TProvider, modelId: TModelId): ImagesModel<ImageModelApi<TProvider, TModelId>> {
 	const providerModels = imageModelRegistry.get(provider);
-	return providerModels?.get(modelId as string) as ImagesModel<ImageModelApi<TProvider, TModelId>>;
+	return structuredClone(providerModels?.get(modelId as string)) as ImagesModel<ImageModelApi<TProvider, TModelId>>;
 }
 
 export function getImageProviders(): KnownImagesProvider[] {
@@ -37,6 +37,8 @@ export function getImageModels<TProvider extends KnownImagesProvider>(
 ): ImagesModel<ImageModelApi<TProvider, keyof (typeof IMAGE_MODELS)[TProvider]>>[] {
 	const models = imageModelRegistry.get(provider);
 	return models
-		? (Array.from(models.values()) as ImagesModel<ImageModelApi<TProvider, keyof (typeof IMAGE_MODELS)[TProvider]>>[])
+		? (structuredClone(Array.from(models.values())) as ImagesModel<
+				ImageModelApi<TProvider, keyof (typeof IMAGE_MODELS)[TProvider]>
+			>[])
 		: [];
 }
