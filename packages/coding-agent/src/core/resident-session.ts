@@ -57,5 +57,5 @@ function findLiveResidentSessionPath(
 }
 
 function isResidentSessionForRole(session: { id: string; sessionPath: string }, role: ResidentRole): boolean {
-	return session.id === role || new RegExp(`(?:^|[\\/])${role}-sessions(?:[\\/]|$)`).test(session.sessionPath);
+	return session.id === role || new RegExp(`(?:^|[\\\\/])${role}-sessions(?:[\\\\/]|$)`).test(session.sessionPath);
 }
