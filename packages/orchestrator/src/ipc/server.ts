@@ -52,15 +52,14 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 
 		socket.on("data", async (chunk: Buffer | string) => {
 			buffer += chunk.toString();
-			const newlineIndex = buffer.indexOf("\n");
-			if (newlineIndex === -1) {
-				return;
-			}
-
-			const line = buffer.slice(0, newlineIndex).trim();
-			buffer = buffer.slice(newlineIndex + 1);
-			if (!line) {
-				return;
+			let line = "";
+			while (!line) {
+				const newlineIndex = buffer.indexOf("\n");
+				if (newlineIndex === -1) {
+					return;
+				}
+				line = buffer.slice(0, newlineIndex).trim();
+				buffer = buffer.slice(newlineIndex + 1);
 			}
 
 			try {
@@ -94,8 +93,7 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 
 					socket.write(encodeMessage(response));
 					let rpcRequestQueue = Promise.resolve();
-					socket.on("data", (rpcChunk: Buffer | string) => {
-						buffer += rpcChunk.toString();
+					const drainRpcRequests = () => {
 						for (;;) {
 							const rpcNewlineIndex = buffer.indexOf("\n");
 							if (rpcNewlineIndex === -1) {
@@ -130,7 +128,12 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 									);
 								});
 						}
+					};
+					socket.on("data", (rpcChunk: Buffer | string) => {
+						buffer += rpcChunk.toString();
+						drainRpcRequests();
 					});
+					drainRpcRequests();
 					socket.once("close", () => rpcStream.close());
 					return;
 				}
