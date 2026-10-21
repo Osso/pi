@@ -243,18 +243,18 @@ def ship(runtime):
     token = ".pi-runtime-" + uuid.uuid4().hex
     workspace = SHARE / token
     remote_script = workspace / "deploy.py"
-    rsync = ["rsync", "-a", "--timeout=60", "-e", " ".join(SSH)]
+    rsync = ["rsync", "-az", "--timeout=60", "-e", " ".join(SSH)]
     try:
         run_transport(SSH + [HOST, f"mkdir -m 700 -p {workspace}/runtime"], 60, (255,))
         run_transport(
             rsync + [str(runtime) + "/", f"{HOST}:{workspace}/runtime/"],
-            300,
-            (10, 12, 30, 35),
+            900,
+            (10, 12, 30, 35, 255),
         )
         run_transport(
             rsync + [str(Path(__file__).resolve()), f"{HOST}:{remote_script}"],
             60,
-            (10, 12, 30, 35),
+            (10, 12, 30, 35, 255),
         )
         # Activation is not retried: a lost connection may hide a successful exchange.
         run_transport(SSH + [HOST, f"python3 {remote_script} --activate {token}"], 120)

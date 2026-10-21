@@ -32,6 +32,8 @@ Both invocations run checks, build the host-platform binary, and install locally
 
 Remote activation validates `pi --version` before and after replacement and rolls back the remote runtime if post-activation validation fails. It preserves the remote launcher wrapper, configuration, credentials, sessions, and services; it does not restart running sessions. Local resident-service behavior remains unchanged; see [Supervisor deployment](../../../docs/wiki/systems/supervisor-service.md#deployment). Use `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=skip` to leave local resident services untouched.
 
+Runtime rsync uses compression and a 900-second whole-transfer deadline, separate from its 60-second I/O idle timeout. Transient transfer failures, including SSH exit 255, are retried up to three attempts; activation is never retried.
+
 This is not a transaction across both hosts: local installation may already be updated when the remote step fails. Failure returns nonzero and identifies the remote staging directory for inspection; a lost activation connection may leave remote success uncertain.
 
 ### Fresh per-user public-runtime installation

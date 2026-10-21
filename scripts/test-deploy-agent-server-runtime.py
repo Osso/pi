@@ -149,8 +149,18 @@ if os.environ.get('TEST_TRANSFER_FAIL'):
     raise SystemExit(30)
 source = pathlib.Path(sys.argv[-2])
 destination = remote(sys.argv[-1].split(':', 1)[1])
+progress = home/'transfer-progress.log'
+retry_once = os.environ.get('TEST_TRANSFER_SSH_RESET_ONCE') and source.is_dir()
+if retry_once and not progress.exists():
+    old = (home/'.local/share/pi/old-only').read_text()
+    progress.write_text('failed:' + old + '\\n')
+    print('Connection reset by peer', file=sys.stderr)
+    raise SystemExit(255)
 if source.is_dir():
     shutil.copytree(source, destination, dirs_exist_ok=True)
+    if retry_once:
+        with progress.open('a') as log:
+            log.write('copied\\n')
 else:
     shutil.copy2(source, destination)
 """
@@ -172,6 +182,34 @@ else:
         self.assertEqual((self.install / "README.md").read_text(), "public runtime")
         self.assertFalse((self.install / "old-only").exists())
         self.assertEqual(log.read_text().splitlines(), ["ssh", "rsync", "rsync", "ssh"])
+        self.assertFalse(list(self.install.parent.glob(".pi-runtime-*")))
+        self.assert_preserved()
+
+    def test_shipping_retries_ssh_reset_before_activation_and_preserves_state(self):
+        progress = self.home / "transfer-progress.log"
+        self.executable(
+            "import pathlib\n"
+            f"with pathlib.Path({str(progress)!r}).open('a') as log:\n"
+            "    log.write('validated:' + pathlib.Path(__file__).parent.name + '\\n')\n"
+            "print('1.2.3')\n"
+        )
+        (self.stage / "README.md").write_text("public runtime")
+        env, _ = self.transport_tools()
+        env["TEST_TRANSFER_SSH_RESET_ONCE"] = "1"
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), str(self.stage)],
+            env={**os.environ, **env},
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            progress.read_text().splitlines(),
+            ["failed:old runtime", "copied", "validated:runtime", "validated:pi"],
+        )
+        self.assertEqual((self.install / "README.md").read_text(), "public runtime")
+        self.assertFalse((self.install / "old-only").exists())
         self.assertFalse(list(self.install.parent.glob(".pi-runtime-*")))
         self.assert_preserved()
 
