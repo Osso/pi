@@ -1,5 +1,5 @@
 import { createReadStream, existsSync, readFileSync } from "node:fs";
-import type { Readable } from "node:stream";
+import { pipeline, type Readable } from "node:stream";
 import { createZstdDecompress, zstdDecompressSync } from "node:zlib";
 
 /** Includes archived transcripts, without changing archive state. */
@@ -26,7 +26,12 @@ export function readSessionTranscriptText(path: string): string {
 export function createSessionTranscriptReadStream(path: string): Readable {
 	const source = readSessionTranscriptPath(path);
 	const input = createReadStream(source);
-	const decoded = source.endsWith(".jsonl.zst") ? input.compose(createZstdDecompress()) : input;
+	const decoded = source.endsWith(".jsonl.zst") ? createZstdDecompress() : input;
+	if (decoded !== input) {
+		pipeline(input, decoded, (error) => {
+			if (error) decoded.destroy(error);
+		});
+	}
 	decoded.setEncoding("utf8");
 	return decoded;
 }

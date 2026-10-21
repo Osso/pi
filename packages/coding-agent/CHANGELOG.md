@@ -203,6 +203,8 @@
 
 ### Fixed
 
+- Truncated zstd transcript streams now reject consumers with the decompression error instead of terminating the process with an unhandled error.
+
 - Empty recipient hosts now use the same local-host normalization during mailbox enqueue retries as during initial storage.
 
 - Runtime mailbox delivery with limit zero returns no messages and leaves candidates pending.
