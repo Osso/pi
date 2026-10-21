@@ -95,9 +95,62 @@ describe("registered /usage all Central timezone resets", () => {
 		await h.command.handler("all", h.ctx);
 
 		const lines = reportLines(h);
-		expect(lines).toContain("5h Week Provider Account Resets Central (5h | week)");
-		expect(lines).toContain(`42% - Claude alessio ${expected} | -`);
-		expect(lines).toContain(`42% - Codex usage@example.com [openai-codex] * ${expected} | -`);
+		expect(lines).toContain("5h Week Resets Provider Account Resets Central (5h | week)");
+		expect(lines).toContain(`42% - - Claude alessio ${expected} | -`);
+		expect(lines).toContain(`42% - - Codex usage@example.com [openai-codex] * ${expected} | -`);
+	});
+});
+
+describe("registered /usage all reset counts", () => {
+	it.each([
+		["positive", { available_count: 3 }, "3"],
+		["zero", { available_count: 0 }, "0"],
+		["missing", undefined, "-"],
+		["null credits", null, "-"],
+		["unreported count", {}, "-"],
+		["null count", { available_count: null }, "-"],
+	])("reports %s available reset credits without extra requests", async (_label, credits, expected) => {
+		const h = registerUsage("openai-codex");
+		h.fetch.mockImplementation(async () => Response.json({ rate_limit_reset_credits: credits }));
+		h.events.on("claude-bridge:usage-all-request", (data) => {
+			(data as { accounts?: Promise<unknown> }).accounts = Promise.resolve([
+				{ account: "alessio", selected: false, fiveHour: null, weekly: null },
+				{ account: "gc", selected: false, error: "expired" },
+			]);
+		});
+
+		await h.command.handler("all", h.ctx);
+
+		const lines = reportLines(h);
+		expect(lines).toContain(`- - ${expected} Codex usage@example.com [openai-codex] * - | -`);
+		expect(lines).toContain("- - - Claude alessio - | -");
+		expect(lines).toContain("- - - Claude gc error: expired");
+		expect(lines).toContain("- - - Codex openai-codex-team not logged in");
+		expect(h.fetch).toHaveBeenCalledTimes(2);
+		expect(h.confirm).not.toHaveBeenCalled();
+	});
+
+	it("aligns reset counts with their heading for every account row", async () => {
+		const h = registerUsage("openai-codex");
+		h.fetch.mockResolvedValueOnce(usageResponse(42, 123));
+		h.fetch.mockResolvedValueOnce(usageResponse(42, 0));
+		h.events.on("claude-bridge:usage-all-request", (data) => {
+			(data as { accounts?: Promise<unknown> }).accounts = Promise.resolve([
+				{ account: "alessio", selected: false, fiveHour: null, weekly: null },
+			]);
+		});
+
+		await h.command.handler("all", h.ctx);
+
+		const [, , , header, ...rest] = h.sendMessage.mock.calls[0][0].content.split("\n") as string[];
+		const rows = rest.filter((line) => line !== "```");
+		const resetColumn = header.indexOf("Resets");
+		expect(header).toMatch(/^5h +Week +Resets +Provider +Account +Resets Central \(5h \| week\)$/);
+		expect(rows.map((line) => line.slice(resetColumn, resetColumn + 6).trim())).toEqual(["-", "123", "0", "-"]);
+		for (const heading of ["Provider", "Account"]) {
+			const column = header.indexOf(heading);
+			expect(rows.every((line) => line[column] !== " ")).toBe(true);
+		}
 	});
 });
 
@@ -133,17 +186,17 @@ describe("registered /usage all", () => {
 			await h.command.handler(" all ", h.ctx);
 
 			const lines = reportLines(h);
-			expect(lines).toContain("Account usage (all accounts); - = not reported");
-			expect(lines).toContain("5h Week Provider Account Resets Central (5h | week)");
-			expect(lines).toContain("42% 61% Claude alessio * 2026-10-16 09:00 | 2026-10-20 04:00");
-			expect(lines).toContain("- - Claude gc error: Claude usage HTTP 401: expired");
+			expect(lines).toContain("Account usage (all accounts); Resets = available reset credits; - = not reported");
+			expect(lines).toContain("5h Week Resets Provider Account Resets Central (5h | week)");
+			expect(lines).toContain("42% 61% - Claude alessio * 2026-10-16 09:00 | 2026-10-20 04:00");
+			expect(lines).toContain("- - - Claude gc error: Claude usage HTTP 401: expired");
 			expect(lines).toContain(
-				"10% 63% Codex user@example.com (pro) [openai-codex] 2026-10-16 05:00 | 2026-10-20 01:00",
+				"10% 63% - Codex user@example.com (pro) [openai-codex] 2026-10-16 05:00 | 2026-10-20 01:00",
 			);
 			expect(lines).toContain(
-				`25% 75% Codex gc@example.co.uk (pro) [openai-codex-gc]${provider === "openai-codex-gc" ? " *" : ""} 2026-10-16 05:00 | 2026-10-20 01:00`,
+				`25% 75% - Codex gc@example.co.uk (pro) [openai-codex-gc]${provider === "openai-codex-gc" ? " *" : ""} 2026-10-16 05:00 | 2026-10-20 01:00`,
 			);
-			expect(lines).toContain("- - Codex openai-codex-team not logged in");
+			expect(lines).toContain("- - - Codex openai-codex-team not logged in");
 		},
 	);
 
@@ -153,11 +206,11 @@ describe("registered /usage all", () => {
 		h.fetch.mockResolvedValueOnce(allUsageResponse());
 		await h.command.handler("all", h.ctx);
 		const lines = reportLines(h);
-		expect(lines.some((line) => line.startsWith("- - Codex openai-codex * error:") && line.includes("500"))).toBe(
+		expect(lines.some((line) => line.startsWith("- - - Codex openai-codex * error:") && line.includes("500"))).toBe(
 			true,
 		);
 		expect(lines).toContain(
-			"10% 63% Codex usage@example.com (pro) [openai-codex-gc] 2026-10-16 05:00 | 2026-10-20 01:00",
+			"10% 63% - Codex usage@example.com (pro) [openai-codex-gc] 2026-10-16 05:00 | 2026-10-20 01:00",
 		);
 		expect(lines.join("\n")).not.toContain(h.token);
 	});
@@ -167,9 +220,9 @@ describe("registered /usage all", () => {
 		h.fetch.mockImplementation(async () => allUsageResponse());
 		await h.command.handler("all", h.ctx);
 		const lines = reportLines(h);
-		expect(lines).toContain("- - Claude bridge not loaded");
+		expect(lines).toContain("- - - Claude bridge not loaded");
 		expect(lines).toContain(
-			"10% 63% Codex usage@example.com (pro) [openai-codex] * 2026-10-16 05:00 | 2026-10-20 01:00",
+			"10% 63% - Codex usage@example.com (pro) [openai-codex] * 2026-10-16 05:00 | 2026-10-20 01:00",
 		);
 	});
 
@@ -185,7 +238,7 @@ describe("registered /usage all", () => {
 		);
 		await h.command.handler("all", h.ctx);
 		const lines = reportLines(h);
-		expect(lines).toContain("- 28% Codex usage@example.com [openai-codex] * - | -");
+		expect(lines).toContain("- 28% - Codex usage@example.com [openai-codex] * - | -");
 		expect(lines.join("\n")).not.toMatch(/\b0%/);
 	});
 
@@ -213,7 +266,7 @@ describe("registered /usage all", () => {
 		const lines = reportLines(h);
 		for (const provider of ["openai-codex", "openai-codex-gc", "openai-codex-team"]) {
 			expect(lines).toContain(
-				`- 56% Codex usage@example.com (pro) [${provider}]${provider === "openai-codex" ? " *" : ""} - | 2026-10-22 01:32`,
+				`- 56% - Codex usage@example.com (pro) [${provider}]${provider === "openai-codex" ? " *" : ""} - | 2026-10-22 01:32`,
 			);
 		}
 		expect(lines.join("\n")).not.toMatch(/\b0%/);
@@ -231,10 +284,10 @@ describe("registered /usage all", () => {
 			});
 			await h.command.handler("all", h.ctx);
 			const lines = reportLines(h);
-			expect(lines.some((line) => /^- - Claude (bad|unknown) error:/.test(line) && line.includes("malformed"))).toBe(
-				true,
-			);
-			expect(lines).toContain("- 0% Claude valid - | -");
+			expect(
+				lines.some((line) => /^- - - Claude (bad|unknown) error:/.test(line) && line.includes("malformed")),
+			).toBe(true);
+			expect(lines).toContain("- 0% - Claude valid - | -");
 		},
 	);
 
@@ -248,8 +301,8 @@ describe("registered /usage all", () => {
 		});
 		await h.command.handler("all", h.ctx);
 		const lines = reportLines(h);
-		expect(lines.some((line) => line.startsWith("- - Claude error:"))).toBe(true);
-		expect(lines).toContain("- - Codex openai-codex-team not logged in");
+		expect(lines.some((line) => line.startsWith("- - - Claude error:"))).toBe(true);
+		expect(lines).toContain("- - - Codex openai-codex-team not logged in");
 	});
 
 	it("reads Claude and Codex concurrently and uses busy report delivery", async () => {
@@ -279,7 +332,7 @@ describe("registered /usage all", () => {
 		reportLines(h);
 		const message = h.sendMessage.mock.calls[0][0];
 		const notification = h.notify.mock.calls[0][0] as string;
-		expect(notification).toMatch(/^- {6}- {6}Codex {5}openai-codex-team +not logged in$/m);
+		expect(notification).toMatch(/^- {6}- {6}- {7}Codex {5}openai-codex-team +not logged in$/m);
 		expect(notification).not.toContain("```");
 		const unfenced = message.content.split("\n").filter((line: string) => line !== "```" && line !== "");
 		expect(unfenced).toEqual(notification.split("\n"));
@@ -287,21 +340,27 @@ describe("registered /usage all", () => {
 		expect(h.sendMessage).toHaveBeenCalledWith(message, { deliverAs: "nextTurn" });
 	});
 
+	it("completes the all argument", () => {
+		const h = registerUsage("openai-codex");
+		expect(h.command.getArgumentCompletions?.("a")).toEqual([{ value: "all", label: "all" }]);
+	});
+});
+
+describe("registered /usage all table fencing", () => {
 	it("fences the table so Markdown keeps dash cells and column padding literal", async () => {
 		const h = registerUsage("openai-codex");
 		h.fetch.mockImplementation(async () => allUsageResponse());
 		await h.command.handler("all", h.ctx);
 		const [title, blank, open, header, ...rest] = h.sendMessage.mock.calls[0][0].content.split("\n");
-		expect([title, blank, open]).toEqual(["Account usage (all accounts); - = not reported", "", "```"]);
-		expect(header.startsWith("5h     Week   Provider")).toBe(true);
+		expect([title, blank, open]).toEqual([
+			"Account usage (all accounts); Resets = available reset credits; - = not reported",
+			"",
+			"```",
+		]);
+		expect(header.startsWith("5h     Week   Resets  Provider")).toBe(true);
 		expect(rest.at(-1)).toBe("```");
 		const teamRow = rest.find((line: string) => line.includes("openai-codex-team"));
-		expect(teamRow).toMatch(/^- {6}- {6}Codex {5}openai-codex-team +not logged in$/);
-	});
-
-	it("completes the all argument", () => {
-		const h = registerUsage("openai-codex");
-		expect(h.command.getArgumentCompletions?.("a")).toEqual([{ value: "all", label: "all" }]);
+		expect(teamRow).toMatch(/^- {6}- {6}- {7}Codex {5}openai-codex-team +not logged in$/);
 	});
 });
 
@@ -513,6 +572,22 @@ describe("registered /usage busy delivery", () => {
 			expect(h.sendMessage).toHaveBeenCalledExactlyOnceWith(message);
 		}
 	});
+
+	it.each([undefined, null, {}, { available_count: null }])(
+		"does not redeem unreported reset credits (%j)",
+		async (credits) => {
+			const h = registerUsage("openai-codex");
+			h.fetch.mockResolvedValueOnce(Response.json({ rate_limit_reset_credits: credits }));
+
+			await h.command.handler("reset", h.ctx);
+
+			expect(h.confirm).not.toHaveBeenCalled();
+			expect(h.fetch).toHaveBeenCalledTimes(1);
+			expect(h.sendMessage.mock.calls[0][0].content).toContain(
+				"Reset credits: 0 available\ncodex: no limit data\n\nNo reset credits available.",
+			);
+		},
+	);
 
 	it("keeps idle no-credit reports as custom messages without notification", async () => {
 		const h = registerUsage("openai-codex");

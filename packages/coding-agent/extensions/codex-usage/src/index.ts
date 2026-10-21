@@ -43,7 +43,7 @@ export interface CodexUsagePayload {
 	rate_limit?: NullableBox<CodexRateLimitDetailsPayload>;
 	additional_rate_limits?: NullableBox<CodexAdditionalRateLimitPayload[]>;
 	credits?: NullableBox<CodexCreditsPayload>;
-	rate_limit_reset_credits?: { available_count?: number } | null;
+	rate_limit_reset_credits?: { available_count?: number | null } | null;
 }
 
 export interface CodexRateLimitWindow {
@@ -70,7 +70,7 @@ export interface CodexUsage {
 	planType: string | null;
 	accountId: string | null;
 	email: string | null;
-	resetCreditsAvailable: number;
+	resetCreditsAvailable: number | null;
 	limits: CodexRateLimit[];
 }
 
@@ -118,7 +118,7 @@ export function mapCodexUsagePayload(payload: CodexUsagePayload): CodexUsage {
 		planType: payload.plan_type ?? null,
 		accountId: null,
 		email: null,
-		resetCreditsAvailable: payload.rate_limit_reset_credits?.available_count ?? 0,
+		resetCreditsAvailable: payload.rate_limit_reset_credits?.available_count ?? null,
 		limits,
 	};
 }
@@ -128,7 +128,7 @@ export function formatCodexUsage(usage: CodexUsage): string {
 	if (usage.email) lines.push(`User: ${usage.email}`);
 	if (usage.accountId) lines.push(`Account: ${usage.accountId}`);
 	lines.push(`Plan: ${usage.planType ?? "unknown"}`);
-	lines.push(`Reset credits: ${usage.resetCreditsAvailable} available`);
+	lines.push(`Reset credits: ${usage.resetCreditsAvailable ?? 0} available`);
 
 	for (const limit of usage.limits) {
 		lines.push(formatLimit(limit));
@@ -188,6 +188,8 @@ interface AccountUsageRow {
 	account: string;
 	fiveHour: UsageCell | null;
 	weekly: UsageCell | null;
+	/** Available reset credits, absent when not reported. */
+	resetCreditsAvailable?: number | null;
 	/** Error or login state; replaces the reset details. */
 	status?: string;
 }
@@ -210,8 +212,8 @@ async function handleUsageAll(ctx: ExtensionCommandContext, pi: ExtensionAPI): P
 	]);
 	const rows = [...claudeRows, ...codexRows];
 	const accountWidth = Math.max("Account".length, ...rows.map((row) => row.account.length));
-	const header = ["5h", "Week", "Provider", "Account", "Resets Central (5h | week)"];
-	const title = `Account usage (all accounts); ${MISSING} = not reported`;
+	const header = ["5h", "Week", "Resets", "Provider", "Account", "Resets Central (5h | week)"];
+	const title = `Account usage (all accounts); Resets = available reset credits; ${MISSING} = not reported`;
 	const table = [
 		formatAccountColumns(header, accountWidth),
 		...rows.map((row) => formatAccountRow(row, accountWidth)),
@@ -234,6 +236,7 @@ async function readCodexAccountRow(ctx: ExtensionCommandContext, providerId: str
 		return {
 			provider: "Codex",
 			account,
+			resetCreditsAvailable: usage.resetCreditsAvailable,
 			fiveHour: toCodexUsageCell(windows.find((window) => window?.windowMinutes === 300)),
 			weekly: toCodexUsageCell(windows.find((window) => window?.windowMinutes === 10_080)),
 		};
@@ -316,13 +319,21 @@ function toClaudeUsageCell(window: UsageWindow | null): UsageCell | null {
 function formatAccountRow(row: AccountUsageRow, accountWidth: number): string {
 	const resets = `${formatUsageReset(row.fiveHour)} | ${formatUsageReset(row.weekly)}`;
 	const percents = [formatUsagePercent(row.fiveHour), formatUsagePercent(row.weekly)];
-	return formatAccountColumns([...percents, row.provider, row.account, row.status ?? resets], accountWidth);
+	const resetCredits = row.resetCreditsAvailable?.toString() ?? MISSING;
+	return formatAccountColumns([...percents, resetCredits, row.provider, row.account, row.status ?? resets], accountWidth);
 }
 
 /** Percent columns first: fixed width so they line up regardless of account name length. */
 function formatAccountColumns(cells: string[], accountWidth: number): string {
-	const [fiveHour, weekly, provider, account, details] = cells;
-	return [fiveHour.padEnd(5), weekly.padEnd(5), provider.padEnd(8), account.padEnd(accountWidth), details]
+	const [fiveHour, weekly, resetCredits, provider, account, details] = cells;
+	return [
+		fiveHour.padEnd(5),
+		weekly.padEnd(5),
+		resetCredits.padEnd(6),
+		provider.padEnd(8),
+		account.padEnd(accountWidth),
+		details,
+	]
 		.join("  ")
 		.trimEnd();
 }
@@ -484,7 +495,7 @@ async function handleUsageRead(ctx: ExtensionCommandContext, pi: ExtensionAPI): 
 
 async function handleUsageReset(ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
 	const before = await readCodexUsage(ctx);
-	if (before.resetCreditsAvailable <= 0) {
+	if ((before.resetCreditsAvailable ?? 0) <= 0) {
 		sendCodexUsageReport(ctx, pi, `${formatCodexUsage(before)}\n\nNo reset credits available.`);
 		return;
 	}

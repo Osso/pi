@@ -27,7 +27,10 @@ model. It is a report, not an account-switching or quota-fallback operation. See
       preserve per-provider failures as error rows without losing other providers' results.
 - [x] Show missing windows or missing `used_percent` as `-` (legend: `- = not reported`), never as 0%.
       Codex currently returns only a weekly window for some plans; the 5-hour column is then `-`.
-- [x] Order columns 5-hour %, weekly % (fixed width), provider, account, then resets
+- [x] Show a `Resets` column containing Codex's available reset-credit count when reported by the
+      API: preserve a real `0`, and show `-` for absent/unreported counts and all Claude rows.
+      This count is not reset history or a reset timestamp; the `Central` timestamp column is unchanged.
+- [x] Order columns 5-hour %, weekly %, available `Resets` (fixed width), provider, account, then resets
       (`5h | week`, heading `Central` instead of `UTC`) or the row's error / `not logged in` status.
 - [x] Obtain each provider's token through normal auth storage; an expired OAuth token is refreshed
       and persisted exactly as on any other request for that provider.

@@ -46,6 +46,15 @@ describe("codex usage extension", () => {
 		});
 	});
 
+	it.each([undefined, null, {}, { available_count: null }])(
+		"preserves unreported reset credits (%j) while keeping the existing single-account display",
+		(credits) => {
+			const usage = mapCodexUsagePayload(usagePayload({ rate_limit_reset_credits: credits }));
+			expect(usage.resetCreditsAvailable).toBeNull();
+			expect(formatCodexUsage(usage)).toContain("Reset credits: 0 available");
+		},
+	);
+
 	it("does not present a window with missing usage as zero in the existing report", () => {
 		const text = formatCodexUsage(
 			mapCodexUsagePayload(

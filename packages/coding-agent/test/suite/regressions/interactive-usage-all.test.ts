@@ -18,14 +18,14 @@ const REPORT_VALUES = [
 	"pro",
 	"23%",
 	"41%",
-	"2030-01-01 00:00",
-	"2030-01-08 00:00",
+	"2029-12-31 18:00",
+	"2030-01-07 18:00",
 	"not logged in",
 	"claude-selected@example.test",
 	"37%",
 	"59%",
-	"2030-01-02 03:04",
-	"2030-01-08 05:06",
+	"2030-01-01 21:04",
+	"2030-01-07 23:06",
 	"claude-error@example.test",
 	"Fixture Claude account unavailable",
 ];
@@ -180,6 +180,10 @@ function assertReportContent(text: string): void {
 	for (const value of REPORT_VALUES) expect(text).toContain(value);
 	for (const provider of CODEX_FALLBACK_PROVIDERS.keys()) expect(text).toContain(provider);
 	const rows = text.split("\n");
+	expect(text).toContain("Resets = available reset credits");
+	expect(text).toContain("Resets Central (5h | week)");
+	expect(rows.find((row) => row.includes("usage-all@example.test"))).toMatch(/23%\s+41%\s+-\s+Codex/);
+	expect(rows.find((row) => row.includes("claude-selected@example.test"))).toMatch(/37%\s+59%\s+-\s+Claude/);
 	expect(rows.find((row) => row.includes("openai-codex-gc"))).toMatch(/error/i);
 	expect(rows.find((row) => row.includes("openai-codex-team"))).toContain("not logged in");
 	expect(rows.find((row) => row.includes("claude-selected@example.test"))).toContain("*");
