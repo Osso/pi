@@ -243,13 +243,40 @@ function coerceWithJsonSchema(value: unknown, schema: JsonSchemaObject): unknown
 	return nextValue;
 }
 
+function guardArrayUnionChecks(schema: JsonSchemaObject): JsonSchemaObject {
+	const normalized = { ...schema };
+	if (schema.properties) {
+		normalized.properties = Object.fromEntries(
+			Object.entries(schema.properties).map(([key, value]) => [key, guardArrayUnionChecks(value)]),
+		);
+	}
+	if (Array.isArray(schema.items)) {
+		normalized.items = schema.items.map(guardArrayUnionChecks);
+	} else if (isJsonSchemaObject(schema.items)) {
+		normalized.items = guardArrayUnionChecks(schema.items);
+	}
+	if (isJsonSchemaObject(schema.additionalProperties)) {
+		normalized.additionalProperties = guardArrayUnionChecks(schema.additionalProperties);
+	}
+	for (const key of ["allOf", "anyOf", "oneOf"] as const) {
+		if (schema[key]) normalized[key] = schema[key].map(guardArrayUnionChecks);
+	}
+	if (Array.isArray(schema.type) && schema.type.length > 1 && schema.type.includes("array")) {
+		// TypeBox skips array keyword guards when any type arm is array. Keep the type
+		// constraint separate until TypeBox guards multi-type schemas itself.
+		delete normalized.type;
+		normalized.allOf = [{ type: schema.type }, ...(normalized.allOf ?? [])];
+	}
+	return normalized;
+}
+
 function getValidator(schema: Tool["parameters"]): ReturnType<typeof Compile> {
 	const key = schema as object;
 	const cached = validatorCache.get(key);
 	if (cached) {
 		return cached;
 	}
-	const validator = Compile(schema);
+	const validator = Compile(guardArrayUnionChecks(schema) as Tool["parameters"]);
 	validatorCache.set(key, validator);
 	return validator;
 }

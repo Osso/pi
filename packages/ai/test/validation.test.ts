@@ -33,6 +33,22 @@ function createToolCallWithPlainSchema(
 }
 
 describe("validateToolArguments", () => {
+	it.each([null, ["ok"]])("validates the nullable array arm without applying array checks to null: %s", (c) => {
+		const tool: Tool = {
+			name: "nullable-array",
+			description: "Nullable array",
+			parameters: {
+				type: "object",
+				properties: { c: { type: ["array", "null"], items: { type: "string" } } },
+				required: ["c"],
+			} as Tool["parameters"],
+		};
+		const call: ToolCall = { type: "toolCall", id: "nullable", name: tool.name, arguments: { c } };
+		expect(validateToolArguments(tool, call)).toEqual({ c });
+		call.arguments = { c: [{}] };
+		expect(() => validateToolArguments(tool, call)).toThrow("Validation failed");
+	});
+
 	it("still validates when Function constructor is unavailable", () => {
 		const originalFunction = globalThis.Function;
 		const tool: Tool = {

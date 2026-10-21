@@ -14,6 +14,8 @@
 
 ### Fixed
 
+- Nullable array tool arguments now validate through the null arm instead of throwing from TypeBox array checks; array item validation remains enforced.
+
 - Fixed retry classification for the explicit Codex flag `This content was flagged for possible cybersecurity risk.` to remain nonretryable before generic status-pattern matching.
 - Fixed Codex WebSocket `Expected 101 status code` handshake failures bypassing existing bounded session retries.
 - Fixed shared AI retry classification for the exact transient Codex error `Unable to verify Daybreak Blue access. Please try again.`; existing retry enablement, budget, and backoff remain unchanged, and permanent access denial remains terminal.
