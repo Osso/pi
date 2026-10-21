@@ -26,12 +26,14 @@ export function readSessionTranscriptText(path: string): string {
 export function createSessionTranscriptReadStream(path: string): Readable {
 	const source = readSessionTranscriptPath(path);
 	const input = createReadStream(source);
-	const decoded = source.endsWith(".jsonl.zst") ? createZstdDecompress() : input;
-	if (decoded !== input) {
-		pipeline(input, decoded, (error) => {
-			if (error) decoded.destroy(error);
-		});
+	if (!source.endsWith(".jsonl.zst")) {
+		input.setEncoding("utf8");
+		return input;
 	}
+	const decoded = createZstdDecompress();
+	pipeline(input, decoded, (error) => {
+		if (error) decoded.destroy(error);
+	});
 	decoded.setEncoding("utf8");
 	return decoded;
 }
