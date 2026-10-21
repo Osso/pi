@@ -12,6 +12,7 @@ import {
 	ENV_SELF_RESTART_PROMPT,
 	ENV_SELF_RESTART_REQUEST,
 	ENV_SELF_RESTART_SESSION,
+	parseSystemdEnvironment,
 	resolveRestartInterruptedToolCalls,
 	restartCurrentProcess,
 	spawnSelfRestart,
@@ -357,6 +358,41 @@ describe("self restart request", () => {
 		expect(execveCall?.env?.[ENV_SELF_RESTART_SESSION]).toBe("/tmp/session.jsonl");
 		expect(execveCall?.env?.[ENV_SELF_RESTART_PROMPT]).toBe("Restarted.");
 		expect(execveCall?.env?.[ENV_SELF_RESTART_OLD_PID]).toBe(process.pid.toString());
+	});
+
+	it("picks up variables set in the systemd user manager while keeping the launch PATH", async () => {
+		let execveEnv: NodeJS.ProcessEnv | undefined;
+		const launchPath = process.env.PATH;
+
+		await expect(
+			restartCurrentProcess(
+				{ sessionFile: "/tmp/session.jsonl" },
+				{
+					argv: ["/usr/bin/node", "/repo/packages/coding-agent/src/cli.ts"],
+					argv0: "pi",
+					execArgv: [],
+					managerEnvironment: () => ({
+						TMPDIR: "/var/tmp/osso",
+						PATH: "/usr/local/bin:/usr/bin",
+						HOME: "/home/manager",
+					}),
+					execve: (_file, _args, env) => {
+						execveEnv = env;
+					},
+				},
+			),
+		).rejects.toThrow("execve returned after replacing the process image");
+
+		expect(execveEnv?.TMPDIR).toBe("/var/tmp/osso");
+		expect(execveEnv?.PATH).toBe(launchPath);
+		expect(execveEnv?.HOME).toBe(process.env.HOME);
+		expect(execveEnv?.[ENV_SELF_RESTART_REQUEST]).toBe("1");
+	});
+
+	it("parses systemctl show-environment output including C-escaped values", () => {
+		expect(
+			parseSystemdEnvironment("TMPDIR=/var/tmp/osso\nGREETING=$'two\\nlines \\'quoted\\' \\x41'\nEMPTY=\n"),
+		).toEqual({ TMPDIR: "/var/tmp/osso", GREETING: "two\nlines 'quoted' A", EMPTY: "" });
 	});
 
 	it("does not pass Bun virtual entrypoint paths back to compiled binaries when exec restarting", async () => {

@@ -26,6 +26,10 @@ runtime replacement works belongs in `docs/wiki/systems/self-restart.md`.
   requests whose old pid matches neither the current process nor the parent,
   so leaked variables cannot redirect Pi processes spawned later (for example
   sub-agents).
+- [x] Merge the systemd user manager environment (`systemctl --user show-environment`, i.e.
+  `set-environment` and `~/.config/environment.d`) into the restarted process so new variables apply
+  without relaunching the session; keep the launch-owned PATH, HOME, USER, LOGNAME and SHELL. Hosts
+  without a user manager restart with the current environment (`packages/coding-agent/test/self-restart.test.ts`).
 - [x] Do not provide wrapper request-file or restart-exit-code fallback paths;
   process self restart execs in place, with a direct child process spawn
   handoff only where `process.execve` is unavailable (Windows, Node < 23.11).

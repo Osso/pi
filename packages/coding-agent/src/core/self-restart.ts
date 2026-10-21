@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import type { EventEmitter } from "node:events";
 import { restoredPendingToolMessage } from "@earendil-works/pi-agent-core";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
@@ -37,6 +37,59 @@ interface RestartTargetDependencies {
 	argv?: readonly string[];
 	argv0?: string;
 	execArgv?: readonly string[];
+	managerEnvironment?: () => NodeJS.ProcessEnv;
+}
+
+// The launching session decides these; the user manager's generic values (PATH=/usr/local/bin:/usr/bin) would
+// drop the PATH Pi was started with.
+const LAUNCH_OWNED_VARIABLES = new Set(["PATH", "HOME", "USER", "LOGNAME", "SHELL"]);
+
+/** Parses `systemctl --user show-environment`; systemd prints values with special characters as $'C-escaped'. */
+export function parseSystemdEnvironment(output: string): NodeJS.ProcessEnv {
+	const environment: NodeJS.ProcessEnv = {};
+	for (const line of output.split("\n")) {
+		const separator = line.indexOf("=");
+		if (separator <= 0) continue;
+		const value = line.slice(separator + 1);
+		const escaped = /^\$'(.*)'$/s.exec(value);
+		environment[line.slice(0, separator)] = escaped ? unescapeCString(escaped[1]) : value;
+	}
+	return environment;
+}
+
+const C_ESCAPES: Record<string, string> = { n: "\n", t: "\t", r: "\r", "\\": "\\", "'": "'", '"': '"' };
+
+function unescapeCString(text: string): string {
+	return text.replace(/\\(x[0-9a-fA-F]{2}|.)/g, (_match, code: string) =>
+		code.startsWith("x") && code.length === 3
+			? String.fromCharCode(Number.parseInt(code.slice(1), 16))
+			: (C_ESCAPES[code] ?? code),
+	);
+}
+
+/**
+ * Variables set with `systemctl --user set-environment` or ~/.config/environment.d reach a restarted Pi without
+ * relaunching its session. Hosts without a systemd user manager restart with the current environment only.
+ */
+function readUserManagerEnvironment(): NodeJS.ProcessEnv {
+	if (process.platform !== "linux") return {};
+	try {
+		return parseSystemdEnvironment(
+			execFileSync("systemctl", ["--user", "show-environment"], {
+				encoding: "utf8",
+				timeout: 5000,
+				stdio: ["ignore", "pipe", "pipe"],
+			}),
+		);
+	} catch (error) {
+		console.error(`Pi restart: could not read the systemd user environment: ${(error as Error).message}`);
+		return {};
+	}
+}
+
+function managerOverrides(dependencies: RestartTargetDependencies): NodeJS.ProcessEnv {
+	const manager = (dependencies.managerEnvironment ?? readUserManagerEnvironment)();
+	return Object.fromEntries(Object.entries(manager).filter(([name]) => !LAUNCH_OWNED_VARIABLES.has(name)));
 }
 
 interface SelfRestartDependencies extends RestartTargetDependencies {
@@ -257,9 +310,10 @@ function getSelfRestartArgs(execArgv: readonly string[], argv: readonly string[]
 	return [...execArgv, ...scriptArgs];
 }
 
-function buildSelfRestartEnv(request: SelfRestartRequest): NodeJS.ProcessEnv {
+function buildSelfRestartEnv(request: SelfRestartRequest, dependencies: RestartTargetDependencies): NodeJS.ProcessEnv {
 	return {
 		...process.env,
+		...managerOverrides(dependencies),
 		[ENV_SELF_RESTART_REQUEST]: "1",
 		[ENV_SELF_RESTART_SESSION]: request.sessionFile,
 		[ENV_SELF_RESTART_PROMPT]: request.prompt ?? "",
@@ -275,7 +329,7 @@ function execSelfRestart(
 	const argv = dependencies.argv ?? process.argv;
 	const execArgv = dependencies.execArgv ?? process.execArgv;
 	const argv0 = dependencies.argv0 ?? process.argv0;
-	execve(process.execPath, [argv0, ...getSelfRestartArgs(execArgv, argv)], buildSelfRestartEnv(request));
+	execve(process.execPath, [argv0, ...getSelfRestartArgs(execArgv, argv)], buildSelfRestartEnv(request, dependencies));
 }
 
 export function spawnSelfRestart(
@@ -287,7 +341,7 @@ export function spawnSelfRestart(
 	const execArgv = dependencies.execArgv ?? process.execArgv;
 	const child = spawnProcess(process.execPath, getSelfRestartArgs(execArgv, argv), {
 		cwd: process.cwd(),
-		env: buildSelfRestartEnv(request),
+		env: buildSelfRestartEnv(request, dependencies),
 		stdio: "inherit",
 	});
 	if (dependencies.waitForExit === false) {
