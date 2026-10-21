@@ -72,6 +72,7 @@ import {
 	resolveOwnMainRuntimeCoordinationRecipient,
 	retainControlDbConnection,
 	retireRuntimeMailboxListener,
+	takeRuntimeMailboxMessagesForDelivery,
 	unarchiveSession,
 	updateMultiAgentAgentActivity,
 	updateMultiAgentAgentCurrentActivity,
@@ -6532,6 +6533,24 @@ Date.now = () => ${Date.now()};
 			await worker.terminate();
 			holder.close();
 		}
+	});
+
+	it("leaves all delivery candidates pending when the delivery limit is zero", () => {
+		const recipient = { agentId: null, sessionId: "zero-limit-recipient" };
+		const ids = ["first", "second"].map((body) =>
+			enqueueStoredRuntimeMessage(controlDbPath, {
+				body,
+				kind: "message",
+				recipient,
+				sender: { agentId: "agent_1", sessionId: "sender" },
+			}),
+		);
+		expect(takeRuntimeMailboxMessagesForDelivery(controlDbPath, recipient, () => true, 0)).toEqual([]);
+		for (const id of ids) expect(readRuntimeMailboxMessage(controlDbPath, id)).toMatchObject({ status: "pending" });
+		expect(
+			takeRuntimeMailboxMessagesForDelivery(controlDbPath, recipient, () => true, 1).map((row) => row.id),
+		).toEqual([ids[0]]);
+		expect(readRuntimeMailboxMessage(controlDbPath, ids[1])).toMatchObject({ status: "pending" });
 	});
 
 	it("allows only the exact registered process to win a concurrent canonical claim", async () => {

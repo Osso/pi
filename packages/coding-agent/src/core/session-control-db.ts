@@ -773,9 +773,9 @@ function deliverRuntimeMailboxCandidates(
 ): RuntimeMailboxMessage[] {
 	const deliveredMessages: RuntimeMailboxMessage[] = [];
 	for (const candidate of candidates) {
+		if (deliveredMessages.length === limit) break;
 		const delivered = deliverRuntimeMailboxCandidate(db, recipient, candidate, nowIso);
 		if (delivered) deliveredMessages.push(delivered);
-		if (deliveredMessages.length === limit) break;
 	}
 	return deliveredMessages;
 }
