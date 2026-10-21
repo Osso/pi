@@ -5,7 +5,7 @@ import * as piAiCompat from "@earendil-works/pi-ai/compat";
 import { registerOAuthProvider } from "@earendil-works/pi-ai/oauth";
 import lockfile from "proper-lockfile";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { AuthStorage } from "../src/core/auth-storage.ts";
+import { AuthStorage, type AuthStorageBackend } from "../src/core/auth-storage.ts";
 import { clearConfigValueCache, resolveConfigValueUncached } from "../src/core/resolve-config-value.ts";
 import * as shellModule from "../src/utils/shell.ts";
 
@@ -598,6 +598,51 @@ describe("AuthStorage", () => {
 			const onDisk = JSON.parse(readFileSync(authJsonPath, "utf-8"));
 			expect(onDisk[providerId].refresh).toBe("rotated-refresh");
 		});
+
+		test.each([true, false])(
+			"reports unpersisted rotation with throwOnRefreshFailure=%s while retaining it",
+			async (throwOnRefreshFailure) => {
+				const providerId = `test-unpersisted-${throwOnRefreshFailure}`;
+				const original = { type: "oauth" as const, access: "A", refresh: "refresh-A", expires: 0 };
+				const rotated = { access: "B", refresh: "refresh-B", expires: Date.now() + 60_000 };
+				registerOAuthProvider({
+					id: providerId,
+					name: "Unpersisted rotation",
+					async login() {
+						throw new Error("Unused");
+					},
+					async refreshToken() {
+						return rotated;
+					},
+					getApiKey(credentials) {
+						return credentials.access;
+					},
+				});
+				const disk = JSON.stringify({ [providerId]: original });
+				const persistenceError = new Error("sync persistence denied");
+				let syncCalls = 0;
+				const backend: AuthStorageBackend = {
+					withLock(fn) {
+						if (++syncCalls > 1) throw persistenceError;
+						return fn(disk).result;
+					},
+					async withLockAsync(fn) {
+						await fn(disk);
+						throw new Error("locked write denied");
+					},
+				};
+				const storage = AuthStorage.fromStorage(backend);
+				const result = storage.getApiKey(providerId, { throwOnRefreshFailure });
+				if (throwOnRefreshFailure) {
+					await expect(result).rejects.toMatchObject({ cause: persistenceError });
+				} else {
+					expect(await result).toBeUndefined();
+				}
+				expect(storage.get(providerId)).toEqual({ type: "oauth", ...rotated });
+				expect(JSON.parse(disk)[providerId]).toEqual(original);
+				expect(storage.drainErrors()).toContain(persistenceError);
+			},
+		);
 
 		test("a starting process does not steal a refresh lock held for more than 10 seconds", async () => {
 			writeAuthJson({ anthropic: { type: "api_key", key: "sk-test" } });

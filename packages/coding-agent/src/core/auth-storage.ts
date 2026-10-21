@@ -523,7 +523,9 @@ export class AuthStorage {
 					this.reload();
 					const updatedCred = this.data[providerId];
 
-					if (updatedCred?.type === "oauth" && Date.now() < updatedCred.expires) {
+					if (!this.loadError && updatedCred?.type === "oauth" && Date.now() < updatedCred.expires) {
+						// Only a successful reload proves these credentials reached storage.
+						// A failed reload preserves an unpersisted rotation in memory, not a rescue.
 						// Another instance refreshed successfully, use those credentials
 						return provider.getApiKey(updatedCred);
 					}
