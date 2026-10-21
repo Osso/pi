@@ -203,6 +203,8 @@
 
 ### Fixed
 
+- Empty recipient hosts now use the same local-host normalization during mailbox enqueue retries as during initial storage.
+
 - Runtime mailbox delivery with limit zero returns no messages and leaves candidates pending.
 
 - OAuth refresh persistence failures no longer masquerade as successful reload recovery. Rotated credentials stay in memory; request callers receive the persistence error and discovery callers receive `undefined`.

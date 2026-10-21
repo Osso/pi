@@ -6535,6 +6535,29 @@ Date.now = () => ${Date.now()};
 		}
 	});
 
+	it("retries an empty recipient host without a canonical routing collision", () => {
+		const input = {
+			kind: "message" as const,
+			recipient: { agentId: null, sessionId: "empty-host-recipient" },
+			recipientHost: "",
+			sender: { agentId: null, sessionId: "empty-host-sender" },
+			storeRef: { messageId: "empty-host-message", sessionPath: "/sessions/empty-host.jsonl" },
+		};
+		upsertMultiAgentMailboxMessage(controlDbPath, input.storeRef.sessionPath, input.storeRef.messageId, {
+			id: input.storeRef.messageId,
+			body: "retry me",
+			kind: input.kind,
+			fromAgentId: "main",
+			toAgentId: "main",
+			status: "pending",
+			createdAt: "2026-07-11T00:00:00.000Z",
+		});
+		const id = enqueueRuntimeMailboxMessage(controlDbPath, input);
+		expect(enqueueRuntimeMailboxMessage(controlDbPath, input)).toBe(id);
+		expect(readRuntimeMailboxMessage(controlDbPath, id)).toMatchObject({ body: "retry me", status: "pending" });
+		expect(() => enqueueRuntimeMailboxMessage(controlDbPath, { ...input, recipientHost: "remote-host" })).toThrow();
+	});
+
 	it("leaves all delivery candidates pending when the delivery limit is zero", () => {
 		const recipient = { agentId: null, sessionId: "zero-limit-recipient" };
 		const ids = ["first", "second"].map((body) =>

@@ -659,7 +659,7 @@ function assertRuntimeMailboxRouting(message: Record<string, unknown>, input: En
 		message.recipientSessionId === input.recipient.sessionId && message.recipientAgentId === input.recipient.agentId;
 	const sameSender =
 		message.senderSessionId === input.sender.sessionId && message.senderAgentId === input.sender.agentId;
-	const sameHost = (message.recipientHost ?? hostname()) === (input.recipientHost ?? hostname());
+	const sameHost = (message.recipientHost ?? hostname()) === (input.recipientHost || hostname());
 	if (sameRecipient && sameSender && sameHost && message.kind === input.kind) return;
 	throw new Error(
 		`Runtime mailbox store reference conflicts with canonical mailbox row: ${input.storeRef.sessionPath}#${input.storeRef.messageId}`,
