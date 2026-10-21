@@ -446,7 +446,7 @@ class StackOverlayComponent extends BaseOverlay {
 		lines.push(border("│") + padLine("") + border("│"));
 		// Add extra lines to make it taller
 		for (let i = 0; i < 5; i++) {
-			lines.push(border("│") + padLine(` ${"░".repeat(innerW - 2)} `) + border("│"));
+			lines.push(border("│") + padLine(` ${"░".repeat(Math.max(0, innerW - 2))} `) + border("│"));
 		}
 		lines.push(border("│") + padLine("") + border("│"));
 		lines.push(border("│") + padLine(th.fg("dim", " Press Enter/Esc to close")) + border("│"));
