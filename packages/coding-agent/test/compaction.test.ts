@@ -280,7 +280,7 @@ describe("shouldCompact", () => {
 		const settings: CompactionSettings = {
 			enabled: true,
 			reserveTokens: 10000,
-			keepRecentTokens: 20000,
+			keepRecentMessages: 20,
 		};
 
 		expect(shouldCompact(95000, 100000, settings)).toBe(true);
@@ -291,7 +291,7 @@ describe("shouldCompact", () => {
 		const settings: CompactionSettings = {
 			enabled: true,
 			reserveTokens: 16384,
-			keepRecentTokens: 20000,
+			keepRecentMessages: 20,
 		};
 
 		expect(shouldCompact(271999, 372000, settings, 272000)).toBe(false);
@@ -302,7 +302,7 @@ describe("shouldCompact", () => {
 		const settings: CompactionSettings = {
 			enabled: false,
 			reserveTokens: 10000,
-			keepRecentTokens: 20000,
+			keepRecentMessages: 20,
 		};
 
 		expect(shouldCompact(95000, 100000, settings)).toBe(false);
@@ -321,7 +321,7 @@ describe("findCutPoint", () => {
 		}
 
 		// 20 entries, last assistant has 10000 tokens
-		// keepRecentTokens = 2500: keep entries where diff < 2500
+		// keepRecentMessages = 2500: keep entries where diff < 2500
 		const result = findCutPoint(entries, 0, entries.length, 2500);
 
 		// Should cut at a valid cut point (user or assistant message)
@@ -336,119 +336,82 @@ describe("findCutPoint", () => {
 		expect(result.firstKeptEntryIndex).toBe(0);
 	});
 
-	it("should keep everything if all messages fit within budget", () => {
+	it("keeps everything when there are fewer than keepRecentMessages messages", () => {
 		const entries: SessionEntry[] = [
 			createMessageEntry(createUserMessage("1")),
-			createMessageEntry(createAssistantMessage("a", createMockUsage(0, 50, 500, 0))),
+			createMessageEntry(createAssistantMessage("a")),
 			createMessageEntry(createUserMessage("2")),
-			createMessageEntry(createAssistantMessage("b", createMockUsage(0, 50, 1000, 0))),
+			createMessageEntry(createAssistantMessage("b")),
 		];
 
-		const result = findCutPoint(entries, 0, entries.length, 50000);
-		expect(result.firstKeptEntryIndex).toBe(0);
+		expect(findCutPoint(entries, 0, entries.length, 20).firstKeptEntryIndex).toBe(0);
+		expect(prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS)).toBeUndefined();
 	});
 
-	it("keeps recent turns up to keepRecentTokens when a short nudge turn follows a long turn", () => {
+	it("keeps the 20 most recent messages untruncated when a short nudge turn follows a long turn", () => {
 		const entries: SessionEntry[] = [
 			createMessageEntry(createUserMessage("old request")),
-			createMessageEntry(createAssistantMessage("x".repeat(100_000))),
+			createMessageEntry(createAssistantMessage(`old answer ${"x".repeat(100_000)}`)),
 			createMessageEntry(createUserMessage("Yes, add SAE")),
-			createMessageEntry(createAssistantMessage(`implementation ${"z".repeat(70_000)}`)),
-			createMessageEntry(createAssistantMessage(`final report ${"y".repeat(16_000)}`)),
+		];
+		for (let step = 0; step < 8; step++) {
+			entries.push(
+				createMessageEntry({
+					...createAssistantMessage(`step ${step}`),
+					content: [{ type: "toolCall", id: `tool-${step}`, name: "edit", arguments: { step } }],
+				}),
+				createMessageEntry({
+					role: "toolResult",
+					toolCallId: `tool-${step}`,
+					toolName: "edit",
+					content: [{ type: "text", text: `edited ${step} ${"z".repeat(30_000)}` }],
+					isError: false,
+					timestamp: Date.now(),
+				}),
+			);
+		}
+		entries.push(
+			createMessageEntry(createAssistantMessage("final report")),
 			createCustomMessageEntry("Continue working toward the active goal."),
 			createMessageEntry(createAssistantMessage("No active goal.")),
-		];
+		);
 
 		const preparation = prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS);
 
-		expect(preparation?.firstKeptEntryId).toBe(entries[3].id);
+		const firstKeptIndex = entries.findIndex((entry) => entry.id === preparation?.firstKeptEntryId);
+		expect(entries.length - firstKeptIndex).toBe(20);
 		expect(extractText(preparation!.messagesToSummarize)).toContain("old request");
-		expect(extractText(preparation!.messagesToSummarize)).not.toContain("final report");
 		const context = buildSessionContext([
 			...entries,
 			createCompactionEntry("summary", preparation!.firstKeptEntryId),
 		]);
-		expect(extractText(preparation!.turnPrefixMessages)).toContain("Yes, add SAE");
-		expect(extractText(context.messages)).toContain("implementation");
+		expect(context.messages).toHaveLength(21);
+		expect(JSON.stringify(context.messages)).toContain(`edited 0 ${"z".repeat(30_000)}`);
+		expect(extractText(context.messages)).toContain("Yes, add SAE");
 		expect(extractText(context.messages)).toContain("final report");
 	});
 
-	it("retains latest user verbatim when active assistant suffix exceeds keepRecentTokens", () => {
-		const hugeText = "x".repeat(100_000);
-		const oldUser = createMessageEntry(createUserMessage("old user"));
-		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"));
-		const latestUser = createMessageEntry(createUserMessage("latest user must stay verbatim"));
-		const assistant = createMessageEntry(createAssistantMessage(hugeText));
-		const entries: SessionEntry[] = [oldUser, oldAssistant, latestUser, assistant];
-
-		const result = findCutPoint(entries, 0, entries.length, 20_000);
-
-		expect(result.firstKeptEntryIndex).toBe(2);
-		expect(entries[result.firstKeptEntryIndex]).toBe(latestUser);
-		expect(result.isSplitTurn).toBe(false);
-	});
-
-	it("retains latest user verbatim when active tool suffix exceeds keepRecentTokens", () => {
-		const oldUser = createMessageEntry(createUserMessage("old user"));
-		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"));
-		const latestUser = createMessageEntry(createUserMessage("latest user before tool result"));
-		const assistant = createMessageEntry({
-			...createAssistantMessage("calling tool"),
-			content: [{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "large.txt" } }],
-		});
-		const toolResult = createMessageEntry({
-			role: "toolResult",
-			toolCallId: "tool-1",
-			toolName: "read",
-			content: [{ type: "text", text: "x".repeat(100_000) }],
-			isError: false,
-			timestamp: Date.now(),
-		});
-		const entries: SessionEntry[] = [oldUser, oldAssistant, latestUser, assistant, toolResult];
-
-		const result = findCutPoint(entries, 0, entries.length, 20_000);
-
-		expect(result.firstKeptEntryIndex).toBe(2);
-		expect(entries[result.firstKeptEntryIndex]).toBe(latestUser);
-	});
-
-	it("prepares compaction without summarizing the latest active user turn start", () => {
-		const oldUser = createMessageEntry(createUserMessage("old user"));
-		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"));
-		const latestUser = createMessageEntry(createUserMessage("latest user must stay verbatim"));
-		const assistant = createMessageEntry(createAssistantMessage("x".repeat(100_000)));
-		const entries: SessionEntry[] = [oldUser, oldAssistant, latestUser, assistant];
-
-		const preparation = prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS);
-
-		expect(preparation).toBeDefined();
-		expect(preparation?.firstKeptEntryId).toBe(latestUser.id);
-		expect(extractText(preparation!.messagesToSummarize)).not.toContain("latest user must stay verbatim");
-		expect(preparation?.turnPrefixMessages).toEqual([]);
-	});
-
-	it("splits a boundary-start turn when only non-context entries precede it", () => {
-		const modelChange = createModelChangeEntry("openai", "gpt-5.6-sol");
-		const activeUser = createMessageEntry(createUserMessage("one cumulative turn"));
-		const assistantMessages = Array.from({ length: 4 }, (_, index) =>
-			createMessageEntry(createAssistantMessage(`result ${index} ${"x".repeat(30_000)}`)),
-		);
-
-		const preparation = prepareCompaction(
-			[modelChange, activeUser, ...assistantMessages],
-			DEFAULT_COMPACTION_SETTINGS,
-		);
-
-		expect(preparation).toMatchObject({ isSplitTurn: true });
-	});
-
-	it("does not compact a short single active turn", () => {
+	it("moves the cut back to the tool call when the oldest kept message is its tool result", () => {
 		const entries: SessionEntry[] = [
-			createMessageEntry(createUserMessage("short request")),
-			createMessageEntry(createAssistantMessage("short response")),
+			createMessageEntry(createUserMessage("old request")),
+			createMessageEntry({
+				...createAssistantMessage("calling tool"),
+				content: [{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "a.txt" } }],
+			}),
+			createMessageEntry({
+				role: "toolResult",
+				toolCallId: "tool-1",
+				toolName: "read",
+				content: [{ type: "text", text: "file contents" }],
+				isError: false,
+				timestamp: Date.now(),
+			}),
+			createMessageEntry(createAssistantMessage("done")),
 		];
 
-		expect(prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS)).toBeUndefined();
+		const result = findCutPoint(entries, 0, entries.length, 2);
+
+		expect(result).toEqual({ firstKeptEntryIndex: 1, turnStartIndex: 0, isSplitTurn: true });
 	});
 
 	it("excludes goal reminders but preserves other extension messages in compaction input", () => {
@@ -461,7 +424,7 @@ describe("findCutPoint", () => {
 		const goalContinuation = createMessageEntry(
 			createExtensionUserMessage("Continue working toward this objective until it is achieved: fix compaction"),
 		);
-		const latestAssistant = createMessageEntry(createAssistantMessage("x".repeat(100_000)));
+		const latestAssistant = createMessageEntry(createAssistantMessage("latest"));
 		const entries: SessionEntry[] = [
 			goalStart,
 			firstAssistant,
@@ -471,7 +434,7 @@ describe("findCutPoint", () => {
 			latestAssistant,
 		];
 
-		const preparation = prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS);
+		const preparation = prepareCompaction(entries, { ...DEFAULT_COMPACTION_SETTINGS, keepRecentMessages: 1 });
 		const compactionText = extractText([
 			...(preparation?.messagesToSummarize ?? []),
 			...(preparation?.turnPrefixMessages ?? []),
@@ -494,15 +457,9 @@ describe("findCutPoint", () => {
 			createMessageEntry(createAssistantMessage("A2-3", createMockUsage(0, 100, 10000, 0))), // index 5
 		];
 
-		// With keepRecentTokens = 3000, should cut somewhere in Turn 2
-		const result = findCutPoint(entries, 0, entries.length, 3000);
+		const result = findCutPoint(entries, 0, entries.length, 2);
 
-		// If cut at assistant message (not user), should indicate split turn
-		const cutEntry = entries[result.firstKeptEntryIndex] as SessionMessageEntry;
-		if (cutEntry.message.role === "assistant") {
-			expect(result.isSplitTurn).toBe(true);
-			expect(result.turnStartIndex).toBe(2); // Turn 2 starts at index 2
-		}
+		expect(result).toEqual({ firstKeptEntryIndex: 4, turnStartIndex: 2, isSplitTurn: true });
 	});
 });
 
@@ -577,21 +534,6 @@ describe("buildSessionContext", () => {
 		expect(loaded.messages.length).toBe(5);
 	});
 
-	it("caps kept pre-compaction context to 20k bytes", () => {
-		const olderHugeOutput = createMessageEntry(createAssistantMessage(`older output ${"x".repeat(80_000)}`));
-		const latestHugeOutput = createMessageEntry(createAssistantMessage(`latest output ${"y".repeat(80_000)}`));
-		const compaction = createCompactionEntry("summary", olderHugeOutput.id);
-		const afterCompaction = createMessageEntry(createUserMessage("continue"));
-
-		const loaded = buildSessionContext([olderHugeOutput, latestHugeOutput, compaction, afterCompaction]);
-		const keptMessages = loaded.messages.slice(1, -1);
-		const keptBytes = Buffer.byteLength(JSON.stringify(keptMessages), "utf8");
-
-		expect(keptBytes).toBeLessThanOrEqual(20_000);
-		expect(JSON.stringify(keptMessages)).toContain("latest output");
-		expect(JSON.stringify(keptMessages)).not.toContain("older output");
-	});
-
 	it("should track model and thinking level changes", () => {
 		const entries: SessionEntry[] = [
 			createMessageEntry(createUserMessage("1")),
@@ -640,7 +582,7 @@ describe("prepareCompaction with previous compaction", () => {
 
 		const settings: CompactionSettings = {
 			...DEFAULT_COMPACTION_SETTINGS,
-			keepRecentTokens: 100,
+			keepRecentMessages: 2,
 		};
 		const preparation = prepareCompaction([u1, a1, u2, a2, u3, a3, compaction1, u4, a4], settings);
 
@@ -668,7 +610,7 @@ describe("Large session fixture", () => {
 
 	it("should find cut point in large session", () => {
 		const entries = loadLargeSessionEntries();
-		const result = findCutPoint(entries, 0, entries.length, DEFAULT_COMPACTION_SETTINGS.keepRecentTokens);
+		const result = findCutPoint(entries, 0, entries.length, DEFAULT_COMPACTION_SETTINGS.keepRecentMessages);
 
 		// Cut point should be at a message entry (user or assistant)
 		expect(entries[result.firstKeptEntryIndex].type).toBe("message");

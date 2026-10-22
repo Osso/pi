@@ -24,7 +24,7 @@ export interface CompactionSettings {
 	thresholdPercent?: number; // optional trigger percentage, greater than 0 and at most 100
 	enabled?: boolean; // default: true
 	reserveTokens?: number; // default: 16384
-	keepRecentTokens?: number; // default: 20000
+	keepRecentMessages?: number; // default: 20
 	idle?: boolean; // default: true - compact idle sessions before their provider prompt cache expires
 }
 
@@ -931,14 +931,14 @@ export class SettingsManager {
 		return this.settings.compaction?.reserveTokens ?? 16384;
 	}
 
-	getCompactionKeepRecentTokens(): number {
-		return this.settings.compaction?.keepRecentTokens ?? 20000;
+	getCompactionKeepRecentMessages(): number {
+		return this.settings.compaction?.keepRecentMessages ?? 20;
 	}
 
 	getCompactionSettings(): {
 		enabled: boolean;
 		reserveTokens: number;
-		keepRecentTokens: number;
+		keepRecentMessages: number;
 		thresholdPercent?: number;
 	} {
 		const thresholdPercent = parseCompactionThresholdPercent(this.settings.compaction?.thresholdPercent);
@@ -946,7 +946,7 @@ export class SettingsManager {
 			...(thresholdPercent === undefined ? {} : { thresholdPercent }),
 			enabled: this.getCompactionEnabled(),
 			reserveTokens: this.getCompactionReserveTokens(),
-			keepRecentTokens: this.getCompactionKeepRecentTokens(),
+			keepRecentMessages: this.getCompactionKeepRecentMessages(),
 		};
 	}
 

@@ -60,7 +60,7 @@ describe("OpenAI remote split-turn compaction", () => {
 			firstKeptEntryId: "kept-1",
 			isSplitTurn: true,
 			messagesToSummarize: [],
-			settings: { enabled: true, keepRecentTokens: 1, reserveTokens: 1 },
+			settings: { enabled: true, keepRecentMessages: 1, reserveTokens: 1 },
 			tokensBefore: 371_525,
 			turnPrefixMessages: [{ role: "user", content: openingRequest, timestamp: 1 }, ...toolCycles],
 		};

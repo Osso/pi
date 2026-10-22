@@ -36,7 +36,7 @@ async function startCompactionWithResumedTool() {
 	};
 	const harness = await createHarness({
 		tools: [waitingTool],
-		settings: { compaction: { keepRecentTokens: 1 } },
+		settings: { compaction: { keepRecentMessages: 1 } },
 		extensionFactories: [
 			(pi) => {
 				pi.on("compaction", async (event) => {

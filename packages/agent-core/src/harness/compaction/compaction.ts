@@ -108,14 +108,14 @@ export interface CompactionSettings {
 	/** Tokens reserved for summary prompt and output. */
 	reserveTokens: number;
 	/** Approximate recent-context tokens to keep after compaction. */
-	keepRecentTokens: number;
+	keepRecentMessages: number;
 }
 
 /** Default compaction settings used by the harness. */
 export const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = {
 	enabled: true,
 	reserveTokens: 16384,
-	keepRecentTokens: 20000,
+	keepRecentMessages: 20,
 };
 
 /** Calculate total context tokens from provider usage. */
@@ -268,31 +268,30 @@ export function estimateTokens(message: AgentMessage): number {
 	return 0;
 }
 
-function estimateEntryTokens(entry: SessionTreeEntry): number | undefined {
-	const message = getMessageFromEntry(entry);
-	return message ? estimateTokens(message) : undefined;
-}
-
-/** Index of the newest entry at which the recent context reaches `keepRecentTokens`, or `startIndex` if it all fits. */
-function findTokenBudgetCutIndex(
+/** Index of the oldest of the `keepRecentMessages` newest context messages, or `startIndex` if there are fewer. */
+function findRecentMessagesStartIndex(
 	entries: SessionTreeEntry[],
 	startIndex: number,
 	endIndex: number,
-	keepRecentTokens: number,
+	keepRecentMessages: number,
 ): number {
-	let accumulatedTokens = 0;
+	let messageCount = 0;
 	for (let i = endIndex - 1; i >= startIndex; i--) {
-		accumulatedTokens += estimateEntryTokens(entries[i]) ?? 0;
-		if (accumulatedTokens >= keepRecentTokens) return i;
+		if (!getMessageFromEntry(entries[i])) continue;
+		messageCount++;
+		if (messageCount >= keepRecentMessages) return i;
 	}
 	return startIndex;
 }
 
-function findNearestCutPointAtOrAfter(cutPoints: number[], index: number): number {
+/** Nearest cut point at or before `index`, so a kept tool result keeps its tool call. */
+function findCutPointAtOrBefore(cutPoints: number[], index: number): number {
+	let result = cutPoints[0];
 	for (const cutPoint of cutPoints) {
-		if (cutPoint >= index) return cutPoint;
+		if (cutPoint > index) break;
+		result = cutPoint;
 	}
-	return cutPoints[cutPoints.length - 1] ?? index;
+	return result;
 }
 
 function findProtectedSuffixStartIndex(entries: SessionTreeEntry[], startIndex: number, endIndex: number): number {
@@ -310,53 +309,6 @@ function isTurnStartEntry(entry: SessionTreeEntry): boolean {
 		return false;
 	}
 	return entry.message.role === "user" || entry.message.role === "bashExecution" || entry.message.role === "custom";
-}
-
-function isActiveTurnContinuationEntry(entry: SessionTreeEntry): boolean {
-	if (entry.type === "message") {
-		const role = entry.message.role;
-		return role === "assistant" || role === "toolResult";
-	}
-	return false;
-}
-
-function findActiveTurnFloorIndex(
-	entries: SessionTreeEntry[],
-	startIndex: number,
-	endIndex: number,
-): number | undefined {
-	let hasContinuation = false;
-	for (let i = endIndex - 1; i >= startIndex; i--) {
-		const entry = entries[i];
-		if (isTurnStartEntry(entry)) {
-			return hasContinuation ? i : undefined;
-		}
-		if (isActiveTurnContinuationEntry(entry)) {
-			hasContinuation = true;
-		}
-	}
-	return undefined;
-}
-
-function findProtectedSuffixCutIndex(
-	entries: SessionTreeEntry[],
-	startIndex: number,
-	endIndex: number,
-	cutPoints: number[],
-	keepRecentTokens: number,
-): number {
-	const protectedStartIndex = findProtectedSuffixStartIndex(entries, startIndex, endIndex);
-	let suffixCutIndex = findTokenBudgetCutIndex(entries, protectedStartIndex, endIndex, keepRecentTokens);
-	const activeTurnFloorIndex = findActiveTurnFloorIndex(entries, protectedStartIndex, endIndex);
-	const firstCutPointIndex = cutPoints[0];
-	const hasEarlierCompactableContext =
-		activeTurnFloorIndex !== undefined &&
-		firstCutPointIndex !== undefined &&
-		firstCutPointIndex < activeTurnFloorIndex;
-	if (hasEarlierCompactableContext) {
-		suffixCutIndex = Math.min(suffixCutIndex, activeTurnFloorIndex);
-	}
-	return findNearestCutPointAtOrAfter(cutPoints, suffixCutIndex);
 }
 
 function findValidCutPoints(entries: SessionTreeEntry[], startIndex: number, endIndex: number): number[] {
@@ -420,19 +372,21 @@ export interface CutPointResult {
 	isSplitTurn: boolean;
 }
 
-/** Find the compaction cut point that keeps approximately the requested recent-token budget. */
+/** Find the compaction cut point that keeps the `keepRecentMessages` newest context messages. */
 export function findCutPoint(
 	entries: SessionTreeEntry[],
 	startIndex: number,
 	endIndex: number,
-	keepRecentTokens: number,
+	keepRecentMessages: number,
 ): CutPointResult {
-	const cutPoints = findValidCutPoints(entries, startIndex, endIndex);
+	const protectedStartIndex = findProtectedSuffixStartIndex(entries, startIndex, endIndex);
+	const cutPoints = findValidCutPoints(entries, protectedStartIndex, endIndex);
 
 	if (cutPoints.length === 0) {
 		return { firstKeptEntryIndex: startIndex, turnStartIndex: -1, isSplitTurn: false };
 	}
-	let cutIndex = findProtectedSuffixCutIndex(entries, startIndex, endIndex, cutPoints, keepRecentTokens);
+	const recentStartIndex = findRecentMessagesStartIndex(entries, protectedStartIndex, endIndex, keepRecentMessages);
+	let cutIndex = findCutPointAtOrBefore(cutPoints, recentStartIndex);
 	while (cutIndex > startIndex) {
 		const prevEntry = entries[cutIndex - 1];
 		if (prevEntry.type === "compaction") {
@@ -641,7 +595,7 @@ export function prepareCompaction(
 
 	const tokensBefore = estimateContextTokens(buildSessionContext(pathEntries).messages).tokens;
 
-	const cutPoint = findCutPoint(pathEntries, boundaryStart, boundaryEnd, settings.keepRecentTokens);
+	const cutPoint = findCutPoint(pathEntries, boundaryStart, boundaryEnd, settings.keepRecentMessages);
 	const firstKeptEntry = pathEntries[cutPoint.firstKeptEntryIndex];
 	if (!firstKeptEntry?.id) {
 		return err(new CompactionError("invalid_session", "First kept entry has no UUID - session may need migration"));

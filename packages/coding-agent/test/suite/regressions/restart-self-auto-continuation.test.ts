@@ -38,7 +38,8 @@ function configureSmallCompactionWindow(pi: HeadlessPi): void {
 		settingsPath,
 		JSON.stringify({
 			...settings,
-			compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 16_384 },
+			// Keep exactly the last turn (prompt, end_turn call, result) so summarization is one request.
+			compaction: { enabled: true, keepRecentMessages: 3, reserveTokens: 16_384 },
 		}),
 		"utf8",
 	);

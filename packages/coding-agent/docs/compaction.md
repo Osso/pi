@@ -38,7 +38,7 @@ During a running tool-bearing turn, Pi checks the configured threshold after cur
 
 Set `"compaction": { "thresholdPercent": 50 }` in `~/.pi/agent/settings.json` to apply 50% across projects and models. Trusted `<project-dir>/.pi/settings.json` values can override the global setting; see [settings.md](settings.md#compaction).
 
-`reserveTokens` defaults to 16384 and still controls summarization output budgets even with a percentage configured. `keepRecentTokens` remains unchanged. The percentage does not change the separate speculative 70% cache boundary or add a UI control.
+`reserveTokens` defaults to 16384 and still controls summarization output budgets even with a percentage configured. `keepRecentMessages` remains unchanged. The percentage does not change the separate speculative 70% cache boundary or add a UI control.
 
 You can also trigger manually with `/compact [instructions]`, where optional instructions focus the summary.
 
@@ -68,7 +68,7 @@ Manual-resumption post-run ownership prevents a cancelled turn from racing its r
 
 ### How It Works
 
-1. **Find cut point**: Walk backwards from newest message, accumulating token estimates until `keepRecentTokens` (default 20k, configurable in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`) is reached. Every compaction reason (threshold, overflow, idle, manual) uses this budget. The cut never crosses the previous compaction entry, and a tool-bearing active turn stays whole when older history exists, so the kept tail can be smaller or larger than the budget
+1. **Find cut point**: Keep the `keepRecentMessages` newest context messages (default 20, counting user, assistant, tool result, and custom messages; configurable in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json`). Every compaction reason (threshold, overflow, idle, manual) uses this count. The cut never crosses the previous compaction entry. If the oldest kept message is a tool result, the cut moves back to its tool call, so a few extra messages can be kept. Kept messages are sent verbatim with no size cap, so 20 very large messages can still exceed a small model's context window
 2. **Extract messages**: Collect messages from the previous kept boundary (or session start) up to the cut point
 3. **Generate summary**: Call LLM to summarize with structured format, passing the previous summary as iterative context when present
 4. **Append entry**: Save `CompactionEntry` with summary and `firstKeptEntryId`
@@ -142,7 +142,7 @@ Extensions receive `background_compaction_start` when speculative generation beg
 
 A "turn" starts with a user message and includes all assistant responses and tool calls until the next user message. Compaction normally cuts at turn boundaries and keeps the active turn whole when older compactable history exists.
 
-If the active turn begins at the compaction boundary and grows beyond `keepRecentTokens`, Pi cuts at a valid assistant boundary instead of treating the session as too small. Short one-turn sessions remain unchanged. This is a "split turn":
+If the active turn begins at the compaction boundary and spans more than `keepRecentMessages` messages, Pi cuts at a valid assistant boundary instead of treating the session as too small. Short one-turn sessions remain unchanged. This is a "split turn":
 
 For OpenAI remote compaction, the split turn's opening user message is pinned exactly once inside the existing 400,000-character input budget before prior non-encrypted native history and newest coherent raw context fill the remaining space. Tool-call/output pairs remain intact; ordinary multi-turn payload selection is unchanged.
 
@@ -456,7 +456,7 @@ Configure compaction in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settin
   "compaction": {
     "enabled": true,
     "reserveTokens": 16384,
-    "keepRecentTokens": 20000
+    "keepRecentMessages": 20
   }
 }
 ```
@@ -467,6 +467,6 @@ Configure compaction in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settin
 | `idle` | `true` | Compact eligible idle sessions before assumed prompt-cache expiry; also requires `enabled` |
 | `thresholdPercent` | Unset | Auto-compaction percentage: finite, greater than 0 and at most 100; takes precedence over model/reserve thresholds |
 | `reserveTokens` | `16384` | Summarization output token budget; default trigger reserve when neither percentage nor model threshold applies |
-| `keepRecentTokens` | `20000` | Recent tokens to keep (not summarized) |
+| `keepRecentMessages` | `20` | Most recent context messages kept verbatim (not summarized) |
 
 Disable auto-compaction with `"enabled": false`. You can still compact manually with `/compact`.

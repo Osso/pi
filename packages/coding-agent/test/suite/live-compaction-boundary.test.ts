@@ -40,7 +40,7 @@ describe("live compaction boundary cancellation and errors", () => {
 			let assistantCount = 0;
 			const harness = await createHarness({
 				models: [{ id: "faux-1", contextWindow: 128_000, maxTokens: 100 }],
-				settings: { compaction: { enabled: false, thresholdPercent: 50, keepRecentTokens: 1 } },
+				settings: { compaction: { enabled: false, thresholdPercent: 50, keepRecentMessages: 1 } },
 				tools: [
 					{
 						name: "effect",
@@ -170,7 +170,7 @@ describe("live compaction provider threshold boundary", () => {
 		const harness = await createHarness({
 			persistedSession: true,
 			models: [{ id: "faux-1", contextWindow: 1_000_000, maxTokens: 100 }],
-			settings: { compaction: { enabled: true, thresholdPercent: 50, keepRecentTokens: 1, reserveTokens: 100 } },
+			settings: { compaction: { enabled: true, thresholdPercent: 50, keepRecentMessages: 1, reserveTokens: 100 } },
 			tools: [effect],
 			extensionFactories: [
 				(pi) => {

@@ -44,7 +44,7 @@ it("compacts at 50% after a tool result with a live child preserved across super
 			settingsPath,
 			JSON.stringify({
 				...settings,
-				compaction: { enabled: false, thresholdPercent: 50, keepRecentTokens: 1, reserveTokens: 100 },
+				compaction: { enabled: false, thresholdPercent: 50, keepRecentMessages: 1, reserveTokens: 100 },
 			}),
 		);
 		const effectPath = join(runtime.paths.workspaceDir, "live50-effects");

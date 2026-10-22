@@ -37,7 +37,7 @@ it.each(["prompt", "continue"] as const)(
 		};
 		const harness = await createHarness({
 			tools: [waitTool],
-			settings: { compaction: { enabled: false, keepRecentTokens: 1 } },
+			settings: { compaction: { enabled: false, keepRecentMessages: 1 } },
 			extensionFactories: [
 				(pi) => {
 					pi.on("compaction", async (event) => {

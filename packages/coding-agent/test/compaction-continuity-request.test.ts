@@ -49,7 +49,7 @@ function createPreparation(path: CompactionPath): CompactionPreparation {
 		previousSummary: path === "update" ? previousSummary : undefined,
 		tokensBefore: 1000,
 		fileOps: { read: new Set(), written: new Set(), edited: new Set() },
-		settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
+		settings: { enabled: true, reserveTokens: 2000, keepRecentMessages: 20 },
 	};
 }
 

@@ -179,7 +179,7 @@ describe.each(["default provider", "session streamFn"])("uncached summarization 
 				isSplitTurn,
 				tokensBefore: 100,
 				fileOps: { read: new Set(), written: new Set(), edited: new Set() },
-				settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
+				settings: { enabled: true, reserveTokens: 2000, keepRecentMessages: 20 },
 			};
 			const result = await compact(
 				preparation,

@@ -1,6 +1,6 @@
 import { type AssistantMessage, fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createHarness, getUserTexts, type Harness } from "../harness.ts";
+import { createHarness, type Harness } from "../harness.ts";
 
 function createUsage(totalTokens: number) {
 	return {
@@ -26,7 +26,7 @@ describe("pre-prompt compaction regression", () => {
 	it("compacts length-stop overflow before a new prompt without continuing from an assistant message", async () => {
 		const harness = await createHarness({
 			models: [{ id: "faux-1", contextWindow: 100, maxTokens: 100 }],
-			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 0 } },
+			settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens: 0 } },
 			extensionFactories: [
 				(pi) => {
 					pi.on("compaction", async (event) => ({
@@ -75,7 +75,12 @@ describe("pre-prompt compaction regression", () => {
 				willRetry: false,
 			}),
 		);
-		expect(getUserTexts(harness)).toContain("next prompt");
+		// The post-run overflow compaction may summarize the new turn, so check the persisted transcript.
+		expect(
+			harness.sessionManager
+				.getEntries()
+				.some((entry) => entry.type === "message" && JSON.stringify(entry.message).includes("next prompt")),
+		).toBe(true);
 		expect(harness.faux.state.callCount).toBe(1);
 	});
 });

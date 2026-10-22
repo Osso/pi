@@ -43,7 +43,8 @@ async function createIdleHarness(scenario: IdleScenario): Promise<Harness> {
 	const harness = await createHarness({
 		fauxProvider: { api: scenario.api, provider: scenario.provider },
 		models: [{ id: `${scenario.provider}-model`, contextWindow: 2_000_000 }],
-		settings: scenario.settings,
+		// Keep only the follow-up turn (user, end_turn call, result) so the first turn is summarized.
+		settings: { ...scenario.settings, compaction: { keepRecentMessages: 3, ...scenario.settings?.compaction } },
 		tools: scenario.tools,
 		extensionFactories: scenario.extensionFactories,
 	});

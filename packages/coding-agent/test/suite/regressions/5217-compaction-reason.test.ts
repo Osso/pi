@@ -34,7 +34,7 @@ function recordingExtension(recorded: RecordedCompactionEvent[]): ExtensionFacto
 
 async function createCompactionHarness(recorded: RecordedCompactionEvent[]): Promise<Harness> {
 	const harness = await createHarness({
-		settings: { compaction: { keepRecentTokens: 1 } },
+		settings: { compaction: { keepRecentMessages: 1 } },
 		extensionFactories: [recordingExtension(recorded)],
 	});
 	harness.setResponses([fauxAssistantMessage("one"), fauxAssistantMessage("two")]);

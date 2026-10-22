@@ -6,7 +6,7 @@ import { createHarness } from "../harness.ts";
 it("keeps a saved manual compaction when the resumed turn exceeds the thinking deadline", async () => {
 	const harness = await createHarness({
 		thinkingPhaseTimeoutMs: 50,
-		settings: { compaction: { keepRecentTokens: 1 } },
+		settings: { compaction: { keepRecentMessages: 1 } },
 		extensionFactories: [
 			(pi) => {
 				pi.on("compaction", async (event) => ({

@@ -4,6 +4,8 @@
 
 ### Breaking Changes
 
+- Replaced the `compaction.keepRecentTokens` setting with `compaction.keepRecentMessages` (default 20): compaction keeps that many newest context messages (user, assistant, tool results) verbatim and summarizes everything older. Removed the 20,000-byte cap on kept messages when rebuilding context. `keepRecentTokens` is no longer read.
+
 - `ask_questions` now requires an explicit `blocking` boolean: `true` awaits answers; `false` queues serial TUI panels and delivers answers/cancellation through the runtime inbox, correlated by `requestId` equal to `toolCallId`. SDK/tool callers must supply the field. Nonblocking calls require a persisted session and control database; pending panels remain process-local and are not recovered after restart.
 
 - Changed `--mode json` to a lean wire stream without a compatibility mode: message starts contain metadata only; updates omit accumulated messages and partial/completed block bodies; full completed messages remain unchanged at `message_end`; turn and agent end events omit repeated messages while retaining retry/continuation metadata. Tool completion keeps metadata-only `result` without `content`/`details`; progress updates and `bash_messages_committed` bodies remain unchanged. SDK/internal/TUI/RPC payloads are unchanged. See [JSON migration](docs/json.md#migration-breaking-change).
@@ -204,7 +206,7 @@
 
 ### Fixed
 
-- Compaction honors `keepRecentTokens` again for every reason, including idle compaction. A hardcoded cap of the last 3 messages or 10,000 tokens had replaced the setting, so an idle compaction after a short nudge turn kept only that nudge and summarized the preceding request and report. A cut that would land on a tool result now falls back to the last valid cut point.
+- Compaction keeps the 20 most recent context messages verbatim for every reason, including idle compaction. A hardcoded cap of the last 3 messages or 10,000 tokens, plus a separate 20,000-byte truncation of kept messages, meant an idle compaction after a short nudge turn kept only that nudge.
 
 - Truncated zstd transcript streams now reject consumers with the decompression error instead of terminating the process with an unhandled error.
 

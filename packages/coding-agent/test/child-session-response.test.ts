@@ -8,7 +8,7 @@ import { bindProductionChildSession } from "../extensions/agents-core/src/child-
 import { SessionManager } from "../src/core/session-manager.ts";
 import { createChildSessionMutationFixture } from "./helpers/child-session-mutation.ts";
 
-it("excludes inherited text when compaction truncates the model context during a child request", async () => {
+it("excludes inherited text kept verbatim by compaction during a child request", async () => {
 	const directory = mkdtempSync(join(tmpdir(), "pi-child-response-"));
 	try {
 		const sessionManager = SessionManager.create(directory, directory);
@@ -37,7 +37,7 @@ it("excludes inherited text when compaction truncates the model context during a
 		const projectedParent = sessionManager
 			.buildSessionContext()
 			.messages.find((message) => message.role === "assistant");
-		expect(projectedParent?.content).not.toEqual([{ type: "text", text: parentText }]);
+		expect(projectedParent?.content).toEqual([{ type: "text", text: parentText }]);
 		expect(readCurrentChildAssistantText(child.messages, previousMessages)).toBeUndefined();
 	} finally {
 		rmSync(directory, { recursive: true, force: true });

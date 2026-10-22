@@ -265,7 +265,7 @@ interface BackgroundCompactionCache {
 	snapshotLeafId: string;
 	branchEntries: SessionEntry[];
 	preparation: CompactionPreparation;
-	settings: { enabled: boolean; reserveTokens: number; keepRecentTokens: number };
+	settings: { enabled: boolean; reserveTokens: number; keepRecentMessages: number };
 	model: { provider: string; id: string; api: string };
 	thinkingLevel: ThinkingLevel;
 	systemPrompt: string;
@@ -4569,7 +4569,7 @@ export class AgentSession {
 			cache.extensionRunner === this._extensionRunner &&
 			cache.settings.enabled === settings.enabled &&
 			cache.settings.reserveTokens === settings.reserveTokens &&
-			cache.settings.keepRecentTokens === settings.keepRecentTokens
+			cache.settings.keepRecentMessages === settings.keepRecentMessages
 		);
 	}
 

@@ -373,7 +373,7 @@ describe("session entry write isolation", () => {
 		const payload = createPayload();
 		const harness = await createHarness({
 			persistedSession: true,
-			settings: { compaction: { enabled: false, keepRecentTokens: 1 } },
+			settings: { compaction: { enabled: false, keepRecentMessages: 1 } },
 			extensionFactories: [
 				(pi) => {
 					pi.on("compaction", (event) => ({

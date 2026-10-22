@@ -8,7 +8,7 @@
 - [x] With a percentage configured, trigger when `contextTokens >= contextWindow * thresholdPercent / 100`, including equality at 100%, before considering model `autoCompactionThreshold` or `reserveTokens`.
 - [x] With the percentage omitted, preserve existing model-threshold and reserve-based trigger defaults.
 - [x] Apply global configuration across sessions and models, subject to normal project and explicit settings overrides.
-- [x] Preserve `reserveTokens` summarization output budgets and `keepRecentTokens` behavior.
+- [x] Preserve `reserveTokens` summarization output budgets and `keepRecentMessages` behavior.
 - [x] During a running tool-bearing turn, check the configured threshold after current tool results are completed and committed, before the subsequent provider request; do not wait for the whole turn to end or require a ready speculative cache.
 - [x] Preserve coherent tool-call/output pairs and continue the same active turn with compacted context; never interrupt an in-flight provider stream or uncommitted tool execution to enforce the threshold.
 

@@ -102,7 +102,7 @@ describe.skipIf(!API_KEY)("Compaction extensions", () => {
 		const sessionManager = SessionManager.create(tempDir, join(tempDir, "sessions"));
 		sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
 		const settingsManager = SettingsManager.create(tempDir, tempDir);
-		settingsManager.applyOverrides({ compaction: { keepRecentTokens: 1 } });
+		settingsManager.applyOverrides({ compaction: { keepRecentMessages: 1 } });
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
 		const modelRegistry = ModelRegistry.create(authStorage);
 

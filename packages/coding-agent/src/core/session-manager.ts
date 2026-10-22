@@ -55,7 +55,6 @@ import { createSessionTranscriptReadStream, readSessionTranscriptPath } from "./
 import { withSeekableSessionTranscript } from "./session-transcript-spool.ts";
 
 export const CURRENT_SESSION_VERSION = 3;
-export const MAX_KEPT_PRE_COMPACTION_BYTES = 20_000;
 
 export interface SessionHeader {
 	type: "session";
@@ -463,105 +462,6 @@ function messageFromContextEntry(entry: SessionEntry): AgentMessage | undefined 
 	return undefined;
 }
 
-function jsonBytes(value: unknown): number {
-	return Buffer.byteLength(JSON.stringify(value), "utf8");
-}
-
-function getMessageText(message: AgentMessage): string | undefined {
-	const content = (message as { content?: unknown }).content;
-	if (typeof content === "string") {
-		return content;
-	}
-	if (!Array.isArray(content)) {
-		return undefined;
-	}
-	const textItem = content.find((item): item is TextContent => {
-		return typeof item === "object" && item !== null && (item as { type?: unknown }).type === "text";
-	});
-	return textItem?.text;
-}
-
-function cloneMessageWithText(message: AgentMessage, text: string): AgentMessage | undefined {
-	const clone = JSON.parse(JSON.stringify(message)) as AgentMessage;
-	const content = (clone as { content?: unknown }).content;
-	if (typeof content === "string") {
-		(clone as { content: string }).content = text;
-		return clone;
-	}
-	if (!Array.isArray(content)) {
-		return undefined;
-	}
-	const textIndex = content.findIndex((item): item is TextContent => {
-		return typeof item === "object" && item !== null && (item as { type?: unknown }).type === "text";
-	});
-	if (textIndex === -1) {
-		return undefined;
-	}
-	(clone as { content: unknown[] }).content = content.map((item, index) => {
-		if (index !== textIndex) {
-			return item;
-		}
-		return { ...(item as TextContent), text };
-	});
-	return clone;
-}
-
-function truncateMessageToFit(message: AgentMessage, newerMessages: AgentMessage[]): AgentMessage | undefined {
-	const originalText = getMessageText(message);
-	if (originalText === undefined) {
-		return undefined;
-	}
-
-	let best: AgentMessage | undefined;
-	let low = 0;
-	let high = originalText.length;
-	while (low <= high) {
-		const mid = Math.floor((low + high) / 2);
-		const candidate = cloneMessageWithText(message, originalText.slice(0, mid));
-		if (candidate && jsonBytes([candidate, ...newerMessages]) <= MAX_KEPT_PRE_COMPACTION_BYTES) {
-			best = candidate;
-			low = mid + 1;
-		} else {
-			high = mid - 1;
-		}
-	}
-	return best;
-}
-
-function removeLeadingToolResults(messages: AgentMessage[]): AgentMessage[] {
-	const firstNonToolResultIndex = messages.findIndex((message) => message.role !== "toolResult");
-	if (firstNonToolResultIndex === -1) {
-		return [];
-	}
-	if (firstNonToolResultIndex === 0) {
-		return messages;
-	}
-	return messages.slice(firstNonToolResultIndex);
-}
-
-function buildCappedKeptMessages(entries: SessionEntry[]): AgentMessage[] {
-	const keptMessages: AgentMessage[] = [];
-	for (const entry of [...entries].reverse()) {
-		const message = messageFromContextEntry(entry);
-		if (!message) {
-			continue;
-		}
-
-		const candidateMessages = [message, ...keptMessages];
-		if (jsonBytes(candidateMessages) <= MAX_KEPT_PRE_COMPACTION_BYTES) {
-			keptMessages.unshift(message);
-			continue;
-		}
-
-		const truncatedMessage = truncateMessageToFit(message, keptMessages);
-		if (truncatedMessage) {
-			keptMessages.unshift(truncatedMessage);
-		}
-		break;
-	}
-	return removeLeadingToolResults(keptMessages);
-}
-
 function collectKeptEntries(path: SessionEntry[], compaction: CompactionEntry, compactionIdx: number): SessionEntry[] {
 	const keptEntries: SessionEntry[] = [];
 	let foundFirstKept = false;
@@ -580,8 +480,7 @@ function collectKeptEntries(path: SessionEntry[], compaction: CompactionEntry, c
 function buildCompactedContextMessages(path: SessionEntry[], compaction: CompactionEntry): AgentMessage[] {
 	const messages = sessionEntryToContextMessages(compaction);
 	const compactionIdx = path.findIndex((entry) => entry.id === compaction.id);
-	messages.push(...buildCappedKeptMessages(collectKeptEntries(path, compaction, compactionIdx)));
-	for (const entry of path.slice(compactionIdx + 1)) {
+	for (const entry of [...collectKeptEntries(path, compaction, compactionIdx), ...path.slice(compactionIdx + 1)]) {
 		messages.push(...sessionEntryToContextMessages(entry));
 	}
 	return messages;

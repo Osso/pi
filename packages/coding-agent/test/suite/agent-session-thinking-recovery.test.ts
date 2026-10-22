@@ -205,7 +205,7 @@ describe("AgentSession thinking watchdog recovery", () => {
 		const harness = await createHarness({
 			thinkingPhaseTimeoutMs: PHASE_MS,
 			models: [{ id: "small", contextWindow: 8192 }],
-			settings: { compaction: { reserveTokens: 100, keepRecentTokens: 1 } },
+			settings: { compaction: { reserveTokens: 100, keepRecentMessages: 1 } },
 			extensionFactories: [
 				(pi) => {
 					pi.on("compaction", async (event) => ({

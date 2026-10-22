@@ -61,7 +61,7 @@ function installManualCompactionExtension(agent: HeadlessPi) {
 		settingsPath,
 		JSON.stringify({
 			...settings,
-			compaction: { enabled: false, keepRecentTokens: 1, reserveTokens: 16384 },
+			compaction: { enabled: false, keepRecentMessages: 1, reserveTokens: 16384 },
 		}),
 	);
 	writeFileSync(

@@ -210,7 +210,7 @@ describe("harness compaction", () => {
 		const settings: CompactionSettings = {
 			enabled: true,
 			reserveTokens: 10000,
-			keepRecentTokens: 20000,
+			keepRecentMessages: 20,
 		};
 		expect(shouldCompact(95000, 100000, settings)).toBe(true);
 		expect(shouldCompact(89000, 100000, settings)).toBe(false);
@@ -235,7 +235,7 @@ describe("harness compaction", () => {
 		expect(entries[result.firstKeptEntryIndex]?.type).toBe("message");
 	});
 
-	it("keeps everything when all messages fit within keepRecentTokens", () => {
+	it("keeps everything when there are fewer than keepRecentMessages messages", () => {
 		const entries = [
 			createMessageEntry(createUserMessage("old user")),
 			createMessageEntry(createAssistantMessage("old assistant")),
@@ -243,13 +243,13 @@ describe("harness compaction", () => {
 			createMessageEntry(createAssistantMessage("recent assistant")),
 		];
 
-		const result = findCutPoint(entries, 0, entries.length, 20_000);
+		const result = findCutPoint(entries, 0, entries.length, 20);
 
 		expect(result.firstKeptEntryIndex).toBe(0);
 	});
 
-	it("keeps the recent suffix up to the message that reaches keepRecentTokens", () => {
-		const hugeText = "x".repeat(40_000);
+	it("keeps the keepRecentMessages newest messages regardless of size", () => {
+		const hugeText = "x".repeat(100_000);
 		const entries = [
 			createMessageEntry(createUserMessage("old user")),
 			createMessageEntry(createAssistantMessage("old assistant")),
@@ -258,27 +258,12 @@ describe("harness compaction", () => {
 			createMessageEntry(createUserMessage("latest user")),
 		];
 
-		const result = findCutPoint(entries, 0, entries.length, 20_000);
+		const result = findCutPoint(entries, 0, entries.length, 3);
 
-		expect(result.firstKeptEntryIndex).toBe(2);
+		expect(result).toEqual({ firstKeptEntryIndex: 2, turnStartIndex: -1, isSplitTurn: false });
 	});
 
-	it("retains latest user verbatim when active assistant suffix exceeds keepRecentTokens", () => {
-		const hugeText = "x".repeat(100_000);
-		const oldUser = createMessageEntry(createUserMessage("old user"));
-		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"), oldUser.id);
-		const latestUser = createMessageEntry(createUserMessage("latest user must stay verbatim"), oldAssistant.id);
-		const assistant = createMessageEntry(createAssistantMessage(hugeText), latestUser.id);
-		const entries = [oldUser, oldAssistant, latestUser, assistant];
-
-		const result = findCutPoint(entries, 0, entries.length, 20_000);
-
-		expect(result.firstKeptEntryIndex).toBe(2);
-		expect(entries[result.firstKeptEntryIndex]).toBe(latestUser);
-		expect(result.isSplitTurn).toBe(false);
-	});
-
-	it("retains latest user verbatim when active tool suffix exceeds keepRecentTokens", () => {
+	it("moves the cut back to the tool call when the oldest kept message is its tool result", () => {
 		const oldUser = createMessageEntry(createUserMessage("old user"));
 		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"), oldUser.id);
 		const latestUser = createMessageEntry(createUserMessage("latest user before tool result"), oldAssistant.id);
@@ -294,7 +279,7 @@ describe("harness compaction", () => {
 				role: "toolResult",
 				toolCallId: "tool-1",
 				toolName: "read",
-				content: [{ type: "text", text: "x".repeat(100_000) }],
+				content: [{ type: "text", text: "file contents" }],
 				isError: false,
 				timestamp: Date.now(),
 			},
@@ -302,24 +287,24 @@ describe("harness compaction", () => {
 		);
 		const entries = [oldUser, oldAssistant, latestUser, assistant, toolResult];
 
-		const result = findCutPoint(entries, 0, entries.length, 20_000);
+		const result = findCutPoint(entries, 0, entries.length, 1);
 
-		expect(result.firstKeptEntryIndex).toBe(2);
-		expect(entries[result.firstKeptEntryIndex]).toBe(latestUser);
+		expect(result).toEqual({ firstKeptEntryIndex: 3, turnStartIndex: 2, isSplitTurn: true });
 	});
 
-	it("prepares compaction without summarizing the latest active user turn start", () => {
+	it("prepares compaction that keeps the latest turn when it spans keepRecentMessages", () => {
 		const oldUser = createMessageEntry(createUserMessage("old user"));
 		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"), oldUser.id);
 		const latestUser = createMessageEntry(createUserMessage("latest user must stay verbatim"), oldAssistant.id);
 		const assistant = createMessageEntry(createAssistantMessage("x".repeat(100_000)), latestUser.id);
 		const entries = [oldUser, oldAssistant, latestUser, assistant];
 
-		const preparation = getOrThrow(prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS));
+		const preparation = getOrThrow(
+			prepareCompaction(entries, { ...DEFAULT_COMPACTION_SETTINGS, keepRecentMessages: 2 }),
+		);
 
-		expect(preparation).toBeDefined();
 		expect(preparation?.firstKeptEntryId).toBe(latestUser.id);
-		expect(preparation?.messagesToSummarize).not.toContain(latestUser.message);
+		expect(preparation?.messagesToSummarize).toEqual([oldUser.message, oldAssistant.message]);
 		expect(preparation?.turnPrefixMessages).toEqual([]);
 	});
 
@@ -546,7 +531,7 @@ describe("harness compaction", () => {
 		expect(preparation?.tokensBefore).toBe(estimateContextTokens(buildSessionContext(pathEntries).messages).tokens);
 	});
 
-	it("keeps latest active turn whole while preserving prior file-operation details", () => {
+	it("keeps the recent turn while preserving prior file-operation details", () => {
 		const u1 = createMessageEntry(createUserMessage("user msg 1"));
 		const assistantMessage: AssistantMessage = {
 			...createAssistantMessage("assistant msg 1"),
@@ -575,7 +560,7 @@ describe("harness compaction", () => {
 			prepareCompaction([u1, a1, compaction1, u2, prefixAssistant, toolResult, suffixAssistant], {
 				enabled: true,
 				reserveTokens: 100,
-				keepRecentTokens: 1,
+				keepRecentMessages: 4,
 			}),
 		);
 
@@ -612,7 +597,7 @@ describe("harness compaction", () => {
 			prepareCompaction([branchSummary, customMessage, user, assistant, latestUser], {
 				enabled: true,
 				reserveTokens: 100,
-				keepRecentTokens: 1,
+				keepRecentMessages: 1,
 			}),
 		);
 
@@ -806,7 +791,7 @@ describe("harness compaction", () => {
 			isSplitTurn: true,
 			tokensBefore: 600000,
 			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
-			settings: { enabled: true, reserveTokens: 500000, keepRecentTokens: 20000 },
+			settings: { enabled: true, reserveTokens: 500000, keepRecentMessages: 20 },
 		};
 
 		getOrThrow(await compact(preparation, models, model));
@@ -823,7 +808,7 @@ describe("harness compaction", () => {
 			isSplitTurn: false,
 			tokensBefore: 100,
 			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
-			settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
+			settings: { enabled: true, reserveTokens: 2000, keepRecentMessages: 20 },
 		};
 		const { faux: historyFaux, model: historyModel } = createFauxModel(false);
 		historyFaux.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: "history failed" })]);
@@ -858,7 +843,7 @@ describe("harness compaction", () => {
 			isSplitTurn: true,
 			tokensBefore: 100,
 			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
-			settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
+			settings: { enabled: true, reserveTokens: 2000, keepRecentMessages: 20 },
 		};
 
 		getOrThrow(await compact(preparation, models, model, undefined, undefined, "high"));
@@ -875,7 +860,7 @@ describe("harness compaction", () => {
 			isSplitTurn: true,
 			tokensBefore: 100,
 			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
-			settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
+			settings: { enabled: true, reserveTokens: 2000, keepRecentMessages: 20 },
 		};
 		const { faux, model } = createFauxModel(false);
 		faux.setResponses([fauxAssistantMessage("", { stopReason: "error", errorMessage: "prefix failed" })]);
@@ -903,7 +888,7 @@ describe("harness compaction", () => {
 		const u2 = createMessageEntry(createUserMessage("continue"), a1.id);
 		const a2 = createMessageEntry(createAssistantMessage("done", createMockUsage(4000, 500)), u2.id);
 		const preparation = getOrThrow(
-			prepareCompaction([u1, a1, u2, a2], { ...DEFAULT_COMPACTION_SETTINGS, keepRecentTokens: 1 }),
+			prepareCompaction([u1, a1, u2, a2], { ...DEFAULT_COMPACTION_SETTINGS, keepRecentMessages: 2 }),
 		);
 		expect(preparation).toBeDefined();
 		const { faux, model } = createFauxModel(false);

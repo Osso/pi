@@ -119,7 +119,7 @@ describe("remote compaction session model alignment", () => {
 						firstKeptEntryId: "kept-message",
 						isSplitTurn: false,
 						messagesToSummarize: [{ role: "user", content: "Current task", timestamp: 1 }],
-						settings: { enabled: true, keepRecentTokens: 1, reserveTokens: 1 },
+						settings: { enabled: true, keepRecentMessages: 1, reserveTokens: 1 },
 						tokensBefore: 700000,
 						turnPrefixMessages: [],
 					},

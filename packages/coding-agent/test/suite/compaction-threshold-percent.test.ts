@@ -39,7 +39,7 @@ describe("AgentSession percentage compaction", () => {
 			const harness = await createHarness({
 				noSupervisor: true,
 				models: [{ id: "percentage-model", contextWindow: 200_000 }],
-				settings: { compaction: { enabled, thresholdPercent: 50 } },
+				settings: { compaction: { enabled, thresholdPercent: 50, keepRecentMessages: 1 } },
 				extensionFactories: [
 					(pi) => {
 						pi.on("compaction", async (event) => ({
@@ -74,7 +74,7 @@ describe("AgentSession percentage compaction", () => {
 		const harness = await createHarness({
 			noSupervisor: true,
 			models: [{ id: "percentage-disabled", contextWindow: 200_000 }],
-			settings: { compaction: { enabled: false, thresholdPercent: 50 } },
+			settings: { compaction: { enabled: false, thresholdPercent: 50, keepRecentMessages: 1 } },
 		});
 		harnesses.push(harness);
 		seedHistory(harness);

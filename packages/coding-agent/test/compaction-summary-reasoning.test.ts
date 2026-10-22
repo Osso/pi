@@ -135,7 +135,7 @@ describe("generateSummary reasoning options", () => {
 			isSplitTurn: true,
 			tokensBefore: 100,
 			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
-			settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
+			settings: { enabled: true, reserveTokens: 2000, keepRecentMessages: 20 },
 		};
 
 		await compact(preparation, createModel(true), "test-key", undefined, undefined, undefined, "high");
@@ -155,7 +155,7 @@ describe("generateSummary reasoning options", () => {
 			isSplitTurn: true,
 			tokensBefore: 600000,
 			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
-			settings: { enabled: true, reserveTokens: 500000, keepRecentTokens: 20000 },
+			settings: { enabled: true, reserveTokens: 500000, keepRecentMessages: 20 },
 		};
 
 		await compact(preparation, createModel(false, 128000), "test-key");
@@ -215,7 +215,7 @@ describe("generateSummary reasoning options", () => {
 			isSplitTurn: true,
 			tokensBefore: 100,
 			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
-			settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
+			settings: { enabled: true, reserveTokens: 2000, keepRecentMessages: 20 },
 		};
 
 		await compact(preparation, createModel(false), "test-key", undefined, "Prioritize relocation ordering.");
@@ -242,7 +242,7 @@ describe("generateSummary reasoning options", () => {
 			isSplitTurn: true,
 			tokensBefore: 100,
 			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
-			settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
+			settings: { enabled: true, reserveTokens: 2000, keepRecentMessages: 20 },
 		};
 
 		await expect(compact(preparation, createModel(false), "test-key")).rejects.toThrow(

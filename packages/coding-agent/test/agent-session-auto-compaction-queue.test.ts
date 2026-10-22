@@ -58,7 +58,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 	});
 
 	it("should resume after threshold compaction when only agent-level queued messages exist", async () => {
-		settingsManager.applyOverrides({ compaction: { keepRecentTokens: 1 } });
+		settingsManager.applyOverrides({ compaction: { keepRecentMessages: 1 } });
 		const model = session.model!;
 		const now = Date.now();
 		sessionManager.appendMessage({

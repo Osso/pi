@@ -522,7 +522,7 @@ describe("openai remote compact extension", () => {
 			firstKeptEntryId: "kept-1",
 			isSplitTurn: false,
 			messagesToSummarize: [{ role: "user", content: "hello", timestamp: 1 }],
-			settings: { enabled: true, keepRecentTokens: 1, reserveTokens: 1 },
+			settings: { enabled: true, keepRecentMessages: 1, reserveTokens: 1 },
 			tokensBefore: 1234,
 			turnPrefixMessages: [],
 		};
@@ -594,7 +594,7 @@ describe("openai remote compact extension", () => {
 			firstKeptEntryId: "kept-1",
 			isSplitTurn: false,
 			messagesToSummarize: [{ role: "user", content: "new", timestamp: 1 }],
-			settings: { enabled: true, keepRecentTokens: 1, reserveTokens: 1 },
+			settings: { enabled: true, keepRecentMessages: 1, reserveTokens: 1 },
 			tokensBefore: 1234,
 			turnPrefixMessages: [],
 		};
@@ -663,7 +663,7 @@ describe("openai remote compact extension", () => {
 			firstKeptEntryId: "kept-2",
 			isSplitTurn: false,
 			messagesToSummarize: [{ role: "user", content: "new", timestamp: 1 }],
-			settings: { enabled: true, keepRecentTokens: 1, reserveTokens: 1 },
+			settings: { enabled: true, keepRecentMessages: 1, reserveTokens: 1 },
 			tokensBefore: 1234,
 			turnPrefixMessages: [],
 		};
@@ -741,7 +741,7 @@ describe("openai remote compact extension", () => {
 			firstKeptEntryId: "kept-1",
 			isSplitTurn: false,
 			messagesToSummarize: [{ role: "user", content: "new", timestamp: 1 }],
-			settings: { enabled: true, keepRecentTokens: 1, reserveTokens: 1 },
+			settings: { enabled: true, keepRecentMessages: 1, reserveTokens: 1 },
 			tokensBefore: 1234,
 			turnPrefixMessages: [],
 		};

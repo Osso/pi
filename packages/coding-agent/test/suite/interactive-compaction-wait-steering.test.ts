@@ -90,7 +90,7 @@ async function startScenario() {
 	};
 	const harness = await createHarness({
 		tools: [waitTool],
-		settings: { compaction: { keepRecentTokens: 1 } },
+		settings: { compaction: { keepRecentMessages: 1 } },
 		extensionFactories: [
 			(pi) => {
 				pi.on("compaction", async (event) => {
