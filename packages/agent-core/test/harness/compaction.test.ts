@@ -235,22 +235,20 @@ describe("harness compaction", () => {
 		expect(entries[result.firstKeptEntryIndex]?.type).toBe("message");
 	});
 
-	it("limits the retained suffix to the last three context messages", () => {
+	it("keeps everything when all messages fit within keepRecentTokens", () => {
 		const entries = [
 			createMessageEntry(createUserMessage("old user")),
 			createMessageEntry(createAssistantMessage("old assistant")),
-			createMessageEntry(createUserMessage("recent user 1")),
-			createMessageEntry(createAssistantMessage("recent assistant 1")),
-			createMessageEntry(createUserMessage("recent user 2")),
-			createMessageEntry(createAssistantMessage("recent assistant 2")),
+			createMessageEntry(createUserMessage("recent user")),
+			createMessageEntry(createAssistantMessage("recent assistant")),
 		];
 
 		const result = findCutPoint(entries, 0, entries.length, 20_000);
 
-		expect(result.firstKeptEntryIndex).toBe(3);
+		expect(result.firstKeptEntryIndex).toBe(0);
 	});
 
-	it("uses the ten thousand token suffix when the last three context messages are larger", () => {
+	it("keeps the recent suffix up to the message that reaches keepRecentTokens", () => {
 		const hugeText = "x".repeat(40_000);
 		const entries = [
 			createMessageEntry(createUserMessage("old user")),
@@ -262,11 +260,11 @@ describe("harness compaction", () => {
 
 		const result = findCutPoint(entries, 0, entries.length, 20_000);
 
-		expect(result.firstKeptEntryIndex).toBe(4);
+		expect(result.firstKeptEntryIndex).toBe(2);
 	});
 
-	it("retains latest user verbatim when active assistant suffix exceeds ten thousand tokens", () => {
-		const hugeText = "x".repeat(40_000);
+	it("retains latest user verbatim when active assistant suffix exceeds keepRecentTokens", () => {
+		const hugeText = "x".repeat(100_000);
 		const oldUser = createMessageEntry(createUserMessage("old user"));
 		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"), oldUser.id);
 		const latestUser = createMessageEntry(createUserMessage("latest user must stay verbatim"), oldAssistant.id);
@@ -280,7 +278,7 @@ describe("harness compaction", () => {
 		expect(result.isSplitTurn).toBe(false);
 	});
 
-	it("retains latest user verbatim when active tool suffix exceeds ten thousand tokens", () => {
+	it("retains latest user verbatim when active tool suffix exceeds keepRecentTokens", () => {
 		const oldUser = createMessageEntry(createUserMessage("old user"));
 		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"), oldUser.id);
 		const latestUser = createMessageEntry(createUserMessage("latest user before tool result"), oldAssistant.id);
@@ -296,7 +294,7 @@ describe("harness compaction", () => {
 				role: "toolResult",
 				toolCallId: "tool-1",
 				toolName: "read",
-				content: [{ type: "text", text: "x".repeat(40_000) }],
+				content: [{ type: "text", text: "x".repeat(100_000) }],
 				isError: false,
 				timestamp: Date.now(),
 			},
@@ -314,7 +312,7 @@ describe("harness compaction", () => {
 		const oldUser = createMessageEntry(createUserMessage("old user"));
 		const oldAssistant = createMessageEntry(createAssistantMessage("old assistant"), oldUser.id);
 		const latestUser = createMessageEntry(createUserMessage("latest user must stay verbatim"), oldAssistant.id);
-		const assistant = createMessageEntry(createAssistantMessage("x".repeat(40_000)), latestUser.id);
+		const assistant = createMessageEntry(createAssistantMessage("x".repeat(100_000)), latestUser.id);
 		const entries = [oldUser, oldAssistant, latestUser, assistant];
 
 		const preparation = getOrThrow(prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS));
@@ -396,7 +394,7 @@ describe("harness compaction", () => {
 		expect(findTurnStartIndex([thinking, modelChange], 1, 0)).toBe(-1);
 
 		const result = findCutPoint([thinking, branchSummary, customMessage], 0, 3, 1);
-		expect(result.firstKeptEntryIndex).toBe(0);
+		expect(result.firstKeptEntryIndex).toBe(2);
 
 		const toolResult = createMessageEntry({
 			role: "toolResult",
@@ -618,7 +616,12 @@ describe("harness compaction", () => {
 			}),
 		);
 
-		expect(preparation?.messagesToSummarize.map((message) => message.role)).toEqual(["branchSummary", "custom"]);
+		expect(preparation?.messagesToSummarize.map((message) => message.role)).toEqual([
+			"branchSummary",
+			"custom",
+			"user",
+			"assistant",
+		]);
 	});
 
 	it("does not prepare compaction when there is nothing valid to compact", () => {
@@ -899,7 +902,9 @@ describe("harness compaction", () => {
 		const a1 = createMessageEntry(assistantMessage, u1.id);
 		const u2 = createMessageEntry(createUserMessage("continue"), a1.id);
 		const a2 = createMessageEntry(createAssistantMessage("done", createMockUsage(4000, 500)), u2.id);
-		const preparation = getOrThrow(prepareCompaction([u1, a1, u2, a2], DEFAULT_COMPACTION_SETTINGS));
+		const preparation = getOrThrow(
+			prepareCompaction([u1, a1, u2, a2], { ...DEFAULT_COMPACTION_SETTINGS, keepRecentTokens: 1 }),
+		);
 		expect(preparation).toBeDefined();
 		const { faux, model } = createFauxModel(false);
 		faux.setResponses([fauxAssistantMessage("## Goal\nTest summary")]);

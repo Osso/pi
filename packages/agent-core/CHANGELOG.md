@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed harness compaction ignoring `keepRecentTokens`; the retained suffix is no longer capped at the last 3 messages or 10,000 tokens.
 - Fixed steering aborts discarding an in-flight assistant reply; streamed content and metadata are retained with one message completion instead of a new empty assistant message, and tool calls from the interrupted response are not executed.
 - Fixed queued steering after a text-only response being paired with the stale runtime-only `end_turn` completion instruction; steering now takes precedence for the following provider request.
 - Fixed provider `"length"` truncation being forced through the text-only `end_turn` continuation; truncated responses now terminalize the loop so hosts can compact or recover them.

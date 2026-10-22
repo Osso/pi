@@ -198,22 +198,7 @@ describe("AgentSession compaction characterization", () => {
 		}
 	});
 
-	it("keeps no more than the last three context messages when the token suffix is larger", () => {
-		const entries = [
-			createUserEntry("old user"),
-			createAssistantEntry("old assistant"),
-			createUserEntry("recent user 1"),
-			createAssistantEntry("recent assistant 1"),
-			createUserEntry("recent user 2"),
-			createAssistantEntry("recent assistant 2"),
-		];
-
-		const cutPoint = findCutPoint(entries, 0, entries.length, 20_000);
-
-		expect(cutPoint.firstKeptEntryIndex).toBe(3);
-	});
-
-	it("keeps the token-bounded suffix when the last three context messages exceed ten thousand tokens", () => {
+	it("keeps the recent suffix up to the message that reaches keepRecentTokens", () => {
 		const hugeText = "x".repeat(40_000);
 		const entries = [
 			createUserEntry("old user"),
@@ -225,16 +210,16 @@ describe("AgentSession compaction characterization", () => {
 
 		const cutPoint = findCutPoint(entries, 0, entries.length, 20_000);
 
-		expect(cutPoint.firstKeptEntryIndex).toBe(4);
+		expect(cutPoint.firstKeptEntryIndex).toBe(2);
 	});
 
-	it("keeps no verbatim suffix when the latest context message exceeds ten thousand tokens", () => {
-		const hugeText = "x".repeat(44_000);
+	it("keeps the latest message verbatim when it alone exceeds keepRecentTokens", () => {
+		const hugeText = "x".repeat(100_000);
 		const entries = [createUserEntry("old user"), createAssistantEntry("old assistant"), createUserEntry(hugeText)];
 
 		const cutPoint = findCutPoint(entries, 0, entries.length, 20_000);
 
-		expect(cutPoint.firstKeptEntryIndex).toBe(entries.length);
+		expect(cutPoint.firstKeptEntryIndex).toBe(2);
 	});
 
 	it("manually compacts using an extension-provided summary", async () => {
@@ -1041,7 +1026,7 @@ describe("AgentSession compaction characterization", () => {
 		let compactionCalls = 0;
 		let retryContextChecked = false;
 		const harness = await createHarness({
-			settings: { compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 5_000 } },
+			settings: { compaction: { enabled: true, keepRecentTokens: 3_000, reserveTokens: 5_000 } },
 			models: [{ id: "faux-1", contextWindow: 30_000, maxTokens: 100 }],
 			tools: [repeatedResultTool],
 			extensionFactories: [

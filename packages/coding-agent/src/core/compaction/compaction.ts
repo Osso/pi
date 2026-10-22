@@ -283,8 +283,6 @@ export function shouldCompact(
 // ============================================================================
 
 const ESTIMATED_IMAGE_CHARS = 4800;
-const MAX_PROTECTED_RECENT_CONTEXT_MESSAGES = 3;
-const MAX_PROTECTED_RECENT_CONTEXT_TOKENS = 10_000;
 
 function estimateTextAndImageContentChars(content: string | Array<{ type: string; text?: string }>): number {
 	if (typeof content === "string") {
@@ -353,40 +351,26 @@ function estimateEntryTokens(entry: SessionEntry): number | undefined {
 	return message ? estimateTokens(message) : undefined;
 }
 
-function findContextMessageCountCutIndex(entries: SessionEntry[], startIndex: number, endIndex: number): number {
-	let messageCount = 0;
+/** Index of the newest entry at which the recent context reaches `keepRecentTokens`, or `startIndex` if it all fits. */
+function findTokenBudgetCutIndex(
+	entries: SessionEntry[],
+	startIndex: number,
+	endIndex: number,
+	keepRecentTokens: number,
+): number {
+	let accumulatedTokens = 0;
 	for (let i = endIndex - 1; i >= startIndex; i--) {
-		if (estimateEntryTokens(entries[i]) === undefined) continue;
-		messageCount++;
-		if (messageCount === MAX_PROTECTED_RECENT_CONTEXT_MESSAGES) {
-			return i;
-		}
+		accumulatedTokens += estimateEntryTokens(entries[i]) ?? 0;
+		if (accumulatedTokens >= keepRecentTokens) return i;
 	}
 	return startIndex;
-}
-
-function findTokenBoundedCutIndex(entries: SessionEntry[], startIndex: number, endIndex: number): number {
-	let accumulatedTokens = 0;
-	let suffixStartIndex = endIndex;
-
-	for (let i = endIndex - 1; i >= startIndex; i--) {
-		const tokens = estimateEntryTokens(entries[i]);
-		if (tokens === undefined) continue;
-		if (accumulatedTokens + tokens > MAX_PROTECTED_RECENT_CONTEXT_TOKENS) {
-			break;
-		}
-		accumulatedTokens += tokens;
-		suffixStartIndex = i;
-	}
-
-	return suffixStartIndex;
 }
 
 function findNearestCutPointAtOrAfter(cutPoints: number[], index: number): number {
 	for (const cutPoint of cutPoints) {
 		if (cutPoint >= index) return cutPoint;
 	}
-	return index;
+	return cutPoints[cutPoints.length - 1] ?? index;
 }
 
 function findProtectedSuffixStartIndex(entries: SessionEntry[], startIndex: number, endIndex: number): number {
@@ -433,11 +417,10 @@ function findProtectedSuffixCutIndex(
 	startIndex: number,
 	endIndex: number,
 	cutPoints: number[],
+	keepRecentTokens: number,
 ): number {
 	const protectedStartIndex = findProtectedSuffixStartIndex(entries, startIndex, endIndex);
-	const messageCountCutIndex = findContextMessageCountCutIndex(entries, protectedStartIndex, endIndex);
-	const tokenBoundedCutIndex = findTokenBoundedCutIndex(entries, protectedStartIndex, endIndex);
-	let shorterSuffixCutIndex = Math.max(messageCountCutIndex, tokenBoundedCutIndex);
+	let suffixCutIndex = findTokenBudgetCutIndex(entries, protectedStartIndex, endIndex, keepRecentTokens);
 	const activeTurnFloorIndex = findActiveTurnFloorIndex(entries, protectedStartIndex, endIndex);
 	const firstCutPointIndex = cutPoints[0];
 	const hasEarlierCompactableContext =
@@ -445,9 +428,9 @@ function findProtectedSuffixCutIndex(
 		firstCutPointIndex !== undefined &&
 		firstCutPointIndex < activeTurnFloorIndex;
 	if (hasEarlierCompactableContext) {
-		shorterSuffixCutIndex = Math.min(shorterSuffixCutIndex, activeTurnFloorIndex);
+		suffixCutIndex = Math.min(suffixCutIndex, activeTurnFloorIndex);
 	}
-	return findNearestCutPointAtOrAfter(cutPoints, shorterSuffixCutIndex);
+	return findNearestCutPointAtOrAfter(cutPoints, suffixCutIndex);
 }
 
 /**
@@ -525,7 +508,8 @@ export interface CutPointResult {
  * Find the cut point in session entries that keeps approximately `keepRecentTokens`.
  *
  * Algorithm: Walk backwards from newest, accumulating estimated message sizes.
- * Stop when we've accumulated >= keepRecentTokens. Cut at that point.
+ * Stop when we've accumulated >= keepRecentTokens. Cut at that point. Never cut before the
+ * previous compaction, and keep an active tool-bearing turn whole when older context exists.
  *
  * Can cut at user OR assistant messages (never tool results). When cutting at an
  * assistant message with tool calls, its tool results come after and will be kept.
@@ -541,7 +525,7 @@ export function findCutPoint(
 	entries: SessionEntry[],
 	startIndex: number,
 	endIndex: number,
-	_keepRecentTokens: number,
+	keepRecentTokens: number,
 ): CutPointResult {
 	const cutPoints = findValidCutPoints(entries, startIndex, endIndex);
 
@@ -549,7 +533,7 @@ export function findCutPoint(
 		return { firstKeptEntryIndex: startIndex, turnStartIndex: -1, isSplitTurn: false };
 	}
 
-	let cutIndex = findProtectedSuffixCutIndex(entries, startIndex, endIndex, cutPoints);
+	let cutIndex = findProtectedSuffixCutIndex(entries, startIndex, endIndex, cutPoints, keepRecentTokens);
 
 	// Scan backwards from cutIndex to include any non-message entries (bash, settings, etc.)
 	while (cutIndex > startIndex) {

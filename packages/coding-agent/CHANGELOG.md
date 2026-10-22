@@ -204,6 +204,8 @@
 
 ### Fixed
 
+- Compaction honors `keepRecentTokens` again for every reason, including idle compaction. A hardcoded cap of the last 3 messages or 10,000 tokens had replaced the setting, so an idle compaction after a short nudge turn kept only that nudge and summarized the preceding request and report. A cut that would land on a tool result now falls back to the last valid cut point.
+
 - Truncated zstd transcript streams now reject consumers with the decompression error instead of terminating the process with an unhandled error.
 
 - Empty recipient hosts now use the same local-host normalization during mailbox enqueue retries as during initial storage.

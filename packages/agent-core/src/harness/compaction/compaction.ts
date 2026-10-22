@@ -208,8 +208,6 @@ export function shouldCompact(contextTokens: number, contextWindow: number, sett
 
 const ESTIMATED_IMAGE_CHARS = 4800;
 const MAX_COMPACTION_CONTEXT_CHARS = 300_000;
-const MAX_PROTECTED_RECENT_CONTEXT_MESSAGES = 3;
-const MAX_PROTECTED_RECENT_CONTEXT_TOKENS = 10_000;
 
 function estimateTextAndImageContentChars(content: string | Array<{ type: string; text?: string }>): number {
 	if (typeof content === "string") {
@@ -275,35 +273,19 @@ function estimateEntryTokens(entry: SessionTreeEntry): number | undefined {
 	return message ? estimateTokens(message) : undefined;
 }
 
-function findContextMessageCountCutIndex(entries: SessionTreeEntry[], startIndex: number, endIndex: number): number {
-	let messageCount = 0;
+/** Index of the newest entry at which the recent context reaches `keepRecentTokens`, or `startIndex` if it all fits. */
+function findTokenBudgetCutIndex(
+	entries: SessionTreeEntry[],
+	startIndex: number,
+	endIndex: number,
+	keepRecentTokens: number,
+): number {
+	let accumulatedTokens = 0;
 	for (let i = endIndex - 1; i >= startIndex; i--) {
-		if (estimateEntryTokens(entries[i]) === undefined) continue;
-		messageCount++;
-		if (messageCount === MAX_PROTECTED_RECENT_CONTEXT_MESSAGES) {
-			return i;
-		}
+		accumulatedTokens += estimateEntryTokens(entries[i]) ?? 0;
+		if (accumulatedTokens >= keepRecentTokens) return i;
 	}
 	return startIndex;
-}
-
-function findTokenBoundedCutIndex(entries: SessionTreeEntry[], startIndex: number, endIndex: number): number {
-	let accumulatedTokens = 0;
-	let suffixStartIndex = startIndex;
-	let hasContextMessage = false;
-
-	for (let i = endIndex - 1; i >= startIndex; i--) {
-		const tokens = estimateEntryTokens(entries[i]);
-		if (tokens === undefined) continue;
-		if (hasContextMessage && accumulatedTokens + tokens > MAX_PROTECTED_RECENT_CONTEXT_TOKENS) {
-			break;
-		}
-		hasContextMessage = true;
-		accumulatedTokens += tokens;
-		suffixStartIndex = i;
-	}
-
-	return suffixStartIndex;
 }
 
 function findNearestCutPointAtOrAfter(cutPoints: number[], index: number): number {
@@ -361,11 +343,10 @@ function findProtectedSuffixCutIndex(
 	startIndex: number,
 	endIndex: number,
 	cutPoints: number[],
+	keepRecentTokens: number,
 ): number {
 	const protectedStartIndex = findProtectedSuffixStartIndex(entries, startIndex, endIndex);
-	const messageCountCutIndex = findContextMessageCountCutIndex(entries, protectedStartIndex, endIndex);
-	const tokenBoundedCutIndex = findTokenBoundedCutIndex(entries, protectedStartIndex, endIndex);
-	let shorterSuffixCutIndex = Math.max(messageCountCutIndex, tokenBoundedCutIndex);
+	let suffixCutIndex = findTokenBudgetCutIndex(entries, protectedStartIndex, endIndex, keepRecentTokens);
 	const activeTurnFloorIndex = findActiveTurnFloorIndex(entries, protectedStartIndex, endIndex);
 	const firstCutPointIndex = cutPoints[0];
 	const hasEarlierCompactableContext =
@@ -373,9 +354,9 @@ function findProtectedSuffixCutIndex(
 		firstCutPointIndex !== undefined &&
 		firstCutPointIndex < activeTurnFloorIndex;
 	if (hasEarlierCompactableContext) {
-		shorterSuffixCutIndex = Math.min(shorterSuffixCutIndex, activeTurnFloorIndex);
+		suffixCutIndex = Math.min(suffixCutIndex, activeTurnFloorIndex);
 	}
-	return findNearestCutPointAtOrAfter(cutPoints, shorterSuffixCutIndex);
+	return findNearestCutPointAtOrAfter(cutPoints, suffixCutIndex);
 }
 
 function findValidCutPoints(entries: SessionTreeEntry[], startIndex: number, endIndex: number): number[] {
@@ -444,14 +425,14 @@ export function findCutPoint(
 	entries: SessionTreeEntry[],
 	startIndex: number,
 	endIndex: number,
-	_keepRecentTokens: number,
+	keepRecentTokens: number,
 ): CutPointResult {
 	const cutPoints = findValidCutPoints(entries, startIndex, endIndex);
 
 	if (cutPoints.length === 0) {
 		return { firstKeptEntryIndex: startIndex, turnStartIndex: -1, isSplitTurn: false };
 	}
-	let cutIndex = findProtectedSuffixCutIndex(entries, startIndex, endIndex, cutPoints);
+	let cutIndex = findProtectedSuffixCutIndex(entries, startIndex, endIndex, cutPoints, keepRecentTokens);
 	while (cutIndex > startIndex) {
 		const prevEntry = entries[cutIndex - 1];
 		if (prevEntry.type === "compaction") {
