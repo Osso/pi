@@ -672,6 +672,11 @@ function registerSessionGoalHandlers(
 	pi.on("tool_result", async (event, ctx: ExtensionContext) => {
 		evidence.appendToolResult(event, ctx);
 	});
+	// Observes only; delivery continues.
+	pi.on("runtime_mailbox", async (event, ctx: ExtensionContext) => {
+		evidence.appendMailboxMessage(event, ctx);
+		return { handled: false };
+	});
 }
 
 function registerAgentGoalHandlers(

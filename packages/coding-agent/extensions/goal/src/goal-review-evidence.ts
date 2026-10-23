@@ -4,6 +4,8 @@ import type {
 	InputEvent,
 	ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
+import type { RuntimeMailboxEvent } from "../../../src/core/extensions/types.ts";
+import { readQueuedQuestionAnswers } from "../../../src/core/tools/ask-questions.ts";
 import type {
 	Goal,
 	GoalEvidenceReview,
@@ -20,6 +22,7 @@ interface GoalReviewEvidenceStore {
 export interface GoalReviewEvidenceController {
 	appendInput(event: InputEvent, ctx: ExtensionContext): void;
 	appendToolResult(event: ToolResultEvent, ctx: ExtensionContext): void;
+	appendMailboxMessage(event: RuntimeMailboxEvent, ctx: ExtensionContext): void;
 	consume(ctx: ExtensionContext, reviewedGoal: Goal, evidenceCount: number): void;
 	review: GoalEvidenceReview;
 }
@@ -86,43 +89,45 @@ function createEvidenceReview(store: GoalReviewEvidenceStore, reviewGoal: GoalSu
 	};
 }
 
+/** Enough to cover a request and its follow-ups; older messages are dropped first. */
+const MAX_USER_MESSAGES = 20;
+
 export function createGoalReviewEvidenceController(
 	store: GoalReviewEvidenceStore,
 	reviewGoal: GoalSupervisorReview,
 ): GoalReviewEvidenceController {
-	const userRequests = new Map<string, string>();
-	const userAnswers = new Map<string, string[]>();
+	// Every genuine user message per session, oldest first: follow-ups such as "also add X" extend
+	// earlier requests instead of replacing them.
+	const userMessages = new Map<string, string[]>();
+	const recordUserMessage = (ctx: ExtensionContext, text: string) => {
+		const sessionId = ctx.sessionManager.getSessionId();
+		const messages = [...(userMessages.get(sessionId) ?? []), text];
+		userMessages.set(sessionId, messages.slice(-MAX_USER_MESSAGES));
+	};
 	const review = createEvidenceReview(store, reviewGoal);
 	return {
 		appendInput(event, ctx) {
-			if (event.source !== "extension" && event.text.length > 0) {
-				const sessionId = ctx.sessionManager.getSessionId();
-				userRequests.set(sessionId, event.text);
-				userAnswers.delete(sessionId);
-			}
+			if (event.source !== "extension" && event.text.length > 0) recordUserMessage(ctx, event.text);
 			appendInputEvidence(store, event, ctx);
 		},
 		appendToolResult(event, ctx) {
 			appendEndTurnEvidence(store, event, ctx);
 			const answers = answeredQuestionsText(event);
 			if (!answers) return;
-			const sessionId = ctx.sessionManager.getSessionId();
-			userAnswers.set(sessionId, [...(userAnswers.get(sessionId) ?? []), answers]);
+			recordUserMessage(ctx, answers);
+			appendEvidence(store, ctx, { kind: "user", text: answers });
+		},
+		// Nonblocking ask_questions answers arrive through the session inbox, not as a tool result.
+		appendMailboxMessage(event, ctx) {
+			const answers = readQueuedQuestionAnswers(event.message, ctx.sessionManager.getSessionId());
+			if (!answers) return;
+			recordUserMessage(ctx, answers);
 			appendEvidence(store, ctx, { kind: "user", text: answers });
 		},
 		consume: consumeEvidence.bind(undefined, store),
 		review(input) {
-			const sessionId = input.ctx.sessionManager.getSessionId();
-			const userRequest = userRequests.get(sessionId);
-			const answers = userAnswers.get(sessionId);
-			return review({
-				...input,
-				payload: {
-					...input.payload,
-					...(userRequest ? { userRequest } : {}),
-					...(answers ? { userAnswers: answers } : {}),
-				},
-			});
+			const messages = userMessages.get(input.ctx.sessionManager.getSessionId());
+			return review({ ...input, payload: { ...input.payload, ...(messages ? { userMessages: messages } : {}) } });
 		},
 	};
 }

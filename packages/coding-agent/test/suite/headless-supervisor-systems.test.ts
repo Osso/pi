@@ -125,7 +125,7 @@ describe("headless Supervisor goal system", () => {
 				);
 				const review = await agent.waitForSupervisorRequest("goal_set_review");
 				expect(review.payload).toMatchObject({
-					userRequest,
+					userMessages: [userRequest],
 					proposedObjective: "Repair PILOT-17, then prove the workflow",
 				});
 				const groundedObjective = "Retire disposable pilot tasks and prove one clean three-host workflow";

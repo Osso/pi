@@ -7,13 +7,19 @@ import {
 	sendDesktopNotification,
 } from "../desktop-notification.ts";
 import type { ExtensionContext, ExtensionUIContext, ToolDefinition } from "../extensions/types.ts";
-import { enqueueStoredRuntimeMailboxMessage, type RuntimeMailboxAddress } from "../session-control-db.ts";
+import {
+	enqueueStoredRuntimeMailboxMessage,
+	type RuntimeMailboxAddress,
+	type RuntimeMailboxMessage,
+} from "../session-control-db.ts";
 import { type AskQuestionsPanelResult, createAskQuestionsPanel } from "./ask-questions-panel.ts";
 
 const MIN_OPTIONS = 2;
 const MAX_OPTIONS = 4;
 const MAX_QUESTIONS = 4;
 const ASK_QUESTIONS_NOTIFICATION_TITLE = "Pi question needs input";
+const QUEUED_ANSWER_MESSAGE_ID_PREFIX = "ask_questions:";
+const QUEUED_ANSWER_TITLE_PREFIX = "User answered questions (request ";
 
 const questionOptionSchema = Type.Object({
 	label: Type.String({
@@ -165,7 +171,7 @@ function captureQuestionInboxTarget(ctx: ExtensionContext): QuestionInboxTarget 
 }
 
 function enqueueQuestionAnswer(target: QuestionInboxTarget, requestId: string, body: string): void {
-	const messageId = `ask_questions:${requestId}`;
+	const messageId = `${QUEUED_ANSWER_MESSAGE_ID_PREFIX}${requestId}`;
 	const sender = { sessionId: target.recipient.sessionId, agentId: null };
 	enqueueStoredRuntimeMailboxMessage(target.controlDbPath, {
 		kind: "reply",
@@ -194,7 +200,7 @@ async function deliverQueuedAnswers(
 		const { answers, cancelled } = await pending;
 		const title = cancelled
 			? `Questions cancelled (request ${requestId})`
-			: `User answered questions (request ${requestId}):`;
+			: `${QUEUED_ANSWER_TITLE_PREFIX}${requestId}):`;
 		body = `${title}\n${formatAnswers(answers)}`;
 	} catch (error) {
 		body = `Questions failed (request ${requestId}): ${error instanceof Error ? error.message : String(error)}`;
@@ -207,6 +213,20 @@ async function deliverQueuedAnswers(
 		console.error(message);
 		ui.notify(message, "error");
 	}
+}
+
+/**
+ * The user's answers when `message` is this session's own reply to a nonblocking ask_questions call;
+ * undefined for cancelled or failed questions and for every other mailbox message.
+ */
+export function readQueuedQuestionAnswers(message: RuntimeMailboxMessage, sessionId: string): string | undefined {
+	const isOwnReply =
+		message.kind === "reply" &&
+		message.senderHost === undefined &&
+		message.sender.sessionId === sessionId &&
+		message.recipient.sessionId === sessionId;
+	if (!isOwnReply || !message.storeRef.messageId.startsWith(QUEUED_ANSWER_MESSAGE_ID_PREFIX)) return undefined;
+	return message.body.startsWith(QUEUED_ANSWER_TITLE_PREFIX) ? message.body : undefined;
 }
 
 function formatAnswers(answers: Record<string, string>): string {
