@@ -798,11 +798,11 @@ function createInteractiveOrchestrationControls(
 	getSessionId: () => string,
 ): Pick<
 	InteractiveModeOptions,
-	"wakeWaitAgentsAfterSteering" | "steerMultiAgent" | "cancelMultiAgent" | "subscribeAgentSessionEvents"
+	"wakeWaitAgentsAfterSteering" | "steerMultiAgent" | "cancelMultiAgent" | "getLiveAgentSession"
 > {
 	if (!orchestration) {
 		return {
-			subscribeAgentSessionEvents: undefined,
+			getLiveAgentSession: undefined,
 			wakeWaitAgentsAfterSteering: undefined,
 			steerMultiAgent: async () => ({ error: "Agent steering is unavailable", ok: false }),
 			cancelMultiAgent: undefined,
@@ -820,7 +820,7 @@ function createInteractiveOrchestrationControls(
 			});
 		},
 		cancelMultiAgent: (agentId) => cancelOwnedAgentRuntime(store, runtimeHandles, agentId, "cancelled interactively"),
-		subscribeAgentSessionEvents: (agentId, listener) => runtimeHandles.sessions.get(agentId)?.subscribe?.(listener),
+		getLiveAgentSession: (agentId) => runtimeHandles.sessions.get(agentId),
 	};
 }
 

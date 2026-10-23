@@ -1,5 +1,5 @@
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { type AssistantMessage, fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
@@ -9,7 +9,8 @@ import { createHeadlessPaths, createProviderServer, runWithCleanup } from "../he
 const TIMEOUT_MS = 30_000;
 const SLOW_SECONDS = 8;
 // Built from split quotes so the rendered command text never contains the result marker.
-const FAST_COMMAND = "printf 'FAST''RESULT'";
+// The fast call touches a marker file so the test can open the view only after it ended.
+const FAST_COMMAND = "touch fast-done; printf 'FAST''RESULT'";
 const SLOW_COMMAND = `sleep ${SLOW_SECONDS}; printf 'SLOW''RESULT'`;
 
 type WireRequest = { id: string; sessionId?: string };
@@ -134,7 +135,10 @@ it.skipIf(process.platform === "win32")(
 				});
 
 				await waitUntil(() => batchSentAt !== undefined, "child batch request", log);
-				// Open the child agent view (active agent slot 1).
+				// Production ordering: the user selects the child after the fast call already ended.
+				await waitUntil(() => existsSync(join(paths.workspaceDir, "fast-done")), "fast command", log);
+				await new Promise((resolve) => setTimeout(resolve, 1_000));
+				// Open the child agent view (active agent slot 2).
 				bridge.stdin.write("\x1b2");
 				await waitUntil(() => output.includes("FASTRESULT"), "fast result in the child view", log);
 

@@ -1,4 +1,4 @@
-import type { AgentSession } from "../../../src/core/agent-session.ts";
+import type { AgentSession, AgentSessionEvent } from "../../../src/core/agent-session.ts";
 import type { SessionShutdownEvent } from "../../../src/core/extensions/types.ts";
 import type { SessionManager } from "../../../src/core/session-manager.ts";
 import type { ChildAgentSession } from "./runtime.ts";
@@ -23,8 +23,21 @@ async function shutdownChildSession(session: UnboundChildAgentSession): Promise<
 	}
 }
 
+/** Tool calls that ended but are not in the transcript yet; a parallel batch records its results only after its slowest call. */
+function trackFinishedToolCalls(
+	session: UnboundChildAgentSession,
+): ReadonlyMap<string, Extract<AgentSessionEvent, { type: "tool_execution_end" }>> {
+	const finished = new Map<string, Extract<AgentSessionEvent, { type: "tool_execution_end" }>>();
+	session.subscribe?.((event) => {
+		if (event.type === "tool_execution_end") finished.set(event.toolCallId, event);
+		if (event.type === "message_end" && event.message.role === "toolResult") finished.delete(event.message.toolCallId);
+	});
+	return finished;
+}
+
 export function bindProductionChildSession(session: UnboundChildAgentSession): LiveChildAgentSession {
 	return {
+		finishedToolCalls: trackFinishedToolCalls(session),
 		abort: () => session.abort?.(),
 		dispose: () => shutdownChildSession(session),
 		drainRuntimeCoordination: session.drainRuntimeCoordination?.bind(session),

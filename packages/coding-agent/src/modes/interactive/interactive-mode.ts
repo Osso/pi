@@ -469,11 +469,14 @@ export interface InteractiveModeOptions {
 	multiAgentStore?: MultiAgentStore;
 	/** Submit selected-agent cancellation through the lifecycle coordinator boundary. */
 	cancelMultiAgent?: (agentId: string) => Promise<{ ok: boolean; agent?: AgentSnapshot; error?: string }>;
-	/** Subscribe to a live in-process child agent session; undefined when the agent has no live session. */
-	subscribeAgentSessionEvents?: (
-		agentId: string,
-		listener: (event: AgentSessionEvent) => void,
-	) => (() => void) | undefined;
+	/** Live in-process child agent session; undefined when the agent has none. */
+	getLiveAgentSession?: (agentId: string) =>
+		| {
+				/** Ended tool calls whose results the child transcript has not received yet. */
+				finishedToolCalls?: ReadonlyMap<string, Extract<AgentSessionEvent, { type: "tool_execution_end" }>>;
+				subscribe?(listener: (event: AgentSessionEvent) => void): () => void;
+		  }
+		| undefined;
 	/** Submit editor text to the selected agent through the lifecycle coordinator and runtime mailbox. */
 	steerMultiAgent?: (agentId: string, message: string) => Promise<{ ok: boolean; error?: string }>;
 	/** Wake an active multi-agent wait after ordinary main-session steering is queued. */
@@ -629,8 +632,10 @@ export class InteractiveMode {
 	private multiAgentStore: MultiAgentStore | undefined;
 	private childViewSessionManager: SessionManager | undefined;
 	private childViewAgentId: string | undefined;
-	/** Live child tool completions not yet in the child transcript, which records a parallel batch's results together. */
-	private childViewCompletedTools = new Map<string, Extract<AgentSessionEvent, { type: "tool_execution_end" }>>();
+	/** Ended child tool calls not yet in the child transcript, which records a parallel batch's results together. */
+	private childViewFinishedToolCalls:
+		| ReadonlyMap<string, Extract<AgentSessionEvent, { type: "tool_execution_end" }>>
+		| undefined;
 	private unsubscribeChildViewEvents: (() => void) | undefined;
 	private childViewTranscriptPath: string | undefined;
 	private childViewTranscriptWatcher: FSWatcher | null = null;
@@ -3337,7 +3342,9 @@ export class InteractiveMode {
 		this.clearChildAgentView();
 		this.childViewAgentId = agent.id;
 		this.childViewTranscriptPath = transcriptPath;
-		this.unsubscribeChildViewEvents = this.options?.subscribeAgentSessionEvents?.(agent.id, (event) => {
+		const liveSession = this.options?.getLiveAgentSession?.(agent.id);
+		this.childViewFinishedToolCalls = liveSession?.finishedToolCalls;
+		this.unsubscribeChildViewEvents = liveSession?.subscribe?.((event) => {
 			if (event.type === "tool_execution_end" && this.childViewAgentId === agent.id) {
 				InteractiveMode.prototype.showChildToolCompletion.call(this, event);
 			}
@@ -3363,7 +3370,6 @@ export class InteractiveMode {
 
 	/** Shows a child tool result as soon as the call ends; the transcript only receives it once its whole batch ends. */
 	private showChildToolCompletion(event: Extract<AgentSessionEvent, { type: "tool_execution_end" }>): void {
-		this.childViewCompletedTools.set(event.toolCallId, event);
 		const component = this.pendingTools.get(event.toolCallId);
 		if (!component) return;
 		component.markExecutionStarted(event.startedAt);
@@ -3375,7 +3381,7 @@ export class InteractiveMode {
 	private clearChildAgentView(): void {
 		this.unsubscribeChildViewEvents?.();
 		this.unsubscribeChildViewEvents = undefined;
-		this.childViewCompletedTools?.clear();
+		this.childViewFinishedToolCalls = undefined;
 		this.footer.clearSessionOverride();
 		this.footerDataProvider.clearSessionOverride();
 		this.childViewSessionManager = undefined;
@@ -5044,7 +5050,7 @@ export class InteractiveMode {
 		}
 
 		for (const [toolCallId, component] of renderedPendingTools) {
-			const completed = this.childViewAgentId ? this.childViewCompletedTools?.get(toolCallId) : undefined;
+			const completed = this.childViewAgentId ? this.childViewFinishedToolCalls?.get(toolCallId) : undefined;
 			if (completed) {
 				component.markExecutionStarted(completed.startedAt);
 				component.updateResult({ ...completed.result, isError: completed.isError }, false, completed.finishedAt);

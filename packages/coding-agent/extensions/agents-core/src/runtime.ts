@@ -225,6 +225,8 @@ export interface ChildAgentSession {
 	abort?(): void;
 	dispose?(): void | Promise<void>;
 	drainRuntimeCoordination?(): Promise<void>;
+	/** Ended tool calls whose results the transcript has not received yet. */
+	finishedToolCalls?: ReadonlyMap<string, Extract<AgentSessionEvent, { type: "tool_execution_end" }>>;
 	messages: AgentMessage[];
 	prompt(text: string): Promise<void>;
 	subscribe?(listener: (event: AgentSessionEvent) => void): () => void;

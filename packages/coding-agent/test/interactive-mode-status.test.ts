@@ -1263,15 +1263,29 @@ describe("InteractiveMode key handlers", () => {
 		const slow = fauxToolCall("bash", { command: "td check slow-unit.cpp" });
 		const fast = fauxToolCall("bash", { command: "sed -n 180,280p fast.cpp" });
 		SessionManager.open(transcriptPath).appendMessage(fauxAssistantMessage([slow, fast], { stopReason: "toolUse" }));
+		const fastEnd = (text: string): Extract<AgentSessionEvent, { type: "tool_execution_end" }> => ({
+			type: "tool_execution_end",
+			toolCallId: fast.id,
+			toolName: "bash",
+			result: { content: [{ type: "text", text }], details: undefined },
+			isError: false,
+			startedAt: 1_000,
+			finishedAt: 1_700,
+		});
+		const finishedToolCalls = new Map<string, Extract<AgentSessionEvent, { type: "tool_execution_end" }>>();
 		let emit: ((event: AgentSessionEvent) => void) | undefined;
 		const unsubscribe = vi.fn();
 		const fakeThis = Object.assign(fixture.fakeThis, {
-			childViewCompletedTools: new Map(),
 			options: {
-				subscribeAgentSessionEvents: (agentId: string, listener: (event: AgentSessionEvent) => void) => {
+				getLiveAgentSession: (agentId: string) => {
 					expect(agentId).toBe(fixture.childAgentId);
-					emit = listener;
-					return unsubscribe;
+					return {
+						finishedToolCalls,
+						subscribe: (listener: (event: AgentSessionEvent) => void) => {
+							emit = listener;
+							return unsubscribe;
+						},
+					};
 				},
 			},
 		});
@@ -1279,15 +1293,8 @@ describe("InteractiveMode key handlers", () => {
 			expect(interactiveModeKeyHandlers.selectAgentView.call(fakeThis, fixture.childAgentId)).toBe(true);
 			expect(normalizeRenderedOutput(fakeThis.chatContainer)).not.toContain("fast-unit-output");
 
-			emit?.({
-				type: "tool_execution_end",
-				toolCallId: fast.id,
-				toolName: "bash",
-				result: { content: [{ type: "text", text: "fast-unit-output" }], details: undefined },
-				isError: false,
-				startedAt: 1_000,
-				finishedAt: 1_700,
-			});
+			finishedToolCalls.set(fast.id, fastEnd("fast-unit-output"));
+			emit?.(fastEnd("fast-unit-output"));
 
 			expect(normalizeRenderedOutput(fakeThis.chatContainer)).toContain("fast-unit-output");
 			expect(fakeThis.pendingTools.has(fast.id)).toBe(false);
@@ -1300,6 +1307,11 @@ describe("InteractiveMode key handlers", () => {
 
 			expect(interactiveModeKeyHandlers.selectAgentView.call(fakeThis, "main")).toBe(true);
 			expect(unsubscribe).toHaveBeenCalledTimes(1);
+
+			// Selecting the child after the fast call already ended shows its result immediately.
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fakeThis, fixture.childAgentId)).toBe(true);
+			expect(normalizeRenderedOutput(fakeThis.chatContainer)).toContain("fast-unit-output");
+			expect(fakeThis.pendingTools.has(slow.id)).toBe(true);
 		} finally {
 			fixture.cleanup();
 		}
