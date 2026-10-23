@@ -94,16 +94,65 @@ test("status rejects controls and extra arguments without resetting deadline", a
 	assert.equal(f.calls.length, 1);
 });
 
-test("status records missing checklist without rearming on restoration", async (t) => {
-	const f = await fixture(t);
-	f.removeChecklist();
-	f.emit("session_start");
-	assert.equal(await f.status(), `Periodic checks: disabled\nChecklist: ${f.checklist}\nReason: No checklist`);
-	f.restoreChecklist();
-	await f.status();
-	await f.tick(interval * 2);
-	assert.equal(f.calls.length, 0);
-});
+for (const action of ["", "status"]) {
+	test(`${action || "bare command"} arms a late-created checklist without resetting its full interval`, async (t) => {
+		const f = await fixture(t);
+		f.removeChecklist();
+		f.emit("session_start");
+		assert.equal(
+			await f.status(action),
+			`Periodic checks: disabled\nChecklist: ${f.checklist}\nReason: No checklist`,
+		);
+		await f.tick(interval * 2);
+		f.restoreChecklist("---\ntype: clank-together-periodic-audit\ninterval_seconds: 600\n---\n" + checklistBody);
+		await f.tick(123000);
+		assert.equal(
+			await f.status(action),
+			`Periodic checks: armed\nChecklist: ${f.checklist}\ninterval_seconds: 600\nNext run: in 10 minutes`,
+		);
+		assert.equal(f.calls.length, 0, "discovery must not audit immediately");
+		await f.tick(300000);
+		f.restoreChecklist(checklistBody);
+		for (const args of ["status", "", "status"]) {
+			assert.equal(
+				await f.status(args),
+				`Periodic checks: armed\nChecklist: ${f.checklist}\ninterval_seconds: 600\nNext run: in 5 minutes`,
+			);
+		}
+		await f.tick(299999);
+		assert.equal(f.calls.length, 0);
+		await f.tick(1);
+		assert.equal(f.calls.length, 1, "repeated status preserves the first full interval from discovery");
+	});
+}
+
+for (const [label, content] of [
+	["missing frontmatter", checklistBody],
+	["missing interval", "---\ntype: clank-together-periodic-audit\n---\n"],
+	["invalid interval", configuredChecklist(0)],
+]) {
+	test(`status rejects late-created ${label} without fallback or retry after repair`, async (t) => {
+		const f = await fixture(t);
+		f.removeChecklist();
+		f.emit("session_start");
+		f.restoreChecklist(content);
+		let metadataError;
+		await assert.rejects(f.status(), (error) => {
+			metadataError = error.message;
+			assert.ok(error.message.includes(f.checklist));
+			assert.match(error.message, /Invalid periodic checks metadata/);
+			return true;
+		});
+		assert.equal(await f.status(), `Periodic checks: disabled\nChecklist: ${f.checklist}\nReason: ${metadataError}`);
+		f.restoreChecklist(configuredChecklist(600));
+		assert.equal(
+			await f.status(""),
+			`Periodic checks: disabled\nChecklist: ${f.checklist}\nReason: ${metadataError}`,
+		);
+		await f.tick(interval * 3);
+		assert.equal(f.calls.length, 0);
+	});
+}
 
 test("status preserves explicit invalid metadata startup error and disabled state", async (t) => {
 	const f = await fixture(t);
@@ -170,8 +219,12 @@ test("status explains unsupported runtimes and missing tools", async (t) => {
 	]) {
 		await t.test(reason, async (t) => {
 			const f = await fixture(t, overrides, tools);
+			f.removeChecklist();
 			f.emit("session_start");
-			assert.equal(await f.status(), `Periodic checks: disabled\nReason: ${reason}`);
+			f.restoreChecklist(configuredChecklist(600));
+			for (const args of ["", "status"]) {
+				assert.equal(await f.status(args), `Periodic checks: disabled\nReason: ${reason}`);
+			}
 			await f.tick(interval);
 			assert.equal(f.calls.length, 0);
 		});

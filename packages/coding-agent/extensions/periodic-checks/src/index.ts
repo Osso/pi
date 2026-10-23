@@ -244,6 +244,7 @@ export default function periodicExtension(pi: ExtensionAPI) {
 				ctx.ui.notify("Usage: /periodic-checks status|run", "warning");
 				return;
 			}
+			if (timer === undefined && disabledReason === "No checklist") startTimer(ctx);
 			const lines = [`Periodic checks: ${timer === undefined ? "disabled" : "armed"}`];
 			if (checklist) lines.push(`Checklist: ${checklist}`);
 			if (timer !== undefined && intervalMs !== undefined && nextTick !== undefined) {
