@@ -1137,7 +1137,7 @@ export class InteractiveMode {
 	 */
 	async run(): Promise<void> {
 		await this.init();
-		await this.continueResumedSessionAtStartup();
+		await this.startResumedRunAtStartup();
 
 		// Check tmux keyboard setup asynchronously
 		this.checkTmuxKeyboardSetup().then((warning) => {
@@ -1175,9 +1175,10 @@ export class InteractiveMode {
 		// Process initial messages
 		await this.processControlMessage(controlMessage, controlDbPath);
 
+		// A resumed run may still be working; steer startup prompts into it instead of waiting for idle.
 		if (initialMessage) {
 			try {
-				await this.session.prompt(initialMessage, { images: initialImages });
+				await this.session.prompt(initialMessage, { images: initialImages, streamingBehavior: "steer" });
 			} catch (error: unknown) {
 				const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 				this.showError(errorMessage);
@@ -1187,7 +1188,7 @@ export class InteractiveMode {
 		if (initialMessages) {
 			for (const message of initialMessages) {
 				try {
-					await this.session.prompt(message);
+					await this.session.prompt(message, { streamingBehavior: "steer" });
 				} catch (error: unknown) {
 					const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
 					this.showError(errorMessage);
@@ -6643,6 +6644,21 @@ export class InteractiveMode {
 			if (aNamed !== bNamed) return aNamed ? -1 : 1;
 			return b.modified.getTime() - a.modified.getTime();
 		});
+	}
+
+	/** Starts any interrupted-run continuation and resolves once it is streaming or has nothing to run. */
+	private async startResumedRunAtStartup(): Promise<void> {
+		let unsubscribe = (): void => {};
+		try {
+			await new Promise<void>((resolve) => {
+				unsubscribe = this.session.subscribe((event) => {
+					if (event.type === "agent_start") resolve();
+				});
+				void this.continueResumedSessionAtStartup().finally(resolve);
+			});
+		} finally {
+			unsubscribe();
+		}
 	}
 
 	private async continueResumedSessionAtStartup(): Promise<void> {

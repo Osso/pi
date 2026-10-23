@@ -20,6 +20,8 @@ Session lifecycle hooks let an extension observe and, at key points, cancel or r
 
 - [x] A failed interactive startup model continuation visibly reports the error and enters the normal input loop with the same session identity; built-in local commands, extension commands, and plain prompts remain usable. This does not add automatic goal retries or change timeouts or transport.
 
+- [x] Interactive startup prompts (CLI messages, including `@file` prompts) are steered into a resumed interrupted run once it starts instead of waiting for that run to go idle; with no continuation they start a normal turn.
+
 ### Switch / fork (cancellable)
 
 - [x] `session_before_switch` fires with `reason` ∈ {new, resume} and `targetSessionFile`; a handler may return `{ cancel: true }` (`agent-session-runtime-events.test.ts:118,130` assert the event; cancel result type at types.ts).
@@ -69,6 +71,7 @@ Session lifecycle hooks let an extension observe and, at key points, cancel or r
 - `packages/coding-agent/test/suite/regressions/3688-tree-cancel-compacting.test.ts:18` — `session_before_tree` `{ cancel: true }` clears branch-summary state.
 - `packages/coding-agent/test/extensions-runner.test.ts:89` — `project_trust` event.
 - `packages/coding-agent/test/suite/resume-continuation-request.test.ts` — one-shot extension-requested continuation in a real session runtime.
+- `packages/coding-agent/test/suite/regressions/interactive-startup-prompt-resumed-run.test.ts` — real-process PTY restart: a startup prompt reaches the resumed interrupted run before it goes idle.
 - `packages/coding-agent/test/suite/regressions/startup-resume-failure-input.test.ts` — interactive startup continuation failure, visible error, extension-command and plain-prompt recovery, and preserved session identity/transcript.
 
 ## Known gaps (current cycle)

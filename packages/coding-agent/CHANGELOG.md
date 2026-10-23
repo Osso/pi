@@ -207,6 +207,7 @@
 
 ### Fixed
 
+- Interactive startup prompts (e.g. `pi --session <id> @prompt.txt`) are steered into a resumed interrupted run instead of waiting until it goes idle, which an autonomous run with an active goal or live sub-agents might never do.
 - Compaction keeps the 20 most recent context messages verbatim for every reason, including idle compaction. A hardcoded cap of the last 3 messages or 10,000 tokens, plus a separate 20,000-byte truncation of kept messages, meant an idle compaction after a short nudge turn kept only that nudge.
 
 - Truncated zstd transcript streams now reject consumers with the decompression error instead of terminating the process with an unhandled error.

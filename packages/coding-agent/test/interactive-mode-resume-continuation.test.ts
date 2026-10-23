@@ -58,6 +58,7 @@ function createResumeContext(lastRole: string): ResumeContext {
 				consumeResumeContinuationRequest: vi.fn(() => false),
 				modelRegistry: { getError: () => undefined },
 				prompt: vi.fn(async () => {}),
+				subscribe: vi.fn(() => () => {}),
 			},
 			switchSession: vi.fn(async () => ({ cancelled: false })),
 		},
