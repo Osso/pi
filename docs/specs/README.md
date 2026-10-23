@@ -34,6 +34,8 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | MCP-delegated permission prompt | [`permission-prompt-tool.md`](permission-prompt-tool.md) | **BUILD** | Claude-Code `--permission-prompt-tool` wire compat; falls back to native interactive gate. |
 | Approval policy presets | [`approval-system.md`](approval-system.md) | **BUILD** | Core `on-request`/`never`/`auto-approve` enforcement plus first-party `approval-controls` extension for `/approvals` `/sandbox`, layered on the native `tool_call` reviewer. |
 | Loop tool (`loop`, `/loop`) | [`loop-tool.md`](loop-tool.md) | **NATIVE** | First-party extension for recurring follow-up prompts in the current session. |
+| Periodic checks (`/periodic-checks`) | [`periodic-checks.md`](periodic-checks.md) | **BUILD** | Bundled host-private checklist scheduler and read-only audit children; no checklist means no audits. |
+| Clean exit (`/exit`) | [`slash-commands.md#bundled-exit`](slash-commands.md#bundled-exit) | **BUILD** | Bundled `exit-command` requests clean session shutdown. |
 | Slash-command dispatch | [`slash-commands.md`](slash-commands.md) | **NATIVE** | Built-in, extension, skill, and prompt-template command resolution, including unknown-command rejection. |
 | Safe mode (`/safe`) | [`safe-mode.md`](safe-mode.md) | **BUILD** (done) | First-party session-local tool-call allowlist allowing only `web_search` and `ask_questions` while enabled. |
 | Native subagent / multi-agent + inter-agent messaging | [`multi-agent.md`](multi-agent.md) | **BUILD** (planned) | Authoritative core state, read-only TUI projections, mailbox steering, agent viewer/mailbox extensions, account-governed budgets/permissions. |

@@ -87,6 +87,8 @@
 
 ### Added
 
+- Added bundled first-party `periodic-checks` with `/periodic-checks status|run`, preserving host-private Git-root checklist opt-in, configured intervals, non-overlapping read-only audit children, and findings delivery; no checklist means no timer or audit. See the [scheduler contract](../../docs/specs/periodic-checks.md).
+- Added bundled first-party `exit-command` with `/exit` for clean shutdown. Both extensions support `disabledExtensions` by inventory name; remove superseded user-level copies after installing the bundled build to avoid duplicate registrations.
 - Added global setting `supervisorModel` (`provider/modelId`) selecting the resident Supervisor model; unset keeps `gpt-6.1-sol` on the Codex provider chain.
 - Added a `/usage all` `Resets` column for Codex available reset-credit counts: reported zero stays `0`; absent/unreported counts and Claude rows show `-`. The `Central` reset timestamp column is unchanged.
 - Added pure displayed-session callbacks to `ctx.ui.setStatus`: `FooterDataProvider.getExtensionStatuses()` resolves them on read with the current `FooterSessionOverride` (or `undefined` for main); returning `undefined` hides the status while static strings and explicit clearing remain supported.

@@ -26,6 +26,11 @@ Slash commands provide the user-facing dispatch layer for built-in commands, ext
 - [x] Preserve the busy-session custom report for the next turn without steering or interrupting active work; retain the existing idle custom-report display.
 - [x] Keep Claude bridge `/usage` routing and reporting unchanged.
 
+### Bundled `/exit`
+
+- [ ] Register `/exit` through the bundled first-party `exit-command` extension and call `ctx.shutdown()` directly, without a model prompt. Arguments are ignored, preserving the host command's behavior.
+- [ ] Discover `/exit` after starting a new session or `/reload` following a Pi update; no host-user extension installation is required. Allow disabling by inventory name `exit-command` through `disabledExtensions` in settings, then reload. See [extension settings](../../packages/coding-agent/docs/settings.md).
+
 ### Discovery and presentation
 
 - [ ] Expose the currently available built-in, extension, skill, and prompt-template commands to completion UIs and RPC `get_commands` consumers.
@@ -44,9 +49,12 @@ Slash commands provide the user-facing dispatch layer for built-in commands, ext
 - `packages/coding-agent/src/core/slash-commands.ts` — defines built-in slash-command metadata.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts` — handles interactive built-ins, submission routing, and command completion.
 - `packages/coding-agent/src/modes/rpc/rpc-mode.ts` — exposes prompt, queueing, and command-discovery RPC entry points.
+- `packages/coding-agent/extensions/exit-command/src/index.ts` — registers `/exit` as a direct clean-shutdown command.
 - `packages/coding-agent/extensions/codex-usage/src/index.ts` — reports Codex usage immediately while busy and retains the custom report for the next turn.
 
 ## Tests asserting this spec
+
+- `packages/coding-agent/test/exit-command-extension.test.ts` — bundled `/exit` registration and clean-shutdown request; source inspected, execution belongs to the implementation gate.
 
 - `packages/coding-agent/test/suite/agent-session-prompt.test.ts:223-261` — skill and prompt-template expansion.
 - `packages/coding-agent/test/suite/agent-session-prompt.test.ts:280-296` — extension command handling and unknown-command rejection.
@@ -58,6 +66,7 @@ Slash commands provide the user-facing dispatch layer for built-in commands, ext
 - `packages/coding-agent/test/suite/regressions/interactive-usage-busy.test.ts` — real PTY Enter/Alt+Enter during held tools and provider requests, immediate full report, uninterrupted work, and next-turn persistence.
 
 ## Known gaps (current cycle)
+- [ ] Record bundled `/exit` passing proof from the implementation gate.
 - [ ] Add SDK/RPC coverage for unknown-command rejection.
 - [ ] Decide whether queued `steer()` and `followUp()` messages should reject unknown slash commands or intentionally treat them as ordinary prompt text.
 
