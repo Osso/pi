@@ -232,6 +232,18 @@ export default function periodicExtension(pi: ExtensionAPI) {
 		timer = setInterval(() => dispatchAuditTick(ctx, audit), intervalMs);
 	}
 
+	function notifyStatus(ctx: ExtensionContext): void {
+		const lines = [`Periodic checks: ${timer === undefined ? "disabled" : "armed"}`];
+		if (checklist) lines.push(`Checklist: ${checklist}`);
+		if (timer !== undefined && intervalMs !== undefined && nextTick !== undefined) {
+			lines.push(`interval_seconds: ${intervalMs / millisecondsPerSecond}`);
+			lines.push(`Next run: ${formatRemainingTime(nextTick - Date.now())}`);
+		} else {
+			lines.push(`Reason: ${disabledReason}`);
+		}
+		ctx.ui.notify(lines.join("\n"), "info");
+	}
+
 	pi.registerCommand("periodic-checks", {
 		description: "Show periodic checklist scheduler status or run an audit",
 		handler: async (args, ctx) => {
@@ -245,15 +257,7 @@ export default function periodicExtension(pi: ExtensionAPI) {
 				return;
 			}
 			if (timer === undefined && disabledReason === "No checklist") startTimer(ctx);
-			const lines = [`Periodic checks: ${timer === undefined ? "disabled" : "armed"}`];
-			if (checklist) lines.push(`Checklist: ${checklist}`);
-			if (timer !== undefined && intervalMs !== undefined && nextTick !== undefined) {
-				lines.push(`interval_seconds: ${intervalMs / millisecondsPerSecond}`);
-				lines.push(`Next run: ${formatRemainingTime(nextTick - Date.now())}`);
-			} else {
-				lines.push(`Reason: ${disabledReason}`);
-			}
-			ctx.ui.notify(lines.join("\n"), "info");
+			notifyStatus(ctx);
 		},
 	});
 
