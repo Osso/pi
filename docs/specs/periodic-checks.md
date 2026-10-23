@@ -1,6 +1,6 @@
 # Periodic checks
 
-Bundled first-party `periodic-checks` schedules report-only project audits from a host-private checklist. Source: `packages/coding-agent/extensions/periodic-checks/src/index.ts`. This ports the host extension without changing scheduler behavior. See [operation and configuration](../wiki/systems/periodic-checks.md).
+Bundled first-party `periodic-checks` schedules report-only project audits from a host-private checklist. Source: `packages/coding-agent/extensions/periodic-checks/src/index.ts`. The scheduler remains opt-in; status can discover a checklist added after startup. See [operation and configuration](../wiki/systems/periodic-checks.md).
 
 ## What it must do
 
@@ -10,13 +10,13 @@ Bundled first-party `periodic-checks` schedules report-only project audits from 
 - [x] On `session_start`, including reload, discover the current directory's Git root and its ignored, host-private `periodic-checks.md`. No checklist means no timer and no audit. Deployment never copies checklists; each host configures its own file.
 - [x] Arm only main TUI or RPC sessions with a multi-agent store and active `spawn_agent` and `send_agent_message` tools. Exclude child sessions and unsupported runtimes.
 - [x] Require Google OKF YAML frontmatter with nonempty string `type` and positive safe-integer `interval_seconds` in 1–2147483 seconds. Allow unknown fields. Missing, malformed, or invalid metadata raises an explicit error and disables scheduling; no fixed-interval fallback.
-- [x] Read metadata only at start/reload. Wait the full configured interval before the first tick. Apply metadata edits or re-arm a restored checklist only after another start/reload. Stop the timer on shutdown or checklist removal detected at dispatch, including during a pending spawn.
+- [x] Read metadata at start/reload, or when status discovers a checklist previously missing at startup. Wait the full configured interval from discovery before the first tick. Apply metadata edits to an armed schedule or re-arm a checklist removed from an armed schedule only after another start/reload. Stop the timer on shutdown or checklist removal detected at dispatch, including during a pending spawn.
 
 ### Commands
 
 - [x] `/periodic-checks` and `/periodic-checks status` immediately notify `armed` or `disabled`, checklist path when known, active `interval_seconds` and relative next-run estimate when armed, or disabled reason otherwise. Other arguments show `Usage: /periodic-checks status|run`.
 - [x] Compute remaining time at status invocation from the stored scheduled tick: `Next run: in N minutes`, singular `Next run: in 1 minute`, or `Next run: in less than a minute`. Round minutes up at or above 60 seconds; 90 seconds shows 2 minutes; due/overdue ticks use the subminute phrase. Show no absolute date or timezone.
-- [x] Status remains immediate while main is busy or has pending messages, without an audit, abort, model turn, timer reset, re-arm, or metadata reread. Skipped ticks advance the scheduled boundary independently of child completion.
+- [x] Status remains available while main is busy or has pending messages, without an audit, abort, or model turn. Only when the timer is undefined and the cached disabled reason is `No checklist`, status retries startup discovery and arms a valid new checklist subject to the same runtime gates. An armed schedule retains its metadata and original countdown. Invalid-metadata startup, shutdown, and removed-previously-armed checklist states still require start/reload. Invalid newly discovered metadata raises an explicit error with no timer. Skipped ticks advance the scheduled boundary independently of child completion.
 - [x] `/periodic-checks run` requests the same read-only audit immediately, including while main is busy or has pending messages. Do not reset/advance the regular countdown, reread metadata, or re-arm a disabled schedule.
 - [x] Refuse manual duplicates during pending spawn or live audit. Warn with a reason for disabled schedules, missing/removed checklists, unavailable runtime/tools, or changed session/project identity.
 - [x] Manual requests report `Periodic audit starting` before dispatch settlement, then `Periodic audit started` only for a non-error tool result with `details.dispatched: true`. Blocked, undispatched, rejected, or error results produce contextual `spawn_agent` diagnostics, never false success. The command waits for neither spawn settlement nor child completion; `started` means accepted dispatch, not findings delivery.
@@ -56,4 +56,4 @@ Verified 2026-10-23: 11 targeted Vitest cases pass, including the complete porte
 
 ## Out of scope
 
-- New scheduler behavior, offline execution, checklist distribution, host/project mappings, and automatic remediation.
+- File watching, offline execution, checklist distribution, host/project mappings, and automatic remediation.

@@ -32,11 +32,11 @@ interval_seconds: 1800
 Report Git status and test failures. No edits.
 ```
 
-`type` is a nonempty string; `interval_seconds` is a positive safe integer in 1–2147483 seconds. Unknown metadata fields are allowed. The extension uses Pi's exported `parseFrontmatter`; it adds no YAML dependency. Reload or start a new session after adding/restoring the file or changing metadata. No checklist means no timer or audit; invalid metadata reports an error rather than selecting a default interval.
+`type` is a nonempty string; `interval_seconds` is a positive safe integer in 1–2147483 seconds. Unknown metadata fields are allowed. The extension uses Pi's exported `parseFrontmatter`; it adds no YAML dependency. After adding a checklist that was missing at startup, run `/periodic-checks status` to discover it and arm its timer. Reload or start a new session after changing an armed schedule's metadata or restoring a checklist removed from an armed schedule. No checklist means no timer or audit; invalid metadata reports an error rather than selecting a default interval.
 
 ## Commands
 
-- `/periodic-checks` or `/periodic-checks status` displays current state, checklist path, and active interval/relative countdown or disabled reason. It does not reread metadata or trigger an audit.
+- `/periodic-checks` or `/periodic-checks status` displays current state, checklist path, and active interval/relative countdown or disabled reason. Only when the timer is undefined and the cached disabled reason is `No checklist`, status retries startup discovery under the same runtime gates and arms a valid newly added file, waiting its full interval before the first audit. It does not trigger an audit or reread metadata/reset the countdown of an armed schedule. Invalid-metadata startup, shutdown, and removed-previously-armed checklist states still require reload or a new session.
 - `/periodic-checks run` requests an immediate audit without changing the regular countdown. `Periodic audit starting` precedes dispatch settlement; `Periodic audit started` means dispatch was accepted, not that the audit completed or findings arrived.
 
 Both commands remain available while main is busy. See the [command contract](../../specs/periodic-checks.md#commands) for output, timing, and refusal semantics.
