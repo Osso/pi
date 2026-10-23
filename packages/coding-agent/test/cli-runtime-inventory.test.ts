@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -25,15 +25,32 @@ async function runCli(
 	args: string[],
 	options?: {
 		projectExtension?: boolean;
+		captureCommands?: boolean;
 		globalSettings?: Record<string, unknown>;
 		projectSettings?: Record<string, unknown>;
 	},
-): Promise<{ stdout: string; stderr: string; code: number | null }> {
+): Promise<{ stdout: string; stderr: string; code: number | null; commands?: string[] }> {
 	const tempRoot = createTempDir();
 	const agentDir = join(tempRoot, "agent");
 	const projectDir = join(tempRoot, "project");
 	mkdirSync(agentDir, { recursive: true });
 	mkdirSync(projectDir, { recursive: true });
+	const commandsPath = join(tempRoot, "commands.json");
+	if (options?.captureCommands) {
+		const globalExtensions = join(agentDir, "extensions");
+		mkdirSync(globalExtensions);
+		await writeFile(
+			join(globalExtensions, "capture-commands.ts"),
+			`import { writeFileSync } from "node:fs";
+export default function(pi) {
+	pi.on("session_start", () => {
+		writeFileSync(${JSON.stringify(commandsPath)}, JSON.stringify(pi.getCommands().map(command => command.name)));
+	});
+}
+`,
+			"utf8",
+		);
+	}
 	if (options?.globalSettings) {
 		await writeFile(join(agentDir, "settings.json"), JSON.stringify(options.globalSettings, null, 2), "utf8");
 	}
@@ -73,7 +90,13 @@ async function runCli(
 		});
 		child.on("error", reject);
 		child.on("close", (code) => {
-			resolvePromise({ stdout, stderr, code });
+			resolvePromise({
+				stdout,
+				stderr,
+				code,
+				commands:
+					options?.captureCommands && code === 0 ? JSON.parse(readFileSync(commandsPath, "utf8")) : undefined,
+			});
 		});
 	});
 }
@@ -93,6 +116,17 @@ describe("runtime inventory CLI", () => {
 		expect(result.stdout).toContain("agents-mailbox");
 		expect(result.stdout).toContain("run-plan");
 		expect(result.stdout).toContain("safe");
+		expect(result.stdout).toMatch(/^runtime\s+built-in\s+periodic-checks\s+1\s+0\s+2\s*$/m);
+		expect(result.stdout).toMatch(/^runtime\s+built-in\s+exit-command\s+1\s+0\s+0\s*$/m);
+	});
+
+	it("discovers bundled exit and periodic-checks commands at runtime", async () => {
+		const result = await runCli(["extensions"], { captureCommands: true });
+
+		expect(result.code).toBe(0);
+		expect(result.stderr).toBe("");
+		expect(result.commands).toContain("exit");
+		expect(result.commands).toContain("periodic-checks");
 	});
 
 	it("skips first-party extensions disabled in settings", async () => {

@@ -28,7 +28,8 @@ Slash commands provide the user-facing dispatch layer for built-in commands, ext
 
 ### Bundled `/exit`
 
-- [ ] Register `/exit` through the bundled first-party `exit-command` extension and call `ctx.shutdown()` directly, without a model prompt. Arguments are ignored, preserving the host command's behavior.
+- [x] Register `/exit` through the bundled first-party `exit-command` extension and call `ctx.shutdown()` directly, without a model prompt.
+- [ ] Ignore `/exit` arguments, preserving the host command's behavior.
 - [ ] Discover `/exit` after starting a new session or `/reload` following a Pi update; no host-user extension installation is required. Allow disabling by inventory name `exit-command` through `disabledExtensions` in settings, then reload. See [extension settings](../../packages/coding-agent/docs/settings.md).
 
 ### Discovery and presentation
@@ -54,7 +55,7 @@ Slash commands provide the user-facing dispatch layer for built-in commands, ext
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/exit-command-extension.test.ts` — bundled `/exit` registration and clean-shutdown request; source inspected, execution belongs to the implementation gate.
+- `packages/coding-agent/test/exit-command-extension.test.ts` — bundled `/exit` registration and clean-shutdown request; passing in the main implementation gate's 11-case targeted run.
 
 - `packages/coding-agent/test/suite/agent-session-prompt.test.ts:223-261` — skill and prompt-template expansion.
 - `packages/coding-agent/test/suite/agent-session-prompt.test.ts:280-296` — extension command handling and unknown-command rejection.
@@ -66,7 +67,6 @@ Slash commands provide the user-facing dispatch layer for built-in commands, ext
 - `packages/coding-agent/test/suite/regressions/interactive-usage-busy.test.ts` — real PTY Enter/Alt+Enter during held tools and provider requests, immediate full report, uninterrupted work, and next-turn persistence.
 
 ## Known gaps (current cycle)
-- [ ] Record bundled `/exit` passing proof from the implementation gate.
 - [ ] Add SDK/RPC coverage for unknown-command rejection.
 - [ ] Decide whether queued `steer()` and `followUp()` messages should reject unknown slash commands or intentionally treat them as ordinary prompt text.
 

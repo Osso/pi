@@ -40,8 +40,10 @@ import debugExtension from "../extensions/debug/src/index.ts";
 import defaultFooterExtension from "../extensions/default-footer/src/index.ts";
 import docsTreeContextExtension from "../extensions/docs-tree-context/src/index.ts";
 import effortExtension from "../extensions/effort/src/index.ts";
+import exitCommandExtension from "../extensions/exit-command/src/index.ts";
 import goalExtension from "../extensions/goal/src/index.ts";
 import loopExtension from "../extensions/loop/src/index.ts";
+import periodicChecksExtension from "../extensions/periodic-checks/src/index.ts";
 import pyrunExtension from "../extensions/pyrun/src/index.ts";
 import { resolvePyrunRunnerCommand } from "../extensions/pyrun/src/runner.ts";
 import runPlanExtension from "../extensions/run-plan/src/index.ts";
@@ -726,10 +728,12 @@ function createFirstPartyExtensionFactories(
 			defaultFooterExtension(pi, { multiAgentStore: orchestration?.store }),
 		),
 		firstPartyExtensionFactory("effort", effortExtension),
+		firstPartyExtensionFactory("exit-command", exitCommandExtension),
 		...(orchestration ? [firstPartyExtensionFactory("goal", goalExtension)] : []),
 		firstPartyExtensionFactory("bwrap", bwrapExtension),
 		...optionalFirstPartyExtensionFactory("pyrun", resolvePyrunRunnerCommand(), pyrunFactory),
 		firstPartyExtensionFactory("loop", loopExtension),
+		firstPartyExtensionFactory("periodic-checks", periodicChecksExtension),
 		firstPartyExtensionFactory("run-plan", runPlanExtension),
 		firstPartyExtensionFactory("safe", safeExtension),
 		firstPartyExtensionFactory("spec-validation", specValidationExtension),
