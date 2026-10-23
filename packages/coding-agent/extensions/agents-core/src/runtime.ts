@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { getAgentDir } from "../../../src/config.ts";
+import type { AgentSessionEvent } from "../../../src/core/agent-session.ts";
 import { DEFAULT_THINKING_LEVEL } from "../../../src/core/defaults.ts";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { clampThinkingLevel } from "@earendil-works/pi-ai/compat";
@@ -226,6 +227,7 @@ export interface ChildAgentSession {
 	drainRuntimeCoordination?(): Promise<void>;
 	messages: AgentMessage[];
 	prompt(text: string): Promise<void>;
+	subscribe?(listener: (event: AgentSessionEvent) => void): () => void;
 	transcript?: AgentSnapshot["transcript"];
 }
 

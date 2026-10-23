@@ -207,6 +207,7 @@
 
 ### Fixed
 
+- The selected child-agent view shows each finished tool call's result as soon as it ends instead of "Waiting for command..." until the slowest call in its parallel batch finishes.
 - Interactive startup prompts (e.g. `pi --session <id> @prompt.txt`) are steered into a resumed interrupted run instead of waiting until it goes idle, which an autonomous run with an active goal or live sub-agents might never do.
 - Compaction keeps the 20 most recent context messages verbatim for every reason, including idle compaction. A hardcoded cap of the last 3 messages or 10,000 tokens, plus a separate 20,000-byte truncation of kept messages, meant an idle compaction after a short nudge turn kept only that nudge.
 

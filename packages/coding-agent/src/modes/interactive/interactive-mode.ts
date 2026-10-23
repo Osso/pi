@@ -469,6 +469,11 @@ export interface InteractiveModeOptions {
 	multiAgentStore?: MultiAgentStore;
 	/** Submit selected-agent cancellation through the lifecycle coordinator boundary. */
 	cancelMultiAgent?: (agentId: string) => Promise<{ ok: boolean; agent?: AgentSnapshot; error?: string }>;
+	/** Subscribe to a live in-process child agent session; undefined when the agent has no live session. */
+	subscribeAgentSessionEvents?: (
+		agentId: string,
+		listener: (event: AgentSessionEvent) => void,
+	) => (() => void) | undefined;
 	/** Submit editor text to the selected agent through the lifecycle coordinator and runtime mailbox. */
 	steerMultiAgent?: (agentId: string, message: string) => Promise<{ ok: boolean; error?: string }>;
 	/** Wake an active multi-agent wait after ordinary main-session steering is queued. */
@@ -624,6 +629,9 @@ export class InteractiveMode {
 	private multiAgentStore: MultiAgentStore | undefined;
 	private childViewSessionManager: SessionManager | undefined;
 	private childViewAgentId: string | undefined;
+	/** Live child tool completions not yet in the child transcript, which records a parallel batch's results together. */
+	private childViewCompletedTools = new Map<string, Extract<AgentSessionEvent, { type: "tool_execution_end" }>>();
+	private unsubscribeChildViewEvents: (() => void) | undefined;
 	private childViewTranscriptPath: string | undefined;
 	private childViewTranscriptWatcher: FSWatcher | null = null;
 	private childViewTranscriptWatchPath: string | undefined;
@@ -3329,6 +3337,11 @@ export class InteractiveMode {
 		this.clearChildAgentView();
 		this.childViewAgentId = agent.id;
 		this.childViewTranscriptPath = transcriptPath;
+		this.unsubscribeChildViewEvents = this.options?.subscribeAgentSessionEvents?.(agent.id, (event) => {
+			if (event.type === "tool_execution_end" && this.childViewAgentId === agent.id) {
+				InteractiveMode.prototype.showChildToolCompletion.call(this, event);
+			}
+		});
 		if (!transcriptPath || !fs.existsSync(transcriptPath)) {
 			this.renderLiveAgentPlaceholder(agent, transcriptPath);
 			return true;
@@ -3348,7 +3361,21 @@ export class InteractiveMode {
 		return this.renderSelectedAgentView();
 	}
 
+	/** Shows a child tool result as soon as the call ends; the transcript only receives it once its whole batch ends. */
+	private showChildToolCompletion(event: Extract<AgentSessionEvent, { type: "tool_execution_end" }>): void {
+		this.childViewCompletedTools.set(event.toolCallId, event);
+		const component = this.pendingTools.get(event.toolCallId);
+		if (!component) return;
+		component.markExecutionStarted(event.startedAt);
+		component.updateResult({ ...event.result, isError: event.isError }, false, event.finishedAt);
+		this.pendingTools.delete(event.toolCallId);
+		this.ui.requestRender();
+	}
+
 	private clearChildAgentView(): void {
+		this.unsubscribeChildViewEvents?.();
+		this.unsubscribeChildViewEvents = undefined;
+		this.childViewCompletedTools?.clear();
 		this.footer.clearSessionOverride();
 		this.footerDataProvider.clearSessionOverride();
 		this.childViewSessionManager = undefined;
@@ -5017,6 +5044,12 @@ export class InteractiveMode {
 		}
 
 		for (const [toolCallId, component] of renderedPendingTools) {
+			const completed = this.childViewAgentId ? this.childViewCompletedTools?.get(toolCallId) : undefined;
+			if (completed) {
+				component.markExecutionStarted(completed.startedAt);
+				component.updateResult({ ...completed.result, isError: completed.isError }, false, completed.finishedAt);
+				continue;
+			}
 			const startedAt = this.getPendingToolStartedAt(toolCallId);
 			if (startedAt !== undefined) {
 				component.markExecutionStarted(startedAt, { showLiveElapsed: true });

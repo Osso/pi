@@ -49,6 +49,7 @@ export function bindProductionChildSession(session: UnboundChildAgentSession): L
 		setThinkingLevel: session.setThinkingLevel.bind(session),
 		cycleModel: session.cycleModel.bind(session),
 		prompt: (text) => session.prompt(text),
+		subscribe: session.subscribe?.bind(session),
 		get transcript() {
 			return session.transcript;
 		},

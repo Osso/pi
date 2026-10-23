@@ -577,6 +577,11 @@ The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the
       restores the main footer model. Model/thinking changes and steering retain their live-session mutation guards.
 - [x] The main-session working loader is hidden while a child transcript is selected, preserves
       unrelated status rows, and is restored after returning to a still-streaming main session.
+- [x] While a live in-process child is selected, each tool call shows its result when that call ends, even
+      though the child transcript receives a parallel batch's results only after the slowest call; transcript
+      reloads keep those live results, and leaving the view unsubscribes
+      (`test/interactive-mode-status.test.ts`,
+      `test/suite/regressions/interactive-child-view-parallel-tool-completion.test.ts`).
 - [x] A selected running child renders its current thinking or tool phase and computes elapsed time
       locally from the child-scoped phase start timestamp; the matching pending tool component owns
       tool elapsed rendering. It never borrows the parent timer or

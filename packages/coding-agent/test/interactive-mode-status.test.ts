@@ -16,6 +16,7 @@ import {
 	createMultiAgentRuntimeHandles,
 	resolveSelectedSessionMutationTarget,
 } from "../extensions/agents-core/src/runtime.ts";
+import type { AgentSessionEvent } from "../src/core/agent-session.ts";
 import type {
 	AutocompleteProviderFactory,
 	ExtensionUIContext,
@@ -1250,6 +1251,57 @@ describe("InteractiveMode key handlers", () => {
 		} finally {
 			fixture.cleanup();
 			vi.useRealTimers();
+		}
+	});
+
+	test("shows a finished child tool result before its slower batch sibling finishes", () => {
+		const fixture = createTranscriptSwitchFixture({ withChildPath: true });
+		const transcriptPath = fixture.store.getAgent(fixture.childAgentId)?.transcript?.path;
+		if (!transcriptPath) {
+			throw new Error("expected child transcript path");
+		}
+		const slow = fauxToolCall("bash", { command: "td check slow-unit.cpp" });
+		const fast = fauxToolCall("bash", { command: "sed -n 180,280p fast.cpp" });
+		SessionManager.open(transcriptPath).appendMessage(fauxAssistantMessage([slow, fast], { stopReason: "toolUse" }));
+		let emit: ((event: AgentSessionEvent) => void) | undefined;
+		const unsubscribe = vi.fn();
+		const fakeThis = Object.assign(fixture.fakeThis, {
+			childViewCompletedTools: new Map(),
+			options: {
+				subscribeAgentSessionEvents: (agentId: string, listener: (event: AgentSessionEvent) => void) => {
+					expect(agentId).toBe(fixture.childAgentId);
+					emit = listener;
+					return unsubscribe;
+				},
+			},
+		});
+		try {
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fakeThis, fixture.childAgentId)).toBe(true);
+			expect(normalizeRenderedOutput(fakeThis.chatContainer)).not.toContain("fast-unit-output");
+
+			emit?.({
+				type: "tool_execution_end",
+				toolCallId: fast.id,
+				toolName: "bash",
+				result: { content: [{ type: "text", text: "fast-unit-output" }], details: undefined },
+				isError: false,
+				startedAt: 1_000,
+				finishedAt: 1_700,
+			});
+
+			expect(normalizeRenderedOutput(fakeThis.chatContainer)).toContain("fast-unit-output");
+			expect(fakeThis.pendingTools.has(fast.id)).toBe(false);
+			expect(fakeThis.pendingTools.has(slow.id)).toBe(true);
+
+			// A transcript reload before the batch's results are persisted keeps the live completion.
+			interactiveModeKeyHandlers.renderSelectedAgentView.call(fakeThis);
+			expect(normalizeRenderedOutput(fakeThis.chatContainer)).toContain("fast-unit-output");
+			expect(fakeThis.pendingTools.has(slow.id)).toBe(true);
+
+			expect(interactiveModeKeyHandlers.selectAgentView.call(fakeThis, "main")).toBe(true);
+			expect(unsubscribe).toHaveBeenCalledTimes(1);
+		} finally {
+			fixture.cleanup();
 		}
 	});
 
