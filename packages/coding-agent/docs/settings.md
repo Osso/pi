@@ -245,6 +245,12 @@ Codex paired-provider quota fallback is separate from these retry settings. When
 
 Sandbox profiles resolve by precedence: session override, project setting, then global setting. A missing explicit profile is unsandboxed; `read-only` and `workspace-write` require bubblewrap, while `full-access` bypasses it.
 
+### Supervisor
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `supervisorModel` | string | - | `provider/modelId` for the resident Supervisor, read from global settings, e.g. `openrouter/deepseek/deepseek-v4.1-flash-1017`. Unset: `gpt-6.1-sol` on the first authenticated `openai-codex`, `openai-codex-gc`, `openai-codex-team`. A configured model must be authenticated and has no fallback. |
+
 Use `/sandbox <read-only|workspace-write|full-access|inherit> <session|project|global>` for direct control, or `/sandbox` to open the selector. `inherit` is valid only for session scope and removes the session override, falling back to project/global settings. Session overrides are stored in the host control-session database, not session JSONL, for the exact persisted session and survive restart/resume; new sessions, forks, and imported/exported session files do not inherit them.
 
 ### Sessions

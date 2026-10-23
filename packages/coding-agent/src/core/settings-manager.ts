@@ -162,6 +162,7 @@ export interface Settings {
 	approvalPolicy?: ApprovalPolicy; // Derived tool approval policy
 	approvalPreset?: ApprovalPresetName; // User-facing approval selector preset
 	sandboxProfile?: SandboxProfileName; // User-facing sandbox selector profile
+	supervisorModel?: string; // "provider/modelId" for the resident Supervisor; default: gpt-6.1-sol on Codex providers
 }
 
 /** Deep merge settings: project/overrides take precedence, nested objects merge recursively */
@@ -518,6 +519,10 @@ export class SettingsManager {
 
 	getPermissionPromptTool(): string | undefined {
 		return this.settings.permissionPromptTool;
+	}
+
+	getSupervisorModel(): string | undefined {
+		return this.settings.supervisorModel;
 	}
 
 	getApprovalPolicy(): ApprovalPolicy {

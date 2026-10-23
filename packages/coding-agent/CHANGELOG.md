@@ -86,6 +86,7 @@
 
 ### Added
 
+- Added global setting `supervisorModel` (`provider/modelId`) selecting the resident Supervisor model; unset keeps `gpt-6.1-sol` on the Codex provider chain.
 - Added a `/usage all` `Resets` column for Codex available reset-credit counts: reported zero stays `0`; absent/unreported counts and Claude rows show `-`. The `Central` reset timestamp column is unchanged.
 - Added pure displayed-session callbacks to `ctx.ui.setStatus`: `FooterDataProvider.getExtensionStatuses()` resolves them on read with the current `FooterSessionOverride` (or `undefined` for main); returning `undefined` hides the status while static strings and explicit clearing remain supported.
 - Added [macOS core implementation](../../docs/specs/macos-core.md): libproc-backed identity/group lookup, unsupported protected-profile rejection, and launcher rollback. Reusable/manual macOS arm64/x64 CI builds real-SDK process/Tui addons and validates Node 22/Bun 1.4.0 offline runtime scenarios; release binary builds and npm publication consume its artifacts. Native Actions run `38651327008` at `bcaee48e5` passed both architectures: Node/Bun addon loading, goal/live-child/runner restart, resident autostart, and installed CLI startup; tagged release and native deployment rollback remain unproven. `RpcClientOptions.executablePath` selects the CLI runtime (default `node`); headless tests select Node/Bun through fixture-only `PI_HEADLESS_RUNTIME`. Reference-safe artifact eviction remains Linux-only.

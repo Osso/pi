@@ -128,7 +128,9 @@ export function createSupervisorSettingsManager(): SettingsManager {
 const SUPERVISOR_MODEL_ID = "gpt-6.1-sol";
 const SUPERVISOR_PROVIDERS = ["openai-codex", ...(CODEX_FALLBACK_PROVIDERS.get("openai-codex") ?? [])];
 
-function requireSupervisorModels(modelRegistry: ModelRegistry): Model<Api>[] {
+function requireSupervisorModels(modelRegistry: ModelRegistry, agentDir: string): Model<Api>[] {
+	const configured = SettingsManager.create(agentDir, agentDir).getSupervisorModel();
+	if (configured) return [requireConfiguredSupervisorModel(modelRegistry, configured)];
 	const models = SUPERVISOR_PROVIDERS.flatMap((provider) => {
 		const model = modelRegistry.find(provider, SUPERVISOR_MODEL_ID);
 		return model && modelRegistry.hasConfiguredAuth(model) ? [model] : [];
@@ -139,6 +141,15 @@ function requireSupervisorModels(modelRegistry: ModelRegistry): Model<Api>[] {
 		);
 	}
 	return models;
+}
+
+function requireConfiguredSupervisorModel(modelRegistry: ModelRegistry, configured: string): Model<Api> {
+	const slash = configured.indexOf("/");
+	const model = slash > 0 ? modelRegistry.find(configured.slice(0, slash), configured.slice(slash + 1)) : undefined;
+	if (!model || !modelRegistry.hasConfiguredAuth(model)) {
+		throw new Error(`Pi Supervisor supervisorModel "${configured}" is not an authenticated provider/modelId`);
+	}
+	return model;
 }
 
 function readSupervisorInstructionReviewText(message: AssistantMessage): string | undefined {
@@ -153,7 +164,7 @@ function readSupervisorInstructionReviewText(message: AssistantMessage): string 
 export function createSupervisorInstructionEvaluator(agentDir: string): SupervisorInstructionEvaluator {
 	const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
 	const modelRegistry = ModelRegistry.create(authStorage, join(agentDir, "models.json"));
-	const models = requireSupervisorModels(modelRegistry);
+	const models = requireSupervisorModels(modelRegistry, agentDir);
 	const settingsManager = createSupervisorSettingsManager();
 	const evaluateWith = async (model: Model<Api>, instructions: string, signal: AbortSignal) => {
 		const auth = await modelRegistry.getApiKeyAndHeaders(model);
@@ -307,7 +318,7 @@ async function createSupervisorAgentSession(
 ): Promise<SupervisorSession> {
 	const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
 	const modelRegistry = ModelRegistry.create(authStorage, join(agentDir, "models.json"));
-	const [model] = requireSupervisorModels(modelRegistry);
+	const [model] = requireSupervisorModels(modelRegistry, agentDir);
 	const settingsManager = createSupervisorSettingsManager();
 	const resourceLoader = await createSupervisorResourceLoader(agentDir, kbDir, settingsManager);
 	const { session } = await createAgentSession({

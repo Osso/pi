@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -80,8 +80,9 @@ vi.mock("../src/core/model-registry.ts", () => ({
 	ModelRegistry: {
 		create: () => ({
 			find: (provider: string, id: string) =>
-				provider.startsWith("openai-codex") && id === "gpt-6.1-sol"
-					? { baseUrl: "https://chatgpt.com/backend-api", id, provider }
+				(provider.startsWith("openai-codex") && id === "gpt-6.1-sol") ||
+				(provider === "openrouter" && id === "deepseek/deepseek-v4.1-flash-1017")
+					? { baseUrl: "https://example.test", id, provider }
 					: undefined,
 			getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "test-key" }),
 			hasConfiguredAuth: (model: { provider: string }) => mocks.authenticatedProviders.has(model.provider),
@@ -202,6 +203,43 @@ describe("Supervisor request loop", () => {
 		mocks.authenticatedProviders = new Set();
 		expect(() => createSupervisorInstructionEvaluator(mocks.agentDir)).toThrow(
 			"Pi Supervisor requires gpt-6.1-sol on an authenticated provider: openai-codex, openai-codex-gc, openai-codex-team",
+		);
+	});
+
+	it("uses the configured supervisorModel for the resident session and instruction review", async () => {
+		mocks.authenticatedProviders = new Set(["openai-codex", "openrouter"]);
+		writeFileSync(
+			join(mocks.agentDir, "settings.json"),
+			JSON.stringify({ supervisorModel: "openrouter/deepseek/deepseek-v4.1-flash-1017" }),
+		);
+		mocks.streamResults = [{ provider: "openrouter", stopReason: "stop", text: '{"decision":"accept"}' }];
+
+		const evaluate = createSupervisorInstructionEvaluator(mocks.agentDir);
+		await expect(evaluate("continue", new AbortController().signal)).resolves.toBe('{"decision":"accept"}');
+		expect(mocks.streamedProviders).toEqual(["openrouter"]);
+
+		mocks.claimNextSupervisorRequest.mockReturnValue(undefined);
+		const service = runSupervisorService();
+		try {
+			await flushServiceStartup();
+			expect(mocks.createAgentSession).toHaveBeenCalledWith(
+				expect.objectContaining({
+					model: expect.objectContaining({ id: "deepseek/deepseek-v4.1-flash-1017", provider: "openrouter" }),
+				}),
+			);
+		} finally {
+			await stopService(service);
+		}
+	});
+
+	it("fails startup when the configured supervisorModel is not authenticated", () => {
+		mocks.authenticatedProviders = new Set(["openai-codex"]);
+		writeFileSync(
+			join(mocks.agentDir, "settings.json"),
+			JSON.stringify({ supervisorModel: "openrouter/deepseek/deepseek-v4.1-flash-1017" }),
+		);
+		expect(() => createSupervisorInstructionEvaluator(mocks.agentDir)).toThrow(
+			'Pi Supervisor supervisorModel "openrouter/deepseek/deepseek-v4.1-flash-1017" is not an authenticated provider/modelId',
 		);
 	});
 
