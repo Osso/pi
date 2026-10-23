@@ -1,19 +1,22 @@
 import { expect, it, vi } from "vitest";
 import exitCommandExtension from "../extensions/exit-command/src/index.ts";
-import type { ExtensionAPI, ExtensionCommandContext } from "../src/core/extensions/types.ts";
+import { createHarnessWithExtensions } from "./test-harness.ts";
 
 it("registers /exit and requests graceful session shutdown", async () => {
-	const commands = new Map<string, Parameters<ExtensionAPI["registerCommand"]>[1]>();
-	const pi = {
-		registerCommand: (name: string, command: Parameters<ExtensionAPI["registerCommand"]>[1]) => {
-			commands.set(name, command);
-		},
-	} as ExtensionAPI;
-	const shutdown = vi.fn();
-	exitCommandExtension(pi);
+	const harness = await createHarnessWithExtensions({ extensionFactories: [exitCommandExtension] });
+	try {
+		const runner = harness.session.extensionRunner;
+		if (!runner) throw new Error("Expected the extension runner");
+		const command = runner.getCommand("exit");
+		if (!command) throw new Error("Expected the bundled exit command");
+		const context = runner.createCommandContext();
+		const shutdown = vi.fn();
+		context.shutdown = shutdown;
 
-	expect([...commands.keys()]).toEqual(["exit"]);
-	expect(shutdown).not.toHaveBeenCalled();
-	await commands.get("exit")!.handler("", { shutdown } as ExtensionCommandContext);
-	expect(shutdown).toHaveBeenCalledOnce();
+		expect(shutdown).not.toHaveBeenCalled();
+		await command.handler("", context);
+		expect(shutdown).toHaveBeenCalledOnce();
+	} finally {
+		harness.cleanup();
+	}
 });
