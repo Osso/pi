@@ -6,8 +6,8 @@ Bundled first-party `periodic-checks` schedules report-only project audits from 
 
 ### Opt-in and lifecycle
 
-- [ ] Load as a bundled first-party extension, without a user-level extension installation or remote-agent mapping. Expose `/periodic-checks` through normal extension command discovery; support disabling by inventory name `periodic-checks` through `disabledExtensions`.
-- [ ] On `session_start`, including reload, discover the current directory's Git root and its ignored, host-private `periodic-checks.md`. No checklist means no timer and no audit. Deployment never copies checklists; each host configures its own file.
+- [x] Load as a bundled first-party extension, without a user-level extension installation or remote-agent mapping. Expose `/periodic-checks` through normal extension command discovery; support disabling by inventory name `periodic-checks` through `disabledExtensions`.
+- [x] On `session_start`, including reload, discover the current directory's Git root and its ignored, host-private `periodic-checks.md`. No checklist means no timer and no audit. Deployment never copies checklists; each host configures its own file.
 - [x] Arm only main TUI or RPC sessions with a multi-agent store and active `spawn_agent` and `send_agent_message` tools. Exclude child sessions and unsupported runtimes.
 - [x] Require Google OKF YAML frontmatter with nonempty string `type` and positive safe-integer `interval_seconds` in 1–2147483 seconds. Allow unknown fields. Missing, malformed, or invalid metadata raises an explicit error and disables scheduling; no fixed-interval fallback.
 - [x] Read metadata only at start/reload. Wait the full configured interval before the first tick. Apply metadata edits or re-arm a restored checklist only after another start/reload. Stop the timer on shutdown or checklist removal detected at dispatch, including during a pending spawn.
@@ -48,11 +48,11 @@ Bundled first-party `periodic-checks` schedules report-only project audits from 
 - `packages/coding-agent/test/fixtures/periodic-checks/periodic_scheduler_dispatch.mjs` — direct dispatch, overlap, busy/pending commands, failure feedback, and late-result fencing.
 - Remote-agent `tests/test_periodic_runtime.py` with `tests/fixtures/periodic-runtime-provider.ts` — installed-Pi integration acceptance using private state and an offline faux provider, without explicit extension injection.
 
-The main implementation gate reports 11 targeted Vitest cases passing, including the complete ported Node scheduler/dispatch suite. Checked bullets map to those fixtures. Installed-Pi findings-delivery acceptance and deployment/disabling proof remain separate.
+Verified 2026-10-23: 11 targeted Vitest cases pass, including the complete ported Node scheduler/dispatch suite. Installed-Pi acceptance passes three tests covering manual/timer audits during held model/tool work and mailbox delivery, with private state and no provider network. Named disabling is verified through source-CLI discovery. Laptop, agent-server (osso/allison), and sandbox inventories identify both commands as bundled extensions; 11 live host sessions adopted Pi `dbc28f233` with executable SHA-256 `acea31899cfcf247f629414e6a42ae8742766e71060f789f6a2dc331969e1268`. A disposable sandbox TUI reports disabled status without a Git project; no sandbox checklist was installed.
 
 ## Known gaps (current cycle)
 
-- [ ] Record bundled-extension verification from the implementation gate.
+- [x] Record bundled discovery, scheduler behavior, installed-runtime delivery, named disabling, and deployment verification.
 
 ## Out of scope
 
