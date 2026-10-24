@@ -2055,9 +2055,13 @@ describe("multi-agent extension tools", () => {
 
 	it("runs /bg prompts as child jobs without waiting for completion", async () => {
 		const childPrompt = deferred<void>();
+		const messages: ReturnType<typeof fauxAssistantMessage>[] = [];
 		const createChildSession: ChildAgentSessionFactory = async () => ({
-			messages: [],
-			prompt: async () => childPrompt.promise,
+			messages,
+			prompt: async () => {
+				await childPrompt.promise;
+				messages.push(fauxAssistantMessage("Background job completed after the deferred prompt resolved."));
+			},
 		});
 		const notifications: Array<{ message: string; level?: string }> = [];
 		const harness = createMultiAgentHarness({ createChildSession });
@@ -4261,7 +4265,10 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("dispatches successfully without writing parent lifecycle records", async () => {
-		const prompt = vi.fn(async () => {});
+		const messages: ReturnType<typeof fauxAssistantMessage>[] = [];
+		const prompt = vi.fn(async () => {
+			messages.push(fauxAssistantMessage("Review completed without writing parent lifecycle records."));
+		});
 		const dispose = vi.fn();
 		const harness = createMultiAgentHarness({
 			appendEntry: () => {
@@ -4269,7 +4276,7 @@ describe("multi-agent extension tools", () => {
 			},
 			createChildSession: async ({ agent }) => ({
 				dispose,
-				messages: [],
+				messages,
 				prompt,
 				transcript: { path: `/sessions/${agent.id}.jsonl`, sessionId: `session-${agent.id}` },
 			}),
@@ -4353,9 +4360,13 @@ describe("multi-agent extension tools", () => {
 					undefined,
 					{ runtimeInstanceId: JSON.stringify(CURRENT_PROCESS_IDENTITY) },
 				);
+				const messages: ReturnType<typeof fauxAssistantMessage>[] = [];
 				return {
-					messages: [],
-					prompt: async () => promptBlocked,
+					messages,
+					prompt: async () => {
+						await promptBlocked;
+						messages.push(fauxAssistantMessage("Initial work completed; final blockers are ready for review."));
+					},
 					drainRuntimeCoordination: async () => {
 						drainCalls += 1;
 						const message = harness.store
