@@ -9,6 +9,8 @@ Session naming is a default first-party extension that lets the model name the c
 - [x] Expose a `set_session_name` tool that stores a session display name for the current session.
 - [x] The extension never issues a provider request of its own; naming costs no extra model call, and no session title is generated outside the model's own turn.
 - [x] The tool is available in every mode that owns a session; a session that cannot be named reports an error result instead of failing silently.
+- [x] The tool description and prompt guidelines instruct early naming only for eligible persisted main sessions. Skip this instruction for child-agent, ephemeral, already named, and explicitly cleared sessions.
+- [x] A naming refusal must not stop the requested task.
 
 ### Eligibility and exclusions
 

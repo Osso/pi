@@ -25,9 +25,10 @@ export default function sessionAutonameExtension(pi: ExtensionAPI): void {
 		name: "set_session_name",
 		label: "Set Session Name",
 		description:
-			"Set this session's display name to a short title describing the user's request. Call it once, early in the session.",
+			"Set a short display name for an eligible persisted main session. Skip named, explicitly cleared, ephemeral, and child sessions. If naming is refused, continue the user's task; naming is not a prerequisite for task work.",
 		promptGuidelines: [
-			"Call set_session_name once with a concise 2-4 word title describing the user's request, before doing substantial work.",
+			"Call set_session_name once, early, with a concise 2-4 word title describing the user's request only in an eligible persisted main session. Skip named, explicitly cleared, ephemeral, and child sessions.",
+			"If set_session_name refuses the request, continue the user's task. Do not stop or end the turn because naming failed; naming is not a prerequisite for task work.",
 		],
 		approvalRequired: false,
 		parameters: SET_SESSION_NAME_PARAMETERS,

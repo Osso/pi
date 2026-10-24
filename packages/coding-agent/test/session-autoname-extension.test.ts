@@ -2,7 +2,7 @@ import { fauxAssistantMessage, fauxToolCall, type ToolResultMessage } from "@ear
 import { afterEach, describe, expect, it } from "vitest";
 import sessionAutonameExtension from "../extensions/session-autoname/src/index.ts";
 import { getControlDbPath, readSessionMetadata } from "../src/core/session-control-db.ts";
-import { createHarness, type Harness } from "./suite/harness.ts";
+import { createHarness, getAssistantTexts, type Harness } from "./suite/harness.ts";
 
 const harnesses: Harness[] = [];
 
@@ -53,6 +53,39 @@ function toolResultErrors(harness: Harness, toolName: string): boolean[] {
 }
 
 describe("session naming tool extension", () => {
+	it.each([
+		{ session: "unnamed main", options: {} },
+		{ session: "named main", options: {}, name: "Manual Name" },
+		{ session: "explicitly cleared main", options: {}, name: undefined },
+		{ session: "ephemeral", options: { persistedSession: false } },
+		{ session: "child", options: { multiAgentAgentId: "agent_1" } },
+	])("exposes scoped naming instructions to the model in a $session session", async (scenario) => {
+		const harness = await createSessionNameHarness(scenario.options);
+		if ("name" in scenario) harness.sessionManager.setSessionName(scenario.name);
+		let description: string | undefined;
+		let systemPrompt: string | undefined;
+		harness.setResponses([
+			(context) => {
+				description = context.tools?.find((tool) => tool.name === "set_session_name")?.description;
+				systemPrompt = context.systemPrompt;
+				return endTurn();
+			},
+		]);
+
+		await harness.session.prompt("Explain what 6 multiplied by 7 equals.");
+
+		expect(description).toBe(
+			"Set a short display name for an eligible persisted main session. Skip named, explicitly cleared, ephemeral, and child sessions. If naming is refused, continue the user's task; naming is not a prerequisite for task work.",
+		);
+		expect(systemPrompt).toContain(
+			"Call set_session_name once, early, with a concise 2-4 word title describing the user's request only in an eligible persisted main session. Skip named, explicitly cleared, ephemeral, and child sessions.",
+		);
+		expect(systemPrompt).toContain(
+			"If set_session_name refuses the request, continue the user's task. Do not stop or end the turn because naming failed; naming is not a prerequisite for task work.",
+		);
+		expect(harness.sessionManager.getSessionName()).toBe("name" in scenario ? scenario.name : undefined);
+	});
+
 	it("issues no provider request of its own when a user message starts", async () => {
 		const harness = await createSessionNameHarness();
 		harness.setResponses([endTurn()]);
@@ -108,15 +141,28 @@ describe("session naming tool extension", () => {
 		expect(toolResultTexts(harness, "set_session_name")[0]).toContain("cleared explicitly");
 	});
 
-	it("refuses to name a child agent session", async () => {
+	it("keeps child naming refusal nonblocking for a useful task result", async () => {
 		const harness = await createSessionNameHarness({ multiAgentAgentId: "agent_1" });
-		harness.setResponses([nameCall("Child Name"), endTurn()]);
+		let observedRefusal: ToolResultMessage | undefined;
+		harness.setResponses([
+			nameCall("Child Name"),
+			(context) => {
+				observedRefusal = context.messages.find(
+					(message): message is ToolResultMessage =>
+						message.role === "toolResult" && message.toolName === "set_session_name",
+				);
+				return fauxAssistantMessage("6 multiplied by 7 equals 42.");
+			},
+			endTurn(),
+		]);
 
-		await harness.session.prompt("Rename the session");
+		await harness.session.prompt("Explain what 6 multiplied by 7 equals.");
 
 		expect(harness.sessionManager.getSessionName()).toBeUndefined();
 		expect(toolResultErrors(harness, "set_session_name")).toEqual([true]);
 		expect(toolResultTexts(harness, "set_session_name")[0]).toContain("Child agent sessions cannot be named");
+		expect(observedRefusal?.isError).toBe(true);
+		expect(getAssistantTexts(harness)).toContain("6 multiplied by 7 equals 42.");
 	});
 
 	it("refuses to name an ephemeral session", async () => {

@@ -4,7 +4,7 @@ Contract: [Session naming](../../specs/session-autoname.md).
 
 ## Tool surface
 
-[main.ts](../../../packages/coding-agent/src/main.ts) registers the default [session-autoname extension](../../../packages/coding-agent/extensions/session-autoname/src/index.ts), which registers one tool, `set_session_name`, with a single string parameter `name`. The tool description and its prompt guideline ask for a concise 2–4 word title describing the user's request. The extension holds no state beyond the last name it set itself, and it issues no provider request: naming happens inside the model's own turn.
+[main.ts](../../../packages/coding-agent/src/main.ts) registers the default [session-autoname extension](../../../packages/coding-agent/extensions/session-autoname/src/index.ts), which registers one tool, `set_session_name`, with a single string parameter `name`. The tool description and its prompt guideline ask eligible persisted main sessions to set a concise 2–4 word title describing the user's request early in the turn. They instruct the model to skip naming for child-agent, ephemeral, already named, and explicitly cleared sessions. A naming refusal must not stop the requested task. The tool remains available in every mode that owns a session, including child-agent and ephemeral sessions; those sessions still receive explicit error results if they call it. The extension holds no state beyond the last name it set itself, and it issues no provider request: naming happens inside the model's own turn.
 
 ## Write path
 
