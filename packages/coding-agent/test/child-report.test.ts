@@ -9,6 +9,8 @@ import { readCurrentChildAssistantText } from "../extensions/agents-core/src/chi
 import type { ExtensionContext } from "../src/core/extensions/types.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 
+type PersistedMessage = Parameters<SessionManager["appendMessage"]>[0];
+
 const narrationFixture = JSON.parse(
 	readFileSync(new URL("./fixtures/anthropic-narration.json", import.meta.url), "utf8"),
 ) as { content: ThinkingContent[] };
@@ -67,7 +69,7 @@ describe("child end_turn report requirement", () => {
 		return createChildEndTurnToolDefinition().execute("finish", { reason }, undefined, undefined, context);
 	}
 
-	test.each<[string, AgentMessage[]]>([
+	test.each<[string, PersistedMessage[]]>([
 		["no user prompt", [assistant([{ type: "text", text: "Inherited parent report" }])]],
 		["no report", [prompt]],
 		["tool call only", [prompt, parentCall()]],

@@ -30,8 +30,16 @@ function isDeliveredParentReport(message: ToolResultMessage<unknown>, parentRepo
 	return isSuccessfulParentReport(message.details);
 }
 
+function findCurrentPromptIndex(branch: SessionEntry[]): number {
+	for (let index = branch.length - 1; index >= 0; index -= 1) {
+		const entry = branch[index];
+		if (entry.type === "message" && entry.message.role === "user") return index;
+	}
+	return -1;
+}
+
 function hasCurrentChildReport(branch: SessionEntry[]): boolean {
-	const promptIndex = branch.findLastIndex((entry) => entry.type === "message" && entry.message.role === "user");
+	const promptIndex = findCurrentPromptIndex(branch);
 	if (promptIndex < 0) return false;
 	const parentReportCalls = new Set<string>();
 	for (const entry of branch.slice(promptIndex + 1)) {

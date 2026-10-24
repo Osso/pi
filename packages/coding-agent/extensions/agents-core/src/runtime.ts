@@ -595,7 +595,7 @@ function createChildTools(
 	agent: AgentSnapshot,
 	options: Pick<ProductionChildAgentSessionFactoryOptions, "browserAgentConfigRoot">,
 ): ToolDefinition[] {
-	const tools: ToolDefinition[] = [createChildEndTurnToolDefinition()];
+	const tools: ToolDefinition[] = [defineTool(createChildEndTurnToolDefinition())];
 	if (agent.agentType === "browser") {
 		const allowedRoot = options.browserAgentConfigRoot ?? DEFAULT_BROWSER_AGENT_CONFIG_ROOT;
 		tools.push(createAgentConfigReadToolDefinition(agent.cwd, allowedRoot));
