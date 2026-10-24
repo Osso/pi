@@ -707,6 +707,7 @@ export class ModelRegistry {
 	 */
 	async getApiKeyAndHeaders(model: Model<Api>): Promise<ResolvedRequestAuth> {
 		try {
+			this.authStorage.reload();
 			const providerConfig = this.providerRequestConfigs.get(model.provider);
 			const providerEnv = this.authStorage.getProviderEnv(model.provider);
 			const apiKeyFromAuthStorage = await this.authStorage.getApiKey(model.provider, {

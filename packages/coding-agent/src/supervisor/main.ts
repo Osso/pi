@@ -528,7 +528,8 @@ function readCurrentSupervisorResponse(
 		throw new Error("Supervisor model returned no assistant text for current request");
 	}
 	if (responseMessage.stopReason !== "stop") {
-		throw new Error(`Supervisor model request ended with ${String(responseMessage.stopReason)}`);
+		const detail = responseMessage.errorMessage ? `: ${responseMessage.errorMessage}` : "";
+		throw new Error(`Supervisor model request ended with ${String(responseMessage.stopReason)}${detail}`);
 	}
 	const text = responseMessage.content
 		.filter(
