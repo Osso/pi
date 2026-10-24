@@ -40,7 +40,11 @@ Guidance requires all user questions through the tool, including free text, neve
 
 Call rows retain questions and blocking answers/cancellation even with hidden tool output. Nonblocking call rows display `(queued)`; later results arrive separately through the runtime inbox rather than rewriting the completed tool result.
 
+Terminal focus notifications do not suspend the renderer: pending question dialogs and the footer continue rendering through focus loss, resize, and notifications from shared terminal clients, with normal throttling and coalescing unchanged. Focus sequences are consumed, not entered as question text. This is separate from component keyboard focus and intervening-dialog restoration. See [TUI rendering policy](../../../packages/tui/README.md#differential-rendering).
+
 ## Evidence
+
+- [`dtach-focus.test.ts`](../../../packages/tui/test/dtach-focus.test.ts): native detach with two attached real PTY clients, focused-control and other-client-blur scenarios, pending question/options/footer through shrink and same-size resize, and answer delivery. [`tui-focus.test.ts`](../../../packages/tui/test/tui-focus.test.ts) additionally covers ordinary updates, forced renders, resize, fixed cells/render regions, and focus reports without changing component focus.
 
 - [`ask-questions-tool.test.ts`](../../../packages/coding-agent/test/ask-questions-tool.test.ts): choice/Other/multi-select, tabs, cancellation, modes, notifications and rendering.
 - [`ask-questions-async.test.ts`](../../../packages/coding-agent/test/ask-questions-async.test.ts): required blocking, serial requests, mailbox routing/cancellation and persistence prerequisites.

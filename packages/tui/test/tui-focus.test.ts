@@ -7,19 +7,6 @@ import { VirtualTerminal } from "./virtual-terminal.ts";
 const FOCUS_IN = "\x1b[I";
 const FOCUS_OUT = "\x1b[O";
 
-class RecordingTerminal extends VirtualTerminal {
-	private writes: string[] = [];
-
-	override write(data: string): void {
-		this.writes.push(data);
-		super.write(data);
-	}
-
-	getWrites(): string {
-		return this.writes.join("");
-	}
-}
-
 class MutableComponent implements Component {
 	lines = ["initial"];
 	renderCount = 0;
@@ -38,29 +25,14 @@ class MutableComponent implements Component {
 }
 
 describe("TUI terminal focus", () => {
-	it("enables focus reporting while running and disables it on stop", async () => {
-		const terminal = new RecordingTerminal();
-		const tui = new TUI(terminal);
-
-		tui.start();
-		tui.start();
-		await terminal.waitForRender();
-		tui.stop();
-		tui.stop();
-
-		const writes = terminal.getWrites();
-		assert.equal(writes.split("\x1b[?1004h").length - 1, 1, "start should enable focus reporting once");
-		assert.equal(writes.split("\x1b[?1004l").length - 1, 1, "stop should disable focus reporting once");
-	});
-
-	it("defers rendering while unfocused and renders the latest state on focus", async () => {
+	it("coalesces updates after focus-out without waiting for focus-in", async () => {
 		const terminal = new VirtualTerminal();
 		const tui = new TUI(terminal);
 		const component = new MutableComponent();
 		tui.addChild(component);
 		tui.start();
 		await terminal.waitForRender();
-		const focusedRenderCount = component.renderCount;
+		const initialRenderCount = component.renderCount;
 
 		terminal.sendInput(FOCUS_OUT);
 		component.lines = ["stale", "state"];
@@ -69,46 +41,77 @@ describe("TUI terminal focus", () => {
 		tui.requestRender();
 		await terminal.waitForRender();
 
-		assert.equal(
-			component.renderCount,
-			focusedRenderCount,
-			"unfocused updates should not traverse the component tree",
-		);
+		assert.equal(component.renderCount, initialRenderCount + 1, "updates should coalesce into one render");
+		assert.deepEqual((await terminal.flushAndGetViewport()).slice(0, 2), ["latest", "state"]);
 
 		terminal.sendInput(FOCUS_IN);
 		await terminal.waitForRender();
-
-		assert.equal(component.renderCount, focusedRenderCount + 1, "focus-in should render pending state once");
-		assert.deepEqual((await terminal.flushAndGetViewport()).slice(0, 2), ["latest", "state"]);
+		assert.equal(component.renderCount, initialRenderCount + 1, "focus-in alone should not request a render");
 		tui.stop();
 	});
 
-	it("cancels a queued forced render when focus is lost", async () => {
+	it("preserves a queued forced render when focus is lost", async () => {
 		const terminal = new VirtualTerminal();
 		const tui = new TUI(terminal);
 		const component = new MutableComponent();
 		tui.addChild(component);
 		tui.start();
 		await terminal.waitForRender();
-		const focusedRenderCount = component.renderCount;
-
+		const initialRenderCount = component.renderCount;
 		const fullRedrawsBeforeForce = tui.fullRedraws;
-		component.lines = ["forced while hidden"];
+
+		component.lines = ["forced after blur"];
 		tui.requestRender(true);
 		terminal.sendInput(FOCUS_OUT);
 		await terminal.waitForRender();
 
-		assert.equal(component.renderCount, focusedRenderCount, "focus-out should cancel a queued forced render");
-		assert.equal(tui.fullRedraws, fullRedrawsBeforeForce, "forced redraw should remain pending while unfocused");
-
-		terminal.sendInput(FOCUS_IN);
-		await terminal.waitForRender();
-		assert.equal(component.renderCount, focusedRenderCount + 1);
-		assert.equal(tui.fullRedraws, fullRedrawsBeforeForce + 1, "focus-in should preserve forced redraw semantics");
+		assert.equal(component.renderCount, initialRenderCount + 1);
+		assert.equal(tui.fullRedraws, fullRedrawsBeforeForce + 1, "focus-out should not cancel forced redraws");
+		assert.equal((await terminal.flushAndGetViewport())[0], "forced after blur");
 		tui.stop();
 	});
 
-	it("renders pending unfocused state after stop and restart", async () => {
+	it("paints resize updates after focus-out", async () => {
+		const terminal = new VirtualTerminal();
+		const tui = new TUI(terminal);
+		const component = new MutableComponent();
+		tui.addChild(component);
+		tui.start();
+		await terminal.waitForRender();
+
+		terminal.sendInput(FOCUS_OUT);
+		component.lines = ["question", "answer"];
+		terminal.resize(60, 12);
+		await terminal.waitForRender();
+
+		assert.deepEqual((await terminal.flushAndGetViewport()).slice(0, 2), ["question", "answer"]);
+		tui.stop();
+	});
+
+	it("writes fixed cells and render regions after focus-out", async () => {
+		const terminal = new VirtualTerminal();
+		const tui = new TUI(terminal);
+		const component = new MutableComponent();
+		tui.addChild(component);
+		const cell = tui.createFixedCell();
+		const region = tui.createRenderRegion(component);
+		tui.start();
+		await terminal.waitForRender();
+		cell.place(0, 0);
+		region.place({ row: 0, col: 0, width: terminal.columns, height: 1 });
+
+		terminal.sendInput(FOCUS_OUT);
+		assert.equal(cell.update("X"), true);
+		assert.equal((await terminal.flushAndGetViewport())[0], "Xnitial");
+		component.lines = ["updated region"];
+		assert.equal(region.tryRender(), true);
+		assert.equal((await terminal.flushAndGetViewport())[0], "Xpdated region");
+		tui.stop();
+		assert.equal(cell.update("Y"), false, "stopped fixed cells should not paint");
+		assert.equal(region.tryRender(), false, "stopped render regions should not paint");
+	});
+
+	it("renders state requested while stopped only after restart", async () => {
 		const terminal = new VirtualTerminal();
 		const tui = new TUI(terminal);
 		const component = new MutableComponent();
@@ -118,43 +121,20 @@ describe("TUI terminal focus", () => {
 		const initialRenderCount = component.renderCount;
 
 		terminal.sendInput(FOCUS_OUT);
-		component.lines = ["updated while hidden"];
-		tui.requestRender();
-		tui.stop();
-		tui.start();
-		await terminal.waitForRender();
-
-		assert.equal(component.renderCount, initialRenderCount + 1, "restart should render pending hidden state");
-		assert.deepEqual((await terminal.flushAndGetViewport()).slice(0, 1), ["updated while hidden"]);
-		tui.stop();
-	});
-
-	it("renders state requested while stopped after restart", async () => {
-		const terminal = new VirtualTerminal();
-		const tui = new TUI(terminal);
-		const component = new MutableComponent();
-		tui.addChild(component);
-		tui.start();
-		await terminal.waitForRender();
-		const initialRenderCount = component.renderCount;
-
 		tui.stop();
 		component.lines = ["updated while stopped"];
 		tui.requestRender();
-		await new Promise<void>((resolve) => setImmediate(resolve));
+		await terminal.waitForRender();
+		assert.equal(component.renderCount, initialRenderCount, "stopped TUI should not render");
 		tui.start();
 		await terminal.waitForRender();
 
-		assert.equal(
-			component.renderCount,
-			initialRenderCount + 1,
-			"restart should render state requested while stopped",
-		);
+		assert.equal(component.renderCount, initialRenderCount + 1);
 		assert.deepEqual((await terminal.flushAndGetViewport()).slice(0, 1), ["updated while stopped"]);
 		tui.stop();
 	});
 
-	it("consumes focus events instead of forwarding them to the focused component", async () => {
+	it("consumes focus events before listeners without changing component focus", async () => {
 		const terminal = new VirtualTerminal();
 		const tui = new TUI(terminal);
 		const component = new MutableComponent();
@@ -170,11 +150,14 @@ describe("TUI terminal focus", () => {
 		});
 
 		terminal.sendInput(FOCUS_OUT);
-		terminal.sendInput(FOCUS_IN);
+		assert.equal(tui.getFocusedComponent(), component);
 		terminal.sendInput("x");
+		terminal.sendInput(FOCUS_IN);
+		assert.equal(tui.getFocusedComponent(), component);
+		terminal.sendInput("y");
 
-		assert.deepEqual(listenerInputs, ["x"]);
-		assert.deepEqual(component.inputs, ["x"]);
+		assert.deepEqual(listenerInputs, ["x", "y"]);
+		assert.deepEqual(component.inputs, ["x", "y"]);
 		tui.stop();
 	});
 });

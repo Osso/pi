@@ -19,10 +19,7 @@ import { deleteKittyImage, getCapabilities, isImageLine, setCellDimensions } fro
 import { extractSegments, normalizeTerminalOutput, sliceByColumn, sliceWithWidth, visibleWidth } from "./utils.ts";
 
 const KITTY_SEQUENCE_PREFIX = "\x1b_G";
-const TERMINAL_FOCUS_IN = "\x1b[I";
-const TERMINAL_FOCUS_OUT = "\x1b[O";
-const ENABLE_TERMINAL_FOCUS_REPORTING = "\x1b[?1004h";
-const DISABLE_TERMINAL_FOCUS_REPORTING = "\x1b[?1004l";
+const TERMINAL_FOCUS_REPORTS = new Set(["\x1b[I", "\x1b[O"]);
 
 interface KittyImageHeader {
 	ids: number[];
@@ -401,8 +398,6 @@ export class TUI extends Container {
 	private viewportRenderRequested = false;
 	private renderTimer: NodeJS.Timeout | undefined;
 	private lastRenderAt = 0;
-	private terminalFocused = true;
-	private focusReportingEnabled = false;
 	private static readonly MIN_RENDER_INTERVAL_MS = 16;
 	private cursorRow = 0; // Logical cursor row (end of rendered content)
 	private hardwareCursorRow = 0; // Actual terminal cursor row (may differ due to IME positioning)
@@ -873,7 +868,6 @@ export class TUI extends Container {
 
 	start(): void {
 		this.stopped = false;
-		this.terminalFocused = true;
 		this.renderRequested = false;
 		this.terminal.start(
 			(data) => this.handleInput(data),
@@ -884,10 +878,6 @@ export class TUI extends Container {
 				this.requestRender();
 			},
 		);
-		if (!this.focusReportingEnabled) {
-			this.terminal.write(ENABLE_TERMINAL_FOCUS_REPORTING);
-			this.focusReportingEnabled = true;
-		}
 		this.terminal.hideCursor();
 		if (this.terminalColorSchemeNotificationsEnabled) {
 			this.terminal.write("\x1b[?2031h");
@@ -942,10 +932,6 @@ export class TUI extends Container {
 		}
 		this.renderRequested = false;
 		this.forceRenderRequested = true;
-		if (this.focusReportingEnabled) {
-			this.terminal.write(DISABLE_TERMINAL_FOCUS_REPORTING);
-			this.focusReportingEnabled = false;
-		}
 		if (this.terminalColorSchemeNotificationsEnabled) {
 			this.terminal.write("\x1b[?2031l");
 		}
@@ -967,10 +953,6 @@ export class TUI extends Container {
 
 	requestRender(force = false): void {
 		this.forceRenderRequested ||= force;
-		if (!this.terminalFocused) {
-			this.renderRequested = true;
-			return;
-		}
 		if (force) {
 			if (this.renderTimer) {
 				clearTimeout(this.renderTimer);
@@ -986,7 +968,7 @@ export class TUI extends Container {
 	}
 
 	private scheduleRender(): void {
-		if (this.stopped || !this.terminalFocused || this.renderTimer || !this.renderRequested) {
+		if (this.stopped || this.renderTimer || !this.renderRequested) {
 			return;
 		}
 		const elapsed = performance.now() - this.lastRenderAt;
@@ -1001,7 +983,7 @@ export class TUI extends Container {
 	}
 
 	private renderPendingState(): void {
-		if (this.stopped || !this.terminalFocused || !this.renderRequested) {
+		if (this.stopped || !this.renderRequested) {
 			return;
 		}
 		if (this.forceRenderRequested) {
@@ -1019,31 +1001,8 @@ export class TUI extends Container {
 		this.doRender();
 	}
 
-	private consumeTerminalFocusReport(data: string): boolean {
-		if (data === TERMINAL_FOCUS_OUT) {
-			this.terminalFocused = false;
-			if (this.renderTimer) {
-				clearTimeout(this.renderTimer);
-				this.renderTimer = undefined;
-			}
-			return true;
-		}
-		if (data !== TERMINAL_FOCUS_IN) {
-			return false;
-		}
-		if (!this.terminalFocused) {
-			this.terminalFocused = true;
-			if (this.renderRequested) {
-				const force = this.forceRenderRequested;
-				this.renderRequested = false;
-				this.requestRender(force);
-			}
-		}
-		return true;
-	}
-
 	private handleInput(data: string): void {
-		if (this.consumeTerminalFocusReport(data)) {
+		if (TERMINAL_FOCUS_REPORTS.has(data)) {
 			return;
 		}
 		if (this.consumeOsc11BackgroundResponse(data)) {
@@ -1493,7 +1452,7 @@ export class TUI extends Container {
 
 	private writeFixedCell(state: FixedCellState): boolean {
 		if (state.row === undefined || state.col === undefined) return false;
-		if (this.stopped || !this.terminalFocused) return false;
+		if (this.stopped) return false;
 		if (this.renderRequested || this.hasOverlay()) return false;
 		if (this.previousWidth !== this.terminal.columns || this.previousHeight !== this.terminal.rows) return false;
 
@@ -1751,14 +1710,7 @@ export class TUI extends Container {
 	private canWriteRenderRegionNow(): boolean {
 		const terminalSizeMatches =
 			this.previousWidth === this.terminal.columns && this.previousHeight === this.terminal.rows;
-		return (
-			!this.stopped &&
-			!this.rendering &&
-			this.terminalFocused &&
-			!this.renderRequested &&
-			!this.hasOverlay() &&
-			terminalSizeMatches
-		);
+		return !this.stopped && !this.rendering && !this.renderRequested && !this.hasOverlay() && terminalSizeMatches;
 	}
 
 	private getWritableRenderRegionRect(state: RenderRegionState): RenderRegionRect | undefined {

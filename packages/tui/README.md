@@ -652,6 +652,8 @@ The TUI uses three rendering strategies:
 
 All updates are wrapped in **synchronized output** (`\x1b[?2026h` ... `\x1b[?2026l`) for atomic, flicker-free rendering.
 
+Terminal focus notifications do not pause rendering. Normal render throttling and request coalescing remain unchanged, including during focus loss, resize, or use by shared terminal clients. Focus-in (`CSI I`) and focus-out (`CSI O`) sequences are consumed rather than inserted as typed input. Component keyboard focus and modal focus restoration are separate and unchanged.
+
 ## Terminal Interface
 
 The TUI works with any object implementing the `Terminal` interface:

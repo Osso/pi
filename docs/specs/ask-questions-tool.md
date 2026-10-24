@@ -53,6 +53,7 @@ The `ask_questions` built-in tool lets the model ask choice or free-text questio
 
 - [x] Require all user questions through `ask_questions`, never chat, including free-text questions. Specify `blocking: true` when progress depends on the answer and `false` when independent work can continue.
 - [x] Render compact call/result summaries in the TUI.
+- [x] Keep a pending question dialog and footer rendered through terminal focus loss, resize, and focus notifications from shared terminal clients, without waiting for focus-in. Retain normal render throttling/coalescing, consume focus sequences rather than typing them, and preserve component keyboard focus and modal restoration.
 - [x] The transcript row lists each question and, once answered, `→ <answer>` (or `→ (cancelled)` for unanswered questions), and stays visible when `hideToolOutput` hides tool results.
 - [x] Point plan-mode guidance at `ask_questions` instead of the legacy questionnaire example.
 
@@ -76,6 +77,8 @@ The `ask_questions` built-in tool lets the model ask choice or free-text questio
 - `packages/coding-agent/examples/extensions/README.md` — extension example note for legacy questionnaire.
 
 ## Tests asserting this spec
+
+- `packages/tui/test/dtach-focus.test.ts` — native detach with two attached PTY clients: pending question/options/footer after shrink and same-size resize, with focused-control and other-client-blur scenarios, plus answer delivery. `packages/tui/test/tui-focus.test.ts` additionally covers ordinary updates, forced renders, resize, fixed cells/render regions, and focus-report consumption without changing component focus.
 
 - `packages/coding-agent/test/suite/child-ask-questions.test.ts` — child-to-parent relay through real parent/child sessions and control DB: blocking answer resumes the original tool call, nonblocking inbox delivery, children reusing one tool-call ID, abort, main-runtime delegation, and non-parent rejection.
 
