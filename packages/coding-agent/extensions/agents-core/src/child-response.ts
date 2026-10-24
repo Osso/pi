@@ -1,4 +1,5 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import { getAssistantContentText } from "../../../src/core/assistant-narration.ts";
 
 export function readCurrentChildAssistantText(
 	messages: AgentMessage[],
@@ -13,10 +14,10 @@ export function readCurrentChildAssistantText(
 		const message = currentMessages[index];
 		if (message?.role !== "assistant") continue;
 		const text = message.content
-			.filter((part) => part.type === "text")
-			.map((part) => part.text)
+			.map(getAssistantContentText)
+			.filter((text): text is string => text !== undefined)
 			.join("\n");
-		if (text) return text;
+		if (text.trim()) return text;
 	}
 	return undefined;
 }

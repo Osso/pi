@@ -119,18 +119,25 @@ describe("child provider failure completion", () => {
 		});
 	});
 
-	it("does not borrow a parent summary when the child ends without text", async () => {
+	it("requires a child report instead of borrowing an inherited parent summary", async () => {
 		await withHeadlessPi(async (agent) => {
 			const { child, request } = await spawnInheritedChild(agent);
 			await finishParentTurn(agent);
-			agent.respondToLlmRequest(
-				request.id,
-				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "No textual result" }), { stopReason: "toolUse" }),
+			const end = fauxToolCall("end_turn", { reason: "No textual result" });
+			agent.respondToLlmRequest(request.id, fauxAssistantMessage(end, { stopReason: "toolUse" }));
+			const continuation = await agent.waitForLlmRequest((candidate) => candidate.agentId === child.id);
+			const result = continuation.messages.find(
+				(message) => message.role === "toolResult" && message.toolCallId === end.id,
 			);
+			expect(result).toMatchObject({ isError: true });
+			expect(getMessageText(result)).toMatch(/report|parent/i);
+			expect(agent.listAgents().find((candidate) => candidate.id === child.id)?.lifecycle).toBe("running");
+			expect(agent.listMailboxMessages().filter((message) => message.fromAgentId === child.id)).toHaveLength(0);
+			agent.respondToLlmRequest(continuation.id, completedMessage("Current child report after rejection"));
 			const terminal = await agent.waitForAgent(
 				(candidate) => candidate.id === child.id && candidate.lifecycle === "completed",
 			);
-			expect(terminal.result).toBeUndefined();
+			expect(terminal.result?.summary).toBe("Current child report after rejection");
 		});
 	});
 });

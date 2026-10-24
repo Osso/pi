@@ -14,6 +14,12 @@ When `end_turn` is available, a text-only answer schedules another request. That
 
 [`print-mode.ts`](../../../packages/coding-agent/src/modes/print-mode.ts) searches backward through successful end-turn results/textless end-turn assistants to find printable text, stopping at other message boundaries. Errors preserve nonzero exits; JSON mode emits events.
 
+## Child report guard
+
+The [child report contract](../../specs/end-turn-tool.md#child-report-requirement) is implemented by extension-owned [`child-report.ts`](../../../packages/coding-agent/extensions/agents-core/src/child-report.ts). Both spawned and attached factories in `runtime.ts` install its custom `end_turn` through `customTools`. It reconstructs report eligibility from the durable current branch after the latest user prompt, rather than adding persistent state. A nonblank ordinary assistant text block or server-signed public narration qualifies. A nonblank `contact_parent.body` qualifies only with a result linked to its current tool call, no `isError`, a nonblank `details.message.id`, and `details.message.status` equal to `pending`, `claimed`, or `accepted`. A failed transport status does not qualify even when `isError` is false. These statuses establish successful send evidence, not proof that the parent has read the message. Inherited parent text, prior-task reports, private thinking, whitespace, and failed contact attempts do not qualify.
+
+Without a report, the tool returns an actionable error without termination, allowing another model response. Main-session textless completion stays unchanged. There is no automatic report, opt-out, compatibility path, fallback, model gate, policy evaluator, or extra persistent report state. [`child-response.ts`](../../../packages/coding-agent/extensions/agents-core/src/child-response.ts) includes accepted public narration in current-dispatch parent result extraction through the existing public-text helper. The guard checks report presence and successful send evidence; it does not assess the semantic quality or correctness of model findings.
+
 ## Public narration presentation
 
 [`assistant-narration.ts`](../../../packages/coding-agent/src/core/assistant-narration.ts) classifies signatures whose base64 protobuf envelope field 2 → 1 → 8 equals `narration`. The interactive assistant renderer presents that block's returned text as ordinary Markdown, including when thinking is hidden, once the signature arrives. Print output must use the same classification. Original thinking content and signature remain unchanged for persistence, JSON output, and provider replay; genuine or unclassified thinking retains normal thinking visibility.
@@ -25,6 +31,14 @@ The [captured incident fixture](../../../packages/coding-agent/test/fixtures/ant
 This ends the model loop, not Pi itself and not a running goal. Extensions can request further continuation. The completion-policy guidance is prompt text, not proof that task acceptance criteria were met.
 
 ## Test evidence
+
+Focused child-report evidence:
+
+- `packages/coding-agent/test/child-report.test.ts` covers current-task eligibility, durable reopen, linked parent-send evidence, rejection and public result extraction.
+- `packages/coding-agent/test/suite/regressions/child-report-required.test.ts` covers inherited-history rejection, public text and narration, private/blank rejection, successful and failed contact, attached prior-task exclusion, and an actual live-child supervisor crash/restart with one later completion delivery.
+- `packages/coding-agent/test/suite/regressions/child-provider-error-completion.test.ts` preserves provider failures and current-child result boundaries.
+
+These offline faux-provider tests establish structural report enforcement and result boundaries, not live-model compliance or semantic quality.
 
 The captured renderer, print-mode, end-turn narration and real CLI PTY tests pass. The PTY test asserts visibility before releasing a controlled tool and after reopening the persisted session in a new process. Signed blocks remain unchanged in persistence; the following provider request is also checked.
 

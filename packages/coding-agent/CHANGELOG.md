@@ -4,6 +4,8 @@
 
 ### Breaking Changes
 
+- Child `end_turn` now requires a current-task public report or successful `contact_parent` send. Reportless calls return an error and keep the child active; private thinking, blank text, failed sends, and earlier reports do not qualify. Applies to spawned and attached children; main-session completion is unchanged. Public narration is included in parent result summaries.
+
 - Replaced the `compaction.keepRecentTokens` setting with `compaction.keepRecentMessages` (default 20): compaction keeps that many newest context messages (user, assistant, tool results) verbatim and summarizes everything older. Removed the 20,000-byte cap on kept messages when rebuilding context. `keepRecentTokens` is no longer read.
 
 - `ask_questions` now requires an explicit `blocking` boolean: `true` awaits answers; `false` queues serial TUI panels and delivers answers/cancellation through the runtime inbox, correlated by `requestId` equal to `toolCallId`. SDK/tool callers must supply the field. Nonblocking calls require a persisted session and control database; pending panels remain process-local and are not recovered after restart.

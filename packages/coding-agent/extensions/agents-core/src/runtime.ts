@@ -84,6 +84,7 @@ import {
 import { registerSetAgentModelTool, resolveLiveAgentMutationTarget } from "./agent-model-tool.ts";
 import { bindProductionChildSession, type UnboundChildAgentSession } from "./child-session.ts";
 import { readCurrentChildAssistantText } from "./child-response.ts";
+import { createChildEndTurnToolDefinition } from "./child-report.ts";
 import { isRemoteSessionMessage, sessionMessageRouteError } from "./session-message-route.ts";
 import { waitForActiveDescendants } from "./descendant-settlement.ts";
 import { createLifecycleCoordinator, RUNTIME_PROCESS_IDENTITY } from "./lifecycle-runtime.ts";
@@ -590,13 +591,16 @@ function resolveChildExtensionFactories(
 	);
 }
 
-function createBrowserReadTools(
+function createChildTools(
 	agent: AgentSnapshot,
 	options: Pick<ProductionChildAgentSessionFactoryOptions, "browserAgentConfigRoot">,
-): ToolDefinition[] | undefined {
-	if (agent.agentType !== "browser") return undefined;
-	const allowedRoot = options.browserAgentConfigRoot ?? DEFAULT_BROWSER_AGENT_CONFIG_ROOT;
-	return [createAgentConfigReadToolDefinition(agent.cwd, allowedRoot)];
+): ToolDefinition[] {
+	const tools: ToolDefinition[] = [createChildEndTurnToolDefinition()];
+	if (agent.agentType === "browser") {
+		const allowedRoot = options.browserAgentConfigRoot ?? DEFAULT_BROWSER_AGENT_CONFIG_ROOT;
+		tools.push(createAgentConfigReadToolDefinition(agent.cwd, allowedRoot));
+	}
+	return tools;
 }
 
 function getSessionTranscriptMetadata(
@@ -702,7 +706,7 @@ export function createProductionChildAgentSessionFactory(
 			: { type: "session_start" as const, reason: "fork" as const };
 		const result = await options.createSession({
 			agentDir: options.agentDir,
-			customTools: createBrowserReadTools(agent, options),
+			customTools: createChildTools(agent, options),
 			cwd: agent.cwd,
 			excludeTools: CHILD_EXCLUDED_TOOL_NAMES,
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
@@ -760,7 +764,7 @@ export function createProductionAttachedSessionFactory(
 			: { type: "session_start" as const, reason: "resume" as const };
 		const result = await options.createSession({
 			agentDir: options.agentDir,
-			customTools: createBrowserReadTools(agent, options),
+			customTools: createChildTools(agent, options),
 			cwd: agent.cwd,
 			excludeTools: CHILD_EXCLUDED_TOOL_NAMES,
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
