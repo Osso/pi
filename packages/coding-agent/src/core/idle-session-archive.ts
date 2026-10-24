@@ -54,17 +54,10 @@ export async function archiveIdleSessionTranscripts(
 	const root = join(options.agentDir ?? getAgentDir(), "sessions");
 	if (!existsSync(root)) return result;
 	let compromised: Error | undefined;
-	let release: () => Promise<void>;
-	try {
-		release = await lockfile.lock(root, {
-			onCompromised: (error) => {
-				compromised = error;
-			},
-		});
-	} catch (error) {
-		if (error instanceof Error && "code" in error && error.code === "ELOCKED") return result;
-		throw error;
-	}
+	const release = await acquireArchiveClaim(root, (error) => {
+		compromised = error;
+	});
+	if (!release) return result;
 	const assertClaim = () => {
 		if (compromised) throw compromised;
 	};
@@ -90,6 +83,18 @@ export async function archiveIdleSessionTranscripts(
 		// A compromised claim is already released by proper-lockfile; never release a successor's claim.
 		assertClaim();
 		await release();
+	}
+}
+
+async function acquireArchiveClaim(
+	root: string,
+	onCompromised: (error: Error) => void,
+): Promise<(() => Promise<void>) | undefined> {
+	try {
+		return await lockfile.lock(root, { onCompromised });
+	} catch (error) {
+		if (error instanceof Error && "code" in error && error.code === "ELOCKED") return undefined;
+		throw error;
 	}
 }
 

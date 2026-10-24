@@ -21,6 +21,13 @@ function barrier(phase: string): void {
 	}
 }
 
+async function waitForCompressionRelease(deadline: number): Promise<void> {
+	while (!exists(join(gates, `${worker}-compressing.release`))) {
+		if (Date.now() >= deadline) throw new Error("Compression barrier timed out");
+		await delay(5);
+	}
+}
+
 function recordFailure(operation: string, error: unknown): never {
 	boundaries.push({
 		operation,
@@ -56,31 +63,27 @@ fs.createWriteStream = new Proxy(fs.createWriteStream, {
 			originalWrite.call(stream, chunk, encoding, (error) => {
 				write(join(gates, `${worker}-compressing.ready`), "");
 				const deadline = Date.now() + 12_000;
-				const resume = async () => {
-					while (!exists(join(gates, `${worker}-compressing.release`))) {
-						if (Date.now() >= deadline) throw new Error("Compression barrier timed out");
-						await delay(5);
-					}
-				};
-				void resume().then(() => callback(error), callback);
+				void waitForCompressionRelease(deadline).then(callback.bind(undefined, error), callback);
 			});
 		};
 		return stream;
 	},
 });
 let sourceStats = 0;
-fs.lstatSync = new Proxy(fs.lstatSync, {
-	apply(target, receiver, args) {
-		if (String(args[0]) !== file) return Reflect.apply(target, receiver, args);
-		// Candidate enumeration and realpath have succeeded; hold this pass before its first stat.
-		if (scenario === "stale" && worker === "winner" && ++sourceStats === 1) barrier("candidate");
-		if (scenario === "external-delete") fs.unlinkSync(file);
-		try {
-			return Reflect.apply(target, receiver, args);
-		} catch (error) {
-			return recordFailure("lstat", error);
-		}
-	},
+Object.defineProperty(fs, "lstatSync", {
+	value: new Proxy(fs.lstatSync, {
+		apply(target, receiver, args) {
+			if (String(args[0]) !== file) return Reflect.apply(target, receiver, args);
+			// Candidate enumeration and realpath have succeeded; hold this pass before its first stat.
+			if (scenario === "stale" && worker === "winner" && ++sourceStats === 1) barrier("candidate");
+			if (scenario === "external-delete") fs.unlinkSync(file);
+			try {
+				return Reflect.apply(target, receiver, args);
+			} catch (error) {
+				return recordFailure("lstat", error);
+			}
+		},
+	}),
 });
 fs.linkSync = new Proxy(fs.linkSync, {
 	apply(target, receiver, args) {
