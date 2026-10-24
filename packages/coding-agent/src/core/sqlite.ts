@@ -83,7 +83,7 @@ function createBunSqliteDatabase(path: string, options?: { readonly?: boolean })
 }
 
 /** Default multi-consumer open settings for shared process-local SQLite DBs. */
-export const DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS = 5000;
+export const DEFAULT_SHARED_SQLITE_BUSY_TIMEOUT_MS = 10000;
 
 /**
  * Configure a read-only SQLite connection for concurrent access.

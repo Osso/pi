@@ -15,10 +15,15 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 - [x] Do not automatically fall back to or migrate a legacy control database from the agent config
   directory. Deployment moves the live database to the state-root path while all runtimes are stopped.
 - [x] Open the control database with multi-consumer SQLite settings (WAL journal
-  mode, busy timeout, NORMAL synchronous) so concurrent Pi sessions can read and
-  write without exclusive-lock failures. Bun connections must finalize every
+  mode, busy timeout, NORMAL synchronous) to support concurrent Pi sessions;
+  these settings do not guarantee freedom from `SQLITE_BUSY`. Bun connections must finalize every
   prepared statement before close so polling runtimes do not retain database file
   descriptors or eventually block coordination through descriptor exhaustion.
+- [x] Default the shared SQLite busy timeout to 10,000 ms (previously 5,000 ms)
+  for both read-only and shared configured connections; honor explicit caller
+  `busyTimeoutMs` overrides. Existing retained connections keep their configured
+  timeout; the new default applies only to newly configured connections using
+  the updated code, so running old binaries require restart to adopt it.
 - [x] Store incoming harness messages outside the JSONL transcript.
 - [x] Claim only the newest pending incoming message and supersede older pending
   messages.
@@ -305,6 +310,8 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 
 ## Tests asserting this spec
 
+- `packages/coding-agent/test/sqlite.test.ts` with `test/fixtures/sqlite-contention.ts` — Node read-only configuration reports 10,000 ms by default and 150 ms explicitly; separate Bun writer/contender processes prove the default write succeeds after a lock held >=6,500 ms and persists both rows, while an explicit 150 ms contender fails before writer release and persists only the writer row. The four tests also cover Bun prepared-statement/file-descriptor cleanup.
+
 - `packages/coding-agent/test/host-relay.test.ts` — atomic sequence persistence/import, deletion isolation, ordered retries and fixed cursor count.
 - `packages/coding-agent/test/suite/host-relay-process.test.ts` — native relay delivery on isolated control DBs.
 
@@ -372,6 +379,13 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 ## Known gaps (current cycle)
 
 No open mailbox contract gaps.
+
+- [x] Verify the staged 10,000 ms default and explicit overrides in
+  `packages/coding-agent/test/sqlite.test.ts`, including real Bun cross-process
+  contention and file-descriptor cleanup, as mapped above. This trial is not
+  deployed and does not establish the cause
+  or resolution of observed `SQLITE_BUSY`, server-load attribution, or missing
+  editor/scrollback symptoms.
 
 ## Out of scope
 
