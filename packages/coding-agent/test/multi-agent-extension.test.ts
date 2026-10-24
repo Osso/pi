@@ -5200,10 +5200,10 @@ describe("multi-agent extension tools", () => {
 				childShutdown.resolve();
 			});
 			pi.on("tool_result", async (event, ctx) => {
-				if (event.toolName === "spawn_agent" && !ctx.multiAgentAgentId && childContext) {
-					// Keep print-mode teardown behind the child's completed message persistence.
-					await childShutdown.promise;
-				}
+				if (event.toolName !== "spawn_agent" || ctx.multiAgentAgentId) return;
+				if (!childContext) return;
+				// Keep print-mode teardown behind the child's completed message persistence.
+				await childShutdown.promise;
 			});
 			pi.registerProvider(model.provider, {
 				api: faux.api,
