@@ -17,6 +17,7 @@ import { open } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createZstdCompress, createZstdDecompress } from "node:zlib";
+import lockfile from "proper-lockfile";
 import { getAgentDir } from "../config.ts";
 import { readLinuxProcessReferences } from "./detached-job-cleanup.ts";
 import { isResidentSession } from "./resident-session.ts";
@@ -52,20 +53,44 @@ export async function archiveIdleSessionTranscripts(
 	const result: IdleSessionArchiveResult = { archivedPaths: [], errors: [] };
 	const root = join(options.agentDir ?? getAgentDir(), "sessions");
 	if (!existsSync(root)) return result;
-	const references = readLinuxProcessReferences();
-	if (!references) return result;
-	const protectedPaths = readProtectedTranscriptPaths(controlDbPath);
-	if (options.currentSessionPath) protectedPaths.add(resolve(options.currentSessionPath));
-	const cutoff = (options.now ?? Date.now()) - IDLE_AGE_MS;
-	for (const path of listProjectTranscripts(root)) {
-		try {
-			if (references.has(realpathSync(path)) || protectedPaths.has(resolve(path))) continue;
-			if (await archiveIdleTranscript(controlDbPath, path, cutoff)) result.archivedPaths.push(`${path}.zst`);
-		} catch (error) {
-			result.errors.push(`${path}: ${error instanceof Error ? error.message : String(error)}`);
-		}
+	let compromised: Error | undefined;
+	let release: () => Promise<void>;
+	try {
+		release = await lockfile.lock(root, {
+			onCompromised: (error) => {
+				compromised = error;
+			},
+		});
+	} catch (error) {
+		if (error instanceof Error && "code" in error && error.code === "ELOCKED") return result;
+		throw error;
 	}
-	return result;
+	const assertClaim = () => {
+		if (compromised) throw compromised;
+	};
+	try {
+		const references = readLinuxProcessReferences();
+		if (!references) return result;
+		const protectedPaths = readProtectedTranscriptPaths(controlDbPath);
+		if (options.currentSessionPath) protectedPaths.add(resolve(options.currentSessionPath));
+		const cutoff = (options.now ?? Date.now()) - IDLE_AGE_MS;
+		for (const path of listProjectTranscripts(root)) {
+			assertClaim();
+			try {
+				if (references.has(realpathSync(path)) || protectedPaths.has(resolve(path))) continue;
+				if (await archiveIdleTranscript(controlDbPath, path, cutoff, assertClaim)) {
+					result.archivedPaths.push(`${path}.zst`);
+				}
+			} catch (error) {
+				result.errors.push(`${path}: ${error instanceof Error ? error.message : String(error)}`);
+			}
+		}
+		return result;
+	} finally {
+		// A compromised claim is already released by proper-lockfile; never release a successor's claim.
+		assertClaim();
+		await release();
+	}
 }
 
 export function runIdleSessionArchive(controlDbPath: string, agentDir: string, currentSessionPath?: string): void {
@@ -119,12 +144,17 @@ function readProtectedTranscriptPaths(controlDbPath: string): Set<string> {
 	return paths;
 }
 
-async function archiveIdleTranscript(controlDbPath: string, path: string, cutoff: number): Promise<boolean> {
+async function archiveIdleTranscript(
+	controlDbPath: string,
+	path: string,
+	cutoff: number,
+	assertClaim: () => void,
+): Promise<boolean> {
 	const before = lstatSync(path);
 	if (!before.isFile()) return false;
 	const metadata = readSessionMetadata(controlDbPath, path) ?? readSessionMetadata(controlDbPath, `${path}.zst`);
 	if (metadata && isResidentSession({ id: metadata.id, path })) return false;
-	if (existsSync(`${path}.zst`)) return recoverPublishedArchive(controlDbPath, path, before);
+	if (existsSync(`${path}.zst`)) return recoverPublishedArchive(controlDbPath, path, before, assertClaim);
 	if (before.mtimeMs >= cutoff) return false;
 	const temp = `${path}.archive-temp-${randomUUID()}`;
 	try {
@@ -133,8 +163,11 @@ async function archiveIdleTranscript(controlDbPath: string, path: string, cutoff
 			createZstdCompress(),
 			createWriteStream(temp, { flags: "wx", mode: before.mode & 0o777 }),
 		);
+		assertClaim();
 		if (!(await readArchiveMatchesOriginal(path, temp))) throw new Error(`Archive differs from original: ${path}`);
-		if (!metadata && !(await indexTranscript(controlDbPath, path))) return false;
+		assertClaim();
+		if (!metadata && !(await indexTranscript(controlDbPath, path, assertClaim))) return false;
+		assertClaim();
 		if (!canPublishArchivedTranscript(controlDbPath, path, before)) return false;
 		chmodSync(temp, before.mode & 0o777);
 		utimesSync(temp, before.atime, before.mtime);
@@ -146,9 +179,15 @@ async function archiveIdleTranscript(controlDbPath: string, path: string, cutoff
 }
 
 /** Recover publication interrupted between the hard link, DB relocation, and source unlink. */
-async function recoverPublishedArchive(controlDbPath: string, path: string, before: Stats): Promise<boolean> {
+async function recoverPublishedArchive(
+	controlDbPath: string,
+	path: string,
+	before: Stats,
+	assertClaim: () => void,
+): Promise<boolean> {
 	const archive = `${path}.zst`;
 	const identical = await readArchiveMatchesOriginal(path, archive);
+	assertClaim();
 	if (!canPublishArchivedTranscript(controlDbPath, path, before)) return false;
 	if (!identical) {
 		// Appends to the surviving plain file supersede the published snapshot.
@@ -157,7 +196,9 @@ async function recoverPublishedArchive(controlDbPath: string, path: string, befo
 		return false;
 	}
 	if (!readSessionMetadata(controlDbPath, archive)) {
-		if (!readSessionMetadata(controlDbPath, path) && !(await indexTranscript(controlDbPath, path))) return false;
+		if (!readSessionMetadata(controlDbPath, path) && !(await indexTranscript(controlDbPath, path, assertClaim)))
+			return false;
+		assertClaim();
 		relocateAndArchiveSession(controlDbPath, path, archive);
 	}
 	unlinkSync(path);
@@ -182,8 +223,9 @@ function canPublishArchivedTranscript(controlDbPath: string, path: string, befor
 	);
 }
 
-async function indexTranscript(controlDbPath: string, path: string): Promise<boolean> {
+async function indexTranscript(controlDbPath: string, path: string, assertClaim: () => void): Promise<boolean> {
 	const info = await buildSessionInfo(path);
+	assertClaim();
 	if (!info || isResidentSession(info)) return false;
 	writeSessionMetadata(controlDbPath, {
 		sessionPath: path,

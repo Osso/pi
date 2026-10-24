@@ -211,6 +211,7 @@
 
 ### Fixed
 
+- Fixed competing startup idle-archive passes racing on source inspection (`ENOENT`) and archive publication (`EEXIST`): one nonblocking cross-process claim protects the entire pass per canonical sessions root; competitors skip, ownership releases on failure, and stale crash claims are recoverable. Archive bytes, control-DB metadata, and reporting of genuine I/O, corruption, or missing-data errors remain protected.
 - Fixed `/periodic-checks` and `/periodic-checks status` retaining `No checklist` after a checklist is added following startup; status now discovers it and arms its full configured interval without starting an audit or changing an armed schedule.
 - Goal reviews receive every recent user message in order as `userMessages` (replacing `userRequest`/`userAnswers`), including nonblocking `ask_questions` answers delivered through the inbox. Previously only the latest input was sent, so a follow-up such as "also add X" replaced the original request, and inbox answers never reached the reviewer; the Supervisor then narrowed or rejected scope the user had asked for.
 - The selected child-agent view shows each finished tool call's result as soon as it ends instead of "Waiting for command..." until the slowest call in its parallel batch finishes.

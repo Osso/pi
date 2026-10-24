@@ -24,6 +24,8 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 
 ### Automatic idle archival
 
+- [x] Allow only one cross-process automatic archival pass per canonical existing sessions root; claim before enumerating candidates, protect the entire pass, and skip immediately when another pass owns it. Release ownership even on failure; abandoned crash claims must be recoverable.
+- [x] Prevent competing startup passes from producing source-`lstat` `ENOENT` or archive-hard-link `EEXIST` errors while preserving the winning archive's bytes and control-DB metadata. Genuine I/O, corrupt-archive, and missing-data errors remain reported rather than suppressed.
 - [x] At runtime startup, alongside detached artifact cleanup, asynchronously archive normal project `.jsonl` transcripts whose filesystem mtime is strictly more than 30 days old.
 - [x] Reuse `.jsonl.zst` and existing control-DB path relocation/archive state. Keep automatic archives hidden from normal listing and resume by ID/name, just like manual archives; explicit paths and Archived picker restore them.
 - [x] Skip recent files, the starting runtime's transcript, `/proc`-referenced files, and transcripts owned by live session listeners/health records or nonterminal agents (including separate child transcript paths).
@@ -96,7 +98,8 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/idle-session-archive.test.ts` — age boundary, byte identity, metadata, permissions, real-process file references, active DB agents/listeners, and no-clobber.
+- `packages/coding-agent/test/idle-session-archive.test.ts` — age boundary, byte identity, metadata, permissions, real-process file references, active DB agents/listeners, no-clobber, and cross-process startup races at source inspection and archive publication.
+- `packages/coding-agent/test/fixtures/idle-session-archive/race-worker.ts` — independent Pi worker fixture for those races; assertions cover the winning archive's bytes and control-DB metadata.
 - `packages/coding-agent/test/archived-transcript-readers.test.ts` — read-only history, headers, entries, fork, goal references, export, and resumed search parity.
 - `packages/coding-agent/test/session-manager/session-load-parity.test.ts` — baseline plain-loader state, zero/one/two compactions, cwd ancestors, abandoned branches, viewer state, HTML/terminal exports, search, forks, SQLite settings, and goal-reference parity.
 - `packages/coding-agent/test/session-manager/session-load-memory.test.ts` — fresh-process peak RSS on a generated 500+ MiB transcript in both formats.
