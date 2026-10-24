@@ -45,10 +45,16 @@ export interface IdleSessionArchiveResult {
 	errors: string[];
 }
 
+interface IdleSessionArchiveOptions {
+	agentDir?: string;
+	now?: number;
+	currentSessionPath?: string;
+}
+
 /** One pass, restricted to normal project session directories. No detached artifacts or residents. */
 export async function archiveIdleSessionTranscripts(
 	controlDbPath: string,
-	options: { agentDir?: string; now?: number; currentSessionPath?: string } = {},
+	options: IdleSessionArchiveOptions = {},
 ): Promise<IdleSessionArchiveResult> {
 	const result: IdleSessionArchiveResult = { archivedPaths: [], errors: [] };
 	const root = join(options.agentDir ?? getAgentDir(), "sessions");
@@ -62,28 +68,38 @@ export async function archiveIdleSessionTranscripts(
 		if (compromised) throw compromised;
 	};
 	try {
-		const references = readLinuxProcessReferences();
-		if (!references) return result;
-		const protectedPaths = readProtectedTranscriptPaths(controlDbPath);
-		if (options.currentSessionPath) protectedPaths.add(resolve(options.currentSessionPath));
-		const cutoff = (options.now ?? Date.now()) - IDLE_AGE_MS;
-		for (const path of listProjectTranscripts(root)) {
-			assertClaim();
-			try {
-				if (references.has(realpathSync(path)) || protectedPaths.has(resolve(path))) continue;
-				if (await archiveIdleTranscript(controlDbPath, path, cutoff, assertClaim)) {
-					result.archivedPaths.push(`${path}.zst`);
-				}
-			} catch (error) {
-				result.errors.push(`${path}: ${error instanceof Error ? error.message : String(error)}`);
-			}
-		}
-		return result;
+		return await runProtectedArchivePass(controlDbPath, root, options, assertClaim);
 	} finally {
 		// A compromised claim is already released by proper-lockfile; never release a successor's claim.
 		assertClaim();
 		await release();
 	}
+}
+
+async function runProtectedArchivePass(
+	controlDbPath: string,
+	root: string,
+	options: IdleSessionArchiveOptions,
+	assertClaim: () => void,
+): Promise<IdleSessionArchiveResult> {
+	const result: IdleSessionArchiveResult = { archivedPaths: [], errors: [] };
+	const references = readLinuxProcessReferences();
+	if (!references) return result;
+	const protectedPaths = readProtectedTranscriptPaths(controlDbPath);
+	if (options.currentSessionPath) protectedPaths.add(resolve(options.currentSessionPath));
+	const cutoff = (options.now ?? Date.now()) - IDLE_AGE_MS;
+	for (const path of listProjectTranscripts(root)) {
+		assertClaim();
+		try {
+			if (references.has(realpathSync(path)) || protectedPaths.has(resolve(path))) continue;
+			if (await archiveIdleTranscript(controlDbPath, path, cutoff, assertClaim)) {
+				result.archivedPaths.push(`${path}.zst`);
+			}
+		} catch (error) {
+			result.errors.push(`${path}: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	}
+	return result;
 }
 
 async function acquireArchiveClaim(
