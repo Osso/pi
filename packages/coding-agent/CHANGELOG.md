@@ -224,6 +224,8 @@
 
 - Runtime mailbox delivery with limit zero returns no messages and leaves candidates pending.
 
+- Fixed stale credentials after external re-login by reloading persisted auth at model-request credential resolution, including resident Supervisor and instruction-veto requests, while preserving runtime overrides, model policy, and transcript.
+
 - OAuth refresh persistence failures no longer masquerade as successful reload recovery. Rotated credentials stay in memory; request callers receive the persistence error and discovery callers receive `undefined`.
 
 - Fixed local `send_agent_message` main/supervisor session addressing to reject live child-only listener targets with explicit agent-ID guidance instead of queueing to an unclaimed main inbox; live main listeners and offline main queueing remain allowed, excluding dead or superseded listener identities from the check.

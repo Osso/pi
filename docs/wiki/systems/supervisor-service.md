@@ -14,6 +14,10 @@ The probe identity is accepted only when the console snapshot explicitly include
 
 `deploy.sh` defaults to Pi-managed lazy Supervisor startup. On Linux it invokes `scripts/configure-resident-services.sh <pi-binary> autostart`, which stops, disables, and removes obsolete Architect and Supervisor user units; on Darwin it skips systemd configuration and rejects the systemd opt-in explicitly. `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1 ./deploy.sh` selects systemd mode, while the direct one-argument `scripts/configure-resident-services.sh <pi-binary>` form remains an explicit systemd installer.
 
+## Request authentication
+
+`ModelRegistry.getApiKeyAndHeaders()` reloads its `AuthStorage` before resolving provider environment and credentials for each model request. Both the resident session and stateless instruction-veto evaluator use this resolver, so externally replaced credentials (including Codex re-login) take effect on the next resolution even if the cached token has not expired. Runtime credential overrides retain precedence; credential reload does not restart the resident, reset its transcript, or change model-selection and quota-fallback policy.
+
 ## Request flow
 
 `supervisor_requests` stores request identity, sender session, canonical project family, request kind, bounded JSON evidence, original deadline, claim ownership, and typed response. Idle and completion goal requests carry the goal's ordered unconsumed `conversationEvents`; they no longer carry `terminalTurn`. After ensuring the resident is ready and inserting a request, the caller sends a best-effort wake notification through the owner-only Unix socket. The Supervisor claims pending rows from SQLite at startup and after every wake, so a missed notification leaves the request durable for the next wake or service restart. Approval requests sort ahead of goal requests. If an approval arrives during a goal evaluation, the service aborts the model turn, requeues the unchanged goal request and its evidence, evaluates the approval, then later resumes the goal request within its original deadline.
