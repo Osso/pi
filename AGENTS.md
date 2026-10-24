@@ -179,7 +179,7 @@ Attribution:
 
 ## Deployment
 
-- Merge feature and fix branches into `main` before deploying. Deploy a non-`main` revision only when the user explicitly designates it as a special deployment.
+- Merge feature and fix branches into the default branch before deploying. Deploy a non-default-branch revision only when the user explicitly designates it as a special deployment.
 - After deployment, enumerate eligible live Pi sessions once, recording launcher, PID/start identity, and executable or source revision. Force-restart every runtime still using the superseded artifact without additional confirmation; do not restart current runtimes.
 - Preserve launchers: installed `pi` sessions re-exec the deployed binary, while `pi-dev` sessions re-exec from canonical source. Never migrate `pi-dev` to installed `pi`.
 - After replacements, run one bounded final identity and health inventory. Do not poll repeatedly.
