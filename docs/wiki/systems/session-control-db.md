@@ -6,21 +6,21 @@ Contract: [Session control DB](../../specs/session-control-db.md).
 
 [session-control-db.ts](../../../packages/coding-agent/src/core/session-control-db.ts) owns SQLite schema and repository operations. `getControlDbPath()` appends `control.sqlite` to the state root from [config.ts](../../../packages/coding-agent/src/config.ts): `PI_CODING_AGENT_STATE_DIR`, otherwise `$XDG_STATE_HOME/pi`, otherwise `~/.local/state/pi`. An explicit directory gives an isolated database. There is no automatic agent-config-directory migration.
 
-[sqlite.ts](../../../packages/coding-agent/src/core/sqlite.ts) selects Node/Bun SQLite and configures WAL and NORMAL synchronous. The staged trial increases the default busy timeout from 5,000 to 10,000 ms for both read-only and shared configured connections; explicit caller `busyTimeoutMs` overrides remain honored. Repository calls open/close connections unless retained by a runtime; retained calls finalize Bun statements after the outermost call. Coupled writes use immediate transactions. Initialization rejects schema versions above 15. Lifecycle-protocol and name migrations check runtime quiescence before writer acquisition and revalidate the snapshot inside the transaction; validated same-PID restart can exempt only its own process.
+[sqlite.ts](../../../packages/coding-agent/src/core/sqlite.ts) selects Node/Bun SQLite and configures WAL and NORMAL synchronous. The default busy timeout is 10,000 ms (previously 5,000 ms) for both read-only and shared configured connections; explicit caller `busyTimeoutMs` overrides remain honored. Repository calls open/close connections unless retained by a runtime; retained calls finalize Bun statements after the outermost call. Coupled writes use immediate transactions. Initialization rejects schema versions above 15. Lifecycle-protocol and name migrations check runtime quiescence before writer acquisition and revalidate the snapshot inside the transaction; validated same-PID restart can exempt only its own process.
 
-### Staged busy-timeout trial
+### Busy-timeout behavior
 
-The 10-second default is not deployed. Existing retained connections keep their
-previously configured timeout; only newly configured connections using updated
-code receive the new default. Running old binaries retain their behavior until
-restarted onto updated code. This trial does not change live databases, restart
-active processes, or alter an existing connection's timeout.
+Newly configured connections default to 10 seconds unless the caller supplies
+`busyTimeoutMs`. Existing retained connections keep their previously configured
+timeout. Running old binaries retain their behavior until restarted onto updated
+code; changing the source default does not alter an existing connection's timeout.
+Deployment and runtime activation evidence is recorded separately.
 
 SQLite lock waits are synchronous: a longer timeout gives a competing writer
 more time to release its lock, but can also stall UI/event processing longer.
 It does not guarantee success for every `SQLITE_BUSY` case or establish that
-server load caused the observed errors. No missing-editor, scrollback, or other
-rendering fix is claimed.
+server load caused the observed errors. The timeout change alone does not fix
+missing-editor, scrollback, or other rendering symptoms.
 
 `packages/coding-agent/test/sqlite.test.ts` and its
 `test/fixtures/sqlite-contention.ts` fixture prove this bounded configuration and

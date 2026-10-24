@@ -380,12 +380,11 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 
 No open mailbox contract gaps.
 
-- [x] Verify the staged 10,000 ms default and explicit overrides in
-  `packages/coding-agent/test/sqlite.test.ts`, including real Bun cross-process
-  contention and file-descriptor cleanup, as mapped above. This trial is not
-  deployed and does not establish the cause
-  or resolution of observed `SQLITE_BUSY`, server-load attribution, or missing
-  editor/scrollback symptoms.
+The timeout tests mapped above cover configuration, real Bun cross-process
+contention, and file-descriptor cleanup. They do not establish the cause or
+universal resolution of `SQLITE_BUSY`, server-load attribution, or a fix for
+missing-editor/scrollback symptoms. SQLite lock waits remain synchronous: the
+longer timeout can block UI/event processing longer while awaiting lock release.
 
 ## Out of scope
 
