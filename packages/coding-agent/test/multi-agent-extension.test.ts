@@ -5184,8 +5184,27 @@ describe("multi-agent extension tools", () => {
 		const faux = registerFauxProvider();
 		const model = faux.getModel();
 		let customExtensionLoads = 0;
+		const childShutdown = deferred<void>();
+		let childContext: ExtensionContext | undefined;
+		let childSessionPath: string | undefined;
+		let childShutdownCount = 0;
 		const customExtension: ExtensionFactory = (pi) => {
 			customExtensionLoads += 1;
+			pi.on("session_start", (_event, ctx) => {
+				if (ctx.multiAgentAgentId) childContext = ctx;
+			});
+			pi.on("session_shutdown", (_event, ctx) => {
+				if (!ctx.multiAgentAgentId) return;
+				childSessionPath = ctx.sessionManager.getSessionFile();
+				childShutdownCount += 1;
+				childShutdown.resolve();
+			});
+			pi.on("tool_result", async (event, ctx) => {
+				if (event.toolName === "spawn_agent" && !ctx.multiAgentAgentId && childContext) {
+					// Keep print-mode teardown behind the child's completed message persistence.
+					await childShutdown.promise;
+				}
+			});
 			pi.registerProvider(model.provider, {
 				api: faux.api,
 				apiKey: "faux-key",
@@ -5221,13 +5240,20 @@ describe("multi-agent extension tools", () => {
 			await main(["-p", "spawn a child", "--model", `${model.provider}/${model.id}`], {
 				extensionFactories: [customExtension],
 			});
-			for (let attempt = 0; attempt < 50 && customExtensionLoads < 2; attempt += 1) {
-				await delay(1);
-			}
-
 			expect(customExtensionLoads).toBe(2);
+			expect(childShutdownCount).toBe(1);
+			expect(childSessionPath).toEqual(expect.any(String));
+			if (!childSessionPath) throw new Error("expected child session path");
+			expect(SessionManager.open(childSessionPath).buildSessionContext().messages.map(getMessageText)).toEqual([
+				"child prompt",
+				"child done",
+				"Turn ended: child done",
+			]);
 		} finally {
-			await delay(100);
+			if (childContext && childShutdownCount === 0) {
+				childContext.abort();
+				await childShutdown.promise;
+			}
 			faux.unregister();
 			restoreIsTty(process.stdin, originalStdinIsTty);
 			restoreIsTty(process.stdout, originalStdoutIsTty);
