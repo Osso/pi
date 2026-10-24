@@ -281,3 +281,16 @@ describe("child report required", () => {
 		});
 	}, 60_000);
 });
+
+it("fails an inherited child when length termination has empty content and no current report", async () => {
+	await withHeadlessPi(async (agent) => {
+		const { child, request } = await spawnInheritedChild(agent);
+		agent.respondToLlmRequest(request.id, fauxAssistantMessage([], { stopReason: "length" }));
+		const terminal = await agent.waitForAgent(
+			(candidate) =>
+				candidate.id === child.id && (candidate.lifecycle === "failed" || candidate.lifecycle === "completed"),
+		);
+		expect(terminal.lifecycle).toBe("failed");
+		expect(terminal.error?.message).toMatch(/current.task report|report.*missing|missing.*report/i);
+	});
+});

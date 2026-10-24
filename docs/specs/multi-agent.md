@@ -88,9 +88,15 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `failed` with its error message, even with empty or partial text; inherited parent history and earlier
       dispatch results never substitute for a current result.
 - [x] Spawned and attached children must satisfy the [child report requirement](end-turn-tool.md#child-report-requirement)
-      before `end_turn` can terminate: current-task public prose or a successful explicit-body `contact_parent`
-      report is required. Reportless calls return actionable errors without termination; main-session behavior is unchanged.
+      before successful completion: current-task public prose or a successful explicit-body `contact_parent`
+      report is required. Reportless `end_turn` calls return actionable errors without termination; main-session behavior is unchanged.
       Parent result extraction must include accepted signed public narration, not private thinking.
+- [x] Final current-dispatch extraction must use the same report predicate after a normal prompt return,
+      including terminal `length` responses without `end_turn`. Missing reports throw an explicit error,
+      producing `failed` and a parent error notification rather than `completed`. A successful `contact_parent`
+      send can qualify without assistant text; inherited and previous-dispatch reports cannot qualify.
+      Preserve original provider errors and cancellation as `aborted`, without retries, length-specific fallback,
+      or a new lifecycle state. This validates structural report presence, not semantic quality.
 - [x] Multi-agent orchestration tools do not trigger generic tool approval prompts; child-agent
       host effects remain subject to normal tool approval inside the child session.
 - [x] `spawn_agent` requires the issued execution capability and constructs the executable child session
@@ -647,7 +653,8 @@ The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the
   provides capability-gated tools, coordinator-backed child dispatch/cancellation/steering/recovery,
   background jobs, fan-out waits, and the production child-session factories. Both factories install the
   extension-owned `child-report.ts` guard through `customTools`; `child-response.ts` extracts current-dispatch
-  public text, including signed narration. See the [end-turn inventory](end-turn-tool.md#implementation-inventory).
+  public text, including signed narration, and is the terminal report-validation boundary.
+  See the [end-turn inventory](end-turn-tool.md#implementation-inventory).
 - [`packages/coding-agent/extensions/agents-core/src/mailbox-tools.ts`](../../packages/coding-agent/extensions/agents-core/src/mailbox-tools.ts)
   defines required literal-body model schemas and maps them to the separate explicit-message transports.
 - [`packages/coding-agent/extensions/agents-core/src/detached-runtime-cancellation.ts`](../../packages/coding-agent/extensions/agents-core/src/detached-runtime-cancellation.ts)
@@ -680,7 +687,7 @@ The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the
 
 - `packages/coding-agent/test/child-report.test.ts` — report eligibility and current-dispatch extraction.
 - `packages/coding-agent/test/suite/regressions/child-report-required.test.ts` — real-process coverage
-  for spawned/attached report guards, accepted public narration, failed contact rejection, and live-child
+  for spawned/attached report guards, terminal report validation, accepted public narration, failed contact rejection, and live-child
   supervisor crash/restart with one later completion delivery. See [evidence scope](../wiki/systems/end-turn-tool.md#test-evidence).
 
 - `packages/coding-agent/test/suite/regressions/mailbox-child-session-address.test.ts` — real-process attachment, explicit main/supervisor rejection without enqueue, preserved offline-main queue, and actual agent-ID delivery.

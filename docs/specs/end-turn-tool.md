@@ -15,10 +15,11 @@ The built-in `end_turn` tool gives normal coding-agent model turns an explicit c
 
 ### Child report requirement
 
-- [x] Require spawned and attached children to report before `end_turn` succeeds: accept nonblank public assistant text (ordinary text or server-signed public narration), or a successful `contact_parent` result linked to its current tool call with a nonblank `body`, a nonblank message ID, and status `pending`, `claimed`, or `accepted`. A failed transport result does not qualify even when `isError` is false.
+- [x] Require spawned and attached children to report before successful completion, both when `end_turn` executes and when the current dispatch returns: accept nonblank public assistant text (ordinary text or server-signed public narration), or a successful `contact_parent` result linked to its current tool call with a nonblank `body`, a nonblank message ID, and status `pending`, `claimed`, or `accepted`. A failed transport result does not qualify even when `isError` is false.
 - [x] Use only the durable current branch after the latest user prompt. Exclude inherited parent history, prior-task reports, private thinking, whitespace, and failed contact attempts; reconstruct eligibility after restart without new persistent state.
 - [x] Reject reportless child `end_turn` with an actionable error and no termination so the child can report. Apply the same guard to both child factories, without an opt-out, compatibility path, fallback, or model gate. Normal main-session textless `end_turn` remains unchanged.
-- [x] Include accepted public narration in parent result extraction through the existing public-text helper.
+- [x] Validate the final current-dispatch result with the same report predicate after a normal prompt return, including a terminal provider `length` response that bypasses `end_turn`. Without a report, throw an explicit error so the child becomes `failed` and the parent receives an error notification, never reportless `completed`. Successful `contact_parent` evidence can qualify without assistant text. Preserve original provider errors and cancellation as `aborted`; do not add retries, a length-specific fallback, or a new lifecycle state.
+- [x] Include accepted public narration in parent result extraction through the existing public-text helper. Final validation excludes previous-dispatch reports even when they remain eligible for the current-task tool guard.
 
 ### Agent loop
 
@@ -40,7 +41,7 @@ The built-in `end_turn` tool gives normal coding-agent model turns an explicit c
 - `packages/coding-agent/src/core/tools/index.ts` — exports and registers the tool in default tool collections.
 - `packages/coding-agent/extensions/agents-core/src/runtime.ts` — installs the child-only `end_turn` guard through `customTools` in both spawned and attached factories.
 - `packages/coding-agent/extensions/agents-core/src/child-report.ts` — reconstructs current-task report eligibility from the persisted branch and rejects reportless completion.
-- `packages/coding-agent/extensions/agents-core/src/child-response.ts` — extracts current-dispatch public assistant text, including signed public narration, while preserving terminal provider errors.
+- `packages/coding-agent/extensions/agents-core/src/child-response.ts` — extracts current-dispatch public assistant text, including signed public narration, and is the terminal report-validation boundary; original provider errors remain unchanged.
 - `packages/coding-agent/src/core/assistant-narration.ts` — shared public-text classification for signed narration.
 - `packages/agent-core/src/agent-loop.ts` — continues text-only responses when the end-turn tool is available, unless pending steering takes precedence.
 - `packages/coding-agent/src/core/agent-session.ts` — detects duplicate assistant turns, injects the runtime-only loop guard, and distinguishes completed persisted `end_turn` batches from interrupted turns during resume.
@@ -49,7 +50,7 @@ The built-in `end_turn` tool gives normal coding-agent model turns an explicit c
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/child-report.test.ts` — report eligibility, rejection, and current-dispatch extraction.
-- `packages/coding-agent/test/suite/regressions/child-report-required.test.ts` — real-process spawned/attached guards, public narration, failed contact rejection, and live-child supervisor crash/restart with one later completion delivery.
+- `packages/coding-agent/test/suite/regressions/child-report-required.test.ts` — real-process spawned/attached guards, public narration, failed contact rejection, terminal report validation, and live-child supervisor crash/restart with one later completion delivery.
 - `packages/coding-agent/test/suite/regressions/child-provider-error-completion.test.ts` — real-process provider failures and current-child result boundaries.
 - `packages/coding-agent/test/end-turn-tool.test.ts`
 - `packages/coding-agent/test/suite/end-turn-summarized-reply.test.ts`
@@ -62,7 +63,7 @@ The built-in `end_turn` tool gives normal coding-agent model turns an explicit c
 
 ## Known gaps (current cycle)
 
-None within the structural report contract. See the [evidence scope](../wiki/systems/end-turn-tool.md#test-evidence).
+Terminal result validation must enforce the structural report contract even when no `end_turn` executes. See the [evidence scope](../wiki/systems/end-turn-tool.md#test-evidence).
 
 ## Out of scope
 

@@ -14,11 +14,11 @@ When `end_turn` is available, a text-only answer schedules another request. That
 
 [`print-mode.ts`](../../../packages/coding-agent/src/modes/print-mode.ts) searches backward through successful end-turn results/textless end-turn assistants to find printable text, stopping at other message boundaries. Errors preserve nonzero exits; JSON mode emits events.
 
-## Child report guard
+## Child report validation
 
 The [child report contract](../../specs/end-turn-tool.md#child-report-requirement) is implemented by extension-owned [`child-report.ts`](../../../packages/coding-agent/extensions/agents-core/src/child-report.ts). Both spawned and attached factories in `runtime.ts` install its custom `end_turn` through `customTools`. It reconstructs report eligibility from the durable current branch after the latest user prompt, rather than adding persistent state. A nonblank ordinary assistant text block or server-signed public narration qualifies. A nonblank `contact_parent.body` qualifies only with a result linked to its current tool call, no `isError`, a nonblank `details.message.id`, and `details.message.status` equal to `pending`, `claimed`, or `accepted`. A failed transport status does not qualify even when `isError` is false. These statuses establish successful send evidence, not proof that the parent has read the message. Inherited parent text, prior-task reports, private thinking, whitespace, and failed contact attempts do not qualify.
 
-Without a report, the tool returns an actionable error without termination, allowing another model response. Main-session textless completion stays unchanged. There is no automatic report, opt-out, compatibility path, fallback, model gate, policy evaluator, or extra persistent report state. [`child-response.ts`](../../../packages/coding-agent/extensions/agents-core/src/child-response.ts) includes accepted public narration in current-dispatch parent result extraction through the existing public-text helper. The guard checks report presence and successful send evidence; it does not assess the semantic quality or correctness of model findings.
+Without a report, the tool returns an actionable error without termination, allowing another model response. The same predicate validates final current-dispatch messages in `child-response.ts`, including terminal provider `length` responses that do not call `end_turn`. A missing report causes `failed` and a parent error notification, not `completed`. Successful `contact_parent` evidence can qualify without assistant text. Previous-dispatch reports do not qualify. Original provider errors and `aborted` cancellation remain unchanged. No length-specific fallback, automatic retry, or new lifecycle state is added. Main-session textless completion stays unchanged. There is no automatic report, opt-out, compatibility path, fallback, model gate, policy evaluator, or extra persistent report state. [`child-response.ts`](../../../packages/coding-agent/extensions/agents-core/src/child-response.ts) includes accepted public narration in current-dispatch parent result extraction through the existing public-text helper. The guard checks report presence and successful send evidence; it does not assess the semantic quality or correctness of model findings.
 
 ## Public narration presentation
 
@@ -35,10 +35,10 @@ This ends the model loop, not Pi itself and not a running goal. Extensions can r
 Focused child-report evidence:
 
 - `packages/coding-agent/test/child-report.test.ts` covers current-task eligibility, durable reopen, linked parent-send evidence, rejection and public result extraction.
-- `packages/coding-agent/test/suite/regressions/child-report-required.test.ts` covers inherited-history rejection, public text and narration, private/blank rejection, successful and failed contact, attached prior-task exclusion, and an actual live-child supervisor crash/restart with one later completion delivery.
+- `packages/coding-agent/test/suite/regressions/child-report-required.test.ts` covers inherited-history rejection, public text and narration, private/blank rejection, successful and failed contact, attached prior-task exclusion, and an actual live-child supervisor crash/restart with one later completion delivery. It is also the regression location for terminal report validation without `end_turn`.
 - `packages/coding-agent/test/suite/regressions/child-provider-error-completion.test.ts` preserves provider failures and current-child result boundaries.
 
-These offline faux-provider tests establish structural report enforcement and result boundaries, not live-model compliance or semantic quality.
+The offline faux-provider tests cover the tool guard, terminal report validation, and result boundaries. They do not establish live-model compliance or semantic quality.
 
 The captured renderer, print-mode, end-turn narration and real CLI PTY tests pass. The PTY test asserts visibility before releasing a controlled tool and after reopening the persisted session in a new process. Signed blocks remain unchanged in persistence; the following provider request is also checked.
 

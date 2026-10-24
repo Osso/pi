@@ -38,7 +38,7 @@ it("excludes inherited text kept verbatim by compaction during a child request",
 			.buildSessionContext()
 			.messages.find((message) => message.role === "assistant");
 		expect(projectedParent?.content).toEqual([{ type: "text", text: parentText }]);
-		expect(readCurrentChildAssistantText(child.messages, previousMessages)).toBeUndefined();
+		expect(() => readCurrentChildAssistantText(child.messages, previousMessages)).toThrow("current-task report");
 	} finally {
 		rmSync(directory, { recursive: true, force: true });
 	}

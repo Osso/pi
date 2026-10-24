@@ -136,12 +136,42 @@ describe("current child public report extraction", () => {
 	test("does not reuse earlier dispatch reports", () => {
 		const previous = assistant([{ type: "text", text: "Old report" }]);
 		const messages: AgentMessage[] = [previous, assistant([narrationFixture.content[0]])];
-		expect(readCurrentChildAssistantText(messages, new Set([previous]))).toBeUndefined();
+		expect(() => readCurrentChildAssistantText(messages, new Set([previous]))).toThrow("current-task report");
 	});
 
-	test("preserves a current provider failure instead of returning earlier successful prose", () => {
+	test.each<[string, AgentMessage[]]>([
+		["no messages", []],
+		["empty stop", [{ ...assistant([]), stopReason: "stop" }]],
+		["empty length termination", [{ ...assistant([]), stopReason: "length" }]],
+		["private thinking", [assistant([narrationFixture.content[0]])]],
+		["whitespace text", [assistant([{ type: "text", text: " \n\t" }])]],
+		["unlinked parent result", [parentResult()]],
+		["result before call", [parentResult(), parentCall()]],
+		["failed parent report", [parentCall(), parentResult("failed")]],
+		["blank parent report", [parentCall(" \t"), parentResult()]],
+		["wrong parent call id", [parentCall(), parentResult("pending", false, "other-call")]],
+	])("rejects terminal completion with %s", (_label, messages) => {
+		expect(() => readCurrentChildAssistantText(messages, new Set())).toThrow("current-task report");
+	});
+
+	test.each(["pending", "claimed", "accepted"])(
+		"permits a linked successful %s parent report without assistant text",
+		(status) => {
+			expect(readCurrentChildAssistantText([parentCall(), parentResult(status)], new Set())).toBeUndefined();
+		},
+	);
+
+	test("does not reuse earlier dispatch parent reports", () => {
+		const previous = [parentCall(), parentResult()];
+		expect(() => readCurrentChildAssistantText([...previous, assistant([])], new Set(previous))).toThrow(
+			"current-task report",
+		);
+	});
+
+	test.each([false, true])("preserves a current provider failure with earlier prose: %s", (withReport) => {
 		const report = assistant([{ type: "text", text: "Work started" }]);
 		const failure = { ...assistant([]), stopReason: "error" as const, errorMessage: "Provider rejected request" };
-		expect(() => readCurrentChildAssistantText([report, failure], new Set())).toThrow("Provider rejected request");
+		const messages = withReport ? [report, failure] : [failure];
+		expect(() => readCurrentChildAssistantText(messages, new Set())).toThrow(/^Provider rejected request$/);
 	});
 });
