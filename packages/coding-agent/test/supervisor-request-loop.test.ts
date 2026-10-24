@@ -45,8 +45,6 @@ const mocks = vi.hoisted(() => {
 	};
 });
 
-vi.mock("../../extensions/openai-remote-compact/src/index.ts", () => ({ default: vi.fn() }));
-
 vi.mock("../src/config.ts", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../src/config.ts")>();
 	return { ...actual, getAgentDir: () => mocks.agentDir };

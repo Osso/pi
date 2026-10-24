@@ -62,8 +62,6 @@ const settingsPath = join(agentDir, "settings.json");
 const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
 // Keep exactly the last turn (prompt, end_turn call, result) so summarization is one request.
 settings.compaction = { ...settings.compaction, keepRecentMessages: 3, reserveTokens: 1000 };
-// Exercise built-in summarization through faux transport, never the remote Codex compact endpoint.
-settings.disabledExtensions = [...new Set([...settings.disabledExtensions, "openai-remote-compact"])];
 // Temporary RED runs disable only idle compaction, not threshold or built-in summarization.
 if (process.env.PI_IDLE_COMPACTION_RED === "1") settings.compaction.idle = false;
 writeFileSync(settingsPath, JSON.stringify(settings));

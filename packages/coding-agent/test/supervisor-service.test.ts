@@ -185,11 +185,11 @@ describe("resident Supervisor service", () => {
 	it("rejects extension diagnostics before the Supervisor session starts", () => {
 		expect(() =>
 			validateSupervisorExtensionLoad({
-				errors: [{ path: "<openai-remote-compact>", error: "factory failed" }],
+				errors: [{ path: "<supervisor-mutation-gate>", error: "factory failed" }],
 				extensions: [],
 				runtime: {} as never,
 			}),
-		).toThrow("Supervisor extension load failed: <openai-remote-compact>: factory failed");
+		).toThrow("Supervisor extension load failed: <supervisor-mutation-gate>: factory failed");
 	});
 
 	it("limits file access to Supervisor KB memory", () => {

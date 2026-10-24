@@ -31,7 +31,7 @@
 - Increased the maximum automatic Supervisor goal-review wait from 25 to 55 minutes, preserving early agent-completion wake and one absolute review deadline; the separate `wait_agent` 25-minute slice is unchanged.
 - Self-restart now imports the systemd user manager environment while preserving launch-owned `PATH`, `HOME`, `USER`, `LOGNAME`, and `SHELL`. Manager lookup failures are reported and retain the current environment.
 - Changed `/usage all` reset timestamps from UTC to US Central (`America/Chicago`), automatically observing CST/CDT daylight-saving transitions, and renamed the reset heading to `Central`.
-- Compaction prompt guidance now asks local initial/update/split-turn summarization and opt-in OpenAI remote compaction to derive continuation from the conversation: preserve ongoing work, unanswered user questions/requests, user decisions/corrections, relevant context, and unresolved uncertainty; keep completed work historical and do not infer user intent or authority from cwd or another session's coordination. No purpose/assignment field or routing change; model compliance is not guaranteed.
+- Compaction prompt guidance now asks built-in initial/update/split-turn summarization to derive continuation from the conversation: preserve ongoing work, unanswered user questions/requests, user decisions/corrections, relevant context, and unresolved uncertainty; keep completed work historical and do not infer user intent or authority from cwd or another session's coordination. No purpose/assignment field or routing change; model compliance is not guaranteed.
 - Tool wait status now reads `Waiting for command... 2s` / `Waiting for tool: read... 2s`, matching the `Thinking... 2s` status, instead of `Waiting for command... Elapsed: 2s`.
 - Session naming is model-driven: the session-autoname extension now registers a `set_session_name` tool and no longer issues its own title request, so naming costs no extra provider call and no longer fails on endpoints that require reasoning. The tool names only persisted main sessions, never overwrites a `/name` or `--name` value, and leaves explicitly cleared sessions unnamed.
 - Lowered the idle-compaction context minimum from 200,000 to 100,000 tokens; TTLs and eligibility exclusions are unchanged.
@@ -171,7 +171,6 @@
 - Added a first-party `web_search` tool for OpenAI Responses hosted web search.
 - Added a generic Pyrun `pi.tools.call(name, params)` bridge for active Pi tools, with `pi.web_search(query)` as a convenience wrapper for `web_search`.
 - Added an `externalEditor` settings.json override for Ctrl+G external editor commands, with default fallbacks to Notepad on Windows and `nano` elsewhere ([#6122](https://github.com/earendil-works/pi/issues/6122)).
-- Added first-party OpenAI remote compaction through `/responses/compact` for OpenAI and OpenAI Codex Responses models.
 - Added `pi.compact(...)` to Pyrun's Pi runtime bridge for triggering session compaction.
 - Added `/tree` compaction-summary editing: plaintext summaries load directly, while OpenAI-native entries are materialized through one current provider/API-matching model call with no fallback; materialization is non-persistent, Escape/failure leaves the entry unchanged, and saving replaces native context with plaintext while preserving entry identity, leaf, and token/duration metadata.
 - Added `pi.restart(...)` to Pyrun's Pi runtime bridge for restarting and resuming the current session.
@@ -211,6 +210,7 @@
 
 ### Fixed
 
+- Fixed session naming prompt guidance to skip child, ephemeral, already-named, and explicitly cleared sessions and treat naming refusal as non-blocking; tool runtime is unchanged, and live model compliance is not enforced.
 - Fixed competing startup idle-archive passes racing on source inspection (`ENOENT`) and archive publication (`EEXIST`): one nonblocking cross-process claim protects the entire pass per canonical sessions root; competitors skip, ownership releases on failure, and stale crash claims are recoverable. Archive bytes, control-DB metadata, and reporting of genuine I/O, corruption, or missing-data errors remain protected.
 - Fixed `/periodic-checks` and `/periodic-checks status` retaining `No checklist` after a checklist is added following startup; status now discovers it and arms its full configured interval without starting an audit or changing an armed schedule.
 - Goal reviews receive every recent user message in order as `userMessages` (replacing `userRequest`/`userAnswers`), including nonblocking `ask_questions` answers delivered through the inbox. Previously only the latest input was sent, so a follow-up such as "also add X" replaced the original request, and inbox answers never reached the reviewer; the Supervisor then narrowed or rejected scope the user had asked for.
@@ -380,7 +380,6 @@
 - Fenced persisted multi-agent lifecycle schema activation by control-DB protocol version: newer schemas are rejected before initialization and upgrades require all Pi runtimes to be quiescent.
 - Removed the multi-agent artifact registry, IDs, persistence, and `agent_artifacts` tool. Mailbox and completion attachments now use validated absolute `fileRefs` paths, and background Bash/Pyrun logs remain visible through direct file references. A durable control-DB schema migration cleans legacy persisted `artifactIds` and `artifactRefs` fields once, then installs SQLite INSERT/UPDATE triggers so older binaries cannot reintroduce them.
 
-- Changed the opt-in Codex remote-compaction extension to use the active provider, account, and model while retaining native history across generation-model switches on that provider.
 - Changed interactive tool result display to retain the first and last 50 logical output lines with an omission marker while preserving full model context, and to hide successful `grep` results while keeping calls and errors visible.
 - Changed `wait_agent` from a per-agent `{ agentId }` call to a zero-argument wait-any tool. It immediately consumes every pending terminal notification already waiting or waits for any agent active at invocation to reach terminal state; the direct tool returns the drained completion/status set while Pyrun `pi.agents.wait()` returns `null`.
 - Split agent notification waiting from notification consumption so internal callers can wait for terminal or coordination input without consuming completion delivery; `wait_agent({})` preserves its existing behavior by composing both operations.
@@ -521,9 +520,6 @@
 - Fixed Escape failing to interrupt an active main LLM turn when autocomplete, an overlay, or another focused component consumed the key; queued steering messages now reach the interrupted turn replacement.
 - Fixed runtime-mailbox-triggered turns deadlocking after a tool result by preventing the turn's checkpoint drain from awaiting its own enclosing mailbox delivery.
 - Fixed production child and attached sessions exposing parent agent inspection and control tools, which allowed delegated workflows to mistake and cancel their own agent record.
-- Fixed OpenAI remote compaction describing empty tool output as an attached image when no image existed.
-- Fixed OpenAI remote compaction ignoring `/compact` custom instructions and relying only on the general system prompt; compact requests now add dedicated continuation guidance that collapses repeated context and preserves current state.
-- Fixed OpenAI remote compaction retaining hundreds of provider-generated message rows with identical role, status, and content but different response-item IDs; native replacement history now keeps only the latest duplicate message while leaving other item types unchanged.
 - Fixed interactive tool elapsed ownership so pending components claim it only after timing hydration, both footer paths use the same predicate, and hydrated components render elapsed below compact or expanded call content.
 - Fixed runtime mailbox messages being marked delivered after entering a volatile follow-up queue: busy or unauthenticated sessions now leave rows pending, while ready sessions select and mark rows delivered in one transaction before submitting them directly as active input.
 - Fixed repeated stale extension-context failures while draining terminal agent outbox projections after session replacement or reload by making Pyrun dispose session-bound Pi request handlers during session shutdown.
@@ -599,7 +595,6 @@
 - Fixed `/goal` continuation after an assistant error: it now leaves the active goal intact without queuing a follow-up or showing the empty-response warning; skipped-status output is deferred until idle, canceled by retry start or pending input, and emitted once after retry exhaustion or cancellation.
 - Fixed empty-response goal continuation to poll every second until the session is idle, canceling on goal changes, pending input, or shutdown.
 - Fixed bwrap sandbox profiles to run Pyrun through the shared bwrap runner backend; sandboxed runners receive filtered environments, fake HOME, workspace-scoped mounts, and no Pi bridge capabilities.
-- Fixed OpenAI remote compaction to prioritize prior provider-native history within the 400,000-character compact-input limit, preserve encrypted compaction items when they fit, truncate or omit oversized native/raw items without cancelling, and keep raw tool pairs coherent across the native-history boundary.
 - Fixed installed Pi silently preferring a mutable local Pyrun checkout over the deployed `pyrun-jsonl`; local runner use now requires the explicit command/PYTHONPATH override.
 - Fixed cancelled detached Pyrun jobs leaving the evaluation and spawned commands running: background jobs now register abort handles, and runner shutdown terminates the full process group.
 - Fixed selected-child views to identify the agent directly, report the selected agent or main thread after `/agents` selection, show the selected child's model and thinking level in the footer, and hide the main working loader without clearing unrelated status while a child transcript is displayed.
@@ -641,7 +636,7 @@
 - Fixed the question extension example to run question tool calls sequentially so multiple questions in one assistant turn remain answerable ([#6189](https://github.com/earendil-works/pi/issues/6189)).
 - Fixed `/login` to report auth storage persistence failures instead of claiming credentials were saved when `auth.json` is locked ([#6223](https://github.com/earendil-works/pi/issues/6223)).
 - Fixed split-turn compaction to serialize summary requests so single-concurrency local providers do not fail with 429 errors ([#5536](https://github.com/earendil-works/pi/issues/5536)).
-- Fixed compaction failing as “session too small” when one active turn accumulated many ordinary-sized tool results; boundary-start turns can now split at an assistant message, and OpenAI remote compaction preserves the opening user message within its existing input budget.
+- Fixed compaction failing as “session too small” when one active turn accumulated many ordinary-sized tool results; boundary-start turns can now split at an assistant message.
 - Fixed custom session entries appended during assistant streaming to render before the live assistant message, matching persisted session order.
 - Fixed registered custom session-entry renderers not appearing after live `pi.appendEntry()` calls or during interactive transcript startup, resume, and rebuild.
 - Fixed oversized bash tool timeouts to fail with a clear validation error instead of being clamped to an immediate timeout ([#6181](https://github.com/earendil-works/pi/issues/6181)).
@@ -662,6 +657,7 @@
 
 ### Removed
 
+- Removed the optional `openai-remote-compact` extension, its OpenAI `/responses/compact` and Codex `/codex/responses/compact` callers, endpoint-only tests, and remote-only source metadata and UI labels. Existing provider-native saved-history readers, request serialization, and `/tree` materialization/editing remain supported. Normal plaintext compaction, generic hooks, and local/generic source metadata remain unchanged.
 - Removed the Hostrun extension and its Pi documentation.
 - Removed default attribution headers from Vercel AI Gateway requests.
 

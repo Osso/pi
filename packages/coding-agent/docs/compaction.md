@@ -58,7 +58,7 @@ Set `"compaction": { "idle": false }` to disable this trigger alone. `compaction
 
 Set `compaction.enabled` to `false` in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settings.json` to disable Pi's built-in local summarizer. The default is `true`, preserving the normal behavior.
 
-With the setting disabled, registered `compaction` handlers still run for manual compaction and automatic threshold or overflow compaction. A handler-provided result is saved normally, including provider-native results such as OpenAI remote compaction. Pi never falls back to the local summarizer when the handlers are absent, fail, or return no result; instead it reports an actionable error to enable built-in compaction or configure a compaction extension.
+With the setting disabled, registered `compaction` handlers still run for manual compaction and automatic threshold or overflow compaction. A handler-provided result is saved normally, including provider-native results from custom handlers. Pi never falls back to the local summarizer when the handlers are absent, fail, or return no result; instead it reports an actionable error to enable built-in compaction or configure a compaction extension.
 
 ### Resuming an interrupted turn
 
@@ -78,6 +78,10 @@ Manual-resumption post-run ownership prevents a cancelled turn from racing its r
 
 After successful live compaction, the transcript shows exactly one enriched generated summary first, followed by kept and post-compaction entries in canonical order. Entries removed by compaction are absent, and the summary is not duplicated.
 
+### Existing OpenAI-native history
+
+The optional OpenAI remote-compaction extension and its `/responses/compact` and `/codex/responses/compact` callers have been removed. Normal plaintext compaction and generic extension hooks remain available. Existing provider-native checkpoints still load and supply native history to later matching OpenAI Responses requests; `/tree` can still materialize them for editing. See the [saved-history contract](../../../docs/specs/openai-remote-compaction.md).
+
 ### Editing persisted compaction summaries
 
 `/tree` supports two compaction-entry edit paths:
@@ -85,7 +89,7 @@ After successful live compaction, the transcript shows exactly one enriched gene
 - **Plaintext compaction:** selecting the entry loads its complete persisted summary into the normal message editor, including when it is the current leaf.
 - **OpenAI-native compaction:** the entry's visible summary is only a synthetic placeholder; its usable context is an encrypted provider-native checkpoint. Before the editor opens, Pi makes one materialization call with the active model only when its provider/API exactly matches the checkpoint and the format is `openai.responses.input`. Pi does not substitute another provider or model.
 
-Materialization does not persist anything. Escape cancels the request; cancellation or materialization failure leaves the entry and editor unchanged. After materialization, submitting non-command text updates only the selected summary. Saving a native entry atomically replaces the summary with plaintext and removes its `providerNative` checkpoint and OpenAI remote-compaction details. Entry identity, tree position, leaf, and token/duration metadata remain unchanged; active context and transcript rebuild from the edited plaintext, which also survives reopening. A newer plaintext compaction prevents future remote compaction from reusing older native replacement history. Slash commands and `!` commands retain their normal handling.
+Materialization does not persist anything. Escape cancels the request; cancellation or materialization failure leaves the entry and editor unchanged. After materialization, submitting non-command text updates only the selected summary. Saving a native entry atomically replaces the summary with plaintext and removes its `providerNative` checkpoint and OpenAI remote-compaction details. Entry identity, tree position, leaf, and token/duration metadata remain unchanged; active context and transcript rebuild from the edited plaintext, which also survives reopening. A newer plaintext compaction supersedes older native replacement history. Slash commands and `!` commands retain their normal handling.
 
 ```
 Before compaction:
@@ -143,8 +147,6 @@ Extensions receive `background_compaction_start` when speculative generation beg
 A "turn" starts with a user message and includes all assistant responses and tool calls until the next user message. Compaction normally cuts at turn boundaries and keeps the active turn whole when older compactable history exists.
 
 If the active turn begins at the compaction boundary and spans more than `keepRecentMessages` messages, Pi cuts at a valid assistant boundary instead of treating the session as too small. Short one-turn sessions remain unchanged. This is a "split turn":
-
-For OpenAI remote compaction, the split turn's opening user message is pinned exactly once inside the existing 400,000-character input budget before prior non-encrypted native history and newest coherent raw context fill the remaining space. Tool-call/output pairs remain intact; ordinary multi-turn payload selection is unchanged.
 
 ```
 Split turn (one huge turn exceeds budget):
@@ -281,7 +283,7 @@ Built-in compaction uses shared `CONTINUATION_SUMMARIZATION_GUIDANCE` for initia
 - Treat cwd as location context, not evidence of user intent or authority. Coordination concerning another session does not become this session's user request or authorization.
 - Deduplicate repeated context without dropping unresolved work; retain parked tasks and earlier history only as needed for continuation.
 
-The [opt-in OpenAI remote-compaction extension](../../../docs/specs/openai-remote-compaction.md) supplies equivalent guidance through `OPENAI_REMOTE_COMPACTION_GUIDANCE`. This is bounded prompt guidance, not a guarantee that summarization or continuation models comply. It adds no explicit session-purpose or assignment field and does not change message routing, session ownership, or authorization.
+This is bounded prompt guidance, not a guarantee that summarization or continuation models comply. It adds no explicit session-purpose or assignment field and does not change message routing, session ownership, or authorization.
 
 ## Summary Format
 

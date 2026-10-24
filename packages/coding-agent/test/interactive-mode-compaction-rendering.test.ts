@@ -151,10 +151,9 @@ function createRenderingHarness() {
 			keptFromPreviousContextTokens: 67,
 			compactedResultTokens: 22,
 			source: {
-				type: "openai_remote",
-				provider: "openai",
-				model: "gpt-4.1-mini",
-				endpoint: "https://api.openai.com/v1/responses/compact",
+				type: "local",
+				provider: "anthropic",
+				model: "claude-sonnet-4-5",
 			},
 		},
 		aborted: false,
@@ -189,9 +188,7 @@ describe("InteractiveMode compaction transcript rendering", () => {
 		expect(summaryIndex).toBeLessThan(keptIndex);
 		expect(keptIndex).toBeLessThan(postIndex);
 		expect(output).not.toContain("compacted-away");
-		expect(fakeThis.showStatus).toHaveBeenCalledWith(
-			"Compaction completed via OpenAI remote endpoint (openai/gpt-4.1-mini, https://api.openai.com/v1/responses/compact)",
-		);
+		expect(fakeThis.showStatus).toHaveBeenCalledWith("Compaction completed (anthropic/claude-sonnet-4-5)");
 		expect(fakeThis.flushCompactionQueue).toHaveBeenCalledWith({ willRetry: false });
 	});
 

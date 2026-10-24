@@ -124,10 +124,9 @@ function getMessageFromEntryForCompaction(entry: SessionEntry): AgentMessage | u
 }
 
 export interface CompactionSourceInfo {
-	type: "local" | "openai_remote";
+	type: "local";
 	provider: string;
 	model: string;
-	endpoint?: string;
 }
 
 /** Result from compact() - SessionManager adds uuid/parentUuid when saving */

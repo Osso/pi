@@ -32,34 +32,16 @@ describe("InteractiveMode compaction events", () => {
 	beforeAll(() => {
 		initTheme("dark");
 	});
-	test("shows OpenAI remote endpoint in the in-progress compaction label", () => {
-		expect(
-			formatCompactionStartLabel(
-				"manual",
-				{
-					type: "openai_remote",
-					provider: "openai-codex",
-					model: "gpt-5.5",
-					endpoint: "https://chatgpt.com/backend-api/codex/responses/compact",
-				},
-				"(escape to cancel)",
-			),
-		).toBe(
-			"Compacting context via OpenAI remote endpoint (openai-codex/gpt-5.5, https://chatgpt.com/backend-api/codex/responses/compact)... (escape to cancel)",
-		);
+	test.each([
+		["manual", "Compacting context"],
+		["threshold", "Auto-compacting"],
+		["overflow", "Context overflow detected, Auto-compacting"],
+		["idle", "Compacting idle context before its prompt cache expires"],
+	] as const)("formats the generic %s compaction label", (reason, prefix) => {
+		expect(formatCompactionStartLabel(reason, "(escape to cancel)")).toBe(`${prefix}... (escape to cancel)`);
 	});
 
-	test("does not label generic compaction as local", () => {
-		expect(
-			formatCompactionStartLabel(
-				"threshold",
-				{ type: "local", provider: "anthropic", model: "claude-sonnet-4-5" },
-				"(escape to cancel)",
-			),
-		).toBe("Auto-compacting... (escape to cancel)");
-	});
-
-	test("shows remote source without periodically rerendering the compaction label", async () => {
+	test("shows a generic label without periodically rerendering during compaction", async () => {
 		vi.useFakeTimers();
 		const addedChildren: Array<{ render: (width: number) => string[]; stop?: () => void }> = [];
 		const editor = new WorkingEditor();
@@ -111,18 +93,11 @@ describe("InteractiveMode compaction events", () => {
 			await handleEvent.call(fakeThis, {
 				type: "compaction_start",
 				reason: "manual",
-				sourceHint: {
-					type: "openai_remote",
-					provider: "openai",
-					model: "gpt-4.1-mini",
-					endpoint: "https://api.openai.com/v1/responses/compact",
-				},
+				sourceHint: { type: "local", provider: "anthropic", model: "claude-sonnet-4-5" },
 			});
 
 			const renderedLoader = addedChildren[0]?.render(120).join("\n") ?? "";
-			expect(renderedLoader).toContain(
-				"Compacting context via OpenAI remote endpoint (openai/gpt-4.1-mini, https://api.openai.com/v1/responses/compact)...",
-			);
+			expect(renderedLoader).toContain("Compacting context...");
 			expect(editor.working).toBe(true);
 			const renderCountAfterStart = fakeThis.ui.requestRender.mock.calls.length;
 
@@ -335,7 +310,13 @@ describe("InteractiveMode compaction events", () => {
 		).toContain("Original error: Turn prefix summarization failed: Request timed out.");
 	});
 
-	test("shows the active model when no remote endpoint was used", async () => {
+	test.each([
+		{
+			source: { type: "local", provider: "anthropic", model: "claude-sonnet-4-5" },
+			message: "Compaction completed (anthropic/claude-sonnet-4-5)",
+		},
+		{ source: undefined, message: "Compaction completed" },
+	] as const)("shows completion status: $message", async ({ source, message }) => {
 		const fakeThis = {
 			isInitialized: true,
 			isViewingAgentSession: () => false,
@@ -381,12 +362,12 @@ describe("InteractiveMode compaction events", () => {
 			result: {
 				tokensBefore: 123,
 				summary: "summary",
-				source: { type: "local", provider: "anthropic", model: "claude-sonnet-4-5" },
+				source,
 			},
 			aborted: false,
 			willRetry: false,
 		});
 
-		expect(fakeThis.showStatus).toHaveBeenCalledWith("Compaction completed (anthropic/claude-sonnet-4-5)");
+		expect(fakeThis.showStatus).toHaveBeenCalledWith(message);
 	});
 });

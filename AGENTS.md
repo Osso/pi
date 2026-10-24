@@ -42,7 +42,6 @@
   - `packages/coding-agent/extensions/effort`
   - `packages/coding-agent/extensions/goal`
   - `packages/coding-agent/extensions/loop`
-  - `packages/coding-agent/extensions/openai-remote-compact`
   - `packages/coding-agent/extensions/pyrun`
   - `packages/coding-agent/extensions/run-plan`
   - `packages/coding-agent/extensions/safe`

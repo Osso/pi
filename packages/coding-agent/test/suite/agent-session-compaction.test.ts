@@ -390,7 +390,6 @@ describe("AgentSession compaction characterization", () => {
 							summary: "summary from compaction provider",
 							firstKeptEntryId: event.preparation.firstKeptEntryId,
 							tokensBefore: event.preparation.tokensBefore,
-							source: { type: "openai_remote", provider: "openai", model: "gpt-4.1-mini" },
 							providerNative: {
 								provider: "openai",
 								api: "openai-responses",
@@ -412,7 +411,7 @@ describe("AgentSession compaction characterization", () => {
 		const [summaryMessage] = harness.session.messages;
 
 		expect(result.summary).toBe("summary from compaction provider");
-		expect(result.source).toEqual({ type: "openai_remote", provider: "openai", model: "gpt-4.1-mini" });
+		expect(result.source).toBeUndefined();
 		expect(harness.eventsOfType("compaction_start").at(-1)).toMatchObject({ sourceHint: undefined });
 		expect(compactionEntry).toMatchObject({
 			summary: "summary from compaction provider",

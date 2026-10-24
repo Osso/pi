@@ -3,14 +3,10 @@ import {
 	type Context,
 	type FauxProviderRegistration,
 	fauxAssistantMessage,
-	type Model,
 	registerFauxProvider,
 } from "@earendil-works/pi-ai/compat";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { handleCompaction } from "../extensions/openai-remote-compact/src/index.ts";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type CompactionPreparation, compact } from "../src/core/compaction/index.ts";
-import type { CompactionEvent, ExtensionContext } from "../src/core/extensions/types.ts";
-import type { CompactionEntry } from "../src/core/session-manager.ts";
 
 const history: AgentMessage[] = [
 	{ role: "user", content: "Repair Pi compaction.", timestamp: 1 },
@@ -97,84 +93,5 @@ describe("local compaction conversation-continuity requests", () => {
 			expect(prompts[0]).toContain("Pi repair completed; targeted tests passed.");
 		}
 		for (const prompt of prompts) assertContinuityGuidance(prompt);
-	});
-});
-
-const remoteModel: Model<"openai-responses"> = {
-	id: "continuity-test-model",
-	name: "Continuity test model",
-	api: "openai-responses",
-	provider: "openai",
-	baseUrl: "https://example.test/v1",
-	reasoning: false,
-	input: ["text"],
-	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-	contextWindow: 128000,
-	maxTokens: 4096,
-};
-const priorNativeEntry: CompactionEntry = {
-	type: "compaction",
-	id: "previous-compaction",
-	parentId: null,
-	timestamp: "2026-10-20T00:00:00Z",
-	summary: previousSummary,
-	firstKeptEntryId: "earlier-message",
-	tokensBefore: 1000,
-	details: {
-		type: "openai-remote-compaction",
-		version: 1,
-		provider: remoteModel.provider,
-		api: remoteModel.api,
-		model: remoteModel.id,
-		endpoint: "https://example.test/v1/responses/compact",
-		replacementHistory: [{ type: "compaction", encrypted_content: "prior-research-checkpoint" }],
-	},
-};
-
-describe("remote compaction conversation-continuity payloads", () => {
-	afterEach(() => vi.unstubAllGlobals());
-
-	it.each(paths)("sends conversation-grounded guidance through %s compaction", async (path) => {
-		const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-			new Response(JSON.stringify({ output: [{ type: "compaction", encrypted_content: "checkpoint" }] }), {
-				status: 200,
-			}),
-		);
-		vi.stubGlobal("fetch", fetchMock);
-		const event: CompactionEvent = {
-			type: "compaction",
-			preparation: createPreparation(path),
-			branchEntries: path === "update" ? [priorNativeEntry] : [],
-			reason: "manual",
-			willRetry: false,
-			signal: new AbortController().signal,
-		};
-		const ctx = {
-			model: remoteModel,
-			getSystemPrompt: () => "Current working directory: /home/osso/Repos/pi",
-			modelRegistry: {
-				getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "test-key", headers: undefined }),
-			},
-			ui: { notify: () => undefined },
-		} as unknown as ExtensionContext;
-
-		await handleCompaction(event, ctx);
-
-		expect(fetchMock).toHaveBeenCalledTimes(1);
-		expect(fetchMock.mock.calls[0][0]).toBe("https://example.test/v1/responses/compact");
-		const payload = JSON.parse(String(fetchMock.mock.calls[0][1]?.body)) as {
-			instructions: string;
-			input: Record<string, unknown>[];
-		};
-		const input = JSON.stringify(payload.input);
-		expect(input).toContain("Which function builds the compaction prompt?");
-		expect(input).toContain("Correction: source research only, not another repair.");
-		expect(input).toContain("To session release-worker:");
-		if (path === "update") {
-			expect(payload.input[0]).toEqual({ type: "compaction", encrypted_content: "prior-research-checkpoint" });
-		}
-		if (path !== "split-prefix-only") expect(input).toContain("Pi repair completed; targeted tests passed.");
-		expect(payload.instructions).toContain("Current working directory: /home/osso/Repos/pi");
-		assertContinuityGuidance(payload.instructions);
 	});
 });

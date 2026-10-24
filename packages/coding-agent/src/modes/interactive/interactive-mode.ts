@@ -4622,7 +4622,7 @@ export class InteractiveMode {
 				this.statusContainer.clear();
 				this.autoCompactionSourceHint = event.sourceHint;
 				const cancelHint = `(${keyText("app.interrupt")} to cancel)`;
-				const label = formatCompactionStartLabel(event.reason, event.sourceHint, cancelHint);
+				const label = formatCompactionStartLabel(event.reason, cancelHint);
 				this.autoCompactionLoader = new Loader(
 					this.ui,
 					(spinner) => theme.fg("accent", spinner),
@@ -7904,29 +7904,16 @@ export class InteractiveMode {
 	}
 }
 
-export function formatCompactionStartLabel(
-	reason: CompactionReason,
-	source: CompactionSourceInfo | undefined,
-	cancelHint: string,
-): string {
+export function formatCompactionStartLabel(reason: CompactionReason, cancelHint: string): string {
 	const prefix = formatCompactionStartPrefix(reason);
 	const overflowPrefix = reason === "overflow" ? "Context overflow detected, " : "";
-	return `${overflowPrefix}${prefix}${formatCompactionSourceProgressSuffix(source)}... ${cancelHint}`;
+	return `${overflowPrefix}${prefix}... ${cancelHint}`;
 }
 
 function formatCompactionStartPrefix(reason: CompactionReason): string {
 	if (reason === "manual") return "Compacting context";
 	if (reason === "idle") return "Compacting idle context before its prompt cache expires";
 	return "Auto-compacting";
-}
-
-function formatCompactionSourceProgressSuffix(source: CompactionSourceInfo | undefined): string {
-	if (source?.type === "openai_remote") {
-		const endpointSuffix = source.endpoint ? `, ${source.endpoint}` : "";
-		return ` via OpenAI remote endpoint (${source.provider}/${source.model}${endpointSuffix})`;
-	}
-
-	return "";
 }
 
 export function formatCompactionFailureMessage(input: {
@@ -7980,11 +7967,6 @@ function formatCompactionOriginalError(errorMessage: string, reason: CompactionR
 }
 
 function formatCompactionSourceLogMessage(source: CompactionSourceInfo | undefined): string {
-	if (source?.type === "openai_remote") {
-		const endpointSuffix = source.endpoint ? `, ${source.endpoint}` : "";
-		return `Compaction completed via OpenAI remote endpoint (${source.provider}/${source.model}${endpointSuffix})`;
-	}
-
 	if (source?.type === "local") {
 		return `Compaction completed (${source.provider}/${source.model})`;
 	}

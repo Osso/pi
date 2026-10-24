@@ -1,56 +1,42 @@
-# OpenAI Remote Compaction
+# OpenAI Saved Compaction History
 
-OpenAI remote compaction uses OpenAI's `/responses/compact` endpoint for first-party OpenAI Responses models and preserves the returned native replacement history for later OpenAI requests. This retained extension is not registered by default in CLI startup; its behavior applies only when explicitly loaded. How it works is tracked in [OpenAI remote compaction](../wiki/systems/openai-remote-compaction.md).
+Pi has removed the optional `openai-remote-compact` extension and its OpenAI `/responses/compact` and Codex `/codex/responses/compact` endpoint integration. Existing provider-native saved history remains supported by the core compaction and OpenAI Responses serializers. Normal compaction produces plaintext summaries; generic compaction hooks remain available. See [saved-history handling](../wiki/systems/openai-remote-compaction.md) for implementation details.
 
 ## What it must do
 
-- [ ] Only first-party `openai` provider models using `openai-responses` and first-party `openai-codex`, `openai-codex-gc`, and `openai-codex-team` provider models using `openai-codex-responses` are eligible for remote compaction.
-- [x] Remote compaction requests must serialize compacted Pi messages into OpenAI Responses input items and send them to the provider's compact endpoint.
-- [x] Remote compaction requests must preserve Pi's system instructions, append compaction-only guidance that prioritizes deduplicated continuation context, and include optional user-provided `/compact` instructions.
-- [x] Compaction-only guidance must ask for conversation-derived continuation: preserve ongoing work, unanswered user questions/requests, user decisions/corrections, relevant context, and unresolved uncertainty; keep completed work historical; do not infer user intent or authority from cwd or coordination concerning another session. See [continuation guidance](../../packages/coding-agent/docs/compaction.md#continuation-guidance).
-- [x] Codex remote compaction must use the active Codex provider, account, and model while preserving native history across generation-model switches on that provider.
-- [x] Remote compaction results must keep OpenAI's native replacement history in both the compaction entry's provider-native checkpoint and its OpenAI remote-compaction details, while the persisted summary remains a synthetic placeholder.
-- [x] When the compact endpoint returns provider-generated `message` rows that are identical except for response-item `id`, remote compaction must keep only the latest row while preserving every non-message item unchanged.
-- [x] When a compact request exceeds the 400,000-character serialized-input limit, it must retain prior OpenAI-native replacement history intact when that history and any pinned split-turn opening user fit together, then allocate the remaining budget to newer raw context.
-- [x] For split-turn compaction, the opening user message of the active turn must appear exactly once within the existing 400,000-character budget before prior non-encrypted native history or newer coherent raw context; tool-call/output pairs remain intact. Ordinary multi-turn payload selection is unchanged.
-- [x] When prior OpenAI-native replacement history alone exceeds the 400,000-character serialized-input limit, remote compaction must preserve encrypted compaction items that fit, truncate non-encrypted native context, and continue.
-- [x] An encrypted compaction item that cannot itself fit within the serialized-input limit must be omitted rather than exceed the limit or cancel compaction.
-- [x] Truncation must not group raw tool calls across the boundary with prior native history or retain a raw call without its matching output.
-- [x] Selecting an OpenAI-native compaction in `/tree` must materialize a complete plaintext continuation summary through one call using the active model only when its provider/API exactly matches the saved checkpoint; no provider/model fallback is allowed. Materialization is non-persistent until save, and Escape or failure leaves the entry unchanged.
-- [x] Saving an edited native summary must atomically replace the summary and remove the provider-native checkpoint plus OpenAI remote-compaction details while preserving entry identity, tree position, leaf, and token/duration metadata. A newer plaintext compaction must prevent reuse of older native replacement history.
-- [x] Later OpenAI provider payloads must replace Pi's synthetic compaction-summary text with the saved native replacement history, unless a newer plaintext compaction entry forms an invalidation barrier.
+- [x] Pi must not ship the removed endpoint-calling extension or its endpoint-only tests.
+- [x] Selecting an existing OpenAI-native compaction in `/tree` must materialize a complete plaintext continuation summary through one call using the active model only when its provider/API exactly matches the saved checkpoint; no provider/model fallback is allowed. Materialization is non-persistent until save, and Escape or failure leaves the entry unchanged.
+- [x] Saving an edited native summary must atomically replace the summary and remove the provider-native checkpoint plus OpenAI remote-compaction details while preserving entry identity, tree position, leaf, and token/duration metadata.
+- [x] Later matching OpenAI provider payloads must use saved native replacement history instead of Pi's synthetic compaction-summary text. A newer plaintext compaction must prevent reuse of older native replacement history.
+- [x] Removing the endpoint integration must preserve normal plaintext compaction and generic compaction hooks.
 
 ## How it works
 
-- [OpenAI remote compaction](../wiki/systems/openai-remote-compaction.md)
+- [OpenAI saved compaction history](../wiki/systems/openai-remote-compaction.md)
+- [Compaction manual](../../packages/coding-agent/docs/compaction.md)
 
 ## Implementation inventory
 
-- `packages/coding-agent/extensions/openai-remote-compact/src/index.ts` — performs remote compaction, stores native replacement history, and stops history lookup at newer plaintext compactions.
 - `packages/coding-agent/src/core/compaction/compaction.ts` — materializes provider-native checkpoints into plaintext without persisting.
 - `packages/coding-agent/src/core/agent-session.ts` — validates the active provider/API, resolves auth, and owns cancellation.
-- `packages/coding-agent/src/core/session-manager.ts` — atomically replaces native compactions with plaintext and rolls back failed persistence.
+- `packages/coding-agent/src/core/session-manager.ts` — reads saved compaction entries and atomically replaces native compactions with plaintext.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts` — coordinates `/tree` loading, editing, cancellation, and errors.
 - `packages/agent-core/src/harness/messages.ts` — carries provider-native history through compaction-summary context conversion.
 - `packages/ai/src/api/openai-responses-shared.ts` — substitutes matching native history while serializing later OpenAI Responses requests.
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/compaction-continuity-request.test.ts` — conversation-continuity guidance and input in local and remote initial/update/split requests; not model adherence.
 - `packages/coding-agent/test/compaction-materialization.test.ts` — materialization request context, plaintext output, and abort behavior.
 - `packages/coding-agent/test/agent-session-compaction-summary-edit.test.ts` — matching-model materialization, no pre-save mutation, and mismatch rejection.
 - `packages/coding-agent/test/interactive-mode-compaction-edit.test.ts` — plaintext/native editor flows, cancellation, failure, and command routing.
 - `packages/coding-agent/test/session-manager/update-compaction-summary.test.ts` — atomic native replacement, rollback, metadata/leaf preservation, and later plaintext serialization.
-- `packages/coding-agent/test/openai-remote-compact-extension.test.ts` — payload limits, active-model selection, tool-pair preservation, and plaintext invalidation barrier.
-- `packages/coding-agent/test/openai-remote-compact-model.test.ts` — local HTTP requests preserve the active Codex model/account and native history across model switches.
-- `packages/coding-agent/test/openai-remote-compact-split-turn.test.ts` — split-turn opening-user pinning within the payload limit.
 
 ## Known gaps (current cycle)
 
-- [ ] Live `/responses/compact` behavior is manually probed, but not part of automated tests because it requires paid OpenAI credentials.
+None.
 
 ## Out of scope
 
-- Explicit session-purpose/assignment metadata, message-routing redesign, and guaranteed model compliance; continuation preservation here is prompt guidance only.
-- Azure OpenAI support is not enabled until its `/responses/compact` URL and response contract are verified.
-- The experimental `context_compaction` Responses item is not used because the public API rejected it in live probing.
+- New OpenAI or Codex compact-endpoint requests, endpoint payload budgets, and endpoint-specific model selection.
+- Removing or migrating existing provider-native saved history.
+- Removing generic compaction hooks or normal plaintext compaction.
