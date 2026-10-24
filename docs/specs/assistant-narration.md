@@ -32,6 +32,7 @@ Signed Anthropic narration is returned public prose carried in a thinking block.
 - `packages/coding-agent/test/print-mode.test.ts` — narration output without exposing real thinking or changing signed messages; existing JSON integration asserts unchanged wire bodies.
 - `packages/coding-agent/test/suite/end-turn-summarized-reply.test.ts` — completion without a regeneration request.
 - `packages/coding-agent/test/suite/regressions/interactive-pty-narration-output.test.ts` — real CLI visibility before tool release and after process reload, signed persistence and provider replay; `PI_TEST_NARRATION_EXECUTABLE` selects the installed runtime for smoke proof.
+- `packages/coding-agent/test/suite/regressions/interactive-pty-fast-narration-output.test.ts` — main-view PTY replay of original signed blocks from `anthropic-fast-narration.json` through fast `end_turn`, ordinary-text controls, repeated rounds, and real mid-turn persisted runtime mailbox acceptance; [evidence and limits](../wiki/systems/end-turn-tool.md#test-evidence).
 - `packages/coding-agent/test/fixtures/anthropic-narration.json` — captured incident content.
 
 ## Known gaps (current cycle)
