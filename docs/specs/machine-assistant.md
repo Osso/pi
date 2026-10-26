@@ -56,7 +56,7 @@ reminders wake it: the Reminders delivery timer runs in this session (`reminders
 
 ## Tests asserting this spec
 
-None. All requirements remain unchecked.
+- `packages/coding-agent/test/suite/reminders.test.ts`: due reminders are delivered only in the `reminders.deliverySessionId` session, once, with one turn and one alert. All other requirements remain unchecked.
 
 ## Known gaps (current cycle)
 

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
 import remindersExtension from "../../extensions/reminders/src/index.ts";
-import type { ExtensionAPI } from "../../src/core/extensions/types.ts";
+import type { ExtensionAPI, ExtensionUIContext } from "../../src/core/extensions/types.ts";
 import { listReminders } from "../../src/core/reminder-store.ts";
 import { getControlDbPath } from "../../src/core/session-control-db.ts";
 import { createHarness, type Harness } from "./harness.ts";
@@ -16,6 +16,15 @@ const now = new Date("2026-10-25T12:00:00Z");
 interface OpenOptions {
 	deliver?: boolean;
 	notifications?: string[][];
+	uiMessages?: string[];
+}
+
+/** UI context that records notify() text; other UI calls are inert. */
+function recordingUi(messages: string[]): ExtensionUIContext {
+	const notify = (message: string) => messages.push(message);
+	return new Proxy({ notify } as unknown as ExtensionUIContext, {
+		get: (target, key) => (key in target ? target[key as keyof ExtensionUIContext] : () => undefined),
+	});
 }
 
 async function openReminders(controlDbPath: string, options: OpenOptions = {}): Promise<Harness> {
@@ -38,7 +47,10 @@ async function openReminders(controlDbPath: string, options: OpenOptions = {}): 
 		});
 	}
 	harness.setResponses([fauxAssistantMessage("Noted.")]);
-	await harness.session.bindExtensions({ mode: "rpc" });
+	await harness.session.bindExtensions({
+		mode: "rpc",
+		...(options.uiMessages ? { uiContext: recordingUi(options.uiMessages) } : {}),
+	});
 	return harness;
 }
 
@@ -179,11 +191,20 @@ describe("reminder delivery", () => {
 		expect(deliveredTexts(other)).toEqual([]);
 		expect(deliveredTexts(writer)).toEqual([]);
 		expect(otherNotifications).toEqual([]);
-		await waitFor(() => assistant.eventsOfType("agent_start").length > 0);
+		await waitFor(() => assistant.eventsOfType("agent_end").length > 0);
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(assistant.eventsOfType("agent_start")).toHaveLength(1);
 		expect(other.eventsOfType("agent_start")).toHaveLength(0);
 		const [stored] = listReminders(path).filter((reminder) => reminder.title === "Old advisory recheck");
 		expect(stored.status).toBe("open");
 		expect(stored.deliveredAt).toBe(now.toISOString());
+
+		assistant.setResponses([fauxAssistantMessage("Noted again.")]);
+		await runReminderTool(writer, { action: "reschedule", id: stored.id, dueAt: "2026-10-24T09:00:00Z" });
+		await waitFor(() => deliveredTexts(assistant).length > 1);
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(deliveredTexts(assistant)).toHaveLength(2);
+		expect(assistantNotifications).toHaveLength(2);
 	});
 });
 
@@ -199,6 +220,55 @@ describe("/reminders command", () => {
 		expect(listReminders(path)).toEqual([]);
 		await harness.session.prompt(`/reminders reopen ${added.id}`);
 		expect(listReminders(path).map((reminder) => reminder.id)).toEqual([added.id]);
+		expect(harness.faux.state.callCount).toBe(0);
+	});
+
+	it("lists, edits, reschedules and deletes reminders from user commands", async () => {
+		const path = isolatedControlDb();
+		const writer = await openReminders(path);
+		await runReminderTool(writer, {
+			action: "add",
+			title: "Renew certificate",
+			dueAt: "2026-10-30T09:00:00Z",
+			projectPath: "/projects/infra",
+		});
+		await runReminderTool(writer, { action: "add", title: "Overdue backup check", dueAt: "2026-10-20T09:00:00Z" });
+		await runReminderTool(writer, { action: "add", title: "Finished audit", dueAt: "2026-10-21T09:00:00Z" });
+		const byTitle = (title: string) => listReminders(path, "all").find((reminder) => reminder.title === title)!;
+		const [certificate, backup, audit] = ["Renew certificate", "Overdue backup check", "Finished audit"].map(byTitle);
+		await runReminderTool(writer, { action: "complete", id: audit.id });
+		const beforeListing = listReminders(path, "all");
+
+		const uiMessages: string[] = [];
+		const harness = await openReminders(path, { uiMessages });
+		const command = async (args: string): Promise<string> => {
+			await harness.session.prompt(`/reminders ${args}`.trimEnd());
+			return uiMessages.at(-1) ?? "";
+		};
+
+		const open = await command("");
+		expect(open).toContain("Renew certificate");
+		expect(open).toContain("/projects/infra");
+		expect(open).not.toContain("Finished audit");
+		expect(await command("list done")).toContain("Finished audit");
+		const due = await command("list due");
+		expect(due).toContain("Overdue backup check");
+		expect(due).not.toContain("Renew certificate");
+		expect(due).not.toContain("Finished audit");
+		expect(listReminders(path, "all")).toEqual(beforeListing);
+
+		await command(`edit ${certificate.id} Renew TLS certificate`);
+		await command(`notes ${certificate.id} Use the ACME client`);
+		await command(`reschedule ${certificate.id} 2026-11-02T09:00:00Z`);
+		const [edited] = listReminders(path).filter((reminder) => reminder.id === certificate.id);
+		expect(edited).toMatchObject({
+			title: "Renew TLS certificate",
+			notes: "Use the ACME client",
+			dueAt: "2026-11-02T09:00:00.000Z",
+		});
+		await command(`delete ${backup.id}`);
+		expect(listReminders(path, "all").map((reminder) => reminder.id)).toEqual([audit.id, certificate.id]);
+		expect(await command("delete")).toContain("Usage: /reminders");
 		expect(harness.faux.state.callCount).toBe(0);
 	});
 });

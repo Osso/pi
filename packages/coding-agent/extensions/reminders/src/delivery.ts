@@ -11,9 +11,11 @@ export const REMINDER_MESSAGE_TYPE = "reminder";
 const TRIGGER_TURN = true;
 
 export function notifyDesktop(title: string, body: string): void {
-	spawn("notify-send", ["--app-name=pi", title, body], { stdio: "ignore" }).on("error", (error) => {
-		console.error(`Reminder desktop notification failed: ${error.message}`);
-	});
+	spawn("notify-send", ["--app-name=pi", title, body], { stdio: "ignore" })
+		.on("error", (error) => console.error(`Reminder desktop notification failed: ${error.message}`))
+		.on("exit", (code) => {
+			if (code !== 0) console.error(`Reminder desktop notification failed: notify-send exited with ${code}`);
+		});
 }
 
 function reminderMessage(reminder: Reminder): string {
@@ -57,13 +59,21 @@ export class ReminderDelivery {
 		try {
 			due = claimDueReminders(controlDbPath, this.now());
 		} catch (error) {
-			ctx.ui.notify(`Reminder delivery check failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+			ctx.ui.notify(
+				`Reminder delivery check failed: ${error instanceof Error ? error.message : String(error)}`,
+				"error",
+			);
 			return;
 		}
 		for (const reminder of due) {
 			this.notify("Pi reminder", `#${reminder.id} ${reminder.title}`);
 			this.pi.sendMessage(
-				{ customType: REMINDER_MESSAGE_TYPE, content: reminderMessage(reminder), display: true, details: { id: reminder.id } },
+				{
+					customType: REMINDER_MESSAGE_TYPE,
+					content: reminderMessage(reminder),
+					display: true,
+					details: { id: reminder.id },
+				},
 				{ deliverAs: "followUp", triggerTurn: TRIGGER_TURN },
 			);
 		}

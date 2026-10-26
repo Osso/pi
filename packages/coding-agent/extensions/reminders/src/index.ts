@@ -34,7 +34,8 @@ function takeDueAt(words: string[]): { dueAt: string; rest: string[] } {
 
 function parseId(text: string | undefined): number {
 	const id = Number(text);
-	if (!text || !Number.isSafeInteger(id) || id <= 0) throw new Error(COMMAND_USAGE);
+	const isPositiveInteger = Number.isSafeInteger(id) && id > 0;
+	if (!text || !isPositiveInteger) throw new Error(COMMAND_USAGE);
 	return id;
 }
 
@@ -67,24 +68,9 @@ export function parseRemindersCommand(args: string): ReminderRequest {
 	}
 }
 
-export default function remindersExtension(pi: ExtensionAPI, options: ReminderOptions = {}): void {
-	const now = options.now ?? (() => new Date());
-	const delivery = new ReminderDelivery(pi, {
-		notify: options.notify ?? notifyDesktop,
-		now,
-		intervalMs: options.deliveryIntervalMs ?? 60_000,
-	});
-	const controlDbPath = (ctx: ExtensionContext): string => {
-		const path = options.controlDbPath ?? ctx.controlDbPath;
-		if (!path) throw new Error("Reminders require the Pi control database.");
-		return path;
-	};
-	const run = (request: ReminderRequest, ctx: ExtensionContext): string =>
-		describeResult(request, executeReminderAction(controlDbPath(ctx), request, now()));
+type DescribeReminderAction = (request: ReminderRequest, ctx: ExtensionContext) => string;
 
-	pi.on("session_start", (_event, ctx) => delivery.start(ctx, options.controlDbPath ?? ctx.controlDbPath));
-	pi.on("session_shutdown", () => delivery.stop());
-
+function registerRemindersTool(pi: ExtensionAPI, executeAndDescribe: DescribeReminderAction): void {
 	pi.registerTool({
 		name: "reminders",
 		label: "Reminders",
@@ -99,31 +85,57 @@ export default function remindersExtension(pi: ExtensionAPI, options: ReminderOp
 		],
 		parameters: Type.Object({
 			action: Type.Union(REMINDER_ACTIONS.map((action) => Type.Literal(action))),
-			id: Type.Optional(Type.Integer({ description: "Reminder ID for edit, reschedule, complete, reopen, delete." })),
+			id: Type.Optional(
+				Type.Integer({ description: "Reminder ID for edit, reschedule, complete, reopen, delete." }),
+			),
 			title: Type.Optional(Type.String({ description: "Short reminder title. Required for add." })),
 			notes: Type.Optional(Type.String({ description: "Optional details." })),
 			projectPath: Type.Optional(Type.String({ description: "Optional project path as context; does not filter." })),
 			dueAt: Type.Optional(Type.String({ description: DUE_AT_HELP })),
 			status: Type.Optional(
-				Type.Union(REMINDER_LIST_STATUSES.map((status) => Type.Literal(status)), {
-					description: "List filter: open (default), done, all, or due (overdue and due today).",
-				}),
+				Type.Union(
+					REMINDER_LIST_STATUSES.map((status) => Type.Literal(status)),
+					{ description: "List filter: open (default), done, all, or due (overdue and due today)." },
+				),
 			),
 		}),
 		execute: async (_toolCallId, params, _signal, _onUpdate, ctx) => ({
-			content: [{ type: "text", text: run(params, ctx) }],
+			content: [{ type: "text", text: executeAndDescribe(params, ctx) }],
 			details: undefined,
 		}),
 	});
+}
 
+function registerRemindersCommand(pi: ExtensionAPI, executeAndDescribe: DescribeReminderAction): void {
 	pi.registerCommand("reminders", {
 		description: "List and manage persistent reminders across projects.",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			try {
-				ctx.ui.notify(run(parseRemindersCommand(args), ctx), "info");
+				ctx.ui.notify(executeAndDescribe(parseRemindersCommand(args), ctx), "info");
 			} catch (error) {
 				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
 			}
 		},
 	});
+}
+
+export default function remindersExtension(pi: ExtensionAPI, options: ReminderOptions = {}): void {
+	const now = options.now ?? (() => new Date());
+	const delivery = new ReminderDelivery(pi, {
+		notify: options.notify ?? notifyDesktop,
+		now,
+		intervalMs: options.deliveryIntervalMs ?? 60_000,
+	});
+	const controlDbPath = (ctx: ExtensionContext): string => {
+		const path = options.controlDbPath ?? ctx.controlDbPath;
+		if (!path) throw new Error("Reminders require the Pi control database.");
+		return path;
+	};
+	const executeAndDescribe: DescribeReminderAction = (request, ctx) =>
+		describeResult(request, executeReminderAction(controlDbPath(ctx), request, now()));
+
+	pi.on("session_start", (_event, ctx) => delivery.start(ctx, options.controlDbPath ?? ctx.controlDbPath));
+	pi.on("session_shutdown", () => delivery.stop());
+	registerRemindersTool(pi, executeAndDescribe);
+	registerRemindersCommand(pi, executeAndDescribe);
 }

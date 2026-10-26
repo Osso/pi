@@ -50,11 +50,13 @@ The first-party `reminders` extension registers the agent tool and `/reminders` 
 
 - `test/reminder-store.test.ts`: persistence, filters, edit/complete/reopen/delete, schema constraints, delivery claims and re-arming.
 - `test/reminder-time.test.ts`: local and offset parsing, DST gaps and repeats, display with offset and zone.
-- `test/suite/reminders.test.ts`: cross-session visibility and lifecycle through the tool, agent guidance, invalid input, single-session delivery with turn and alert, `/reminders` commands.
+- `test/suite/reminders.test.ts`: cross-session visibility and lifecycle through the tool, agent guidance, invalid input, single-session delivery with exactly one turn and alert, re-arm by reschedule, `/reminders` list (open, done, due), add, edit, notes, reschedule, done, reopen and delete.
 
 ## Known gaps (current cycle)
 
 - [ ] Assistant restart supervision is not implemented: delivery stops while the assistant session is not running, and resumes with overdue reminders at its next start.
+- [ ] Delivery is claimed before it is attempted. If the process exits after the claim, or the conversation post or desktop alert fails, the reminder stays marked delivered and is not retried. Failures are logged; the extension message API returns no acknowledgement to release the claim.
+- [ ] No test covers a real process restart, the real `notify-send` call, or a reminder that becomes due while the timer runs.
 
 ## Out of scope
 
