@@ -216,6 +216,7 @@
 
 ### Fixed
 
+- Fixed `pi supervisor` ignoring SIGTERM after it had served a model request: shutdown now disposes the resident session, closing the cached Codex WebSocket that kept the process alive.
 - Fixed `change_working_directory` and `spawn_agent` in the same tool batch losing the child: the session moved while the batch still ran, so the child was stored under the old session path, `list_agents` reported `Found 0 agents.`, and its record stayed `running` forever. The session and its control data now move after the whole batch completes.
 - Fixed deleted sessions leaving their agents active forever: deleting a session from the picker or with `/delete` now also removes its multi-agent records (agents, runtime ownership, mailbox, terminal outbox, counters). Before, a session whose process died with running children kept those children `running` in the control DB after deletion.
 - `image_gen` works from non-Codex sessions (for example Claude): it generates through the user's configured Codex model (`defaultModel`, then `enabledModels`) and that provider's subscription login instead of failing with "requires a Codex provider model".

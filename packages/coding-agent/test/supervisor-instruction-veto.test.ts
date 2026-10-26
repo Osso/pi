@@ -47,6 +47,7 @@ function createFakeResidentSession(tempDir: string, responses: unknown[]): FakeR
 	let promptCount = 0;
 	const session = {
 		abort: async () => {},
+		dispose: () => {},
 		prompt: async () => {
 			const response = responses[promptCount];
 			promptCount += 1;

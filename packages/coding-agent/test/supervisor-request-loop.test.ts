@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => {
 	};
 	const session = {
 		abort: vi.fn(async () => {}),
+		dispose: vi.fn(),
 		prompt: vi.fn(async () => {
 			sessionEntries.push({
 				id: "assistant-response",

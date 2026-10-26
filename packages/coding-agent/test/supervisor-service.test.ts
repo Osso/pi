@@ -465,6 +465,7 @@ describe("resident Supervisor service", () => {
 		const sessionManager = SessionManager.create(tempDir, tempDir);
 		const session = {
 			abort: async () => {},
+			dispose: () => {},
 			prompt: async () => {
 				promptCount += 1;
 				if (promptCount !== 1) return;
@@ -506,6 +507,7 @@ describe("resident Supervisor service", () => {
 		sessionManager.appendMessage(fauxAssistantMessage("old assistant"));
 		const session = {
 			abort: async () => {},
+			dispose: () => {},
 			prompt: async () => {
 				sessionManager.appendCompaction("compacted history", firstEntryId, 100);
 				sessionManager.appendMessage(fauxAssistantMessage('{"kind":"complete","reason":"current response"}'));
@@ -534,6 +536,7 @@ describe("resident Supervisor service", () => {
 		const sessionManager = SessionManager.create(tempDir, tempDir);
 		const session = {
 			abort: async () => {},
+			dispose: () => {},
 			prompt: async () => {
 				sessionManager.appendMessage(
 					fauxAssistantMessage(
@@ -566,6 +569,7 @@ describe("resident Supervisor service", () => {
 		const sessionManager = SessionManager.create(tempDir, tempDir);
 		const session = {
 			abort: async () => {},
+			dispose: () => {},
 			prompt: async () => {
 				sessionManager.appendMessage(fauxAssistantMessage('{"kind":"complete","reason":"guarded response"}'));
 				sessionManager.appendMessage(
@@ -600,6 +604,7 @@ describe("resident Supervisor service", () => {
 			const sessionManager = SessionManager.create(tempDir, tempDir);
 			const session = {
 				abort: async () => {},
+				dispose: () => {},
 				prompt: async () => {
 					sessionManager.appendMessage(fauxAssistantMessage('{"kind":"complete","reason":"intermediate"}'));
 					sessionManager.appendMessage(

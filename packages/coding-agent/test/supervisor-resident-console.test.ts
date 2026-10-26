@@ -96,6 +96,7 @@ describe("Supervisor resident console", () => {
 			processRequest,
 			session: {
 				abort: async () => {},
+				dispose: () => {},
 				prompt,
 				sessionManager: { getBranch: () => [], getLeafId: () => null },
 			},

@@ -59,6 +59,7 @@ export type SupervisorInstructionReviewer = (
 
 interface SupervisorSession {
 	abort(): Promise<void>;
+	dispose(): void;
 	compact?: (customInstructions?: string) => Promise<unknown>;
 	getContextUsage?: () => { percent: number | null } | undefined;
 	prompt(content: string): Promise<void>;
@@ -308,6 +309,8 @@ export async function runSupervisorService(): Promise<void> {
 		await consoleServer.close();
 		await wakeServer.close();
 		await session.abort();
+		// Releases provider connections, such as the cached Codex WebSocket, that otherwise keep the process alive.
+		session.dispose();
 	}
 }
 

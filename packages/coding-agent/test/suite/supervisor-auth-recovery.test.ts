@@ -211,6 +211,7 @@ it("returns the current model error detail rather than an earlier successful res
 	sessionManager.appendMessage(fauxAssistantMessage('{"kind":"set","objective":"Old scope","reason":"Old review"}'));
 	await processSupervisorRequest(controlDbPath, request, {
 		abort: async () => {},
+		dispose: () => {},
 		prompt: async () => {
 			sessionManager.appendMessage(
 				fauxAssistantMessage([], {
