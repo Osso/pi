@@ -6728,6 +6728,22 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 			PRIMARY KEY (recipient_session_id, recipient_agent_id_key)
 		);
 
+		CREATE TABLE IF NOT EXISTS reminders (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			title TEXT NOT NULL CHECK (length(trim(title)) > 0),
+			notes TEXT NOT NULL,
+			project_path TEXT,
+			due_at TEXT NOT NULL,
+			status TEXT NOT NULL CHECK (status IN ('open', 'done')),
+			created_at TEXT NOT NULL,
+			completed_at TEXT,
+			delivered_at TEXT,
+			CHECK (
+				(status = 'open' AND completed_at IS NULL)
+				OR (status = 'done' AND completed_at IS NOT NULL AND julianday(completed_at) IS NOT NULL)
+			)
+		);
+
 		CREATE TABLE IF NOT EXISTS prompt_history (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			content TEXT NOT NULL,
