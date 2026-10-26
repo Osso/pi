@@ -7,7 +7,7 @@ The machine assistant is a persistent, user-facing Pi conversation responsible f
 ### Identity and state
 
 - [ ] Maintain one dedicated persistent assistant conversation per user and machine, rather than assigning maintenance to every interactive project session.
-- [ ] Keep reminder and duty state in Pi-owned control-DB records. The conversation must not be the sole record of pending commitments or execution results.
+- [ ] Keep shared reminders in Pi-owned control-DB records, as specified in [Reminders](reminders.md).
 - [ ] Preserve the assistant conversation and durable state across process restarts.
 - [ ] Keep active implementation steps, test checklists, and session progress in `PLAN.md`, not in the reminder queue.
 
@@ -15,8 +15,7 @@ The machine assistant is a persistent, user-facing Pi conversation responsible f
 
 - [ ] Deliver ordinary reminders without treating their text as authorization to execute work.
 - [ ] Perform the approved security follow-up as a read-only advisory check against known software inventory, reporting relevant findings and unknown exposure. Do not patch, restart services, or change configuration as part of this duty.
-- [ ] Support automatic disk cleanup only within categories approved by the user. Each category needs allowed paths, retention rules, and protected exclusions before deletion is enabled.
-- [ ] Enforce cleanup policy in the cleanup operation, not only through assistant instructions, and report removed data and recovered space.
+- [ ] Support automatic disk cleanup only within categories approved by the user. No category is approved yet.
 - [ ] Permit proactive read-only inspection for other local machine problems and proposals for new duties. Discovery does not authorize a new corrective action.
 - [ ] Allow agents to infer useful durable reminders without requiring an explicit user command, and report each addition, as specified in [Reminders](reminders.md).
 
@@ -28,6 +27,8 @@ The machine assistant is a persistent, user-facing Pi conversation responsible f
 ## How it works
 
 Implementation architecture is not selected. The current proposal separates a scheduling/check layer from model reasoning so that a persistent process does not require continuous model polling. Wake conditions, execution recovery, model selection, and resource limits still need design decisions.
+
+Proposed cleanup policy includes allowed paths, retention rules, protected exclusions, enforcement by the cleanup operation, and removed-data/space-recovery reports. These details need approval when defining the first category. Storing duty state and execution results in control-DB records, rather than relying only on the conversation, is also a proposal pending a persistence decision.
 
 ## Implementation inventory
 
