@@ -46,7 +46,14 @@ Proposed cleanup policy includes allowed paths, retention rules, protected exclu
 
 ## Implementation inventory
 
-No integrated machine-assistant service exists for this design.
+No integrated machine-assistant service exists for this design. On 2026-10-26 an
+interactive Pi conversation named `Assistant` was started on `aso`
+(session `01a176f1-7bde-768f-a290-68e6a80ec3f3`, cwd `/home/osso`) in a WezTerm tab,
+with an opening brief restating the duties, limits, reserved decisions and the
+09:00 security follow-up. It is pinned at the top of the Super+A switcher through
+`~/.config/agent-switcher/pinned`. It has no supervision or restart restoration, and
+Pi offers no one-shot wake: `loop` and `periodic-checks` are in-memory interval timers
+cleared at session shutdown.
 
 ## Tests asserting this spec
 
