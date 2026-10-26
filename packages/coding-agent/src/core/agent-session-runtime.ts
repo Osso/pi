@@ -51,9 +51,8 @@ export type CreateAgentSessionRuntimeFactory = (options: {
 }) => Promise<CreateAgentSessionRuntimeResult>;
 
 interface PreparedCwdRelocation {
-	previousSessionFile: string | undefined;
 	projectTrustContext: ProjectTrustContext | undefined;
-	sessionManager: SessionManager;
+	targetCwd: string;
 }
 
 interface PreparedToolResultRelocation {
@@ -342,33 +341,38 @@ export class AgentSessionRuntime {
 		return resolvedPath;
 	}
 
+	/** Validates the target only; the session moves at activation, after the current tool batch writes its state. */
 	private prepareRelocation(targetCwd: string, projectTrustContext?: ProjectTrustContext): PreparedCwdRelocation {
-		const resolvedTargetCwd = this.resolveExistingDirectory(targetCwd);
+		return { projectTrustContext, targetCwd: this.resolveExistingDirectory(targetCwd) };
+	}
+
+	/**
+	 * Moves the transcript and its control data (including multi-agent rows) to the target cwd, then rebuilds the
+	 * runtime there. Tools that ran in the same batch as the relocation request, such as spawn_agent, have already
+	 * committed under the old session path, so the move carries their records along.
+	 */
+	private async activateRelocation(prepared: PreparedCwdRelocation): Promise<void> {
 		const previousCwd = this.cwd;
 		const previousSessionFile = this.session.sessionFile;
 		const sessionManager = this.session.sessionManager;
-		sessionManager.relocate(resolvedTargetCwd, this.services.agentDir);
+		sessionManager.relocate(prepared.targetCwd, this.services.agentDir);
 		sessionManager.appendCustomMessageEntry(
 			"cwd_changed",
-			`Working directory changed from ${previousCwd} to ${resolvedTargetCwd}.`,
+			`Working directory changed from ${previousCwd} to ${prepared.targetCwd}.`,
 			true,
-			{ previousCwd, cwd: resolvedTargetCwd },
+			{ previousCwd, cwd: prepared.targetCwd },
 		);
-		return { previousSessionFile, projectTrustContext, sessionManager };
-	}
-
-	private async activateRelocation(prepared: PreparedCwdRelocation): Promise<void> {
-		await this.repairProcessWorkingDirectory(prepared.sessionManager.getCwd());
-		await this.teardownCurrent("resume", prepared.sessionManager.getSessionFile());
+		await this.repairProcessWorkingDirectory(sessionManager.getCwd());
+		await this.teardownCurrent("resume", sessionManager.getSessionFile());
 		this.apply(
 			await this.createRuntime({
-				cwd: prepared.sessionManager.getCwd(),
+				cwd: sessionManager.getCwd(),
 				agentDir: this.services.agentDir,
-				sessionManager: prepared.sessionManager,
+				sessionManager,
 				sessionStartEvent: {
 					type: "session_start",
 					reason: "resume",
-					previousSessionFile: prepared.previousSessionFile,
+					previousSessionFile,
 				},
 				projectTrustContext: prepared.projectTrustContext,
 			}),
