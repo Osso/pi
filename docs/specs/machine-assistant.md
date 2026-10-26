@@ -31,6 +31,11 @@ The machine assistant is a persistent, user-facing Pi conversation responsible f
 - [ ] Keep full reports in the dedicated assistant conversation and send a desktop notification for alerts that need the user's attention.
 - [ ] Do not broadcast reminder or maintenance alerts to every running project session.
 
+### Interaction
+
+- [ ] Keep the existing terminal interface for the assistant rather than building a new dashboard.
+- [ ] Provide access through the agreed Super+A session switcher covering the laptop and agent-server; session-access behavior belongs to the external [remote-agent switcher contract](https://github.com/Osso/remote-agent/blob/main/docs/specs/session-switcher.md).
+
 ## How it works
 
 Pi already supports [cross-host direct messages](multi-agent.md#cross-host-messaging) addressed by host and session ID. Permanent contact discovery, launch, and restoration are not yet designed; a new transport or issue-management layer is not assumed.
@@ -53,7 +58,7 @@ None. All requirements remain unchecked.
 - [ ] Select the model and resource budget.
 - [ ] Define and approve the first cleanup category and its concrete policy. No cleanup category is approved yet.
 - [ ] Define desktop-alert repetition and routine-report behavior. Quiet routine reports and alerts only for new or changed findings are proposals, not accepted requirements.
-- [ ] Decide implementation, service supervision, and interaction surfaces before resuming the paused implementation goal.
+- [ ] Decide implementation and service supervision before resuming the paused assistant implementation. The terminal interface and dual-host session switcher are selected; the assistant service itself is not implemented.
 - [ ] Define and verify handover of the two reference roles before replacing them. Their read-only role summaries have been obtained; neither session has been stopped or transferred. Concise role instructions and resource pointers, rather than wholesale transcript merging, are the current proposal.
 - [ ] Define how server sessions learn the permanent laptop address and how the same assistant identity is restored after restart; reuse existing host/session mailbox routing where sufficient.
 
