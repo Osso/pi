@@ -46,8 +46,8 @@ async function waitFor(condition: () => boolean, timeoutMs: number): Promise<voi
 /** The ID the running session reports; delivery compares the setting against it. */
 async function runningSessionId(agent: HeadlessPi): Promise<string> {
 	const state = await agent.send({ type: "get_state" });
-	if (!state.success) throw new Error(`get_state failed: ${JSON.stringify(state)}`);
-	return (state.data as { sessionId: string }).sessionId;
+	if (!state.success || state.command !== "get_state") throw new Error(`get_state failed: ${JSON.stringify(state)}`);
+	return state.data.sessionId;
 }
 
 function endTurn(reason: string): ReturnType<typeof fauxAssistantMessage> {
