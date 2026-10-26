@@ -185,4 +185,22 @@ export const OPENAI_CODEX_GC_MODELS = {
 		contextWindow: 922000,
 		maxTokens: 128000,
 	} satisfies Model<"openai-codex-responses">,
+	"gpt-6.1-terra": {
+		id: "gpt-6.1-terra",
+		name: "GPT-6.1 Terra",
+		api: "openai-codex-responses",
+		provider: "openai-codex-gc",
+		baseUrl: "https://chatgpt.com/backend-api",
+		reasoning: true,
+		thinkingLevelMap: {"max":"max","xhigh":"xhigh","minimal":"low"},
+		input: ["text", "image"],
+		cost: {
+			input: 1,
+			output: 5,
+			cacheRead: 0.05,
+			cacheWrite: 1.25,
+		},
+		contextWindow: 922000,
+		maxTokens: 128000,
+	} satisfies Model<"openai-codex-responses">,
 } as const;

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { getModels } from "../src/compat.ts";
 
-for (const provider of ["openai-codex", "openai-codex-gc"] as const) {
+for (const provider of ["openai-codex", "openai-codex-gc", "openai-codex-team"] as const) {
 	describe(`${provider} GPT-6 catalog`, () => {
 		it.each([
 			["gpt-6-sol", { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 }],
 			["gpt-6-luna", { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 }],
+			["gpt-6.1-terra", { input: 1, output: 5, cacheRead: 0.05, cacheWrite: 1.25 }],
 		] as const)("resolves %s with published limits and pricing", (id, cost) => {
 			const model = getModels(provider).find((candidate) => candidate.id === id);
 			expect(model).toMatchObject({

@@ -53,6 +53,7 @@
 - Added optional `StreamOptions.cwd` for per-call working-directory metadata in local/subprocess provider integrations; it is not a server payload field.
 - Added GPT-6 Sol and GPT-6 Luna to the `openai-codex`, `openai-codex-gc`, and `openai-codex-team` model catalogs with OpenAI's published per-million-token pricing: Sol $2 input/$10 output and Luna $0.10 input/$0.50 output.
 - Added GPT-6 Astra to the `openai-codex`, `openai-codex-gc`, and `openai-codex-team` model catalogs with 922,000-token effective input context and supported reasoning efforts.
+- Added GPT-6.1 Terra to the `openai-codex`, `openai-codex-gc`, and `openai-codex-team` model catalogs with 922,000-token effective input context and OpenAI's published pricing: $1 input/$5 output per million tokens.
 - Added optional persisted `ToolCall.execution.agentId` metadata for application-owned durable tool execution identity; provider adapters ignore it.
 - Added GPT-5.6 Sol `max` and `ultra` effort metadata; both serialize as provider maximum reasoning effort (`reasoning.effort: "max"`). Coding-agent layers proactive delegation onto `ultra`; the Codex adapter does not send Responses multi-agent beta fields or headers.
 - Added `AssistantMessage.imageGenerationResult` and OpenAI Responses parsing for completed hosted `image_generation_call` results as PNG image content.

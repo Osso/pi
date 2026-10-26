@@ -1973,6 +1973,20 @@ async function generateModels() {
 			contextWindow: 922000,
 			maxTokens: CODEX_MAX_TOKENS,
 		},
+		// https://developers.openai.com/api/docs/models/gpt-6.1-terra
+		{
+			id: "gpt-6.1-terra",
+			name: "GPT-6.1 Terra",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: CODEX_BASE_URL,
+			reasoning: true,
+			thinkingLevelMap: { max: "max" },
+			input: ["text", "image"],
+			cost: { input: 1, output: 5, cacheRead: 0.05, cacheWrite: 1.25 },
+			contextWindow: 922000,
+			maxTokens: CODEX_MAX_TOKENS,
+		},
 		{
 			id: "gpt-6-astra",
 			name: "GPT-6 Astra",
