@@ -10,14 +10,14 @@ The `codex-image-generation` extension exposes hosted image generation as a call
 
 - [x] Register a callable `image_gen` tool with a required `prompt` string.
 - [x] Load the extension as a default first-party tool.
-- [ ] Accept the tool only for `openai-codex`, `openai-codex-gc`, and `openai-codex-team` provider models.
+- [x] Generate through an `openai-codex`, `openai-codex-gc`, or `openai-codex-team` model from any session model: the session's model when it is one, otherwise a logged-in Codex model from the model registry (configured default provider first, then that provider's default model). Without a Codex login, fail with a `pi login openai-codex` hint.
 
 ### Private hosted request
 
 - [x] Keep the callable function tool available for main-session dispatch.
 - [x] Add one hosted `{ type: "image_generation" }` tool only to the extension's private one-shot request.
 - [x] Remove the same-named function tool before sending that private hosted request and avoid adding a duplicate hosted tool.
-- [x] Use the current model's resolved authentication.
+- [x] Use the selected Codex model's resolved authentication.
 - [x] Save each successful PNG under a unique `image-gen-<id>.png` path in the active working directory and return both that visible path and the image content.
 
 ### Response result
@@ -32,7 +32,7 @@ The `codex-image-generation` extension exposes hosted image generation as a call
 ## Implementation inventory
 
 - `packages/coding-agent/src/main.ts` — loads the extension as a default first-party extension.
-- `packages/coding-agent/extensions/codex-image-generation/src/index.ts` — registers `image_gen` for main-session dispatch, injects the hosted tool only for its private one-shot request, resolves current provider authentication, persists each generated PNG, and returns its path with image content.
+- `packages/coding-agent/extensions/codex-image-generation/src/index.ts` — registers `image_gen` for main-session dispatch, injects the hosted tool only for its private one-shot request, selects a Codex model and resolves its provider authentication, persists each generated PNG, and returns its path with image content.
 - `packages/ai/src/api/openai-responses-shared.ts` — parses completed hosted image-generation response items.
 - `packages/ai/src/types.ts` — defines `AssistantMessage.imageGenerationResult`.
 

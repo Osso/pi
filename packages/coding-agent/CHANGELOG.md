@@ -214,6 +214,7 @@
 
 ### Fixed
 
+- `image_gen` works from non-Codex sessions (for example Claude): it generates through a logged-in Codex subscription model instead of failing with "requires a Codex provider model".
 - Fixed session naming prompt guidance to skip child, ephemeral, already-named, and explicitly cleared sessions and treat naming refusal as non-blocking; tool runtime is unchanged, and live model compliance is not enforced.
 - Fixed competing startup idle-archive passes racing on source inspection (`ENOENT`) and archive publication (`EEXIST`): one nonblocking cross-process claim protects the entire pass per canonical sessions root; competitors skip, ownership releases on failure, and stale crash claims are recoverable. Archive bytes, control-DB metadata, and reporting of genuine I/O, corruption, or missing-data errors remain protected.
 - Fixed `/periodic-checks` and `/periodic-checks status` retaining `No checklist` after a checklist is added following startup; status now discovers it and arms its full configured interval without starting an audit or changing an armed schedule.

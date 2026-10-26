@@ -2,9 +2,10 @@ import { randomBytes } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Api, type Context, type ImageContent, type Model, streamSimple } from "@earendil-works/pi-ai/compat";
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, KnownProvider } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../../../src/core/extensions/types.ts";
+import { defaultModelPerProvider } from "../../../src/core/model-resolver.ts";
 
 interface ImageGenerationTool {
 	type: "image_generation";
@@ -28,6 +29,7 @@ type OpenAIImageGenerationModel = Model<"openai-codex-responses">;
 type RunImageGeneration = (request: ImageGenerationRequest, ctx: ExtensionContext) => Promise<ImageContent>;
 
 const DEFAULT_IMAGE_GENERATION_TIMEOUT_MS = 300_000;
+const CODEX_PROVIDERS = ["openai-codex", "openai-codex-gc", "openai-codex-team"] as const;
 
 const imageGenerationSchema = Type.Object({
 	prompt: Type.String({ description: "Detailed description of the image to generate." }),
@@ -71,11 +73,26 @@ export function isOpenAIHostedImageGenerationModel(
 	model: Model<Api> | undefined,
 ): model is OpenAIImageGenerationModel {
 	if (model?.api !== "openai-codex-responses") return false;
-	return (
-		model.provider === "openai-codex" ||
-		model.provider === "openai-codex-gc" ||
-		model.provider === "openai-codex-team"
-	);
+	return (CODEX_PROVIDERS as readonly string[]).includes(model.provider);
+}
+
+/**
+ * The session's model when it is a Codex model; otherwise a logged-in Codex
+ * subscription model, so image_gen works from any session model. Prefers the
+ * configured default provider and that provider's default model.
+ */
+function resolveImageGenerationModel(ctx: ExtensionContext): OpenAIImageGenerationModel {
+	if (isOpenAIHostedImageGenerationModel(ctx.model)) return ctx.model;
+	const candidates = ctx.modelRegistry.getAvailable().filter(isOpenAIHostedImageGenerationModel);
+	const providers = [ctx.settingsManager?.getDefaultProvider(), ...CODEX_PROVIDERS];
+	for (const provider of providers) {
+		const ofProvider = candidates.filter((model) => model.provider === provider);
+		const match =
+			ofProvider.find((model) => model.id === defaultModelPerProvider[model.provider as KnownProvider]) ??
+			ofProvider[0];
+		if (match) return match;
+	}
+	throw new Error("image_gen needs a Codex subscription login (pi login openai-codex)");
 }
 
 async function executeImageGeneration(
@@ -87,15 +104,12 @@ async function executeImageGeneration(
 ): Promise<ImageContent> {
 	const prompt = params.prompt.trim();
 	if (!prompt) throw new Error("image_gen prompt is required");
-	if (!isOpenAIHostedImageGenerationModel(ctx.model)) {
-		throw new Error("image_gen requires a Codex provider model");
-	}
-
-	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model);
+	const model = resolveImageGenerationModel(ctx);
+	const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 	if (!auth.ok) throw new Error(auth.error);
 	const request = {
 		prompt,
-		model: ctx.model,
+		model,
 		apiKey: auth.apiKey,
 		headers: auth.headers,
 		env: auth.env,
