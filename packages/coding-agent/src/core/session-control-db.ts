@@ -2640,14 +2640,32 @@ export function removeSessionMetadata(controlDbPath: string, sessionPath: string
 }
 
 export function removeSessionsMetadata(controlDbPath: string, paths: readonly string[]): void {
+	removeSessionPathRows(controlDbPath, paths, ["session_sandbox_profiles", "session_metadata"]);
+}
+
+/**
+ * Removes all control data of deleted session transcripts, including their multi-agent records. Without a transcript
+ * the session cannot resume, so its non-terminal agents would otherwise stay active forever.
+ */
+export function removeDeletedSessionsControlData(controlDbPath: string, paths: readonly string[]): void {
+	removeSessionPathRows(controlDbPath, paths, [
+		"session_sandbox_profiles",
+		"session_metadata",
+		"multi_agent_agents",
+		"multi_agent_runtime_owners",
+		"multi_agent_terminal_outbox",
+		"multi_agent_mailbox_messages",
+		"multi_agent_counters_v2",
+	]);
+}
+
+function removeSessionPathRows(controlDbPath: string, paths: readonly string[], tables: readonly string[]): void {
 	if (paths.length === 0) return;
 	withControlDb(controlDbPath, (db) => {
 		withImmediateTransaction(db, () => {
-			const removeSandboxProfile = db.prepare("DELETE FROM session_sandbox_profiles WHERE session_path = ?");
-			const removeMetadata = db.prepare("DELETE FROM session_metadata WHERE session_path = ?");
+			const removals = tables.map((table) => db.prepare(`DELETE FROM ${table} WHERE session_path = ?`));
 			for (const path of paths) {
-				removeSandboxProfile.run(path);
-				removeMetadata.run(path);
+				for (const removal of removals) removal.run(path);
 			}
 		});
 	});

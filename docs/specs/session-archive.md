@@ -63,6 +63,7 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 
 - [x] Session-tree deletion must not freeze the UI through synchronous trash processes (`session-delete.test.ts`).
 - [x] The picker and `/delete` quit teardown must await deletion completion, preserving unrelated sessions and metadata for files that could not be deleted (`session-delete.test.ts`, `session-selector-path-delete.test.ts`, `session-archive-extension.test.ts`).
+- [x] Deleting a transcript also removes its multi-agent records (agents, runtime ownership, mailbox, terminal outbox, counters). A deleted session cannot resume, so its non-terminal agents must not stay active, for example when the picker deletes a session whose process died while children were running (`session-delete.test.ts`).
 
 ### First-party `/unarchive` command
 

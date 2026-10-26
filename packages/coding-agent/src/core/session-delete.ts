@@ -1,13 +1,13 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { unlink } from "node:fs/promises";
-import { listDescendantSessionPaths, removeSessionsMetadata } from "./session-control-db.ts";
+import { listDescendantSessionPaths, removeDeletedSessionsControlData } from "./session-control-db.ts";
 
 export type SessionDeleteResult = { ok: true; method: "trash" | "unlink" } | { ok: false; error: string };
 
 /**
- * Deletes a session tree, preferring trash over permanent deletion. Only removed transcripts lose their metadata,
- * including files already removed by a partially successful trash invocation.
+ * Deletes a session tree, preferring trash over permanent deletion. Only removed transcripts lose their control data
+ * (metadata and multi-agent records), including files already removed by a partially successful trash invocation.
  */
 export async function deleteSessionTree(
 	sessionPath: string,
@@ -31,7 +31,7 @@ export async function deleteSessionTree(
 		result = { ok: false, error: `Cannot delete session tree ${sessionPath}: ${String(error)}` };
 	}
 	try {
-		if (controlDbPath && deletedPaths.length > 0) removeSessionsMetadata(controlDbPath, deletedPaths);
+		if (controlDbPath && deletedPaths.length > 0) removeDeletedSessionsControlData(controlDbPath, deletedPaths);
 	} catch (error) {
 		result = {
 			ok: false,

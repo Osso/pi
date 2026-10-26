@@ -3,8 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	createMultiAgentChildWithRuntimeOwnership,
 	getControlDbPath,
 	listSessionMetadata,
+	readMultiAgentRuntimeOwnership,
+	readMultiAgentState,
 	retainControlDbConnection,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
@@ -69,6 +72,47 @@ setTimeout(() => {
 		});
 		return path;
 	}
+
+	function runningChild(sessionPath: string, agentId: string): void {
+		const now = "2026-10-14T00:00:00.000Z";
+		const created = createMultiAgentChildWithRuntimeOwnership(controlDbPath, {
+			agent: {
+				agentType: "verifier",
+				createdAt: now,
+				cwd: dir,
+				displayName: "verify-cwd-recovery",
+				id: agentId,
+				lifecycle: "running",
+				model: { providerId: "openai-codex", modelId: "gpt-6.1-sol", thinkingLevel: "medium" },
+				parentId: "main",
+				permission: { narrowed: false, policy: "on-request" },
+				revision: 1,
+				updatedAt: now,
+			},
+			agentId,
+			nowIso: now,
+			owner: { agentId: null, sessionId: "deleted-owner" },
+			processIdentity: { pid: 2_000_000_000, startTimeTicks: 1 },
+			sessionPath,
+		});
+		if (!created.ok) throw new Error(`Could not create running child: ${created.error}`);
+	}
+
+	it("removes a deleted session's still-running agents instead of leaving them active forever", async () => {
+		const root = session("root.jsonl");
+		const unrelated = session("unrelated.jsonl");
+		runningChild(root, "agent_67");
+		runningChild(unrelated, "agent_1");
+
+		expect(await deleteSessionTree(root, controlDbPath)).toEqual({ ok: true, method: "trash" });
+
+		expect(readMultiAgentState(controlDbPath, root)).toBeUndefined();
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, root, "agent_67")).toBeUndefined();
+		expect(readMultiAgentState(controlDbPath, unrelated)?.agents).toEqual([
+			expect.objectContaining({ id: "agent_1", lifecycle: "running" }),
+		]);
+		expect(readMultiAgentRuntimeOwnership(controlDbPath, unrelated, "agent_1")).toBeDefined();
+	});
 
 	it("deletes nested archived descendants while preserving unrelated sessions", async () => {
 		const root = session("root.jsonl.zst");

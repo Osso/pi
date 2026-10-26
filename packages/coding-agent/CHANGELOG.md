@@ -214,6 +214,7 @@
 
 ### Fixed
 
+- Fixed deleted sessions leaving their agents active forever: deleting a session from the picker or with `/delete` now also removes its multi-agent records (agents, runtime ownership, mailbox, terminal outbox, counters). Before, a session whose process died with running children kept those children `running` in the control DB after deletion.
 - `image_gen` works from non-Codex sessions (for example Claude): it generates through the user's configured Codex model (`defaultModel`, then `enabledModels`) and that provider's subscription login instead of failing with "requires a Codex provider model".
 - Fixed session naming prompt guidance to skip child, ephemeral, already-named, and explicitly cleared sessions and treat naming refusal as non-blocking; tool runtime is unchanged, and live model compliance is not enforced.
 - Fixed competing startup idle-archive passes racing on source inspection (`ENOENT`) and archive publication (`EEXIST`): one nonblocking cross-process claim protects the entire pass per canonical sessions root; competitors skip, ownership releases on failure, and stale crash claims are recoverable. Archive bytes, control-DB metadata, and reporting of genuine I/O, corruption, or missing-data errors remain protected.
