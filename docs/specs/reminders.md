@@ -1,6 +1,6 @@
 # Reminders
 
-Reminders are persistent, time-bound follow-ups shared across Pi sessions and projects for one OS user on one machine. They are not an agent's working task list. This is an approved design, not an implemented feature; no source files or tests implement it yet.
+Reminders are persistent, time-bound follow-ups shared across Pi sessions and projects for one OS user on one machine. They are not an agent's working task list. This feature is not integrated or deployed. Storage and date-handling drafts exist; delivery is being redesigned around the [machine assistant](machine-assistant.md).
 
 ## What it must do
 
@@ -26,13 +26,12 @@ For example, "Recheck security advisories tomorrow at 09:00" belongs in Reminder
 - [ ] Interpret input without an explicit timezone in the machine's local timezone. Clarify ambiguous dates or times instead of silently guessing.
 - [ ] Preserve the stored instant if the machine's timezone changes.
 
-### Startup and manual access
+### Delivery and manual access
 
-- [ ] At startup, show open reminders that are overdue or due later that local day, and include the same reminder summary in agent context.
-- [ ] Exclude completed reminders from the startup summary. Showing a reminder must not mutate its status.
+- [ ] Delegate automatic reminder delivery to the [machine assistant](machine-assistant.md), rather than alerting every interactive project session. This supersedes the initial startup/manual-only delivery proposal.
+- [ ] Exclude completed reminders from due summaries. Showing a reminder must not mutate its status.
 - [ ] Provide `/reminders` to list open reminders across projects manually.
-- [ ] Provide user commands and an agent tool to list, add, edit, reschedule, complete, and delete reminders.
-- [ ] Check deadlines at startup or on manual request; passing a deadline while Pi is closed does not trigger any action.
+- [ ] Provide user commands and an agent tool to list, add, edit, reschedule, complete, reopen, and delete reminders. Reopening is explicit; editing or rescheduling must not implicitly reopen a completed reminder.
 
 ## How it works
 
@@ -40,22 +39,21 @@ Implementation design is pending. Storage ownership is part of the contract abov
 
 ## Implementation inventory
 
-None. This change records the design only.
+Storage and date-handling drafts await integration. No complete user-facing Reminders feature is available yet.
 
 ## Tests asserting this spec
 
-None. All requirements remain unchecked until behavior is implemented and tested.
+Draft storage and date-handling tests exist, but the integrated feature is not verified. Requirements remain unchecked.
 
 ## Known gaps (current cycle)
 
-- [ ] Before implementation, define whether startup checks also run on new-session creation and session switches, and whether non-interactive runs receive reminder context.
-- [ ] Before implementation, define whether completed reminders can be reopened.
+- [ ] Resume integration only after the machine-assistant delivery design is settled. Interactive-startup-only checks were selected before the user chose a dedicated persistent assistant instead.
 - [ ] Implement and test the contract, including persistence across sessions/restarts, global visibility across projects, date/time behavior, and reminder-versus-plan guidance.
 - [ ] When shipping, reconcile the README's "No built-in to-dos" wording with the distinction between Reminders and active-work planning.
 
 ## Out of scope
 
 - Automatic execution or agent dispatch: reminders do not authorize work.
-- A scheduler, daemon, or background polling: startup and manual checks are sufficient for this version.
+- Scheduling and service supervision within reminder storage: those responsibilities belong to the [machine assistant](machine-assistant.md).
 - Cross-machine synchronization, recurrence, or task-claim ownership: this is a machine-local reminder list, not a work scheduler.
 - Implementation planning: `PLAN.md` remains the place for active-goal tasks and progress.
