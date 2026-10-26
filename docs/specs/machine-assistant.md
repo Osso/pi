@@ -1,6 +1,6 @@
 # Machine Assistant
 
-The machine assistant is a persistent, user-facing Pi conversation responsible for reminders and bounded machine-maintenance duties for one OS user on one machine. This is a design under discussion, not an implemented or deployed service. [Reminders](reminders.md) defines the shared follow-up records; this document defines their delivery owner and the assistant's authority.
+The machine assistant is a persistent, user-facing Pi conversation responsible for reminders, bounded machine-maintenance duties, and the permanent agent-server-to-laptop contact role for one OS user on one machine. This is a design under discussion, not an implemented or deployed service. [Reminders](reminders.md) defines the shared follow-up records; this document defines their delivery owner and the assistant's authority.
 
 ## What it must do
 
@@ -10,6 +10,13 @@ The machine assistant is a persistent, user-facing Pi conversation responsible f
 - [ ] Keep shared reminders in Pi-owned control-DB records, as specified in [Reminders](reminders.md).
 - [ ] Preserve the assistant conversation and durable state across process restarts.
 - [ ] Keep active implementation steps, test checklists, and session progress in `PLAN.md`, not in the reminder queue.
+
+### Laptop contact
+
+- [ ] Provide the permanent laptop-side contact for requests from agent-server, instead of requiring unrelated project sessions to act as the contact.
+- [ ] Support the reference responsibilities currently held by sessions `01a140f8-bf71-7014-8fdc-5eb7b11d0e7f` and `01a140fc-9f43-758b-8ac8-a88d45250820`, including source-backed research using laptop-local resources. These IDs identify the existing roles, not the future assistant address.
+- [ ] Preserve the requesting host/session identity and project when replying, and preserve each request's existing scope and action limits. A contact role does not grant unrestricted operational authority.
+- [ ] Preserve source build/revision provenance and distinguish source-backed findings from runtime proof when taking over reference requests. Do not silently resume parked work or turn local capabilities into standing operational permission.
 
 ### Duties and authority
 
@@ -25,6 +32,8 @@ The machine assistant is a persistent, user-facing Pi conversation responsible f
 - [ ] Do not broadcast reminder or maintenance alerts to every running project session.
 
 ## How it works
+
+Pi already supports [cross-host direct messages](multi-agent.md#cross-host-messaging) addressed by host and session ID. Permanent contact discovery, launch, and restoration are not yet designed; a new transport or issue-management layer is not assumed.
 
 Implementation architecture is not selected. The current proposal separates a scheduling/check layer from model reasoning so that a persistent process does not require continuous model polling. Wake conditions, execution recovery, model selection, and resource limits still need design decisions.
 
@@ -45,6 +54,8 @@ None. All requirements remain unchecked.
 - [ ] Define and approve the first cleanup category and its concrete policy. No cleanup category is approved yet.
 - [ ] Define desktop-alert repetition and routine-report behavior. Quiet routine reports and alerts only for new or changed findings are proposals, not accepted requirements.
 - [ ] Decide implementation, service supervision, and interaction surfaces before resuming the paused implementation goal.
+- [ ] Define and verify handover of the two reference roles before replacing them. Their read-only role summaries have been obtained; neither session has been stopped or transferred. Concise role instructions and resource pointers, rather than wholesale transcript merging, are the current proposal.
+- [ ] Define how server sessions learn the permanent laptop address and how the same assistant identity is restored after restart; reuse existing host/session mailbox routing where sufficient.
 
 ## Out of scope
 
