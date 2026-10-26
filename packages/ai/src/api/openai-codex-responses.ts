@@ -60,6 +60,8 @@ const BASE_DELAY_MS = 1000;
 const DEFAULT_MAX_RETRY_DELAY_MS = 60_000;
 const DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
 const WEBSOCKET_PING_INTERVAL_MS = 30_000;
+// Measured Codex pong round trip is about 100ms; a ping unanswered this long means a dead connection.
+const WEBSOCKET_PONG_TIMEOUT_MS = 10_000;
 // The Codex backend accepts zstd-compressed request bodies on the SSE responses
 // endpoint (the same endpoint the official Codex client compresses against).
 const REQUEST_COMPRESSION_ZSTD_LEVEL = 3;
@@ -857,7 +859,7 @@ const OPENAI_BETA_RESPONSES_WEBSOCKETS = "responses_websockets=2026-02-06";
 const SESSION_WEBSOCKET_CACHE_TTL_MS = 5 * 60 * 1000;
 const SESSION_WEBSOCKET_MAX_AGE_MS = 55 * 60 * 1000;
 
-type WebSocketEventType = "open" | "message" | "error" | "close";
+type WebSocketEventType = "open" | "message" | "error" | "close" | "pong";
 type WebSocketListener = (event: unknown) => void;
 
 interface WebSocketLike {
@@ -1264,23 +1266,69 @@ async function decodeWebSocketData(data: unknown): Promise<string | null> {
 	return null;
 }
 
-function startNativeWebSocketPing(socket: WebSocketLike): ReturnType<typeof setInterval> | undefined {
+interface WebSocketLiveness {
+	startedAt: number;
+	pingsSent: number;
+	pongsReceived: number;
+	lastPingAt?: number;
+	lastPongAt?: number;
+	lastEventAt?: number;
+	lastEventType?: string;
+}
+
+function describeWebSocketLiveness(liveness: WebSocketLiveness): Record<string, unknown> {
+	const now = Date.now();
+	const msSince = (at: number | undefined) => (at === undefined ? null : now - at);
+	return {
+		elapsedMs: now - liveness.startedAt,
+		pingsSent: liveness.pingsSent,
+		pongsReceived: liveness.pongsReceived,
+		msSinceLastPing: msSince(liveness.lastPingAt),
+		msSinceLastPong: msSince(liveness.lastPongAt),
+		msSinceLastEvent: msSince(liveness.lastEventAt),
+		lastEventType: liveness.lastEventType ?? null,
+	};
+}
+
+/** Pings every interval; calls onPongTimeout when a ping stays unanswered past the pong deadline. */
+function startNativeWebSocketPing(
+	socket: WebSocketLike,
+	liveness: WebSocketLiveness,
+	onPongTimeout: () => void,
+): () => void {
 	if (typeof socket.ping !== "function") {
-		return undefined;
+		return () => {};
 	}
+	let pongDeadline: ReturnType<typeof setTimeout> | undefined;
+	const onPong: WebSocketListener = () => {
+		liveness.pongsReceived++;
+		liveness.lastPongAt = Date.now();
+		clearTimeout(pongDeadline);
+		pongDeadline = undefined;
+	};
+	socket.addEventListener("pong", onPong);
 	const interval = setInterval(() => {
 		try {
 			socket.ping?.();
 		} catch {
 			// Socket errors are reported through the WebSocket error/close events.
+			return;
 		}
+		liveness.pingsSent++;
+		liveness.lastPingAt = Date.now();
+		pongDeadline ??= setTimeout(onPongTimeout, WEBSOCKET_PONG_TIMEOUT_MS);
 	}, WEBSOCKET_PING_INTERVAL_MS);
 	interval.unref?.();
-	return interval;
+	return () => {
+		clearInterval(interval);
+		clearTimeout(pongDeadline);
+		socket.removeEventListener("pong", onPong);
+	};
 }
 
 async function* parseWebSocket(
 	socket: WebSocketLike,
+	liveness: WebSocketLiveness,
 	signal?: AbortSignal,
 	idleTimeoutMs?: number,
 ): AsyncGenerator<Record<string, unknown>> {
@@ -1306,6 +1354,8 @@ async function* parseWebSocket(
 				if (!text) return;
 				const parsed = JSON.parse(text) as Record<string, unknown>;
 				const type = typeof parsed.type === "string" ? parsed.type : "";
+				liveness.lastEventAt = Date.now();
+				liveness.lastEventType = type;
 				if (type === "response.completed" || type === "response.done" || type === "response.incomplete") {
 					sawCompletion = true;
 					done = true;
@@ -1352,7 +1402,12 @@ async function* parseWebSocket(
 	socket.addEventListener("error", onError);
 	socket.addEventListener("close", onClose);
 	signal?.addEventListener("abort", onAbort);
-	const nativePingInterval = startNativeWebSocketPing(socket);
+	const stopNativePing = startNativeWebSocketPing(socket, liveness, () => {
+		failed = new Error(`WebSocket pong timeout after ${WEBSOCKET_PONG_TIMEOUT_MS}ms`);
+		done = true;
+		closeWebSocketSilently(socket, 1000, "pong_timeout");
+		wake();
+	});
 
 	try {
 		while (true) {
@@ -1391,9 +1446,7 @@ async function* parseWebSocket(
 			throw new Error("WebSocket stream closed before response.completed");
 		}
 	} finally {
-		if (nativePingInterval) {
-			clearInterval(nativePingInterval);
-		}
+		stopNativePing();
 		socket.removeEventListener("message", onMessage);
 		socket.removeEventListener("error", onError);
 		socket.removeEventListener("close", onClose);
@@ -1516,11 +1569,12 @@ async function processWebSocketStream(
 			stats.lastPreviousResponseId = undefined;
 		}
 	}
+	const liveness: WebSocketLiveness = { startedAt: Date.now(), pingsSent: 0, pongsReceived: 0 };
 	try {
 		socket.send(JSON.stringify({ type: "response.create", ...requestBody }));
 		await processResponsesStream(
 			startWebSocketOutputOnFirstEvent(
-				mapCodexEvents(parseWebSocket(socket, options?.signal, idleTimeoutMs)),
+				mapCodexEvents(parseWebSocket(socket, liveness, options?.signal, idleTimeoutMs)),
 				output,
 				stream,
 				onStart,
@@ -1551,6 +1605,10 @@ async function processWebSocketStream(
 			entry.continuation = undefined;
 		}
 		keepConnection = false;
+		appendAssistantMessageDiagnostic(
+			output,
+			createAssistantMessageDiagnostic("websocket_liveness", error, describeWebSocketLiveness(liveness)),
+		);
 		throw error;
 	} finally {
 		release({ keep: keepConnection });

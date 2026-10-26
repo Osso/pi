@@ -42,6 +42,7 @@
 - Fixed retry classification for Cloudflare 524 timeout responses ([#6239](https://github.com/earendil-works/pi/issues/6239)).
 - Fixed retry classification to treat Bun/undici fetch socket-close messages (for example: "The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()") as retryable, avoiding misclassification of transport-level socket closes.
 - Fixed OpenAI Codex streams to time out stalled SSE body reads and use native WebSocket pings when available, avoiding hung sessions after sleep or dropped connections.
+- Fixed OpenAI Codex WebSocket streams discarding pong replies: a ping without a pong within 10 seconds now fails the stream with a retryable `WebSocket pong timeout`, and every failed or aborted WebSocket stream records a `websocket_liveness` diagnostic (pings, pongs, time since the last pong and last event).
 - Fixed GPT-5.6 Sol, Luna, and Terra context-window metadata to 372,000 tokens, matching the observed effective input budget so the footer and auto-compaction threshold are accurate.
 - Fixed disabled reasoning for Gemini 3.7 Flash to fall back to LOW instead of sending the unsupported MINIMAL thinking level for Google AI Studio and Google Vertex.
 - Fixed Google maxOutputTokens serialization at the exclusive 65536 boundary by clamping requests to 65535 for Google AI Studio and Vertex.

@@ -11,7 +11,8 @@ import {
 	streamSimple as streamSimpleOpenAICodexResponses,
 } from "../src/api/openai-codex-responses.ts";
 import { OPENAI_CODEX_MODELS } from "../src/providers/openai-codex.models.ts";
-import type { Context, Model } from "../src/types.ts";
+import type { AssistantMessage, Context, Model } from "../src/types.ts";
+import { isRetryableAssistantError } from "../src/utils/retry.ts";
 
 const originalAgentDir = process.env.PI_CODING_AGENT_DIR;
 
@@ -1325,6 +1326,7 @@ describe("openai-codex streaming", () => {
 
 			ping(): void {
 				pings.push(Date.now());
+				queueMicrotask(() => this.dispatch("pong", {}));
 			}
 
 			close(): void {}
@@ -1369,6 +1371,136 @@ describe("openai-codex streaming", () => {
 		const result = await resultPromise;
 		expect(result.errorMessage).toBe("WebSocket idle timeout after 90000ms");
 		expect(pings).toHaveLength(3);
+		expect(global.fetch).not.toHaveBeenCalled();
+	});
+
+	async function runReasoningOnlyWebSocket(
+		answerPing: (pingNumber: number) => boolean,
+		abortAfterMs?: number,
+	): Promise<AssistantMessage> {
+		vi.useFakeTimers();
+		const token = mockToken();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response("unexpected fetch", { status: 500 })),
+		);
+
+		class ReasoningOnlyWebSocket {
+			private listeners = new Map<string, Set<(event: unknown) => void>>();
+			private pings = 0;
+
+			constructor() {
+				queueMicrotask(() => this.dispatch("open", {}));
+			}
+
+			addEventListener(type: string, listener: (event: unknown) => void): void {
+				let listeners = this.listeners.get(type);
+				if (!listeners) {
+					listeners = new Set();
+					this.listeners.set(type, listeners);
+				}
+				listeners.add(listener);
+			}
+
+			removeEventListener(type: string, listener: (event: unknown) => void): void {
+				this.listeners.get(type)?.delete(listener);
+			}
+
+			send(): void {
+				queueMicrotask(() => {
+					this.dispatch("message", {
+						data: JSON.stringify({
+							type: "response.output_item.added",
+							item: { type: "reasoning", id: "rs_1", summary: [] },
+						}),
+					});
+				});
+			}
+
+			ping(): void {
+				this.pings++;
+				if (answerPing(this.pings)) queueMicrotask(() => this.dispatch("pong", {}));
+			}
+
+			close(): void {}
+
+			private dispatch(type: string, event: unknown): void {
+				for (const listener of this.listeners.get(type) ?? []) {
+					listener(event);
+				}
+			}
+		}
+
+		vi.stubGlobal("WebSocket", ReasoningOnlyWebSocket);
+
+		const model: Model<"openai-codex-responses"> = {
+			id: "gpt-5.1-codex",
+			name: "GPT-5.1 Codex",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: "https://chatgpt.com/backend-api",
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 400000,
+			maxTokens: 128000,
+		};
+		const context: Context = {
+			systemPrompt: "You are a helpful assistant.",
+			messages: [{ role: "user", content: "Say hello", timestamp: 1 }],
+		};
+
+		const controller = new AbortController();
+		const resultPromise = streamOpenAICodexResponses(model, context, {
+			apiKey: token,
+			transport: "websocket",
+			signal: controller.signal,
+		}).result();
+
+		await vi.advanceTimersByTimeAsync(0);
+		if (abortAfterMs !== undefined) {
+			await vi.advanceTimersByTimeAsync(abortAfterMs);
+			controller.abort();
+		} else {
+			await vi.advanceTimersByTimeAsync(10 * 60_000);
+		}
+		return resultPromise;
+	}
+
+	function websocketLiveness(message: AssistantMessage): Record<string, unknown> | undefined {
+		return message.diagnostics?.find((diagnostic) => diagnostic.type === "websocket_liveness")?.details;
+	}
+
+	it("keeps a silent reasoning stream open while pings are answered", async () => {
+		const result = await runReasoningOnlyWebSocket(() => true, 100_000);
+
+		expect(result.stopReason).toBe("aborted");
+		expect(websocketLiveness(result)).toEqual({
+			elapsedMs: 100_000,
+			pingsSent: 3,
+			pongsReceived: 3,
+			msSinceLastPing: 10_000,
+			msSinceLastPong: 10_000,
+			msSinceLastEvent: 100_000,
+			lastEventType: "response.output_item.added",
+		});
+	});
+
+	it("fails the websocket stream when a ping gets no pong within 10 seconds", async () => {
+		const result = await runReasoningOnlyWebSocket((pingNumber) => pingNumber === 1);
+
+		expect(result.stopReason).toBe("error");
+		expect(result.errorMessage).toBe("WebSocket pong timeout after 10000ms");
+		expect(isRetryableAssistantError(result)).toBe(true);
+		expect(websocketLiveness(result)).toEqual({
+			elapsedMs: 70_000,
+			pingsSent: 2,
+			pongsReceived: 1,
+			msSinceLastPing: 10_000,
+			msSinceLastPong: 40_000,
+			msSinceLastEvent: 70_000,
+			lastEventType: "response.output_item.added",
+		});
 		expect(global.fetch).not.toHaveBeenCalled();
 	});
 
