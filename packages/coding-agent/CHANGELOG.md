@@ -90,6 +90,8 @@
 
 ### Added
 
+- Added persistent reminders: the `reminders` tool and `/reminders` command list, add, edit, reschedule, complete, reopen, and delete durable follow-ups stored in the control database and shared across sessions and projects. Due times are stored as UTC and shown in local time. The session named by `reminders.deliverySessionId` checks every minute, delivers each due reminder once into its conversation, starts a turn, and sends a `notify-send` alert; rescheduling or reopening re-arms delivery.
+
 - Added bundled first-party `periodic-checks` with `/periodic-checks status|run`, preserving host-private Git-root checklist opt-in, configured intervals, non-overlapping read-only audit children, and findings delivery; no checklist means no timer or audit. See the [scheduler contract](../../docs/specs/periodic-checks.md).
 - Added bundled first-party `exit-command` with `/exit` for clean shutdown. Both extensions support `disabledExtensions` by inventory name; remove superseded user-level copies after installing the bundled build to avoid duplicate registrations.
 - Added global setting `supervisorModel` (`provider/modelId`) selecting the resident Supervisor model; unset keeps `gpt-6.1-sol` on the Codex provider chain.

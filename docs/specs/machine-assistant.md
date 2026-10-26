@@ -20,7 +20,7 @@ The machine assistant is a persistent, user-facing Pi conversation responsible f
 
 ### Duties and authority
 
-- [ ] Deliver ordinary reminders without treating their text as authorization to execute work.
+- [x] Deliver ordinary reminders without treating their text as authorization to execute work. The session named by `reminders.deliverySessionId` posts each due reminder once, starts a turn and sends one desktop alert; see [Reminders](reminders.md#delivery-and-manual-access).
 - [ ] Perform the approved security follow-up as a read-only advisory check against known software inventory, reporting relevant findings and unknown exposure. Do not patch, restart services, or change configuration as part of this duty.
 - [ ] Support automatic disk cleanup only within categories approved by the user. No category is approved yet.
 - [ ] Permit proactive read-only inspection for other local machine problems and proposals for new duties. Discovery does not authorize a new corrective action.
@@ -51,9 +51,8 @@ interactive Pi conversation named `Assistant` was started on `aso`
 (session `01a176f1-7bde-768f-a290-68e6a80ec3f3`, cwd `/home/osso`) in a WezTerm tab,
 with an opening brief restating the duties, limits, reserved decisions and the
 09:00 security follow-up. It is pinned at the top of the Super+A switcher through
-`~/.config/agent-switcher/pinned`. It has no supervision or restart restoration, and
-Pi offers no one-shot wake: `loop` and `periodic-checks` are in-memory interval timers
-cleared at session shutdown.
+`~/.config/agent-switcher/pinned`. It has no supervision or restart restoration. Due
+reminders wake it: the Reminders delivery timer runs in this session (`reminders.deliverySessionId`).
 
 ## Tests asserting this spec
 

@@ -530,7 +530,7 @@ Pi is aggressively extensible so it doesn't have to dictate your workflow. Featu
 
 **No plan mode.** Write plans to files, or build it with [extensions](#extensions), or install a package.
 
-**No built-in to-dos.** They confuse models. Use a TODO.md file, or build your own with [extensions](#extensions).
+**No built-in to-dos.** They confuse models. Use a TODO.md or PLAN.md file for active work, or build your own with [extensions](#extensions). The `reminders` tool and `/reminders` command hold only durable future follow-ups with an exact due time, shared by all sessions; they are not a work list.
 
 **No background bash.** Use tmux. Full observability, direct interaction.
 
