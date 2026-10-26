@@ -8,6 +8,7 @@ import {
 	completeSupervisorRequest,
 	getControlDbPath,
 	listPendingArchitectRequests,
+	listSharedChannelMessagesAfter,
 	registerRuntimeMailboxListener,
 	writeSessionHealth,
 	writeSessionMetadata,
@@ -32,6 +33,32 @@ describe("session coordination tools", () => {
 			expect(activeTools).toContain("channel_post");
 		} finally {
 			harness.cleanup();
+		}
+	});
+
+	it("posts a main-session message to the shared channel", async () => {
+		const agentDir = mkdtempSync(join(tmpdir(), "pi-channel-post-tool-"));
+		try {
+			const controlDbPath = getControlDbPath(agentDir);
+			const tool = createChannelPostToolDefinition();
+			const message = "Pause edits to /shared/project until the migration finishes.";
+			const result = await tool.execute("channel-post", { message }, undefined, undefined, {
+				controlDbPath,
+				sessionManager: { getSessionId: () => "main-session" },
+			} as Parameters<typeof tool.execute>[4]);
+
+			expect(result.content).toEqual([
+				{ type: "text", text: `Posted shared channel message ${result.details?.messageId}.` },
+			]);
+			expect(listSharedChannelMessagesAfter(controlDbPath, 0)).toEqual([
+				expect.objectContaining({
+					id: result.details?.messageId,
+					body: message,
+					sender: { sessionId: "main-session", agentId: null },
+				}),
+			]);
+		} finally {
+			rmSync(agentDir, { force: true, recursive: true });
 		}
 	});
 
