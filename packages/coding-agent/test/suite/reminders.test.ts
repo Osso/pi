@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { afterEach, describe, expect, it } from "vitest";
 import remindersExtension from "../../extensions/reminders/src/index.ts";
+import { emitSessionShutdownEvent } from "../../src/core/extensions/runner.ts";
 import type { ExtensionAPI, ExtensionUIContext } from "../../src/core/extensions/types.ts";
 import { listReminders } from "../../src/core/reminder-store.ts";
 import { getControlDbPath } from "../../src/core/session-control-db.ts";
@@ -17,6 +18,7 @@ interface OpenOptions {
 	deliver?: boolean;
 	notifications?: string[][];
 	uiMessages?: string[];
+	now?: () => Date;
 }
 
 /** UI context that records notify() text; other UI calls are inert. */
@@ -34,7 +36,7 @@ async function openReminders(controlDbPath: string, options: OpenOptions = {}): 
 			(pi: ExtensionAPI) =>
 				remindersExtension(pi, {
 					controlDbPath,
-					now: () => now,
+					now: options.now ?? (() => now),
 					deliveryIntervalMs: 20,
 					notify: (title, body) => notifications.push([title, body]),
 				}),
@@ -85,6 +87,26 @@ function deliveredTexts(harness: Harness): string[] {
 			? [message.content]
 			: [],
 	);
+}
+
+/** A turn that stays busy until the session aborts it. */
+function busyUntilAborted(harness: Harness): void {
+	harness.setResponses([
+		(_context, options) =>
+			new Promise((resolve) => {
+				options?.signal?.addEventListener("abort", () =>
+					resolve(fauxAssistantMessage("Stopped.", { stopReason: "aborted" })),
+				);
+			}),
+		fauxAssistantMessage("Noted."),
+	]);
+}
+
+/** Stop a session the way process exit does: no further delivery checks, nothing queued survives. */
+async function exitSession(harness: Harness): Promise<void> {
+	await emitSessionShutdownEvent(harness.session.extensionRunner, { type: "session_shutdown", reason: "quit" });
+	harnesses.splice(harnesses.indexOf(harness), 1);
+	harness.cleanup();
 }
 
 async function waitFor(condition: () => boolean, timeoutMs = 2_000): Promise<void> {
@@ -205,6 +227,54 @@ describe("reminder delivery", () => {
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		expect(deliveredTexts(assistant)).toHaveLength(2);
 		expect(assistantNotifications).toHaveLength(2);
+	});
+});
+
+describe("reminder delivery acknowledgement", () => {
+	const dueAt = "2026-10-25T12:30:00Z";
+	const afterDue = new Date("2026-10-25T13:00:00Z");
+
+	async function busyAssistantWithQueuedReminder(path: string, alerts: string[][]) {
+		let clock = now;
+		const assistant = await openReminders(path, { deliver: true, notifications: alerts, now: () => clock });
+		busyUntilAborted(assistant);
+		const turn = assistant.session.prompt("Long task");
+		await waitFor(() => assistant.session.isStreaming);
+		clock = afterDue;
+		await waitFor(() => alerts.length === 1);
+		expect(listReminders(path)[0].deliveredAt).toBeUndefined();
+		return { assistant, turn };
+	}
+
+	it("redelivers a reminder queued in a busy assistant that exits before writing it", async () => {
+		const path = isolatedControlDb();
+		const writer = await openReminders(path);
+		await runReminderTool(writer, { action: "add", title: "Queued advisory recheck", dueAt });
+		const { assistant } = await busyAssistantWithQueuedReminder(path, []);
+		await exitSession(assistant);
+		expect(listReminders(path)[0].deliveredAt).toBeUndefined();
+
+		const restarted = await openReminders(path, { deliver: true, now: () => afterDue });
+		await waitFor(() => listReminders(path)[0].deliveredAt !== undefined);
+		expect(deliveredTexts(restarted)).toHaveLength(1);
+		expect(deliveredTexts(restarted)[0]).toContain("Queued advisory recheck");
+		expect(listReminders(path)[0].deliveredAt).toBe(afterDue.toISOString());
+	});
+
+	it("redelivers a reminder dropped from the queue when the busy turn is aborted", async () => {
+		const path = isolatedControlDb();
+		const writer = await openReminders(path);
+		await runReminderTool(writer, { action: "add", title: "Aborted advisory recheck", dueAt });
+		const alerts: string[][] = [];
+		const { assistant, turn } = await busyAssistantWithQueuedReminder(path, alerts);
+		await assistant.session.abort();
+		await turn;
+		expect(deliveredTexts(assistant)).toEqual([]);
+
+		await waitFor(() => listReminders(path)[0].deliveredAt !== undefined);
+		expect(deliveredTexts(assistant)).toHaveLength(1);
+		expect(deliveredTexts(assistant)[0]).toContain("Aborted advisory recheck");
+		expect(alerts).toHaveLength(2);
 	});
 });
 

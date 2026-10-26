@@ -3,11 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-	claimDueReminders,
 	completeReminder,
 	createReminder,
 	deleteReminder,
 	listReminders,
+	listUndeliveredDueReminders,
+	markReminderDelivered,
 	reopenReminder,
 	updateReminder,
 } from "../src/core/reminder-store.ts";
@@ -268,36 +269,46 @@ describe("reminder schema initialization", () => {
 	});
 });
 
-describe("reminder delivery claims", () => {
+describe("reminder delivery acknowledgement", () => {
 	const now = new Date("2026-11-01T12:00:00.000Z");
 
-	it("claims each open due reminder exactly once and leaves future and completed reminders", () => {
+	it("lists open due reminders until each is marked delivered, leaving future and completed ones", () => {
 		const overdue = createReminder(controlDbPath, { title: "Overdue", dueAt: "2026-10-30T09:00:00Z" });
 		const exact = createReminder(controlDbPath, { title: "Exact", dueAt });
 		createReminder(controlDbPath, { title: "Future", dueAt: "2026-11-01T12:00:01Z" });
 		const done = createReminder(controlDbPath, { title: "Done", dueAt: "2026-10-29T09:00:00Z" });
 		completeReminder(controlDbPath, done.id);
 
-		const claimed = claimDueReminders(controlDbPath, now);
-		expect(claimed.map((reminder) => reminder.title)).toEqual(["Overdue", "Exact"]);
-		expect(claimed.every((reminder) => reminder.deliveredAt === now.toISOString())).toBe(true);
-		expect(claimed.every((reminder) => reminder.status === "open")).toBe(true);
-		expect(claimDueReminders(controlDbPath, now)).toEqual([]);
-		expect(listReminders(controlDbPath).map((reminder) => reminder.id)).toContain(overdue.id);
-		expect(listReminders(controlDbPath).map((reminder) => reminder.id)).toContain(exact.id);
+		const due = listUndeliveredDueReminders(controlDbPath, now);
+		expect(due.map((reminder) => reminder.title)).toEqual(["Overdue", "Exact"]);
+		expect(listUndeliveredDueReminders(controlDbPath, now)).toEqual(due);
+		expect(due.every((reminder) => reminder.deliveredAt === undefined)).toBe(true);
+
+		const delivered = markReminderDelivered(controlDbPath, overdue.id, overdue.dueAt, now);
+		expect(delivered?.deliveredAt).toBe(now.toISOString());
+		expect(delivered?.status).toBe("open");
+		expect(listUndeliveredDueReminders(controlDbPath, now).map((reminder) => reminder.id)).toEqual([exact.id]);
+	});
+
+	it("does not mark a reminder rescheduled after its delivery was sent", () => {
+		const moved = createReminder(controlDbPath, { title: "Moved", dueAt: "2026-10-30T09:00:00Z" });
+		updateReminder(controlDbPath, moved.id, { dueAt: "2026-11-01T11:00:00Z" });
+		expect(markReminderDelivered(controlDbPath, moved.id, moved.dueAt, now)).toBeUndefined();
+		expect(listUndeliveredDueReminders(controlDbPath, now).map((reminder) => reminder.title)).toEqual(["Moved"]);
 	});
 
 	it("re-arms delivery when a delivered reminder is rescheduled or reopened", () => {
 		const moved = createReminder(controlDbPath, { title: "Moved", dueAt: "2026-10-30T09:00:00Z" });
 		const reopened = createReminder(controlDbPath, { title: "Reopened", dueAt: "2026-10-30T10:00:00Z" });
-		expect(claimDueReminders(controlDbPath, now)).toHaveLength(2);
+		for (const reminder of [moved, reopened]) markReminderDelivered(controlDbPath, reminder.id, reminder.dueAt, now);
+		expect(listUndeliveredDueReminders(controlDbPath, now)).toEqual([]);
 
 		updateReminder(controlDbPath, moved.id, { dueAt: "2026-11-01T11:00:00Z" });
 		updateReminder(controlDbPath, reopened.id, { title: "Reopened later" });
 		completeReminder(controlDbPath, reopened.id);
 		reopenReminder(controlDbPath, reopened.id);
 
-		expect(claimDueReminders(controlDbPath, now).map((reminder) => reminder.title)).toEqual([
+		expect(listUndeliveredDueReminders(controlDbPath, now).map((reminder) => reminder.title)).toEqual([
 			"Reopened later",
 			"Moved",
 		]);
@@ -305,8 +316,8 @@ describe("reminder delivery claims", () => {
 
 	it("does not re-arm delivery for edits that keep the due time", () => {
 		const reminder = createReminder(controlDbPath, { title: "Stable", dueAt: "2026-10-30T09:00:00Z" });
-		claimDueReminders(controlDbPath, now);
+		markReminderDelivered(controlDbPath, reminder.id, reminder.dueAt, now);
 		updateReminder(controlDbPath, reminder.id, { notes: "More context", dueAt: "2026-10-30T04:00:00-05:00" });
-		expect(claimDueReminders(controlDbPath, now)).toEqual([]);
+		expect(listUndeliveredDueReminders(controlDbPath, now)).toEqual([]);
 	});
 });

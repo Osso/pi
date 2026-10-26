@@ -136,6 +136,7 @@ export default function remindersExtension(pi: ExtensionAPI, options: ReminderOp
 
 	pi.on("session_start", (_event, ctx) => delivery.start(ctx, options.controlDbPath ?? ctx.controlDbPath));
 	pi.on("session_shutdown", () => delivery.stop());
+	pi.on("agent_end", (_event, ctx) => delivery.settle(ctx));
 	registerRemindersTool(pi, executeAndDescribe);
 	registerRemindersCommand(pi, executeAndDescribe);
 }

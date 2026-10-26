@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "../../../src/core/extensions/types.ts";
-import { claimDueReminders, type Reminder } from "../../../src/core/reminder-store.ts";
+import { listUndeliveredDueReminders, markReminderDelivered, type Reminder } from "../../../src/core/reminder-store.ts";
 import { formatReminder } from "./actions.ts";
 
 export type ReminderNotifier = (title: string, body: string) => void;
@@ -25,9 +26,22 @@ function reminderMessage(reminder: Reminder): string {
 	].join("\n");
 }
 
-/** Delivers due reminders from the shared list into the one configured delivery session. */
+interface PendingDelivery {
+	token: string;
+	dueAt: string;
+}
+
+/**
+ * Delivers due reminders from the shared list into the one configured delivery session.
+ *
+ * A reminder counts as delivered only once its message entry is in this session's conversation.
+ * Until then it is pending in this process: a run that ends without the entry (for example an abort
+ * that cleared the queue) drops it for resending, and process exit loses it so the next start resends.
+ */
 export class ReminderDelivery {
 	private timer: ReturnType<typeof setInterval> | undefined;
+	private controlDbPath: string | undefined;
+	private readonly pending = new Map<number, PendingDelivery>();
 	private readonly pi: ExtensionAPI;
 	private readonly notify: ReminderNotifier;
 	private readonly now: () => Date;
@@ -44,7 +58,8 @@ export class ReminderDelivery {
 		this.stop();
 		const deliverySessionId = ctx.settingsManager?.getMergedSettings().reminders?.deliverySessionId;
 		if (!controlDbPath || deliverySessionId !== ctx.sessionManager.getSessionId()) return;
-		const deliver = () => this.deliverDue(ctx, controlDbPath);
+		this.controlDbPath = controlDbPath;
+		const deliver = () => this.check(ctx, () => this.deliverDue(ctx));
 		deliver();
 		this.timer = setInterval(deliver, this.intervalMs);
 	}
@@ -52,30 +67,75 @@ export class ReminderDelivery {
 	stop(): void {
 		if (this.timer) clearInterval(this.timer);
 		this.timer = undefined;
+		this.controlDbPath = undefined;
+		this.pending.clear();
 	}
 
-	private deliverDue(ctx: ExtensionContext, controlDbPath: string): void {
-		let due: Reminder[];
+	/** After a run ends, acknowledge written reminders and release those the run dropped. */
+	settle(ctx: ExtensionContext): void {
+		if (!this.controlDbPath) return;
+		this.check(ctx, () => {
+			const unwritten = this.acknowledgeWritten(ctx);
+			for (const id of unwritten) this.pending.delete(id);
+		});
+	}
+
+	private check(ctx: ExtensionContext, action: () => void): void {
 		try {
-			due = claimDueReminders(controlDbPath, this.now());
+			action();
 		} catch (error) {
 			ctx.ui.notify(
 				`Reminder delivery check failed: ${error instanceof Error ? error.message : String(error)}`,
 				"error",
 			);
-			return;
 		}
-		for (const reminder of due) {
+	}
+
+	private deliverDue(ctx: ExtensionContext): void {
+		const controlDbPath = this.controlDbPath;
+		if (!controlDbPath) return;
+		this.acknowledgeWritten(ctx);
+		for (const reminder of listUndeliveredDueReminders(controlDbPath, this.now())) {
+			if (this.pending.has(reminder.id)) continue;
+			const token = randomUUID();
+			this.pending.set(reminder.id, { token, dueAt: reminder.dueAt });
 			this.notify("Pi reminder", `#${reminder.id} ${reminder.title}`);
 			this.pi.sendMessage(
 				{
 					customType: REMINDER_MESSAGE_TYPE,
 					content: reminderMessage(reminder),
 					display: true,
-					details: { id: reminder.id },
+					details: { id: reminder.id, deliveryToken: token },
 				},
 				{ deliverAs: "followUp", triggerTurn: TRIGGER_TURN },
 			);
 		}
 	}
+
+	/** Mark pending reminders whose message entry is in the conversation; return the IDs still unwritten. */
+	private acknowledgeWritten(ctx: ExtensionContext): number[] {
+		const controlDbPath = this.controlDbPath;
+		if (!controlDbPath || this.pending.size === 0) return [];
+		const written = writtenDeliveryTokens(ctx);
+		const unwritten: number[] = [];
+		for (const [id, delivery] of this.pending) {
+			if (!written.has(delivery.token)) {
+				unwritten.push(id);
+				continue;
+			}
+			markReminderDelivered(controlDbPath, id, delivery.dueAt, this.now());
+			this.pending.delete(id);
+		}
+		return unwritten;
+	}
+}
+
+function writtenDeliveryTokens(ctx: ExtensionContext): Set<string> {
+	const tokens = new Set<string>();
+	for (const entry of ctx.sessionManager.getEntries()) {
+		if (entry.type !== "custom_message" || entry.customType !== REMINDER_MESSAGE_TYPE) continue;
+		const token = (entry.details as { deliveryToken?: unknown } | undefined)?.deliveryToken;
+		if (typeof token === "string") tokens.add(token);
+	}
+	return tokens;
 }

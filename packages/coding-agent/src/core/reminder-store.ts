@@ -9,7 +9,7 @@ export interface Reminder {
 	status: "open" | "done";
 	createdAt: string;
 	completedAt?: string;
-	/** When the machine assistant delivered this due reminder; cleared by rescheduling or reopening. */
+	/** When this due reminder was written into the delivery conversation; cleared by rescheduling or reopening. */
 	deliveredAt?: string;
 }
 
@@ -99,17 +99,34 @@ export function reopenReminder(controlDbPath: string, id: number): Reminder {
 	});
 }
 
-/** Mark open reminders due by `now` as delivered and return them; each due instant is claimed once. */
-export function claimDueReminders(controlDbPath: string, now: Date): Reminder[] {
-	const deliveredAt = now.toISOString();
+/** Open reminders due by `now` whose delivery has not been acknowledged. */
+export function listUndeliveredDueReminders(controlDbPath: string, now: Date): Reminder[] {
 	return withControlDb(controlDbPath, (db) => {
 		const rows = db
+			.prepare(`SELECT ${REMINDER_COLUMNS} FROM reminders
+			WHERE status = 'open' AND delivered_at IS NULL AND due_at <= ? ORDER BY due_at, id`)
+			.all(now.toISOString()) as ReminderRow[];
+		return rows.map((row) => reminderFromRow(row));
+	});
+}
+
+/**
+ * Acknowledge delivery of the reminder instance due at `dueAt`. Returns undefined when that
+ * instance no longer awaits delivery (rescheduled, completed, or already acknowledged).
+ */
+export function markReminderDelivered(
+	controlDbPath: string,
+	id: number,
+	dueAt: string,
+	deliveredAt: Date,
+): Reminder | undefined {
+	validateId(id);
+	return withControlDb(controlDbPath, (db) => {
+		const row = db
 			.prepare(`UPDATE reminders SET delivered_at = ?
-			WHERE status = 'open' AND delivered_at IS NULL AND due_at <= ? RETURNING ${REMINDER_COLUMNS}`)
-			.all(deliveredAt, deliveredAt) as ReminderRow[];
-		return rows
-			.map((row) => reminderFromRow(row))
-			.sort((left, right) => left.dueAt.localeCompare(right.dueAt) || left.id - right.id);
+			WHERE id = ? AND due_at = ? AND status = 'open' AND delivered_at IS NULL RETURNING ${REMINDER_COLUMNS}`)
+			.get(deliveredAt.toISOString(), id, dueAt) as ReminderRow | undefined;
+		return row ? reminderFromRow(row) : undefined;
 	});
 }
 
