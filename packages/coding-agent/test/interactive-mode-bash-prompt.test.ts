@@ -2,6 +2,7 @@ import { Container, type EditorComponent, type LoaderIndicatorOptions } from "@e
 import { describe, expect, it, vi } from "vitest";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { stripAnsi } from "../src/utils/ansi.ts";
 
 class WorkingEditor implements EditorComponent {
 	working = false;
@@ -81,7 +82,7 @@ type HandleBashCommand = (this: BashContext, command: string, excludeFromContext
 const handleBashCommand = Reflect.get(InteractiveMode.prototype, "handleBashCommand") as HandleBashCommand;
 
 describe("InteractiveMode bash prompt activity", () => {
-	it("animates the prompt only while a local bash command is running", async () => {
+	it("shows activity in the bash status while keeping the prompt static", async () => {
 		initTheme("dark");
 		const deferred = createDeferred<BashResult>();
 		const editor = new WorkingEditor();
@@ -118,8 +119,8 @@ describe("InteractiveMode bash prompt activity", () => {
 		await Promise.resolve();
 
 		expect(executeBash).toHaveBeenCalledTimes(1);
-		expect(editor.working).toBe(true);
-		expect(editor.indicator).toEqual(context.workingIndicatorOptions);
+		expect(editor.working).toBe(false);
+		expect(stripAnsi(context.chatContainer.render(120).join("\n"))).toContain("a Running...");
 
 		deferred.resolve({ cancelled: false, exitCode: 0, output: "", truncated: false });
 		await command;

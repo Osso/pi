@@ -233,7 +233,6 @@ import {
 	clearWorkingEditor,
 	clearWorkingEditorPosition,
 	positionWorkingEditor,
-	supportsWorkingPromptAnimation,
 	syncWorkingEditor,
 } from "./working-editor.ts";
 
@@ -314,13 +313,19 @@ type CompactionQueuedMessage = {
 
 type PromptActivitySource = "bash" | "branch-summary" | "compaction" | "retry" | "summary-materialization";
 
+function workingStatusIndicator(
+	visible: boolean,
+	options?: LoaderIndicatorOptions,
+): LoaderIndicatorOptions | undefined {
+	return visible ? options : { frames: [] };
+}
+
 type CompactionSummaryMaterializationOutcome =
 	| { kind: "loaded"; summary: string }
 	| { kind: "cancelled" }
 	| { kind: "failed"; message: string };
 
 const PARTIAL_UPDATE_RENDER_THROTTLE_MS = 250;
-const DEFAULT_WORKING_INDICATOR: LoaderIndicatorOptions = { frames: [] };
 
 function resolveEnabledModelsPersistTarget(
 	projectEnabledModels: string[] | undefined,
@@ -2412,22 +2417,22 @@ export class InteractiveMode {
 		this.toolWaitingTimer = undefined;
 	}
 
-	private getWorkingLoaderIndicator(_view: "main" | "child"): LoaderIndicatorOptions {
-		return DEFAULT_WORKING_INDICATOR;
+	private getWorkingLoaderIndicator(_view: "main" | "child"): LoaderIndicatorOptions | undefined {
+		return workingStatusIndicator(this.workingVisible, this.workingIndicatorOptions);
 	}
 
 	private updateWorkingLoaderIndicator(): void {
 		if (!this.loadingAnimation || !this.workingLoaderView) return;
-		this.loadingAnimation.setIndicator(DEFAULT_WORKING_INDICATOR);
+		this.loadingAnimation.setIndicator(this.getWorkingLoaderIndicator(this.workingLoaderView));
 	}
 
-	private createWorkingLoader(_indicator?: LoaderIndicatorOptions): Loader {
+	private createWorkingLoader(indicator?: LoaderIndicatorOptions): Loader {
 		return new Loader(
 			this.ui,
 			(spinner) => theme.fg("accent", spinner),
 			(text) => theme.fg("muted", text),
 			this.getWorkingLoaderMessage(),
-			DEFAULT_WORKING_INDICATOR,
+			indicator,
 		);
 	}
 
@@ -2491,12 +2496,7 @@ export class InteractiveMode {
 	private syncWorkingEditorState(): void {
 		const editor = this.editor;
 		const isMounted = this.editorContainer.children.includes(editor as Component);
-		const canAnimatePrompt = supportsWorkingPromptAnimation(editor, this.workingIndicatorOptions);
-		const viewingChild = this.isViewingAgentSession();
-		const selectedSessionIsWorking = viewingChild ? this.isSelectedChildWorking() : this.session.isStreaming;
-		const hasPromptActivity = selectedSessionIsWorking || this.promptActivitySources.size > 0;
-		const shouldShowWorking = this.workingVisible && hasPromptActivity;
-		syncWorkingEditor(editor, shouldShowWorking && canAnimatePrompt, this.workingIndicatorOptions);
+		syncWorkingEditor(editor, false);
 		if (!isMounted) {
 			clearWorkingEditorPosition(editor);
 		}
@@ -4628,7 +4628,7 @@ export class InteractiveMode {
 					(spinner) => theme.fg("accent", spinner),
 					(text) => theme.fg("muted", text),
 					label,
-					DEFAULT_WORKING_INDICATOR,
+					workingStatusIndicator(this.workingVisible, this.workingIndicatorOptions),
 				);
 				this.statusContainer.addChild(this.autoCompactionLoader);
 				this.setPromptActivity("compaction", true);
@@ -4697,7 +4697,7 @@ export class InteractiveMode {
 					(spinner) => theme.fg("warning", spinner),
 					(text) => theme.fg("muted", text),
 					retryMessage(Math.ceil(event.delayMs / 1000)),
-					DEFAULT_WORKING_INDICATOR,
+					workingStatusIndicator(this.workingVisible, this.workingIndicatorOptions),
 				);
 				this.retryCountdown = new CountdownTimer(
 					event.delayMs,
@@ -6390,7 +6390,7 @@ export class InteractiveMode {
 			(spinner) => theme.fg("accent", spinner),
 			(text) => theme.fg("muted", text),
 			`Loading compaction summary... (${keyText("app.interrupt")} to cancel)`,
-			DEFAULT_WORKING_INDICATOR,
+			workingStatusIndicator(this.workingVisible, this.workingIndicatorOptions),
 		);
 		this.statusContainer.addChild(loader);
 		this.setPromptActivity("summary-materialization", true);
@@ -6505,7 +6505,7 @@ export class InteractiveMode {
 							(spinner) => theme.fg("accent", spinner),
 							(text) => theme.fg("muted", text),
 							`Summarizing branch... (${keyText("app.interrupt")} to cancel)`,
-							DEFAULT_WORKING_INDICATOR,
+							workingStatusIndicator(this.workingVisible, this.workingIndicatorOptions),
 						);
 						this.statusContainer.addChild(summaryLoader);
 						this.setPromptActivity("branch-summary", true);
@@ -7803,7 +7803,9 @@ export class InteractiveMode {
 
 		// Normal execution path (possibly with custom operations)
 		const isDeferred = this.session.isStreaming;
-		this.bashComponent = new BashExecutionComponent(command, this.ui, excludeFromContext);
+		this.bashComponent = new BashExecutionComponent(command, this.ui, excludeFromContext, {
+			indicator: workingStatusIndicator(this.workingVisible, this.workingIndicatorOptions),
+		});
 
 		if (isDeferred) {
 			// Show in pending area when agent is streaming

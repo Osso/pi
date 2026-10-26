@@ -2,7 +2,7 @@
 
 Contract: [Thinking status](../../specs/thinking-status.md).
 
-Interactive mode starts an elapsed-duration ticker at each model request. It updates the default `Thinking...` working label once per second until visible assistant output begins or the request ends. During in-turn compaction, temporary compaction status may replace the working row; when compaction ends while the main session remains streaming, the working status is restored and the prompt spinner remains active.
+Interactive mode starts an elapsed-duration ticker at each model request. It updates the default `Thinking...` working label once per second until visible assistant output begins or the request ends. During in-turn compaction, temporary compaction status may replace the working row; when compaction ends while the main session remains streaming, the working status and its status-row indicator are restored. Interactive mode does not animate the editor prompt; default and custom working frames appear in the status row.
 
 The first non-empty visible text or thinking delta changes the label to `Streaming...`. Empty deltas and hidden thinking do not change it. Between a completed tool and a subsequent tool call, `Thought for <duration>` records the model interval when it lasts at least one second.
 

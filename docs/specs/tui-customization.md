@@ -59,13 +59,12 @@ terminal_resize_reflow_max_rows = 5000
 
 ### Working indicator
 
-- [x] Normal working status text remains static `Thinking...` / `Streaming...`; active main- or selected-child-agent work animates only through the compatible editor prompt fixed cell without rendering the global component tree on each frame (`interactive-mode-streaming-render-throttle.test.ts`, `interactive-mode-working-editor.test.ts`).
-- [x] `ctx.ui.setWorkingIndicator()` with no argument restores the default prompt animation while preserving the static status label.
-- [x] Prompt activity from main work, selected-child work, compaction, retry, branch summarization, and local bash shares the compatible editor prompt animation; the corresponding coding-agent status loaders are static (`interactive-mode-working-editor.test.ts`, `interactive-mode-compaction.test.ts`, `interactive-mode-idle-notification.test.ts`, `interactive-mode-branch-summary-prompt.test.ts`, `interactive-mode-bash-prompt.test.ts`).
-- [x] Bordered loaders and the exported working status indicator show static status text without recurring spinner renders; retry status indicators retain countdown cleanup behavior. Incompatible, replaced, or otherwise unsupported custom editors show static status text only (`bordered-loader.test.ts`, `status-indicator.test.ts`, `interactive-mode-working-editor.test.ts`).
+- [x] Interactive coding-agent does not animate the editor prompt. The normal working status row animates default or custom frames for main and selected-child work, independent of the editor used (`interactive-mode-working-editor.test.ts`).
+- [x] `ctx.ui.setWorkingIndicator()` restores the default status-row indicator; an empty frame list hides it. Custom frames retain their own colors, and `setWorkingVisible(false)` hides the working row.
+- [x] Compaction, retry, branch summarization, local bash, bordered loaders, and exported status indicators retain their existing status behavior. The standalone `pi-tui` Editor animation API remains unchanged.
 - [x] Same-height coding-agent status-loader text and elapsed updates use the registered bottom status region; dynamic height changes and unregistered loaders retain normal rendering. Assistant message start and visible text/thinking stream updates use the registered transcript-tail flow region, while message completion consolidates the tail into chat and performs a normal render. User messages, tool layouts, history rebuilds, and other transcript mutations retain normal rendering (`interactive-root-compositor.test.ts`, `interactive-mode-streaming-render-throttle.test.ts`, `loader.test.ts`, `interactive-mode-idle-notification.test.ts`, `tool-execution-component.test.ts`).
 - [x] Invisible assistant stream updates do not schedule renders: hidden thinking deltas, partial tool-call/protocol deltas, and hidden main-session message updates while viewing a child are ignored. Visible text/thinking updates schedule transcript-tail region renders, while final message completion uses normal rendering (`interactive-mode-streaming-render-throttle.test.ts`).
-- [x] Pending renders, terminal resize, hidden prompt rows, and overlays suppress unsafe direct cell writes; the next normal render recalculates placement and synchronizes the frame cache.
+- [x] Standalone Editor prompt animation retains its existing placement and direct-cell safety behavior.
 
 ## How it works
 
@@ -75,14 +74,14 @@ terminal_resize_reflow_max_rows = 5000
 ## Implementation inventory
 
 - `packages/coding-agent/src/core/extensions/types.ts:163-186` — `setWidget`, `setFooter`, `setHeader`, `setTitle` on the `ctx.ui` interface.
-- `packages/coding-agent/src/modes/interactive/interactive-root-compositor.ts` and `interactive-mode.ts` — preserve flow order, anchor the interactive bottom zone, register status and transcript-tail render regions, route visible assistant streaming through the tail, consolidate completed messages into chat, track prompt activity sources, and create static coding-agent status loaders.
-- `packages/coding-agent/src/modes/interactive/working-editor.ts` — detects compatible editors and coordinates main/child prompt activity and placement without changing unsupported custom editors.
+- `packages/coding-agent/src/modes/interactive/interactive-root-compositor.ts` and `interactive-mode.ts` — preserve flow order, anchor the interactive bottom zone, register status and transcript-tail render regions, route visible assistant streaming through the tail, consolidate completed messages into chat, track prompt activity sources, and configure the working status loader.
+- `packages/coding-agent/src/modes/interactive/working-editor.ts` — coordinates editor prompt state and placement; interactive mode keeps prompt animation disabled.
 - `packages/coding-agent/src/modes/interactive/components/bash-execution.ts` — keeps local bash status text static while retaining its separate elapsed-time update path.
 - `packages/coding-agent/src/modes/interactive/components/bordered-loader.ts` — creates static bordered status loaders, including cancellable loaders.
 - `packages/coding-agent/src/modes/interactive/components/status-indicator.ts` — keeps exported working, retry, compaction, and branch-summary status indicators static while preserving countdown updates.
 - `packages/tui/src/components/editor.ts` — owns prompt frames, timer lifetime, multiline prompt placement, and idle-prompt restoration.
 - `packages/tui/src/tui.ts` and `root-compositor.ts` — record render-region generations and flow/bottom layout bounds, route descendant update requests, update or grow bounded flow regions, preserve cached downstream rows and terminal scrollback, and reject unsafe partial updates.
-- `packages/tui/src/components/loader.ts` — requests component-region rendering; unregistered loaders fall back to normal rendering, while coding-agent uses empty frame lists for static status text.
+- `packages/tui/src/components/loader.ts` — requests component-region rendering; unregistered loaders fall back to normal rendering, and the working loader displays default or custom frames.
 - `packages/coding-agent/src/core/extensions/types.ts:188-203` — `custom<T>(...)` full-screen/overlay component with `done(result)`.
 - `packages/coding-agent/src/core/extensions/types.ts:220-256` — `setEditorComponent` / `getEditorComponent` (CustomEditor base, `super.handleInput`).
 - `packages/coding-agent/src/core/extensions/types.ts:270-274` — `getToolsExpanded` / `setToolsExpanded`.
@@ -122,12 +121,12 @@ terminal_resize_reflow_max_rows = 5000
 
 - `packages/tui/test/dtach-viewport.test.ts` — "same-size resize restores only the visible viewport and keeps differential updates aligned" and "native dtach same-size SIGWINCH restores viewport, scrollback, cursor, and listener lifecycle" cover repeated same-size restoration, subsequent updates, cursor alignment, retained external history, changed-size behavior, and native listener cleanup.
 
-- `packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts` — main/child working labels remain static; invisible thinking, partial tool-call, and hidden main-session message updates do not request renders; assistant start and visible updates route through the transcript-tail region; completion consolidates the tail before one normal render.
-- `packages/coding-agent/test/interactive-mode-working-editor.test.ts` and `working-editor.test.ts` — main/child prompt routing, static status loaders, incompatible/wider custom indicators, temporary editor replacement, and prompt placement coordination.
+- `packages/coding-agent/test/interactive-mode-streaming-render-throttle.test.ts` — invisible thinking, partial tool-call, and hidden main-session message updates do not request renders; assistant start and visible updates route through the transcript-tail region; completion consolidates the tail before one normal render.
+- `packages/coding-agent/test/interactive-mode-working-editor.test.ts` and `working-editor.test.ts` — interactive working status and editor behavior, and standalone prompt placement coordination.
 - `packages/coding-agent/test/interactive-mode-compaction.test.ts` and `interactive-mode-idle-notification.test.ts` — compaction/retry status labels and prompt-activity lifecycle.
 - `packages/coding-agent/test/interactive-mode-compaction-rendering.test.ts` — one enriched summary renders first after compaction without compacted-away transcript entries.
-- `packages/coding-agent/test/interactive-mode-bash-prompt.test.ts` — local bash activity starts and stops prompt animation around the running command.
-- `packages/coding-agent/test/interactive-mode-branch-summary-prompt.test.ts` — branch-summary activity starts and stops prompt animation while its status loader remains static.
+- `packages/coding-agent/test/interactive-mode-bash-prompt.test.ts` — local bash activity and prompt behavior around the running command.
+- `packages/coding-agent/test/interactive-mode-branch-summary-prompt.test.ts` — branch-summary activity and prompt behavior while its status loader is shown.
 - `packages/coding-agent/test/bordered-loader.test.ts` — bordered status loaders render without recurring spinner updates.
 - `packages/coding-agent/test/status-indicator.test.ts` — exported status indicators remain static while retry countdown disposal remains testable.
 - `packages/coding-agent/test/tool-execution-component.test.ts` — bash status remains static when elapsed timing is disabled while elapsed timing remains separately testable.

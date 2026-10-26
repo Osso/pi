@@ -129,7 +129,7 @@ describe("InteractiveMode branch-summary prompt activity", () => {
 		vi.useRealTimers();
 	});
 
-	it("uses the prompt spinner and a static status label while summarizing", async () => {
+	it("animates the summary status while keeping the prompt static", async () => {
 		initTheme("dark");
 		vi.useFakeTimers();
 		const navigation = createDeferred<NavigationResult>();
@@ -194,13 +194,13 @@ describe("InteractiveMode branch-summary prompt activity", () => {
 			summarize: true,
 			customInstructions: undefined,
 		});
-		expect(editor.working).toBe(true);
-		expect(editor.indicator).toEqual(context.workingIndicatorOptions);
+		expect(editor.working).toBe(false);
+		expect(context.statusContainer.render(80).join("\n")).toContain("Summarizing branch...");
 		const renderCountAfterStart = requestRender.mock.calls.length;
 
 		await vi.advanceTimersByTimeAsync(1_000);
 
-		expect(requestRender).toHaveBeenCalledTimes(renderCountAfterStart);
+		expect(requestRender).toHaveBeenCalledTimes(renderCountAfterStart + 4);
 
 		navigation.resolve({ aborted: false, cancelled: false, editorText: undefined });
 		await selection;

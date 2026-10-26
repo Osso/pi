@@ -31,6 +31,7 @@
 
 ### Changed
 
+- The interactive working indicator now animates in the status row instead of the editor prompt. Custom frames retain their colors, and hidden indicators remain hidden. The standalone pi-tui Editor API is unchanged.
 - Increased the default shared SQLite busy timeout from 5 to 10 seconds for newly configured connections; explicit overrides and retained connection timeouts are unchanged. Synchronous lock waits can block UI/event processing longer and do not prevent every `SQLITE_BUSY` error.
 - Increased the maximum automatic Supervisor goal-review wait from 25 to 55 minutes, preserving early agent-completion wake and one absolute review deadline; the separate `wait_agent` 25-minute slice is unchanged.
 - Self-restart now imports the systemd user manager environment while preserving launch-owned `PATH`, `HOME`, `USER`, `LOGNAME`, and `SHELL`. Manager lookup failures are reported and retain the current environment.

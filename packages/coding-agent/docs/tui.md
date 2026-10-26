@@ -770,7 +770,7 @@ For displayed-session-dependent text, `setStatus` also accepts a pure synchronou
 
 ### Pattern 4b: Working Indicator Customization
 
-The default normal working indicator keeps the status labels static: `Thinking...` and `Streaming...`. The built-in editor animates its prompt cell with direct one-cell terminal updates, so animation does not render the global component tree on every frame. This only affects the normal streaming working indicator; compaction, retry, and tool loaders keep their built-in behavior.
+The normal working status row animates its default indicator next to the `Thinking...` or `Streaming...` label. The interactive editor prompt does not animate. Compaction, retry, summary, and bash activity use indicators in their own status displays.
 
 Customize the inline working indicator shown while pi is streaming a response.
 
@@ -792,13 +792,11 @@ ctx.ui.setWorkingIndicator({
 // Hide the indicator entirely
 ctx.ui.setWorkingIndicator({ frames: [] });
 
-// Restore prompt animation with static Thinking.../Streaming... labels
+// Restore the default status-row indicator
 ctx.ui.setWorkingIndicator();
 ```
 
-Calling `ctx.ui.setWorkingIndicator()` with no argument restores the default prompt animation while keeping the status label static. Explicit custom indicators use the prompt only for the main built-in editor or a compatible editor whose frames each occupy exactly one terminal cell. Selected-child views, arbitrary custom editors, and frames wider than one cell use the loader-based indicator instead. Custom frames are rendered verbatim, so extensions must add their own colors when needed.
-
-Pending renders, terminal resize, hidden prompt rows, and visible overlays suppress unsafe direct prompt-cell writes; the next normal render recalculates placement and synchronizes the differential-render cache.
+Calling `ctx.ui.setWorkingIndicator()` with no argument restores the default status-row indicator. Custom frames appear in that row, including in selected-child views and with custom editors. Custom frames are rendered verbatim, so extensions must add their own colors when needed. An empty frame list hides the indicator. The standalone `pi-tui` Editor animation API is unchanged.
 
 **Examples:** [working-indicator.ts](../examples/extensions/working-indicator.ts)
 

@@ -98,7 +98,7 @@ describe("InteractiveMode compaction events", () => {
 
 			const renderedLoader = addedChildren[0]?.render(120).join("\n") ?? "";
 			expect(renderedLoader).toContain("Compacting context...");
-			expect(editor.working).toBe(true);
+			expect(editor.working).toBe(false);
 			const renderCountAfterStart = fakeThis.ui.requestRender.mock.calls.length;
 
 			await vi.advanceTimersByTimeAsync(1_000);
@@ -192,7 +192,7 @@ describe("InteractiveMode compaction events", () => {
 			});
 			await handleEvent.call(fakeThis, { type: "model_request_start" });
 
-			expect(editor.working).toBe(true);
+			expect(editor.working).toBe(false);
 			expect(statusContainer.render(80).join("\n")).toContain("Thinking...");
 		} finally {
 			Reflect.get(InteractiveMode.prototype, "stopThinkingTimer").call(fakeThis);

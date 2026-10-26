@@ -9,7 +9,7 @@ Module boundary: core subsystem. The interactive-mode default working indicator 
 - [x] At agent-run and provider-request start, show `Thinking...`; post-tool continuation remains `Thinking...` throughout silent model inference (`packages/coding-agent/test/interactive-mode-idle-notification.test.ts`).
 - [x] While a provider request is active, show elapsed duration beginning as `Thinking... 0s` and formatting longer durations such as `Thinking... 1m 05s` (`packages/coding-agent/test/interactive-mode-thinking-timer.test.ts`).
 - [x] Switch to `Streaming...` only after the first non-empty visible assistant text delta or visible thinking delta. Empty stream events and hidden thinking do not switch the label, and provider-request end does not imply visible output (`packages/coding-agent/test/interactive-mode-idle-notification.test.ts`).
-- [x] During in-turn compaction, temporary compaction status may replace the working row; when compaction ends while the main session remains streaming, restore `Thinking...` while the prompt spinner remains active (`packages/coding-agent/test/interactive-mode-compaction.test.ts`).
+- [x] During in-turn compaction, temporary compaction status may replace the working row; when compaction ends while the main session remains streaming, restore the `Thinking...` working row with its status-row indicator (`packages/coding-agent/test/interactive-mode-compaction.test.ts`).
 
 ### Thinking-phase deadline
 

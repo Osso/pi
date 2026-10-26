@@ -2,7 +2,7 @@
  * Component for displaying bash command execution with streaming output.
  */
 
-import { Container, Loader, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
+import { Container, Loader, type LoaderIndicatorOptions, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
 import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
@@ -20,6 +20,7 @@ const BASH_TIMER_INTERVAL_MS = 1000;
 
 export interface BashExecutionOptions {
 	showElapsed?: boolean;
+	indicator?: LoaderIndicatorOptions;
 }
 
 // Preview line limit when not expanded (matches tool execution behavior)
@@ -71,7 +72,7 @@ export class BashExecutionComponent extends Container {
 			(spinner) => theme.fg(colorKey, spinner),
 			(text) => theme.fg("muted", text),
 			`Running... (${keyText("tui.select.cancel")} to cancel)`, // Plain text for loader
-			{ frames: [] },
+			options.indicator,
 		);
 		this.contentContainer.addChild(this.loader);
 		if (this.showElapsed) {

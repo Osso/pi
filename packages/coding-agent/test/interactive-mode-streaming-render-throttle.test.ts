@@ -163,7 +163,7 @@ describe("InteractiveMode streaming render throttling", () => {
 		}
 	});
 
-	test("keeps child status labels static when the prompt owns animation", async () => {
+	test("animates the child status instead of the prompt", async () => {
 		vi.useFakeTimers();
 		const mode = createFakeInteractiveModeThis();
 		mode.multiAgentStore = { getAgent: () => ({}), getSelectedAgentId: () => "agent_1" };
@@ -175,13 +175,13 @@ describe("InteractiveMode streaming render throttling", () => {
 			expect(mode.ui.requestRender).toHaveBeenCalledTimes(1);
 
 			await vi.advanceTimersByTimeAsync(1_000);
-			expect(mode.ui.requestRender).toHaveBeenCalledTimes(1);
+			expect(mode.ui.requestRender).toHaveBeenCalledTimes(5);
 
 			workingLoader.setWorkingIndicator.call(mode, undefined);
 			const renderCountAfterReset = vi.mocked(mode.ui.requestRender).mock.calls.length;
 
 			await vi.advanceTimersByTimeAsync(1_000);
-			expect(mode.ui.requestRender).toHaveBeenCalledTimes(renderCountAfterReset);
+			expect(mode.ui.requestRender).toHaveBeenCalledTimes(renderCountAfterReset + 4);
 		} finally {
 			loader.stop();
 		}

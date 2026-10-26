@@ -84,7 +84,7 @@ type SyncContext = {
 	createdIndicators: Array<LoaderIndicatorOptions | undefined>;
 	editor: EditorComponent;
 	editorContainer: { children: Component[] };
-	getWorkingLoaderIndicator(view: "main" | "child"): LoaderIndicatorOptions;
+	getWorkingLoaderIndicator(view: "main" | "child"): LoaderIndicatorOptions | undefined;
 	getWorkingLoaderMessage(): string;
 	isSelectedChildWorking(): boolean;
 	isViewingAgentSession(): boolean;
@@ -103,7 +103,7 @@ type SyncContext = {
 };
 
 const prototype = InteractiveMode.prototype as unknown as {
-	getWorkingLoaderIndicator(this: SyncContext, view: "main" | "child"): LoaderIndicatorOptions;
+	getWorkingLoaderIndicator(this: SyncContext, view: "main" | "child"): LoaderIndicatorOptions | undefined;
 	handleEditorLayout: HandleEditorLayout;
 	handleEvent: HandleEvent;
 	setWorkingIndicator: SetWorkingIndicator;
@@ -130,7 +130,7 @@ function createContext(editor: EditorComponent): SyncContext {
 		createdIndicators: [] as Array<LoaderIndicatorOptions | undefined>,
 		editor,
 		editorContainer: { children: [editor as Component] },
-		getWorkingLoaderIndicator: (view: "main" | "child"): LoaderIndicatorOptions =>
+		getWorkingLoaderIndicator: (view: "main" | "child"): LoaderIndicatorOptions | undefined =>
 			prototype.getWorkingLoaderIndicator.call(context, view),
 		getWorkingLoaderMessage: () => "Streaming...",
 		isSelectedChildWorking: () => false,
@@ -152,15 +152,26 @@ function createContext(editor: EditorComponent): SyncContext {
 }
 
 describe("InteractiveMode working editor", () => {
-	it("drives the main editor while retaining the static working label", () => {
+	it("keeps the editor prompt static while the status shows the working animation", () => {
+		const editor = new WorkingEditor();
+		const context = createContext(editor);
+		context.loadingAnimation = undefined;
+		context.workingLoaderView = undefined;
+
+		prototype.syncWorkingLoaderVisibility.call(context);
+
+		assert.strictEqual(editor.render(80)[0], "idle");
+		assert.deepStrictEqual(context.createdIndicators, [context.workingIndicatorOptions]);
+	});
+
+	it("keeps the main editor static while retaining the working label", () => {
 		const editor = new WorkingEditor();
 		const context = createContext(editor);
 		const label = context.loadingAnimation?.setMessage;
 
 		prototype.syncWorkingLoaderVisibility.call(context);
 
-		assert.strictEqual(editor.working, true);
-		assert.deepStrictEqual(editor.indicator, context.workingIndicatorOptions);
+		assert.strictEqual(editor.working, false);
 		expect(label).toHaveBeenCalledWith("Streaming...");
 
 		context.session.isStreaming = false;
@@ -168,7 +179,7 @@ describe("InteractiveMode working editor", () => {
 		assert.strictEqual(editor.working, false);
 	});
 
-	it("drives selected child activity through the prompt and keeps the status label static", () => {
+	it("shows selected child activity in the status instead of the prompt", () => {
 		const editor = new WorkingEditor();
 		const context = createContext(editor);
 		context.isViewingAgentSession = () => true;
@@ -178,12 +189,11 @@ describe("InteractiveMode working editor", () => {
 
 		prototype.syncWorkingLoaderVisibility.call(context);
 
-		assert.strictEqual(editor.working, true);
-		assert.deepStrictEqual(editor.indicator, context.workingIndicatorOptions);
-		assert.deepStrictEqual(context.createdIndicators, [{ frames: [] }]);
+		assert.strictEqual(editor.working, false);
+		assert.deepStrictEqual(context.createdIndicators, [context.workingIndicatorOptions]);
 	});
 
-	it("keeps the status label static when the editor lacks fixed-cell support", () => {
+	it("shows the status indicator when the editor lacks fixed-cell support", () => {
 		const editor = new PlainEditor();
 		const context = createContext(editor);
 		context.loadingAnimation = undefined;
@@ -191,10 +201,10 @@ describe("InteractiveMode working editor", () => {
 
 		prototype.syncWorkingLoaderVisibility.call(context);
 
-		assert.deepStrictEqual(context.createdIndicators, [{ frames: [] }]);
+		assert.deepStrictEqual(context.createdIndicators, [context.workingIndicatorOptions]);
 	});
 
-	it("keeps the status label static when custom frames cannot fit the one-cell editor prompt", () => {
+	it("shows wide custom frames in the status instead of the editor prompt", () => {
 		const editor = new WorkingEditor();
 		const context = createContext(editor);
 		context.loadingAnimation = undefined;
@@ -205,7 +215,7 @@ describe("InteractiveMode working editor", () => {
 
 		assert.strictEqual(editor.working, false);
 		assert.strictEqual(editor.indicator, undefined);
-		assert.deepStrictEqual(context.createdIndicators, [{ frames: [] }]);
+		assert.deepStrictEqual(context.createdIndicators, [context.workingIndicatorOptions]);
 	});
 
 	it("clears only prompt placement while a working editor is temporarily replaced", () => {
@@ -225,7 +235,7 @@ describe("InteractiveMode working editor", () => {
 		assert.deepStrictEqual(editor.origin, { row: 7, col: 3 });
 	});
 
-	it("keeps the active child status label static when prompt indicator options change", () => {
+	it("updates the active child status indicator when options change", () => {
 		const editor = new WorkingEditor();
 		const context = createContext(editor);
 		const indicator = { frames: ["x", "y"], intervalMs: 80 };
@@ -236,19 +246,18 @@ describe("InteractiveMode working editor", () => {
 		prototype.setWorkingIndicator.call(context, indicator);
 
 		assert.deepStrictEqual(context.workingIndicatorOptions, indicator);
-		assert.deepStrictEqual(editor.indicator, indicator);
-		assert.strictEqual(editor.working, true);
-		expect(context.loadingAnimation?.setIndicator).toHaveBeenCalledWith({ frames: [] });
+		assert.strictEqual(editor.working, false);
+		expect(context.loadingAnimation?.setIndicator).toHaveBeenCalledWith(indicator);
 	});
 
-	it("keeps the main status label static when the editor owns the custom indicator", () => {
+	it("updates the main status with the custom indicator", () => {
 		const editor = new WorkingEditor();
 		const context = createContext(editor);
 		const indicator = { frames: ["x", "y"], intervalMs: 80 };
 
 		prototype.setWorkingIndicator.call(context, indicator);
 
-		expect(context.loadingAnimation?.setIndicator).toHaveBeenCalledWith({ frames: [] });
+		expect(context.loadingAnimation?.setIndicator).toHaveBeenCalledWith(indicator);
 	});
 
 	it("restores the idle prompt when agent_end arrives before streaming state clears", async () => {
