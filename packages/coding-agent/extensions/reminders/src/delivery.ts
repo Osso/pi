@@ -59,9 +59,9 @@ export class ReminderDelivery {
 		const deliverySessionId = ctx.settingsManager?.getMergedSettings().reminders?.deliverySessionId;
 		if (!controlDbPath || deliverySessionId !== ctx.sessionManager.getSessionId()) return;
 		this.controlDbPath = controlDbPath;
-		const deliver = () => this.check(ctx, () => this.deliverDue(ctx));
-		deliver();
-		this.timer = setInterval(deliver, this.intervalMs);
+		// No check at start: the mode may resume an interrupted turn right after session_start, and a
+		// reminder turn started first would make that resume fail. Overdue reminders go out on the first tick.
+		this.timer = setInterval(() => this.check(ctx, () => this.deliverDue(ctx)), this.intervalMs);
 	}
 
 	stop(): void {

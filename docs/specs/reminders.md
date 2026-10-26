@@ -29,7 +29,7 @@ For example, "Recheck security advisories tomorrow at 09:00" belongs in Reminder
 ### Delivery and manual access
 
 - [x] Delegate automatic reminder delivery to the [machine assistant](machine-assistant.md), rather than alerting every interactive project session.
-- [x] Deliver each due open reminder once: post it into the assistant conversation, start an assistant turn, and send one desktop alert. Rescheduling or reopening re-arms delivery; other edits do not. A reminder that became due while the assistant was not running is delivered at its next start.
+- [x] Deliver each due open reminder once: post it into the assistant conversation, start an assistant turn, and send one desktop alert. Rescheduling or reopening re-arms delivery; other edits do not. A reminder that became due while the assistant was not running is delivered within one minute of its next start.
 - [x] Mark a reminder delivered only when its message entry is written into the assistant conversation. A reminder queued in a busy assistant that is lost before being written (process exit, or an abort that clears the queue) is delivered again; a crash right after writing may deliver it twice, never zero times.
 - [x] Exclude completed reminders from due summaries. Showing a reminder must not mutate its status.
 - [x] Provide `/reminders` to list open reminders across projects manually.
@@ -39,7 +39,7 @@ For example, "Recheck security advisories tomorrow at 09:00" belongs in Reminder
 
 `reminders` is a control-DB table created by `session-control-db.ts`; `src/core/reminder-store.ts` owns all reads and writes and `src/core/reminder-time.ts` parses and formats due times. Local input such as `2026-10-26 09:00` resolves in the machine timezone and fails in DST gaps or repeated hours; ISO input with `Z` or an offset selects an exact instant.
 
-The first-party `reminders` extension registers the agent tool and `/reminders` command (`list [open|done|all|due]`, `add <due> <title>`, `edit <id> <title>`, `notes <id> <text>`, `reschedule <id> <due>`, `done <id>`, `reopen <id>`, `delete <id>`). Delivery runs only in the session whose ID equals the `reminders.deliverySessionId` setting. That session checks once at start and then every minute without model calls. Each check sends every open, due reminder with no `delivered_at` that is not already pending in this process; the message details carry a fresh `deliveryToken`. After each check and at every `agent_end`, a pending reminder whose token appears in a written conversation entry gets `delivered_at` through `markReminderDelivered` (only if its due time is unchanged). A run that ends without that entry releases the reminder for the next check; process exit releases all pending reminders. The reminder text in the conversation states that it is context, not authorization.
+The first-party `reminders` extension registers the agent tool and `/reminders` command (`list [open|done|all|due]`, `add <due> <title>`, `edit <id> <title>`, `notes <id> <text>`, `reschedule <id> <due>`, `done <id>`, `reopen <id>`, `delete <id>`). Delivery runs only in the session whose ID equals the `reminders.deliverySessionId` setting. That session checks every minute without model calls, starting one minute after session start. It does not check at start, because Pi resumes an interrupted turn right after start and a reminder turn started first would make that resume fail; the reminder then queues behind the resumed turn. Each check sends every open, due reminder with no `delivered_at` that is not already pending in this process; the message details carry a fresh `deliveryToken`. After each check and at every `agent_end`, a pending reminder whose token appears in a written conversation entry gets `delivered_at` through `markReminderDelivered` (only if its due time is unchanged). A run that ends without that entry releases the reminder for the next check; process exit releases all pending reminders. The reminder text in the conversation states that it is context, not authorization.
 
 ## Implementation inventory
 
@@ -51,13 +51,13 @@ The first-party `reminders` extension registers the agent tool and `/reminders` 
 
 - `test/reminder-store.test.ts`: persistence, filters, edit/complete/reopen/delete, schema constraints, delivery acknowledgement (due listing, due-time match) and re-arming.
 - `test/reminder-time.test.ts`: local and offset parsing, DST gaps and repeats, display with offset and zone.
+- `test/suite/regressions/reminder-delivery-crash.test.ts`: a headless Pi process is SIGKILLed while a reminder is queued behind a busy turn; after restart the interrupted turn resumes first and the reminder is written once, with the real `notify-send` invocation recorded through `PATH`.
 - `test/suite/reminders.test.ts`: cross-session visibility and lifecycle through the tool, agent guidance, invalid input, single-session delivery with exactly one turn and alert, re-arm by reschedule, redelivery after a busy assistant exits or aborts before writing the reminder, `/reminders` list (open, done, due), add, edit, notes, reschedule, done, reopen and delete.
 
 ## Known gaps (current cycle)
 
 - [ ] Assistant restart supervision is not implemented: delivery stops while the assistant session is not running, and resumes with overdue reminders at its next start.
 - [ ] A failed desktop alert is logged but not retried; the conversation entry alone acknowledges delivery.
-- [ ] No test covers a real OS process restart or the real `notify-send` call; exit is simulated by shutting the delivery session down before the queued reminder is written.
 
 ## Out of scope
 
