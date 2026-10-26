@@ -68,6 +68,14 @@
 
 Pi session restarts are always safe. Never request safe-point acknowledgments or wait for goals, foreground operations, or agents before restarting; restart machinery preserves work and output.
 
+Restart mechanics (`restart_self`, `/restart`, `pi control restart`, SIGHUP; `AgentSessionRuntime.restartUnlocked`):
+
+- Same PID: `execve` of `process.execPath` with the original argv, reopening the same session file. Installed `pi` thus picks up a newly deployed binary; `pi-dev` reloads canonical source.
+- Running Bash and Pyrun calls are detached first into separate durable runner processes. They keep running across the restart and report through background-job completion notifications; their tool call gets the job reference.
+- Child agents run in-process. Restart aborts their current turn without recording a terminal result; the restarted parent resumes them from the control DB with the same transcript.
+- Other unfinished calls in the batch get an interrupted result and are never rerun. The session then continues automatically from a typed `self_restart` notice.
+- Resident `pi supervisor`, `relay connect`, and `relay serve` processes are separate and are not restarted with sessions.
+
 Prefer the control CLI for the SQLite control channel. Do not type into tmux panes to steer a running Pi unless explicitly asked.
 
 From a repo checkout, use `./pi-test.sh control ...`; installed builds use `pi control ...`.
