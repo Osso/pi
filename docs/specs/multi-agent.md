@@ -425,7 +425,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       process has one current main-session identity even if historical listener rows remain. Listener
       rows persist the exact `(pid, startTimeTicks)` process identity; same-PID replacement advances the
       inventory-only session health generation without mutating lifecycle rows.
-      `list_sessions` and `broadcast` never create listeners or write caller PID health; ownership is
+      `list_sessions` never creates listeners or writes caller PID health; ownership is
       maintained only by the runtime listener lifecycle. Fresh
       heartbeats are not accepted as PID ownership proof: inventory and signal delivery verify the PID
       still belongs to Pi, and a different verified live Pi PID blocks concurrent session replacement.
@@ -705,7 +705,7 @@ The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the
 - `packages/coding-agent/test/suite/regressions/mailbox-explicit-body-headless.test.ts` — real-process
   later-send coverage; proof scope and rollout limits live in [mailbox proof](#mailbox-proof-current-cycle).
 
-- `packages/coding-agent/test/interactive-mode-coordination-visibility.test.ts` — mailbox and broadcast visibility, provenance-aware queue previews, reversible toggles, unchanged delivery and context.
+- `packages/coding-agent/test/interactive-mode-coordination-visibility.test.ts` — mailbox and coordination visibility, provenance-aware queue previews, reversible toggles, unchanged delivery and context.
 
 - `packages/coding-agent/test/host-relay.test.ts` — two-DB forwarding, replies, outages, lost acknowledgements, sequence ordering and bounded state.
 - `packages/coding-agent/test/host-relay-client.test.ts` — real SSH-process fixture, outage logging, reconnect, SSH arguments and shutdown.

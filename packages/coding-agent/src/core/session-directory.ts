@@ -1,13 +1,10 @@
-import { randomUUID } from "node:crypto";
 import { isPiRuntimeProcessAlive } from "./runtime-process.ts";
 import {
-	enqueueRuntimeMailboxMessage,
 	listActiveSessionMetadata,
 	listRuntimeMailboxListeners,
 	listSessionHealth,
 	retireRuntimeMailboxListener,
 	type SessionMetadata,
-	upsertMultiAgentMailboxMessage,
 	writeSessionHealth,
 } from "./session-control-db.ts";
 import {
@@ -15,10 +12,8 @@ import {
 	emptySessionHealth,
 	endSessionHealth,
 	isSessionEligibleToReceive,
-	isStickyDead,
 	parseGoalObjective,
 	SESSION_CHECK_STALE_MS,
-	type SessionBroadcastResult,
 	type SessionDirectoryEntry,
 	type SessionHealthRecord,
 } from "./session-health.ts";
@@ -27,21 +22,6 @@ export interface SessionDirectoryOptions {
 	now?: () => Date;
 	includeEnded?: boolean;
 	isRuntimeProcessAlive?: (pid: number) => boolean;
-}
-
-export interface BroadcastSessionFilters {
-	sessionIds?: string[];
-	cwd?: string;
-	name?: string;
-	status?: Array<"running" | "idle" | "ended">;
-}
-
-export interface BroadcastSessionsInput {
-	message: string;
-	filters?: BroadcastSessionFilters;
-	senderSessionId: string;
-	senderSessionPath: string;
-	senderAgentId?: string | null;
 }
 
 function resolveNow(options?: SessionDirectoryOptions): Date {
@@ -225,141 +205,4 @@ export function listSessions(controlDbPath: string, options: SessionDirectoryOpt
 	return metadata
 		.map((row) => toDirectoryEntry(row, healthMap.get(row.id) ?? emptySessionHealth(row.id, nowIso), now))
 		.filter((entry) => options.includeEnded !== false || entry.status !== "ended");
-}
-
-function currentMainSessionIds(
-	controlDbPath: string,
-	now: Date,
-	isRuntimeProcessAlive: (pid: number) => boolean,
-): Set<string> {
-	return new Set(reconcileCurrentMainSessionBindings(controlDbPath, now, isRuntimeProcessAlive).keys());
-}
-
-function matchesFilters(entry: SessionDirectoryEntry, filters: BroadcastSessionFilters | undefined): boolean {
-	if (!filters) return true;
-	if (filters.sessionIds && filters.sessionIds.length > 0 && !filters.sessionIds.includes(entry.sessionId)) {
-		return false;
-	}
-	if (filters.cwd && entry.cwd !== filters.cwd) {
-		return false;
-	}
-	if (filters.name && entry.name !== filters.name) {
-		return false;
-	}
-	if (filters.status && filters.status.length > 0 && !filters.status.includes(entry.status)) {
-		return false;
-	}
-	return true;
-}
-
-export function broadcastToSessions(
-	controlDbPath: string,
-	input: BroadcastSessionsInput,
-	options: SessionDirectoryOptions = {},
-): SessionBroadcastResult[] {
-	const message = input.message.trim();
-	if (!message) {
-		throw new Error("broadcast requires a non-empty message");
-	}
-
-	const now = resolveNow(options);
-	const stableOptions = { ...options, now: () => now };
-	const isRuntimeProcessAlive = options.isRuntimeProcessAlive ?? isPiRuntimeProcessAlive;
-	const currentSessionIds = currentMainSessionIds(controlDbPath, now, isRuntimeProcessAlive);
-	const seenSessionIds = new Set<string>();
-	const entries = listSessions(controlDbPath, stableOptions).filter((entry) => {
-		if (!currentSessionIds.has(entry.sessionId) || seenSessionIds.has(entry.sessionId)) return false;
-		seenSessionIds.add(entry.sessionId);
-		return true;
-	});
-	const results: SessionBroadcastResult[] = [];
-	const senderAgentId = input.senderAgentId === undefined ? null : input.senderAgentId;
-
-	for (const entry of entries) {
-		if (!matchesFilters(entry, input.filters)) {
-			results.push({
-				sessionId: entry.sessionId,
-				outcome: "skipped_filter",
-				checkStatus: entry.checkStatus,
-				error: null,
-			});
-			continue;
-		}
-
-		if (
-			entry.checkStatus === "dead" ||
-			isStickyDead({
-				sessionId: entry.sessionId,
-				agentGeneration: entry.agentGeneration,
-				pid: entry.pid,
-				lastActiveAt: entry.lastActiveAt,
-				lastCheckedAt: entry.lastCheckedAt,
-				checkStatus: entry.checkStatus,
-				checkedGeneration: entry.checkedGeneration,
-				checkLatencyMs: entry.checkLatencyMs,
-				updatedAt: entry.lastCheckedAt ?? entry.startedAt,
-			})
-		) {
-			results.push({
-				sessionId: entry.sessionId,
-				outcome: "skipped_dead",
-				checkStatus: entry.checkStatus,
-				error: null,
-			});
-			continue;
-		}
-
-		if (entry.checkStatus === "timeout") {
-			results.push({
-				sessionId: entry.sessionId,
-				outcome: "timeout",
-				checkStatus: entry.checkStatus,
-				error: "session check timed out",
-			});
-			continue;
-		}
-
-		if (!entry.eligibleToReceive || entry.pid === null) {
-			results.push({
-				sessionId: entry.sessionId,
-				outcome: "check_failed",
-				checkStatus: entry.checkStatus,
-				error: "session is not eligible to receive messages",
-			});
-			continue;
-		}
-
-		try {
-			const messageId = `broadcast_${randomUUID()}`;
-			upsertMultiAgentMailboxMessage(controlDbPath, input.senderSessionPath, messageId, {
-				body: message,
-				fromAgentId: senderAgentId ?? "main",
-				id: messageId,
-				kind: "message",
-				status: "pending",
-				toAgentId: "main",
-			});
-			enqueueRuntimeMailboxMessage(controlDbPath, {
-				kind: "message",
-				recipient: { agentId: null, sessionId: entry.sessionId },
-				sender: { agentId: senderAgentId, sessionId: input.senderSessionId },
-				storeRef: { messageId, sessionPath: input.senderSessionPath },
-			});
-			results.push({
-				sessionId: entry.sessionId,
-				outcome: "sent",
-				checkStatus: entry.checkStatus,
-				error: null,
-			});
-		} catch (error) {
-			results.push({
-				sessionId: entry.sessionId,
-				outcome: "send_failed",
-				checkStatus: entry.checkStatus,
-				error: error instanceof Error ? error.message : String(error),
-			});
-		}
-	}
-
-	return results;
 }

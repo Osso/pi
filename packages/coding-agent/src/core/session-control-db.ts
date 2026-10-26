@@ -6701,7 +6701,7 @@ export function withControlDb<T>(controlDbPath: string, callback: (db: SqliteDat
 	const db = createWritableControlDb(controlDbPath);
 	try {
 		// Shared control.sqlite is multi-process (all Pi sessions on the machine).
-		// WAL + busy_timeout keeps list_sessions/broadcast and mailbox writes safe under contention.
+		// WAL + busy_timeout keeps list_sessions and mailbox writes safe under contention.
 		configureSharedSqliteDatabase(db);
 		initializeSchema(db);
 		return callback(db);

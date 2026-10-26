@@ -18,7 +18,7 @@ Custom messages persist as `custom_message` entries, preserving classification a
 
 ## Use and limits
 
-Posting metadata requires a concrete coordination action naming the affected shared path/artifact; receive formatting prohibits acknowledgments and diagnostic echoes. These prose policies are not semantic validation of the body. Use directed mailbox messages for targeted coordination and [broadcast](session-directory-tools.md) for explicit forced delivery. There are no rooms, membership lists, or default child participation. Delivery/cursor writes are separate operations, not a transactional exactly-once transcript guarantee across a process crash.
+Posting metadata requires a concrete coordination action naming the affected shared path/artifact; receive formatting prohibits acknowledgments and diagnostic echoes. These prose policies are not semantic validation of the body. Use directed mailbox messages for targeted coordination. There are no rooms, membership lists, or default child participation. Delivery/cursor writes are separate operations, not a transactional exactly-once transcript guarantee across a process crash.
 
 ## Evidence
 

@@ -18,7 +18,6 @@ export const STANDALONE_DISABLED_TOOL_NAMES: ReadonlySet<string> = new Set([
 	"send_agent_message",
 	"contact_parent",
 	"list_sessions",
-	"broadcast",
 	"channel_post",
 	"resume_session",
 ]);

@@ -25,11 +25,6 @@ export {
 	createLocalBashOperations,
 } from "./bash.ts";
 export {
-	type BroadcastToolDetails,
-	type BroadcastToolInput,
-	createBroadcastToolDefinition,
-} from "./broadcast.ts";
-export {
 	type ChangeWorkingDirectoryToolDetails,
 	type ChangeWorkingDirectoryToolInput,
 	createChangeWorkingDirectoryToolDefinition,
@@ -140,7 +135,6 @@ import type { ToolDefinition } from "../extensions/types.ts";
 import { createAskQuestionsToolDefinition } from "./ask-questions.ts";
 import { createAskSupervisorToolDefinition } from "./ask-supervisor.ts";
 import { type BashToolOptions, createBashTool, createBashToolDefinition } from "./bash.ts";
-import { createBroadcastToolDefinition } from "./broadcast.ts";
 import { createChangeWorkingDirectoryToolDefinition } from "./change-working-directory.ts";
 import { createChannelPostToolDefinition } from "./channel-post.ts";
 import {
@@ -182,7 +176,6 @@ export type ToolName =
 	| "resume_session"
 	| "search_current_session_history"
 	| "list_sessions"
-	| "broadcast"
 	| "channel_post"
 	| "ask_questions"
 	| "ask_supervisor";
@@ -202,7 +195,6 @@ export const allToolNames: Set<ToolName> = new Set([
 	"resume_session",
 	"search_current_session_history",
 	"list_sessions",
-	"broadcast",
 	"channel_post",
 	"ask_questions",
 	"ask_supervisor",
@@ -223,7 +215,6 @@ export const DEFAULT_ACTIVE_TOOL_NAMES: ToolName[] = [
 	"resume_session",
 	"search_current_session_history",
 	"list_sessions",
-	"broadcast",
 	"channel_post",
 	"ask_questions",
 	"ask_supervisor",
@@ -272,8 +263,6 @@ export function createToolDefinition(toolName: ToolName, cwd: string, options?: 
 			return createSearchCurrentSessionHistoryToolDefinition();
 		case "list_sessions":
 			return createListSessionsToolDefinition();
-		case "broadcast":
-			return createBroadcastToolDefinition();
 		case "channel_post":
 			return createChannelPostToolDefinition();
 		case "ask_questions":
@@ -317,8 +306,6 @@ export function createTool(toolName: ToolName, cwd: string, options?: ToolsOptio
 			return wrapToolDefinition(createSearchCurrentSessionHistoryToolDefinition());
 		case "list_sessions":
 			return wrapToolDefinition(createListSessionsToolDefinition());
-		case "broadcast":
-			return wrapToolDefinition(createBroadcastToolDefinition());
 		case "channel_post":
 			return wrapToolDefinition(createChannelPostToolDefinition());
 		case "ask_questions":
@@ -368,7 +355,6 @@ export function createAllToolDefinitions(cwd: string, options?: ToolsOptions): R
 		resume_session: createResumeSessionToolDefinition(),
 		search_current_session_history: createSearchCurrentSessionHistoryToolDefinition(),
 		list_sessions: createListSessionsToolDefinition(),
-		broadcast: createBroadcastToolDefinition(),
 		channel_post: createChannelPostToolDefinition(),
 		ask_questions: createAskQuestionsToolDefinition(),
 		ask_supervisor: createAskSupervisorToolDefinition(),
@@ -424,7 +410,6 @@ export function createAllTools(cwd: string, options?: ToolsOptions): Record<Tool
 		resume_session: wrapToolDefinition(createResumeSessionToolDefinition()),
 		search_current_session_history: wrapToolDefinition(createSearchCurrentSessionHistoryToolDefinition()),
 		list_sessions: wrapToolDefinition(createListSessionsToolDefinition()),
-		broadcast: wrapToolDefinition(createBroadcastToolDefinition()),
 		channel_post: wrapToolDefinition(createChannelPostToolDefinition()),
 		ask_questions: wrapToolDefinition(createAskQuestionsToolDefinition()),
 		ask_supervisor: wrapToolDefinition(createAskSupervisorToolDefinition()),

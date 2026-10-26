@@ -2,8 +2,7 @@
 
 Module boundary: core built-in tools + session control DB.
 
-`list_sessions` and `broadcast` let agents discover other Pi sessions by purpose and
-liveness, then deliver a message only to eligible sessions. Implementation details live in
+`list_sessions` lets agents discover other Pi sessions by purpose and liveness. Implementation details live in
 [`docs/wiki/systems/session-directory-tools.md`](../wiki/systems/session-directory-tools.md).
 
 ## What it must do
@@ -51,16 +50,6 @@ liveness, then deliver a message only to eligible sessions. Implementation detai
       repository transactions manage revision internally. Confirmed dead owners resolve as
       `failed/lost_runtime` from `running` or `aborted/lost_runtime` from `cancelling`, while uncertain live processes remain unchanged.
 
-### Broadcast surface
-
-- [x] `broadcast` is registered as a built-in tool and active by default.
-- [x] `broadcast` accepts a required message and optional filters (`session_ids`, `cwd`, `name`,
-      `status`).
-- [x] Candidate sessions pass through the same eligibility/check pipeline as `list_sessions`.
-- [x] Ended or stale-bound sessions are skipped without PID-based revival.
-- [x] `broadcast` uses the same active, non-archived current main-session binding and deduplicated
-      metadata inventory as `list_sessions`; historical session IDs sharing a PID are never targeted.
-
 ## How it works
 
 - [`docs/specs/session-control-db.md`](session-control-db.md) owns the global control DB path and
@@ -73,12 +62,10 @@ liveness, then deliver a message only to eligible sessions. Implementation detai
 ## Implementation inventory
 
 - `packages/coding-agent/src/core/session-health.ts` — health TS types and pure sticky-check rules.
-- `packages/coding-agent/src/core/session-directory.ts` — inventory assembly, checks, and broadcast
-  delivery.
+- `packages/coding-agent/src/core/session-directory.ts` — inventory assembly and checks.
 - `packages/coding-agent/src/core/session-control-db.ts` — `session_health` persistence and listener
   generation bookkeeping.
 - `packages/coding-agent/src/core/tools/list-sessions.ts` — `list_sessions` tool.
-- `packages/coding-agent/src/core/tools/broadcast.ts` — `broadcast` tool.
 - `packages/coding-agent/src/core/tools/index.ts` — built-in tool registration.
 
 ## Tests asserting this spec
@@ -93,9 +80,10 @@ liveness, then deliver a message only to eligible sessions. Implementation detai
 
 - [x] Add session health persistence and sticky dead semantics.
 - [x] Add `list_sessions` inventory tool.
-- [x] Add `broadcast` fanout tool with eligibility filtering.
 
 ## Out of scope
+
+- Built-in `broadcast` tool; use direct messaging or `channel_post` for coordination.
 
 - Slash-command/TUI session browser UX.
 - Hardcoded bulk restart/pause/resume commands.

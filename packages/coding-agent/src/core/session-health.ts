@@ -33,13 +33,6 @@ export interface SessionDirectoryEntry {
 	eligibleToReceive: boolean;
 }
 
-export interface SessionBroadcastResult {
-	sessionId: string;
-	outcome: "sent" | "skipped_dead" | "skipped_filter" | "check_failed" | "send_failed" | "timeout";
-	checkStatus: SessionCheckStatus;
-	error: string | null;
-}
-
 export function emptySessionHealth(sessionId: string, nowIso = new Date().toISOString()): SessionHealthRecord {
 	return {
 		sessionId,

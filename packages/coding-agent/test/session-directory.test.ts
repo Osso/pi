@@ -8,7 +8,6 @@ import {
 	bootstrapMultiAgentAgent,
 	getControlDbPath,
 	listRuntimeMailboxListeners,
-	listRuntimeMailboxMessages,
 	readMultiAgentState,
 	readSessionHealth,
 	registerRuntimeMailboxListener,
@@ -16,7 +15,7 @@ import {
 	writeSessionHealth,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
-import { broadcastToSessions, listSessions } from "../src/core/session-directory.ts";
+import { listSessions } from "../src/core/session-directory.ts";
 import { emptySessionHealth } from "../src/core/session-health.ts";
 
 type SessionOverrides = {
@@ -449,131 +448,5 @@ describe("session directory", () => {
 		expect(readMultiAgentState(controlDbPath, historicalSessionPath)?.agents).toMatchObject([
 			{ id: "historical", lifecycle: "running", revision: 1 },
 		]);
-	});
-
-	it("broadcasts only to the newest main-session listener for a shared live pid", () => {
-		vi.useFakeTimers();
-		try {
-			writeSession("session-historical", { cwd: "/repo/historical" });
-			writeSession("session-current", { cwd: "/repo/current" });
-			vi.setSystemTime(new Date("2026-01-01T00:10:00.000Z"));
-			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-historical" }, process.pid);
-			vi.setSystemTime(new Date("2026-01-01T00:11:00.000Z"));
-			registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-current" }, process.pid);
-
-			const sent = broadcastToSessions(controlDbPath, {
-				message: "please restart",
-				senderSessionId: "sender-session",
-				senderSessionPath: "/sessions/sender.jsonl",
-				senderAgentId: null,
-			});
-
-			expect(sent).toEqual([
-				expect.objectContaining({ sessionId: "session-current", outcome: "sent", checkStatus: "ok" }),
-			]);
-			expect(listRuntimeMailboxMessages(controlDbPath)).toHaveLength(1);
-			expect(listRuntimeMailboxMessages(controlDbPath)[0]?.recipient).toEqual({
-				agentId: null,
-				sessionId: "session-current",
-			});
-
-			const filtered = broadcastToSessions(controlDbPath, {
-				message: "please restart again",
-				filters: { sessionIds: ["session-historical"] },
-				senderSessionId: "sender-session",
-				senderSessionPath: "/sessions/sender.jsonl",
-				senderAgentId: null,
-			});
-
-			expect(filtered).toEqual([
-				expect.objectContaining({ sessionId: "session-current", outcome: "skipped_filter" }),
-			]);
-			expect(listRuntimeMailboxMessages(controlDbPath)).toHaveLength(1);
-		} finally {
-			vi.useRealTimers();
-		}
-	});
-
-	it("broadcasts once to a session with multiple metadata paths", () => {
-		writeSession("session-live", {
-			sessionPath: "/sessions/session-live-old.jsonl",
-			modifiedAt: "2026-01-01T00:10:00.000Z",
-		});
-		writeSession("session-live", {
-			sessionPath: "/sessions/session-live-new.jsonl",
-			modifiedAt: "2026-01-01T00:11:00.000Z",
-		});
-		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-live" }, process.pid);
-
-		const results = broadcastToSessions(controlDbPath, {
-			message: "please restart",
-			senderSessionId: "sender-session",
-			senderSessionPath: "/sessions/sender.jsonl",
-			senderAgentId: null,
-		});
-
-		expect(results).toEqual([
-			expect.objectContaining({ sessionId: "session-live", outcome: "sent", checkStatus: "ok" }),
-		]);
-		const messages = listRuntimeMailboxMessages(controlDbPath);
-		expect(messages).toHaveLength(1);
-		expect(messages[0]?.recipient).toEqual({ agentId: null, sessionId: "session-live" });
-	});
-
-	it("matches broadcast filters against the newest metadata entry for duplicate sessions", () => {
-		writeSession("session-live", {
-			cwd: "/repo/old",
-			sessionPath: "/sessions/session-live-old.jsonl",
-			modifiedAt: "2026-01-01T00:10:00.000Z",
-		});
-		writeSession("session-live", {
-			cwd: "/repo/new",
-			sessionPath: "/sessions/session-live-new.jsonl",
-			modifiedAt: "2026-01-01T00:11:00.000Z",
-		});
-		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-live" }, process.pid);
-
-		const results = broadcastToSessions(controlDbPath, {
-			message: "please restart",
-			filters: { cwd: "/repo/old" },
-			senderSessionId: "sender-session",
-			senderSessionPath: "/sessions/sender.jsonl",
-			senderAgentId: null,
-		});
-
-		expect(results).toEqual([expect.objectContaining({ sessionId: "session-live", outcome: "skipped_filter" })]);
-		expect(listRuntimeMailboxMessages(controlDbPath)).toHaveLength(0);
-	});
-
-	it("broadcasts only to eligible matching current sessions and returns per-target outcomes", () => {
-		writeSession("session-live", { name: "Live", cwd: "/repo/live" });
-		writeSession("session-filtered", { name: "Other", cwd: "/repo/other" });
-
-		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-live" }, process.pid);
-		registerRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "session-filtered" }, process.pid + 1);
-
-		const results = broadcastToSessions(
-			controlDbPath,
-			{
-				message: "please restart",
-				filters: { sessionIds: ["session-live"] },
-				senderSessionId: "sender-session",
-				senderSessionPath: "/sessions/sender.jsonl",
-				senderAgentId: null,
-			},
-			{ isRuntimeProcessAlive: () => true },
-		);
-
-		expect(results).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ sessionId: "session-live", outcome: "sent", checkStatus: "ok" }),
-				expect.objectContaining({ sessionId: "session-filtered", outcome: "skipped_filter" }),
-			]),
-		);
-
-		const messages = listRuntimeMailboxMessages(controlDbPath);
-		expect(messages).toHaveLength(1);
-		expect(messages[0]?.recipient).toEqual({ agentId: null, sessionId: "session-live" });
-		expect(readSessionHealth(controlDbPath, "session-live")?.checkStatus).toBe("ok");
 	});
 });

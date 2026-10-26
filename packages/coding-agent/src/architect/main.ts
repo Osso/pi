@@ -23,12 +23,7 @@ const REQUEST_CLAIM_RENEW_INTERVAL_MS = 30_000;
 const ARCHITECT_SESSION_ID = "architect";
 const ARCHITECT_REQUEST_THREAD_PREFIX = "architect-request:";
 export const ARCHITECT_RULES_SCOPE = "architect" as const;
-export const ARCHITECT_EXCLUDED_TOOL_NAMES = [
-	"ask_architect",
-	"broadcast",
-	"contact_parent",
-	...SUPERVISOR_ONLY_TOOL_NAMES,
-];
+export const ARCHITECT_EXCLUDED_TOOL_NAMES = ["ask_architect", "contact_parent", ...SUPERVISOR_ONLY_TOOL_NAMES];
 
 type ArchitectConsolePrompt = { id: string; text: string };
 type ArchitectConsoleSession = {
@@ -126,7 +121,7 @@ export function completeSentArchitectRequest(
 	observer.completeRequest(requestId, input.toSessionId);
 }
 
-export function blockArchitectGlobalBroadcast(event: {
+export function blockArchitectRestrictedTool(event: {
 	input: unknown;
 	toolName: string;
 }): { block: true; reason: string } | undefined {
@@ -138,9 +133,6 @@ export function blockArchitectGlobalBroadcast(event: {
 			block: true,
 			reason: "Pi Architect must use its bounded structured observer snapshot, not list_sessions.",
 		};
-	}
-	if (event.toolName === "broadcast") {
-		return { block: true, reason: "Pi Architect must use direct agent messaging, not broadcast." };
 	}
 	return undefined;
 }
@@ -265,7 +257,7 @@ export async function runArchitectService(): Promise<void> {
 				pi.on("before_agent_start", (event) => ({
 					systemPrompt: `${event.systemPrompt}\n\n${ARCHITECT_SYSTEM_PROMPT}`,
 				}));
-				pi.registerToolGate((event) => blockArchitectGlobalBroadcast(event));
+				pi.registerToolGate((event) => blockArchitectRestrictedTool(event));
 			},
 		],
 		model,

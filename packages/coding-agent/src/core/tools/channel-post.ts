@@ -29,7 +29,6 @@ export function createChannelPostToolDefinition(): ToolDefinition<typeof channel
 			"Do not post diagnostics, tests, acknowledgements, restatements, reviews, or status updates. This includes experiments, delivery or echo/tag tests, liveness probes, architecture requests, evidence gathering, falsification checks, untouched or no-overlap reports, no-action updates, and conversational replies.",
 			"Do not post isolated-worktree ownership or release; isolation already prevents conflicts. Correct a prior post only when the required action changed.",
 			"Prefer send_agent_message for targeted coordination. If independent main sessions lack a direct mailbox path, use one minimal targeted channel post rather than a conversation.",
-			"For urgent targeted wakeups, use broadcast with explicit filters instead.",
 			"For Pi runtime replacements, identify the installed artifact and tell affected sessions to call restart_self.",
 		],
 		parameters: channelPostSchema,

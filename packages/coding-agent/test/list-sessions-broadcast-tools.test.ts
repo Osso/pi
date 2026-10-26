@@ -19,24 +19,33 @@ import { createAskSupervisorToolDefinition } from "../src/core/tools/ask-supervi
 import { createChannelPostToolDefinition } from "../src/core/tools/channel-post.ts";
 import { createAllToolDefinitions, DEFAULT_ACTIVE_TOOL_NAMES } from "../src/core/tools/index.ts";
 import { createListSessionsToolDefinition } from "../src/core/tools/list-sessions.ts";
+import { createHarness } from "./suite/harness.ts";
 
 vi.mock("../src/supervisor/ensure-running.ts", () => ({ ensureSupervisorRunning: async () => ({}) }));
 
 describe("session coordination tools", () => {
+	it("excludes broadcast from active tools while keeping channel_post", async () => {
+		const harness = await createHarness();
+		try {
+			const activeTools = harness.session.getActiveToolNames();
+			expect(activeTools).not.toContain("broadcast");
+			expect(activeTools).toContain("channel_post");
+		} finally {
+			harness.cleanup();
+		}
+	});
+
 	it("registers active session coordination tools while Architect requests are disabled", () => {
 		const tools = createAllToolDefinitions("/tmp");
 		expect(DEFAULT_ACTIVE_TOOL_NAMES).not.toContain("ask_architect");
 		expect(tools).not.toHaveProperty("ask_architect");
 		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("ask_supervisor");
 		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("list_sessions");
-		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("broadcast");
 		expect(DEFAULT_ACTIVE_TOOL_NAMES).toContain("channel_post");
 		expect(tools.ask_supervisor.name).toBe("ask_supervisor");
 		expect(tools.list_sessions.name).toBe("list_sessions");
-		expect(tools.broadcast.name).toBe("broadcast");
 		expect(tools.channel_post.name).toBe("channel_post");
 		expect(tools.list_sessions.description).toContain("sticky liveness");
-		expect(tools.broadcast.description).toContain("eligible");
 		expect(tools.channel_post.description).toContain("shared channel");
 	});
 
@@ -59,7 +68,6 @@ describe("session coordination tools", () => {
 		expect(guidance).toContain("Do not post isolated-worktree ownership or release");
 		expect(guidance).toContain("Correct a prior post only when the required action changed.");
 		expect(guidance).toContain("Prefer send_agent_message for targeted coordination.");
-		expect(guidance).toContain("For urgent targeted wakeups, use broadcast with explicit filters instead.");
 		expect(guidance).toContain(
 			"For Pi runtime replacements, identify the installed artifact and tell affected sessions to call restart_self.",
 		);

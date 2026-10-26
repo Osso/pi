@@ -202,7 +202,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       thread, and message ID identity match; incomplete or conflicting reuse fails explicitly without
       overwriting the existing row.
 - [x] Store per-session health state (`session_health`) for heartbeat-backed liveness used by
-      `list_sessions`, `broadcast`, and Architect snapshots, including agent generation and last
+      `list_sessions` and Architect snapshots, including agent generation and last
       heartbeat/check fields.
 - [x] Provide exact-owner lifecycle transactions for session-owned orphan reconciliation. Session health
       and exact listener-path assertions identify the one owning supervisor; unrelated sessions do not

@@ -19,7 +19,7 @@ import {
 	ARCHITECT_EXCLUDED_TOOL_NAMES,
 	ARCHITECT_RULES_SCOPE,
 	ArchitectConsolePromptQueue,
-	blockArchitectGlobalBroadcast,
+	blockArchitectRestrictedTool,
 	completeSentArchitectRequest,
 	createArchitectConsoleSnapshot,
 	createArchitectMultiAgentStore,
@@ -322,12 +322,7 @@ describe("resident architect service", () => {
 	});
 
 	it("keeps supervisor-only tools out of the architect runtime", () => {
-		expect(ARCHITECT_EXCLUDED_TOOL_NAMES).toEqual([
-			"ask_architect",
-			"broadcast",
-			"contact_parent",
-			...SUPERVISOR_ONLY_TOOL_NAMES,
-		]);
+		expect(ARCHITECT_EXCLUDED_TOOL_NAMES).toEqual(["ask_architect", "contact_parent", ...SUPERVISOR_ONLY_TOOL_NAMES]);
 	});
 
 	it("persists direct-message state to the shared control DB", () => {
@@ -353,13 +348,11 @@ describe("resident architect service", () => {
 		}
 	});
 
-	it("blocks global fanout and broadcast delivery", () => {
-		expect(blockArchitectGlobalBroadcast({ input: {}, toolName: "channel_post" })).toMatchObject({ block: true });
-		expect(blockArchitectGlobalBroadcast({ input: {}, toolName: "broadcast" })).toMatchObject({ block: true });
-		expect(
-			blockArchitectGlobalBroadcast({ input: { session_ids: ["affected-session"] }, toolName: "broadcast" }),
-		).toMatchObject({ block: true });
-		expect(blockArchitectGlobalBroadcast({ input: {}, toolName: "list_sessions" })).toMatchObject({ block: true });
+	it("blocks shared channel and global session inventory", () => {
+		expect(blockArchitectRestrictedTool({ input: {}, toolName: "channel_post" })).toMatchObject({ block: true });
+		expect(blockArchitectRestrictedTool({ input: {}, toolName: "list_sessions" })).toMatchObject({ block: true });
+		expect(blockArchitectRestrictedTool({ input: {}, toolName: "broadcast" })).toBeUndefined();
+		expect(ARCHITECT_SYSTEM_PROMPT).not.toContain("broadcast");
 	});
 
 	it("forces service shutdown after a bounded graceful abort", async () => {

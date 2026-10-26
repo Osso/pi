@@ -4,6 +4,8 @@
 
 ### Breaking Changes
 
+- Removed the built-in `broadcast` tool. Direct messaging and `channel_post` remain available.
+
 - Successful child completion requires a current public report or successful `contact_parent` send. Reportless `end_turn` calls return an error and keep the child active; other reportless terminal returns become `failed`, not `completed`. Private thinking, blank text, failed sends, and earlier reports do not qualify. Spawned and attached children share this rule; main-session completion, provider errors, and cancellation are unchanged. Public narration is included in parent result summaries. Report presence is checked, not semantic quality.
 
 - Replaced the `compaction.keepRecentTokens` setting with `compaction.keepRecentMessages` (default 20): compaction keeps that many newest context messages (user, assistant, tool results) verbatim and summarizes everything older. Removed the 20,000-byte cap on kept messages when rebuilding context. `keepRecentTokens` is no longer read.

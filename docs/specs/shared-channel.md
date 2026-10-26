@@ -65,7 +65,7 @@ once needed.
 
 - [`docs/specs/session-control-db.md`](session-control-db.md) owns the shared `control.sqlite` storage.
 - [`docs/specs/multi-agent.md`](multi-agent.md) describes related runtime mailbox delivery; shared-channel delivery is separate and cursor-based.
-- [`docs/specs/session-directory-tools.md`](session-directory-tools.md) covers `list_sessions` and `broadcast`, which remain diagnostic/force-message tools.
+- [`docs/specs/session-directory-tools.md`](session-directory-tools.md) covers the `list_sessions` inventory tool.
 
 ## Implementation inventory
 
@@ -103,4 +103,4 @@ once needed.
 - Multiple named rooms/channels.
 - Membership lists, join/leave, or per-room ACLs.
 - Default subagent channel participation; subagents may get explicit opt-in later.
-- Replacing `broadcast`; broadcast remains the explicit force-message path.
+- Directed mailbox delivery; use `send_agent_message` for targeted coordination.

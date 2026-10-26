@@ -32,8 +32,8 @@ The resident Architect is a retained but temporarily disabled Sol advisor. Its i
 ### Advice
 
 - [x] Load shared and `rules/architect/*.md` user rules through an explicit rule-scope override while retaining the Architect's `observer` execution role; ordinary observers remain shared-only.
-- [x] Keep `ask_architect` out of the built-in tool registry and default active tool list while the Architect is disabled; the retained Architect runtime still excludes `broadcast`, `ask_architect`, and `contact_parent` when re-enabled.
-- [x] Send evidence-backed advice through direct `send_agent_message` delivery to the originating session; block `broadcast` and global `channel_post` fanout.
+- [x] Keep `ask_architect` out of the built-in tool registry and default active tool list while the Architect is disabled; the retained Architect runtime still excludes `ask_architect` and `contact_parent` when re-enabled.
+- [x] Send evidence-backed advice through direct `send_agent_message` delivery to the originating session; block global `channel_post` fanout.
 - [x] Frame findings as advisory hypotheses for the receiving session to verify, accept, reject, or defer; never issue commands, execution gates, stop conditions, operational sequencing, mandatory next steps, or reinterpret goal completion.
 - [x] Never dispatch agents, edit files, restart sessions, or remediate autonomously.
 
@@ -79,7 +79,7 @@ The resident Architect is a retained but temporarily disabled Sol advisor. Its i
 ## Known gaps (current cycle)
 
 - [x] `architect-observer.test.ts` covers initial/material snapshots, current-main-session selection, deterministic metadata deduplication, subagent/self exclusion, read-only missing-DB behavior, and self-message suppression.
-- [x] `architect-service.test.ts` covers event-driven prompting, bounded shutdown, the read-only profile, global-fanout and broadcast blocking, and deployment lifecycle commands.
+- [x] `architect-service.test.ts` covers event-driven prompting, bounded shutdown, the read-only profile, global-fanout blocking, and deployment lifecycle commands.
 - [x] Default deployment disables/removes both resident units and verifies them inactive/disabled; explicit systemd mode verifies Supervisor health.
 
 ## Out of scope

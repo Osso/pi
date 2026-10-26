@@ -2,7 +2,7 @@
 
 Contract: [Session directory tools](../../specs/session-directory-tools.md). See [agent lifecycle](agent-lifecycle.md) for durable ownership rather than inventory freshness.
 
-`list_sessions`, `broadcast`, and Resident Architect snapshots share the runtime listener and
+`list_sessions` and Resident Architect snapshots share the runtime listener and
 `session_health` state in `control.sqlite`. Inventory identifies a live main session by a fresh runtime
 heartbeat, not by OS PID existence; lifecycle ownership remains the exact `(pid, startTimeTicks)`
 identity checked by the coordinator/repository.
@@ -51,8 +51,7 @@ owned by a replacement process.
    their explicit recovery policy.
 7. Exclude every ended row when `includeEnded` is `false`.
 
-`broadcast` selects recipients from the same reconciled active, non-archived current-binding
-inventory as `listSessions()`. Resident Architect uses a bounded read-only SQL projection with the
+Resident Architect uses a bounded read-only SQL projection with the
 same requirements: main listener, matching `ok` health generation, and health activity inside the
 five-minute freshness window.
 
@@ -66,8 +65,7 @@ The fix registers, heartbeats, and retires only the runtime's own address.
 
 Separately, historical main-session listener rows were retained after session resume.
 `listSessions()` then probed each stored PID and refreshed every row whose PID still existed.
-Long-lived Pi processes and OS PID reuse therefore made old sessions appear live. Per-PID selection
-in broadcast and Architect masked the symptom but did not repair global inventory.
+Long-lived Pi processes and OS PID reuse therefore made old sessions appear live. Per-PID selection in Architect masked the symptom but did not repair global inventory.
 
 The fixes make exact runtime-address ownership and heartbeat-backed bindings the identity proof,
 retire bindings at lifecycle boundaries, and remove PID-only positive checks.

@@ -16,7 +16,7 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 - [x] Exclude `archived_at` and `is_subagent` metadata from the core non-archived main-session inventory, so
       `list_sessions` never returns archived or child sessions regardless of `include_ended`; this also removes
       child rows belonging to archived parents. Archive writes remain targeted-row operations and do not
-      implicitly archive child rows; `broadcast` inherits the same inventory.
+      implicitly archive child rows.
 - [x] Expose non-resident archived sessions through a dedicated Archived resume-picker scope (`session-selector-path-delete.test.ts`).
 - [x] Exclude resident Supervisor and Architect transcripts from Current Folder, All, and Archived resume-picker scopes.
 - [x] Preserve recent ordering in Archived scope instead of promoting named sessions, while displaying session names (`session-picker-selection.test.ts`).
