@@ -10,7 +10,7 @@ The `codex-image-generation` extension exposes hosted image generation as a call
 
 - [x] Register a callable `image_gen` tool with a required `prompt` string.
 - [x] Load the extension as a default first-party tool.
-- [x] Generate through an `openai-codex`, `openai-codex-gc`, or `openai-codex-team` model from any session model: the session's model when it is one, otherwise a logged-in Codex model from the model registry (configured default provider first, then that provider's default model). Without a Codex login, fail with a `pi login openai-codex` hint.
+- [x] Generate through an `openai-codex`, `openai-codex-gc`, or `openai-codex-team` model from any session model: the session's model when it is one, otherwise the user's configured Codex model with a login: `defaultProvider/defaultModel`, then the first exact `provider/id` entry in `enabledModels`. Unconfigured registry models are not used (ChatGPT-account Codex rejects older IDs the registry still lists). Without one, fail with a hint naming both settings.
 
 ### Private hosted request
 

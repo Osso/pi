@@ -2,10 +2,9 @@ import { randomBytes } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Api, type Context, type ImageContent, type Model, streamSimple } from "@earendil-works/pi-ai/compat";
-import type { AssistantMessage, KnownProvider } from "@earendil-works/pi-ai";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../../../src/core/extensions/types.ts";
-import { defaultModelPerProvider } from "../../../src/core/model-resolver.ts";
 
 interface ImageGenerationTool {
 	type: "image_generation";
@@ -77,22 +76,24 @@ export function isOpenAIHostedImageGenerationModel(
 }
 
 /**
- * The session's model when it is a Codex model; otherwise a logged-in Codex
- * subscription model, so image_gen works from any session model. Prefers the
- * configured default provider and that provider's default model.
+ * The session's model when it is a Codex model; otherwise the user's configured
+ * Codex model (default model, then the first Codex entry in enabledModels) with a
+ * login, so image_gen works from any session model. Configured models only:
+ * ChatGPT-account Codex rejects older model IDs that the registry still lists.
  */
 function resolveImageGenerationModel(ctx: ExtensionContext): OpenAIImageGenerationModel {
 	if (isOpenAIHostedImageGenerationModel(ctx.model)) return ctx.model;
+	const settings = ctx.settingsManager;
+	const configured = [
+		`${settings?.getDefaultProvider()}/${settings?.getDefaultModel()}`,
+		...(settings?.getEnabledModels() ?? []),
+	];
 	const candidates = ctx.modelRegistry.getAvailable().filter(isOpenAIHostedImageGenerationModel);
-	const providers = [ctx.settingsManager?.getDefaultProvider(), ...CODEX_PROVIDERS];
-	for (const provider of providers) {
-		const ofProvider = candidates.filter((model) => model.provider === provider);
-		const match =
-			ofProvider.find((model) => model.id === defaultModelPerProvider[model.provider as KnownProvider]) ??
-			ofProvider[0];
+	for (const ref of configured) {
+		const match = candidates.find((model) => `${model.provider}/${model.id}` === ref);
 		if (match) return match;
 	}
-	throw new Error("image_gen needs a Codex subscription login (pi login openai-codex)");
+	throw new Error("image_gen needs a logged-in Codex model as defaultModel or in enabledModels (pi login openai-codex)");
 }
 
 async function executeImageGeneration(

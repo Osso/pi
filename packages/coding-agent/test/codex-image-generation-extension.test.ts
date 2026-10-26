@@ -83,21 +83,25 @@ describe("Codex image generation extension", () => {
 		},
 	);
 
-	it("uses the default provider's Codex subscription auth when the session model is not Codex", async () => {
+	it("uses the configured default Codex model when the session model is not Codex", async () => {
 		const outputDirectory = mkdtempSync(join(tmpdir(), "pi-image-gen-test-"));
 		try {
-			const personal = model("openai-codex-responses", "openai-codex", "gpt-5.5");
-			const teamOther = model("openai-codex-responses", "openai-codex-team", "gpt-6.1-sol");
-			const teamDefault = model("openai-codex-responses", "openai-codex-team", "gpt-5.5");
+			const personal = model("openai-codex-responses", "openai-codex", "gpt-6.1-sol");
+			const teamOld = model("openai-codex-responses", "openai-codex-team", "gpt-5.5");
+			const teamDefault = model("openai-codex-responses", "openai-codex-team", "gpt-6.1-sol");
 			const getApiKeyAndHeaders = vi.fn(async () => ({ ok: true, apiKey: "team-key", headers: {} }));
 			const ctx = {
 				cwd: outputDirectory,
 				model: model("anthropic-messages"),
 				modelRegistry: {
-					getAvailable: () => [model("anthropic-messages"), personal, teamOther, teamDefault],
+					getAvailable: () => [model("anthropic-messages"), personal, teamOld, teamDefault],
 					getApiKeyAndHeaders,
 				},
-				settingsManager: { getDefaultProvider: () => "openai-codex-team" },
+				settingsManager: {
+					getDefaultProvider: () => "openai-codex-team",
+					getDefaultModel: () => "gpt-6.1-sol",
+					getEnabledModels: () => ["openai-codex/gpt-6.1-sol"],
+				},
 			} as unknown as ExtensionContext;
 			const runGeneration = vi.fn(async () => ({ type: "image" as const, data: "aW1hZ2U=", mimeType: "image/png" }));
 			const tool = createImageGenerationToolDefinition({ runGeneration });
@@ -114,14 +118,19 @@ describe("Codex image generation extension", () => {
 		}
 	});
 
-	it("falls back to any logged-in Codex provider when the default provider is not Codex", async () => {
-		const gc = model("openai-codex-responses", "openai-codex-gc", "gpt-5.5");
+	it("uses the first enabled Codex model when the default model is not Codex", async () => {
+		const gcOld = model("openai-codex-responses", "openai-codex-gc", "gpt-5.5");
+		const gcEnabled = model("openai-codex-responses", "openai-codex-gc", "gpt-6-astra");
 		const getApiKeyAndHeaders = vi.fn(async () => ({ ok: true, apiKey: "gc-key", headers: {} }));
 		const ctx = {
 			cwd: tmpdir(),
 			model: model("anthropic-messages"),
-			modelRegistry: { getAvailable: () => [model("anthropic-messages"), gc], getApiKeyAndHeaders },
-			settingsManager: { getDefaultProvider: () => "anthropic" },
+			modelRegistry: { getAvailable: () => [model("anthropic-messages"), gcOld, gcEnabled], getApiKeyAndHeaders },
+			settingsManager: {
+				getDefaultProvider: () => "anthropic",
+				getDefaultModel: () => "claude-opus-5-5",
+				getEnabledModels: () => ["anthropic/claude-opus-5-5", "openai-codex-gc/gpt-6-astra"],
+			},
 		} as unknown as ExtensionContext;
 		const runGeneration = vi.fn(async () => {
 			throw new Error("stop after auth");
@@ -131,10 +140,10 @@ describe("Codex image generation extension", () => {
 		await expect(tool.execute("call-1", { prompt: "x" }, undefined, undefined, ctx)).rejects.toThrow(
 			"stop after auth",
 		);
-		expect(getApiKeyAndHeaders).toHaveBeenCalledWith(gc);
+		expect(getApiKeyAndHeaders).toHaveBeenCalledWith(gcEnabled);
 	});
 
-	it("fails with a login hint when no Codex provider is logged in", async () => {
+	it("fails with a hint when no configured Codex model is logged in", async () => {
 		const ctx = {
 			cwd: tmpdir(),
 			model: model("anthropic-messages"),
@@ -143,7 +152,7 @@ describe("Codex image generation extension", () => {
 		const tool = createImageGenerationToolDefinition({ runGeneration: vi.fn() });
 
 		await expect(tool.execute("call-1", { prompt: "x" }, undefined, undefined, ctx)).rejects.toThrow(
-			"image_gen needs a Codex subscription login (pi login openai-codex)",
+			"image_gen needs a logged-in Codex model as defaultModel or in enabledModels (pi login openai-codex)",
 		);
 	});
 
