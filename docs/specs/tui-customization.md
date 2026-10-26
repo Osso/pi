@@ -129,7 +129,7 @@ terminal_resize_reflow_max_rows = 5000
 - `packages/coding-agent/test/interactive-mode-branch-summary-prompt.test.ts` — branch-summary activity and prompt behavior while its status loader is shown.
 - `packages/coding-agent/test/bordered-loader.test.ts` — bordered status loaders render without recurring spinner updates.
 - `packages/coding-agent/test/status-indicator.test.ts` — exported status indicators remain static while retry countdown disposal remains testable.
-- `packages/coding-agent/test/tool-execution-component.test.ts` — bash status remains static when elapsed timing is disabled while elapsed timing remains separately testable.
+- `packages/coding-agent/test/tool-execution-component.test.ts` — tool execution output and elapsed timing remain separately testable.
 - `packages/coding-agent/test/interactive-root-compositor.test.ts` — actual interactive flow/bottom ordering, transcript-tail layout registration and growth without unrelated root-entry renders, editor repositioning, and nested status Loader updates without unrelated root-entry renders.
 - `packages/coding-agent/test/interactive-mode-status.test.ts` — dialog-owned cancel keys and key-release filtering for the global interrupt listener.
 - `packages/tui/test/root-compositor.test.ts` — bottom anchoring after normal layout changes and after a tall temporary editor replacement closes with Escape.

@@ -40,6 +40,20 @@ async function waitUntil(predicate: () => boolean, description: string): Promise
 	throw new Error(`Timed out waiting for ${description}`);
 }
 
+async function observeWorkingFrames(terminal: VirtualTerminal, initial: string[], row: number): Promise<void> {
+	const frames = new Set<string>();
+	for (let i = 0; i < 20; i++) {
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		await terminal.flush();
+		const screen = terminal.getViewport();
+		expect(screen[row]).toBe(initial[row]);
+		const status = screen.find((line) => line.includes("Thinking..."));
+		const frame = status?.match(/([⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏])\s+Thinking\.\.\./u)?.[1];
+		if (frame) frames.add(frame);
+	}
+	expect(frames.size).toBeGreaterThanOrEqual(2);
+}
+
 it.skipIf(process.platform === "win32")(
 	"does not repaint the editable prompt during working animation",
 	async () => {
@@ -113,16 +127,7 @@ it.skipIf(process.platform === "win32")(
 				const row = initial.findIndex((line) => line.includes(PROMPT));
 				expect(row).toBeGreaterThanOrEqual(0);
 				const start = output.length;
-				const statusFrames = new Set<string>();
-				for (let i = 0; i < 20; i++) {
-					await new Promise((resolve) => setTimeout(resolve, 100));
-					await terminal.flush();
-					const screen = terminal.getViewport();
-					expect(screen[row]).toBe(initial[row]);
-					const status = screen.find((line) => line.includes("Thinking..."));
-					if (status) statusFrames.add(status);
-				}
-				expect(statusFrames.size).toBeGreaterThanOrEqual(2);
+				await observeWorkingFrames(terminal, initial, row);
 				await assertNoEditorRowWrites(output.slice(0, start), output.slice(start), row);
 				expect(requests).toBe(1);
 				expect(provider?.getSocket()?.destroyed).toBe(false);
