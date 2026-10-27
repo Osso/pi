@@ -198,6 +198,7 @@ import {
 	cleanupMultiAgentTerminalOutbox,
 	getControlDbPath,
 	getRuntimeProcessInstanceId,
+	hasPendingRuntimeMailboxMessage,
 	initializeSharedChannelCursorAtTail,
 	listSharedChannelMessagesAfter,
 	type RuntimeMailboxAddress,
@@ -3526,7 +3527,10 @@ export class AgentSession {
 	}): Promise<boolean> {
 		const canSteerActiveTurn = this.isStreaming && options.checkpoint !== undefined;
 		if (this.isStreaming) {
-			if (!canSteerActiveTurn) return false;
+			if (!canSteerActiveTurn) {
+				this._detachRunningToolsForPendingSteer();
+				return false;
+			}
 		} else if (!options.triggerIfIdle) {
 			return false;
 		}
@@ -3563,6 +3567,23 @@ export class AgentSession {
 				this._runtimeMailboxDrainPromise = undefined;
 			}
 		}
+	}
+
+	/**
+	 * A steer is only delivered at a tool-result or model-call checkpoint, so a long tool call would hold it back.
+	 * Move detachable running tools to background jobs: their detached results reach that checkpoint at once.
+	 */
+	private _detachRunningToolsForPendingSteer(): void {
+		if (!this._toolDetachRegistry?.hasRunning()) return;
+		const controlDbPath = this._getRuntimeMailboxControlDbPath();
+		if (!controlDbPath) return;
+		const recipient = { agentId: this._getRuntimeMailboxAgentId(), sessionId: this.sessionId };
+		const steerPending = hasPendingRuntimeMailboxMessage(
+			controlDbPath,
+			recipient,
+			(message) => message.kind === "steer" && message.targetCheckpoint !== "when_waiting",
+		);
+		if (steerPending) this._toolDetachRegistry.detachAll();
 	}
 
 	private async _deliverReadyRuntimeMailboxMessages(

@@ -3194,6 +3194,53 @@ describe("runtime SQLite mailbox delivery", () => {
 		expect(readRuntimeMailboxMessage(controlDbPath, nextModelMessageId)).toBeUndefined();
 	});
 
+	it("backgrounds a running detachable tool when a steer is pending so the steer reaches the next checkpoint", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const harness = await createHarness();
+		harnesses.push(harness);
+		await harness.session.bindExtensions({ controlDbPath });
+		const session = harness.session as unknown as {
+			_drainRuntimeMailboxMessages(options: { triggerIfIdle: boolean }): Promise<boolean>;
+			_toolDetachRegistry: { register(handle: { detach(): boolean }): () => void };
+			agent: { state: { isStreaming: boolean } };
+		};
+		const detachedTools: string[] = [];
+		const unregisterWait = session._toolDetachRegistry.register({
+			detach: () => {
+				detachedTools.push("train-wait");
+				unregisterWait();
+				return true;
+			},
+		});
+		session.agent.state.isStreaming = true;
+		const recipient = { agentId: null, sessionId: harness.sessionManager.getSessionId() };
+		const sender = { agentId: "supervisor", sessionId: "parent-session" };
+
+		enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "FYI only",
+			kind: "steer",
+			recipient,
+			sender,
+			targetCheckpoint: "when_waiting",
+		});
+		await session._drainRuntimeMailboxMessages({ triggerIfIdle: true });
+		expect(detachedTools).toEqual([]);
+
+		const steerId = enqueueStoredRuntimeMessage(controlDbPath, {
+			body: "Stop waiting and rebase",
+			kind: "steer",
+			recipient,
+			sender,
+			targetCheckpoint: "next_model_call",
+		});
+		await session._drainRuntimeMailboxMessages({ triggerIfIdle: true });
+
+		expect(detachedTools).toEqual(["train-wait"]);
+		// The steer stays pending for the after_tool_result checkpoint that the detached result triggers.
+		expect(readRuntimeMailboxMessage(controlDbPath, steerId)).toBeDefined();
+	});
+
 	it("steers checkpoint-eligible runtime mailbox messages into an active turn", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);

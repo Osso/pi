@@ -749,6 +749,18 @@ export function takeRuntimeMailboxMessagesForDelivery(
 	});
 }
 
+/** Reports whether an eligible pending message exists without delivering it. */
+export function hasPendingRuntimeMailboxMessage(
+	controlDbPath: string,
+	recipient: RuntimeMailboxAddress,
+	isEligible: (message: RuntimeMailboxMessage) => boolean,
+): boolean {
+	return withControlDb(
+		controlDbPath,
+		(db) => readEligibleRuntimeMailboxDeliveryCandidates(db, recipient, isEligible).length > 0,
+	);
+}
+
 function readEligibleRuntimeMailboxDeliveryCandidates(
 	db: SqliteDatabase,
 	recipient: RuntimeMailboxAddress,
