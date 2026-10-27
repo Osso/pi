@@ -363,6 +363,11 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
 
 ### Mailbox and steering
 
+- [ ] Pi-hosted Pyrun `pi.agents.send_message` and `pi.agents.steer` use the active
+      `send_agent_message` and `steer_agent` tools, respectively. They preserve native routing,
+      validation, and execution errors; standalone workers cannot use these bridge methods.
+      The separate `pi.messages` transport APIs retain their existing contracts.
+
 - [x] Model-facing `send_agent_message` and `contact_parent` require `body: string` containing
       at least one non-whitespace character. They deliver that argument verbatim, including surrounding
       whitespace and Unicode, independently of absent or unrelated assistant narration. Multiple calls
@@ -819,6 +824,8 @@ The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the
 - [`packages/coding-agent/test/suite/agent-session-child-activity.test.ts`](../../packages/coding-agent/test/suite/agent-session-child-activity.test.ts)
   verifies child sessions publish thinking/tool phase transitions with stable start timestamps and
   clear current activity at turn completion.
+- [`packages/coding-agent/test/suite/pyrun-agent-message-bridge.test.ts`](../../packages/coding-agent/test/suite/pyrun-agent-message-bridge.test.ts)
+  exercises bridge delivery to a live child and native tool errors.
 - [`packages/coding-agent/test/pyrun-extension.test.ts`](../../packages/coding-agent/test/pyrun-extension.test.ts)
   covers detached Pyrun completion and failure regressions, including `durationMs` and duration-bearing
   lifecycle notifications.
