@@ -3,8 +3,10 @@ import { AuthStorage } from "../../src/core/auth-storage.ts";
 import type { ViewedSessionMutationTarget } from "../../src/core/extensions/types.ts";
 import { ModelRegistry } from "../../src/core/model-registry.ts";
 
-export function createChildSessionMutationFixture(): ViewedSessionMutationTarget & Pick<AgentSession, "cycleModel"> {
+export function createChildSessionMutationFixture(): ViewedSessionMutationTarget &
+	Pick<AgentSession, "cycleModel"> & { agent: Pick<AgentSession["agent"], "waitForIdle"> } {
 	return {
+		agent: { waitForIdle: async () => {} },
 		model: undefined,
 		thinkingLevel: "off",
 		modelRegistry: ModelRegistry.inMemory(AuthStorage.inMemory()),

@@ -188,6 +188,10 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       defers dead-detached-runtime reconciliation to a later poll without terminating Pi; other database,
       validation, and programming failures remain explicit. Dispatch finalizers use exact process ownership and a local dispatch generation; shutdown stops
       admissions, invalidates local dispatches, and locally aborts session runtimes without inventing state.
+- [x] A dispatch prompt (including the crash-recovery prompt sent to a recovered `steering_pending` child) that
+      arrives while the child session is already running a turn, because its runtime mailbox delivered pending
+      steering first, queues as a follow-up and resolves only after the session is idle; it never fails the child
+      with "Agent is already processing" (`packages/coding-agent/test/child-session-busy-prompt.test.ts`).
 - [x] Agent notification waiting and consumption are separate operations: waiting returns when terminal or persisted
       coordination input is available, or when transient steering wakes a live wait, without changing notification delivery
       state. Explicit consumption drains every pending terminal notification. `wait_agent({})` composes both operations,

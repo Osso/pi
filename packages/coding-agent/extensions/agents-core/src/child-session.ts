@@ -9,7 +9,9 @@ type LiveChildAgentSession = ChildAgentSession &
 		"model" | "thinkingLevel" | "setModel" | "setThinkingLevel" | "modelRegistry" | "scopedModels" | "cycleModel"
 	>;
 
-export interface UnboundChildAgentSession extends LiveChildAgentSession {
+export interface UnboundChildAgentSession extends Omit<LiveChildAgentSession, "prompt"> {
+	prompt: AgentSession["prompt"];
+	readonly agent: Pick<AgentSession["agent"], "waitForIdle">;
 	readonly sessionManager: Pick<SessionManager, "getBranch">;
 	extensionRunner: { emit(event: SessionShutdownEvent): Promise<unknown> };
 	bindExtensions(bindings: Record<string, never>): Promise<void>;
@@ -33,6 +35,16 @@ function trackFinishedToolCalls(
 		if (event.type === "message_end" && event.message.role === "toolResult") finished.delete(event.message.toolCallId);
 	});
 	return finished;
+}
+
+/**
+ * The dispatcher reads the child's result when this resolves, so the prompt must be answered first.
+ * The runtime mailbox can start a turn first (restart recovery delivering pending steering): queue the
+ * prompt behind that turn instead of failing the child, then wait until the session is idle.
+ */
+async function promptChildTurn(session: UnboundChildAgentSession, text: string): Promise<void> {
+	await session.prompt(text, { streamingBehavior: "followUp" });
+	await session.agent.waitForIdle();
 }
 
 export function bindProductionChildSession(session: UnboundChildAgentSession): LiveChildAgentSession {
@@ -61,7 +73,7 @@ export function bindProductionChildSession(session: UnboundChildAgentSession): L
 		setModel: session.setModel.bind(session),
 		setThinkingLevel: session.setThinkingLevel.bind(session),
 		cycleModel: session.cycleModel.bind(session),
-		prompt: (text) => session.prompt(text),
+		prompt: (text) => promptChildTurn(session, text),
 		subscribe: session.subscribe?.bind(session),
 		get transcript() {
 			return session.transcript;

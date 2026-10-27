@@ -31,6 +31,7 @@ class LiveChildSession implements UnboundChildAgentSession {
 	scopedModels = [firstModel, secondModel, thirdModel].map((model) => ({ model }));
 	sessionManager = { getBranch: () => [] };
 	extensionRunner = { emit: async () => {} };
+	agent = { waitForIdle: async () => {} };
 	messages = [];
 
 	get model() {
