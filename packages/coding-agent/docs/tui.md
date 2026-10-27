@@ -770,7 +770,7 @@ For displayed-session-dependent text, `setStatus` also accepts a pure synchronou
 
 ### Pattern 4b: Working Indicator Customization
 
-The normal working status row animates its default indicator next to the `Thinking...` or `Streaming...` label. The interactive editor prompt does not animate. Compaction, retry, summary, and bash activity use indicators in their own status displays.
+The normal working status row animates its default indicator next to the `Thinking...` or `Streaming...` label. The interactive editor prompt does not animate. Compaction, retry, summary, and bash activity retain their existing status displays.
 
 Customize the inline working indicator shown while pi is streaming a response.
 

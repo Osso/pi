@@ -2471,7 +2471,7 @@ ctx.ui.setWorkingIndicator({ frames: [] });  // Hide indicator
 ctx.ui.setWorkingIndicator();  // Restore the default status-row indicator
 
 // Default and custom frames animate in the working status row, not the editor prompt.
-// Compaction, retry, summary, and bash activity use indicators in their own status displays.
+// Compaction, retry, summary, and bash activity keep their existing status displays.
 
 // Widget above editor (default)
 ctx.ui.setWidget("my-widget", ["Line 1", "Line 2"]);

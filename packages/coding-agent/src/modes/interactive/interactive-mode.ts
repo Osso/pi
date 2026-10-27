@@ -313,13 +313,6 @@ type CompactionQueuedMessage = {
 
 type PromptActivitySource = "bash" | "branch-summary" | "compaction" | "retry" | "summary-materialization";
 
-function workingStatusIndicator(
-	visible: boolean,
-	options?: LoaderIndicatorOptions,
-): LoaderIndicatorOptions | undefined {
-	return visible ? options : { frames: [] };
-}
-
 type CompactionSummaryMaterializationOutcome =
 	| { kind: "loaded"; summary: string }
 	| { kind: "cancelled" }
@@ -2418,7 +2411,7 @@ export class InteractiveMode {
 	}
 
 	private getWorkingLoaderIndicator(_view: "main" | "child"): LoaderIndicatorOptions | undefined {
-		return workingStatusIndicator(this.workingVisible, this.workingIndicatorOptions);
+		return this.workingIndicatorOptions;
 	}
 
 	private updateWorkingLoaderIndicator(): void {
@@ -4628,7 +4621,7 @@ export class InteractiveMode {
 					(spinner) => theme.fg("accent", spinner),
 					(text) => theme.fg("muted", text),
 					label,
-					workingStatusIndicator(this.workingVisible, this.workingIndicatorOptions),
+					{ frames: [] },
 				);
 				this.statusContainer.addChild(this.autoCompactionLoader);
 				this.setPromptActivity("compaction", true);
@@ -4697,7 +4690,7 @@ export class InteractiveMode {
 					(spinner) => theme.fg("warning", spinner),
 					(text) => theme.fg("muted", text),
 					retryMessage(Math.ceil(event.delayMs / 1000)),
-					workingStatusIndicator(this.workingVisible, this.workingIndicatorOptions),
+					{ frames: [] },
 				);
 				this.retryCountdown = new CountdownTimer(
 					event.delayMs,
@@ -6390,7 +6383,7 @@ export class InteractiveMode {
 			(spinner) => theme.fg("accent", spinner),
 			(text) => theme.fg("muted", text),
 			`Loading compaction summary... (${keyText("app.interrupt")} to cancel)`,
-			workingStatusIndicator(this.workingVisible, this.workingIndicatorOptions),
+			{ frames: [] },
 		);
 		this.statusContainer.addChild(loader);
 		this.setPromptActivity("summary-materialization", true);
@@ -6505,7 +6498,7 @@ export class InteractiveMode {
 							(spinner) => theme.fg("accent", spinner),
 							(text) => theme.fg("muted", text),
 							`Summarizing branch... (${keyText("app.interrupt")} to cancel)`,
-							workingStatusIndicator(this.workingVisible, this.workingIndicatorOptions),
+							{ frames: [] },
 						);
 						this.statusContainer.addChild(summaryLoader);
 						this.setPromptActivity("branch-summary", true);
@@ -7803,9 +7796,7 @@ export class InteractiveMode {
 
 		// Normal execution path (possibly with custom operations)
 		const isDeferred = this.session.isStreaming;
-		this.bashComponent = new BashExecutionComponent(command, this.ui, excludeFromContext, {
-			indicator: workingStatusIndicator(this.workingVisible, this.workingIndicatorOptions),
-		});
+		this.bashComponent = new BashExecutionComponent(command, this.ui, excludeFromContext);
 
 		if (isDeferred) {
 			// Show in pending area when agent is streaming

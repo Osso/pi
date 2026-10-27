@@ -120,7 +120,7 @@ describe("InteractiveMode bash prompt activity", () => {
 
 		expect(executeBash).toHaveBeenCalledTimes(1);
 		expect(editor.working).toBe(false);
-		expect(stripAnsi(context.chatContainer.render(120).join("\n"))).toContain("a Running...");
+		expect(stripAnsi(context.chatContainer.render(120).join("\n"))).toContain("Running...");
 
 		deferred.resolve({ cancelled: false, exitCode: 0, output: "", truncated: false });
 		await command;

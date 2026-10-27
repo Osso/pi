@@ -129,7 +129,7 @@ describe("InteractiveMode branch-summary prompt activity", () => {
 		vi.useRealTimers();
 	});
 
-	it("animates the summary status while keeping the prompt static", async () => {
+	it("shows summary status while keeping the prompt static", async () => {
 		initTheme("dark");
 		vi.useFakeTimers();
 		const navigation = createDeferred<NavigationResult>();
@@ -200,7 +200,7 @@ describe("InteractiveMode branch-summary prompt activity", () => {
 
 		await vi.advanceTimersByTimeAsync(1_000);
 
-		expect(requestRender).toHaveBeenCalledTimes(renderCountAfterStart + 4);
+		expect(requestRender).toHaveBeenCalledTimes(renderCountAfterStart);
 
 		navigation.resolve({ aborted: false, cancelled: false, editorText: undefined });
 		await selection;
