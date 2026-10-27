@@ -18,6 +18,11 @@ Foreground Pyrun does not require a persisted main session. [Standalone workers]
 
 ## Mailbox API Boundary
 
+Pi-hosted Pyrun requests `agents.send_message` and `agents.steer` execute the active
+`send_agent_message` and `steer_agent` tools respectively. Their payloads use the native
+camelCase tool fields, including `body` for send and `agentId` and `message` for steer.
+Native validation and execution errors propagate as bridge errors.
+
 `pi.messages.send` and `pi.messages.enqueue` remain independent programmatic raw literal-body
 transport APIs; their `message` field and routing contracts are unchanged. Do not rename
 that transport field to `body`.

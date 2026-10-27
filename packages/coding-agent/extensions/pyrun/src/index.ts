@@ -288,6 +288,15 @@ export function createPyrunPiDispatcher(pi: ExtensionAPI, options: PyrunExtensio
 		if (ctx.noSupervisor && requiresSupervisor) {
 			throw new Error(`Pi API ${request.method} is unavailable in standalone worker mode`);
 		}
+		const agentTool = request.method === "agents.send_message" ? "send_agent_message" : request.method === "agents.steer" ? "steer_agent" : undefined;
+		if (agentTool) {
+			const result = await pi.callTool(agentTool, request.params, signal, activeToolCallId);
+			const details = result.details as { message?: { status?: string } } | undefined;
+			if (result.isError || details?.message?.status === "failed") {
+				throw new Error(result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n"));
+			}
+			return result.details;
+		}
 		const builtIn = await dispatchBuiltinPyrunRequest(request, pi, ctx, signal, activeToolCallId);
 		if (builtIn.handled) return builtIn.result;
 		const requiredTool = AGENT_BRIDGE_TOOLS[request.method];
