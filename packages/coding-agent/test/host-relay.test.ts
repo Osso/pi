@@ -80,6 +80,30 @@ describe("cross-host relay", () => {
 			},
 		});
 	}
+	function enqueueStoredRuntimeMessageTo(
+		db: string,
+		recipient: { sessionId: string; agentId: null },
+		host: string,
+		id: string,
+		body: string,
+	) {
+		return enqueueStoredRuntimeMailboxMessage(db, {
+			kind: "message",
+			recipient,
+			sender: a,
+			recipientHost: host,
+			storeRef: { sessionPath: "/laptop/session.jsonl", messageId: id },
+			message: {
+				id,
+				kind: "message",
+				status: "pending",
+				fromAgentId: "main",
+				toAgentId: "main",
+				body,
+				createdAt: new Date().toISOString(),
+			},
+		});
+	}
 	function count(db: string) {
 		return withControlDb(
 			db,
@@ -144,6 +168,39 @@ describe("cross-host relay", () => {
 		second.stop();
 		await second.done;
 	});
+	it("tells the sender when the remote recipient session is not running", async () => {
+		const stopped = { sessionId: "stopped-session", agentId: null };
+		enqueueStoredRuntimeMessageTo(dbA, stopped, "agent-server", "deploy", "Please deploy the website");
+		const connection = connect();
+		await expect
+			.poll(() =>
+				claimDelivery(dbA, a, () => true).map((message) => [message.kind, message.senderHost, message.body]),
+			)
+			.toEqual([
+				[
+					"system",
+					"agent-server",
+					'Not delivered yet: session stopped-session on host agent-server is not running. "Please deploy the website" stays queued for up to 24 hours until that session runs.',
+				],
+			]);
+		// The message itself still waits for the stopped session; the notice is not bounced again.
+		const status = withControlDb(dbB, (sql) =>
+			sql
+				.prepare(
+					"SELECT json_extract(data, '$.status') AS status FROM multi_agent_mailbox_messages WHERE message_id = ?",
+				)
+				.get("deploy"),
+		);
+		expect(status).toEqual({ status: "pending" });
+		enqueueStoredRuntimeMessageTo(dbA, b, "agent-server", "live", "running recipient");
+		await expect
+			.poll(() => claimDelivery(dbB, b, () => true).map((message) => message.body))
+			.toEqual(["running recipient"]);
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		expect(claimDelivery(dbA, a, () => true)).toEqual([]);
+		connection.stop();
+		await connection.done;
+	});
 	it("starts a new peer at the channel tail instead of replaying history", async () => {
 		postSharedChannelMessage(dbA, { sender: a, body: "old broadcast" });
 		const session = connect();
@@ -193,9 +250,9 @@ describe("cross-host relay", () => {
 			expect(message.messageId).toBe(id);
 			expect(message.seq).toBe(index + 1);
 			expect(nextRelayMailbox(dbA, "agent-server")).toEqual(message);
-			importRelayMailbox(dbB, "aso", message);
+			importRelayMailbox(dbB, "aso", message, "agent-server");
 			expect(takeRuntimeMailboxMessagesForDelivery(dbB, b, () => true).map((item) => item.body)).toEqual([id]);
-			importRelayMailbox(dbB, "aso", message);
+			importRelayMailbox(dbB, "aso", message, "agent-server");
 			expect(count(dbB)).toBe(0);
 			ackRelayMailbox(dbA, "agent-server", message);
 		}
@@ -211,9 +268,9 @@ describe("cross-host relay", () => {
 		queue(dbA, "agent-server", "atomic", "first payload");
 		const first = nextRelayMailbox(dbA, "agent-server");
 		if (!first) throw new Error("Expected relay payload");
-		importRelayMailbox(dbB, "aso", first);
+		importRelayMailbox(dbB, "aso", first, "agent-server");
 		const conflict = { ...first, seq: 2, data: { ...first.data, body: "conflicting payload" } };
-		expect(() => importRelayMailbox(dbB, "aso", conflict)).toThrow("collision");
+		expect(() => importRelayMailbox(dbB, "aso", conflict, "agent-server")).toThrow("collision");
 		expect(
 			withControlDb(dbB, (sql) =>
 				sql.prepare("SELECT last_seen_id FROM shared_channel_cursors WHERE session_id = 'relay-in:aso'").get(),
@@ -225,7 +282,7 @@ describe("cross-host relay", () => {
 			messageId: "after-conflict",
 			data: { ...first.data, id: "after-conflict", body: "after conflict" },
 		};
-		importRelayMailbox(dbB, "aso", next);
+		importRelayMailbox(dbB, "aso", next, "agent-server");
 		expect(takeRuntimeMailboxMessagesForDelivery(dbB, b, () => true).map((message) => message.body)).toEqual([
 			"first payload",
 			"after conflict",

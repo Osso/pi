@@ -127,7 +127,7 @@ export function runHostRelay(options: HostRelayOptions): Promise<void> {
 				if (frame.type === "mailbox") {
 					if (frame.data.recipientHost !== host || frame.data.relaySeq !== frame.seq)
 						throw new Error("Relay mailbox route/sequence mismatch");
-					importRelayMailbox(options.controlDbPath, peer, frame);
+					importRelayMailbox(options.controlDbPath, peer, frame, host);
 					send({ type: "ack", kind: "mailbox", id: frame.seq });
 				} else if (frame.type === "channel") {
 					if (frame.originHost !== peer) throw new Error("Relay channel origin mismatch");

@@ -1,8 +1,11 @@
 import { isMailboxMessageExpired, MAILBOX_MESSAGE_RETENTION_MS } from "./mailbox-retention.ts";
 import {
+	enqueueStoredRuntimeMailboxMessage,
 	enqueueStoredRuntimeMailboxMessageInTransaction,
 	notifyRuntimeMailboxRecipient,
+	type RuntimeMailboxAddress,
 	type RuntimeMailboxMessageKind,
+	readLiveRuntimeMailboxSessionAgentIds,
 	withControlDb,
 	withImmediateTransaction,
 } from "./session-control-db.ts";
@@ -88,7 +91,7 @@ export function ackRelayMailbox(path: string, peer: string, message: RelayMailbo
 	});
 }
 
-export function importRelayMailbox(path: string, peer: string, message: RelayMailbox): void {
+export function importRelayMailbox(path: string, peer: string, message: RelayMailbox, host: string): void {
 	const data = { ...message.data };
 	delete data.recipientHost;
 	delete data.relaySeq;
@@ -115,7 +118,47 @@ export function importRelayMailbox(path: string, peer: string, message: RelayMai
 			return true;
 		}),
 	);
-	if (applied) notifyRuntimeMailboxRecipient(path, recipient);
+	if (!applied) return;
+	notifyRuntimeMailboxRecipient(path, recipient);
+	// The relay acknowledges on import, so the sender would otherwise only see "queued" while the message waits.
+	// Notices are system messages and are never answered with another notice.
+	if (
+		data.kind !== "system" &&
+		!readLiveRuntimeMailboxSessionAgentIds(path, recipient.sessionId).includes(recipient.agentId)
+	)
+		queueNotRunningNotice(path, peer, host, message, recipient, sender, String(data.body ?? ""));
+}
+
+function queueNotRunningNotice(
+	path: string,
+	peer: string,
+	host: string,
+	message: RelayMailbox,
+	recipient: RuntimeMailboxAddress,
+	sender: RuntimeMailboxAddress,
+	body: string,
+): void {
+	const id = `${message.messageId}-not-running`;
+	const excerpt = body.split("\n")[0].slice(0, 120);
+	const session = recipient.agentId
+		? `agent ${recipient.agentId} in session ${recipient.sessionId}`
+		: `session ${recipient.sessionId}`;
+	enqueueStoredRuntimeMailboxMessage(path, {
+		kind: "system",
+		recipientHost: peer,
+		recipient: sender,
+		sender: recipient,
+		storeRef: { sessionPath: `relay:${peer}`, messageId: id },
+		message: {
+			id,
+			kind: "system",
+			status: "pending",
+			fromAgentId: recipient.agentId ?? "main",
+			toAgentId: sender.agentId ?? "main",
+			body: `Not delivered yet: ${session} on host ${host} is not running. "${excerpt}" stays queued for up to 24 hours until that session runs.`,
+			createdAt: new Date().toISOString(),
+		},
+	});
 }
 
 /** A new peer starts at the current tail; existing history is not broadcast as new. */
