@@ -6968,7 +6968,8 @@ Date.now = () => ${Date.now()};
 				lifecycle,
 				origin,
 				revision: 4,
-				updatedAt: "2026-01-01T00:00:00.000Z",
+				// Terminal rows expire 24h after their terminal update; keep them within retention.
+				updatedAt: new Date().toISOString(),
 				worker: { adapter: "runtime", handleId: "job" },
 			});
 		}

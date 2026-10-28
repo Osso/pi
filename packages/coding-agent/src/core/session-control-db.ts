@@ -7016,7 +7016,7 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 	cleanupExpiredMessages(db);
 }
 
-/** Mailbox and shared-channel messages share one 24h creation-age retention. */
+/** Mailbox messages, shared-channel messages and terminal agents share one 24h retention. */
 function cleanupExpiredMessages(db: SqliteDatabase): void {
 	const cutoff = Date.now() - MAILBOX_MESSAGE_RETENTION_MS;
 	const mailboxDue = db
@@ -7032,6 +7032,48 @@ function cleanupExpiredMessages(db: SqliteDatabase): void {
 		.prepare("SELECT 1 FROM shared_channel_messages WHERE created_at <= ? LIMIT 1")
 		.get(channelCutoff);
 	if (channelDue) db.prepare("DELETE FROM shared_channel_messages WHERE created_at <= ?").run(channelCutoff);
+	cleanupExpiredTerminalAgents(db, channelCutoff);
+}
+
+// Terminal agents expire 24h after their terminal update. Rows that still own detached job
+// output stay until artifact cleanup, which locates directories only through these rows.
+// Undelivered terminal outbox rows and non-terminal children also keep a row alive.
+const EXPIRED_TERMINAL_AGENT_SQL = `WITH active_parent AS MATERIALIZED (
+		SELECT DISTINCT session_path, json_extract(data, '$.parentId') AS agent_id FROM multi_agent_agents
+		WHERE json_valid(data) AND json_extract(data, '$.parentId') IS NOT NULL
+			AND json_extract(data, '$.lifecycle') NOT IN ('completed', 'failed', 'aborted')
+	)
+	SELECT agent.session_path, agent.agent_id FROM multi_agent_agents AS agent
+	WHERE (CASE WHEN json_valid(agent.data) THEN json_extract(agent.data, '$.updatedAt') END) <= ?
+		AND json_extract(agent.data, '$.lifecycle') IN ('completed', 'failed', 'aborted')
+		AND NOT EXISTS (
+			SELECT 1 FROM json_each(agent.data, '$.result.fileRefs') AS file_ref
+			WHERE json_extract(file_ref.value, '$.label') IN ('Bash output', 'Pyrun output')
+		)
+		AND NOT EXISTS (
+			SELECT 1 FROM multi_agent_terminal_outbox AS outbox
+			WHERE outbox.session_path = agent.session_path AND outbox.agent_id = agent.agent_id
+				AND outbox.delivered_at IS NULL
+		)
+		AND NOT EXISTS (
+			SELECT 1 FROM active_parent
+			WHERE active_parent.session_path = agent.session_path AND active_parent.agent_id = agent.agent_id
+		)`;
+
+function cleanupExpiredTerminalAgents(db: SqliteDatabase, cutoff: string): void {
+	const expired = db.prepare(EXPIRED_TERMINAL_AGENT_SQL).all(cutoff) as Array<{
+		agent_id: string;
+		session_path: string;
+	}>;
+	if (expired.length === 0) return;
+	const deleteRows = ["multi_agent_terminal_outbox", "multi_agent_runtime_owners", "multi_agent_agents"].map((table) =>
+		db.prepare(`DELETE FROM ${table} WHERE session_path = ? AND agent_id = ?`),
+	);
+	withImmediateTransaction(db, () => {
+		for (const { agent_id, session_path } of expired) {
+			for (const statement of deleteRows) statement.run(session_path, agent_id);
+		}
+	});
 }
 
 function assertSupportedControlDbSchemaVersion(db: SqliteDatabase): void {
