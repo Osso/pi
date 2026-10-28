@@ -7,15 +7,21 @@ import {
 	selectDetachedArtifactDirectoriesToDelete,
 } from "./detached-job-retention.ts";
 import type { AgentSnapshot } from "./multi-agent-store.ts";
-import { listDetachedArtifactAgentsUpdatedAtOrBefore } from "./session-control-db.ts";
+import {
+	deleteReleasedTerminalMultiAgentAgents,
+	listDetachedArtifactAgentsUpdatedAtOrBefore,
+	type MultiAgentAgentKey,
+} from "./session-control-db.ts";
 
-const DETACHED_ARTIFACT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1_000;
+// Matches terminal agent row retention: a job's output directory and its agent row are deleted together.
+const DETACHED_ARTIFACT_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
 const DETACHED_ARTIFACT_MAX_BYTES = 2 * 1024 ** 3;
 const ALL_TERMINAL_AGENTS_CUTOFF = "9999-12-31T23:59:59.999Z";
 const DETACHED_OUTPUT_LABELS = new Set(["Bash output", "Pyrun output"]);
 const DELETED_PATH_SUFFIX = " (deleted)";
 
 export interface DetachedJobCleanupResult {
+	deletedAgentRows: number;
 	deletedBytes: number;
 	deletedDirectories: string[];
 	errors: string[];
@@ -36,19 +42,25 @@ export function cleanupDetachedJobArtifacts(
 	const processReferences = readLinuxProcessReferences();
 	if (!processReferences) return emptyCleanupResult("live process reference inspection requires Linux /proc");
 	const errors: string[] = [];
-	const candidates = collectTerminalArtifactCandidates(
+	const now = options.now ?? Date.now();
+	const { candidates, ownersByPath, staleRowsWithoutDirectory } = collectTerminalArtifactCandidates(
 		controlDbPath,
 		options.artifactRoot,
 		processReferences,
 		errors,
-		ALL_TERMINAL_AGENTS_CUTOFF,
+		now - DETACHED_ARTIFACT_MAX_AGE_MS,
 	);
 	const pathsToDelete = selectDetachedArtifactDirectoriesToDelete(candidates, {
 		maxAge: DETACHED_ARTIFACT_MAX_AGE_MS,
 		maxBytes: DETACHED_ARTIFACT_MAX_BYTES,
-		now: options.now ?? Date.now(),
+		now,
 	});
-	return deleteSelectedArtifactDirectories(candidates, pathsToDelete, errors, options.onDirectoryQuarantined);
+	const result = deleteSelectedArtifactDirectories(candidates, pathsToDelete, errors, options.onDirectoryQuarantined);
+	const releasedRows = [
+		...result.deletedDirectories.flatMap((directoryPath) => ownersByPath.get(directoryPath) ?? []),
+		...staleRowsWithoutDirectory,
+	];
+	return { ...result, deletedAgentRows: deleteReleasedTerminalMultiAgentAgents(controlDbPath, releasedRows) };
 }
 
 export function runDetachedJobArtifactCleanup(
@@ -65,7 +77,7 @@ export function runDetachedJobArtifactCleanup(
 }
 
 function emptyCleanupResult(skippedReason: string): DetachedJobCleanupResult {
-	return { deletedBytes: 0, deletedDirectories: [], errors: [], retainedBytes: 0, skippedReason };
+	return { deletedAgentRows: 0, deletedBytes: 0, deletedDirectories: [], errors: [], retainedBytes: 0, skippedReason };
 }
 
 function deleteSelectedArtifactDirectories(
@@ -73,7 +85,7 @@ function deleteSelectedArtifactDirectories(
 	pathsToDelete: readonly string[],
 	errors: string[],
 	onDirectoryQuarantined?: (quarantinePath: string) => void,
-): DetachedJobCleanupResult {
+): Omit<DetachedJobCleanupResult, "deletedAgentRows"> {
 	const candidatesByPath = new Map(candidates.map((candidate) => [candidate.directoryPath, candidate]));
 	const deletedDirectories: string[] = [];
 	let deletedBytes = 0;
@@ -139,18 +151,32 @@ function totalCandidateBytes(candidates: readonly DetachedArtifactRetentionCandi
 	return candidates.reduce((total, candidate) => total + candidate.byteSize, 0);
 }
 
+interface TerminalArtifactInventory {
+	candidates: DetachedArtifactRetentionCandidate[];
+	ownersByPath: Map<string, MultiAgentAgentKey[]>;
+	/** Expired rows whose output directory no longer exists; nothing is left to clean but the row. */
+	staleRowsWithoutDirectory: MultiAgentAgentKey[];
+}
+
 function collectTerminalArtifactCandidates(
 	controlDbPath: string,
 	artifactRoot: string,
 	processReferences: ReadonlySet<string>,
 	errors: string[],
-	updatedAtCutoff: string,
-): DetachedArtifactRetentionCandidate[] {
+	expiredAt: number,
+): TerminalArtifactInventory {
 	const candidatesByPath = new Map<string, DetachedArtifactRetentionCandidate>();
-	const records = listDetachedArtifactAgentsUpdatedAtOrBefore(controlDbPath, updatedAtCutoff);
+	const ownersByPath = new Map<string, MultiAgentAgentKey[]>();
+	const staleRowsWithoutDirectory: MultiAgentAgentKey[] = [];
+	const records = listDetachedArtifactAgentsUpdatedAtOrBefore(controlDbPath, ALL_TERMINAL_AGENTS_CUTOFF);
 	for (const { agent, sessionPath } of records) {
+		const owner = { agentId: agent.id, sessionPath };
 		const candidate = terminalArtifactCandidate(agent, sessionPath, artifactRoot, processReferences, errors);
-		if (!candidate) continue;
+		if (!candidate) {
+			if (isExpiredRowWithoutOutputDirectory(agent, expiredAt)) staleRowsWithoutDirectory.push(owner);
+			continue;
+		}
+		ownersByPath.set(candidate.directoryPath, [...(ownersByPath.get(candidate.directoryPath) ?? []), owner]);
 		const existing = candidatesByPath.get(candidate.directoryPath);
 		if (!existing) {
 			candidatesByPath.set(candidate.directoryPath, candidate);
@@ -158,7 +184,13 @@ function collectTerminalArtifactCandidates(
 		}
 		candidatesByPath.set(candidate.directoryPath, { ...existing, protectedByLiveReference: true });
 	}
-	return [...candidatesByPath.values()];
+	return { candidates: [...candidatesByPath.values()], ownersByPath, staleRowsWithoutDirectory };
+}
+
+function isExpiredRowWithoutOutputDirectory(agent: AgentSnapshot, expiredAt: number): boolean {
+	const outputPath = detachedOutputPath(agent);
+	const isExpired = Date.parse(agent.updatedAt) <= expiredAt;
+	return isExpired && outputPath !== undefined && isAbsolute(outputPath) && !existsSync(dirname(outputPath));
 }
 
 function terminalArtifactCandidate(

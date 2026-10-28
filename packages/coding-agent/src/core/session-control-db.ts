@@ -6586,6 +6586,57 @@ export function readActiveMultiAgentAgents(controlDbPath: string, sessionPath: s
 	});
 }
 
+export interface MultiAgentAgentKey {
+	sessionPath: string;
+	agentId: string;
+}
+
+/**
+ * Deletes terminal agent rows whose detached output was removed, with their runtime-owner and
+ * terminal-outbox rows. Rows that became non-terminal, have an undelivered terminal outbox row,
+ * or parent a non-terminal agent are kept. Returns the number of deleted agent rows.
+ */
+export function deleteReleasedTerminalMultiAgentAgents(
+	controlDbPath: string,
+	keys: readonly MultiAgentAgentKey[],
+): number {
+	if (keys.length === 0) return 0;
+	return withControlDb(controlDbPath, (db) =>
+		withImmediateTransaction(db, () => {
+			const activeParents = new Set(
+				(db.prepare(ACTIVE_PARENT_KEYS_SQL).all() as Array<{ key: string }>).map((row) => row.key),
+			);
+			const releasable = db.prepare(RELEASABLE_TERMINAL_AGENT_SQL);
+			const deleteRows = TERMINAL_AGENT_ROW_TABLES.map((table) =>
+				db.prepare(`DELETE FROM ${table} WHERE session_path = ? AND agent_id = ?`),
+			);
+			let deleted = 0;
+			for (const { agentId, sessionPath } of keys) {
+				if (activeParents.has(`${sessionPath}\0${agentId}`) || !releasable.get(sessionPath, agentId)) continue;
+				for (const statement of deleteRows) statement.run(sessionPath, agentId);
+				deleted += 1;
+			}
+			return deleted;
+		}),
+	);
+}
+
+const TERMINAL_AGENT_ROW_TABLES = ["multi_agent_terminal_outbox", "multi_agent_runtime_owners", "multi_agent_agents"];
+
+const ACTIVE_PARENT_KEYS_SQL = `SELECT DISTINCT session_path || char(0) || json_extract(data, '$.parentId') AS key
+	FROM multi_agent_agents
+	WHERE json_valid(data) AND json_extract(data, '$.parentId') IS NOT NULL
+		AND json_extract(data, '$.lifecycle') NOT IN ('completed', 'failed', 'aborted')`;
+
+const RELEASABLE_TERMINAL_AGENT_SQL = `SELECT 1 FROM multi_agent_agents AS agent
+	WHERE agent.session_path = ? AND agent.agent_id = ? AND json_valid(agent.data)
+		AND json_extract(agent.data, '$.lifecycle') IN ('completed', 'failed', 'aborted')
+		AND NOT EXISTS (
+			SELECT 1 FROM multi_agent_terminal_outbox AS outbox
+			WHERE outbox.session_path = agent.session_path AND outbox.agent_id = agent.agent_id
+				AND outbox.delivered_at IS NULL
+		)`;
+
 export function listDetachedArtifactAgentsUpdatedAtOrBefore(
 	controlDbPath: string,
 	updatedAtCutoff: string,
@@ -7035,8 +7086,8 @@ function cleanupExpiredMessages(db: SqliteDatabase): void {
 	cleanupExpiredTerminalAgents(db, channelCutoff);
 }
 
-// Terminal agents expire 24h after their terminal update. Rows that still own detached job
-// output stay until artifact cleanup, which locates directories only through these rows.
+// Terminal agents expire 24h after their terminal update. Rows that own detached job output
+// are deleted by artifact cleanup together with their directory, which it finds only through them.
 // Undelivered terminal outbox rows and non-terminal children also keep a row alive.
 const EXPIRED_TERMINAL_AGENT_SQL = `WITH active_parent AS MATERIALIZED (
 		SELECT DISTINCT session_path, json_extract(data, '$.parentId') AS agent_id FROM multi_agent_agents
@@ -7066,7 +7117,7 @@ function cleanupExpiredTerminalAgents(db: SqliteDatabase, cutoff: string): void 
 		session_path: string;
 	}>;
 	if (expired.length === 0) return;
-	const deleteRows = ["multi_agent_terminal_outbox", "multi_agent_runtime_owners", "multi_agent_agents"].map((table) =>
+	const deleteRows = TERMINAL_AGENT_ROW_TABLES.map((table) =>
 		db.prepare(`DELETE FROM ${table} WHERE session_path = ? AND agent_id = ?`),
 	);
 	withImmediateTransaction(db, () => {

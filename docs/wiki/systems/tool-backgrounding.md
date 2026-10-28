@@ -18,7 +18,7 @@ Bash replay waits for the matching persisted active job or reuses its terminal r
 
 [`agents-core/runtime.ts`](../../../packages/coding-agent/extensions/agents-core/src/runtime.ts) implements `wait_agent`: pending terminal notifications take precedence; persisted coordination is consumed through mailbox delivery and shared-channel cursor advancement. [`detached-runtime-cancellation.ts`](../../../packages/coding-agent/extensions/agents-core/src/detached-runtime-cancellation.ts) requests silent cancellation of active directly owned detached runtime jobs during subagent terminal cleanup. Normal main-session jobs and explicit close operations retain notifications.
 
-[`detached-job-cleanup.ts`](../../../packages/coding-agent/src/core/detached-job-cleanup.ts) and [`retention.ts`](../../../packages/coding-agent/src/core/detached-job-retention.ts) remove unprotected terminal artifacts aged three days, then oldest artifacts toward a 2 GiB cap. Linux `/proc` reference checks protect live users; cleanup skips deletion without that inspection. Startup and terminal delivery invoke cleanup. Copy needed logs before retention removes them.
+[`detached-job-cleanup.ts`](../../../packages/coding-agent/src/core/detached-job-cleanup.ts) and [`retention.ts`](../../../packages/coding-agent/src/core/detached-job-retention.ts) remove unprotected terminal artifacts aged 24 hours, then oldest artifacts toward a 2 GiB cap, deleting each removed job's terminal agent row with its directory. Linux `/proc` reference checks protect live users; cleanup skips deletion without that inspection. Startup and terminal delivery invoke cleanup. Copy needed logs before retention removes them.
 
 ## Limits and test locations
 

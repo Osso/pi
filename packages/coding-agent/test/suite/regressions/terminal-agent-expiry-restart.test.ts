@@ -1,3 +1,5 @@
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { basename, extname, join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it, vi } from "vitest";
 import { getControlDbPath } from "../../../src/core/session-control-db.ts";
@@ -12,17 +14,29 @@ function fauxCompletedAssistantMessage(text: string): ReturnType<typeof fauxAssi
 	});
 }
 
+// Writes a Bash job output directory where detached Bash jobs store it: under the agent directory.
+function writeJobOutput(pi: HeadlessPi, jobId: string): string {
+	const directory = join(pi.paths.agentDir, "detached-jobs", basename(pi.sessionFile, extname(pi.sessionFile)), jobId);
+	mkdirSync(directory, { recursive: true });
+	writeFileSync(join(directory, "output.log"), "job output");
+	return directory;
+}
+
+function jobOutputRefs(directory: string): string {
+	return JSON.stringify([{ label: "Bash output", path: join(directory, "output.log") }]);
+}
+
 // Clones the live child's persisted row into terminal history rows while the supervisor is down.
-function seedTerminalHistory(pi: HeadlessPi, liveChildId: string): void {
+function seedTerminalHistory(pi: HeadlessPi, liveChildId: string, jobDirectories: Record<string, string>): void {
 	const db = createSqliteDatabase(getControlDbPath(pi.paths.agentDir));
 	const old = new Date(Date.now() - 25 * HOUR_MS).toISOString();
 	const recent = new Date(Date.now() - HOUR_MS).toISOString();
-	const jobOutput = JSON.stringify([{ label: "Pyrun output", path: "/agent/detached-jobs/s/old_job/output.log" }]);
 	const history: Array<[id: string, updatedAt: string, fileRefs: string]> = [
 		["expired_history_1", old, "[]"],
 		["expired_history_2", old, "[]"],
 		["recent_history", recent, "[]"],
-		["old_job_history", old, jobOutput],
+		["old_job", old, jobOutputRefs(jobDirectories.old_job)],
+		["recent_job", recent, jobOutputRefs(jobDirectories.recent_job)],
 	];
 	try {
 		const insert = db.prepare(`INSERT INTO multi_agent_agents (session_path, agent_id, data, updated_at)
@@ -52,7 +66,7 @@ function readPersistedAgentIds(pi: HeadlessPi): string[] {
 }
 
 describe("terminal agent row expiry across a supervisor restart", () => {
-	it("expires old terminal history while the live child keeps its identity and completes once", async () => {
+	it("expires old terminal history and job output while the live child keeps its identity and completes once", async () => {
 		await withHeadlessPi(async (pi) => {
 			await pi.send({ type: "prompt", message: "Start a child that outlives terminal history" });
 			const mainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
@@ -72,7 +86,11 @@ describe("terminal agent row expiry across a supervisor restart", () => {
 			await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);
 
 			await pi.crash();
-			seedTerminalHistory(pi, spawned.id);
+			const jobDirectories = {
+				old_job: writeJobOutput(pi, "old_job"),
+				recent_job: writeJobOutput(pi, "recent_job"),
+			};
+			seedTerminalHistory(pi, spawned.id, jobDirectories);
 			await pi.restart();
 
 			const restoredRequest = await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);
@@ -80,7 +98,11 @@ describe("terminal agent row expiry across a supervisor restart", () => {
 				lifecycle: "running",
 				transcript: { path: spawned.transcript?.path, sessionId: childSessionId },
 			});
-			expect(readPersistedAgentIds(pi)).toEqual(["old_job_history", "recent_history", spawned.id].sort());
+			await vi.waitFor(() =>
+				expect(readPersistedAgentIds(pi)).toEqual(["recent_history", "recent_job", spawned.id].sort()),
+			);
+			expect(existsSync(jobDirectories.old_job)).toBe(false);
+			expect(existsSync(jobDirectories.recent_job)).toBe(true);
 
 			const restoredMainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
 			pi.respondToLlmRequest(restoredMainRequest.id, fauxCompletedAssistantMessage("Supervisor restored"));

@@ -46,8 +46,9 @@ Tool backgrounding lets sessions detach supported in-flight tool calls from the 
       suppressing terminal state or the outbox row. Attended runner-owned jobs deliver results in-band through
       the waiting tool call without a mailbox wakeup; terminal outbox rows and lifecycle events remain unconditional.
 - [x] Terminal detached-job artifact directories are pruned at Pi startup and after terminal outbox delivery.
-- [x] Cleanup removes artifacts at least three days old, then removes the oldest terminal artifacts until
-      retained terminal artifacts are at most 2 GiB.
+- [x] Cleanup removes artifacts at least 24 hours old, then removes the oldest terminal artifacts until
+      retained terminal artifacts are at most 2 GiB. Each removed directory's terminal agent row is deleted with it;
+      an expired row whose output directory is already gone is deleted alone.
 - [x] Linux `/proc`-backed cleanup preserves nonterminal jobs and terminal directories referenced by a live
       executable, current working directory, or open file descriptor before atomic quarantine; quarantine removes
       the canonical job path before the final reference scan and restores referenced directories.

@@ -457,11 +457,12 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       run it starts, so the run can drain again at its first post-tool checkpoint without self-deadlocking.
 - [x] Undelivered runtime mailbox messages expire 24 hours after creation; delivered rows are deleted immediately.
 - [x] Terminal (`completed`, `failed`, `aborted`) agent rows expire 24 hours after their terminal `updatedAt`, with
-      their runtime-owner and delivered terminal-outbox rows. Rows are kept while they own detached Bash/Pyrun
-      output (artifact cleanup finds directories only through them), have an undelivered terminal outbox row, or
-      parent a non-terminal agent. Expiry runs with mailbox retention on control-DB open and the retained-DB
-      retention timer (`test/terminal-agent-expiry.test.ts`,
-      `test/suite/regressions/terminal-agent-expiry-restart.test.ts`).
+      their runtime-owner and delivered terminal-outbox rows. Rows with an undelivered terminal outbox row or a
+      non-terminal child are kept. Expiry runs with mailbox retention on control-DB open and the retained-DB
+      retention timer. Rows owning detached Bash/Pyrun output are deleted by artifact cleanup together with their
+      output directory, which it finds only through them: detached output is retained 24 hours (2 GiB cap), and an
+      expired row whose output directory is already gone is deleted alone (`test/terminal-agent-expiry.test.ts`,
+      `test/detached-job-cleanup.test.ts`, `test/suite/regressions/terminal-agent-expiry-restart.test.ts`).
 - [x] `wait_agent` and lifecycle mirroring derive pending notifications from mailbox rows and read only the
       referenced or non-terminal agents; they never load full agent history or query per mailbox message
       (`test/wait-agent-notifications.test.ts`: 7,000 terminal agents, 141 pending notifications, under 1s).

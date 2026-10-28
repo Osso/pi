@@ -28,6 +28,7 @@ import {
 	createFailedMultiAgentChild,
 	createMultiAgentChildWithRuntimeOwnership,
 	getControlDbPath,
+	readMultiAgentAgent,
 	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
 import { reopenSessionWithCwd } from "../src/core/session-cwd.ts";
@@ -584,7 +585,7 @@ describe("detached job artifact cleanup", () => {
 			root,
 			sessionName: "oldest",
 			size: Math.ceil(1.1 * ONE_GIB),
-			updatedAt: new Date(NOW - 26 * 60 * 60 * 1_000).toISOString(),
+			updatedAt: new Date(NOW - 3 * 60 * 60 * 1_000).toISOString(),
 		});
 		const newest = persistArtifact({
 			controlDbPath,
@@ -593,14 +594,59 @@ describe("detached job artifact cleanup", () => {
 			root,
 			sessionName: "newest",
 			size: Math.ceil(1.1 * ONE_GIB),
-			updatedAt: new Date(NOW - 25 * 60 * 60 * 1_000).toISOString(),
+			updatedAt: new Date(NOW - 2 * 60 * 60 * 1_000).toISOString(),
 		});
 
 		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
 
 		expect(result.deletedDirectories).toEqual([oldest]);
+		expect(result.deletedAgentRows).toBe(1);
 		expect(existsSync(oldest)).toBe(false);
 		expect(existsSync(newest)).toBe(true);
+	});
+
+	it("deletes expired job output and its agent row together at 24 hours", () => {
+		const root = createRoot();
+		const controlDbPath = getControlDbPath(root);
+		const sessionPathFor = (sessionName: string) => join(root, "sessions", "project", `${sessionName}.jsonl`);
+		const hoursAgo = (hours: number) => new Date(NOW - hours * 60 * 60 * 1_000).toISOString();
+		const expired = persistArtifact({
+			controlDbPath,
+			jobId: "bash_expired",
+			lifecycle: "completed",
+			root,
+			sessionName: "expired",
+			updatedAt: hoursAgo(25),
+		});
+		const missing = persistArtifact({
+			controlDbPath,
+			jobId: "bash_missing",
+			lifecycle: "failed",
+			root,
+			sessionName: "missing",
+			updatedAt: hoursAgo(25),
+		});
+		rmSync(missing, { force: true, recursive: true });
+		const recent = persistArtifact({
+			controlDbPath,
+			jobId: "bash_recent",
+			lifecycle: "completed",
+			root,
+			sessionName: "recent",
+			updatedAt: hoursAgo(2),
+		});
+
+		const result = cleanupDetachedJobArtifacts(controlDbPath, { artifactRoot: root, now: NOW });
+
+		expect(result.deletedDirectories).toEqual([expired]);
+		expect(result.deletedAgentRows).toBe(2);
+		expect(existsSync(expired)).toBe(false);
+		expect(existsSync(recent)).toBe(true);
+		expect(readMultiAgentAgent(controlDbPath, sessionPathFor("expired"), "bash_expired")).toBeUndefined();
+		expect(readMultiAgentAgent(controlDbPath, sessionPathFor("missing"), "bash_missing")).toBeUndefined();
+		expect(readMultiAgentAgent(controlDbPath, sessionPathFor("recent"), "bash_recent")).toMatchObject({
+			lifecycle: "completed",
+		});
 	});
 
 	it("applies age and byte retention to Pyrun artifacts stored beside the session file", () => {
@@ -613,7 +659,7 @@ describe("detached job artifact cleanup", () => {
 			lifecycle: "completed",
 			root,
 			sessionName: "session-expired",
-			updatedAt: "2026-07-19T18:00:00.000Z",
+			updatedAt: new Date(NOW - 25 * 60 * 60 * 1_000).toISOString(),
 		});
 		const overCap = persistArtifact({
 			besideSession: true,
@@ -623,7 +669,7 @@ describe("detached job artifact cleanup", () => {
 			root,
 			sessionName: "session-over-cap",
 			size: Math.ceil(1.1 * ONE_GIB),
-			updatedAt: "2026-07-22T16:00:00.000Z",
+			updatedAt: new Date(NOW - 3 * 60 * 60 * 1_000).toISOString(),
 		});
 		const retained = persistArtifact({
 			besideSession: true,
@@ -633,7 +679,7 @@ describe("detached job artifact cleanup", () => {
 			root,
 			sessionName: "session-retained",
 			size: Math.ceil(1.1 * ONE_GIB),
-			updatedAt: "2026-07-22T17:00:00.000Z",
+			updatedAt: new Date(NOW - 2 * 60 * 60 * 1_000).toISOString(),
 		});
 
 		runDetachedJobArtifactCleanup(controlDbPath, root, NOW);
