@@ -9,6 +9,7 @@ const runner = process.env.PI_PYRUN_INSTALLED_RUNNER;
 it.skipIf(!runner || !existsSync(runner))(
 	"routes installed Python agent calls to a real child and preserves errors",
 	async () => {
+		if (!runner) throw new Error("PI_PYRUN_INSTALLED_RUNNER is required");
 		await withHeadlessPi(
 			async (agent) => {
 				await agent.send({ type: "prompt", message: "Start a child" });
