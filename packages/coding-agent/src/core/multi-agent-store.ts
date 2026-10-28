@@ -4,7 +4,7 @@ import type { ProcessIdentity } from "./runtime-process.ts";
 import {
 	allocateMultiAgentCounter,
 	consumeRuntimeMailboxMessageByStoreRef,
-	getMultiAgentMailboxMessageStatus,
+	listLiveMultiAgentMailboxMessageIds,
 	type MultiAgentPersistedState,
 	markMultiAgentMailboxMessageFailed,
 	readMultiAgentState,
@@ -181,6 +181,18 @@ export interface SendMailboxMessageInput {
 }
 
 type AgentLifecycleNotificationLifecycle = "completed" | "failed" | "waiting_for_input";
+
+const LIFECYCLE_NOTIFICATION_LIFECYCLES: readonly AgentLifecycleNotificationLifecycle[] = [
+	"completed",
+	"failed",
+	"waiting_for_input",
+];
+
+export interface PendingLifecycleNotification {
+	agentId: string;
+	lifecycle: AgentLifecycleNotificationLifecycle;
+	message: AgentMailboxMessage;
+}
 
 interface AgentLifecycleNotificationInput {
 	body: string;
@@ -513,13 +525,12 @@ export class MultiAgentStore {
 	}
 
 	expireMailboxMessages(now: number): void {
+		if (this.mailboxMessages.size === 0) return;
+		const liveIds = this.persistence
+			? listLiveMultiAgentMailboxMessageIds(this.persistence.controlDbPath, this.persistence.sessionPath)
+			: undefined;
 		for (const [id, message] of this.mailboxMessages) {
-			if (
-				isMailboxMessageExpired(message.createdAt, now) ||
-				(this.persistence &&
-					getMultiAgentMailboxMessageStatus(this.persistence.controlDbPath, this.persistence.sessionPath, id) ===
-						undefined)
-			) {
+			if (isMailboxMessageExpired(message.createdAt, now) || (liveIds && !liveIds.has(id))) {
 				this.mailboxMessages.delete(id);
 			}
 		}
@@ -603,6 +614,16 @@ export class MultiAgentStore {
 		return this.listMailboxMessages().filter((message) =>
 			isPendingLifecycleNotification(message, agentId, lifecycle),
 		);
+	}
+
+	/** Pending lifecycle notifications in mailbox order, derived from mailbox rows instead of agent history. */
+	listPendingLifecycleNotifications(): PendingLifecycleNotification[] {
+		return this.listMailboxMessages().flatMap((message) => {
+			const lifecycle = LIFECYCLE_NOTIFICATION_LIFECYCLES.find((candidate) =>
+				isPendingLifecycleNotification(message, message.fromAgentId, candidate),
+			);
+			return lifecycle ? [{ agentId: message.fromAgentId, lifecycle, message }] : [];
+		});
 	}
 
 	getProjectionSnapshot(): MultiAgentProjectionSnapshot {

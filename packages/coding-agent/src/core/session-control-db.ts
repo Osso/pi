@@ -6284,6 +6284,17 @@ export function getMultiAgentMailboxMessageStatus(
 	});
 }
 
+/** IDs of unexpired mailbox rows still persisted for a session, read in one query. */
+export function listLiveMultiAgentMailboxMessageIds(controlDbPath: string, sessionPath: string): Set<string> {
+	return withControlDb(controlDbPath, (db) => {
+		const rows = db
+			.prepare(`SELECT message_id FROM multi_agent_mailbox_messages WHERE session_path = ?
+				AND ${MAILBOX_CREATED_AT_MS_SQL} > ?`)
+			.all(sessionPath, Date.now() - MAILBOX_MESSAGE_RETENTION_MS) as Array<{ message_id: string }>;
+		return new Set(rows.map((row) => row.message_id));
+	});
+}
+
 export function markMultiAgentMailboxMessageDelivered(
 	controlDbPath: string,
 	sessionPath: string,
@@ -6551,6 +6562,26 @@ export function readMultiAgentAgents(
 			const agent = parseStoredJsonObject(row.data, context);
 			validatePersistedAgentPayload(agent, context);
 			return [agent as unknown as AgentSnapshot];
+		});
+	});
+}
+
+/** Non-terminal agents for a session; terminal history stays in SQLite. */
+export function readActiveMultiAgentAgents(controlDbPath: string, sessionPath: string): AgentSnapshot[] {
+	return withControlDb(controlDbPath, (db) => {
+		const rows = db
+			.prepare(
+				`SELECT agent_id, data FROM multi_agent_agents
+				 WHERE session_path = ?
+				   AND (NOT json_valid(data) OR json_extract(data, '$.lifecycle') NOT IN ('completed', 'failed', 'aborted'))
+				 ORDER BY rowid`,
+			)
+			.all(sessionPath) as Array<{ agent_id: string; data: string }>;
+		return rows.map((row) => {
+			const context = `multi_agent_agents:${sessionPath}#${row.agent_id}`;
+			const agent = parseStoredJsonObject(row.data, context);
+			validatePersistedAgentPayload(agent, context);
+			return agent as unknown as AgentSnapshot;
 		});
 	});
 }

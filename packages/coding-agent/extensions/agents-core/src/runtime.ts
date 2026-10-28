@@ -42,6 +42,7 @@ import {
 	isActiveLifecycle,
 	type MailboxMessageCommandResult,
 	MultiAgentStore,
+	type PendingLifecycleNotification,
 	type SteeringCheckpoint,
 } from "../../../src/core/multi-agent-store.ts";
 import { findExactModelReferenceMatch } from "../../../src/core/model-resolver.ts";
@@ -56,9 +57,9 @@ import {
 	hasPendingRuntimeCoordinationMessage,
 	isRuntimeCoordinationMailboxMessage,
 	listSharedChannelMessagesAfter,
+	readActiveMultiAgentAgents,
 	readMultiAgentAgents,
 	readMultiAgentRuntimeOwnership,
-	readMultiAgentState,
 	readSessionMetadata,
 	readSharedChannelCursor,
 	readSharedChannelTail,
@@ -2506,13 +2507,18 @@ function listPendingTerminalNotifications(
 	controlDbPath: string,
 	sessionPath: string,
 ): PendingTerminalNotification[] {
-	const persistedAgents = (readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []) as AgentSnapshot[];
+	const firstNotificationByAgent = new Map<string, PendingLifecycleNotification>();
+	for (const notification of store.listPendingLifecycleNotifications()) {
+		if (notification.lifecycle === "waiting_for_input" || firstNotificationByAgent.has(notification.agentId)) continue;
+		firstNotificationByAgent.set(notification.agentId, notification);
+	}
+	if (firstNotificationByAgent.size === 0) return [];
+	const persistedAgents = readMultiAgentAgents(controlDbPath, sessionPath, [...firstNotificationByAgent.keys()]);
 	return persistedAgents.flatMap((agent) => {
-		const lifecycle =
-			agent.lifecycle === "completed" ? "completed" : agent.lifecycle === "failed" ? "failed" : undefined;
-		if (!lifecycle) return [];
-		const message = store.listPendingLifecycleNotificationsForAgent(agent.id, lifecycle)[0];
-		return message ? [{ agent, message }] : [];
+		const notification = firstNotificationByAgent.get(agent.id);
+		return notification && notification.lifecycle === agent.lifecycle
+			? [{ agent, message: notification.message }]
+			: [];
 	});
 }
 
@@ -2540,10 +2546,9 @@ async function waitForAgentOrCoordination(
 	runtimeHandles: MultiAgentRuntimeHandles,
 ): Promise<WaitNotificationsWake> {
 	if (signal?.aborted) return Promise.resolve({ kind: "cancelled" });
-	const agents = (readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []) as AgentSnapshot[];
 	return new WaitAgentsWakeWatcher(
 		store,
-		agents.filter((agent) => isActiveLifecycle(agent.lifecycle)),
+		readActiveMultiAgentAgents(controlDbPath, sessionPath),
 		controlDbPath,
 		sessionPath,
 		signal,
@@ -2972,11 +2977,9 @@ function createRuntimeLifecycleMirror(store: MultiAgentStore): RuntimeLifecycleM
 }
 
 function mirrorPendingLifecycleRuntimeMailboxMessages(store: MultiAgentStore, ctx: ExtensionContext): void {
-	for (const agent of store.listAgents()) {
-		if (!isRuntimeMirroredLifecycle(agent.lifecycle)) continue;
-		for (const message of store.listPendingLifecycleNotificationsForAgent(agent.id, agent.lifecycle)) {
-			mirrorLifecycleRuntimeMailboxMessage(store, message, ctx);
-		}
+	for (const { agentId, lifecycle, message } of store.listPendingLifecycleNotifications()) {
+		if (store.getAgent(agentId)?.lifecycle !== lifecycle) continue;
+		mirrorLifecycleRuntimeMailboxMessage(store, message, ctx);
 	}
 }
 
@@ -3031,12 +3034,6 @@ function mirrorLifecycleRuntimeMailboxMessage(
 		},
 		storeRef,
 	});
-}
-
-function isRuntimeMirroredLifecycle(
-	lifecycle: AgentLifecycleState,
-): lifecycle is "completed" | "failed" | "waiting_for_input" {
-	return lifecycle === "completed" || lifecycle === "failed" || lifecycle === "waiting_for_input";
 }
 
 function mirrorRuntimeMailboxMessage(
