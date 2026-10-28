@@ -691,6 +691,59 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
+	it("discovers session IDs across directories and rejects ambiguous or combined selectors", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-attach-discovery-"));
+		vi.stubEnv(ENV_AGENT_DIR, tempDir);
+		try {
+			const supervisorDir = join(tempDir, "sessions", "supervisor");
+			const otherDir = join(tempDir, "sessions", "other");
+			mkdirSync(supervisorDir, { recursive: true });
+			mkdirSync(otherDir, { recursive: true });
+			const supervisor = SessionManager.create("/repo", supervisorDir, { id: "supervisor" });
+			const first = SessionManager.create("/other", otherDir, { id: "discovery-one" });
+			const second = SessionManager.create("/other", otherDir, { id: "discovery-one-extra" });
+			for (const session of [first, second]) {
+				session.appendMessage({ role: "user", content: "saved prompt", timestamp: 1 });
+				session.appendMessage(fauxAssistantMessage("saved response"));
+			}
+			const controlDbPath = join(tempDir, "control.sqlite");
+			supervisor.setMetadataControlDbPath(controlDbPath);
+			const store = new MultiAgentStore();
+			store.setPersistenceSessionManager(supervisor);
+			const harness = createMultiAgentHarness({ ctx: { controlDbPath, sessionManager: supervisor }, store });
+
+			const exact = await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+				sessionId: "discovery-one",
+			});
+			expect(exact.details.agent.transcript).toEqual({ path: first.getSessionFile(), sessionId: "discovery-one" });
+			const prefix = await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+				sessionId: "discovery-one-e",
+			});
+			expect(prefix.details.agent.transcript).toEqual({
+				path: second.getSessionFile(),
+				sessionId: "discovery-one-extra",
+			});
+			const ambiguous = await harness.call("attach_session_agent", { sessionId: "discovery" });
+			expect(ambiguous.content).toEqual([
+				{ type: "text", text: "Could not attach session: discovery matches multiple sessions." },
+			]);
+			for (const selectors of [
+				{},
+				{ sessionId: "discovery-one", path: first.getSessionFile() },
+				{ name: "test", sessionId: "discovery-one" },
+				{ name: "test", path: first.getSessionFile() },
+			]) {
+				const result = await harness.call("attach_session_agent", selectors);
+				expect(result.content).toEqual([
+					{ type: "text", text: "Could not attach session: provide exactly one of path, sessionId, or name." },
+				]);
+			}
+		} finally {
+			vi.unstubAllEnvs();
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
 	it("attaches an existing saved session as an agent with preserved session identity", async () => {
 		const tempDir = mkdtempSync(join(tmpdir(), "pi-attach-session-agent-"));
 		try {

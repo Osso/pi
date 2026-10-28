@@ -130,11 +130,11 @@ const listAgentsSchema = Type.Object(
 const attachSessionAgentSchema = Type.Object({
 	agentType: Type.Optional(Type.String()),
 	displayName: Type.Optional(Type.String()),
-	name: Type.Optional(Type.String()),
+	name: Type.Optional(Type.String({ description: "Session name; provide exactly one of name, path, or sessionId." })),
 	parentId: Type.Optional(Type.String()),
-	path: Type.Optional(Type.String()),
+	path: Type.Optional(Type.String({ description: "Session transcript path; provide exactly one of name, path, or sessionId." })),
 	prompt: Type.Optional(Type.String()),
-	sessionId: Type.Optional(Type.String()),
+	sessionId: Type.Optional(Type.String({ description: "Session ID or unique prefix; provide exactly one of name, path, or sessionId." })),
 });
 
 const waitAgentsSchema = Type.Object({}, { additionalProperties: false });
@@ -1554,7 +1554,14 @@ async function findAttachSessionMatch(
 	const sessionDir = ctx.sessionManager?.getSessionDir();
 	const localSessions = await SessionManager.list(ctx.cwd, sessionDir, undefined, ctx.controlDbPath);
 	const allSessions = await SessionManager.listAll(sessionDir, undefined, ctx.controlDbPath);
-	return findMatchingSession(dedupeSessionsByPath([...localSessions, ...allSessions]), target);
+	if (!target.sessionId) return findMatchingSession(dedupeSessionsByPath([...localSessions, ...allSessions]), target);
+	const globalMetadata = await SessionManager.listAll(undefined, undefined, ctx.controlDbPath);
+	const diskSessions = await SessionManager.listAll();
+	const customSessions = sessionDir ? await SessionManager.listAll(sessionDir) : [];
+	return findMatchingSession(
+		dedupeSessionsByPath([...diskSessions, ...customSessions, ...localSessions, ...allSessions, ...globalMetadata]),
+		target,
+	);
 }
 
 function dedupeSessionsByPath(sessions: SessionInfo[]): SessionInfo[] {
@@ -1952,6 +1959,20 @@ function sendAgentMessage(
 		});
 	}
 	const sender = store.getAgent(senderId);
+	const recipient = store.getAgent(params.toAgentId);
+	if (
+		recipient &&
+		(recipient.parentId ?? MAIN_THREAD_AGENT_ID) === senderId &&
+		!isActiveLifecycle(recipient.lifecycle)
+	) {
+		return {
+			...errorResult(`Could not send agent message to ${target}: agent is closed; use attach_session_agent.`, {
+				agent: sender ?? emptyAgent(senderId),
+				message: emptyDirectMessage(senderId, params.toAgentId, params.message),
+			}),
+			isError: true,
+		};
+	}
 	const messageInput = {
 		fileRefs: params.fileRefs,
 		body: params.message,

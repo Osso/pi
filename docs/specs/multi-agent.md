@@ -413,6 +413,7 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       child listeners coexist; no live listeners preserves offline main-session queueing. Dead or
       superseded same-PID listener identities do not count as live. Never rewrite the requested address.
       This guard does not replay or delete historical messages or change relay or lifecycle semantics.
+- [ ] `send_agent_message` rejects messages addressed to completed child agents and tells the caller to use `attach_session_agent` to resume the session.
 - [x] `send_agent_message` failures identify the attempted agent ID and any supplied session ID while
       preserving the underlying failure reason and routing context.
 - [x] Every `AgentSession` owns exactly one runtime listener address: a main runtime uses
