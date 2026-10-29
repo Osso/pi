@@ -252,7 +252,7 @@ Date.now = () => ${Date.now()};
 					parentPort?.postMessage({ statuses: messages.map((message) => message.status), type: "completed" });
 					return;
 				}
-				const recovered = recoverDeadRuntimeMailboxClaims(workerData.controlDbPath, workerData.recipient);
+				const recovered = recoverDeadRuntimeMailboxClaims(workerData.controlDbPath, workerData.recipient, () => false);
 				parentPort?.postMessage({ count: recovered, type: "completed" });
 			} catch (error) {
 				parentPort?.postMessage({ error: String(error), type: "completed" });
@@ -6712,10 +6712,11 @@ Date.now = () => ${Date.now()};
 			db.close();
 		}
 
-		const recovered = recoverDeadRuntimeMailboxClaims(controlDbPath, {
-			agentId: null,
-			sessionId: "parent-session",
-		});
+		const recovered = recoverDeadRuntimeMailboxClaims(
+			controlDbPath,
+			{ agentId: null, sessionId: "parent-session" },
+			() => false,
+		);
 		const claimed = claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "parent-session" });
 
 		expect(recovered).toBe(1);
@@ -6762,7 +6763,7 @@ Date.now = () => ${Date.now()};
 
 				parentPort?.once("message", () => {
 					try {
-						const recovered = recoverDeadRuntimeMailboxClaims(workerData.controlDbPath, workerData.recipient);
+						const recovered = recoverDeadRuntimeMailboxClaims(workerData.controlDbPath, workerData.recipient, () => false);
 						parentPort?.postMessage({ count: recovered, type: "completed" });
 					} catch (error) {
 						parentPort?.postMessage({ error: String(error), type: "error" });

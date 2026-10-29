@@ -1,9 +1,9 @@
 import { closeSync, fsyncSync, openSync } from "node:fs";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import {
+	isMailboxStoreRefAccepted,
 	mailboxStoreRefsEqual,
 	RUNTIME_MAILBOX_ACCEPTANCE_CUSTOM_TYPE,
-	readAcceptedRuntimeMailboxStoreRefs,
 } from "./runtime-mailbox-transcript.ts";
 import {
 	deliverRuntimeMailboxMessage,
@@ -63,9 +63,9 @@ export function releaseUnacceptedRuntimeMailboxMessages(
 	messages: RuntimeMailboxAcceptanceRef[],
 ): void {
 	if (messages.length === 0) return;
-	const accepted = readAcceptedRuntimeMailboxStoreRefs(sessionManager.getSessionFile());
+	const entries = sessionManager.getEntries();
 	for (const message of messages) {
-		if (accepted.some((ref) => mailboxStoreRefsEqual(ref, message.storeRef))) continue;
+		if (isMailboxStoreRefAccepted(entries, message.storeRef)) continue;
 		releaseRuntimeMailboxMessageClaim(controlDbPath, message.id);
 	}
 }

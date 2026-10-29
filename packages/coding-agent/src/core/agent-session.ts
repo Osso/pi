@@ -151,6 +151,7 @@ import {
 	releaseUnacceptedRuntimeMailboxMessages,
 } from "./runtime-mailbox-acceptance.ts";
 import { createRuntimeMailboxUserMessage, deliverClaimedRuntimeMailboxMessages } from "./runtime-mailbox-delivery.ts";
+import { isMailboxStoreRefAccepted } from "./runtime-mailbox-transcript.ts";
 import {
 	getRuntimeMessageMarker,
 	isDuplicateTurnGuardMessage,
@@ -3842,20 +3843,14 @@ export class AgentSession {
 	}
 
 	private _registerRuntimeMailboxListeners(controlDbPath: string, agentId: string | null): void {
-		if (agentId) {
-			registerRuntimeMailboxListener(
-				controlDbPath,
-				{ agentId, sessionId: this.sessionId },
-				process.pid,
-				this.sessionFile,
-			);
-			return;
-		}
 		registerRuntimeMailboxListener(
 			controlDbPath,
-			{ agentId: null, sessionId: this.sessionId },
+			{ agentId, sessionId: this.sessionId },
 			process.pid,
 			this.sessionFile,
+			{
+				isMailboxStoreRefAccepted: (ref) => isMailboxStoreRefAccepted(this.sessionManager.getEntries(), ref),
+			},
 		);
 	}
 

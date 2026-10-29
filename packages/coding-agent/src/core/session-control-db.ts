@@ -12,7 +12,7 @@ import {
 	isActiveLifecycle,
 } from "./multi-agent-store.ts";
 import { isSandboxProfileName, type SandboxProfileName } from "./permissions/presets.ts";
-import { mailboxStoreRefsEqual, readAcceptedRuntimeMailboxStoreRefs } from "./runtime-mailbox-transcript.ts";
+import type { RuntimeMailboxAcceptanceCheck } from "./runtime-mailbox-transcript.ts";
 import {
 	isPiRuntimeProcessAlive,
 	isProcessIdentityAlive,
@@ -251,6 +251,8 @@ export interface RuntimeMailboxListener {
 }
 
 export interface RuntimeMailboxRegistrationOptions {
+	/** Recipient-transcript acceptance check; dead claims are recovered only when the owning session supplies it. */
+	isMailboxStoreRefAccepted?: RuntimeMailboxAcceptanceCheck;
 	isRuntimeProcessAlive?: (pid: number) => boolean;
 	reconcileRuntimeReplacement?: boolean;
 	runtimeInstanceId?: string;
@@ -689,22 +691,17 @@ type RuntimeMailboxCandidate = {
 	row: RuntimeMailboxRow;
 };
 
-export function recoverDeadRuntimeMailboxClaims(controlDbPath: string, recipient: RuntimeMailboxAddress): number {
+export function recoverDeadRuntimeMailboxClaims(
+	controlDbPath: string,
+	recipient: RuntimeMailboxAddress,
+	isAccepted: RuntimeMailboxAcceptanceCheck,
+): number {
 	return withControlDb(controlDbPath, (db) => {
 		const candidates = readRecoverableRuntimeMailboxClaims(db, recipient);
 		const nowIso = new Date().toISOString();
-		const acceptedByTranscript = new Map<string | undefined, RuntimeMailboxStoreRef[]>();
-		const readAccepted = (sessionPath: string | undefined) => {
-			let refs = acceptedByTranscript.get(sessionPath);
-			if (!refs) {
-				refs = readAcceptedRuntimeMailboxStoreRefs(sessionPath);
-				acceptedByTranscript.set(sessionPath, refs);
-			}
-			return refs;
-		};
 		return candidates.reduce(
 			(recovered, candidate) =>
-				recovered + Number(recoverRuntimeMailboxClaim(db, recipient, candidate, nowIso, readAccepted)),
+				recovered + Number(recoverRuntimeMailboxClaim(db, recipient, candidate, nowIso, isAccepted)),
 			0,
 		);
 	});
@@ -729,11 +726,9 @@ function recoverRuntimeMailboxClaim(
 	recipient: RuntimeMailboxAddress,
 	candidate: RuntimeMailboxCandidate,
 	nowIso: string,
-	readAccepted: (sessionPath: string | undefined) => RuntimeMailboxStoreRef[],
+	isAccepted: RuntimeMailboxAcceptanceCheck,
 ): boolean {
-	const accepted = readAccepted(candidate.authority.listener?.session_path ?? undefined).some((ref) =>
-		mailboxStoreRefsEqual(ref, { sessionPath: candidate.row.session_path, messageId: candidate.row.message_id }),
-	);
+	const accepted = isAccepted({ sessionPath: candidate.row.session_path, messageId: candidate.row.message_id });
 	const pending: Record<string, unknown> = { ...candidate.data, status: "pending", updatedAt: nowIso };
 	delete pending.claimedAt;
 	delete pending.claimantProcessIdentity;
@@ -1220,8 +1215,9 @@ export function registerRuntimeMailboxListener(
 		sessionPath,
 	};
 	withControlDb(controlDbPath, (db) => registerRuntimeMailboxListenerWithDb(db, registration));
-	if (pid === process.pid && registration.runtimeInstanceId === RUNTIME_PROCESS_INSTANCE_ID) {
-		recoverDeadRuntimeMailboxClaims(controlDbPath, recipient);
+	const ownsRegistration = pid === process.pid && registration.runtimeInstanceId === RUNTIME_PROCESS_INSTANCE_ID;
+	if (ownsRegistration && options.isMailboxStoreRefAccepted) {
+		recoverDeadRuntimeMailboxClaims(controlDbPath, recipient, options.isMailboxStoreRefAccepted);
 	}
 }
 
