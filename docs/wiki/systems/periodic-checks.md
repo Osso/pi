@@ -47,4 +47,6 @@ Both commands remain available while main is busy. See the [command contract](..
 
 Each tick advances the stored schedule boundary and attempts direct `pi.callTool("spawn_agent", ...)` dispatch. A pending call or stored live `periodic-checks-audit` blocks overlap. The child is a fresh-context `explore` agent; its prompt rereads the checklist and requires report-only findings sent to the originating main session with successful-delivery confirmation. No model prompt asks main to start the audit. Schedule generations fence late results after reload or shutdown.
 
-This timer runs only while the session is alive. The complete [audit policy](../../specs/periodic-checks.md#dispatch-and-audit-policy) remains canonical; the checklist does not authorize remediation.
+The scheduled Git-root failure handling in the [audit policy](../../specs/periodic-checks.md#dispatch-and-audit-policy) is not yet verified: a failed or timed-out root check must be reported, skip that audit, and leave Pi and later ticks running. Root verification remains required before dispatch.
+
+This timer runs only while the session is alive. The complete audit policy remains canonical; the checklist does not authorize remediation.
