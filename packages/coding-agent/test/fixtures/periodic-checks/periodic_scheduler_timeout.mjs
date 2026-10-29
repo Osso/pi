@@ -17,7 +17,19 @@ writeFileSync(join(project, "periodic-checks.md"), "---\ntype: checks\ninterval_
 const git = join(bin, "git");
 writeFileSync(
 	git,
-	`#!${process.execPath}\nconst fs = require('node:fs');\nconst cp = require('node:child_process');\nif (fs.existsSync(${JSON.stringify(marker)})) { fs.unlinkSync(${JSON.stringify(marker)}); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10000); }\nconst result = cp.spawnSync('git', process.argv.slice(2), { stdio: 'inherit', env: { ...process.env, PATH: ${JSON.stringify(originalPath)} } });\nprocess.exit(result.status ?? 1);\n`,
+	`#!${process.execPath}
+const fs = require('node:fs');
+const cp = require('node:child_process');
+if (fs.existsSync(${JSON.stringify(marker)})) {
+  fs.unlinkSync(${JSON.stringify(marker)});
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10000);
+}
+const result = cp.spawnSync('git', process.argv.slice(2), {
+  stdio: 'inherit',
+  env: { ...process.env, PATH: ${JSON.stringify(originalPath)} },
+});
+process.exit(result.status ?? 1);
+`,
 );
 chmodSync(git, 0o755);
 
