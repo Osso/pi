@@ -51,6 +51,8 @@ Bundled first-party `periodic-checks` schedules report-only project audits from 
 
 Verified 2026-10-23 at `16291d6a5`: all 122 native scheduler/dispatch tests pass, including late checklist creation, metadata failures, preserved countdowns, and runtime gates. Deployment check/build passes; independent verification confirms behavior and scoped readability. In the actual resumed Clank session, `/periodic-checks` reports `armed`, checklist `/workspace/wowdecomp/periodic-checks.md`, `interval_seconds: 600`, and `Next run: in 10 minutes` while main work continues. No manual audit was triggered. The sandbox and all 12 live host main sessions adopted executable SHA-256 `6fe054bd291d20ac89e621fe6076a02acfad1edc9caa82822c9b94380b1e2799`. Earlier bundling acceptance also verified command discovery, named disabling, exit shutdown, and three installed-runtime delivery tests.
 
+Verified 2026-10-29 for `8c52c4ce7`: the targeted suite passes both tests, including a child-process fixture that executes the real timer callback and a real five-second Git timeout. The failed check reports `ETIMEDOUT` without spawning; a later healthy tick dispatches. Deployment check/build passed. All seven live main sessions across `aso` and both `agent-server` accounts use executable SHA-256 `53a3ee5092b305913f389ac6561f248a9d08beb40182e94e8dfb7e7ecf4069b8` and report healthy. A dedicated terminal attached to `world-of-osso` and displayed its live TUI without sending input. The Clank image contains the same Pi artifact; no registered `clank` session existed to restart.
+
 ## Known gaps (current cycle)
 
 - [x] Record bundled discovery, scheduler behavior, installed-runtime delivery, named disabling, and deployment verification.
