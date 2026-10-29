@@ -1573,12 +1573,13 @@ export class AgentSession {
 						mailboxDelivery.messages,
 						message,
 					);
-				} finally {
+				} catch (error) {
 					releaseUnacceptedRuntimeMailboxMessages(
 						this.sessionManager,
 						mailboxDelivery.controlDbPath,
 						mailboxDelivery.messages,
 					);
+					throw error;
 				}
 			} else if (!isRuntimeMailboxMessagePersisted(message)) {
 				this.sessionManager.appendMessage(message);

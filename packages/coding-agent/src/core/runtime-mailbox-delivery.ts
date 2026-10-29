@@ -27,9 +27,11 @@ interface ClaimedMailboxDelivery {
 
 export async function deliverClaimedRuntimeMailboxMessages(delivery: ClaimedMailboxDelivery): Promise<boolean> {
 	const { controlDbPath, messages, sessionManager } = delivery;
+	const accepted = new Set<RuntimeMailboxMessage>();
 	const accept = (batch: RuntimeMailboxMessage[], message?: AgentMessage) => {
 		acceptRuntimeMailboxMessages(sessionManager, controlDbPath, batch, message);
-		for (const accepted of batch) delivery.onAccepted(accepted);
+		for (const acceptedMessage of batch) accepted.add(acceptedMessage);
+		for (const acceptedMessage of batch) delivery.onAccepted(acceptedMessage);
 	};
 	try {
 		const promptMessages: RuntimeMailboxMessage[] = [];
@@ -50,6 +52,7 @@ export async function deliverClaimedRuntimeMailboxMessages(delivery: ClaimedMail
 		await delivery.prompt(prompt, (message) => accept(promptMessages, message));
 		return false;
 	} finally {
-		releaseUnacceptedRuntimeMailboxMessages(sessionManager, controlDbPath, messages);
+		const unconfirmed = messages.filter((message) => !accepted.has(message));
+		releaseUnacceptedRuntimeMailboxMessages(sessionManager, controlDbPath, unconfirmed);
 	}
 }

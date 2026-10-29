@@ -220,6 +220,7 @@
 ### Fixed
 
 - Fixed TUI freezes of 16-40s in sessions with large agent history: `wait_agent` (including the goal scheduler's wait after a Supervisor `wait` decision) scanned every persisted agent and re-checked every mailbox message per agent with one SQLite query each. Pending lifecycle notifications are now derived from mailbox rows, only referenced or non-terminal agents are read, and mailbox liveness is checked in one query.
+- Fixed multi-second TUI freezes in sessions with large transcripts: every runtime mailbox delivery (child results, agent messages, steering) re-read and parsed the whole session transcript after a successful acceptance. The transcript is now read only for messages whose acceptance did not complete, and dead-claim recovery reads it once per transcript instead of once per claim.
 - `attach_session_agent` discovers session IDs across session directories and requires exactly one of `path`, `sessionId`, or `name`. Messages to completed child agents are rejected with guidance to attach the session.
 - Fixed `pi supervisor` ignoring SIGTERM after it had served a model request: shutdown now disposes the resident session, closing the cached Codex WebSocket that kept the process alive.
 - Fixed `change_working_directory` and `spawn_agent` in the same tool batch losing the child: the session moved while the batch still ran, so the child was stored under the old session path, `list_agents` reported `Found 0 agents.`, and its record stayed `running` forever. The session and its control data now move after the whole batch completes.

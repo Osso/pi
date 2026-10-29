@@ -693,8 +693,18 @@ export function recoverDeadRuntimeMailboxClaims(controlDbPath: string, recipient
 	return withControlDb(controlDbPath, (db) => {
 		const candidates = readRecoverableRuntimeMailboxClaims(db, recipient);
 		const nowIso = new Date().toISOString();
+		const acceptedByTranscript = new Map<string | undefined, RuntimeMailboxStoreRef[]>();
+		const readAccepted = (sessionPath: string | undefined) => {
+			let refs = acceptedByTranscript.get(sessionPath);
+			if (!refs) {
+				refs = readAcceptedRuntimeMailboxStoreRefs(sessionPath);
+				acceptedByTranscript.set(sessionPath, refs);
+			}
+			return refs;
+		};
 		return candidates.reduce(
-			(recovered, candidate) => recovered + Number(recoverRuntimeMailboxClaim(db, recipient, candidate, nowIso)),
+			(recovered, candidate) =>
+				recovered + Number(recoverRuntimeMailboxClaim(db, recipient, candidate, nowIso, readAccepted)),
 			0,
 		);
 	});
@@ -719,10 +729,10 @@ function recoverRuntimeMailboxClaim(
 	recipient: RuntimeMailboxAddress,
 	candidate: RuntimeMailboxCandidate,
 	nowIso: string,
+	readAccepted: (sessionPath: string | undefined) => RuntimeMailboxStoreRef[],
 ): boolean {
-	const accepted = readAcceptedRuntimeMailboxStoreRefs(candidate.authority.listener?.session_path ?? undefined).some(
-		(ref) =>
-			mailboxStoreRefsEqual(ref, { sessionPath: candidate.row.session_path, messageId: candidate.row.message_id }),
+	const accepted = readAccepted(candidate.authority.listener?.session_path ?? undefined).some((ref) =>
+		mailboxStoreRefsEqual(ref, { sessionPath: candidate.row.session_path, messageId: candidate.row.message_id }),
 	);
 	const pending: Record<string, unknown> = { ...candidate.data, status: "pending", updatedAt: nowIso };
 	delete pending.claimedAt;
