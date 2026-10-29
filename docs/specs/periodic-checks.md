@@ -24,7 +24,7 @@ Bundled first-party `periodic-checks` schedules report-only project audits from 
 ### Dispatch and audit policy
 
 - [x] Scheduled/manual dispatch calls `spawn_agent` directly with a fresh-context `explore` child named `periodic-checks-audit`. Busy main and pending messages do not skip dispatch. Do not queue a model prompt, follow-up, or steering message asking main to spawn it.
-- [ ] Verify the current Git project root before scheduled dispatch. If the root check fails or times out, report the failure and skip that audit without terminating Pi or disabling later ticks.
+- [x] Verify the current Git project root before scheduled dispatch. If the root check fails or times out, report the failure and skip that audit without terminating Pi or disabling later ticks.
 - [x] Pending spawn suppresses overlap until settlement, including rejection or unsuccessful dispatch. A stored child named `periodic-checks-audit` blocks overlap until `completed`, `failed`, or `aborted`, including restored children after reload. Unrelated children do not block dispatch.
 - [x] Child termination permits the next scheduled tick, not immediate dispatch; main `agent_end` does not release overlap. Reload/shutdown/replacement fence late spawn results from new pending locks and diagnostics. Dispatch failures notify explicitly with session, checklist, and failure context.
 - [ ] Each audit rereads the checklist, limits findings to its requested scope, and reports missing checklist or unavailable evidence. Send findings through `send_agent_message` to `main` with the originating parent session ID; inspect the result and report delivery failure explicitly.
