@@ -142,7 +142,13 @@ export default function periodicExtension(pi: ExtensionAPI) {
 	function dispatchAuditTick(ctx: ExtensionContext, audit: ScheduledAudit): void {
 		if (audit.generation !== generation) return;
 		advanceScheduledTick(Date.now());
-		dispatchAudit(ctx, audit);
+		try {
+			dispatchAudit(ctx, audit);
+		} catch (error) {
+			const reason = error instanceof Error ? error.message : String(error);
+			const cause = error instanceof Error && error.cause instanceof Error ? `: ${error.cause.message}` : "";
+			ctx.ui.notify(`Periodic audit refused for session ${audit.sessionId}: ${reason}${cause}`, "error");
+		}
 	}
 
 	function dispatchAudit(ctx: ExtensionContext, audit: ScheduledAudit, manual = false): string | undefined {
