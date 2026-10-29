@@ -187,9 +187,8 @@ Attribution:
 ## Deployment
 
 - Merge feature and fix branches into the default branch before deploying. Deploy a non-default-branch revision only when the user explicitly designates it as a special deployment.
-- Deploy all three targets: `aso`, `agent-server` (both `osso` and `allison`), and the Clank-session VM running on `agent-server`.
-- Clank: from `/syncthing/Sync/Projects/cli/remote-agent`, run `sandbox/deploy.sh --host agent-server --pi-install ~/.local/share/pi`, then `remote-agent restart clank` without asking. Never `cancel` it.
-- After deployment, enumerate eligible live Pi sessions across all three targets and both server accounts once, recording launcher, PID/start identity, and executable or source revision. Force-restart every runtime still using the superseded artifact without additional confirmation; do not restart current runtimes.
+- Deploy both targets: `aso` and `agent-server` (both `osso` and `allison`).
+- After deployment, enumerate eligible live Pi sessions across both targets and both server accounts once, recording launcher, PID/start identity, and executable or source revision. Force-restart every runtime still using the superseded artifact without additional confirmation; do not restart current runtimes.
 - Preserve launchers: installed `pi` sessions re-exec the deployed binary, while `pi-dev` sessions re-exec from canonical source. Never migrate `pi-dev` to installed `pi`.
 - After replacements, run one bounded final identity and health inventory. Do not poll repeatedly.
 
