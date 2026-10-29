@@ -9,7 +9,9 @@
  * which bakes the build machine's absolute path into Bun compiled binaries.
  *
  * Solution:
- * 1. Patch fs.readFileSync to redirect missing photon_rs_bg.wasm reads
+ * 1. Patch fs.readFileSync to redirect photon_rs_bg.wasm reads. Compiled binaries read
+ *    the copy next to the executable first: the baked path can exist but be unreadable
+ *    for other users (EACCES), not just missing.
  * 2. Copy photon_rs_bg.wasm next to the executable in build:binary
  */
 
@@ -17,6 +19,7 @@ import type { PathOrFileDescriptor } from "fs";
 import { createRequire } from "module";
 import * as path from "path";
 import { fileURLToPath } from "url";
+import { isBunBinary } from "../config.ts";
 
 const require = createRequire(import.meta.url);
 const fs = require("fs") as typeof import("fs");
@@ -56,11 +59,30 @@ function patchPhotonWasmRead(): () => void {
 	const fallbackPaths = getFallbackWasmPaths();
 	const mutableFs = fs as { readFileSync: ReadFileSync };
 
+	const readFallbackWasm = (options: Parameters<ReadFileSync>[1]) => {
+		for (const fallbackPath of fallbackPaths) {
+			if (!fs.existsSync(fallbackPath)) {
+				continue;
+			}
+			if (options === undefined) {
+				return originalReadFileSync(fallbackPath);
+			}
+			return originalReadFileSync(fallbackPath, options);
+		}
+		return undefined;
+	};
+
 	const patchedReadFileSync: ReadFileSync = ((...args: Parameters<ReadFileSync>) => {
 		const [file, options] = args;
 		const resolvedPath = pathOrNull(file);
 
 		if (resolvedPath?.endsWith(WASM_FILENAME)) {
+			if (isBunBinary) {
+				const bundled = readFallbackWasm(options);
+				if (bundled !== undefined) {
+					return bundled;
+				}
+			}
 			try {
 				return originalReadFileSync(...args);
 			} catch (error) {
@@ -69,16 +91,10 @@ function patchPhotonWasmRead(): () => void {
 					throw error;
 				}
 
-				for (const fallbackPath of fallbackPaths) {
-					if (!fs.existsSync(fallbackPath)) {
-						continue;
-					}
-					if (options === undefined) {
-						return originalReadFileSync(fallbackPath);
-					}
-					return originalReadFileSync(fallbackPath, options);
+				const fallback = readFallbackWasm(options);
+				if (fallback !== undefined) {
+					return fallback;
 				}
-
 				throw error;
 			}
 		}
