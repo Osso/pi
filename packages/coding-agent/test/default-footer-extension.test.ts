@@ -7,6 +7,8 @@ import defaultFooterExtension, {
 } from "../extensions/default-footer/src/index.ts";
 import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/types.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
+import { createReadonlySessionManager } from "../src/core/readonly-session-manager.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
 import type { FooterSessionOverride, ReadonlyFooterDataProvider } from "../src/index.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
@@ -36,6 +38,7 @@ function createContext(usage: AssistantUsage, usingOAuth = false): ExtensionCont
 		sessionManager: {
 			getCwd: () => "/tmp/project",
 			getEntries: () => entries,
+			getLeafId: () => null,
 			getSessionName: () => "",
 		},
 		getContextUsage: () => ({ contextWindow: 272_000, percent: 60.9 }),
@@ -329,6 +332,7 @@ describe("default footer extension", () => {
 						},
 					},
 				],
+				getLeafId: () => null,
 				getSessionName: () => "child",
 			} as unknown as FooterSessionOverride["sessionManager"],
 			model: {
@@ -353,6 +357,57 @@ describe("default footer extension", () => {
 		expect(mainOutput).toContain("/tmp/project (main)");
 		expect(mainOutput).toContain("test-model");
 		expect(mainOutput).not.toContain("child-model");
+	});
+
+	it("keeps session usage totals current across appends and branch moves in a large session", () => {
+		initTheme(undefined, false);
+		const session = SessionManager.inMemory("/tmp/project");
+		const usage = (input: number, output: number, cost: number) => ({
+			input,
+			output,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: input + output,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: cost },
+		});
+		const appendAssistant = (input: number, output: number, cost: number) =>
+			session.appendMessage({
+				role: "assistant",
+				content: [{ type: "text", text: "Checked the navigation probe output. ".repeat(20) }],
+				api: "openai-responses",
+				provider: "openai",
+				model: "gpt-test",
+				usage: usage(input, output, cost),
+				stopReason: "stop",
+				timestamp: Date.now(),
+			});
+		for (let index = 0; index < 20_000; index += 1) {
+			session.appendMessage({ role: "user", content: "continue", timestamp: Date.now() });
+			appendAssistant(10, 1, 0.01);
+		}
+		const branchPoint = session.getLeafId();
+		const footer = createDefaultFooterComponent({
+			ctx: {
+				...createContext({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }),
+				sessionManager: createReadonlySessionManager(session),
+			} as unknown as ExtensionContext,
+			footerData: createFooterData(),
+			theme,
+		});
+		const stats = () => stripAnsi(footer.render(200)[1] ?? "");
+
+		expect(stats()).toContain("in 200k out 20k cost $200.00");
+		const startedAt = performance.now();
+		for (let frame = 0; frame < 100; frame += 1) stats();
+		expect(performance.now() - startedAt).toBeLessThan(100);
+
+		appendAssistant(5_000, 2_000, 1);
+		expect(stats()).toContain("in 205k out 22k cost $201.00");
+
+		if (!branchPoint) throw new Error("Expected a branch point");
+		session.branch(branchPoint);
+		appendAssistant(1_000, 0, 0);
+		expect(stats()).toContain("in 206k out 22k cost $201.00");
 	});
 
 	it("shows effort next to reasoning models", () => {

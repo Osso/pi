@@ -12,6 +12,7 @@ import {
 	isActiveLifecycle,
 	type MultiAgentStore,
 } from "../../../src/core/multi-agent-store.ts";
+import type { ReadonlySessionManager, SessionEntry } from "../../../src/core/session-manager.ts";
 import type { Theme } from "../../../src/modes/interactive/theme/theme.ts";
 import {
 	formatExtensionStatusTextLines,
@@ -147,20 +148,56 @@ export function countDefaultFooterAgents(store: MultiAgentStore): DefaultFooterA
 	return counts;
 }
 
-function sessionUsage(session: FooterSessionOverride): { input: number; output: number; cost: number } {
-	let input = 0;
-	let output = 0;
-	let cost = 0;
-	for (const entry of session.sessionManager?.getEntries() ?? []) {
-		if (entry.type !== "message" || entry.message.role !== "assistant") {
-			continue;
-		}
-		const message = entry.message as AssistantMessage;
-		input += message.usage.input;
-		output += message.usage.output;
-		cost += message.usage.cost.total;
+interface SessionUsage {
+	input: number;
+	output: number;
+	cost: number;
+}
+
+/** Longest parent chain walked from the previous leaf before recounting every entry. */
+const MAX_INCREMENTAL_USAGE_ENTRIES = 256;
+const usageByLeaf = new WeakMap<ReadonlySessionManager, { leafId: string | null; usage: SessionUsage }>();
+
+function addEntryUsage(usage: SessionUsage, entry: SessionEntry | undefined): SessionUsage {
+	if (entry?.type !== "message" || entry.message.role !== "assistant") return usage;
+	const message = entry.message as AssistantMessage;
+	return {
+		cost: usage.cost + message.usage.cost.total,
+		input: usage.input + message.usage.input,
+		output: usage.output + message.usage.output,
+	};
+}
+
+/** Entries are append-only and new entries become the leaf, so usage since a cached leaf lies on the parent chain. */
+function usageSinceLeaf(
+	sessionManager: ReadonlySessionManager,
+	fromLeafId: string | null,
+	usage: SessionUsage,
+): SessionUsage | undefined {
+	let id = sessionManager.getLeafId();
+	let total = usage;
+	for (let walked = 0; walked < MAX_INCREMENTAL_USAGE_ENTRIES; walked += 1) {
+		if (id === fromLeafId) return total;
+		if (id === null) return undefined;
+		const entry = sessionManager.getEntry(id);
+		total = addEntryUsage(total, entry);
+		id = entry?.parentId ?? null;
 	}
-	return { cost, input, output };
+	return undefined;
+}
+
+/** Extension session reads deep-copy entries, so avoid recounting the whole transcript on every render. */
+function sessionUsage(session: FooterSessionOverride): SessionUsage {
+	const sessionManager = session.sessionManager;
+	if (!sessionManager) return { cost: 0, input: 0, output: 0 };
+	const leafId = sessionManager.getLeafId();
+	const cached = usageByLeaf.get(sessionManager);
+	if (cached?.leafId === leafId) return cached.usage;
+	const usage =
+		(cached && usageSinceLeaf(sessionManager, cached.leafId, cached.usage)) ??
+		sessionManager.getEntries().reduce(addEntryUsage, { cost: 0, input: 0, output: 0 });
+	usageByLeaf.set(sessionManager, { leafId, usage });
+	return usage;
 }
 
 function formatStats(input: DefaultFooterComponentInput): string {
