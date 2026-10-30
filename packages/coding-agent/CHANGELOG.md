@@ -223,6 +223,7 @@
 
 ### Fixed
 
+- Fixed interactive Bash and tool output displaying DEL and Unicode C1 controls that could break terminal history restoration; stored messages and model context remain unchanged.
 - Fixed image reads failing with "could not be resized below the inline image size limit" for every image when the compiled binary runs as a user who cannot read the build machine's baked `photon-node` path (`EACCES`); compiled binaries now load `photon_rs_bg.wasm` from next to the executable first.
 - Fixed TUI freezes of 16-40s in sessions with large agent history: `wait_agent` (including the goal scheduler's wait after a Supervisor `wait` decision) scanned every persisted agent and re-checked every mailbox message per agent with one SQLite query each. Pending lifecycle notifications are now derived from mailbox rows, only referenced or non-terminal agents are read, and mailbox liveness is checked in one query.
 - Fixed multi-second TUI freezes in sessions with large transcripts: every runtime mailbox delivery (child results, agent messages, steering) re-read and parsed the whole session transcript after a successful acceptance. The transcript is now read only for messages whose acceptance did not complete, and dead-claim recovery reads it once per transcript instead of once per claim. Acceptance checks now use the session's loaded entries; the transcript file scanner is removed.
