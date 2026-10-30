@@ -1934,18 +1934,18 @@ export class TUI extends Container {
 			this.previousHeight = height;
 		};
 
-		// Repaint only the visible window after reattachment or a shrink. Lines already pushed into scrollback
-		// cannot scroll back down, so the window is rewritten in place instead of clearing and replaying the history.
-		const viewportRender = (nextViewportTop: number): void => {
+		// Rewrite the screen from startRow to the end without clearing scrollback. Lines already pushed into
+		// scrollback cannot be updated or scroll back down; rows past the screen height scroll into it naturally.
+		const viewportRender = (startRow: number): void => {
 			let buffer = "\x1b[?2026h\x1b[H";
-			const visibleLines = newLines.slice(nextViewportTop, nextViewportTop + height);
+			const visibleLines = newLines.slice(startRow);
 			buffer += visibleLines.map((line) => `\x1b[2K${line}`).join("\r\n");
 			buffer += "\x1b[J\x1b[?2026l";
 			this.terminal.write(buffer);
 			this.cursorRow = Math.max(0, newLines.length - 1);
-			this.hardwareCursorRow = nextViewportTop + Math.max(0, visibleLines.length - 1);
+			this.hardwareCursorRow = startRow + Math.max(0, visibleLines.length - 1);
 			this.maxLinesRendered = newLines.length;
-			this.previousViewportTop = nextViewportTop;
+			this.previousViewportTop = Math.max(startRow, newLines.length - height);
 			this.positionHardwareCursor(cursorPos, newLines.length);
 			this.previousLines = newLines;
 			this.previousKittyImageIds = this.collectKittyImageIds(newLines);
@@ -2093,10 +2093,17 @@ export class TUI extends Container {
 			return true;
 		}
 
-		// Differential rendering can only touch what was actually visible.
-		// If the first changed line is above the previous viewport, we need a full redraw.
+		// Lines above the viewport are already in scrollback and cannot be updated in place. Clearing and
+		// replaying the whole history for them turns a live line that scrolled off (e.g. an elapsed timer)
+		// into a full history replay on every tick, so repaint from the viewport down and leave scrollback stale.
 		if (firstChanged < prevViewportTop) {
-			return fallbackToFullRender(`firstChanged < viewportTop (${firstChanged} < ${prevViewportTop})`, true);
+			const reason = `firstChanged < viewportTop (${firstChanged} < ${prevViewportTop})`;
+			// Image lines reserve multiple rows and need the full renderer's placement.
+			if (newLines.slice(prevViewportTop).some(isImageLine)) {
+				return fallbackToFullRender(reason, true);
+			}
+			viewportRender(prevViewportTop);
+			return true;
 		}
 
 		// Render from first changed line to end

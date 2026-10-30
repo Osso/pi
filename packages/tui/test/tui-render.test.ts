@@ -679,6 +679,50 @@ describe("TUI differential rendering", () => {
 		tui.stop();
 	});
 
+	it("updates a live line above the viewport without replaying scrollback", async () => {
+		const terminal = new LoggingVirtualTerminal(20, 5);
+		const tui = new TUI(terminal);
+		const running = new TestComponent();
+		const output = new TestComponent();
+		const editor = new TestComponent();
+		tui.addChild(running);
+		tui.addChild(output);
+		tui.addChild(editor);
+
+		running.lines = ["$ sleep 25", "elapsed 1s"];
+		output.lines = Array.from({ length: 6 }, (_, i) => `tool ${i}`);
+		editor.lines = ["editor"];
+		tui.start();
+		await terminal.waitForRender();
+
+		const initialRedraws = tui.fullRedraws;
+		for (const seconds of [2, 3, 4]) {
+			terminal.clearWrites();
+			running.lines = ["$ sleep 25", `elapsed ${seconds}s`];
+			tui.requestRender();
+			await terminal.waitForRender();
+			assert.ok(!terminal.getWrites().includes("\x1b[3J"), "Timer tick must not clear scrollback");
+		}
+
+		assert.strictEqual(tui.fullRedraws, initialRedraws, "Timer ticks above the viewport must not full redraw");
+		assert.deepStrictEqual(terminal.getViewport(), ["tool 2", "tool 3", "tool 4", "tool 5", "editor"]);
+		assert.deepStrictEqual(terminal.getScrollBuffer().slice(0, 4), ["$ sleep 25", "elapsed 1s", "tool 0", "tool 1"]);
+
+		// Growth above the viewport scrolls the extra rows into scrollback and keeps the tail visible.
+		running.lines = ["$ sleep 25", "done", "elapsed 5s"];
+		tui.requestRender();
+		await terminal.waitForRender();
+		assert.strictEqual(tui.fullRedraws, initialRedraws, "Growth above the viewport must not full redraw");
+		assert.deepStrictEqual(terminal.getViewport(), ["tool 2", "tool 3", "tool 4", "tool 5", "editor"]);
+
+		output.lines = [...output.lines, "tool 6"];
+		tui.requestRender();
+		await terminal.waitForRender();
+		assert.deepStrictEqual(terminal.getViewport(), ["tool 3", "tool 4", "tool 5", "tool 6", "editor"]);
+
+		tui.stop();
+	});
+
 	it("renders chat growth before the editor without clearing scrollback", async () => {
 		const terminal = new LoggingVirtualTerminal(20, 5);
 		const tui = new TUI(terminal);
