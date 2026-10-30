@@ -3,13 +3,13 @@
  */
 
 import { Container, Loader, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
+import { sanitizeToolDisplayText } from "../../../core/tools/render-utils.ts";
 import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 	type TruncationResult,
 	truncateTail,
 } from "../../../core/tools/truncate.ts";
-import { sanitizeToolDisplayText } from "../../../core/tools/render-utils.ts";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { formatElapsedDuration, MIN_VISIBLE_ELAPSED_MS } from "./elapsed-time.ts";
