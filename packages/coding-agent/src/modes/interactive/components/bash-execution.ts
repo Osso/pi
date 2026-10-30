@@ -9,7 +9,7 @@ import {
 	type TruncationResult,
 	truncateTail,
 } from "../../../core/tools/truncate.ts";
-import { stripAnsi } from "../../../utils/ansi.ts";
+import { sanitizeToolDisplayText } from "../../../core/tools/render-utils.ts";
 import { theme } from "../theme/theme.ts";
 import { DynamicBorder } from "./dynamic-border.ts";
 import { formatElapsedDuration, MIN_VISIBLE_ELAPSED_MS } from "./elapsed-time.ts";
@@ -96,9 +96,7 @@ export class BashExecutionComponent extends Container {
 	}
 
 	appendOutput(chunk: string): void {
-		// Strip ANSI codes and normalize line endings
-		// Note: binary data is already sanitized in tui-renderer.ts executeBashCommand
-		const clean = stripAnsi(chunk).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+		const clean = sanitizeToolDisplayText(chunk).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
 		// Append to output lines
 		const newLines = clean.split("\n");

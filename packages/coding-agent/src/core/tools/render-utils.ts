@@ -36,6 +36,10 @@ export function normalizeDisplayText(text: string): string {
 	return text.replace(/\r/g, "");
 }
 
+export function sanitizeToolDisplayText(text: string): string {
+	return sanitizeBinaryOutput(stripAnsi(text)).replace(/[\u007f-\u009f]/g, "");
+}
+
 export function getTextOutput(
 	result: { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> } | undefined,
 	showImages: boolean,
@@ -45,7 +49,7 @@ export function getTextOutput(
 	const textBlocks = result.content.filter((c) => c.type === "text");
 	const imageBlocks = result.content.filter((c) => c.type === "image");
 
-	let output = textBlocks.map((c) => sanitizeBinaryOutput(stripAnsi(c.text || "")).replace(/\r/g, "")).join("\n");
+	let output = textBlocks.map((c) => sanitizeToolDisplayText(c.text || "").replace(/\r/g, "")).join("\n");
 
 	const caps = getCapabilities();
 	if (imageBlocks.length > 0 && (!caps.images || !showImages)) {
