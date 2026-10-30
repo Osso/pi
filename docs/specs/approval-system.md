@@ -30,6 +30,13 @@ Implementation details belong in
 - [x] Map a future `--dangerously-bypass-approvals` flag to `auto-approve`, not
   to `never`.
 
+### Delegated approval authority
+
+- [x] Allow an extension to delegate approval decisions to the `tool_call` handlers of one exact loaded extension path. Unconditional tool gates run first; delegated decisions precede native approval policies.
+- [x] Treat an authority's undefined result as an explicit allow; preserve its input rewrites and blocks. A missing or failing authority prevents tool execution.
+- [x] Prevent tool execution when authority registrations conflict, including conflicts during extension loading.
+- [x] Preserve native `never` and `auto-approve` behavior when no authority is delegated. See [T3 Code integration](t3-code.md) for its session-specific delegation.
+
 ### Approval reviewers
 
 - [x] Support human-reviewed approvals for `on-request` via the native
@@ -42,8 +49,8 @@ Implementation details belong in
   in the `/approvals` preset selector, distinct from `never` and `auto-approve`.
 - [x] Skip the LLM-approved reviewer when the action has already been explicitly
   approved by a hook (`tool_call` handler returned `{ block: false }`), a cached
-  rule, or an explicit policy decision. A hook returning `undefined` made no
-  decision and must fall through to the configured Supervisor or human reviewer.
+  rule, or an explicit policy decision. Without delegation, a hook returning
+  `undefined` makes no decision and falls through to the configured reviewer.
 - [x] Do not run the LLM-approved reviewer when the active policy is `never` or
   `auto-approve`.
 - [x] Read-only tools can opt out of generic wrapper approval with
@@ -82,7 +89,7 @@ Implementation details belong in
   engine: a handler may return `{ block: true, reason }` to deny, return
   `{ block: false }` to explicitly allow, mutate `event.input` in place to
   rewrite args, or return `undefined` when it makes no approval decision.
-- [x] Treat `undefined` hook results as no decision and continue to the configured
+- [x] Without delegated authority, treat `undefined` hook results as no decision and continue to the configured
   Supervisor or human reviewer; only explicit allow/block results short-circuit
   later reviewers.
 - [x] Never map Pi `never` policy to Claude Code `bypassPermissions` in hook
@@ -130,6 +137,8 @@ Implementation details belong in
   `tool_call` review.
 
 ## Tests asserting this spec
+
+- `packages/coding-agent/test/suite/tool-approval-authority.test.ts` — delegated decisions, gates, failures, rewrites, and native policy behavior.
 
 - `packages/coding-agent/test/approval-policy.test.ts` — pure policy behavior for
   `on-request`, `never`, and `auto-approve`, including non-approval-required

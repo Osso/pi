@@ -33,6 +33,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | CLI session lookup (`--session <id>`) | [`session-cli-lookup.md`](session-cli-lookup.md) | **NATIVE** | Resolves current-project and global session IDs; same-cwd global matches open directly. |
 | MCP-delegated permission prompt | [`permission-prompt-tool.md`](permission-prompt-tool.md) | **BUILD** | Claude-Code `--permission-prompt-tool` wire compat; falls back to native interactive gate. |
 | Approval policy presets | [`approval-system.md`](approval-system.md) | **BUILD** | Core `on-request`/`never`/`auto-approve` enforcement plus first-party `approval-controls` extension for `/approvals` `/sandbox`, layered on the native `tool_call` reviewer. |
+| T3 Code integration | [`t3-code.md`](t3-code.md) | **BUILD** (done) | T3-scoped approval authority with native policy unchanged outside delegated sessions. |
 | Loop tool (`loop`, `/loop`) | [`loop-tool.md`](loop-tool.md) | **NATIVE** | First-party extension for recurring follow-up prompts in the current session. |
 | Periodic checks (`/periodic-checks`) | [`periodic-checks.md`](periodic-checks.md) | **BUILD** | Bundled host-private checklist scheduler and read-only audit children; no checklist means no audits. |
 | Clean exit (`/exit`) | [`slash-commands.md#bundled-exit`](slash-commands.md#bundled-exit) | **BUILD** | Bundled `exit-command` requests clean session shutdown. |

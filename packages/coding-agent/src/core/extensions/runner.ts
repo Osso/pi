@@ -6,6 +6,7 @@ import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core"
 import type { ImageContent, Model } from "@earendil-works/pi-ai";
 import type { KeyId } from "@earendil-works/pi-tui";
 import { type Theme, theme } from "../../modes/interactive/theme/theme.ts";
+import { resolvePath } from "../../utils/paths.ts";
 import type { ResourceDiagnostic } from "../diagnostics.ts";
 import type { ReadonlyFooterDataProvider } from "../footer-data-provider.ts";
 import type { KeybindingsConfig } from "../keybindings.ts";
@@ -1208,6 +1209,28 @@ export class ExtensionRunner {
 			details: currentEvent.details,
 			isError: currentEvent.isError,
 		};
+	}
+
+	async emitToolApprovalAuthority(event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {
+		const registrations = this.extensions.filter((extension) => extension.toolApprovalAuthority !== undefined);
+		if (registrations.length === 0) return undefined;
+		const authorityTarget = registrations[0]?.toolApprovalAuthority;
+		if (registrations.length !== 1 || !authorityTarget) {
+			throw new Error("Invalid or conflicting tool approval authority registrations");
+		}
+		const authorityPath = resolvePath(authorityTarget, this.cwd, {
+			normalizeUnicodeSpaces: true,
+		});
+		const authority = this.extensions.find((extension) => extension.resolvedPath === authorityPath);
+		const handlers = authority?.handlers.get("tool_call");
+		if (!handlers?.length)
+			throw new Error(`Tool approval authority has no loaded tool_call handlers: ${authorityPath}`);
+		const ctx = this.createContext();
+		for (const handler of handlers) {
+			const result = (await handler(event, ctx)) as ToolCallEventResult | undefined;
+			if (result?.block) return result;
+		}
+		return { block: false };
 	}
 
 	async emitToolCall(event: ToolCallEvent): Promise<ToolCallEventResult | undefined> {

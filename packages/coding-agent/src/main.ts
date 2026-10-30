@@ -54,6 +54,7 @@ import sessionArchiveExtension from "../extensions/session-archive/src/index.ts"
 import sessionAutonameExtension from "../extensions/session-autoname/src/index.ts";
 import sessionIdExtension from "../extensions/session-id/src/index.ts";
 import specValidationExtension from "../extensions/spec-validation/src/index.ts";
+import t3CodeExtension from "../extensions/t3-code/src/index.ts";
 import { runArchitectService } from "./architect/main.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
 import { handleControlCommand } from "./cli/control-command.ts";
@@ -743,6 +744,7 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("session-autoname", sessionAutonameExtension),
 		firstPartyExtensionFactory("self-restart", selfRestartExtension),
 		firstPartyExtensionFactory("session-id", sessionIdExtension),
+		firstPartyExtensionFactory("t3-code", t3CodeExtension),
 	];
 }
 

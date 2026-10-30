@@ -5,6 +5,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
+import type { Writable } from "node:stream";
 import type { AgentEvent, AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import type { SessionStats } from "../../core/agent-session.ts";
@@ -12,7 +13,7 @@ import type { BashResult } from "../../core/bash-executor.ts";
 import type { CompactionResult } from "../../core/compaction/index.ts";
 import type { SessionEntry, SessionTreeNode } from "../../core/session-manager.ts";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
-import type { RpcCommand, RpcResponse, RpcSessionState, RpcSlashCommand } from "./rpc-types.ts";
+import type { RpcCommand, RpcExtensionUIResponse, RpcResponse, RpcSessionState, RpcSlashCommand } from "./rpc-types.ts";
 
 // ============================================================================
 // Types
@@ -574,28 +575,19 @@ export class RpcClient {
 		this.pendingRequests.clear();
 	}
 
-	async send(command: RpcCommandBody): Promise<RpcResponse> {
-		if (this.stopPromise) throw new Error(`RPC client is stopping. Stderr: ${this.stderr}`);
-		if (this.stopError) throw new Error(`Previous RPC stop failed: ${this.stopError.message}`);
-		const childProcess = this.process;
-		const stdin = childProcess?.stdin;
-		if (!childProcess || !stdin) {
-			throw new Error("Client not started");
-		}
-		if (this.exitError) {
-			throw this.exitError;
-		}
-		if (childProcess.exitCode !== null) {
-			const error = this.createProcessExitError(childProcess.exitCode, childProcess.signalCode);
-			this.exitError = error;
-			throw error;
-		}
-		if (stdin.destroyed || !stdin.writable) {
-			const error = new Error(`Agent process stdin is not writable. Stderr: ${this.stderr}`);
-			this.exitError = error;
-			throw error;
-		}
+	/** Send an extension dialog response without waiting for an RPC acknowledgement. */
+	async respondToExtensionUiRequest(response: RpcExtensionUIResponse): Promise<void> {
+		const stdin = this.requireWritableInput();
+		await new Promise<void>((resolve, reject) => {
+			stdin.write(serializeJsonLine(response), (error) => {
+				if (error) reject(error);
+				else resolve();
+			});
+		});
+	}
 
+	async send(command: RpcCommandBody): Promise<RpcResponse> {
+		const stdin = this.requireWritableInput();
 		const id = `req_${++this.requestId}`;
 		const fullCommand = { ...command, id } as RpcCommand;
 
@@ -625,6 +617,26 @@ export class RpcClient {
 				pending?.reject(writeError);
 			}
 		});
+	}
+
+	private requireWritableInput(): Writable {
+		if (this.stopPromise) throw new Error(`RPC client is stopping. Stderr: ${this.stderr}`);
+		if (this.stopError) throw new Error(`Previous RPC stop failed: ${this.stopError.message}`);
+		const childProcess = this.process;
+		const stdin = childProcess?.stdin;
+		if (!childProcess || !stdin) throw new Error("Client not started");
+		if (this.exitError) throw this.exitError;
+		if (childProcess.exitCode !== null) {
+			const error = this.createProcessExitError(childProcess.exitCode, childProcess.signalCode);
+			this.exitError = error;
+			throw error;
+		}
+		if (stdin.destroyed || !stdin.writable) {
+			const error = new Error(`Agent process stdin is not writable. Stderr: ${this.stderr}`);
+			this.exitError = error;
+			throw error;
+		}
+		return stdin;
 	}
 
 	private getData<T>(response: RpcResponse): T {

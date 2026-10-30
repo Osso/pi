@@ -1133,6 +1133,9 @@ export class AgentSession {
 				return gateResult;
 			}
 
+			const authorityResult = await runner.emitToolApprovalAuthority(event);
+			if (authorityResult) return authorityResult;
+
 			const approvalRequired = this._toolDefinitions.get(toolCall.name)?.definition.approvalRequired ?? true;
 			const policy = this.settingsManager.getApprovalPolicy();
 			const autoApproveReviewResult =

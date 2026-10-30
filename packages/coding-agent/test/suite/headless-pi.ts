@@ -32,7 +32,7 @@ import {
 import { type SessionEntry, SessionManager } from "../../src/core/session-manager.ts";
 import { createSqliteDatabase } from "../../src/core/sqlite.ts";
 import { RpcClient, type RpcCommandBody } from "../../src/modes/rpc/rpc-client.ts";
-import type { RpcExtensionUIRequest, RpcResponse } from "../../src/modes/rpc/rpc-types.ts";
+import type { RpcExtensionUIRequest, RpcExtensionUIResponse, RpcResponse } from "../../src/modes/rpc/rpc-types.ts";
 import { type HeadlessSupervisorProbe, startHeadlessSupervisorProbe } from "./fixtures/headless-supervisor-probe.ts";
 
 import {
@@ -119,6 +119,7 @@ export interface HeadlessPi {
 	restart(): Promise<void>;
 	startSharedSession(options?: HeadlessSharedSessionOptions): Promise<HeadlessSharedSession>;
 	send(command: RpcCommandBody): Promise<RpcResponse>;
+	respondToExtensionUiRequest(response: RpcExtensionUIResponse): Promise<void>;
 	getPyrunRunnerPids(): number[];
 	getRunnerPid(agentId: string): number | undefined;
 	listAgents(): AgentSnapshot[];
@@ -942,6 +943,7 @@ function createHeadlessRuntime(options: {
 		startSharedSession: (sharedOptions) =>
 			startSharedHeadlessSession(options.paths, options.fixtureOptions, sharedSessions, sharedOptions),
 		send: (command) => sendHeadlessCommand(options.clientControl.client, command),
+		respondToExtensionUiRequest: (response) => options.clientControl.client.respondToExtensionUiRequest(response),
 		getPyrunRunnerPids: () =>
 			readdirSync(options.paths.sessionDir, { recursive: true })
 				.filter((path): path is string => typeof path === "string" && path.endsWith("launch.json"))

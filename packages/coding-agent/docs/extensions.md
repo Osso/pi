@@ -801,7 +801,7 @@ Behavior guarantees:
 - Mutations to `event.input` affect the actual tool execution
 - Later `tool_call` handlers see mutations made by earlier handlers
 - No re-validation is performed after your mutation
-- Return values from `tool_call` only control blocking via `{ block: true, reason?: string }`
+- Return `{ block: true, reason?: string }` to block, or `{ block: false }` to explicitly approve; `undefined` normally leaves the approval decision to the configured reviewer. Delegated authority uses different `undefined` semantics, described below.
 
 ```typescript
 import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
@@ -1601,6 +1601,10 @@ pi.registerToolGate((event) => {
 ```
 
 Use ordinary `pi.on("tool_call", ...)` when you want approval-aware rewrites or prompts. Use `registerToolGate()` only for restrictions that must not be bypassed by approval settings.
+
+### pi.delegateToolApprovalsTo(extensionPath)
+
+Delegate tool approval decisions to the `tool_call` handlers of the loaded extension at `extensionPath`. Unconditional tool gates run first. The authority runs before native approval policies, including `never` and `auto-approve`. An undefined authority result explicitly permits the call. Its input rewrites and blocks apply. A missing, conflicting, or failing authority prevents execution; failures can appear as tool error results. Without delegation, native approval semantics remain unchanged.
 
 ### pi.registerCommand(name, options)
 

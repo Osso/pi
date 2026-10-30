@@ -1444,6 +1444,9 @@ export interface ExtensionAPI {
 	// Tool Registration
 	// =========================================================================
 
+	/** Delegate tool approval decisions to the tool_call handlers of a loaded extension. */
+	delegateToolApprovalsTo(extensionPath: string): void;
+
 	/** Register a tool that the LLM can call. */
 	registerTool<TParams extends TSchema = TSchema, TDetails = unknown, TState = any>(
 		tool: ToolDefinition<TParams, TDetails, TState>,
@@ -1926,6 +1929,7 @@ export interface ExtensionRuntime extends ExtensionRuntimeState, ExtensionAction
 export interface Extension {
 	path: string;
 	resolvedPath: string;
+	toolApprovalAuthority?: string;
 	sourceInfo: SourceInfo;
 	handlers: Map<string, HandlerFn[]>;
 	approvalReviewers: ApprovalReviewer[];

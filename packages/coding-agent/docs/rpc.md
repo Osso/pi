@@ -1273,7 +1273,9 @@ Set the text in the input editor. Fire-and-forget.
 
 ### Extension UI Responses (stdin)
 
-Responses are sent for dialog methods only (`select`, `confirm`, `input`, `editor`). The `id` must match the request.
+Responses are sent for dialog methods only (`select`, `confirm`, `input`, `editor`). The `id` must match the request. These messages have no RPC acknowledgement.
+
+The typed Node client provides `await agent.respondToExtensionUiRequest(response)`. It sends the typed `extension_ui_response` verbatim and returns `Promise<void>`; completion does not acknowledge that the dialog was handled.
 
 #### Value response (select, input, editor)
 

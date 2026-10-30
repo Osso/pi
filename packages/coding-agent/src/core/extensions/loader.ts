@@ -245,6 +245,15 @@ function createExtensionAPI(
 		},
 
 		// Registration methods - write to extension
+		delegateToolApprovalsTo(extensionPath: string): void {
+			runtime.assertActive();
+			if (extension.toolApprovalAuthority !== undefined && extension.toolApprovalAuthority !== extensionPath) {
+				extension.toolApprovalAuthority = "";
+				return;
+			}
+			extension.toolApprovalAuthority = extensionPath;
+		},
+
 		on(event: string, handler: HandlerFn): void {
 			runtime.assertActive();
 			const list = extension.handlers.get(event) ?? [];

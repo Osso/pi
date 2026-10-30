@@ -94,6 +94,8 @@
 
 ### Added
 
+- Added delegated tool approval authority for T3-launched RPC sessions. T3's injected extension owns approval modes; unconditional tool gates still apply, and normal Pi approval policies remain unchanged. Added typed RPC extension UI responses without an acknowledgement.
+
 - Added the `agent_settled` session and RPC event with an `aborted` flag after an accepted model dispatch finishes retries, compaction, queued continuation, and cleanup. The existing `agent_end` extension hook remains unchanged. T3 Code requires Pi 0.80.5 or later.
 
 - Added persistent reminders: the `reminders` tool and `/reminders` command list, add, edit, reschedule, complete, reopen, and delete durable follow-ups stored in the control database and shared across sessions and projects. Due times are stored as UTC and shown in local time. The session named by `reminders.deliverySessionId` checks every minute, delivers each due reminder once into its conversation, starts a turn, and sends a `notify-send` alert; rescheduling or reopening re-arms delivery. A reminder counts as delivered only once it is written into that conversation, so one lost from a busy assistant's queue by exit or abort is delivered again. The first check runs one minute after start, so it never blocks the resume of an interrupted turn.
