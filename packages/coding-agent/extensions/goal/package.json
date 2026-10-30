@@ -9,7 +9,7 @@
 		".": "./src/index.ts"
 	},
 	"dependencies": {
-		"@earendil-works/pi-tui": "0.80.3",
+		"@earendil-works/pi-tui": "1.0.0",
 		"typebox": "1.1.38"
 	}
 }

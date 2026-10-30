@@ -830,7 +830,8 @@ Events are streamed to stdout as JSON lines during agent operation. Events do NO
 | Event | Description |
 |-------|-------------|
 | `agent_start` | Agent begins processing |
-| `agent_end` | Agent completes (includes all generated messages) |
+| `agent_end` | An agent run ends (includes generated messages); session work may continue |
+| `agent_settled` | An accepted model dispatch settles after continuations and cleanup |
 | `turn_start` | New turn begins |
 | `turn_end` | Turn completes (includes assistant message and tool results) |
 | `message_start` | Message begins |
@@ -857,7 +858,7 @@ Emitted when the agent begins processing a prompt.
 
 ### agent_end
 
-Emitted when the agent completes. Contains all messages generated during this run.
+Emitted when an agent run ends. Contains all messages generated during that run. Retry, compaction, or queued continuation may follow, so this is not the final dispatch-completion signal. The `agent_end` extension hook remains unchanged.
 
 ```json
 {
@@ -865,6 +866,16 @@ Emitted when the agent completes. Contains all messages generated during this ru
   "messages": [...]
 }
 ```
+
+### agent_settled
+
+```json
+{"type": "agent_settled", "aborted": false}
+```
+
+Emitted when an accepted model dispatch has finished its retries, compaction, queued continuations, and cleanup. `aborted` reports whether the dispatch was aborted; it does not report whether the dispatch succeeded. Command-only prompts need not emit this event. Later independent activity can still start after settlement.
+
+T3 Code's Pi provider requires Pi version 0.80.5 or later and uses this event together with the existing `get_entries` command. Version 1.0.0 satisfies the minimum version check.
 
 ### turn_start / turn_end
 
@@ -1479,7 +1490,7 @@ for event in read_events():
         if delta.get("type") == "text_delta":
             print(delta["delta"], end="", flush=True)
     
-    if event.get("type") == "agent_end":
+    if event.get("type") == "agent_settled":
         print()
         break
 ```

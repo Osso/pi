@@ -20,6 +20,8 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 
 - [x] Accept typed RPC commands through `agent.send({...})`.
 - [x] Wait for production RPC session events, including automatic retry events, using the `AgentSessionEvent` contract without racing events emitted before the waiter starts.
+- [x] Verify real-process RPC `agent_settled` waits for retry recovery and an `agent_end` extension follow-up, reports abort, and permits a subsequent turn. The existing `agent_end` extension hook can precede settlement. See the [RPC protocol](../../packages/coding-agent/docs/rpc.md#agent_settled).
+- [ ] Verify settlement after compaction and cleanup in a real RPC process; session-level tests cover pending bash cleanup.
 - [x] Expose provider requests and allow the test to supply a response to a specific request.
 - [x] Configure isolated approval presets through the fixture's persisted settings.
 - [x] Claim and answer durable Supervisor requests without bypassing the production control-database boundary.
@@ -75,6 +77,8 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 
 - `packages/coding-agent/test/suite/headless-pi.ts` — disposable parent-side fixture and assertion helpers.
 - `packages/coding-agent/test/suite/fixtures/headless-pi-provider-preload.ts` — child-process faux provider connected through private Unix-socket JSONL.
+- `packages/coding-agent/test/suite/fixtures/t3-rpc-contract-cli.ts` — test CLI with a command-only prompt and an `agent_end` follow-up.
+- `packages/coding-agent/test/suite/fixtures/t3-rpc-retry-cli.ts` — test CLI with retry backoff bounded to 1 ms.
 - `packages/coding-agent/test/suite/fixtures/loop-shutdown-race-cli.ts` — test-only CLI entrypoint that appends a shutdown barrier after first-party extensions.
 - `packages/coding-agent/src/modes/rpc/rpc-client.ts` — typed RPC transport with configurable Node startup arguments and public raw command sending.
 - `packages/coding-agent/src/modes/index.ts` — mode-level `RpcCommandBody` type export.
@@ -86,6 +90,8 @@ The headless Pi test fixture starts a real `pi --mode rpc` child process with is
 - `packages/agent-core/test/agent-loop.test.ts`
 - `packages/coding-agent/test/interactive-mode-resume-continuation.test.ts`
 - `packages/coding-agent/test/suite/headless-pi.test.ts`
+- `packages/coding-agent/test/suite/t3-rpc-compatibility.test.ts` — real-process discovery, command-only prompt, extension follow-up, incremental entries, restart/history, retry, and abort; 3 tests passed on 2026-10-30. This exercises Pi RPC against the pinned T3 contract, not the T3 application.
+- `packages/coding-agent/test/suite/agent-settled.test.ts` — session-level settlement, retry, extension follow-up, pending bash cleanup, abort, and rejected dispatch; six tests passed.
 - `packages/coding-agent/test/agent-session-registration-failure.test.ts`
 - `packages/coding-agent/test/orphaned-detached-reconciliation.test.ts`
 - `packages/coding-agent/test/suite/regressions/session-active-slice-restart.test.ts`

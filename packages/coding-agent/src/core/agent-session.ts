@@ -431,6 +431,7 @@ type AgentSessionMessageEvent = AgentMessageEvent & { runtimeMessageMarker?: Run
 export type AgentSessionEvent =
 	| Exclude<AgentEvent, { type: "agent_end" } | AgentMessageEvent>
 	| AgentSessionMessageEvent
+	| { type: "agent_settled"; aborted: boolean }
 	| {
 			type: "agent_end";
 			messages: AgentMessage[];
@@ -2694,6 +2695,12 @@ export class AgentSession {
 		this._systemPromptOverride = undefined;
 		this._flushPendingBashMessages();
 		this._scheduleIdleCompaction();
+		this._emit({
+			type: "agent_settled",
+			aborted:
+				dispatch.cancelled ||
+				(finalError === undefined && this._findLastAssistantMessage()?.stopReason === "aborted"),
+		});
 	}
 
 	private async _continuePostAgentRuns(dispatch: ThinkingTimeoutDispatch): Promise<void> {
