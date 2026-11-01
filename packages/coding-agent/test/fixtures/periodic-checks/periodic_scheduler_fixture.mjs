@@ -38,15 +38,11 @@ async function fixture(t, overrides = {}, tools = ["spawn_agent", "send_agent_me
 	const calls = [];
 	const messages = [];
 	const agents = [];
-	const entries = [];
 	let spawn = async (params) => {
 		const agent = {
 			id: `audit-${calls.length}`,
-			agentType: params.agentType,
 			displayName: params.displayName,
 			lifecycle: "running",
-			createdAt: new Date().toISOString(),
-			updatedAt: new Date().toISOString(),
 		};
 		agents.push(agent);
 		return {
@@ -68,7 +64,7 @@ async function fixture(t, overrides = {}, tools = ["spawn_agent", "send_agent_me
 		multiAgentAgentId: undefined,
 		multiAgentRequiresAgentId: false,
 		multiAgentStore: { listAgents: () => agents },
-		sessionManager: { getSessionId: () => sessionId, getBranch: () => entries },
+		sessionManager: { getSessionId: () => sessionId },
 		isIdle: () => idle,
 		hasPendingMessages: () => pending,
 		...overrides,
@@ -105,7 +101,6 @@ async function fixture(t, overrides = {}, tools = ["spawn_agent", "send_agent_me
 			return notifications.at(-1).text;
 		},
 		agents,
-		entries,
 		emit,
 		finishAudit,
 		ctx,
