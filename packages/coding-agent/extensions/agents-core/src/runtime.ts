@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { getAgentDir } from "../../../src/config.ts";
 import type { AgentSessionEvent } from "../../../src/core/agent-session.ts";
 import { DEFAULT_THINKING_LEVEL } from "../../../src/core/defaults.ts";
@@ -15,7 +13,6 @@ import {
 	type ExtensionFactory,
 	type ExtensionCommandContext,
 	type ExtensionContext,
-	type ToolDefinition,
 	type ViewedSessionMutationTarget,
 } from "../../../src/core/extensions/types.ts";
 import {
@@ -72,8 +69,6 @@ import {
 import { SessionManager, type SessionEntry, type SessionInfo } from "../../../src/core/session-manager.ts";
 import { restoreArchivedSession } from "../../../src/core/session-archive-storage.ts";
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
-import { createAgentConfigReadToolDefinition } from "../../../src/core/tools/read.ts";
-import { createSearchParentSessionHistoryToolDefinition } from "../../../src/core/tools/search-current-session-history.ts";
 import { CHILD_DISABLED_AGENT_TOOL_NAMES, SUPERVISOR_ONLY_TOOL_NAMES } from "../../../src/core/tool-capabilities.ts";
 import { deliverTerminalOutboxProjections } from "../../../src/core/terminal-outbox-delivery.ts";
 import { registerAgentViewerTools } from "../../agent-viewer/src/runtime.ts";
@@ -86,7 +81,7 @@ import {
 import { registerSetAgentModelTool, resolveLiveAgentMutationTarget } from "./agent-model-tool.ts";
 import { bindProductionChildSession, type UnboundChildAgentSession } from "./child-session.ts";
 import { readCurrentChildAssistantText } from "./child-response.ts";
-import { createChildEndTurnToolDefinition } from "./child-report.ts";
+import { createChildTools } from "./child-tools.ts";
 import { isRemoteSessionMessage, sessionMessageRouteError } from "./session-message-route.ts";
 import { waitForActiveDescendants } from "./descendant-settlement.ts";
 import { createLifecycleCoordinator, RUNTIME_PROCESS_IDENTITY } from "./lifecycle-runtime.ts";
@@ -199,7 +194,6 @@ const MESSAGE_CONTENT_LIMIT = 2000;
 const RUNTIME_COORDINATION_POLL_INTERVAL_MS = 3_000;
 const WAIT_AGENT_SLICE_MS = 25 * 60_000;
 const CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE = "Agent orchestration is unavailable from child agent runtimes.";
-const DEFAULT_BROWSER_AGENT_CONFIG_ROOT = join(homedir(), "AgentConfig");
 
 export type AgentDesktopNotification = DesktopNotification;
 
@@ -593,21 +587,6 @@ function resolveChildExtensionFactories(
 	);
 }
 
-function createChildTools(
-	agent: AgentSnapshot,
-	options: Pick<ProductionChildAgentSessionFactoryOptions, "browserAgentConfigRoot">,
-): ToolDefinition[] {
-	const tools: ToolDefinition[] = [
-		defineTool(createChildEndTurnToolDefinition()),
-		defineTool(createSearchParentSessionHistoryToolDefinition()),
-	];
-	if (agent.agentType === "browser") {
-		const allowedRoot = options.browserAgentConfigRoot ?? DEFAULT_BROWSER_AGENT_CONFIG_ROOT;
-		tools.push(createAgentConfigReadToolDefinition(agent.cwd, allowedRoot));
-	}
-	return tools;
-}
-
 function getSessionTranscriptMetadata(
 	sessionManager: NonNullable<CreateAgentSessionOptions["sessionManager"]>,
 ): AgentSnapshot["transcript"] {
@@ -711,7 +690,7 @@ export function createProductionChildAgentSessionFactory(
 			: { type: "session_start" as const, reason: "fork" as const };
 		const result = await options.createSession({
 			agentDir: options.agentDir,
-			customTools: createChildTools(agent, options),
+			customTools: createChildTools(agent, options.browserAgentConfigRoot),
 			cwd: agent.cwd,
 			excludeTools: CHILD_EXCLUDED_TOOL_NAMES,
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
@@ -769,7 +748,7 @@ export function createProductionAttachedSessionFactory(
 			: { type: "session_start" as const, reason: "resume" as const };
 		const result = await options.createSession({
 			agentDir: options.agentDir,
-			customTools: createChildTools(agent, options),
+			customTools: createChildTools(agent, options.browserAgentConfigRoot),
 			cwd: agent.cwd,
 			excludeTools: CHILD_EXCLUDED_TOOL_NAMES,
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
