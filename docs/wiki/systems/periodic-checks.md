@@ -45,7 +45,7 @@ Both commands remain available while main is busy. See the [command contract](..
 
 `session_start` resolves the Git root and validates metadata before creating an interval timer. Main TUI/RPC sessions need the multi-agent store and active `spawn_agent`/`send_agent_message` tools; child sessions do not arm timers.
 
-Each tick advances the stored schedule boundary and attempts direct `pi.callTool("spawn_agent", ...)` dispatch. A pending call or stored live `periodic-checks-audit` blocks overlap. The child is a fresh-context `explore` agent; its prompt rereads the checklist and requires report-only findings sent to the originating main session with successful-delivery confirmation. No model prompt asks main to start the audit. Schedule generations fence late results after reload or shutdown.
+Each tick advances the stored schedule boundary and attempts direct `pi.callTool("spawn_agent", ...)` dispatch. A pending call or stored live `periodic-checks-audit` blocks overlap. The child is a fresh-context `explore` agent; its prompt rereads the checklist and requires report-only findings sent to the originating main session with successful-delivery confirmation. The child inspects main with `list_agents` and `search_parent_session_history`. No model prompt asks main to start the audit. Schedule generations fence late results after reload or shutdown.
 
 A failed or timed-out scheduled Git-root check reports an error and skips that audit, leaving Pi and later ticks running. Root verification remains required before dispatch. See the [audit policy](../../specs/periodic-checks.md#dispatch-and-audit-policy).
 

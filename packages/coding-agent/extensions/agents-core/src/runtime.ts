@@ -73,6 +73,7 @@ import { SessionManager, type SessionEntry, type SessionInfo } from "../../../sr
 import { restoreArchivedSession } from "../../../src/core/session-archive-storage.ts";
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
 import { createAgentConfigReadToolDefinition } from "../../../src/core/tools/read.ts";
+import { createSearchParentSessionHistoryToolDefinition } from "../../../src/core/tools/search-current-session-history.ts";
 import { CHILD_DISABLED_AGENT_TOOL_NAMES, SUPERVISOR_ONLY_TOOL_NAMES } from "../../../src/core/tool-capabilities.ts";
 import { deliverTerminalOutboxProjections } from "../../../src/core/terminal-outbox-delivery.ts";
 import { registerAgentViewerTools } from "../../agent-viewer/src/runtime.ts";
@@ -596,7 +597,10 @@ function createChildTools(
 	agent: AgentSnapshot,
 	options: Pick<ProductionChildAgentSessionFactoryOptions, "browserAgentConfigRoot">,
 ): ToolDefinition[] {
-	const tools: ToolDefinition[] = [defineTool(createChildEndTurnToolDefinition())];
+	const tools: ToolDefinition[] = [
+		defineTool(createChildEndTurnToolDefinition()),
+		defineTool(createSearchParentSessionHistoryToolDefinition()),
+	];
 	if (agent.agentType === "browser") {
 		const allowedRoot = options.browserAgentConfigRoot ?? DEFAULT_BROWSER_AGENT_CONFIG_ROOT;
 		tools.push(createAgentConfigReadToolDefinition(agent.cwd, allowedRoot));

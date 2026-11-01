@@ -28,6 +28,7 @@ Bundled first-party `periodic-checks` schedules report-only project audits from 
 - [x] Pending spawn suppresses overlap until settlement, including rejection or unsuccessful dispatch. A stored child named `periodic-checks-audit` blocks overlap until `completed`, `failed`, or `aborted`, including restored children after reload. Unrelated children do not block dispatch.
 - [x] Child termination permits the next scheduled tick, not immediate dispatch; main `agent_end` does not release overlap. Reload/shutdown/replacement fence late spawn results from new pending locks and diagnostics. Dispatch failures notify explicitly with session, checklist, and failure context.
 - [ ] Each audit rereads the checklist, limits findings to its requested scope, and reports missing checklist or unavailable evidence. Send findings through `send_agent_message` to `main` with the originating parent session ID; inspect the result and report delivery failure explicitly.
+- [x] Audit instructions direct checklist items about main's behavior, delegation, or child agents to `list_agents` and `search_parent_session_history`, because `search_current_session_history` only searches the audit's own session.
 - [x] Audit instructions prohibit corrections, nested spawning, builds, cleanup, blocking, cancellation, steering, edits, deployment, operational mutation, or restarting main. Authorized main work continues independently.
 
 ## How it works

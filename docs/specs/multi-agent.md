@@ -51,8 +51,14 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       `spawn_agent`, `attach_session_agent`, `wait_agent`, `/bg`, and the Pyrun `agents.spawn`,
       `agents.attachSession`, and `agents.wait` bridge methods before rows are created. Production child
       and attached sessions also exclude `spawn_agent`, `attach_session_agent`, `wait_agent`,
-      `list_agents`, `agent_viewer`, `steer_agent`, and `close_agent` as defense in depth, while retaining
+      `agent_viewer`, `steer_agent`, and `close_agent` as defense in depth, while retaining
       direct child communication through `contact_parent` and `send_agent_message`.
+- [x] Child runtimes can observe, but not control, their parent: read-only `list_agents` lists the
+      parent's agent store, and child-only `search_parent_session_history` searches the direct parent's
+      persisted active branch with the same matching, context, and pagination as
+      [`search_current_session_history`](current-session-history-search.md). It rejects non-child runtimes
+      and cannot target any other session. Proven by
+      `packages/coding-agent/test/suite/child-parent-observation.test.ts` against a real spawned child.
 - [x] Spawned and attached subagents must not expose `change_working_directory`: child runtimes lack
       relocation support. Explicit stale or indirect calls must fail before scheduling relocation or requesting
       turn termination, leaving the child cwd and runtime unchanged. Main and standalone behavior remains

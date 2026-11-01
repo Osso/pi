@@ -80,3 +80,17 @@ export async function* readSessionHistoryReverse(manager: ReadonlySessionManager
 		if (!parentId) return;
 	}
 }
+
+/**
+ * Search-only traversal of a session file owned by another runtime, newest first. The last entry is the
+ * leaf, as when the file is loaded; only its ancestors are yielded, so abandoned branches are skipped.
+ */
+export async function* readSessionFileHistoryReverse(path: string): AsyncGenerator<SessionEntry> {
+	let expectedId: string | undefined;
+	for await (const entry of readTranscriptEntriesReverse(path)) {
+		if (expectedId !== undefined && entry.id !== expectedId) continue;
+		yield entry;
+		if (!entry.parentId) return;
+		expectedId = entry.parentId;
+	}
+}

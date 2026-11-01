@@ -3,10 +3,13 @@ import type { ImageContent, TextContent, ThinkingContent, ToolCall } from "@eare
 import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
-import { readSessionHistoryReverse } from "../session-history.ts";
-import type { ReadonlySessionManager, SessionEntry } from "../session-manager.ts";
+import { readSessionFileHistoryReverse, readSessionHistoryReverse } from "../session-history.ts";
+import type { SessionEntry } from "../session-manager.ts";
 
 const DEFAULT_LIMIT = 20;
+const CURRENT_TOOL_NAME = "search_current_session_history";
+const PARENT_TOOL_NAME = "search_parent_session_history";
+const HISTORY_SEARCH_TOOL_NAMES = new Set([CURRENT_TOOL_NAME, PARENT_TOOL_NAME]);
 
 const searchCurrentSessionHistorySchema = Type.Object({
 	query: Type.String({ description: "Case-insensitive literal text to search for." }),
@@ -32,7 +35,8 @@ export interface SessionHistorySearchEntry {
 	role: string;
 	content: unknown;
 	matched: boolean;
-	compacted: boolean;
+	/** Whether compaction hid the entry from model context; omitted for a parent session this runtime does not load. */
+	compacted?: boolean;
 }
 
 export interface SearchCurrentSessionHistoryToolDetails {
@@ -41,6 +45,12 @@ export interface SearchCurrentSessionHistoryToolDetails {
 	returnedMatches: number;
 	nextCursor: string | undefined;
 	entries: SessionHistorySearchEntry[];
+}
+
+interface HistorySource {
+	toolName: string;
+	readReverse(): AsyncGenerator<SessionEntry>;
+	contextEntryIds: Set<string> | undefined;
 }
 
 interface SearchableSessionEntry {
@@ -67,7 +77,7 @@ function collectSearchTexts(content: string | (TextContent | ImageContent | Thin
 			case "text":
 				return [block.text];
 			case "toolCall":
-				return block.name === "search_current_session_history"
+				return HISTORY_SEARCH_TOOL_NAMES.has(block.name)
 					? []
 					: [block.name, ...collectArgumentTexts(block.arguments)];
 			default:
@@ -79,7 +89,7 @@ function collectSearchTexts(content: string | (TextContent | ImageContent | Thin
 function collectMessageSearchTexts(message: AgentMessage): string[] {
 	switch (message.role) {
 		case "toolResult":
-			return message.toolName === "search_current_session_history" ? [] : collectSearchTexts(message.content);
+			return HISTORY_SEARCH_TOOL_NAMES.has(message.toolName) ? [] : collectSearchTexts(message.content);
 		case "bashExecution":
 			return [message.command, message.output];
 		case "branchSummary":
@@ -117,16 +127,16 @@ function searchableEntry(entry: SessionEntry): SearchableSessionEntry | undefine
 	}
 }
 
-function parseCursor(cursor: string | undefined): number {
+function parseCursor(source: HistorySource, cursor: string | undefined): number {
 	if (cursor === undefined) return 0;
 	if (!/^\d+$/.test(cursor)) {
-		throw new Error("search_current_session_history cursor must be a non-negative integer cursor");
+		throw new Error(`${source.toolName} cursor must be a non-negative integer cursor`);
 	}
 	return Number(cursor);
 }
 
-async function* readSearchableHistoryReverse(manager: ReadonlySessionManager, query: string) {
-	for await (const entry of readSessionHistoryReverse(manager)) {
+async function* readSearchableHistoryReverse(source: HistorySource, query: string) {
+	for await (const entry of source.readReverse()) {
 		const searchable = searchableEntry(entry);
 		if (!searchable) continue;
 		const matches = searchable.searchTexts.some((text) => text.toLocaleLowerCase().includes(query));
@@ -134,33 +144,37 @@ async function* readSearchableHistoryReverse(manager: ReadonlySessionManager, qu
 	}
 }
 
+function toSearchEntry(searchable: SearchableSessionEntry, matched: boolean, source: HistorySource) {
+	const entry: SessionHistorySearchEntry = {
+		id: searchable.entry.id,
+		timestamp: searchable.entry.timestamp,
+		entryType: searchable.entry.type as SessionHistorySearchEntry["entryType"],
+		role: searchable.role,
+		content: searchable.content,
+		matched,
+	};
+	if (source.contextEntryIds) entry.compacted = !source.contextEntryIds.has(searchable.entry.id);
+	return entry;
+}
+
 async function readHistoryPage(
-	manager: ReadonlySessionManager,
+	source: HistorySource,
 	query: string,
 	totalMatches: number,
 	params: SearchCurrentSessionHistoryToolInput,
 ): Promise<SessionHistorySearchEntry[]> {
-	const cursor = parseCursor(params.cursor);
+	const cursor = parseCursor(source, params.cursor);
 	const limit = params.limit ?? DEFAULT_LIMIT;
 	const contextEntries = params.context_entries ?? 0;
-	const contextIds = new Set(manager.buildContextEntries().map((entry) => entry.id));
 	const included = new Map<number, SessionHistorySearchEntry>();
 	const neighbors: { index: number; entry: SessionHistorySearchEntry }[] = [];
 	let matchOffset = totalMatches;
 	let remainingContext = 0;
 	let index = 0;
-	for await (const searchable of readSearchableHistoryReverse(manager, query)) {
+	for await (const searchable of readSearchableHistoryReverse(source, query)) {
 		if (searchable.matches) matchOffset--;
 		const matched = searchable.matches && matchOffset >= cursor && matchOffset < cursor + limit;
-		const entry: SessionHistorySearchEntry = {
-			id: searchable.entry.id,
-			timestamp: searchable.entry.timestamp,
-			entryType: searchable.entry.type as SessionHistorySearchEntry["entryType"],
-			role: searchable.role,
-			content: searchable.content,
-			matched,
-			compacted: !contextIds.has(searchable.entry.id),
-		};
+		const entry = toSearchEntry(searchable, matched, source);
 		if (matched) {
 			for (const neighbor of neighbors) included.set(neighbor.index, neighbor.entry);
 			remainingContext = contextEntries + 1;
@@ -176,62 +190,73 @@ async function readHistoryPage(
 	return [...included].sort(([left], [right]) => right - left).map(([, entry]) => entry);
 }
 
-function requirePersistedSession(ctx: ExtensionContext | undefined): ExtensionContext {
-	if (!ctx?.sessionManager.getSessionFile()) {
-		throw new Error("search_current_session_history requires a persisted current session");
+async function searchHistory(source: HistorySource, params: SearchCurrentSessionHistoryToolInput, emptyText: string) {
+	const query = params.query.trim();
+	if (query === "") {
+		throw new Error(`${source.toolName} query must not be empty`);
 	}
-	return ctx;
+	const cursor = parseCursor(source, params.cursor);
+	const normalizedQuery = query.toLocaleLowerCase();
+	let totalMatches = 0;
+	for await (const searchable of readSearchableHistoryReverse(source, normalizedQuery)) {
+		if (searchable.matches) totalMatches++;
+	}
+	const returnedMatches = Math.min(params.limit ?? DEFAULT_LIMIT, Math.max(0, totalMatches - cursor));
+	const entries = returnedMatches > 0 ? await readHistoryPage(source, normalizedQuery, totalMatches, params) : [];
+	const nextOffset = cursor + returnedMatches;
+	const nextCursor = nextOffset < totalMatches ? String(nextOffset) : undefined;
+	const details: SearchCurrentSessionHistoryToolDetails = {
+		query,
+		totalMatches,
+		returnedMatches,
+		nextCursor,
+		entries,
+	};
+	const text = totalMatches === 0 ? emptyText : JSON.stringify(details, null, 2);
+	return { content: [{ type: "text" as const, text }], details };
 }
 
-export function createSearchCurrentSessionHistoryToolDefinition(): ToolDefinition<
+function currentSessionSource(rawContext: ExtensionContext | undefined): HistorySource {
+	const sessionManager = rawContext?.sessionManager;
+	if (!sessionManager?.getSessionFile()) {
+		throw new Error(`${CURRENT_TOOL_NAME} requires a persisted current session`);
+	}
+	return {
+		toolName: CURRENT_TOOL_NAME,
+		readReverse: () => readSessionHistoryReverse(sessionManager),
+		contextEntryIds: new Set(sessionManager.buildContextEntries().map((entry) => entry.id)),
+	};
+}
+
+/** Children run in-process against the parent's multi-agent store, which persists under the parent's session file. */
+function parentSessionSource(rawContext: ExtensionContext | undefined): HistorySource {
+	if (!rawContext?.multiAgentAgentId) {
+		throw new Error(`${PARENT_TOOL_NAME} is only available to child agents`);
+	}
+	const parentSessionPath = rawContext.multiAgentStore?.getPersistenceTarget()?.sessionPath;
+	if (!parentSessionPath) {
+		throw new Error(`${PARENT_TOOL_NAME} requires a persisted parent session`);
+	}
+	return {
+		toolName: PARENT_TOOL_NAME,
+		readReverse: () => readSessionFileHistoryReverse(parentSessionPath),
+		contextEntryIds: undefined,
+	};
+}
+
+type HistorySearchToolDefinition = ToolDefinition<
 	typeof searchCurrentSessionHistorySchema,
 	SearchCurrentSessionHistoryToolDetails
-> {
-	return {
-		name: "search_current_session_history",
-		label: "search_current_session_history",
-		description:
-			"Search conversational content in the current persisted session's active branch, including full entries hidden from model context by compaction.",
-		promptSnippet: "Search the current stored session history after compaction",
-		promptGuidelines: [
-			"Use search_current_session_history to recover details from the current session that may have been omitted by compaction.",
-			"Matching includes user and assistant text, tool-call names and arguments, tool results, custom messages, and summaries; excludes thinking, signatures, and this tool's own calls and results.",
-		],
-		parameters: searchCurrentSessionHistorySchema,
-		executionMode: "parallel",
-		async execute(_toolCallId, params, _signal, _onUpdate, rawContext) {
-			const ctx = requirePersistedSession(rawContext);
-			const query = params.query.trim();
-			if (query === "") {
-				throw new Error("search_current_session_history query must not be empty");
-			}
+>;
 
-			const cursor = parseCursor(params.cursor);
-			const normalizedQuery = query.toLocaleLowerCase();
-			let totalMatches = 0;
-			for await (const searchable of readSearchableHistoryReverse(ctx.sessionManager, normalizedQuery)) {
-				if (searchable.matches) totalMatches++;
-			}
-			const returnedMatches = Math.min(params.limit ?? DEFAULT_LIMIT, Math.max(0, totalMatches - cursor));
-			const entries =
-				returnedMatches > 0 ? await readHistoryPage(ctx.sessionManager, normalizedQuery, totalMatches, params) : [];
-			const nextOffset = cursor + returnedMatches;
-			const nextCursor = nextOffset < totalMatches ? String(nextOffset) : undefined;
-			const details: SearchCurrentSessionHistoryToolDetails = {
-				query,
-				totalMatches,
-				returnedMatches,
-				nextCursor,
-				entries,
-			};
-			const text =
-				totalMatches === 0 ? "No matches found in current session history." : JSON.stringify(details, null, 2);
-			return { content: [{ type: "text", text }], details };
-		},
+function createHistorySearchRenderers(
+	toolName: string,
+): Pick<HistorySearchToolDefinition, "renderCall" | "renderResult"> {
+	return {
 		renderCall(args, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
 			text.setText(
-				`${theme.fg("toolTitle", theme.bold("search_current_session_history"))} ${theme.fg("accent", JSON.stringify(args?.query ?? ""))}`,
+				`${theme.fg("toolTitle", theme.bold(toolName))} ${theme.fg("accent", JSON.stringify(args?.query ?? ""))}`,
 			);
 			return text;
 		},
@@ -244,5 +269,43 @@ export function createSearchCurrentSessionHistoryToolDefinition(): ToolDefinitio
 			text.setText(output ? `\n${theme.fg(result.isError ? "error" : "toolOutput", output)}` : "");
 			return text;
 		},
+	};
+}
+
+export function createSearchCurrentSessionHistoryToolDefinition(): HistorySearchToolDefinition {
+	return {
+		name: CURRENT_TOOL_NAME,
+		label: CURRENT_TOOL_NAME,
+		description:
+			"Search conversational content in the current persisted session's active branch, including full entries hidden from model context by compaction.",
+		promptSnippet: "Search the current stored session history after compaction",
+		promptGuidelines: [
+			"Use search_current_session_history to recover details from the current session that may have been omitted by compaction.",
+			"Matching includes user and assistant text, tool-call names and arguments, tool results, custom messages, and summaries; excludes thinking, signatures, and history-search calls and results.",
+		],
+		parameters: searchCurrentSessionHistorySchema,
+		executionMode: "parallel",
+		execute: async (_toolCallId, params, _signal, _onUpdate, rawContext) =>
+			searchHistory(currentSessionSource(rawContext), params, "No matches found in current session history."),
+		...createHistorySearchRenderers(CURRENT_TOOL_NAME),
+	};
+}
+
+export function createSearchParentSessionHistoryToolDefinition(): HistorySearchToolDefinition {
+	return {
+		name: PARENT_TOOL_NAME,
+		label: PARENT_TOOL_NAME,
+		description:
+			"Child agents only: read-only search of the direct parent session's persisted active branch, such as the parent's user messages, tool calls, and results.",
+		promptSnippet: "Search the parent session's stored history (child agents only)",
+		promptGuidelines: [
+			"Use search_parent_session_history when a task needs evidence of what the parent session did or was asked; it cannot read other sessions.",
+			"Matching includes user and assistant text, tool-call names and arguments, tool results, custom messages, and summaries; excludes thinking, signatures, and history-search calls and results.",
+		],
+		parameters: searchCurrentSessionHistorySchema,
+		executionMode: "parallel",
+		execute: async (_toolCallId, params, _signal, _onUpdate, rawContext) =>
+			searchHistory(parentSessionSource(rawContext), params, "No matches found in parent session history."),
+		...createHistorySearchRenderers(PARENT_TOOL_NAME),
 	};
 }

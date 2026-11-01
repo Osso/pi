@@ -89,6 +89,7 @@ function auditPrompt(checklist: string, parentSessionId: string): string {
 		"Report this project's worktree/disk/build/error/delegation state and host headroom only as requested by the checklist. Count other agents and resource usage when requested. Report missing checklist or unavailable evidence explicitly.",
 		"Monitor report only: no nested spawn, no cleanup, no blocking, no cancellation, no steering, no edits or deployment, no builds, no operational mutation. Do not cancel audit children or restart main.",
 		`Send child findings through send_agent_message with toAgentId "main" AND toSessionId ${JSON.stringify(parentSessionId)}, the originating parent session ID. Check the tool result and confirm successful delivery; a failed tool call is not delivery. Report delivery failure explicitly; no wait_agent recovery.`,
+		"For checklist items about main's behavior, delegation, or child agents, use list_agents for main's agents and search_parent_session_history for main's messages and tool calls. search_current_session_history only searches this audit's own session.",
 	].join("\n");
 }
 

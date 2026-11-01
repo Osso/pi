@@ -4,7 +4,7 @@
 
 ## Use and data flow
 
-Call `search_current_session_history` with literal `query`, optional `context_entries` (0–10, default 0), `limit` (1–50, default 20), and a returned `cursor`. It is default-active in [`tools/index.ts`](../../../packages/coding-agent/src/core/tools/index.ts).
+Call `search_current_session_history` with literal `query`, optional `context_entries` (0–10, default 0), `limit` (1–50, default 20), and a returned `cursor`. It is default-active in [`tools/index.ts`](../../../packages/coding-agent/src/core/tools/index.ts). Child agents also get `search_parent_session_history` with the same parameters; it reads the parent session file from `ctx.multiAgentStore.getPersistenceTarget()` and walks the active branch backwards from the last entry.
 
 [`search-current-session-history.ts`](../../../packages/coding-agent/src/core/tools/search-current-session-history.ts) requires a session file, trims/rejects an empty query, and obtains `sessionManager.getBranch()`. It recursively collects strings from user-message content and compares locale-lowercased substrings. Assistant/tool/custom/summary content cannot produce matches.
 
