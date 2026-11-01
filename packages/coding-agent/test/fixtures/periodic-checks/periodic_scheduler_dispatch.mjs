@@ -33,7 +33,12 @@ test("manual run starts immediately while main busy and pending without moving t
 	assert.equal(f.calls.length, 2);
 	await f.tick(1);
 	assert.equal(f.calls.length, 3, "timer retains original scheduled boundary");
-	assert.deepEqual(f.calls[0].params, f.calls[2].params, "same report-only prompt and dispatch contract");
+	const withoutSnapshot = ({ prompt, ...params }) => ({ ...params, prompt: prompt.split("Main activity snapshot")[0] });
+	assert.deepEqual(
+		withoutSnapshot(f.calls[0].params),
+		withoutSnapshot(f.calls[2].params),
+		"same report-only prompt and dispatch contract; only the live activity snapshot differs",
+	);
 });
 
 test("manual pending spawn refuses duplicates and timer overlap without awaiting child", async (t) => {
@@ -174,6 +179,59 @@ for (const state of ["busy", "pending", "busy and pending"]) {
 	});
 }
 
+function mainMessage(minutesAgo, message) {
+	return {
+		type: "message",
+		timestamp: new Date(Date.now() - minutesAgo * 60000).toISOString(),
+		message,
+	};
+}
+
+function mainToolCall(minutesAgo, name, args) {
+	return mainMessage(minutesAgo, {
+		role: "assistant",
+		content: [{ type: "toolCall", id: `call-${minutesAgo}`, name, arguments: args }],
+	});
+}
+
+test("audit prompt carries main's recent activity and child agents that the child cannot read itself", async (t) => {
+	const f = await fixture(t);
+	f.emit("session_start");
+	f.agents.push({
+		id: "agent_7",
+		agentType: "implement",
+		displayName: "retail-known-gaps",
+		lifecycle: "completed",
+		createdAt: "2026-01-15T07:00:00.000Z",
+		updatedAt: "2026-01-15T08:00:00.000Z",
+	});
+	await f.tick(interval - 1);
+	f.entries.push(
+		mainToolCall(45, "edit", { path: "src/outside-window.rs" }),
+		mainMessage(20, { role: "user", content: [{ type: "text", text: "why are you working from the main thread?" }] }),
+		mainToolCall(10, "edit", { path: "src/atlas.rs", edits: [] }),
+		mainToolCall(9, "edit", { path: "src/frame.rs", edits: [] }),
+		mainToolCall(5, "pyrun_eval", { code: "cli.command('cargo', 'test').run()" }),
+		mainToolCall(1, "end_turn", { reason: "Retail suite running" }),
+	);
+	await f.tick(1);
+	assert.equal(f.calls.length, 1);
+	const prompt = f.calls[0].params.prompt;
+	for (const expected of [
+		"Main activity snapshot for session main-session, last 30 minutes",
+		'- agent_7 implement "retail-known-gaps" completed',
+		"Main tool calls by name: edit 2, pyrun_eval 1, end_turn 1",
+		"user: why are you working from the main thread?",
+		"tool edit: src/atlas.rs",
+		"tool pyrun_eval: cli.command('cargo', 'test').run()",
+		"tool end_turn: Retail suite running",
+	]) {
+		assert.ok(prompt.includes(expected), `prompt includes ${expected}`);
+	}
+	assert.ok(!prompt.includes("outside-window.rs"), "entries older than the interval are excluded");
+	assert.ok(prompt.indexOf("src/atlas.rs") < prompt.indexOf("src/frame.rs"), "events are oldest first");
+});
+
 test("busy manual status displays immediately without resetting deadline", async (t) => {
 	const f = await fixture(t);
 	f.emit("session_start");
@@ -229,11 +287,15 @@ test("restored live audit survives reload; unrelated children do not block", asy
 		id: "restored",
 		displayName: "periodic-checks-audit",
 		lifecycle: "running",
+		createdAt: "2026-01-15T07:00:00.000Z",
+		updatedAt: "2026-01-15T07:00:00.000Z",
 	});
 	f.agents.push({
 		id: "work",
 		displayName: "implementation",
 		lifecycle: "running",
+		createdAt: "2026-01-15T07:00:00.000Z",
+		updatedAt: "2026-01-15T07:00:00.000Z",
 	});
 	f.emit("session_start");
 	await f.tick();

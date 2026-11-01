@@ -48,7 +48,7 @@ const ctx = {
 	mode: "tui",
 	ui: { notify: (text, type) => resolveError({ text, type, calls }) },
 	multiAgentStore: { listAgents: () => [] },
-	sessionManager: { getSessionId: () => "main-session" },
+	sessionManager: { getSessionId: () => "main-session", getBranch: () => [] },
 };
 const pi = {
 	on: (name, handler) => handlers.set(name, handler),

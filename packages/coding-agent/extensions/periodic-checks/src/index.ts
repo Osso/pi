@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "../../../src/core/extensions/types.ts";
 import { parseFrontmatter } from "../../../src/utils/frontmatter.ts";
+import { buildMainActivitySnapshot } from "./main-activity.ts";
 
 const maxTimerMs = 2147483647;
 const millisecondsPerSecond = 1000;
@@ -83,12 +84,14 @@ function hasLiveAudit(ctx: ExtensionContext): boolean {
 	);
 }
 
-function auditPrompt(checklist: string, parentSessionId: string): string {
+function auditPrompt(checklist: string, parentSessionId: string, mainActivity: string): string {
 	return [
 		`Perform one read-only, bounded project audit. Reread the current project's checklist at ${JSON.stringify(checklist)} for this audit. Follow only the checklist; do not invent unrelated task scope.`,
 		"Report this project's worktree/disk/build/error/delegation state and host headroom only as requested by the checklist. Count other agents and resource usage when requested. Report missing checklist or unavailable evidence explicitly.",
 		"Monitor report only: no nested spawn, no cleanup, no blocking, no cancellation, no steering, no edits or deployment, no builds, no operational mutation. Do not cancel audit children or restart main.",
 		`Send child findings through send_agent_message with toAgentId "main" AND toSessionId ${JSON.stringify(parentSessionId)}, the originating parent session ID. Check the tool result and confirm successful delivery; a failed tool call is not delivery. Report delivery failure explicitly; no wait_agent recovery.`,
+		"For checklist items about main's behavior, delegation, or child agents, use the main activity snapshot below as evidence. Your own session history and tools cannot see main's transcript or agent store.",
+		mainActivity,
 	].join("\n");
 }
 
@@ -109,6 +112,7 @@ type ScheduledAudit = {
 	checklist: string;
 	sessionId: string;
 	generation: number;
+	intervalMs: number;
 };
 
 export default function periodicExtension(pi: ExtensionAPI) {
@@ -189,7 +193,11 @@ export default function periodicExtension(pi: ExtensionAPI) {
 				agentType: "explore",
 				context: "fresh",
 				displayName: auditName,
-				prompt: auditPrompt(audit.checklist, audit.sessionId),
+				prompt: auditPrompt(
+					audit.checklist,
+					audit.sessionId,
+					buildMainActivitySnapshot(ctx, audit.intervalMs),
+				),
 			});
 			assertAuditDispatched(result);
 			if (!isCurrentAudit(ctx, audit)) return;
@@ -226,13 +234,15 @@ export default function periodicExtension(pi: ExtensionAPI) {
 	}
 
 	function armTimer(ctx: ExtensionContext, projectRoot: string, path: string): void {
-		intervalMs = readChecklistInterval(path);
-		nextTick = Date.now() + intervalMs;
+		const auditIntervalMs = readChecklistInterval(path);
+		intervalMs = auditIntervalMs;
+		nextTick = Date.now() + auditIntervalMs;
 		const audit = {
 			projectRoot,
 			checklist: path,
 			sessionId: ctx.sessionManager.getSessionId(),
 			generation,
+			intervalMs: auditIntervalMs,
 		};
 		scheduledAudit = audit;
 		timer = setInterval(() => dispatchAuditTick(ctx, audit), intervalMs);

@@ -28,6 +28,7 @@ Bundled first-party `periodic-checks` schedules report-only project audits from 
 - [x] Pending spawn suppresses overlap until settlement, including rejection or unsuccessful dispatch. A stored child named `periodic-checks-audit` blocks overlap until `completed`, `failed`, or `aborted`, including restored children after reload. Unrelated children do not block dispatch.
 - [x] Child termination permits the next scheduled tick, not immediate dispatch; main `agent_end` does not release overlap. Reload/shutdown/replacement fence late spawn results from new pending locks and diagnostics. Dispatch failures notify explicitly with session, checklist, and failure context.
 - [ ] Each audit rereads the checklist, limits findings to its requested scope, and reports missing checklist or unavailable evidence. Send findings through `send_agent_message` to `main` with the originating parent session ID; inspect the result and report delivery failure explicitly.
+- [x] Each audit prompt includes a bounded, read-only snapshot of main captured at dispatch: main's child agents with type, name, lifecycle, and timestamps; main tool-call counts by name; and main's user messages and tool calls with short argument summaries from the last checklist interval. The child relies on it for main-behavior and delegation checks because its own history search and tools cannot read main's transcript or agent store.
 - [x] Audit instructions prohibit corrections, nested spawning, builds, cleanup, blocking, cancellation, steering, edits, deployment, operational mutation, or restarting main. Authorized main work continues independently.
 
 ## How it works
@@ -39,6 +40,7 @@ Bundled first-party `periodic-checks` schedules report-only project audits from 
 ## Implementation inventory
 
 - `packages/coding-agent/extensions/periodic-checks/src/index.ts` — checklist discovery, metadata validation, scheduling, status/manual commands, direct dispatch, and report-only audit prompt.
+- `packages/coding-agent/extensions/periodic-checks/src/main-activity.ts` — bounded main activity snapshot for the audit prompt.
 - `packages/coding-agent/src/main.ts` — first-party registration.
 
 ## Tests asserting this spec
@@ -46,7 +48,7 @@ Bundled first-party `periodic-checks` schedules report-only project audits from 
 - `packages/coding-agent/test/cli-runtime-inventory.test.ts` — first-party extension and command inventory, including bundled periodic-checks and exit-command.
 - `packages/coding-agent/test/periodic-checks-extension.test.ts` — runs the ported native Node scheduler suite against the bundled source.
 - `packages/coding-agent/test/fixtures/periodic-checks/test_periodic_scheduler.mjs` — metadata, discovery, timing, status, and manual-run behavior.
-- `packages/coding-agent/test/fixtures/periodic-checks/periodic_scheduler_dispatch.mjs` — direct dispatch, overlap, busy/pending commands, failure feedback, and late-result fencing.
+- `packages/coding-agent/test/fixtures/periodic-checks/periodic_scheduler_dispatch.mjs` — direct dispatch, main activity snapshot, overlap, busy/pending commands, failure feedback, and late-result fencing.
 - Remote-agent `tests/test_periodic_runtime.py` with `tests/fixtures/periodic-runtime-provider.ts` — installed-Pi integration acceptance using private state and an offline faux provider, without explicit extension injection.
 
 Verified 2026-10-23 at `16291d6a5`: all 122 native scheduler/dispatch tests pass, including late checklist creation, metadata failures, preserved countdowns, and runtime gates. Deployment check/build passes; independent verification confirms behavior and scoped readability. In the actual resumed Clank session, `/periodic-checks` reports `armed`, checklist `/workspace/wowdecomp/periodic-checks.md`, `interval_seconds: 600`, and `Next run: in 10 minutes` while main work continues. No manual audit was triggered. The sandbox and all 12 live host main sessions adopted executable SHA-256 `6fe054bd291d20ac89e621fe6076a02acfad1edc9caa82822c9b94380b1e2799`. Earlier bundling acceptance also verified command discovery, named disabling, exit shutdown, and three installed-runtime delivery tests.

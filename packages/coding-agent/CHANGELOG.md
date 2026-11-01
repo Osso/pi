@@ -92,6 +92,7 @@
 - Changed runtime mailbox delivery to atomically delete the canonical sender/transport row and live projection, including steering acceptance; detached terminal dedupe uses agent state instead of retained mailbox history, and 24-hour expiry remains only for undelivered messages.
 - Changed successful terminal-outbox delivery to delete the claimed row instead of retaining a seven-day receipt; terminal-agent state preserves replay/recovery idempotency, the schema version is unchanged, and poisoned failures keep seven-day retention.
 - Changed Supervisor goal-review policy to return `wait` only when a pending asynchronous result or recheckable external condition blocks all remaining goal work, including when the only remaining work needs that result; a running test suite, build, agent, or external job no longer idles a goal while other authorized work can proceed without it.
+- Periodic-checks audit prompts now include a bounded snapshot of main's recent user messages, tool calls, tool-call counts, and child agents, so checklist items about main behavior and delegation have evidence; audit children cannot read main's transcript or agent store themselves.
 
 ### Added
 
