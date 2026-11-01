@@ -93,6 +93,7 @@
 - Changed successful terminal-outbox delivery to delete the claimed row instead of retaining a seven-day receipt; terminal-agent state preserves replay/recovery idempotency, the schema version is unchanged, and poisoned failures keep seven-day retention.
 - Changed Supervisor goal-review policy to return `wait` only when a pending asynchronous result or recheckable external condition blocks all remaining goal work, including when the only remaining work needs that result; a running test suite, build, agent, or external job no longer idles a goal while other authorized work can proceed without it.
 - Child agents can now call read-only `list_agents` and the new child-only `search_parent_session_history`, which searches the direct parent session's active branch. Periodic-checks audits use them to inspect main's delegation and behavior.
+- Periodic checks now arm outside Git repositories: the checklist is read from the session's working directory when it has no Git root. Inside a repository the Git root is still used.
 
 ### Added
 

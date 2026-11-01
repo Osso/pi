@@ -7,7 +7,7 @@ Bundled first-party `periodic-checks` schedules report-only project audits from 
 ### Opt-in and lifecycle
 
 - [x] Load as a bundled first-party extension, without a user-level extension installation or remote-agent mapping. Expose `/periodic-checks` through normal extension command discovery; support disabling by inventory name `periodic-checks` through `disabledExtensions`.
-- [x] On `session_start`, including reload, discover the current directory's Git root and its ignored, host-private `periodic-checks.md`. No checklist means no timer and no audit. Deployment never copies checklists; each host configures its own file.
+- [x] On `session_start`, including reload, resolve the project root, which is the current directory's Git root inside a repository and the current directory itself otherwise, and its host-private `periodic-checks.md` (Git-ignored inside a repository). No checklist means no timer and no audit; status reports `No checklist` with the expected path. Deployment never copies checklists; each host configures its own file.
 - [x] Arm only main TUI or RPC sessions with a multi-agent store and active `spawn_agent` and `send_agent_message` tools. Exclude child sessions and unsupported runtimes.
 - [x] Require Google OKF YAML frontmatter with nonempty string `type` and positive safe-integer `interval_seconds` in 1–2147483 seconds. Allow unknown fields. Missing, malformed, or invalid metadata raises an explicit error and disables scheduling; no fixed-interval fallback.
 - [x] Read metadata at start/reload, or when status discovers a checklist previously missing at startup. Wait the full configured interval from discovery before the first tick. Apply metadata edits to an armed schedule or re-arm a checklist removed from an armed schedule only after another start/reload. Stop the timer on shutdown or checklist removal detected at dispatch, including during a pending spawn.
@@ -24,7 +24,7 @@ Bundled first-party `periodic-checks` schedules report-only project audits from 
 ### Dispatch and audit policy
 
 - [x] Scheduled/manual dispatch calls `spawn_agent` directly with a fresh-context `explore` child named `periodic-checks-audit`. Busy main and pending messages do not skip dispatch. Do not queue a model prompt, follow-up, or steering message asking main to spawn it.
-- [x] Verify the current Git project root before scheduled dispatch. If the root check fails or times out, report the failure and skip that audit without terminating Pi or disabling later ticks.
+- [x] Verify the current project root before scheduled dispatch. If the root check fails or times out, report the failure and skip that audit without terminating Pi or disabling later ticks.
 - [x] Pending spawn suppresses overlap until settlement, including rejection or unsuccessful dispatch. A stored child named `periodic-checks-audit` blocks overlap until `completed`, `failed`, or `aborted`, including restored children after reload. Unrelated children do not block dispatch.
 - [x] Child termination permits the next scheduled tick, not immediate dispatch; main `agent_end` does not release overlap. Reload/shutdown/replacement fence late spawn results from new pending locks and diagnostics. Dispatch failures notify explicitly with session, checklist, and failure context.
 - [ ] Each audit rereads the checklist, limits findings to its requested scope, and reports missing checklist or unavailable evidence. Send findings through `send_agent_message` to `main` with the originating parent session ID; inspect the result and report delivery failure explicitly.

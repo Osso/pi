@@ -50,7 +50,8 @@ function readChecklistInterval(checklist: string): number {
 	}
 }
 
-function queryProjectRoot(cwd: string): string | undefined {
+/** The Git root inside a repository; otherwise the directory itself, so non-Git projects can opt in too. */
+function queryProjectRoot(cwd: string): string {
 	const git = spawnSync("git", ["rev-parse", "--show-toplevel"], {
 		cwd,
 		encoding: "utf8",
@@ -62,8 +63,8 @@ function queryProjectRoot(cwd: string): string | undefined {
 			cause: git.error,
 		});
 	}
-	if (git.status !== 0) return undefined;
-	return git.stdout.trim() || undefined;
+	const gitRoot = git.status === 0 ? git.stdout.trim() : "";
+	return gitRoot || cwd;
 }
 
 function auditDisabledReason(pi: ExtensionAPI, ctx: ExtensionContext): string | undefined {
@@ -211,13 +212,11 @@ export default function periodicExtension(pi: ExtensionAPI) {
 		stopTimer("Session starting");
 		checklist = undefined;
 		const unsupportedReason = auditDisabledReason(pi, ctx);
-		disabledReason = unsupportedReason ?? "Not a Git project";
+		disabledReason = unsupportedReason ?? "No checklist";
 		if (unsupportedReason) return;
 		try {
 			const projectRoot = queryProjectRoot(ctx.cwd);
-			if (!projectRoot) return;
 			checklist = join(projectRoot, "periodic-checks.md");
-			disabledReason = "No checklist";
 			if (!existsSync(checklist)) return;
 			armTimer(ctx, projectRoot, checklist);
 		} catch (error) {

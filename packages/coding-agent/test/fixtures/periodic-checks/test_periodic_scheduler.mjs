@@ -231,12 +231,15 @@ test("status explains unsupported runtimes and missing tools", async (t) => {
 	}
 });
 
-test("status explains non-Git cwd without stale checklist or interval", async (t) => {
+test("status explains non-Git cwd without a checklist and drops the stale interval", async (t) => {
 	const f = await fixture(t);
 	f.emit("session_start");
 	f.ctx.cwd = f.home;
 	f.emit("session_start");
-	assert.equal(await f.status(), "Periodic checks: disabled\nReason: Not a Git project");
+	assert.equal(
+		await f.status(),
+		`Periodic checks: disabled\nChecklist: ${join(f.home, "periodic-checks.md")}\nReason: No checklist`,
+	);
 	await f.tick(interval);
 	assert.equal(f.calls.length, 0);
 });
@@ -603,11 +606,26 @@ test("ticks remain scoped to startup project after cwd changes", async (t) => {
 	assert.ok(f.calls[0].params.prompt.includes(join(f.secondProject, "periodic-checks.md")));
 });
 
-test("non-Git directory with checklist cannot opt in", async (t) => {
+test("non-Git directory with its own checklist arms and audits from that directory", async (t) => {
 	const f = await fixture(t);
 	f.ctx.cwd = f.home;
-	writeFileSync(join(f.home, "periodic-checks.md"), checklistContent);
+	const checklist = join(f.home, "periodic-checks.md");
+	writeFileSync(checklist, checklistContent);
 	f.emit("session_start");
-	await f.tick(interval * 2);
-	assert.equal(f.calls.length, 0);
+	assert.match(await f.status(), /armed[\s\S]*Next run: in 30 minutes/);
+	await f.tick();
+	assert.equal(f.calls.length, 1);
+	assert.ok(f.calls[0].params.prompt.includes(JSON.stringify(checklist)));
+});
+
+test("Git subdirectory still uses the repository root checklist, not one in the subdirectory", async (t) => {
+	const f = await fixture(t);
+	const subdirectory = join(f.project, "nested");
+	mkdirSync(subdirectory);
+	writeFileSync(join(subdirectory, "periodic-checks.md"), checklistContent);
+	f.ctx.cwd = subdirectory;
+	f.emit("session_start");
+	await f.tick();
+	assert.equal(f.calls.length, 1);
+	assert.ok(f.calls[0].params.prompt.includes(JSON.stringify(f.checklist)));
 });

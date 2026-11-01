@@ -20,7 +20,7 @@ See [extension settings](../../../packages/coding-agent/docs/settings.md). Disab
 
 ## Host-private checklist
 
-Create `periodic-checks.md` at the current directory's Git root and keep it Git-ignored. Each host maintains its own file; neither Pi nor remote-agent deployment distributes it. Example Google OKF frontmatter and checklist:
+Create `periodic-checks.md` at the current directory's Git root and keep it Git-ignored; outside a Git repository, create it in the session's working directory. Each host maintains its own file; neither Pi nor remote-agent deployment distributes it. Example Google OKF frontmatter and checklist:
 
 ```markdown
 ---
@@ -43,10 +43,10 @@ Both commands remain available while main is busy. See the [command contract](..
 
 ## Runtime flow
 
-`session_start` resolves the Git root and validates metadata before creating an interval timer. Main TUI/RPC sessions need the multi-agent store and active `spawn_agent`/`send_agent_message` tools; child sessions do not arm timers.
+`session_start` resolves the project root (Git root, or the working directory outside a repository) and validates metadata before creating an interval timer. Main TUI/RPC sessions need the multi-agent store and active `spawn_agent`/`send_agent_message` tools; child sessions do not arm timers.
 
 Each tick advances the stored schedule boundary and attempts direct `pi.callTool("spawn_agent", ...)` dispatch. A pending call or stored live `periodic-checks-audit` blocks overlap. The child is a fresh-context `explore` agent; its prompt rereads the checklist and requires report-only findings sent to the originating main session with successful-delivery confirmation. The child inspects main with `list_agents` and `search_parent_session_history`. No model prompt asks main to start the audit. Schedule generations fence late results after reload or shutdown.
 
-A failed or timed-out scheduled Git-root check reports an error and skips that audit, leaving Pi and later ticks running. Root verification remains required before dispatch. See the [audit policy](../../specs/periodic-checks.md#dispatch-and-audit-policy).
+A failed or timed-out scheduled project-root check reports an error and skips that audit, leaving Pi and later ticks running. Root verification remains required before dispatch. See the [audit policy](../../specs/periodic-checks.md#dispatch-and-audit-policy).
 
 This timer runs only while the session is alive. The complete audit policy remains canonical; the checklist does not authorize remediation.
