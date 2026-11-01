@@ -34,7 +34,7 @@ Module boundary: core built-in tool + session manager.
 ## Implementation inventory
 
 - `packages/coding-agent/src/core/tools/search-current-session-history.ts` — validates search input, searches current or parent active-branch entries, and formats bounded results.
-- `packages/coding-agent/extensions/agents-core/src/runtime.ts` — adds `search_parent_session_history` to child-only tools.
+- `packages/coding-agent/extensions/agents-core/src/child-tools.ts` — adds `search_parent_session_history` to child-only tools.
 - `packages/coding-agent/src/core/tools/index.ts` — registers the built-in tool and enables it by default.
 - `packages/coding-agent/src/core/session-manager.ts` — exposes loaded active-branch and compaction-aware entry projections.
 - `packages/coding-agent/src/core/session-history.ts` — traverses loaded entries and streams missing persisted ancestors, newest first, following parent IDs.
