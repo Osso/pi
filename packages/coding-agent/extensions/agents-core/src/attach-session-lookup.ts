@@ -43,38 +43,48 @@ async function readSessionHeader(path: string): Promise<AttachSessionInfo | unde
 	return undefined;
 }
 
+function readMatchingSessionMetadata(sessionId: string, controlDbPath: string | undefined): AttachSessionInfo[] {
+	if (!controlDbPath) return [];
+	return listActiveSessionMetadata(controlDbPath)
+		.filter((metadata) => metadata.id.startsWith(sessionId))
+		.map((metadata) => ({
+			id: metadata.id,
+			cwd: metadata.cwd,
+			name: metadata.name || metadata.subagentName,
+			path: metadata.sessionPath,
+		}));
+}
+
+async function appendMatchingDirectorySessions(
+	dir: string,
+	sessionId: string,
+	sessions: Map<string, AttachSessionInfo>,
+): Promise<void> {
+	const files = (await listDirectory(dir)).filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"));
+	for (const entry of files) {
+		const separator = entry.name.indexOf("_");
+		if (separator < 0 || !entry.name.slice(separator + 1, -6).startsWith(sessionId)) continue;
+		const path = join(dir, entry.name);
+		if (sessions.has(path)) continue;
+		const session = await readSessionHeader(path);
+		if (session?.id.startsWith(sessionId)) sessions.set(path, session);
+	}
+}
+
 export async function findAttachSessionsById(
 	sessionId: string,
 	customDir: string | undefined,
 	controlDbPath: string | undefined,
 ): Promise<AttachSessionInfo[]> {
-	const sessions = new Map<string, AttachSessionInfo>();
-	if (controlDbPath) {
-		for (const metadata of listActiveSessionMetadata(controlDbPath)) {
-			if (!metadata.id.startsWith(sessionId)) continue;
-			sessions.set(metadata.sessionPath, {
-				id: metadata.id,
-				cwd: metadata.cwd,
-				name: metadata.name || metadata.subagentName,
-				path: metadata.sessionPath,
-			});
-		}
-	}
+	const indexedSessions = readMatchingSessionMetadata(sessionId, controlDbPath);
+	const sessions = new Map(indexedSessions.map((session) => [session.path, session]));
 	const root = getSessionsDir();
 	const dirs = (await listDirectory(root))
 		.filter((entry) => entry.isDirectory())
 		.map((entry) => join(root, entry.name));
 	if (customDir) dirs.push(customDir);
 	for (const dir of new Set(dirs)) {
-		for (const entry of await listDirectory(dir)) {
-			if (!entry.isFile() || !entry.name.endsWith(".jsonl")) continue;
-			const separator = entry.name.indexOf("_");
-			if (separator < 0 || !entry.name.slice(separator + 1, -6).startsWith(sessionId)) continue;
-			const path = join(dir, entry.name);
-			if (sessions.has(path)) continue;
-			const session = await readSessionHeader(path);
-			if (session?.id.startsWith(sessionId)) sessions.set(path, session);
-		}
+		await appendMatchingDirectorySessions(dir, sessionId, sessions);
 	}
 	return [...sessions.values()];
 }
