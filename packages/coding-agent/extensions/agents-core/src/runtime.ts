@@ -79,6 +79,7 @@ import {
 	requestPersistedDetachedRuntimeCancellation,
 } from "./detached-runtime-cancellation.ts";
 import { registerSetAgentModelTool, resolveLiveAgentMutationTarget } from "./agent-model-tool.ts";
+import { findAttachSessionsById, type AttachSessionInfo } from "./attach-session-lookup.ts";
 import { bindProductionChildSession, type UnboundChildAgentSession } from "./child-session.ts";
 import { readCurrentChildAssistantText } from "./child-response.ts";
 import { createChildTools } from "./child-tools.ts";
@@ -1527,7 +1528,7 @@ function countAttachSessionSelectors(target: { name?: string; path?: string; ses
 }
 
 type AttachSessionMatchResult =
-	| { status: "found"; session: SessionInfo }
+	| { status: "found"; session: AttachSessionInfo }
 	| { status: "ambiguous"; selector: string }
 	| { status: "not_found" };
 
@@ -1536,16 +1537,12 @@ async function findAttachSessionMatch(
 	target: { name?: string; sessionId?: string },
 ): Promise<AttachSessionMatchResult> {
 	const sessionDir = ctx.sessionManager?.getSessionDir();
+	if (target.sessionId) {
+		return findMatchingSession(await findAttachSessionsById(target.sessionId, sessionDir, ctx.controlDbPath), target);
+	}
 	const localSessions = await SessionManager.list(ctx.cwd, sessionDir, undefined, ctx.controlDbPath);
 	const allSessions = await SessionManager.listAll(sessionDir, undefined, ctx.controlDbPath);
-	if (!target.sessionId) return findMatchingSession(dedupeSessionsByPath([...localSessions, ...allSessions]), target);
-	const globalMetadata = await SessionManager.listAll(undefined, undefined, ctx.controlDbPath);
-	const diskSessions = await SessionManager.listAll();
-	const customSessions = sessionDir ? await SessionManager.listAll(sessionDir) : [];
-	return findMatchingSession(
-		dedupeSessionsByPath([...diskSessions, ...customSessions, ...localSessions, ...allSessions, ...globalMetadata]),
-		target,
-	);
+	return findMatchingSession(dedupeSessionsByPath([...localSessions, ...allSessions]), target);
 }
 
 function dedupeSessionsByPath(sessions: SessionInfo[]): SessionInfo[] {
@@ -1557,7 +1554,7 @@ function dedupeSessionsByPath(sessions: SessionInfo[]): SessionInfo[] {
 }
 
 function findMatchingSession(
-	sessions: SessionInfo[],
+	sessions: AttachSessionInfo[],
 	target: { name?: string; sessionId?: string },
 ): AttachSessionMatchResult {
 	const sessionId = target.sessionId;

@@ -1,6 +1,16 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	closeSync,
+	constants,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	openSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
@@ -737,6 +747,60 @@ describe("multi-agent extension tools", () => {
 				expect(result.content).toEqual([
 					{ type: "text", text: "Could not attach session: provide exactly one of path, sessionId, or name." },
 				]);
+			}
+		} finally {
+			vi.unstubAllEnvs();
+			rmSync(tempDir, { force: true, recursive: true });
+		}
+	});
+
+	it("finds indexed child and unindexed custom sessions without reading unrelated transcripts", async () => {
+		const tempDir = mkdtempSync(join(tmpdir(), "pi-attach-bounded-"));
+		vi.stubEnv(ENV_AGENT_DIR, tempDir);
+		try {
+			const defaultDir = join(tempDir, "sessions", "other");
+			const customDir = join(tempDir, "custom");
+			mkdirSync(defaultDir, { recursive: true });
+			mkdirSync(customDir, { recursive: true });
+			const supervisor = SessionManager.create("/repo", customDir, { id: "supervisor" });
+			const child = SessionManager.create("/other", defaultDir, {
+				id: "child-indexed",
+				isSubagent: true,
+				subagentName: "Worker",
+			});
+			const custom = SessionManager.create("/repo", customDir, { id: "custom-unindexed" });
+			child.appendMessage({ role: "user", content: "child", timestamp: 1 });
+			custom.appendMessage({ role: "user", content: "custom", timestamp: 1 });
+			custom.appendMessage(fauxAssistantMessage("saved"));
+			const controlDbPath = join(tempDir, "control.sqlite");
+			child.setMetadataControlDbPath(controlDbPath);
+			supervisor.setMetadataControlDbPath(controlDbPath);
+			const fifo = join(defaultDir, "2026-01-01_unrelated.jsonl");
+			expect(spawnSync("mkfifo", [fifo]).status).toBe(0);
+			const fifoFd = openSync(fifo, constants.O_RDWR | constants.O_NONBLOCK);
+			const store = new MultiAgentStore();
+			store.setPersistenceSessionManager(supervisor);
+			const harness = createMultiAgentHarness({ ctx: { controlDbPath, sessionManager: supervisor }, store });
+
+			try {
+				const lookup = harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+					sessionId: "child-index",
+				});
+				const indexed = await Promise.race([lookup, delay(2000).then(() => undefined)]);
+				expect(indexed?.details.agent.transcript).toEqual({
+					path: child.getSessionFile(),
+					sessionId: "child-indexed",
+				});
+				expect(indexed?.details.agent.displayName).toBe("Worker");
+				const unindexed = await harness.call<AttachSessionAgentDetails>("attach_session_agent", {
+					sessionId: "custom-un",
+				});
+				expect(unindexed.details.agent.transcript).toEqual({
+					path: custom.getSessionFile(),
+					sessionId: "custom-unindexed",
+				});
+			} finally {
+				closeSync(fifoFd);
 			}
 		} finally {
 			vi.unstubAllEnvs();

@@ -36,8 +36,9 @@ Resume Session as Agent lets a supervisor session attach an existing Pi session 
 ### User-facing API
 
 - [x] A first-party command or tool can attach/resume an existing session by session ID and optional prompt.
-- [ ] `attach_session_agent` requires exactly one of `path`, `sessionId`, or `name`; multiple selectors or no selector are rejected.
-- [ ] Session ID lookup discovers saved sessions across session directories, not only the current session directory.
+- [x] `attach_session_agent` requires exactly one of `path`, `sessionId`, or `name`; multiple selectors or no selector are rejected.
+- [x] Exact and prefix session ID lookup searches default and configured session directories, including saved child sessions; exact matches take precedence, and ambiguous prefixes are rejected.
+- [x] Session ID lookup does not parse unrelated transcripts.
 - [x] The attached session appears in existing agent listing/viewer surfaces with its agent ID, preserved session ID, lifecycle, revision, display name, and transcript pointer.
 - [x] Without an explicit `displayName`, the attached agent's display name is the session's persisted name, else its original sub-agent name, else `Session <id>`, regardless of whether it was selected by path, ID, or name.
 - [x] `wait_agent({})`, `close_agent`, `steer_agent`, `agent_viewer`, and mailbox tools work for attached session agents without special external-process handling by the caller.
