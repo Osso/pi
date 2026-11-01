@@ -111,8 +111,8 @@ function goalProgressResponseContract(): string {
 		'When the agent is making competent progress or can determine its own next step, use continue with instructions exactly "Continue working toward the active goal."',
 		"Use different continue instructions only when evidence identifies a concrete omission or another listed exception. Name only the exception and smallest corrective action.",
 		"Do not prescribe routine decomposition, sequencing, implementation details, or oversight when evidence is uncertain.",
-		"Use wait only when a pending asynchronous result or recheckable external condition blocks all remaining goal work.",
-		"A running test suite, build, agent, or external job does not block the goal while other authorized goal work remains; use continue, not wait.",
+		"Use wait when a pending asynchronous result or recheckable external condition blocks all remaining goal work, including when the only remaining work needs that result.",
+		"Do not use wait while other authorized goal work can proceed without that result; use continue.",
 		"Use pause only when progress requires user action or input and cannot advance automatically.",
 	].join("\n");
 }
