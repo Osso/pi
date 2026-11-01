@@ -369,8 +369,10 @@ describe("resident Supervisor service", () => {
 		expect(prompt).toContain(
 			"Do not prescribe routine decomposition, sequencing, implementation details, or oversight",
 		);
-		expect(prompt).toContain("Use wait when progress is already underway asynchronously");
-		expect(prompt).toContain("or depends on an external condition that can be rechecked");
+		expect(prompt).toContain(
+			"Use wait only when a pending asynchronous result or recheckable external condition blocks all remaining goal work",
+		);
+		expect(prompt).toContain("while other authorized goal work remains; use continue, not wait");
 		expect(prompt).toContain("Use pause only when progress requires user action");
 		expect(prompt).toContain("Call supervisor_response exactly once as the final action");
 	});
