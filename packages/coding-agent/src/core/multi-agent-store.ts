@@ -1082,32 +1082,8 @@ export class MultiAgentStore {
 			return undefined;
 		}
 		const { controlDbPath, sessionPath } = this.persistence;
-		if ("currentActivity" in updates) {
-			if (!activityOwnership) {
-				throw new Error(`Persisted agent ${current.id} activity update requires exact runtime ownership`);
-			}
-			return updateMultiAgentAgentCurrentActivity(
-				controlDbPath,
-				sessionPath,
-				current.id,
-				updates.currentActivity,
-				updatedAt,
-				activityOwnership,
-				updates.model,
-			);
-		}
-		if ("model" in updates && updates.model) {
-			if (!activityOwnership) {
-				throw new Error(`Persisted agent ${current.id} model metadata update requires exact runtime ownership`);
-			}
-			return updateMultiAgentAgentModel(
-				controlDbPath,
-				sessionPath,
-				current.id,
-				updates.model,
-				updatedAt,
-				activityOwnership,
-			);
+		if ("currentActivity" in updates || updates.model) {
+			return this.persistOwnedAgentMetadata(current, updates, updatedAt, activityOwnership);
 		}
 		if ("displayName" in updates && updates.displayName !== undefined) {
 			return updateMultiAgentAgentDisplayName(controlDbPath, sessionPath, current.id, updates.displayName);
@@ -1119,6 +1095,32 @@ export class MultiAgentStore {
 			return updateMultiAgentAgentSlot(controlDbPath, sessionPath, current.id, updates.slot, updatedAt);
 		}
 		return updateMultiAgentAgentActivity(controlDbPath, sessionPath, current.id, updates.lastActivity, updatedAt);
+	}
+
+	private persistOwnedAgentMetadata(
+		current: AgentNode,
+		updates: Partial<Pick<AgentNode, "currentActivity" | "model">>,
+		updatedAt: string,
+		owner?: AgentCurrentActivityOwner,
+	): AgentNode | undefined {
+		if (!this.persistence) return undefined;
+		const { controlDbPath: dbPath, sessionPath } = this.persistence;
+		const isActivity = "currentActivity" in updates;
+		const kind = isActivity ? "activity" : "model metadata";
+		if (!owner) throw new Error(`Persisted agent ${current.id} ${kind} update requires exact runtime ownership`);
+		if (isActivity) {
+			return updateMultiAgentAgentCurrentActivity(
+				dbPath,
+				sessionPath,
+				current.id,
+				updates.currentActivity,
+				updatedAt,
+				owner,
+				updates.model,
+			);
+		}
+		if (!updates.model) return undefined;
+		return updateMultiAgentAgentModel(dbPath, sessionPath, current.id, updates.model, updatedAt, owner);
 	}
 
 	private updateAgentMetadata(
