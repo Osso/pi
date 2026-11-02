@@ -17,7 +17,7 @@ Module boundary: first-party extension at `packages/coding-agent/extensions/agen
 - [x] Activity text is `<tool> <detail>` for tool calls, `thinking` while the model runs, and `waiting for input`, `steering pending`, `cancelling`, `done`, `failed: <message>`, or `aborted` for other lifecycles.
 - [x] For an active agent, elapsed time measures the current activity, falling back to agent creation when there is no activity. For a terminal agent, it is the total runtime.
 - [x] Order sibling agents as waiting-for-input, steering-pending, running, cancelling, then terminal, most recently updated first within each group. Children render directly under their parent and are indented with `└`.
-- [x] Show at most 5 agent rows, followed by a `+N more` line when more are visible.
+- [x] Show at most 10 agent rows, followed by a `+N more` line when more are visible.
 
 ### Liveness
 

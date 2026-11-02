@@ -10,7 +10,7 @@ import { formatElapsedDuration } from "../../../src/modes/interactive/components
 import type { Theme } from "../../../src/modes/interactive/theme/theme.ts";
 
 const WIDGET_KEY = "agents-status";
-export const MAX_AGENT_ROWS = 5;
+export const MAX_AGENT_ROWS = 10;
 const MAX_NAME_WIDTH = 24;
 const MAX_KIND_WIDTH = 28;
 const TERMINAL_LINGER_MS = 10_000;

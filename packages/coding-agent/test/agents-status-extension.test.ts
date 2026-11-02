@@ -1,11 +1,6 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, it } from "vitest";
-import {
-	collectAgentRows,
-	describeAgentKind,
-	MAX_AGENT_ROWS,
-	renderAgentsStatus,
-} from "../extensions/agents-status/src/index.ts";
+import { collectAgentRows, describeAgentKind, renderAgentsStatus } from "../extensions/agents-status/src/index.ts";
 import { summarizeToolArguments } from "../src/core/agent-activity-detail.ts";
 import type { AgentSnapshot } from "../src/core/multi-agent-store.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
@@ -148,10 +143,14 @@ describe("agents status widget", () => {
 		expect(lines[1]).toMatch(/● plain {3}test {24}starting/);
 	});
 
-	it(`caps the list at ${MAX_AGENT_ROWS} rows with an overflow line`, () => {
-		const agents = Array.from({ length: 8 }, (_, index) => agent({ id: `agent-${index}` }));
+	it("shows ten agents in order and reports the remaining agents", () => {
+		const agents = Array.from({ length: 13 }, (_, index) => agent({ id: `agent-${index}` }));
 		const lines = render(agents);
-		expect(lines).toHaveLength(MAX_AGENT_ROWS + 1);
-		expect(lines[MAX_AGENT_ROWS]).toBe(" +3 more");
+		expect(lines).toHaveLength(11);
+		for (let index = 0; index < 10; index++) {
+			expect(lines[index]).toContain(`● agent-${index} `);
+			expect(visibleWidth(lines[index])).toBeLessThanOrEqual(80);
+		}
+		expect(lines[10]).toBe(" +3 more");
 	});
 });
