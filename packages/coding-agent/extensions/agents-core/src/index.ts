@@ -1,8 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { registerRenameAgentTool } from "./agent-name-tool.ts";
 import { registerAgentsCoreTools, type MultiAgentExtensionOptions } from "./runtime.ts";
 
 export default function agentsCoreExtension(pi: ExtensionAPI, options: MultiAgentExtensionOptions = {}) {
 	registerAgentsCoreTools(pi, options);
+	registerRenameAgentTool(pi);
 }
 
 export {

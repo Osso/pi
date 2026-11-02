@@ -31,6 +31,12 @@ wait wake path. Persisted coordination polling instead returns and consumes all 
 runtime-mailbox and shared-channel inputs, preserving sender/body formatting; mailbox rows become `delivered` and the
 shared-channel cursor advances. Each distinct coordination message is visible exactly once. The agent row remains
 terminal truth, and Pyrun `pi.agents.wait()` uses the same semantics.
+The main-only `rename_agent { agentId, displayName }` tool calls `MultiAgentStore.renameAgent` for an
+existing active or terminal agent. It trims the display name, rejects blank names, control characters, and
+line separators, and does not require unique names. Only `AgentSnapshot.displayName` changes through metadata
+compare-and-swap; the saved-session title, lifecycle, revision, identity, assignment, model, `updatedAt`, and
+activity timestamps remain unchanged. Terminal linger and elapsed time do not restart. Renaming is tool-only;
+the agent switcher has no rename control.
 The store also supports revision-checked pinned slot updates while preserving stable metadata and
 lifecycle state. `getProjectionSnapshot()` returns copied agent/mailbox/slot projections so UI
 surfaces can resync from core state by agent ID instead of trusting stale rendered rows.

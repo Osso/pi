@@ -27,6 +27,7 @@ const SUBAGENT_TOOLS = [
 	"attach_session_agent",
 	"wait_agent",
 	"close_agent",
+	"rename_agent",
 	"steer_agent",
 	"agent_viewer",
 	"send_agent_message",

@@ -10,6 +10,7 @@ import {
 	readMultiAgentState,
 	updateMultiAgentAgentActivity,
 	updateMultiAgentAgentCurrentActivity,
+	updateMultiAgentAgentDisplayName,
 	updateMultiAgentAgentModel,
 	updateMultiAgentAgentSlot,
 	updateMultiAgentAgentTranscript,
@@ -718,6 +719,17 @@ export class MultiAgentStore {
 		return copyAgent(this.updateAgentMetadata(current, { model: { ...model } }, ownership));
 	}
 
+	renameAgent(agentId: string, displayName: string): AgentTranscriptCommandResult {
+		if (/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(displayName) || !displayName.trim()) {
+			throw new Error("Agent display name must be non-blank and contain no control or line separator characters");
+		}
+		const current = this.agents.get(agentId);
+		if (!current) return { ok: false, error: "not_found", agentId };
+		if (!this.persistence) throw new Error("Renaming an agent requires a persisted store");
+		const updated = this.updateAgentMetadata(current, { displayName: displayName.trim() });
+		return { ok: true, agent: copyAgent(updated) };
+	}
+
 	updateAgentTranscript(agentId: string, transcript: AgentTranscriptMetadata): AgentTranscriptCommandResult {
 		const current = this.agents.get(agentId);
 		if (!current) {
@@ -1060,7 +1072,9 @@ export class MultiAgentStore {
 
 	private persistAgentMetadata(
 		current: AgentNode,
-		updates: Partial<Pick<AgentNode, "currentActivity" | "lastActivity" | "model" | "slot" | "transcript">>,
+		updates: Partial<
+			Pick<AgentNode, "currentActivity" | "displayName" | "lastActivity" | "model" | "slot" | "transcript">
+		>,
 		updatedAt: string,
 		activityOwnership?: AgentCurrentActivityOwner,
 	): AgentNode | undefined {
@@ -1095,6 +1109,9 @@ export class MultiAgentStore {
 				activityOwnership,
 			);
 		}
+		if ("displayName" in updates && updates.displayName !== undefined) {
+			return updateMultiAgentAgentDisplayName(controlDbPath, sessionPath, current.id, updates.displayName);
+		}
 		if ("transcript" in updates) {
 			return updateMultiAgentAgentTranscript(controlDbPath, sessionPath, current.id, updates.transcript, updatedAt);
 		}
@@ -1106,7 +1123,9 @@ export class MultiAgentStore {
 
 	private updateAgentMetadata(
 		current: AgentNode,
-		updates: Partial<Pick<AgentNode, "currentActivity" | "lastActivity" | "model" | "slot" | "transcript">>,
+		updates: Partial<
+			Pick<AgentNode, "currentActivity" | "displayName" | "lastActivity" | "model" | "slot" | "transcript">
+		>,
 		activityOwnership?: AgentCurrentActivityOwner,
 	): AgentNode {
 		const updatedAt = this.now();

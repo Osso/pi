@@ -5879,6 +5879,15 @@ export function updateMultiAgentAgentModel(
 	return updateMultiAgentAgentMetadata(controlDbPath, sessionPath, agentId, { model }, updatedAt, ownership);
 }
 
+export function updateMultiAgentAgentDisplayName(
+	controlDbPath: string,
+	sessionPath: string,
+	agentId: string,
+	displayName: string,
+): AgentSnapshot | undefined {
+	return updateMultiAgentAgentMetadata(controlDbPath, sessionPath, agentId, { displayName }, undefined);
+}
+
 export function updateMultiAgentAgentSlot(
 	controlDbPath: string,
 	sessionPath: string,
@@ -5914,6 +5923,7 @@ function multiAgentActivityOwnershipMatches(
 }
 
 type MultiAgentAgentMetadata =
+	| Pick<AgentSnapshot, "displayName">
 	| (Pick<AgentSnapshot, "currentActivity"> & Partial<Pick<AgentSnapshot, "model">>)
 	| Pick<AgentSnapshot, "model">
 	| Pick<AgentSnapshot, "lastActivity">
@@ -5941,7 +5951,7 @@ function updateMultiAgentAgentMetadata(
 	sessionPath: string,
 	agentId: string,
 	metadata: MultiAgentAgentMetadata,
-	updatedAt: string,
+	updatedAt: string | undefined,
 	activityOwnership?: { ownerSessionId: string; processIdentity: ProcessIdentity },
 ): AgentSnapshot | undefined {
 	return withControlDb(controlDbPath, (db) => {
@@ -5957,7 +5967,7 @@ function updateMultiAgentAgentMetadata(
 				return undefined;
 			}
 			if (!permitsMultiAgentCurrentActivity(agent, metadata)) return undefined;
-			const updated = { ...agent, ...metadata, updatedAt } as AgentSnapshot;
+			const updated = { ...agent, ...metadata, updatedAt: updatedAt ?? agent.updatedAt } as AgentSnapshot;
 			if (compareAndUpdateMultiAgentAgentMetadata(db, sessionPath, agentId, row, updated, activityOwnership)) {
 				return updated;
 			}

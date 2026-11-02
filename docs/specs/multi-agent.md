@@ -40,6 +40,12 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       The incarnation identifies one loaded Pi runtime and changes across an exec-in-place restart even when
       PID and `startTimeTicks` remain unchanged. Repository transactions read and increment revision internally;
       model-facing tools never supply revision, lease IDs, expiration timestamps, or fencing counters.
+- [x] The main-only `rename_agent { agentId, displayName }` tool renames an existing active or terminal agent.
+      `MultiAgentStore.renameAgent(agentId, displayName)` trims the name and rejects blank names, control
+      characters, and line separators; names need not be unique. Only `AgentSnapshot.displayName` changes through
+      the metadata compare-and-swap path. The saved-session title, lifecycle, revision, identity, assignment, model,
+      `updatedAt`, and activity timestamps remain unchanged, so terminal linger and elapsed time do not restart.
+      Renaming is tool-only; the agent switcher has no rename control.
 - [x] Viewing, focusing, or switching to an agent is read-only and must not resume, wake, close,
       cancel, or otherwise advance that agent. `agent_viewer` can optionally return a historical lifecycle
       trace for a persisted supervisor store; trace collection is also read-only and never repairs or infers state.
