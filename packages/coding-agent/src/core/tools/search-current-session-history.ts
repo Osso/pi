@@ -255,10 +255,11 @@ async function readHistoryPage(
 	const included = new Map<number, SessionHistorySearchEntry>();
 	const neighbors: { index: number; entry: SessionHistorySearchEntry }[] = [];
 	let matchOffset = options.newestFirst ? -1 : totalMatches;
+	const direction = options.newestFirst ? 1 : -1;
 	let remainingContext = 0;
 	let index = 0;
 	for await (const searchable of readSearchableHistoryReverse(source, options)) {
-		if (searchable.matches) matchOffset += options.newestFirst ? 1 : -1;
+		if (searchable.matches) matchOffset += direction;
 		const matched = searchable.matches && matchOffset >= cursor && matchOffset < cursor + limit;
 		const entry = toSearchEntry(searchable, matched, source);
 		if (matched) {
@@ -273,9 +274,7 @@ async function readHistoryPage(
 		if (neighbors.length > contextEntries) neighbors.shift();
 		index++;
 	}
-	return [...included]
-		.sort(([left], [right]) => (options.newestFirst ? left - right : right - left))
-		.map(([, entry]) => entry);
+	return [...included].sort(([left], [right]) => direction * (left - right)).map(([, entry]) => entry);
 }
 
 async function searchHistory(source: HistorySource, params: SearchCurrentSessionHistoryToolInput, emptyText: string) {

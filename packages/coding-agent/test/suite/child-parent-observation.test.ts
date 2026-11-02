@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall, type Message } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
-import { withHeadlessPi } from "./headless-pi.ts";
+import { type HeadlessLlmRequest, type HeadlessPi, withHeadlessPi } from "./headless-pi.ts";
 
 const PARENT_MARKER = "PARENT_MARKER_7f3";
 
@@ -30,6 +30,41 @@ function endTurn(reason: string) {
 	return fauxAssistantMessage([{ type: "text", text: reason }, fauxToolCall("end_turn", { reason })], {
 		stopReason: "toolUse",
 	});
+}
+
+async function searchBoundedParentHistory(
+	agent: HeadlessPi,
+	previous: [HeadlessLlmRequest, HeadlessLlmRequest],
+	timestamp: string,
+): Promise<HeadlessLlmRequest> {
+	const [first, second] = previous;
+	const previousIds = new Set(previous.map((request) => request.id));
+	agent.respondToLlmRequest(
+		second.id,
+		fauxAssistantMessage(
+			fauxToolCall("search_parent_session_history", {
+				query: PARENT_MARKER,
+				since: timestamp,
+				until: timestamp,
+				limit: 1,
+			}),
+			{ stopReason: "toolUse" },
+		),
+	);
+	const next = await agent.waitForLlmRequest(
+		(request) => request.agentId === first.agentId && !previousIds.has(request.id),
+	);
+	const results = next.messages.filter(
+		(message) => message.role === "toolResult" && message.toolName === "search_parent_session_history",
+	);
+	const history = JSON.parse(toolResultText(results.slice(-1), "search_parent_session_history")) as {
+		returnedMatches: number;
+		entries: { timestamp: string; matched: boolean }[];
+	};
+	expect(history.returnedMatches).toBe(1);
+	expect(history.entries).toHaveLength(1);
+	expect(history.entries[0]).toMatchObject({ timestamp, matched: true });
+	return next;
 }
 
 describe("child observation of its parent session", () => {
@@ -89,33 +124,7 @@ describe("child observation of its parent session", () => {
 			);
 			expect(JSON.stringify(matchedCall?.content)).toContain(`${PARENT_MARKER}.txt`);
 			if (!matchedCall) throw new Error("Missing parent read call");
-			agent.respondToLlmRequest(
-				childSecond.id,
-				fauxAssistantMessage(
-					fauxToolCall("search_parent_session_history", {
-						query: PARENT_MARKER,
-						since: matchedCall.timestamp,
-						until: matchedCall.timestamp,
-						limit: 1,
-					}),
-					{ stopReason: "toolUse" },
-				),
-			);
-			const childThird = await agent.waitForLlmRequest(
-				(request) => request.agentId === child.id && request.id !== childFirst.id && request.id !== childSecond.id,
-			);
-			const boundedResults = childThird.messages.filter(
-				(message) => message.role === "toolResult" && message.toolName === "search_parent_session_history",
-			);
-			const boundedHistory = JSON.parse(
-				toolResultText(boundedResults.slice(-1), "search_parent_session_history"),
-			) as {
-				returnedMatches: number;
-				entries: { timestamp: string; matched: boolean }[];
-			};
-			expect(boundedHistory.returnedMatches).toBe(1);
-			expect(boundedHistory.entries).toHaveLength(1);
-			expect(boundedHistory.entries[0]).toMatchObject({ timestamp: matchedCall.timestamp, matched: true });
+			const childThird = await searchBoundedParentHistory(agent, [childFirst, childSecond], matchedCall.timestamp);
 			agent.respondToLlmRequest(
 				childThird.id,
 				endTurn("Parent read the marker file; inclusive date bounds verified."),
