@@ -31,6 +31,7 @@
 
 ### Changed
 
+- `search_current_session_history` and `search_parent_session_history` accept inclusive ISO `since` and `until` entry timestamp bounds. Bounded searches filter before the limit, return newest matches first, keep context within the range, and bind cursors to that range; invalid or reversed bounds are rejected. Unbounded searches are unchanged.
 - Terminal agent rows (`completed`, `failed`, `aborted`) now expire from the control DB 24 hours after their terminal update, together with their runtime-owner and delivered terminal-outbox rows. Rows with an undelivered terminal outbox row or a non-terminal child are kept. Detached Bash/Pyrun output is now retained 24 hours instead of 3 days (2 GiB cap unchanged), and artifact cleanup deletes each job's output directory and agent row together. Expired agents are no longer inspectable through `agent_viewer`.
 - The interactive working indicator now animates in the status row instead of the editor prompt. Custom frames retain their colors, and hidden indicators remain hidden. The standalone pi-tui Editor API is unchanged.
 - Increased the default shared SQLite busy timeout from 5 to 10 seconds for newly configured connections; explicit overrides and retained connection timeouts are unchanged. Synchronous lock waits can block UI/event processing longer and do not prevent every `SQLITE_BUSY` error.

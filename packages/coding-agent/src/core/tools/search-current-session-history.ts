@@ -7,6 +7,7 @@ import { readSessionFileHistoryReverse, readSessionHistoryReverse } from "../ses
 import type { SessionEntry } from "../session-manager.ts";
 
 const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 50;
 const CURRENT_TOOL_NAME = "search_current_session_history";
 const PARENT_TOOL_NAME = "search_parent_session_history";
 const HISTORY_SEARCH_TOOL_NAMES = new Set([CURRENT_TOOL_NAME, PARENT_TOOL_NAME]);
@@ -21,9 +22,21 @@ const searchCurrentSessionHistorySchema = Type.Object({
 		}),
 	),
 	limit: Type.Optional(
-		Type.Integer({ description: "Maximum matching entries to return. Defaults to 20.", minimum: 1, maximum: 50 }),
+		Type.Integer({
+			description: "Maximum matching entries to return. Defaults to 20.",
+			minimum: 1,
+			maximum: MAX_LIMIT,
+		}),
 	),
-	cursor: Type.Optional(Type.String({ description: "Pagination cursor returned by a previous search." })),
+	since: Type.Optional(
+		Type.String({ description: "Inclusive ISO timestamp with timezone: return entries at or after this time." }),
+	),
+	until: Type.Optional(
+		Type.String({ description: "Inclusive ISO timestamp with timezone: return entries at or before this time." }),
+	),
+	cursor: Type.Optional(
+		Type.String({ description: "Pagination cursor returned by a previous search with the same bounds." }),
+	),
 });
 
 export type SearchCurrentSessionHistoryToolInput = Static<typeof searchCurrentSessionHistorySchema>;
@@ -127,19 +140,95 @@ function searchableEntry(entry: SessionEntry): SearchableSessionEntry | undefine
 	}
 }
 
-function parseCursor(source: HistorySource, cursor: string | undefined): number {
-	if (cursor === undefined) return 0;
-	if (!/^\d+$/.test(cursor)) {
-		throw new Error(`${source.toolName} cursor must be a non-negative integer cursor`);
-	}
-	return Number(cursor);
+interface HistorySearchOptions {
+	query: string;
+	since: number | undefined;
+	until: number | undefined;
+	newestFirst: boolean;
+	limit: number;
+	contextEntries: number;
+	offset: number;
 }
 
-async function* readSearchableHistoryReverse(source: HistorySource, query: string) {
+function parseTimeBound(toolName: string, name: string, value: string | undefined): number | undefined {
+	if (value === undefined) return undefined;
+	const iso = /^(\d{4}-\d{2}-\d{2})T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/;
+	const match = iso.exec(value);
+	const timestamp = Date.parse(value);
+	if (!match || !Number.isFinite(timestamp)) {
+		throw new Error(`${toolName} ${name} must be an ISO timestamp with a timezone`);
+	}
+	const calendarDay = new Date(`${match[1]}T00:00:00Z`).toISOString().slice(0, 10);
+	if (calendarDay !== match[1]) throw new Error(`${toolName} ${name} must be a valid ISO timestamp`);
+	return timestamp;
+}
+
+function cursorScope(options: HistorySearchOptions): string {
+	return JSON.stringify([options.query, options.since ?? null, options.until ?? null]);
+}
+
+function parseCursor(toolName: string, cursor: string | undefined, options: HistorySearchOptions): number {
+	if (cursor === undefined) return 0;
+	if (!options.newestFirst) {
+		const offset = Number(cursor);
+		if (!/^\d+$/.test(cursor) || !Number.isSafeInteger(offset)) {
+			throw new Error(`${toolName} cursor must be a non-negative integer cursor`);
+		}
+		return offset;
+	}
+	let decoded: unknown;
+	try {
+		decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+	} catch {
+		throw new Error(`${toolName} cursor is invalid for this bounded search`);
+	}
+	if (!Array.isArray(decoded) || decoded.length !== 2) {
+		throw new Error(`${toolName} cursor is invalid for this bounded search`);
+	}
+	const [scope, offset]: unknown[] = decoded;
+	const validOffset = typeof offset === "number" && Number.isSafeInteger(offset) && offset >= 0;
+	if (scope !== cursorScope(options) || !validOffset) {
+		throw new Error(`${toolName} cursor does not match this query and date bounds`);
+	}
+	return offset;
+}
+
+function parseSearchOptions(toolName: string, params: SearchCurrentSessionHistoryToolInput): HistorySearchOptions {
+	const since = parseTimeBound(toolName, "since", params.since);
+	const until = parseTimeBound(toolName, "until", params.until);
+	if (since !== undefined && until !== undefined && since > until) {
+		throw new Error(`${toolName} since must be at or before until`);
+	}
+	const requestedLimit = params.limit ?? DEFAULT_LIMIT;
+	if (!Number.isSafeInteger(requestedLimit) || requestedLimit < 1) {
+		throw new Error(`${toolName} limit must be a positive integer`);
+	}
+	const options: HistorySearchOptions = {
+		query: params.query.trim().toLocaleLowerCase(),
+		since,
+		until,
+		newestFirst: since !== undefined || until !== undefined,
+		limit: Math.min(requestedLimit, MAX_LIMIT),
+		contextEntries: params.context_entries ?? 0,
+		offset: 0,
+	};
+	return { ...options, offset: parseCursor(toolName, params.cursor, options) };
+}
+
+function isWithinBounds(entry: SessionEntry, options: HistorySearchOptions): boolean {
+	if (!options.newestFirst) return true;
+	const timestamp = Date.parse(entry.timestamp);
+	const afterSince = options.since === undefined || timestamp >= options.since;
+	const beforeUntil = options.until === undefined || timestamp <= options.until;
+	return afterSince && beforeUntil;
+}
+
+async function* readSearchableHistoryReverse(source: HistorySource, options: HistorySearchOptions) {
 	for await (const entry of source.readReverse()) {
+		if (!isWithinBounds(entry, options)) continue;
 		const searchable = searchableEntry(entry);
 		if (!searchable) continue;
-		const matches = searchable.searchTexts.some((text) => text.toLocaleLowerCase().includes(query));
+		const matches = searchable.searchTexts.some((text) => text.toLocaleLowerCase().includes(options.query));
 		yield { ...searchable, matches };
 	}
 }
@@ -159,20 +248,17 @@ function toSearchEntry(searchable: SearchableSessionEntry, matched: boolean, sou
 
 async function readHistoryPage(
 	source: HistorySource,
-	query: string,
+	options: HistorySearchOptions,
 	totalMatches: number,
-	params: SearchCurrentSessionHistoryToolInput,
 ): Promise<SessionHistorySearchEntry[]> {
-	const cursor = parseCursor(source, params.cursor);
-	const limit = params.limit ?? DEFAULT_LIMIT;
-	const contextEntries = params.context_entries ?? 0;
+	const { offset: cursor, limit, contextEntries } = options;
 	const included = new Map<number, SessionHistorySearchEntry>();
 	const neighbors: { index: number; entry: SessionHistorySearchEntry }[] = [];
-	let matchOffset = totalMatches;
+	let matchOffset = options.newestFirst ? -1 : totalMatches;
 	let remainingContext = 0;
 	let index = 0;
-	for await (const searchable of readSearchableHistoryReverse(source, query)) {
-		if (searchable.matches) matchOffset--;
+	for await (const searchable of readSearchableHistoryReverse(source, options)) {
+		if (searchable.matches) matchOffset += options.newestFirst ? 1 : -1;
 		const matched = searchable.matches && matchOffset >= cursor && matchOffset < cursor + limit;
 		const entry = toSearchEntry(searchable, matched, source);
 		if (matched) {
@@ -187,7 +273,9 @@ async function readHistoryPage(
 		if (neighbors.length > contextEntries) neighbors.shift();
 		index++;
 	}
-	return [...included].sort(([left], [right]) => right - left).map(([, entry]) => entry);
+	return [...included]
+		.sort(([left], [right]) => (options.newestFirst ? left - right : right - left))
+		.map(([, entry]) => entry);
 }
 
 async function searchHistory(source: HistorySource, params: SearchCurrentSessionHistoryToolInput, emptyText: string) {
@@ -195,16 +283,18 @@ async function searchHistory(source: HistorySource, params: SearchCurrentSession
 	if (query === "") {
 		throw new Error(`${source.toolName} query must not be empty`);
 	}
-	const cursor = parseCursor(source, params.cursor);
-	const normalizedQuery = query.toLocaleLowerCase();
+	const options = parseSearchOptions(source.toolName, params);
 	let totalMatches = 0;
-	for await (const searchable of readSearchableHistoryReverse(source, normalizedQuery)) {
+	for await (const searchable of readSearchableHistoryReverse(source, options)) {
 		if (searchable.matches) totalMatches++;
 	}
-	const returnedMatches = Math.min(params.limit ?? DEFAULT_LIMIT, Math.max(0, totalMatches - cursor));
-	const entries = returnedMatches > 0 ? await readHistoryPage(source, normalizedQuery, totalMatches, params) : [];
-	const nextOffset = cursor + returnedMatches;
-	const nextCursor = nextOffset < totalMatches ? String(nextOffset) : undefined;
+	const returnedMatches = Math.min(options.limit, Math.max(0, totalMatches - options.offset));
+	const entries = returnedMatches > 0 ? await readHistoryPage(source, options, totalMatches) : [];
+	const nextOffset = options.offset + returnedMatches;
+	const continuation = options.newestFirst
+		? Buffer.from(JSON.stringify([cursorScope(options), nextOffset])).toString("base64url")
+		: String(nextOffset);
+	const nextCursor = nextOffset < totalMatches ? continuation : undefined;
 	const details: SearchCurrentSessionHistoryToolDetails = {
 		query,
 		totalMatches,
@@ -282,6 +372,7 @@ export function createSearchCurrentSessionHistoryToolDefinition(): HistorySearch
 		promptGuidelines: [
 			"Use search_current_session_history to recover details from the current session that may have been omitted by compaction.",
 			"Matching includes user and assistant text, tool-call names and arguments, tool results, custom messages, and summaries; excludes thinking, signatures, and history-search calls and results.",
+			"Use since and/or until ISO timestamps to restrict evidence by entry time and return newest matches first; reuse the same bounds with a returned cursor.",
 		],
 		parameters: searchCurrentSessionHistorySchema,
 		executionMode: "parallel",
@@ -301,6 +392,7 @@ export function createSearchParentSessionHistoryToolDefinition(): HistorySearchT
 		promptGuidelines: [
 			"Use search_parent_session_history when a task needs evidence of what the parent session did or was asked; it cannot read other sessions.",
 			"Matching includes user and assistant text, tool-call names and arguments, tool results, custom messages, and summaries; excludes thinking, signatures, and history-search calls and results.",
+			"Use since and/or until ISO timestamps to restrict evidence by entry time and return newest matches first; reuse the same bounds with a returned cursor.",
 		],
 		parameters: searchCurrentSessionHistorySchema,
 		executionMode: "parallel",

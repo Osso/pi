@@ -4,20 +4,30 @@
 
 ## Use and data flow
 
-Call `search_current_session_history` with literal `query`, optional `context_entries` (0–10, default 0), `limit` (1–50, default 20), and a returned `cursor`. It is default-active in [`tools/index.ts`](../../../packages/coding-agent/src/core/tools/index.ts). Child agents also get `search_parent_session_history` with the same parameters; it reads the parent session file from `ctx.multiAgentStore.getPersistenceTarget()` and walks the active branch backwards from the last entry.
+Call `search_current_session_history` with literal `query`, optional `context_entries` (0–10, default 0), `limit` (1–50, default 20), optional inclusive ISO `since` and `until` bounds on `entry.timestamp`, and a returned `cursor`. Timestamps must include a full date/time and explicit `Z` or numeric timezone offset. It is default-active in [`tools/index.ts`](../../../packages/coding-agent/src/core/tools/index.ts). Child agents also get `search_parent_session_history` with the same parameters; it reads the direct parent's session file from `ctx.multiAgentStore.getPersistenceTarget()`. Neither tool accepts an arbitrary session selector.
 
-[`search-current-session-history.ts`](../../../packages/coding-agent/src/core/tools/search-current-session-history.ts) requires a session file, trims/rejects an empty query, and obtains `sessionManager.getBranch()`. It recursively collects strings from user-message content and compares locale-lowercased substrings. Assistant/tool/custom/summary content cannot produce matches.
+For example, to find recent parent evidence:
 
-Matches are paged in branch order. Cursor is a decimal offset into matching entries, not an entry ID or snapshot token. Neighbor windows use the filtered sequence of messages, custom messages, compactions and branch summaries; overlapping windows are deduplicated. Metadata-only entries do not count as neighbors.
+```json
+{"query":"delegation","since":"2026-11-01T00:00:00Z","until":"2026-11-02T00:00:00Z","limit":10}
+```
 
-Results contain full content, entry ID/timestamp/type/role, `matched`, and `compacted`. The latter means absent from `buildContextEntries()`, not a stored flag. Details include total/returned match counts and `nextCursor`; zero matches produce a short text result. [`session-manager.ts`](../../../packages/coding-agent/src/core/session-manager.ts) supplies both branch traversal and compaction-aware projection.
+[`search-current-session-history.ts`](../../../packages/coding-agent/src/core/tools/search-current-session-history.ts) requires a persisted session, rejects an empty trimmed query, and compares locale-lowercased literal substrings. Matching includes user/assistant text, tool-call names and nested arguments, tool results, custom messages, compaction summaries and branch summaries. Thinking, signatures and history-search calls/results do not match.
 
-## Important implementation gap
+[`session-history.ts`](../../../packages/coding-agent/src/core/session-history.ts) traverses active-branch ancestors newest first, streaming persisted ancestors missing from the loaded manager without expanding model context. Archived transcripts are spooled to temporary disk for reverse traversal. Inactive branches remain excluded.
 
-The contract requires recovering full omitted active-branch content. This works for entries retained in the current manager before compaction, as the tool test demonstrates. On reopening a compacted current-version session, SessionManager loads only the retained active slice; `getBranch()` walks that in-memory map. The tool does not reload the complete disk transcript. Consequently pre-slice history after resume is unavailable: the full-history requirement is not implemented across that boundary, despite the spec's completed checkbox.
+## Dates and pagination
 
-No cross-session, inactive-branch, semantic search or ephemeral fallback exists. Pagination does not freeze history between calls; result limits bound match count, not content bytes.
+Without dates, pages retain their existing oldest-first active-branch order and decimal match-offset cursor. With either bound, entries are filtered by their session-entry timestamp before match counting and pagination. Both endpoints are inclusive. Bounded pages return newest active-branch matches first. Invalid timestamps, impossible calendar dates and reversed ranges fail explicitly.
+
+Bounded cursors are opaque and tied to the normalized query and effective date range. Reuse the query and bounds when requesting the next page; equivalent timezone representations refer to the same bound. A cursor from a bounded search cannot be used for an unbounded search or vice versa. Pagination does not freeze history between calls.
+
+The limit caps matching entries, not content bytes or additional neighboring context. Neighbor windows use only searchable entries within the date range; overlapping windows are deduplicated. Metadata-only entries do not count as neighbors. Out-of-range entries cannot reappear as context.
+
+Results contain full content, entry ID/timestamp/type/role and `matched`. Current-session results also contain `compacted`, meaning absent from `buildContextEntries()`, not a stored flag. Parent results omit it because the child does not load its parent's model context. Details include total/returned match counts and `nextCursor`; zero matches produce a short text result.
 
 ## Test evidence
 
-Inspected, not run: [`search-current-session-history-tool.test.ts`](../../../packages/coding-agent/test/search-current-session-history-tool.test.ts) covers user-only literal matching, in-process compaction, neighbors, branch exclusion, two-page pagination, persistence rejection and registration. [`active-slice-load.test.ts`](../../../packages/coding-agent/test/session-manager/active-slice-load.test.ts) describes the separate reopen boundary; the search test does not cover full-history recovery after reopen.
+- [`search-current-session-history-tool.test.ts`](../../../packages/coding-agent/test/search-current-session-history-tool.test.ts): conversational matching, exclusions, compaction/resume/archive parity, neighbors, inactive branches, legacy pagination, persistence and registration.
+- [`search-session-history-date-bounds.test.ts`](../../../packages/coding-agent/test/search-session-history-date-bounds.test.ts): current/parent date bounds, inclusive endpoints, limits, validation and bounded pagination.
+- [`child-parent-observation.test.ts`](../../../packages/coding-agent/test/suite/child-parent-observation.test.ts): the parent-history tool is exposed to a spawned child, not the parent runtime.

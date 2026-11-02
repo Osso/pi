@@ -82,13 +82,44 @@ describe("child observation of its parent session", () => {
 			);
 			const parentHistory = JSON.parse(toolResultText(childSecond.messages, "search_parent_session_history")) as {
 				totalMatches: number;
-				entries: { role: string; matched: boolean; content: unknown }[];
+				entries: { role: string; matched: boolean; content: unknown; timestamp: string }[];
 			};
 			const matchedCall = parentHistory.entries.find(
 				(entry) => entry.matched && entry.role === "assistant" && JSON.stringify(entry.content).includes('"read"'),
 			);
 			expect(JSON.stringify(matchedCall?.content)).toContain(`${PARENT_MARKER}.txt`);
-			agent.respondToLlmRequest(childSecond.id, endTurn("Parent read the marker file."));
+			if (!matchedCall) throw new Error("Missing parent read call");
+			agent.respondToLlmRequest(
+				childSecond.id,
+				fauxAssistantMessage(
+					fauxToolCall("search_parent_session_history", {
+						query: PARENT_MARKER,
+						since: matchedCall.timestamp,
+						until: matchedCall.timestamp,
+						limit: 1,
+					}),
+					{ stopReason: "toolUse" },
+				),
+			);
+			const childThird = await agent.waitForLlmRequest(
+				(request) => request.agentId === child.id && request.id !== childFirst.id && request.id !== childSecond.id,
+			);
+			const boundedResults = childThird.messages.filter(
+				(message) => message.role === "toolResult" && message.toolName === "search_parent_session_history",
+			);
+			const boundedHistory = JSON.parse(
+				toolResultText(boundedResults.slice(-1), "search_parent_session_history"),
+			) as {
+				returnedMatches: number;
+				entries: { timestamp: string; matched: boolean }[];
+			};
+			expect(boundedHistory.returnedMatches).toBe(1);
+			expect(boundedHistory.entries).toHaveLength(1);
+			expect(boundedHistory.entries[0]).toMatchObject({ timestamp: matchedCall.timestamp, matched: true });
+			agent.respondToLlmRequest(
+				childThird.id,
+				endTurn("Parent read the marker file; inclusive date bounds verified."),
+			);
 
 			const parentAfterSpawn = await agent.waitForLlmRequest(
 				(request) => request.agentId === null && request.id !== first.id && request.id !== second.id,

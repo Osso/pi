@@ -19,6 +19,9 @@ Module boundary: core built-in tool + session manager.
 - [x] Exclude entries that belong only to inactive branches.
 - [x] Include a configurable number of neighboring searchable entries around each match.
 - [x] Bound matching results with a limit and cursor-based pagination.
+- [x] Accept optional inclusive ISO `since` and `until` bounds on `entry.timestamp`, with full date/time and explicit `Z` or numeric timezone offset; reject invalid timestamps and reversed ranges with clear errors.
+- [x] Apply the date range before the match limit (maximum 50); return bounded matches newest-first while preserving unbounded search behavior.
+- [x] Bind cursors to the effective date range and exclude out-of-range entries from neighboring context.
 - [x] Reject ephemeral sessions without a persisted session file.
 
 ### Parent session search
@@ -42,6 +45,7 @@ Module boundary: core built-in tool + session manager.
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/search-current-session-history-tool.test.ts`
+- `packages/coding-agent/test/search-session-history-date-bounds.test.ts`
 - `packages/coding-agent/test/suite/child-parent-observation.test.ts`
 
 ## Known gaps (current cycle)
