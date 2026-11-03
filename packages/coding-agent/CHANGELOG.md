@@ -183,7 +183,7 @@
 - Added the first-party `browser-cli` tool with ordered `commands: string[][]` batches; it invokes an externally installed `browser-cli` executable sequentially, stops on failure or cancellation, and guides browser-agent routing and mapped broker login.
 - Added `pi login <provider>` for running OAuth login flows from the CLI, including a `--browser-cli` option to open auth URLs through browser-cli.
 - Added `/login openai-codex-gc` and `/login openai-codex-team` support for independently authenticating additional OpenAI Codex backends; OAuth account or workspace selection remains upstream.
-- Added automatic same-model quota fallback among `openai-codex`, `openai-codex-gc`, and `openai-codex-team`: candidate orders are codex → gc → team, gc → codex → team, and team → codex → gc; each provider is attempted at most once per user turn without rewriting global defaults.
+- Added automatic same-model quota fallback between `openai`, custom `openai-secondary`, and the three Codex providers. API providers try the other API account before Codex; Codex providers try both API accounts before their existing Codex alternatives. Only authenticated providers with the same model qualify, each is attempted at most once per user turn, and switches do not rewrite global defaults. The resident Supervisor remains Codex-only.
 - Added a first-party `/usage` extension command for OpenAI Codex account usage and reset credits.
 - Added current-provider `/usage` routing for `claude-bridge` through `claude-bridge:usage-request`, reporting the selected Claude account's subscription windows and reset times without switching accounts; `/usage reset` remains Codex-only.
 - Added a first-party `web_search` tool for OpenAI Responses hosted web search.

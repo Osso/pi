@@ -59,7 +59,7 @@ import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
-import { CODEX_FALLBACK_PROVIDERS, isQuotaExhaustionError } from "./codex-quota-fallback.ts";
+import { getOpenAIQuotaFallbackProviders, isQuotaExhaustionError } from "./codex-quota-fallback.ts";
 import {
 	type CompactionPreparation,
 	type CompactionResult,
@@ -5687,7 +5687,7 @@ export class AgentSession {
 		if (!currentModel || message.provider !== currentModel.provider || message.model !== currentModel.id) {
 			return undefined;
 		}
-		const fallbackProviders = CODEX_FALLBACK_PROVIDERS.get(message.provider);
+		const fallbackProviders = getOpenAIQuotaFallbackProviders(message.provider);
 		if (!fallbackProviders) return undefined;
 
 		for (const provider of fallbackProviders) {

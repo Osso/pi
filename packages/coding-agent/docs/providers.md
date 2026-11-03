@@ -29,7 +29,9 @@ Use `/logout` to clear credentials. Tokens are stored in `~/.pi/agent/auth.json`
 - Configure independent Codex OAuth credentials with `/login openai-codex`, `/login openai-codex-gc`, or `/login openai-codex-team`. Each provider stores its credential separately and exposes the same model catalog.
 - The same email may be used for multiple providers. The upstream OAuth flow determines the selected account or workspace; Pi does not select one or infer distinct quotas from provider IDs.
 
-After a terminal quota, usage-limit, or billing-exhaustion error, `AgentSession` tries configured same-model Codex providers in this order: `openai-codex` → `openai-codex-gc` → `openai-codex-team`; `openai-codex-gc` → `openai-codex` → `openai-codex-team`; `openai-codex-team` → `openai-codex` → `openai-codex-gc`. The failed active provider counts as its one attempt, so fallback continues with later eligible providers. Eligibility resets with the next user message. Fallback changes only the active session model; it never rewrites global defaults.
+After a terminal quota, usage-limit, or billing-exhaustion error, `AgentSession` considers `openai`, custom `openai-secondary`, and the Codex providers. From either API provider, it tries the other API provider, then `openai-codex`, `openai-codex-gc`, and `openai-codex-team`. From a Codex provider, it tries `openai`, then `openai-secondary`, then the other Codex providers: `openai-codex` and `openai-codex-gc` prefer each other before `openai-codex-team`; `openai-codex-team` prefers `openai-codex` before `openai-codex-gc`. Only configured credentials and the same model ID qualify; each provider is attempted at most once per user turn, including the failed active provider. Eligibility resets with the next user message. Automatic switches remain session-local and do not rewrite global defaults. This does not change resident Supervisor rotation.
+
+OpenAI API credits are separate from Codex subscription quota. This fallback does not automatically recharge credits, track monthly grants, or guarantee a spending ceiling. It is not arbitrary credential rotation or round robin. To use expiring API credits first, explicitly choose `openai` as the global default; automatic fallback will not change it.
 
 ### Claude Pro/Max
 
@@ -266,6 +268,32 @@ For coding-agent, you can keep the credential explicit and avoid probing the def
 Set the service-account JSON file to user-only permissions. A stored provider entry owns Vertex authentication: coding-agent does not consult `GOOGLE_CLOUD_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`, or default gcloud ADC discovery outside the explicit provider-scoped configuration. An empty stored key also disables ambient fallback.
 
 ## Custom Providers
+
+### Second OpenAI API account
+
+For fallback, add `openai-secondary` to `~/.pi/agent/models.json`, with each same-ID model you intend to use. For example, replace `YOUR_MODEL_ID` with an actual model ID available to both accounts, and configure its model metadata as needed (see [models.md](models.md)):
+
+```json
+{
+  "providers": {
+    "openai-secondary": {
+      "baseUrl": "https://api.openai.com/v1",
+      "api": "openai-responses",
+      "models": [{ "id": "YOUR_MODEL_ID" }]
+    }
+  }
+}
+```
+
+Store a separate credential under `openai-secondary` in `~/.pi/agent/auth.json`; configure the primary `openai` credential separately. For example, supply the secondary key via an environment variable, not a literal secret:
+
+```json
+{
+  "openai-secondary": { "type": "api_key", "key": "$OPENAI_SECONDARY_API_KEY" }
+}
+```
+
+### Other custom providers
 
 **Via models.json:** Add Ollama, LM Studio, vLLM, or any provider that speaks a supported API (OpenAI Completions, OpenAI Responses, Anthropic Messages, Google Generative AI). See [models.md](models.md).
 
