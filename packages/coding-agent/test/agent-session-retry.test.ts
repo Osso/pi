@@ -380,15 +380,16 @@ describe("AgentSession retry", () => {
 		return { providers, settingsManager };
 	}
 
-	async function createApiRotationSession(options: {
+	type ApiRotationOptions = {
 		start: string;
 		authenticated?: string[];
 		succeedOn?: string;
 		errorMessage?: string;
-	}) {
-		const providers: string[] = [];
-		const selections: string[] = [];
-		const baseModel = getModel("openai-codex", "gpt-5.6-luna")!;
+	};
+
+	function createApiRotationRegistry(options: ApiRotationOptions) {
+		const baseModel = getModel("openai-codex", "gpt-5.6-luna");
+		if (!baseModel) throw new Error("Missing fixture model openai-codex/gpt-5.6-luna");
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
 		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
 		for (const provider of ["openai", "openai-secondary"]) {
@@ -408,38 +409,43 @@ describe("AgentSession retry", () => {
 		]) {
 			authStorage.setRuntimeApiKey(provider, "test-key");
 		}
-		const agent = new Agent({
-			getApiKey: () => "test-key",
-			initialState: { model: modelRegistry.find(options.start, baseModel.id)!, systemPrompt: "Test", tools: [] },
-			streamFn: (model) => {
-				providers.push(`${model.provider}/${model.id}/${model.api}`);
-				const stream = new MockAssistantStream();
-				queueMicrotask(() => {
-					const overrides = { api: model.api, provider: model.provider, model: model.id };
-					if (model.provider === options.succeedOn) {
-						const message = createCompletedAssistantMessage("Recovered", overrides);
-						stream.push({ type: "start", partial: message });
-						stream.push({ type: "done", reason: "toolUse", message });
-					} else {
-						const message = createAssistantMessage("", {
-							...overrides,
-							stopReason: "error",
-							errorMessage: options.errorMessage ?? "insufficient_quota",
-						});
-						stream.push({ type: "start", partial: message });
-						stream.push({ type: "error", reason: "error", error: message });
-					}
-				});
-				return stream;
-			},
+		const model = modelRegistry.find(options.start, baseModel.id);
+		if (!model) throw new Error(`Missing fixture model ${options.start}/${baseModel.id}`);
+		return { model, modelRegistry };
+	}
+
+	function emitApiRotationResponse(
+		stream: MockAssistantStream,
+		overrides: Pick<AssistantMessage, "api" | "provider" | "model">,
+		options: ApiRotationOptions,
+	) {
+		if (overrides.provider === options.succeedOn) {
+			const message = createCompletedAssistantMessage("Recovered", overrides);
+			stream.push({ type: "start", partial: message });
+			stream.push({ type: "done", reason: "toolUse", message });
+			return;
+		}
+		const message = createAssistantMessage("", {
+			...overrides,
+			stopReason: "error",
+			errorMessage: options.errorMessage ?? "insufficient_quota",
 		});
+		stream.push({ type: "start", partial: message });
+		stream.push({ type: "error", reason: "error", error: message });
+	}
+
+	function createApiRotationSettings() {
 		const settingsManager = SettingsManager.create(tempDir, tempDir);
 		settingsManager.applyOverrides({
 			retry: { enabled: false },
 			defaultProvider: "original",
 			defaultModel: "original-model",
 		});
-		const extensionsResult = await createTestExtensionsResult(
+		return settingsManager;
+	}
+
+	async function createApiRotationExtensions(selections: string[]) {
+		return createTestExtensionsResult(
 			[
 				(pi) => {
 					pi.on("model_select", async (event) => {
@@ -449,6 +455,25 @@ describe("AgentSession retry", () => {
 			],
 			tempDir,
 		);
+	}
+
+	async function createApiRotationSession(options: ApiRotationOptions) {
+		const providers: string[] = [];
+		const selections: string[] = [];
+		const { model, modelRegistry } = createApiRotationRegistry(options);
+		const agent = new Agent({
+			getApiKey: () => "test-key",
+			initialState: { model, systemPrompt: "Test", tools: [] },
+			streamFn: (activeModel) => {
+				providers.push(`${activeModel.provider}/${activeModel.id}/${activeModel.api}`);
+				const stream = new MockAssistantStream();
+				const overrides = { api: activeModel.api, provider: activeModel.provider, model: activeModel.id };
+				queueMicrotask(() => emitApiRotationResponse(stream, overrides, options));
+				return stream;
+			},
+		});
+		const settingsManager = createApiRotationSettings();
+		const extensionsResult = await createApiRotationExtensions(selections);
 		session = new AgentSession({
 			agent,
 			sessionManager: SessionManager.inMemory(),
