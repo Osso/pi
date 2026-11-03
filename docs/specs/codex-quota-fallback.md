@@ -14,8 +14,8 @@ behavior; it changes the active session model without rewriting global defaults.
 
 - [ ] Detect terminal quota, usage-limit, and billing-exhaustion errors only.
 - [ ] Require the failed assistant message's provider and model to match the active session model.
-- [ ] Consider only authenticated providers exposing the same model ID. From `openai` or
-      `openai-secondary`, try the other API provider, then `openai-codex`, `openai-codex-gc`,
+- [ ] Consider only authenticated providers exposing the same model ID.
+- [x] From `openai` or `openai-secondary`, try the other API provider, then `openai-codex`, `openai-codex-gc`,
       and `openai-codex-team`. From a Codex provider, try `openai`, then `openai-secondary`,
       then the other Codex providers in their existing order: `openai-codex` and
       `openai-codex-gc` prefer each other before `openai-codex-team`; `openai-codex-team`
@@ -26,21 +26,22 @@ behavior; it changes the active session model without rewriting global defaults.
       more than one provider; upstream OAuth, not Pi configuration, determines the account or
       workspace. Provider IDs alone do not prove separate quotas.
 - [ ] Leave errors outside the eligible providers and exhaustion conditions unchanged; skip
-      missing-model or unauthenticated candidates.
+      missing-model candidates.
+- [x] Skip unauthenticated candidates.
 
 ### Continuation
 
-- [ ] Remove the failed assistant response from live agent context, keep the model ID, and continue
-      the interrupted request through the next eligible provider.
-- [ ] Count the failed active provider and every fallback provider as one attempt each; attempt each
+- [ ] Remove the failed assistant response from live agent context.
+- [x] Keep the model ID and continue the interrupted request through the next eligible provider.
+- [x] Count the failed active provider and every fallback provider as one attempt each; attempt each
       provider at most once per user turn and reset that guard when the next user message starts a
       new turn.
-- [ ] Keep automatic fallback session-local; do not rewrite configured default provider/model
+- [x] Keep automatic fallback session-local; do not rewrite configured default provider/model
       settings or add global fallback defaults.
 
 ### Events
 
-- [ ] Emit `model_select` with `source: "fallback"` for every automatic provider selection.
+- [x] Emit `model_select` with `source: "fallback"` for every automatic provider selection.
 - [ ] Continue the interrupted request while fallback is pending and emit the final response without
       exposing retry state through the extension `agent_end` event.
 
@@ -62,14 +63,14 @@ behavior; it changes the active session model without rewriting global defaults.
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/agent-session-retry.test.ts`
-  - All three fallback orders, each-provider-once exhaustion, next-turn reset, and missing-auth
-    skip behavior.
+  - All five starting-provider orders, each-provider-once exhaustion, next-turn reset, and
+    missing-auth skips for API and Codex providers.
+  - Same-model handoff, unchanged default provider/model settings, and `model_select` fallback source.
 
 ## Known gaps (current cycle)
 
-- [ ] Add regression coverage for API provider order, missing models, unauthenticated candidates,
-      per-turn limits, and failed message provider/model mismatches.
-- [ ] Add regression coverage that `model_select` reports `source: "fallback"`.
+- [ ] Add regression coverage for missing-model candidates and failed-message provider/model
+      mismatches.
 
 ## Out of scope
 
