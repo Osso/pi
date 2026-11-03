@@ -11,7 +11,7 @@ import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
-import { createTestResourceLoader } from "./utilities.ts";
+import { createTestExtensionsResult, createTestResourceLoader } from "./utilities.ts";
 
 class MockAssistantStream extends EventStream<AssistantMessageEvent, AssistantMessage> {
 	constructor() {
@@ -379,6 +379,141 @@ describe("AgentSession retry", () => {
 		});
 		return { providers, settingsManager };
 	}
+
+	async function createApiRotationSession(options: {
+		start: string;
+		authenticated?: string[];
+		succeedOn?: string;
+		errorMessage?: string;
+	}) {
+		const providers: string[] = [];
+		const selections: string[] = [];
+		const baseModel = getModel("openai-codex", "gpt-5.6-luna")!;
+		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
+		for (const provider of ["openai", "openai-secondary"]) {
+			modelRegistry.registerProvider(provider, {
+				baseUrl: "https://example.invalid/v1",
+				apiKey: "$PI_TEST_MISSING_QUOTA_KEY",
+				api: "openai-responses",
+				models: [{ ...baseModel, api: "openai-responses" }],
+			});
+		}
+		for (const provider of options.authenticated ?? [
+			"openai",
+			"openai-secondary",
+			"openai-codex",
+			"openai-codex-gc",
+			"openai-codex-team",
+		]) {
+			authStorage.setRuntimeApiKey(provider, "test-key");
+		}
+		const agent = new Agent({
+			getApiKey: () => "test-key",
+			initialState: { model: modelRegistry.find(options.start, baseModel.id)!, systemPrompt: "Test", tools: [] },
+			streamFn: (model) => {
+				providers.push(`${model.provider}/${model.id}/${model.api}`);
+				const stream = new MockAssistantStream();
+				queueMicrotask(() => {
+					const overrides = { api: model.api, provider: model.provider, model: model.id };
+					if (model.provider === options.succeedOn) {
+						const message = createCompletedAssistantMessage("Recovered", overrides);
+						stream.push({ type: "start", partial: message });
+						stream.push({ type: "done", reason: "toolUse", message });
+					} else {
+						const message = createAssistantMessage("", {
+							...overrides,
+							stopReason: "error",
+							errorMessage: options.errorMessage ?? "insufficient_quota",
+						});
+						stream.push({ type: "start", partial: message });
+						stream.push({ type: "error", reason: "error", error: message });
+					}
+				});
+				return stream;
+			},
+		});
+		const settingsManager = SettingsManager.create(tempDir, tempDir);
+		settingsManager.applyOverrides({
+			retry: { enabled: false },
+			defaultProvider: "original",
+			defaultModel: "original-model",
+		});
+		const extensionsResult = await createTestExtensionsResult(
+			[
+				(pi) => {
+					pi.on("model_select", async (event) => {
+						selections.push(`${event.previousModel?.provider}->${event.model.provider}:${event.source}`);
+					});
+				},
+			],
+			tempDir,
+		);
+		session = new AgentSession({
+			agent,
+			sessionManager: SessionManager.inMemory(),
+			settingsManager,
+			cwd: tempDir,
+			modelRegistry,
+			resourceLoader: createTestResourceLoader({ extensionsResult }),
+		});
+		return { providers, selections, settingsManager };
+	}
+
+	it("rotates from both API accounts to a subscription without changing defaults", async () => {
+		const { providers, selections, settingsManager } = await createApiRotationSession({
+			start: "openai",
+			succeedOn: "openai-codex",
+		});
+		await session.prompt("Test");
+		expect(providers).toEqual([
+			"openai/gpt-5.6-luna/openai-responses",
+			"openai-secondary/gpt-5.6-luna/openai-responses",
+			"openai-codex/gpt-5.6-luna/openai-codex-responses",
+		]);
+		expect(selections).toEqual(["openai->openai-secondary:fallback", "openai-secondary->openai-codex:fallback"]);
+		expect(session.model?.provider).toBe("openai-codex");
+		expect(settingsManager.getDefaultProvider()).toBe("original");
+		expect(settingsManager.getDefaultModel()).toBe("original-model");
+	});
+
+	it.each([
+		["openai", ["openai", "openai-secondary", "openai-codex", "openai-codex-gc", "openai-codex-team"]],
+		["openai-secondary", ["openai-secondary", "openai", "openai-codex", "openai-codex-gc", "openai-codex-team"]],
+		["openai-codex", ["openai-codex", "openai", "openai-secondary", "openai-codex-gc", "openai-codex-team"]],
+		["openai-codex-gc", ["openai-codex-gc", "openai", "openai-secondary", "openai-codex", "openai-codex-team"]],
+		["openai-codex-team", ["openai-codex-team", "openai", "openai-secondary", "openai-codex", "openai-codex-gc"]],
+	])("exhausts each provider once starting from %s", async (start, expected) => {
+		const { providers } = await createApiRotationSession({ start });
+		await session.prompt("First turn");
+		expect(providers.map((entry) => entry.split("/")[0])).toEqual(expected);
+		await session.prompt("Second turn");
+		const secondTurn = providers.slice(5).map((entry) => entry.split("/")[0]);
+		expect(secondTurn).toHaveLength(5);
+		expect(secondTurn[0]).toBe(expected[4]);
+		expect(new Set(secondTurn)).toEqual(new Set(expected));
+	});
+
+	it("skips an API account without configured authentication", async () => {
+		const { providers } = await createApiRotationSession({
+			start: "openai",
+			authenticated: ["openai", "openai-codex"],
+			succeedOn: "openai-codex",
+		});
+		await session.prompt("Test");
+		expect(providers.map((entry) => entry.split("/")[0])).toEqual(["openai", "openai-codex"]);
+	});
+
+	it("does not rotate on a non-quota API error", async () => {
+		const { providers, selections } = await createApiRotationSession({
+			start: "openai",
+			errorMessage: "Billing address invalid",
+		});
+		await session.prompt("Test");
+		expect(providers.map((entry) => entry.split("/")[0])).toEqual(["openai"]);
+		expect(selections).toEqual([]);
+		expect(session.model?.provider).toBe("openai");
+	});
 
 	it("exhausts each configured Codex provider once and resets on the next user turn", async () => {
 		const { providers } = createThreeProviderSession({ start: "openai-codex" });
