@@ -485,22 +485,42 @@ describe("AgentSession retry", () => {
 		return { providers, selections, settingsManager };
 	}
 
-	it("rotates from both API accounts to a subscription without changing defaults", async () => {
-		const { providers, selections, settingsManager } = await createApiRotationSession({
-			start: "openai",
+	it.each([
+		{
+			name: "insufficient quota",
+			errorMessage: "insufficient_quota",
 			succeedOn: "openai-codex",
-		});
-		await session.prompt("Test");
-		expect(providers).toEqual([
-			"openai/gpt-5.6-luna/openai-responses",
-			"openai-secondary/gpt-5.6-luna/openai-responses",
-			"openai-codex/gpt-5.6-luna/openai-codex-responses",
-		]);
-		expect(selections).toEqual(["openai->openai-secondary:fallback", "openai-secondary->openai-codex:fallback"]);
-		expect(session.model?.provider).toBe("openai-codex");
-		expect(settingsManager.getDefaultProvider()).toBe("original");
-		expect(settingsManager.getDefaultModel()).toBe("original-model");
-	});
+			expectedProviders: [
+				"openai/gpt-5.6-luna/openai-responses",
+				"openai-secondary/gpt-5.6-luna/openai-responses",
+				"openai-codex/gpt-5.6-luna/openai-codex-responses",
+			],
+			expectedSelections: ["openai->openai-secondary:fallback", "openai-secondary->openai-codex:fallback"],
+		},
+		{
+			name: "exhausted credit balance",
+			errorMessage:
+				'OpenAI API error (429): 429 {"error":{"message":"Your credit balance is exhausted","type":"billing_error","param":null,"code":"credit_balance_exhausted"}}',
+			succeedOn: "openai-secondary",
+			expectedProviders: ["openai/gpt-5.6-luna/openai-responses", "openai-secondary/gpt-5.6-luna/openai-responses"],
+			expectedSelections: ["openai->openai-secondary:fallback"],
+		},
+	])(
+		"rotates on $name without changing defaults",
+		async ({ errorMessage, succeedOn, expectedProviders, expectedSelections }) => {
+			const { providers, selections, settingsManager } = await createApiRotationSession({
+				start: "openai",
+				errorMessage,
+				succeedOn,
+			});
+			await session.prompt("Test");
+			expect(providers).toEqual(expectedProviders);
+			expect(selections).toEqual(expectedSelections);
+			expect(session.model?.provider).toBe(succeedOn);
+			expect(settingsManager.getDefaultProvider()).toBe("original");
+			expect(settingsManager.getDefaultModel()).toBe("original-model");
+		},
+	);
 
 	it.each([
 		["openai", ["openai", "openai-secondary", "openai-codex", "openai-codex-gc", "openai-codex-team"]],
