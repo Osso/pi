@@ -16,7 +16,7 @@ export function getOpenAIQuotaFallbackProviders(provider: string): string[] | un
 }
 
 const QUOTA_EXHAUSTION_PATTERN =
-	/GoUsageLimitError|FreeUsageLimitError|usage limit|available balance|insufficient_quota|out of budget|quota exceeded|billing (?:limit|quota|exhausted)/i;
+	/GoUsageLimitError|FreeUsageLimitError|usage limit|available balance|insufficient_quota|credit_balance_exhausted|out of budget|quota exceeded|billing (?:limit|quota|exhausted)/i;
 
 export function isQuotaExhaustionError(message: AssistantMessage): boolean {
 	return (

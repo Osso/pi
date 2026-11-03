@@ -12,7 +12,7 @@ behavior; it changes the active session model without rewriting global defaults.
 
 ### Eligibility
 
-- [ ] Detect terminal quota, usage-limit, and billing-exhaustion errors only.
+- [ ] Detect terminal quota, usage-limit, and billing-exhaustion errors only, including OpenAI's `credit_balance_exhausted` error.
 - [ ] Require the failed assistant message's provider and model to match the active session model.
 - [ ] Consider only authenticated providers exposing the same model ID.
 - [x] From `openai` or `openai-secondary`, try the other API provider, then `openai-codex`, `openai-codex-gc`,
@@ -47,6 +47,7 @@ behavior; it changes the active session model without rewriting global defaults.
 
 ## How it works
 
+- [OpenAI API grant expiration and exhaustion terms](https://help.openai.com/en/articles/20001626-api-credits-benefit-for-eligible-chatgpt-subscriptions)
 - [Provider authentication and Codex account setup](../../packages/coding-agent/docs/providers.md#openai-codex)
 - [Retry settings](../../packages/coding-agent/docs/settings.md#retry)
 
