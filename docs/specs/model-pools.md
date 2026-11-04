@@ -43,7 +43,14 @@ directly never switches accounts; select a pool for that.
 - [x] Buffer `start` events until the first non-`start` event. Rotate only if that event is a terminal
   quota-exhaustion error, including `insufficient_quota` and DeepSeek's `Insufficient Balance`.
 - [x] Forward all events from the chosen member unchanged. Non-quota errors and errors after text,
-  thinking, or tool-call events do not rotate members.
+  thinking, or tool-call events do not rotate members. Transient errors such as OpenAI TPM/RPM
+  `rate_limit_exceeded` 429s end the request and go to the normal session retry on the same pool.
+- [x] End the pool request with `<provider>/<id>: provider stream ended without a final event.` when
+  a member stream ends without `done` or `error`.
+- [x] Resolve each attempted member's auth once per request and pass it to the member stream, so a
+  command-backed key runs once.
+- [x] Route each pool through the registry that loaded it, even after another registry loads.
+- [x] Treat a member's context overflow like a direct model's overflow: compact and retry.
 - [x] Return the last attempted member's quota error if all attempts exhaust. If no member is
   eligible, return a clear error naming the pool.
 - [x] Keep a 15-minute quota cooldown by real provider/model ID in registry-owned process memory.
