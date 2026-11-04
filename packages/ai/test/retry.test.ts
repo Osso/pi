@@ -50,6 +50,17 @@ describe("provider retry classification", () => {
 		).toBe(false);
 	});
 
+	it("retries OpenAI per-minute token limits that link to the billing page", () => {
+		const errorMessage =
+			'OpenAI API error (429): {"type":"tokens","code":"rate_limit_exceeded","message":"Rate limit reached for gpt-6.1-sol in organization org-test on tokens per min (TPM): Limit 1000000, Used 891273, Requested 360562. Please try again in 15.11s. Visit https://platform.openai.com/account/rate-limits to learn more. You can increase your rate limit by adding a payment method to your account at https://platform.openai.com/account/billing.","param":null}';
+		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(true);
+		expect(
+			isRetryableAssistantError(
+				fauxAssistantMessage("", { stopReason: "error", errorMessage: "429: billing hard limit reached" }),
+			),
+		).toBe(false);
+	});
+
 	it("matches OpenAI Responses streams ending before a terminal event", () => {
 		expect(
 			isRetryableAssistantError(

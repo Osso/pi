@@ -105,9 +105,11 @@ function isNonEmptyObject(value: unknown): boolean {
  */
 export function formatProviderError(norm: NormalizedProviderError, prefix?: string): string {
 	// Mid-stream errors (an SSE `error` chunk after a 200) have no HTTP status; the body still
-	// carries the provider's code (e.g. OpenRouter `{"code":502,"message":"ERROR"}`).
+	// carries the provider's code (e.g. OpenRouter `{"code":502,"message":"ERROR"}`). The message
+	// goes first so body truncation cannot drop it.
 	if (norm.status === undefined && norm.body !== undefined && !norm.messageCarriesBody) {
-		return prefix !== undefined ? `${prefix}: ${norm.body}` : norm.body;
+		const text = `${norm.message}: ${norm.body}`;
+		return prefix !== undefined ? `${prefix}: ${text}` : text;
 	}
 	if (norm.messageCarriesBody || norm.status === undefined || norm.body === undefined) {
 		return prefix !== undefined && norm.status !== undefined

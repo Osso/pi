@@ -46,12 +46,13 @@ describe("openai-completions mid-stream provider errors", () => {
 		{
 			name: "numeric gateway code with an opaque message",
 			error: { message: "ERROR", code: 502, metadata: { raw: "ERROR", provider_name: "Stealth" } },
-			expected: '{"message":"ERROR","code":502,"metadata":{"raw":"ERROR","provider_name":"Stealth"}}',
+			expected: 'ERROR: {"message":"ERROR","code":502,"metadata":{"raw":"ERROR","provider_name":"Stealth"}}',
 		},
 		{
 			name: "documented server_error code",
 			error: { code: "server_error", message: "Provider disconnected unexpectedly" },
-			expected: '{"code":"server_error","message":"Provider disconnected unexpectedly"}',
+			expected:
+				'Provider disconnected unexpectedly: {"code":"server_error","message":"Provider disconnected unexpectedly"}',
 		},
 	])("keeps the error code from a $name so the turn is retryable", async ({ error, expected }) => {
 		const baseUrl = await serveChunk({

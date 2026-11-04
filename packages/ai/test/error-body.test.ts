@@ -6,7 +6,9 @@
 // parsed-body edge case, and the formatProviderError compose helper.
 
 import { describe, expect, it } from "vitest";
+import { fauxAssistantMessage } from "../src/providers/faux.ts";
 import { formatProviderError, MAX_PROVIDER_ERROR_BODY_CHARS, normalizeProviderError } from "../src/utils/error-body.ts";
+import { isRetryableAssistantError } from "../src/utils/retry.ts";
 
 describe("normalizeProviderError", () => {
 	it("extracts status and body from a Mistral-shaped error", () => {
@@ -144,6 +146,20 @@ describe("formatProviderError", () => {
 		const norm = normalizeProviderError(Object.assign(new Error(body), { status: 403 }));
 
 		expect(formatProviderError(norm, "OpenAI API error")).toBe(`OpenAI API error (403): ${body}`);
+	});
+
+	it("keeps a status-less message ahead of a truncated body", () => {
+		const norm = normalizeProviderError(
+			Object.assign(new Error("socket hang up"), {
+				error: { detail: "x".repeat(MAX_PROVIDER_ERROR_BODY_CHARS + 100), code: 502 },
+			}),
+		);
+		const formatted = formatProviderError(norm, "OpenAI API error");
+
+		expect(formatted.startsWith("OpenAI API error: socket hang up: ")).toBe(true);
+		expect(
+			isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage: formatted })),
+		).toBe(true);
 	});
 
 	it("returns the bare message for a non-Error value", () => {
