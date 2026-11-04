@@ -5,6 +5,7 @@
 import {
 	type AnthropicMessagesCompat,
 	type Api,
+	type AssistantMessage,
 	type AssistantMessageEventStream,
 	type Context,
 	getModels,
@@ -29,6 +30,7 @@ import { stripJsonComments } from "../utils/json.ts";
 import { normalizePath } from "../utils/paths.ts";
 import type { AuthStatus, AuthStorage } from "./auth-storage.ts";
 import { getOpenRouterCatalogModels } from "./model-catalog-cache.ts";
+import { ModelPools } from "./model-pool.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "./provider-display-names.ts";
 import {
 	clearConfigValueCache,
@@ -218,6 +220,7 @@ const ProviderConfigSchema = Type.Object({
 
 const ModelsConfigSchema = Type.Object({
 	providers: Type.Record(Type.String(), ProviderConfigSchema),
+	pools: Type.Optional(Type.Record(Type.String(), Type.Array(Type.String()))),
 });
 
 const validateModelsConfig = Compile(ModelsConfigSchema);
@@ -264,6 +267,7 @@ export type ResolvedRequestAuth =
 /** Result of loading custom models from models.json */
 interface CustomModelsResult {
 	models: Model<Api>[];
+	pools: Record<string, string[]>;
 	/** Providers with baseUrl/headers/apiKey overrides for built-in models */
 	overrides: Map<string, ProviderOverride>;
 	/** Per-model overrides: provider -> modelId -> override */
@@ -272,7 +276,7 @@ interface CustomModelsResult {
 }
 
 function emptyCustomModelsResult(error?: string): CustomModelsResult {
-	return { models: [], overrides: new Map(), modelOverrides: new Map(), error };
+	return { models: [], pools: {}, overrides: new Map(), modelOverrides: new Map(), error };
 }
 
 function mergeCompat(
@@ -360,19 +364,27 @@ export class ModelRegistry {
 	private loadError: string | undefined = undefined;
 	readonly authStorage: AuthStorage;
 	private modelsJsonPath: string | undefined;
+	private poolConfigs: Record<string, string[]> = {};
+	private poolError: string | undefined;
+	private modelPools: ModelPools;
 
-	private constructor(authStorage: AuthStorage, modelsJsonPath: string | undefined) {
+	private constructor(authStorage: AuthStorage, modelsJsonPath: string | undefined, now: () => number) {
 		this.authStorage = authStorage;
 		this.modelsJsonPath = modelsJsonPath ? normalizePath(modelsJsonPath) : undefined;
+		this.modelPools = new ModelPools(this, now);
 		this.loadModels();
 	}
 
-	static create(authStorage: AuthStorage, modelsJsonPath: string = join(getAgentDir(), "models.json")): ModelRegistry {
-		return new ModelRegistry(authStorage, modelsJsonPath);
+	static create(
+		authStorage: AuthStorage,
+		modelsJsonPath: string = join(getAgentDir(), "models.json"),
+		now: () => number = Date.now,
+	): ModelRegistry {
+		return new ModelRegistry(authStorage, modelsJsonPath, now);
 	}
 
 	static inMemory(authStorage: AuthStorage): ModelRegistry {
-		return new ModelRegistry(authStorage, undefined);
+		return new ModelRegistry(authStorage, undefined, Date.now);
 	}
 
 	/**
@@ -393,19 +405,28 @@ export class ModelRegistry {
 		for (const [providerName, config] of this.registeredProviders.entries()) {
 			this.applyProviderConfig(providerName, config);
 		}
+		this.rebuildPools();
 	}
 
 	/**
 	 * Get any error from loading models.json (undefined if no error).
 	 */
 	getError(): string | undefined {
-		return this.loadError;
+		return [this.loadError, this.poolError].filter(Boolean).join("\n") || undefined;
+	}
+
+	private rebuildPools(): void {
+		const members = this.models.filter((model) => model.provider !== "pool");
+		const pools = this.modelPools.configure(this.poolConfigs, members);
+		this.models = [...members, ...pools.models];
+		this.poolError = pools.errors.join("\n") || undefined;
 	}
 
 	private loadModels(): void {
 		// Load custom models and overrides from models.json
 		const {
 			models: customModels,
+			pools,
 			overrides,
 			modelOverrides,
 			error,
@@ -428,6 +449,8 @@ export class ModelRegistry {
 		}
 
 		this.models = combined;
+		this.poolConfigs = pools;
+		this.rebuildPools();
 	}
 
 	/** Load built-in models and apply provider/model overrides */
@@ -524,7 +547,13 @@ export class ModelRegistry {
 				}
 			}
 
-			return { models: this.parseModels(config), overrides, modelOverrides, error: undefined };
+			return {
+				models: this.parseModels(config),
+				pools: config.pools ?? {},
+				overrides,
+				modelOverrides,
+				error: undefined,
+			};
 		} catch (error) {
 			if (error instanceof SyntaxError) {
 				return emptyCustomModelsResult(`Failed to parse models.json: ${error.message}\n\nFile: ${modelsJsonPath}`);
@@ -663,11 +692,22 @@ export class ModelRegistry {
 	 * Get API key for a model.
 	 */
 	hasConfiguredAuth(model: Model<Api>): boolean {
+		if (model.provider === "pool") {
+			return this.modelPools.getMembers(model).some((member) => this.hasConfiguredAuth(member));
+		}
 		const providerApiKey = this.providerRequestConfigs.get(model.provider)?.apiKey;
 		return (
 			this.authStorage.hasAuth(model.provider) ||
 			(providerApiKey !== undefined && isConfigValueConfigured(providerApiKey))
 		);
+	}
+
+	/** Match actual member identity without rewriting assistant messages to the selected pool. */
+	isMessageFromModel(message: Pick<AssistantMessage, "provider" | "model">, selectedModel: Model<Api>): boolean {
+		if (message.provider === selectedModel.provider && message.model === selectedModel.id) return true;
+		return this.modelPools
+			.getMembers(selectedModel)
+			.some((member) => member.provider === message.provider && member.id === message.model);
 	}
 
 	private getModelRequestKey(provider: string, modelId: string): string {
@@ -840,6 +880,7 @@ export class ModelRegistry {
 		this.validateProviderConfig(providerName, config);
 		this.applyProviderConfig(providerName, config);
 		this.upsertRegisteredProvider(providerName, config);
+		this.rebuildPools();
 	}
 
 	/**

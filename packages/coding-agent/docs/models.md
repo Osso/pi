@@ -9,6 +9,7 @@ Add custom providers and models (Ollama, vLLM, LM Studio, proxies) via `~/.pi/ag
 - [Supported APIs](#supported-apis)
 - [Provider Configuration](#provider-configuration)
 - [Model Configuration](#model-configuration)
+- [Model Pools](#model-pools)
 - [Overriding Built-in Providers](#overriding-built-in-providers)
 - [Per-model Overrides](#per-model-overrides)
 - [Anthropic Messages Compatibility](#anthropic-messages-compatibility)
@@ -253,6 +254,47 @@ Example for a model where thinking cannot be disabled:
 ```
 
 Migration: older configs that used `compat.reasoningEffortMap` should move that mapping to model-level `thinkingLevelMap`. Use `null` for levels that should not appear in the UI.
+
+## Model Pools
+
+The optional top-level `pools` object defines ordered groups of real provider/model members:
+
+```json
+{
+  "providers": {},
+  "pools": {
+    "flash": [
+      "deepseek/deepseek-flash",
+      "opencode-go/deepseek-v4.1-flash",
+      "commandcode/deepseek/deepseek-v4.1-flash"
+    ]
+  }
+}
+```
+
+Select this model as `pool/flash`. Each reference splits at its first `/`, so model IDs can contain
+additional slashes. Members must exist in the model registry, either as built-in models or through
+provider configuration. Unknown members are skipped. A pool with no resolved members is skipped
+and reported as a model configuration load error.
+
+A pool uses the smallest member context window and output limit, shared input types, and only
+thinking levels supported by every member. Reasoning is available only if every member supports
+it. Its displayed cost comes from the first resolved member; actual response usage and cost keep
+the member identity.
+
+Each request starts at the first eligible member and uses that member's own credentials, headers,
+and environment. Members without configured auth or with failed auth resolution are skipped.
+Pool credentials are not used for member requests. On terminal quota or balance exhaustion before
+any event other than `start`, the pool tries the next member. The exhausted provider/model is
+skipped for 15 minutes across later pool requests, including registry refresh. This state lasts
+only for the registry instance in the current process. Non-quota errors and errors after output
+starts pass through without rotation. If all attempts exhaust, the last member error is returned;
+if no member is eligible, the error names the pool.
+
+Choose members that are suitable for the same work. Provider-stated model equivalence is
+configuration, not per-request proof: DeepSeek `deepseek-flash` and OpenCode Go
+`deepseek-v4.1-flash` can both be stated to serve V4.1 Flash 1017, but movable aliases do not prove
+which model version served a request. Nested pools are not supported.
 
 ## Overriding Built-in Providers
 
