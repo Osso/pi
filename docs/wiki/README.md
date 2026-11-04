@@ -82,7 +82,6 @@ For installation, CLI usage, and extension APIs, start with the [coding-agent ma
 | Scoped model selection | [Model cycling](systems/model-cycling.md) |
 | Codex request transport selection | [OpenAI Codex transport](systems/openai-codex-transport.md) |
 | Priority processing | [Codex fast mode](systems/codex-fast-mode.md) |
-| Paired-provider quota handling | [Codex quota fallback](systems/codex-quota-fallback.md) |
 | Saved native history; endpoint caller removed | [OpenAI saved compaction history](systems/openai-remote-compaction.md) |
 | Length-truncated turn continuation | [Compaction length retry](systems/compaction-length-retry.md) |
 | Idle prompt-cache scheduling | [Idle compaction](systems/idle-compaction.md) |

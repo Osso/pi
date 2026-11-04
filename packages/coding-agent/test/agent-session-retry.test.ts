@@ -325,449 +325,102 @@ describe("AgentSession retry", () => {
 		expect(callCount).toBe(4);
 	});
 
-	function createThreeProviderSession(options: {
-		start: "openai-codex" | "openai-codex-gc" | "openai-codex-team";
-		authenticated?: string[];
-		succeedOn?: string;
-		errorMessage?: string;
-	}) {
-		const providers: string[] = [];
-		const baseModel = getModel("openai-codex", "gpt-5.6-luna")!;
-		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
-		for (const provider of options.authenticated ?? ["openai-codex", "openai-codex-gc", "openai-codex-team"]) {
-			authStorage.setRuntimeApiKey(provider, "test-key");
-		}
-		const agent = new Agent({
-			getApiKey: () => "test-key",
-			initialState: { model: modelRegistry.find(options.start, baseModel.id)!, systemPrompt: "Test", tools: [] },
-			streamFn: (activeModel) => {
-				providers.push(activeModel.provider);
-				const stream = new MockAssistantStream();
-				queueMicrotask(() => {
-					const overrides = {
-						api: "openai-codex-responses" as const,
-						provider: activeModel.provider,
-						model: activeModel.id,
-					};
-					if (activeModel.provider === options.succeedOn) {
-						const msg = createCompletedAssistantMessage("Recovered", overrides);
-						stream.push({ type: "start", partial: msg });
-						stream.push({ type: "done", reason: "toolUse", message: msg });
-						return;
-					}
-					const msg = createAssistantMessage("", {
-						...overrides,
-						stopReason: "error",
-						errorMessage: options.errorMessage ?? "You have hit your ChatGPT usage limit",
-					});
-					stream.push({ type: "start", partial: msg });
-					stream.push({ type: "error", reason: "error", error: msg });
-				});
-				return stream;
-			},
-		});
-		const settingsManager = SettingsManager.create(tempDir, tempDir);
-		settingsManager.applyOverrides({ retry: { enabled: false } });
-		session = new AgentSession({
-			agent,
-			sessionManager: SessionManager.inMemory(),
-			settingsManager,
-			cwd: tempDir,
-			modelRegistry,
-			resourceLoader: createTestResourceLoader(),
-		});
-		return { providers, settingsManager };
-	}
-
-	type ApiRotationOptions = {
-		start: string;
-		authenticated?: string[];
-		succeedOn?: string;
-		errorMessage?: string;
-	};
-
-	function createApiRotationRegistry(options: ApiRotationOptions) {
-		const baseModel = getModel("openai-codex", "gpt-5.6-luna");
-		if (!baseModel) throw new Error("Missing fixture model openai-codex/gpt-5.6-luna");
-		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
-		for (const provider of ["openai", "openai-secondary"]) {
-			modelRegistry.registerProvider(provider, {
-				baseUrl: "https://example.invalid/v1",
-				apiKey: "$PI_TEST_MISSING_QUOTA_KEY",
-				api: "openai-responses",
-				models: [{ ...baseModel, api: "openai-responses" }],
-			});
-		}
-		for (const provider of options.authenticated ?? [
-			"openai",
+	it.each([
+		["openai", "insufficient_quota"],
+		[
 			"openai-secondary",
-			"openai-codex",
-			"openai-codex-gc",
-			"openai-codex-team",
-		]) {
-			authStorage.setRuntimeApiKey(provider, "test-key");
-		}
-		const model = modelRegistry.find(options.start, baseModel.id);
-		if (!model) throw new Error(`Missing fixture model ${options.start}/${baseModel.id}`);
-		return { model, modelRegistry };
-	}
-
-	function emitApiRotationResponse(
-		stream: MockAssistantStream,
-		overrides: Pick<AssistantMessage, "api" | "provider" | "model">,
-		options: ApiRotationOptions,
-	) {
-		if (overrides.provider === options.succeedOn) {
-			const message = createCompletedAssistantMessage("Recovered", overrides);
-			stream.push({ type: "start", partial: message });
-			stream.push({ type: "done", reason: "toolUse", message });
-			return;
-		}
-		const message = createAssistantMessage("", {
-			...overrides,
-			stopReason: "error",
-			errorMessage: options.errorMessage ?? "insufficient_quota",
-		});
-		stream.push({ type: "start", partial: message });
-		stream.push({ type: "error", reason: "error", error: message });
-	}
-
-	function createApiRotationSettings() {
-		const settingsManager = SettingsManager.create(tempDir, tempDir);
-		settingsManager.applyOverrides({
-			retry: { enabled: false },
-			defaultProvider: "original",
-			defaultModel: "original-model",
-		});
-		return settingsManager;
-	}
-
-	async function createApiRotationExtensions(selections: string[]) {
-		return createTestExtensionsResult(
-			[
-				(pi) => {
-					pi.on("model_select", async (event) => {
-						selections.push(`${event.previousModel?.provider}->${event.model.provider}:${event.source}`);
-					});
-				},
-			],
-			tempDir,
-		);
-	}
-
-	async function createApiRotationSession(options: ApiRotationOptions) {
-		const providers: string[] = [];
-		const selections: string[] = [];
-		const { model, modelRegistry } = createApiRotationRegistry(options);
-		const agent = new Agent({
-			getApiKey: () => "test-key",
-			initialState: { model, systemPrompt: "Test", tools: [] },
-			streamFn: (activeModel) => {
-				providers.push(`${activeModel.provider}/${activeModel.id}/${activeModel.api}`);
-				const stream = new MockAssistantStream();
-				const overrides = { api: activeModel.api, provider: activeModel.provider, model: activeModel.id };
-				queueMicrotask(() => emitApiRotationResponse(stream, overrides, options));
-				return stream;
-			},
-		});
-		const settingsManager = createApiRotationSettings();
-		const extensionsResult = await createApiRotationExtensions(selections);
-		session = new AgentSession({
-			agent,
-			sessionManager: SessionManager.inMemory(),
-			settingsManager,
-			cwd: tempDir,
-			modelRegistry,
-			resourceLoader: createTestResourceLoader({ extensionsResult }),
-		});
-		return { providers, selections, settingsManager };
-	}
-
-	it.each([
-		{
-			name: "insufficient quota",
-			errorMessage: "insufficient_quota",
-			succeedOn: "openai-codex",
-			expectedProviders: [
-				"openai/gpt-5.6-luna/openai-responses",
-				"openai-secondary/gpt-5.6-luna/openai-responses",
-				"openai-codex/gpt-5.6-luna/openai-codex-responses",
-			],
-			expectedSelections: ["openai->openai-secondary:fallback", "openai-secondary->openai-codex:fallback"],
-		},
-		{
-			name: "exhausted credit balance",
-			errorMessage:
-				'OpenAI API error (429): 429 {"error":{"message":"Your credit balance is exhausted","type":"billing_error","param":null,"code":"credit_balance_exhausted"}}',
-			succeedOn: "openai-secondary",
-			expectedProviders: ["openai/gpt-5.6-luna/openai-responses", "openai-secondary/gpt-5.6-luna/openai-responses"],
-			expectedSelections: ["openai->openai-secondary:fallback"],
-		},
+			'OpenAI API error (429): 429 {"error":{"message":"Your credit balance is exhausted","type":"billing_error","code":"credit_balance_exhausted"}}',
+		],
+		["openai-codex", "You have hit your ChatGPT usage limit"],
+		["openai-codex-gc", "You have hit your ChatGPT usage limit"],
+		["openai-codex-team", "You have hit your ChatGPT usage limit"],
 	])(
-		"rotates on $name without changing defaults",
-		async ({ errorMessage, succeedOn, expectedProviders, expectedSelections }) => {
-			const { providers, selections, settingsManager } = await createApiRotationSession({
-				start: "openai",
-				errorMessage,
-				succeedOn,
-			});
-			await session.prompt("Test");
-			expect(providers).toEqual(expectedProviders);
-			expect(selections).toEqual(expectedSelections);
-			expect(session.model?.provider).toBe(succeedOn);
-			expect(settingsManager.getDefaultProvider()).toBe("original");
-			expect(settingsManager.getDefaultModel()).toBe("original-model");
-		},
-	);
-
-	it.each([
-		["openai", ["openai", "openai-secondary", "openai-codex", "openai-codex-gc", "openai-codex-team"]],
-		["openai-secondary", ["openai-secondary", "openai", "openai-codex", "openai-codex-gc", "openai-codex-team"]],
-		["openai-codex", ["openai-codex", "openai", "openai-secondary", "openai-codex-gc", "openai-codex-team"]],
-		["openai-codex-gc", ["openai-codex-gc", "openai", "openai-secondary", "openai-codex", "openai-codex-team"]],
-		["openai-codex-team", ["openai-codex-team", "openai", "openai-secondary", "openai-codex", "openai-codex-gc"]],
-	])("exhausts each provider once starting from %s", async (start, expected) => {
-		const { providers } = await createApiRotationSession({ start });
-		await session.prompt("First turn");
-		expect(providers.map((entry) => entry.split("/")[0])).toEqual(expected);
-		await session.prompt("Second turn");
-		const secondTurn = providers.slice(5).map((entry) => entry.split("/")[0]);
-		expect(secondTurn).toHaveLength(5);
-		expect(secondTurn[0]).toBe(expected[4]);
-		expect(new Set(secondTurn)).toEqual(new Set(expected));
-	});
-
-	it("skips an API account without configured authentication", async () => {
-		const { providers } = await createApiRotationSession({
-			start: "openai",
-			authenticated: ["openai", "openai-codex"],
-			succeedOn: "openai-codex",
-		});
-		await session.prompt("Test");
-		expect(providers.map((entry) => entry.split("/")[0])).toEqual(["openai", "openai-codex"]);
-	});
-
-	it("does not rotate on a non-quota API error", async () => {
-		const { providers, selections } = await createApiRotationSession({
-			start: "openai",
-			errorMessage: "Billing address invalid",
-		});
-		await session.prompt("Test");
-		expect(providers.map((entry) => entry.split("/")[0])).toEqual(["openai"]);
-		expect(selections).toEqual([]);
-		expect(session.model?.provider).toBe("openai");
-	});
-
-	it("exhausts each configured Codex provider once and resets on the next user turn", async () => {
-		const { providers } = createThreeProviderSession({ start: "openai-codex" });
-		const willRetry: boolean[] = [];
-		session.subscribe((event) => {
-			if (event.type === "agent_end") willRetry.push(event.willRetry);
-		});
-		await session.prompt("First turn");
-		expect(providers).toEqual(["openai-codex", "openai-codex-gc", "openai-codex-team"]);
-		expect(willRetry).toEqual([true, true, false]);
-		await session.prompt("Second turn");
-		expect(providers).toEqual([
-			"openai-codex",
-			"openai-codex-gc",
-			"openai-codex-team",
-			"openai-codex-team",
-			"openai-codex",
-			"openai-codex-gc",
-		]);
-	});
-
-	it("succeeds on the third Codex provider while preserving session-local defaults", async () => {
-		const { providers, settingsManager } = createThreeProviderSession({
-			start: "openai-codex-gc",
-			succeedOn: "openai-codex-team",
-		});
-		await session.prompt("Test");
-		expect(providers).toEqual(["openai-codex-gc", "openai-codex", "openai-codex-team"]);
-		expect(session.model?.provider).toBe("openai-codex-team");
-		expect(session.model?.id).toBe("gpt-5.6-luna");
-		expect(settingsManager.getDefaultProvider()).toBeUndefined();
-		expect(settingsManager.getDefaultModel()).toBeUndefined();
-	});
-
-	it("starts on team and falls back through codex then gc", async () => {
-		const { providers } = createThreeProviderSession({ start: "openai-codex-team" });
-		await session.prompt("Test");
-		expect(providers).toEqual(["openai-codex-team", "openai-codex", "openai-codex-gc"]);
-	});
-
-	it("skips an unauthenticated Codex provider", async () => {
-		const { providers } = createThreeProviderSession({
-			start: "openai-codex",
-			authenticated: ["openai-codex", "openai-codex-team"],
-			succeedOn: "openai-codex-team",
-		});
-		await session.prompt("Test");
-		expect(providers).toEqual(["openai-codex", "openai-codex-team"]);
-	});
-
-	it("does not fallback across three providers for unrelated errors", async () => {
-		const { providers } = createThreeProviderSession({
-			start: "openai-codex-team",
-			errorMessage: "Billing address invalid",
-		});
-		await session.prompt("Test");
-		expect(providers).toEqual(["openai-codex-team"]);
-	});
-
-	it("falls back to the paired Codex provider after quota exhaustion", async () => {
-		const providers: string[] = [];
-		const model = getModel("openai-codex", "gpt-5.6-luna")!;
-		const agent = new Agent({
-			getApiKey: () => "test-key",
-			initialState: { model, systemPrompt: "Test", tools: [] },
-			streamFn: (activeModel) => {
-				providers.push(activeModel.provider);
-				const stream = new MockAssistantStream();
-				queueMicrotask(() => {
-					if (activeModel.provider === "openai-codex") {
-						const msg = createAssistantMessage("", {
-							api: "openai-codex-responses",
+		"ends the turn on %s after quota exhaustion without selecting another provider",
+		async (provider, errorMessage) => {
+			const providers: string[] = [];
+			const selections: string[] = [];
+			const baseModel = getModel("openai-codex", "gpt-5.6-luna")!;
+			const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+			const modelRegistry = ModelRegistry.create(authStorage, tempDir);
+			for (const apiProvider of ["openai", "openai-secondary"]) {
+				modelRegistry.registerProvider(apiProvider, {
+					baseUrl: "https://example.invalid/v1",
+					apiKey: "test-key",
+					api: "openai-responses",
+					models: [{ ...baseModel, api: "openai-responses" }],
+				});
+			}
+			for (const authenticated of [
+				"openai",
+				"openai-secondary",
+				"openai-codex",
+				"openai-codex-gc",
+				"openai-codex-team",
+			]) {
+				authStorage.setRuntimeApiKey(authenticated, "test-key");
+			}
+			const model = modelRegistry.find(provider, baseModel.id)!;
+			const agent = new Agent({
+				getApiKey: () => "test-key",
+				initialState: { model, systemPrompt: "Test", tools: [] },
+				streamFn: (activeModel) => {
+					providers.push(activeModel.provider);
+					const stream = new MockAssistantStream();
+					queueMicrotask(() => {
+						const message = createAssistantMessage("", {
+							api: activeModel.api,
 							provider: activeModel.provider,
 							model: activeModel.id,
 							stopReason: "error",
-							errorMessage: "You have hit your ChatGPT usage limit",
+							errorMessage,
 						});
-						stream.push({ type: "start", partial: msg });
-						stream.push({ type: "error", reason: "error", error: msg });
-						return;
-					}
-
-					const msg = createCompletedAssistantMessage("Recovered with paired account", {
-						api: "openai-codex-responses",
-						provider: activeModel.provider,
-						model: activeModel.id,
+						stream.push({ type: "start", partial: message });
+						stream.push({ type: "error", reason: "error", error: message });
 					});
-					stream.push({ type: "start", partial: msg });
-					stream.push({ type: "done", reason: "toolUse", message: msg });
-				});
-				return stream;
-			},
-		});
-		const sessionManager = SessionManager.inMemory();
-		const settingsManager = SettingsManager.create(tempDir, tempDir);
-		settingsManager.applyOverrides({ retry: { enabled: false } });
-		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
-		authStorage.setRuntimeApiKey("openai-codex", "test-key");
-		authStorage.setRuntimeApiKey("openai-codex-gc", "test-key");
-		session = new AgentSession({
-			agent,
-			sessionManager,
-			settingsManager,
-			cwd: tempDir,
-			modelRegistry,
-			resourceLoader: createTestResourceLoader(),
-		});
-		const willRetryValues: boolean[] = [];
-		session.subscribe((event) => {
-			if (event.type === "agent_end") willRetryValues.push(event.willRetry);
-		});
+					return stream;
+				},
+			});
+			const settingsManager = SettingsManager.create(tempDir, tempDir);
+			settingsManager.applyOverrides({ retry: { enabled: true, maxRetries: 2, baseDelayMs: 1 } });
+			const extensionsResult = await createTestExtensionsResult(
+				[
+					(pi) => {
+						pi.on("model_select", async (event) => {
+							selections.push(event.model.provider);
+						});
+					},
+				],
+				tempDir,
+			);
+			session = new AgentSession({
+				agent,
+				sessionManager: SessionManager.inMemory(),
+				settingsManager,
+				cwd: tempDir,
+				modelRegistry,
+				resourceLoader: createTestResourceLoader({ extensionsResult }),
+			});
+			const willRetry: boolean[] = [];
+			session.subscribe((event) => {
+				if (event.type === "agent_end") willRetry.push(event.willRetry);
+			});
 
-		await session.prompt("Test");
+			await session.prompt("Test");
 
-		expect(providers).toEqual(["openai-codex", "openai-codex-gc"]);
-		expect(session.model?.provider).toBe("openai-codex-gc");
-		expect(session.model?.id).toBe("gpt-5.6-luna");
-		expect(settingsManager.getDefaultProvider()).toBeUndefined();
-		expect(settingsManager.getDefaultModel()).toBeUndefined();
-		expect(willRetryValues).toEqual([true, false]);
-	});
-
-	it("does not fall back for unrelated billing errors", async () => {
-		const providers: string[] = [];
-		const model = getModel("openai-codex", "gpt-5.6-luna")!;
-		const agent = new Agent({
-			getApiKey: () => "test-key",
-			initialState: { model, systemPrompt: "Test", tools: [] },
-			streamFn: (activeModel) => {
-				providers.push(activeModel.provider);
-				const stream = new MockAssistantStream();
-				queueMicrotask(() => {
-					const msg = createAssistantMessage("", {
-						api: "openai-codex-responses",
-						provider: activeModel.provider,
-						model: activeModel.id,
-						stopReason: "error",
-						errorMessage: "Billing address invalid",
-					});
-					stream.push({ type: "start", partial: msg });
-					stream.push({ type: "error", reason: "error", error: msg });
-				});
-				return stream;
-			},
-		});
-		const sessionManager = SessionManager.inMemory();
-		const settingsManager = SettingsManager.create(tempDir, tempDir);
-		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
-		authStorage.setRuntimeApiKey("openai-codex", "test-key");
-		authStorage.setRuntimeApiKey("openai-codex-gc", "test-key");
-		session = new AgentSession({
-			agent,
-			sessionManager,
-			settingsManager,
-			cwd: tempDir,
-			modelRegistry,
-			resourceLoader: createTestResourceLoader(),
-		});
-
-		await session.prompt("Test");
-
-		expect(providers).toEqual(["openai-codex"]);
-		expect(session.model?.provider).toBe("openai-codex");
-	});
-
-	it("does not bounce between Codex providers and resets fallback on the next user turn", async () => {
-		const providers: string[] = [];
-		const model = getModel("openai-codex", "gpt-5.6-luna")!;
-		const agent = new Agent({
-			getApiKey: () => "test-key",
-			initialState: { model, systemPrompt: "Test", tools: [] },
-			streamFn: (activeModel) => {
-				providers.push(activeModel.provider);
-				const stream = new MockAssistantStream();
-				queueMicrotask(() => {
-					const msg = createAssistantMessage("", {
-						api: "openai-codex-responses",
-						provider: activeModel.provider,
-						model: activeModel.id,
-						stopReason: "error",
-						errorMessage: "You have hit your ChatGPT usage limit",
-					});
-					stream.push({ type: "start", partial: msg });
-					stream.push({ type: "error", reason: "error", error: msg });
-				});
-				return stream;
-			},
-		});
-		const sessionManager = SessionManager.inMemory();
-		const settingsManager = SettingsManager.create(tempDir, tempDir);
-		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
-		authStorage.setRuntimeApiKey("openai-codex", "test-key");
-		authStorage.setRuntimeApiKey("openai-codex-gc", "test-key");
-		session = new AgentSession({
-			agent,
-			sessionManager,
-			settingsManager,
-			cwd: tempDir,
-			modelRegistry,
-			resourceLoader: createTestResourceLoader(),
-		});
-
-		await session.prompt("First turn");
-		expect(providers).toEqual(["openai-codex", "openai-codex-gc"]);
-
-		await session.prompt("Second turn");
-		expect(providers).toEqual(["openai-codex", "openai-codex-gc", "openai-codex-gc", "openai-codex"]);
-	});
+			expect(providers).toEqual([provider]);
+			expect(selections).toEqual([]);
+			expect(willRetry).toEqual([false]);
+			expect(session.model).toBe(model);
+			expect(session.isStreaming).toBe(false);
+			expect(session.messages.at(-1)).toEqual(
+				expect.objectContaining({
+					role: "assistant",
+					provider,
+					model: model.id,
+					stopReason: "error",
+					errorMessage,
+				}),
+			);
+		},
+	);
 });

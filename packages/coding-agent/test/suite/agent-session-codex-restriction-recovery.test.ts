@@ -231,43 +231,6 @@ describe("Codex restriction rescope", () => {
 		expect(harness.eventsOfType("agent_end").at(-1)?.willRetry).toBe(false);
 	});
 
-	it("does not switch to a quota fallback provider on the one recovery attempt", async () => {
-		const harness = await createRecoveryHarness(
-			async () => ({ kind: "advisory", answer: JSON.stringify(ADVICE) }),
-			[],
-			undefined,
-			{ fauxProvider: { api: "openai-codex-responses", provider: "openai-codex" } },
-		);
-		const model = harness.getModel();
-		harness.session.modelRegistry.registerProvider("openai-codex-gc", {
-			baseUrl: model.baseUrl,
-			apiKey: "faux-key",
-			api: model.api,
-			models: [{ ...model, input: model.input }],
-		});
-		harness.authStorage.setRuntimeApiKey("openai-codex-gc", "faux-key");
-		expect(harness.session.modelRegistry.find("openai-codex-gc", model.id)).toBeDefined();
-		const providers: string[] = [];
-		const record =
-			(response: ReturnType<typeof fauxAssistantMessage>) =>
-			(_context: Context, _options: SimpleStreamOptions | undefined, _state: unknown, active: Model<string>) => {
-				providers.push(active.provider);
-				return response;
-			};
-		harness.setResponses([
-			record(restriction()),
-			record(approvedValidation()),
-			record(
-				fauxAssistantMessage("", { stopReason: "error", errorMessage: "You have hit your ChatGPT usage limit" }),
-			),
-			record(fauxAssistantMessage("Fallback attempt")),
-		]);
-		await harness.session.prompt(ORIGINAL);
-		expect(providers).toEqual(["openai-codex", "openai-codex", "openai-codex"]);
-		expect(harness.session.model?.provider).toBe("openai-codex");
-		expect(harness.eventsOfType("agent_end").at(-1)?.willRetry).toBe(false);
-	});
-
 	it("restores tools on validation timeout settlement without resending validation", async () => {
 		const reads: string[] = [];
 		const harness = await createRecoveryHarness(

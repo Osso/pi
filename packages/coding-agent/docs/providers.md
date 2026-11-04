@@ -29,9 +29,7 @@ Use `/logout` to clear credentials. Tokens are stored in `~/.pi/agent/auth.json`
 - Configure independent Codex OAuth credentials with `/login openai-codex`, `/login openai-codex-gc`, or `/login openai-codex-team`. Each provider stores its credential separately and exposes the same model catalog.
 - The same email may be used for multiple providers. The upstream OAuth flow determines the selected account or workspace; Pi does not select one or infer distinct quotas from provider IDs.
 
-After a terminal quota, usage-limit, or billing-exhaustion error, `AgentSession` considers `openai`, custom `openai-secondary`, and the Codex providers. From either API provider, it tries the other API provider, then `openai-codex`, `openai-codex-gc`, and `openai-codex-team`. From a Codex provider, it tries `openai`, then `openai-secondary`, then the other Codex providers: `openai-codex` and `openai-codex-gc` prefer each other before `openai-codex-team`; `openai-codex-team` prefers `openai-codex` before `openai-codex-gc`. Only configured credentials and the same model ID qualify; each provider is attempted at most once per user turn, including the failed active provider. Eligibility resets with the next user message. Automatic switches remain session-local and do not rewrite global defaults. This does not change resident Supervisor rotation.
-
-OpenAI API credits are separate from Codex subscription quota. This fallback does not automatically recharge credits, track monthly grants, or guarantee a spending ceiling. It is not arbitrary credential rotation or round robin. To use expiring API credits first, explicitly choose `openai` as the global default; automatic fallback will not change it.
+A terminal quota, usage-limit, or billing-exhaustion error ends the turn on the selected provider. `AgentSession` does not switch OpenAI API or Codex providers automatically. OpenAI API credits are separate from Codex subscription quota.
 
 ### Claude Pro/Max
 

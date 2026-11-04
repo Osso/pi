@@ -183,7 +183,7 @@ When a provider requests a retry delay longer than `retry.provider.maxRetryDelay
 
 Keep `retry.provider.maxRetries` at `0` unless provider-level retries are explicitly needed. Setting it above `0` can make SDK/provider retries handle out-of-usage-limit errors before Pi sees them, which may block the agent until the provider quota resets in some circumstances.
 
-Codex paired-provider quota fallback is separate from these retry settings. When both paired Codex providers have authenticated copies of the same model ID, a terminal quota, usage-limit, or billing-exhaustion error can switch providers and continue the request once. The fallback does not bounce between providers within one user turn.
+A terminal OpenAI or Codex quota, usage-limit, or billing-exhaustion error ends the turn on the selected provider. `AgentSession` does not switch providers.
 
 ```json
 {
