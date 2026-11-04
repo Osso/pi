@@ -2,8 +2,8 @@ import { join } from "node:path";
 import { Agent, type AgentMessage, type ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
 	type Api,
-	clampThinkingLevel,
 	type Context,
+	clampThinkingLevel,
 	type Message,
 	type Model,
 	type SimpleStreamOptions,
