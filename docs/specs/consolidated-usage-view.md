@@ -56,7 +56,7 @@ model. It is a report, not an account-switching or quota-fallback operation. See
 - `packages/coding-agent/extensions/codex-usage/src/index.ts` — registers the command, collects
   provider/account usage, and renders the consolidated report.
 - `packages/coding-agent/src/core/codex-quota-fallback.ts` — defines the Codex provider keys used
-  to enumerate report rows; fallback behavior is unchanged.
+  to enumerate report rows; the Supervisor also uses this provider map.
 
 ## Tests asserting this spec
 

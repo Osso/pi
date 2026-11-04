@@ -2,7 +2,7 @@
 
 Contract: [Resident Supervisor service](../../specs/supervisor-service.md).
 
-The Supervisor runs as `pi supervisor`, either as a Pi-started detached process or under the optional `pi-supervisor.service`. It owns one metadata-archived SDK transcript using `gpt-6.1-sol` at low thinking effort on the first authenticated provider among `openai-codex`, `openai-codex-gc`, and `openai-codex-team`. Quota exhaustion moves the transcript to the next provider through [Codex quota fallback](../../specs/codex-quota-fallback.md). The stateless instruction-veto gate uses the same model and effort without inheriting the resident transcript, retrying quota-exhausted evaluations on the next authenticated provider. The transcript remains plain `.jsonl`, rather than becoming `.jsonl.zst`, because the live service appends to it. Unlike the Architect, it does not observe sessions periodically. Callers persist typed requests in `control.sqlite`; an owner-only Unix socket provides a wake notification, while SQLite remains the durable queue. The service claims one request, prompts the resident model, validates its JSON response, and persists the result for the waiting caller.
+The Supervisor runs as `pi supervisor`, either as a Pi-started detached process or under the optional `pi-supervisor.service`. It owns one metadata-archived SDK transcript using `gpt-6.1-sol` at low thinking effort on the first authenticated provider among `openai-codex`, `openai-codex-gc`, and `openai-codex-team`. A terminal quota error ends the resident turn on the selected provider. The stateless instruction-veto gate uses the same model and effort without inheriting the resident transcript, retrying quota-exhausted evaluations on the next authenticated provider. The transcript remains plain `.jsonl`, rather than becoming `.jsonl.zst`, because the live service appends to it. Unlike the Architect, it does not observe sessions periodically. Callers persist typed requests in `control.sqlite`; an owner-only Unix socket provides a wake notification, while SQLite remains the durable queue. The service claims one request, prompts the resident model, validates its JSON response, and persists the result for the waiting caller.
 
 ## Automatic startup
 
@@ -16,7 +16,7 @@ The probe identity is accepted only when the console snapshot explicitly include
 
 ## Request authentication
 
-`ModelRegistry.getApiKeyAndHeaders()` reloads its `AuthStorage` before resolving provider environment and credentials for each model request. Both the resident session and stateless instruction-veto evaluator use this resolver, so externally replaced credentials (including Codex re-login) take effect on the next resolution even if the cached token has not expired. Runtime credential overrides retain precedence; credential reload does not restart the resident, reset its transcript, or change model-selection and quota-fallback policy.
+`ModelRegistry.getApiKeyAndHeaders()` reloads its `AuthStorage` before resolving provider environment and credentials for each model request. Both the resident session and stateless instruction-veto evaluator use this resolver, so externally replaced credentials (including Codex re-login) take effect on the next resolution even if the cached token has not expired. Runtime credential overrides retain precedence; credential reload does not restart the resident, reset its transcript, or change model selection or the instruction-veto evaluator's quota-fallback policy.
 
 ## Request flow
 

@@ -909,7 +909,7 @@ export interface ToolExecutionEndEvent {
 // Model Events
 // ============================================================================
 
-export type ModelSelectSource = "set" | "cycle" | "restore" | "fallback";
+export type ModelSelectSource = "set" | "cycle" | "restore";
 
 /** Fired when a new model is selected */
 export interface ModelSelectEvent {

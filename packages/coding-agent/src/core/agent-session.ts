@@ -59,7 +59,6 @@ import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
-import { getOpenAIQuotaFallbackProviders, isQuotaExhaustionError } from "./codex-quota-fallback.ts";
 import {
 	type CompactionPreparation,
 	type CompactionResult,
@@ -887,7 +886,6 @@ export class AgentSession {
 	// Retry state
 	private _retryAbortController: AbortController | undefined = undefined;
 	private _retryAttempt = 0;
-	private readonly _quotaFallbackVisitedProviders = new Set<string>();
 
 	// Bash execution state
 	private _bashAbortController: AbortController | undefined = undefined;
@@ -1517,7 +1515,6 @@ export class AgentSession {
 		if (!isInternalSteeringMessage) this._resetDuplicateTurnGuard();
 		this._overflowRecoveryAttempted = false;
 		this._lengthRecoveryAttempted = false;
-		this._quotaFallbackVisitedProviders.clear();
 		const messageText = this._getUserMessageText(event.message);
 		if (!messageText) return;
 
@@ -1963,9 +1960,6 @@ export class AgentSession {
 			}
 
 			const assistant = message as AssistantMessage;
-			if (this._findQuotaFallbackModel(assistant)) {
-				return true;
-			}
 			const settings = this.settingsManager.getRetrySettings();
 			return settings.enabled && this._retryAttempt < settings.maxRetries && this._isRetryableError(assistant);
 		}
@@ -2958,12 +2952,11 @@ export class AgentSession {
 			this._finishExhaustedRetry(message);
 			return rescope ? "normal" : this._selectPostAgentRunContinuation();
 		}
-		// The one recovery attempt gets no retry, quota fallback, or overflow resend.
+		// The one recovery attempt gets no retry or overflow resend.
 		if (restrictionAttempt) {
 			this._finishExhaustedRetry(message);
 			return this._selectPostAgentRunContinuation();
 		}
-		if (await this._prepareQuotaFallback(message)) return "normal";
 		if (this._isRetryableError(message) && (await this._prepareRetry(message))) return "normal";
 		this._finishExhaustedRetry(message);
 		if (await this._checkCompaction(message)) return "normal";
@@ -4147,7 +4140,7 @@ export class AgentSession {
 	private async _emitModelSelect(
 		nextModel: Model<any>,
 		previousModel: Model<any> | undefined,
-		source: "set" | "cycle" | "restore" | "fallback",
+		source: "set" | "cycle" | "restore",
 	): Promise<void> {
 		if (modelsAreEqual(previousModel, nextModel)) return;
 		await this._extensionRunner.emit({
@@ -5678,43 +5671,6 @@ export class AgentSession {
 		// Context overflow is handled by compaction, not retry.
 		if (isContextOverflow(message, this.model?.contextWindow ?? 0)) return false;
 		return isRetryableAssistantError(message);
-	}
-
-	private _findQuotaFallbackModel(message: AssistantMessage): Model<any> | undefined {
-		if (!isQuotaExhaustionError(message)) return undefined;
-
-		const currentModel = this.model;
-		if (!currentModel || message.provider !== currentModel.provider || message.model !== currentModel.id) {
-			return undefined;
-		}
-		const fallbackProviders = getOpenAIQuotaFallbackProviders(message.provider);
-		if (!fallbackProviders) return undefined;
-
-		for (const provider of fallbackProviders) {
-			if (this._quotaFallbackVisitedProviders.has(provider)) continue;
-			const fallbackModel = this._modelRegistry.find(provider, message.model);
-			if (fallbackModel && this._modelRegistry.hasConfiguredAuth(fallbackModel)) return fallbackModel;
-		}
-		return undefined;
-	}
-
-	private async _prepareQuotaFallback(message: AssistantMessage): Promise<boolean> {
-		const fallbackModel = this._findQuotaFallbackModel(message);
-		if (!fallbackModel) {
-			return false;
-		}
-
-		this._quotaFallbackVisitedProviders.add(message.provider);
-		const messages = this.agent.state.messages;
-		if (messages.at(-1)?.role === "assistant") {
-			this.agent.state.messages = messages.slice(0, -1);
-		}
-
-		const previousModel = this.model;
-		this.agent.state.model = fallbackModel;
-		this.sessionManager.setSessionModel(fallbackModel.provider, fallbackModel.id);
-		await this._emitModelSelect(fallbackModel, previousModel, "fallback");
-		return true;
 	}
 
 	/**
