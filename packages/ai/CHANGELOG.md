@@ -14,6 +14,8 @@
 
 ### Fixed
 
+- Fixed mid-stream provider errors (an SSE `error` chunk after 200 OK, e.g. OpenRouter) losing their error code: `errorMessage` now carries the parsed body (`{"message":"ERROR","code":502,...}`) instead of only `ERROR`, so transient upstream failures are retried.
+
 - Image model getters return deep copies so caller changes to model fields, input/output arrays, and costs cannot mutate the catalog.
 
 - Nullable array tool arguments now validate through the null arm instead of throwing from TypeBox array checks; array item validation remains enforced.
