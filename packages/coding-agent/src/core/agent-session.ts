@@ -4829,7 +4829,7 @@ export class AgentSession {
 		// This handles the case where user switched from a smaller-context model (e.g. opus)
 		// to a larger-context model (e.g. codex) - the overflow error from the old model
 		// shouldn't trigger compaction for the new model.
-		const sameModel = model && assistantMessage.provider === model.provider && assistantMessage.model === model.id;
+		const sameModel = !!model && this._modelRegistry.isMessageFromModel(assistantMessage, model);
 
 		// Skip compaction checks if this assistant message precedes the latest
 		// compaction boundary. Persisted branch order disambiguates messages that

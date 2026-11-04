@@ -511,6 +511,46 @@ describe("model pools", () => {
 		await Promise.resolve();
 		expect(request).not.toHaveBeenCalled();
 	});
+
+	test("routes each pool through the registry that loaded it, even after another registry loads", async () => {
+		const first = registry(undefined, { flash: [`${FIRST}/${FIRST_ID}`] });
+		const firstPool = pool(first);
+		const second = registry(undefined, { flash: [`${SECOND}/${SECOND_ID}`] });
+		const request = register((model, _ctx, options) => {
+			expect(options?.apiKey).toBe(`fixture-key-${model.id}`);
+			return fromEvents(events(model));
+		});
+		expect((await streamSimple(firstPool, context).result()).provider).toBe(FIRST);
+		expect((await streamSimple(pool(second), context).result()).provider).toBe(SECOND);
+		expect(request.mock.calls.map(([model]) => model.provider)).toEqual([FIRST, SECOND]);
+	});
+
+	test("resolves each attempted member's auth exactly once", async () => {
+		const reg = registry();
+		const resolveAuth = vi.spyOn(reg, "getApiKeyAndHeaders");
+		register((model) => fromEvents(events(model, model.provider === FIRST ? "insufficient_quota" : undefined)));
+		expect((await streamSimple(pool(reg), context).result()).provider).toBe(SECOND);
+		expect(resolveAuth.mock.calls.map(([model]) => model.provider)).toEqual([FIRST, SECOND]);
+	});
+
+	test("ends with an error when a member stream finishes without done or error", async () => {
+		const reg = registry();
+		const request = register((model) => fromEvents([{ type: "start", partial: message(model) }]));
+		const result = await streamSimple(pool(reg), context).result();
+		expect(result).toMatchObject({ provider: FIRST, model: FIRST_ID, stopReason: "error" });
+		expect(result.errorMessage).toBe(`${FIRST}/${FIRST_ID}: provider stream ended without a final event.`);
+		expect(request).toHaveBeenCalledTimes(1);
+	});
+
+	test("returns a thrown member error without trying other members", async () => {
+		const reg = registry();
+		const request = register(() => {
+			throw new Error("socket closed");
+		});
+		const result = await streamSimple(pool(reg), context).result();
+		expect(result).toMatchObject({ provider: FIRST, stopReason: "error", errorMessage: "socket closed" });
+		expect(request).toHaveBeenCalledTimes(1);
+	});
 });
 
 function messageFromEvent(event: AssistantMessageEvent): AssistantMessage {

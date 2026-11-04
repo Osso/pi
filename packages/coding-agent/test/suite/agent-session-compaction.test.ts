@@ -880,6 +880,56 @@ describe("AgentSession compaction characterization", () => {
 		expect(getAssistantTexts(harness)).toContain("recovered after request-buffer overflow");
 	});
 
+	it("compacts and retries a pool member's context overflow", async () => {
+		let compactionCalls = 0;
+		const harness = await createHarness({
+			fauxProvider: { api: "faux-pool-member", provider: "faux-pool-member" },
+			models: [{ id: "member" }],
+			pools: { overflow: ["faux-pool-member/member"] },
+			settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens: 5_000 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("compaction", async (event) => {
+						compactionCalls++;
+						return {
+							compaction: {
+								summary: "pool overflow summary",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								tokensBefore: event.preparation.tokensBefore,
+								details: {},
+							},
+						};
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		const pool = harness.session.modelRegistry.find("pool", "overflow");
+		if (!pool) throw new Error("Missing pool/overflow");
+		await harness.session.setModel(pool);
+		seedCompactableSession(harness);
+		harness.setResponses([
+			fauxAssistantMessage("", {
+				stopReason: "error",
+				errorMessage: "Error: exceeded request buffer limit while retrying upstream",
+			}),
+			fauxCompletedTurn("recovered after pool overflow"),
+		]);
+
+		await harness.session.prompt("trigger pool overflow recovery");
+
+		expect(compactionCalls).toBe(1);
+		expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({
+			reason: "overflow",
+			aborted: false,
+			willRetry: true,
+		});
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(getAssistantTexts(harness)).toContain("recovered after pool overflow");
+		const lastAssistant = [...harness.session.messages].reverse().find((message) => message.role === "assistant");
+		expect(lastAssistant).toMatchObject({ provider: "faux-pool-member", model: "member" });
+	});
+
 	it("compacts once and reports bounded failure after repeated request-buffer overflow", async () => {
 		let compactionCalls = 0;
 		const harness = await createHarness({

@@ -1,6 +1,14 @@
 import { join } from "node:path";
 import { Agent, type AgentMessage, type ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { clampThinkingLevel, type Message, type Model, streamSimple } from "@earendil-works/pi-ai/compat";
+import {
+	type Api,
+	clampThinkingLevel,
+	type Context,
+	type Message,
+	type Model,
+	type SimpleStreamOptions,
+	streamSimple,
+} from "@earendil-works/pi-ai/compat";
 import { getAgentDir } from "../config.ts";
 import { resolvePath } from "../utils/paths.ts";
 import {
@@ -21,7 +29,7 @@ import type {
 	ToolDefinition,
 } from "./extensions/index.ts";
 import { convertToLlm } from "./messages.ts";
-import type { PoolMemberStream } from "./model-pool.ts";
+import type { MemberAuth } from "./model-pool.ts";
 import { ModelRegistry } from "./model-registry.ts";
 import { findInitialModel } from "./model-resolver.ts";
 import type { MultiAgentStore } from "./multi-agent-store.ts";
@@ -368,9 +376,15 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 	let logicalRequestNumber = 0;
 	let lastDiagnosticRequest: { model: ProviderDiagnosticModel; context: ProviderDiagnosticContext } | undefined;
 
-	// Pool members take this same path, so each gets its own credentials and provider headers.
-	const streamModel: PoolMemberStream = async (model, context, options) => {
-		const auth = await modelRegistry.getApiKeyAndHeaders(model);
+	// Pool members take this same path with the auth the pool resolved, so each gets its own
+	// credentials and provider headers without resolving them twice.
+	const streamModel = async (
+		model: Model<Api>,
+		context: Context,
+		options: SimpleStreamOptions | undefined,
+		memberAuth?: MemberAuth,
+	) => {
+		const auth = memberAuth ?? (await modelRegistry.getApiKeyAndHeaders(model));
 		if (!auth.ok) {
 			throw new Error(auth.error);
 		}

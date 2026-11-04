@@ -12,15 +12,18 @@ import {
 	streamSimple,
 } from "@earendil-works/pi-ai/compat";
 import { isQuotaExhaustionError } from "./codex-quota-fallback.ts";
-import type { ModelRegistry } from "./model-registry.ts";
+import type { ModelRegistry, ResolvedRequestAuth } from "./model-registry.ts";
 
 export const POOL_EXHAUSTION_COOLDOWN_MS = 15 * 60 * 1000;
 
-/** Streams one resolved member; the SDK passes its normal per-model request path. */
+export type MemberAuth = Extract<ResolvedRequestAuth, { ok: true }>;
+
+/** Streams one member with auth the pool already resolved; the SDK passes its per-model request path. */
 export type PoolMemberStream = (
 	member: Model<Api>,
 	context: Context,
-	options?: SimpleStreamOptions,
+	options: SimpleStreamOptions | undefined,
+	auth: MemberAuth,
 ) => AssistantMessageEventStream | Promise<AssistantMessageEventStream>;
 
 const THINKING_LEVELS: ModelThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
@@ -73,6 +76,41 @@ function createError(model: Model<Api>, errorMessage: string, reason: "error" | 
 	};
 }
 
+interface PoolRequest {
+	model: Model<Api>;
+	context: Context;
+	options?: SimpleStreamOptions;
+	streamMember: PoolMemberStream;
+	output: AssistantMessageEventStream;
+	/** Identity for an abort or thrown error: the member being tried, else the pool. */
+	active: Model<Api>;
+}
+
+/** Pool models belong to the registry that built them; pi-ai's single "pool" API dispatches through this. */
+const poolOwners = new WeakMap<Model<Api>, ModelPools>();
+
+function streamOwnedPool(model: Model<Api>, context: Context, options?: SimpleStreamOptions) {
+	const owner = poolOwners.get(model);
+	if (owner) return owner.stream(model, context, options);
+	const output = createAssistantMessageEventStream();
+	output.push(createError(model, `Pool "${model.id}" was not loaded by a model registry.`));
+	output.end();
+	return output;
+}
+
+function memberKey(member: Model<Api>): string {
+	return `${member.provider}/${member.id}`;
+}
+
+/** Direct pi-ai calls without the SDK; caller headers/env win over member auth, as in the SDK path. */
+const streamWithMemberAuth: PoolMemberStream = (member, context, options, auth) =>
+	streamSimple(member, context, {
+		...options,
+		apiKey: auth.apiKey,
+		headers: auth.headers || options?.headers ? { ...auth.headers, ...options?.headers } : undefined,
+		env: auth.env || options?.env ? { ...auth.env, ...options?.env } : undefined,
+	});
+
 /** Registry-owned membership and quota cooldowns; refresh rebuilds membership, not cooldowns. */
 export class ModelPools {
 	private members = new Map<string, Model<Api>[]>();
@@ -103,13 +141,15 @@ export class ModelPools {
 				continue;
 			}
 			this.members.set(name, members);
-			poolModels.push(createPoolModel(name, members));
+			const poolModel = createPoolModel(name, members);
+			poolOwners.set(poolModel, this);
+			poolModels.push(poolModel);
 		}
 		registerApiProvider(
 			{
 				api: "pool",
-				stream: (model, context, options) => this.stream(model, context, options as SimpleStreamOptions),
-				streamSimple: (model, context, options) => this.stream(model, context, options),
+				stream: (model, context, options) => streamOwnedPool(model, context, options as SimpleStreamOptions),
+				streamSimple: streamOwnedPool,
 			},
 			"provider:pool",
 		);
@@ -120,76 +160,81 @@ export class ModelPools {
 		return model.provider === "pool" ? (this.members.get(model.id) ?? []) : [];
 	}
 
-	/** Direct pi-ai calls without the SDK resolve member auth here; caller headers/env win, as in the SDK path. */
-	private streamWithRegistryAuth: PoolMemberStream = async (member, context, options) => {
-		const auth = await this.registry.getApiKeyAndHeaders(member);
-		if (!auth.ok) throw new Error(auth.error);
-		return streamSimple(member, context, {
-			...options,
-			apiKey: auth.apiKey,
-			headers: auth.headers || options?.headers ? { ...auth.headers, ...options?.headers } : undefined,
-			env: auth.env || options?.env ? { ...auth.env, ...options?.env } : undefined,
-		});
-	};
-
 	stream(
 		model: Model<Api>,
 		context: Context,
 		options?: SimpleStreamOptions,
-		streamMember: PoolMemberStream = this.streamWithRegistryAuth,
+		streamMember: PoolMemberStream = streamWithMemberAuth,
 	): AssistantMessageEventStream {
-		const output = createAssistantMessageEventStream();
-		let activeModel = model;
+		const request: PoolRequest = {
+			model,
+			context,
+			options,
+			streamMember,
+			output: createAssistantMessageEventStream(),
+			active: model,
+		};
+		const { output } = request;
+		const signal = options?.signal;
 		const abort = () => {
-			output.push(createError(activeModel, "Request aborted", "aborted"));
+			output.push(createError(request.active, "Request aborted", "aborted"));
 			output.end();
 		};
-		if (options?.signal?.aborted) {
+		if (signal?.aborted) {
 			abort();
 			return output;
 		}
-		options?.signal?.addEventListener("abort", abort, { once: true });
-		void (async () => {
-			let lastError: ErrorEvent | undefined;
-			try {
-				for (const member of this.getMembers(model)) {
-					if (options?.signal?.aborted) return;
-					const key = `${member.provider}/${member.id}`;
-					if ((this.exhaustedUntil.get(key) ?? 0) > this.now()) continue;
-					if (!this.registry.hasConfiguredAuth(member)) continue;
-					const auth = await this.registry.getApiKeyAndHeaders(member);
-					if (options?.signal?.aborted) return;
-					if (!auth.ok) continue;
-					activeModel = member;
-					const error = await this.forwardMember(
-						await streamMember(member, context, options),
-						output,
-						options?.signal,
-					);
-					if (options?.signal?.aborted) return;
-					if (!error) return;
-					lastError = error;
-					this.exhaustedUntil.set(key, this.now() + POOL_EXHAUSTION_COOLDOWN_MS);
-				}
-				output.push(lastError ?? createError(model, `Pool "${model.id}": no eligible members available.`));
-			} catch (error) {
-				output.push(createError(activeModel, error instanceof Error ? error.message : String(error)));
-			} finally {
-				options?.signal?.removeEventListener("abort", abort);
+		signal?.addEventListener("abort", abort, { once: true });
+		this.routeMembers(request)
+			.catch((error) =>
+				output.push(createError(request.active, error instanceof Error ? error.message : String(error))),
+			)
+			.finally(() => {
+				signal?.removeEventListener("abort", abort);
 				output.end();
-			}
-		})();
+			});
 		return output;
 	}
 
-	/** Only a quota error as the first non-start event can select another member. */
+	/** Try members in order; only a quota error before output moves to the next one. */
+	private async routeMembers(request: PoolRequest): Promise<void> {
+		const { model, context, options, output } = request;
+		let lastError: ErrorEvent | undefined;
+		for (const member of this.getMembers(model)) {
+			const auth = await this.resolveAvailableMember(member);
+			if (options?.signal?.aborted) return;
+			if (!auth) continue;
+			request.active = member;
+			const input = await request.streamMember(member, context, options, auth);
+			const quotaError = await this.forwardMember(member, input, output, options?.signal);
+			if (!quotaError) return;
+			lastError = quotaError;
+			this.exhaustedUntil.set(memberKey(member), this.now() + POOL_EXHAUSTION_COOLDOWN_MS);
+		}
+		output.push(lastError ?? createError(model, `Pool "${model.id}": no eligible members available.`));
+	}
+
+	/** Auth for a member that is not cooling down and has usable credentials; resolved once per attempt. */
+	private async resolveAvailableMember(member: Model<Api>): Promise<MemberAuth | undefined> {
+		if ((this.exhaustedUntil.get(memberKey(member)) ?? 0) > this.now()) return undefined;
+		if (!this.registry.hasConfiguredAuth(member)) return undefined;
+		const auth = await this.registry.getApiKeyAndHeaders(member);
+		return auth.ok ? auth : undefined;
+	}
+
+	/**
+	 * Buffer `start` until the first other event. A quota error there is returned for rotation;
+	 * anything else is forwarded unchanged. A stream that ends without done/error becomes an error.
+	 */
 	private async forwardMember(
+		member: Model<Api>,
 		input: AssistantMessageEventStream,
 		output: AssistantMessageEventStream,
 		signal?: AbortSignal,
 	): Promise<ErrorEvent | undefined> {
 		const buffered: AssistantMessageEvent[] = [];
 		let forwarding = false;
+		let finished = false;
 		for await (const event of input) {
 			if (signal?.aborted) return;
 			if (!forwarding) {
@@ -202,6 +247,10 @@ export class ModelPools {
 				forwarding = true;
 			}
 			output.push(event);
+			finished = event.type === "done" || event.type === "error";
+		}
+		if (!finished && !signal?.aborted) {
+			output.push(createError(member, `${memberKey(member)}: provider stream ended without a final event.`));
 		}
 		return undefined;
 	}
