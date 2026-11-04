@@ -4704,7 +4704,7 @@ export class AgentSession {
 	private _startBackgroundCompactionDuringToolTurn(message: AssistantMessage): void {
 		if (message.stopReason !== "toolUse") return;
 		const model = this.model;
-		if (!model || message.provider !== model.provider || message.model !== model.id) return;
+		if (!model || !this._modelRegistry.isMessageFromModel(message, model)) return;
 
 		const contextWindow = model.contextWindow;
 		const contextTokens = message.usage ? calculateContextTokens(message.usage) : 0;
@@ -4772,7 +4772,7 @@ export class AgentSession {
 		const message = this._findLastAssistantMessage();
 		if (!message || message.stopReason === "error") return undefined;
 		// The cache only helps if the next request goes to the model that wrote it.
-		const isCurrentModel = message.provider === this.model?.provider && message.model === this.model?.id;
+		const isCurrentModel = !!this.model && this._modelRegistry.isMessageFromModel(message, this.model);
 		if (!isCurrentModel) return undefined;
 		const branchEntries = this.sessionManager.getBranch();
 		const compactionEntry = getLatestCompactionEntry(branchEntries);

@@ -2,7 +2,7 @@
  * Local test harness for the new coding-agent test suite.
  */
 
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
@@ -72,6 +72,8 @@ export interface HarnessOptions {
 	noSupervisor?: boolean;
 	models?: FauxModelDefinition[];
 	fauxProvider?: Pick<RegisterFauxProviderOptions, "api" | "provider">;
+	/** models.json `pools`; members name registered faux models as `<provider>/<id>`. */
+	pools?: Record<string, string[]>;
 	settings?: Partial<Settings>;
 	systemPrompt?: string;
 	tools?: AgentTool[];
@@ -143,7 +145,12 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 	if (withConfiguredAuth) {
 		authStorage.setRuntimeApiKey(model.provider, "faux-key");
 	}
-	const modelRegistry = ModelRegistry.inMemory(authStorage);
+	let modelRegistry = ModelRegistry.inMemory(authStorage);
+	if (options.pools) {
+		const modelsJsonPath = join(tempDir, "models.json");
+		writeFileSync(modelsJsonPath, JSON.stringify({ providers: {}, pools: options.pools }));
+		modelRegistry = ModelRegistry.create(authStorage, modelsJsonPath);
+	}
 	if (withConfiguredAuth) {
 		modelRegistry.registerProvider(model.provider, {
 			baseUrl: model.baseUrl,

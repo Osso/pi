@@ -30,7 +30,7 @@ import { stripJsonComments } from "../utils/json.ts";
 import { normalizePath } from "../utils/paths.ts";
 import type { AuthStatus, AuthStorage } from "./auth-storage.ts";
 import { getOpenRouterCatalogModels } from "./model-catalog-cache.ts";
-import { ModelPools } from "./model-pool.ts";
+import { ModelPools, type PoolMemberStream } from "./model-pool.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "./provider-display-names.ts";
 import {
 	clearConfigValueCache,
@@ -703,6 +703,16 @@ export class ModelRegistry {
 	}
 
 	/** Match actual member identity without rewriting assistant messages to the selected pool. */
+	/** Stream a pool model, routing each member through `streamMember` (the SDK's per-model path). */
+	streamPool(
+		model: Model<Api>,
+		context: Context,
+		options: SimpleStreamOptions | undefined,
+		streamMember: PoolMemberStream,
+	): AssistantMessageEventStream {
+		return this.modelPools.stream(model, context, options, streamMember);
+	}
+
 	isMessageFromModel(message: Pick<AssistantMessage, "provider" | "model">, selectedModel: Model<Api>): boolean {
 		if (message.provider === selectedModel.provider && message.model === selectedModel.id) return true;
 		return this.modelPools
@@ -746,6 +756,13 @@ export class ModelRegistry {
 	 * Get API key and request headers for a model.
 	 */
 	async getApiKeyAndHeaders(model: Model<Api>): Promise<ResolvedRequestAuth> {
+		if (model.provider === "pool") {
+			// A pool has no credential; each member request resolves its own. The placeholder only
+			// satisfies callers that require a key before streaming and never reaches a provider.
+			return this.hasConfiguredAuth(model)
+				? { ok: true, apiKey: "pool" }
+				: { ok: false, error: `Pool "${model.id}": no member has configured authentication` };
+		}
 		try {
 			this.authStorage.reload();
 			const providerConfig = this.providerRequestConfigs.get(model.provider);

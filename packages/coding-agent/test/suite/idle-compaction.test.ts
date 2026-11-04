@@ -255,6 +255,30 @@ describe("idle prompt-cache compaction", () => {
 		expect(countCompactions(harness)).toBe(0);
 	});
 
+	it("compacts an idle pool session whose cache was written by a pool member", async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout", "Date"] });
+		const harness = await createHarness({
+			fauxProvider: CODEX_SCENARIO,
+			models: [{ id: "cache-writer", contextWindow: 2_000_000 }],
+			pools: { "codex-pool": ["openai-codex/cache-writer"] },
+			settings: { compaction: { keepRecentMessages: 3 } },
+		});
+		harnesses.push(harness);
+		harness.setResponses([endTurn("answer"), endTurn("follow-up answer"), fauxAssistantMessage("idle summary")]);
+		const pool = harness.session.modelRegistry.find("pool", "codex-pool");
+		if (!pool) throw new Error("Missing pool/codex-pool");
+		await harness.session.setModel(pool);
+
+		await runConversation(harness, LARGE_CONTEXT_PROMPT);
+		const assistant = [...harness.session.messages].reverse().find((message) => message.role === "assistant");
+		expect(assistant).toMatchObject({ provider: "openai-codex", model: "cache-writer" });
+		const dueAt = lastRequestStartedAt(harness) + 27 * MINUTE_MS;
+		await advanceTo(dueAt - SECOND_MS);
+		expect(countCompactions(harness)).toBe(0);
+		await advanceTo(dueAt + SECOND_MS);
+		await expectIdleCompaction(harness);
+	});
+
 	it("does not compact while an agent-level message is still queued", async () => {
 		vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout", "Date"] });
 		const harness = await createIdleHarness({ api: "openai-codex-responses", provider: "openai-codex" });

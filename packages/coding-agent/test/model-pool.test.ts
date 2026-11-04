@@ -218,7 +218,7 @@ describe("model pools", () => {
 		expect(reg.getAvailable()).toContain(pool(reg));
 	});
 
-	test("uses each member's own key, headers, env, model map, and unchanged request context", async () => {
+	test("uses each member's own key with caller headers and env layered over member auth", async () => {
 		const reg = registry({
 			[FIRST]: { ...provider(FIRST_ID), headers: { "X-Member": "$MEMBER_HEADER" } },
 			[SECOND]: { ...provider(SECOND_ID), headers: { "X-Member": "$MEMBER_HEADER" } },
@@ -233,8 +233,8 @@ describe("model pools", () => {
 		const signal = new AbortController().signal;
 		await streamSimple(pool(reg), context, {
 			apiKey: "pool-key-must-not-leak",
-			headers: { "X-Wrong": "pool-header" },
-			env: { WRONG: "pool-env" },
+			headers: { "X-Caller": "caller-header" },
+			env: { CALLER_ENV: "caller-env" },
 			temperature: 0.4,
 			reasoning: "high",
 			signal,
@@ -244,8 +244,8 @@ describe("model pools", () => {
 			expect(seen[index].ctx).toBe(context);
 			expect(seen[index].options).toEqual({
 				apiKey: `${label}-key`,
-				headers: { "X-Member": `${label}-header` },
-				env: { MEMBER_HEADER: `${label}-header` },
+				headers: { "X-Member": `${label}-header`, "X-Caller": "caller-header" },
+				env: { MEMBER_HEADER: `${label}-header`, CALLER_ENV: "caller-env" },
 				temperature: 0.4,
 				reasoning: "high",
 				signal,

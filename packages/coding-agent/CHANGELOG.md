@@ -4,6 +4,8 @@
 
 ### Breaking Changes
 
+- Removed the session-level OpenAI/Codex quota fallback. A directly selected `openai`, `openai-secondary`, `openai-codex`, `openai-codex-gc` or `openai-codex-team` model no longer switches to another account on quota or credit exhaustion; the turn ends with the provider error. Select a `pool/<name>` model for ordered account rotation. Removed the `model_select` event source `"fallback"`, which only that path emitted. The Supervisor's Codex provider rotation is unchanged.
+
 - Removed the built-in `broadcast` tool. Direct messaging and `channel_post` remain available.
 
 - Successful child completion requires a current public report or successful `contact_parent` send. Reportless `end_turn` calls return an error and keep the child active; other reportless terminal returns become `failed`, not `completed`. Private thinking, blank text, failed sends, and earlier reports do not qualify. Spawned and attached children share this rule; main-session completion, provider errors, and cancellation are unchanged. Public narration is included in parent result summaries. Report presence is checked, not semantic quality.
@@ -97,6 +99,8 @@
 - Periodic checks now arm outside Git repositories: the checklist is read from the session's working directory when it has no Git root. Inside a repository the Git root is still used.
 
 ### Added
+
+- Added model pools: a top-level `pools` map in `models.json` (`"<name>": ["provider/modelId", ...]`) exposes `pool/<name>` models. Each request tries members in order with each member's own credentials and provider headers, and moves to the next member only on a terminal quota/balance error before any output, with a 15-minute in-process cooldown for the exhausted member. Pool capabilities are the most restrictive across members; assistant messages keep the serving member's identity, and compaction treats member messages as the pool's. Quota detection now also matches DeepSeek's HTTP 402 `Insufficient Balance`. See [model pools](docs/models.md#model-pools).
 
 - Added the main-only `rename_agent { agentId, displayName }` tool to rename existing active or terminal agents. Names are trimmed, blank names and control characters are rejected, and names need not be unique. The persisted display name changes without changing lifecycle, revision, identity, model, or transcript.
 - Added delegated tool approval authority for T3-launched RPC sessions. T3's injected extension owns approval modes; unconditional tool gates still apply, and normal Pi approval policies remain unchanged. Added typed RPC extension UI responses without an acknowledgement.

@@ -16,6 +16,13 @@ import type { ModelRegistry } from "./model-registry.ts";
 
 export const POOL_EXHAUSTION_COOLDOWN_MS = 15 * 60 * 1000;
 
+/** Streams one resolved member; the SDK passes its normal per-model request path. */
+export type PoolMemberStream = (
+	member: Model<Api>,
+	context: Context,
+	options?: SimpleStreamOptions,
+) => AssistantMessageEventStream | Promise<AssistantMessageEventStream>;
+
 const THINKING_LEVELS: ModelThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
 type ErrorEvent = Extract<AssistantMessageEvent, { type: "error" }>;
 
@@ -113,7 +120,24 @@ export class ModelPools {
 		return model.provider === "pool" ? (this.members.get(model.id) ?? []) : [];
 	}
 
-	private stream(model: Model<Api>, context: Context, options?: SimpleStreamOptions): AssistantMessageEventStream {
+	/** Direct pi-ai calls without the SDK resolve member auth here; caller headers/env win, as in the SDK path. */
+	private streamWithRegistryAuth: PoolMemberStream = async (member, context, options) => {
+		const auth = await this.registry.getApiKeyAndHeaders(member);
+		if (!auth.ok) throw new Error(auth.error);
+		return streamSimple(member, context, {
+			...options,
+			apiKey: auth.apiKey,
+			headers: auth.headers || options?.headers ? { ...auth.headers, ...options?.headers } : undefined,
+			env: auth.env || options?.env ? { ...auth.env, ...options?.env } : undefined,
+		});
+	};
+
+	stream(
+		model: Model<Api>,
+		context: Context,
+		options?: SimpleStreamOptions,
+		streamMember: PoolMemberStream = this.streamWithRegistryAuth,
+	): AssistantMessageEventStream {
 		const output = createAssistantMessageEventStream();
 		let activeModel = model;
 		const abort = () => {
@@ -138,12 +162,7 @@ export class ModelPools {
 					if (!auth.ok) continue;
 					activeModel = member;
 					const error = await this.forwardMember(
-						streamSimple(member, context, {
-							...options,
-							apiKey: auth.apiKey,
-							headers: auth.headers,
-							env: auth.env,
-						}),
+						await streamMember(member, context, options),
 						output,
 						options?.signal,
 					);
