@@ -223,8 +223,8 @@ export class ModelPools {
 	}
 
 	/**
-	 * Buffer `start` until the first other event. A quota error there is returned for rotation;
-	 * anything else is forwarded unchanged. A stream that ends without done/error becomes an error.
+	 * A quota error before any output is returned for rotation; everything else is forwarded
+	 * unchanged. A stream that ends without done/error becomes an error.
 	 */
 	private async forwardMember(
 		member: Model<Api>,
@@ -232,26 +232,34 @@ export class ModelPools {
 		output: AssistantMessageEventStream,
 		signal?: AbortSignal,
 	): Promise<ErrorEvent | undefined> {
-		const buffered: AssistantMessageEvent[] = [];
-		let forwarding = false;
-		let finished = false;
-		for await (const event of input) {
-			if (signal?.aborted) return;
-			if (!forwarding) {
-				if (event.type === "start") {
-					buffered.push(event);
-					continue;
-				}
-				if (event.type === "error" && isQuotaExhaustionError(event.error)) return event;
-				for (const start of buffered) output.push(start);
-				forwarding = true;
-			}
-			output.push(event);
-			finished = event.type === "done" || event.type === "error";
+		const events = input[Symbol.asyncIterator]();
+		const first = await readUntilOutput(events, signal);
+		if (!first) return undefined;
+		if (first.event?.type === "error" && isQuotaExhaustionError(first.event.error)) return first.event;
+		let last = first.event;
+		for (const event of [...first.starts, ...(first.event ? [first.event] : [])]) output.push(event);
+		for (let next = await events.next(); !next.done && !signal?.aborted; next = await events.next()) {
+			output.push(next.value);
+			last = next.value;
 		}
+		const finished = last?.type === "done" || last?.type === "error";
 		if (!finished && !signal?.aborted) {
 			output.push(createError(member, `${memberKey(member)}: provider stream ended without a final event.`));
 		}
 		return undefined;
 	}
+}
+
+/** Buffer `start` events until the first other event; undefined if aborted meanwhile. */
+async function readUntilOutput(
+	events: AsyncIterator<AssistantMessageEvent>,
+	signal?: AbortSignal,
+): Promise<{ starts: AssistantMessageEvent[]; event?: AssistantMessageEvent } | undefined> {
+	const starts: AssistantMessageEvent[] = [];
+	for (let next = await events.next(); !next.done; next = await events.next()) {
+		if (signal?.aborted) return undefined;
+		if (next.value.type !== "start") return { starts, event: next.value };
+		starts.push(next.value);
+	}
+	return signal?.aborted ? undefined : { starts };
 }
