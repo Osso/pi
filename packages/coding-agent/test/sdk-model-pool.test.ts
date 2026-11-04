@@ -5,6 +5,7 @@ import {
 	type AssistantMessage,
 	createAssistantMessageEventStream,
 	type Model,
+	type ProviderHeaders,
 	type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -14,7 +15,7 @@ import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 
-type CapturedCall = { provider: string; model: string; apiKey?: string; headers?: Record<string, string> };
+type CapturedCall = { provider: string; model: string; apiKey?: string; headers?: ProviderHeaders };
 
 function assistantMessage(model: Model<any>, overrides: Partial<AssistantMessage> = {}): AssistantMessage {
 	return {
