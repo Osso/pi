@@ -101,6 +101,22 @@ function registerUsage(options: { loggedIn?: (providerId: string) => boolean; fa
 				return Response.json(openRouterCreditsPayload(2100, 1923.314149318));
 			case USAGE_URLS.deepseekBalance:
 				return Response.json(deepseekBalancePayload());
+			case "https://api.commandcode.ai/alpha/whoami":
+				return Response.json({ success: true, user: { id: "u1" }, org: null });
+			case "https://api.commandcode.ai/alpha/billing/credits":
+				return Response.json({
+					credits: { monthlyCredits: 69.99, purchasedCredits: 0 },
+					windowLimits: {
+						fiveHour: { used: 7, cap: 14, resetAt: 1_800_000_000_000 },
+						weekly: { used: 17.5, cap: 35, resetAt: 1_800_604_800_000 },
+					},
+				});
+			case "https://api.commandcode.ai/alpha/billing/subscriptions":
+				return Response.json({
+					data: { currentPeriodStart: "2026-11-04T21:58:11.000Z", currentPeriodEnd: "2026-12-04T21:58:11.000Z" },
+				});
+			case "https://api.commandcode.ai/alpha/usage/summary?since=2026-11-04T21%3A58%3A11.000Z":
+				return Response.json({ totalMonthlyCredits: 30.01 });
 			default:
 				throw new Error(`unexpected fetch ${url}`);
 		}
@@ -179,10 +195,10 @@ describe("registered /usage deepseek", () => {
 		expect(lines[0]).toContain("DeepSeek pool usage; - = not reported");
 		expect(lines.join("\n")).toContain("32% 21% 10%");
 		expect(lines.join("\n")).toContain("2026-11-05 02:07 | 2026-11-08 18:00 | 2026-12-04 15:17");
-		expect(lines.find((line) => line.includes("commandcode"))).toContain("not reported");
+		expect(lines.find((line) => line.includes("commandcode"))).toContain("50%");
 		expect(lines.find((line) => line.includes("$50.00 deepseek"))).toBeDefined();
 		expect(lines.find((line) => line.includes("$176.69"))).toContain("openrouter");
-		expect(h.fetch).toHaveBeenCalledTimes(7);
+		expect(h.fetch).toHaveBeenCalledTimes(11);
 	});
 
 	it("marks providers without a stored credential as not logged in", async () => {

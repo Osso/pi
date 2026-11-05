@@ -615,6 +615,7 @@ const OPEN_GROVE_USAGE_URL = "https://api.pgsgrove.com/v1/usage";
 const OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key";
 const OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits";
 const DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance";
+const COMMANDCODE_BASE = "https://api.commandcode.ai";
 
 export interface DeepseekWindow {
 	percent: number;
@@ -702,6 +703,45 @@ export function mapDeepseekBalance(payload: unknown): Pick<DeepseekRow, "balance
 	return { balance: Number.isFinite(total) ? formatUsd(total) : null };
 }
 
+export function mapCommandCodeUsage(
+	creditsPayload: unknown,
+	subscriptionPayload: unknown,
+	summaryPayload: unknown,
+): Pick<DeepseekRow, "day" | "week" | "month" | "balance"> {
+	const credits = asRecord(creditsPayload);
+	const windows = asRecord(credits?.windowLimits);
+	const monthly = asRecord(credits?.credits);
+	const subscription = asRecord(asRecord(subscriptionPayload)?.data);
+	const summary = asRecord(summaryPayload);
+
+	const windowPercent = (window: unknown): DeepseekWindow | null => {
+		const record = asRecord(window);
+		const used = readFiniteNumber(record?.used);
+		const cap = readFiniteNumber(record?.cap);
+		if (used === null || cap === null || cap <= 0) return null;
+		const resetMs = readFiniteNumber(record?.resetAt);
+		return { percent: (used / cap) * 100, resetsAt: resetMs === null ? null : Math.round(resetMs / 1000) };
+	};
+
+	const monthlyRemaining = readFiniteNumber(monthly?.monthlyCredits);
+	const monthlyUsed = readFiniteNumber(summary?.totalMonthlyCredits);
+	const allowance = monthlyRemaining !== null && monthlyUsed !== null ? monthlyRemaining + monthlyUsed : null;
+	const periodEnd = typeof subscription?.currentPeriodEnd === "string" ? Date.parse(subscription.currentPeriodEnd) : Number.NaN;
+
+	return {
+		day: windowPercent(windows?.fiveHour),
+		week: windowPercent(windows?.weekly),
+		month:
+			allowance !== null && allowance > 0 && monthlyUsed !== null
+				? {
+						percent: (monthlyUsed / allowance) * 100,
+						resetsAt: Number.isFinite(periodEnd) ? Math.round(periodEnd / 1000) : null,
+					}
+				: null,
+		balance: monthlyRemaining === null ? null : formatUsd(monthlyRemaining),
+	};
+}
+
 export function formatDeepseekUsage(rows: DeepseekRow[]): string {
 	const balanceWidth = Math.max("Balance".length, ...rows.map((row) => (row.balance ?? MISSING).length));
 	const providerWidth = Math.max("Provider".length, ...rows.map((row) => row.provider.length));
@@ -755,9 +795,33 @@ async function readOpenRouterUsage(apiKey: string): Promise<Pick<DeepseekRow, "w
 	return mapOpenRouterUsage(keyPayload, creditsPayload);
 }
 
+async function readCommandCodeUsage(apiKey: string): Promise<Partial<DeepseekRow>> {
+	const headers = { authorization: `Bearer ${apiKey}`, accept: "application/json" };
+	const fetchJson = async (path: string): Promise<unknown> => {
+		const response = await fetch(COMMANDCODE_BASE + path, { headers });
+		if (!response.ok) throw new Error(`Command Code usage request failed (${response.status})`);
+		return (await response.json()) as unknown;
+	};
+	const whoami = asRecord(await fetchJson("/alpha/whoami"));
+	const orgId = typeof asRecord(whoami?.org)?.id === "string" ? (asRecord(whoami?.org)?.id as string) : null;
+	const query = orgId ? `?orgId=${encodeURIComponent(orgId)}` : "";
+	const [credits, subscription] = await Promise.all([
+		fetchJson(`/alpha/billing/credits${query}`),
+		fetchJson(`/alpha/billing/subscriptions${query}`),
+	]);
+	const periodStart = asRecord(asRecord(subscription)?.data)?.currentPeriodStart;
+	const summaryQuery = new URLSearchParams(orgId ? { orgId } : {});
+	if (typeof periodStart === "string") summaryQuery.set("since", periodStart);
+	const summary = await fetchJson(
+		`/alpha/usage/summary${summaryQuery.size > 0 ? `?${summaryQuery.toString()}` : ""}`,
+	);
+	return mapCommandCodeUsage(credits, subscription, summary);
+}
+
 const DEEPSEEK_USAGE_READERS: Record<string, (apiKey: string) => Promise<Partial<DeepseekRow>>> = {
 	"opencode-go": async (apiKey) =>
 		mapOpencodeGoUsage(await fetchUsageJson(OPENCODE_GO_USAGE_URL, apiKey, "OpenCode Go")),
+	commandcode: readCommandCodeUsage,
 	"open-grove": async (apiKey) => mapOpenGroveUsage(await fetchUsageJson(OPEN_GROVE_USAGE_URL, apiKey, "Open Grove")),
 	openrouter: readOpenRouterUsage,
 	"openrouter-gc": readOpenRouterUsage,

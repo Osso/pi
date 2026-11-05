@@ -42,10 +42,11 @@ model. It is a report, not an account-switching or quota-fallback operation. See
 
 - [x] Read each provider's own usage API: `opencode-go` (`/v1/usage` rolling, weekly, monthly),
       `open-grove` (`/v1/usage` daily, weekly), `openrouter` and `openrouter-gc` (`/api/v1/key` weekly
-      limit plus `/api/v1/credits` remaining credits), and the official `deepseek` account
-      (`/user/balance`).
-- [x] Show `commandcode` as `not reported`: it exposes no usage endpoint, and its CLI-only `/usage`
-      is not scraped.
+      limit plus `/api/v1/credits` remaining credits), the official `deepseek` account
+      (`/user/balance`), and `commandcode` (`/alpha/billing/credits` five-hour and weekly windows,
+      `/alpha/usage/summary` for the billing period, `/alpha/billing/subscriptions` for the period end).
+- [x] Show `commandcode` five-hour, weekly and monthly percentages with the monthly credit balance
+      and US Central reset times; show `-` when a window or balance is not reported.
 - [x] Order columns day %, week %, month %, balance/remaining credits, provider, then US Central
       resets (`day | week | month`) or the row's status.
 - [x] Show `-` for windows a provider does not report and never render a missing value as 0%.
