@@ -46,7 +46,7 @@ function provider(id: string, overrides: Partial<NonNullable<ProviderConfigInput
 	};
 }
 
-function message(model: Model<Api>, errorMessage?: string): AssistantMessage {
+function message(model: Model<Api>, errorMessage?: string, retryAfterMs?: number): AssistantMessage {
 	return {
 		role: "assistant",
 		provider: model.provider,
@@ -55,6 +55,7 @@ function message(model: Model<Api>, errorMessage?: string): AssistantMessage {
 		content: errorMessage ? [] : [{ type: "text", text: "Hello" }],
 		stopReason: errorMessage ? "error" : "stop",
 		errorMessage,
+		retryAfterMs,
 		usage: {
 			input: 4,
 			output: 1,
@@ -71,8 +72,9 @@ function events(
 	model: Model<Api>,
 	errorMessage?: string,
 	outputType?: "text_start" | "thinking_start" | "toolcall_start",
+	retryAfterMs?: number,
 ) {
-	const result = message(model, errorMessage);
+	const result = message(model, errorMessage, retryAfterMs);
 	const resultEvents: AssistantMessageEvent[] = [{ type: "start", partial: result }];
 	if (outputType) resultEvents.push({ type: outputType, contentIndex: 0, partial: result });
 	if (errorMessage) resultEvents.push({ type: "error", reason: "error", error: result });
@@ -266,6 +268,28 @@ describe("model pools", () => {
 			expect(actual.result).toBe(messageFromEvent(successful[1]));
 		},
 	);
+
+	test("rotates before output when a rate limit requests a longer delay than the cap", async () => {
+		const reg = registry();
+		const successful = events(reg.find(SECOND, SECOND_ID)!);
+		const request = register((model) =>
+			fromEvents(
+				model.provider === FIRST ? events(model, "429 rate limit reached", undefined, 520_526_000) : successful,
+			),
+		);
+		const actual = await collect(streamSimple(pool(reg), context, { maxRetryDelayMs: 60_000 }));
+		expect(request.mock.calls.map(([model]) => model.provider)).toEqual([FIRST, SECOND]);
+		expect(actual.result).toBe(messageFromEvent(successful[1]));
+	});
+
+	test("does not rotate when the requested retry delay fits within the cap", async () => {
+		const reg = registry();
+		const original = events(reg.find(FIRST, FIRST_ID)!, "429 rate limit reached", undefined, 5_000);
+		const request = register(() => fromEvents(original));
+		const actual = await collect(streamSimple(pool(reg), context, { maxRetryDelayMs: 60_000 }));
+		expect(request.mock.calls.map(([model]) => model.provider)).toEqual([FIRST]);
+		expect(actual.result).toBe(messageFromEvent(original[1]));
+	});
 
 	test("does not rotate on non-quota errors and forwards start and error unchanged", async () => {
 		const reg = registry();

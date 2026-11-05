@@ -1,9 +1,11 @@
 import {
 	type Api,
+	type AssistantMessage,
 	type AssistantMessageEvent,
 	type AssistantMessageEventStream,
 	type Context,
 	createAssistantMessageEventStream,
+	DEFAULT_MAX_RETRY_DELAY_MS,
 	getSupportedThinkingLevels,
 	type Model,
 	type ModelThinkingLevel,
@@ -196,9 +198,10 @@ export class ModelPools {
 		return output;
 	}
 
-	/** Try members in order; only a quota error before output moves to the next one. */
+	/** Try members in order; a quota error before output, or a provider-requested wait beyond the cap, moves to the next one. */
 	private async routeMembers(request: PoolRequest): Promise<void> {
 		const { model, context, options, output } = request;
+		const maxRetryDelayMs = options?.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
 		let lastError: ErrorEvent | undefined;
 		for (const member of this.getMembers(model)) {
 			const auth = await this.resolveAvailableMember(member);
@@ -206,9 +209,9 @@ export class ModelPools {
 			if (!auth) continue;
 			request.active = member;
 			const input = await request.streamMember(member, context, options, auth);
-			const quotaError = await this.forwardMember(member, input, output, options?.signal);
-			if (!quotaError) return;
-			lastError = quotaError;
+			const rotationError = await this.forwardMember(member, input, output, options?.signal, maxRetryDelayMs);
+			if (!rotationError) return;
+			lastError = rotationError;
 			this.exhaustedUntil.set(memberKey(member), this.now() + POOL_EXHAUSTION_COOLDOWN_MS);
 		}
 		output.push(lastError ?? createError(model, `Pool "${model.id}": no eligible members available.`));
@@ -223,19 +226,20 @@ export class ModelPools {
 	}
 
 	/**
-	 * A quota error before any output is returned for rotation; everything else is forwarded
-	 * unchanged. A stream that ends without done/error becomes an error.
+	 * A rotation error before any output is returned; everything else is forwarded unchanged.
+	 * A stream that ends without done/error becomes an error.
 	 */
 	private async forwardMember(
 		member: Model<Api>,
 		input: AssistantMessageEventStream,
 		output: AssistantMessageEventStream,
-		signal?: AbortSignal,
+		signal: AbortSignal | undefined,
+		maxRetryDelayMs: number,
 	): Promise<ErrorEvent | undefined> {
 		const events = input[Symbol.asyncIterator]();
 		const first = await readUntilOutput(events, signal);
 		if (!first) return undefined;
-		if (first.event?.type === "error" && isQuotaExhaustionError(first.event.error)) return first.event;
+		if (first.event?.type === "error" && rotatesBeforeOutput(first.event.error, maxRetryDelayMs)) return first.event;
 		let last = first.event;
 		for (const event of [...first.starts, ...(first.event ? [first.event] : [])]) output.push(event);
 		for (let next = await events.next(); !next.done && !signal?.aborted; next = await events.next()) {
@@ -248,6 +252,16 @@ export class ModelPools {
 		}
 		return undefined;
 	}
+}
+
+/**
+ * Rotation triggers before any output: terminal quota/balance exhaustion, or a requested
+ * retry delay longer than the cap, which makes the member unavailable for this request.
+ */
+function rotatesBeforeOutput(message: AssistantMessage, maxRetryDelayMs: number): boolean {
+	if (isQuotaExhaustionError(message)) return true;
+	if (message.retryAfterMs === undefined) return false;
+	return maxRetryDelayMs > 0 && message.retryAfterMs > maxRetryDelayMs;
 }
 
 /** Buffer `start` events until the first other event; undefined if aborted meanwhile. */

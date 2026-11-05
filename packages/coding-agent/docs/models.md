@@ -285,11 +285,13 @@ the member identity.
 Each request starts at the first eligible member and uses that member's own credentials, headers,
 and environment. Members without configured auth or with failed auth resolution are skipped.
 Pool credentials are not used for member requests. On terminal quota or balance exhaustion before
-any event other than `start`, the pool tries the next member. The exhausted provider/model is
-skipped for 15 minutes across later pool requests, including registry refresh. This state lasts
-only for the registry instance in the current process. Non-quota errors and errors after output
-starts pass through without rotation. If all attempts exhaust, the last member error is returned;
-if no member is eligible, the error names the pool.
+any event other than `start`, the pool tries the next member. A rate-limit error that requests a
+delay longer than `retry.provider.maxRetryDelayMs` behaves the same way: the member cannot serve
+this request. The exhausted provider/model is skipped for 15 minutes across later pool requests,
+including registry refresh. This state lasts only for the registry instance in the current process.
+Short transient rate limits and other non-quota errors, and errors after output starts, pass through
+without rotation. If all attempts exhaust, the last member error is returned; if no member is
+eligible, the error names the pool.
 
 Choose members that are suitable for the same work. Provider-stated model equivalence is
 configuration, not per-request proof: DeepSeek `deepseek-flash` and OpenCode Go

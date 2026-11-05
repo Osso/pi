@@ -1,3 +1,6 @@
+/** Default cap for provider-requested retry delays. */
+export const DEFAULT_MAX_RETRY_DELAY_MS = 60_000;
+
 /**
  * Extract the provider's requested retry delay from HTTP response headers.
  *

@@ -45,7 +45,7 @@ import { formatProviderError, normalizeProviderError } from "../utils/error-body
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { resolveHttpProxyUrlForTarget } from "../utils/node-http-proxy.ts";
-import { getRetryAfterMs } from "../utils/retry-after.ts";
+import { DEFAULT_MAX_RETRY_DELAY_MS, getRetryAfterMs } from "../utils/retry-after.ts";
 import { CodexDiagnosticObserver } from "./openai-codex-diagnostics.ts";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.ts";
@@ -59,7 +59,6 @@ const DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 const JWT_CLAIM_PATH = "https://api.openai.com/auth" as const;
 const DEFAULT_MAX_RETRIES = 0;
 const BASE_DELAY_MS = 1000;
-const DEFAULT_MAX_RETRY_DELAY_MS = 60_000;
 const DEFAULT_WEBSOCKET_CONNECT_TIMEOUT_MS = 15_000;
 const WEBSOCKET_PING_INTERVAL_MS = 30_000;
 // Measured Codex pong round trip is about 100ms; a ping unanswered this long means a dead connection.

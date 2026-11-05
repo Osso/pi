@@ -42,9 +42,12 @@ directly never switches accounts; select a pool for that.
   matching SDK precedence; the caller's API key never replaces the member's.
 - [x] Buffer `start` events until the first non-`start` event. Rotate only if that event is a terminal
   quota-exhaustion error, including `insufficient_quota` and DeepSeek's `Insufficient Balance`.
-- [x] Forward all events from the chosen member unchanged. Non-quota errors and errors after text,
-  thinking, or tool-call events do not rotate members. Transient errors such as OpenAI TPM/RPM
-  `rate_limit_exceeded` 429s end the request and go to the normal session retry on the same pool.
+- [x] Forward all events from the chosen member unchanged. Errors after text, thinking, or tool-call
+  events do not rotate members. Short transient errors such as an OpenAI TPM/RPM
+  `rate_limit_exceeded` 429 that asks to wait no longer than `maxRetryDelayMs` end the request and go
+  to the normal session retry on the same pool. A rate-limit error whose recorded `retryAfterMs`
+  exceeds that cap rotates to the next member and applies the same cooldown, because the member
+  cannot serve this request.
 - [x] End the pool request with `<provider>/<id>: provider stream ended without a final event.` when
   a member stream ends without `done` or `error`.
 - [x] Resolve each attempted member's auth once per request and pass it to the member stream, so a

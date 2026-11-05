@@ -27,6 +27,7 @@ export * from "./index.ts";
 export * from "./legacy-api-aliases.ts";
 export * from "./providers/images/register-builtins.ts";
 export * from "./utils/retry.ts";
+export * from "./utils/retry-after.ts";
 
 import { anthropicMessagesApi } from "./api/anthropic-messages.lazy.ts";
 import { azureOpenAIResponsesApi } from "./api/azure-openai-responses.lazy.ts";
