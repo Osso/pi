@@ -604,10 +604,10 @@ function formatResetResponse(response: ConsumeResetCreditResponse): string {
 const DEEPSEEK_POOL_PROVIDERS = [
 	"opencode-go",
 	"commandcode",
+	"open-grove",
 	"deepseek",
 	"openrouter",
 	"openrouter-gc",
-	"open-grove",
 ] as const;
 
 const OPENCODE_GO_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
