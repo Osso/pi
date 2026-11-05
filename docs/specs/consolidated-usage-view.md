@@ -11,6 +11,7 @@ model. It is a report, not an account-switching or quota-fallback operation. See
 ### Command and delivery
 
 - [x] Accept `/usage all` regardless of the current model and include `all` in command completions.
+- [x] Accept `/usage deepseek` regardless of the current model and include `deepseek` in command completions.
 - [x] Leave `/usage` and `/usage reset` behavior unchanged, except that a Codex window without
       `used_percent` is omitted instead of shown as 0% (shared window mapping).
 - [x] Read Codex and Claude usage concurrently and publish one custom message of type `usage-all`;
@@ -37,6 +38,22 @@ model. It is a report, not an account-switching or quota-fallback operation. See
 - [x] Keep provider identities distinct in the report without claiming separate quotas: the same
       email may authenticate multiple providers, and provider IDs alone do not prove quota independence.
 
+### DeepSeek pool providers
+
+- [x] Read each provider's own usage API: `opencode-go` (`/v1/usage` rolling, weekly, monthly),
+      `open-grove` (`/v1/usage` daily, weekly), `openrouter` and `openrouter-gc` (`/api/v1/key` weekly
+      limit plus `/api/v1/credits` remaining credits), and the official `deepseek` account
+      (`/user/balance`).
+- [x] Show `commandcode` as `not reported`: it exposes no usage endpoint, and its CLI-only `/usage`
+      is not scraped.
+- [x] Order columns day %, week %, month %, balance/remaining credits, provider, then US Central
+      resets (`day | week | month`) or the row's status.
+- [x] Show `-` for windows a provider does not report and never render a missing value as 0%.
+- [x] Show `not logged in` when no credential is stored for the provider, and keep per-provider
+      failures as error rows without losing other providers' results.
+- [x] Publish one custom message of type `usage-deepseek` and leave `/usage`, `/usage all`, and
+      `/usage reset` unchanged.
+
 ### Claude accounts
 
 - [x] Request Claude accounts through `claude-bridge:usage-all-request` with payload
@@ -54,13 +71,15 @@ model. It is a report, not an account-switching or quota-fallback operation. See
 ## Implementation inventory
 
 - `packages/coding-agent/extensions/codex-usage/src/index.ts` — registers the command, collects
-  provider/account usage, and renders the consolidated report.
+  provider/account usage, and renders the consolidated report and the DeepSeek pool report.
 - `packages/coding-agent/src/core/codex-quota-fallback.ts` — defines the Codex provider keys used
   to enumerate report rows; the Supervisor also uses this provider map.
 
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/codex-usage-extension.test.ts` — consolidated report behavior.
+- `packages/coding-agent/test/deepseek-usage.test.ts` — DeepSeek payload mapping, table formatting,
+  and `/usage deepseek` routing, auth, and error rows.
 - `packages/coding-agent/test/codex-usage-routing.test.ts` — command routing, mixed-provider rows,
   weekly-only Codex payload, and existing usage behavior.
 - `packages/coding-agent/test/suite/regressions/interactive-usage-all.test.ts` — real TUI process,

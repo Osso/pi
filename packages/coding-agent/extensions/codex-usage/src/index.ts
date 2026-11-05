@@ -141,7 +141,7 @@ export default function codexUsageExtension(pi: ExtensionAPI) {
 	pi.registerCommand("usage", {
 		description: "Show Codex or Claude usage, all accounts, or reset Codex usage",
 		getArgumentCompletions: (prefix) => {
-			const options = ["all", "reset"];
+			const options = ["all", "deepseek", "reset"];
 			const matches = options.filter((option) => option.startsWith(prefix));
 			return matches.length > 0 ? matches.map((value) => ({ value, label: value })) : null;
 		},
@@ -149,6 +149,10 @@ export default function codexUsageExtension(pi: ExtensionAPI) {
 			const commandArgs = args.trim();
 			if (commandArgs === "all") {
 				await handleUsageAll(ctx, pi);
+				return;
+			}
+			if (commandArgs === "deepseek") {
+				await handleUsageDeepseek(ctx, pi);
 				return;
 			}
 			if (ctx.model?.provider === "claude-bridge") {
@@ -160,7 +164,7 @@ export default function codexUsageExtension(pi: ExtensionAPI) {
 				return;
 			}
 			if (commandArgs.length > 0) {
-				ctx.ui.notify("Usage: /usage [all|reset]", "warning");
+				ctx.ui.notify("Usage: /usage [all|deepseek|reset]", "warning");
 				return;
 			}
 			await handleUsageRead(ctx, pi);
@@ -595,4 +599,189 @@ function formatResetResponse(response: ConsumeResetCreditResponse): string {
 		default:
 			return "Reset credit response received.";
 	}
+}
+
+const DEEPSEEK_POOL_PROVIDERS = [
+	"opencode-go",
+	"commandcode",
+	"deepseek",
+	"openrouter",
+	"openrouter-gc",
+	"open-grove",
+] as const;
+
+const OPENCODE_GO_USAGE_URL = "https://opencode.ai/zen/go/v1/usage";
+const OPEN_GROVE_USAGE_URL = "https://api.pgsgrove.com/v1/usage";
+const OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key";
+const OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits";
+const DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance";
+
+export interface DeepseekWindow {
+	percent: number;
+	/** Epoch seconds. */
+	resetsAt: number | null;
+}
+
+export interface DeepseekRow {
+	provider: string;
+	day: DeepseekWindow | null;
+	week: DeepseekWindow | null;
+	month: DeepseekWindow | null;
+	/** Remaining credits or balance, as display text. */
+	balance: string | null;
+	status?: string;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+	return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+}
+
+function readFiniteNumber(value: unknown): number | null {
+	return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readIsoEpochSeconds(value: unknown): number | null {
+	if (typeof value !== "string") return null;
+	const parsed = Date.parse(value);
+	return Number.isFinite(parsed) ? Math.round(parsed / 1000) : null;
+}
+
+function deepseekWindow(percent: unknown, resetsAt: number | null): DeepseekWindow | null {
+	const value = readFiniteNumber(percent);
+	return value === null ? null : { percent: value, resetsAt };
+}
+
+function percentWindow(source: unknown): DeepseekWindow | null {
+	const record = asRecord(source);
+	return record ? deepseekWindow(record.percent, readIsoEpochSeconds(record.resetsAt)) : null;
+}
+
+function formatUsd(value: number): string {
+	return `$${value.toFixed(2)}`;
+}
+
+export function mapOpencodeGoUsage(payload: unknown): Pick<DeepseekRow, "day" | "week" | "month"> {
+	const usage = asRecord(asRecord(payload)?.usage);
+	return {
+		day: percentWindow(usage?.rolling),
+		week: percentWindow(usage?.weekly),
+		month: percentWindow(usage?.monthly),
+	};
+}
+
+export function mapOpenGroveUsage(payload: unknown): Pick<DeepseekRow, "day" | "week" | "month"> {
+	const record = asRecord(payload);
+	return {
+		day: deepseekWindow(record?.daily_used_percent, readIsoEpochSeconds(record?.daily_resets_at)),
+		week: deepseekWindow(record?.weekly_used_percent, readIsoEpochSeconds(record?.weekly_resets_at)),
+		month: null,
+	};
+}
+
+export function mapOpenRouterUsage(
+	keyPayload: unknown,
+	creditsPayload: unknown,
+): Pick<DeepseekRow, "week" | "balance"> {
+	const key = asRecord(asRecord(keyPayload)?.data);
+	const limit = readFiniteNumber(key?.limit);
+	const remaining = readFiniteNumber(key?.limit_remaining);
+	const week = limit !== null && limit > 0 && remaining !== null
+		? deepseekWindow(((limit - remaining) / limit) * 100, null)
+		: null;
+	const credits = asRecord(asRecord(creditsPayload)?.data);
+	const total = readFiniteNumber(credits?.total_credits);
+	const used = readFiniteNumber(credits?.total_usage);
+	return { week, balance: total !== null && used !== null ? formatUsd(total - used) : null };
+}
+
+export function mapDeepseekBalance(payload: unknown): Pick<DeepseekRow, "balance"> {
+	const infos = asRecord(payload)?.balance_infos;
+	if (!Array.isArray(infos)) return { balance: null };
+	const usd = infos.map(asRecord).find((info) => info?.currency === "USD");
+	const total = typeof usd?.total_balance === "string" ? Number.parseFloat(usd.total_balance) : Number.NaN;
+	return { balance: Number.isFinite(total) ? formatUsd(total) : null };
+}
+
+export function formatDeepseekUsage(rows: DeepseekRow[]): string {
+	const balanceWidth = Math.max("Balance".length, ...rows.map((row) => (row.balance ?? MISSING).length));
+	const providerWidth = Math.max("Provider".length, ...rows.map((row) => row.provider.length));
+	const lines = [formatDeepseekColumns(["Day", "Week", "Month", "Balance", "Provider", "Resets Central (day | week | month)"], balanceWidth, providerWidth)];
+	for (const row of rows) {
+		const resets = `${formatUsageReset(row.day)} | ${formatUsageReset(row.week)} | ${formatUsageReset(row.month)}`;
+		lines.push(
+			formatDeepseekColumns(
+				[
+					formatUsagePercent(row.day),
+					formatUsagePercent(row.week),
+					formatUsagePercent(row.month),
+					row.balance ?? MISSING,
+					row.provider,
+					row.status ?? resets,
+				],
+				balanceWidth,
+				providerWidth,
+			),
+		);
+	}
+	return lines.join("\n");
+}
+
+function formatDeepseekColumns(cells: string[], balanceWidth: number, providerWidth: number): string {
+	const [day, week, month, balance, provider, details] = cells;
+	return [
+		day.padEnd(6),
+		week.padEnd(6),
+		month.padEnd(6),
+		balance.padEnd(balanceWidth),
+		provider.padEnd(providerWidth),
+		details,
+	]
+		.join("  ")
+		.trimEnd();
+}
+
+async function fetchUsageJson(url: string, apiKey: string, label: string): Promise<unknown> {
+	const response = await fetch(url, { headers: { authorization: `Bearer ${apiKey}` } });
+	const text = await response.text();
+	if (!response.ok) throw new Error(`${label} usage request failed (${response.status}): ${text || response.statusText}`);
+	return text ? (JSON.parse(text) as unknown) : {};
+}
+
+async function readOpenRouterUsage(apiKey: string): Promise<Pick<DeepseekRow, "week" | "balance">> {
+	const [keyPayload, creditsPayload] = await Promise.all([
+		fetchUsageJson(OPENROUTER_KEY_URL, apiKey, "OpenRouter"),
+		fetchUsageJson(OPENROUTER_CREDITS_URL, apiKey, "OpenRouter"),
+	]);
+	return mapOpenRouterUsage(keyPayload, creditsPayload);
+}
+
+const DEEPSEEK_USAGE_READERS: Record<string, (apiKey: string) => Promise<Partial<DeepseekRow>>> = {
+	"opencode-go": async (apiKey) =>
+		mapOpencodeGoUsage(await fetchUsageJson(OPENCODE_GO_USAGE_URL, apiKey, "OpenCode Go")),
+	"open-grove": async (apiKey) => mapOpenGroveUsage(await fetchUsageJson(OPEN_GROVE_USAGE_URL, apiKey, "Open Grove")),
+	openrouter: readOpenRouterUsage,
+	"openrouter-gc": readOpenRouterUsage,
+	deepseek: async (apiKey) => mapDeepseekBalance(await fetchUsageJson(DEEPSEEK_BALANCE_URL, apiKey, "DeepSeek")),
+};
+
+async function readDeepseekRow(ctx: ExtensionCommandContext, providerId: string): Promise<DeepseekRow> {
+	const row: DeepseekRow = { provider: providerId, day: null, week: null, month: null, balance: null };
+	const reader = DEEPSEEK_USAGE_READERS[providerId];
+	if (!reader) return { ...row, status: "not reported" };
+	if (!ctx.modelRegistry.authStorage.has(providerId)) return { ...row, status: "not logged in" };
+	try {
+		const apiKey = await ctx.modelRegistry.authStorage.getApiKey(providerId, { includeFallback: false });
+		if (!apiKey) return { ...row, status: "not logged in" };
+		return { ...row, ...(await reader(apiKey)) };
+	} catch (error) {
+		return { ...row, status: `error: ${formatUsageError(error)}` };
+	}
+}
+
+async function handleUsageDeepseek(ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
+	const rows = await Promise.all(DEEPSEEK_POOL_PROVIDERS.map((providerId) => readDeepseekRow(ctx, providerId)));
+	const title = `DeepSeek pool usage; ${MISSING} = not reported`;
+	const table = formatDeepseekUsage(rows);
+	const content = `${title}\n\n\`\`\`\n${table}\n\`\`\``;
+	sendCodexUsageReport(ctx, pi, content, "usage-deepseek", `${title}\n${table}`);
 }

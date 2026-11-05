@@ -609,7 +609,7 @@ describe("registered /usage busy delivery", () => {
 		h.events.on("claude-bridge:usage-request", (request) => bridgeRequests.push(request));
 		await h.command.handler(" unknown ", h.ctx);
 		expect(bridgeRequests).toEqual([]);
-		expect(h.notify).toHaveBeenCalledExactlyOnceWith("Usage: /usage [all|reset]", "warning");
+		expect(h.notify).toHaveBeenCalledExactlyOnceWith("Usage: /usage [all|deepseek|reset]", "warning");
 		expect(h.getApiKey).not.toHaveBeenCalled();
 		expect(h.fetch).not.toHaveBeenCalled();
 		expect(h.confirm).not.toHaveBeenCalled();
