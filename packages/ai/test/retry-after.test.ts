@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { stream as streamOpenAIResponses } from "../src/api/openai-responses.ts";
 import type { AssistantMessage, AssistantMessageEvent, Context, Model } from "../src/types.ts";
-import { getErrorRetryAfterMs, getRetryAfterMs } from "../src/utils/retry-after.ts";
+import { getErrorRetryAfterMs, getRetryAfterMs, getRetryAfterMsFromText } from "../src/utils/retry-after.ts";
 
 const openAIError = {
 	status: 429,
@@ -77,6 +77,20 @@ describe("retry-after parsing", () => {
 	it("reads retry-after from an SDK error", () => {
 		expect(getErrorRetryAfterMs(openAIError)).toBe(520_526_000);
 		expect(getErrorRetryAfterMs(new Error("plain error"))).toBeUndefined();
+	});
+
+	it("parses a provider-stated delay from error text", () => {
+		expect(getRetryAfterMsFromText("Rate limit reached. Please try again in 142h36m11.52s.")).toBe(
+			142 * 3_600_000 + 36 * 60_000 + 11_520,
+		);
+		expect(getRetryAfterMsFromText("Rate limit reached. Please try again in 15.11s.")).toBe(15_110);
+		expect(getRetryAfterMsFromText("no delay here")).toBeUndefined();
+		expect(getRetryAfterMsFromText(undefined)).toBeUndefined();
+	});
+
+	it("falls back to error text when the response carried no retry-after header", () => {
+		const error = new Error("Error Code tokens: Rate limit reached. Please try again in 2m4s.");
+		expect(getErrorRetryAfterMs(error)).toBe(124_000);
 	});
 });
 

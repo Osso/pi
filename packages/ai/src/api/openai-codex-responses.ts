@@ -45,7 +45,12 @@ import { formatProviderError, normalizeProviderError } from "../utils/error-body
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { resolveHttpProxyUrlForTarget } from "../utils/node-http-proxy.ts";
-import { DEFAULT_MAX_RETRY_DELAY_MS, getRetryAfterMs } from "../utils/retry-after.ts";
+import {
+	DEFAULT_MAX_RETRY_DELAY_MS,
+	getErrorRetryAfterMs,
+	getRetryAfterMs,
+	getRetryAfterMsFromText,
+} from "../utils/retry-after.ts";
 import { CodexDiagnosticObserver } from "./openai-codex-diagnostics.ts";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.ts";
@@ -454,7 +459,8 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			}
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
 			output.errorMessage = formatProviderError(normalizeProviderError(error));
-			output.retryAfterMs = failureRetryAfterMs;
+			output.retryAfterMs =
+				failureRetryAfterMs ?? getErrorRetryAfterMs(error) ?? getRetryAfterMsFromText(output.errorMessage);
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();
 		}
