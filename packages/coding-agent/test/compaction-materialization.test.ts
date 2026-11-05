@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	type CompactionPreparation,
 	compact,
+	DEFAULT_COMPACTION_SETTINGS,
 	generateBranchSummary,
 	materializeCompactionSummary,
 } from "../src/core/compaction/index.ts";
@@ -106,6 +107,7 @@ describe("materializeCompactionSummary", () => {
 			reserveTokens: 16_384,
 			apiKey: "test-key",
 			streamFn,
+			sessionId: "session-abc",
 		});
 
 		expect(result).toEqual({
@@ -124,6 +126,47 @@ describe("materializeCompactionSummary", () => {
 		expect(getText(instruction)).toContain("complete plaintext continuation summary");
 		expect(getText(instruction)).toContain("Return only the summary text");
 		expect(capturedOptions?.cacheRetention).toBe("none");
+		expect(capturedOptions?.sessionId).toBe("session-abc");
+	});
+
+	it("forwards the session id to compaction summarization", async () => {
+		const model = getModel("openai-codex", "gpt-5.5");
+		if (!model) throw new Error("Expected OpenAI Codex test model");
+		let capturedOptions: SimpleStreamOptions | undefined;
+		const streamFn: StreamFn = (_model, _context, options) => {
+			capturedOptions = options;
+			const stream = new MockAssistantStream();
+			const response = createAssistantMessage(model, "## Goal\n\nContinue from the summary.");
+			queueMicrotask(() => {
+				stream.push({ type: "start", partial: response });
+				stream.push({ type: "done", reason: "stop", message: response });
+			});
+			return stream;
+		};
+		const preparation: CompactionPreparation = {
+			firstKeptEntryId: "message-1",
+			messagesToSummarize: [{ role: "user", content: "hello", timestamp: Date.now() }],
+			turnPrefixMessages: [],
+			isSplitTurn: false,
+			tokensBefore: 100,
+			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			settings: DEFAULT_COMPACTION_SETTINGS,
+		};
+
+		await compact(
+			preparation,
+			model,
+			"test-key",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			streamFn,
+			undefined,
+			"session-abc",
+		);
+
+		expect(capturedOptions?.sessionId).toBe("session-abc");
 	});
 
 	it("reports an aborted provider response without producing a summary", async () => {

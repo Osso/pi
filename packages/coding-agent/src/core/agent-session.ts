@@ -4465,6 +4465,7 @@ export class AgentSession {
 					this.thinkingLevel,
 					this.agent.streamFn,
 					env,
+					this.sessionManager.getSessionId(),
 				);
 				summary = result.summary;
 				firstKeptEntryId = result.firstKeptEntryId;
@@ -4655,6 +4656,7 @@ export class AgentSession {
 			cache.thinkingLevel,
 			this.agent.streamFn,
 			env,
+			this.sessionManager.getSessionId(),
 		);
 	}
 
@@ -5058,6 +5060,7 @@ export class AgentSession {
 					this.thinkingLevel,
 					this.agent.streamFn,
 					env,
+					this.sessionManager.getSessionId(),
 				);
 				summary = compactResult.summary;
 				firstKeptEntryId = compactResult.firstKeptEntryId;
@@ -5970,6 +5973,7 @@ export class AgentSession {
 				reserveTokens: settings.reserveTokens,
 				signal: abortController.signal,
 				streamFn: this.agent.streamFn,
+				sessionId: this.sessionManager.getSessionId(),
 			});
 		} finally {
 			this._compactionSummaryMaterializationAbortController = undefined;
@@ -6088,6 +6092,7 @@ export class AgentSession {
 					replaceInstructions,
 					reserveTokens: branchSummarySettings.reserveTokens,
 					streamFn: this.agent.streamFn,
+					sessionId: this.sessionManager.getSessionId(),
 				});
 				if (result.aborted) {
 					return { cancelled: true, aborted: true };

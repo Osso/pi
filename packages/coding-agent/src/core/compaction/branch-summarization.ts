@@ -71,6 +71,8 @@ export interface GenerateBranchSummaryOptions {
 	headers?: Record<string, string>;
 	/** Provider-scoped environment values for the model */
 	env?: Record<string, string>;
+	/** Session identity for provider session-affinity headers */
+	sessionId?: string;
 	/** Abort signal for cancellation */
 	signal: AbortSignal;
 	/** Optional custom instructions for summarization */
@@ -295,6 +297,7 @@ export async function generateBranchSummary(
 		apiKey,
 		headers,
 		env,
+		sessionId,
 		signal,
 		customInstructions,
 		replaceInstructions,
@@ -344,6 +347,7 @@ export async function generateBranchSummary(
 		apiKey,
 		headers,
 		env,
+		sessionId,
 		signal,
 		maxTokens: 2048,
 		cacheRetention: "none",

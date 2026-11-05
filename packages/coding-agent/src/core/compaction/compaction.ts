@@ -630,8 +630,9 @@ function createSummarizationOptions(
 	headers: Record<string, string> | undefined,
 	env: Record<string, string> | undefined,
 	signal: AbortSignal | undefined,
+	sessionId: string | undefined,
 ): SimpleStreamOptions {
-	return { maxTokens, signal, apiKey, headers, env };
+	return { maxTokens, signal, apiKey, headers, env, sessionId };
 }
 
 async function completeSummarization(
@@ -677,6 +678,7 @@ export interface MaterializeCompactionSummaryOptions {
 	env?: Record<string, string>;
 	signal?: AbortSignal;
 	streamFn?: StreamFn;
+	sessionId?: string;
 }
 
 function getSummarizationMaxTokens(model: Model<Api>, reserveTokens: number): number {
@@ -731,6 +733,7 @@ export async function materializeCompactionSummary(
 			options.headers,
 			options.env,
 			options.signal,
+			options.sessionId,
 		),
 		options.streamFn,
 	);
@@ -753,6 +756,7 @@ export async function generateSummary(
 	_thinkingLevel?: ThinkingLevel,
 	streamFn?: StreamFn,
 	env?: Record<string, string>,
+	sessionId?: string,
 ): Promise<string> {
 	const maxTokens = getSummarizationMaxTokens(model, reserveTokens);
 
@@ -781,7 +785,7 @@ export async function generateSummary(
 		},
 	];
 
-	const completionOptions = createSummarizationOptions(maxTokens, apiKey, headers, env, signal);
+	const completionOptions = createSummarizationOptions(maxTokens, apiKey, headers, env, signal, sessionId);
 
 	const response = await completeSummarization(
 		model,
@@ -932,6 +936,7 @@ export async function compact(
 	thinkingLevel?: ThinkingLevel,
 	streamFn?: StreamFn,
 	env?: Record<string, string>,
+	sessionId?: string,
 ): Promise<CompactionResult> {
 	const startedAt = Date.now();
 	const {
@@ -963,6 +968,7 @@ export async function compact(
 						thinkingLevel,
 						streamFn,
 						env,
+						sessionId,
 					)
 				: "No prior history.";
 		const turnPrefixResult = await generateTurnPrefixSummary(
@@ -976,6 +982,7 @@ export async function compact(
 			signal,
 			thinkingLevel,
 			streamFn,
+			sessionId,
 		);
 		// Merge into single summary
 		summary = `${historyResult}\n\n---\n\n**Turn Context (split turn):**\n\n${turnPrefixResult}`;
@@ -993,6 +1000,7 @@ export async function compact(
 			thinkingLevel,
 			streamFn,
 			env,
+			sessionId,
 		);
 	}
 
@@ -1028,6 +1036,7 @@ async function generateTurnPrefixSummary(
 	signal?: AbortSignal,
 	_thinkingLevel?: ThinkingLevel,
 	streamFn?: StreamFn,
+	sessionId?: string,
 ): Promise<string> {
 	const maxTokens = Math.min(
 		Math.floor(0.5 * reserveTokens),
@@ -1048,7 +1057,7 @@ async function generateTurnPrefixSummary(
 	const response = await completeSummarization(
 		model,
 		{ systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: summarizationMessages },
-		createSummarizationOptions(maxTokens, apiKey, headers, env, signal),
+		createSummarizationOptions(maxTokens, apiKey, headers, env, signal, sessionId),
 		streamFn,
 	);
 
