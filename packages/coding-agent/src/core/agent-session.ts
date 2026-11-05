@@ -74,6 +74,7 @@ import {
 	prepareCompaction,
 	shouldCompact,
 } from "./compaction/index.ts";
+import { compactionRetryCooldownMs, MAX_CONSECUTIVE_COMPACTION_FAILURES } from "./compaction-retry.ts";
 import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import { sendDesktopNotification } from "./desktop-notification.ts";
 import { createDetachedJobLifecycleController } from "./detached-job-lifecycle.ts";
@@ -875,6 +876,8 @@ export class AgentSession {
 	// Compaction state
 	private _compactionAbortController: AbortController | undefined = undefined;
 	private _autoCompactionAbortController: AbortController | undefined = undefined;
+	private _compactionCooldownUntil = 0;
+	private _compactionFailureCount = 0;
 	private _backgroundCompactionCache: BackgroundCompactionCache | undefined = undefined;
 	private _compactionSummaryMaterializationAbortController: AbortController | undefined = undefined;
 	private _overflowRecoveryAttempted = false;
@@ -4166,6 +4169,7 @@ export class AgentSession {
 		}
 
 		this._publishChildAgentModel(model, clampThinkingLevel(model, thinkingLevel) as ThinkingLevel);
+		this._clearCompactionFailure();
 		const previousModel = this.model;
 		this.agent.state.model = model;
 		this.sessionManager.setSessionModel(model.provider, model.id);
@@ -4539,10 +4543,14 @@ export class AgentSession {
 				aborted: false,
 				willRetry,
 			});
+			this._clearCompactionFailure();
 			saved = { result: compactionResult, willRetry };
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
 			const aborted = message === "Compaction cancelled" || (error instanceof Error && error.name === "AbortError");
+			if (!aborted) {
+				this._recordCompactionFailure(message);
+			}
 			this._emit({
 				type: "compaction_end",
 				reason: "manual",
@@ -4697,6 +4705,7 @@ export class AgentSession {
 		} catch (error) {
 			if (cache.abortController.signal.aborted) return;
 			cache.state = "failed";
+			this._recordCompactionFailure(errorMessage(error));
 			console.error(`Background compaction cache generation failed: ${errorMessage(error)}`);
 		} finally {
 			await cache.extensionRunner.emit({ type: "background_compaction_end" });
@@ -4724,6 +4733,7 @@ export class AgentSession {
 	}
 
 	private _startBackgroundCompaction(contextTokens: number, contextWindow: number): void {
+		if (Date.now() < this._compactionCooldownUntil) return;
 		if (contextWindow <= 0 || contextTokens < contextWindow * BACKGROUND_COMPACTION_CONTEXT_RATIO) return;
 		if (this._backgroundCompactionCache || this._autoCompactionAbortController || this._compactionAbortController) {
 			return;
@@ -4928,12 +4938,30 @@ export class AgentSession {
 	/**
 	 * Internal: Run auto-compaction with events.
 	 */
+	private _recordCompactionFailure(message: string): void {
+		const cooldownMs = compactionRetryCooldownMs(message);
+		if (cooldownMs === undefined) return;
+		this._compactionFailureCount++;
+		this._compactionCooldownUntil =
+			this._compactionFailureCount >= MAX_CONSECUTIVE_COMPACTION_FAILURES
+				? Number.POSITIVE_INFINITY
+				: Date.now() + cooldownMs;
+	}
+
+	private _clearCompactionFailure(): void {
+		this._compactionFailureCount = 0;
+		this._compactionCooldownUntil = 0;
+	}
+
 	private async _runAutoCompaction(
 		reason: "overflow" | "threshold" | "idle",
 		willRetry: boolean,
 		continueAfterCompaction = willRetry,
 	): Promise<boolean> {
 		const settings = this.settingsManager.getCompactionSettings();
+		if (Date.now() < this._compactionCooldownUntil) {
+			return false;
+		}
 		let started = false;
 		let autoCompactionAbortController: AbortController | undefined;
 
@@ -5092,6 +5120,7 @@ export class AgentSession {
 				durationMs,
 				providerNative,
 			);
+			this._clearCompactionFailure();
 			const newEntries = this.sessionManager.getEntries();
 			const sessionContext = this.sessionManager.buildSessionContext();
 			this.agent.state.messages = sessionContext.messages;
@@ -5152,6 +5181,7 @@ export class AgentSession {
 			return this.agent.hasQueuedMessages();
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : "compaction failed";
+			this._recordCompactionFailure(errorMessage);
 			if (started) {
 				this._emit({
 					type: "compaction_end",

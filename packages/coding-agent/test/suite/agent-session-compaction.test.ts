@@ -823,6 +823,44 @@ describe("AgentSession compaction characterization", () => {
 		);
 	});
 
+	it("caps repeated rate-limited automatic compaction instead of spinning", async () => {
+		const harness = await createHarness({
+			settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens: 5_000 } },
+		});
+		harnesses.push(harness);
+		seedCompactableSession(harness);
+		const sessionInternals = harness.session as unknown as SessionWithCompactionInternals;
+		const compactionErrors: string[] = [];
+		harness.session.subscribe((event) => {
+			if (event.type === "compaction_end" && event.errorMessage) {
+				compactionErrors.push(event.errorMessage);
+			}
+		});
+		let summaryRequests = 0;
+		harness.session.agent.streamFn = () => {
+			summaryRequests++;
+			throw new Error("Summarization failed: 429 Too Many Requests");
+		};
+		let now = Date.now();
+		const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+
+		try {
+			for (let attempt = 0; attempt < 3; attempt++) {
+				await expect(sessionInternals._runAutoCompaction("threshold", false)).resolves.toBe(false);
+				now += 61_000;
+			}
+			// The third failure disables automatic compaction until the model changes.
+			now += 3_600_000;
+			await expect(sessionInternals._runAutoCompaction("threshold", false)).resolves.toBe(false);
+		} finally {
+			nowSpy.mockRestore();
+		}
+
+		expect(summaryRequests).toBe(3);
+		expect(compactionErrors).toHaveLength(3);
+		expect(compactionErrors.at(-1)).toContain("429 Too Many Requests");
+	});
+
 	it("compacts and retries request-buffer overflow without ordinary auto-retry", async () => {
 		let compactionCalls = 0;
 		let retryContextChecked = false;
