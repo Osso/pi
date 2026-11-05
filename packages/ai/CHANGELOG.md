@@ -14,6 +14,7 @@
 
 ### Fixed
 
+- Fixed OpenAI, OpenAI-compatible, and OpenAI Codex provider failures dropping the response `Retry-After` delay. The failed assistant message now records it as `retryAfterMs` so the agent-level retry policy can stop instead of retrying before the provider's reset time.
 - Fixed mid-stream provider errors (an SSE `error` chunk after 200 OK, e.g. OpenRouter) losing their error code: `errorMessage` now carries the SDK message followed by the parsed body (`ERROR: {"message":"ERROR","code":502,...}`) instead of only `ERROR`, so transient upstream failures are retried.
 - Fixed OpenAI per-minute token/request 429s (`rate_limit_exceeded`) being classified as non-retryable because their text links to `platform.openai.com/account/billing`.
 

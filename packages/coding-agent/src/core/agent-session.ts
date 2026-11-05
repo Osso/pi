@@ -5703,7 +5703,16 @@ export class AgentSession {
 	private _isRetryableError(message: AssistantMessage): boolean {
 		// Context overflow is handled by compaction, not retry.
 		if (isContextOverflow(message, this.model?.contextWindow ?? 0)) return false;
+		// Retrying sooner than the provider requested repeats the same failure.
+		if (this._retryDelayExceedsCap(message)) return false;
 		return isRetryableAssistantError(message);
+	}
+
+	/** Whether the provider asked to wait longer than the configured retry delay cap. */
+	private _retryDelayExceedsCap(message: AssistantMessage): boolean {
+		if (message.retryAfterMs === undefined) return false;
+		const { maxRetryDelayMs } = this.settingsManager.getProviderRetrySettings();
+		return maxRetryDelayMs > 0 && message.retryAfterMs > maxRetryDelayMs;
 	}
 
 	/**

@@ -77,10 +77,17 @@ describe("AgentSession retry", () => {
 		}
 	});
 
-	function createSession(options?: { failCount?: number; maxRetries?: number; delayAssistantMessageEndMs?: number }) {
+	function createSession(options?: {
+		failCount?: number;
+		maxRetries?: number;
+		delayAssistantMessageEndMs?: number;
+		retryAfterMs?: number;
+		providerMaxRetryDelayMs?: number;
+	}) {
 		const failCount = options?.failCount ?? 1;
 		const maxRetries = options?.maxRetries ?? 3;
 		const delayAssistantMessageEndMs = options?.delayAssistantMessageEndMs ?? 0;
+		const retryAfterMs = options?.retryAfterMs;
 		let callCount = 0;
 
 		const model = getModel("anthropic", "claude-sonnet-4-5")!;
@@ -95,6 +102,7 @@ describe("AgentSession retry", () => {
 						const msg = createAssistantMessage("", {
 							stopReason: "error",
 							errorMessage: "overloaded_error",
+							retryAfterMs,
 						});
 						stream.push({ type: "start", partial: msg });
 						stream.push({ type: "error", reason: "error", error: msg });
@@ -113,7 +121,16 @@ describe("AgentSession retry", () => {
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
 		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
 		authStorage.setRuntimeApiKey("anthropic", "test-key");
-		settingsManager.applyOverrides({ retry: { enabled: true, maxRetries, baseDelayMs: 1 } });
+		settingsManager.applyOverrides({
+			retry: {
+				enabled: true,
+				maxRetries,
+				baseDelayMs: 1,
+				...(options?.providerMaxRetryDelayMs === undefined
+					? {}
+					: { provider: { maxRetryDelayMs: options.providerMaxRetryDelayMs } }),
+			},
+		});
 
 		session = new AgentSession({
 			agent,
@@ -177,6 +194,36 @@ describe("AgentSession retry", () => {
 
 		expect(created.getCallCount()).toBe(2);
 		expect(created.session.isRetrying).toBe(false);
+	});
+
+	it("does not retry when the provider requests a longer delay than the cap", async () => {
+		const created = createSession({
+			failCount: 99,
+			retryAfterMs: 520_526_000,
+			providerMaxRetryDelayMs: 60_000,
+		});
+		const events: string[] = [];
+		created.session.subscribe((event) => {
+			if (event.type === "auto_retry_start") events.push(`start:${event.attempt}`);
+		});
+
+		await created.session.prompt("Test");
+
+		expect(created.getCallCount()).toBe(1);
+		expect(events).toEqual([]);
+		expect(created.session.isRetrying).toBe(false);
+	});
+
+	it("retries when the provider-requested delay fits within the cap", async () => {
+		const created = createSession({
+			failCount: 1,
+			retryAfterMs: 5_000,
+			providerMaxRetryDelayMs: 60_000,
+		});
+
+		await created.session.prompt("Test");
+
+		expect(created.getCallCount()).toBe(2);
 	});
 
 	it("retries provider network_error failures", async () => {

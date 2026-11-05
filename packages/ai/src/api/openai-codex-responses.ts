@@ -45,6 +45,7 @@ import { formatProviderError, normalizeProviderError } from "../utils/error-body
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { resolveHttpProxyUrlForTarget } from "../utils/node-http-proxy.ts";
+import { getRetryAfterMs } from "../utils/retry-after.ts";
 import { CodexDiagnosticObserver } from "./openai-codex-diagnostics.ts";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.ts";
@@ -135,33 +136,6 @@ function isRetryableError(status: number, errorText: string): boolean {
 		return true;
 	}
 	return /rate.?limit|overloaded|service.?unavailable|upstream.?connect|connection.?refused/i.test(errorText);
-}
-
-function getRetryAfterDelayMs(headers: Headers): number | undefined {
-	const retryAfterMs = headers.get("retry-after-ms");
-	if (retryAfterMs !== null) {
-		const millis = Number(retryAfterMs);
-		if (Number.isFinite(millis)) {
-			return Math.max(0, millis);
-		}
-	}
-
-	const retryAfter = headers.get("retry-after");
-	if (!retryAfter) {
-		return undefined;
-	}
-
-	const seconds = Number(retryAfter);
-	if (Number.isFinite(seconds)) {
-		return Math.max(0, seconds * 1000);
-	}
-
-	const date = Date.parse(retryAfter);
-	if (!Number.isNaN(date)) {
-		return Math.max(0, date - Date.now());
-	}
-
-	return undefined;
 }
 
 function capRetryDelayMs(delayMs: number, options?: StreamOptions): number {
@@ -256,6 +230,8 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			stopReason: "stop",
 			timestamp: Date.now(),
 		};
+
+		let failureRetryAfterMs: number | undefined;
 
 		try {
 			const apiKey = options?.apiKey;
@@ -385,7 +361,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 					} finally {
 						combinedSignal.cleanup();
 					}
-					diagnostic?.receiveResponse(response, getRetryAfterDelayMs(response.headers));
+					diagnostic?.receiveResponse(response, getRetryAfterMs(response.headers));
 					await options?.onResponse?.(
 						{ status: response.status, headers: headersToRecord(response.headers) },
 						model,
@@ -398,7 +374,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 					const errorText = await response.text();
 					diagnostic?.failHttp(errorText);
 					if (attempt < maxRetries && isRetryableError(response.status, errorText)) {
-						const retryAfterDelayMs = getRetryAfterDelayMs(response.headers);
+						const retryAfterDelayMs = getRetryAfterMs(response.headers);
 						const delayMs =
 							retryAfterDelayMs === undefined
 								? BASE_DELAY_MS * 2 ** attempt
@@ -420,6 +396,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 					}
 
 					// Parse error for friendly message on final attempt or non-retryable error
+					failureRetryAfterMs = getRetryAfterMs(response.headers);
 					const fakeResponse = new Response(errorText, {
 						status: response.status,
 						statusText: response.statusText,
@@ -478,6 +455,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			}
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
 			output.errorMessage = formatProviderError(normalizeProviderError(error));
+			output.retryAfterMs = failureRetryAfterMs;
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();
 		}

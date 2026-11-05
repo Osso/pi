@@ -177,9 +177,9 @@ Main and child Pi sessions share this agent-level policy through `AgentSession`.
 
 The five-minute cap limits each delay, not the 30 retries after the initial request or total wall-clock time. Provider request latency and any provider-level retry waits add to elapsed time. Existing custom `baseDelayMs` values now set the initial exponential base, not a fixed gap. Success resets the retry sequence; cancellation still stops the wait, and the interactive retry spinner continues into the resumed request.
 
-Provider `Retry-After` handling remains provider-level; agent errors contain no response headers, so this backoff does not consume or propagate those headers.
+Provider `Retry-After` handling is split across layers. Providers parse `retry-after-ms`/`retry-after` from a failed response and record the requested delay on the assistant message, while provider-internal retries may still wait within `retry.provider.maxRetryDelayMs`. The agent-level policy then stops instead of retrying when the recorded delay exceeds `retry.provider.maxRetryDelayMs`; earlier retries would only repeat the same failure. Retries with a delay inside the cap use the agent-level backoff above, which does not wait for the provider-requested delay itself.
 
-When a provider requests a retry delay longer than `retry.provider.maxRetryDelayMs` (e.g., Google's "quota will reset after 5h"), the request fails immediately with an informative error instead of waiting silently. Set to `0` to disable the cap.
+When a provider requests a retry delay longer than `retry.provider.maxRetryDelayMs` (e.g., an OpenAI token-per-minute 429 that resets in 144h, or Google's "quota will reset after 5h"), the turn ends after the first failure with the provider error instead of retrying silently. Set to `0` to disable the cap.
 
 Keep `retry.provider.maxRetries` at `0` unless provider-level retries are explicitly needed. Setting it above `0` can make SDK/provider retries handle out-of-usage-limit errors before Pi sees them, which may block the agent until the provider quota resets in some circumstances.
 

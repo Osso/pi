@@ -438,6 +438,8 @@ export interface AssistantMessage {
 	usage: Usage;
 	stopReason: StopReason;
 	errorMessage?: string;
+	/** Provider-requested delay before retrying, from the failed response headers. */
+	retryAfterMs?: number;
 	timestamp: number; // Unix timestamp in milliseconds
 }
 
