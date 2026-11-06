@@ -686,8 +686,9 @@ export function mapOpenRouterUsage(
 	const key = asRecord(asRecord(keyPayload)?.data);
 	const limit = readFiniteNumber(key?.limit);
 	const remaining = readFiniteNumber(key?.limit_remaining);
+	const resetsAt = readIsoEpochSeconds(asRecord(key?.effective_budget)?.resets_at);
 	const week = limit !== null && limit > 0 && remaining !== null
-		? deepseekWindow(((limit - remaining) / limit) * 100, null)
+		? deepseekWindow(((limit - remaining) / limit) * 100, resetsAt)
 		: null;
 	const credits = asRecord(asRecord(creditsPayload)?.data);
 	const total = readFiniteNumber(credits?.total_credits);

@@ -47,6 +47,8 @@ model. It is a report, not an account-switching or quota-fallback operation. See
       `/alpha/usage/summary` for the billing period, `/alpha/billing/subscriptions` for the period end).
 - [x] Show `commandcode` five-hour, weekly and monthly percentages with the monthly credit balance
       and US Central reset times; show `-` when a window or balance is not reported.
+- [x] Use each OpenRouter key's `effective_budget.resets_at` as its weekly reset time; show `-`
+      when the key does not report it.
 - [x] Order columns day %, week %, month %, balance/remaining credits, provider, then US Central
       resets (`day | week | month`) or the row's status.
 - [x] Show `-` for windows a provider does not report and never render a missing value as 0%.

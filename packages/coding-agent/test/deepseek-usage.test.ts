@@ -37,7 +37,15 @@ function openGrovePayload() {
 }
 
 function openRouterKeyPayload(limit: number, remaining: number) {
-	return { data: { label: "sk-or-v1-d5c", limit, limit_remaining: remaining, limit_reset: "weekly" } };
+	return {
+		data: {
+			label: "sk-or-v1-d5c",
+			limit,
+			limit_remaining: remaining,
+			limit_reset: "weekly",
+			effective_budget: { resets_at: "2026-11-09T00:00:00.000Z" },
+		},
+	};
 }
 
 function openRouterCreditsPayload(total: number, usage: number) {
@@ -150,7 +158,7 @@ describe("DeepSeek usage payload mapping", () => {
 			openRouterCreditsPayload(2100, 1923.314149318),
 		);
 		expect(usage.week?.percent).toBeCloseTo(0.001, 6);
-		expect(usage.week?.resetsAt).toBeNull();
+		expect(usage.week?.resetsAt).toBe(Math.round(Date.parse("2026-11-09T00:00:00.000Z") / 1000));
 		expect(usage.balance).toBe("$176.69");
 	});
 
@@ -159,6 +167,12 @@ describe("DeepSeek usage payload mapping", () => {
 			week: null,
 			balance: "$6.00",
 		});
+	});
+
+	it("leaves the OpenRouter reset unreported when the key omits it", () => {
+		expect(
+			mapOpenRouterUsage({ data: { limit: 100, limit_remaining: 50 } }, openRouterCreditsPayload(10, 4)),
+		).toEqual({ week: { percent: 50, resetsAt: null }, balance: "$6.00" });
 	});
 
 	it("reads the USD balance and reports nothing for malformed payloads", () => {
