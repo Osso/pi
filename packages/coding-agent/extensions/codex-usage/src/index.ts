@@ -721,7 +721,8 @@ export function mapCommandCodeUsage(
 		const cap = readFiniteNumber(record?.cap);
 		if (used === null || cap === null || cap <= 0) return null;
 		const resetMs = readFiniteNumber(record?.resetAt);
-		return { percent: (used / cap) * 100, resetsAt: resetMs === null ? null : Math.round(resetMs / 1000) };
+		const resetsAt = resetMs === null || resetMs <= 0 ? null : Math.round(resetMs / 1000);
+		return { percent: (used / cap) * 100, resetsAt };
 	};
 
 	const monthlyRemaining = readFiniteNumber(monthly?.monthlyCredits);

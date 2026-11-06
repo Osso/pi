@@ -49,6 +49,7 @@ model. It is a report, not an account-switching or quota-fallback operation. See
       and US Central reset times; show `-` when a window or balance is not reported.
 - [x] Use each OpenRouter key's `effective_budget.resets_at` as its weekly reset time; show `-`
       when the key does not report it.
+- [x] Treat a missing or zero reset timestamp as not reported and render `-`; never render epoch zero.
 - [x] Order columns day %, week %, month %, balance/remaining credits, provider, then US Central
       resets (`day | week | month`) or the row's status.
 - [x] Show `-` for windows a provider does not report and never render a missing value as 0%.

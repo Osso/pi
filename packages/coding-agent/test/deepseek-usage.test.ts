@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import codexUsageExtension, {
 	formatDeepseekUsage,
+	mapCommandCodeUsage,
 	mapDeepseekBalance,
 	mapOpencodeGoUsage,
 	mapOpenGroveUsage,
@@ -173,6 +174,26 @@ describe("DeepSeek usage payload mapping", () => {
 		expect(
 			mapOpenRouterUsage({ data: { limit: 100, limit_remaining: 50 } }, openRouterCreditsPayload(10, 4)),
 		).toEqual({ week: { percent: 50, resetsAt: null }, balance: "$6.00" });
+	});
+
+	it("leaves a Command Code window reset unreported when resetAt is zero", () => {
+		const usage = mapCommandCodeUsage(
+			{
+				credits: { monthlyCredits: 10 },
+				windowLimits: {
+					fiveHour: { used: 1, cap: 2, resetAt: 0 },
+					weekly: { used: 1, cap: 4, resetAt: 1_800_604_800_000 },
+				},
+			},
+			{ data: { currentPeriodEnd: "2026-12-04T21:58:11.000Z" } },
+			{ totalMonthlyCredits: 5 },
+		);
+		expect(usage).toEqual({
+			day: { percent: 50, resetsAt: null },
+			week: { percent: 25, resetsAt: 1_800_604_800 },
+			month: { percent: (5 / 15) * 100, resetsAt: Date.parse("2026-12-04T21:58:11.000Z") / 1000 },
+			balance: "$10.00",
+		});
 	});
 
 	it("reads the USD balance and reports nothing for malformed payloads", () => {
