@@ -24,6 +24,19 @@ current model. It is a report, not an account-switching or quota-fallback operat
       `usage-openai`; while a turn is running, show it as a notification and deliver it on the next turn.
 - [x] Publish `/usage all` as an account table followed by the DeepSeek pool table in the same message.
 
+### OpenAI API platform spend
+
+- [x] Include an `OpenAI API platform spend` table in `/usage openai` and `/usage all`, positioned after the
+      account table and before the DeepSeek table.
+- [x] List each configured provider whose base URL is `https://api.openai.com/v1` and that has a stored
+      credential, with its account email from `GET /v1/me`.
+- [x] Read USD spend today and month-to-date (UTC days) from `GET /v1/organization/costs`, summing the
+      daily buckets with a per-provider Admin key read from `<agent dir>/<providerId>-admin.key`.
+- [x] Make no costs request when that file is absent, and show the expected path as the row status.
+- [x] State in the section title that the prepaid credit balance is not exposed by the OpenAI API; never
+      invent or scrape a balance.
+- [x] Keep per-provider costs failures as error rows without losing other rows.
+
 ### Codex providers
 
 - [x] Include every provider keyed by `CODEX_FALLBACK_PROVIDERS`: `openai-codex`,

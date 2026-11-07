@@ -92,6 +92,7 @@ function registerUsage(options: { loggedIn?: (providerId: string) => boolean; fa
 				getApiKey,
 				get: () => null,
 			},
+			getAll: () => [],
 		},
 		ui: { notify: vi.fn(), confirm: vi.fn(async () => true) },
 	} as unknown as ExtensionCommandContext;

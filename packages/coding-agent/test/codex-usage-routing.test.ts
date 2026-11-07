@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import codexUsageExtension from "../extensions/codex-usage/src/index.ts";
 import { createEventBus } from "../src/core/event-bus.ts";
@@ -32,7 +35,13 @@ function registerUsage(provider: string) {
 	const ctx = {
 		isIdle,
 		model: { provider, api: "openai-codex-responses" },
-		modelRegistry: { authStorage: { getApiKey, get, has } },
+		modelRegistry: {
+			authStorage: { getApiKey, get, has },
+			getAll: () => [
+				{ provider: "openai", baseUrl: "https://api.openai.com/v1" },
+				{ provider: "openai-secondary", baseUrl: "https://api.openai.com/v1" },
+			],
+		},
 		ui: { notify, confirm },
 	} as unknown as ExtensionCommandContext;
 	const fetch = vi.fn<typeof globalThis.fetch>(async () => usageResponse(42, 3));
@@ -412,6 +421,107 @@ describe("registered /usage claude and openai scopes", () => {
 		);
 		expect(lines.join("\n")).not.toContain("Claude");
 		expect(claudeRequests).toEqual([]);
+	});
+});
+
+async function useTemporaryAgentDir(run: (agentDir: string) => Promise<void>): Promise<void> {
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-usage-platform-"));
+	process.env.PI_CODING_AGENT_DIR = agentDir;
+	try {
+		await run(agentDir);
+	} finally {
+		delete process.env.PI_CODING_AGENT_DIR;
+		rmSync(agentDir, { recursive: true, force: true });
+	}
+}
+
+describe("registered /usage openai platform spend", () => {
+	it("reports today and month-to-date spend from the admin key", async () => {
+		await useTemporaryAgentDir(async (agentDir) => {
+			const h = registerUsage("openai-codex");
+			h.has.mockImplementation((providerId) => providerId === "openai" || providerId.startsWith("openai-codex"));
+			writeFileSync(join(agentDir, "openai-admin.key"), "sk-admin-test\n");
+			const now = new Date();
+			const monthStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1) / 1000;
+			const todayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) / 1000;
+			const costUrls: string[] = [];
+			h.fetch.mockImplementation(async (input, options) => {
+				const url = String(input);
+				if (url === "https://api.openai.com/v1/me") return Response.json({ email: "api-owner@example.com" });
+				if (url.startsWith("https://api.openai.com/v1/organization/costs?")) {
+					costUrls.push(url);
+					expect(new Headers(options?.headers).get("authorization")).toBe("Bearer sk-admin-test");
+					return Response.json({
+						data: [
+							{ start_time: monthStart, results: [{ amount: { value: 2, currency: "usd" } }] },
+							{ start_time: todayStart, results: [{ amount: { value: 0.5, currency: "usd" } }] },
+						],
+					});
+				}
+				return allUsageResponse();
+			});
+
+			await h.command.handler("openai", h.ctx);
+
+			const parts = h.sendMessage.mock.calls[0][0].content.split("\n\n");
+			const platform = parts.findIndex((part: string) => part.includes("OpenAI API platform spend"));
+			expect(platform).toBeGreaterThan(0);
+			expect(parts[platform]).toContain("prepaid credit balance is not exposed");
+			const rows = parts[platform + 1] ?? "";
+			expect(rows).toMatch(/Today +Month/);
+			expect(rows).toContain("api-owner@example.com");
+			const expectedToday = monthStart >= todayStart ? 2.5 : 0.5;
+			expect(rows).toMatch(new RegExp(`\\$${expectedToday.toFixed(2)} +\\$2\\.50`));
+			expect(costUrls).toHaveLength(1);
+			expect(costUrls[0]).toContain(`start_time=${Math.floor(monthStart)}`);
+			// The second API account has no stored credential, so it produces no row.
+			expect(rows).not.toContain("openai-secondary");
+		});
+	});
+
+	it("names the expected admin key path when the file is absent", async () => {
+		await useTemporaryAgentDir(async (agentDir) => {
+			const h = registerUsage("openai-codex");
+			h.has.mockImplementation((providerId) => providerId === "openai");
+			h.fetch.mockImplementation(async (input) => {
+				if (String(input) === "https://api.openai.com/v1/me") {
+					return Response.json({ email: "api-owner@example.com" });
+				}
+				return allUsageResponse();
+			});
+
+			await h.command.handler("openai", h.ctx);
+
+			const content: string = h.sendMessage.mock.calls[0][0].content;
+			expect(content).toContain("api-owner@example.com");
+			expect(content).toContain(`no admin key: ${join(agentDir, "openai-admin.key")}`);
+			expect(h.fetch.mock.calls.map(([url]) => String(url))).not.toContain(
+				"https://api.openai.com/v1/organization/costs",
+			);
+		});
+	});
+
+	it("places platform spend between the account table and the DeepSeek table in /usage all", async () => {
+		await useTemporaryAgentDir(async (agentDir) => {
+			const h = registerUsage("openai-codex");
+			h.has.mockImplementation((providerId) => providerId === "openai" || providerId.startsWith("openai-codex"));
+			writeFileSync(join(agentDir, "openai-admin.key"), "sk-admin-test");
+			h.fetch.mockImplementation(async (input) => {
+				const url = String(input);
+				if (url === "https://api.openai.com/v1/me") return Response.json({ email: "api-owner@example.com" });
+				if (url.startsWith("https://api.openai.com/v1/organization/costs?")) return Response.json({ data: [] });
+				return allUsageResponse();
+			});
+
+			await h.command.handler("all", h.ctx);
+
+			const titles = h.sendMessage.mock.calls[0][0].content
+				.split("\n\n")
+				.filter((part: string) => !part.startsWith("```"));
+			expect(titles[0]).toContain("Account usage (all accounts)");
+			expect(titles[1]).toContain("OpenAI API platform spend");
+			expect(titles[2]).toContain("DeepSeek pool usage");
+		});
 	});
 });
 

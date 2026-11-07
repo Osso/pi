@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { getAgentDir } from "../../../src/config.ts";
 import { CODEX_FALLBACK_PROVIDERS } from "../../../src/core/codex-quota-fallback.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "../../../src/core/extensions/types.ts";
 
@@ -6,6 +9,7 @@ const CODEX_API_ID = "openai-codex-responses";
 const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 const CODEX_RESET_CREDIT_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume";
 const ACCOUNT_ID_CLAIM = "https://api.openai.com/auth";
+const OPENAI_PLATFORM_BASE = "https://api.openai.com/v1";
 
 type NullableBox<T> = T | null | undefined;
 
@@ -228,11 +232,13 @@ function isUsageScope(value: string): value is UsageScope {
 }
 
 async function handleUsageAccounts(ctx: ExtensionCommandContext, pi: ExtensionAPI, scope: UsageScope): Promise<void> {
-	const [accountRows, deepseekRows] = await Promise.all([
+	const [accountRows, platformRows, deepseekRows] = await Promise.all([
 		readAccountRows(ctx, pi, scope),
+		scope === "claude" ? Promise.resolve<OpenAiPlatformRow[]>([]) : readOpenAiPlatformRows(ctx),
 		scope === "all" ? readDeepseekRows(ctx) : Promise.resolve<DeepseekRow[]>([]),
 	]);
 	const sections = [formatAccountReport(scope, accountRows)];
+	if (platformRows.length > 0) sections.push(formatOpenAiPlatformReport(platformRows));
 	if (deepseekRows.length > 0) sections.push(formatDeepseekReport(deepseekRows));
 	sendUsageReport(ctx, pi, sections, scope === "all" ? "usage-all" : `usage-${scope}`);
 }
@@ -265,6 +271,127 @@ function formatAccountReport(scope: UsageScope, rows: AccountUsageRow[]): UsageS
 
 function formatDeepseekReport(rows: DeepseekRow[]): UsageSection {
 	return { title: `DeepSeek pool usage; ${MISSING} = not reported`, table: formatDeepseekUsage(rows) };
+}
+
+interface OpenAiPlatformRow {
+	provider: string;
+	account: string;
+	/** Month-to-date spend and today's spend, formatted as USD. */
+	today: string | null;
+	month: string | null;
+	status?: string;
+}
+
+const OPENAI_PLATFORM_TITLE = `OpenAI API platform spend; prepaid credit balance is not exposed by the OpenAI API; ${MISSING} = not reported`;
+
+function openAiPlatformProviders(ctx: ExtensionCommandContext): string[] {
+	const ids = new Set(
+		ctx.modelRegistry
+			.getAll()
+			.filter((model) => model.baseUrl.replace(/\/$/, "") === OPENAI_PLATFORM_BASE)
+			.map((model) => model.provider),
+	);
+	return [...ids].filter((providerId) => ctx.modelRegistry.authStorage.has(providerId));
+}
+
+function openAiAdminKeyPath(providerId: string): string {
+	return join(getAgentDir(), `${providerId}-admin.key`);
+}
+
+async function readOpenAiPlatformRows(ctx: ExtensionCommandContext): Promise<OpenAiPlatformRow[]> {
+	return Promise.all(openAiPlatformProviders(ctx).map((providerId) => readOpenAiPlatformRow(ctx, providerId)));
+}
+
+async function readOpenAiPlatformRow(ctx: ExtensionCommandContext, providerId: string): Promise<OpenAiPlatformRow> {
+	const row: OpenAiPlatformRow = { provider: providerId, account: providerId, today: null, month: null };
+	let account = providerId;
+	try {
+		const apiKey = await ctx.modelRegistry.authStorage.getApiKey(providerId, { includeFallback: false });
+		if (!apiKey) return { ...row, status: "not logged in" };
+		account = sanitizeUsageText((await readOpenAiAccountEmail(apiKey)) ?? providerId);
+		const adminKeyPath = openAiAdminKeyPath(providerId);
+		const adminKey = await readOptionalText(adminKeyPath);
+		if (!adminKey) return { ...row, account, status: `no admin key: ${adminKeyPath}` };
+		const spend = await readOpenAiSpend(adminKey);
+		return { ...row, account, today: formatUsd(spend.today), month: formatUsd(spend.month) };
+	} catch (error) {
+		return { ...row, account, status: `error: ${formatUsageError(error)}` };
+	}
+}
+
+async function readOptionalText(path: string): Promise<string | null> {
+	try {
+		const value = (await readFile(path, "utf8")).trim();
+		return value.length > 0 ? value : null;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+		throw error;
+	}
+}
+
+async function readOpenAiAccountEmail(apiKey: string): Promise<string | null> {
+	const email = asRecord(await fetchUsageJson(`${OPENAI_PLATFORM_BASE}/me`, apiKey, "OpenAI API"))?.email;
+	return typeof email === "string" && email.length > 0 ? email : null;
+}
+
+async function readOpenAiSpend(adminKey: string): Promise<{ today: number; month: number }> {
+	const now = new Date();
+	const monthStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+	const todayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+	const query = new URLSearchParams({
+		start_time: String(Math.floor(monthStart / 1000)),
+		bucket_width: "1d",
+		limit: "31",
+	});
+	const url = `${OPENAI_PLATFORM_BASE}/organization/costs?${query.toString()}`;
+	const buckets = asRecord(await fetchUsageJson(url, adminKey, "OpenAI API costs"))?.data;
+	if (!Array.isArray(buckets)) throw new Error("OpenAI API costs response has no buckets");
+	let today = 0;
+	let month = 0;
+	for (const bucket of buckets) {
+		const amount = sumCostAmounts(asRecord(bucket)?.results);
+		month += amount;
+		const bucketStartMs = (readFiniteNumber(asRecord(bucket)?.start_time) ?? 0) * 1000;
+		if (bucketStartMs >= todayStart) today += amount;
+	}
+	return { today, month };
+}
+
+function sumCostAmounts(results: unknown): number {
+	if (!Array.isArray(results)) return 0;
+	let total = 0;
+	for (const result of results) {
+		const amount = asRecord(asRecord(result)?.amount);
+		if (amount?.currency !== "usd") continue;
+		total += readCostValue(amount.value) ?? 0;
+	}
+	return total;
+}
+
+function readCostValue(value: unknown): number | null {
+	if (typeof value === "string") {
+		const parsed = Number.parseFloat(value);
+		return Number.isFinite(parsed) ? parsed : null;
+	}
+	return readFiniteNumber(value);
+}
+
+function formatOpenAiPlatformReport(rows: OpenAiPlatformRow[]): UsageSection {
+	const providerWidth = Math.max("Provider".length, ...rows.map((row) => row.provider.length));
+	const accountWidth = Math.max("Account".length, ...rows.map((row) => row.account.length));
+	const lines = [formatPlatformColumns(["Today", "Month", "Provider", "Account", "Status"], providerWidth, accountWidth)];
+	for (const row of rows) {
+		const cells = [row.today ?? MISSING, row.month ?? MISSING, row.provider, row.account, row.status ?? ""];
+		lines.push(formatPlatformColumns(cells, providerWidth, accountWidth));
+	}
+	return { title: OPENAI_PLATFORM_TITLE, table: lines.join("\n") };
+}
+
+function formatPlatformColumns(cells: string[], providerWidth: number, accountWidth: number): string {
+	const [today, month, provider, account, status] = cells;
+	return [today.padEnd(8), month.padEnd(8), provider.padEnd(providerWidth), account.padEnd(accountWidth), status]
+		.join("  ")
+		.trimEnd();
 }
 
 function sendUsageReport(
