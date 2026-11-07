@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import lockfile from "proper-lockfile";
 import { isBunBinary, VERSION } from "../config.ts";
 import { probeResidentConsole, type ResidentConsoleIdentity } from "../core/resident-console-transport.ts";
-import { isVerifiedPiRuntimeProcess } from "../core/runtime-process.ts";
+import { isRuntimeExecutableReplaced, isVerifiedPiRuntimeProcess } from "../core/runtime-process.ts";
 import { spawnProcess } from "../utils/child-process.ts";
 
 export const SUPERVISOR_AUTOSTART_ENV = "PI_SUPERVISOR_AUTOSTARTED";
@@ -67,8 +67,13 @@ export async function ensureSupervisorRunning(
 ): Promise<ResidentConsoleIdentity> {
 	const probe = dependencies.probe ?? probeSupervisorIdentity;
 	const resident = await probe(input.controlDbPath);
-	if (resident?.version === VERSION) return resident;
+	if (isCurrentSupervisor(resident)) return resident;
 	return coordinateSupervisorStartup(input, dependencies, probe);
+}
+
+/** Builds share one version, so a resident whose executable a deployment replaced is stale too. */
+function isCurrentSupervisor(resident: ResidentConsoleIdentity | undefined): resident is ResidentConsoleIdentity {
+	return resident?.version === VERSION && !isRuntimeExecutableReplaced(resident.pid);
 }
 
 function coordinateSupervisorStartup(
@@ -110,7 +115,7 @@ async function ensureSupervisorUnderLock(
 	probe: NonNullable<EnsureSupervisorRunningDependencies["probe"]>,
 ): Promise<ResidentConsoleIdentity> {
 	const resident = await probe(input.controlDbPath);
-	if (resident?.version === VERSION) return resident;
+	if (isCurrentSupervisor(resident)) return resident;
 	if (resident) await stopIncompatibleSupervisor(input, dependencies, probe, resident);
 	const launch = dependencies.launch ?? launchSupervisor;
 	await launch(input.launchInvocation ?? resolveCurrentSupervisorLaunchInvocation());
@@ -125,7 +130,7 @@ async function stopIncompatibleSupervisor(
 ): Promise<void> {
 	if (resident.managedBy === "external") {
 		throw new Error(
-			`The externally managed Supervisor version ${resident.version} does not match Pi version ${VERSION}; restart its service manager`,
+			`The externally managed Supervisor (version ${resident.version}, pid ${resident.pid}) does not run the current Pi ${VERSION} executable; restart its service manager`,
 		);
 	}
 	const terminate = dependencies.terminate ?? terminateSupervisor;
@@ -201,11 +206,26 @@ async function waitForSupervisorExit(
 	const pollIntervalMs = input.pollIntervalMs ?? 50;
 	const deadline = Date.now() + startupTimeoutMs;
 	while (Date.now() < deadline) {
-		const resident = await probe(input.controlDbPath);
-		if (!resident || resident.instanceId !== instanceId) return;
+		const resident = await probeStoppingSupervisor(input.controlDbPath, probe);
+		if (resident !== "stopping" && (!resident || resident.instanceId !== instanceId)) return;
 		await delay(pollIntervalMs);
 	}
 	throw new Error(`Supervisor instance ${instanceId} did not stop within ${startupTimeoutMs}ms`);
+}
+
+/** A Supervisor closing its console can drop a probe it already accepted; that means it is still stopping. */
+async function probeStoppingSupervisor(
+	controlDbPath: string,
+	probe: NonNullable<EnsureSupervisorRunningDependencies["probe"]>,
+): Promise<ResidentConsoleIdentity | undefined | "stopping"> {
+	try {
+		return await probe(controlDbPath);
+	} catch (error) {
+		const code = error instanceof Error && "code" in error ? error.code : undefined;
+		const disconnected = error instanceof Error && error.message === "Resident console disconnected before attach";
+		if (code === "ECONNRESET" || code === "EPIPE" || disconnected) return "stopping";
+		throw error;
+	}
 }
 
 async function waitForSupervisorReadiness(
@@ -217,7 +237,7 @@ async function waitForSupervisorReadiness(
 	const deadline = Date.now() + startupTimeoutMs;
 	while (Date.now() < deadline) {
 		const resident = await probe(input.controlDbPath);
-		if (resident?.version === VERSION) return resident;
+		if (isCurrentSupervisor(resident)) return resident;
 		await delay(pollIntervalMs);
 	}
 	throw new Error(`Supervisor did not become ready within ${startupTimeoutMs}ms`);

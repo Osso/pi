@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readlinkSync } from "node:fs";
 import { basename } from "node:path";
 import { readDarwinProcessInfo } from "./runtime-process-darwin.ts";
 
@@ -82,6 +82,20 @@ export function isSupersededRuntimeIdentity(current: ProcessIdentity, replacemen
 		replacement.incarnation !== undefined &&
 		current.incarnation !== replacement.incarnation
 	);
+}
+
+/**
+ * Whether a deployment replaced or removed the executable file this process runs. Only Linux
+ * exposes this, as the ` (deleted)` suffix on `/proc/<pid>/exe`; other platforms report false.
+ */
+export function isRuntimeExecutableReplaced(pid: number): boolean {
+	if (process.platform !== "linux") return false;
+	try {
+		return readlinkSync(`/proc/${pid}/exe`).endsWith(" (deleted)");
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+		throw error;
+	}
 }
 
 export function isPiRuntimeProcessAlive(pid: number): boolean {

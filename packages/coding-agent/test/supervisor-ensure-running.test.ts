@@ -161,7 +161,7 @@ describe("ensureSupervisorRunning", () => {
 					terminate,
 				},
 			),
-		).rejects.toThrow("externally managed Supervisor version 0.79.0 does not match Pi version");
+		).rejects.toThrow("externally managed Supervisor (version 0.79.0, pid");
 		expect(terminate).not.toHaveBeenCalled();
 		expect(launch).not.toHaveBeenCalled();
 	});

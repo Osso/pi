@@ -1,4 +1,14 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readlinkSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -222,4 +232,37 @@ describe("Supervisor automatic startup runtime", () => {
 			await cleanupRecordedResidents(fixture, succeeded);
 		}
 	});
+
+	it.skipIf(runtime !== "node" || process.platform !== "linux")(
+		"replaces a same-version resident whose executable a deployment removed",
+		async () => {
+			const fixture = createRuntimeFixture();
+			const launchInvocation = createLaunchInvocation(fixture);
+			const deployedNode = join(fixture.tempDir, "node");
+			copyFileSync(process.execPath, deployedNode);
+			chmodSync(deployedNode, 0o755);
+			let succeeded = false;
+			try {
+				const { controlDbPath } = fixture;
+				const stale = await ensureSupervisorRunning({
+					controlDbPath,
+					launchInvocation: { ...launchInvocation, command: deployedNode },
+				});
+				const [staleStart] = readReports(fixture.reportPath).filter((report) => report.type === "started");
+				rmSync(deployedNode);
+				expect(readlinkSync(`/proc/${stale.pid}/exe`)).toBe(`${deployedNode} (deleted)`);
+
+				const current = await ensureSupervisorRunning({ controlDbPath, launchInvocation });
+
+				expect(current.version).toBe(stale.version);
+				expect(current.instanceId).not.toBe(stale.instanceId);
+				expect(await waitForProcessExit(staleStart.identity)).toBe(true);
+				expect(readlinkSync(`/proc/${current.pid}/exe`)).toBe(process.execPath);
+				await expect(ensureSupervisorRunning({ controlDbPath, launchInvocation })).resolves.toEqual(current);
+				succeeded = true;
+			} finally {
+				await cleanupRecordedResidents(fixture, succeeded);
+			}
+		},
+	);
 });
