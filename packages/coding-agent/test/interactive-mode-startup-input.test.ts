@@ -119,7 +119,7 @@ const interactiveModePrototype = InteractiveMode.prototype as unknown as Interac
 
 type ControlMessageContext = {
 	session: {
-		prompt: (text: string) => Promise<void>;
+		prompt: (text: string, options?: { streamingBehavior?: "steer" | "followUp" }) => Promise<void>;
 	};
 	showError: (text: string) => void;
 };
@@ -557,9 +557,70 @@ describe("InteractiveMode startup input", () => {
 		expect(context.showError).not.toHaveBeenCalled();
 	});
 
+	it("steers a control message into a restarted session still continuing its interrupted turn", async () => {
+		let releaseTool: (() => void) | undefined;
+		const toolRelease = new Promise<void>((resolve) => {
+			releaseTool = resolve;
+		});
+		const waitTool: AgentTool = {
+			name: "wait",
+			label: "Wait",
+			description: "Wait for release",
+			parameters: Type.Object({}),
+			execute: async () => {
+				await toolRelease;
+				return { content: [{ type: "text", text: "released" }], details: {} };
+			},
+		};
+		const harness = await createHarness({ tools: [waitTool] });
+		const requests: string[][] = [];
+		const userTexts = (messages: { role: string; content: unknown }[]) =>
+			messages
+				.filter((message) => message.role === "user")
+				.flatMap((message) =>
+					typeof message.content === "string"
+						? [message.content]
+						: (message.content as { type: string; text?: string }[]).flatMap((block) =>
+								block.type === "text" && block.text ? [block.text] : [],
+							),
+				);
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
+			(context) => {
+				requests.push(userTexts(context.messages));
+				return fauxAssistantMessage("done");
+			},
+		]);
+		const toolStarted = new Promise<void>((resolve) => {
+			const unsubscribe = harness.session.subscribe((event) => {
+				if (event.type !== "tool_execution_start") return;
+				unsubscribe();
+				resolve();
+			});
+		});
+		const continuation = harness.session.prompt("continue the interrupted turn");
+		await toolStarted;
+		enqueueIncomingMessage(controlDbPath, "operator instruction", "restarted-session");
+		const message = claimLatestIncomingMessage(controlDbPath, "restarted-session");
+		const context: ControlMessageContext = { session: harness.session, showError: vi.fn() };
+
+		try {
+			await interactiveModePrototype.processControlMessage.call(context, message, controlDbPath);
+			releaseTool?.();
+			await continuation;
+
+			expect(context.showError).not.toHaveBeenCalled();
+			expect(readIncomingMessageStatus(controlDbPath, message!.id)).toBe("completed");
+			expect(requests.at(-1)).toContain("operator instruction");
+		} finally {
+			releaseTool?.();
+			harness.cleanup();
+		}
+	});
+
 	it("submits and completes a claimed control message on startup", async () => {
 		enqueueIncomingMessage(controlDbPath, "harness prompt");
-		const message = claimLatestIncomingMessage(controlDbPath);
+		const message = claimLatestIncomingMessage(controlDbPath, "startup-session");
 		const context: ControlMessageContext = {
 			session: {
 				prompt: vi.fn(async () => {}),
@@ -569,7 +630,7 @@ describe("InteractiveMode startup input", () => {
 
 		await interactiveModePrototype.processControlMessage.call(context, message, controlDbPath);
 
-		expect(context.session.prompt).toHaveBeenCalledWith("harness prompt");
+		expect(context.session.prompt).toHaveBeenCalledWith("harness prompt", { streamingBehavior: "steer" });
 		expect(readIncomingMessageStatus(controlDbPath, message!.id)).toBe("completed");
 		expect(context.showError).not.toHaveBeenCalled();
 	});

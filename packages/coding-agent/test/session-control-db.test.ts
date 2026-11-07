@@ -490,7 +490,7 @@ describe("session control DB", () => {
 			} finally {
 				competingWriter.close();
 			}
-			expect(claimLatestIncomingMessage(controlDbPath)?.content).toBe("competing write");
+			expect(claimLatestIncomingMessage(controlDbPath, "session-a")?.content).toBe("competing write");
 		} finally {
 			release();
 		}
@@ -5799,14 +5799,41 @@ Date.now = () => ${Date.now()};
 		enqueueIncomingMessage(controlDbPath, "older prompt");
 		enqueueIncomingMessage(controlDbPath, "newer prompt");
 
-		const claimed = claimLatestIncomingMessage(controlDbPath);
+		const claimed = claimLatestIncomingMessage(controlDbPath, "session-a");
 
 		expect(claimed?.content).toBe("newer prompt");
-		expect(claimLatestIncomingMessage(controlDbPath)).toBeUndefined();
+		expect(claimLatestIncomingMessage(controlDbPath, "session-a")).toBeUndefined();
+	});
+
+	it("delivers each addressed message to its own session when several restart together", () => {
+		const ids = ["session-a", "session-b", "session-c"].map((sessionId) =>
+			enqueueIncomingMessage(controlDbPath, `resume work in ${sessionId}`, sessionId),
+		);
+
+		expect(claimLatestIncomingMessage(controlDbPath, "session-c")?.content).toBe("resume work in session-c");
+		expect(claimLatestIncomingMessage(controlDbPath, "session-b")?.content).toBe("resume work in session-b");
+		expect(claimLatestIncomingMessage(controlDbPath, "session-a")?.content).toBe("resume work in session-a");
+		expect(ids.map((id) => readIncomingMessageStatus(controlDbPath, id))).toEqual(["claimed", "claimed", "claimed"]);
+		expect(claimLatestIncomingMessage(controlDbPath, "session-d")).toBeUndefined();
+	});
+
+	it("supersedes only older messages addressed to the claiming session", () => {
+		const older = enqueueIncomingMessage(controlDbPath, "older for a", "session-a");
+		const untargeted = enqueueIncomingMessage(controlDbPath, "for anyone");
+		const forB = enqueueIncomingMessage(controlDbPath, "for b", "session-b");
+		enqueueIncomingMessage(controlDbPath, "newer for a", "session-a");
+
+		expect(claimLatestIncomingMessage(controlDbPath, "session-a")?.content).toBe("newer for a");
+
+		expect(readIncomingMessageStatus(controlDbPath, older)).toBe("superseded");
+		expect(readIncomingMessageStatus(controlDbPath, untargeted)).toBe("pending");
+		expect(readIncomingMessageStatus(controlDbPath, forB)).toBe("pending");
+		expect(claimLatestIncomingMessage(controlDbPath, "session-b")?.content).toBe("for b");
+		expect(claimLatestIncomingMessage(controlDbPath, "session-c")?.content).toBe("for anyone");
 	});
 
 	it("returns without a writer lock when no incoming message is pending", async () => {
-		expect(claimLatestIncomingMessage(controlDbPath)).toBeUndefined();
+		expect(claimLatestIncomingMessage(controlDbPath, "session-a")).toBeUndefined();
 		const moduleUrl = pathToFileURL(join(process.cwd(), "src/core/session-control-db.ts")).href;
 		const worker = new Worker(
 			`
@@ -5817,7 +5844,7 @@ Date.now = () => ${Date.now()};
 				parentPort?.postMessage({ type: "ready" });
 				parentPort?.once("message", () => {
 					try {
-						const claimed = claimLatestIncomingMessage(workerData.controlDbPath);
+						const claimed = claimLatestIncomingMessage(workerData.controlDbPath, "session-a");
 						parentPort?.postMessage({ claimed: claimed !== undefined, type: "completed" });
 					} catch (error) {
 						parentPort?.postMessage({ error: String(error), type: "error" });
@@ -5850,13 +5877,13 @@ Date.now = () => ${Date.now()};
 
 	it("allows claimed incoming messages to be completed", () => {
 		enqueueIncomingMessage(controlDbPath, "run this");
-		const claimed = claimLatestIncomingMessage(controlDbPath);
+		const claimed = claimLatestIncomingMessage(controlDbPath, "session-a");
 
 		expect(claimed).toBeDefined();
 		completeIncomingMessage(controlDbPath, claimed!.id);
 
 		expect(readIncomingMessageStatus(controlDbPath, claimed!.id)).toBe("completed");
-		expect(claimLatestIncomingMessage(controlDbPath)).toBeUndefined();
+		expect(claimLatestIncomingMessage(controlDbPath, "session-a")).toBeUndefined();
 	});
 
 	it("returns without a writer lock when no Supervisor request is pending", async () => {

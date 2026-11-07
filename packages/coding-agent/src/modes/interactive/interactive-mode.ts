@@ -1352,7 +1352,8 @@ export class InteractiveMode {
 		}
 
 		try {
-			await this.session.prompt(message.content);
+			// A restarted session may already be continuing its interrupted turn; steer into it rather than fail.
+			await this.session.prompt(message.content, { streamingBehavior: "steer" });
 			completeIncomingMessage(controlDbPath, message.id);
 		} catch (error: unknown) {
 			const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";

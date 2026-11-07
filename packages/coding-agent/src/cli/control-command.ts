@@ -2,6 +2,7 @@ import {
 	enqueueIncomingMessage,
 	getControlDbPath,
 	readLastMessage,
+	readRunningSessionIdByPid,
 	readSessionHealth,
 } from "../core/session-control-db.ts";
 
@@ -38,8 +39,16 @@ export function handleControlCommand(args: string[], dependencies: ControlComman
 			return true;
 		}
 
-		const id = enqueueIncomingMessage(getControlDbPath(), parsed.message);
-		stdout(`queued ${id}\n`);
+		const controlDbPath = getControlDbPath();
+		const targetSessionId =
+			parsed.pid === undefined ? undefined : readRunningSessionIdByPid(controlDbPath, parsed.pid);
+		if (parsed.pid !== undefined && !targetSessionId) {
+			stderr(`No running Pi session has pid ${parsed.pid}.\n`);
+			process.exitCode = 1;
+			return true;
+		}
+		const id = enqueueIncomingMessage(controlDbPath, parsed.message, targetSessionId);
+		stdout(`queued ${id}${targetSessionId ? ` for session ${targetSessionId}` : ""}\n`);
 		if (parsed.pid !== undefined) {
 			signalProcess(parsed.pid, "SIGHUP");
 			stdout(`signaled ${parsed.pid}\n`);

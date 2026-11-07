@@ -832,9 +832,14 @@ function createInteractiveOrchestrationControls(
 	};
 }
 
-function readStartupControlMessage(appMode: AppMode, controlDbPath: string, noSupervisor: boolean | undefined) {
+function readStartupControlMessage(
+	appMode: AppMode,
+	controlDbPath: string,
+	sessionId: string,
+	noSupervisor: boolean | undefined,
+) {
 	if (noSupervisor || appMode !== "interactive") return undefined;
-	return claimLatestIncomingMessage(controlDbPath);
+	return claimLatestIncomingMessage(controlDbPath, sessionId);
 }
 
 function readTerminalExportSettings(): SettingsManager {
@@ -1110,7 +1115,12 @@ export async function main(args: string[], options?: MainOptions) {
 		takeOverStdout();
 	}
 	time("createSessionManager");
-	const controlMessage = readStartupControlMessage(appMode, controlDbPath, parsed.noSupervisor);
+	const controlMessage = readStartupControlMessage(
+		appMode,
+		controlDbPath,
+		sessionManager.getSessionId(),
+		parsed.noSupervisor,
+	);
 
 	const trustStore = new ProjectTrustStore(agentDir);
 	const sessionCwd = sessionManager.getCwd();

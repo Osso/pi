@@ -204,6 +204,7 @@ export interface ResumeSessionMetadataOptions {
 type IncomingRow = {
 	id: number;
 	content: string;
+	target_session_id: string | null;
 };
 
 type RuntimeMailboxRow = {
@@ -387,38 +388,68 @@ export function claimCodexRestrictionRecovery(controlDbPath: string, userRequest
 	});
 }
 
-export function enqueueIncomingMessage(controlDbPath: string, content: string): number {
+/** Queues a control message; a target session ID reserves it for that session, otherwise any session may claim it. */
+export function enqueueIncomingMessage(controlDbPath: string, content: string, targetSessionId?: string): number {
 	return withControlDb(controlDbPath, (db) => {
 		const result = db
 			.prepare(
 				`
-				INSERT INTO incoming_messages (content, status, created_at)
-				VALUES (?, 'pending', ?)
+				INSERT INTO incoming_messages (content, status, created_at, target_session_id)
+				VALUES (?, 'pending', ?, ?)
 				`,
 			)
-			.run(content, new Date().toISOString());
+			.run(content, new Date().toISOString(), targetSessionId ?? null);
 		return Number(result.lastInsertRowid);
 	});
 }
 
-export function claimLatestIncomingMessage(controlDbPath: string): IncomingControlMessage | undefined {
+/** The session a running Pi process serves, from its newest healthy session-health row. */
+export function readRunningSessionIdByPid(controlDbPath: string, pid: number): string | undefined {
 	return withControlDb(controlDbPath, (db) => {
-		if (!readLatestPendingIncomingMessage(db)) return undefined;
-		const nowIso = new Date().toISOString();
-		return withImmediateTransaction(db, () => claimLatestIncomingMessageInTransaction(db, nowIso));
+		const row = db
+			.prepare(
+				`
+				SELECT session_id
+				FROM session_health
+				WHERE pid = ? AND check_status = 'ok'
+				ORDER BY updated_at DESC
+				LIMIT 1
+				`,
+			)
+			.get(pid) as { session_id: string } | undefined;
+		return row?.session_id;
 	});
 }
 
-function claimLatestIncomingMessageInTransaction(db: SqliteDatabase, now: string): IncomingControlMessage | undefined {
-	const row = readLatestPendingIncomingMessage(db);
+/**
+ * Claims the newest pending message addressed to this session or to no session. Older pending messages with the
+ * same address are superseded; messages addressed to other sessions stay pending for them.
+ */
+export function claimLatestIncomingMessage(
+	controlDbPath: string,
+	sessionId: string,
+): IncomingControlMessage | undefined {
+	return withControlDb(controlDbPath, (db) => {
+		if (!readLatestPendingIncomingMessage(db, sessionId)) return undefined;
+		const nowIso = new Date().toISOString();
+		return withImmediateTransaction(db, () => claimLatestIncomingMessageInTransaction(db, sessionId, nowIso));
+	});
+}
+
+function claimLatestIncomingMessageInTransaction(
+	db: SqliteDatabase,
+	sessionId: string,
+	now: string,
+): IncomingControlMessage | undefined {
+	const row = readLatestPendingIncomingMessage(db, sessionId);
 	if (!row) return undefined;
 	db.prepare(
 		`
 		UPDATE incoming_messages
 		SET status = 'superseded', completed_at = ?
-		WHERE status = 'pending' AND id <> ?
+		WHERE status = 'pending' AND id <> ? AND target_session_id IS ?
 		`,
-	).run(now, row.id);
+	).run(now, row.id, row.target_session_id);
 	db.prepare(
 		`
 		UPDATE incoming_messages
@@ -426,21 +457,21 @@ function claimLatestIncomingMessageInTransaction(db: SqliteDatabase, now: string
 		WHERE id = ?
 		`,
 	).run(now, row.id);
-	return row;
+	return { id: row.id, content: row.content };
 }
 
-function readLatestPendingIncomingMessage(db: SqliteDatabase): IncomingRow | undefined {
+function readLatestPendingIncomingMessage(db: SqliteDatabase, sessionId: string): IncomingRow | undefined {
 	return db
 		.prepare(
 			`
-			SELECT id, content
+			SELECT id, content, target_session_id
 			FROM incoming_messages
-			WHERE status = 'pending'
+			WHERE status = 'pending' AND (target_session_id = ? OR target_session_id IS NULL)
 			ORDER BY id DESC
 			LIMIT 1
 			`,
 		)
-		.get() as IncomingRow | undefined;
+		.get(sessionId) as IncomingRow | undefined;
 }
 
 export function completeIncomingMessage(controlDbPath: string, id: number): void {
@@ -7068,6 +7099,7 @@ function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: number): vo
 	addMissingRuntimeMailboxListenerColumns(db);
 	addMissingArchitectRequestColumns(db);
 	addMissingSharedChannelOriginColumns(db);
+	addMissingIncomingMessageColumns(db);
 	// Already-running legacy producers insert directly. Only new undated rows receive birth.
 	db.exec(`CREATE TRIGGER IF NOT EXISTS multi_agent_mailbox_default_birth
 		AFTER INSERT ON multi_agent_mailbox_messages
@@ -7670,6 +7702,13 @@ function addMissingSharedChannelOriginColumns(db: SqliteDatabase): void {
 	db.exec(
 		"CREATE UNIQUE INDEX IF NOT EXISTS shared_channel_origin_idx ON shared_channel_messages(origin_host, origin_id) WHERE origin_host IS NOT NULL",
 	);
+}
+
+function addMissingIncomingMessageColumns(db: SqliteDatabase): void {
+	const columns = new Set(
+		(db.prepare("PRAGMA table_info(incoming_messages)").all() as TableInfoRow[]).map((column) => column.name),
+	);
+	if (!columns.has("target_session_id")) db.exec("ALTER TABLE incoming_messages ADD COLUMN target_session_id TEXT");
 }
 
 function addMissingArchitectRequestColumns(db: SqliteDatabase): void {

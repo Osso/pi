@@ -29,18 +29,72 @@ describe("control command", () => {
 		rmSync(agentDir, { force: true, recursive: true });
 	});
 
-	it("queues a control message and signals a running process", () => {
-		const handled = handleControlCommand(["control", "send", "--pid", "1234", "finish now"], {
+	function recordRunningSession(sessionId: string, pid: number): void {
+		writeSessionHealth(getControlDbPath(agentDir), {
+			agentGeneration: 1,
+			checkedGeneration: 1,
+			checkLatencyMs: 0,
+			checkStatus: "ok",
+			lastActiveAt: "2026-11-07T08:45:00.000Z",
+			lastCheckedAt: "2026-11-07T08:45:00.000Z",
+			pid,
+			sessionId,
+			updatedAt: "2026-11-07T08:45:00.000Z",
+		});
+	}
+
+	function send(...args: string[]): void {
+		handleControlCommand(["control", "send", ...args], {
 			signalProcess,
 			stderr: (text) => stderr.push(text),
 			stdout: (text) => stdout.push(text),
 		});
+	}
 
-		expect(handled).toBe(true);
-		expect(stdout).toEqual(["queued 1\n", "signaled 1234\n"]);
+	it("queues a control message for the session of the signaled process", () => {
+		recordRunningSession("session-1234", 1234);
+
+		send("--pid", "1234", "finish now");
+
+		expect(stdout).toEqual(["queued 1 for session session-1234\n", "signaled 1234\n"]);
 		expect(stderr).toEqual([]);
 		expect(signalProcess).toHaveBeenCalledWith(1234, "SIGHUP");
-		expect(claimLatestIncomingMessage(getControlDbPath(agentDir))?.content).toBe("finish now");
+		expect(claimLatestIncomingMessage(getControlDbPath(agentDir), "other-session")).toBeUndefined();
+		expect(claimLatestIncomingMessage(getControlDbPath(agentDir), "session-1234")?.content).toBe("finish now");
+	});
+
+	it("delivers concurrent sends to three processes to their own sessions", () => {
+		for (const pid of [101, 102, 103]) recordRunningSession(`session-${pid}`, pid);
+
+		for (const pid of [101, 102, 103]) send("--pid", String(pid), `instruction for ${pid}`);
+
+		const controlDbPath = getControlDbPath(agentDir);
+		for (const pid of [103, 101, 102]) {
+			expect(claimLatestIncomingMessage(controlDbPath, `session-${pid}`)?.content).toBe(`instruction for ${pid}`);
+		}
+	});
+
+	it("rejects a pid with no running session without queuing or signaling", () => {
+		const previousExitCode = process.exitCode;
+		try {
+			send("--pid", "4321", "finish now");
+
+			expect(stdout).toEqual([]);
+			expect(stderr).toEqual(["No running Pi session has pid 4321.\n"]);
+			expect(process.exitCode).toBe(1);
+			expect(signalProcess).not.toHaveBeenCalled();
+			expect(claimLatestIncomingMessage(getControlDbPath(agentDir), "any-session")).toBeUndefined();
+		} finally {
+			process.exitCode = previousExitCode;
+		}
+	});
+
+	it("queues an unaddressed message for any session when no pid is given", () => {
+		send("finish now");
+
+		expect(stdout).toEqual(["queued 1\n"]);
+		expect(signalProcess).not.toHaveBeenCalled();
+		expect(claimLatestIncomingMessage(getControlDbPath(agentDir), "any-session")?.content).toBe("finish now");
 	});
 
 	it("restarts a running session by exact session ID", () => {
@@ -117,7 +171,7 @@ describe("control command", () => {
 				expect(stderr).toEqual([]);
 				expect(process.exitCode).toBe(0);
 				expect(signalProcess).not.toHaveBeenCalled();
-				expect(claimLatestIncomingMessage(getControlDbPath(agentDir))).toBeUndefined();
+				expect(claimLatestIncomingMessage(getControlDbPath(agentDir), "any-session")).toBeUndefined();
 			}
 		} finally {
 			process.exitCode = previousExitCode;
