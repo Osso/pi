@@ -1,6 +1,6 @@
 import { appendFileSync } from "node:fs";
 import { createConnection } from "node:net";
-import type { AssistantMessage, Context, StreamOptions } from "@earendil-works/pi-ai/compat";
+import type { AssistantMessage, Context, Model, StreamOptions } from "@earendil-works/pi-ai/compat";
 import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
 
 // A real resident launch inherits this preload. Stop before any real model or account access.
@@ -57,7 +57,11 @@ function rejectPendingResponses(error: Error): void {
 socket.on("error", (error) => rejectPendingResponses(error));
 socket.on("close", () => rejectPendingResponses(new Error("Headless faux-provider IPC closed")));
 
-function waitForParentResponse(context: Context, options: StreamOptions | undefined): Promise<AssistantMessage> {
+function waitForParentResponse(
+	context: Context,
+	options: StreamOptions | undefined,
+	modelId: string,
+): Promise<AssistantMessage> {
 	const requestId = `llm_${nextRequestId++}`;
 	const response = new Promise<AssistantMessage>((resolve, reject) => {
 		const signal = options?.signal;
@@ -76,6 +80,7 @@ function waitForParentResponse(context: Context, options: StreamOptions | undefi
 		`${JSON.stringify({
 			type: "request",
 			id: requestId,
+			modelId,
 			sessionId: options?.sessionId,
 			systemPrompt: context.systemPrompt,
 			messages: context.messages,
@@ -93,8 +98,13 @@ const provider = registerFauxProvider({
 		{ id: "headless-faux-reasoning", name: "Headless Faux Reasoning", reasoning: true },
 	],
 });
-async function receiveResponse(context: Context, options: StreamOptions | undefined): Promise<AssistantMessage> {
+async function receiveResponse(
+	context: Context,
+	options: StreamOptions | undefined,
+	_state: { callCount: number },
+	model: Model<string>,
+): Promise<AssistantMessage> {
 	provider.appendResponses([receiveResponse]);
-	return waitForParentResponse(context, options);
+	return waitForParentResponse(context, options, model.id);
 }
 provider.setResponses([receiveResponse]);

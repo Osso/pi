@@ -235,6 +235,7 @@
 
 ### Fixed
 
+- Fixed `attach_session_agent` resuming a session on the parent's model (or the `agentType` profile model) instead of the model and thinking level the session last ran on. A resumed `pool/deepseek-flash` child had run on the parent's Opus model until `set_agent_model` moved it back.
 - Fixed sessions reusing a resident Supervisor that still ran the executable a deployment replaced. All builds report the same version, so the stale Supervisor kept failing goal reviews with bugs the deployment had fixed. On Linux, a Pi-managed Supervisor whose executable was replaced is now stopped and restarted from the deployed executable on the next request, and a probe that the stopping Supervisor drops no longer fails the restart.
 - Fixed model pools retrying an OpenRouter member after its HTTP 402 `requires more credits` error instead of rotating to the next member. The error is now classified as terminal quota exhaustion, so the member gets the 15-minute cooldown and a directly selected OpenRouter model ends the turn without retries.
 - Fixed automatic retry repeating an OpenAI or OpenAI-compatible rate-limited request when the provider asked to wait longer than `retry.provider.maxRetryDelayMs`. The failed message now carries the provider-requested delay, including delays stated only in a streamed error message, and the turn ends after the first failure instead of retrying up to `retry.maxRetries` times before the reset time.

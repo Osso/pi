@@ -53,6 +53,7 @@ interface WireLlmRequest {
 	tools?: Tool[];
 	type: "request";
 	id: string;
+	modelId: string;
 	sessionId?: string;
 	systemPrompt?: string;
 	messages: Message[];
@@ -61,6 +62,8 @@ interface WireLlmRequest {
 export interface HeadlessLlmRequest {
 	tools?: Tool[];
 	id: string;
+	/** Faux model that served the request. */
+	modelId: string;
 	sessionId?: string;
 	agentId: string | null;
 	systemPrompt?: string;
@@ -674,6 +677,7 @@ function createRequestRecorder(options: {
 	return (wireRequest) => {
 		options.requests.push({
 			id: wireRequest.id,
+			modelId: wireRequest.modelId,
 			sessionId: wireRequest.sessionId,
 			agentId: options.resolveAgentId(wireRequest.sessionId),
 			systemPrompt: wireRequest.systemPrompt,

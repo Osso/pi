@@ -3,7 +3,8 @@ import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { getSessionsDir } from "../../../src/config.ts";
-import { listActiveSessionMetadata } from "../../../src/core/session-control-db.ts";
+import type { AgentSnapshot } from "../../../src/core/multi-agent-store.ts";
+import { listActiveSessionMetadata, readSessionMetadata } from "../../../src/core/session-control-db.ts";
 
 export interface AttachSessionInfo {
 	id: string;
@@ -87,4 +88,15 @@ export async function findAttachSessionsById(
 		await appendMatchingDirectorySessions(dir, sessionId, sessions);
 	}
 	return [...sessions.values()];
+}
+
+/** The model an attached session last ran on, from its control-DB metadata; a pool keeps its pool ID. */
+export function readStoredSessionModel(controlDbPath: string | undefined, sessionPath: string): AgentSnapshot["model"] {
+	const metadata = controlDbPath ? readSessionMetadata(controlDbPath, sessionPath) : undefined;
+	if (!metadata?.modelProvider || !metadata.modelId) return undefined;
+	return {
+		providerId: metadata.modelProvider,
+		modelId: metadata.modelId,
+		...(metadata.thinkingLevel ? { thinkingLevel: metadata.thinkingLevel } : {}),
+	};
 }

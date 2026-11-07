@@ -30,7 +30,8 @@ Resume Session as Agent lets a supervisor session attach an existing Pi session 
 ### Permissions, account, and policy
 
 - [x] Attaching a session as an agent inherits or narrows the supervisor's permission policy and must reject permission broadening.
-- [x] Account/model/budget metadata for the attached agent follows the same inheritance rules as normal child agents unless the caller explicitly supplies a narrower supported override.
+- [x] Account/budget metadata for the attached agent follows the same inheritance rules as normal child agents unless the caller explicitly supplies a narrower supported override.
+- [x] The attached agent resumes on the model and thinking level that the attached session's control-DB metadata records (a pool session keeps its `pool/<name>` model). Only a session with no recorded model falls back to the `agentType` profile model, then the parent agent's model. `set_agent_model` still changes the model of a running attached agent.
 - [ ] A resumed session cannot use the attachment path to bypass project trust, tool approval, or filesystem permission checks.
 
 ### User-facing API

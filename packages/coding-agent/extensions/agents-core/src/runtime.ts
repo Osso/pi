@@ -79,7 +79,7 @@ import {
 	requestPersistedDetachedRuntimeCancellation,
 } from "./detached-runtime-cancellation.ts";
 import { registerSetAgentModelTool, resolveLiveAgentMutationTarget } from "./agent-model-tool.ts";
-import { findAttachSessionsById, type AttachSessionInfo } from "./attach-session-lookup.ts";
+import { findAttachSessionsById, readStoredSessionModel, type AttachSessionInfo } from "./attach-session-lookup.ts";
 import { bindProductionChildSession, type UnboundChildAgentSession } from "./child-session.ts";
 import { readCurrentChildAssistantText } from "./child-response.ts";
 import { createChildTools } from "./child-tools.ts";
@@ -1456,7 +1456,7 @@ function spawnAttachedSessionAgent(
 		agentType,
 		cwd: resolved.cwd || ctx.cwd,
 		displayName,
-		model: profile?.modelMetadata ?? parent?.model,
+		model: readStoredSessionModel(ctx.controlDbPath, resolved.path) ?? profile?.modelMetadata ?? parent?.model,
 		parentId: params.parentId,
 		permission,
 		transcript: { path: resolved.path, sessionId: resolved.sessionId },
