@@ -4,8 +4,8 @@ import { createDefaultFooterComponent } from "../extensions/default-footer/src/i
 import {
 	countPullRequestChecks,
 	formatPullRequest,
-	parsePullRequest,
 	type PullRequest,
+	parsePullRequest,
 } from "../extensions/default-footer/src/pull-request.ts";
 import { PullRequestStatus } from "../extensions/default-footer/src/pull-request-status.ts";
 import type { ExtensionContext } from "../src/core/extensions/types.ts";
@@ -80,7 +80,9 @@ describe("pull request parsing", () => {
 	});
 
 	it("rejects lookalike hosts, mismatched numbers, unknown states, and missing fields", () => {
-		expect(parsePullRequest({ number: 1, url: "https://github.com.evil.test/a/b/pull/1", state: "OPEN" })).toBeUndefined();
+		expect(
+			parsePullRequest({ number: 1, url: "https://github.com.evil.test/a/b/pull/1", state: "OPEN" }),
+		).toBeUndefined();
 		expect(parsePullRequest({ number: 2, url: PR_URL, state: "OPEN" })).toBeUndefined();
 		expect(parsePullRequest({ number: 41208, url: PR_URL, state: "DRAFT" })).toBeUndefined();
 		expect(parsePullRequest({ number: "41208", url: PR_URL, state: "OPEN" })).toBeUndefined();
@@ -116,8 +118,14 @@ describe("pull request formatting", () => {
 	});
 
 	it("colors merged and closed states differently from open", () => {
-		const merged = formatPullRequest({ ...openPullRequest, state: "merged", checks: { passed: 4, running: 0, failed: 0 } }, theme);
-		const closed = formatPullRequest({ ...openPullRequest, state: "closed", checks: { passed: 0, running: 0, failed: 2 } }, theme);
+		const merged = formatPullRequest(
+			{ ...openPullRequest, state: "merged", checks: { passed: 4, running: 0, failed: 0 } },
+			theme,
+		);
+		const closed = formatPullRequest(
+			{ ...openPullRequest, state: "closed", checks: { passed: 0, running: 0, failed: 2 } },
+			theme,
+		);
 
 		expect(merged.startsWith(theme.fg("accent", hyperlink("#41208", PR_URL)))).toBe(true);
 		expect(merged).not.toContain("○");
@@ -144,7 +152,12 @@ describe("pull request polling", () => {
 	it("notifies only when the displayed status changes and stops after dispose", async () => {
 		const onChange = vi.fn();
 		let next: PullRequest | undefined = openPullRequest;
-		const status = new PullRequestStatus("/repo", () => "main", onChange, async () => next);
+		const status = new PullRequestStatus(
+			"/repo",
+			() => "main",
+			onChange,
+			async () => next,
+		);
 
 		await status.refresh();
 		expect(status.get()).toEqual(openPullRequest);
@@ -172,10 +185,15 @@ describe("pull request polling", () => {
 	it("keeps the displayed pull request when gh fails", async () => {
 		const onChange = vi.fn();
 		let fail = false;
-		const status = new PullRequestStatus("/repo", () => "main", onChange, async () => {
-			if (fail) throw new Error("gh: network unreachable");
-			return openPullRequest;
-		});
+		const status = new PullRequestStatus(
+			"/repo",
+			() => "main",
+			onChange,
+			async () => {
+				if (fail) throw new Error("gh: network unreachable");
+				return openPullRequest;
+			},
+		);
 
 		await status.refresh();
 		fail = true;
@@ -189,7 +207,12 @@ describe("pull request polling", () => {
 	it("clears the previous branch's pull request as soon as the branch changes", async () => {
 		const onChange = vi.fn();
 		let branch = "feature";
-		const status = new PullRequestStatus("/repo", () => branch, onChange, async () => openPullRequest);
+		const status = new PullRequestStatus(
+			"/repo",
+			() => branch,
+			onChange,
+			async () => openPullRequest,
+		);
 
 		await status.refresh();
 		branch = "other-feature";
