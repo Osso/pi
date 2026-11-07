@@ -137,18 +137,19 @@ export function formatCodexUsage(usage: CodexUsage): string {
 	return lines.join("\n");
 }
 
+const USAGE_ARGUMENTS = ["all", "claude", "openai", "deepseek", "reset"];
+
 export default function codexUsageExtension(pi: ExtensionAPI) {
 	pi.registerCommand("usage", {
-		description: "Show Codex or Claude usage, all accounts, or reset Codex usage",
+		description: "Show Codex, Claude, or DeepSeek usage; scope with all, claude, or openai",
 		getArgumentCompletions: (prefix) => {
-			const options = ["all", "deepseek", "reset"];
-			const matches = options.filter((option) => option.startsWith(prefix));
+			const matches = USAGE_ARGUMENTS.filter((option) => option.startsWith(prefix));
 			return matches.length > 0 ? matches.map((value) => ({ value, label: value })) : null;
 		},
 		handler: async (args, ctx) => {
 			const commandArgs = args.trim();
-			if (commandArgs === "all") {
-				await handleUsageAll(ctx, pi);
+			if (isUsageScope(commandArgs)) {
+				await handleUsageAccounts(ctx, pi, commandArgs);
 				return;
 			}
 			if (commandArgs === "deepseek") {
@@ -164,7 +165,7 @@ export default function codexUsageExtension(pi: ExtensionAPI) {
 				return;
 			}
 			if (commandArgs.length > 0) {
-				ctx.ui.notify("Usage: /usage [all|deepseek|reset]", "warning");
+				ctx.ui.notify(`Usage: /usage [${USAGE_ARGUMENTS.join("|")}]`, "warning");
 				return;
 			}
 			await handleUsageRead(ctx, pi);
@@ -199,6 +200,12 @@ interface AccountUsageRow {
 }
 
 const MISSING = "-";
+const RESET_CREDITS_LEGEND = `Resets = available reset credits; ${MISSING} = not reported`;
+const SCOPE_TITLES = {
+	all: "Account usage (all accounts)",
+	claude: "Claude account usage",
+	openai: "OpenAI account usage",
+} as const;
 const CENTRAL_RESET_FORMAT = new Intl.DateTimeFormat("sv-SE", {
 	timeZone: "America/Chicago",
 	year: "numeric",
@@ -209,22 +216,67 @@ const CENTRAL_RESET_FORMAT = new Intl.DateTimeFormat("sv-SE", {
 	hourCycle: "h23",
 });
 
-async function handleUsageAll(ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
-	const [claudeRows, codexRows] = await Promise.all([
-		readClaudeAccountRows(pi),
-		Promise.all([...CODEX_FALLBACK_PROVIDERS.keys()].map((id) => readCodexAccountRow(ctx, id))),
+type UsageScope = "all" | "claude" | "openai";
+
+interface UsageSection {
+	title: string;
+	table: string;
+}
+
+function isUsageScope(value: string): value is UsageScope {
+	return value === "all" || value === "claude" || value === "openai";
+}
+
+async function handleUsageAccounts(ctx: ExtensionCommandContext, pi: ExtensionAPI, scope: UsageScope): Promise<void> {
+	const [accountRows, deepseekRows] = await Promise.all([
+		readAccountRows(ctx, pi, scope),
+		scope === "all" ? readDeepseekRows(ctx) : Promise.resolve<DeepseekRow[]>([]),
 	]);
-	const rows = [...claudeRows, ...codexRows];
+	const sections = [formatAccountReport(scope, accountRows)];
+	if (deepseekRows.length > 0) sections.push(formatDeepseekReport(deepseekRows));
+	sendUsageReport(ctx, pi, sections, scope === "all" ? "usage-all" : `usage-${scope}`);
+}
+
+async function readAccountRows(
+	ctx: ExtensionCommandContext,
+	pi: ExtensionAPI,
+	scope: UsageScope,
+): Promise<AccountUsageRow[]> {
+	// The bridge must claim its request during emit, so start it before awaiting either report.
+	const claudeRows = scope === "openai" ? [] : readClaudeAccountRows(pi);
+	const codexRows =
+		scope === "claude"
+			? []
+			: Promise.all([...CODEX_FALLBACK_PROVIDERS.keys()].map((id) => readCodexAccountRow(ctx, id)));
+	const [claude, codex] = await Promise.all([claudeRows, codexRows]);
+	return [...claude, ...codex];
+}
+
+function formatAccountReport(scope: UsageScope, rows: AccountUsageRow[]): UsageSection {
+	const legend = scope === "claude" ? `${MISSING} = not reported` : RESET_CREDITS_LEGEND;
 	const accountWidth = Math.max("Account".length, ...rows.map((row) => row.account.length));
 	const header = ["5h", "Week", "Resets", "Provider", "Account", "Resets Central (5h | week)"];
-	const title = `Account usage (all accounts); Resets = available reset credits; ${MISSING} = not reported`;
 	const table = [
 		formatAccountColumns(header, accountWidth),
 		...rows.map((row) => formatAccountRow(row, accountWidth)),
 	].join("\n");
-	// Custom messages render as Markdown: fence the table so `-` cells and column padding stay literal.
-	const content = `${title}\n\n\`\`\`\n${table}\n\`\`\``;
-	sendCodexUsageReport(ctx, pi, content, "usage-all", `${title}\n${table}`);
+	return { title: `${SCOPE_TITLES[scope]}; ${legend}`, table };
+}
+
+function formatDeepseekReport(rows: DeepseekRow[]): UsageSection {
+	return { title: `DeepSeek pool usage; ${MISSING} = not reported`, table: formatDeepseekUsage(rows) };
+}
+
+function sendUsageReport(
+	ctx: ExtensionCommandContext,
+	pi: ExtensionAPI,
+	sections: UsageSection[],
+	customType: string,
+): void {
+	// Custom messages render as Markdown: fence each table so `-` cells and column padding stay literal.
+	const content = sections.map((section) => `${section.title}\n\n\`\`\`\n${section.table}\n\`\`\``).join("\n\n");
+	const notification = sections.map((section) => `${section.title}\n${section.table}`).join("\n\n");
+	sendCodexUsageReport(ctx, pi, content, customType, notification);
 }
 
 async function readCodexAccountRow(ctx: ExtensionCommandContext, providerId: string): Promise<AccountUsageRow> {
@@ -845,9 +897,10 @@ async function readDeepseekRow(ctx: ExtensionCommandContext, providerId: string)
 }
 
 async function handleUsageDeepseek(ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
-	const rows = await Promise.all(DEEPSEEK_POOL_PROVIDERS.map((providerId) => readDeepseekRow(ctx, providerId)));
-	const title = `DeepSeek pool usage; ${MISSING} = not reported`;
-	const table = formatDeepseekUsage(rows);
-	const content = `${title}\n\n\`\`\`\n${table}\n\`\`\``;
-	sendCodexUsageReport(ctx, pi, content, "usage-deepseek", `${title}\n${table}`);
+	const rows = await readDeepseekRows(ctx);
+	sendUsageReport(ctx, pi, [formatDeepseekReport(rows)], "usage-deepseek");
+}
+
+function readDeepseekRows(ctx: ExtensionCommandContext): Promise<DeepseekRow[]> {
+	return Promise.all(DEEPSEEK_POOL_PROVIDERS.map((providerId) => readDeepseekRow(ctx, providerId)));
 }

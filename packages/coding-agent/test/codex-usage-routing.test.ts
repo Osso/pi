@@ -22,7 +22,9 @@ function registerUsage(provider: string) {
 	const claims = { email: "usage@example.com", "https://api.openai.com/auth": { chatgpt_account_id: "acct_usage" } };
 	const token = `header.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`;
 	const getApiKey = vi.fn(async (_provider?: string) => token);
-	const has = vi.fn((providerId: string) => providerId !== "openai-codex-team");
+	const has = vi.fn(
+		(providerId: string) => providerId.startsWith("openai-codex") && providerId !== "openai-codex-team",
+	);
 	const get = vi.fn(() => null);
 	const notify = vi.fn();
 	const confirm = vi.fn(async () => true);
@@ -64,6 +66,13 @@ function reportLines(h: ReturnType<typeof registerUsage>): string[] {
 	const message = h.sendMessage.mock.calls[0][0];
 	expect(message).toMatchObject({ customType: "usage-all", display: true });
 	return message.content.split("\n").map((line: string) => line.trim().replace(/ +/g, " "));
+}
+
+/** Rows of the report's fenced section at `index`, without the fence lines and header. */
+function sectionRows(content: string, index = 0): string[] {
+	const block = content.split("```")[index * 2 + 1];
+	if (block === undefined) throw new Error(`usage report has no section ${index}`);
+	return block.split("\n").slice(2, -1);
 }
 
 describe("registered /usage all Central timezone resets", () => {
@@ -142,8 +151,8 @@ describe("registered /usage all reset counts", () => {
 
 		await h.command.handler("all", h.ctx);
 
-		const [, , , header, ...rest] = h.sendMessage.mock.calls[0][0].content.split("\n") as string[];
-		const rows = rest.filter((line) => line !== "```");
+		const [, , , header] = h.sendMessage.mock.calls[0][0].content.split("\n") as string[];
+		const rows = sectionRows(h.sendMessage.mock.calls[0][0].content);
 		const resetColumn = header.indexOf("Resets");
 		expect(header).toMatch(/^5h +Week +Resets +Provider +Account +Resets Central \(5h \| week\)$/);
 		expect(rows.map((line) => line.slice(resetColumn, resetColumn + 6).trim())).toEqual(["-", "123", "0", "-"]);
@@ -335,7 +344,7 @@ describe("registered /usage all", () => {
 		expect(notification).toMatch(/^- {6}- {6}- {7}Codex {5}openai-codex-team +not logged in$/m);
 		expect(notification).not.toContain("```");
 		const unfenced = message.content.split("\n").filter((line: string) => line !== "```" && line !== "");
-		expect(unfenced).toEqual(notification.split("\n"));
+		expect(unfenced).toEqual(notification.split("\n").filter((line) => line !== ""));
 		expect(h.notify).toHaveBeenCalledOnce();
 		expect(h.sendMessage).toHaveBeenCalledWith(message, { deliverAs: "nextTurn" });
 	});
@@ -344,10 +353,70 @@ describe("registered /usage all", () => {
 		const h = registerUsage("openai-codex");
 		expect(h.command.getArgumentCompletions?.("a")).toEqual([{ value: "all", label: "all" }]);
 	});
+
+	it.each([
+		["c", "claude"],
+		["o", "openai"],
+		["d", "deepseek"],
+		["", "all"],
+	])("completes %j starting with %j", async (prefix, expected) => {
+		const h = registerUsage("openai-codex");
+		const completions = await h.command.getArgumentCompletions?.(prefix);
+		const options = completions?.map((option) => option.value) ?? [];
+		expect(options).toContain(expected);
+	});
+});
+
+describe("registered /usage claude and openai scopes", () => {
+	it("reports Claude accounts only without reading any provider", async () => {
+		const h = registerUsage("openai-codex");
+		h.events.on("claude-bridge:usage-all-request", (data) => {
+			(data as { accounts?: Promise<unknown> }).accounts = Promise.resolve([
+				{
+					account: "alessio",
+					selected: true,
+					fiveHour: { percent: 42, resetsAt: "2026-10-16T14:00:00Z" },
+					weekly: { percent: 61, resetsAt: "2026-10-20T09:00:00Z" },
+				},
+			]);
+		});
+
+		await h.command.handler(" claude ", h.ctx);
+
+		const message = h.sendMessage.mock.calls[0][0];
+		expect(message).toMatchObject({ customType: "usage-claude", display: true });
+		expect(message.content.split("\n")[0]).toBe("Claude account usage; - = not reported");
+		const lines = sectionRows(message.content).map((line) => line.trim().replace(/ +/g, " "));
+		expect(lines).toContain("42% 61% - Claude alessio * 2026-10-16 09:00 | 2026-10-20 04:00");
+		expect(lines.join("\n")).not.toContain("Codex");
+		expect(h.getApiKey).not.toHaveBeenCalled();
+		expect(h.fetch).not.toHaveBeenCalled();
+	});
+
+	it("reports Codex providers only without requesting Claude accounts", async () => {
+		const h = registerUsage("openai-codex");
+		const claudeRequests: unknown[] = [];
+		h.events.on("claude-bridge:usage-all-request", (request) => claudeRequests.push(request));
+		h.fetch.mockImplementation(async () => allUsageResponse());
+
+		await h.command.handler("openai", h.ctx);
+
+		const message = h.sendMessage.mock.calls[0][0];
+		expect(message).toMatchObject({ customType: "usage-openai", display: true });
+		expect(message.content.split("\n")[0]).toBe(
+			"OpenAI account usage; Resets = available reset credits; - = not reported",
+		);
+		const lines = sectionRows(message.content).map((line) => line.trim().replace(/ +/g, " "));
+		expect(lines).toContain(
+			"10% 63% - Codex usage@example.com (pro) [openai-codex] * 2026-10-16 05:00 | 2026-10-20 01:00",
+		);
+		expect(lines.join("\n")).not.toContain("Claude");
+		expect(claudeRequests).toEqual([]);
+	});
 });
 
 describe("registered /usage all table fencing", () => {
-	it("fences the table so Markdown keeps dash cells and column padding literal", async () => {
+	it("fences every table so Markdown keeps dash cells and column padding literal", async () => {
 		const h = registerUsage("openai-codex");
 		h.fetch.mockImplementation(async () => allUsageResponse());
 		await h.command.handler("all", h.ctx);
@@ -358,6 +427,10 @@ describe("registered /usage all table fencing", () => {
 			"```",
 		]);
 		expect(header.startsWith("5h     Week   Resets  Provider")).toBe(true);
+		const fenceStarts = rest.flatMap((line: string, index: number) => (line === "```" ? [index] : []));
+		expect(rest.slice(0, fenceStarts[0])).toContain(rest.find((line: string) => line.includes("openai-codex-team")));
+		expect(rest[fenceStarts[0] + 1]).toBe("");
+		expect(rest[fenceStarts[0] + 2]).toBe("DeepSeek pool usage; - = not reported");
 		expect(rest.at(-1)).toBe("```");
 		const teamRow = rest.find((line: string) => line.includes("openai-codex-team"));
 		expect(teamRow).toMatch(/^- {6}- {6}- {7}Codex {5}openai-codex-team +not logged in$/);
@@ -609,7 +682,7 @@ describe("registered /usage busy delivery", () => {
 		h.events.on("claude-bridge:usage-request", (request) => bridgeRequests.push(request));
 		await h.command.handler(" unknown ", h.ctx);
 		expect(bridgeRequests).toEqual([]);
-		expect(h.notify).toHaveBeenCalledExactlyOnceWith("Usage: /usage [all|deepseek|reset]", "warning");
+		expect(h.notify).toHaveBeenCalledExactlyOnceWith("Usage: /usage [all|claude|openai|deepseek|reset]", "warning");
 		expect(h.getApiKey).not.toHaveBeenCalled();
 		expect(h.fetch).not.toHaveBeenCalled();
 		expect(h.confirm).not.toHaveBeenCalled();

@@ -28,6 +28,9 @@ const REPORT_VALUES = [
 	"2030-01-07 23:06",
 	"claude-error@example.test",
 	"Fixture Claude account unavailable",
+	"DeepSeek pool usage; - = not reported",
+	"opencode-go",
+	"openrouter-gc",
 ];
 
 type ProviderRequest = { id: string; messages: Message[] };
@@ -188,6 +191,7 @@ function assertReportContent(text: string): void {
 	expect(rows.find((row) => row.includes("openai-codex-team"))).toContain("not logged in");
 	expect(rows.find((row) => row.includes("claude-selected@example.test"))).toContain("*");
 	expect(rows.find((row) => row.includes("claude-error@example.test"))).toMatch(/error/i);
+	expect(text.indexOf("Account usage (all accounts)")).toBeLessThan(text.indexOf("DeepSeek pool usage"));
 }
 
 async function finishTurn(fixture: Fixture, expectedCompletions: number): Promise<void> {

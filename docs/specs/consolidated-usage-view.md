@@ -2,8 +2,9 @@
 
 Module boundary: first-party extension (`packages/coding-agent/extensions/codex-usage/src/index.ts`).
 
-`/usage all` displays Codex provider and Claude account usage together, regardless of the current
-model. It is a report, not an account-switching or quota-fallback operation. See the
+`/usage all` displays Codex provider, Claude account, and DeepSeek pool usage together, regardless of the
+current model. It is a report, not an account-switching or quota-fallback operation. `/usage claude` and
+`/usage openai` report the same account table restricted to one family. See the
 [usage guide](../../packages/coding-agent/docs/usage.md#slash-commands) for command behavior.
 
 ## What it must do
@@ -11,11 +12,17 @@ model. It is a report, not an account-switching or quota-fallback operation. See
 ### Command and delivery
 
 - [x] Accept `/usage all` regardless of the current model and include `all` in command completions.
+- [x] Accept `/usage claude` and `/usage openai` regardless of the current model, include both in command
+      completions, and report the account table restricted to Claude accounts or Codex providers.
+- [x] Read only the selected family: `/usage claude` performs no Codex provider request, and
+      `/usage openai` emits no Claude account request.
 - [x] Accept `/usage deepseek` regardless of the current model and include `deepseek` in command completions.
 - [x] Leave `/usage` and `/usage reset` behavior unchanged, except that a Codex window without
       `used_percent` is omitted instead of shown as 0% (shared window mapping).
-- [x] Read Codex and Claude usage concurrently and publish one custom message of type `usage-all`;
-      while a turn is running, show it as a notification and deliver the message on the next turn.
+- [x] Read Codex, Claude, and DeepSeek usage concurrently and publish one custom message per command:
+      `usage-all`, `usage-claude`, or `usage-openai`; while a turn is running, show it as a notification and
+      deliver the message on the next turn.
+- [x] Publish `/usage all` as an account table followed by the DeepSeek pool table in the same message.
 
 ### Codex providers
 
@@ -55,8 +62,9 @@ model. It is a report, not an account-switching or quota-fallback operation. See
 - [x] Show `-` for windows a provider does not report and never render a missing value as 0%.
 - [x] Show `not logged in` when no credential is stored for the provider, and keep per-provider
       failures as error rows without losing other providers' results.
-- [x] Publish one custom message of type `usage-deepseek` and leave `/usage`, `/usage all`, and
-      `/usage reset` unchanged.
+- [x] Publish one custom message of type `usage-deepseek` and leave `/usage`, `/usage reset`, `/usage all`,
+      `/usage claude`, and `/usage openai` unchanged except that `/usage all` appends this table after the
+      account table.
 
 ### Claude accounts
 
@@ -75,7 +83,8 @@ model. It is a report, not an account-switching or quota-fallback operation. See
 ## Implementation inventory
 
 - `packages/coding-agent/extensions/codex-usage/src/index.ts` — registers the command, collects
-  provider/account usage, and renders the consolidated report and the DeepSeek pool report.
+  provider/account usage, and renders the consolidated account report, the Claude-only and OpenAI-only
+  reports, and the DeepSeek pool report.
 - `packages/coding-agent/src/core/codex-quota-fallback.ts` — defines the Codex provider keys used
   to enumerate report rows; the Supervisor also uses this provider map.
 

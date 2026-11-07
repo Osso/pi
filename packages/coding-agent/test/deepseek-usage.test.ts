@@ -110,6 +110,14 @@ function registerUsage(options: { loggedIn?: (providerId: string) => boolean; fa
 				return Response.json(openRouterCreditsPayload(2100, 1923.314149318));
 			case USAGE_URLS.deepseekBalance:
 				return Response.json(deepseekBalancePayload());
+			case "https://chatgpt.com/backend-api/wham/usage":
+				return Response.json({
+					plan_type: "pro",
+					rate_limit: {
+						primary_window: { used_percent: 23, limit_window_seconds: 18_000 },
+						secondary_window: { used_percent: 41, limit_window_seconds: 604_800 },
+					},
+				});
 			case "https://api.commandcode.ai/alpha/whoami":
 				return Response.json({ success: true, user: { id: "u1" }, org: null });
 			case "https://api.commandcode.ai/alpha/billing/credits":
@@ -221,6 +229,27 @@ describe("DeepSeek usage payload mapping", () => {
 	});
 });
 
+describe("registered /usage all", () => {
+	it("includes the DeepSeek pool section after the account table", async () => {
+		const h = registerUsage();
+		await h.command.handler("all", h.ctx);
+
+		expect(h.sendMessage).toHaveBeenCalledTimes(1);
+		const message = h.sendMessage.mock.calls[0][0] as { customType: string; content: string; display: boolean };
+		expect(message.customType).toBe("usage-all");
+		expect(message.display).toBe(true);
+		const parts = message.content.split("\n\n");
+		expect(parts[0]).toBe("Account usage (all accounts); Resets = available reset credits; - = not reported");
+		expect(parts[1]).toContain("Codex");
+		const deepseekIndex = parts.findIndex((part) => part.includes("DeepSeek pool usage; - = not reported"));
+		expect(deepseekIndex).toBeGreaterThan(0);
+		const deepseekTable = parts[deepseekIndex + 1] ?? "";
+		expect(deepseekTable).toMatch(/^32% +21% +10% +-/m);
+		expect(deepseekTable).toContain("$176.69");
+		expect(deepseekTable).toContain("opencode-go");
+	});
+});
+
 describe("registered /usage deepseek", () => {
 	it("reports every pool provider and sends one usage-deepseek message", async () => {
 		const h = registerUsage();
@@ -259,7 +288,7 @@ describe("registered /usage deepseek", () => {
 		await h.command.handler("nonsense", h.ctx);
 		expect(h.sendMessage).not.toHaveBeenCalled();
 		expect((h.ctx as unknown as { ui: { notify: ReturnType<typeof vi.fn> } }).ui.notify).toHaveBeenCalledWith(
-			"Usage: /usage [all|deepseek|reset]",
+			"Usage: /usage [all|claude|openai|deepseek|reset]",
 			"warning",
 		);
 	});
