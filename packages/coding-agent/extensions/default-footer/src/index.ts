@@ -18,6 +18,8 @@ import {
 	formatExtensionStatusTextLines,
 	sanitizeFooterStatusText,
 } from "../../../src/utils/footer-status.ts";
+import { formatPullRequest, type PullRequest } from "./pull-request.ts";
+import { PullRequestStatus } from "./pull-request-status.ts";
 
 const BACKGROUND_COMPACTION_STATUS_KEY = "background-compaction";
 const BACKGROUND_COMPACTION_STATUS_TEXT = "compacting context";
@@ -37,6 +39,7 @@ export interface DefaultFooterComponentInput {
 	footerData: ReadonlyFooterDataProvider;
 	getAgentCounts?: () => DefaultFooterAgentLifecycleCounts | undefined;
 	getSelectedAgent?: () => DefaultFooterSelectedAgent | undefined;
+	getPullRequest?: () => PullRequest | undefined;
 	theme: Theme;
 }
 
@@ -241,17 +244,19 @@ function formatStatsLine(input: DefaultFooterComponentInput, width: number): str
 
 function formatPwdLine(input: DefaultFooterComponentInput, width: number): string {
 	const session = footerSession(input);
-	const sessionManager = session.sessionManager;
-	let pwd = formatCwd(session.cwd, process.env.HOME || process.env.USERPROFILE);
+	const theme = input.theme;
+	const pwd = formatCwd(session.cwd, process.env.HOME || process.env.USERPROFILE);
 	const branch = input.footerData.getSessionOverride() ? null : input.footerData.getGitBranch();
-	if (branch) {
-		pwd = `${pwd} (${branch})`;
+	const parts = [theme.fg("dim", branch ? `${pwd} (${branch})` : pwd)];
+	const pullRequest = branchCanHavePullRequest(branch) ? input.getPullRequest?.() : undefined;
+	if (pullRequest) {
+		parts.push(formatPullRequest(pullRequest, theme));
 	}
-	const sessionName = sessionManager?.getSessionName();
+	const sessionName = session.sessionManager?.getSessionName();
 	if (sessionName) {
-		pwd = `${pwd} • ${sessionName}`;
+		parts.push(theme.fg("dim", `• ${sessionName}`));
 	}
-	return truncateToWidth(input.theme.fg("dim", pwd), width, input.theme.fg("dim", "..."));
+	return truncateToWidth(parts.join(" "), width, theme.fg("dim", "..."));
 }
 
 function selectedAgentForFooter(store: MultiAgentStore): DefaultFooterSelectedAgent | undefined {
@@ -312,22 +317,38 @@ function registerBackgroundCompactionStatus(pi: ExtensionAPI): void {
 	});
 }
 
+/** Outside a repository, or on a detached HEAD, no branch can have a pull request. */
+function branchCanHavePullRequest(branch: string | null): branch is string {
+	return branch !== null && branch !== "detached";
+}
+
 export default function defaultFooterExtension(pi: ExtensionAPI, options: DefaultFooterExtensionOptions = {}) {
 	const store = options.multiAgentStore;
 	registerBackgroundCompactionStatus(pi);
 	pi.on("session_start", async (_event, ctx) => {
 		setBackgroundCompactionStatus(ctx, undefined);
 		ctx.ui.setDefaultFooter((tui, thm, footerData) => {
-			const unsubscribe = footerData.onBranchChange(() => tui.requestRender());
+			const pullRequestBranch = (): string | null => {
+				const branch = footerData.getGitBranch();
+				return branchCanHavePullRequest(branch) ? branch : null;
+			};
+			const pullRequestStatus = new PullRequestStatus(ctx.cwd, pullRequestBranch, () => tui.requestRender());
+			const unsubscribe = footerData.onBranchChange(() => {
+				void pullRequestStatus.refresh();
+				tui.requestRender();
+			});
 			const component = createDefaultFooterComponent({
 				ctx,
 				footerData,
 				getAgentCounts: store ? () => countDefaultFooterAgents(store) : undefined,
 				getSelectedAgent: store ? () => selectedAgentForFooter(store) : undefined,
+				getPullRequest: () => pullRequestStatus.get(),
 				theme: thm,
 			});
+			pullRequestStatus.start();
 			return {
 				dispose: () => {
+					pullRequestStatus.dispose();
 					component.dispose?.();
 					unsubscribe();
 				},

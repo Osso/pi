@@ -103,6 +103,8 @@
 
 ### Added
 
+- Added the current branch's GitHub pull request to the default footer after the branch name: `#41208 ✓ 4 ○ 1 ✗ 2` links the number, colors it by open/merged/closed state, and shows only the check states that occur. `gh pr view` is polled every 30 seconds while a pull request is shown, every 5 minutes otherwise, and not outside a repository or on a detached HEAD.
+
 - Added `/usage deepseek`, reporting DeepSeek pool provider usage from each provider's own API: `opencode-go` rolling/weekly/monthly percentages, `open-grove` daily/weekly percentages, `openrouter` and `openrouter-gc` weekly key limit plus remaining credits, the official `deepseek` balance, and `commandcode` five-hour/weekly windows, billing-period usage, and remaining monthly credits. Providers without a stored key show `not logged in`, and per-provider failures stay as error rows. `/usage` and `/usage reset` are unchanged; `/usage all` includes the DeepSeek table. See the [consolidated usage spec](../../docs/specs/consolidated-usage-view.md).
 
 - Added model pools: a top-level `pools` map in `models.json` (`"<name>": ["provider/modelId", ...]`) exposes `pool/<name>` models. Each request tries members in order with each member's own credentials and provider headers, and moves to the next member only on a terminal quota/balance error before any output, with a 15-minute in-process cooldown for the exhausted member. Pool capabilities are the most restrictive across members; assistant messages keep the serving member's identity, and compaction treats member messages as the pool's. Quota detection now also matches DeepSeek's HTTP 402 `Insufficient Balance`. See [model pools](docs/models.md#model-pools).
