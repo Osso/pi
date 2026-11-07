@@ -25,12 +25,12 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
   timeout; the new default applies only to newly configured connections using
   the updated code, so running old binaries require restart to adopt it.
 - [x] Store incoming harness messages outside the JSONL transcript.
-- [x] Address incoming messages: `pi control send --pid <pid>` resolves the PID to the session of its newest healthy
-  session-health row and stores that session ID on the message; it fails with exit code 1, without queuing or
-  signaling, when no running session has that PID. Without `--pid`, the message is unaddressed.
-- [x] At startup a session claims the newest pending message addressed to it or unaddressed, and supersedes only older
-  pending messages with the same address. Messages for other sessions stay pending, so concurrent sends to several
-  restarting sessions each reach their own session.
+- [x] Address incoming messages: `pi control send --pid <pid>` requires the PID to be a live, verified Pi process,
+  resolves it to the session of its newest healthy session-health row, and stores that session ID on the message; it
+  fails with exit code 1, without queuing or signaling, otherwise. Without `--pid`, the message is unaddressed.
+- [x] At startup a session claims the newest pending message addressed to it or unaddressed, and supersedes its other
+  pending addressed and unaddressed messages. Messages for other sessions stay pending, so concurrent sends to several
+  restarting sessions each reach their own session. Only interactive sessions with the Supervisor enabled claim.
 - [x] Submit a claimed message with `streamingBehavior: "steer"`, because a restarted session may already be
   continuing its interrupted turn. Mark it completed after it is submitted to the agent.
 - [x] Renew Architect request claims by deduplicating request IDs before persistence,

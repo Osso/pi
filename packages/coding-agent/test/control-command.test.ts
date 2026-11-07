@@ -15,6 +15,7 @@ describe("control command", () => {
 	let stdout: string[];
 	let stderr: string[];
 	let signalProcess: ReturnType<typeof vi.fn<(pid: number, signal: NodeJS.Signals) => void>>;
+	let livePiPids: Set<number>;
 
 	beforeEach(() => {
 		agentDir = mkdtempSync(join(tmpdir(), "pi-control-command-"));
@@ -22,6 +23,7 @@ describe("control command", () => {
 		stdout = [];
 		stderr = [];
 		signalProcess = vi.fn();
+		livePiPids = new Set();
 	});
 
 	afterEach(() => {
@@ -30,6 +32,7 @@ describe("control command", () => {
 	});
 
 	function recordRunningSession(sessionId: string, pid: number): void {
+		livePiPids.add(pid);
 		writeSessionHealth(getControlDbPath(agentDir), {
 			agentGeneration: 1,
 			checkedGeneration: 1,
@@ -45,6 +48,7 @@ describe("control command", () => {
 
 	function send(...args: string[]): void {
 		handleControlCommand(["control", "send", ...args], {
+			isPiProcess: (pid) => livePiPids.has(pid),
 			signalProcess,
 			stderr: (text) => stderr.push(text),
 			stdout: (text) => stdout.push(text),
@@ -84,6 +88,22 @@ describe("control command", () => {
 			expect(process.exitCode).toBe(1);
 			expect(signalProcess).not.toHaveBeenCalled();
 			expect(claimLatestIncomingMessage(getControlDbPath(agentDir), "any-session")).toBeUndefined();
+		} finally {
+			process.exitCode = previousExitCode;
+		}
+	});
+
+	it("rejects a healthy session row whose process is no longer a live Pi process", () => {
+		const previousExitCode = process.exitCode;
+		try {
+			recordRunningSession("exited-session", 5555);
+			livePiPids.delete(5555);
+
+			send("--pid", "5555", "finish now");
+
+			expect(stderr).toEqual(["No running Pi session has pid 5555.\n"]);
+			expect(signalProcess).not.toHaveBeenCalled();
+			expect(claimLatestIncomingMessage(getControlDbPath(agentDir), "exited-session")).toBeUndefined();
 		} finally {
 			process.exitCode = previousExitCode;
 		}

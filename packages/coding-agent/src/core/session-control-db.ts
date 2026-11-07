@@ -422,8 +422,8 @@ export function readRunningSessionIdByPid(controlDbPath: string, pid: number): s
 }
 
 /**
- * Claims the newest pending message addressed to this session or to no session. Older pending messages with the
- * same address are superseded; messages addressed to other sessions stay pending for them.
+ * Claims the newest pending message addressed to this session or to no session, and supersedes the other pending
+ * messages this session could claim. Messages addressed to other sessions stay pending for them.
  */
 export function claimLatestIncomingMessage(
 	controlDbPath: string,
@@ -447,9 +447,9 @@ function claimLatestIncomingMessageInTransaction(
 		`
 		UPDATE incoming_messages
 		SET status = 'superseded', completed_at = ?
-		WHERE status = 'pending' AND id <> ? AND target_session_id IS ?
+		WHERE status = 'pending' AND id <> ? AND (target_session_id = ? OR target_session_id IS NULL)
 		`,
-	).run(now, row.id, row.target_session_id);
+	).run(now, row.id, sessionId);
 	db.prepare(
 		`
 		UPDATE incoming_messages

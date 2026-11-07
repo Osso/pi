@@ -1,3 +1,4 @@
+import { isVerifiedPiRuntimeProcess } from "../core/runtime-process.ts";
 import {
 	enqueueIncomingMessage,
 	getControlDbPath,
@@ -10,6 +11,8 @@ interface ControlCommandDependencies {
 	stdout?: (text: string) => void;
 	stderr?: (text: string) => void;
 	signalProcess?: (pid: number, signal: NodeJS.Signals) => void;
+	/** Whether the PID is a live Pi process; a healthy session row alone can outlive its process. */
+	isPiProcess?: (pid: number) => boolean;
 }
 
 interface ParsedSendCommand {
@@ -23,6 +26,7 @@ export function handleControlCommand(args: string[], dependencies: ControlComman
 	const stdout = dependencies.stdout ?? ((text) => process.stdout.write(text));
 	const stderr = dependencies.stderr ?? ((text) => process.stderr.write(text));
 	const signalProcess = dependencies.signalProcess ?? ((pid, signal) => process.kill(pid, signal));
+	const isPiProcess = dependencies.isPiProcess ?? isVerifiedPiRuntimeProcess;
 
 	const subcommand = args[1];
 	if (subcommand === "send") {
@@ -41,7 +45,9 @@ export function handleControlCommand(args: string[], dependencies: ControlComman
 
 		const controlDbPath = getControlDbPath();
 		const targetSessionId =
-			parsed.pid === undefined ? undefined : readRunningSessionIdByPid(controlDbPath, parsed.pid);
+			parsed.pid === undefined || !isPiProcess(parsed.pid)
+				? undefined
+				: readRunningSessionIdByPid(controlDbPath, parsed.pid);
 		if (parsed.pid !== undefined && !targetSessionId) {
 			stderr(`No running Pi session has pid ${parsed.pid}.\n`);
 			process.exitCode = 1;

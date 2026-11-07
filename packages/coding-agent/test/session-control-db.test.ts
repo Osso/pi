@@ -5817,7 +5817,7 @@ Date.now = () => ${Date.now()};
 		expect(claimLatestIncomingMessage(controlDbPath, "session-d")).toBeUndefined();
 	});
 
-	it("supersedes only older messages addressed to the claiming session", () => {
+	it("supersedes the claiming session's older and unaddressed messages, keeping other sessions' messages", () => {
 		const older = enqueueIncomingMessage(controlDbPath, "older for a", "session-a");
 		const untargeted = enqueueIncomingMessage(controlDbPath, "for anyone");
 		const forB = enqueueIncomingMessage(controlDbPath, "for b", "session-b");
@@ -5826,10 +5826,10 @@ Date.now = () => ${Date.now()};
 		expect(claimLatestIncomingMessage(controlDbPath, "session-a")?.content).toBe("newer for a");
 
 		expect(readIncomingMessageStatus(controlDbPath, older)).toBe("superseded");
-		expect(readIncomingMessageStatus(controlDbPath, untargeted)).toBe("pending");
+		expect(readIncomingMessageStatus(controlDbPath, untargeted)).toBe("superseded");
 		expect(readIncomingMessageStatus(controlDbPath, forB)).toBe("pending");
 		expect(claimLatestIncomingMessage(controlDbPath, "session-b")?.content).toBe("for b");
-		expect(claimLatestIncomingMessage(controlDbPath, "session-c")?.content).toBe("for anyone");
+		expect(claimLatestIncomingMessage(controlDbPath, "session-c")).toBeUndefined();
 	});
 
 	it("returns without a writer lock when no incoming message is pending", async () => {
