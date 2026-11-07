@@ -37,6 +37,9 @@ const NON_RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	"quota exceeded",
 	"(?<!/)billing",
 
+	// OpenRouter HTTP 402 when the key's credits or limit cannot cover the request.
+	"requires more credits",
+
 	// These terminal reasons are deterministic for an unchanged request.
 	"Incomplete response returned, reason: max_output_tokens",
 	"Incomplete response returned, reason: content_filter",

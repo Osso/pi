@@ -235,6 +235,7 @@
 
 ### Fixed
 
+- Fixed model pools retrying an OpenRouter member after its HTTP 402 `requires more credits` error instead of rotating to the next member. The error is now classified as terminal quota exhaustion, so the member gets the 15-minute cooldown and a directly selected OpenRouter model ends the turn without retries.
 - Fixed automatic retry repeating an OpenAI or OpenAI-compatible rate-limited request when the provider asked to wait longer than `retry.provider.maxRetryDelayMs`. The failed message now carries the provider-requested delay, including delays stated only in a streamed error message, and the turn ends after the first failure instead of retrying up to `retry.maxRetries` times before the reset time.
 - Fixed interactive Bash and tool output displaying DEL and Unicode C1 controls that could break terminal history restoration; stored messages and model context remain unchanged.
 - Fixed image reads failing with "could not be resized below the inline image size limit" for every image when the compiled binary runs as a user who cannot read the build machine's baked `photon-node` path (`EACCES`); compiled binaries now load `photon_rs_bg.wasm` from next to the executable first.

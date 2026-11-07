@@ -255,19 +255,20 @@ describe("model pools", () => {
 		}
 	});
 
-	test.each(["insufficient_quota", '{"error":{"message":"Insufficient Balance","type":"unknown_error"}}'])(
-		"rotates before output for %s and exposes only the successful member events",
-		async (error) => {
-			const reg = registry();
-			const successful = events(reg.find(SECOND, SECOND_ID)!);
-			const request = register((model) => fromEvents(model.provider === FIRST ? events(model, error) : successful));
-			const actual = await collect(streamSimple(pool(reg), context));
-			expect(request.mock.calls.map(([model]) => model.provider)).toEqual([FIRST, SECOND]);
-			expect(actual.events).toEqual(successful);
-			for (const [index, event] of actual.events.entries()) expect(event).toBe(successful[index]);
-			expect(actual.result).toBe(messageFromEvent(successful[1]));
-		},
-	);
+	test.each([
+		"insufficient_quota",
+		'{"error":{"message":"Insufficient Balance","type":"unknown_error"}}',
+		'402 This request requires more credits, or fewer max_tokens. You requested up to 131072 tokens, but can only afford 18096. {"code":402,"metadata":{"error_type":"payment_required"}}',
+	])("rotates before output for %s and exposes only the successful member events", async (error) => {
+		const reg = registry();
+		const successful = events(reg.find(SECOND, SECOND_ID)!);
+		const request = register((model) => fromEvents(model.provider === FIRST ? events(model, error) : successful));
+		const actual = await collect(streamSimple(pool(reg), context));
+		expect(request.mock.calls.map(([model]) => model.provider)).toEqual([FIRST, SECOND]);
+		expect(actual.events).toEqual(successful);
+		for (const [index, event] of actual.events.entries()) expect(event).toBe(successful[index]);
+		expect(actual.result).toBe(messageFromEvent(successful[1]));
+	});
 
 	test("rotates before output when a rate limit requests a longer delay than the cap", async () => {
 		const reg = registry();

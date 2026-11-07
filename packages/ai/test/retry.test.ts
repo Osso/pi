@@ -61,6 +61,12 @@ describe("provider retry classification", () => {
 		).toBe(false);
 	});
 
+	it("does not retry OpenRouter credit exhaustion whose key URL contains retryable status digits", () => {
+		const errorMessage =
+			'402 This request requires more credits, or fewer max_tokens. You requested up to 131072 tokens, but can only afford 18096. To increase, visit https://openrouter.ai/workspaces/default/keys/35249299e1719a8b and adjust the key\'s weekly limit: {"code":402,"metadata":{"error_type":"payment_required"}}';
+		expect(isRetryableAssistantError(fauxAssistantMessage("", { stopReason: "error", errorMessage }))).toBe(false);
+	});
+
 	it("matches OpenAI Responses streams ending before a terminal event", () => {
 		expect(
 			isRetryableAssistantError(
