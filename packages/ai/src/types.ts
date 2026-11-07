@@ -573,6 +573,8 @@ export interface OpenAIResponsesCompat {
 	sendSessionIdHeader?: boolean;
 	/** Whether the provider supports `prompt_cache_retention: "24h"`. Default: true. */
 	supportsLongCacheRetention?: boolean;
+	/** OpenRouter provider routing preferences, forwarded as the request-level `provider` field. */
+	openRouterRouting?: OpenRouterRouting;
 }
 
 /** Compatibility settings for Anthropic Messages-compatible APIs. */

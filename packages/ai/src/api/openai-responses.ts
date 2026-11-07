@@ -56,7 +56,9 @@ function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEn
 	return "short";
 }
 
-function getCompat(model: Model<"openai-responses">): Required<OpenAIResponsesCompat> {
+type ResolvedResponsesCompat = Required<Omit<OpenAIResponsesCompat, "openRouterRouting">>;
+
+function getCompat(model: Model<"openai-responses">): ResolvedResponsesCompat {
 	return {
 		supportsDeveloperRole: model.compat?.supportsDeveloperRole ?? true,
 		sendSessionIdHeader: model.compat?.sendSessionIdHeader ?? true,
@@ -65,7 +67,7 @@ function getCompat(model: Model<"openai-responses">): Required<OpenAIResponsesCo
 }
 
 function getPromptCacheRetention(
-	compat: Required<OpenAIResponsesCompat>,
+	compat: ResolvedResponsesCompat,
 	cacheRetention: CacheRetention,
 ): "24h" | undefined {
 	return cacheRetention === "long" && compat.supportsLongCacheRetention ? "24h" : undefined;
@@ -232,6 +234,11 @@ function buildParams(model: Model<"openai-responses">, context: Context, options
 		prompt_cache_retention: getPromptCacheRetention(compat, cacheRetention),
 		store: false,
 	};
+
+	// OpenRouter provider routing preferences
+	if (model.compat?.openRouterRouting) {
+		(params as any).provider = model.compat.openRouterRouting;
+	}
 
 	if (options?.maxTokens) {
 		params.max_output_tokens = options?.maxTokens;

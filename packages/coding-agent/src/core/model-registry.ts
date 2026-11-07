@@ -144,6 +144,7 @@ const OpenAIResponsesCompatSchema = Type.Object({
 	supportsDeveloperRole: Type.Optional(Type.Boolean()),
 	sendSessionIdHeader: Type.Optional(Type.Boolean()),
 	supportsLongCacheRetention: Type.Optional(Type.Boolean()),
+	openRouterRouting: Type.Optional(OpenRouterRoutingSchema),
 });
 
 const AnthropicMessagesCompatSchema = Type.Object({
