@@ -8,6 +8,7 @@ import { spawnProcess } from "../utils/child-process.ts";
 import { type RelaySettings, runSshRelayClient } from "./host-relay-client.ts";
 import {
 	isProcessIdentityAlive,
+	isRuntimeExecutableReplaced,
 	isVerifiedPiRuntimeProcess,
 	type ProcessIdentity,
 	readProcessIdentity,
@@ -17,6 +18,12 @@ import { SettingsManager } from "./settings-manager.ts";
 
 interface RelayIdentity extends ProcessIdentity {
 	version: string;
+}
+
+export interface RelayLaunchInvocation {
+	command: string;
+	args: string[];
+	env: NodeJS.ProcessEnv;
 }
 
 const LOCK_OPTIONS = { realpath: false, stale: 5000, update: 1000 };
@@ -49,14 +56,23 @@ async function waitForRelay(controlDbPath: string, ready: boolean): Promise<void
 	const deadline = Date.now() + 10000;
 	while (Date.now() < deadline) {
 		const identity = readRelayIdentity(controlDbPath);
-		if (ready ? identity?.version === VERSION : !identity) return;
+		if (ready ? isCurrentRelay(identity) : !identity) return;
 		await delay(50);
 	}
 	throw new Error(`Relay did not ${ready ? "start" : "stop"} within 10000ms`);
 }
 
+/** Builds share one version, so a relay whose executable a deployment replaced is stale too. */
+function isCurrentRelay(identity: RelayIdentity | undefined): boolean {
+	return identity?.version === VERSION && !isRuntimeExecutableReplaced(identity.pid);
+}
+
 /** Call without awaiting at session startup; callers report errors without failing the session. */
-export async function ensureRelayRunning(controlDbPath: string, settings: RelaySettings | undefined): Promise<void> {
+export async function ensureRelayRunning(
+	controlDbPath: string,
+	settings: RelaySettings | undefined,
+	launchInvocation?: RelayLaunchInvocation,
+): Promise<void> {
 	if (!settings) return;
 	mkdirSync(dirname(controlDbPath), { recursive: true, mode: 0o700 });
 	const release = await lockfile.lock(controlDbPath, {
@@ -66,7 +82,7 @@ export async function ensureRelayRunning(controlDbPath: string, settings: RelayS
 	});
 	try {
 		const resident = readRelayIdentity(controlDbPath);
-		if (resident?.version === VERSION) return;
+		if (isCurrentRelay(resident)) return;
 		if (resident) {
 			if (resident.pid === process.pid || !isVerifiedPiRuntimeProcess(resident.pid)) {
 				throw new Error(`Refusing to terminate unverified relay process ${resident.pid}`);
@@ -74,23 +90,27 @@ export async function ensureRelayRunning(controlDbPath: string, settings: RelayS
 			process.kill(resident.pid, "SIGTERM");
 			await waitForRelay(controlDbPath, false);
 		}
-		await launchRelay(controlDbPath);
+		await launchRelay(controlDbPath, launchInvocation ?? resolveCurrentRelayLaunchInvocation());
 		await waitForRelay(controlDbPath, true);
 	} finally {
 		await release();
 	}
 }
 
-async function launchRelay(controlDbPath: string): Promise<void> {
+function resolveCurrentRelayLaunchInvocation(): RelayLaunchInvocation {
 	const entrypoint = process.argv[1];
 	if (!isBunBinary && !entrypoint) throw new Error("Cannot start relay without the active Pi CLI entrypoint");
 	const args = isBunBinary ? ["relay", "connect"] : [...process.execArgv, entrypoint!, "relay", "connect"];
+	return { command: process.execPath, args, env: process.env };
+}
+
+async function launchRelay(controlDbPath: string, invocation: RelayLaunchInvocation): Promise<void> {
 	const log = openSync(`${controlDbPath}.relay.log`, "a", 0o600);
 	try {
 		await new Promise<void>((resolve, reject) => {
-			const child = spawnProcess(process.execPath, args, {
+			const child = spawnProcess(invocation.command, invocation.args, {
 				cwd: homedir(),
-				env: process.env,
+				env: invocation.env,
 				detached: true,
 				stdio: ["ignore", log, log],
 			});
