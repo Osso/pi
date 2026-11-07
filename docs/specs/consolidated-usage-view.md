@@ -19,9 +19,9 @@ current model. It is a report, not an account-switching or quota-fallback operat
 - [x] Accept `/usage deepseek` regardless of the current model and include `deepseek` in command completions.
 - [x] Leave `/usage` and `/usage reset` behavior unchanged, except that a Codex window without
       `used_percent` is omitted instead of shown as 0% (shared window mapping).
-- [x] Read Codex, Claude, and DeepSeek usage concurrently and publish one custom message per command:
-      `usage-all`, `usage-claude`, or `usage-openai`; while a turn is running, show it as a notification and
-      deliver the message on the next turn.
+- [x] Read Codex, Claude, and DeepSeek usage concurrently for `/usage all`; read only the selected
+      family for scoped reports. Publish one custom message per command: `usage-all`, `usage-claude`, or
+      `usage-openai`; while a turn is running, show it as a notification and deliver it on the next turn.
 - [x] Publish `/usage all` as an account table followed by the DeepSeek pool table in the same message.
 
 ### Codex providers
