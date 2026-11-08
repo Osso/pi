@@ -166,11 +166,7 @@ it("recovers the same instruction evaluator after external re-login without auth
 	};
 	faux.setResponses([respond]);
 	try {
-		const evaluate = createSupervisorInstructionEvaluator(
-			await createSupervisorModelRegistry(tempDir),
-			tempDir,
-			tempDir,
-		);
+		const evaluate = createSupervisorInstructionEvaluator(createSupervisorModelRegistry(tempDir), tempDir, tempDir);
 		expect(await evaluate("First raw instruction", new AbortController().signal)).toBeUndefined();
 		replaceOAuthCredentials(tempDir, FRESH_KEY);
 		expect(await evaluate("Second raw instruction", new AbortController().signal)).toBe("ACCEPT");

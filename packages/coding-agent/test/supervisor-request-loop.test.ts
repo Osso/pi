@@ -94,8 +94,8 @@ vi.mock("../src/core/model-registry.ts", () => ({
 vi.mock("../src/core/resource-loader.ts", () => ({
 	DefaultResourceLoader: class {
 		async reload(): Promise<void> {}
-		getExtensions(): { errors: []; extensions: []; runtime: Record<string, never> } {
-			return { errors: [], extensions: [], runtime: {} };
+		getExtensions(): { errors: []; extensions: []; runtime: { pendingProviderRegistrations: [] } } {
+			return { errors: [], extensions: [], runtime: { pendingProviderRegistrations: [] } };
 		}
 	},
 }));

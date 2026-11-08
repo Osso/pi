@@ -133,40 +133,33 @@ function readConfiguredSupervisorModel(agentDir: string): string | undefined {
 	return SettingsManager.create(agentDir, agentDir).getSupervisorModel();
 }
 
-/**
- * The resident session and instruction review share one registry: a provider registered by an
- * installed package (such as claude-bridge) may register only once per process.
- */
-export async function createSupervisorModelRegistry(agentDir: string): Promise<ModelRegistry> {
-	const modelRegistry = ModelRegistry.create(
-		AuthStorage.create(join(agentDir, "auth.json")),
-		join(agentDir, "models.json"),
-	);
-	const configured = readConfiguredSupervisorModel(agentDir);
-	const slash = configured?.indexOf("/") ?? -1;
-	if (!configured || slash <= 0 || modelRegistry.find(configured.slice(0, slash), configured.slice(slash + 1))) {
-		return modelRegistry;
-	}
-	await registerExtensionProvider(modelRegistry, agentDir, configured.slice(0, slash));
-	return modelRegistry;
+/** The resident session and instruction review share one registry, so both see an extension-registered provider. */
+export function createSupervisorModelRegistry(agentDir: string): ModelRegistry {
+	return ModelRegistry.create(AuthStorage.create(join(agentDir, "auth.json")), join(agentDir, "models.json"));
 }
 
-/** Registers only the named provider; the Supervisor session itself still loads no extension hooks or tools. */
-async function registerExtensionProvider(modelRegistry: ModelRegistry, agentDir: string, provider: string) {
-	const resourceLoader = new DefaultResourceLoader({
-		agentDir,
-		cwd: agentDir,
-		noContextFiles: true,
-		noPromptTemplates: true,
-		noSkills: true,
-		noThemes: true,
-		settingsManager: SettingsManager.create(agentDir, agentDir),
-	});
-	await resourceLoader.reload();
-	const registration = resourceLoader
-		.getExtensions()
-		.runtime.pendingProviderRegistrations.find((candidate) => candidate.name === provider);
-	if (registration) modelRegistry.registerProvider(provider, registration.config);
+/** The configured supervisorModel's provider when no built-in or models.json provider defines that model. */
+function findExtensionProviderName(modelRegistry: ModelRegistry, agentDir: string): string | undefined {
+	const configured = readConfiguredSupervisorModel(agentDir);
+	const slash = configured?.indexOf("/") ?? -1;
+	if (!configured || slash <= 0) return undefined;
+	const provider = configured.slice(0, slash);
+	return modelRegistry.find(provider, configured.slice(slash + 1)) ? undefined : provider;
+}
+
+/**
+ * Keeps the inline Supervisor gate plus the one extension that registers the provider, with its hooks:
+ * claude-bridge's stream needs the system prompt its own before_agent_start hook captured.
+ */
+function keepProviderExtension(base: LoadExtensionsResult, provider: string): LoadExtensionsResult {
+	const registration = base.runtime.pendingProviderRegistrations.find((candidate) => candidate.name === provider);
+	base.runtime.pendingProviderRegistrations = registration ? [registration] : [];
+	const kept = (path: string) => path.startsWith("<inline") || path === registration?.extensionPath;
+	return {
+		...base,
+		errors: base.errors.filter((error) => kept(error.path)),
+		extensions: base.extensions.filter((extension) => kept(extension.path)),
+	};
 }
 
 function requireSupervisorModels(modelRegistry: ModelRegistry, agentDir: string): Model<Api>[] {
@@ -223,6 +216,8 @@ export function createSupervisorInstructionEvaluator(
 			maxRetries: retrySettings.maxRetries,
 			maxRetryDelayMs: retrySettings.maxRetryDelayMs,
 			reasoning: "low",
+			// Each review is a stateless one-off; session-backed providers such as claude-bridge route it to their one-off path.
+			cacheRetention: "none",
 			signal,
 			timeoutMs: retrySettings.timeoutMs ?? effectiveIdleTimeoutMs,
 			websocketConnectTimeoutMs: settingsManager.getWebSocketConnectTimeoutMs(),
@@ -249,7 +244,9 @@ export async function createSupervisorResourceLoader(
 	agentDir: string,
 	kbDir: string,
 	settingsManager: SettingsManager,
+	modelRegistry: ModelRegistry,
 ): Promise<DefaultResourceLoader> {
+	const extensionProvider = findExtensionProviderName(modelRegistry, agentDir);
 	const resourceLoader = new DefaultResourceLoader({
 		agentDir,
 		cwd: kbDir,
@@ -258,15 +255,21 @@ export async function createSupervisorResourceLoader(
 				pi.registerToolGate((event) => blockSupervisorFileAccess(kbDir, event));
 			},
 		],
+		extensionsOverride: extensionProvider ? (base) => keepProviderExtension(base, extensionProvider) : undefined,
 		noContextFiles: true,
-		noExtensions: true,
+		noExtensions: !extensionProvider,
 		noPromptTemplates: true,
 		noSkills: true,
 		noThemes: true,
-		settingsManager,
+		// Extension discovery needs the configured packages; the in-memory Supervisor settings have none.
+		settingsManager: extensionProvider ? SettingsManager.create(kbDir, agentDir) : settingsManager,
 	});
 	await resourceLoader.reload();
-	validateSupervisorExtensionLoad(resourceLoader.getExtensions());
+	const extensions = resourceLoader.getExtensions();
+	validateSupervisorExtensionLoad(extensions);
+	for (const { name, config } of extensions.runtime.pendingProviderRegistrations) {
+		modelRegistry.registerProvider(name, config);
+	}
 	return resourceLoader;
 }
 
@@ -313,7 +316,7 @@ export async function runSupervisorService(): Promise<void> {
 	const kbDir = process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR;
 	const controlDbPath = getControlDbPath();
 	const sessionManager = openSupervisorSession(agentDir, kbDir);
-	const modelRegistry = await createSupervisorModelRegistry(agentDir);
+	const modelRegistry = createSupervisorModelRegistry(agentDir);
 	const session = await createSupervisorAgentSession(modelRegistry, agentDir, kbDir, sessionManager);
 	const reviewInstructions = createSupervisorInstructionReviewer(
 		createSupervisorInstructionEvaluator(modelRegistry, agentDir, kbDir),
@@ -366,9 +369,9 @@ async function createSupervisorAgentSession(
 	kbDir: string,
 	sessionManager: SessionManager,
 ): Promise<SupervisorSession> {
-	const [model] = requireSupervisorModels(modelRegistry, agentDir);
 	const settingsManager = createSupervisorSettingsManager();
-	const resourceLoader = await createSupervisorResourceLoader(agentDir, kbDir, settingsManager);
+	const resourceLoader = await createSupervisorResourceLoader(agentDir, kbDir, settingsManager, modelRegistry);
+	const [model] = requireSupervisorModels(modelRegistry, agentDir);
 	const { session } = await createAgentSession({
 		agentDir,
 		authStorage: modelRegistry.authStorage,

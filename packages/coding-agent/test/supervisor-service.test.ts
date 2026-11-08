@@ -16,6 +16,7 @@ import {
 import { SessionManager } from "../src/core/session-manager.ts";
 import {
 	blockSupervisorFileAccess,
+	createSupervisorModelRegistry,
 	createSupervisorResourceLoader,
 	createSupervisorSettingsManager,
 	openSupervisorSession,
@@ -174,7 +175,12 @@ describe("resident Supervisor service", () => {
 
 	it("loads only the Supervisor mutation gate extension", async () => {
 		const settingsManager = createSupervisorSettingsManager();
-		const resourceLoader = await createSupervisorResourceLoader(tempDir, tempDir, settingsManager);
+		const resourceLoader = await createSupervisorResourceLoader(
+			tempDir,
+			tempDir,
+			settingsManager,
+			createSupervisorModelRegistry(tempDir),
+		);
 
 		const extensions = resourceLoader.getExtensions().extensions;
 		expect(extensions).toHaveLength(1);

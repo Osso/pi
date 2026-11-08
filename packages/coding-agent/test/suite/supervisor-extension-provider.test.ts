@@ -7,10 +7,16 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ENV_AGENT_DIR, ENV_STATE_DIR } from "../../src/config.ts";
 import { probeResidentConsole } from "../../src/core/resident-console-transport.ts";
 import { getControlDbPath, postSupervisorRequest, readSupervisorRequest } from "../../src/core/session-control-db.ts";
-import { createSupervisorInstructionEvaluator, createSupervisorModelRegistry } from "../../src/supervisor/main.ts";
+import {
+	createSupervisorInstructionEvaluator,
+	createSupervisorModelRegistry,
+	createSupervisorResourceLoader,
+	createSupervisorSettingsManager,
+} from "../../src/supervisor/main.ts";
 import { notifySupervisorRequest } from "../../src/supervisor/request-wake.ts";
 
 const EXTENSION_PATH = join(import.meta.dirname, "fixtures", "supervisor-extension-provider.ts");
+const UNRELATED_EXTENSION_PATH = join(import.meta.dirname, "fixtures", "supervisor-extension-unrelated.ts");
 
 interface ProviderReport {
 	pid: number;
@@ -18,6 +24,10 @@ interface ProviderReport {
 	modelId: string;
 	cwd: string;
 	resident: boolean;
+	oneOff: boolean;
+	captured: boolean;
+	tools: string[];
+	unrelatedPromptMarker: boolean;
 }
 
 let tempDir: string;
@@ -38,10 +48,13 @@ beforeEach(() => {
 	kbDir = join(tempDir, "kb");
 	for (const dir of [agentDir, kbDir]) mkdirSync(dir);
 	reportPath = join(tempDir, "requests.jsonl");
-	// No auth.json or models.json: only the configured extension defines bridge-faux.
+	// No auth.json or models.json: only a configured extension defines bridge-faux.
 	writeFileSync(
 		join(agentDir, "settings.json"),
-		JSON.stringify({ extensions: [EXTENSION_PATH], supervisorModel: "bridge-faux/haiku" }),
+		JSON.stringify({
+			extensions: [UNRELATED_EXTENSION_PATH, EXTENSION_PATH],
+			supervisorModel: "bridge-faux/haiku",
+		}),
 	);
 });
 
@@ -49,22 +62,33 @@ afterEach(() => {
 	rmSync(tempDir, { recursive: true, force: true });
 });
 
-it("instruction review uses a supervisorModel provider registered by an installed extension", async () => {
+it("instruction review uses a supervisorModel provider registered by an installed extension as a one-off call", async () => {
 	vi.stubEnv("PI_SUPERVISOR_EXTENSION_REPORT", reportPath);
 	try {
-		const modelRegistry = await createSupervisorModelRegistry(agentDir);
+		const modelRegistry = createSupervisorModelRegistry(agentDir);
+		await createSupervisorResourceLoader(agentDir, kbDir, createSupervisorSettingsManager(), modelRegistry);
 		const evaluate = createSupervisorInstructionEvaluator(modelRegistry, agentDir, kbDir);
 
 		expect(await evaluate("Continue the goal", new AbortController().signal)).toBe("ACCEPT");
 		expect(readReports()).toEqual([
-			{ pid: process.pid, provider: "bridge-faux", modelId: "haiku", cwd: kbDir, resident: false },
+			{
+				pid: process.pid,
+				provider: "bridge-faux",
+				modelId: "haiku",
+				cwd: kbDir,
+				resident: false,
+				oneOff: true,
+				captured: true,
+				tools: [],
+				unrelatedPromptMarker: false,
+			},
 		]);
 	} finally {
 		vi.unstubAllEnvs();
 	}
 });
 
-it("resident Supervisor answers requests through a supervisorModel provider registered by an installed extension", async () => {
+it("resident Supervisor answers through an extension-registered supervisorModel provider with only that extension's hooks", async () => {
 	const stateDir = join(tempDir, "state");
 	const homeDir = join(tempDir, "home");
 	for (const dir of [stateDir, homeDir]) mkdirSync(dir);
@@ -125,11 +149,20 @@ it("resident Supervisor answers requests through a supervisorModel provider regi
 			objective: "Reviewed by the extension provider",
 		});
 		expect(readReports()).toEqual([
-			{ pid: child.pid, provider: "bridge-faux", modelId: "haiku", cwd: kbDir, resident: true },
+			{
+				pid: child.pid,
+				provider: "bridge-faux",
+				modelId: "haiku",
+				cwd: kbDir,
+				resident: true,
+				oneOff: false,
+				captured: true,
+				tools: ["edit", "end_turn", "read", "supervisor_response", "write"],
+				unrelatedPromptMarker: false,
+			},
 		]);
-	} catch (error) {
-		throw new Error(`${error instanceof Error ? error.message : String(error)}\nSupervisor output:\n${output}`);
 	} finally {
+		if (output) console.log(`Supervisor output:\n${output}`);
 		child.kill("SIGTERM");
 		const killTimer = setTimeout(() => child.kill("SIGKILL"), 5_000);
 		try {

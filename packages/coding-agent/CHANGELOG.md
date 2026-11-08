@@ -104,7 +104,7 @@
 
 ### Added
 
-- The Supervisor's `supervisorModel` can name a model from a provider registered by an installed extension, such as `claude-bridge/claude-haiku-5-5`. Only that provider is registered; the Supervisor session still loads no extension hooks or tools.
+- The Supervisor's `supervisorModel` can name a model from a provider registered by an installed extension, such as `claude-bridge/claude-haiku-5-5`. The Supervisor loads only that extension, with its hooks; other extensions stay out and its tool allowlist is unchanged. Instruction review calls are sent with `cacheRetention: "none"` as one-off requests.
 
 - Added `"disabled": true` for a `models.json` provider entry: the provider's built-in, custom, and extension-registered models are removed, and request auth for it fails with `Provider "<name>" is disabled in models.json` even when a credential exists. See [Disabling a Provider](docs/models.md#disabling-a-provider).
 
