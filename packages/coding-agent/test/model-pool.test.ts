@@ -259,6 +259,7 @@ describe("model pools", () => {
 		"insufficient_quota",
 		'{"error":{"message":"Insufficient Balance","type":"unknown_error"}}',
 		'402 This request requires more credits, or fewer max_tokens. You requested up to 131072 tokens, but can only afford 18096. {"code":402,"metadata":{"error_type":"payment_required"}}',
+		'OpenAI API error (402): {"message":"Insufficient credits. Add more using https://openrouter.ai/settings/credits","code":402,"metadata":{"limit_source":"openrouter_credits"}}',
 	])("rotates before output for %s and exposes only the successful member events", async (error) => {
 		const reg = registry();
 		const successful = events(reg.find(SECOND, SECOND_ID)!);

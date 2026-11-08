@@ -42,7 +42,7 @@ directly never switches accounts; select a pool for that.
   matching SDK precedence; the caller's API key never replaces the member's.
 - [x] Buffer `start` events until the first non-`start` event. Rotate only if that event is a terminal
   quota-exhaustion error, including `insufficient_quota`, DeepSeek's `Insufficient Balance`, and
-  OpenRouter's HTTP 402 `requires more credits`.
+  OpenRouter's HTTP 402 `requires more credits` and `Insufficient credits`.
 - [x] Forward all events from the chosen member unchanged. Errors after text, thinking, or tool-call
   events do not rotate members. Short transient errors such as an OpenAI TPM/RPM
   `rate_limit_exceeded` 429 that asks to wait no longer than `maxRetryDelayMs` end the request and go
@@ -80,7 +80,7 @@ directly never switches accounts; select a pool for that.
 - `packages/coding-agent/src/core/model-pool.ts` — derives capabilities, registers the pool API,
   resolves member auth, streams events, and keeps quota cooldowns.
 - `packages/coding-agent/src/core/codex-quota-fallback.ts` — classifies terminal quota errors,
-  including `Insufficient Balance` and `requires more credits`.
+  including `Insufficient Balance`, `requires more credits` and `Insufficient credits`.
 - `packages/coding-agent/src/core/sdk.ts` — routes pool models through the SDK per-model request path.
 - `packages/coding-agent/src/core/agent-session.ts` — compaction checks accept pool members.
 - `packages/coding-agent/docs/models.md` — documents the `pools` key and its limits.

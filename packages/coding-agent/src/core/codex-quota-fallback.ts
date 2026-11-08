@@ -7,7 +7,7 @@ export const CODEX_FALLBACK_PROVIDERS = new Map([
 ]);
 
 const QUOTA_EXHAUSTION_PATTERN =
-	/GoUsageLimitError|FreeUsageLimitError|usage limit|available balance|Insufficient Balance|requires more credits|insufficient_quota|credit_balance_exhausted|out of budget|quota exceeded|billing (?:limit|quota|exhausted)/i;
+	/GoUsageLimitError|FreeUsageLimitError|usage limit|available balance|Insufficient (?:Balance|credits)|requires more credits|insufficient_quota|credit_balance_exhausted|out of budget|quota exceeded|billing (?:limit|quota|exhausted)/i;
 
 export function isQuotaExhaustionError(message: AssistantMessage): boolean {
 	return (
