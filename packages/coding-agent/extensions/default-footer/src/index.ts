@@ -20,6 +20,7 @@ import {
 } from "../../../src/utils/footer-status.ts";
 import { formatPullRequest, type PullRequest } from "./pull-request.ts";
 import { PullRequestStatus } from "./pull-request-status.ts";
+import { ReplySpeed } from "./reply-speed.ts";
 
 const BACKGROUND_COMPACTION_STATUS_KEY = "background-compaction";
 const BACKGROUND_COMPACTION_STATUS_TEXT = "compacting context";
@@ -40,6 +41,8 @@ export interface DefaultFooterComponentInput {
 	getAgentCounts?: () => DefaultFooterAgentLifecycleCounts | undefined;
 	getSelectedAgent?: () => DefaultFooterSelectedAgent | undefined;
 	getPullRequest?: () => PullRequest | undefined;
+	/** Output tokens per second of this runtime's latest reply. */
+	getReplySpeed?: () => number | undefined;
 	theme: Theme;
 }
 
@@ -152,8 +155,6 @@ export function countDefaultFooterAgents(store: MultiAgentStore): DefaultFooterA
 }
 
 interface SessionUsage {
-	input: number;
-	output: number;
 	cost: number;
 }
 
@@ -164,11 +165,7 @@ const usageByLeaf = new WeakMap<ReadonlySessionManager, { leafId: string | null;
 function addEntryUsage(usage: SessionUsage, entry: SessionEntry | undefined): SessionUsage {
 	if (entry?.type !== "message" || entry.message.role !== "assistant") return usage;
 	const message = entry.message as AssistantMessage;
-	return {
-		cost: usage.cost + message.usage.cost.total,
-		input: usage.input + message.usage.input,
-		output: usage.output + message.usage.output,
-	};
+	return { cost: usage.cost + message.usage.cost.total };
 }
 
 /** Entries are append-only and new entries become the leaf, so usage since a cached leaf lies on the parent chain. */
@@ -192,13 +189,13 @@ function usageSinceLeaf(
 /** Extension session reads deep-copy entries, so avoid recounting the whole transcript on every render. */
 function sessionUsage(session: FooterSessionOverride): SessionUsage {
 	const sessionManager = session.sessionManager;
-	if (!sessionManager) return { cost: 0, input: 0, output: 0 };
+	if (!sessionManager) return { cost: 0 };
 	const leafId = sessionManager.getLeafId();
 	const cached = usageByLeaf.get(sessionManager);
 	if (cached?.leafId === leafId) return cached.usage;
 	const usage =
 		(cached && usageSinceLeaf(sessionManager, cached.leafId, cached.usage)) ??
-		sessionManager.getEntries().reduce(addEntryUsage, { cost: 0, input: 0, output: 0 });
+		sessionManager.getEntries().reduce(addEntryUsage, { cost: 0 });
 	usageByLeaf.set(sessionManager, { leafId, usage });
 	return usage;
 }
@@ -213,8 +210,9 @@ function formatStats(input: DefaultFooterComponentInput): string {
 		selectedAgent ? input.theme.fg("dim", selectedAgent) : undefined,
 		formatAgentCounts(input.getAgentCounts?.()),
 	];
-	if (usage.input > 0) parts.push(input.theme.fg("dim", `in ${formatTokens(usage.input)}`));
-	if (usage.output > 0) parts.push(input.theme.fg("dim", `out ${formatTokens(usage.output)}`));
+	// The speed was measured in this runtime, so it does not describe an overridden session.
+	const replySpeed = input.footerData.getSessionOverride() ? undefined : input.getReplySpeed?.();
+	if (replySpeed !== undefined) parts.push(input.theme.fg("dim", `${Math.round(replySpeed)} tok/s`));
 	const cost = formatCost(usage.cost);
 	if (cost) parts.push(input.theme.fg("dim", cost));
 	parts.push(formatContextUsage(session, input.theme));
@@ -322,9 +320,21 @@ function branchCanHavePullRequest(branch: string | null): branch is string {
 	return branch !== null && branch !== "detached";
 }
 
+function registerReplySpeed(pi: ExtensionAPI, replySpeed: ReplySpeed): void {
+	pi.on("message_update", async (event) => {
+		replySpeed.recordUpdate(event.message, Date.now());
+	});
+
+	pi.on("message_end", async (event, ctx) => {
+		if (replySpeed.recordEnd(event.message, Date.now())) ctx.ui.requestRender();
+	});
+}
+
 export default function defaultFooterExtension(pi: ExtensionAPI, options: DefaultFooterExtensionOptions = {}) {
 	const store = options.multiAgentStore;
+	const replySpeed = new ReplySpeed();
 	registerBackgroundCompactionStatus(pi);
+	registerReplySpeed(pi, replySpeed);
 	pi.on("session_start", async (_event, ctx) => {
 		setBackgroundCompactionStatus(ctx, undefined);
 		ctx.ui.setDefaultFooter((tui, thm, footerData) => {
@@ -343,6 +353,7 @@ export default function defaultFooterExtension(pi: ExtensionAPI, options: Defaul
 				getAgentCounts: store ? () => countDefaultFooterAgents(store) : undefined,
 				getSelectedAgent: store ? () => selectedAgentForFooter(store) : undefined,
 				getPullRequest: () => pullRequestStatus.get(),
+				getReplySpeed: () => replySpeed.get(),
 				theme: thm,
 			});
 			pullRequestStatus.start();

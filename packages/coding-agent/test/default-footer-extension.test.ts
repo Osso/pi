@@ -176,7 +176,9 @@ describe("default footer extension", () => {
 		expect(line).not.toContain("running");
 		expect(line).not.toContain("waiting");
 		expect(line).not.toContain("steering");
-		expect(line).toContain("in 412k out 33k cost $9.39 ctx 60.9%/272k");
+		expect(line).toContain("agents 6 cost $9.39 ctx 60.9%/272k");
+		expect(line).not.toContain("412k");
+		expect(line).not.toContain("33k");
 		expect(line).not.toContain("R13M");
 		expect(line).not.toContain("CH99.6%");
 		expect(line).not.toContain("auto");
@@ -185,8 +187,8 @@ describe("default footer extension", () => {
 	it("highlights the total active-agent count without changing surrounding footer text", () => {
 		const line = renderedStatsLine({ running: 2, steeringPending: 1, waitingForInput: 3 });
 
-		expect(line).toContain(`agents 6 ${theme.fg("dim", "in 412k")}`);
-		expect(stripAnsi(line)).toContain("agents 6 in 412k");
+		expect(line).toContain(`agents 6 ${theme.fg("dim", "cost $9.39")}`);
+		expect(stripAnsi(line)).toContain("agents 6 cost $9.39");
 	});
 
 	it("highlights only the context percentage without changing surrounding footer text", () => {
@@ -348,7 +350,7 @@ describe("default footer extension", () => {
 		const childOutput = stripAnsi(footer.render(160).join("\n"));
 		expect(childOutput).toContain("/tmp/child • child");
 		expect(childOutput).not.toContain("/tmp/child (main)");
-		expect(childOutput).toContain("in 23 out 19 cost $2.00 ctx 25.0%/100k");
+		expect(childOutput).toContain("cost $2.00 ctx 25.0%/100k");
 		expect(childOutput).toContain("child-model • effort high");
 		expect(childOutput).not.toContain("test-model");
 
@@ -396,18 +398,88 @@ describe("default footer extension", () => {
 		});
 		const stats = () => stripAnsi(footer.render(200)[1] ?? "");
 
-		expect(stats()).toContain("in 200k out 20k cost $200.00");
+		expect(stats()).toContain("cost $200.00");
 		const startedAt = performance.now();
 		for (let frame = 0; frame < 100; frame += 1) stats();
 		expect(performance.now() - startedAt).toBeLessThan(100);
 
 		appendAssistant(5_000, 2_000, 1);
-		expect(stats()).toContain("in 205k out 22k cost $201.00");
+		expect(stats()).toContain("cost $201.00");
 
 		if (!branchPoint) throw new Error("Expected a branch point");
 		session.branch(branchPoint);
-		appendAssistant(1_000, 0, 0);
-		expect(stats()).toContain("in 206k out 22k cost $201.00");
+		appendAssistant(1_000, 0, 0.5);
+		expect(stats()).toContain("cost $201.50");
+	});
+
+	it("shows the latest reply's output speed from streaming events", async () => {
+		initTheme(undefined, false);
+		type CapturedHandler = (event: unknown, ctx: ExtensionContext) => Promise<void>;
+		const handlers = new Map<string, CapturedHandler>();
+		const pi = {
+			on: (eventName: string, handler: CapturedHandler) => handlers.set(eventName, handler),
+		} as unknown as ExtensionAPI;
+		let footerFactory: Parameters<ExtensionContext["ui"]["setDefaultFooter"]>[0] | undefined;
+		const requestRender = vi.fn();
+		const ctx = {
+			...createContext({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }),
+			ui: {
+				requestRender,
+				setDefaultFooter: (factory: NonNullable<typeof footerFactory>) => {
+					footerFactory = factory;
+				},
+				setStatus: vi.fn(),
+			},
+		} as unknown as ExtensionContext;
+		const emit = async (eventName: string, event: unknown, at: number) => {
+			vi.setSystemTime(at);
+			await handlers.get(eventName)?.(event, ctx);
+		};
+		const reply = (output: number, stopReason = "stop") => ({
+			message: { role: "assistant", usage: { output }, stopReason },
+		});
+		vi.useFakeTimers();
+		try {
+			defaultFooterExtension(pi);
+			await emit("session_start", undefined, 0);
+			let override: FooterSessionOverride | undefined;
+			const footer = footerFactory?.(
+				{ requestRender() {} } as Parameters<NonNullable<typeof footerFactory>>[0],
+				theme,
+				{ ...createFooterData(), getSessionOverride: () => override },
+			);
+			const stats = () => stripAnsi(footer?.render(160)[1] ?? "");
+			expect(stats()).not.toContain("tok/s");
+			requestRender.mockClear();
+
+			// Time to first token (0 -> 4s) is excluded; 84 tokens over the 2s stream is 42 tok/s.
+			await emit("message_start", { message: { role: "assistant" } }, 0);
+			await emit("message_update", reply(0), 4_000);
+			await emit("message_update", reply(50), 5_000);
+			await emit("message_end", reply(84), 6_000);
+			expect(stats()).toContain("42 tok/s ctx 60.9%/272k");
+			expect(requestRender).toHaveBeenCalledTimes(1);
+
+			// An aborted reply keeps the last measured speed, and the next reply is timed on its own.
+			await emit("message_update", reply(5, "aborted"), 10_000);
+			await emit("message_end", reply(10, "aborted"), 20_000);
+			expect(stats()).toContain("42 tok/s");
+			await emit("message_update", reply(1), 30_000);
+			await emit("message_end", reply(150), 31_000);
+			expect(stats()).toContain("150 tok/s");
+
+			override = {
+				cwd: "/tmp/child",
+				sessionManager: ctx.sessionManager,
+				model: ctx.model ?? null,
+				thinkingLevel: "off",
+				contextUsage: ctx.getContextUsage(),
+			} as FooterSessionOverride;
+			expect(stats()).not.toContain("tok/s");
+			footer?.dispose?.();
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("shows effort next to reasoning models", () => {
