@@ -827,7 +827,8 @@ function createInteractiveOrchestrationControls(
 				sessionId: getSessionId(),
 			});
 		},
-		cancelMultiAgent: (agentId) => cancelOwnedAgentRuntime(store, runtimeHandles, agentId, "cancelled interactively"),
+		cancelMultiAgent: (agentId) =>
+			cancelOwnedAgentRuntime(store, runtimeHandles, agentId, getSessionId(), "cancelled interactively"),
 		getLiveAgentSession: (agentId) => runtimeHandles.sessions.get(agentId),
 	};
 }

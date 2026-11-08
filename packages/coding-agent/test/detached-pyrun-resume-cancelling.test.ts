@@ -108,7 +108,12 @@ async function wedgeCancellingPyrunJob(toolCallId: string): Promise<PyrunEvaluat
 	);
 	killProcessGroup(readDetachedPyrunLaunchManifest(manifestPath).runnerProcessIdentity.pid);
 
-	const cancelled = await cancelOwnedAgentRuntime(store, createMultiAgentRuntimeHandles(), "pyrun_1");
+	const cancelled = await cancelOwnedAgentRuntime(
+		store,
+		createMultiAgentRuntimeHandles(),
+		"pyrun_1",
+		"supervisor-session",
+	);
 	expect(cancelled.ok).toBe(true);
 	expect(readMultiAgentAgent(controlDbPath, sessionPath, "pyrun_1")?.lifecycle).toBe("cancelling");
 

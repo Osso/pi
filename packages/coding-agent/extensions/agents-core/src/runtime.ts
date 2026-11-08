@@ -2567,6 +2567,7 @@ export async function cancelOwnedAgentRuntime(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
 	agentId: string,
+	ownerSessionId: string,
 	reason?: string,
 ): Promise<CancelReservedAgentResult> {
 	const descendants = store
@@ -2578,13 +2579,13 @@ export async function cancelOwnedAgentRuntime(
 		descendants.map((agent) => agent.id),
 	);
 	for (const descendant of descendants) {
-		const cancelled = await cancelOneOwnedAgentRuntime(store, runtimeHandles, descendant.id, {
+		const cancelled = await cancelOneOwnedAgentRuntime(store, runtimeHandles, descendant.id, ownerSessionId, {
 			reason,
 			suppressTerminalNotification: detachedRuntimeAgentIds.has(descendant.id),
 		});
 		if (!cancelled.ok) return cancelled;
 	}
-	return cancelOneOwnedAgentRuntime(store, runtimeHandles, agentId, { reason });
+	return cancelOneOwnedAgentRuntime(store, runtimeHandles, agentId, ownerSessionId, { reason });
 }
 
 function abortAgentHandleSafely(store: MultiAgentStore, agentId: string): void {
@@ -2599,11 +2600,15 @@ async function cancelOneOwnedAgentRuntime(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
 	agentId: string,
+	ownerSessionId: string,
 	options: DetachedRuntimeCancellationOptions,
 ): Promise<CancelReservedAgentResult> {
 	const current = store.getAgent(agentId);
 	if (!current) return { ok: false, error: "agent_not_found" };
 	const reservedRuntime = runtimeHandles.ownerships.get(agentId);
+	if (!reservedRuntime && current.lifecycle === "waiting_for_input") {
+		return closeIdleAgentWithoutRuntime(store, current, ownerSessionId);
+	}
 	if (!reservedRuntime) return requestPersistedDetachedRuntimeCancellation(store, current, options);
 	const cancelling = reservedRuntime.coordinator.requestCancellation({
 		agent: current,
@@ -2624,12 +2629,38 @@ async function cancelOneOwnedAgentRuntime(
 	return { ok: true, agent: settled };
 }
 
+/**
+ * An idle agent with no runtime in this process, such as a session attached without a prompt
+ * or one parked before a restart, has nothing to abort: take its ownership and record it aborted.
+ * A live owner elsewhere keeps the agent.
+ */
+function closeIdleAgentWithoutRuntime(
+	store: MultiAgentStore,
+	agent: AgentSnapshot,
+	ownerSessionId: string,
+): CancelReservedAgentResult {
+	const coordinator = createLifecycleCoordinator(store);
+	const acquired = coordinator?.acquireAttachedRuntime(agent, ownerSessionId);
+	if (!coordinator || !acquired?.ok) return { ok: false, error: "runtime_ownership_unavailable", agent };
+	const aborted = coordinator.acknowledgeCancellation({ agent: acquired.agent, ownership: acquired.ownership });
+	if (!aborted.ok) return { ok: false, error: "mutation_rejected", agent };
+	store.publishLifecycleCoordinatorSnapshot(aborted.agent);
+	return { ok: true, agent: aborted.agent };
+}
+
 async function cancelAgent(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,
 	params: CancelAgentParams,
+	ownerSessionId: string,
 ): Promise<AgentToolResult<AgentToolDetails>> {
-	const cancelled = await cancelOwnedAgentRuntime(store, runtimeHandles, params.agentId, params.reason);
+	const cancelled = await cancelOwnedAgentRuntime(
+		store,
+		runtimeHandles,
+		params.agentId,
+		ownerSessionId,
+		params.reason,
+	);
 	if (!cancelled.ok) {
 		const error =
 			cancelled.error === "runtime_ownership_unavailable" ? "runtime ownership unavailable" : cancelled.error;
@@ -3295,7 +3326,13 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			description: "Close an agent through the multi-agent store using the current store revision.",
 			approvalRequired: false,
 			parameters: cancelAgentSchema,
-			execute: async (_toolCallId, params, _signal, _onUpdate, _ctx) => cancelAgent(store, runtimeHandles, params),
+			execute: async (_toolCallId, params, _signal, _onUpdate, ctx) =>
+				cancelAgent(
+					store,
+					runtimeHandles,
+					params,
+					ctx.sessionManager?.getSessionId() ?? store.getPersistenceTarget()?.sessionPath ?? "",
+				),
 		}),
 	);
 

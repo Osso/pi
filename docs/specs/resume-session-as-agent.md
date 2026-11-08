@@ -18,6 +18,7 @@ Resume Session as Agent lets a supervisor session attach an existing Pi session 
 - [x] Runtime launch/resume failures move the agent to `failed` with an inspectable error.
 - [x] A successfully resumed session can reach terminal `completed`, `failed`, or `aborted` states through normal multi-agent lifecycle updates.
 - [x] Cancelling the attached agent aborts the live resumed runtime when one exists and records terminal state through the same lifecycle path as spawned child agents.
+- [x] Closing an attached agent that waits for input with no runtime in the current process, such as one attached without a prompt, takes its ownership and records it `aborted`; a live owner in another process keeps it.
 - [x] Reattaching a saved transcript after restart reconstructs only safe runtime handles and does not treat persisted metadata as proof of liveness.
 
 ### Mailbox and steering

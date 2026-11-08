@@ -6192,6 +6192,7 @@ describe("restored parent detached cleanup", () => {
 			restoredStore,
 			createMultiAgentRuntimeHandles(),
 			parent.id,
+			harness.getSessionId(),
 			"cancel restored parent",
 		);
 

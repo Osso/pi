@@ -244,6 +244,8 @@
 
 ### Fixed
 
+- Fixed `close_agent` failing with `runtime ownership unavailable` for an agent that waits for input without a runtime in the current process, such as a session attached without a prompt. The agent is now recorded `aborted`; one owned by another live process is still refused.
+
 - Fixed model pools stopping at an OpenRouter member whose account balance is empty. OpenRouter's HTTP 402 `Insufficient credits` is now classified as terminal quota exhaustion, so the pool rotates to the next member instead of ending the turn.
 
 - Fixed the relay resident (`pi relay connect`) surviving deployments on the replaced executable. All builds report the same version, so session startup kept reusing it. On Linux, a relay whose executable a deployment replaced is now stopped and restarted from the deployed executable when the next session starts.

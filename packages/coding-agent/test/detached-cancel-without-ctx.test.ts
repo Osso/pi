@@ -68,7 +68,12 @@ describe("detached runtime cancellation without an extension context", () => {
 			expect(store.getAgent(ownership.agent.id)?.lifecycle).toBe("running");
 
 			// Matches the interactive Escape call shape: no ExtensionContext argument.
-			const cancelled = await cancelOwnedAgentRuntime(store, createMultiAgentRuntimeHandles(), ownership.agent.id);
+			const cancelled = await cancelOwnedAgentRuntime(
+				store,
+				createMultiAgentRuntimeHandles(),
+				ownership.agent.id,
+				"supervisor-session",
+			);
 
 			expect(cancelled.ok).toBe(true);
 			expect(cancelled.agent?.lifecycle).toBe("cancelling");
