@@ -215,6 +215,7 @@ const ProviderConfigSchema = Type.Object({
 	headers: Type.Optional(Type.Record(Type.String(), Type.String())),
 	compat: Type.Optional(ProviderCompatSchema),
 	authHeader: Type.Optional(Type.Boolean()),
+	disabled: Type.Optional(Type.Boolean()),
 	models: Type.Optional(Type.Array(ModelDefinitionSchema)),
 	modelOverrides: Type.Optional(Type.Record(Type.String(), ModelOverrideSchema)),
 });
@@ -269,6 +270,7 @@ export type ResolvedRequestAuth =
 interface CustomModelsResult {
 	models: Model<Api>[];
 	pools: Record<string, string[]>;
+	disabledProviders: Set<string>;
 	/** Providers with baseUrl/headers/apiKey overrides for built-in models */
 	overrides: Map<string, ProviderOverride>;
 	/** Per-model overrides: provider -> modelId -> override */
@@ -277,7 +279,14 @@ interface CustomModelsResult {
 }
 
 function emptyCustomModelsResult(error?: string): CustomModelsResult {
-	return { models: [], pools: {}, overrides: new Map(), modelOverrides: new Map(), error };
+	return {
+		models: [],
+		pools: {},
+		disabledProviders: new Set(),
+		overrides: new Map(),
+		modelOverrides: new Map(),
+		error,
+	};
 }
 
 function mergeCompat(
@@ -362,6 +371,7 @@ export class ModelRegistry {
 	private providerRequestConfigs: Map<string, ProviderRequestConfig> = new Map();
 	private modelRequestHeaders: Map<string, Record<string, string>> = new Map();
 	private registeredProviders: Map<string, ProviderConfigInput> = new Map();
+	private disabledProviders: Set<string> = new Set();
 	private loadError: string | undefined = undefined;
 	readonly authStorage: AuthStorage;
 	private modelsJsonPath: string | undefined;
@@ -417,7 +427,9 @@ export class ModelRegistry {
 	}
 
 	private rebuildPools(): void {
-		const members = this.models.filter((model) => model.provider !== "pool");
+		const members = this.models.filter(
+			(model) => model.provider !== "pool" && !this.disabledProviders.has(model.provider),
+		);
 		const pools = this.modelPools.configure(this.poolConfigs, members);
 		this.models = [...members, ...pools.models];
 		this.poolError = pools.errors.join("\n") || undefined;
@@ -428,10 +440,12 @@ export class ModelRegistry {
 		const {
 			models: customModels,
 			pools,
+			disabledProviders,
 			overrides,
 			modelOverrides,
 			error,
 		} = this.modelsJsonPath ? this.loadCustomModels(this.modelsJsonPath) : emptyCustomModelsResult();
+		this.disabledProviders = disabledProviders;
 
 		if (error) {
 			this.loadError = error;
@@ -529,6 +543,11 @@ export class ModelRegistry {
 
 			const overrides = new Map<string, ProviderOverride>();
 			const modelOverrides = new Map<string, Map<string, ModelOverride>>();
+			const disabledProviders = new Set(
+				Object.entries(config.providers)
+					.filter(([, providerConfig]) => providerConfig.disabled)
+					.map(([providerName]) => providerName),
+			);
 
 			for (const [providerName, providerConfig] of Object.entries(config.providers)) {
 				if (providerConfig.baseUrl || providerConfig.compat) {
@@ -551,6 +570,7 @@ export class ModelRegistry {
 			return {
 				models: this.parseModels(config),
 				pools: config.pools ?? {},
+				disabledProviders,
 				overrides,
 				modelOverrides,
 				error: undefined,
@@ -576,10 +596,16 @@ export class ModelRegistry {
 				providerConfig.modelOverrides && Object.keys(providerConfig.modelOverrides).length > 0;
 
 			if (models.length === 0) {
-				// Override-only config: needs baseUrl, headers, compat, modelOverrides, or some combination.
-				if (!providerConfig.baseUrl && !providerConfig.headers && !providerConfig.compat && !hasModelOverrides) {
+				// Override-only config: needs disabled, baseUrl, headers, compat, modelOverrides, or some combination.
+				if (
+					!providerConfig.disabled &&
+					!providerConfig.baseUrl &&
+					!providerConfig.headers &&
+					!providerConfig.compat &&
+					!hasModelOverrides
+				) {
 					throw new Error(
-						`Provider ${providerName}: must specify "baseUrl", "headers", "compat", "modelOverrides", or "models".`,
+						`Provider ${providerName}: must specify "disabled", "baseUrl", "headers", "compat", "modelOverrides", or "models".`,
 					);
 				}
 			} else if (!isBuiltIn) {
@@ -696,6 +722,7 @@ export class ModelRegistry {
 		if (model.provider === "pool") {
 			return this.modelPools.getMembers(model).some((member) => this.hasConfiguredAuth(member));
 		}
+		if (this.disabledProviders.has(model.provider)) return false;
 		const providerApiKey = this.providerRequestConfigs.get(model.provider)?.apiKey;
 		return (
 			this.authStorage.hasAuth(model.provider) ||
@@ -763,6 +790,9 @@ export class ModelRegistry {
 			return this.hasConfiguredAuth(model)
 				? { ok: true, apiKey: "pool" }
 				: { ok: false, error: `Pool "${model.id}": no member has configured authentication` };
+		}
+		if (this.disabledProviders.has(model.provider)) {
+			return { ok: false, error: `Provider "${model.provider}" is disabled in models.json` };
 		}
 		try {
 			this.authStorage.reload();

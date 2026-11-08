@@ -133,6 +133,28 @@ describe("ModelRegistry", () => {
 
 			expect(registry.getAvailable().some((model) => model.provider === "openai-codex")).toBe(true);
 		});
+
+		test("disabled provider has no models and refuses request auth even with a credential", async () => {
+			const authJsonPath = join(tempDir, "auth.json");
+			writeFileSync(authJsonPath, JSON.stringify({ anthropic: { type: "api_key", key: "sk-ant-test" } }));
+			const credentialedAuth = AuthStorage.create(authJsonPath);
+			const enabled = ModelRegistry.create(credentialedAuth, modelsJsonPath);
+			const haiku = enabled.find("anthropic", "claude-haiku-5-5");
+			expect(haiku).toBeDefined();
+			expect(enabled.hasConfiguredAuth(haiku!)).toBe(true);
+
+			writeRawModelsJson({ anthropic: { disabled: true } });
+			const registry = ModelRegistry.create(credentialedAuth, modelsJsonPath);
+
+			expect(registry.getError()).toBeUndefined();
+			expect(getModelsForProvider(registry, "anthropic")).toEqual([]);
+			expect(registry.hasConfiguredAuth(haiku!)).toBe(false);
+			expect(await registry.getApiKeyAndHeaders(haiku!)).toEqual({
+				ok: false,
+				error: 'Provider "anthropic" is disabled in models.json',
+			});
+			expect(getModelsForProvider(registry, "openai-codex").length).toBeGreaterThan(0);
+		});
 	});
 
 	describe("baseUrl override (no custom models)", () => {

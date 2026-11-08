@@ -141,6 +141,7 @@ Set `api` at provider level (default for all models) or model level (override pe
 | `authHeader` | Set `true` to add `Authorization: Bearer <apiKey>` automatically |
 | `models` | Array of model configurations |
 | `modelOverrides` | Per-model overrides for built-in models on this provider |
+| `disabled` | Set `true` to remove all models of this provider and reject every request to it, even when a credential exists |
 
 For providers with `models`, non-built-in provider configs need `baseUrl` and an `api` value at either provider or model level. `apiKey` is not required to load the file: models become available when auth is configured through `/login`/`auth.json`, CLI `--api-key`, or provider `apiKey`. If no auth is configured, the models load but stay unavailable in `/model` and `--list-models`.
 
@@ -334,6 +335,18 @@ Merge semantics:
 - Custom models are upserted by `id` within the provider.
 - If a custom model `id` matches a built-in model `id`, the custom model replaces that built-in model.
 - If a custom model `id` is new, it is added alongside built-in models.
+
+## Disabling a Provider
+
+```json
+{
+  "providers": {
+    "anthropic": { "disabled": true }
+  }
+}
+```
+
+The provider's built-in, custom, and extension-registered models disappear from `/model`, `--list-models`, and pools, so `--model anthropic/<id>` fails as not found. A request with a model object built elsewhere fails with `Provider "anthropic" is disabled in models.json`.
 
 ## Per-model Overrides
 
