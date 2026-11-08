@@ -714,7 +714,7 @@ pi.on("context", async (event, ctx) => {
 
 #### before_provider_request
 
-Fired after the provider-specific payload is built, right before the request is sent. Handlers run in extension load order. Returning `undefined` keeps the payload unchanged. Returning any other value replaces the payload for later handlers and for the actual request.
+Fired after the provider-specific payload is built, right before the request is sent. `event.model` is the model the request is sent to; for a pool model it is the serving member, while `ctx.model` stays the pool. Handlers run in extension load order. Returning `undefined` keeps the payload unchanged. Returning any other value replaces the payload for later handlers and for the actual request.
 
 This hook can rewrite provider-level system instructions or remove them entirely. Those payload-level changes are not reflected by `ctx.getSystemPrompt()`, which reports Pi's system prompt string rather than the final serialized provider payload.
 

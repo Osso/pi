@@ -799,6 +799,8 @@ export interface ContextEvent {
 export interface BeforeProviderRequestEvent {
 	type: "before_provider_request";
 	payload: unknown;
+	/** Model the request is sent to; for a pool, the serving member rather than the pool. */
+	model: Model<Api>;
 }
 
 /** Fired after a provider response is received and before the response stream is consumed. */

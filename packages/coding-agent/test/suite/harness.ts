@@ -178,12 +178,12 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 			tools: [],
 		},
 		convertToLlm,
-		onPayload: async (payload) => {
+		onPayload: async (payload, model) => {
 			const runner = extensionRunnerRef.current;
 			if (!runner?.hasHandlers("before_provider_request")) {
 				return payload;
 			}
-			return runner.emitBeforeProviderRequest(payload);
+			return runner.emitBeforeProviderRequest(payload, model);
 		},
 		onResponse: async (response) => {
 			const runner = extensionRunnerRef.current;

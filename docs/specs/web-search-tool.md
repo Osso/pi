@@ -19,6 +19,10 @@ The web search tool exposes OpenAI Responses hosted web search as an explicit ca
 - [x] Reject execution when the current model is not hosted-web-search capable.
 - [x] Return the hosted search text as the tool result.
 
+### Provider requests
+
+- [x] Add the hosted `web_search` tool to every request whose serving model uses OpenAI Responses or OpenAI Codex Responses, including a pool request served by such a member. A Codex websocket opened without hosted `web_search` rejects it on every later request on that socket.
+
 ### Pyrun bridge
 
 - [x] Expose web search to Pyrun as `pi.web_search(query)`.

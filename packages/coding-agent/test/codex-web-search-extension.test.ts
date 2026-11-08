@@ -76,6 +76,7 @@ describe("codex web search extension", () => {
 				{
 					type: "before_provider_request",
 					payload: { tools: [{ type: "function", name: "web_search" }] },
+					model: model("openai-responses"),
 				},
 				context("openai-responses"),
 			),
@@ -85,9 +86,37 @@ describe("codex web search extension", () => {
 				{
 					type: "before_provider_request",
 					payload: { tools: [{ type: "function", name: "web_search" }] },
+					model: model("anthropic-messages"),
 				},
 				context("anthropic-messages"),
 			),
+		).toBeUndefined();
+	});
+
+	// A pool session's ctx.model is the pool; a Codex websocket opened without hosted web_search
+	// rejects it on every later request, so the serving member decides.
+	it("decides from the serving pool member, not the session's pool model", () => {
+		const on = vi.fn();
+		codexWebSearchExtension({ on, registerTool: vi.fn() } as unknown as ExtensionAPI);
+		const handler = on.mock.calls.find(([event]) => event === "before_provider_request")?.[1] as
+			| BeforeProviderRequestHandler
+			| undefined;
+		const poolContext = {
+			model: { ...model("openai-codex-responses"), provider: "pool", id: "gpt-6.1-terra", api: "pool" },
+		} as unknown as ExtensionContext;
+		const payload = { model: "gpt-6.1-terra", tools: [{ type: "function", name: "read" }] };
+
+		expect(
+			handler?.({ type: "before_provider_request", payload, model: model("openai-codex-responses") }, poolContext),
+		).toEqual({
+			model: "gpt-6.1-terra",
+			tools: [
+				{ type: "function", name: "read" },
+				{ type: "web_search", external_web_access: true },
+			],
+		});
+		expect(
+			handler?.({ type: "before_provider_request", payload, model: model("anthropic-messages") }, poolContext),
 		).toBeUndefined();
 	});
 

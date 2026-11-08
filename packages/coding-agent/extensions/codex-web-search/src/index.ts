@@ -35,8 +35,9 @@ type WebSearchInput = Static<typeof webSearchSchema>;
 
 export default function codexWebSearchExtension(pi: ExtensionAPI) {
 	pi.registerTool(createWebSearchToolDefinition());
-	pi.on("before_provider_request", (event, ctx) => {
-		if (!isOpenAIHostedWebSearchModel(ctx.model)) return undefined;
+	// Decide from the request's model: in a pool session ctx.model is the pool, not the serving member.
+	pi.on("before_provider_request", (event) => {
+		if (!isOpenAIHostedWebSearchModel(event.model)) return undefined;
 		return addWebSearchToolToPayload(event.payload);
 	});
 }

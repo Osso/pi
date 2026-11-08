@@ -244,6 +244,8 @@
 
 ### Fixed
 
+- Fixed hosted `web_search` missing from pool requests served by OpenAI Responses or Codex members. `before_provider_request` now carries `event.model`, the serving model, and the web-search extension decides from it instead of the pool. Switching a pool-served child to a direct Codex model no longer fails with `The 'web_search' tool is not available for this request.`
+
 - Fixed `close_agent` failing with `runtime ownership unavailable` for an agent that waits for input without a runtime in the current process, such as a session attached without a prompt. The agent is now recorded `aborted`; one owned by another live process is still refused.
 
 - Fixed model pools stopping at an OpenRouter member whose account balance is empty. OpenRouter's HTTP 402 `Insufficient credits` is now classified as terminal quota exhaustion, so the pool rotates to the next member instead of ending the turn.

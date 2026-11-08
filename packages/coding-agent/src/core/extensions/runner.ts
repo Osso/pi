@@ -3,7 +3,7 @@
  */
 
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { ImageContent, Model } from "@earendil-works/pi-ai";
+import type { Api, ImageContent, Model } from "@earendil-works/pi-ai";
 import type { KeyId } from "@earendil-works/pi-tui";
 import { type Theme, theme } from "../../modes/interactive/theme/theme.ts";
 import { resolvePath } from "../../utils/paths.ts";
@@ -1352,7 +1352,7 @@ export class ExtensionRunner {
 		return currentMessages;
 	}
 
-	async emitBeforeProviderRequest(payload: unknown): Promise<unknown> {
+	async emitBeforeProviderRequest(payload: unknown, model: Model<Api>): Promise<unknown> {
 		const ctx = this.createContext();
 		let currentPayload = payload;
 
@@ -1365,6 +1365,7 @@ export class ExtensionRunner {
 					const event: BeforeProviderRequestEvent = {
 						type: "before_provider_request",
 						payload: currentPayload,
+						model,
 					};
 					const handlerResult = await handler(event, ctx);
 					if (handlerResult !== undefined) {

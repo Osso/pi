@@ -453,12 +453,12 @@ async function createAgentSessionInternal(options: CreateAgentSessionOptions): P
 			model.provider === "pool"
 				? modelRegistry.streamPool(model, context, options, streamModel)
 				: streamModel(model, context, options),
-		onPayload: async (payload, _model) => {
+		onPayload: async (payload, model) => {
 			const runner = extensionRunnerRef.current;
 			if (!runner?.hasHandlers("before_provider_request")) {
 				return payload;
 			}
-			return runner.emitBeforeProviderRequest(payload);
+			return runner.emitBeforeProviderRequest(payload, model);
 		},
 		onResponse: async (response, _model) => {
 			const runner = extensionRunnerRef.current;
