@@ -17,7 +17,11 @@ import {
 	readSupervisorRequest,
 } from "../../src/core/session-control-db.ts";
 import { type SessionEntry, SessionManager } from "../../src/core/session-manager.ts";
-import { createSupervisorInstructionEvaluator, processSupervisorRequest } from "../../src/supervisor/main.ts";
+import {
+	createSupervisorInstructionEvaluator,
+	createSupervisorModelRegistry,
+	processSupervisorRequest,
+} from "../../src/supervisor/main.ts";
 import { notifySupervisorRequest } from "../../src/supervisor/request-wake.ts";
 
 const PROVIDER = "openai-codex-gc";
@@ -162,7 +166,11 @@ it("recovers the same instruction evaluator after external re-login without auth
 	};
 	faux.setResponses([respond]);
 	try {
-		const evaluate = createSupervisorInstructionEvaluator(tempDir);
+		const evaluate = createSupervisorInstructionEvaluator(
+			await createSupervisorModelRegistry(tempDir),
+			tempDir,
+			tempDir,
+		);
 		expect(await evaluate("First raw instruction", new AbortController().signal)).toBeUndefined();
 		replaceOAuthCredentials(tempDir, FRESH_KEY);
 		expect(await evaluate("Second raw instruction", new AbortController().signal)).toBe("ACCEPT");

@@ -2,6 +2,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AuthStorage } from "../src/core/auth-storage.ts";
+import { ModelRegistry } from "../src/core/model-registry.ts";
 import type { SupervisorRequest } from "../src/core/session-control-db.ts";
 import { DEFAULT_SUPERVISOR_POLL_INTERVAL_MS, requestSupervisorDecision } from "../src/supervisor/client.ts";
 import { createSupervisorInstructionEvaluator, runSupervisorService } from "../src/supervisor/main.ts";
@@ -121,6 +123,11 @@ vi.mock("../src/core/session-manager.ts", () => ({
 
 let initialSigtermListeners = new Set(process.listeners("SIGTERM"));
 
+function createEvaluator() {
+	const modelRegistry = ModelRegistry.create(AuthStorage.create(join(mocks.agentDir, "auth.json")));
+	return createSupervisorInstructionEvaluator(modelRegistry, mocks.agentDir, mocks.agentDir);
+}
+
 function pendingApprovalRequest(): SupervisorRequest {
 	return {
 		claimToken: "claim-token",
@@ -200,7 +207,7 @@ describe("Supervisor request loop", () => {
 
 	it("fails startup when no Codex provider is authenticated", () => {
 		mocks.authenticatedProviders = new Set();
-		expect(() => createSupervisorInstructionEvaluator(mocks.agentDir)).toThrow(
+		expect(() => createEvaluator()).toThrow(
 			"Pi Supervisor requires gpt-6.1-sol on an authenticated provider: openai-codex, openai-codex-gc, openai-codex-team",
 		);
 	});
@@ -213,7 +220,7 @@ describe("Supervisor request loop", () => {
 		);
 		mocks.streamResults = [{ provider: "openrouter", stopReason: "stop", text: '{"decision":"accept"}' }];
 
-		const evaluate = createSupervisorInstructionEvaluator(mocks.agentDir);
+		const evaluate = createEvaluator();
 		await expect(evaluate("continue", new AbortController().signal)).resolves.toBe('{"decision":"accept"}');
 		expect(mocks.streamedProviders).toEqual(["openrouter"]);
 
@@ -237,7 +244,7 @@ describe("Supervisor request loop", () => {
 			join(mocks.agentDir, "settings.json"),
 			JSON.stringify({ supervisorModel: "openrouter/deepseek/deepseek-v4.1-flash-1017" }),
 		);
-		expect(() => createSupervisorInstructionEvaluator(mocks.agentDir)).toThrow(
+		expect(() => createEvaluator()).toThrow(
 			'Pi Supervisor supervisorModel "openrouter/deepseek/deepseek-v4.1-flash-1017" is not an authenticated provider/modelId',
 		);
 	});
@@ -248,7 +255,7 @@ describe("Supervisor request loop", () => {
 			{ provider: "openai-codex-gc", stopReason: "error", errorMessage: "You have hit your usage limit." },
 			{ provider: "openai-codex-team", stopReason: "stop", text: '{"decision":"accept"}' },
 		];
-		const evaluate = createSupervisorInstructionEvaluator(mocks.agentDir);
+		const evaluate = createEvaluator();
 
 		await expect(evaluate("continue", new AbortController().signal)).resolves.toBe('{"decision":"accept"}');
 		expect(mocks.streamedProviders).toEqual(["openai-codex-gc", "openai-codex-team"]);
@@ -257,7 +264,7 @@ describe("Supervisor request loop", () => {
 	it("does not fall back for non-quota instruction review errors", async () => {
 		mocks.authenticatedProviders = new Set(["openai-codex", "openai-codex-gc"]);
 		mocks.streamResults = [{ provider: "openai-codex", stopReason: "error", errorMessage: "500 internal error" }];
-		const evaluate = createSupervisorInstructionEvaluator(mocks.agentDir);
+		const evaluate = createEvaluator();
 
 		await expect(evaluate("continue", new AbortController().signal)).resolves.toBeUndefined();
 		expect(mocks.streamedProviders).toEqual(["openai-codex"]);

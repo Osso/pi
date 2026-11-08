@@ -129,8 +129,48 @@ export function createSupervisorSettingsManager(): SettingsManager {
 const SUPERVISOR_MODEL_ID = "gpt-6.1-sol";
 const SUPERVISOR_PROVIDERS = ["openai-codex", ...(CODEX_FALLBACK_PROVIDERS.get("openai-codex") ?? [])];
 
+function readConfiguredSupervisorModel(agentDir: string): string | undefined {
+	return SettingsManager.create(agentDir, agentDir).getSupervisorModel();
+}
+
+/**
+ * The resident session and instruction review share one registry: a provider registered by an
+ * installed package (such as claude-bridge) may register only once per process.
+ */
+export async function createSupervisorModelRegistry(agentDir: string): Promise<ModelRegistry> {
+	const modelRegistry = ModelRegistry.create(
+		AuthStorage.create(join(agentDir, "auth.json")),
+		join(agentDir, "models.json"),
+	);
+	const configured = readConfiguredSupervisorModel(agentDir);
+	const slash = configured?.indexOf("/") ?? -1;
+	if (!configured || slash <= 0 || modelRegistry.find(configured.slice(0, slash), configured.slice(slash + 1))) {
+		return modelRegistry;
+	}
+	await registerExtensionProvider(modelRegistry, agentDir, configured.slice(0, slash));
+	return modelRegistry;
+}
+
+/** Registers only the named provider; the Supervisor session itself still loads no extension hooks or tools. */
+async function registerExtensionProvider(modelRegistry: ModelRegistry, agentDir: string, provider: string) {
+	const resourceLoader = new DefaultResourceLoader({
+		agentDir,
+		cwd: agentDir,
+		noContextFiles: true,
+		noPromptTemplates: true,
+		noSkills: true,
+		noThemes: true,
+		settingsManager: SettingsManager.create(agentDir, agentDir),
+	});
+	await resourceLoader.reload();
+	const registration = resourceLoader
+		.getExtensions()
+		.runtime.pendingProviderRegistrations.find((candidate) => candidate.name === provider);
+	if (registration) modelRegistry.registerProvider(provider, registration.config);
+}
+
 function requireSupervisorModels(modelRegistry: ModelRegistry, agentDir: string): Model<Api>[] {
-	const configured = SettingsManager.create(agentDir, agentDir).getSupervisorModel();
+	const configured = readConfiguredSupervisorModel(agentDir);
 	if (configured) return [requireConfiguredSupervisorModel(modelRegistry, configured)];
 	const models = SUPERVISOR_PROVIDERS.flatMap((provider) => {
 		const model = modelRegistry.find(provider, SUPERVISOR_MODEL_ID);
@@ -162,9 +202,11 @@ function readSupervisorInstructionReviewText(message: AssistantMessage): string 
 	return text || undefined;
 }
 
-export function createSupervisorInstructionEvaluator(agentDir: string): SupervisorInstructionEvaluator {
-	const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
-	const modelRegistry = ModelRegistry.create(authStorage, join(agentDir, "models.json"));
+export function createSupervisorInstructionEvaluator(
+	modelRegistry: ModelRegistry,
+	agentDir: string,
+	cwd: string,
+): SupervisorInstructionEvaluator {
 	const models = requireSupervisorModels(modelRegistry, agentDir);
 	const settingsManager = createSupervisorSettingsManager();
 	const evaluateWith = async (model: Model<Api>, instructions: string, signal: AbortSignal) => {
@@ -175,6 +217,7 @@ export function createSupervisorInstructionEvaluator(agentDir: string): Supervis
 		const effectiveIdleTimeoutMs = configuredIdleTimeoutMs === 0 ? 2_147_483_647 : configuredIdleTimeoutMs;
 		return streamSimple(model, buildSupervisorInstructionReviewContext(instructions, Date.now()), {
 			apiKey: auth.apiKey,
+			cwd,
 			env: auth.env,
 			headers: mergeProviderAttributionHeaders(model, settingsManager, undefined, auth.headers),
 			maxRetries: retrySettings.maxRetries,
@@ -270,8 +313,11 @@ export async function runSupervisorService(): Promise<void> {
 	const kbDir = process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR;
 	const controlDbPath = getControlDbPath();
 	const sessionManager = openSupervisorSession(agentDir, kbDir);
-	const session = await createSupervisorAgentSession(agentDir, kbDir, sessionManager);
-	const reviewInstructions = createSupervisorInstructionReviewer(createSupervisorInstructionEvaluator(agentDir));
+	const modelRegistry = await createSupervisorModelRegistry(agentDir);
+	const session = await createSupervisorAgentSession(modelRegistry, agentDir, kbDir, sessionManager);
+	const reviewInstructions = createSupervisorInstructionReviewer(
+		createSupervisorInstructionEvaluator(modelRegistry, agentDir, kbDir),
+	);
 	const wakeServer = new SupervisorRequestWakeServer(controlDbPath);
 	const consolePrompts = new SupervisorConsolePromptQueue();
 	const managedBy = process.env[SUPERVISOR_AUTOSTART_ENV] === "1" ? "pi" : "external";
@@ -315,18 +361,17 @@ export async function runSupervisorService(): Promise<void> {
 }
 
 async function createSupervisorAgentSession(
+	modelRegistry: ModelRegistry,
 	agentDir: string,
 	kbDir: string,
 	sessionManager: SessionManager,
 ): Promise<SupervisorSession> {
-	const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
-	const modelRegistry = ModelRegistry.create(authStorage, join(agentDir, "models.json"));
 	const [model] = requireSupervisorModels(modelRegistry, agentDir);
 	const settingsManager = createSupervisorSettingsManager();
 	const resourceLoader = await createSupervisorResourceLoader(agentDir, kbDir, settingsManager);
 	const { session } = await createAgentSession({
 		agentDir,
-		authStorage,
+		authStorage: modelRegistry.authStorage,
 		cwd: kbDir,
 		disableRuntimeCoordinationInbound: true,
 		excludeTools: SUPERVISOR_EXCLUDED_TOOL_NAMES,

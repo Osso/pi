@@ -104,6 +104,8 @@
 
 ### Added
 
+- The Supervisor's `supervisorModel` can name a model from a provider registered by an installed extension, such as `claude-bridge/claude-haiku-5-5`. Only that provider is registered; the Supervisor session still loads no extension hooks or tools.
+
 - Added `"disabled": true` for a `models.json` provider entry: the provider's built-in, custom, and extension-registered models are removed, and request auth for it fails with `Provider "<name>" is disabled in models.json` even when a credential exists. See [Disabling a Provider](docs/models.md#disabling-a-provider).
 
 - Added the current branch's GitHub pull request to the default footer after the branch name: `#41208 ✓ 4 ○ 1 ✗ 2` links the number, colors it by open/merged/closed state, and shows only the check states that occur. The pull request is read with `github pr branch <branch> --json` from the [`github` CLI](https://github.com/Osso/github-cli), which looks only in the repository the branch is pushed to, so an `upstream` remote or a fork pull request with the same branch name never shows. It is polled every 30 seconds while a pull request is shown, every 5 minutes otherwise, and not outside a repository or on a detached HEAD.
