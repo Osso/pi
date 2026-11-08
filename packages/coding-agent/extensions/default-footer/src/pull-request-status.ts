@@ -3,8 +3,7 @@ import { promisify } from "node:util";
 import { parsePullRequest, type PullRequest } from "./pull-request.ts";
 
 const runFile = promisify(execFile);
-const PULL_REQUEST_FIELDS = "number,url,state,statusCheckRollup";
-const GH_TIMEOUT_MS = 10_000;
+const GITHUB_TIMEOUT_MS = 10_000;
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 /** Check often while a pull request is shown, rarely for a branch without one. */
 const FOUND_INTERVAL_MS = 30_000;
@@ -12,15 +11,17 @@ const IDLE_INTERVAL_MS = 5 * 60_000;
 
 export type PullRequestReader = (branch: string, cwd: string) => Promise<PullRequest | undefined>;
 
-/** `gh pr list` exits 0 with an empty list when the branch has no pull request, so errors stay distinguishable. */
+/**
+ * `github pr branch` looks in the repository the branch is pushed to and prints `null` when it has no
+ * pull request, so errors stay distinguishable.
+ */
 async function readPullRequestFromGitHub(branch: string, cwd: string): Promise<PullRequest | undefined> {
-	const { stdout } = await runFile(
-		"gh",
-		["pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", PULL_REQUEST_FIELDS],
-		{ cwd, timeout: GH_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES },
-	);
-	const [pullRequest] = JSON.parse(stdout) as unknown[];
-	return parsePullRequest(pullRequest);
+	const { stdout } = await runFile("github", ["pr", "branch", branch, "--json"], {
+		cwd,
+		timeout: GITHUB_TIMEOUT_MS,
+		maxBuffer: MAX_OUTPUT_BYTES,
+	});
+	return parsePullRequest(JSON.parse(stdout));
 }
 
 /** A failed read keeps the last displayed status instead of hiding a real pull request. */

@@ -103,7 +103,7 @@
 
 ### Added
 
-- Added the current branch's GitHub pull request to the default footer after the branch name: `#41208 ✓ 4 ○ 1 ✗ 2` links the number, colors it by open/merged/closed state, and shows only the check states that occur. `gh pr view` is polled every 30 seconds while a pull request is shown, every 5 minutes otherwise, and not outside a repository or on a detached HEAD.
+- Added the current branch's GitHub pull request to the default footer after the branch name: `#41208 ✓ 4 ○ 1 ✗ 2` links the number, colors it by open/merged/closed state, and shows only the check states that occur. The pull request is read with `github pr branch <branch> --json` from the [`github` CLI](https://github.com/Osso/github-cli), which looks only in the repository the branch is pushed to, so an `upstream` remote or a fork pull request with the same branch name never shows. It is polled every 30 seconds while a pull request is shown, every 5 minutes otherwise, and not outside a repository or on a detached HEAD.
 
 - Added `/usage deepseek`, reporting DeepSeek pool provider usage from each provider's own API: `opencode-go` rolling/weekly/monthly percentages, `open-grove` daily/weekly percentages, `openrouter` and `openrouter-gc` weekly key limit plus remaining credits, the official `deepseek` balance, and `commandcode` five-hour/weekly windows, billing-period usage, and remaining monthly credits. Providers without a stored key show `not logged in`, and per-provider failures stay as error rows. `/usage` and `/usage reset` are unchanged; `/usage all` includes the DeepSeek table. See the [consolidated usage spec](../../docs/specs/consolidated-usage-view.md).
 

@@ -1,8 +1,10 @@
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join } from "node:path";
 import { hyperlink } from "@earendil-works/pi-tui";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultFooterComponent } from "../extensions/default-footer/src/index.ts";
 import {
-	countPullRequestChecks,
 	formatPullRequest,
 	type PullRequest,
 	parsePullRequest,
@@ -68,45 +70,25 @@ const openPullRequest: PullRequest = {
 };
 
 describe("pull request parsing", () => {
-	it("accepts a GitHub pull request from gh", () => {
-		expect(
-			parsePullRequest({
-				number: 41208,
-				url: PR_URL,
-				state: "OPEN",
-				statusCheckRollup: [{ name: "build", status: "COMPLETED", conclusion: "SUCCESS" }],
-			}),
-		).toEqual({ number: 41208, url: PR_URL, state: "open", checks: { passed: 1, running: 0, failed: 0 } });
+	it("accepts a pull request from github pr branch", () => {
+		expect(parsePullRequest(openPullRequest)).toEqual(openPullRequest);
 	});
 
-	it("rejects lookalike hosts, mismatched numbers, unknown states, and missing fields", () => {
+	it("rejects lookalike hosts, mismatched numbers, unknown states, bad checks, and missing fields", () => {
+		const checks = openPullRequest.checks;
 		expect(
-			parsePullRequest({ number: 1, url: "https://github.com.evil.test/a/b/pull/1", state: "OPEN" }),
+			parsePullRequest({ number: 1, url: "https://github.com.evil.test/a/b/pull/1", state: "open", checks }),
 		).toBeUndefined();
-		expect(parsePullRequest({ number: 2, url: PR_URL, state: "OPEN" })).toBeUndefined();
-		expect(parsePullRequest({ number: 41208, url: PR_URL, state: "DRAFT" })).toBeUndefined();
-		expect(parsePullRequest({ number: "41208", url: PR_URL, state: "OPEN" })).toBeUndefined();
-		expect(parsePullRequest({ number: 41208, state: "OPEN" })).toBeUndefined();
-		expect(parsePullRequest("not a pull request")).toBeUndefined();
-	});
-});
-
-describe("pull request checks", () => {
-	it("counts CheckRuns and StatusContexts, keeping unknown states out of passed", () => {
+		expect(parsePullRequest({ number: 2, url: PR_URL, state: "open", checks })).toBeUndefined();
+		expect(parsePullRequest({ number: 41208, url: PR_URL, state: "draft", checks })).toBeUndefined();
+		expect(parsePullRequest({ number: "41208", url: PR_URL, state: "open", checks })).toBeUndefined();
+		expect(parsePullRequest({ number: 41208, state: "open", checks })).toBeUndefined();
 		expect(
-			countPullRequestChecks([
-				{ name: "build", status: "COMPLETED", conclusion: "SUCCESS" },
-				{ name: "skip", conclusion: "SKIPPED" },
-				{ name: "lint", status: "IN_PROGRESS" },
-				{ context: "deploy", state: "PENDING" },
-				{ context: "CI", state: "ERROR" },
-				{ name: "test", conclusion: "TIMED_OUT" },
-				{ name: "unknown", status: "COMPLETED" },
-				{},
-				null,
-			]),
-		).toEqual({ passed: 2, running: 3, failed: 2 });
-		expect(countPullRequestChecks(undefined)).toEqual({ passed: 0, running: 0, failed: 0 });
+			parsePullRequest({ number: 41208, url: PR_URL, state: "open", checks: { passed: -1, running: 0, failed: 0 } }),
+		).toBeUndefined();
+		expect(parsePullRequest({ number: 41208, url: PR_URL, state: "open" })).toBeUndefined();
+		expect(parsePullRequest(null)).toBeUndefined();
+		expect(parsePullRequest("not a pull request")).toBeUndefined();
 	});
 });
 
@@ -182,7 +164,7 @@ describe("pull request polling", () => {
 		expect(onChange).toHaveBeenCalledTimes(3);
 	});
 
-	it("keeps the displayed pull request when gh fails", async () => {
+	it("keeps the displayed pull request when the github CLI fails", async () => {
 		const onChange = vi.fn();
 		let fail = false;
 		const status = new PullRequestStatus(
@@ -190,7 +172,7 @@ describe("pull request polling", () => {
 			() => "main",
 			onChange,
 			async () => {
-				if (fail) throw new Error("gh: network unreachable");
+				if (fail) throw new Error("github: network unreachable");
 				return openPullRequest;
 			},
 		);
@@ -220,6 +202,55 @@ describe("pull request polling", () => {
 
 		expect(status.get()).toBeUndefined();
 		status.dispose();
+	});
+
+	describe("github CLI reader", () => {
+		const originalPath = process.env.PATH;
+		let binDir: string;
+		let repoDir: string;
+
+		/** A fake `github` on PATH that records its cwd and argv and prints `response`. */
+		function installGithub(response: string): void {
+			writeFileSync(join(binDir, "response.json"), response);
+			const script = `#!/bin/sh\necho "$PWD $*" > "${binDir}/argv"\ncat "${binDir}/response.json"\n`;
+			writeFileSync(join(binDir, "github"), script);
+			chmodSync(join(binDir, "github"), 0o755);
+		}
+
+		beforeEach(() => {
+			binDir = mkdtempSync(join(tmpdir(), "footer-github-bin-"));
+			repoDir = mkdtempSync(join(tmpdir(), "footer-github-repo-"));
+			process.env.PATH = `${binDir}${delimiter}${originalPath}`;
+		});
+
+		afterEach(() => {
+			process.env.PATH = originalPath;
+			rmSync(binDir, { recursive: true, force: true });
+			rmSync(repoDir, { recursive: true, force: true });
+		});
+
+		it("asks github pr branch for the current branch in the session directory", async () => {
+			installGithub(JSON.stringify(openPullRequest));
+			const status = new PullRequestStatus(repoDir, () => "feature/x", vi.fn());
+
+			await status.refresh();
+
+			expect(readFileSync(join(binDir, "argv"), "utf8").trim()).toBe(`${repoDir} pr branch feature/x --json`);
+			expect(status.get()).toEqual(openPullRequest);
+			status.dispose();
+		});
+
+		it("shows nothing when the branch has no pull request", async () => {
+			installGithub("null\n");
+			const onChange = vi.fn();
+			const status = new PullRequestStatus(repoDir, () => "master", onChange);
+
+			await status.refresh();
+
+			expect(status.get()).toBeUndefined();
+			expect(onChange).not.toHaveBeenCalled();
+			status.dispose();
+		});
 	});
 
 	it("reads no pull request outside a repository", async () => {

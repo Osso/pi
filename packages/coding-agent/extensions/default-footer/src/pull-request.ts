@@ -9,7 +9,7 @@ export interface PullRequestChecks {
 	failed: number;
 }
 
-/** Pull request fields taken from `gh pr view --json number,url,state,statusCheckRollup`. */
+/** Output of `github pr branch <branch> --json`. */
 export interface PullRequest {
 	number: number;
 	url: string;
@@ -20,49 +20,30 @@ export interface PullRequest {
 /** Match real GitHub pull URLs only, so a lookalike host cannot produce a link. */
 const PULL_REQUEST_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/([1-9]\d*)$/i;
 const PULL_REQUEST_STATES: readonly PullRequestState[] = ["open", "closed", "merged"];
-/** GitHub mixes CheckRuns (status/conclusion) and StatusContexts (state) in one rollup. */
-const PASSING_CONCLUSIONS = new Set(["SUCCESS", "NEUTRAL", "SKIPPED", "EXPECTED"]);
-const FAILING_CONCLUSIONS = new Set(["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "ERROR", "STARTUP_FAILURE"]);
-
-function checkOutcome(item: unknown): keyof PullRequestChecks | undefined {
-	if (!item || typeof item !== "object") return undefined;
-	const check = item as Record<string, unknown>;
-	const conclusion = String(check.conclusion ?? "").toUpperCase();
-	const status = String(check.status ?? check.state ?? "").toUpperCase();
-	if (!conclusion && !status) return undefined;
-	if (FAILING_CONCLUSIONS.has(conclusion) || status === "FAILURE" || status === "ERROR") return "failed";
-	if (PASSING_CONCLUSIONS.has(conclusion) || status === "SUCCESS" || status === "EXPECTED") return "passed";
-	// Queued, in-progress, and unknown states must never look green.
-	return "running";
+function isCount(value: unknown): value is number {
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
-export function countPullRequestChecks(statusCheckRollup: unknown): PullRequestChecks {
-	const checks: PullRequestChecks = { passed: 0, running: 0, failed: 0 };
-	if (!Array.isArray(statusCheckRollup)) return checks;
-	for (const item of statusCheckRollup) {
-		const outcome = checkOutcome(item);
-		if (outcome) checks[outcome] += 1;
-	}
-	return checks;
+function parseChecks(value: unknown): PullRequestChecks | undefined {
+	if (!value || typeof value !== "object") return undefined;
+	const { passed, running, failed } = value as Record<string, unknown>;
+	if (!isCount(passed) || !isCount(running) || !isCount(failed)) return undefined;
+	return { passed, running, failed };
 }
 
 export function parsePullRequest(value: unknown): PullRequest | undefined {
 	if (!value || typeof value !== "object") return undefined;
 	const raw = value as Record<string, unknown>;
-	const state = String(raw.state ?? "").toLowerCase();
 	if (typeof raw.url !== "string" || typeof raw.number !== "number" || !Number.isSafeInteger(raw.number)) {
 		return undefined;
 	}
-	if (!PULL_REQUEST_STATES.includes(state as PullRequestState)) return undefined;
+	if (!PULL_REQUEST_STATES.includes(raw.state as PullRequestState)) return undefined;
 	const match = PULL_REQUEST_URL.exec(raw.url);
 	// The URL is the link target, so it must describe the same pull request.
 	if (!match || Number(match[1]) !== raw.number) return undefined;
-	return {
-		number: raw.number,
-		url: raw.url,
-		state: state as PullRequestState,
-		checks: countPullRequestChecks(raw.statusCheckRollup),
-	};
+	const checks = parseChecks(raw.checks);
+	if (!checks) return undefined;
+	return { number: raw.number, url: raw.url, state: raw.state as PullRequestState, checks };
 }
 
 interface CheckSegment {
