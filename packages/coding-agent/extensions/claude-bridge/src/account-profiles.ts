@@ -93,9 +93,7 @@ function readCredentials(path: string): string {
 	} catch {
 		throw new Error("Invalid credentials: expected a nonempty JSON object");
 	}
-	const isObject = value !== null && typeof value === "object";
-	const isCredentialRecord = isObject && !Array.isArray(value) && Object.keys(value).length > 0;
-	if (!isCredentialRecord) {
+	if (value === null || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length === 0) {
 		throw new Error("Invalid credentials: expected a nonempty JSON object");
 	}
 	const oauth = (value as Record<string, unknown>).claudeAiOauth;

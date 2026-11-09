@@ -4,6 +4,10 @@
 
 import { statSync, readFileSync } from "fs";
 
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
 export function verifyWrittenSession(
 	jsonlPath: string,
 	expectedSessionId: string,
@@ -13,15 +17,15 @@ export function verifyWrittenSession(
 	let st;
 	try {
 		st = statSync(jsonlPath);
-	} catch (e) {
-		warnings.push(`file missing after save — path=${jsonlPath} err=${e.message}`);
+	} catch (error) {
+		warnings.push(`file missing after save — path=${jsonlPath} err=${errorMessage(error)}`);
 		return warnings;
 	}
 	let content;
 	try {
 		content = readFileSync(jsonlPath, "utf8");
-	} catch (e) {
-		warnings.push(`file unreadable — path=${jsonlPath} size=${st.size} err=${e.message}`);
+	} catch (error) {
+		warnings.push(`file unreadable — path=${jsonlPath} size=${st.size} err=${errorMessage(error)}`);
 		return warnings;
 	}
 	const lines = content.split("\n").filter((l) => l.trim().length > 0);
@@ -39,8 +43,8 @@ export function verifyWrittenSession(
 				`sessionId drift — expected=${expectedSessionId} first=${firstRec.sessionId} last=${lastRec.sessionId}`,
 			);
 		}
-	} catch (e) {
-		warnings.push(`malformed JSONL — path=${jsonlPath} err=${e.message}`);
+	} catch (error) {
+		warnings.push(`malformed JSONL — path=${jsonlPath} err=${errorMessage(error)}`);
 	}
 	return warnings;
 }
