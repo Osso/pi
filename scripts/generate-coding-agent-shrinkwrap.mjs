@@ -192,32 +192,31 @@ function resolveExternalDependency(lockPackages, packageName, fromLockPath) {
 	);
 }
 
-function addInternalWorkspace(shrinkwrapPackages, addedPaths, queue, name, workspace) {
+function addInternalWorkspace(shrinkwrapPackages, queue, name, workspace, outputPath) {
 	const packageJson = workspace.packageJson;
-	const outputPath = `node_modules/${name}`;
 	const entry = copyPackageJsonEntry(packageJson, { includeName: false });
 	entry.resolved = registryTarballUrl(name, packageJson.version);
 
 	shrinkwrapPackages[outputPath] = sortedPackageEntry(entry);
-	addedPaths.add(outputPath);
 
 	for (const dependencyName of Object.keys(packageDependencies(packageJson))) {
-		queue.push({ name: dependencyName, from: outputPath });
+		queue.push({ name: dependencyName, from: workspace.lockPath, outputFrom: outputPath });
 	}
 }
 
-function addExternalPackage(lockPackages, shrinkwrapPackages, addedPaths, queue, name, from) {
+function addExternalPackage(lockPackages, shrinkwrapPackages, addedPaths, queue, name, from, outputFrom) {
 	const lockPath = resolveExternalDependency(lockPackages, name, from);
-	if (addedPaths.has(lockPath)) {
+	const outputPath = `${outputFrom ? `${outputFrom}/` : ""}node_modules/${name}`;
+	if (addedPaths.has(outputPath)) {
 		return;
 	}
 
 	const entry = lockPackages[lockPath];
-	shrinkwrapPackages[lockPath] = copyLockEntry(entry);
-	addedPaths.add(lockPath);
+	shrinkwrapPackages[outputPath] = copyLockEntry(entry);
+	addedPaths.add(outputPath);
 
 	for (const dependencyName of Object.keys(packageDependencies(entry))) {
-		queue.push({ name: dependencyName, from: lockPath });
+		queue.push({ name: dependencyName, from: lockPath, outputFrom: outputPath });
 	}
 }
 
@@ -301,7 +300,11 @@ function generateShrinkwrap() {
 	};
 	const addedPaths = new Set([""]);
 	const internalNames = new Set();
-	const queue = Object.keys(packageDependencies(codingAgentPackage)).map((name) => ({ name, from: "" }));
+	const queue = Object.keys(packageDependencies(codingAgentPackage)).map((name) => ({
+		name,
+		from: "packages/coding-agent",
+		outputFrom: "",
+	}));
 
 	while (queue.length > 0) {
 		const item = queue.shift();
@@ -310,16 +313,17 @@ function generateShrinkwrap() {
 		}
 
 		const workspace = internalWorkspaces.get(item.name);
+		const outputPath = `${item.outputFrom ? `${item.outputFrom}/` : ""}node_modules/${item.name}`;
 		if (workspace) {
-			const outputPath = `node_modules/${item.name}`;
 			internalNames.add(item.name);
 			if (!addedPaths.has(outputPath)) {
-				addInternalWorkspace(shrinkwrapPackages, addedPaths, queue, item.name, workspace);
+				addedPaths.add(outputPath);
+				addInternalWorkspace(shrinkwrapPackages, queue, item.name, workspace, outputPath);
 			}
 			continue;
 		}
 
-		addExternalPackage(lockPackages, shrinkwrapPackages, addedPaths, queue, item.name, item.from);
+		addExternalPackage(lockPackages, shrinkwrapPackages, addedPaths, queue, item.name, item.from, item.outputFrom);
 	}
 
 	const shrinkwrap = {
