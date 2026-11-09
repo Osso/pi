@@ -14,7 +14,7 @@ The bridge also requires `@anthropic-ai/sdk` 0.124.0 for SDK types, `@modelconte
 
 Use `/model` to select a Claude model, e.g. `claude-bridge/claude-fable-5-2`, `claude-bridge/claude-opus-5`, or `claude-bridge/claude-haiku-5-5`.
 
-Behind the scenes, pi's tools are bridged to Claude Code but everything works like normal in pi. Bash commands get Claude Code's 120-second default timeout since pi's bash has none. Skills are forwarded to Claude Code's system prompt, and steering mid-turn reaches Claude at the next tool boundary.
+Pi executes its tools through the bridge's MCP server; their normal Pi behavior remains in use. Claude Code executes native WebSearch internally. The bridge forwards Pi's skills and project context to Claude Code, and mid-turn steering reaches Claude at the next tool boundary.
 
 **Web search:** Claude Code's native `WebSearch` runs inside the bridge using the current Claude account and model. The OpenAI-only Pi `web_search` tool is not forwarded to Claude. Search findings and source links appear in Claude's reply; native search calls are not separate Pi tool calls. Other native Claude tools remain disabled.
 
