@@ -91,6 +91,7 @@ fi
 if [[ "$SKIP_DEPS" == "false" ]]; then
     echo "==> Installing cross-platform native bindings..."
     CLIPBOARD_VERSION=$(node -p "require('./packages/coding-agent/package.json').optionalDependencies['@mariozechner/clipboard']")
+    CLAUDE_SDK_VERSION=$(node -p "require('./packages/coding-agent/package.json').dependencies['@anthropic-ai/claude-agent-sdk']")
     # npm ci only installs optional deps for the current platform
     # We need the base clipboard package and all platform bindings for bun cross-compilation
     # Use --force to bypass platform checks (os/cpu restrictions in package.json)
@@ -102,7 +103,13 @@ if [[ "$SKIP_DEPS" == "false" ]]; then
         @mariozechner/clipboard-linux-x64-gnu@"$CLIPBOARD_VERSION" \
         @mariozechner/clipboard-linux-arm64-gnu@"$CLIPBOARD_VERSION" \
         @mariozechner/clipboard-win32-x64-msvc@"$CLIPBOARD_VERSION" \
-        @mariozechner/clipboard-win32-arm64-msvc@"$CLIPBOARD_VERSION"
+        @mariozechner/clipboard-win32-arm64-msvc@"$CLIPBOARD_VERSION" \
+        @anthropic-ai/claude-agent-sdk-darwin-arm64@"$CLAUDE_SDK_VERSION" \
+        @anthropic-ai/claude-agent-sdk-darwin-x64@"$CLAUDE_SDK_VERSION" \
+        @anthropic-ai/claude-agent-sdk-linux-x64@"$CLAUDE_SDK_VERSION" \
+        @anthropic-ai/claude-agent-sdk-linux-arm64@"$CLAUDE_SDK_VERSION" \
+        @anthropic-ai/claude-agent-sdk-win32-x64@"$CLAUDE_SDK_VERSION" \
+        @anthropic-ai/claude-agent-sdk-win32-arm64@"$CLAUDE_SDK_VERSION"
 else
     echo "==> Skipping cross-platform native bindings (--skip-deps)"
 fi
@@ -159,6 +166,7 @@ for platform in "${PLATFORMS[@]}"; do
     cp CHANGELOG.md "$OUTPUT_DIR/$platform/"
     cp ../../node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm "$OUTPUT_DIR/$platform/"
     cp extensions/bwrap/src/fs-worker.cjs "$OUTPUT_DIR/$platform/"
+    node ../../scripts/claude-runtime.mjs copy "$platform" "$OUTPUT_DIR/$platform"
     mkdir -p "$OUTPUT_DIR/$platform/theme"
     cp dist/modes/interactive/theme/*.json "$OUTPUT_DIR/$platform/theme/"
     mkdir -p "$OUTPUT_DIR/$platform/assets"
