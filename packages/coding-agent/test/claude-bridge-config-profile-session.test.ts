@@ -2,10 +2,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CONFIG_DIR_NAME } from "../src/config.ts";
 import { prepareAccountProfile, readUsageCredentials } from "../extensions/claude-bridge/src/account-profiles.ts";
 import { loadConfig } from "../extensions/claude-bridge/src/config.ts";
 import { verifyWrittenSession } from "../extensions/claude-bridge/src/session-verify.ts";
+import { CONFIG_DIR_NAME } from "../src/config.ts";
 
 const temporaryDirectories: string[] = [];
 
