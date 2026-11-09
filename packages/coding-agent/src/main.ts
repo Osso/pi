@@ -29,6 +29,7 @@ import askSecretExtension from "../extensions/ask-secret/src/index.ts";
 import browserCliExtension from "../extensions/browser-cli/src/index.ts";
 import bwrapExtension from "../extensions/bwrap/src/index.ts";
 import claudeBashHookExtension, { resolveClaudeBashHookCommand } from "../extensions/claude-bash-hook/src/index.ts";
+import claudeBridgeExtension from "../extensions/claude-bridge/src/index.ts";
 import claudeMemoryEnrichExtension from "../extensions/claude-memory-enrich/src/index.ts";
 import claudeMemorySessionEndExtension from "../extensions/claude-memory-session-end/src/index.ts";
 import codexDaybreakExtension from "../extensions/codex-daybreak/src/index.ts";
@@ -696,6 +697,7 @@ function createFirstPartyExtensionFactories(
 			resolveClaudeBashHookCommand(),
 			claudeBashHookExtension,
 		),
+		firstPartyExtensionFactory("claude-bridge", claudeBridgeExtension),
 		firstPartyExtensionFactory("claude-memory-enrich", claudeMemoryEnrichExtension),
 		firstPartyExtensionFactory("claude-memory-session-end", claudeMemorySessionEndExtension),
 		firstPartyExtensionFactory("codex-daybreak", codexDaybreakExtension),

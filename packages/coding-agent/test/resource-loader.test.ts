@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ExtensionRunner } from "../src/core/extensions/runner.ts";
+import type { ExtensionFactory } from "../src/core/extensions/types.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
 import { DefaultResourceLoader, loadRulesFromDir } from "../src/core/resource-loader.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
@@ -30,6 +31,92 @@ describe("DefaultResourceLoader", () => {
 	});
 
 	describe("reload", () => {
+		it.each([
+			["package directory", "package"],
+			["direct extension file", "direct"],
+		])("skips the external bridge and loads unrelated extensions for a %s", async (_label, sourceKind) => {
+			const packageDirectory = join(cwd, "external-bridge");
+			mkdirSync(packageDirectory, { recursive: true });
+			writeFileSync(
+				join(packageDirectory, "package.json"),
+				JSON.stringify({
+					name: "pi-claude-bridge",
+					pi: { extensions: ["index.ts"] },
+				}),
+			);
+			const externalKey = `__externalBridge_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+			const unrelatedKey = `__unrelatedExtension_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+			writeFileSync(
+				join(packageDirectory, "index.ts"),
+				`export default function(pi) {
+					globalThis[${JSON.stringify(externalKey)}] = (globalThis[${JSON.stringify(externalKey)}] ?? 0) + 1;
+					pi.registerCommand("external-bridge", { description: "external bridge", handler: async () => {} });
+				}`,
+			);
+			const unrelatedPath = join(cwd, "unrelated.ts");
+			writeFileSync(
+				unrelatedPath,
+				`export default function(pi) {
+					globalThis[${JSON.stringify(unrelatedKey)}] = (globalThis[${JSON.stringify(unrelatedKey)}] ?? 0) + 1;
+					pi.registerCommand("unrelated", { description: "unrelated", handler: async () => {} });
+				}`,
+			);
+			const bundledBridge: ExtensionFactory & { extensionPath?: string } = (pi) => {
+				pi.registerCommand("bundled-bridge", { description: "bundled bridge", handler: async () => {} });
+			};
+			bundledBridge.extensionPath = "<first-party:claude-bridge>";
+			const loader = new DefaultResourceLoader({
+				cwd,
+				agentDir: agentDir,
+				additionalExtensionPaths: [
+					sourceKind === "package" ? packageDirectory : join(packageDirectory, "index.ts"),
+					unrelatedPath,
+				],
+				extensionFactories: [bundledBridge],
+			});
+			await loader.reload();
+
+			const globalState = globalThis as typeof globalThis & Record<string, number | undefined>;
+			expect(globalState[externalKey]).toBeUndefined();
+			expect(globalState[unrelatedKey]).toBe(1);
+			expect(loader.getExtensions().extensions.map((extension) => extension.path)).toContain(unrelatedPath);
+			expect(loader.getExtensions().extensions.map((extension) => extension.path)).not.toContain(
+				join(packageDirectory, "index.ts"),
+			);
+		});
+
+		it("does not skip an external bridge when no bundled bridge factory is supplied", async () => {
+			const packageDirectory = join(cwd, "external-bridge");
+			mkdirSync(packageDirectory, { recursive: true });
+			writeFileSync(
+				join(packageDirectory, "package.json"),
+				JSON.stringify({
+					name: "pi-claude-bridge",
+					pi: { extensions: ["index.ts"] },
+				}),
+			);
+			const externalKey = `__externalBridge_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+			writeFileSync(
+				join(packageDirectory, "index.ts"),
+				`export default function(pi) {
+					globalThis[${JSON.stringify(externalKey)}] = (globalThis[${JSON.stringify(externalKey)}] ?? 0) + 1;
+					pi.registerCommand("external-bridge", { description: "external bridge", handler: async () => {} });
+				}`,
+			);
+			const loader = new DefaultResourceLoader({
+				cwd,
+				agentDir: agentDir,
+				additionalExtensionPaths: [packageDirectory],
+			});
+			await loader.reload();
+
+			const globalState = globalThis as typeof globalThis & Record<string, number | undefined>;
+			expect(globalState[externalKey]).toBe(1);
+			expect(loader.getExtensions().extensions.map((extension) => extension.path)).toContain(
+				join(packageDirectory, "index.ts"),
+			);
+		});
+
 		it("should initialize with empty results before reload", () => {
 			const loader = new DefaultResourceLoader({ cwd, agentDir });
 

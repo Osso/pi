@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { basename, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import chalk from "chalk";
 import { CONFIG_DIR_NAME } from "../config.ts";
 import { loadThemeFromPath, type Theme } from "../modes/interactive/theme/theme.ts";
@@ -41,6 +41,31 @@ function firstPartyExtensionName(extensionPath: string): string | undefined {
 		return undefined;
 	}
 	return extensionPath.slice(prefix.length, -1);
+}
+
+function hasPackageNameInNearestManifest(extensionPath: string, packageName: string): boolean {
+	let directory = resolve(extensionPath);
+	if (!existsSync(directory) || !statSync(directory).isDirectory()) {
+		directory = dirname(directory);
+	}
+
+	while (true) {
+		const manifestPath = join(directory, "package.json");
+		if (existsSync(manifestPath)) {
+			try {
+				const manifest: unknown = JSON.parse(readFileSync(manifestPath, "utf-8"));
+				return (
+					typeof manifest === "object" && manifest !== null && "name" in manifest && manifest.name === packageName
+				);
+			} catch {
+				return false;
+			}
+		}
+
+		const parent = dirname(directory);
+		if (parent === directory) return false;
+		directory = parent;
+	}
 }
 
 function inlineExtensionName(extensionPath: string): string | undefined {
@@ -496,8 +521,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 		const cliEnabledPrompts = getEnabledPaths(cliExtensionPaths.prompts);
 		const cliEnabledThemes = getEnabledPaths(cliExtensionPaths.themes);
 
-		const extensionPaths = this.filterDisabledExtensionPaths(
-			this.noExtensions ? cliEnabledExtensions : this.mergePaths(cliEnabledExtensions, enabledExtensions),
+		const extensionPaths = this.filterBundledBridgePackagePaths(
+			this.filterDisabledExtensionPaths(
+				this.noExtensions ? cliEnabledExtensions : this.mergePaths(cliEnabledExtensions, enabledExtensions),
+			),
 		);
 
 		const extensionsResult = await this.loadFinalExtensionSet(extensionPaths, preTrustExtensions);
@@ -602,6 +629,18 @@ export class DefaultResourceLoader implements ResourceLoader {
 		this.loaded = true;
 	}
 
+	private filterBundledBridgePackagePaths(paths: string[]): string[] {
+		const bundledBridgeActive = this.extensionFactories.some(
+			(factory) =>
+				(factory as ExtensionFactory & { extensionPath?: string }).extensionPath === "<first-party:claude-bridge>",
+		);
+		if (!bundledBridgeActive) return paths;
+
+		return paths.filter(
+			(path) => !hasPackageNameInNearestManifest(this.resolveExtensionLoadPath(path), "pi-claude-bridge"),
+		);
+	}
+
 	private async loadCurrentExtensionSet(options: { includeInlineFactories: boolean }): Promise<LoadExtensionsResult> {
 		const resolvedPaths = await this.packageManager.resolve();
 		const cliExtensionPaths = await this.packageManager.resolveExtensionSources(this.additionalExtensionPaths, {
@@ -609,8 +648,10 @@ export class DefaultResourceLoader implements ResourceLoader {
 		});
 		const enabledExtensions = resolvedPaths.extensions.filter((r) => r.enabled).map((r) => r.path);
 		const cliEnabledExtensions = cliExtensionPaths.extensions.filter((r) => r.enabled).map((r) => r.path);
-		const extensionPaths = this.filterDisabledExtensionPaths(
-			this.noExtensions ? cliEnabledExtensions : this.mergePaths(cliEnabledExtensions, enabledExtensions),
+		const extensionPaths = this.filterBundledBridgePackagePaths(
+			this.filterDisabledExtensionPaths(
+				this.noExtensions ? cliEnabledExtensions : this.mergePaths(cliEnabledExtensions, enabledExtensions),
+			),
 		);
 		const extensionsResult = await loadExtensionsCached(extensionPaths, this.cwd, this.eventBus);
 		if (!options.includeInlineFactories) {
