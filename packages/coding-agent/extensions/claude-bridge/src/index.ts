@@ -2527,7 +2527,10 @@ function streamClaudeAgentSdk(
 	let activeQuery = ctx().activeQuery !== null;
 	const allResults = extractAllToolResults(context);
 	const pendingFailure = pendingToolFailures.get(piSession);
-	if (pendingFailure && allResults.some((result) => pendingFailure.toolCallIds.includes(result.toolCallId))) {
+	const hasPendingFailureResult = allResults.some(
+		(result) => result.toolCallId !== undefined && pendingFailure?.toolCallIds.includes(result.toolCallId),
+	);
+	if (pendingFailure && hasPendingFailureResult) {
 		pendingToolFailures.delete(piSession);
 		const failed = new QueryContext();
 		failed.resetTurnState(model);
