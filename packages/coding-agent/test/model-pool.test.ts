@@ -9,6 +9,7 @@ import {
 	type Context,
 	createAssistantMessageEventStream,
 	getSupportedThinkingLevels,
+	isRetryableAssistantError,
 	type Model,
 	registerApiProvider,
 	resetApiProviders,
@@ -17,7 +18,7 @@ import {
 } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
-import { POOL_EXHAUSTION_COOLDOWN_MS } from "../src/core/model-pool.ts";
+import { POOL_EXHAUSTION_COOLDOWN_MS, POOL_RATE_LIMIT_COOLDOWN_MS } from "../src/core/model-pool.ts";
 import { ModelRegistry, type ProviderConfigInput } from "../src/core/model-registry.ts";
 
 const FIRST = "pool-test-first";
@@ -284,18 +285,59 @@ describe("model pools", () => {
 		expect(actual.result).toBe(messageFromEvent(successful[1]));
 	});
 
-	test("does not rotate when the requested retry delay fits within the cap", async () => {
+	test("rotates on a rate limit within the cap and skips the member only for its retry delay", async () => {
 		const reg = registry();
-		const original = events(reg.find(FIRST, FIRST_ID)!, "429 rate limit reached", undefined, 5_000);
-		const request = register(() => fromEvents(original));
-		const actual = await collect(streamSimple(pool(reg), context, { maxRetryDelayMs: 60_000 }));
-		expect(request.mock.calls.map(([model]) => model.provider)).toEqual([FIRST]);
-		expect(actual.result).toBe(messageFromEvent(original[1]));
+		let firstAttempts = 0;
+		const request = register((model) =>
+			fromEvents(
+				model.provider === FIRST && ++firstAttempts === 1
+					? events(model, "429 rate limit reached", undefined, 5_000)
+					: events(model),
+			),
+		);
+		expect((await streamSimple(pool(reg), context, { maxRetryDelayMs: 60_000 }).result()).provider).toBe(SECOND);
+		now += 4_999;
+		expect((await streamSimple(pool(reg), context).result()).provider).toBe(SECOND);
+		now += 1;
+		expect((await streamSimple(pool(reg), context).result()).provider).toBe(FIRST);
+		expect(request.mock.calls.map(([model]) => model.provider)).toEqual([FIRST, SECOND, SECOND, FIRST]);
 	});
 
-	test("does not rotate on non-quota errors and forwards start and error unchanged", async () => {
+	test("skips a member for a minute after an OpenAI per-minute limit that names no retry delay", async () => {
 		const reg = registry();
-		const original = events(reg.find(FIRST, FIRST_ID)!, "429 too many requests; retry later");
+		const tooLarge =
+			"OpenAI API error: Request too large for gpt-6.1-sol in organization org-test on tokens per min (TPM): Limit 2000000, Requested 2400000.";
+		let firstAttempts = 0;
+		const request = register((model) =>
+			fromEvents(model.provider === FIRST && ++firstAttempts === 1 ? events(model, tooLarge) : events(model)),
+		);
+		expect((await streamSimple(pool(reg), context).result()).provider).toBe(SECOND);
+		now += POOL_RATE_LIMIT_COOLDOWN_MS - 1;
+		expect((await streamSimple(pool(reg), context).result()).provider).toBe(SECOND);
+		now += 1;
+		expect((await streamSimple(pool(reg), context).result()).provider).toBe(FIRST);
+		expect(request.mock.calls.map(([model]) => model.provider)).toEqual([FIRST, SECOND, SECOND, FIRST]);
+	});
+
+	test("returns a retryable error with the earliest free time when every member is rate limited", async () => {
+		const reg = registry();
+		const request = register((model) =>
+			fromEvents(events(model, "429 rate limit reached", undefined, model.provider === FIRST ? 20_000 : 8_000)),
+		);
+		const result = await streamSimple(pool(reg), context, { maxRetryDelayMs: 60_000 }).result();
+		expect(request.mock.calls.map(([model]) => model.provider)).toEqual([FIRST, SECOND]);
+		expect(result).toMatchObject({ stopReason: "error", retryAfterMs: 8_000 });
+		expect(result.errorMessage).toContain('Pool "flash": every member is rate limited or out of quota');
+		expect(isRetryableAssistantError(result)).toBe(true);
+		now += 8_000;
+		const second = await streamSimple(pool(reg), context, { maxRetryDelayMs: 60_000 }).result();
+		expect(request.mock.calls.map(([model]) => model.provider)).toEqual([FIRST, SECOND, SECOND]);
+		expect(second.retryAfterMs).toBe(8_000);
+	});
+
+	test("does not rotate on other provider errors and forwards start and error unchanged", async () => {
+		const reg = registry();
+		const original = events(reg.find(FIRST, FIRST_ID)!, "500 internal server error");
 		const request = register(() => fromEvents(original));
 		const actual = await collect(streamSimple(pool(reg), context));
 		expect(actual.events).toEqual(original);

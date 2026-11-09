@@ -17,6 +17,11 @@ import { isQuotaExhaustionError } from "./codex-quota-fallback.ts";
 import type { ModelRegistry, ResolvedRequestAuth } from "./model-registry.ts";
 
 export const POOL_EXHAUSTION_COOLDOWN_MS = 15 * 60 * 1000;
+/** Skip for a rate-limited member that gave no retry delay; per-minute limits reset within a minute. */
+export const POOL_RATE_LIMIT_COOLDOWN_MS = 60 * 1000;
+
+/** Account-scoped throttling another member can absorb, including OpenAI's per-minute "Request too large". */
+const RATE_LIMIT_PATTERN = /rate.?limit|too many requests|\b429\b|(?:tokens|requests) per min/i;
 
 export type MemberAuth = Extract<ResolvedRequestAuth, { ok: true }>;
 
@@ -30,6 +35,12 @@ export type PoolMemberStream = (
 
 const THINKING_LEVELS: ModelThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
 type ErrorEvent = Extract<AssistantMessageEvent, { type: "error" }>;
+
+/** A member skipped until `until`; `rateLimited` marks a short throttle rather than exhausted quota. */
+interface MemberCooldown {
+	until: number;
+	rateLimited: boolean;
+}
 
 function createPoolModel(name: string, members: Model<Api>[]): Model<Api> {
 	const first = members[0];
@@ -113,10 +124,10 @@ const streamWithMemberAuth: PoolMemberStream = (member, context, options, auth) 
 		env: auth.env || options?.env ? { ...auth.env, ...options?.env } : undefined,
 	});
 
-/** Registry-owned membership and quota cooldowns; refresh rebuilds membership, not cooldowns. */
+/** Registry-owned membership and member cooldowns; refresh rebuilds membership, not cooldowns. */
 export class ModelPools {
 	private members = new Map<string, Model<Api>[]>();
-	private exhaustedUntil = new Map<string, number>();
+	private cooldowns = new Map<string, MemberCooldown>();
 	private registry: ModelRegistry;
 	private now: () => number;
 
@@ -198,7 +209,10 @@ export class ModelPools {
 		return output;
 	}
 
-	/** Try members in order; a quota error before output, or a provider-requested wait beyond the cap, moves to the next one. */
+	/**
+	 * Try members in order. Before output, a quota error, a rate limit, or a provider-requested wait beyond the cap
+	 * moves to the next member and skips the failed one: rate limits for their retry delay, the rest for 15 minutes.
+	 */
 	private async routeMembers(request: PoolRequest): Promise<void> {
 		const { model, context, options, output } = request;
 		const maxRetryDelayMs = options?.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
@@ -212,14 +226,39 @@ export class ModelPools {
 			const rotationError = await this.forwardMember(member, input, output, options?.signal, maxRetryDelayMs);
 			if (!rotationError) return;
 			lastError = rotationError;
-			this.exhaustedUntil.set(memberKey(member), this.now() + POOL_EXHAUSTION_COOLDOWN_MS);
+			this.cooldowns.set(memberKey(member), memberCooldown(rotationError.error, maxRetryDelayMs, this.now()));
 		}
-		output.push(lastError ?? createError(model, `Pool "${model.id}": no eligible members available.`));
+		output.push(
+			this.rateLimitedPoolError(model, lastError) ??
+				lastError ??
+				createError(model, `Pool "${model.id}": no eligible members available.`),
+		);
+	}
+
+	/**
+	 * When no member could serve but one is only rate limited, a retryable error naming the earliest free member;
+	 * the caller's retry then reaches it instead of failing the turn.
+	 */
+	private rateLimitedPoolError(model: Model<Api>, lastError: ErrorEvent | undefined): ErrorEvent | undefined {
+		const now = this.now();
+		const waits = this.getMembers(model).flatMap((member) => {
+			const cooldown = this.cooldowns.get(memberKey(member));
+			return cooldown?.rateLimited && cooldown.until > now ? [cooldown.until - now] : [];
+		});
+		if (waits.length === 0) return undefined;
+		const retryAfterMs = Math.min(...waits);
+		const reason = lastError?.error.errorMessage ? ` Last error: ${lastError.error.errorMessage}` : "";
+		const event = createError(
+			model,
+			`Pool "${model.id}": every member is rate limited or out of quota; the next frees in ${Math.ceil(retryAfterMs / 1000)}s.${reason}`,
+		);
+		event.error.retryAfterMs = retryAfterMs;
+		return event;
 	}
 
 	/** Auth for a member that is not cooling down and has usable credentials; resolved once per attempt. */
 	private async resolveAvailableMember(member: Model<Api>): Promise<MemberAuth | undefined> {
-		if ((this.exhaustedUntil.get(memberKey(member)) ?? 0) > this.now()) return undefined;
+		if ((this.cooldowns.get(memberKey(member))?.until ?? 0) > this.now()) return undefined;
 		if (!this.registry.hasConfiguredAuth(member)) return undefined;
 		const auth = await this.registry.getApiKeyAndHeaders(member);
 		return auth.ok ? auth : undefined;
@@ -255,13 +294,28 @@ export class ModelPools {
 }
 
 /**
- * Rotation triggers before any output: terminal quota/balance exhaustion, or a requested
- * retry delay longer than the cap, which makes the member unavailable for this request.
+ * Rotation triggers before any output: terminal quota/balance exhaustion, an account rate limit,
+ * or a requested retry delay longer than the cap, which makes the member unavailable for this request.
  */
 function rotatesBeforeOutput(message: AssistantMessage, maxRetryDelayMs: number): boolean {
-	if (isQuotaExhaustionError(message)) return true;
+	return isQuotaExhaustionError(message) || isRateLimit(message) || exceedsRetryCap(message, maxRetryDelayMs);
+}
+
+function isRateLimit(message: AssistantMessage): boolean {
+	return RATE_LIMIT_PATTERN.test(message.errorMessage ?? "");
+}
+
+function exceedsRetryCap(message: AssistantMessage, maxRetryDelayMs: number): boolean {
 	if (message.retryAfterMs === undefined) return false;
 	return maxRetryDelayMs > 0 && message.retryAfterMs > maxRetryDelayMs;
+}
+
+/** A rate limit within the retry cap skips the member for its retry delay; anything else for 15 minutes. */
+function memberCooldown(message: AssistantMessage, maxRetryDelayMs: number, now: number): MemberCooldown {
+	const throttled =
+		!isQuotaExhaustionError(message) && isRateLimit(message) && !exceedsRetryCap(message, maxRetryDelayMs);
+	if (!throttled) return { until: now + POOL_EXHAUSTION_COOLDOWN_MS, rateLimited: false };
+	return { until: now + (message.retryAfterMs ?? POOL_RATE_LIMIT_COOLDOWN_MS), rateLimited: true };
 }
 
 /** Buffer `start` events until the first other event; undefined if aborted meanwhile. */
