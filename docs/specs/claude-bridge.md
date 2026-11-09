@@ -42,6 +42,7 @@ The first-party Claude bridge provides Claude Code-backed models and optional de
 - `packages/coding-agent/package.json` — pinned bridge runtime dependencies.
 - `scripts/claude-runtime.mjs` and `scripts/build-binaries.sh` — platform runtime assets.
 - `scripts/generate-coding-agent-shrinkwrap.mjs` and `scripts/generate-coding-agent-install-lock.mjs` — distributable dependency locks.
+- `scripts/coding-agent-lock-paths.mjs` — shared dependency placement and output resolution for both lock formats.
 
 ## Tests asserting this spec
 
