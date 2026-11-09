@@ -48,6 +48,39 @@ function resolvePackage(packages, packageName, fromPath) {
 	assert.fail(`Cannot resolve ${packageName} from ${fromPath}: ${Object.keys(packages).join(", ")}`);
 }
 
+function assertWorkspaceResolutions(lockPackages, isInstallLock, script) {
+	const codingAgent = isInstallLock ? "node_modules/@earendil-works/pi-coding-agent" : "";
+	const ai = "node_modules/@earendil-works/pi-ai";
+
+	assert.equal(resolvePackage(lockPackages, "@anthropic-ai/sdk", codingAgent).version, "0.124.0");
+	assert.equal(resolvePackage(lockPackages, "@anthropic-ai/sdk", ai).version, "0.91.1", script);
+	if (isInstallLock) {
+		assert.equal(lockPackages["node_modules/@anthropic-ai/sdk"].version, "0.91.1");
+		assert.equal(
+			lockPackages["node_modules/@earendil-works/pi-coding-agent/node_modules/@anthropic-ai/sdk"].version,
+			"0.124.0",
+		);
+	} else {
+		assert.equal(lockPackages["node_modules/@anthropic-ai/sdk"].version, "0.124.0");
+		assert.equal(lockPackages[`${ai}/node_modules/@anthropic-ai/sdk`].version, "0.91.1");
+	}
+	const codingAgentSdk = `${codingAgent ? `${codingAgent}/` : ""}node_modules/@anthropic-ai/sdk`;
+	assert.equal(resolvePackage(lockPackages, "nested", codingAgentSdk).version, "1.0.0");
+	const aiSdk = isInstallLock ? "node_modules/@anthropic-ai/sdk" : `${ai}/node_modules/@anthropic-ai/sdk`;
+	assert.equal(resolvePackage(lockPackages, "nested", aiSdk).version, "2.0.0");
+	assert.equal(resolvePackage(lockPackages, "platform-fixture", codingAgent).version, "1.0.0");
+	const sharedFromCodingAgent = resolvePackage(lockPackages, "shared-fixture", codingAgent);
+	const sharedFromAi = resolvePackage(lockPackages, "shared-fixture", ai);
+	assert.equal(sharedFromCodingAgent.version, "1.0.0");
+	assert.equal(sharedFromAi.version, "1.0.0");
+	assert.strictEqual(sharedFromCodingAgent, sharedFromAi);
+	assert.equal(resolvePackage(lockPackages, "shared-leaf", "node_modules/shared-fixture").version, "1.0.0");
+	assert.deepEqual(
+		Object.keys(lockPackages).filter((path) => path.includes("node_modules/shared-fixture")),
+		["node_modules/shared-fixture", "node_modules/shared-fixture/node_modules/shared-leaf"],
+	);
+}
+
 test("both coding-agent lock generators preserve workspace-specific dependency versions", (context) => {
 	const fixture = mkdtempSync(join(tmpdir(), "pi-lock-generator-"));
 	context.after(() => rmSync(fixture, { recursive: true, force: true }));
@@ -97,12 +130,12 @@ test("both coding-agent lock generators preserve workspace-specific dependency v
 			hasInstallScript: true,
 		},
 		"packages/coding-agent/node_modules/@anthropic-ai/sdk/node_modules/nested": lockEntry("nested", "1.0.0"),
-		"packages/ai/node_modules/@anthropic-ai/sdk": lockEntry(
+		"node_modules/@anthropic-ai/sdk": lockEntry(
 			"@anthropic-ai/sdk",
 			"0.91.1",
 			{ nested: "2.0.0" },
 		),
-		"packages/ai/node_modules/@anthropic-ai/sdk/node_modules/nested": lockEntry("nested", "2.0.0"),
+		"node_modules/@anthropic-ai/sdk/node_modules/nested": lockEntry("nested", "2.0.0"),
 		"node_modules/shared-fixture": lockEntry("shared-fixture", "1.0.0", { "shared-leaf": "1.0.0" }),
 		"node_modules/shared-fixture/node_modules/shared-leaf": lockEntry("shared-leaf", "1.0.0"),
 		"node_modules/platform-fixture": {
@@ -115,29 +148,7 @@ test("both coding-agent lock generators preserve workspace-specific dependency v
 	for (const { script, output } of generators) {
 		execFileSync(process.execPath, [join(scriptDir, script)], { cwd: fixture, stdio: "pipe" });
 		const generated = JSON.parse(readFileSync(join(fixture, output), "utf8"));
-		const lockPackages = generated.packages;
 		const isInstallLock = script.includes("install-lock");
-		const codingAgent = isInstallLock ? "node_modules/@earendil-works/pi-coding-agent" : "";
-		const ai = `${codingAgent ? `${codingAgent}/` : ""}node_modules/@earendil-works/pi-ai`;
-
-		assert.equal(resolvePackage(lockPackages, "@anthropic-ai/sdk", codingAgent).version, "0.124.0");
-		assert.equal(resolvePackage(lockPackages, "@anthropic-ai/sdk", ai).version, "0.91.1");
-		const codingAgentSdk = `${codingAgent ? `${codingAgent}/` : ""}node_modules/@anthropic-ai/sdk`;
-		assert.equal(resolvePackage(lockPackages, "nested", codingAgentSdk).version, "1.0.0");
-		assert.equal(
-			resolvePackage(lockPackages, "nested", `${ai}/node_modules/@anthropic-ai/sdk`).version,
-			"2.0.0",
-		);
-		assert.equal(resolvePackage(lockPackages, "platform-fixture", codingAgent).version, "1.0.0");
-		const sharedFromCodingAgent = resolvePackage(lockPackages, "shared-fixture", codingAgent);
-		const sharedFromAi = resolvePackage(lockPackages, "shared-fixture", ai);
-		assert.equal(sharedFromCodingAgent.version, "1.0.0");
-		assert.equal(sharedFromAi.version, "1.0.0");
-		assert.strictEqual(sharedFromCodingAgent, sharedFromAi);
-		assert.equal(resolvePackage(lockPackages, "shared-leaf", "node_modules/shared-fixture").version, "1.0.0");
-		assert.deepEqual(
-			Object.keys(lockPackages).filter((path) => path.includes("node_modules/shared-fixture")),
-			["node_modules/shared-fixture", "node_modules/shared-fixture/node_modules/shared-leaf"],
-		);
+		assertWorkspaceResolutions(generated.packages, isInstallLock, script);
 	}
 });

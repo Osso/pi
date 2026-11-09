@@ -199,18 +199,69 @@ function resolveExternalDependency(lockPackages, packageName, fromLockPath) {
 	);
 }
 
-function outputPathForLockPath(lockPath, workspaceOutputPaths) {
-	if (lockPath.startsWith("node_modules/")) {
-		return lockPath;
+function canonicalOutputPathForDependency(sourcePath, workspaceOutputPaths) {
+	if (sourcePath.startsWith("node_modules/")) {
+		return sourcePath;
 	}
 
-	for (const [sourcePath, outputPath] of workspaceOutputPaths) {
-		if (lockPath.startsWith(`${sourcePath}/`)) {
-			return `${outputPath}${lockPath.slice(sourcePath.length)}`;
+	for (const [workspacePath, outputPath] of workspaceOutputPaths) {
+		if (sourcePath.startsWith(`${workspacePath}/`)) {
+			return `${outputPath}${sourcePath.slice(workspacePath.length)}`;
+		}
+	}
+}
+
+function findOutputPath(name, outputFrom, sourcePath, outputPackages, emittedOrigins) {
+	let directory = outputFrom;
+
+	while (directory) {
+		const candidate = `${directory}/node_modules/${name}`;
+		if (!outputPackages[candidate] || emittedOrigins.get(candidate) === sourcePath) {
+			return candidate;
+		}
+
+		directory = posix.dirname(directory);
+		if (directory === ".") {
+			directory = "";
 		}
 	}
 
-	throw new Error(`Cannot map source lockfile path ${lockPath} to the installer lock layout`);
+	const rootCandidate = `node_modules/${name}`;
+	if (!outputPackages[rootCandidate] || emittedOrigins.get(rootCandidate) === sourcePath) {
+		return rootCandidate;
+	}
+	throw new Error(`Conflicting output package ${rootCandidate}: ${emittedOrigins.get(rootCandidate)} and ${sourcePath}`);
+}
+
+function resolveOutputDependency(packages, packageName, fromPath) {
+	let current = fromPath;
+	while (current) {
+		const candidate = `${current}/node_modules/${packageName}`;
+		const entry = packages[candidate];
+		if (entry && !entry.link) {
+			return candidate;
+		}
+
+		current = posix.dirname(current);
+		if (current === ".") {
+			current = "";
+		}
+	}
+
+	const rootCandidate = `node_modules/${packageName}`;
+	if (packages[rootCandidate] && !packages[rootCandidate].link) {
+		return rootCandidate;
+	}
+	throw new Error(`Cannot resolve ${packageName} from ${fromPath || "root"}`);
+}
+
+function outputPathForDependency(name, outputFrom, sourcePath, outputPackages, emittedOrigins, workspaceOutputPaths) {
+	const canonicalPath = canonicalOutputPathForDependency(sourcePath, workspaceOutputPaths);
+	if (canonicalPath && (!outputPackages[canonicalPath] || emittedOrigins.get(canonicalPath) === sourcePath)) {
+		return canonicalPath;
+	}
+
+	return findOutputPath(name, outputFrom, sourcePath, outputPackages, emittedOrigins);
 }
 
 function addInternalWorkspace(installLockPackages, queue, name, workspace, outputPath) {
@@ -221,23 +272,39 @@ function addInternalWorkspace(installLockPackages, queue, name, workspace, outpu
 	installLockPackages[outputPath] = sortedPackageEntry(entry);
 
 	for (const dependencyName of Object.keys(packageDependencies(packageJson))) {
-		queue.push({ name: dependencyName, from: workspace.lockPath });
+		queue.push({ name: dependencyName, from: workspace.lockPath, outputFrom: outputPath });
 	}
 }
 
-function addExternalPackage(lockPackages, installLockPackages, addedPaths, queue, name, from, workspaceOutputPaths) {
+function addExternalPackage(
+	lockPackages,
+	installLockPackages,
+	emittedOrigins,
+	queue,
+	name,
+	from,
+	outputFrom,
+	workspaceOutputPaths,
+) {
 	const lockPath = resolveExternalDependency(lockPackages, name, from);
-	const outputPath = outputPathForLockPath(lockPath, workspaceOutputPaths);
-	if (addedPaths.has(outputPath)) {
+	const outputPath = outputPathForDependency(
+		name,
+		outputFrom,
+		lockPath,
+		installLockPackages,
+		emittedOrigins,
+		workspaceOutputPaths,
+	);
+	if (emittedOrigins.has(outputPath)) {
 		return;
 	}
 
 	const entry = lockPackages[lockPath];
 	installLockPackages[outputPath] = copyLockEntry(entry);
-	addedPaths.add(outputPath);
+	emittedOrigins.set(outputPath, lockPath);
 
 	for (const dependencyName of Object.keys(packageDependencies(entry))) {
-		queue.push({ name: dependencyName, from: lockPath });
+		queue.push({ name: dependencyName, from: lockPath, outputFrom: outputPath });
 	}
 }
 
@@ -342,7 +409,7 @@ function validateGeneratedFiles(installerPackageJson, installLock, internalNames
 		for (const [dependencyName, dependencySpec] of Object.entries(packageDependencies(entry))) {
 			let dependencyLockPath;
 			try {
-				dependencyLockPath = resolveExternalDependency(installLock.packages, dependencyName, lockPath);
+				dependencyLockPath = resolveOutputDependency(installLock.packages, dependencyName, lockPath);
 			} catch {
 				errors.push(`${lockPath || "root"} dependency ${dependencyName} is missing`);
 				continue;
@@ -382,19 +449,19 @@ function generateInstallLock() {
 		"": createRootLockEntry(installerPackageJson),
 	};
 	const addedPaths = new Set([""]);
+	const emittedOrigins = new Map();
 	const internalNames = new Set();
 	const codingAgentOutputPath = `node_modules/${codingAgentPackage.name}`;
 	const workspaceOutputPaths = new Map(
 		[...internalWorkspaces.values()].map((workspace) => [
 			workspace.lockPath,
-			workspace.packageJson.name === codingAgentPackage.name
-				? codingAgentOutputPath
-				: `${codingAgentOutputPath}/node_modules/${workspace.packageJson.name}`,
+			`node_modules/${workspace.packageJson.name}`,
 		]),
 	);
 	const queue = Object.keys(packageDependencies(installerPackageJson)).map((name) => ({
 		name,
 		from: "packages/coding-agent",
+		outputFrom: "",
 	}));
 
 	while (queue.length > 0) {
@@ -417,7 +484,16 @@ function generateInstallLock() {
 			continue;
 		}
 
-		addExternalPackage(lockPackages, installLockPackages, addedPaths, queue, item.name, item.from, workspaceOutputPaths);
+		addExternalPackage(
+			lockPackages,
+			installLockPackages,
+			emittedOrigins,
+			queue,
+			item.name,
+			item.from,
+			item.outputFrom,
+			workspaceOutputPaths,
+		);
 	}
 
 	const installLock = {
