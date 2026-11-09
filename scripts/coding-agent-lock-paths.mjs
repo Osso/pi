@@ -57,6 +57,32 @@ export function resolveOutputDependency(packages, packageName, fromPath) {
 	throw new Error(`Cannot resolve ${packageName} from ${fromPath || "root"}`);
 }
 
+export function populateLockPackages(options) {
+	const { lockPackages, outputPackages, internalWorkspaces, workspaceOutputPaths, rootDependencies } = options;
+	const queue = Object.keys(rootDependencies).map((name) => ({ name, from: "packages/coding-agent", outputFrom: "" }));
+	const emittedOrigins = new Map();
+	const addedPaths = new Set([""]);
+	const internalNames = new Set();
+
+	while (queue.length > 0) {
+		const item = queue.shift();
+		const workspace = internalWorkspaces.get(item.name);
+		if (!workspace) {
+			options.addExternalPackage(lockPackages, outputPackages, emittedOrigins, queue, item.name, item.from, item.outputFrom, workspaceOutputPaths);
+			continue;
+		}
+
+		internalNames.add(item.name);
+		const outputPath = workspaceOutputPaths.get(workspace.lockPath);
+		if (!outputPath) throw new Error(`Cannot map internal workspace ${item.name} to the output lock layout`);
+		if (addedPaths.has(outputPath)) continue;
+		addedPaths.add(outputPath);
+		options.addInternalWorkspace(outputPackages, queue, item.name, workspace, outputPath);
+	}
+
+	return internalNames;
+}
+
 export function outputPathForDependency(name, outputFrom, sourcePath, outputPackages, emittedOrigins, workspaceOutputPaths) {
 	const canonicalPath = canonicalOutputPathForDependency(sourcePath, workspaceOutputPaths);
 	if (canonicalPath && (!outputPackages[canonicalPath] || emittedOrigins.get(canonicalPath) === sourcePath)) {

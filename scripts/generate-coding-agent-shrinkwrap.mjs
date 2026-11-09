@@ -3,7 +3,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { outputPathForDependency, resolveOutputDependency } from "./coding-agent-lock-paths.mjs";
+import { outputPathForDependency, populateLockPackages, resolveOutputDependency } from "./coding-agent-lock-paths.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
@@ -304,41 +304,6 @@ function validateShrinkwrap(shrinkwrap, internalNames) {
 	}
 }
 
-function addQueuedPackage(item, context) {
-	const workspace = context.internalWorkspaces.get(item.name);
-	if (!workspace) {
-		addExternalPackage(
-			context.lockPackages,
-			context.outputPackages,
-			context.emittedOrigins,
-			context.queue,
-			item.name,
-			item.from,
-			item.outputFrom,
-			context.workspaceOutputPaths,
-		);
-		return;
-	}
-
-	context.internalNames.add(item.name);
-	const outputPath = context.workspaceOutputPaths.get(workspace.lockPath);
-	if (!outputPath) {
-		throw new Error(`Cannot map internal workspace ${item.name} to the shrinkwrap layout`);
-	}
-	if (context.addedPaths.has(outputPath)) return;
-
-	context.addedPaths.add(outputPath);
-	addInternalWorkspace(context.outputPackages, context.queue, item.name, workspace, outputPath);
-}
-
-function addQueuedPackages(context) {
-	while (context.queue.length > 0) {
-		const item = context.queue.shift();
-		if (!item) break;
-		addQueuedPackage(item, context);
-	}
-}
-
 function generateShrinkwrap() {
 	const rootLock = readJson(rootLockfilePath);
 	if (rootLock.lockfileVersion !== 3 || !rootLock.packages) {
@@ -351,30 +316,20 @@ function generateShrinkwrap() {
 	const shrinkwrapPackages = {
 		"": copyPackageJsonEntry(codingAgentPackage, { includeName: true }),
 	};
-	const addedPaths = new Set([""]);
-	const emittedOrigins = new Map();
-	const internalNames = new Set();
 	const workspaceOutputPaths = new Map(
 		[...internalWorkspaces.values()].map((workspace) => [
 			workspace.lockPath,
 			workspace.packageJson.name === codingAgentPackage.name ? "" : `node_modules/${workspace.packageJson.name}`,
 		]),
 	);
-	const queue = Object.keys(packageDependencies(codingAgentPackage)).map((name) => ({
-		name,
-		from: "packages/coding-agent",
-		outputFrom: "",
-	}));
-
-	addQueuedPackages({
-		queue,
+	const internalNames = populateLockPackages({
+		lockPackages,
+		outputPackages: shrinkwrapPackages,
 		internalWorkspaces,
 		workspaceOutputPaths,
-		internalNames,
-		addedPaths,
-		emittedOrigins,
-		outputPackages: shrinkwrapPackages,
-		lockPackages,
+		rootDependencies: packageDependencies(codingAgentPackage),
+		addInternalWorkspace,
+		addExternalPackage,
 	});
 
 	const shrinkwrap = {
