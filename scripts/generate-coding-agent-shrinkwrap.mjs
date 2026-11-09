@@ -3,6 +3,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { outputPathForDependency, resolveOutputDependency } from "./coding-agent-lock-paths.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
@@ -86,22 +87,9 @@ function copyLockEntry(entry) {
 }
 
 function copyPackageJsonEntry(packageJson, options) {
-	const entry = options.includeName
-		? { name: packageJson.name, version: packageJson.version }
-		: { version: packageJson.version };
+	const entry = options.includeName ? { name: packageJson.name, version: packageJson.version } : { version: packageJson.version };
 
-	for (const field of [
-		"license",
-		"dependencies",
-		"optionalDependencies",
-		"peerDependencies",
-		"peerDependenciesMeta",
-		"bin",
-		"engines",
-		"os",
-		"cpu",
-		"libc",
-	]) {
+	for (const field of ["license", "dependencies", "optionalDependencies", "peerDependencies", "peerDependenciesMeta", "bin", "engines", "os", "cpu", "libc"]) {
 		if (packageJson[field] !== undefined) {
 			entry[field] = packageJson[field];
 		}
@@ -191,75 +179,8 @@ function resolveExternalDependency(lockPackages, packageName, fromLockPath) {
 	}
 
 	throw new Error(
-		`Cannot resolve ${packageName} from ${fromLockPath || "root"}. ` +
-			(matches.length > 1 ? `Matches: ${matches.join(", ")}` : "No matching lockfile entry found."),
+		`Cannot resolve ${packageName} from ${fromLockPath || "root"}. ` + (matches.length > 1 ? `Matches: ${matches.join(", ")}` : "No matching lockfile entry found."),
 	);
-}
-
-function canonicalOutputPathForDependency(sourcePath, workspaceOutputPaths) {
-	if (sourcePath.startsWith("node_modules/")) {
-		return sourcePath;
-	}
-
-	for (const [workspacePath, outputPath] of workspaceOutputPaths) {
-		if (sourcePath.startsWith(`${workspacePath}/`)) {
-			const remainder = sourcePath.slice(workspacePath.length + 1);
-			return [outputPath, remainder].filter(Boolean).join("/");
-		}
-	}
-}
-
-function findOutputPath(name, outputFrom, sourcePath, outputPackages, emittedOrigins) {
-	let directory = outputFrom;
-
-	while (directory) {
-		const candidate = `${directory}/node_modules/${name}`;
-		if (!outputPackages[candidate] || emittedOrigins.get(candidate) === sourcePath) {
-			return candidate;
-		}
-
-		directory = posix.dirname(directory);
-		if (directory === ".") {
-			directory = "";
-		}
-	}
-
-	const rootCandidate = `node_modules/${name}`;
-	if (!outputPackages[rootCandidate] || emittedOrigins.get(rootCandidate) === sourcePath) {
-		return rootCandidate;
-	}
-	throw new Error(`Conflicting output package ${rootCandidate}: ${emittedOrigins.get(rootCandidate)} and ${sourcePath}`);
-}
-
-function resolveOutputDependency(packages, packageName, fromPath) {
-	let current = fromPath;
-	while (current) {
-		const candidate = `${current}/node_modules/${packageName}`;
-		const entry = packages[candidate];
-		if (entry && !entry.link) {
-			return candidate;
-		}
-
-		current = posix.dirname(current);
-		if (current === ".") {
-			current = "";
-		}
-	}
-
-	const rootCandidate = `node_modules/${packageName}`;
-	if (packages[rootCandidate] && !packages[rootCandidate].link) {
-		return rootCandidate;
-	}
-	throw new Error(`Cannot resolve ${packageName} from ${fromPath || "root"}`);
-}
-
-function outputPathForDependency(name, outputFrom, sourcePath, outputPackages, emittedOrigins, workspaceOutputPaths) {
-	const canonicalPath = canonicalOutputPathForDependency(sourcePath, workspaceOutputPaths);
-	if (canonicalPath && (!outputPackages[canonicalPath] || emittedOrigins.get(canonicalPath) === sourcePath)) {
-		return canonicalPath;
-	}
-
-	return findOutputPath(name, outputFrom, sourcePath, outputPackages, emittedOrigins);
 }
 
 function addInternalWorkspace(shrinkwrapPackages, queue, name, workspace, outputPath) {
@@ -270,29 +191,17 @@ function addInternalWorkspace(shrinkwrapPackages, queue, name, workspace, output
 	shrinkwrapPackages[outputPath] = sortedPackageEntry(entry);
 
 	for (const dependencyName of Object.keys(packageDependencies(packageJson))) {
-		queue.push({ name: dependencyName, from: workspace.lockPath, outputFrom: outputPath });
+		queue.push({
+			name: dependencyName,
+			from: workspace.lockPath,
+			outputFrom: outputPath,
+		});
 	}
 }
 
-function addExternalPackage(
-	lockPackages,
-	shrinkwrapPackages,
-	emittedOrigins,
-	queue,
-	name,
-	from,
-	outputFrom,
-	workspaceOutputPaths,
-) {
+function addExternalPackage(lockPackages, shrinkwrapPackages, emittedOrigins, queue, name, from, outputFrom, workspaceOutputPaths) {
 	const lockPath = resolveExternalDependency(lockPackages, name, from);
-	const outputPath = outputPathForDependency(
-		name,
-		outputFrom,
-		lockPath,
-		shrinkwrapPackages,
-		emittedOrigins,
-		workspaceOutputPaths,
-	);
+	const outputPath = outputPathForDependency(name, outputFrom, lockPath, shrinkwrapPackages, emittedOrigins, workspaceOutputPaths);
 	if (emittedOrigins.has(outputPath)) {
 		return;
 	}
@@ -302,54 +211,60 @@ function addExternalPackage(
 	emittedOrigins.set(outputPath, lockPath);
 
 	for (const dependencyName of Object.keys(packageDependencies(entry))) {
-		queue.push({ name: dependencyName, from: lockPath, outputFrom: outputPath });
+		queue.push({
+			name: dependencyName,
+			from: lockPath,
+			outputFrom: outputPath,
+		});
 	}
 }
 
-function validateShrinkwrap(shrinkwrap, internalNames) {
-	const errors = [];
-	const includedPackageNames = new Set();
-	const seenAllowedInstallScriptPackages = new Set();
-
+function validatePackageEntries(shrinkwrap, errors, includedPackageNames, seenAllowedInstallScriptPackages) {
 	for (const [lockPath, entry] of Object.entries(shrinkwrap.packages)) {
 		const packageName = packageNameFromLockPath(lockPath);
-		if (packageName) {
-			includedPackageNames.add(packageName);
-		}
-		if (entry.link) {
-			errors.push(`${lockPath} is a link entry`);
-		}
+		if (packageName) includedPackageNames.add(packageName);
+		if (entry.link) errors.push(`${lockPath} is a link entry`);
 		if (typeof entry.resolved === "string" && /^(file:|link:|workspace:|\.\.?\/|\/)/.test(entry.resolved)) {
 			errors.push(`${lockPath} has a local resolved value: ${entry.resolved}`);
 		}
 		if (entry.hasInstallScript) {
-			if (!packageName || !entry.version) {
-				errors.push(`${lockPath || "root"} has install scripts but no package name/version`);
-			} else {
-				const packageId = `${packageName}@${entry.version}`;
-				if (allowedInstallScriptPackages.has(packageId)) {
-					seenAllowedInstallScriptPackages.add(packageId);
-				} else {
-					errors.push(
-						`${lockPath} has install scripts (${packageId}). Review it and add it to allowedInstallScriptPackages if intentional.`,
-					);
-				}
-			}
+			validateInstallScriptEntry(lockPath, entry, packageName, errors, seenAllowedInstallScriptPackages);
 		}
 	}
+}
 
+function validateInstallScriptEntry(lockPath, entry, packageName, errors, seenAllowedInstallScriptPackages) {
+	if (!packageName || !entry.version) {
+		errors.push(`${lockPath || "root"} has install scripts but no package name/version`);
+		return;
+	}
+
+	const packageId = `${packageName}@${entry.version}`;
+	if (allowedInstallScriptPackages.has(packageId)) {
+		seenAllowedInstallScriptPackages.add(packageId);
+		return;
+	}
+
+	errors.push(`${lockPath} has install scripts (${packageId}). Review it and add it to allowedInstallScriptPackages if intentional.`);
+}
+
+function validateAllowedInstallScripts(seenAllowedInstallScriptPackages, errors) {
 	for (const packageId of allowedInstallScriptPackages.keys()) {
 		if (!seenAllowedInstallScriptPackages.has(packageId)) {
 			errors.push(`allowed install-script package ${packageId} is no longer present; remove it from the allowlist`);
 		}
 	}
+}
 
+function validateInternalDependencies(internalNames, includedPackageNames, errors) {
 	for (const name of internalNames) {
 		if (!includedPackageNames.has(name)) {
 			errors.push(`internal dependency ${name} is missing`);
 		}
 	}
+}
 
+function validateDependencyVersions(shrinkwrap, errors) {
 	for (const [lockPath, entry] of Object.entries(shrinkwrap.packages)) {
 		for (const [dependencyName, dependencySpec] of Object.entries(packageDependencies(entry))) {
 			let dependencyLockPath;
@@ -362,20 +277,65 @@ function validateShrinkwrap(shrinkwrap, internalNames) {
 
 			const dependencyEntry = shrinkwrap.packages[dependencyLockPath];
 			if (isExactVersionSpec(dependencySpec) && dependencyEntry.version !== dependencySpec) {
-				errors.push(
-					`${lockPath || "root"} dependency ${dependencyName}@${dependencySpec} resolves to ${dependencyEntry.version}`,
-				);
+				errors.push(`${lockPath || "root"} dependency ${dependencyName}@${dependencySpec} resolves to ${dependencyEntry.version}`);
 			}
 		}
 	}
+}
 
-	const platformPackageCount = Object.values(shrinkwrap.packages).filter((entry) => entry.os || entry.cpu || entry.libc).length;
-	if (platformPackageCount === 0) {
-		errors.push("no platform-specific optional dependency entries found");
-	}
+function validatePlatformDependencies(shrinkwrap, errors) {
+	const hasPlatformPackage = Object.values(shrinkwrap.packages).some((entry) => entry.os || entry.cpu || entry.libc);
+	if (!hasPlatformPackage) errors.push("no platform-specific optional dependency entries found");
+}
+
+function validateShrinkwrap(shrinkwrap, internalNames) {
+	const errors = [];
+	const includedPackageNames = new Set();
+	const seenAllowedInstallScriptPackages = new Set();
+
+	validatePackageEntries(shrinkwrap, errors, includedPackageNames, seenAllowedInstallScriptPackages);
+	validateAllowedInstallScripts(seenAllowedInstallScriptPackages, errors);
+	validateInternalDependencies(internalNames, includedPackageNames, errors);
+	validateDependencyVersions(shrinkwrap, errors);
+	validatePlatformDependencies(shrinkwrap, errors);
 
 	if (errors.length > 0) {
 		throw new Error(`Generated shrinkwrap failed validation:\n${errors.map((error) => `  - ${error}`).join("\n")}`);
+	}
+}
+
+function addQueuedPackage(item, context) {
+	const workspace = context.internalWorkspaces.get(item.name);
+	if (!workspace) {
+		addExternalPackage(
+			context.lockPackages,
+			context.outputPackages,
+			context.emittedOrigins,
+			context.queue,
+			item.name,
+			item.from,
+			item.outputFrom,
+			context.workspaceOutputPaths,
+		);
+		return;
+	}
+
+	context.internalNames.add(item.name);
+	const outputPath = context.workspaceOutputPaths.get(workspace.lockPath);
+	if (!outputPath) {
+		throw new Error(`Cannot map internal workspace ${item.name} to the shrinkwrap layout`);
+	}
+	if (context.addedPaths.has(outputPath)) return;
+
+	context.addedPaths.add(outputPath);
+	addInternalWorkspace(context.outputPackages, context.queue, item.name, workspace, outputPath);
+}
+
+function addQueuedPackages(context) {
+	while (context.queue.length > 0) {
+		const item = context.queue.shift();
+		if (!item) break;
+		addQueuedPackage(item, context);
 	}
 }
 
@@ -406,37 +366,16 @@ function generateShrinkwrap() {
 		outputFrom: "",
 	}));
 
-	while (queue.length > 0) {
-		const item = queue.shift();
-		if (!item) {
-			break;
-		}
-
-		const workspace = internalWorkspaces.get(item.name);
-		if (workspace) {
-			internalNames.add(item.name);
-			const outputPath = workspaceOutputPaths.get(workspace.lockPath);
-			if (!outputPath) {
-				throw new Error(`Cannot map internal workspace ${item.name} to the shrinkwrap layout`);
-			}
-			if (!addedPaths.has(outputPath)) {
-				addedPaths.add(outputPath);
-				addInternalWorkspace(shrinkwrapPackages, queue, item.name, workspace, outputPath);
-			}
-			continue;
-		}
-
-		addExternalPackage(
-			lockPackages,
-			shrinkwrapPackages,
-			emittedOrigins,
-			queue,
-			item.name,
-			item.from,
-			item.outputFrom,
-			workspaceOutputPaths,
-		);
-	}
+	addQueuedPackages({
+		queue,
+		internalWorkspaces,
+		workspaceOutputPaths,
+		internalNames,
+		addedPaths,
+		emittedOrigins,
+		outputPackages: shrinkwrapPackages,
+		lockPackages,
+	});
 
 	const shrinkwrap = {
 		name: codingAgentPackage.name,
@@ -471,9 +410,7 @@ try {
 		writeFileSync(shrinkwrapPath, content);
 		const packageCount = Object.keys(shrinkwrap.packages).length - 1;
 		const platformPackageCount = Object.values(shrinkwrap.packages).filter((entry) => entry.os || entry.cpu || entry.libc).length;
-		console.log(
-			`Wrote packages/coding-agent/npm-shrinkwrap.json (${packageCount} packages, ${platformPackageCount} platform-specific).`,
-		);
+		console.log(`Wrote packages/coding-agent/npm-shrinkwrap.json (${packageCount} packages, ${platformPackageCount} platform-specific).`);
 	}
 } catch (error) {
 	console.error(error instanceof Error ? error.message : String(error));

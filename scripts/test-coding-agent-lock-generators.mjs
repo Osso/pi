@@ -56,10 +56,7 @@ function assertWorkspaceResolutions(lockPackages, isInstallLock, script) {
 	assert.equal(resolvePackage(lockPackages, "@anthropic-ai/sdk", ai).version, "0.91.1", script);
 	if (isInstallLock) {
 		assert.equal(lockPackages["node_modules/@anthropic-ai/sdk"].version, "0.91.1");
-		assert.equal(
-			lockPackages["node_modules/@earendil-works/pi-coding-agent/node_modules/@anthropic-ai/sdk"].version,
-			"0.124.0",
-		);
+		assert.equal(lockPackages["node_modules/@earendil-works/pi-coding-agent/node_modules/@anthropic-ai/sdk"].version, "0.124.0");
 	} else {
 		assert.equal(lockPackages["node_modules/@anthropic-ai/sdk"].version, "0.124.0");
 		assert.equal(lockPackages[`${ai}/node_modules/@anthropic-ai/sdk`].version, "0.91.1");
@@ -90,6 +87,7 @@ test("both coding-agent lock generators preserve workspace-specific dependency v
 	for (const { script } of generators) {
 		writeFileSync(join(scriptDir, script), readFileSync(join(repoRoot, "scripts", script)));
 	}
+	writeFileSync(join(scriptDir, "coding-agent-lock-paths.mjs"), readFileSync(join(repoRoot, "scripts/coding-agent-lock-paths.mjs")));
 
 	writeJson(join(fixture, "packages/coding-agent/package.json"), {
 		name: "@earendil-works/pi-coding-agent",
@@ -116,11 +114,9 @@ test("both coding-agent lock generators preserve workspace-specific dependency v
 			version: "1.0.0",
 		},
 		"packages/ai": { name: "@earendil-works/pi-ai", version: "1.0.0" },
-		"packages/coding-agent/node_modules/@anthropic-ai/sdk": lockEntry(
-			"@anthropic-ai/sdk",
-			"0.124.0",
-			{ nested: "1.0.0" },
-		),
+		"packages/coding-agent/node_modules/@anthropic-ai/sdk": lockEntry("@anthropic-ai/sdk", "0.124.0", {
+			nested: "1.0.0",
+		}),
 		"packages/coding-agent/node_modules/@google/genai": {
 			...lockEntry("@google/genai", "1.52.0"),
 			hasInstallScript: true,
@@ -130,23 +126,29 @@ test("both coding-agent lock generators preserve workspace-specific dependency v
 			hasInstallScript: true,
 		},
 		"packages/coding-agent/node_modules/@anthropic-ai/sdk/node_modules/nested": lockEntry("nested", "1.0.0"),
-		"node_modules/@anthropic-ai/sdk": lockEntry(
-			"@anthropic-ai/sdk",
-			"0.91.1",
-			{ nested: "2.0.0" },
-		),
+		"node_modules/@anthropic-ai/sdk": lockEntry("@anthropic-ai/sdk", "0.91.1", {
+			nested: "2.0.0",
+		}),
 		"node_modules/@anthropic-ai/sdk/node_modules/nested": lockEntry("nested", "2.0.0"),
-		"node_modules/shared-fixture": lockEntry("shared-fixture", "1.0.0", { "shared-leaf": "1.0.0" }),
+		"node_modules/shared-fixture": lockEntry("shared-fixture", "1.0.0", {
+			"shared-leaf": "1.0.0",
+		}),
 		"node_modules/shared-fixture/node_modules/shared-leaf": lockEntry("shared-leaf", "1.0.0"),
 		"node_modules/platform-fixture": {
 			...lockEntry("platform-fixture", "1.0.0"),
 			os: ["linux"],
 		},
 	};
-	writeJson(join(fixture, "package-lock.json"), { lockfileVersion: 3, packages });
+	writeJson(join(fixture, "package-lock.json"), {
+		lockfileVersion: 3,
+		packages,
+	});
 
 	for (const { script, output } of generators) {
-		execFileSync(process.execPath, [join(scriptDir, script)], { cwd: fixture, stdio: "pipe" });
+		execFileSync(process.execPath, [join(scriptDir, script)], {
+			cwd: fixture,
+			stdio: "pipe",
+		});
 		const generated = JSON.parse(readFileSync(join(fixture, output), "utf8"));
 		const isInstallLock = script.includes("install-lock");
 		assertWorkspaceResolutions(generated.packages, isInstallLock, script);

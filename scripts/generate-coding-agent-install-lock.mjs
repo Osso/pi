@@ -3,6 +3,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { outputPathForDependency, resolveOutputDependency } from "./coding-agent-lock-paths.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
@@ -89,22 +90,9 @@ function copyLockEntry(entry) {
 }
 
 function copyPackageJsonEntry(packageJson, options) {
-	const entry = options.includeName
-		? { name: packageJson.name, version: packageJson.version }
-		: { version: packageJson.version };
+	const entry = options.includeName ? { name: packageJson.name, version: packageJson.version } : { version: packageJson.version };
 
-	for (const field of [
-		"license",
-		"dependencies",
-		"optionalDependencies",
-		"peerDependencies",
-		"peerDependenciesMeta",
-		"bin",
-		"engines",
-		"os",
-		"cpu",
-		"libc",
-	]) {
+	for (const field of ["license", "dependencies", "optionalDependencies", "peerDependencies", "peerDependenciesMeta", "bin", "engines", "os", "cpu", "libc"]) {
 		if (packageJson[field] !== undefined) {
 			entry[field] = packageJson[field];
 		}
@@ -194,74 +182,8 @@ function resolveExternalDependency(lockPackages, packageName, fromLockPath) {
 	}
 
 	throw new Error(
-		`Cannot resolve ${packageName} from ${fromLockPath || "root"}. ` +
-			(matches.length > 1 ? `Matches: ${matches.join(", ")}` : "No matching lockfile entry found."),
+		`Cannot resolve ${packageName} from ${fromLockPath || "root"}. ` + (matches.length > 1 ? `Matches: ${matches.join(", ")}` : "No matching lockfile entry found."),
 	);
-}
-
-function canonicalOutputPathForDependency(sourcePath, workspaceOutputPaths) {
-	if (sourcePath.startsWith("node_modules/")) {
-		return sourcePath;
-	}
-
-	for (const [workspacePath, outputPath] of workspaceOutputPaths) {
-		if (sourcePath.startsWith(`${workspacePath}/`)) {
-			return `${outputPath}${sourcePath.slice(workspacePath.length)}`;
-		}
-	}
-}
-
-function findOutputPath(name, outputFrom, sourcePath, outputPackages, emittedOrigins) {
-	let directory = outputFrom;
-
-	while (directory) {
-		const candidate = `${directory}/node_modules/${name}`;
-		if (!outputPackages[candidate] || emittedOrigins.get(candidate) === sourcePath) {
-			return candidate;
-		}
-
-		directory = posix.dirname(directory);
-		if (directory === ".") {
-			directory = "";
-		}
-	}
-
-	const rootCandidate = `node_modules/${name}`;
-	if (!outputPackages[rootCandidate] || emittedOrigins.get(rootCandidate) === sourcePath) {
-		return rootCandidate;
-	}
-	throw new Error(`Conflicting output package ${rootCandidate}: ${emittedOrigins.get(rootCandidate)} and ${sourcePath}`);
-}
-
-function resolveOutputDependency(packages, packageName, fromPath) {
-	let current = fromPath;
-	while (current) {
-		const candidate = `${current}/node_modules/${packageName}`;
-		const entry = packages[candidate];
-		if (entry && !entry.link) {
-			return candidate;
-		}
-
-		current = posix.dirname(current);
-		if (current === ".") {
-			current = "";
-		}
-	}
-
-	const rootCandidate = `node_modules/${packageName}`;
-	if (packages[rootCandidate] && !packages[rootCandidate].link) {
-		return rootCandidate;
-	}
-	throw new Error(`Cannot resolve ${packageName} from ${fromPath || "root"}`);
-}
-
-function outputPathForDependency(name, outputFrom, sourcePath, outputPackages, emittedOrigins, workspaceOutputPaths) {
-	const canonicalPath = canonicalOutputPathForDependency(sourcePath, workspaceOutputPaths);
-	if (canonicalPath && (!outputPackages[canonicalPath] || emittedOrigins.get(canonicalPath) === sourcePath)) {
-		return canonicalPath;
-	}
-
-	return findOutputPath(name, outputFrom, sourcePath, outputPackages, emittedOrigins);
 }
 
 function addInternalWorkspace(installLockPackages, queue, name, workspace, outputPath) {
@@ -272,29 +194,17 @@ function addInternalWorkspace(installLockPackages, queue, name, workspace, outpu
 	installLockPackages[outputPath] = sortedPackageEntry(entry);
 
 	for (const dependencyName of Object.keys(packageDependencies(packageJson))) {
-		queue.push({ name: dependencyName, from: workspace.lockPath, outputFrom: outputPath });
+		queue.push({
+			name: dependencyName,
+			from: workspace.lockPath,
+			outputFrom: outputPath,
+		});
 	}
 }
 
-function addExternalPackage(
-	lockPackages,
-	installLockPackages,
-	emittedOrigins,
-	queue,
-	name,
-	from,
-	outputFrom,
-	workspaceOutputPaths,
-) {
+function addExternalPackage(lockPackages, installLockPackages, emittedOrigins, queue, name, from, outputFrom, workspaceOutputPaths) {
 	const lockPath = resolveExternalDependency(lockPackages, name, from);
-	const outputPath = outputPathForDependency(
-		name,
-		outputFrom,
-		lockPath,
-		installLockPackages,
-		emittedOrigins,
-		workspaceOutputPaths,
-	);
+	const outputPath = outputPathForDependency(name, outputFrom, lockPath, installLockPackages, emittedOrigins, workspaceOutputPaths);
 	if (emittedOrigins.has(outputPath)) {
 		return;
 	}
@@ -304,7 +214,11 @@ function addExternalPackage(
 	emittedOrigins.set(outputPath, lockPath);
 
 	for (const dependencyName of Object.keys(packageDependencies(entry))) {
-		queue.push({ name: dependencyName, from: lockPath, outputFrom: outputPath });
+		queue.push({
+			name: dependencyName,
+			from: lockPath,
+			outputFrom: outputPath,
+		});
 	}
 }
 
@@ -352,9 +266,7 @@ function validateGeneratedFiles(installerPackageJson, installLock, internalNames
 		errors.push(`lockfile name ${installLock.name} does not match package.json name ${installerPackageJson.name}`);
 	}
 	if (installLock.version !== installerPackageJson.version) {
-		errors.push(
-			`lockfile version ${installLock.version} does not match package.json version ${installerPackageJson.version}`,
-		);
+		errors.push(`lockfile version ${installLock.version} does not match package.json version ${installerPackageJson.version}`);
 	}
 	if (JSON.stringify(rootEntry?.dependencies ?? {}) !== JSON.stringify(installerPackageJson.dependencies)) {
 		errors.push("lockfile root dependencies do not match package.json dependencies");
@@ -385,9 +297,7 @@ function validateGeneratedFiles(installerPackageJson, installLock, internalNames
 				if (allowedInstallScriptPackages.has(packageId)) {
 					seenAllowedInstallScriptPackages.add(packageId);
 				} else {
-					errors.push(
-						`${lockPath} has install scripts (${packageId}). Review it and add it to allowedInstallScriptPackages if intentional.`,
-					);
+					errors.push(`${lockPath} has install scripts (${packageId}). Review it and add it to allowedInstallScriptPackages if intentional.`);
 				}
 			}
 		}
@@ -417,21 +327,53 @@ function validateGeneratedFiles(installerPackageJson, installLock, internalNames
 
 			const dependencyEntry = installLock.packages[dependencyLockPath];
 			if (isExactVersionSpec(dependencySpec) && dependencyEntry.version !== dependencySpec) {
-				errors.push(
-					`${lockPath || "root"} dependency ${dependencyName}@${dependencySpec} resolves to ${dependencyEntry.version}`,
-				);
+				errors.push(`${lockPath || "root"} dependency ${dependencyName}@${dependencySpec} resolves to ${dependencyEntry.version}`);
 			}
 		}
 	}
 
-	const platformPackageCount = Object.values(installLock.packages).filter((entry) => entry.os || entry.cpu || entry.libc)
-		.length;
+	const platformPackageCount = Object.values(installLock.packages).filter((entry) => entry.os || entry.cpu || entry.libc).length;
 	if (platformPackageCount === 0) {
 		errors.push("no platform-specific optional dependency entries found");
 	}
 
 	if (errors.length > 0) {
 		throw new Error(`Generated installer lock failed validation:\n${errors.map((error) => `  - ${error}`).join("\n")}`);
+	}
+}
+
+function addQueuedPackage(item, context) {
+	const workspace = context.internalWorkspaces.get(item.name);
+	if (!workspace) {
+		addExternalPackage(
+			context.lockPackages,
+			context.outputPackages,
+			context.emittedOrigins,
+			context.queue,
+			item.name,
+			item.from,
+			item.outputFrom,
+			context.workspaceOutputPaths,
+		);
+		return;
+	}
+
+	context.internalNames.add(item.name);
+	const outputPath = context.workspaceOutputPaths.get(workspace.lockPath);
+	if (!outputPath) {
+		throw new Error(`Cannot map internal workspace ${item.name} to the installer lock layout`);
+	}
+	if (context.addedPaths.has(outputPath)) return;
+
+	context.addedPaths.add(outputPath);
+	addInternalWorkspace(context.outputPackages, context.queue, item.name, workspace, outputPath);
+}
+
+function addQueuedPackages(context) {
+	while (context.queue.length > 0) {
+		const item = context.queue.shift();
+		if (!item) break;
+		addQueuedPackage(item, context);
 	}
 }
 
@@ -452,49 +394,23 @@ function generateInstallLock() {
 	const emittedOrigins = new Map();
 	const internalNames = new Set();
 	const codingAgentOutputPath = `node_modules/${codingAgentPackage.name}`;
-	const workspaceOutputPaths = new Map(
-		[...internalWorkspaces.values()].map((workspace) => [
-			workspace.lockPath,
-			`node_modules/${workspace.packageJson.name}`,
-		]),
-	);
+	const workspaceOutputPaths = new Map([...internalWorkspaces.values()].map((workspace) => [workspace.lockPath, `node_modules/${workspace.packageJson.name}`]));
 	const queue = Object.keys(packageDependencies(installerPackageJson)).map((name) => ({
 		name,
 		from: "packages/coding-agent",
 		outputFrom: "",
 	}));
 
-	while (queue.length > 0) {
-		const item = queue.shift();
-		if (!item) {
-			break;
-		}
-
-		const workspace = internalWorkspaces.get(item.name);
-		if (workspace) {
-			internalNames.add(item.name);
-			const outputPath = workspaceOutputPaths.get(workspace.lockPath);
-			if (!outputPath) {
-				throw new Error(`Cannot map internal workspace ${item.name} to the installer lock layout`);
-			}
-			if (!addedPaths.has(outputPath)) {
-				addedPaths.add(outputPath);
-				addInternalWorkspace(installLockPackages, queue, item.name, workspace, outputPath);
-			}
-			continue;
-		}
-
-		addExternalPackage(
-			lockPackages,
-			installLockPackages,
-			emittedOrigins,
-			queue,
-			item.name,
-			item.from,
-			item.outputFrom,
-			workspaceOutputPaths,
-		);
-	}
+	addQueuedPackages({
+		queue,
+		internalWorkspaces,
+		workspaceOutputPaths,
+		internalNames,
+		addedPaths,
+		emittedOrigins,
+		outputPackages: installLockPackages,
+		lockPackages,
+	});
 
 	const installLock = {
 		name: installerPackageJson.name,
@@ -532,11 +448,8 @@ try {
 		writeFileSync(outputPackageJsonPath, packageJsonContent);
 		writeFileSync(outputLockfilePath, lockfileContent);
 		const packageCount = Object.keys(installLock.packages).length - 1;
-		const platformPackageCount = Object.values(installLock.packages).filter((entry) => entry.os || entry.cpu || entry.libc)
-			.length;
-		console.log(
-			`Wrote packages/coding-agent/install-lock/package.json and package-lock.json (${packageCount} packages, ${platformPackageCount} platform-specific).`,
-		);
+		const platformPackageCount = Object.values(installLock.packages).filter((entry) => entry.os || entry.cpu || entry.libc).length;
+		console.log(`Wrote packages/coding-agent/install-lock/package.json and package-lock.json (${packageCount} packages, ${platformPackageCount} platform-specific).`);
 	}
 } catch (error) {
 	console.error(error instanceof Error ? error.message : String(error));
