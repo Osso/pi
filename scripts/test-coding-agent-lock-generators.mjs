@@ -36,13 +36,15 @@ function lockEntry(name, version, dependencies = {}, optionalDependencies = {}) 
 
 function resolvePackage(packages, packageName, fromPath) {
 	let current = fromPath;
-	while (true) {
-		const candidate = current ? `${current}/node_modules/${packageName}` : `node_modules/${packageName}`;
+	while (current) {
+		const candidate = `${current}/node_modules/${packageName}`;
 		if (packages[candidate]) return packages[candidate];
 		const parent = posix.dirname(current);
-		if (!current || parent === "." || parent === current) break;
+		if (parent === "." || parent === current) break;
 		current = parent;
 	}
+	const rootCandidate = `node_modules/${packageName}`;
+	if (packages[rootCandidate]) return packages[rootCandidate];
 	assert.fail(`Cannot resolve ${packageName} from ${fromPath}: ${Object.keys(packages).join(", ")}`);
 }
 
@@ -64,13 +66,14 @@ test("both coding-agent lock generators preserve workspace-specific dependency v
 			"@anthropic-ai/sdk": "0.124.0",
 			"@google/genai": "1.52.0",
 			protobufjs: "7.6.5",
+			"shared-fixture": "1.0.0",
 		},
 		optionalDependencies: { "platform-fixture": "1.0.0" },
 	});
 	writeJson(join(fixture, "packages/ai/package.json"), {
 		name: "@earendil-works/pi-ai",
 		version: "1.0.0",
-		dependencies: { "@anthropic-ai/sdk": "0.91.1" },
+		dependencies: { "@anthropic-ai/sdk": "0.91.1", "shared-fixture": "1.0.0" },
 	});
 
 	const packages = {
@@ -100,6 +103,8 @@ test("both coding-agent lock generators preserve workspace-specific dependency v
 			{ nested: "2.0.0" },
 		),
 		"packages/ai/node_modules/@anthropic-ai/sdk/node_modules/nested": lockEntry("nested", "2.0.0"),
+		"node_modules/shared-fixture": lockEntry("shared-fixture", "1.0.0", { "shared-leaf": "1.0.0" }),
+		"node_modules/shared-fixture/node_modules/shared-leaf": lockEntry("shared-leaf", "1.0.0"),
 		"node_modules/platform-fixture": {
 			...lockEntry("platform-fixture", "1.0.0"),
 			os: ["linux"],
@@ -124,5 +129,15 @@ test("both coding-agent lock generators preserve workspace-specific dependency v
 			"2.0.0",
 		);
 		assert.equal(resolvePackage(lockPackages, "platform-fixture", codingAgent).version, "1.0.0");
+		const sharedFromCodingAgent = resolvePackage(lockPackages, "shared-fixture", codingAgent);
+		const sharedFromAi = resolvePackage(lockPackages, "shared-fixture", ai);
+		assert.equal(sharedFromCodingAgent.version, "1.0.0");
+		assert.equal(sharedFromAi.version, "1.0.0");
+		assert.strictEqual(sharedFromCodingAgent, sharedFromAi);
+		assert.equal(resolvePackage(lockPackages, "shared-leaf", "node_modules/shared-fixture").version, "1.0.0");
+		assert.deepEqual(
+			Object.keys(lockPackages).filter((path) => path.includes("node_modules/shared-fixture")),
+			["node_modules/shared-fixture", "node_modules/shared-fixture/node_modules/shared-leaf"],
+		);
 	}
 });

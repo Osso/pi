@@ -199,6 +199,20 @@ function resolveExternalDependency(lockPackages, packageName, fromLockPath) {
 	);
 }
 
+function outputPathForLockPath(lockPath, workspaceOutputPaths) {
+	if (lockPath.startsWith("node_modules/")) {
+		return lockPath;
+	}
+
+	for (const [sourcePath, outputPath] of workspaceOutputPaths) {
+		if (lockPath.startsWith(`${sourcePath}/`)) {
+			return `${outputPath}${lockPath.slice(sourcePath.length)}`;
+		}
+	}
+
+	throw new Error(`Cannot map source lockfile path ${lockPath} to the installer lock layout`);
+}
+
 function addInternalWorkspace(installLockPackages, queue, name, workspace, outputPath) {
 	const packageJson = workspace.packageJson;
 	const entry = copyPackageJsonEntry(packageJson, { includeName: false });
@@ -207,13 +221,13 @@ function addInternalWorkspace(installLockPackages, queue, name, workspace, outpu
 	installLockPackages[outputPath] = sortedPackageEntry(entry);
 
 	for (const dependencyName of Object.keys(packageDependencies(packageJson))) {
-		queue.push({ name: dependencyName, from: workspace.lockPath, outputFrom: outputPath });
+		queue.push({ name: dependencyName, from: workspace.lockPath });
 	}
 }
 
-function addExternalPackage(lockPackages, installLockPackages, addedPaths, queue, name, from, outputFrom) {
+function addExternalPackage(lockPackages, installLockPackages, addedPaths, queue, name, from, workspaceOutputPaths) {
 	const lockPath = resolveExternalDependency(lockPackages, name, from);
-	const outputPath = `${outputFrom ? `${outputFrom}/` : ""}node_modules/${name}`;
+	const outputPath = outputPathForLockPath(lockPath, workspaceOutputPaths);
 	if (addedPaths.has(outputPath)) {
 		return;
 	}
@@ -223,7 +237,7 @@ function addExternalPackage(lockPackages, installLockPackages, addedPaths, queue
 	addedPaths.add(outputPath);
 
 	for (const dependencyName of Object.keys(packageDependencies(entry))) {
-		queue.push({ name: dependencyName, from: lockPath, outputFrom: outputPath });
+		queue.push({ name: dependencyName, from: lockPath });
 	}
 }
 
@@ -369,10 +383,18 @@ function generateInstallLock() {
 	};
 	const addedPaths = new Set([""]);
 	const internalNames = new Set();
+	const codingAgentOutputPath = `node_modules/${codingAgentPackage.name}`;
+	const workspaceOutputPaths = new Map(
+		[...internalWorkspaces.values()].map((workspace) => [
+			workspace.lockPath,
+			workspace.packageJson.name === codingAgentPackage.name
+				? codingAgentOutputPath
+				: `${codingAgentOutputPath}/node_modules/${workspace.packageJson.name}`,
+		]),
+	);
 	const queue = Object.keys(packageDependencies(installerPackageJson)).map((name) => ({
 		name,
 		from: "packages/coding-agent",
-		outputFrom: "",
 	}));
 
 	while (queue.length > 0) {
@@ -382,9 +404,12 @@ function generateInstallLock() {
 		}
 
 		const workspace = internalWorkspaces.get(item.name);
-		const outputPath = `${item.outputFrom ? `${item.outputFrom}/` : ""}node_modules/${item.name}`;
 		if (workspace) {
 			internalNames.add(item.name);
+			const outputPath = workspaceOutputPaths.get(workspace.lockPath);
+			if (!outputPath) {
+				throw new Error(`Cannot map internal workspace ${item.name} to the installer lock layout`);
+			}
 			if (!addedPaths.has(outputPath)) {
 				addedPaths.add(outputPath);
 				addInternalWorkspace(installLockPackages, queue, item.name, workspace, outputPath);
@@ -392,7 +417,7 @@ function generateInstallLock() {
 			continue;
 		}
 
-		addExternalPackage(lockPackages, installLockPackages, addedPaths, queue, item.name, item.from, item.outputFrom);
+		addExternalPackage(lockPackages, installLockPackages, addedPaths, queue, item.name, item.from, workspaceOutputPaths);
 	}
 
 	const installLock = {

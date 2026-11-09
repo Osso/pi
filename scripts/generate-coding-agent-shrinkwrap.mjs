@@ -192,6 +192,21 @@ function resolveExternalDependency(lockPackages, packageName, fromLockPath) {
 	);
 }
 
+function outputPathForLockPath(lockPath, workspaceOutputPaths) {
+	if (lockPath.startsWith("node_modules/")) {
+		return lockPath;
+	}
+
+	for (const [sourcePath, outputPath] of workspaceOutputPaths) {
+		if (lockPath.startsWith(`${sourcePath}/`)) {
+			const remainder = lockPath.slice(sourcePath.length + 1);
+			return [outputPath, remainder].filter(Boolean).join("/");
+		}
+	}
+
+	throw new Error(`Cannot map source lockfile path ${lockPath} to the shrinkwrap layout`);
+}
+
 function addInternalWorkspace(shrinkwrapPackages, queue, name, workspace, outputPath) {
 	const packageJson = workspace.packageJson;
 	const entry = copyPackageJsonEntry(packageJson, { includeName: false });
@@ -200,13 +215,13 @@ function addInternalWorkspace(shrinkwrapPackages, queue, name, workspace, output
 	shrinkwrapPackages[outputPath] = sortedPackageEntry(entry);
 
 	for (const dependencyName of Object.keys(packageDependencies(packageJson))) {
-		queue.push({ name: dependencyName, from: workspace.lockPath, outputFrom: outputPath });
+		queue.push({ name: dependencyName, from: workspace.lockPath });
 	}
 }
 
-function addExternalPackage(lockPackages, shrinkwrapPackages, addedPaths, queue, name, from, outputFrom) {
+function addExternalPackage(lockPackages, shrinkwrapPackages, addedPaths, queue, name, from, workspaceOutputPaths) {
 	const lockPath = resolveExternalDependency(lockPackages, name, from);
-	const outputPath = `${outputFrom ? `${outputFrom}/` : ""}node_modules/${name}`;
+	const outputPath = outputPathForLockPath(lockPath, workspaceOutputPaths);
 	if (addedPaths.has(outputPath)) {
 		return;
 	}
@@ -216,7 +231,7 @@ function addExternalPackage(lockPackages, shrinkwrapPackages, addedPaths, queue,
 	addedPaths.add(outputPath);
 
 	for (const dependencyName of Object.keys(packageDependencies(entry))) {
-		queue.push({ name: dependencyName, from: lockPath, outputFrom: outputPath });
+		queue.push({ name: dependencyName, from: lockPath });
 	}
 }
 
@@ -300,10 +315,15 @@ function generateShrinkwrap() {
 	};
 	const addedPaths = new Set([""]);
 	const internalNames = new Set();
+	const workspaceOutputPaths = new Map(
+		[...internalWorkspaces.values()].map((workspace) => [
+			workspace.lockPath,
+			workspace.packageJson.name === codingAgentPackage.name ? "" : `node_modules/${workspace.packageJson.name}`,
+		]),
+	);
 	const queue = Object.keys(packageDependencies(codingAgentPackage)).map((name) => ({
 		name,
 		from: "packages/coding-agent",
-		outputFrom: "",
 	}));
 
 	while (queue.length > 0) {
@@ -313,9 +333,12 @@ function generateShrinkwrap() {
 		}
 
 		const workspace = internalWorkspaces.get(item.name);
-		const outputPath = `${item.outputFrom ? `${item.outputFrom}/` : ""}node_modules/${item.name}`;
 		if (workspace) {
 			internalNames.add(item.name);
+			const outputPath = workspaceOutputPaths.get(workspace.lockPath);
+			if (!outputPath) {
+				throw new Error(`Cannot map internal workspace ${item.name} to the shrinkwrap layout`);
+			}
 			if (!addedPaths.has(outputPath)) {
 				addedPaths.add(outputPath);
 				addInternalWorkspace(shrinkwrapPackages, queue, item.name, workspace, outputPath);
@@ -323,7 +346,7 @@ function generateShrinkwrap() {
 			continue;
 		}
 
-		addExternalPackage(lockPackages, shrinkwrapPackages, addedPaths, queue, item.name, item.from, item.outputFrom);
+		addExternalPackage(lockPackages, shrinkwrapPackages, addedPaths, queue, item.name, item.from, workspaceOutputPaths);
 	}
 
 	const shrinkwrap = {
