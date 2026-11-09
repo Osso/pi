@@ -33,6 +33,7 @@
 
 ### Changed
 
+- Bundled the Claude bridge as a first-party extension, preserving Claude authentication, profiles, native WebSearch and optional AskClaude. Duplicate external bridge loads are skipped without changing settings; a separate installation is no longer required. See the [Claude bridge guide](docs/claude-bridge.md).
 - The default footer shows the output speed of the latest reply (`42 tok/s`) instead of the session's `in`/`out` token totals. The speed is the reply's output tokens divided by the time from its first streamed update to its end, so time to first token is excluded. Failed and aborted replies keep the previous value. It is measured live, so it is empty after a restart until the next reply, and hidden while the footer shows another agent's session.
 - Changed model pools to rotate past a member whose rate-limit response requests a delay longer than `retry.provider.maxRetryDelayMs`, instead of failing the turn on that member. Short transient rate limits still go to the normal session retry on the same pool.
 - `search_current_session_history` and `search_parent_session_history` accept inclusive ISO `since` and `until` entry timestamp bounds. Bounded searches filter before the limit, return newest matches first, keep context within the range, and bind cursors to that range; invalid or reversed bounds are rejected. Unbounded searches are unchanged.

@@ -135,7 +135,7 @@ For each built-in provider, pi maintains a list of tool-capable models, updated 
 - Xiaomi MiMo Token Plan (Amsterdam)
 - Xiaomi MiMo Token Plan (Singapore)
 
-See [docs/providers.md](docs/providers.md) for detailed setup instructions.
+See [docs/providers.md](docs/providers.md) for detailed setup instructions. The bundled [Claude bridge](docs/claude-bridge.md) provides Claude Code-backed models and optional AskClaude delegation without a separate extension install.
 
 Azure OpenAI Responses is available only as an API implementation for explicitly configured custom providers; it is not a built-in provider.
 

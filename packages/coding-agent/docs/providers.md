@@ -35,6 +35,8 @@ A terminal quota, usage-limit, or billing-exhaustion error ends the turn on the 
 
 Anthropic subscription auth is active for Claude Pro/Max accounts. Third-party harness usage draws from [extra usage](https://claude.ai/settings/usage) and is billed per token, not against Claude plan limits.
 
+For Claude Code-backed models, use the bundled [`claude-bridge` provider](claude-bridge.md). It uses existing Claude Code authentication and does not require a separate bridge installation.
+
 ### GitHub Copilot
 
 - Press Enter for github.com, or enter your GitHub Enterprise Server domain

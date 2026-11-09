@@ -46,6 +46,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | Pyrun console streaming | [`pyrun-console-streaming.md`](pyrun-console-streaming.md) | **BUILD** (done) | Ordered line-buffered stdout/stderr JSONL events with retained final console history. |
 | Runtime inventory commands | [`runtime-inventory.md`](runtime-inventory.md) | **BUILD** | `pi tools`/`pi extensions` plus `/tools`/`/extensions` for current tool and extension visibility. |
 | Web search tool | [`web-search-tool.md`](web-search-tool.md) | **BUILD** | First-party `web_search` tool backed by OpenAI Responses hosted search; no legacy web-search flag. |
+| Claude bridge | [`claude-bridge.md`](claude-bridge.md) | **BUILD** | First-party Claude provider and optional AskClaude; integration verification pending. |
 | Codex hosted image generation | [`codex-image-generation.md`](codex-image-generation.md) | **BUILD** (done) | First-party `image_gen` tool backed by OpenAI Responses hosted image generation and shared image-result parsing. |
 | First-party `ask_secret` tool | [`ask-secret-tool.md`](ask-secret-tool.md) | **BUILD** (done) | Interactive-TUI-only browser credential provisioning and single-value secret-file persistence without returning secret values. |
 | Bubblewrap sandbox backend | [`bwrap-sandbox.md`](bwrap-sandbox.md) | **BUILD** | Linux `bwrap` backend for routing tool workers through sandbox profiles while leaving host Pi outside. |

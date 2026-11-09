@@ -2,7 +2,7 @@
 
 Module boundary: first-party extension module.
 
-The web search tool exposes OpenAI Responses hosted web search as an explicit callable Pi tool. It is registered by the first-party `codex-web-search` extension and appears in tool inventory when extensions are loaded.
+The web search tool exposes OpenAI Responses hosted web search as an explicit callable Pi tool. It is registered by the first-party `codex-web-search` extension and appears in tool inventory when extensions are loaded. Claude provider sessions use separate native WebSearch through the [Claude bridge](claude-bridge.md), not this OpenAI-only tool.
 
 ## What it must do
 
