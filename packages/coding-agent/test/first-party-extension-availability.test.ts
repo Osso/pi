@@ -82,6 +82,7 @@ describe("first-party extension executable availability", () => {
 		expect(output).not.toMatch(/built-in\s+pyrun\s/);
 		expect(output).toMatch(/built-in\s+goal\s/);
 		expect(output).toMatch(/built-in\s+session-autoname\s/);
+		expect(output).toMatch(/built-in\s+claude-bridge\s/);
 	});
 
 	it("loads binary-backed extensions when their executables are available", () => {
