@@ -57,7 +57,12 @@ Production child sessions also resolve agent-type profiles from settings. The bu
 `explore` (`openai/gpt-5-mini`, low thinking), `verifier` (`openai/gpt-5-mini`, low thinking),
 `implement` (`openai/gpt-5.5`, medium thinking), and `reviewer` (`openai/gpt-5.5`, medium
 thinking). User settings can override them with `agents.<type>.model` and
-`agents.<type>.thinkingLevel`.
+`agents.<type>.thinkingLevel`. A profile that sets `agents.<type>.implementAs: "<profile>"` gives its
+children the child-only `end_design` tool (`extensions/agents-core/src/end-design-tool.ts`). Calling it
+resolves the named profile's model and effort and applies them to the calling child's own session through
+the tool context's `setModel`/`setThinkingLevel`, so the switch takes effect from the next model request and
+is published to the store like any child model change. A call while the child already runs that model is
+rejected. The same session keeps its design context; no parent message or new agent is involved.
 
 `spawn_agent` requires an explicit `context`: `fresh` creates a new child transcript with only the
 assignment appended, while `inherit` forks a persisted parent transcript immediately before the entire

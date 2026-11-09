@@ -650,6 +650,11 @@ The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the
       change with an effort applies both together. The in-flight model request and tool calls continue unchanged and
       the change applies from the child's next model request. Non-live, background, missing, or unknown-model targets
       are rejected; parent and global defaults are unchanged (`packages/coding-agent/test/suite/set-agent-model.test.ts`).
+- [x] An agent profile with `implementAs: "<profile>"` gives its spawned and attached children a child-only
+      `end_design { handoff }` tool; children of other profiles do not get it. Calling it switches the calling child's
+      own session to the named profile's model and effort from its next model request and records them in the agent
+      store. A call while the child already runs that model is rejected. It sends no parent message
+      (`packages/coding-agent/test/suite/end-design.test.ts`).
 - [x] Slash commands and `!` shell commands remain on the main thread while a child is selected.
 - [x] If the selected target is invalid or selected-child steering is rejected, the exact submitted editor text
       remains intact and is never submitted to the main thread.

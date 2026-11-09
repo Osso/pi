@@ -104,6 +104,8 @@
 
 ### Added
 
+- Agent profiles accept `implementAs: "<profile>"`. Their children get a child-only `end_design { handoff }` tool that switches the child's own session to that profile's model and effort from its next request, so one agent can design on a strong model and implement on a cheaper one with its context intact. A second call is rejected.
+
 - The Supervisor's `supervisorModel` can name a model from a provider registered by an installed extension, such as `claude-bridge/claude-haiku-5-5`. The Supervisor loads only that extension, with its hooks; other extensions stay out and its tool allowlist is unchanged. Instruction review calls are sent with `cacheRetention: "none"` as one-off requests.
 
 - Added `"disabled": true` for a `models.json` provider entry: the provider's built-in, custom, and extension-registered models are removed, and request auth for it fails with `Provider "<name>" is disabled in models.json` even when a credential exists. See [Disabling a Provider](docs/models.md#disabling-a-provider).

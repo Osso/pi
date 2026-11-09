@@ -691,7 +691,11 @@ export function createProductionChildAgentSessionFactory(
 			: { type: "session_start" as const, reason: "fork" as const };
 		const result = await options.createSession({
 			agentDir: options.agentDir,
-			customTools: createChildTools(agent, options.browserAgentConfigRoot),
+			customTools: createChildTools(
+				agent,
+				options.browserAgentConfigRoot,
+				ctx.settingsManager?.getAgentProfile(agent.agentType)?.implementAs,
+			),
 			cwd: agent.cwd,
 			excludeTools: CHILD_EXCLUDED_TOOL_NAMES,
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),
@@ -749,7 +753,11 @@ export function createProductionAttachedSessionFactory(
 			: { type: "session_start" as const, reason: "resume" as const };
 		const result = await options.createSession({
 			agentDir: options.agentDir,
-			customTools: createChildTools(agent, options.browserAgentConfigRoot),
+			customTools: createChildTools(
+				agent,
+				options.browserAgentConfigRoot,
+				ctx.settingsManager?.getAgentProfile(agent.agentType)?.implementAs,
+			),
 			cwd: agent.cwd,
 			excludeTools: CHILD_EXCLUDED_TOOL_NAMES,
 			extensionFactories: resolveChildExtensionFactories(options.extensionFactories),

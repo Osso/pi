@@ -81,6 +81,8 @@ export interface AgentProfileSettings {
 	model?: string;
 	thinkingLevel?: AgentProfileThinkingLevel;
 	tools?: string[];
+	/** Profile whose model and effort the agent switches to when it calls `end_design`; enables that tool. */
+	implementAs?: string;
 }
 
 export interface PermissionRulesSettings {
