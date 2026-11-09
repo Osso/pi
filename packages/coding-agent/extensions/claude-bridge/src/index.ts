@@ -14,7 +14,8 @@ import {
 import { getModels } from "@earendil-works/pi-ai/compat";
 import { resolveClaudeCodeExecutable } from "./bundled-runtime.ts";
 import { buildSessionContext } from "../../../src/core/session-manager.ts";
-import { compact, type CompactionEntry } from "../../../src/core/compaction/compaction.ts";
+import { compact } from "../../../src/core/compaction/compaction.ts";
+import type { CompactionEntry } from "../../../src/core/session-manager.ts";
 import { generateBranchSummary, type BranchSummaryResult } from "../../../src/core/compaction/branch-summarization.ts";
 import { keyHint } from "../../../src/modes/interactive/components/keybinding-hints.ts";
 import {
@@ -92,7 +93,6 @@ import {
 	resolveAskClaudeMode,
 	type AskClaudeMode,
 } from "./askclaude-schema.ts";
-import { nonSystemMessages, toBridgeContext } from "./transcript.ts";
 import { updateUsage, type SdkUsage } from "./usage.ts";
 import {
 	readAllClaudeUsage,
@@ -248,7 +248,7 @@ function readCurrentUsageAccount(): UsageAccount | undefined {
 	const names = providerSettings.accountProfiles;
 	if (names === undefined) {
 		const configDir = process.env.CLAUDE_CONFIG_DIR;
-		const active = readActiveAccountProfile(home, configDir);
+		const active = readActiveAccountProfile(home, configDir ?? join(home, ".claude"));
 		return { home, name: active || "current", configDir };
 	}
 	if (!Array.isArray(names)) throw new Error("Invalid Claude account profiles configuration");
@@ -1025,11 +1025,6 @@ async function runIsolatedSummary(
 	options: SimpleStreamOptions | undefined,
 	stream: AssistantMessageEventStream,
 ): Promise<void> {
-	// pi delivers compaction/branch-summary requests as a transcript: the summarization
-	// prompt folded into a leading system message ahead of the lone user message
-	// (issue #106). toBridgeContext restores the prompt/tools fields the extraction
-	// assertion below assumes; the summarization prompt still reaches CC as its systemPrompt.
-	context = toBridgeContext(context);
 	let sdkQuery: ReturnType<typeof query> | undefined;
 	let wasAborted = false;
 	const onAbort = () => {
@@ -1307,7 +1302,7 @@ function syncSharedSession(
 	// foreign session's shape-matching context can never REUSE or rebuild another
 	// session's CC file.
 	const sharedSession = sessionStateFor(piSessionId);
-	const history = nonSystemMessages(messages);
+	const history = messages;
 	const priorMessages = history.slice(0, turnStart(history)); // everything before the current user turn
 
 	// REUSE path
@@ -1474,7 +1469,6 @@ export const __test = {
 	setPiUI(ui: ExtensionUIContext | null) {
 		piUI = ui;
 	},
-	toBridgeContext,
 	syncSharedSession,
 	extractUserPromptBlocks,
 	consumeQuery,
@@ -1622,7 +1616,7 @@ function reportLeaks(label: string): void {
  *  `generateBranchSummary` itself would only be testing pi. */
 function branchSummaryOutcome(
 	result: BranchSummaryResult,
-): { cancel: true } | { summary: { summary: string; details: unknown; usage?: BranchSummaryResult["usage"] } } {
+): { cancel: true } | { summary: { summary: string; details: unknown } } {
 	if (result.aborted) return { cancel: true };
 	if (result.error) throw new Error(result.error);
 	debug(`session_before_tree: takeover complete summaryLen=${result.summary?.length ?? 0}`);
@@ -1630,7 +1624,6 @@ function branchSummaryOutcome(
 		summary: {
 			summary: result.summary ?? "",
 			details: { readFiles: result.readFiles ?? [], modifiedFiles: result.modifiedFiles ?? [] },
-			usage: result.usage,
 		},
 	};
 }
@@ -2034,6 +2027,8 @@ function processAssistantMessage(
 ): void {
 	const assistantMsg = (message as any).message;
 	if (!assistantMsg?.content) return;
+	const output = c.turnOutput;
+	if (!output) throw new Error("Claude assistant message arrived before turn output was initialized");
 	// Claude Code reports API failures and its own quota/context notices as a
 	// `<synthetic>` assistant message: a report, not model output. Streaming its text
 	// pins the turn's output before the failure it describes, and a consumer that only
@@ -2053,7 +2048,7 @@ function processAssistantMessage(
 			if (block.type === "text" && block.text) c.turnBlocks.push({ type: "text", text: block.text });
 			else debug("processAssistantMessage: unhandled <synthetic> block type", block.type);
 		}
-		if (assistantMsg.usage && c.turnOutput) recordUsage(c.turnOutput, assistantMsg.usage, model);
+		if (assistantMsg.usage) recordUsage(output, assistantMsg.usage, model);
 		return;
 	}
 	if (c.turnSawStreamEvent) {
@@ -2065,7 +2060,7 @@ function processAssistantMessage(
 		if (c.turnStreamOpen) dropAbandonedStreamBlocks(c, `non-streaming fallback ${id}`);
 	}
 	c.turnToolCallIds = [];
-	if (c.turnOutput && assistantMsg.stop_reason) c.turnOutput.stopReason = mapStopReason(assistantMsg.stop_reason);
+	if (assistantMsg.stop_reason) output.stopReason = mapStopReason(assistantMsg.stop_reason);
 	debug(
 		`processAssistantMessage fallback: ${assistantMsg.content.length} blocks, types=${assistantMsg.content.map((b: any) => b.type).join(",")}`,
 	);
@@ -2074,9 +2069,9 @@ function processAssistantMessage(
 			ensureTurnStarted(c);
 			c.turnBlocks.push({ type: "text", text: block.text });
 			const idx = c.turnBlocks.length - 1;
-			c.currentPiStream?.push({ type: "text_start", contentIndex: idx, partial: c.turnOutput });
-			c.currentPiStream?.push({ type: "text_delta", contentIndex: idx, delta: block.text, partial: c.turnOutput });
-			c.currentPiStream?.push({ type: "text_end", contentIndex: idx, content: block.text, partial: c.turnOutput });
+			c.currentPiStream?.push({ type: "text_start", contentIndex: idx, partial: output });
+			c.currentPiStream?.push({ type: "text_delta", contentIndex: idx, delta: block.text, partial: output });
+			c.currentPiStream?.push({ type: "text_end", contentIndex: idx, content: block.text, partial: output });
 		} else if (block.type === "thinking") {
 			ensureTurnStarted(c);
 			c.turnBlocks.push({
@@ -2085,19 +2080,19 @@ function processAssistantMessage(
 				thinkingSignature: block.signature ?? "",
 			});
 			const idx = c.turnBlocks.length - 1;
-			c.currentPiStream?.push({ type: "thinking_start", contentIndex: idx, partial: c.turnOutput });
+			c.currentPiStream?.push({ type: "thinking_start", contentIndex: idx, partial: output });
 			if (block.thinking)
 				c.currentPiStream?.push({
 					type: "thinking_delta",
 					contentIndex: idx,
 					delta: block.thinking,
-					partial: c.turnOutput,
+					partial: output,
 				});
 			c.currentPiStream?.push({
 				type: "thinking_end",
 				contentIndex: idx,
 				content: block.thinking ?? "",
-				partial: c.turnOutput,
+				partial: output,
 			});
 		} else if (block.type === "tool_use") {
 			const piName = piToolNameFor(block.name, customToolNameToPi);
@@ -2118,18 +2113,18 @@ function processAssistantMessage(
 			});
 			const idx = c.turnBlocks.length - 1;
 			const toolBlock = c.turnBlocks[idx];
-			c.currentPiStream?.push({ type: "toolcall_start", contentIndex: idx, partial: c.turnOutput });
+			c.currentPiStream?.push({ type: "toolcall_start", contentIndex: idx, partial: output });
 			c.currentPiStream?.push({
 				type: "toolcall_end",
 				contentIndex: idx,
 				toolCall: toolBlock as any,
-				partial: c.turnOutput,
+				partial: output,
 			});
 		} else {
 			debug("processAssistantMessage: unhandled block type", block.type);
 		}
 	}
-	if (assistantMsg.usage && c.turnOutput) recordUsage(c.turnOutput, assistantMsg.usage, model);
+	if (assistantMsg.usage) recordUsage(output, assistantMsg.usage, model);
 
 	// End the stream on tool_use, same as processStreamEvent's message_stop handler.
 	if (c.turnSawToolCall && c.currentPiStream && c.turnOutput) {
@@ -2506,11 +2501,6 @@ function streamClaudeAgentSdk(
 	allowQuotaRecheck = true,
 ): AssistantMessageEventStream {
 	showStartupNoticeOnce();
-	// pi hands providers a transcript (prompt/tools folded into system messages) — fold it
-	// back out to the prompt/tools fields every cursor write, syncSharedSession call and
-	// prompt-capture lookup below assumes (issue #106).
-	context = toBridgeContext(context);
-
 	// One-off summarizer calls arrive HERE too, not only via isolatedStreamFn: /bug report
 	// (summarizeForBugReport) routes through agent.streamFunction -> streamSimple, with no
 	// takeover hook. pi marks every one-off summarizer with cacheRetention:"none" in
@@ -2641,8 +2631,10 @@ function streamClaudeAgentSdk(
 		// supplies the empty message this turn ends with.
 		const c = new QueryContext();
 		c.resetTurnState(model);
+		const output = c.turnOutput;
+		if (!output) throw new Error("Failed to initialize orphaned tool-result response");
 		queueMicrotask(() => {
-			stream.push({ type: "done", reason: "stop", message: c.turnOutput });
+			stream.push({ type: "done", reason: "stop", message: output });
 			markStreamComplete(stream);
 			stream.end();
 		});
@@ -2666,9 +2658,7 @@ function streamClaudeAgentSdk(
 	// `--no-skills` reach Claude Code by leaving nothing to forward. A sub-agent's
 	// custom override embeds its parent's assembled Pi prompt; recursive projection
 	// replaces that exact inherited prompt with its already-safe portable parts.
-	// Derive the key from the transcript replay (toBridgeContext), NOT from the
-	// recorded keys: under a forced prompt the transcript head is projected via
-	// transformContext after turn_start, so ctx.getSystemPrompt() is not the head.
+	// Derive the key from the context Pi passed to this provider, not from recorded keys.
 	let promptCapture: PromptCapture | undefined;
 	let systemPromptAppend: string | undefined;
 	let account: ReturnType<typeof prepareProviderAccount>;
@@ -3537,6 +3527,7 @@ export default function (pi: ExtensionAPI) {
 		try {
 			const result = await generateBranchSummary(entriesToSummarize, {
 				model: ctx.model,
+				apiKey: "not-used",
 				signal: event.signal,
 				customInstructions,
 				replaceInstructions,
@@ -3582,9 +3573,7 @@ export default function (pi: ExtensionAPI) {
 		apiKey: "not-used",
 		api: "claude-bridge",
 		models: registeredModels,
-		// Cast: the Provider interface passes a TranscriptContext; the bridge takes plain
-		// Context models (toBridgeContext normalizes at the stream entry points).
-		streamSimple: streamClaudeAgentSdk as any,
+		streamSimple: streamClaudeAgentSdk,
 	};
 	if (!g[ACTIVE_STREAM_SIMPLE_KEY]) {
 		// First instance: store our streamSimple and register.
@@ -3594,7 +3583,7 @@ export default function (pi: ExtensionAPI) {
 		// Later instance: register only if this session's registry lacks the provider.
 		debug(`provider: deferring registration decision to session_start (module=${moduleInstanceId})`);
 		pi.on("session_start", (_event, ctx) => {
-			if (ctx.modelRegistry.getProvider(PROVIDER_ID)) {
+			if (ctx.modelRegistry.getAll().some((model) => model.provider === PROVIDER_ID)) {
 				debug(`provider: registry already has ${PROVIDER_ID}, skipping registration (module=${moduleInstanceId})`);
 				return;
 			}

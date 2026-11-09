@@ -108,24 +108,24 @@ describe("claude bridge provider registration", () => {
 		expect(registered[0].config.models.every((model) => model.id.startsWith("claude-"))).toBe(true);
 	});
 
-	it("registers a later module only when the session registry lacks this provider", async () => {
-		const { default: freshBridge } = await import("../extensions/claude-bridge/src/index.ts?bridge-own-registry");
-		const { registered, emit } = activate(freshBridge);
+	it("registers a later module only when the session registry lacks this provider", () => {
+		activate();
+		const { registered, emit } = activate();
 
 		expect(registered).toHaveLength(0);
-		emit(
-			"session_start",
-			{},
-			{ modelRegistry: { getProvider: (id: string) => (id === "another" ? {} : undefined) } },
-		);
+		emit("session_start", {}, { modelRegistry: { getAll: () => [] } });
 		expect(registered).toHaveLength(1);
 		expect(registered[0].name).toBe("claude-bridge");
+
+		const existingRegistry = activate();
+		existingRegistry.emit("session_start", {}, { modelRegistry: { getAll: () => [{ provider: "claude-bridge" }] } });
+		expect(existingRegistry.registered).toHaveLength(0);
 	});
 
 	it("uses native WebSearch and excludes only Pi web_search from the MCP tool list", async () => {
 		const { registered, emit } = activate();
 		if (registered.length === 0) {
-			emit("session_start", {}, { modelRegistry: { getProvider: () => undefined } });
+			emit("session_start", {}, { modelRegistry: { getAll: () => [] } });
 		}
 		const provider = registered[0].config as (typeof registered)[number]["config"] & {
 			streamSimple: (model: unknown, input: unknown, options: unknown) => { result: () => Promise<unknown> };
