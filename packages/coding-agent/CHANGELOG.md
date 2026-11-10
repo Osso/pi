@@ -255,6 +255,7 @@
 - Removed the extra blank line after the `[Supervisor]` heading without changing the message body or other spacing.
 - Removed internal top and bottom padding from Supervisor status and custom messages.
 - Fixed missing outer spacing before compact tool rows, including after normal tool cards.
+- Fixed compact tool rows, including hidden Bash output, to align horizontally with normal tool cards.
 
 - Fixed pools failing turns on an account rate limit while later members were free. A rate limit before output (`rate limit`, `too many requests`, `429`, or a per-minute TPM/RPM limit including OpenAI's `Request too large`) now moves the request to the next member and skips the throttled member for its retry delay, or 60 seconds; quota exhaustion keeps its 15-minute skip. When every member is skipped and one is only rate limited, the pool returns a retryable error with the earliest free time instead of `no eligible members available`.
 

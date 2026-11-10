@@ -385,21 +385,24 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private renderCompactRow(width: number): string[] {
+		const paddingX = 1;
+		const contentWidth = Math.max(0, width - paddingX * 2);
+		const margin = " ".repeat(Math.min(paddingX, Math.max(0, width)));
 		const timing = [this.formatTimerText(), this.formatCompletionTime()].filter(
 			(text): text is string => text !== undefined,
 		);
 		const title = theme.fg("toolTitle", theme.bold(this.toolName));
 		const row = [title, ...timing.map((text) => theme.fg("muted", text))].join(" ");
-		const line = truncateToWidth(row, width, "");
+		const line = margin + truncateToWidth(row, contentWidth, "");
 		const lines = [line];
 
 		const resultComponent = this.hideOutput ? undefined : this.resultRendererComponent;
 		const showResult = this.result?.isError || this.expanded;
 		if (showResult && resultComponent) {
-			const resultLines = [...resultComponent.render(width)];
+			const resultLines = [...resultComponent.render(contentWidth)];
 			while (resultLines[0]?.trim() === "") resultLines.shift();
 			while (resultLines.at(-1)?.trim() === "") resultLines.pop();
-			lines.push(...resultLines.map((line) => truncateToWidth(line, width, "")));
+			lines.push(...resultLines.map((line) => margin + truncateToWidth(line, contentWidth, "")));
 		}
 		return lines;
 	}

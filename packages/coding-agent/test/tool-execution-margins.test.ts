@@ -1,4 +1,4 @@
-import { Container, type TUI } from "@earendil-works/pi-tui";
+import { Container, type TUI, visibleWidth } from "@earendil-works/pi-tui";
 import { beforeAll, describe, expect, test } from "vitest";
 import { generateDiffString } from "../src/core/tools/edit-diff.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
@@ -43,6 +43,56 @@ describe("Tool transcript margins", () => {
 		}
 
 		expect(transcript.render(80).map((line) => stripAnsi(line).trim())).toEqual(["", first, "", second]);
+	});
+
+	test.each(["wait_agent", "end_turn", "bash"])("aligns compact %s with normal tool cards", (name) => {
+		const normal = new ToolExecutionComponent(
+			"custom_tool",
+			"normal",
+			undefined,
+			{ hideOutput: true },
+			undefined,
+			createFakeTui(),
+			process.cwd(),
+		);
+		const compact = new ToolExecutionComponent(
+			name,
+			"compact",
+			undefined,
+			{ hideOutput: true },
+			undefined,
+			createFakeTui(),
+			process.cwd(),
+		);
+		const normalHeader = normal
+			.render(80)
+			.map(stripAnsi)
+			.find((line) => line.includes("custom_tool"));
+		expect(normalHeader?.search(/\S/)).toBe(1);
+		expect(stripAnsi(compact.render(80)[1] ?? "").indexOf(name)).toBe(normalHeader?.search(/\S/));
+		for (const width of [0, 1, 2, 12, 80]) {
+			const lines = compact.render(width);
+			expect(lines).toHaveLength(2);
+			expect(lines[0]).toBe("");
+			expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+		}
+	});
+
+	test("aligns visible compact error details with their heading", () => {
+		const component = new ToolExecutionComponent(
+			"wait_agent",
+			"error-indent",
+			undefined,
+			{},
+			undefined,
+			createFakeTui(),
+			process.cwd(),
+		);
+		component.updateResult({ content: [{ type: "text", text: "Visible wait failure" }], isError: true }, false, 2000);
+		const lines = component.render(48).map(stripAnsi);
+		expect(lines[1]?.indexOf("wait_agent")).toBe(1);
+		expect(lines[2]?.indexOf("Visible wait failure")).toBe(1);
+		expect(lines.every((line) => visibleWidth(line) <= 48)).toBe(true);
 	});
 
 	test.each([false, true])("edit preview has no inner edge padding (hide output: %s)", (hideOutput) => {
