@@ -46,6 +46,7 @@ PUBLIC_ENTRIES = {
     "examples",
     "node_modules",
     "native",
+    "claude",
 }
 PRIVATE_ENTRIES = {
     ".pi",

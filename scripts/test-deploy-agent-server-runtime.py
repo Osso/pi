@@ -65,6 +65,13 @@ class RuntimeDeploymentTests(unittest.TestCase):
         self.assertFalse(self.stage.exists())
         self.assert_preserved()
 
+    def test_swap_ships_bundled_claude_runtime(self):
+        self.executable("print('1.2.3')\n")
+        (self.stage / "claude").mkdir()
+        (self.stage / "claude/LICENSE.md").write_text("license")
+        self.module.activate(self.stage, self.install)
+        self.assertEqual((self.install / "claude/LICENSE.md").read_text(), "license")
+
     def test_failed_staging_validation_never_replaces_installation(self):
         self.executable("raise SystemExit(7)\n")
         old_inode = self.install.stat().st_ino
