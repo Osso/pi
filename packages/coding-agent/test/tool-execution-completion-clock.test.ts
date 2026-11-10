@@ -36,6 +36,25 @@ describe("ToolExecutionComponent completion clock", () => {
 		initTheme("dark");
 	});
 
+	test.each([false, true])("normal card keeps only its outer margin (definition: %s)", (hasDefinition) => {
+		const finishedAt = new Date(2024, 0, 2, 3, 4, 5).getTime();
+		const component = new ToolExecutionComponent(
+			"custom_tool",
+			"tool-card-padding",
+			undefined,
+			{ hideOutput: true },
+			hasDefinition ? createBaseToolDefinition() : undefined,
+			createFakeTui(),
+			process.cwd(),
+		);
+		component.markExecutionStarted(finishedAt - 2000);
+		component.updateResult({ content: [{ type: "text", text: "hidden result" }], isError: false }, false, finishedAt);
+
+		const lines = component.render(80).map(stripAnsi);
+		expect(lines.map((line) => line.trim())).toEqual(["", "custom_tool", "Elapsed: 2s 03:04:05"]);
+		expect(lines.slice(1).every((line) => line.startsWith(" "))).toBe(true);
+	});
+
 	test("shows muted local completion time beside the existing elapsed duration and keeps it stable", () => {
 		vi.useFakeTimers();
 		try {
