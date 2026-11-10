@@ -530,7 +530,8 @@ export class SettingsSelectorComponent extends Container {
 			{
 				id: "hide-tool-output",
 				label: "Hide tool output",
-				description: "Hide tool results in the transcript; tool calls stay visible",
+				description:
+					"Hide tool results, Bash commands, and Pyrun code; these tools keep only their name and timing",
 				currentValue: config.hideToolOutput ? "true" : "false",
 				values: ["true", "false"],
 			},

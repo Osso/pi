@@ -1,4 +1,14 @@
-import { Box, type Component, Container, getCapabilities, Image, Spacer, Text, type TUI } from "@earendil-works/pi-tui";
+import {
+	Box,
+	type Component,
+	Container,
+	getCapabilities,
+	Image,
+	Spacer,
+	Text,
+	truncateToWidth,
+	type TUI,
+} from "@earendil-works/pi-tui";
 import type { ToolDefinition, ToolRenderContext } from "../../../core/extensions/types.ts";
 import { createAllToolDefinitions, type ToolName } from "../../../core/tools/index.ts";
 import { getTextOutput as getRenderedTextOutput } from "../../../core/tools/render-utils.ts";
@@ -344,10 +354,40 @@ export class ToolExecutionComponent extends Container {
 		if (this.hideComponent) {
 			return [];
 		}
+		if (this.isCompactRow()) {
+			return this.renderCompactRow(width);
+		}
 		if (this.hasRendererDefinition() && this.getRenderShell() === "self") {
 			return this.renderSelfShell(width);
 		}
 		return super.render(width);
+	}
+
+	private isCompactRow(): boolean {
+		return (
+			this.toolName === "wait_agent" ||
+			this.toolName === "end_turn" ||
+			(this.hideOutput && (this.toolName === "bash" || this.toolName === "pyrun_eval"))
+		);
+	}
+
+	private renderCompactRow(width: number): string[] {
+		const timing = [this.formatTimerText(), this.formatCompletionTime()].filter(Boolean);
+		const title = theme.fg("toolTitle", theme.bold(this.toolName));
+		const row = [title, ...timing.map((text) => theme.fg("muted", text!))].join(" ");
+		const lines = [truncateToWidth(row, width, "")];
+
+		if (
+			this.result &&
+			(this.result.isError || (this.expanded && this.toolName !== "bash" && this.toolName !== "pyrun_eval")) &&
+			this.resultRendererComponent
+		) {
+			const resultLines = [...this.resultRendererComponent.render(width)];
+			while (resultLines[0]?.trim() === "") resultLines.shift();
+			while (resultLines.at(-1)?.trim() === "") resultLines.pop();
+			lines.push(...resultLines.map((line) => truncateToWidth(line, width, "")));
+		}
+		return lines;
 	}
 
 	private updateDisplay(): void {
@@ -448,7 +488,8 @@ export class ToolExecutionComponent extends Container {
 	private renderResultComponent(): Component | undefined {
 		const resultRenderer = this.getResultRenderer();
 		if (!resultRenderer || !this.result) {
-			return this.createResultFallback();
+			this.resultRendererComponent = this.createResultFallback();
+			return this.resultRendererComponent;
 		}
 		try {
 			const component = resultRenderer(

@@ -32,7 +32,7 @@ Use `/trust` in interactive mode to save a project trust decision for future ses
 | `defaultThinkingLevel` | string | - | `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`, `"max"`, `"ultra"` (when supported by the selected model) |
 | `defaultCodexFastMode` | string | `"off"` | Default `/fast` mode: `"off"`, `"priority"`, or `"ultrafast"` |
 | `hideThinkingBlock` | boolean | `false` | Hide thinking blocks in output |
-| `hideToolOutput` | boolean | `false` | Hide tool results in the transcript; tool calls and timers stay visible. Toggle in `/settings`. The model still receives full output |
+| `hideToolOutput` | boolean | `false` | Hide tool results in the transcript, plus Bash command text and Pyrun code. Tool names and timers remain visible; other call lines remain visible. Toggle in `/settings`. The model still receives full output; local user `!` Bash is unchanged |
 | `thinkingBudgets` | object | - | Custom token budgets per token-budget thinking level |
 
 #### thinkingBudgets

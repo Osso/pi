@@ -129,7 +129,7 @@ export interface Settings {
 	branchSummary?: BranchSummarySettings;
 	retry?: RetrySettings;
 	hideThinkingBlock?: boolean;
-	hideToolOutput?: boolean; // Hide tool result output in the interactive transcript; call lines stay visible
+	hideToolOutput?: boolean; // Hide tool results, Bash commands, and Pyrun code; retain their names and timing
 	hideCoordinationMessages?: boolean; // Display-only hiding of mailbox and shared-channel messages
 	externalEditor?: string; // Command for Ctrl+G external editor; takes precedence over VISUAL/EDITOR
 	shellPath?: string; // Custom shell path (e.g., for Cygwin users on Windows)
