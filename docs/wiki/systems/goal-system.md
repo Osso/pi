@@ -113,6 +113,10 @@ achieved and to report blockers instead of stopping silently.
 The extension shows the active objective on its own footer status line as
 `goal: <objective>`. A paused goal instead shows `goal paused: <reason>`, keeping the stop reason visible. Other extension statuses remain grouped on their shared footer line. Setting, restoring, pausing, resuming, clearing, or completing a goal updates that status.
 
+## Mission
+
+`/mission set <objective>` stores a continuous, user-owned objective as a `mission` custom session entry; the newest entry wins. `extensions/goal/src/mission.ts` owns it. Only the `/mission` command writes it; `manage_goal` cannot. While the mission is set and not paused, `continueMission` saves the mission text as a goal flagged `mission: true` whenever the working goal is absent, completed, cleared, or paused with a reason other than the user's `/goal pause`, then queues the generic goal reminder. `index.ts` calls it after `manage_goal` actions other than `status`, after Supervisor completion, and after `/goal clear`; `session_start` copies without queuing because resume continuation already starts the turn. A user `/goal set` goal runs first, and the mission resumes when it stops. `manage_goal complete` rejects mission goals, and a Supervisor `complete` decision on one becomes the generic continue reminder. `/mission pause` pauses the mission goal; `/mission resume` replaces it with a fresh copy; `/mission clear` removes both. The mission shows in the grouped footer statuses as `mission: <objective>` or `mission paused: <objective>`.
+
 ## Implementation inventory
 
 - `packages/coding-agent/src/utils/footer-status.ts` — shared footer-status formatter that sanitizes values, groups non-goal statuses, and emits the `goal` status on its own line.
