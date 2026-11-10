@@ -3028,6 +3028,9 @@ function streamClaudeAgentSdk(
 				debug("provider: clearing activeQuery before error stream completion");
 				queryCtx.activeQuery = null;
 			}
+			// Claude Code exits non-zero after a quota error result, so the SDK throws here
+			// rather than completing; the rejected request still belongs on the next account.
+			if (!wasAborted && !options?.signal?.aborted && replayOnNextAccount(queryCtx)) return;
 			retainPendingToolFailure(queryCtx);
 			const stream = queryCtx.currentPiStream;
 			stream?.push({
