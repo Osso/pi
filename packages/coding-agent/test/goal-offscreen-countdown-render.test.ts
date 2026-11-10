@@ -95,7 +95,8 @@ async function createFixture(historyRows = 100) {
 	await terminal.waitForRender();
 	const initialHeight = root.render(80).length;
 	const pendingToolHeight = tool.render(80).length;
-	expect(loader.render(80)).toHaveLength(2);
+	const loaderHeight = loader.render(80).length;
+	expect(loaderHeight).toBe(2);
 	terminal.writes = [];
 	return {
 		terminal,
@@ -111,13 +112,13 @@ async function createFixture(historyRows = 100) {
 				false,
 				START + 1000,
 			);
-			expect(tool.render(80)).toHaveLength(pendingToolHeight + 2);
-			// tool_execution_end adds two timing rows; agent_end removes the two-row loader.
+			expect(tool.render(80)).toHaveLength(pendingToolHeight);
+			// Compact end_turn keeps its height; agent_end removes the loader.
 			loader.stop();
 			status.clear();
 			tui.requestRender();
 			await terminal.waitForRender();
-			expect(root.render(80)).toHaveLength(initialHeight);
+			expect(root.render(80)).toHaveLength(initialHeight - loaderHeight);
 		},
 		async dispose() {
 			refresher.clearAll();
@@ -141,7 +142,7 @@ describe("offscreen Supervisor countdown at end_turn completion", () => {
 		vi.useRealTimers();
 	});
 
-	test("same-height completion updates the live viewport without replaying offscreen history", async () => {
+	test("compact completion updates the live viewport without replaying offscreen history", async () => {
 		const fixture = await createFixture();
 		try {
 			const redraws = fixture.tui.fullRedraws;
