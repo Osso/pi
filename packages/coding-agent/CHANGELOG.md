@@ -252,6 +252,7 @@
 
 ### Fixed
 
+- Fixed Claude bridge account rotation waiting out Pi's retry backoff: a quota-rejected request is now served on the next account immediately when the Claude Code SDK throws after the error result.
 - Removed the extra blank line after the `[Supervisor]` heading without changing the message body or other spacing.
 - Removed internal top and bottom padding from Supervisor status and custom messages.
 - Fixed missing outer spacing before compact tool rows, including after normal tool cards.
