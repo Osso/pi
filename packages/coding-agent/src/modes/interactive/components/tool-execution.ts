@@ -379,13 +379,10 @@ export class ToolExecutionComponent extends Container {
 		const row = [title, ...timing.map((text) => theme.fg("muted", text))].join(" ");
 		const lines = [truncateToWidth(row, width, "")];
 
-		if (
-			!this.hideOutput &&
-			this.result &&
-			(this.result.isError || (this.expanded && this.toolName !== "bash" && this.toolName !== "pyrun_eval")) &&
-			this.resultRendererComponent
-		) {
-			const resultLines = [...this.resultRendererComponent.render(width)];
+		const resultComponent = this.hideOutput ? undefined : this.resultRendererComponent;
+		const showResult = this.result?.isError || this.expanded;
+		if (showResult && resultComponent) {
+			const resultLines = [...resultComponent.render(width)];
 			while (resultLines[0]?.trim() === "") resultLines.shift();
 			while (resultLines.at(-1)?.trim() === "") resultLines.pop();
 			lines.push(...resultLines.map((line) => truncateToWidth(line, width, "")));
@@ -445,7 +442,7 @@ export class ToolExecutionComponent extends Container {
 		} else {
 			this.contentText.setCustomBgFn(bgFn);
 			this.contentText.setText(this.formatToolExecution());
-			this.resultRendererComponent = this.result ? this.createResultFallback() : undefined;
+			this.resultRendererComponent = this.createResultFallback();
 			hasContent = true;
 		}
 
