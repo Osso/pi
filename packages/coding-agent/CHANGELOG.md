@@ -33,6 +33,7 @@
 
 ### Changed
 
+- The default footer shows mission status on its own line, separate from the working goal and grouped extension statuses.
 - Compact `wait_agent` and `end_turn` transcript rows show the tool name, elapsed duration, and local completion clock, while preserving result or error content when needed. Normal tool cards show elapsed duration and the local completion clock on one line. Hide tool output also hides Bash command text and Pyrun code and results, retaining names and timing; Bash remains compact and Pyrun retains its normal pending, success, or error colored card. Local user `!` Bash and execution are unchanged.
 - Bundled the Claude bridge as a first-party extension, preserving Claude authentication, profiles, native WebSearch and optional AskClaude. Duplicate external bridge loads are skipped without changing settings; a separate installation is no longer required. See the [Claude bridge guide](docs/claude-bridge.md).
 - The default footer shows the output speed of the latest reply (`42 tok/s`) instead of the session's `in`/`out` token totals. The speed is the reply's output tokens divided by the time from its first streamed update to its end, so time to first token is excluded. Failed and aborted replies keep the previous value. It is measured live, so it is empty after a restart until the next reply, and hidden while the footer shows another agent's session.

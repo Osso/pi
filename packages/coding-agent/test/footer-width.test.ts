@@ -109,17 +109,18 @@ describe("FooterComponent extension status lines", () => {
 		initTheme(undefined, false);
 	});
 
-	it("renders goal status on its own line while grouping other statuses", () => {
+	it("renders mission and goal statuses on separate lines while grouping others", () => {
 		const statuses = new Map([
 			["agent", "agent ready"],
 			["goal", "goal active"],
+			["mission", "mission: maintain the project"],
 			["pyrun", "pyrun ready"],
 		]);
 		const session = createSession({ sessionName: "" });
 		const footer = new FooterComponent(session, createFooterData(1, undefined, statuses));
 
 		const statusLines = footer.render(120).slice(2).map(stripAnsi);
-		expect(statusLines).toEqual(["agent ready pyrun ready", "goal active"]);
+		expect(statusLines).toEqual(["agent ready pyrun ready", "mission: maintain the project", "goal active"]);
 	});
 
 	it("keeps non-goal statuses grouped on one line", () => {

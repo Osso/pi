@@ -90,7 +90,7 @@ function statsLine(counts?: DefaultFooterAgentLifecycleCounts, usingOAuth = fals
 }
 
 describe("default footer extension status lines", () => {
-	it("renders the goal status on its own footer line", () => {
+	it("renders mission and goal statuses on separate footer lines", () => {
 		initTheme(undefined, false);
 		const footer = createDefaultFooterComponent({
 			ctx: createContext({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }),
@@ -99,6 +99,7 @@ describe("default footer extension status lines", () => {
 				new Map([
 					["bwrap", "bwrap ready"],
 					["goal", "goal: ship footer"],
+					["mission", "mission: maintain the project"],
 					["multi-agent-mode", "multi-agent: proactive"],
 				]),
 			),
@@ -107,10 +108,14 @@ describe("default footer extension status lines", () => {
 
 		const statusLines = footer.render(160).slice(2).map(stripAnsi);
 
-		expect(statusLines).toEqual(["bwrap ready multi-agent: proactive", "goal: ship footer"]);
+		expect(statusLines).toEqual([
+			"bwrap ready multi-agent: proactive",
+			"mission: maintain the project",
+			"goal: ship footer",
+		]);
 	});
 
-	it("keeps non-goal statuses grouped when no goal is active", () => {
+	it("keeps non-mission statuses grouped when no mission or goal is active", () => {
 		initTheme(undefined, false);
 		const footer = createDefaultFooterComponent({
 			ctx: createContext({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }),
@@ -127,6 +132,30 @@ describe("default footer extension status lines", () => {
 		const statusLines = footer.render(160).slice(2).map(stripAnsi);
 
 		expect(statusLines).toEqual(["bwrap ready multi-agent: proactive"]);
+	});
+
+	it("truncates the mission row to a narrow footer width", () => {
+		initTheme(undefined, false);
+		const width = 18;
+		const footer = createDefaultFooterComponent({
+			ctx: createContext({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }),
+			footerData: createFooterData(
+				undefined,
+				new Map([
+					["goal", "goal: ship footer"],
+					["mission", "mission: maintain the project"],
+				]),
+			),
+			theme,
+		});
+
+		const statusLines = footer.render(width).slice(2);
+
+		expect(statusLines).toHaveLength(2);
+		expect(stripAnsi(statusLines[0] ?? "")).toContain("mission:");
+		for (const line of statusLines) {
+			expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+		}
 	});
 });
 
@@ -317,7 +346,14 @@ describe("default footer extension", () => {
 		};
 		const footer = createDefaultFooterComponent({
 			ctx: createContext({ input: 11, output: 7, cacheRead: 0, cacheWrite: 0, cost: { total: 1 } }),
-			footerData,
+			footerData: {
+				...footerData,
+				getExtensionStatuses: () =>
+					new Map([
+						["goal", "goal: ship footer"],
+						["mission", "mission: maintain the project"],
+					]),
+			},
 			theme,
 		});
 
@@ -347,7 +383,9 @@ describe("default footer extension", () => {
 			contextUsage: { contextWindow: 100_000, percent: 25, tokens: 25_000 },
 		};
 
-		const childOutput = stripAnsi(footer.render(160).join("\n"));
+		const childLines = footer.render(160).map(stripAnsi);
+		const childOutput = childLines.join("\n");
+		expect(childLines.slice(2)).toEqual(["mission: maintain the project", "goal: ship footer"]);
 		expect(childOutput).toContain("/tmp/child • child");
 		expect(childOutput).not.toContain("/tmp/child (main)");
 		expect(childOutput).toContain("cost $2.00 ctx 25.0%/100k");
