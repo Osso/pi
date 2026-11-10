@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { readSessionHeader } from "../../../src/core/session-manager.ts";
 import type {
 	AgentEndEvent,
@@ -17,12 +16,13 @@ import { type ApplyIdleDecision, runScheduledGoalAgentEnd } from "./goal-agent-e
 import { parseGoalArgs } from "./goal-args.ts";
 import { selectGoalForIdleReview } from "./goal-idle-selection.ts";
 import { deduplicateCurrentGoalScope } from "./goal-objective.ts";
-import { isRecord, optionalString, parseGoalJson } from "./goal-parsing.ts";
-import { goalFooterStatus, goalStartupMessage, goalSystemBlock, goalViewMessage } from "./goal-presentation.ts";
+import { parseGoalJson } from "./goal-parsing.ts";
+import { goalStartupMessage, goalSystemBlock, goalViewMessage } from "./goal-presentation.ts";
 import { createGoalReviewEvidenceController, type GoalReviewEvidenceController } from "./goal-review-evidence.ts";
 import { type GoalScheduler, createGoalScheduler } from "./goal-scheduling.ts";
 import {
 	clearGoal,
+	createGoal,
 	loadOrMigrateActiveGoal,
 	loadOrMigrateGoal,
 	loadOrMigrateRunningGoal,
@@ -31,6 +31,7 @@ import {
 	pauseGoal,
 	resumeGoal,
 	saveGoal,
+	USER_PAUSE_REASON,
 } from "./goal-state.ts";
 import type {
 	Goal,
@@ -41,6 +42,13 @@ import type {
 	ReviewedGoalResponse,
 } from "./goal-types.ts";
 import { type ManageGoalParams, registerManageGoalTool } from "./goal-tool.ts";
+import {
+	continueMission,
+	copyMissionToGoal,
+	MISSION_GOAL_COMPLETION_REJECTED,
+	registerMissionCommand,
+	updateGoalFooterStatus,
+} from "./mission.ts";
 import {
 	type AppendSupervisorStatus,
 	createSupervisorStatusController,
@@ -54,7 +62,6 @@ import { createWaitCountdownRefresher } from "./wait-countdown.ts";
 import { appendGoalSchedulingError, createWaitStatusCallbacks } from "./wait-status.ts";
 
 const MAX_OBJECTIVE_CHARS = 10_000;
-const USER_PAUSE_REASON = "Paused by user.";
 const RESERVED_GOAL_OBJECTIVES = new Set(["set", "pause", "resume", "clear", "status", "complete", "continue"]);
 
 export type { Goal, GoalExtensionOptions, GoalSupervisorResponse, GoalSupervisorReview } from "./goal-types.ts";
@@ -76,23 +83,6 @@ interface ManageGoalContext {
 	appendStatus: AppendSupervisorStatus;
 	isCompletionReviewCurrent?: () => boolean;
 	beforeGoalSave?: () => void;
-}
-
-function updateGoalFooterStatus(ctx: ExtensionContext): void {
-	const goal = loadOrMigrateActiveGoal(ctx);
-	ctx.ui.setStatus("goal", goal ? goalFooterStatus(goal) : undefined);
-}
-
-function readCurrentBranch(cwd: string): string {
-	try {
-		return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-			cwd,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-		}).trim();
-	} catch {
-		return "(no branch)";
-	}
 }
 
 function sessionIdFromSessionFile(sessionFile: string): string | null {
@@ -142,15 +132,11 @@ function validateGoalObjective(objective: string): SetGoalResult | undefined {
 	}
 }
 
-function createGoal(objective: string, branch: string, createdAt: string): Goal {
-	return { objective, branch, createdAt, continuationTurns: 0 };
-}
-
 function setGoal(params: SetGoalParams): SetGoalResult {
 	const invalidResult = validateGoalObjective(params.objective);
 	if (invalidResult) return invalidResult;
 	params.beforeSave?.();
-	const goal = createGoal(params.objective, readCurrentBranch(params.ctx.cwd), new Date().toISOString());
+	const goal = createGoal(params.objective, params.ctx.cwd);
 	saveGoal(params.ctx, goal);
 	updateGoalFooterStatus(params.ctx);
 	if (params.ctx.isIdle()) params.pi.sendUserMessage("Continue working toward the active goal.");
@@ -299,6 +285,7 @@ async function runCompleteGoalAction(
 ): Promise<AgentToolResult<unknown>> {
 	const activeGoal = loadOrMigrateActiveGoal(ctx);
 	if (!activeGoal) return textResult("No active goal to complete.");
+	if (activeGoal.mission) return textResult(MISSION_GOAL_COMPLETION_REJECTED);
 	const completionReport = completionReportInput?.trim();
 	if (!completionReport) return textResult("Completion report is required.");
 	const reviewed = await reviewGoal({
@@ -339,6 +326,12 @@ function runGoalStatusAction(ctx: ExtensionContext): AgentToolResult<unknown> {
 }
 
 async function manageGoal(context: ManageGoalContext): Promise<AgentToolResult<unknown>> {
+	const result = await runManageGoalAction(context);
+	if (context.params.action !== "status") continueMission(context.ctx, context.pi);
+	return result;
+}
+
+async function runManageGoalAction(context: ManageGoalContext): Promise<AgentToolResult<unknown>> {
 	const { ctx, params, pi, beforeGoalSave } = context;
 	switch (params.action) {
 		case "set":
@@ -365,10 +358,11 @@ async function manageGoal(context: ManageGoalContext): Promise<AgentToolResult<u
 	}
 }
 
-function completeGoalFromIdleDecision(goal: Goal, reason: string, ctx: ExtensionContext): void {
+function completeGoalFromIdleDecision(goal: Goal, reason: string, ctx: ExtensionContext, pi: ExtensionAPI): void {
+	if (goal.mission) return continueGoalFromIdleDecision(goal, "Continue working toward the active goal.", ctx, pi);
 	markGoalComplete(ctx, reason);
-	updateGoalFooterStatus(ctx);
 	ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
+	continueMission(ctx, pi);
 }
 
 function continueGoalFromIdleDecision(
@@ -393,7 +387,7 @@ async function applyGoalIdleDecision(
 ): Promise<void> {
 	switch (decision.kind) {
 		case "complete":
-			return completeGoalFromIdleDecision(goal, decision.reason, ctx);
+			return completeGoalFromIdleDecision(goal, decision.reason, ctx, pi);
 		case "pause":
 			return appendStatus(ctx, `Goal waiting: ${decision.reason}`);
 		case "wait":
@@ -430,11 +424,15 @@ function handleGoalResumeCommand(
 	if (goal && ctx.isIdle()) pi.sendUserMessage("Continue working toward the active goal.");
 }
 
-function handleGoalClearCommand(ctx: ExtensionCommandContext, clearRetry: (sessionId: string) => void): void {
+function handleGoalClearCommand(
+	ctx: ExtensionCommandContext,
+	pi: ExtensionAPI,
+	clearRetry: (sessionId: string) => void,
+): void {
 	const cleared = clearGoal(ctx);
 	if (cleared) clearGoalRetry(ctx, clearRetry);
 	ctx.ui.notify(cleared ? "Goal cleared" : "No active goal", "info");
-	updateGoalFooterStatus(ctx);
+	continueMission(ctx, pi);
 }
 
 function showGoal(ctx: ExtensionCommandContext): void {
@@ -476,7 +474,7 @@ function handleGoalCommand(
 		case "resume":
 			return handleGoalResumeCommand(ctx, pi, clearRetry);
 		case "clear":
-			return handleGoalClearCommand(ctx, clearRetry);
+			return handleGoalClearCommand(ctx, pi, clearRetry);
 		case "set":
 			return setGoalFromCommand(parsedArgs.objective, ctx, pi, clearRetry);
 	}
@@ -516,8 +514,8 @@ function createCompletionScheduler(
 		},
 		onComplete: (waiting, ctx) => {
 			const goal = markGoalComplete(ctx, waiting.completionReport);
-			updateGoalFooterStatus(ctx);
 			if (goal) ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
+			continueMission(ctx, pi);
 		},
 		onContinue: sendSupervisorInstructions.bind(undefined, pi),
 		onStatus: status.append,
@@ -658,6 +656,7 @@ function registerSessionGoalHandlers(
 ): void {
 	pi.on("session_start", async (event, ctx: ExtensionContext) => {
 		inheritPreviousSessionGoal(event, ctx);
+		copyMissionToGoal(ctx);
 		const goal = loadOrMigrateActiveGoal(ctx);
 		updateGoalFooterStatus(ctx);
 		runtime.status.restore(ctx);
@@ -746,4 +745,5 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 	registerSessionGoalHandlers(pi, evidence, runtime);
 	registerAgentGoalHandlers(pi, evidence.review, runtime);
 	registerGoalCommand(pi, runtime);
+	registerMissionCommand(pi, runtime.clearGoalSchedules);
 }

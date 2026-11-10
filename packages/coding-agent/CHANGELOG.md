@@ -105,6 +105,8 @@
 
 ### Added
 
+- Added `/mission`, a continuous user-owned objective above the working goal. Whenever the working goal is absent, completed, cleared, or paused by the model, Pi copies the mission into a new goal that cannot be completed. Only `/mission pause` and `/mission clear` stop it; no tool can change it.
+
 - Agent profiles accept `implementAs: "<profile>"`. Their children get a child-only `end_design { handoff }` tool that switches the child's own session to that profile's model and effort from its next request, so one agent can design on a strong model and implement on a cheaper one with its context intact. A second call is rejected.
 
 - The Supervisor's `supervisorModel` can name a model from a provider registered by an installed extension, such as `claude-bridge/claude-haiku-5-5`. The Supervisor loads only that extension, with its hooks; other extensions stay out and its tool allowlist is unchanged. Instruction review calls are sent with `cacheRetention: "none"` as one-off requests.

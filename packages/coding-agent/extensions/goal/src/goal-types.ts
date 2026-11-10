@@ -13,6 +13,8 @@ export interface Goal {
 	pausedAt?: string;
 	pauseReason?: string;
 	reviewEvidence?: GoalReviewEvidenceEvent[];
+	/** Copied from the user-owned mission; never completable. */
+	mission?: boolean;
 }
 
 export type GoalSupervisorResponse = Extract<

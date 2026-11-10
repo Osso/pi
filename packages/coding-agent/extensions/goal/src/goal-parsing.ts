@@ -65,6 +65,7 @@ export function parseGoal(value: unknown): Goal | null {
 		pausedAt: optionalString(value.pausedAt),
 		pauseReason: optionalString(value.pauseReason)?.trim() || undefined,
 		reviewEvidence: parseReviewEvidence(value.reviewEvidence),
+		mission: value.mission === true ? true : undefined,
 	};
 }
 

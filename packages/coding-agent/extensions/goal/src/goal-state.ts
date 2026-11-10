@@ -1,8 +1,27 @@
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { parseGoal, parseGoalJson } from "./goal-parsing.ts";
 import type { Goal } from "./goal-types.ts";
+
+export const USER_PAUSE_REASON = "Paused by user.";
+
+function readCurrentBranch(cwd: string): string {
+	try {
+		return execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+			cwd,
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "ignore"],
+		}).trim();
+	} catch {
+		return "(no branch)";
+	}
+}
+
+export function createGoal(objective: string, cwd: string): Goal {
+	return { objective, branch: readCurrentBranch(cwd), createdAt: new Date().toISOString(), continuationTurns: 0 };
+}
 
 function goalPathForSessionId(cwd: string, sessionId: string): string {
 	return path.join(cwd, ".pi", "goals", `${encodeURIComponent(sessionId)}.json`);

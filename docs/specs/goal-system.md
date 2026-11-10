@@ -78,6 +78,18 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - [x] Goal start/resume/continuation messages remain unchanged in persisted transcript and live model context; Supervisor XML provenance is hidden only by TUI rendering, and generated messages do not appear in the editor's typed prompt history.
 - [x] Compaction excludes goal-generated start/resume/continuation reminders from summarization input while preserving other extension-origin messages and the original session log.
 
+### Mission (`/mission`)
+
+A mission is a continuous, user-owned objective above the working goal. It is never complete; only the user stops it.
+
+- [x] `/mission set <objective>`, `/mission`, `/mission pause`, `/mission resume`, and `/mission clear` are the only ways to change or view the mission. No tool, Pyrun bridge call, or child agent can change it, and there is no mission completion action or LLM check of the mission text.
+- [x] The mission persists per session as a `mission` custom session entry; the newest entry wins and an entry without an objective records a cleared mission. The footer shows `mission: <objective>` or `mission paused: <objective>`.
+- [x] While the mission is set and not paused, Pi saves the mission text as a new goal flagged `mission: true` whenever the working goal is absent, completed, cleared, or paused for any reason other than a user `/goal pause`. This runs after `manage_goal` actions other than `status`, Supervisor idle or completion-wait completion, `/goal clear`, `session_start`, `/mission set`, and `/mission resume`. Outside `session_start`, a copy queues `Continue working toward the active goal.` as a follow-up; `session_start` uses the existing resume continuation.
+- [x] A running goal, including one the user set with `/goal set`, is not replaced; the mission resumes after that goal stops running.
+- [x] A mission goal cannot be completed: `manage_goal complete` returns `Mission goals are continuous; only the user stops a mission.` without Supervisor review, and a Supervisor idle-review `complete` decision continues with the exact generic reminder. Its system-prompt block states the objective is never complete and omits the completion instruction.
+- [x] `/mission set` replaces an active mission goal with the new mission text. `/mission pause` pauses an active mission goal with reason `Mission paused by user.`; `/mission resume` replaces it with a fresh running mission goal. `/mission clear` removes the mission and an active mission goal.
+- [x] All other goal review, veto, empty-response, and Supervisor behavior applies to mission goals unchanged.
+
 ## How it works
 
 - `docs/wiki/systems/goal-system.md`.
@@ -109,6 +121,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 - `packages/coding-agent/extensions/goal/src/empty-response-scheduling.ts` — owns 1-second empty-response polling and cancellation.
 - `packages/coding-agent/extensions/goal/src/error-status-scheduling.ts` — defers terminal error status until idle and cancels it when retry or input starts.
 - `packages/coding-agent/extensions/goal/src/goal-tool.ts` — registers and types `manage_goal`.
+- `packages/coding-agent/extensions/goal/src/mission.ts` — registers `/mission`, persists mission entries, owns the goal and mission footer statuses, and copies the mission into a non-completable goal.
 - `packages/coding-agent/extensions/goal/src/rendering.ts` — preserves tagged Supervisor model content while rendering one visible `[Supervisor]` header and plain instruction body.
 - `packages/coding-agent/extensions/goal/src/goal-args.ts` — parses supported `/goal` command actions and rejects removed flags.
 - `packages/coding-agent/src/core/tool-capabilities.ts` — defines the supervisor-only tool capability list used by non-supervisor runtimes.
@@ -130,6 +143,7 @@ stop condition is reached. How it works belongs in `docs/wiki/systems/goal-syste
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/goal-extension.test.ts` — first-party extension delivery, `manage_goal`, Supervisor-reviewed additive `manage_goal set`, `/goal` set/view/pause/resume/clear, persisted and displayed pause reasons, Supervisor countdown persistence/rendering/expiry/cancellation/restore without generic render requests, active-agent deadline exclusion, wait fallback deadlines, completion-pause and thrown-error reason display, default replacement for `/goal`, objective length cap, context injection, continuation prompt state, footer status, resume/reload/fork notification, corrupt state handling, `agent_end` continuation, ordered running and paused conversation evidence, generated and failed-event filtering, stale/error evidence preservation, lifecycle clearing, busy guard, error-stop suppression, empty-response retry eligibility, and shutdown cancellation.
+- `packages/coding-agent/test/goal-mission.test.ts` — `/mission` as the only mission control, mission copy on set/restart and after goal completion, model pause, and clear, user-pause exclusion, non-completable mission goals, and pause/resume/clear.
 - `packages/coding-agent/test/suite/headless-codex-restriction-recovery.test.ts` — controlled real-process recovery preserves active/paused goals, original request/refusal/history, and settings; no claim of real-provider classification or guaranteed flag avoidance.
 - `packages/coding-agent/test/goal-wait-countdown-render.test.ts` — scrolled-transcript integration coverage that concurrent Supervisor countdown and Thinking elapsed ticks update only their registered regions without rendering static chat or performing a full redraw.
 - `packages/coding-agent/test/goal-offscreen-countdown-render.test.ts` — real-component `end_turn` completion after a rejected offscreen countdown tick avoids historical replay; explicit forced rebuild preserves every earlier history row in terminal scrollback; visible countdowns resume after rebuilding and reach expiry.
