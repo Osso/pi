@@ -14,7 +14,7 @@ describe("Supervisor heading spacing", () => {
 		initTheme("dark");
 	});
 
-	test("message body follows the heading while retaining body and outer spacing", () => {
+	test("message has no inner vertical padding and preserves body spacing", () => {
 		const component = renderSupervisorMessage(
 			{
 				role: "custom",
@@ -28,12 +28,10 @@ describe("Supervisor heading spacing", () => {
 		);
 
 		expect(component?.render(80).map((line) => stripAnsi(line).trim())).toEqual([
-			"",
 			"[Supervisor]",
 			"Build finished.",
 			"",
 			"Artifacts verified.",
-			"",
 		]);
 	});
 
@@ -50,10 +48,8 @@ describe("Supervisor heading spacing", () => {
 		const options = { expanded: false, sessionId: "spacing-test" };
 		const component = renderer(entry, options, theme);
 		expect(component?.render(80).map((line) => stripAnsi(line).trim())).toEqual([
-			"",
 			"[Supervisor]",
 			"Waiting for Supervisor…",
-			"",
 		]);
 
 		const updated = renderer(
@@ -62,11 +58,6 @@ describe("Supervisor heading spacing", () => {
 			theme,
 		);
 		expect(updated).toBeUndefined();
-		expect(component?.render(80).map((line) => stripAnsi(line).trim())).toEqual([
-			"",
-			"[Supervisor]",
-			"Review finished.",
-			"",
-		]);
+		expect(component?.render(80).map((line) => stripAnsi(line).trim())).toEqual(["[Supervisor]", "Review finished."]);
 	});
 });

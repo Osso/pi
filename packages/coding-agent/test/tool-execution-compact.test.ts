@@ -52,7 +52,8 @@ describe("ToolExecutionComponent compact and hidden rows", () => {
 			const running = stripAnsi(component.render(120).join("\n"));
 			expect(running).toContain("bash Elapsed: 3s");
 			expect(running).not.toContain("sleep 10");
-			expect(running.split("\n")).toHaveLength(1);
+			expect(running.split("\n")).toHaveLength(2);
+			expect(running.split("\n")[0]).toBe("");
 
 			component.updateResult(
 				{
@@ -65,7 +66,8 @@ describe("ToolExecutionComponent compact and hidden rows", () => {
 			expect(vi.getTimerCount()).toBe(0);
 			const completed = stripAnsi(component.render(120).join("\n"));
 			expect(completed).not.toContain("slept");
-			expect(completed.split("\n")).toHaveLength(1);
+			expect(completed.split("\n")).toHaveLength(2);
+			expect(completed.split("\n")[0]).toBe("");
 
 			component.setHideOutput(false);
 			const visible = stripAnsi(component.render(120).join("\n"));
@@ -76,7 +78,7 @@ describe("ToolExecutionComponent compact and hidden rows", () => {
 		}
 	});
 
-	test("status tools render one width-bounded row with live and completed timing", () => {
+	test("status tools keep one outer margin and one width-bounded timing row", () => {
 		vi.useFakeTimers();
 		try {
 			for (const toolName of ["wait_agent", "end_turn"] as const) {
@@ -92,8 +94,9 @@ describe("ToolExecutionComponent compact and hidden rows", () => {
 				component.markExecutionStarted(Date.now(), { showLiveElapsed: true });
 				vi.advanceTimersByTime(1250);
 				const running = component.render(24);
-				expect(running).toHaveLength(1);
-				expect(visibleWidth(running[0]!)).toBeLessThanOrEqual(24);
+				expect(running).toHaveLength(2);
+				expect(running[0]).toBe("");
+				expect(visibleWidth(running[1] ?? "")).toBeLessThanOrEqual(24);
 				expect(stripAnsi(running.join("\n"))).toContain(toolName);
 				expect(stripAnsi(running.join("\n"))).toContain("Elapsed: 1s");
 
@@ -107,7 +110,8 @@ describe("ToolExecutionComponent compact and hidden rows", () => {
 					finishedAt,
 				);
 				const completed = component.render(120);
-				expect(completed).toHaveLength(1);
+				expect(completed).toHaveLength(2);
+				expect(completed[0]).toBe("");
 				expect(stripAnsi(completed.join("\n"))).toContain("Elapsed: 1s");
 				expect(stripAnsi(completed.join("\n"))).toMatch(/\d{2}:\d{2}:\d{2}/);
 				expect(stripAnsi(completed.join("\n"))).not.toContain("successful detail");

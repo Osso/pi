@@ -36,7 +36,7 @@ class SupervisorStatusComponent extends Box {
 	private readonly styles: SupervisorStatusStyles;
 
 	constructor(message: string, reviewAt: string | undefined, styles: SupervisorStatusStyles) {
-		super(1, 1, styles.background);
+		super(1, 0, styles.background);
 		this.styles = styles;
 		this.update(message, reviewAt);
 	}
@@ -239,7 +239,7 @@ export function createSupervisorStatusEntryRenderer(refresher: WaitCountdownRefr
 
 export const renderSupervisorMessage: MessageRenderer = (message, _rendererOptions, theme) => {
 	const content = typeof message.content === "string" ? message.content : "";
-	const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
+	const box = new Box(1, 0, (text) => theme.bg("customMessageBg", text));
 	box.addChild(new Text(theme.fg("customMessageLabel", theme.bold("[Supervisor]")), 0, 0));
 	box.addChild(new Text(theme.fg("customMessageText", supervisorInstructionBody(content)), 0, 0));
 	return box;

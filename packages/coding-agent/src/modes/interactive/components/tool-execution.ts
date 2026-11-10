@@ -370,7 +370,7 @@ export class ToolExecutionComponent extends Container {
 			return [];
 		}
 		if (this.isCompactRow()) {
-			return this.renderCompactRow(width);
+			return ["", ...this.renderCompactRow(width)];
 		}
 		if (this.hasRendererDefinition() && this.getRenderShell() === "self") {
 			return this.renderSelfShell(width);
