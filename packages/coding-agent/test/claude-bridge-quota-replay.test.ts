@@ -36,7 +36,10 @@ async function* quotaRejectedQuery() {
 async function* servedQuery() {
 	yield {
 		type: "assistant",
-		message: { content: [{ type: "text", text: "Served on the next account." }], usage: { input_tokens: 1, output_tokens: 1 } },
+		message: {
+			content: [{ type: "text", text: "Served on the next account." }],
+			usage: { input_tokens: 1, output_tokens: 1 },
+		},
 	};
 	yield { type: "result", subtype: "success", is_error: false, result: "Served on the next account." };
 }
@@ -59,7 +62,10 @@ describe("Claude bridge quota rejection", () => {
 			);
 		}
 		writeFileSync(join(claudeDir, ".active-profile"), "alpha");
-		writeFileSync(join(agentDir, "claude-bridge.json"), JSON.stringify({ provider: { accountProfiles: ["alpha", "beta"] } }));
+		writeFileSync(
+			join(agentDir, "claude-bridge.json"),
+			JSON.stringify({ provider: { accountProfiles: ["alpha", "beta"] } }),
+		);
 
 		const configDirs: string[] = [];
 		__test.setQuery((({ options }: { options: { env: Record<string, string> } }) => {
