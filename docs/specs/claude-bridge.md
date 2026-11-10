@@ -49,7 +49,8 @@ The first-party Claude bridge provides Claude Code-backed models and optional de
 - `packages/coding-agent/test/claude-bridge-provider.test.ts` — model registration and SDK/MCP native-search request boundaries.
 - `packages/coding-agent/test/claude-bridge-session.test.ts` — actual Pi session prompting with a fake SDK and project context.
 - `packages/coding-agent/test/claude-bridge-config-profile-session.test.ts` — settings, synthetic credentials, and session identity.
-- `packages/coding-agent/test/claude-bridge-quota-replay.test.ts` — a quota-rejected prompt whose SDK query throws after the error result is served on the next account without a Pi retry.
+- `packages/coding-agent/test/claude-bridge-account-rotation.test.ts` — a prompt is served on the next account without a Pi retry when the SDK query throws after a quota error result, or when the selected account's credential file holds an empty OAuth token.
+- `packages/coding-agent/test/claude-bridge-models.test.ts` — Claude Fable 5.2 is requested as `claude-fable-5-2[1m]` with a 1M context window.
 - `packages/coding-agent/test/claude-bridge-convert.test.ts` — message and tool-result images.
 - `packages/coding-agent/test/claude-bridge-askclaude.test.ts` — opt-in registration and circular-delegation rejection.
 - `packages/coding-agent/test/claude-bridge-runtime.test.ts` — executable selection and explicit missing-asset errors.

@@ -55,6 +55,7 @@ import { extractAllToolResults as _extractAllToolResults, type McpResult } from 
 import { ACCOUNTS_EXHAUSTED, AccountProfileManager, QueryContext, ctx } from "./query-state.ts";
 import { recheckAccountProfiles } from "./account-recheck.ts";
 import {
+	InvalidCredentialsError,
 	prepareAccountProfile,
 	readAccountState,
 	updateAccountState,
@@ -294,15 +295,19 @@ function prepareProviderAccount() {
 	if (names === undefined) return undefined;
 	if (!Array.isArray(names)) throw new Error("provider.accountProfiles must be an ordered list of profile names");
 	const home = homedir();
-	accountProfileManager ??= createAccountProfileManager(names, home);
-	const name = accountProfileManager.select(Date.now() / 1000);
-	if (name === undefined) throw new Error(ACCOUNTS_EXHAUSTED);
-	return {
-		home,
-		name,
-		manager: accountProfileManager,
-		configDir: prepareAccountProfile(home, name),
-	};
+	const manager = (accountProfileManager ??= createAccountProfileManager(names, home));
+	let name = manager.select(Date.now() / 1000);
+	for (;;) {
+		if (name === undefined) throw new Error(ACCOUNTS_EXHAUSTED);
+		try {
+			return { home, name, manager, configDir: prepareAccountProfile(home, name) };
+		} catch (error) {
+			if (!(error instanceof InvalidCredentialsError)) throw error;
+			// Blocked without a reset time: only a live recheck after a new login brings it back.
+			debug(`provider: ${name} has no usable credentials (${error.message}); using the next account`);
+			name = manager.reject(name, undefined, Date.now() / 1000);
+		}
+	}
 }
 
 async function fetchAccountRetryProfiles(model: Model<Api>, signal?: AbortSignal) {

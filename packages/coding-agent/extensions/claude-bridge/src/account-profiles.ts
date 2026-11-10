@@ -84,6 +84,9 @@ function requireRegularFile(path: string): void {
 	if (stat && !stat.isFile()) throw new Error("Credentials must be a regular file, not a symlink");
 }
 
+/** The profile's credential file holds no usable login, e.g. after Claude Code cleared it on a failed refresh. */
+export class InvalidCredentialsError extends Error {}
+
 function readCredentials(path: string): string {
 	requireRegularFile(path);
 	const content = readFileSync(path, "utf8");
@@ -91,16 +94,16 @@ function readCredentials(path: string): string {
 	try {
 		value = JSON.parse(content);
 	} catch {
-		throw new Error("Invalid credentials: expected a nonempty JSON object");
+		throw new InvalidCredentialsError("Invalid credentials: expected a nonempty JSON object");
 	}
 	if (value === null || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length === 0) {
-		throw new Error("Invalid credentials: expected a nonempty JSON object");
+		throw new InvalidCredentialsError("Invalid credentials: expected a nonempty JSON object");
 	}
 	const oauth = (value as Record<string, unknown>).claudeAiOauth;
 	const token =
 		oauth !== null && typeof oauth === "object" ? (oauth as Record<string, unknown>).accessToken : undefined;
 	if (typeof token !== "string" || !token.trim()) {
-		throw new Error("Invalid credentials: expected a nonempty OAuth access token");
+		throw new InvalidCredentialsError("Invalid credentials: expected a nonempty OAuth access token");
 	}
 	return content;
 }
