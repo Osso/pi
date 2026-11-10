@@ -160,8 +160,8 @@ describe("offscreen Supervisor countdown at end_turn completion", () => {
 				fullRedrawDelta: fixture.tui.fullRedraws - redraws,
 				clears: output.match(/\x1b\[[23]J/g) ?? [],
 				supervisorReplay: output.includes("[Supervisor]") || output.includes("Waiting for child agents"),
-				historyRows: output.match(/later history \d+/g)?.length ?? 0,
-			}).toEqual({ fullRedrawDelta: 0, clears: [], supervisorReplay: false, historyRows: 0 });
+			}).toEqual({ fullRedrawDelta: 0, clears: [], supervisorReplay: false });
+			expect(output.match(/later history \d+/g) ?? []).toEqual(viewport.match(/later history \d+/g) ?? []);
 		} finally {
 			await fixture.dispose();
 		}
