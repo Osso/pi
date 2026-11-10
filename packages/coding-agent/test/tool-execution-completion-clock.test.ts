@@ -23,7 +23,9 @@ function createBaseToolDefinition(name = "custom_tool"): ToolDefinition {
 function createFakeTui(requestRender: () => void = () => {}): TUI {
 	return {
 		requestRender,
-		addInterval: (_callback: () => void, _intervalMs: number) => ({ dispose: () => {} }),
+		addInterval: (_callback: () => void, _intervalMs: number) => ({
+			dispose: () => {},
+		}),
 		removeInterval: () => {},
 		requestComponentRender: () => false,
 	} as unknown as TUI;
@@ -51,8 +53,9 @@ describe("ToolExecutionComponent completion clock", () => {
 			component.updateResult({ content: [], isError: false }, false, finishedAt);
 
 			const rendered = component.render(120).join("\n");
-			expect(stripAnsi(rendered)).toContain("Elapsed: 2s");
-			expect(rendered).toContain(theme.fg("muted", "03:04:05"));
+			const plainLines = stripAnsi(rendered).split("\n");
+			expect(plainLines.some((line) => line.includes("Elapsed: 2s") && line.includes("03:04:05"))).toBe(true);
+			expect(rendered).toContain(theme.fg("muted", "Elapsed: 2s 03:04:05"));
 
 			vi.advanceTimersByTime(60_000);
 			component.invalidate();

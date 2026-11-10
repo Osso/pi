@@ -28,7 +28,7 @@ function createFakeTui(): TUI {
 	} as unknown as TUI;
 }
 
-describe("ToolExecutionComponent compact rows", () => {
+describe("ToolExecutionComponent compact and hidden rows", () => {
 	beforeAll(() => {
 		initTheme("dark");
 	});
@@ -55,7 +55,11 @@ describe("ToolExecutionComponent compact rows", () => {
 			expect(running.split("\n")).toHaveLength(1);
 
 			component.updateResult(
-				{ content: [{ type: "text", text: "slept" }], details: undefined, isError: false },
+				{
+					content: [{ type: "text", text: "slept" }],
+					details: undefined,
+					isError: false,
+				},
 				false,
 			);
 			expect(vi.getTimerCount()).toBe(0);
@@ -95,7 +99,10 @@ describe("ToolExecutionComponent compact rows", () => {
 
 				const finishedAt = Date.now();
 				component.updateResult(
-					{ content: [{ type: "text", text: "successful detail" }], isError: false },
+					{
+						content: [{ type: "text", text: "successful detail" }],
+						isError: false,
+					},
 					false,
 					finishedAt,
 				);
@@ -147,7 +154,13 @@ describe("ToolExecutionComponent compact rows", () => {
 				createFakeTui(),
 				process.cwd(),
 			);
-			component.updateResult({ content: [{ type: "text", text: "private status error" }], isError: true }, false);
+			component.updateResult(
+				{
+					content: [{ type: "text", text: "private status error" }],
+					isError: true,
+				},
+				false,
+			);
 
 			const hidden = stripAnsi(component.render(80).join("\n"));
 			expect(hidden).toContain(toolName);
@@ -186,7 +199,10 @@ describe("ToolExecutionComponent compact rows", () => {
 			"tool-hidden-pyrun-error",
 			{ code: pyrunCode },
 			{ hideOutput: true },
-			createPyrunToolDefinition(async () => ({ content: [], details: undefined })),
+			createPyrunToolDefinition(async () => ({
+				content: [],
+				details: undefined,
+			})),
 			createFakeTui(),
 			process.cwd(),
 		);
@@ -226,11 +242,47 @@ describe("ToolExecutionComponent compact rows", () => {
 			createFakeTui(),
 			process.cwd(),
 		);
-		component.updateResult({ content: [{ type: "text", text: "fallback error detail" }], isError: true }, false);
+		component.updateResult(
+			{
+				content: [{ type: "text", text: "fallback error detail" }],
+				isError: true,
+			},
+			false,
+		);
 
 		const rendered = stripAnsi(component.render(80).join("\n"));
 		expect(rendered).toContain("wait_agent");
 		expect(rendered).toContain("fallback error detail");
+	});
+
+	test("hideOutput keeps legacy definition-less Pyrun rows private", () => {
+		const code = "private historical Pyrun code";
+		const component = new ToolExecutionComponent(
+			"pyrun_eval",
+			"tool-hidden-legacy-pyrun",
+			{ code },
+			{ hideOutput: true },
+			undefined,
+			createFakeTui(),
+			process.cwd(),
+		);
+		component.updateResult(
+			{
+				content: [{ type: "text", text: "private historical result" }],
+				isError: true,
+			},
+			false,
+		);
+
+		const hidden = stripAnsi(component.render(120).join("\n"));
+		expect(hidden).toContain("pyrun_eval");
+		expect(hidden).not.toContain(code);
+		expect(hidden).not.toContain("private historical result");
+
+		component.setHideOutput(false);
+		const visible = stripAnsi(component.render(120).join("\n"));
+		expect(visible).toContain(code);
+		expect(visible).toContain("private historical result");
 	});
 
 	test("hideOutput keeps Pyrun name and timing without code or result", () => {
@@ -242,7 +294,10 @@ describe("ToolExecutionComponent compact rows", () => {
 				"tool-hidden-pyrun",
 				{ code },
 				{ hideOutput: true },
-				createPyrunToolDefinition(async () => ({ content: [], details: undefined })),
+				createPyrunToolDefinition(async () => ({
+					content: [],
+					details: undefined,
+				})),
 				createFakeTui(),
 				process.cwd(),
 			);
@@ -262,7 +317,8 @@ describe("ToolExecutionComponent compact rows", () => {
 			expect(rendered).toContain("Elapsed: 1s");
 			expect(rendered).not.toContain(code);
 			expect(rendered).not.toContain("private result");
-			expect(rendered.split("\n")).toHaveLength(1);
+			expect(rendered.split("\n").length).toBeGreaterThan(1);
+			expect(component.render(120).join("\n")).toMatch(/\u001b\[48;2;\d+;\d+;\d+m/);
 
 			component.setHideOutput(false);
 			const visible = stripAnsi(component.render(120).join("\n"));

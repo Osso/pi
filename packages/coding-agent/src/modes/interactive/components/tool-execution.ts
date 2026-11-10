@@ -18,7 +18,12 @@ import { formatElapsedDuration } from "./elapsed-time.ts";
 
 const MAX_TOOL_OUTPUT_LINES = 100;
 
-type ToolResultContentItem = { type: string; text?: string; data?: string; mimeType?: string };
+type ToolResultContentItem = {
+	type: string;
+	text?: string;
+	data?: string;
+	mimeType?: string;
+};
 
 function limitToolOutputLines(lines: string[]): string[] {
 	if (lines.length <= MAX_TOOL_OUTPUT_LINES) {
@@ -93,7 +98,12 @@ export class ToolExecutionComponent extends Container {
 	private executionFinishedAt: number | undefined;
 	private argsComplete = false;
 	private result?: {
-		content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+		content: Array<{
+			type: string;
+			text?: string;
+			data?: string;
+			mimeType?: string;
+		}>;
 		isError: boolean;
 		details?: any;
 	};
@@ -198,7 +208,7 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private createTimerComponent(): Component | undefined {
-		const timingText = [this.formatTimerText(), this.formatCompletionTime()].filter(Boolean).join("\n");
+		const timingText = [this.formatTimerText(), this.formatCompletionTime()].filter(Boolean).join(" ");
 		if (!timingText) {
 			return undefined;
 		}
@@ -262,7 +272,12 @@ export class ToolExecutionComponent extends Container {
 
 	updateResult(
 		result: {
-			content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+			content: Array<{
+				type: string;
+				text?: string;
+				data?: string;
+				mimeType?: string;
+			}>;
 			details?: any;
 			isError: boolean;
 		},
@@ -365,9 +380,7 @@ export class ToolExecutionComponent extends Container {
 
 	private isCompactRow(): boolean {
 		return (
-			this.toolName === "wait_agent" ||
-			this.toolName === "end_turn" ||
-			(this.hideOutput && (this.toolName === "bash" || this.toolName === "pyrun_eval"))
+			this.toolName === "wait_agent" || this.toolName === "end_turn" || (this.hideOutput && this.toolName === "bash")
 		);
 	}
 
@@ -377,7 +390,8 @@ export class ToolExecutionComponent extends Container {
 		);
 		const title = theme.fg("toolTitle", theme.bold(this.toolName));
 		const row = [title, ...timing.map((text) => theme.fg("muted", text))].join(" ");
-		const lines = [truncateToWidth(row, width, "")];
+		const line = truncateToWidth(row, width, "");
+		const lines = [line];
 
 		const resultComponent = this.hideOutput ? undefined : this.resultRendererComponent;
 		const showResult = this.result?.isError || this.expanded;
@@ -390,12 +404,13 @@ export class ToolExecutionComponent extends Container {
 		return lines;
 	}
 
+	private applyBackground(text: string): string {
+		const color = this.isPartial ? "toolPendingBg" : this.result?.isError ? "toolErrorBg" : "toolSuccessBg";
+		return theme.bg(color, text);
+	}
+
 	private updateDisplay(): void {
-		const bgFn = this.isPartial
-			? (text: string) => theme.bg("toolPendingBg", text)
-			: this.result?.isError
-				? (text: string) => theme.bg("toolErrorBg", text)
-				: (text: string) => theme.bg("toolSuccessBg", text);
+		const bgFn = (text: string) => this.applyBackground(text);
 
 		let hasContent = false;
 		this.hideComponent = false;
@@ -406,7 +421,7 @@ export class ToolExecutionComponent extends Container {
 			}
 			renderContainer.clear();
 
-			const callRenderer = this.getCallRenderer();
+			const callRenderer = this.hideOutput && this.toolName === "pyrun_eval" ? undefined : this.getCallRenderer();
 			if (!callRenderer) {
 				renderContainer.addChild(this.createCallFallback());
 				hasContent = true;
@@ -494,7 +509,10 @@ export class ToolExecutionComponent extends Container {
 		}
 		try {
 			const component = resultRenderer(
-				{ content: this.getDisplayContent() as any, details: this.result.details },
+				{
+					content: this.getDisplayContent() as any,
+					details: this.result.details,
+				},
 				{ expanded: this.expanded, isPartial: this.isPartial },
 				theme,
 				this.getRenderContext(this.resultRendererComponent),
@@ -517,17 +535,14 @@ export class ToolExecutionComponent extends Container {
 
 	private formatToolExecution(): string {
 		let text = theme.fg("toolTitle", theme.bold(this.toolName));
-		const content = JSON.stringify(this.args, null, 2);
+		const content =
+			this.hideOutput && this.toolName === "pyrun_eval" ? undefined : JSON.stringify(this.args, null, 2);
 		if (content) {
 			text += `\n\n${content}`;
 		}
-		const timerText = this.formatTimerText();
-		if (timerText) {
-			text += `\n${timerText}`;
-		}
-		const completionTime = this.formatCompletionTime();
-		if (completionTime) {
-			text += `\n${theme.fg("muted", completionTime)}`;
+		const timingText = [this.formatTimerText(), this.formatCompletionTime()].filter(Boolean).join(" ");
+		if (timingText) {
+			text += `\n${theme.fg("muted", timingText)}`;
 		}
 		const output = this.hideOutput ? "" : this.getTextOutput(this.getDisplayContent());
 		if (output) {
