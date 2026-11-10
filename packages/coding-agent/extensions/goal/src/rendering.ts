@@ -1,5 +1,5 @@
 import type { EntryRenderer, ExtensionAPI, ExtensionContext, MessageRenderer } from "@earendil-works/pi-coding-agent";
-import { Box, Spacer, Text } from "@earendil-works/pi-tui";
+import { Box, Text } from "@earendil-works/pi-tui";
 import type { WaitCountdownRefresher } from "./wait-countdown.ts";
 
 const SUPERVISOR_INSTRUCTION_OPEN = "<supervisor-instruction>";
@@ -45,7 +45,6 @@ class SupervisorStatusComponent extends Box {
 		this.clear();
 		this.deadlineMs = reviewAt === undefined ? undefined : Date.parse(reviewAt);
 		this.addChild(new Text(this.styles.label("[Supervisor]"), 0, 0));
-		this.addChild(new Spacer(1));
 		this.addChild(new Text(this.styles.message(message), 0, 0));
 		this.countdownText = undefined;
 		if (this.deadlineMs !== undefined && Number.isFinite(this.deadlineMs)) {
@@ -242,7 +241,6 @@ export const renderSupervisorMessage: MessageRenderer = (message, _rendererOptio
 	const content = typeof message.content === "string" ? message.content : "";
 	const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
 	box.addChild(new Text(theme.fg("customMessageLabel", theme.bold("[Supervisor]")), 0, 0));
-	box.addChild(new Spacer(1));
 	box.addChild(new Text(theme.fg("customMessageText", supervisorInstructionBody(content)), 0, 0));
 	return box;
 };
