@@ -6,8 +6,8 @@ import {
 	Image,
 	Spacer,
 	Text,
-	truncateToWidth,
 	type TUI,
+	truncateToWidth,
 } from "@earendil-works/pi-tui";
 import type { ToolDefinition, ToolRenderContext } from "../../../core/extensions/types.ts";
 import { createAllToolDefinitions, type ToolName } from "../../../core/tools/index.ts";
@@ -372,12 +372,15 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private renderCompactRow(width: number): string[] {
-		const timing = [this.formatTimerText(), this.formatCompletionTime()].filter(Boolean);
+		const timing = [this.formatTimerText(), this.formatCompletionTime()].filter(
+			(text): text is string => text !== undefined,
+		);
 		const title = theme.fg("toolTitle", theme.bold(this.toolName));
-		const row = [title, ...timing.map((text) => theme.fg("muted", text!))].join(" ");
+		const row = [title, ...timing.map((text) => theme.fg("muted", text))].join(" ");
 		const lines = [truncateToWidth(row, width, "")];
 
 		if (
+			!this.hideOutput &&
 			this.result &&
 			(this.result.isError || (this.expanded && this.toolName !== "bash" && this.toolName !== "pyrun_eval")) &&
 			this.resultRendererComponent
@@ -442,6 +445,7 @@ export class ToolExecutionComponent extends Container {
 		} else {
 			this.contentText.setCustomBgFn(bgFn);
 			this.contentText.setText(this.formatToolExecution());
+			this.resultRendererComponent = this.result ? this.createResultFallback() : undefined;
 			hasContent = true;
 		}
 
@@ -501,8 +505,8 @@ export class ToolExecutionComponent extends Container {
 			this.resultRendererComponent = component;
 			return component;
 		} catch {
-			this.resultRendererComponent = undefined;
-			return this.createResultFallback();
+			this.resultRendererComponent = this.createResultFallback();
+			return this.resultRendererComponent;
 		}
 	}
 
