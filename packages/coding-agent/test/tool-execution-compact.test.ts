@@ -6,7 +6,7 @@ import type { ToolDefinition } from "../src/core/extensions/types.ts";
 import { createBashToolDefinition } from "../src/core/tools/bash.ts";
 import { createEndTurnToolDefinition } from "../src/core/tools/end-turn.ts";
 import { ToolExecutionComponent } from "../src/modes/interactive/components/tool-execution.ts";
-import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 
 function createBaseToolDefinition(name: string): ToolDefinition {
@@ -283,6 +283,35 @@ describe("ToolExecutionComponent compact and hidden rows", () => {
 		const visible = stripAnsi(component.render(120).join("\n"));
 		expect(visible).toContain(code);
 		expect(visible).toContain("private historical result");
+	});
+
+	test.each([false, true])("hidden Pyrun retains state backgrounds (error: %s)", (isError) => {
+		const component = new ToolExecutionComponent(
+			"pyrun_eval",
+			"tool-hidden-pyrun-colors",
+			{ code: "print('private code')" },
+			{ hideOutput: true },
+			createPyrunToolDefinition(async () => ({ content: [], details: undefined })),
+			createFakeTui(),
+			process.cwd(),
+		);
+		component.markExecutionStarted(1000);
+		expect(component.render(80).join("\n")).toContain(theme.getBgAnsi("toolPendingBg"));
+
+		component.updateResult({ content: [{ type: "text", text: "private result" }], isError }, false, 2000);
+		const completedColor = isError ? "toolErrorBg" : "toolSuccessBg";
+		for (const width of [20, 80]) {
+			const lines = component.render(width);
+			const rendered = lines.join("\n");
+			expect(rendered).toContain(theme.getBgAnsi(completedColor));
+			expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+			expect(stripAnsi(rendered)).not.toContain("private");
+		}
+		component.setHideOutput(false);
+		const visible = component.render(80).join("\n");
+		expect(visible).toContain(theme.getBgAnsi(completedColor));
+		expect(stripAnsi(visible)).toContain("private code");
+		expect(stripAnsi(visible)).toContain("private result");
 	});
 
 	test("hideOutput keeps Pyrun name and timing without code or result", () => {
