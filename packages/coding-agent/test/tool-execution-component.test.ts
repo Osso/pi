@@ -308,6 +308,7 @@ describe("ToolExecutionComponent parity", () => {
 				process.cwd(),
 			);
 			component.markExecutionStarted(Date.now(), { showLiveElapsed: true });
+			vi.advanceTimersByTime(1250);
 			component.updateResult(
 				{
 					content: [{ type: "text", text: `${code}\nprivate result` }],
@@ -319,7 +320,7 @@ describe("ToolExecutionComponent parity", () => {
 
 			const rendered = stripAnsi(component.render(120).join("\n"));
 			expect(rendered).toContain("pyrun_eval");
-			expect(rendered).toContain("Elapsed: 0s");
+			expect(rendered).toContain("Elapsed: 1s");
 			expect(rendered).not.toContain(code);
 			expect(rendered).not.toContain("private result");
 			expect(rendered.split("\n")).toHaveLength(1);
