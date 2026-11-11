@@ -35,6 +35,7 @@
 
 - When a structured `supervisor_response` is present, Supervisor response extraction validates its current-request arguments and ignores accompanying assistant text; the model remains instructed to call the tool without text, and prior responses are never reused.
 - Normal tool cards no longer add blank rows above and below their content; outer margins remain unchanged.
+- Extension custom-message cards (for example `[lt-watch]`) no longer add blank rows above, below, or after their label; the outer margin remains.
 - The default footer shows mission status on its own line, separate from the working goal and grouped extension statuses.
 - Compact `wait_agent` and `end_turn` transcript rows show the tool name, elapsed duration, and local completion clock, while preserving result or error content when needed. Normal tool cards show elapsed duration and the local completion clock on one line. Hide tool output also hides Bash command text and Pyrun code and results, retaining names and timing; Bash remains compact and Pyrun retains its normal pending, success, or error colored card. Local user `!` Bash and execution are unchanged.
 - Bundled the Claude bridge as a first-party extension, preserving Claude authentication, profiles, native WebSearch and optional AskClaude. Duplicate external bridge loads are skipped without changing settings; a separate installation is no longer required. See the [Claude bridge guide](docs/claude-bridge.md).
