@@ -223,6 +223,8 @@ function createGoalHarness(
 		ui: { notify, requestRender, setStatus },
 		sessionManager: {
 			getEntries: () => options?.entries ?? [],
+			getBranch: () => options?.entries ?? [],
+			getSessionFile: () => undefined,
 			getSessionId: () => options?.sessionId ?? "test-session",
 			getSessionGoalJson: () =>
 				storedGoalJsonBySession.get(storedGoalKey(cwd, options?.sessionId ?? "test-session")),
