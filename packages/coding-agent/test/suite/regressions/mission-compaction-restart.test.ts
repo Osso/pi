@@ -34,9 +34,10 @@ it("restores the compacted mission without replacing a working goal while a chil
 				compaction: { enabled: true, keepRecentMessages: 3, reserveTokens: 16_384 },
 			}),
 		);
-		await pi.restart();
 		await pi.send({ type: "prompt", message: `/mission set ${MISSION}` });
-		const missionRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
+		await pi.waitForLlmRequest((request) => request.agentId === null);
+		await pi.restart();
+		const missionRequest = await pi.waitForLlmRequest((request) => request.sessionId === pi.sessionId);
 		pi.respondToLlmRequest(
 			missionRequest.id,
 			fauxAssistantMessage(
