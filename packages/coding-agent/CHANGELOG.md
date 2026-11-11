@@ -255,6 +255,7 @@
 ### Fixed
 
 - Fixed `/mission` restoration after compaction and restart to read the latest active-branch mission entry, including paused or cleared state, while preserving the current working goal under existing rules.
+- Fixed `/mission` queuing one `Continue working toward the active goal.` follow-up for every `manage_goal` action in a run. Copying the mission into the working goal no longer sends a reminder; the run's `agent_end` Supervisor review continues the mission, and a copy made on an idle session schedules that review.
 - Fixed Claude bridge account rotation waiting out Pi's retry backoff: a quota-rejected request is now served on the next account immediately when the Claude Code SDK throws after the error result.
 - Fixed Claude bridge serving Claude Fable 5.2 at 200K context: it now requests `claude-fable-5-2[1m]` and uses its documented 1M window.
 - Fixed Claude bridge failing every turn with `Invalid credentials: expected a nonempty OAuth access token` when the selected account's login was cleared after a failed token refresh: the account is now skipped and the next account serves the request.

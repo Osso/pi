@@ -15,9 +15,10 @@ import type { Goal } from "./goal-types.ts";
 
 const MISSION_ENTRY_TYPE = "mission";
 const MISSION_PAUSE_REASON = "Mission paused by user.";
-const GOAL_REMINDER = "Continue working toward the active goal.";
 
 export const MISSION_GOAL_COMPLETION_REJECTED = "Mission goals are continuous; only the user stops a mission.";
+
+export type ReviewMissionGoal = (goal: Goal, ctx: ExtensionContext) => void;
 
 interface Mission {
 	objective: string;
@@ -114,18 +115,26 @@ export function copyMissionToGoal(ctx: GoalContext): Goal | null {
 	return goal;
 }
 
-/** Restarts work on the mission after the working goal stops running. */
-export function continueMission(ctx: ExtensionContext, pi: ExtensionAPI): void {
+/**
+ * Copies the mission into the working goal after that goal stops running. `reviewGoal` starts work
+ * on the copy; a caller inside a run passes none, because that run's agent_end review continues it.
+ */
+export function continueMission(ctx: ExtensionContext, reviewGoal?: ReviewMissionGoal): void {
 	const goal = copyMissionToGoal(ctx);
 	updateGoalFooterStatus(ctx);
-	if (goal) pi.sendUserMessage(GOAL_REMINDER, { deliverAs: "followUp" });
+	if (goal) reviewGoal?.(goal, ctx);
 }
 
-function setMission(objective: string, ctx: ExtensionCommandContext, pi: ExtensionAPI): void {
+function setMission(
+	objective: string,
+	ctx: ExtensionCommandContext,
+	pi: ExtensionAPI,
+	reviewGoal: ReviewMissionGoal,
+): void {
 	appendMission({ objective }, ctx, pi);
 	if (loadOrMigrateActiveGoal(ctx)?.mission) clearGoal(ctx);
 	ctx.ui.notify(`Mission set: ${objective}`, "info");
-	continueMission(ctx, pi);
+	continueMission(ctx, reviewGoal);
 }
 
 function pauseMission(mission: Mission, ctx: ExtensionCommandContext, pi: ExtensionAPI): void {
@@ -135,10 +144,15 @@ function pauseMission(mission: Mission, ctx: ExtensionCommandContext, pi: Extens
 	updateGoalFooterStatus(ctx);
 }
 
-function resumeMission(mission: Mission, ctx: ExtensionCommandContext, pi: ExtensionAPI): void {
+function resumeMission(
+	mission: Mission,
+	ctx: ExtensionCommandContext,
+	pi: ExtensionAPI,
+	reviewGoal: ReviewMissionGoal,
+): void {
 	appendMission({ objective: mission.objective }, ctx, pi);
 	ctx.ui.notify(`Mission resumed: ${mission.objective}`, "info");
-	continueMission(ctx, pi);
+	continueMission(ctx, reviewGoal);
 }
 
 function clearMission(ctx: ExtensionCommandContext, pi: ExtensionAPI): void {
@@ -153,28 +167,37 @@ function showMission(mission: Mission | null, ctx: ExtensionCommandContext): voi
 	ctx.ui.notify(mission.pausedAt ? `Mission paused: ${mission.objective}` : `Mission: ${mission.objective}`, "info");
 }
 
-function handleMissionCommand(args: string, ctx: ExtensionCommandContext, pi: ExtensionAPI): void {
+function handleMissionCommand(
+	args: string,
+	ctx: ExtensionCommandContext,
+	pi: ExtensionAPI,
+	reviewGoal: ReviewMissionGoal,
+): void {
 	const [action = "", ...rest] = args.trim().split(/\s+/);
 	const mission = loadMission(ctx);
 	const objective = rest.join(" ");
-	if (action === "set" && objective) return setMission(objective, ctx, pi);
+	if (action === "set" && objective) return setMission(objective, ctx, pi, reviewGoal);
 	if (rest.length > 0) return ctx.ui.notify("Use /mission set <objective> to set a mission", "error");
 	if (action === "") return showMission(mission, ctx);
 	if (action === "clear") return mission ? clearMission(ctx, pi) : ctx.ui.notify("No mission", "info");
 	if (action === "pause" && mission && !mission.pausedAt) return pauseMission(mission, ctx, pi);
-	if (action === "resume" && mission?.pausedAt) return resumeMission(mission, ctx, pi);
+	if (action === "resume" && mission?.pausedAt) return resumeMission(mission, ctx, pi, reviewGoal);
 	if (action === "pause") return ctx.ui.notify("No running mission to pause", "info");
 	if (action === "resume") return ctx.ui.notify("No paused mission to resume", "info");
 	ctx.ui.notify("Use /mission set <objective> to set a mission", "error");
 }
 
-export function registerMissionCommand(pi: ExtensionAPI, clearGoalSchedules: (sessionId: string) => void): void {
+export function registerMissionCommand(
+	pi: ExtensionAPI,
+	clearGoalSchedules: (sessionId: string) => void,
+	reviewGoal: ReviewMissionGoal,
+): void {
 	pi.registerCommand("mission", {
 		description:
 			"Set, view, pause, resume, or clear the user-owned continuous mission (/mission set <objective> | /mission | /mission pause | /mission resume | /mission clear)",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			if (args.trim()) clearGoalSchedules(ctx.sessionManager.getSessionId());
-			handleMissionCommand(args, ctx, pi);
+			handleMissionCommand(args, ctx, pi, reviewGoal);
 		},
 	});
 }
