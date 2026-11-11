@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getModel } from "@earendil-works/pi-ai/compat";
+import { type AssistantMessage, getModel } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it, vi } from "vitest";
 import type { ManageGoalParams } from "../extensions/goal/src/goal-tool.ts";
 import goalExtension, { type Goal, type GoalSupervisorReview } from "../extensions/goal/src/index.ts";
@@ -33,7 +33,7 @@ interface SessionStore {
 	sessionManager?: SessionManager;
 }
 
-function assistantTurn(text: string): AgentEndEvent["messages"] {
+function assistantTurn(text: string): AssistantMessage[] {
 	return [
 		{
 			role: "assistant",

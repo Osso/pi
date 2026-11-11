@@ -57,7 +57,8 @@ it("restores the compacted mission without replacing a working goal while a chil
 		const persisted = SessionManager.open(pi.sessionFile);
 		const firstKept = persisted
 			.getBranch()
-			.findLast(
+			.reverse()
+			.find(
 				(entry) =>
 					entry.type === "message" &&
 					entry.message.role === "user" &&
