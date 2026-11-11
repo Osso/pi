@@ -67,7 +67,7 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - [x] Keep request evidence bounded and specific to the current decision.
 - [x] Never provide historical session transcripts or allow the Supervisor to request additional transcript slices.
 - [x] Let the Supervisor consult KB memory when current request evidence is insufficient.
-- [x] Require the model to call the terminating structured `supervisor_response` tool exactly once as the final action for each request; do not ask it to emit JSON text, markdown, or `end_turn` around that call. Extract only that current-request structured response, reject strict JSON text with trailing prose or malformed/partial content, and never reuse historical response text.
+- [x] Instruct the model to call the terminating structured `supervisor_response` tool exactly once as the final action for each request, without accompanying text or `end_turn`. Extract only its current-request structured arguments and validate the decision; ignore accompanying assistant text rather than treating it as a validation failure, and never reuse prior responses.
 - [x] Keep veto evaluation inside the original goal-review request deadline, caller-cancellation boundary, and approval-preemption/requeue boundary.
 
 ### Supervisor answer display

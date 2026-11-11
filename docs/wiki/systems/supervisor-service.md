@@ -26,6 +26,8 @@ Callers poll only their durable request row, using a 300ms interval by default f
 
 Caller cancellation atomically moves its pending or claimed row to terminal `cancelled`, stores a typed cancellation response, clears claim authority, and wakes the resident. The client stops polling and retry delays. A resident evaluating the claimed request observes the row, aborts the model turn, and cannot overwrite cancellation with a late response. Interactive Escape invokes this path through a global input listener, so cancellation still works after `agent_end` while the caller is idle; the waiting status never takes focus.
 
+The model is instructed to call `supervisor_response` without accompanying text. Extraction uses only structured arguments from the current request and validates the decision; accompanying assistant text is ignored, not treated as a validation failure. Prior responses are never reused.
+
 ## Resident console
 
 `pi --supervisor` attaches to the already-running `pi supervisor` process through the owner-only local socket `<control-db>.supervisor-console.sock`. It does not start a service, open the archived session itself, create another AgentSession, or change the Supervisor's KB cwd. If the service is stopped or the socket is absent, the client fails explicitly.

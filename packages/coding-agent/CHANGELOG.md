@@ -33,6 +33,7 @@
 
 ### Changed
 
+- Supervisor response extraction ignores accompanying assistant text and validates only current-request structured `supervisor_response` arguments; the model remains instructed to call the tool without text, and prior responses are never reused.
 - Normal tool cards no longer add blank rows above and below their content; outer margins remain unchanged.
 - The default footer shows mission status on its own line, separate from the working goal and grouped extension statuses.
 - Compact `wait_agent` and `end_turn` transcript rows show the tool name, elapsed duration, and local completion clock, while preserving result or error content when needed. Normal tool cards show elapsed duration and the local completion clock on one line. Hide tool output also hides Bash command text and Pyrun code and results, retaining names and timing; Bash remains compact and Pyrun retains its normal pending, success, or error colored card. Local user `!` Bash and execution are unchanged.
