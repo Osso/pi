@@ -73,7 +73,7 @@ it("restores the compacted mission without replacing a working goal while a chil
 
 		await pi.restart();
 
-		const restored = await pi.waitForLlmRequest((request) => request.agentId === null);
+		const restored = await pi.waitForLlmRequest((request) => request.sessionId === pi.sessionId);
 		const restoredChild = await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);
 		expect(restored.sessionId).toBe(pi.sessionId);
 		expect(restoredChild.userMessages).toContain("Keep the assigned investigation active through restart");
@@ -100,7 +100,7 @@ it("restores the compacted mission without replacing a working goal while a chil
 				stopReason: "toolUse",
 			}),
 		);
-		const missionResumed = await pi.waitForLlmRequest((request) => request.agentId === null);
+		const missionResumed = await pi.waitForLlmRequest((request) => request.sessionId === pi.sessionId);
 		expect(pi.readGoal()).toMatchObject({ objective: MISSION, mission: true });
 		expect(missionResumed.systemPrompt).toContain(MISSION);
 		expect(missionResumed.systemPrompt).toContain("It is never complete; only the user stops it.");
