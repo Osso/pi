@@ -1,6 +1,7 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import codexWebSearchExtension, {
+	addAnthropicWebSearchToolToPayload,
 	addWebSearchToolToPayload,
 	createWebSearchToolDefinition,
 	isOpenAIHostedWebSearchModel,
@@ -85,12 +86,12 @@ describe("codex web search extension", () => {
 			handler?.(
 				{
 					type: "before_provider_request",
-					payload: { tools: [{ type: "function", name: "web_search" }] },
+					payload: { tools: [{ name: "web_search", input_schema: {} }] },
 					model: model("anthropic-messages"),
 				},
 				context("anthropic-messages"),
 			),
-		).toBeUndefined();
+		).toEqual({ tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }] });
 	});
 
 	// A pool session's ctx.model is the pool; a Codex websocket opened without hosted web_search
@@ -117,7 +118,13 @@ describe("codex web search extension", () => {
 		});
 		expect(
 			handler?.({ type: "before_provider_request", payload, model: model("anthropic-messages") }, poolContext),
-		).toBeUndefined();
+		).toEqual({
+			model: "gpt-6.1-terra",
+			tools: [
+				{ type: "function", name: "read" },
+				{ type: "web_search_20250305", name: "web_search", max_uses: 5 },
+			],
+		});
 	});
 
 	it("executes web search with the current OpenAI Responses model", async () => {
@@ -219,5 +226,28 @@ describe("codex web search extension", () => {
 		expect(isOpenAIHostedWebSearchModel(model("openai-codex-responses"))).toBe(true);
 		expect(isOpenAIHostedWebSearchModel(model("anthropic-messages"))).toBe(false);
 		expect(isOpenAIHostedWebSearchModel(undefined)).toBe(false);
+	});
+
+	it("replaces Pi's client web_search with Claude's server web search, keeping other tools", () => {
+		expect(
+			addAnthropicWebSearchToolToPayload({
+				model: "claude-opus-5-5",
+				tools: [
+					{ name: "read", input_schema: {} },
+					{ type: "custom", name: "web_search", input_schema: {} },
+				],
+			}),
+		).toEqual({
+			model: "claude-opus-5-5",
+			tools: [
+				{ name: "read", input_schema: {} },
+				{ type: "web_search_20250305", name: "web_search", max_uses: 5 },
+			],
+		});
+	});
+
+	it("leaves an Anthropic payload that already has server web search unchanged", () => {
+		const payload = { tools: [{ type: "web_search_20250305", name: "web_search" }] };
+		expect(addAnthropicWebSearchToolToPayload(payload)).toBeUndefined();
 	});
 });

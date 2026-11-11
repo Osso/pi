@@ -8,6 +8,8 @@ The first-party `codex-web-search` extension registers `web_search` with a requi
 
 The extension's `before_provider_request` hook also enables hosted search in ordinary compatible model requests. It decides from `event.model`, the model the request is sent to, so a pool request served by a Codex member gets hosted search too; `ctx.model` would be the pool. Codex fixes a websocket's hosted tools at its first request: a socket opened without hosted `web_search` rejects it later with `unsupported_parameter`, which broke a child switched from a pool to a direct Codex model. It removes the function-shaped `web_search` entry and adds `{ type: "web_search", external_web_access: true }`, without duplicating an existing hosted search entry. Consequently, registry availability does not mean compatible providers receive the callable function schema: they receive OpenAI's hosted tool instead.
 
+For `anthropic-messages` models the same hook removes Pi's custom `web_search` tool (no type, or type `custom`) and adds Claude's server tool `{ type: "web_search_20250305", name: "web_search", max_uses: 5 }`; an existing `web_search_2*` server entry is kept as is. Claude runs the search inside the Messages request. Pi's Anthropic stream parser skips the `server_tool_use` and `web_search_tool_result` blocks and keeps the cited answer text; `pause_turn` maps to a normal stop. Direct tool execution stays OpenAI-only, since Anthropic requests never offer the client tool. Both conversions share one `replaceClientWebSearchTool` helper.
+
 When Pi executes the registered tool directly, it makes a separate one-shot request using the active model and the same hosted-tool payload conversion. It joins returned assistant text blocks into the result. Provider errors, cancellation, and empty text fail explicitly. A three-minute timeout is combined with caller cancellation and cleared when the request settles.
 
 ## Pyrun bridge
@@ -20,4 +22,4 @@ Pyrun does not have a web-search-specific Pi bridge method. Its Python-side `pi.
 - [Pyrun adapter](../../../packages/coding-agent/extensions/pyrun/src/index.ts) handles generic tool bridge calls.
 - [Extension tests](../../../packages/coding-agent/test/codex-web-search-extension.test.ts), [Pyrun tests](../../../packages/coding-agent/test/pyrun-extension.test.ts), and [inventory tests](../../../packages/coding-agent/test/tool-inventory-session.test.ts) cover these boundaries. Test locations are not a fresh run claim.
 
-This tool does not implement a general browsing API, non-OpenAI search, or offline caching.
+This tool does not implement a general browsing API, search beyond OpenAI hosted and Claude server-side search, or offline caching.

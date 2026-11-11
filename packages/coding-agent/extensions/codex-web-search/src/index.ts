@@ -37,8 +37,9 @@ export default function codexWebSearchExtension(pi: ExtensionAPI) {
 	pi.registerTool(createWebSearchToolDefinition());
 	// Decide from the request's model: in a pool session ctx.model is the pool, not the serving member.
 	pi.on("before_provider_request", (event) => {
-		if (!isOpenAIHostedWebSearchModel(event.model)) return undefined;
-		return addWebSearchToolToPayload(event.payload);
+		if (isOpenAIHostedWebSearchModel(event.model)) return addWebSearchToolToPayload(event.payload);
+		if (event.model?.api === "anthropic-messages") return addAnthropicWebSearchToolToPayload(event.payload);
+		return undefined;
 	});
 }
 
@@ -164,21 +165,65 @@ async function runHostedWebSearch(request: WebSearchRequest): Promise<string> {
 	return extractText(message);
 }
 
+/** How one provider API spells Pi's client web_search tool and its server-side replacement. */
+interface HostedSearchSpec {
+	isClientTool: (tool: unknown) => boolean;
+	isHostedTool: (tool: unknown) => boolean;
+	hostedTool: unknown;
+}
+
+const ANTHROPIC_WEB_SEARCH_TYPE = "web_search_20250305";
+const ANTHROPIC_SERVER_TOOL_PREFIX = "web_search_2";
+const ANTHROPIC_MAX_SEARCHES_PER_REQUEST = 5;
+
+const OPENAI_SEARCH: HostedSearchSpec = {
+	isClientTool: isFunctionWebSearchTool,
+	isHostedTool: isHostedWebSearchTool,
+	hostedTool: createWebSearchTool(),
+};
+
+/**
+ * Anthropic runs web search server-side inside the Messages request. Pi's stream parser skips
+ * the resulting server_tool_use / web_search_tool_result blocks and keeps the cited answer text.
+ */
+const ANTHROPIC_SEARCH: HostedSearchSpec = {
+	isClientTool: isAnthropicClientWebSearchTool,
+	isHostedTool: isAnthropicServerWebSearchTool,
+	hostedTool: { type: ANTHROPIC_WEB_SEARCH_TYPE, name: "web_search", max_uses: ANTHROPIC_MAX_SEARCHES_PER_REQUEST },
+};
+
 export function addWebSearchToolToPayload(payload: unknown): unknown | undefined {
+	return replaceClientWebSearchTool(payload, OPENAI_SEARCH);
+}
+
+export function addAnthropicWebSearchToolToPayload(payload: unknown): unknown | undefined {
+	return replaceClientWebSearchTool(payload, ANTHROPIC_SEARCH);
+}
+
+/** Swaps Pi's client web_search for the provider's hosted search; undefined when unchanged. */
+function replaceClientWebSearchTool(payload: unknown, spec: HostedSearchSpec): unknown | undefined {
 	if (!isRecord(payload)) return undefined;
 
 	const tools = Array.isArray(payload.tools) ? payload.tools : [];
-	const toolsWithoutFunctionWebSearch = tools.filter((tool) => !isFunctionWebSearchTool(tool));
-	if (toolsWithoutFunctionWebSearch.some(isHostedWebSearchTool)) {
-		return toolsWithoutFunctionWebSearch.length === tools.length
-			? undefined
-			: ({ ...payload, tools: toolsWithoutFunctionWebSearch } satisfies PayloadWithTools);
+	const withoutClientTool = tools.filter((tool) => !spec.isClientTool(tool));
+	if (withoutClientTool.some(spec.isHostedTool)) {
+		const removedClientTool = withoutClientTool.length !== tools.length;
+		return removedClientTool ? ({ ...payload, tools: withoutClientTool } satisfies PayloadWithTools) : undefined;
 	}
 
-	return {
-		...payload,
-		tools: [...toolsWithoutFunctionWebSearch, createWebSearchTool()],
-	} satisfies PayloadWithTools;
+	return { ...payload, tools: [...withoutClientTool, spec.hostedTool] } satisfies PayloadWithTools;
+}
+
+function isAnthropicServerWebSearchTool(value: unknown): boolean {
+	if (!isRecord(value) || typeof value.type !== "string") return false;
+	return value.type.startsWith(ANTHROPIC_SERVER_TOOL_PREFIX);
+}
+
+/** Pi's own web_search sent as an Anthropic custom tool (no type, or type "custom"). */
+function isAnthropicClientWebSearchTool(value: unknown): boolean {
+	if (!isRecord(value) || value.name !== "web_search") return false;
+	const isCustomTool = value.type === undefined || value.type === "custom";
+	return isCustomTool;
 }
 
 function createWebSearchTool(): WebSearchTool {

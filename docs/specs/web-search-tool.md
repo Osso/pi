@@ -2,7 +2,7 @@
 
 Module boundary: first-party extension module.
 
-The web search tool exposes OpenAI Responses hosted web search as an explicit callable Pi tool. It is registered by the first-party `codex-web-search` extension and appears in tool inventory when extensions are loaded. Claude provider sessions use separate native WebSearch through the [Claude bridge](claude-bridge.md), not this OpenAI-only tool.
+The web search tool exposes OpenAI Responses hosted web search as an explicit callable Pi tool. It is registered by the first-party `codex-web-search` extension and appears in tool inventory when extensions are loaded. Anthropic Messages models (for example the `proxy` CLIProxyAPI provider's Claude models) get Claude's server-side web search in their requests. Claude bridge sessions use separate native WebSearch through the [Claude bridge](claude-bridge.md).
 
 ## What it must do
 
@@ -22,6 +22,7 @@ The web search tool exposes OpenAI Responses hosted web search as an explicit ca
 ### Provider requests
 
 - [x] Add the hosted `web_search` tool to every request whose serving model uses OpenAI Responses or OpenAI Codex Responses, including a pool request served by such a member. A Codex websocket opened without hosted `web_search` rejects it on every later request on that socket.
+- [x] Replace Pi's client `web_search` tool with Claude's server tool `web_search_20250305` (`max_uses` 5) in every request whose serving model uses Anthropic Messages, without duplicating an existing server search entry. The Claude bridge API is not affected.
 
 ### Pyrun bridge
 
@@ -56,5 +57,5 @@ None.
 ## Out of scope
 
 - Codex-compatible `web.run` browsing/search API compatibility.
-- Non-OpenAI web search providers.
+- Search providers other than OpenAI hosted search and Claude server-side search.
 - A cached/offline web search mode.
