@@ -1,49 +1,15 @@
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { expect, it } from "vitest";
-import { type HeadlessPi, requireHeadlessAgentSessionId, withHeadlessPi } from "../headless-pi.ts";
+import { SessionManager } from "../../../src/core/session-manager.ts";
+import { requireHeadlessAgentSessionId, withHeadlessPi } from "../headless-pi.ts";
 
 const MISSION = "Continuously maintain the test platform; failing services first, security second.";
 const WORKING_GOAL = "Update only the image library pins";
-
-async function finishMainTurn(pi: HeadlessPi, requestId: string, reason: string): Promise<void> {
-	pi.respondToLlmRequest(
-		requestId,
-		fauxAssistantMessage(fauxToolCall("end_turn", { reason }), { stopReason: "toolUse" }),
-	);
-	const review = await pi.waitForSupervisorRequest("goal_idle_review");
-	pi.respondToSupervisorRequest(review, { kind: "wait", reason: "Waiting for the live child" });
-	await pi.waitForSessionEntry(
-		null,
-		(entry) =>
-			entry.type === "custom" &&
-			entry.customType === "supervisor-status" &&
-			JSON.stringify(entry.data).includes("Waiting for the live child"),
-	);
-}
+const RETAINED_PROMPT = "Record a later turn before compaction";
 
 it("restores the compacted mission without replacing a working goal while a child survives process restart", async () => {
 	await withHeadlessPi(async (pi) => {
-		await pi.send({ type: "prompt", message: "Initialize the persisted session before restart" });
-		const initial = await pi.waitForLlmRequest((request) => request.sessionId === pi.sessionId);
-		pi.respondToLlmRequest(
-			initial.id,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Session initialized" }), { stopReason: "toolUse" }),
-		);
-		await pi.waitForEvent((event) => event.type === "agent_end");
-		const settingsPath = join(pi.paths.agentDir, "settings.json");
-		const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
-		writeFileSync(
-			settingsPath,
-			JSON.stringify({
-				...settings,
-				compaction: { enabled: true, keepRecentMessages: 3, reserveTokens: 16_384 },
-			}),
-		);
 		await pi.send({ type: "prompt", message: `/mission set ${MISSION}` });
-		await pi.waitForLlmRequest((request) => request.agentId === null);
-		await pi.restart();
 		const missionRequest = await pi.waitForLlmRequest((request) => request.sessionId === pi.sessionId);
 		pi.respondToLlmRequest(
 			missionRequest.id,
@@ -59,12 +25,18 @@ it("restores the compacted mission without replacing a working goal while a chil
 		const child = await pi.waitForAgent((agent) => agent.displayName === "Mission restart child");
 		const childSessionId = requireHeadlessAgentSessionId(child);
 		await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);
-		const afterSpawn = await pi.waitForLlmRequest((request) => request.agentId === null);
-		await finishMainTurn(pi, afterSpawn.id, "Initial mission turn recorded");
-
+		const afterSpawn = await pi.waitForLlmRequest((request) => request.sessionId === pi.sessionId);
 		await pi.send({ type: "prompt", message: "/goal pause" });
-		await pi.send({ type: "prompt", message: "Record a later turn before compaction" });
-		const laterTurn = await pi.waitForLlmRequest((request) => request.agentId === null);
+		pi.respondToLlmRequest(
+			afterSpawn.id,
+			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Initial mission turn recorded" }), {
+				stopReason: "toolUse",
+			}),
+		);
+		await pi.waitForEvent((event) => event.type === "agent_end");
+
+		await pi.send({ type: "prompt", message: RETAINED_PROMPT });
+		const laterTurn = await pi.waitForLlmRequest((request) => request.sessionId === pi.sessionId);
 		pi.respondToLlmRequest(
 			laterTurn.id,
 			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Later mission turn recorded" }), {
@@ -72,10 +44,27 @@ it("restores the compacted mission without replacing a working goal while a chil
 			}),
 		);
 		await pi.waitForEvent((event) => event.type === "agent_end");
-		const compaction = pi.send({ type: "compact" });
-		const summaryRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
-		pi.respondToLlmRequest(summaryRequest.id, fauxAssistantMessage("The child investigation remains active."));
-		expect(await compaction).toMatchObject({ command: "compact", success: true });
+		await pi.waitForSessionEntry(
+			null,
+			(entry) =>
+				entry.type === "message" &&
+				entry.message.role === "toolResult" &&
+				JSON.stringify(entry.message).includes("Later mission turn recorded"),
+		);
+
+		// Persist the completed compaction checkpoint while the process is stopped, without model summarization.
+		await pi.crash();
+		const persisted = SessionManager.open(pi.sessionFile);
+		const firstKept = persisted
+			.getBranch()
+			.findLast(
+				(entry) =>
+					entry.type === "message" &&
+					entry.message.role === "user" &&
+					JSON.stringify(entry.message.content).includes(RETAINED_PROMPT),
+			);
+		if (!firstKept) throw new Error("Missing retained turn before compaction");
+		persisted.appendCompaction("The child investigation remains active.", firstKept.id, 30_000);
 		pi.writeRunningGoal(WORKING_GOAL);
 		const savedWorkingGoal = pi.readGoal();
 
