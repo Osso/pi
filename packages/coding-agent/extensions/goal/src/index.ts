@@ -44,10 +44,9 @@ import type {
 import { type ManageGoalParams, registerManageGoalTool } from "./goal-tool.ts";
 import {
 	continueMission,
-	copyMissionToGoal,
-	hydrateMission,
 	MISSION_GOAL_COMPLETION_REJECTED,
 	registerMissionCommand,
+	restoreMissionToGoal,
 	updateGoalFooterStatus,
 } from "./mission.ts";
 import {
@@ -657,8 +656,7 @@ function registerSessionGoalHandlers(
 ): void {
 	pi.on("session_start", async (event, ctx: ExtensionContext) => {
 		inheritPreviousSessionGoal(event, ctx);
-		await hydrateMission(ctx);
-		copyMissionToGoal(ctx);
+		await restoreMissionToGoal(ctx);
 		const goal = loadOrMigrateActiveGoal(ctx);
 		updateGoalFooterStatus(ctx);
 		runtime.status.restore(ctx);

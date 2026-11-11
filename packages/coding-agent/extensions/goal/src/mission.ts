@@ -58,7 +58,7 @@ function missionState(ctx: GoalContext): SessionMissionState {
 	return state;
 }
 
-export async function hydrateMission(ctx: GoalContext): Promise<void> {
+async function hydrateMission(ctx: GoalContext): Promise<void> {
 	const state = missionState(ctx);
 	if (state.hydrated) return;
 	const version = state.version;
@@ -81,6 +81,11 @@ function appendMission(mission: Mission | null, ctx: GoalContext, pi: ExtensionA
 	state.version++;
 	state.mission = mission;
 	state.hydrated = true;
+}
+
+export async function restoreMissionToGoal(ctx: GoalContext): Promise<void> {
+	await hydrateMission(ctx);
+	copyMissionToGoal(ctx);
 }
 
 export function updateGoalFooterStatus(ctx: ExtensionContext): void {
