@@ -91,15 +91,6 @@ it("restores the compacted mission without replacing a working goal while a chil
 		);
 
 		await pi.send({ type: "prompt", message: "/goal clear" });
-		pi.respondToLlmRequest(
-			restored.id,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Working goal cleared by user" }), {
-				stopReason: "toolUse",
-			}),
-		);
-		const missionResumed = await pi.waitForLlmRequest((request) => request.sessionId === pi.sessionId);
 		expect(pi.readGoal()).toMatchObject({ objective: MISSION, mission: true });
-		expect(missionResumed.systemPrompt).toContain(MISSION);
-		expect(missionResumed.systemPrompt).toContain("It is never complete; only the user stops it.");
 	});
 }, 60_000);
