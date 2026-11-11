@@ -600,12 +600,6 @@ function readStructuredSupervisorResponse(message: Record<string, unknown>): Rec
 		(part) => isRecord(part) && part.type === "toolCall" && part.name === SUPERVISOR_RESPONSE_TOOL_NAME,
 	);
 	if (!isRecord(responseToolCall) || !isRecord(responseToolCall.arguments)) return undefined;
-	const hasAssistantText = content.some(
-		(part) => isRecord(part) && part.type === "text" && typeof part.text === "string" && part.text.trim(),
-	);
-	if (hasAssistantText) {
-		throw new Error("Supervisor model emitted assistant text with structured response");
-	}
 	return responseToolCall.arguments;
 }
 

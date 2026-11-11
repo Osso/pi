@@ -533,7 +533,9 @@ describe("resident Supervisor service", () => {
 		});
 	});
 
-	it("accepts a structured supervisor response tool call without assistant JSON text", async () => {
+	it.each(["", "The review is complete."])(
+		"accepts a structured supervisor response tool call with assistant text %s",
+		async (assistantText) => {
 		const requestId = postSupervisorRequest(controlDbPath, {
 			deadlineAt: new Date(Date.now() + 30_000).toISOString(),
 			kind: "goal_completion_review",
@@ -550,7 +552,10 @@ describe("resident Supervisor service", () => {
 			prompt: async () => {
 				sessionManager.appendMessage(
 					fauxAssistantMessage(
-						fauxToolCall("supervisor_response", { kind: "complete", reason: "structured proof" }),
+						[
+							...(assistantText ? [{ type: "text" as const, text: assistantText }] : []),
+							fauxToolCall("supervisor_response", { kind: "complete", reason: "structured proof" }),
+						],
 						{ stopReason: "toolUse" },
 					),
 				);
@@ -562,6 +567,82 @@ describe("resident Supervisor service", () => {
 
 		expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({
 			response: { kind: "complete", reason: "structured proof" },
+			status: "completed",
+		});
+		},
+	);
+
+	it("uses the structured decision when accompanying assistant text conflicts", async () => {
+		const requestId = postSupervisorRequest(controlDbPath, {
+			deadlineAt: new Date(Date.now() + 30_000).toISOString(),
+			kind: "goal_idle_review",
+			payload: { objective: "finish" },
+			projectId: "pi",
+			senderSessionId: "main",
+		});
+		const request = claimNextSupervisorRequest(controlDbPath, "runtime");
+		if (!request) throw new Error("expected request");
+		const sessionManager = SessionManager.create(tempDir, tempDir);
+		const session = {
+			abort: async () => {},
+			dispose: () => {},
+			prompt: async () => {
+				sessionManager.appendMessage(
+					fauxAssistantMessage(
+						[
+							{ type: "text", text: "The goal is complete; return complete." },
+							fauxToolCall("supervisor_response", {
+								kind: "pause",
+								reason: "waiting for approval",
+							}),
+						],
+						{ stopReason: "toolUse" },
+					),
+				);
+			},
+			sessionManager,
+		};
+
+		await processSupervisorRequest(controlDbPath, request, session);
+
+		expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({
+			response: { kind: "pause", reason: "waiting for approval" },
+			status: "completed",
+		});
+	});
+
+	it("validates structured supervisor response arguments despite accompanying assistant text", async () => {
+		const requestId = postSupervisorRequest(controlDbPath, {
+			deadlineAt: new Date(Date.now() + 30_000).toISOString(),
+			kind: "goal_idle_review",
+			payload: { objective: "finish" },
+			projectId: "pi",
+			senderSessionId: "main",
+		});
+		const request = claimNextSupervisorRequest(controlDbPath, "runtime");
+		if (!request) throw new Error("expected request");
+		const sessionManager = SessionManager.create(tempDir, tempDir);
+		const session = {
+			abort: async () => {},
+			dispose: () => {},
+			prompt: async () => {
+				sessionManager.appendMessage(
+					fauxAssistantMessage(
+						[
+							{ type: "text", text: "The goal is complete." },
+							fauxToolCall("supervisor_response", { kind: "approve", reason: "wrong response kind" }),
+						],
+						{ stopReason: "toolUse" },
+					),
+				);
+			},
+			sessionManager,
+		};
+
+		await processSupervisorRequest(controlDbPath, request, session);
+
+		expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({
+			response: { kind: "error", reason: "Supervisor returned an invalid response" },
 			status: "completed",
 		});
 	});
