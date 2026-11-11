@@ -1,6 +1,11 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Goal, GoalEvidenceReview, ReviewedGoalResponse } from "./goal-types.ts";
+import type { GoalReviewEvidenceController } from "./goal-review-evidence.ts";
 import { createGoalScheduler } from "./goal-scheduling.ts";
+import { loadOrMigrateActiveGoal, markGoalComplete } from "./goal-state.ts";
+import type { Goal, GoalEvidenceReview, ReviewedGoalResponse } from "./goal-types.ts";
+import { continueMissionWhenIdle, type MissionGoalReviewer } from "./mission.ts";
+import { sendSupervisorInstructions, type SupervisorStatusController } from "./rendering.ts";
+import { appendGoalSchedulingError } from "./wait-status.ts";
 
 interface CompletionWait {
 	goal: Goal;
@@ -123,4 +128,36 @@ export function createCompletionWaitScheduler(options: CompletionSchedulingOptio
 			});
 		},
 	};
+}
+
+/** Builds the completion-wait scheduler for the goal extension: a completed goal hands over to the mission. */
+export function createGoalCompletionScheduler(
+	pi: ExtensionAPI,
+	reviewGoal: GoalEvidenceReview,
+	evidence: GoalReviewEvidenceController,
+	status: SupervisorStatusController,
+	missionReviewer: MissionGoalReviewer,
+): CompletionWaitScheduler {
+	return createCompletionWaitScheduler({
+		pi,
+		reviewGoal,
+		consumeReviewEvidence: evidence.consume,
+		isSameGoal: (ctx, waiting) => {
+			const activeGoal = loadOrMigrateActiveGoal(ctx);
+			return (
+				activeGoal?.createdAt === waiting.goal.createdAt &&
+				activeGoal.objective === waiting.goal.objective &&
+				activeGoal.pausedAt === waiting.goal.pausedAt
+			);
+		},
+		onComplete: (waiting, ctx) => {
+			const goal = markGoalComplete(ctx, waiting.completionReport);
+			if (goal) ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
+			continueMissionWhenIdle(ctx, missionReviewer);
+		},
+		onContinue: sendSupervisorInstructions.bind(undefined, pi),
+		onStatus: status.append,
+		onClearStatus: status.clearSession,
+		onError: appendGoalSchedulingError.bind(undefined, status.append),
+	});
 }

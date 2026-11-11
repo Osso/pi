@@ -9,7 +9,7 @@ import type {
 	ExtensionContext,
 	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
-import { type CompletionWaitScheduler, createCompletionWaitScheduler } from "./completion-scheduling.ts";
+import { type CompletionWaitScheduler, createGoalCompletionScheduler } from "./completion-scheduling.ts";
 import { type EmptyResponseScheduler, createEmptyResponseScheduler } from "./empty-response-scheduling.ts";
 import { type ErrorStatusScheduler, createErrorStatusScheduler } from "./error-status-scheduling.ts";
 import { type ApplyIdleDecision, runScheduledGoalAgentEnd } from "./goal-agent-end-scheduling.ts";
@@ -44,8 +44,9 @@ import type {
 import { type ManageGoalParams, registerManageGoalTool } from "./goal-tool.ts";
 import {
 	continueMission,
+	continueMissionWhenIdle,
 	MISSION_GOAL_COMPLETION_REJECTED,
-	type ReviewMissionGoal,
+	type MissionGoalReviewer,
 	registerMissionCommand,
 	restoreMissionToGoal,
 	updateGoalFooterStatus,
@@ -427,12 +428,12 @@ function handleGoalResumeCommand(
 function handleGoalClearCommand(
 	ctx: ExtensionCommandContext,
 	clearRetry: (sessionId: string) => void,
-	reviewMissionGoal: ReviewMissionGoal,
+	missionReviewer: MissionGoalReviewer,
 ): void {
 	const cleared = clearGoal(ctx);
 	if (cleared) clearGoalRetry(ctx, clearRetry);
 	ctx.ui.notify(cleared ? "Goal cleared" : "No active goal", "info");
-	continueMission(ctx, reviewMissionGoal);
+	continueMissionWhenIdle(ctx, missionReviewer);
 }
 
 function showGoal(ctx: ExtensionCommandContext): void {
@@ -463,7 +464,7 @@ function handleGoalCommand(
 	ctx: ExtensionCommandContext,
 	pi: ExtensionAPI,
 	clearRetry: (sessionId: string) => void,
-	reviewMissionGoal: ReviewMissionGoal,
+	missionReviewer: MissionGoalReviewer,
 ): void {
 	const parsedArgs = parseGoalArgs(args);
 	if ("error" in parsedArgs) return ctx.ui.notify(parsedArgs.error, "error");
@@ -475,7 +476,7 @@ function handleGoalCommand(
 		case "resume":
 			return handleGoalResumeCommand(ctx, pi, clearRetry);
 		case "clear":
-			return handleGoalClearCommand(ctx, clearRetry, reviewMissionGoal);
+			return handleGoalClearCommand(ctx, clearRetry, missionReviewer);
 		case "set":
 			return setGoalFromCommand(parsedArgs.objective, ctx, pi, clearRetry);
 	}
@@ -495,37 +496,6 @@ function injectGoalContext(
 	return { systemPrompt: `${event.systemPrompt}\n\n${goalSystemBlock(goal)}` };
 }
 
-function createCompletionScheduler(
-	pi: ExtensionAPI,
-	reviewGoal: GoalEvidenceReview,
-	evidence: GoalReviewEvidenceController,
-	status: SupervisorStatusController,
-	reviewMissionGoal: ReviewMissionGoal,
-) {
-	return createCompletionWaitScheduler({
-		pi,
-		reviewGoal,
-		consumeReviewEvidence: evidence.consume,
-		isSameGoal: (ctx, waiting) => {
-			const activeGoal = loadOrMigrateActiveGoal(ctx);
-			return (
-				activeGoal?.createdAt === waiting.goal.createdAt &&
-				activeGoal.objective === waiting.goal.objective &&
-				activeGoal.pausedAt === waiting.goal.pausedAt
-			);
-		},
-		onComplete: (waiting, ctx) => {
-			const goal = markGoalComplete(ctx, waiting.completionReport);
-			if (goal) ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
-			continueMission(ctx, reviewMissionGoal);
-		},
-		onContinue: sendSupervisorInstructions.bind(undefined, pi),
-		onStatus: status.append,
-		onClearStatus: status.clearSession,
-		onError: appendGoalSchedulingError.bind(undefined, status.append),
-	});
-}
-
 type IdleGoalScheduler = GoalScheduler<Goal, ReviewedGoalResponse>;
 interface GoalExtensionRuntime {
 	emptyResponseScheduler: EmptyResponseScheduler<Goal>;
@@ -534,7 +504,6 @@ interface GoalExtensionRuntime {
 	completionScheduler: CompletionWaitScheduler;
 	status: SupervisorStatusController;
 	applyDecision: ApplyIdleDecision;
-	reviewIdleMissionGoal: ReviewMissionGoal;
 	clearGoalSchedules: (sessionId: string) => void;
 	clearAllGoalSchedules: () => void;
 }
@@ -569,9 +538,7 @@ function createIdleGoalScheduler(
 			appendReviewStatus,
 		);
 		// This review ended the run, so no agent_end follows for a mission copied over the completed goal.
-		if (reviewed.decision.kind === "complete") {
-			continueMission(ctx, (missionGoal) => scheduler.deferReview(missionGoal, ctx, []));
-		}
+		if (reviewed.decision.kind === "complete") continueMission(ctx, scheduler);
 		if (reviewed.decision.kind !== "error") evidence.consume(ctx, goal, reviewed.evidenceCount);
 	};
 	scheduler = createIdleReviewScheduler(pi, reviewGoal, status.append, applyDecision);
@@ -606,11 +573,7 @@ function createGoalExtensionRuntime(
 	const { scheduler, applyDecision } = createIdleGoalScheduler(pi, reviewGoal, evidence, status, (sessionId) =>
 		clearGoalSchedules(sessionId),
 	);
-	// A mission goal copied during a run is reviewed at that run's agent_end; one copied while idle needs its own review.
-	const reviewIdleMissionGoal: ReviewMissionGoal = (goal, ctx) => {
-		if (ctx.isIdle()) scheduler.deferReview(goal, ctx, []);
-	};
-	const completionScheduler = createCompletionScheduler(pi, reviewGoal, evidence, status, reviewIdleMissionGoal);
+	const completionScheduler = createGoalCompletionScheduler(pi, reviewGoal, evidence, status, scheduler);
 	clearGoalSchedules = (sessionId: string): void => {
 		emptyResponseScheduler.clearSession(sessionId);
 		errorStatusScheduler.clearSession(sessionId);
@@ -632,7 +595,6 @@ function createGoalExtensionRuntime(
 		completionScheduler,
 		status,
 		applyDecision,
-		reviewIdleMissionGoal,
 		clearGoalSchedules,
 		clearAllGoalSchedules,
 	};
@@ -734,7 +696,7 @@ function registerGoalCommand(pi: ExtensionAPI, runtime: GoalExtensionRuntime): v
 		description:
 			"Set, view, pause, resume, or clear the objective for a long-running task (/goal set <objective> | /goal | /goal pause | /goal resume | /goal clear)",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
-			handleGoalCommand(args, ctx, pi, runtime.clearGoalSchedules, runtime.reviewIdleMissionGoal);
+			handleGoalCommand(args, ctx, pi, runtime.clearGoalSchedules, runtime.scheduler);
 		},
 	});
 }
@@ -757,5 +719,5 @@ export default function goalExtension(pi: ExtensionAPI, options: GoalExtensionOp
 	registerSessionGoalHandlers(pi, evidence, runtime);
 	registerAgentGoalHandlers(pi, evidence.review, runtime);
 	registerGoalCommand(pi, runtime);
-	registerMissionCommand(pi, runtime.clearGoalSchedules, runtime.reviewIdleMissionGoal);
+	registerMissionCommand(pi, runtime.clearGoalSchedules, runtime.scheduler);
 }
