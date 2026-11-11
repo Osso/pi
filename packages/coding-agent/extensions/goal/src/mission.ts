@@ -10,6 +10,7 @@ import {
 	saveGoal,
 	USER_PAUSE_REASON,
 } from "./goal-state.ts";
+import { readSessionHistoryReverse } from "../../../src/core/session-history.ts";
 import type { Goal } from "./goal-types.ts";
 
 const MISSION_ENTRY_TYPE = "mission";
@@ -25,6 +26,15 @@ interface Mission {
 
 type GoalContext = Pick<ExtensionContext, "cwd" | "sessionManager">;
 
+interface SessionMissionState {
+	sessionId: string;
+	hydrated: boolean;
+	version: number;
+	mission: Mission | null;
+}
+
+const missionStateByManager = new WeakMap<GoalContext["sessionManager"], SessionMissionState>();
+
 function parseMission(data: unknown): Mission | null {
 	if (!isRecord(data)) return null;
 	const objective = optionalString(data.objective)?.trim();
@@ -32,13 +42,45 @@ function parseMission(data: unknown): Mission | null {
 }
 
 /** The newest mission entry wins; an entry without an objective records a cleared mission. */
-function loadMission(ctx: Pick<ExtensionContext, "sessionManager">): Mission | null {
-	const entries = ctx.sessionManager.getEntries();
-	for (let index = entries.length - 1; index >= 0; index--) {
-		const entry = entries[index];
-		if (entry?.type === "custom" && entry.customType === MISSION_ENTRY_TYPE) return parseMission(entry.data);
+function loadMission(ctx: GoalContext): Mission | null {
+	const state = missionState(ctx);
+	return state.hydrated ? state.mission : null;
+}
+
+function missionState(ctx: GoalContext): SessionMissionState {
+	const sessionManager = ctx.sessionManager;
+	const sessionId = sessionManager.getSessionId();
+	let state = missionStateByManager.get(sessionManager);
+	if (!state || state.sessionId !== sessionId) {
+		state = { sessionId, hydrated: false, version: 0, mission: null };
+		missionStateByManager.set(sessionManager, state);
 	}
-	return null;
+	return state;
+}
+
+export async function hydrateMission(ctx: GoalContext): Promise<void> {
+	const state = missionState(ctx);
+	if (state.hydrated) return;
+	const version = state.version;
+	let mission: Mission | null = null;
+	for await (const entry of readSessionHistoryReverse(ctx.sessionManager)) {
+		if (entry.type === "custom" && entry.customType === MISSION_ENTRY_TYPE) {
+			mission = parseMission(entry.data);
+			break;
+		}
+	}
+	if (state.version === version) {
+		state.mission = mission;
+		state.hydrated = true;
+	}
+}
+
+function appendMission(mission: Mission | null, ctx: GoalContext, pi: ExtensionAPI): void {
+	const state = missionState(ctx);
+	pi.appendEntry(MISSION_ENTRY_TYPE, mission ?? {});
+	state.version++;
+	state.mission = mission;
+	state.hydrated = true;
 }
 
 export function updateGoalFooterStatus(ctx: ExtensionContext): void {
@@ -75,27 +117,27 @@ export function continueMission(ctx: ExtensionContext, pi: ExtensionAPI): void {
 }
 
 function setMission(objective: string, ctx: ExtensionCommandContext, pi: ExtensionAPI): void {
-	pi.appendEntry(MISSION_ENTRY_TYPE, { objective });
+	appendMission({ objective }, ctx, pi);
 	if (loadOrMigrateActiveGoal(ctx)?.mission) clearGoal(ctx);
 	ctx.ui.notify(`Mission set: ${objective}`, "info");
 	continueMission(ctx, pi);
 }
 
 function pauseMission(mission: Mission, ctx: ExtensionCommandContext, pi: ExtensionAPI): void {
-	pi.appendEntry(MISSION_ENTRY_TYPE, { objective: mission.objective, pausedAt: new Date().toISOString() });
+	appendMission({ objective: mission.objective, pausedAt: new Date().toISOString() }, ctx, pi);
 	if (loadOrMigrateActiveGoal(ctx)?.mission) pauseGoal(ctx, MISSION_PAUSE_REASON);
 	ctx.ui.notify(`Mission paused: ${mission.objective}`, "info");
 	updateGoalFooterStatus(ctx);
 }
 
 function resumeMission(mission: Mission, ctx: ExtensionCommandContext, pi: ExtensionAPI): void {
-	pi.appendEntry(MISSION_ENTRY_TYPE, { objective: mission.objective });
+	appendMission({ objective: mission.objective }, ctx, pi);
 	ctx.ui.notify(`Mission resumed: ${mission.objective}`, "info");
 	continueMission(ctx, pi);
 }
 
 function clearMission(ctx: ExtensionCommandContext, pi: ExtensionAPI): void {
-	pi.appendEntry(MISSION_ENTRY_TYPE, {});
+	appendMission(null, ctx, pi);
 	if (loadOrMigrateActiveGoal(ctx)?.mission) clearGoal(ctx);
 	ctx.ui.notify("Mission cleared", "info");
 	updateGoalFooterStatus(ctx);

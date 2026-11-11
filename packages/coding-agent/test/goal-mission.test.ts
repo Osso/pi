@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { getModel } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it, vi } from "vitest";
 import type { ManageGoalParams } from "../extensions/goal/src/goal-tool.ts";
@@ -14,6 +17,7 @@ import type {
 	SessionStartEvent,
 	ToolDefinition,
 } from "../src/core/extensions/types.ts";
+import { SessionManager } from "../src/core/session-manager.ts";
 
 const model = getModel("anthropic", "claude-sonnet-4-5");
 if (!model) throw new Error("Test model not found");
@@ -26,6 +30,7 @@ type Handler = ExtensionHandler<never, unknown>;
 interface SessionStore {
 	entries: { type: "custom"; customType: string; data: unknown }[];
 	goalJson?: string;
+	sessionManager?: SessionManager;
 }
 
 function assistantTurn(text: string): AgentEndEvent["messages"] {
@@ -66,7 +71,10 @@ function createMissionHarness(store: SessionStore = { entries: [] }, reviewGoal 
 	const notify = vi.fn();
 	const requestResumeContinuation = vi.fn();
 	const pi = {
-		appendEntry: (customType: string, data?: unknown) => store.entries.push({ type: "custom", customType, data }),
+		appendEntry: (customType: string, data?: unknown) => {
+			if (store.sessionManager) store.sessionManager.appendCustomEntry(customType, data);
+			else store.entries.push({ type: "custom", customType, data });
+		},
 		on: (event: string, handler: Handler) => handlers.set(event, handler),
 		registerCommand: (name: string, command: Command) => commands.set(name, command),
 		registerEntryRenderer: () => {},
@@ -84,7 +92,7 @@ function createMissionHarness(store: SessionStore = { entries: [] }, reviewGoal 
 	const ctx = {
 		cwd: process.cwd(),
 		ui: { notify, requestRender: () => {}, setStatus },
-		sessionManager: {
+		sessionManager: store.sessionManager ?? {
 			getEntries: () => store.entries,
 			getSessionId: () => "mission-session",
 			getSessionGoalJson: () => store.goalJson,
@@ -110,7 +118,10 @@ function createMissionHarness(store: SessionStore = { entries: [] }, reviewGoal 
 		sendMessage,
 		setStatus,
 		requestResumeContinuation,
-		goal: (): Goal | undefined => (store.goalJson ? (JSON.parse(store.goalJson) as Goal) : undefined),
+		goal: (): Goal | undefined => {
+			const goalJson = store.sessionManager?.getSessionGoalJson() ?? store.goalJson;
+			return goalJson ? (JSON.parse(goalJson) as Goal) : undefined;
+		},
 		command: async (name: string, args: string) => commands.get(name)?.handler(args, ctx),
 		manageGoal: async (params: ManageGoalParams) =>
 			manageGoalTool?.execute("manage-goal", params, undefined, undefined, ctx as ExtensionContext),
@@ -236,15 +247,70 @@ describe("goal extension mission", () => {
 		expect(harness.goal()).toBeUndefined();
 	});
 
-	it("restores a persisted mission into a goal on session start", async () => {
-		const store: SessionStore = { entries: [] };
-		await createMissionHarness(store).command("mission", "set maintain the compiler");
-		store.goalJson = undefined;
+	it.each([
+		{ action: "set", expectedStatus: "mission: maintain the compiler" },
+		{ action: "pause", expectedStatus: "mission paused: maintain the compiler" },
+		{ action: "clear", expectedStatus: undefined },
+	])("restores the latest $action mission state after compaction and reopen", async ({ action, expectedStatus }) => {
+		const sessionDir = mkdtempSync(join(tmpdir(), "pi-mission-restore-"));
+		try {
+			const original = SessionManager.create(process.cwd(), sessionDir);
+			original.appendMessage(assistantTurn("start")[0]!);
+			const initialHarness = createMissionHarness({ entries: [], sessionManager: original });
+			await initialHarness.command("mission", "set maintain the compiler");
+			if (action === "pause") await initialHarness.command("mission", "pause");
+			if (action === "clear") await initialHarness.command("mission", "clear");
+			const keptEntryId = original.appendMessage({ role: "user", content: "kept after compaction", timestamp: 2 });
+			original.appendCompaction("Older context summarized", keptEntryId, 100);
+			original.persistForRecovery();
 
-		const restarted = createMissionHarness(store);
-		await restarted.sessionStart();
+			const reopened = SessionManager.open(original.getSessionFile()!);
+			expect(reopened.getEntries().some((entry) => entry.type === "custom" && entry.customType === "mission")).toBe(
+				false,
+			);
+			const restarted = createMissionHarness({ entries: [], sessionManager: reopened });
+			await restarted.sessionStart();
 
-		expect(restarted.goal()).toMatchObject({ objective: "maintain the compiler", mission: true });
-		expect(restarted.requestResumeContinuation).toHaveBeenCalledOnce();
+			if (action === "pause" || action === "clear") expect(restarted.goal()).toBeUndefined();
+			else expect(restarted.goal()).toMatchObject({ objective: "maintain the compiler", mission: true });
+			expect(restarted.setStatus).toHaveBeenCalledWith("mission", expectedStatus);
+			if (action === "pause") {
+				await restarted.command("mission", "resume");
+				expect(restarted.goal()).toMatchObject({ objective: "maintain the compiler", mission: true });
+			}
+		} finally {
+			rmSync(sessionDir, { recursive: true, force: true });
+		}
+	});
+
+	it("restores a compacted mission without replacing a running working goal", async () => {
+		const sessionDir = mkdtempSync(join(tmpdir(), "pi-mission-working-goal-"));
+		try {
+			const original = SessionManager.create(process.cwd(), sessionDir);
+			original.appendMessage(assistantTurn("start")[0]!);
+			await createMissionHarness({ entries: [], sessionManager: original }).command(
+				"mission",
+				"set maintain the compiler",
+			);
+			const keptEntryId = original.appendMessage({ role: "user", content: "kept after compaction", timestamp: 2 });
+			original.appendCompaction("Older context summarized", keptEntryId, 100);
+			original.persistForRecovery();
+
+			const reopened = SessionManager.open(original.getSessionFile()!);
+			const workingGoal: Goal = {
+				objective: "ship the parser",
+				branch: "master",
+				createdAt: new Date().toISOString(),
+				continuationTurns: 0,
+			};
+			reopened.setSessionGoalJson(JSON.stringify(workingGoal));
+			const restarted = createMissionHarness({ entries: [], sessionManager: reopened });
+			await restarted.sessionStart();
+
+			expect(restarted.goal()).toEqual(workingGoal);
+			expect(restarted.setStatus).toHaveBeenCalledWith("mission", "mission: maintain the compiler");
+		} finally {
+			rmSync(sessionDir, { recursive: true, force: true });
+		}
 	});
 });
