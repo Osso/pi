@@ -25,6 +25,13 @@ async function finishMainTurn(pi: HeadlessPi, requestId: string, reason: string)
 
 it("restores the compacted mission without replacing a working goal while a child survives process restart", async () => {
 	await withHeadlessPi(async (pi) => {
+		await pi.send({ type: "prompt", message: "Initialize the persisted session before restart" });
+		const initial = await pi.waitForLlmRequest((request) => request.sessionId === pi.sessionId);
+		pi.respondToLlmRequest(
+			initial.id,
+			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Session initialized" }), { stopReason: "toolUse" }),
+		);
+		await pi.waitForEvent((event) => event.type === "agent_end");
 		const settingsPath = join(pi.paths.agentDir, "settings.json");
 		const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
 		writeFileSync(
