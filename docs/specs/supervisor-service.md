@@ -207,6 +207,7 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 - `packages/coding-agent/test/suite/supervisor-autostart-runtime.test.ts` — real-process detached startup and concurrent reuse.
 - `packages/coding-agent/test/suite/regressions/supervisor-sigterm-after-request.test.ts` — real-process SIGTERM exit after a Codex WebSocket request leaves a cached connection open.
 - `packages/coding-agent/test/supervisor-service.test.ts` — advisory response contract, validation, and claimed-request evaluation cancellation.
+- `packages/coding-agent/test/supervisor-structured-response.test.ts` — structured response decisions with accompanying assistant text, conflicting text, and invalid response kinds.
 - `packages/coding-agent/test/supervisor-instruction-veto.test.ts` — stateless veto classification, closed output, fail-closed replacement, hidden feedback, compaction preservation, and approval preemption during veto evaluation.
 - `packages/coding-agent/test/interactive-mode-status.test.ts` — editor and global-input Escape routing while Supervisor review is active.
 - `packages/coding-agent/test/supervisor-approval-reviewer.test.ts`
