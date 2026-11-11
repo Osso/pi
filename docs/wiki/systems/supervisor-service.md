@@ -26,7 +26,7 @@ Callers poll only their durable request row, using a 300ms interval by default f
 
 Caller cancellation atomically moves its pending or claimed row to terminal `cancelled`, stores a typed cancellation response, clears claim authority, and wakes the resident. The client stops polling and retry delays. A resident evaluating the claimed request observes the row, aborts the model turn, and cannot overwrite cancellation with a late response. Interactive Escape invokes this path through a global input listener, so cancellation still works after `agent_end` while the caller is idle; the waiting status never takes focus.
 
-The model is instructed to call `supervisor_response` without accompanying text. Extraction uses only structured arguments from the current request and validates the decision; accompanying assistant text is ignored, not treated as a validation failure. Prior responses are never reused.
+The model is instructed to call `supervisor_response` without accompanying text. When a structured response is present, extraction validates its current-request arguments and ignores accompanying assistant text rather than treating it as a validation failure. Prior responses are never reused.
 
 ## Resident console
 
