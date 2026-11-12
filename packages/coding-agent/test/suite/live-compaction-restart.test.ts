@@ -114,7 +114,13 @@ export default function (pi) {
 		await runtime.waitForEvent((event) => event.type === "agent_end");
 		runtime.respondToLlmRequest(
 			restoredChild.id,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "assignment complete" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage(
+				[
+					{ type: "text", text: "assignment complete" },
+					fauxToolCall("end_turn", { reason: "assignment complete" }),
+				],
+				{ stopReason: "toolUse" },
+			),
 		);
 		await runtime.waitForAgent((agent) => agent.id === child.id && agent.lifecycle === "completed");
 	});

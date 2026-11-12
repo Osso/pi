@@ -30,9 +30,13 @@ async function requestRuntimeIdentity(
 function respondWithEndTurn(agent: HeadlessPi, request: HeadlessLlmRequest): void {
 	agent.respondToLlmRequest(
 		request.id,
-		fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Runtime identity verified" }), {
-			stopReason: "toolUse",
-		}),
+		fauxAssistantMessage(
+			[
+				{ type: "text", text: "Runtime identity verified" },
+				fauxToolCall("end_turn", { reason: "Runtime identity verified" }),
+			],
+			{ stopReason: "toolUse" },
+		),
 	);
 }
 

@@ -53,14 +53,23 @@ it("stops a completed production child's loop before disposing its extension con
 		).toBe(true);
 		agent.respondToLlmRequest(
 			afterStart.id,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Child check complete" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage(
+				[
+					{ type: "text", text: "Child check complete" },
+					fauxToolCall("end_turn", { reason: "Child check complete" }),
+				],
+				{ stopReason: "toolUse" },
+			),
 		);
 		await agent.waitForAgent((candidate) => candidate.id === child.id && candidate.lifecycle === "completed");
 		await delay(1_200);
 		expect(await agent.send({ type: "get_state" })).toMatchObject({ success: true, command: "get_state" });
 		agent.respondToLlmRequest(
 			siblingRequest.id,
-			fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Sibling unaffected" }), { stopReason: "toolUse" }),
+			fauxAssistantMessage(
+				[{ type: "text", text: "Sibling unaffected" }, fauxToolCall("end_turn", { reason: "Sibling unaffected" })],
+				{ stopReason: "toolUse" },
+			),
 		);
 		await agent.waitForAgent((candidate) => candidate.id === sibling.id && candidate.lifecycle === "completed");
 		expect(

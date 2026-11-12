@@ -6,7 +6,9 @@ import { getMessageText } from "../harness.ts";
 import { requireHeadlessAgentSessionId, withHeadlessPi } from "../headless-pi.ts";
 
 function endTurn(reason: string) {
-	return fauxAssistantMessage(fauxToolCall("end_turn", { reason }), { stopReason: "toolUse" });
+	return fauxAssistantMessage([{ type: "text", text: reason }, fauxToolCall("end_turn", { reason })], {
+		stopReason: "toolUse",
+	});
 }
 
 it.each(["main", "supervisor"])(
