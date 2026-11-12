@@ -42,6 +42,8 @@ function createSessionManagerFixture(options: FastHarnessOptions) {
 		getBranch: () => options.branch ?? [],
 		getCwd: () => "/tmp/pi-codex-fast-footer-test",
 		getEntries: () => [],
+		getEntry: () => undefined,
+		getLeafId: () => null,
 		getSessionName: () => "",
 		isSubagentSession: () => options.historicalSubagent === true,
 	};

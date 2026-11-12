@@ -186,7 +186,7 @@ describe("orphaned detached runtime reconciliation", () => {
 			{
 				eval: true,
 				execArgv: ["--experimental-strip-types"],
-				workerData: { controlDbPath, holdMs: 5_500 },
+				workerData: { controlDbPath, holdMs: 11_000 },
 			},
 		);
 		try {
@@ -200,7 +200,7 @@ describe("orphaned detached runtime reconciliation", () => {
 			releaseRetainedConnection();
 			await worker.terminate();
 		}
-	}, 15_000);
+	}, 20_000);
 
 	it("scans live detached runners without acquiring the writer lock", async () => {
 		createRunningDetachedJob(controlDbPath);

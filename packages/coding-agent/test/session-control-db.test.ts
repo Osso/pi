@@ -5666,7 +5666,7 @@ Date.now = () => ${Date.now()};
 		try {
 			configureReadOnlySqliteDatabase(reader);
 			const row = reader.prepare("PRAGMA busy_timeout").get() as { timeout?: number };
-			expect(Object.values(row)[0]).toBe(5000);
+			expect(Object.values(row)[0]).toBe(10000);
 		} finally {
 			reader.close();
 		}
@@ -5685,7 +5685,7 @@ Date.now = () => ${Date.now()};
 			configureSharedSqliteDatabase(db);
 			const busy = db.prepare("PRAGMA busy_timeout").get() as Record<string, unknown> | number;
 			const busyTimeout = typeof busy === "number" ? busy : Number(Object.values(busy)[0] ?? Number.NaN);
-			expect(busyTimeout).toBe(5000);
+			expect(busyTimeout).toBe(10000);
 
 			const synchronous = db.prepare("PRAGMA synchronous").get() as Record<string, unknown> | number | string;
 			const synchronousValue =

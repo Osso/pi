@@ -680,6 +680,7 @@ describe("multi-agent extension tools", () => {
 			"close_agent",
 			"contact_parent",
 			"list_agents",
+			"rename_agent",
 			"send_agent_message",
 			"set_agent_model",
 			"spawn_agent",
@@ -891,13 +892,13 @@ describe("multi-agent extension tools", () => {
 			]);
 			expect(cancelled.content).toEqual([
 				{
-					text: `Could not cancel ${attached.details.agent.id}: runtime ownership unavailable`,
+					text: "Cancelled Saved Work.",
 					type: "text",
 				},
 			]);
 			expect(cancelled.details.agent).toMatchObject({
 				id: attached.details.agent.id,
-				lifecycle: agentBeforeCancel.lifecycle,
+				lifecycle: "aborted",
 			});
 		} finally {
 			rmSync(tempDir, { force: true, recursive: true });
@@ -2150,6 +2151,7 @@ describe("multi-agent extension tools", () => {
 			"attach_session_agent",
 			"close_agent",
 			"list_agents",
+			"rename_agent",
 			"set_agent_model",
 			"spawn_agent",
 			"steer_agent",
@@ -4567,6 +4569,7 @@ describe("multi-agent extension tools", () => {
 				"attach_session_agent",
 				"close_agent",
 				"set_agent_model",
+				"rename_agent",
 				"spawn_agent",
 				"steer_agent",
 				"wait_agent",
@@ -4829,6 +4832,7 @@ describe("multi-agent extension tools", () => {
 				"attach_session_agent",
 				"close_agent",
 				"set_agent_model",
+				"rename_agent",
 				"spawn_agent",
 				"steer_agent",
 				"wait_agent",
@@ -5440,6 +5444,7 @@ describe("multi-agent extension tools", () => {
 				"attach_session_agent",
 				"close_agent",
 				"set_agent_model",
+				"rename_agent",
 				"spawn_agent",
 				"steer_agent",
 				"wait_agent",

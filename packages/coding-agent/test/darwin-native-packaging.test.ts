@@ -66,9 +66,9 @@ function writeReleaseFixtureFiles(fixture: string, platform: string) {
 	const script = join(fixture, "scripts/build-binaries.sh");
 	write(script, readFileSync(join(repo, "scripts/build-binaries.sh"), "utf8"));
 	chmodSync(script, 0o755);
+	write(join(fixture, "scripts/claude-runtime.mjs"), readFileSync(join(repo, "scripts/claude-runtime.mjs"), "utf8"));
 	write(join(packageDir, "native/darwin/build.mjs"), readFileSync(join(native, "build.mjs"), "utf8"));
 	for (const path of [
-		"package.json",
 		"README.md",
 		"CHANGELOG.md",
 		"extensions/bwrap/src/fs-worker.cjs",
@@ -80,9 +80,23 @@ function writeReleaseFixtureFiles(fixture: string, platform: string) {
 	]) {
 		write(join(packageDir, path), "fixture");
 	}
+	write(join(packageDir, "package.json"), "{}");
 	write(join(fixture, "node_modules/@silvia-odwyer/photon-node/photon_rs_bg.wasm"), "wasm");
 	write(join(fixture, "node_modules/@mariozechner/clipboard/index.js"), "clipboard");
 	write(join(fixture, `node_modules/@mariozechner/clipboard-${platform}/index.js`), "clipboard-native");
+	write(
+		join(fixture, "node_modules/@anthropic-ai/claude-agent-sdk/package.json"),
+		JSON.stringify({ name: "@anthropic-ai/claude-agent-sdk", version: "0.0.0-fixture", main: "index.js" }),
+	);
+	write(join(fixture, "node_modules/@anthropic-ai/claude-agent-sdk/index.js"), "");
+	write(join(fixture, "node_modules/@anthropic-ai/claude-agent-sdk/LICENSE.md"), "sdk-license");
+	const nativeSdkPkg = `@anthropic-ai/claude-agent-sdk-${platform.replace("windows-", "win32-")}`;
+	write(
+		join(fixture, "node_modules", nativeSdkPkg, "package.json"),
+		JSON.stringify({ name: nativeSdkPkg, version: "0.0.0-fixture" }),
+	);
+	write(join(fixture, "node_modules", nativeSdkPkg, "claude"), "claude-binary");
+	write(join(fixture, "node_modules", nativeSdkPkg, "LICENSE.md"), "native-license");
 	write(join(fixture, `packages/tui/native/darwin/prebuilds/${platform}/darwin-modifiers.node`), "terminal-addon");
 	return { packageDir, script };
 }
