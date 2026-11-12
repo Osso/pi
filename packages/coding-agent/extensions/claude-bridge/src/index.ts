@@ -1920,7 +1920,7 @@ function processStreamEvent(
 				partial: c.turnOutput,
 			});
 		} else if (event.delta?.type === "input_json_delta" && block.type === "toolCall") {
-			block.partialJson += event.delta.partial_json;
+			block.partialJson = (block.partialJson ?? "") + event.delta.partial_json;
 			block.arguments = parsePartialJson(block.partialJson, block.arguments);
 			c.currentPiStream!.push({
 				type: "toolcall_delta",
@@ -1952,7 +1952,7 @@ function processStreamEvent(
 			});
 		} else if (block.type === "toolCall") {
 			c.turnSawToolCall = true;
-			block.arguments = mapToolArgs(block.name, parsePartialJson(block.partialJson, block.arguments));
+			block.arguments = mapToolArgs(block.name, parsePartialJson(block.partialJson ?? "", block.arguments));
 			delete block.partialJson;
 			c.currentPiStream!.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: c.turnOutput });
 		}

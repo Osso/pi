@@ -7,7 +7,7 @@
 // Extracted from index.ts so tests can import without activating the extension.
 
 import type { SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
-import type { AssistantMessage, AssistantMessageEventStream, Model } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, AssistantMessageEventStream, Model } from "@earendil-works/pi-ai";
 import {
 	type AccountObservation,
 	type AccountState,
@@ -140,6 +140,11 @@ export interface PendingToolCall {
 	resolve: (result: McpResult) => void;
 }
 
+export type StreamTurnBlock = AssistantMessage["content"][number] & {
+	index?: number;
+	partialJson?: string;
+};
+
 export class QueryContext {
 	// Query-scoped (fully isolated per query)
 	activeQuery: unknown | null = null;
@@ -202,9 +207,9 @@ export class QueryContext {
 	/** turnBlocks length at that message_start: where an abandoned attempt's blocks begin. */
 	turnStreamBlockStart = 0;
 
-	get turnBlocks(): Array<any> {
+	get turnBlocks(): StreamTurnBlock[] {
 		if (!this.turnOutput) throw new Error("turnBlocks accessed before resetTurnState");
-		return this.turnOutput.content;
+		return this.turnOutput.content as StreamTurnBlock[];
 	}
 
 	/** Answer every parked MCP handler with `reason` and forget the turn's queued
@@ -219,7 +224,7 @@ export class QueryContext {
 		this.pendingResults.clear();
 	}
 
-	resetTurnState(model: Model<any>): void {
+	resetTurnState(model: Model<Api>): void {
 		this.shapeTrace?.recordPi("turn_reset", this.turnOutput, this.turnStreamMessageId);
 		this.turnOutput = {
 			role: "assistant",

@@ -59,9 +59,14 @@ export function formatToolAction(tc: ToolCallState, cwd: string): string | undef
 		const name = typeof input?.skill === "string" ? input.skill.slice(0, 40) : "";
 		return name ? `Skill(${name})` : "Skill";
 	} else if (verb === "todowrite" || verb === "taskcreate" || verb === "taskupdate") {
-		const todos = Array.isArray((tc.rawInput as any)?.todos) ? (tc.rawInput as any).todos : [];
-		const current =
-			todos.find((t: any) => t.status === "in_progress") ?? todos.find((t: any) => t.status === "pending");
+		const rawTodos =
+			tc.rawInput && typeof tc.rawInput === "object" ? (tc.rawInput as { todos?: unknown }).todos : undefined;
+		const todos = Array.isArray(rawTodos)
+			? rawTodos.filter((item): item is { status?: unknown; content?: unknown } =>
+					Boolean(item && typeof item === "object"),
+				)
+			: [];
+		const current = todos.find((t) => t.status === "in_progress") ?? todos.find((t) => t.status === "pending");
 		const label = current ? String(current.content ?? "").slice(0, 40) : "";
 		return label || undefined;
 	} else if (verb === "askclaude") {

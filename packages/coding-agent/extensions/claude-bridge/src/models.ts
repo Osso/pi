@@ -23,7 +23,7 @@ const HIDDEN_MODELS = new Set(["claude-haiku-4-5"]);
 const FAMILY_ORDER = ["fable", "opus", "sonnet", "haiku"];
 
 // Releases not yet included in pi-ai's catalog. Upstream metadata wins by id.
-const CATALOG_ADDITIONS = [
+const CATALOG_ADDITIONS: BridgeCatalogModelInput[] = [
 	{
 		id: "claude-fable-5-2",
 		name: "Claude Fable 5.2",
@@ -45,7 +45,17 @@ function versionRank(id: string): { family: string; tuple: [number, number] } {
 	return { family, tuple: [Number(major) || 0, Number(minor) || 0] };
 }
 
-export function buildModels<T extends { id: string; [key: string]: any }>(piAiModels: T[]) {
+export interface BridgeCatalogModelInput {
+	id: string;
+	name: string;
+	reasoning: boolean;
+	input: ("text" | "image")[];
+	contextWindow: number;
+	maxTokens: number;
+	thinkingLevelMap?: Record<string, string | null | undefined>;
+}
+
+export function buildModels<T extends BridgeCatalogModelInput>(piAiModels: T[]) {
 	const catalog = new Map([...CATALOG_ADDITIONS, ...piAiModels].map((model) => [model.id, model]));
 	return (
 		[...catalog.values()]
