@@ -45,7 +45,7 @@ Pi sends the unambiguous reminder for goal-start actions:
 Continue working toward the active goal.
 ```
 
-`extensions/goal/src/goal-work.ts` is the only code that sends this reminder as a raw user message. Supervisor `continue` decisions are separate: they deliver their own wrapped `supervisor` instruction (which can be this exact text after a veto fallback) as before. `GoalWorkStarter.start` sends it as a follow-up only when no run is active and no reminder is outstanding. A run is active while the session is not idle, except inside the goal `agent_end` handler: that run is over, but listeners run before the session becomes idle, so a Supervisor decision applied there can still start the next run. The `agent_start` event clears the outstanding reminder, and `session_shutdown` clears all state. During a run it sends nothing, because the run's own `agent_end` review continues the current goal. Pending queued input also suppresses it, because that input starts a run whose review continues the goal. So at most one reminder is outstanding, however many goal or mission actions happen in a run or before the next run starts. `/goal set`, `/goal resume`, `manage_goal set` and `resume`, the empty-response retry, mission copies, and a Supervisor `complete` decision on a mission goal all call `start`. The interactive pending-follow-up preview renders this exact raw goal reminder as `Follow-up from goal: Continue working toward the active goal.` These reminders never restate the objective or `/goal set` syntax.
+`extensions/goal/src/goal-work.ts` is the only code that sends this reminder as a raw user message. Supervisor `continue` decisions are separate: an idle review or a completion-wait re-review delivers its own wrapped `supervisor` instruction (which can be this exact text after a veto fallback) as one follow-up, and a completion review returns it in the `manage_goal` result. `GoalWorkStarter.start` sends it as a follow-up only when no run is active and no reminder is outstanding. A run is active while the session is not idle, except inside the goal `agent_end` handler: that run is over, but listeners run before the session becomes idle, so a Supervisor decision applied there can still start the next run. The `agent_start` event clears the outstanding reminder, and `session_shutdown` clears all state. During a run it sends nothing, because the run's own `agent_end` review continues the current goal. Pending queued input also suppresses it, because that input starts a run whose review continues the goal. So at most one reminder is outstanding, however many goal or mission actions happen in a run or before the next run starts. `/goal set`, `/goal resume`, `manage_goal set` and `resume`, the empty-response retry, mission copies, and a Supervisor `complete` decision on a mission goal all call `start`. The interactive pending-follow-up preview renders this exact raw goal reminder as `Follow-up from goal: Continue working toward the active goal.` These reminders never restate the objective or `/goal set` syntax.
 
 `/goal` with no arguments displays the current objective or a no-goal notice.
 
@@ -179,9 +179,12 @@ persistent transcript. Missing or blank reports fail locally without creating a
 Supervisor request. Pi appends `Waiting for Supervisor…` while the review is in
 flight and passes the report verbatim; wait/re-review preserves the same report and
 conversation evidence. `complete` writes `completedAt` and that report as
-`completionReason`; `continue` keeps the goal active and submits the generic
-active-goal reminder unless an evidence-backed exception requires a specific
-corrective instruction; `wait` appends durable status and schedules agent wake or fifty-five-minute
+`completionReason`; `continue` keeps the goal active and returns the generic
+active-goal reminder, or a specific corrective instruction when an evidence-backed
+exception requires one, in the `manage_goal` result wrapped in
+`<supervisor-instruction>` tags. The review runs inside the agent's tool call, so the
+run reads the instruction at once and nothing is queued; repeated completion attempts
+in one run add no follow-ups, and the run's `agent_end` review still follows; `wait` appends durable status and schedules agent wake or fifty-five-minute
 re-review, including when progress depends on an external condition that can be
 rechecked; `pause` is reserved for required user action or input that cannot advance
 automatically, leaves the goal active without another continuation, and appends

@@ -201,7 +201,7 @@ describe("headless Supervisor goal system", () => {
 		});
 	});
 
-	it("keeps an explicit completion running and injects Supervisor continuation instructions", async () => {
+	it("keeps an explicit completion running and returns Supervisor instructions in the tool result", async () => {
 		await withHeadlessPi(async (agent) => {
 			agent.writeRunningGoal(RUNNING_GOAL);
 			await agent.send({ type: "prompt", message: "Try to complete the goal" });
@@ -220,13 +220,20 @@ describe("headless Supervisor goal system", () => {
 			});
 
 			const afterTool = await agent.waitForLlmRequest();
-			expect(JSON.stringify(afterTool.messages)).toContain("Goal remains active: proof missing");
-			expectRunningGoal(agent.readGoal());
-			agent.respondToLlmRequest(afterTool.id, fauxCompletedAssistantMessage("Waiting for follow-up"));
-			const continuation = await agent.waitForLlmRequest();
-			expect(continuation.userMessages).toContain(
-				"<supervisor-instruction>\nRun the missing headless proof.\n</supervisor-instruction>",
+			const toolResults = JSON.stringify(afterTool.messages);
+			expect(toolResults).toContain("Goal remains active: proof missing");
+			expect(toolResults).toContain(
+				JSON.stringify(
+					"<supervisor-instruction>\nRun the missing headless proof.\n</supervisor-instruction>",
+				).slice(1, -1),
 			);
+			expect(afterTool.userMessages).toEqual(["Try to complete the goal"]);
+			expectRunningGoal(agent.readGoal());
+			agent.respondToLlmRequest(afterTool.id, fauxCompletedAssistantMessage("Proof work recorded"));
+
+			// Nothing was queued behind the run, so its agent_end review runs.
+			const idleReview = await agent.waitForSupervisorRequest("goal_idle_review");
+			expect(idleReview.payload).toMatchObject({ objective: RUNNING_GOAL });
 		});
 	});
 

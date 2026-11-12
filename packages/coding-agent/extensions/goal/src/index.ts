@@ -57,6 +57,7 @@ import {
 	createSupervisorStatusEntryRenderer,
 	renderSupervisorMessage,
 	sendSupervisorInstructions,
+	supervisorInstructionContent,
 	type SupervisorStatusController,
 } from "./rendering.ts";
 import { reviewGoalWithResidentSupervisor, withSupervisorReviewStatus } from "./supervisor-review.ts";
@@ -78,7 +79,6 @@ interface SetGoalParams {
 interface ManageGoalContext {
 	ctx: ExtensionContext;
 	params: ManageGoalParams;
-	pi: ExtensionAPI;
 	goalWork: GoalWorkStarter;
 	reviewGoal: GoalEvidenceReview;
 	consumeReviewEvidence: (ctx: ExtensionContext, reviewedGoal: Goal, evidenceCount: number) => void;
@@ -179,7 +179,7 @@ async function runSetGoalAction({
 	goalWork,
 	reviewGoal,
 	beforeGoalSave,
-}: Omit<ManageGoalContext, "pi" | "consumeReviewEvidence" | "onCompletionWait" | "appendStatus">): Promise<
+}: Omit<ManageGoalContext, "consumeReviewEvidence" | "onCompletionWait" | "appendStatus">): Promise<
 	AgentToolResult<unknown>
 > {
 	const proposedObjective = params.objective?.trim() ?? "";
@@ -234,7 +234,6 @@ async function applyCompletionDecision(
 	decision: GoalSupervisorResponse,
 	activeGoal: Goal,
 	ctx: ExtensionContext,
-	pi: ExtensionAPI,
 	completionReport: string,
 	onWait: CompletionWaitScheduler["wait"],
 	appendStatus: AppendSupervisorStatus,
@@ -252,9 +251,10 @@ async function applyCompletionDecision(
 		undefined,
 		decision.displayId,
 	);
+	// The run is still active: it reads the instruction now, so nothing is queued behind it.
 	if (decision.kind === "continue") {
-		sendSupervisorInstructions(pi, decision.instructions, decision.displayId);
-		return textResult(`Goal remains active: ${decision.reason}`, { instructions: decision.instructions });
+		const text = `Goal remains active: ${decision.reason}\n\n${supervisorInstructionContent(decision.instructions)}`;
+		return textResult(text, { instructions: decision.instructions });
 	}
 	if (decision.kind === "pause") {
 		return textResult(`Goal remains active: ${decision.reason}`);
@@ -270,7 +270,6 @@ async function runCompleteGoalAction(
 	ctx: ExtensionContext,
 	completionReportInput: string | undefined,
 	reviewGoal: GoalEvidenceReview,
-	pi: ExtensionAPI,
 	onWait: CompletionWaitScheduler["wait"],
 	appendStatus: AppendSupervisorStatus,
 	isReviewCurrent: () => boolean,
@@ -288,15 +287,7 @@ async function runCompleteGoalAction(
 	});
 	const reviewStillApplies = isReviewCurrent() && goalMatchesReview(loadOrMigrateActiveGoal(ctx), activeGoal);
 	if (!reviewStillApplies) return textResult("Goal changed or review was canceled; stale decision ignored.");
-	const result = await applyCompletionDecision(
-		reviewed.decision,
-		activeGoal,
-		ctx,
-		pi,
-		completionReport,
-		onWait,
-		appendStatus,
-	);
+	const result = await applyCompletionDecision(reviewed.decision, activeGoal, ctx, completionReport, onWait, appendStatus);
 	if (reviewed.decision.kind !== "error") {
 		consumeReviewEvidence(ctx, activeGoal, reviewed.evidenceCount);
 	}
@@ -325,7 +316,7 @@ async function manageGoal(context: ManageGoalContext): Promise<AgentToolResult<u
 }
 
 async function runManageGoalAction(context: ManageGoalContext): Promise<AgentToolResult<unknown>> {
-	const { ctx, params, pi, goalWork, beforeGoalSave } = context;
+	const { ctx, params, goalWork, beforeGoalSave } = context;
 	switch (params.action) {
 		case "set":
 			return runSetGoalAction({ ctx, params, goalWork, reviewGoal: context.reviewGoal, beforeGoalSave });
@@ -338,7 +329,6 @@ async function runManageGoalAction(context: ManageGoalContext): Promise<AgentToo
 				ctx,
 				params.completionReport,
 				context.reviewGoal,
-				pi,
 				context.onCompletionWait,
 				context.appendStatus,
 				context.isCompletionReviewCurrent ?? (() => true),
@@ -605,7 +595,6 @@ function registerManageGoal(
 		return manageGoal({
 			ctx,
 			params,
-			pi,
 			goalWork: runtime.goalWork,
 			reviewGoal,
 			consumeReviewEvidence: evidence.consume,

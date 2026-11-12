@@ -981,7 +981,7 @@ describe("goal extension", () => {
 	});
 
 	it.each(["idle", "completion"] as const)(
-		"persists the %s review answer before hiding its unchanged tagged follow-up",
+		"persists the %s review answer before delivering its unchanged tagged instruction",
 		async (kind) => {
 			let finishReview: ((decision: GoalSupervisorResponse) => void) | undefined;
 			const reviewGoal = vi.fn<GoalSupervisorReview>().mockImplementation(
@@ -1000,22 +1000,26 @@ describe("goal extension", () => {
 			expect(waiting.displayId).toEqual(expect.any(String));
 			const instructions = "Run regression.\nInspect output.\nPreserve full scope.";
 			finishReview?.({ kind: "continue", reason: "proof missing", instructions });
-			await review;
+			const result = await review;
 			expect(JSON.stringify(waiting)).toBe(originalWaiting);
 			const answerIndex = harness.appendEntry.mock.calls.findIndex(
 				([, data]) => data.displayId === waiting.displayId && data.message.includes(instructions),
 			);
 			expect(answerIndex).toBeGreaterThan(0);
+			const tagged = `<supervisor-instruction>\n${instructions}\n</supervisor-instruction>`;
+			if (kind === "completion") {
+				// A completion review runs inside the agent's tool call, so its result carries the instruction.
+				expect(result?.content).toEqual([
+					{ type: "text", text: `Goal remains active: proof missing\n\n${tagged}` },
+				]);
+				expect(harness.sendMessage).not.toHaveBeenCalled();
+				return;
+			}
 			const sendOrder = harness.sendMessage.mock.invocationCallOrder[0];
 			if (sendOrder === undefined) throw new Error("expected Supervisor follow-up delivery");
 			expect(harness.appendEntry.mock.invocationCallOrder[answerIndex]).toBeLessThan(sendOrder);
 			expect(harness.sendMessage).toHaveBeenCalledExactlyOnceWith(
-				{
-					customType: "supervisor",
-					content: `<supervisor-instruction>\n${instructions}\n</supervisor-instruction>`,
-					display: false,
-					details: { displayId: waiting.displayId },
-				},
+				{ customType: "supervisor", content: tagged, display: false, details: { displayId: waiting.displayId } },
 				{ deliverAs: "followUp", triggerTurn: true },
 			);
 			expect(readStoredGoal<Goal>(cwd).completedAt).toBeUndefined();
@@ -2285,26 +2289,28 @@ describe("goal extension", () => {
 		);
 	});
 
-	it("keeps the goal running and follows Supervisor instructions when completion is rejected", async () => {
+	it("returns Supervisor instructions in the result when completion is rejected, queuing nothing per attempt", async () => {
 		const harness = createGoalHarness(cwd, {
+			idle: false,
 			reviewGoal: async () => ({ kind: "continue", reason: "proof missing", instructions: "Run npm test." }),
 		});
 		await harness.runCommand("set complete explicitly");
-		harness.sendUserMessage.mockClear();
+		await harness.runAgentStart();
 
-		const result = await harness.runGoalComplete("done");
+		const first = await harness.runGoalComplete("done");
+		const second = await harness.runGoalComplete("done again");
 
-		expect(result?.content).toEqual([{ type: "text", text: "Goal remains active: proof missing" }]);
-		expect(harness.sendMessage).toHaveBeenCalledWith(
-			{
-				customType: "supervisor",
-				content: "<supervisor-instruction>\nRun npm test.\n</supervisor-instruction>",
-				display: false,
-				details: { displayId: expect.any(String) },
-			},
-			{ deliverAs: "followUp", triggerTurn: true },
-		);
-		expect(await harness.runBeforeAgentStart()).toBeDefined();
+		for (const result of [first, second]) {
+			expect(result?.content).toEqual([
+				{
+					type: "text",
+					text: "Goal remains active: proof missing\n\n<supervisor-instruction>\nRun npm test.\n</supervisor-instruction>",
+				},
+			]);
+		}
+		expect(harness.sendMessage).not.toHaveBeenCalled();
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(readStoredGoal<Goal>(cwd).completedAt).toBeUndefined();
 	});
 
 	it("lets the Supervisor complete a running goal at the existing agent_end continuation point", async () => {
