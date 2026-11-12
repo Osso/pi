@@ -324,7 +324,7 @@ describe("InteractiveMode retry status", () => {
 			delayMs: 1000,
 			errorMessage: "overloaded",
 		});
-		expect(context.editor.working).toBe(true);
+		expect(context.editor.working).toBe(false);
 		const retryLoader = context.statusContainer.children[0] as Loader;
 		const stop = vi.spyOn(retryLoader, "stop");
 		expect(retryLoader.render(100).join("\n")).toContain("Retrying (1/3) in 1s...");

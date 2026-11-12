@@ -11,6 +11,7 @@ describe("InteractiveMode update checks", () => {
 			checkForPackageUpdates,
 			checkTmuxKeyboardSetup: async () => undefined,
 			continueResumedSessionAtStartup: async () => undefined,
+			startResumedRunAtStartup: async () => undefined,
 			getUserInput: async () => {
 				throw sentinel;
 			},

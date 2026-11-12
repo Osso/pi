@@ -16,13 +16,12 @@ import {
 	type TextContent,
 } from "@earendil-works/pi-ai/compat";
 import { Type } from "typebox";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentSession } from "../src/core/agent-session.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
-import type { BuildSystemPromptOptions } from "../src/core/system-prompt.ts";
 import { createTestExtensionsResult, createTestResourceLoader } from "./utilities.ts";
 
 // Mock stream that mimics AssistantMessageEventStream
@@ -528,25 +527,9 @@ describe("AgentSession concurrent prompt guard", () => {
 					const hasToolResult = context.messages.some((message) => message.role === "toolResult");
 
 					if (hasToolResult) {
-						const message: AssistantMessage = {
-							role: "assistant",
-							content: [{ type: "text", text: "done" }],
-							api: "anthropic-messages",
-							provider: "anthropic",
-							model: "mock",
-							usage: {
-								input: 1,
-								output: 1,
-								cacheRead: 0,
-								cacheWrite: 0,
-								totalTokens: 2,
-								cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-							},
-							stopReason: "stop",
-							timestamp: Date.now(),
-						};
+						const message = createCompletedAssistantMessage("done");
 						stream.push({ type: "start", partial: { ...message, content: [] } });
-						stream.push({ type: "done", reason: "stop", message });
+						stream.push({ type: "done", reason: "toolUse", message });
 						return;
 					}
 
@@ -595,40 +578,16 @@ describe("AgentSession concurrent prompt guard", () => {
 		});
 
 		const sessionWithRunner = session as unknown as {
-			_extensionRunner?: {
-				hasHandlers: (eventType: string) => boolean;
-				emit: (event: { type: string; message?: { role?: string } }) => Promise<void>;
+			_extensionRunner: {
 				emitMessageEnd: (event: { type: string; message?: { role?: string } }) => Promise<undefined>;
-				emitInput: (
-					text: string,
-					images: unknown,
-					source: "interactive" | "rpc" | "extension",
-					streamingBehavior?: "steer" | "followUp",
-				) => Promise<{ action: "continue" }>;
-				emitBeforeAgentStart: (
-					prompt: string,
-					images: unknown,
-					systemPrompt: string,
-					systemPromptOptions: BuildSystemPromptOptions,
-				) => Promise<undefined>;
-				hasPreparedToolResultRelocation: () => boolean;
-				invalidate: (message?: string) => void;
 			};
 		};
-		sessionWithRunner._extensionRunner = {
-			hasHandlers: () => false,
-			emit: async () => {},
-			emitMessageEnd: async (event) => {
-				if (event.type === "message_end" && event.message?.role === "assistant") {
-					await new Promise((resolve) => setTimeout(resolve, 40));
-				}
-				return undefined;
-			},
-			emitInput: async () => ({ action: "continue" }),
-			emitBeforeAgentStart: async () => undefined,
-			hasPreparedToolResultRelocation: () => false,
-			invalidate: () => {},
-		};
+		vi.spyOn(sessionWithRunner._extensionRunner, "emitMessageEnd").mockImplementation(async (event) => {
+			if (event.type === "message_end" && event.message?.role === "assistant") {
+				await new Promise((resolve) => setTimeout(resolve, 40));
+			}
+			return undefined;
+		});
 
 		await session.prompt("hi");
 		await session.agent.waitForIdle();
@@ -640,6 +599,7 @@ describe("AgentSession concurrent prompt guard", () => {
 			"assistant",
 			"toolResult",
 			"assistant",
+			"toolResult",
 		]);
 	});
 });

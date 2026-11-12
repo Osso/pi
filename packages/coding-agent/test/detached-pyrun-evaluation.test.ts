@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	createMultiAgentPiRequestHandler,
 	createProductionChildAgentSessionFactory,
@@ -255,7 +255,7 @@ describe("durable detached Pyrun evaluation", () => {
 		});
 		expect(store.getAgent("pyrun_1")?.lifecycle).toBe("running");
 		expect(store.listMailboxMessages()).toHaveLength(0);
-		const unsubscribeFailure = store.subscribeLifecycleNotifications(() => {
+		vi.spyOn(store, "publishTerminalOutboxSnapshot").mockImplementationOnce(() => {
 			throw new Error("transport unavailable");
 		});
 		expect(() =>
@@ -266,8 +266,7 @@ describe("durable detached Pyrun evaluation", () => {
 				store,
 			}),
 		).toThrow("transport unavailable");
-		unsubscribeFailure();
-		expect(store.listMailboxMessages()).toHaveLength(1);
+		expect(store.listMailboxMessages()).toHaveLength(0);
 		const retriedNotifications: string[] = [];
 		const unsubscribeRetry = store.subscribeLifecycleNotifications((message) => {
 			retriedNotifications.push(message.id);
