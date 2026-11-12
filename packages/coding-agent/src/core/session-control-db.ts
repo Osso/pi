@@ -1785,20 +1785,27 @@ type SupervisorRequestRow = {
 	response_json: string | null;
 };
 
+function parseSupervisorResponse(value: string, requestId: number): SupervisorResponse {
+	const context = `supervisor_requests:${requestId}.response_json`;
+	const parsed = parseStoredJsonObject(value, context);
+	requireStringField(parsed, "kind", context);
+	return parsed as SupervisorResponse;
+}
+
 function supervisorRequestFromRow(row: SupervisorRequestRow): SupervisorRequest {
 	return {
 		id: row.id,
 		senderSessionId: row.sender_session_id,
 		projectId: row.project_id,
 		kind: row.kind,
-		payload: JSON.parse(row.payload_json) as Record<string, unknown>,
+		payload: parseStoredJsonObject(row.payload_json, `supervisor_requests:${row.id}.payload_json`),
 		deadlineAt: row.deadline_at,
 		status: row.status,
 		createdAt: row.created_at,
 		claimedAt: row.claimed_at ?? undefined,
 		claimToken: row.claim_token ?? undefined,
 		completedAt: row.completed_at ?? undefined,
-		response: row.response_json ? (JSON.parse(row.response_json) as SupervisorResponse) : undefined,
+		response: row.response_json ? parseSupervisorResponse(row.response_json, row.id) : undefined,
 	};
 }
 
@@ -5846,13 +5853,13 @@ function serializeProcessIdentity(identity: ProcessIdentity): string {
 	return JSON.stringify(identity);
 }
 
-function parseProcessIdentity(value: string): ProcessIdentity {
-	const parsed = JSON.parse(value) as Partial<ProcessIdentity>;
+function parseProcessIdentity(value: string, context = "process_identity"): ProcessIdentity {
+	const parsed = parseStoredJsonObject(value, context) as Partial<ProcessIdentity>;
 	if (!Number.isSafeInteger(parsed.pid) || !Number.isSafeInteger(parsed.startTimeTicks)) {
-		throw new Error("Persisted process identity is invalid");
+		throw new Error(`Invalid persisted process identity at ${context}`);
 	}
 	if (parsed.incarnation !== undefined && typeof parsed.incarnation !== "string") {
-		throw new Error("Persisted process incarnation is invalid");
+		throw new Error(`Invalid persisted process incarnation at ${context}`);
 	}
 	return {
 		pid: parsed.pid,
@@ -5865,7 +5872,9 @@ function multiAgentRuntimeOwnershipFromRow(row: MultiAgentRuntimeOwnershipRow): 
 	return {
 		agentId: row.agent_id,
 		owner: { agentId: row.owner_agent_id, sessionId: row.owner_session_id ?? undefined },
-		processIdentity: row.process_identity ? parseProcessIdentity(row.process_identity) : undefined,
+		processIdentity: row.process_identity
+			? parseProcessIdentity(row.process_identity, `multi_agent_runtime_owners:${row.session_path}#${row.agent_id}`)
+			: undefined,
 		sessionPath: row.session_path,
 	};
 }

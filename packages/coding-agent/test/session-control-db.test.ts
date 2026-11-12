@@ -49,6 +49,7 @@ import {
 	markRuntimeMailboxMessageDelivered,
 	postArchitectRequest,
 	postSharedChannelMessage,
+	postSupervisorRequest,
 	prepareControlDbForSelfRestart,
 	readIncomingMessageStatus,
 	readLastMessage,
@@ -62,6 +63,7 @@ import {
 	readSessionMetadata,
 	readSessionNameState,
 	readSharedChannelCursor,
+	readSupervisorRequest,
 	recordPromptHistoryEntry,
 	recoverDeadMultiAgentRuntime,
 	recoverDeadRuntimeMailboxClaims,
@@ -7768,5 +7770,41 @@ Date.now = () => ${Date.now()};
 
 		expect(readSessionMetadata(controlDbPath, "/tmp/session-a.jsonl")?.name).toBeUndefined();
 		expect(readSessionNameState(controlDbPath, "/tmp/session-a.jsonl").hasStoredValue).toBe(true);
+	});
+
+	it("reports contextual errors for malformed supervisor request and runtime owner JSON", () => {
+		const requestId = postSupervisorRequest(controlDbPath, {
+			senderSessionId: "session-a",
+			projectId: "proj-1",
+			kind: "supervisor_advisory",
+			payload: { question: "status?" },
+			deadlineAt: "2026-12-01T00:00:00.000Z",
+		});
+		const db = createSqliteDatabase(controlDbPath);
+		try {
+			db.prepare("UPDATE supervisor_requests SET payload_json = ? WHERE id = ?").run("{bad", requestId);
+			expect(() => readSupervisorRequest(controlDbPath, requestId)).toThrow(
+				`Invalid persisted JSON at supervisor_requests:${requestId}.payload_json`,
+			);
+
+			db.prepare("UPDATE supervisor_requests SET payload_json = ?, response_json = ? WHERE id = ?").run(
+				"{}",
+				"{}",
+				requestId,
+			);
+			expect(() => readSupervisorRequest(controlDbPath, requestId)).toThrow(
+				`Invalid persisted kind at supervisor_requests:${requestId}.response_json`,
+			);
+
+			db.prepare(
+				`INSERT INTO multi_agent_runtime_owners (session_path, agent_id, owner_session_id, owner_agent_id, process_identity)
+				 VALUES (?, ?, ?, NULL, ?)`,
+			).run("/tmp/session-a.jsonl", "agent_corrupt", "session-a", "{bad");
+			expect(() => readMultiAgentRuntimeOwnership(controlDbPath, "/tmp/session-a.jsonl", "agent_corrupt")).toThrow(
+				"Invalid persisted JSON at multi_agent_runtime_owners:/tmp/session-a.jsonl#agent_corrupt",
+			);
+		} finally {
+			db.close();
+		}
 	});
 });
