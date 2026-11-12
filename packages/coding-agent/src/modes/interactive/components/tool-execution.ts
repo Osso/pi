@@ -369,19 +369,32 @@ export class ToolExecutionComponent extends Container {
 		if (this.hideComponent) {
 			return [];
 		}
-		if (this.isCompactRow()) {
-			return ["", ...this.renderCompactRow(width)];
+		switch (this.resolveRenderMode()) {
+			case "compact":
+				return ["", ...this.renderCompactRow(width)];
+			case "self":
+				return this.renderSelfShell(width);
+			case "default":
+				return super.render(width);
 		}
-		if (this.hasRendererDefinition() && this.getRenderShell() === "self") {
-			return this.renderSelfShell(width);
-		}
-		return super.render(width);
 	}
 
-	private isCompactRow(): boolean {
-		return (
-			this.toolName === "wait_agent" || this.toolName === "end_turn" || (this.hideOutput && this.toolName === "bash")
-		);
+	private resolveRenderMode(): "compact" | "self" | "default" {
+		if (
+			this.toolName === "wait_agent" ||
+			this.toolName === "end_turn" ||
+			(this.hideOutput && this.toolName === "bash")
+		) {
+			return "compact";
+		}
+		if (this.hasRendererDefinition() && this.getRenderShell() === "self") {
+			return "self";
+		}
+		return "default";
+	}
+
+	private shouldHideCallDetails(): boolean {
+		return this.hideOutput && this.toolName === "pyrun_eval";
 	}
 
 	private renderCompactRow(width: number): string[] {
@@ -424,7 +437,7 @@ export class ToolExecutionComponent extends Container {
 			}
 			renderContainer.clear();
 
-			const callRenderer = this.hideOutput && this.toolName === "pyrun_eval" ? undefined : this.getCallRenderer();
+			const callRenderer = this.shouldHideCallDetails() ? undefined : this.getCallRenderer();
 			if (!callRenderer) {
 				renderContainer.addChild(this.createCallFallback());
 				hasContent = true;
@@ -538,8 +551,7 @@ export class ToolExecutionComponent extends Container {
 
 	private formatToolExecution(): string {
 		let text = theme.fg("toolTitle", theme.bold(this.toolName));
-		const content =
-			this.hideOutput && this.toolName === "pyrun_eval" ? undefined : JSON.stringify(this.args, null, 2);
+		const content = this.shouldHideCallDetails() ? undefined : JSON.stringify(this.args, null, 2);
 		if (content) {
 			text += `\n\n${content}`;
 		}
