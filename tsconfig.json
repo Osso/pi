@@ -28,5 +28,9 @@
 		"packages/coding-agent/examples/**/*",
 		"packages/coding-agent/extensions/**/*"
 	],
-	"exclude": ["**/dist/**", "packages/coding-agent/examples/extensions/gondolin/**"]
+	"exclude": [
+		"**/dist/**",
+		"packages/coding-agent/examples/extensions/gondolin/**",
+		"packages/coding-agent/extensions/**/*.d.ts"
+	]
 }
