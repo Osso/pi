@@ -68,6 +68,15 @@ export function loadOrMigrateRunningGoal(
 	return goal && !goal.pausedAt ? goal : null;
 }
 
+/** Whether `currentGoal` is still the same goal, in the same paused state, that a review started from. */
+export function goalMatchesReview(currentGoal: Goal | null, reviewedGoal: Goal): boolean {
+	return (
+		currentGoal?.createdAt === reviewedGoal.createdAt &&
+		currentGoal.objective === reviewedGoal.objective &&
+		currentGoal.pausedAt === reviewedGoal.pausedAt
+	);
+}
+
 function migrateLegacyGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
 	for (const file of [goalPath(ctx), oldProjectGoalPath(ctx.cwd)]) {
 		const goal = loadGoalFile(file);

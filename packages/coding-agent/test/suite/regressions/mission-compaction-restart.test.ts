@@ -10,13 +10,6 @@ const RETAINED_PROMPT = "Record a later turn before compaction";
 it("restores the compacted mission without replacing a working goal while a child survives process restart", async () => {
 	await withHeadlessPi(async (pi) => {
 		await pi.send({ type: "prompt", message: `/mission set ${MISSION}` });
-		const missionReview = await pi.waitForSupervisorRequest("goal_idle_review");
-		expect(missionReview.payload).toMatchObject({ objective: MISSION });
-		pi.respondToSupervisorRequest(missionReview, {
-			kind: "continue",
-			reason: "The mission has not started",
-			instructions: "Start the mission.",
-		});
 		const missionRequest = await pi.waitForLlmRequest((request) => request.sessionId === pi.sessionId);
 		pi.respondToLlmRequest(
 			missionRequest.id,

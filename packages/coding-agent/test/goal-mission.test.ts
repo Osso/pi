@@ -7,6 +7,7 @@ import type { ManageGoalParams } from "../extensions/goal/src/goal-tool.ts";
 import goalExtension, { type Goal, type GoalSupervisorReview } from "../extensions/goal/src/index.ts";
 import type {
 	AgentEndEvent,
+	AgentStartEvent,
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
 	ExtensionAPI,
@@ -22,7 +23,7 @@ import { SessionManager } from "../src/core/session-manager.ts";
 const model = getModel("anthropic", "claude-sonnet-4-5");
 if (!model) throw new Error("Test model not found");
 
-const REMINDER = "Continue working toward the active goal.";
+const CONTINUE_GOAL = ["Continue working toward the active goal.", { deliverAs: "followUp" }] as const;
 const INSTRUCTIONS = "Fix the failing service first.";
 const REVIEW_DELAY_MS = 1_000;
 const COMPLETION_WAIT_MS = 55 * 60 * 1_000;
@@ -133,6 +134,10 @@ function createMissionHarness(store: SessionStore = { entries: [] }, reviewGoal 
 		setIdle: (isIdle: boolean) => {
 			idle = isIdle;
 		},
+		runStart: async () => {
+			idle = false;
+			await emit<AgentStartEvent>("agent_start", { type: "agent_start" });
+		},
 		sendUserMessage,
 		sendMessage,
 		setStatus,
@@ -171,18 +176,17 @@ describe("goal extension mission", () => {
 		vi.useRealTimers();
 	});
 
-	it("copies a new mission into a never-completable goal and starts work through Supervisor review", async () => {
+	it("copies a new mission into a never-completable goal and starts work with one prompt", async () => {
 		const reviewGoal = vi.fn<GoalSupervisorReview>(continueReview);
 		const harness = createMissionHarness({ entries: [] }, reviewGoal);
 
 		await harness.command("mission", "set keep the test suite green");
+		await vi.advanceTimersByTimeAsync(REVIEW_DELAY_MS);
 
 		expect(harness.goal()).toMatchObject({ objective: "keep the test suite green", mission: true });
+		expect(harness.sendUserMessage).toHaveBeenCalledExactlyOnceWith(...CONTINUE_GOAL);
 		expect(harness.sendMessage).not.toHaveBeenCalled();
-		await vi.advanceTimersByTimeAsync(REVIEW_DELAY_MS);
-		expect(reviewGoal).toHaveBeenCalledExactlyOnceWith(idleReviewOf("keep the test suite green"));
-		expect(harness.sendMessage).toHaveBeenCalledExactlyOnceWith(...supervisorInstructions(INSTRUCTIONS));
-		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(reviewGoal).not.toHaveBeenCalled();
 		expect(harness.setStatus).toHaveBeenCalledWith("mission", "mission: keep the test suite green");
 		const prompt = (await harness.systemPrompt())?.systemPrompt ?? "";
 		expect(prompt).toContain("It is never complete; only the user stops it.");
@@ -198,8 +202,8 @@ describe("goal extension mission", () => {
 		await harness.command("goal", "set ship the parser");
 		await harness.command("mission", "set maintain the compiler");
 		expect(harness.goal()).toMatchObject({ objective: "ship the parser" });
+		await harness.runStart();
 		harness.sendUserMessage.mockClear();
-		harness.setIdle(false);
 
 		await harness.manageGoal({ action: "complete", completionReport: "Parser shipped and tested." });
 
@@ -212,17 +216,22 @@ describe("goal extension mission", () => {
 		await harness.agentEnd();
 
 		expect(harness.sendMessage).toHaveBeenCalledExactlyOnceWith(...supervisorInstructions(INSTRUCTIONS));
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 	});
 
-	it("queues nothing when manage_goal stops the goal repeatedly in one run", async () => {
+	it("queues nothing when goal and mission actions repeat during one run", async () => {
 		const reviewGoal = vi.fn<GoalSupervisorReview>(continueReview);
 		const harness = createMissionHarness({ entries: [] }, reviewGoal);
-		harness.setIdle(false);
+		await harness.runStart();
 		await harness.command("mission", "set maintain the compiler");
 
 		await harness.manageGoal({ action: "pause", reason: "Need the user to decide." });
 		await harness.manageGoal({ action: "clear" });
 		await harness.manageGoal({ action: "pause", reason: "Blocked on review." });
+		await harness.command("goal", "set ship the parser");
+		await harness.command("goal", "clear");
+		await harness.command("mission", "pause");
+		await harness.command("mission", "resume");
 		await vi.advanceTimersByTimeAsync(COMPLETION_WAIT_MS);
 
 		expect(harness.goal()).toMatchObject({ objective: "maintain the compiler", mission: true });
@@ -238,7 +247,31 @@ describe("goal extension mission", () => {
 		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 	});
 
-	it("reviews the mission after the Supervisor completes a user goal at agent_end", async () => {
+	it("sends one prompt for goal and mission actions on an idle session until that prompt's run starts", async () => {
+		const harness = createMissionHarness();
+
+		await harness.command("mission", "set maintain the compiler");
+		await harness.command("goal", "clear");
+		await harness.command("goal", "set ship the parser");
+		await harness.command("goal", "pause");
+		await harness.command("goal", "resume");
+		await harness.manageGoal({ action: "clear" });
+		await harness.command("mission", "pause");
+		await harness.command("mission", "resume");
+		await vi.advanceTimersByTimeAsync(COMPLETION_WAIT_MS);
+
+		expect(harness.sendUserMessage).toHaveBeenCalledExactlyOnceWith(...CONTINUE_GOAL);
+		expect(harness.sendMessage).not.toHaveBeenCalled();
+
+		await harness.runStart();
+		await harness.agentEnd();
+		harness.sendUserMessage.mockClear();
+		await harness.command("goal", "clear");
+
+		expect(harness.sendUserMessage).toHaveBeenCalledExactlyOnceWith(...CONTINUE_GOAL);
+	});
+
+	it("continues the mission with one prompt after the Supervisor completes a user goal at agent_end", async () => {
 		const reviewGoal = vi.fn<GoalSupervisorReview>(async ({ payload }) =>
 			payload.objective === "ship the parser"
 				? { kind: "complete", reason: "proven" }
@@ -247,19 +280,19 @@ describe("goal extension mission", () => {
 		const harness = createMissionHarness({ entries: [] }, reviewGoal);
 		await harness.command("goal", "set ship the parser");
 		await harness.command("mission", "set maintain the compiler");
+		await harness.runStart();
 		harness.sendUserMessage.mockClear();
 
 		await harness.agentEnd();
+		await vi.advanceTimersByTimeAsync(COMPLETION_WAIT_MS);
 
 		expect(harness.goal()).toMatchObject({ objective: "maintain the compiler", mission: true });
+		expect(reviewGoal).toHaveBeenCalledExactlyOnceWith(idleReviewOf("ship the parser"));
+		expect(harness.sendUserMessage).toHaveBeenCalledExactlyOnceWith(...CONTINUE_GOAL);
 		expect(harness.sendMessage).not.toHaveBeenCalled();
-		await vi.advanceTimersByTimeAsync(REVIEW_DELAY_MS);
-		expect(reviewGoal).toHaveBeenLastCalledWith(idleReviewOf("maintain the compiler"));
-		expect(harness.sendMessage).toHaveBeenCalledExactlyOnceWith(...supervisorInstructions(INSTRUCTIONS));
-		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 	});
 
-	it("reviews the mission after a waiting completion review completes a user goal on an idle session", async () => {
+	it("continues the mission with one prompt after a waiting completion review completes a user goal", async () => {
 		let completionReviews = 0;
 		const reviewGoal = vi.fn<GoalSupervisorReview>(async ({ kind }) => {
 			if (kind !== "goal_completion_review") {
@@ -273,44 +306,43 @@ describe("goal extension mission", () => {
 		const harness = createMissionHarness({ entries: [] }, reviewGoal);
 		await harness.command("goal", "set ship the parser");
 		await harness.command("mission", "set maintain the compiler");
+		await harness.runStart();
 		harness.sendUserMessage.mockClear();
-		harness.setIdle(false);
 		await harness.manageGoal({ action: "complete", completionReport: "Parser shipped and tested." });
 		harness.setIdle(true);
 
 		await vi.advanceTimersByTimeAsync(COMPLETION_WAIT_MS);
 
 		expect(harness.goal()).toMatchObject({ objective: "maintain the compiler", mission: true });
+		expect(harness.sendUserMessage).toHaveBeenCalledExactlyOnceWith(...CONTINUE_GOAL);
 		expect(harness.sendMessage).not.toHaveBeenCalled();
-		await vi.advanceTimersByTimeAsync(REVIEW_DELAY_MS);
-		expect(reviewGoal).toHaveBeenLastCalledWith(idleReviewOf("maintain the compiler"));
-		expect(harness.sendMessage).toHaveBeenCalledExactlyOnceWith(...supervisorInstructions(INSTRUCTIONS));
-		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(reviewGoal).not.toHaveBeenCalledWith(idleReviewOf("maintain the compiler"));
 	});
 
-	it("reviews the mission after /goal clear on an idle session", async () => {
-		const reviewGoal = vi.fn<GoalSupervisorReview>(continueReview);
-		const harness = createMissionHarness({ entries: [] }, reviewGoal);
+	it("continues the mission with one prompt after /goal clear on an idle session", async () => {
+		const harness = createMissionHarness();
 		await harness.command("mission", "set maintain the compiler");
-		await vi.advanceTimersByTimeAsync(REVIEW_DELAY_MS);
 		const firstMissionGoal = harness.goal();
-		reviewGoal.mockClear();
+		await harness.runStart();
+		await harness.agentEnd();
+		await vi.advanceTimersByTimeAsync(REVIEW_DELAY_MS);
+		harness.sendUserMessage.mockClear();
 		harness.sendMessage.mockClear();
 
 		await harness.command("goal", "clear");
-		await vi.advanceTimersByTimeAsync(REVIEW_DELAY_MS);
 
 		expect(harness.goal()).toMatchObject({ objective: "maintain the compiler", mission: true });
 		expect(harness.goal()?.createdAt).not.toBe(firstMissionGoal?.createdAt);
-		expect(reviewGoal).toHaveBeenCalledExactlyOnceWith(idleReviewOf("maintain the compiler"));
-		expect(harness.sendMessage).toHaveBeenCalledExactlyOnceWith(...supervisorInstructions(INSTRUCTIONS));
-		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(harness.sendUserMessage).toHaveBeenCalledExactlyOnceWith(...CONTINUE_GOAL);
+		expect(harness.sendMessage).not.toHaveBeenCalled();
 	});
 
 	it("rejects model completion of a mission goal and continues when the Supervisor says complete", async () => {
 		const harness = createMissionHarness({ entries: [] }, async () => ({ kind: "complete", reason: "looks done" }));
 		await harness.command("mission", "set maintain the compiler");
 		const missionGoal = harness.goal();
+		await harness.runStart();
+		harness.sendUserMessage.mockClear();
 
 		const result = await harness.manageGoal({ action: "complete", completionReport: "All done." });
 		expect(result?.content).toEqual([
@@ -322,7 +354,8 @@ describe("goal extension mission", () => {
 
 		expect(harness.goal()).toMatchObject({ createdAt: missionGoal?.createdAt, continuationTurns: 1 });
 		expect(harness.goal()?.completedAt).toBeUndefined();
-		expect(harness.sendMessage).toHaveBeenLastCalledWith(...supervisorInstructions(REMINDER));
+		expect(harness.sendUserMessage).toHaveBeenCalledExactlyOnceWith(...CONTINUE_GOAL);
+		expect(harness.sendMessage).not.toHaveBeenCalled();
 	});
 
 	it.each<ManageGoalParams>([{ action: "pause", reason: "Need the user to decide." }, { action: "clear" }])(
@@ -352,19 +385,23 @@ describe("goal extension mission", () => {
 	it("stops only through /mission pause and /mission clear", async () => {
 		const harness = createMissionHarness();
 		await harness.command("mission", "set maintain the compiler");
+		await harness.runStart();
+		await harness.agentEnd();
+		harness.sendUserMessage.mockClear();
+		harness.sendMessage.mockClear();
 
 		await harness.command("mission", "pause");
 		expect(harness.goal()).toMatchObject({ mission: true, pauseReason: "Mission paused by user." });
 		expect(harness.setStatus).toHaveBeenCalledWith("mission", "mission paused: maintain the compiler");
 		await vi.advanceTimersByTimeAsync(REVIEW_DELAY_MS);
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 		expect(harness.sendMessage).not.toHaveBeenCalled();
 
 		await harness.command("mission", "resume");
 		expect(harness.goal()).toMatchObject({ objective: "maintain the compiler", mission: true });
 		expect(harness.goal()?.pausedAt).toBeUndefined();
-		await vi.advanceTimersByTimeAsync(REVIEW_DELAY_MS);
-		expect(harness.sendMessage).toHaveBeenCalledExactlyOnceWith(...supervisorInstructions(INSTRUCTIONS));
-		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(harness.sendUserMessage).toHaveBeenCalledExactlyOnceWith(...CONTINUE_GOAL);
+		expect(harness.sendMessage).not.toHaveBeenCalled();
 
 		await harness.command("mission", "clear");
 		expect(harness.goal()).toBeUndefined();

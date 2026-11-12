@@ -1,10 +1,10 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isStaleContextError } from "./stale-context.ts";
 
 const EMPTY_RESPONSE_RETRY_DELAY_MS = 1_000;
 
 interface EmptyResponseSchedulingOptions<TGoal> {
-	pi: ExtensionAPI;
+	startGoalWork: (ctx: ExtensionContext) => void;
 	isSameRunningGoal: (ctx: ExtensionContext, goal: TGoal) => boolean;
 }
 
@@ -44,7 +44,7 @@ class EmptyResponseSchedulerImpl<TGoal> implements EmptyResponseScheduler<TGoal>
 					this.schedule(ctx, goal);
 					return;
 				}
-				this.options.pi.sendUserMessage("Continue working toward the active goal.");
+				this.options.startGoalWork(ctx);
 			} catch (error) {
 				if (!isStaleContextError(error)) throw error;
 			}

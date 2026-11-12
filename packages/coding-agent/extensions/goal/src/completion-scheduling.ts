@@ -1,9 +1,10 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { GoalReviewEvidenceController } from "./goal-review-evidence.ts";
 import { createGoalScheduler } from "./goal-scheduling.ts";
-import { loadOrMigrateActiveGoal, markGoalComplete } from "./goal-state.ts";
+import { goalMatchesReview, loadOrMigrateActiveGoal, markGoalComplete } from "./goal-state.ts";
 import type { Goal, GoalEvidenceReview, ReviewedGoalResponse } from "./goal-types.ts";
-import { continueMissionWhenIdle, type MissionGoalReviewer } from "./mission.ts";
+import type { GoalWorkStarter } from "./goal-work.ts";
+import { continueMission } from "./mission.ts";
 import { sendSupervisorInstructions, type SupervisorStatusController } from "./rendering.ts";
 import { appendGoalSchedulingError } from "./wait-status.ts";
 
@@ -136,24 +137,17 @@ export function createGoalCompletionScheduler(
 	reviewGoal: GoalEvidenceReview,
 	evidence: GoalReviewEvidenceController,
 	status: SupervisorStatusController,
-	missionReviewer: MissionGoalReviewer,
+	goalWork: GoalWorkStarter,
 ): CompletionWaitScheduler {
 	return createCompletionWaitScheduler({
 		pi,
 		reviewGoal,
 		consumeReviewEvidence: evidence.consume,
-		isSameGoal: (ctx, waiting) => {
-			const activeGoal = loadOrMigrateActiveGoal(ctx);
-			return (
-				activeGoal?.createdAt === waiting.goal.createdAt &&
-				activeGoal.objective === waiting.goal.objective &&
-				activeGoal.pausedAt === waiting.goal.pausedAt
-			);
-		},
+		isSameGoal: (ctx, waiting) => goalMatchesReview(loadOrMigrateActiveGoal(ctx), waiting.goal),
 		onComplete: (waiting, ctx) => {
 			const goal = markGoalComplete(ctx, waiting.completionReport);
 			if (goal) ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
-			continueMissionWhenIdle(ctx, missionReviewer);
+			continueMission(ctx, goalWork);
 		},
 		onContinue: sendSupervisorInstructions.bind(undefined, pi),
 		onStatus: status.append,

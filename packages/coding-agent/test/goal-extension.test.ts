@@ -11,6 +11,7 @@ import goalExtension, {
 } from "../extensions/goal/src/index.ts";
 import type {
 	AgentEndEvent,
+	AgentStartEvent,
 	AgentToolResult,
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
@@ -44,6 +45,7 @@ type RegisteredGoalCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
 type GoalTool = ToolDefinition;
 type GoalEvent =
 	| AgentEndEvent
+	| AgentStartEvent
 	| BeforeAgentStartEvent
 	| InputEvent
 	| SessionShutdownEvent
@@ -72,6 +74,7 @@ function createUsage(): Usage {
 }
 
 const storedGoalJsonBySession = new Map<string, string>();
+const CONTINUE_GOAL = ["Continue working toward the active goal.", { deliverAs: "followUp" }] as const;
 
 function storedGoalKey(cwd: string, sessionId = "test-session"): string {
 	return `${cwd}\0${sessionId}`;
@@ -134,6 +137,7 @@ function createGoalHarness(
 	let command: RegisteredGoalCommand | undefined;
 	let manageGoalTool: GoalTool | undefined;
 	const registeredToolNames: string[] = [];
+	let agentStart: ExtensionHandler<AgentStartEvent, undefined> | undefined;
 	let agentEnd: ExtensionHandler<AgentEndEvent, undefined> | undefined;
 	let beforeAgentStart: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult> | undefined;
 	let sessionStart: ExtensionHandler<SessionStartEvent, undefined> | undefined;
@@ -156,6 +160,9 @@ function createGoalHarness(
 	const pi = {
 		appendEntry,
 		on(event: string, handler: ExtensionHandler<GoalEvent, GoalEventResult>) {
+			if (event === "agent_start") {
+				agentStart = handler as ExtensionHandler<AgentStartEvent, undefined>;
+			}
 			if (event === "agent_end") {
 				agentEnd = handler as ExtensionHandler<AgentEndEvent, undefined>;
 			}
@@ -282,8 +289,12 @@ function createGoalHarness(
 				},
 				ctx as ExtensionContext,
 			),
-		runAgentEnd: async (messages: AgentEndEvent["messages"] = [createAssistantMessage("still working")]) =>
-			agentEnd?.({ type: "agent_end", messages }, ctx as ExtensionContext),
+		runAgentStart: async () => agentStart?.({ type: "agent_start" }, ctx as ExtensionContext),
+		// A complete run: every agent_end follows the agent_start of the same run.
+		runAgentEnd: async (messages: AgentEndEvent["messages"] = [createAssistantMessage("still working")]) => {
+			await agentStart?.({ type: "agent_start" }, ctx as ExtensionContext);
+			await agentEnd?.({ type: "agent_end", messages }, ctx as ExtensionContext);
+		},
 		runGoalComplete: async (completionReport?: string) =>
 			manageGoalTool?.execute(
 				"manage-goal-complete-1",
@@ -352,6 +363,7 @@ describe("goal extension", () => {
 	])("returns $action results and preserves lifecycle without duplicate notifications", async (params) => {
 		const harness = createGoalHarness(cwd);
 		await harness.runCommand("set original objective");
+		await harness.runAgentStart();
 		if (params.action === "resume") await harness.runCommand("pause");
 		const original = readStoredGoal<Goal>(cwd);
 		harness.notify.mockClear();
@@ -422,7 +434,7 @@ describe("goal extension", () => {
 		}
 		expect(harness.notify).not.toHaveBeenCalled();
 		if (params.action === "set" || params.action === "resume") {
-			expect(harness.sendUserMessage).toHaveBeenCalledExactlyOnceWith("Continue working toward the active goal.");
+			expect(harness.sendUserMessage).toHaveBeenCalledExactlyOnceWith(...CONTINUE_GOAL);
 		} else {
 			expect(harness.sendUserMessage).not.toHaveBeenCalled();
 		}
@@ -539,7 +551,7 @@ describe("goal extension", () => {
 
 		const goal = readStoredGoal<{ objective: string }>(cwd);
 		expect(goal.objective).toBe("ship the goal feature");
-		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
+		expect(harness.sendUserMessage).toHaveBeenCalledWith(...CONTINUE_GOAL);
 	});
 
 	it("rejects a bare /goal objective instead of replacing durable state", async () => {
@@ -568,7 +580,7 @@ describe("goal extension", () => {
 		const goal = readStoredGoal<{ objective: string }>(cwd);
 		expect(goal.objective).toBe("ship tool parity");
 		expect(result?.content).toEqual([{ type: "text", text: "Goal set: ship tool parity" }]);
-		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
+		expect(harness.sendUserMessage).toHaveBeenCalledWith(...CONTINUE_GOAL);
 	});
 
 	it("uses the Supervisor's additive objective when manage_goal set would narrow an active goal", async () => {
@@ -589,6 +601,7 @@ describe("goal extension", () => {
 		const harness = createGoalHarness(cwd, { reviewGoal: reviewGoal as unknown as GoalSupervisorReview });
 
 		await harness.runCommand("set ship the complete goal system");
+		await harness.runAgentStart();
 		harness.notify.mockClear();
 		harness.sendUserMessage.mockClear();
 		const result = await harness.runSetGoal("add Supervisor review to goal set");
@@ -600,7 +613,7 @@ describe("goal extension", () => {
 		]);
 		expect(reviewGoal).toHaveBeenCalledOnce();
 		expect(harness.notify).not.toHaveBeenCalled();
-		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
+		expect(harness.sendUserMessage).toHaveBeenCalledWith(...CONTINUE_GOAL);
 	});
 
 	it("deduplicates restated current scope before persisting a Supervisor goal set decision", async () => {
@@ -642,19 +655,26 @@ describe("goal extension", () => {
 		const goal = readStoredGoal<{ objective: string }>(cwd);
 		expect(goal.objective).toBe("ship the goal feature");
 		expect(harness.notify).toHaveBeenCalledWith("Goal set — starting work", "info");
-		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
+		expect(harness.sendUserMessage).toHaveBeenCalledWith(...CONTINUE_GOAL);
 	});
 
-	it("queues a continuation round when a goal is set while busy", async () => {
+	it("queues nothing when a goal is set during a run, whose agent_end review continues it", async () => {
 		const harness = createGoalHarness(cwd, { idle: false });
+		await harness.runAgentStart();
 
 		await harness.runCommand("set guide the current run");
+		await harness.runCommand("set guide the current run again");
 
-		expect(harness.notify).toHaveBeenCalledTimes(1);
 		expect(harness.notify).toHaveBeenCalledWith("Goal set — starting work", "info");
-		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.", {
-			deliverAs: "followUp",
-		});
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+
+		await harness.runAgentEnd();
+
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
+		expect(harness.sendMessage).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({ customType: "supervisor" }),
+			{ deliverAs: "followUp", triggerTurn: true },
+		);
 	});
 
 	it("migrates old project goal file into session storage", async () => {
@@ -706,7 +726,8 @@ describe("goal extension", () => {
 		expect(goal.objective).toBe("second objective");
 		expect(goal.continuationTurns).toBe(0);
 		expect(harness.notify).toHaveBeenCalledWith("Goal set — starting work", "info");
-		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
+		// The first prompt has not started its run yet; that run works on the replacement goal.
+		expect(harness.sendUserMessage).not.toHaveBeenCalled();
 	});
 
 	it("rejects the removed replacement flag", async () => {
@@ -2522,6 +2543,7 @@ describe("goal extension", () => {
 		const harness = createGoalHarness(cwd);
 
 		await harness.runCommand("set resume retained objective");
+		await harness.runAgentStart();
 		await harness.runCommand("pause");
 		harness.notify.mockClear();
 		harness.sendUserMessage.mockClear();
@@ -2535,7 +2557,7 @@ describe("goal extension", () => {
 		expect(goal.pauseReason).toBeUndefined();
 		expect(harness.notify).toHaveBeenCalledWith("Goal resumed: resume retained objective", "info");
 		expect(harness.setStatus).toHaveBeenCalledWith("goal", "goal: resume retained objective");
-		expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
+		expect(harness.sendUserMessage).toHaveBeenCalledWith(...CONTINUE_GOAL);
 		expect(injected?.systemPrompt).toContain("Long-running objective: resume retained objective");
 	});
 
@@ -2608,7 +2630,7 @@ describe("goal extension", () => {
 			expect(harness.sendUserMessage).not.toHaveBeenCalled();
 
 			await vi.advanceTimersByTimeAsync(1);
-			expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
+			expect(harness.sendUserMessage).toHaveBeenCalledWith(...CONTINUE_GOAL);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -2682,7 +2704,7 @@ describe("goal extension", () => {
 			idle = true;
 			await vi.advanceTimersByTimeAsync(1_000);
 
-			expect(harness.sendUserMessage).toHaveBeenCalledWith("Continue working toward the active goal.");
+			expect(harness.sendUserMessage).toHaveBeenCalledWith(...CONTINUE_GOAL);
 		} finally {
 			vi.useRealTimers();
 		}
