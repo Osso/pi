@@ -550,6 +550,11 @@ function createIdleReviewScheduler(
 	});
 }
 
+interface ClearableSchedule {
+	clearSession(sessionId: string): void;
+	clearAll(): void;
+}
+
 function createGoalExtensionRuntime(
 	pi: ExtensionAPI,
 	reviewGoal: GoalEvidenceReview,
@@ -562,25 +567,18 @@ function createGoalExtensionRuntime(
 		isSameRunningGoal: sameRunningGoal,
 	});
 	const errorStatusScheduler = createErrorStatusScheduler({ onStatus: status.append });
-	let clearGoalSchedules: (sessionId: string) => void;
+	const schedules: ClearableSchedule[] = [emptyResponseScheduler, errorStatusScheduler, status];
+	const clearGoalSchedules = (sessionId: string): void => {
+		for (const schedule of schedules) schedule.clearSession(sessionId);
+	};
 	const { scheduler, applyDecision } = createIdleGoalScheduler(
 		{ pi, reviewGoal, evidence, status, goalWork },
-		(sessionId) => clearGoalSchedules(sessionId),
+		clearGoalSchedules,
 	);
 	const completionScheduler = createGoalCompletionScheduler(pi, reviewGoal, evidence, status, goalWork);
-	clearGoalSchedules = (sessionId: string): void => {
-		emptyResponseScheduler.clearSession(sessionId);
-		errorStatusScheduler.clearSession(sessionId);
-		scheduler.clearSession(sessionId);
-		completionScheduler.clearSession(sessionId);
-		status.clearSession(sessionId);
-	};
+	schedules.push(scheduler, completionScheduler);
 	const clearAllGoalSchedules = (): void => {
-		emptyResponseScheduler.clearAll();
-		errorStatusScheduler.clearAll();
-		scheduler.clearAll();
-		completionScheduler.clearAll();
-		status.clearAll();
+		for (const schedule of schedules) schedule.clearAll();
 		goalWork.clearAll();
 	};
 	return {
