@@ -3,7 +3,12 @@ import type { TLocalizedValidationError } from "typebox/error";
 import { Value } from "typebox/value";
 import type { Tool, ToolCall } from "../types.ts";
 
-const validatorCache = new WeakMap<object, ReturnType<typeof Compile>>();
+type SchemaValidator = {
+	Check: (value: unknown) => boolean;
+	Errors: (value: unknown) => TLocalizedValidationError[];
+};
+
+const validatorCache = new WeakMap<object, SchemaValidator>();
 const TYPEBOX_KIND = Symbol.for("TypeBox.Kind");
 
 interface JsonSchemaObject {
@@ -63,7 +68,7 @@ function isValidatorSchema(value: unknown): value is Tool["parameters"] {
 	return isRecord(value);
 }
 
-function getSubSchemaValidator(schema: JsonSchemaObject): ReturnType<typeof Compile> | undefined {
+function getSubSchemaValidator(schema: JsonSchemaObject): SchemaValidator | undefined {
 	if (!isValidatorSchema(schema)) {
 		return undefined;
 	}
@@ -270,13 +275,25 @@ function guardArrayUnionChecks(schema: JsonSchemaObject): JsonSchemaObject {
 	return normalized;
 }
 
-function getValidator(schema: Tool["parameters"]): ReturnType<typeof Compile> {
+function getValidator(schema: Tool["parameters"]): SchemaValidator {
 	const key = schema as object;
 	const cached = validatorCache.get(key);
 	if (cached) {
 		return cached;
 	}
-	const validator = Compile(guardArrayUnionChecks(schema) as Tool["parameters"]);
+	const guarded = guardArrayUnionChecks(schema) as Tool["parameters"];
+	let validator: SchemaValidator;
+	try {
+		validator = Compile(guarded);
+	} catch (error) {
+		if (!(error instanceof EvalError || error instanceof TypeError)) {
+			throw error;
+		}
+		validator = {
+			Check: (value) => Value.Check(guarded, value),
+			Errors: (value) => Value.Errors(guarded, value),
+		};
+	}
 	validatorCache.set(key, validator);
 	return validator;
 }

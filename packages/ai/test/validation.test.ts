@@ -71,6 +71,9 @@ describe("validateToolArguments", () => {
 
 		try {
 			expect(validateToolArguments(tool, toolCall)).toEqual({ count: 42 });
+			expect(() =>
+				validateToolArguments(tool, { type: "toolCall", id: "tool-2", name: "echo", arguments: { count: "bad" } }),
+			).toThrow("Validation failed");
 		} finally {
 			globalThis.Function = originalFunction;
 		}

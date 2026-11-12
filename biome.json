@@ -37,5 +37,33 @@
 			"!packages/mom/data/**/*",
 			"!!**/node_modules"
 		]
-	}
+	},
+	"overrides": [
+		{
+			"includes": ["packages/tui/src/**/*.ts"],
+			"linter": {
+				"rules": {
+					"suspicious": {
+						"noExplicitAny": "error"
+					}
+				}
+			}
+		},
+		{
+			"includes": [
+				"packages/coding-agent/extensions/**/*.ts",
+				"!packages/coding-agent/extensions/claude-bridge/**/*.ts"
+			],
+			"linter": {
+				"rules": {
+					"style": {
+						"noNonNullAssertion": "error"
+					},
+					"suspicious": {
+						"noExplicitAny": "error"
+					}
+				}
+			}
+		}
+	]
 }
