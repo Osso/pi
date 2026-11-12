@@ -50,7 +50,7 @@ function shouldProxyHostname(hostname: string, port: number, env?: ProviderEnv):
 
 		const parsedProxy = proxy.match(/^(.+):(\d+)$/);
 		let proxyHostname = parsedProxy ? parsedProxy[1] : proxy;
-		const proxyPort = parsedProxy ? Number.parseInt(parsedProxy[2]!, 10) : 0;
+		const proxyPort = parsedProxy?.[2] ? Number.parseInt(parsedProxy[2], 10) : 0;
 		if (proxyPort && proxyPort !== port) {
 			return true;
 		}
@@ -72,7 +72,7 @@ function getProxyForUrl(targetUrl: string | URL, env?: ProviderEnv): string {
 		return "";
 	}
 
-	const protocol = parsedUrl.protocol.split(":", 1)[0]!;
+	const protocol = parsedUrl.protocol.split(":", 1)[0] ?? "";
 	const hostname = parsedUrl.host.replace(/:\d*$/, "");
 	const port = Number.parseInt(parsedUrl.port, 10) || DEFAULT_PROXY_PORTS[protocol] || 0;
 	if (!shouldProxyHostname(hostname, port, env)) {

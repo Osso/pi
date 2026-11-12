@@ -571,8 +571,9 @@ function getGoogleBudget(
 	effort: ClampedThinkingLevel,
 	customBudgets?: ThinkingBudgets,
 ): number {
-	if (customBudgets?.[effort] !== undefined) {
-		return customBudgets[effort]!;
+	const customBudget = customBudgets?.[effort];
+	if (customBudget !== undefined) {
+		return customBudget;
 	}
 
 	if (model.id.includes("2.5-pro")) {

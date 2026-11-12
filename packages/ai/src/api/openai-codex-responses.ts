@@ -1394,8 +1394,9 @@ async function* parseWebSocket(
 			if (signal?.aborted) {
 				throw new Error("Request was aborted");
 			}
-			if (queue.length > 0) {
-				yield queue.shift()!;
+			const queuedEvent = queue.shift();
+			if (queuedEvent !== undefined) {
+				yield queuedEvent;
 				continue;
 			}
 			if (done) break;

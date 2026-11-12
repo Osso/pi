@@ -129,10 +129,11 @@ const NON_OVERFLOW_PATTERNS = [
  */
 export function isContextOverflow(message: AssistantMessage, contextWindow?: number): boolean {
 	// Case 1: Check error message patterns
-	if (message.stopReason === "error" && message.errorMessage) {
+	const errorMessage = message.errorMessage;
+	if (message.stopReason === "error" && errorMessage) {
 		// Skip messages matching known non-overflow patterns (e.g. throttling / rate-limit)
-		const isNonOverflow = NON_OVERFLOW_PATTERNS.some((p) => p.test(message.errorMessage!));
-		if (!isNonOverflow && OVERFLOW_PATTERNS.some((p) => p.test(message.errorMessage!))) {
+		const isNonOverflow = NON_OVERFLOW_PATTERNS.some((p) => p.test(errorMessage));
+		if (!isNonOverflow && OVERFLOW_PATTERNS.some((p) => p.test(errorMessage))) {
 			return true;
 		}
 	}

@@ -49,8 +49,9 @@ export class EventStream<T, R = T> implements AsyncIterable<T> {
 		if (result !== undefined) {
 			this.resolveFinalResult(result);
 		}
-		while (this.waiting.length > 0) {
-			const waiter = this.waiting.shift()!;
+		while (true) {
+			const waiter = this.waiting.shift();
+			if (!waiter) break;
 			waiter.resolve({ value: undefined as any, done: true });
 		}
 	}
@@ -61,15 +62,18 @@ export class EventStream<T, R = T> implements AsyncIterable<T> {
 		this.failed = true;
 		this.failure = error;
 		this.rejectFinalResult(error);
-		while (this.waiting.length > 0) {
-			this.waiting.shift()!.reject(error);
+		while (true) {
+			const waiter = this.waiting.shift();
+			if (!waiter) break;
+			waiter.reject(error);
 		}
 	}
 
 	async *[Symbol.asyncIterator](): AsyncIterator<T> {
 		while (true) {
-			if (this.queue.length > 0) {
-				yield this.queue.shift()!;
+			const queued = this.queue.shift();
+			if (queued !== undefined) {
+				yield queued;
 			} else if (this.done) {
 				if (this.failed) throw this.failure;
 				return;

@@ -436,7 +436,10 @@ async function consumeChatStream(
 				}
 			}
 
-			if (!block) {
+			let contentIndex: number;
+			if (block && existingIndex !== undefined) {
+				contentIndex = existingIndex;
+			} else {
 				block = {
 					type: "toolCall",
 					id: callId,
@@ -445,8 +448,9 @@ async function consumeChatStream(
 					partialArgs: "",
 				};
 				output.content.push(block);
-				toolBlocksByKey.set(key, output.content.length - 1);
-				stream.push({ type: "toolcall_start", contentIndex: output.content.length - 1, partial: output });
+				contentIndex = output.content.length - 1;
+				toolBlocksByKey.set(key, contentIndex);
+				stream.push({ type: "toolcall_start", contentIndex, partial: output });
 			}
 
 			const argsDelta =
@@ -457,7 +461,7 @@ async function consumeChatStream(
 			block.arguments = parseStreamingJson<Record<string, unknown>>(block.partialArgs);
 			stream.push({
 				type: "toolcall_delta",
-				contentIndex: toolBlocksByKey.get(key)!,
+				contentIndex,
 				delta: argsDelta,
 				partial: output,
 			});

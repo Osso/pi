@@ -244,7 +244,10 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 				await options?.onResponse?.({ status: response.$metadata.httpStatusCode, headers: responseHeaders }, model);
 			}
 
-			for await (const item of response.stream!) {
+			if (!response.stream) {
+				throw new Error("Bedrock response stream is missing");
+			}
+			for await (const item of response.stream) {
 				if (item.messageStart) {
 					if (item.messageStart.role !== ConversationRole.ASSISTANT) {
 						throw new Error("Unexpected assistant message start but got user message start instead");
@@ -412,13 +415,16 @@ export const streamSimple: StreamFunction<"bedrock-converse-stream", SimpleStrea
 
 		const maxTokens = clampMaxTokensToContext(model, context, adjusted.maxTokens);
 
+		const clampedReasoning = clampReasoning(options.reasoning);
 		return stream(model, context, {
 			...base,
 			maxTokens,
 			reasoning: options.reasoning,
 			thinkingBudgets: {
 				...(options.thinkingBudgets || {}),
-				[clampReasoning(options.reasoning)!]: Math.min(adjusted.thinkingBudget, Math.max(0, maxTokens - 1024)),
+				...(clampedReasoning
+					? { [clampedReasoning]: Math.min(adjusted.thinkingBudget, Math.max(0, maxTokens - 1024)) }
+					: {}),
 			},
 		} satisfies BedrockOptions);
 	}
@@ -436,7 +442,8 @@ function handleContentBlockStart(
 	output: AssistantMessage,
 	stream: AssistantMessageEventStream,
 ): void {
-	const index = event.contentBlockIndex!;
+	const index = event.contentBlockIndex;
+	if (index === undefined) return;
 	const start = event.start;
 
 	if (start?.toolUse) {
@@ -459,7 +466,8 @@ function handleContentBlockDelta(
 	output: AssistantMessage,
 	stream: AssistantMessageEventStream,
 ): void {
-	const contentBlockIndex = event.contentBlockIndex!;
+	const contentBlockIndex = event.contentBlockIndex;
+	if (contentBlockIndex === undefined) return;
 	const delta = event.delta;
 	let index = blocks.findIndex((b) => b.index === contentBlockIndex);
 	let block = blocks[index];

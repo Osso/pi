@@ -985,16 +985,15 @@ export function convertMessages(
 						arguments: JSON.stringify(tc.arguments),
 					},
 				}));
-				const reasoningDetails = toolCalls
-					.filter((tc) => tc.thoughtSignature)
-					.map((tc) => {
-						try {
-							return JSON.parse(tc.thoughtSignature!);
-						} catch {
-							return null;
-						}
-					})
-					.filter(Boolean);
+				const reasoningDetails = toolCalls.flatMap((tc) => {
+					if (!tc.thoughtSignature) return [];
+					try {
+						const parsed = JSON.parse(tc.thoughtSignature);
+						return parsed ? [parsed] : [];
+					} catch {
+						return [];
+					}
+				});
 				if (reasoningDetails.length > 0) {
 					(assistantMsg as any).reasoning_details = reasoningDetails;
 				}

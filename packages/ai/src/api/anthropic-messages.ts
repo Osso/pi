@@ -1083,10 +1083,12 @@ function convertMessages(
 				} else if (block.type === "thinking") {
 					// Redacted thinking: pass the opaque payload back as redacted_thinking
 					if (block.redacted) {
-						blocks.push({
-							type: "redacted_thinking",
-							data: block.thinkingSignature!,
-						});
+						if (block.thinkingSignature) {
+							blocks.push({
+								type: "redacted_thinking",
+								data: block.thinkingSignature,
+							});
+						}
 						continue;
 					}
 					if (block.thinking.trim().length === 0) continue;
