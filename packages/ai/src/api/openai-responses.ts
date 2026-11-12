@@ -66,10 +66,7 @@ function getCompat(model: Model<"openai-responses">): ResolvedResponsesCompat {
 	};
 }
 
-function getPromptCacheRetention(
-	compat: ResolvedResponsesCompat,
-	cacheRetention: CacheRetention,
-): "24h" | undefined {
+function getPromptCacheRetention(compat: ResolvedResponsesCompat, cacheRetention: CacheRetention): "24h" | undefined {
 	return cacheRetention === "long" && compat.supportsLongCacheRetention ? "24h" : undefined;
 }
 
