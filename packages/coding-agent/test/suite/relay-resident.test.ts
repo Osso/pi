@@ -11,6 +11,7 @@ import {
 	enqueueStoredRuntimeMailboxMessage,
 	getControlDbPath,
 	listRuntimeMailboxMessages,
+	registerRuntimeMailboxListener,
 } from "../../src/core/session-control-db.ts";
 import { createHeadlessPaths, withHeadlessPi } from "./headless-pi.ts";
 
@@ -96,6 +97,12 @@ describe("Pi-managed relay resident", () => {
 				async (pi) => {
 					const db = getControlDbPath(pi.paths.agentDir);
 					configureRelay(pi.paths.agentDir);
+					registerRuntimeMailboxListener(
+						fake.remoteDb,
+						{ sessionId: "remote", agentId: null },
+						process.pid,
+						"/remote/relay.jsonl",
+					);
 					queueMessage(db);
 					try {
 						await Promise.all([pi.startSharedSession(), pi.startSharedSession()]);

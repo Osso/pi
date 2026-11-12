@@ -4,7 +4,11 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { runSshRelayClient } from "../src/core/host-relay-client.ts";
-import { enqueueStoredRuntimeMailboxMessage, listRuntimeMailboxMessages } from "../src/core/session-control-db.ts";
+import {
+	enqueueStoredRuntimeMailboxMessage,
+	listRuntimeMailboxMessages,
+	registerRuntimeMailboxListener,
+} from "../src/core/session-control-db.ts";
 
 describe("SSH relay reconnect", () => {
 	it("logs an outage, reconnects without losing queued messages, and stops its child", async () => {
@@ -34,6 +38,12 @@ await runHostRelay({ controlDbPath: ${JSON.stringify(receiverDb)}, host: "agent-
 		symlinkSync(fixture, join(directory, "ssh"));
 		vi.stubEnv("PATH", `${directory}:${process.env.PATH}`);
 		const log = vi.spyOn(console, "error").mockImplementation(() => {});
+		registerRuntimeMailboxListener(
+			receiverDb,
+			{ sessionId: "receiver", agentId: null },
+			process.pid,
+			"/receiver/ssh.jsonl",
+		);
 		enqueueStoredRuntimeMailboxMessage(senderDb, {
 			kind: "message",
 			recipientHost: "agent-server",
