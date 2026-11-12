@@ -54,16 +54,12 @@ export function loadOrMigrateGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionMa
 	return migrateLegacyGoal(ctx);
 }
 
-export function loadOrMigrateActiveGoal(
-	ctx: Pick<ExtensionContext, "cwd" | "sessionManager">,
-): Goal | null {
+export function loadOrMigrateActiveGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
 	const goal = loadOrMigrateGoal(ctx);
 	return goal && !goal.completedAt ? goal : null;
 }
 
-export function loadOrMigrateRunningGoal(
-	ctx: Pick<ExtensionContext, "cwd" | "sessionManager">,
-): Goal | null {
+export function loadOrMigrateRunningGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">): Goal | null {
 	const goal = loadOrMigrateActiveGoal(ctx);
 	return goal && !goal.pausedAt ? goal : null;
 }
@@ -92,10 +88,7 @@ export function saveGoal(ctx: Pick<ExtensionContext, "sessionManager">, goal: Go
 	saveGoalJson(ctx, goal);
 }
 
-export function markGoalComplete(
-	ctx: Pick<ExtensionContext, "cwd" | "sessionManager">,
-	reason: string,
-): Goal | null {
+export function markGoalComplete(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">, reason: string): Goal | null {
 	const goal = loadOrMigrateActiveGoal(ctx);
 	if (!goal) return null;
 	const completedGoal: Goal = {
@@ -108,10 +101,7 @@ export function markGoalComplete(
 	return completedGoal;
 }
 
-export function pauseGoal(
-	ctx: Pick<ExtensionContext, "cwd" | "sessionManager">,
-	reason: string,
-): Goal | null {
+export function pauseGoal(ctx: Pick<ExtensionContext, "cwd" | "sessionManager">, reason: string): Goal | null {
 	const goal = loadOrMigrateActiveGoal(ctx);
 	if (!goal) return null;
 	const pausedGoal: Goal = {

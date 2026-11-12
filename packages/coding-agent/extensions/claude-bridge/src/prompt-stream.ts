@@ -95,7 +95,7 @@ export function makePromptStream(): PromptStream {
 			// real cause its `catch` recorded.
 			if (failure) return;
 			failure = error;
-			queue.splice(0).forEach((item) => item.reject(error));
+			for (const item of queue.splice(0)) item.reject(error);
 			inflight?.reject(error);
 			kick();
 		},

@@ -8,7 +8,7 @@
 //
 // Extracted from index.ts so tests can import it without activating the extension.
 
-import type { JsonlRecord, ImportAttachment } from "cc-session-io";
+import type { ImportAttachment, JsonlRecord } from "cc-session-io";
 import { messageContentToText } from "./convert.ts";
 
 // Only `@file` expansions are carried. They are the one thing pi genuinely never

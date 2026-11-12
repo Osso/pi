@@ -132,11 +132,7 @@ export async function setAgentModel(
 	};
 }
 
-export function registerSetAgentModelTool(
-	pi: ExtensionAPI,
-	store: MultiAgentStore,
-	sessions: LiveAgentSessions,
-): void {
+export function registerSetAgentModelTool(pi: ExtensionAPI, store: MultiAgentStore, sessions: LiveAgentSessions): void {
 	pi.registerTool(
 		defineTool({
 			name: "set_agent_model",

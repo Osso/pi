@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { parsePullRequest, type PullRequest } from "./pull-request.ts";
+import { type PullRequest, parsePullRequest } from "./pull-request.ts";
 
 const runFile = promisify(execFile);
 const GITHUB_TIMEOUT_MS = 10_000;

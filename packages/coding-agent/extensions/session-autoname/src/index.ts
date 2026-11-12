@@ -3,7 +3,7 @@
 //! The model names the session itself through the `set_session_name` tool instead of
 //! an extension-issued title request, so naming costs no extra provider call.
 
-import { type Static, Type } from "typebox";
+import { Type } from "typebox";
 import type { AgentToolResult, ExtensionAPI, ExtensionContext } from "../../../src/core/extensions/types.ts";
 
 const MAX_NAME_CHARS = 80;
@@ -11,8 +11,6 @@ const MAX_NAME_CHARS = 80;
 const SET_SESSION_NAME_PARAMETERS = Type.Object({
 	name: Type.String({ description: "Short 2-4 word session title." }),
 });
-
-type SetSessionNameParams = Static<typeof SET_SESSION_NAME_PARAMETERS>;
 
 interface SetSessionNameDetails {
 	name: string;
@@ -44,11 +42,7 @@ export default function sessionAutonameExtension(pi: ExtensionAPI): void {
 }
 
 /** Return why the session cannot take this name, or undefined when it can. */
-function describeRefusal(
-	ctx: ExtensionContext,
-	name: string,
-	nameSetByTool: string | undefined,
-): string | undefined {
+function describeRefusal(ctx: ExtensionContext, name: string, nameSetByTool: string | undefined): string | undefined {
 	if (!name) return "Session name must be a non-empty string.";
 	if (ctx.multiAgentAgentId || ctx.sessionManager.isSubagentSession()) {
 		return "Child agent sessions cannot be named.";
@@ -67,7 +61,10 @@ function describeRefusal(
 }
 
 function normalizeName(rawName: string): string {
-	const collapsed = rawName.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim();
+	const collapsed = rawName
+		.replace(/[\r\n]+/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
 	if (collapsed.length <= MAX_NAME_CHARS) return collapsed;
 	const bounded = collapsed.slice(0, MAX_NAME_CHARS + 1);
 	const lastSpace = bounded.lastIndexOf(" ");

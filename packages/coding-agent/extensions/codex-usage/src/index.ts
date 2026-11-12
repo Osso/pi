@@ -392,7 +392,11 @@ function readCostValue(value: unknown): number | null {
 function formatOpenAiPlatformReport(rows: OpenAiPlatformRow[]): UsageSection {
 	const providerWidth = Math.max("Provider".length, ...rows.map((row) => row.provider.length));
 	const accountWidth = Math.max("Account".length, ...rows.map((row) => row.account.length));
-	const header = formatPlatformColumns(["Today", "Month", "Provider", "Account", "Status"], providerWidth, accountWidth);
+	const header = formatPlatformColumns(
+		["Today", "Month", "Provider", "Account", "Status"],
+		providerWidth,
+		accountWidth,
+	);
 	const body = rows.map((row) =>
 		formatPlatformColumns(
 			[row.today ?? MISSING, row.month ?? MISSING, row.provider, row.account, row.status ?? ""],
@@ -525,7 +529,10 @@ function formatAccountRow(row: AccountUsageRow, accountWidth: number): string {
 	const resets = `${formatUsageReset(row.fiveHour)} | ${formatUsageReset(row.weekly)}`;
 	const percents = [formatUsagePercent(row.fiveHour), formatUsagePercent(row.weekly)];
 	const resetCredits = row.resetCreditsAvailable?.toString() ?? MISSING;
-	return formatAccountColumns([...percents, resetCredits, row.provider, row.account, row.status ?? resets], accountWidth);
+	return formatAccountColumns(
+		[...percents, resetCredits, row.provider, row.account, row.status ?? resets],
+		accountWidth,
+	);
 }
 
 /** Percent columns first: fixed width so they line up regardless of account name length. */
@@ -888,9 +895,10 @@ export function mapOpenRouterUsage(
 	const limit = readFiniteNumber(key?.limit);
 	const remaining = readFiniteNumber(key?.limit_remaining);
 	const resetsAt = readIsoEpochSeconds(asRecord(key?.effective_budget)?.resets_at);
-	const week = limit !== null && limit > 0 && remaining !== null
-		? deepseekWindow(((limit - remaining) / limit) * 100, resetsAt)
-		: null;
+	const week =
+		limit !== null && limit > 0 && remaining !== null
+			? deepseekWindow(((limit - remaining) / limit) * 100, resetsAt)
+			: null;
 	const credits = asRecord(asRecord(creditsPayload)?.data);
 	const total = readFiniteNumber(credits?.total_credits);
 	const used = readFiniteNumber(credits?.total_usage);
@@ -929,7 +937,8 @@ export function mapCommandCodeUsage(
 	const monthlyRemaining = readFiniteNumber(monthly?.monthlyCredits);
 	const monthlyUsed = readFiniteNumber(summary?.totalMonthlyCredits);
 	const allowance = monthlyRemaining !== null && monthlyUsed !== null ? monthlyRemaining + monthlyUsed : null;
-	const periodEnd = typeof subscription?.currentPeriodEnd === "string" ? Date.parse(subscription.currentPeriodEnd) : Number.NaN;
+	const periodEnd =
+		typeof subscription?.currentPeriodEnd === "string" ? Date.parse(subscription.currentPeriodEnd) : Number.NaN;
 
 	return {
 		day: windowPercent(windows?.fiveHour),
@@ -948,7 +957,13 @@ export function mapCommandCodeUsage(
 export function formatDeepseekUsage(rows: DeepseekRow[]): string {
 	const balanceWidth = Math.max("Balance".length, ...rows.map((row) => (row.balance ?? MISSING).length));
 	const providerWidth = Math.max("Provider".length, ...rows.map((row) => row.provider.length));
-	const lines = [formatDeepseekColumns(["Day", "Week", "Month", "Balance", "Provider", "Resets Central (day | week | month)"], balanceWidth, providerWidth)];
+	const lines = [
+		formatDeepseekColumns(
+			["Day", "Week", "Month", "Balance", "Provider", "Resets Central (day | week | month)"],
+			balanceWidth,
+			providerWidth,
+		),
+	];
 	for (const row of rows) {
 		const resets = `${formatUsageReset(row.day)} | ${formatUsageReset(row.week)} | ${formatUsageReset(row.month)}`;
 		lines.push(
@@ -986,7 +1001,8 @@ function formatDeepseekColumns(cells: string[], balanceWidth: number, providerWi
 async function fetchUsageJson(url: string, apiKey: string, label: string): Promise<unknown> {
 	const response = await fetch(url, { headers: { authorization: `Bearer ${apiKey}` } });
 	const text = await response.text();
-	if (!response.ok) throw new Error(`${label} usage request failed (${response.status}): ${text || response.statusText}`);
+	if (!response.ok)
+		throw new Error(`${label} usage request failed (${response.status}): ${text || response.statusText}`);
 	return text ? (JSON.parse(text) as unknown) : {};
 }
 
@@ -1015,9 +1031,7 @@ async function readCommandCodeUsage(apiKey: string): Promise<Partial<DeepseekRow
 	const periodStart = asRecord(asRecord(subscription)?.data)?.currentPeriodStart;
 	const summaryQuery = new URLSearchParams(orgId ? { orgId } : {});
 	if (typeof periodStart === "string") summaryQuery.set("since", periodStart);
-	const summary = await fetchJson(
-		`/alpha/usage/summary${summaryQuery.size > 0 ? `?${summaryQuery.toString()}` : ""}`,
-	);
+	const summary = await fetchJson(`/alpha/usage/summary${summaryQuery.size > 0 ? `?${summaryQuery.toString()}` : ""}`);
 	return mapCommandCodeUsage(credits, subscription, summary);
 }
 

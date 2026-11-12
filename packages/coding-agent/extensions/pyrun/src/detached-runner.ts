@@ -4,25 +4,25 @@ import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, w
 import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isBunBinary } from "../../../src/config.ts";
-import { isProcessIdentityAlive, type ProcessIdentity } from "../../../src/core/runtime-process.ts";
+import { finalizeDetachedJobWithRetry } from "../../../src/core/detached-bash-runner.ts";
 import {
 	claimDetachedJobRuntimeCommands,
-	enqueueDetachedJobStatusResponse,
 	type DetachedJobCancelCommand,
 	type DetachedJobResponseCommand,
+	enqueueDetachedJobStatusResponse,
 } from "../../../src/core/detached-job-control.ts";
 import {
 	createDetachedJobTerminalInput,
 	type DetachedJobArtifacts,
-	type DetachedJobOwnershipIdentity,
 	type DetachedJobOutcome,
+	type DetachedJobOwnershipIdentity,
 } from "../../../src/core/detached-job-runner.ts";
+import { isProcessIdentityAlive, type ProcessIdentity } from "../../../src/core/runtime-process.ts";
 import {
 	finalizeDetachedJob,
-	retainControlDbConnection,
 	type RuntimeMailboxAddress,
+	retainControlDbConnection,
 } from "../../../src/core/session-control-db.ts";
-import { finalizeDetachedJobWithRetry } from "../../../src/core/detached-bash-runner.ts";
 import { enqueueDetachedPyrunBridgeRequest } from "./detached-bridge.ts";
 import { PyrunArtifactWriter } from "./detached-output.ts";
 import {
@@ -104,7 +104,10 @@ export function getDetachedPyrunRunnerInvocation(
 		return { args: [DETACHED_PYRUN_RUNNER_MODE, manifestPath], executable };
 	}
 	const entryPath = options?.entryPath ?? defaultRunnerEntryPath();
-	const args = extname(entryPath) === ".ts" ? ["--experimental-strip-types", entryPath, manifestPath] : [entryPath, manifestPath];
+	const args =
+		extname(entryPath) === ".ts"
+			? ["--experimental-strip-types", entryPath, manifestPath]
+			: [entryPath, manifestPath];
 	return { args, executable };
 }
 
@@ -162,12 +165,7 @@ async function waitForDetachedPyrunSettlement(
 			? dispatchDetachedPyrunBridgeRequest(manifest, control.identity, pendingRequests, request)
 			: dispatchForegroundPyrunBridgeRequest(manifest, pendingRequests, request);
 	const settled = runner
-		.evaluate(
-			manifest.params,
-			(update) => output.appendProgress(update),
-			abort.signal,
-			dispatchPiRequest,
-		)
+		.evaluate(manifest.params, (update) => output.appendProgress(update), abort.signal, dispatchPiRequest)
 		.then(
 			(result) => ({ result }),
 			(error: unknown) => ({ error }),
@@ -289,9 +287,10 @@ function settleBridgeResponse(
 }
 
 function appendPyrunSettlementRecord(output: PyrunArtifactWriter, settlement: PyrunSettlement): void {
-	const record = "result" in settlement
-		? { kind: "result" as const, result: settlement.result }
-		: { error: errorMessage(settlement.error), kind: "error" as const };
+	const record =
+		"result" in settlement
+			? { kind: "result" as const, result: settlement.result }
+			: { error: errorMessage(settlement.error), kind: "error" as const };
 	output.finish(record);
 }
 

@@ -1,8 +1,8 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { spawn } from "node:child_process";
 import { appendFileSync, closeSync, mkdirSync, openSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const CLAUDE_MEMORY = "/home/osso/.cargo/bin/claude-memory";
 

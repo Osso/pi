@@ -1,6 +1,6 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readdir, stat } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const CUSTOM_SECTION_START = "<repo_docs_files>";
 const CUSTOM_SECTION_END = "</repo_docs_files>";

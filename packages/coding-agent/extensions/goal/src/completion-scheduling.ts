@@ -5,7 +5,7 @@ import { goalMatchesReview, loadOrMigrateActiveGoal, markGoalComplete } from "./
 import type { Goal, GoalEvidenceReview, ReviewedGoalResponse } from "./goal-types.ts";
 import type { GoalWorkStarter } from "./goal-work.ts";
 import { continueMission } from "./mission.ts";
-import { sendSupervisorInstructions, type SupervisorStatusController } from "./rendering.ts";
+import { type SupervisorStatusController, sendSupervisorInstructions } from "./rendering.ts";
 import { appendGoalSchedulingError } from "./wait-status.ts";
 
 interface CompletionWait {

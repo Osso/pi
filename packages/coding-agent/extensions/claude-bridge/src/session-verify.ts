@@ -2,7 +2,7 @@
 // callers decide how to surface them (debug log, piUI, diagDump, etc.).
 // Extracted from index.ts so tests can import without activating the extension.
 
-import { statSync, readFileSync } from "fs";
+import { readFileSync, statSync } from "fs";
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -13,15 +13,15 @@ export function verifyWrittenSession(
 	expectedSessionId: string,
 	expectedRecordCount: number,
 ): string[] {
-	const warnings = [];
-	let st;
+	const warnings: string[] = [];
+	let st: ReturnType<typeof statSync>;
 	try {
 		st = statSync(jsonlPath);
 	} catch (error) {
 		warnings.push(`file missing after save — path=${jsonlPath} err=${errorMessage(error)}`);
 		return warnings;
 	}
-	let content;
+	let content: string;
 	try {
 		content = readFileSync(jsonlPath, "utf8");
 	} catch (error) {

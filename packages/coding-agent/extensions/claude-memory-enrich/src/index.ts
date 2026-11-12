@@ -1,6 +1,6 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const DEFAULT_CLAUDE_MEMORY = "/home/osso/.cargo/bin/claude-memory";
 const ENRICH_TIMEOUT_MS = 75_000;
@@ -160,8 +160,12 @@ function captureEnrichOutput(child: ChildProcessWithoutNullStreams): EnrichOutpu
 	const output: EnrichOutput = { stdout: "", stderr: "" };
 	child.stdout.setEncoding("utf8");
 	child.stderr.setEncoding("utf8");
-	child.stdout.on("data", (chunk: string) => (output.stdout += chunk));
-	child.stderr.on("data", (chunk: string) => (output.stderr += chunk));
+	child.stdout.on("data", (chunk: string) => {
+		output.stdout += chunk;
+	});
+	child.stderr.on("data", (chunk: string) => {
+		output.stderr += chunk;
+	});
 	return output;
 }
 

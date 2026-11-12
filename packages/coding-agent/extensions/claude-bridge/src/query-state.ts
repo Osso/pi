@@ -6,17 +6,17 @@
 //
 // Extracted from index.ts so tests can import without activating the extension.
 
-import type { AssistantMessage, AssistantMessageEventStream, Model } from "@earendil-works/pi-ai";
 import type { SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
-import type { McpResult } from "./extract-tool-results.ts";
-import type { PromptStream } from "./prompt-stream.ts";
-import type { ShapeTrace } from "./shape-trace.ts";
+import type { AssistantMessage, AssistantMessageEventStream, Model } from "@earendil-works/pi-ai";
 import {
 	type AccountObservation,
 	type AccountState,
 	mergeAccountStates,
 	nextAccountProfile,
 } from "./account-profiles.ts";
+import type { McpResult } from "./extract-tool-results.ts";
+import type { PromptStream } from "./prompt-stream.ts";
+import type { ShapeTrace } from "./shape-trace.ts";
 
 export const ACCOUNTS_EXHAUSTED = "Claude account profiles exhausted. No eligible account remains.";
 

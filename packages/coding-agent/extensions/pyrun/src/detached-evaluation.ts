@@ -1,34 +1,31 @@
 import {
 	closeSync,
 	existsSync,
-	fsyncSync,
+	type FSWatcher,
 	fstatSync,
+	fsyncSync,
 	openSync,
 	readFileSync,
 	readSync,
 	renameSync,
-	type FSWatcher,
 	writeFileSync,
 } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
-import type { AgentToolResult, ExtensionContext } from "../../../src/core/extensions/types.ts";
 import { finalizeDetachedJobWithRetry } from "../../../src/core/detached-bash-runner.ts";
 import { createDetachedJobLifecycleController } from "../../../src/core/detached-job-lifecycle.ts";
 import { createDetachedJobTerminalInput } from "../../../src/core/detached-job-runner.ts";
+import type { AgentToolResult, ExtensionContext } from "../../../src/core/extensions/types.ts";
 import { LifecycleCoordinator } from "../../../src/core/lifecycle-coordinator.ts";
-import { isActiveLifecycle, type AgentSnapshot, type MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
-import { isProcessIdentityAlive, type ProcessIdentity, readProcessIdentity } from "../../../src/core/runtime-process.ts";
-import { finalizeDetachedJob, readMultiAgentAgent } from "../../../src/core/session-control-db.ts";
-import { closeWatcher, watchWithErrorHandler } from "../../../src/utils/fs-watch.ts";
-import type { ToolDetachRegistry } from "../../../src/core/tool-detach-registry.ts";
-import { createArtifactProgressAccumulator, type PyrunArtifactRecord } from "./detached-progress.ts";
+import { type AgentSnapshot, isActiveLifecycle, type MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
 import {
-	createCanonicalPyrunEvalParams,
-	createPyrunProgressReporter,
-	formatCanonicalPyrunEvalResult,
-	type PyrunEvalParams,
-	type PyrunPiRequestDispatcher,
-} from "./eval-tool.ts";
+	isProcessIdentityAlive,
+	type ProcessIdentity,
+	readProcessIdentity,
+} from "../../../src/core/runtime-process.ts";
+import { finalizeDetachedJob, readMultiAgentAgent } from "../../../src/core/session-control-db.ts";
+import type { ToolDetachRegistry } from "../../../src/core/tool-detach-registry.ts";
+import { closeWatcher, watchWithErrorHandler } from "../../../src/utils/fs-watch.ts";
+import { createArtifactProgressAccumulator, type PyrunArtifactRecord } from "./detached-progress.ts";
 import {
 	launchDetachedPyrunRunner,
 	readDetachedPyrunActivation,
@@ -36,6 +33,13 @@ import {
 	writeDetachedPyrunActivation,
 	writeDetachedPyrunLaunchManifest,
 } from "./detached-runner.ts";
+import {
+	createCanonicalPyrunEvalParams,
+	createPyrunProgressReporter,
+	formatCanonicalPyrunEvalResult,
+	type PyrunEvalParams,
+	type PyrunPiRequestDispatcher,
+} from "./eval-tool.ts";
 import type { CanonicalPyrunEvalResult, CanonicalPyrunProgressUpdate, PyrunRunnerOptions } from "./runner.ts";
 
 const ARTIFACT_POLL_MS = 1_000;
@@ -270,12 +274,7 @@ async function restoreForegroundPyrunRunner(
 	if (manifestAgentId !== input.agentId) {
 		throw new Error(`Pyrun launch manifest agent ID mismatch: ${candidate.manifestPath}`);
 	}
-	const cancelled = await settleCancelledPyrunCandidate(
-		persistence,
-		candidate,
-		input.toolCallId,
-		input.agentId,
-	);
+	const cancelled = await settleCancelledPyrunCandidate(persistence, candidate, input.toolCallId, input.agentId);
 	if (cancelled) return cancelled;
 	if (candidate.manifest.toolCallId !== input.toolCallId) {
 		throw new Error(`Pyrun tool-call artifact collision for ${input.toolCallId}`);
@@ -578,13 +577,22 @@ async function observeDetachablePyrunEvaluation(input: DetachablePyrunInput): Pr
 	input.signal?.addEventListener("abort", cancel, { once: true });
 	try {
 		for (;;) {
-			await respondToPendingForegroundBridgeRequests(input, bridgeRequestCursor, control.getOwnership() !== undefined);
+			await respondToPendingForegroundBridgeRequests(
+				input,
+				bridgeRequestCursor,
+				control.getOwnership() !== undefined,
+			);
 			const artifactRead = readNewArtifactRecords(input.runner.artifacts.outputPath, outputCursor);
 			result = progressAccumulator.consume(artifactRead.values) ?? result;
 			const ownership = control.getOwnership();
 			const foregroundResult = settleForegroundEvaluation(input, artifactRead, result, ownership);
 			if (foregroundResult) return foregroundResult;
-			nextLivenessCheckAt = checkForegroundLiveness(input, ownership, artifactRead.hasUnreadBytes, nextLivenessCheckAt);
+			nextLivenessCheckAt = checkForegroundLiveness(
+				input,
+				ownership,
+				artifactRead.hasUnreadBytes,
+				nextLivenessCheckAt,
+			);
 			if (ownership) terminalAgent = input.controller.observe(ownership.agent.id);
 			if (terminalAgent && !isActiveLifecycle(terminalAgent.lifecycle)) break;
 			if (ownership && control.isActivated()) {
@@ -739,16 +747,18 @@ function consumeJsonLineBytes<T>(cursor: JsonLineReadCursor, data: Buffer): T[] 
 	return values;
 }
 
-function readNewArtifactRecords(
-	path: string,
-	cursor: JsonLineReadCursor,
-): JsonLineReadResult<PyrunArtifactRecord> {
+function readNewArtifactRecords(path: string, cursor: JsonLineReadCursor): JsonLineReadResult<PyrunArtifactRecord> {
 	return readJsonLineChunk<PyrunArtifactRecord>(path, cursor, ARTIFACT_READ_BYTE_LIMIT);
 }
 
 function detachedResult(params: PyrunEvalParams, jobId: string, logPath: string): AgentToolResult<unknown> {
 	return {
-		content: [{ type: "text", text: `${params.code}\n\nPyrun evaluation moved to background as job ${jobId}. Output will be written to ${logPath}.` }],
+		content: [
+			{
+				type: "text",
+				text: `${params.code}\n\nPyrun evaluation moved to background as job ${jobId}. Output will be written to ${logPath}.`,
+			},
+		],
 		details: { backgroundJobId: jobId, executed: params.code, type: "detached" },
 	};
 }

@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { readSessionHistoryReverse } from "../../../src/core/session-history.ts";
 import { isRecord, optionalString } from "./goal-parsing.ts";
 import { goalFooterStatus } from "./goal-presentation.ts";
 import {
@@ -10,7 +11,6 @@ import {
 	saveGoal,
 	USER_PAUSE_REASON,
 } from "./goal-state.ts";
-import { readSessionHistoryReverse } from "../../../src/core/session-history.ts";
 import type { Goal } from "./goal-types.ts";
 import type { GoalWorkStarter } from "./goal-work.ts";
 
@@ -121,7 +121,12 @@ export function continueMission(ctx: ExtensionContext, goalWork: GoalWorkStarter
 	if (goal) goalWork.start(ctx);
 }
 
-function setMission(objective: string, ctx: ExtensionCommandContext, pi: ExtensionAPI, goalWork: GoalWorkStarter): void {
+function setMission(
+	objective: string,
+	ctx: ExtensionCommandContext,
+	pi: ExtensionAPI,
+	goalWork: GoalWorkStarter,
+): void {
 	appendMission({ objective }, ctx, pi);
 	if (loadOrMigrateActiveGoal(ctx)?.mission) clearGoal(ctx);
 	ctx.ui.notify(`Mission set: ${objective}`, "info");
@@ -135,7 +140,12 @@ function pauseMission(mission: Mission, ctx: ExtensionCommandContext, pi: Extens
 	updateGoalFooterStatus(ctx);
 }
 
-function resumeMission(mission: Mission, ctx: ExtensionCommandContext, pi: ExtensionAPI, goalWork: GoalWorkStarter): void {
+function resumeMission(
+	mission: Mission,
+	ctx: ExtensionCommandContext,
+	pi: ExtensionAPI,
+	goalWork: GoalWorkStarter,
+): void {
 	appendMission({ objective: mission.objective }, ctx, pi);
 	ctx.ui.notify(`Mission resumed: ${mission.objective}`, "info");
 	continueMission(ctx, goalWork);
@@ -149,7 +159,10 @@ function clearMission(ctx: ExtensionCommandContext, pi: ExtensionAPI): void {
 }
 
 function showMission(mission: Mission | null, ctx: ExtensionCommandContext): void {
-	if (!mission) return ctx.ui.notify("No mission — use /mission set <objective>", "info");
+	if (!mission) {
+		ctx.ui.notify("No mission — use /mission set <objective>", "info");
+		return;
+	}
 	ctx.ui.notify(mission.pausedAt ? `Mission paused: ${mission.objective}` : `Mission: ${mission.objective}`, "info");
 }
 
@@ -162,15 +175,17 @@ function handleMissionCommand(
 	const [action = "", ...rest] = args.trim().split(/\s+/);
 	const mission = loadMission(ctx);
 	const objective = rest.join(" ");
-	if (action === "set" && objective) return setMission(objective, ctx, pi, goalWork);
-	if (rest.length > 0) return ctx.ui.notify("Use /mission set <objective> to set a mission", "error");
-	if (action === "") return showMission(mission, ctx);
-	if (action === "clear") return mission ? clearMission(ctx, pi) : ctx.ui.notify("No mission", "info");
-	if (action === "pause" && mission && !mission.pausedAt) return pauseMission(mission, ctx, pi);
-	if (action === "resume" && mission?.pausedAt) return resumeMission(mission, ctx, pi, goalWork);
-	if (action === "pause") return ctx.ui.notify("No running mission to pause", "info");
-	if (action === "resume") return ctx.ui.notify("No paused mission to resume", "info");
-	ctx.ui.notify("Use /mission set <objective> to set a mission", "error");
+	if (action === "set" && objective) setMission(objective, ctx, pi, goalWork);
+	else if (rest.length > 0) ctx.ui.notify("Use /mission set <objective> to set a mission", "error");
+	else if (action === "") showMission(mission, ctx);
+	else if (action === "clear") {
+		if (mission) clearMission(ctx, pi);
+		else ctx.ui.notify("No mission", "info");
+	} else if (action === "pause" && mission && !mission.pausedAt) pauseMission(mission, ctx, pi);
+	else if (action === "resume" && mission?.pausedAt) resumeMission(mission, ctx, pi, goalWork);
+	else if (action === "pause") ctx.ui.notify("No running mission to pause", "info");
+	else if (action === "resume") ctx.ui.notify("No paused mission to resume", "info");
+	else ctx.ui.notify("Use /mission set <objective> to set a mission", "error");
 }
 
 export function registerMissionCommand(

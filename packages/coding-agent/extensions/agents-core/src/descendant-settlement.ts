@@ -1,4 +1,4 @@
-import { isActiveLifecycle, type AgentSnapshot, type MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
+import { type AgentSnapshot, isActiveLifecycle, type MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
 import { readMultiAgentState } from "../../../src/core/session-control-db.ts";
 
 const DESCENDANT_RECONCILIATION_POLL_INTERVAL_MS = 250;

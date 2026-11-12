@@ -201,8 +201,12 @@ export default function loopExtension(pi: ExtensionAPI) {
 		approvalRequired: true,
 		parameters: Type.Object({
 			action: Type.Union([Type.Literal("start"), Type.Literal("stop"), Type.Literal("status")]),
-			intervalSeconds: Type.Optional(Type.Number({ description: "Interval in seconds. Required for action=start." })),
-			prompt: Type.Optional(Type.String({ description: "Prompt to inject on every interval. Required for action=start." })),
+			intervalSeconds: Type.Optional(
+				Type.Number({ description: "Interval in seconds. Required for action=start." }),
+			),
+			prompt: Type.Optional(
+				Type.String({ description: "Prompt to inject on every interval. Required for action=start." }),
+			),
 		}),
 		execute: async (_toolCallId, params, _signal, _onUpdate, _ctx: ExtensionContext) => {
 			if (params.action === "status") {

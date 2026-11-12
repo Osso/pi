@@ -1,59 +1,55 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { getAgentDir } from "../../../src/config.ts";
-import type { AgentSessionEvent } from "../../../src/core/agent-session.ts";
-import { DEFAULT_THINKING_LEVEL } from "../../../src/core/defaults.ts";
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { clampThinkingLevel } from "@earendil-works/pi-ai/compat";
 import { type Static, Type } from "typebox";
+import { getAgentDir } from "../../../src/config.ts";
+import type { AgentSessionEvent } from "../../../src/core/agent-session.ts";
+import { DEFAULT_THINKING_LEVEL } from "../../../src/core/defaults.ts";
+import {
+	type DesktopNotification,
+	type DesktopNotificationHandle,
+	type DesktopNotifier,
+	PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
+	sendDesktopNotification,
+	toDesktopNotificationHandle,
+} from "../../../src/core/desktop-notification.ts";
 import {
 	type AgentToolResult,
 	defineTool,
 	type ExtensionAPI,
-	type ExtensionFactory,
 	type ExtensionCommandContext,
 	type ExtensionContext,
+	type ExtensionFactory,
 	type ViewedSessionMutationTarget,
 } from "../../../src/core/extensions/types.ts";
-import {
-	PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
-	sendDesktopNotification,
-	toDesktopNotificationHandle,
-	type DesktopNotification,
-	type DesktopNotificationHandle,
-	type DesktopNotifier,
-} from "../../../src/core/desktop-notification.ts";
 import { LifecycleCoordinator, type OwnedLifecycleCommandInput } from "../../../src/core/lifecycle-coordinator.ts";
-import {
-	isProcessIdentityAlive,
-	isSupersededRuntimeIdentity,
-	type ProcessIdentity,
-} from "../../../src/core/runtime-process.ts";
+import { findExactModelReferenceMatch } from "../../../src/core/model-resolver.ts";
 import {
 	type AgentFileReference,
 	type AgentLifecycleState,
 	type AgentMailboxMessage,
-	type AgentResult,
 	type AgentSnapshot,
-	formatInactiveAgentSelectionMessage,
 	isActiveLifecycle,
-	type MailboxMessageCommandResult,
 	MultiAgentStore,
 	type PendingLifecycleNotification,
 	type SteeringCheckpoint,
 } from "../../../src/core/multi-agent-store.ts";
-import { findExactModelReferenceMatch } from "../../../src/core/model-resolver.ts";
 import {
 	formatRuntimeMailboxPrompt,
 	formatSharedChannelPrompt,
 } from "../../../src/core/runtime-coordination-format.ts";
 import type { RuntimeMailboxToolDelivery } from "../../../src/core/runtime-mailbox-acceptance.ts";
+import { isProcessIdentityAlive, isSupersededRuntimeIdentity } from "../../../src/core/runtime-process.ts";
+import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
+import { restoreArchivedSession } from "../../../src/core/session-archive-storage.ts";
 import {
 	advanceSharedChannelCursor,
 	enqueueRuntimeMailboxMessage,
 	hasPendingRuntimeCoordinationMessage,
 	isRuntimeCoordinationMailboxMessage,
 	listSharedChannelMessagesAfter,
+	type RuntimeMailboxAddress,
 	readActiveMultiAgentAgents,
 	readMultiAgentAgents,
 	readMultiAgentRuntimeOwnership,
@@ -62,29 +58,25 @@ import {
 	readSharedChannelTail,
 	releaseRuntimeMailboxMessageClaim,
 	resolveOwnMainRuntimeCoordinationRecipient,
-	type RuntimeMailboxAddress,
 	type SharedChannelMessage,
 	takeRuntimeMailboxMessagesForDelivery,
 } from "../../../src/core/session-control-db.ts";
-import { SessionManager, type SessionEntry, type SessionInfo } from "../../../src/core/session-manager.ts";
-import { restoreArchivedSession } from "../../../src/core/session-archive-storage.ts";
-import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
-import { CHILD_DISABLED_AGENT_TOOL_NAMES, SUPERVISOR_ONLY_TOOL_NAMES } from "../../../src/core/tool-capabilities.ts";
+import { type SessionEntry, type SessionInfo, SessionManager } from "../../../src/core/session-manager.ts";
 import { deliverTerminalOutboxProjections } from "../../../src/core/terminal-outbox-delivery.ts";
+import { CHILD_DISABLED_AGENT_TOOL_NAMES, SUPERVISOR_ONLY_TOOL_NAMES } from "../../../src/core/tool-capabilities.ts";
 import { registerAgentViewerTools } from "../../agent-viewer/src/runtime.ts";
+import { registerSetAgentModelTool, resolveLiveAgentMutationTarget } from "./agent-model-tool.ts";
+import { type AttachSessionInfo, findAttachSessionsById, readStoredSessionModel } from "./attach-session-lookup.ts";
+import { readCurrentChildAssistantText } from "./child-response.ts";
+import { bindProductionChildSession, type UnboundChildAgentSession } from "./child-session.ts";
+import { createChildTools } from "./child-tools.ts";
+import { waitForActiveDescendants } from "./descendant-settlement.ts";
 import {
 	type DetachedRuntimeCancellationOptions,
 	readDetachedRuntimeAgentIds,
 	requestDirectDetachedRuntimeCancellations,
 	requestPersistedDetachedRuntimeCancellation,
 } from "./detached-runtime-cancellation.ts";
-import { registerSetAgentModelTool, resolveLiveAgentMutationTarget } from "./agent-model-tool.ts";
-import { findAttachSessionsById, readStoredSessionModel, type AttachSessionInfo } from "./attach-session-lookup.ts";
-import { bindProductionChildSession, type UnboundChildAgentSession } from "./child-session.ts";
-import { readCurrentChildAssistantText } from "./child-response.ts";
-import { createChildTools } from "./child-tools.ts";
-import { isRemoteSessionMessage, sessionMessageRouteError } from "./session-message-route.ts";
-import { waitForActiveDescendants } from "./descendant-settlement.ts";
 import { createLifecycleCoordinator, RUNTIME_PROCESS_IDENTITY } from "./lifecycle-runtime.ts";
 import {
 	type ContactParentMessageParams,
@@ -92,6 +84,8 @@ import {
 	type SendAgentMessageParams,
 } from "./mailbox-tools.ts";
 import { registerQuestionRelayTools } from "./question-relay-tools.ts";
+import { isRemoteSessionMessage, sessionMessageRouteError } from "./session-message-route.ts";
+
 const MAX_GOAL_OBJECTIVE_CHARS = 10_000;
 const GOAL_EXTENSION_PATH = "<first-party:goal>";
 
@@ -130,9 +124,13 @@ const attachSessionAgentSchema = Type.Object({
 	displayName: Type.Optional(Type.String()),
 	name: Type.Optional(Type.String({ description: "Session name; provide exactly one of name, path, or sessionId." })),
 	parentId: Type.Optional(Type.String()),
-	path: Type.Optional(Type.String({ description: "Session transcript path; provide exactly one of name, path, or sessionId." })),
+	path: Type.Optional(
+		Type.String({ description: "Session transcript path; provide exactly one of name, path, or sessionId." }),
+	),
 	prompt: Type.Optional(Type.String()),
-	sessionId: Type.Optional(Type.String({ description: "Session ID or unique prefix; provide exactly one of name, path, or sessionId." })),
+	sessionId: Type.Optional(
+		Type.String({ description: "Session ID or unique prefix; provide exactly one of name, path, or sessionId." }),
+	),
 });
 
 const waitAgentsSchema = Type.Object({}, { additionalProperties: false });
@@ -2497,7 +2495,8 @@ function listPendingTerminalNotifications(
 ): PendingTerminalNotification[] {
 	const firstNotificationByAgent = new Map<string, PendingLifecycleNotification>();
 	for (const notification of store.listPendingLifecycleNotifications()) {
-		if (notification.lifecycle === "waiting_for_input" || firstNotificationByAgent.has(notification.agentId)) continue;
+		if (notification.lifecycle === "waiting_for_input" || firstNotificationByAgent.has(notification.agentId))
+			continue;
 		firstNotificationByAgent.set(notification.agentId, notification);
 	}
 	if (firstNotificationByAgent.size === 0) return [];
@@ -2628,7 +2627,7 @@ async function cancelOneOwnedAgentRuntime(
 	const dispatch = runtimeHandles.dispatches.get(agentId);
 	if (dispatch) {
 		const timeoutMs = runtimeHandles.cancellationSettlementTimeoutMs ?? CANCELLATION_SETTLEMENT_TIMEOUT_MS;
-		const settledBeforeTimeout = await Promise.race([
+		await Promise.race([
 			dispatch.then(() => true),
 			new Promise<false>((resolve) => setTimeout(() => resolve(false), timeoutMs)),
 		]);

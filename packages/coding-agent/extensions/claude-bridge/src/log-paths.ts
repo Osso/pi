@@ -7,8 +7,9 @@
  * Paths resolve per call rather than at import time, so tests can swap the
  * environment mid-process and see the new paths immediately.
  */
-import { getAgentDir } from "../../../src/config.ts";
+
 import { join } from "path";
+import { getAgentDir } from "../../../src/config.ts";
 
 export function debugLogPath(): string {
 	return process.env.CLAUDE_BRIDGE_DEBUG_PATH || join(getAgentDir(), "claude-bridge.log");

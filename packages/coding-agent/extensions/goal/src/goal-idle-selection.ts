@@ -1,6 +1,6 @@
 import type { AgentEndEvent, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { Goal } from "./goal-types.ts";
 import { didLastAssistantAbort, didLastAssistantReturnEmpty, findLastAssistantMessage } from "./goal-turn.ts";
+import type { Goal } from "./goal-types.ts";
 
 interface GoalIdleSelectionOptions {
 	event: AgentEndEvent;

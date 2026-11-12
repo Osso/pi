@@ -1,9 +1,5 @@
 import type { Model } from "@earendil-works/pi-ai";
-import type {
-	ExtensionAPI,
-	ExtensionCommandContext,
-	ExtensionContext,
-} from "../../../src/core/extensions/types.ts";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "../../../src/core/extensions/types.ts";
 
 const FAST_MODE_ENTRY = "codex-fast-mode";
 const FAST_STATUS_KEY = "codex-fast";
@@ -132,7 +128,8 @@ export default function codexFastExtension(pi: ExtensionAPI, options?: CodexFast
 	pi.on("session_start", (_event, ctx) => {
 		if (!isChildRuntime(ctx)) {
 			const persistedMode = readPersistedFastMode(ctx);
-			authority.serviceTier = persistedMode === undefined ? readConfiguredFastMode(ctx) : (persistedMode ?? undefined);
+			authority.serviceTier =
+				persistedMode === undefined ? readConfiguredFastMode(ctx) : (persistedMode ?? undefined);
 		}
 		updateFastStatus(ctx, authority);
 	});

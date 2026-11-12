@@ -1,11 +1,8 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
+import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "../../../src/core/extensions/types.ts";
-import type {
-	FooterSessionOverride,
-	ReadonlyFooterDataProvider,
-} from "../../../src/core/footer-data-provider.ts";
+import type { FooterSessionOverride, ReadonlyFooterDataProvider } from "../../../src/core/footer-data-provider.ts";
 import {
 	type AgentLifecycleState,
 	type AgentSnapshot,
@@ -14,10 +11,7 @@ import {
 } from "../../../src/core/multi-agent-store.ts";
 import type { ReadonlySessionManager, SessionEntry } from "../../../src/core/session-manager.ts";
 import type { Theme } from "../../../src/modes/interactive/theme/theme.ts";
-import {
-	formatExtensionStatusTextLines,
-	sanitizeFooterStatusText,
-} from "../../../src/utils/footer-status.ts";
+import { formatExtensionStatusTextLines, sanitizeFooterStatusText } from "../../../src/utils/footer-status.ts";
 import { formatPullRequest, type PullRequest } from "./pull-request.ts";
 import { PullRequestStatus } from "./pull-request-status.ts";
 import { ReplySpeed } from "./reply-speed.ts";

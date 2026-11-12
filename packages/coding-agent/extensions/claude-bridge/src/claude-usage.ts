@@ -3,8 +3,8 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import type { ExtensionContext } from "../../../src/core/extensions/types.ts";
-import { resolveClaudeCodeExecutable } from "./bundled-runtime.ts";
 import { prepareAccountProfile, readUsageCredentials } from "./account-profiles.ts";
+import { resolveClaudeCodeExecutable } from "./bundled-runtime.ts";
 
 const USAGE_URL = "https://api.anthropic.com/api/oauth/usage";
 const MAX_ATTEMPTS = 3;

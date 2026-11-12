@@ -30,7 +30,9 @@ export function registerManageGoalTool(pi: ExtensionAPI, execute: ManageGoalExec
 				Type.Literal("status"),
 			]),
 			objective: Type.Optional(Type.String()),
-			reason: Type.Optional(Type.String({ description: "Required when pausing; used to explain why work stopped." })),
+			reason: Type.Optional(
+				Type.String({ description: "Required when pausing; used to explain why work stopped." }),
+			),
 			completionReport: Type.Optional(
 				Type.String({
 					description:

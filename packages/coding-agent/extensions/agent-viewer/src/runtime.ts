@@ -1,8 +1,8 @@
 import { type Static, Type } from "typebox";
 import {
+	type AgentLifecycleTrace,
 	formatAgentLifecycleTrace,
 	readAgentLifecycleTrace,
-	type AgentLifecycleTrace,
 } from "../../../src/core/agent-lifecycle-trace.ts";
 import {
 	type AgentToolResult,
@@ -65,7 +65,12 @@ interface AgentViewerCommand {
 
 type PersistedAgentViewerLoad =
 	| { agents: AgentSnapshot[]; controlDbPath: string; error?: undefined; sessionPath: string }
-	| { agents?: undefined; controlDbPath?: undefined; error: AgentToolResult<AgentViewerToolDetails>; sessionPath?: undefined };
+	| {
+			agents?: undefined;
+			controlDbPath?: undefined;
+			error: AgentToolResult<AgentViewerToolDetails>;
+			sessionPath?: undefined;
+	  };
 
 export function registerAgentViewerTools(pi: ExtensionAPI, options: AgentViewerExtensionOptions = {}): void {
 	const store = options.store ?? new MultiAgentStore();
@@ -126,10 +131,7 @@ function agentViewerFromPersistedSession(
 	return agentViewerResult(agent, loaded.agents, trace);
 }
 
-function loadPersistedAgentsForViewer(
-	params: AgentViewerParams,
-	ctx?: ExtensionContext,
-): PersistedAgentViewerLoad {
+function loadPersistedAgentsForViewer(params: AgentViewerParams, ctx?: ExtensionContext): PersistedAgentViewerLoad {
 	const controlDbPath = ctx?.controlDbPath;
 	if (!controlDbPath) return missingControlDb(params);
 	const session = listSessionMetadata(controlDbPath).find((metadata) => metadata.id === params.storeSessionId);
@@ -215,7 +217,11 @@ function persistedAgentNotFound(params: AgentViewerParams): AgentToolResult<Agen
 function isPersistedAgentSnapshot(value: unknown): value is AgentSnapshot {
 	if (!value || typeof value !== "object") return false;
 	const candidate = value as Partial<AgentSnapshot>;
-	return typeof candidate.id === "string" && typeof candidate.lifecycle === "string" && typeof candidate.revision === "number";
+	return (
+		typeof candidate.id === "string" &&
+		typeof candidate.lifecycle === "string" &&
+		typeof candidate.revision === "number"
+	);
 }
 
 function viewStatus(agent: AgentSnapshot): AgentViewerStatus {

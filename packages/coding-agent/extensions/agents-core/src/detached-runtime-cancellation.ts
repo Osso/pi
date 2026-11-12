@@ -1,12 +1,5 @@
-import {
-	type AgentSnapshot,
-	isActiveLifecycle,
-	type MultiAgentStore,
-} from "../../../src/core/multi-agent-store.ts";
-import {
-	readMultiAgentRuntimeOwnership,
-	readMultiAgentState,
-} from "../../../src/core/session-control-db.ts";
+import { type AgentSnapshot, isActiveLifecycle, type MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
+import { readMultiAgentRuntimeOwnership, readMultiAgentState } from "../../../src/core/session-control-db.ts";
 import { createLifecycleCoordinator } from "./lifecycle-runtime.ts";
 
 export interface DetachedRuntimeCancellationOptions {
@@ -97,9 +90,7 @@ export function requestPersistedDetachedRuntimeCancellation(
 
 export function isDetachedRuntimeAgent(agent: AgentSnapshot): boolean {
 	return (
-		agent.detached === true &&
-		agent.worker?.adapter === "runtime" &&
-		detachedRuntimeOutputLabel(agent) !== undefined
+		agent.detached === true && agent.worker?.adapter === "runtime" && detachedRuntimeOutputLabel(agent) !== undefined
 	);
 }
 

@@ -293,7 +293,10 @@ const SHARED_CAPTURES_KEY = Symbol.for("claude-bridge:promptCaptures");
  *  keys carry identical portable parts, so cross-session reuse is safe. */
 export function sharedPromptCaptures(onDiagnose?: (diagnostic: PromptCaptureDiagnostic) => void): PromptCaptures {
 	const globals = globalThis as Record<symbol, PromptCaptures | undefined>;
-	return (globals[SHARED_CAPTURES_KEY] ??= new PromptCaptures(256, onDiagnose));
+	if (!globals[SHARED_CAPTURES_KEY]) {
+		globals[SHARED_CAPTURES_KEY] = new PromptCaptures(256, onDiagnose);
+	}
+	return globals[SHARED_CAPTURES_KEY];
 }
 
 export function projectPromptCapture(

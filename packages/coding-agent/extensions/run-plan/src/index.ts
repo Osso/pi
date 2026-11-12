@@ -1,18 +1,12 @@
 import { existsSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import type {
-	ExtensionAPI,
-	ExtensionCommandContext,
-	ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const uncheckedItemPattern = /^\s*[-*]\s+\[\s\]\s+(.*)$/;
 const activePlanEntryType = "run-plan:active";
 
-export async function findNextPlanItem(
-	filePath: string,
-): Promise<string | null> {
+export async function findNextPlanItem(filePath: string): Promise<string | null> {
 	const content = await readFile(filePath, "utf-8");
 	for (const line of content.split(/\r?\n/)) {
 		const match = uncheckedItemPattern.exec(line);
@@ -100,11 +94,7 @@ async function submitNextPlanItem(
 	return true;
 }
 
-async function runPlan(
-	args: string,
-	ctx: ExtensionCommandContext,
-	pi: ExtensionAPI,
-): Promise<ActivePlan | undefined> {
+async function runPlan(args: string, ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<ActivePlan | undefined> {
 	if (!ctx.isIdle()) {
 		throw new Error("/run-plan is blocked while a task is running");
 	}
@@ -120,10 +110,7 @@ async function runPlan(
 	return plan;
 }
 
-function completeMarkdownFiles(
-	cwd: string,
-	argumentPrefix: string,
-): Array<{ label: string; value: string }> {
+function completeMarkdownFiles(cwd: string, argumentPrefix: string): Array<{ label: string; value: string }> {
 	const normalizedPrefix = argumentPrefix.trim();
 	return readdirSync(cwd)
 		.filter((entry) => entry.endsWith(".md"))
@@ -154,8 +141,7 @@ export default function runPlanExtension(pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("run-plan", {
-		description:
-			"Submit the first unchecked item from PLAN.md or another markdown plan file.",
+		description: "Submit the first unchecked item from PLAN.md or another markdown plan file.",
 		getArgumentCompletions: (argumentPrefix: string) => {
 			const cwd = process.cwd();
 			return completeMarkdownFiles(cwd, argumentPrefix);

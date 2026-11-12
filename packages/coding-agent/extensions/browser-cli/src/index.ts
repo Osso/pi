@@ -1,13 +1,13 @@
 import type { ChildProcess } from "node:child_process";
-import { spawnProcess, waitForChildProcess } from "../../../src/utils/child-process.ts";
-import { isExecutableAvailable } from "../../../src/utils/executable.ts";
+import { type Static, Type } from "typebox";
 import type {
 	AgentToolResult,
 	ExtensionAPI,
 	ExtensionContext,
 	ToolDefinition,
 } from "../../../src/core/extensions/types.ts";
-import { Type, type Static } from "typebox";
+import { spawnProcess, waitForChildProcess } from "../../../src/utils/child-process.ts";
+import { isExecutableAvailable } from "../../../src/utils/executable.ts";
 
 export interface BrowserCliCommandResult {
 	stdout: string;

@@ -24,7 +24,7 @@ export function extractPath(rawInput: unknown): string | undefined {
 }
 
 export function shortPath(p: string, cwd: string): string {
-	if (p.startsWith(cwd + "/")) return p.slice(cwd.length + 1);
+	if (p.startsWith(`${cwd}/`)) return p.slice(cwd.length + 1);
 	if (p.startsWith("/")) {
 		const parts = p.split("/");
 		if (parts.length > 3) return parts.slice(-2).join("/");

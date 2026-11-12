@@ -1,17 +1,17 @@
 import { existsSync, statSync } from "node:fs";
 import { type AgentToolResult, uuidv7 } from "@earendil-works/pi-agent-core";
+import { Text } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 	RuntimeMailboxEvent,
 	ToolDefinition,
 } from "../../../src/core/extensions/types.ts";
-import { Text } from "@earendil-works/pi-tui";
-import { Type } from "typebox";
-import { type SessionInfo, SessionManager } from "../../../src/core/session-manager.ts";
-import { highlightCode, type Theme } from "../../../src/modes/interactive/theme/theme.ts";
 import type { MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
+import { type SessionInfo, SessionManager } from "../../../src/core/session-manager.ts";
 import type { ToolDetachRegistry } from "../../../src/core/tool-detach-registry.ts";
+import { highlightCode, type Theme } from "../../../src/modes/interactive/theme/theme.ts";
 import { isExecutableAvailable } from "../../../src/utils/executable.ts";
 import { resolvePath } from "../../../src/utils/paths.ts";
 import {
@@ -19,17 +19,17 @@ import {
 	createBwrapRunnerEnvironment,
 	resolveBwrapSandboxProfile,
 } from "../../bwrap/src/backend.ts";
-import { runDurableDetachablePyrunEvaluation } from "./detached-evaluation.ts";
-import { createPyrunEvalExecutor, type PyrunEvalParams, type PyrunPiRequestDispatcher } from "./eval-tool.ts";
 import {
 	enqueueDetachedPyrunBridgeResponse,
 	parseDetachedPyrunBridgeRequest,
 	validateDetachedPyrunBridgeRequest,
 } from "./detached-bridge.ts";
+import { runDurableDetachablePyrunEvaluation } from "./detached-evaluation.ts";
+import { createPyrunEvalExecutor, type PyrunEvalParams, type PyrunPiRequestDispatcher } from "./eval-tool.ts";
 import {
-	PyrunRunnerClient,
 	type CanonicalPyrunEvalResult,
 	type CanonicalPyrunProgressUpdate,
+	PyrunRunnerClient,
 	type PyrunRunnerOptions,
 	resolvePyrunRunnerCommand,
 	resolvePyrunRunnerOptions,
@@ -73,7 +73,7 @@ const PYRUN_PROMPT_GUIDELINES = [
 	"Use pi.sessions.resume({ path | id | name }) to switch Pi to a target session from Pyrun.",
 	"Use pi.models.scoped() to list the current session scoped models for model cycling and pi.models.set(provider, model_id, thinking_level=None) to switch the current session model.",
 	"Use pi.tools.call(name, params) to call active Pi tools from Pyrun, and pi.web_search(query) as a web_search shortcut.",
-	"Use pi.commands.list() to list slash commands and pi.commands.run(name, args=\"\") to run registered slash commands from Pyrun.",
+	'Use pi.commands.list() to list slash commands and pi.commands.run(name, args="") to run registered slash commands from Pyrun.',
 	"Use Pyrun helpers directly: host, fs, cli, run, http, rg, fd, sqlite, kubectl, tools, text, seq, obj, and hr.",
 	"When a bwrap sandbox profile is active, Pyrun executes inside that sandbox and Pi bridge helpers are unavailable.",
 	"run.<program>(*args) executes immediately, sends stdout/stderr to the tool output by default, and returns ONLY the exit code (int). Example: `exit_code = run.git('status')`.",
@@ -132,7 +132,9 @@ function normalizeCompactParams(params: unknown): { customInstructions?: string 
 		return { customInstructions: params };
 	}
 	if (typeof params !== "object") {
-		throw new Error("pi.compact requires no argument, a custom instructions string, or { customInstructions } object");
+		throw new Error(
+			"pi.compact requires no argument, a custom instructions string, or { customInstructions } object",
+		);
 	}
 	const customInstructions = (params as { customInstructions?: unknown }).customInstructions;
 	if (customInstructions !== undefined && typeof customInstructions !== "string") {
@@ -183,7 +185,11 @@ function assertResumeSessionPath(path: string): string {
 	return path;
 }
 
-function findUniqueSessionMatch(sessions: SessionInfo[], label: string, matches: (session: SessionInfo) => boolean): SessionInfo {
+function findUniqueSessionMatch(
+	sessions: SessionInfo[],
+	label: string,
+	matches: (session: SessionInfo) => boolean,
+): SessionInfo {
 	const matched = sessions.filter(matches);
 	if (matched.length === 0) {
 		throw new Error(`No session found matching ${label}`);
@@ -288,12 +294,22 @@ export function createPyrunPiDispatcher(pi: ExtensionAPI, options: PyrunExtensio
 		if (ctx.noSupervisor && requiresSupervisor) {
 			throw new Error(`Pi API ${request.method} is unavailable in standalone worker mode`);
 		}
-		const agentTool = request.method === "agents.send_message" ? "send_agent_message" : request.method === "agents.steer" ? "steer_agent" : undefined;
+		const agentTool =
+			request.method === "agents.send_message"
+				? "send_agent_message"
+				: request.method === "agents.steer"
+					? "steer_agent"
+					: undefined;
 		if (agentTool) {
 			const result = await pi.callTool(agentTool, request.params, signal, activeToolCallId);
 			const details = result.details as { message?: { status?: string } } | undefined;
 			if (result.isError || details?.message?.status === "failed") {
-				throw new Error(result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n"));
+				throw new Error(
+					result.content
+						.filter((item) => item.type === "text")
+						.map((item) => item.text)
+						.join("\n"),
+				);
 			}
 			return result.details;
 		}
@@ -369,7 +385,10 @@ async function setSessionModel(
 	params: unknown,
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
-): Promise<{ model: Awaited<ReturnType<ExtensionContext["modelRegistry"]["getAvailable"]>>[number]; thinkingLevel?: string }> {
+): Promise<{
+	model: Awaited<ReturnType<ExtensionContext["modelRegistry"]["getAvailable"]>>[number];
+	thinkingLevel?: string;
+}> {
 	const request = normalizeSetModelParams(params);
 	const model = ctx.modelRegistry
 		.getAvailable()
@@ -465,7 +484,10 @@ async function triggerRestart(params: unknown, ctx: ExtensionContext): Promise<{
 	return { started: true };
 }
 
-async function triggerSessionResume(params: unknown, ctx: ExtensionContext): Promise<{ cancelled: boolean; resumed: boolean }> {
+async function triggerSessionResume(
+	params: unknown,
+	ctx: ExtensionContext,
+): Promise<{ cancelled: boolean; resumed: boolean }> {
 	if (!ctx.switchSession) {
 		throw new Error("pi.sessions.resume is not available in this session mode");
 	}

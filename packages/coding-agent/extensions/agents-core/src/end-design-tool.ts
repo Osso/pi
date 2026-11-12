@@ -7,7 +7,8 @@ const endDesignSchema = Type.Object(
 		handoff: Type.String({
 			minLength: 1,
 			pattern: "\\S",
-			description: "The design to implement: decided rules, edge cases, design note path, and acceptance-test commit.",
+			description:
+				"The design to implement: decided rules, edge cases, design note path, and acceptance-test commit.",
 		}),
 	},
 	{ additionalProperties: false },

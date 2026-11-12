@@ -4,9 +4,9 @@
 // unparseable files are ignored (error to console.error, empty object
 // returned) so the extension always starts.
 
-import { CONFIG_DIR_NAME, getAgentDir } from "../../../src/config.ts";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
+import { CONFIG_DIR_NAME, getAgentDir } from "../../../src/config.ts";
 
 export interface Config {
 	/** Date (YYYY-MM-DD) the one-time startup notice was shown. Written by the extension, not the user. */

@@ -32,10 +32,7 @@ class ArtifactProgressAccumulatorImpl implements ArtifactProgressAccumulator {
 	private readonly reportProgress: (update: CanonicalPyrunProgressUpdate) => void;
 	private readonly flushDelayMs: number;
 
-	constructor(
-		reportProgress: (update: CanonicalPyrunProgressUpdate) => void,
-		flushDelayMs: number,
-	) {
+	constructor(reportProgress: (update: CanonicalPyrunProgressUpdate) => void, flushDelayMs: number) {
 		this.reportProgress = reportProgress;
 		this.flushDelayMs = flushDelayMs;
 	}

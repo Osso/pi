@@ -1,7 +1,7 @@
 import { Type } from "typebox";
 import {
-	defineTool,
 	type AgentToolResult,
+	defineTool,
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "../../../src/core/extensions/types.ts";

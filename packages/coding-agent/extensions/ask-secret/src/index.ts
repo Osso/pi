@@ -2,9 +2,14 @@ import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import { type FileHandle, lstat, mkdir, open, rename, rm } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join } from "node:path";
+import { type Static, Type } from "typebox";
+import type {
+	AgentToolResult,
+	ExtensionAPI,
+	ExtensionContext,
+	ToolDefinition,
+} from "../../../src/core/extensions/types.ts";
 import { spawnProcess, waitForChildProcess } from "../../../src/utils/child-process.ts";
-import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../../../src/core/extensions/types.ts";
-import { Type, type Static } from "typebox";
 
 const AUTH_SUDO_EXECUTABLE = "authsudo";
 const SECRETS_BROKER_ADMIN = "/usr/bin/secrets-broker-admin";
@@ -80,7 +85,9 @@ export default function askSecretExtension(pi: ExtensionAPI): void {
 	pi.registerTool(createAskSecretToolDefinition());
 }
 
-export function createAskSecretToolDefinition(options: AskSecretToolOptions = {}): ToolDefinition<typeof askSecretSchema> {
+export function createAskSecretToolDefinition(
+	options: AskSecretToolOptions = {},
+): ToolDefinition<typeof askSecretSchema> {
 	const provision = options.provision ?? provisionBrowserCredential;
 	const renameFile = options.renameFile ?? rename;
 	return {

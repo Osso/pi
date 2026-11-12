@@ -196,8 +196,6 @@ export default function agentsStatusExtension(pi: ExtensionAPI, options: AgentsS
 	const store = options.store;
 	if (!store) return;
 	pi.on("session_start", async (_event, ctx) => {
-		ctx.ui.setWidget(WIDGET_KEY, (tui, theme) =>
-			createAgentsStatusComponent(store, tui, theme),
-		);
+		ctx.ui.setWidget(WIDGET_KEY, (tui, theme) => createAgentsStatusComponent(store, tui, theme));
 	});
 }

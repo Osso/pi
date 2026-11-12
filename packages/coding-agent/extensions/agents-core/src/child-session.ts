@@ -32,7 +32,8 @@ function trackFinishedToolCalls(
 	const finished = new Map<string, Extract<AgentSessionEvent, { type: "tool_execution_end" }>>();
 	session.subscribe?.((event) => {
 		if (event.type === "tool_execution_end") finished.set(event.toolCallId, event);
-		if (event.type === "message_end" && event.message.role === "toolResult") finished.delete(event.message.toolCallId);
+		if (event.type === "message_end" && event.message.role === "toolResult")
+			finished.delete(event.message.toolCallId);
 	});
 	return finished;
 }

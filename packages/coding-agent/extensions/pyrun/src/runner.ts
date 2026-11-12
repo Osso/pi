@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, spawn, spawnSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { EOL } from "node:os";
 
@@ -212,11 +212,7 @@ export class PyrunRunnerClient {
 		if (this.process === generation) {
 			this.process = undefined;
 		}
-		terminateRunnerTree(
-			generation.child,
-			this.shouldDetachProcess(),
-			this.options.inheritedProcessGroupId,
-		);
+		terminateRunnerTree(generation.child, this.shouldDetachProcess(), this.options.inheritedProcessGroupId);
 	}
 
 	private shouldDetachProcess(): boolean {
@@ -263,7 +259,10 @@ export class PyrunRunnerClient {
 			}
 			const stderr = generation.stderr.join("").trim();
 			const reason = signal ? `signal ${signal}` : `exit code ${code ?? "unknown"}`;
-			this.rejectGeneration(generation, new Error(`Pyrun runner exited with ${reason}${stderr ? `${EOL}${stderr}` : ""}`));
+			this.rejectGeneration(
+				generation,
+				new Error(`Pyrun runner exited with ${reason}${stderr ? `${EOL}${stderr}` : ""}`),
+			);
 		});
 		return generation;
 	}

@@ -17,10 +17,10 @@
 //
 // Extracted from index.ts so tests can import it without activating the extension.
 
-import { getAgentDir } from "../../../src/config.ts";
-import { Session, serializeRecord, type JsonlRecord, type Message } from "cc-session-io";
+import { type JsonlRecord, type Message, Session, serializeRecord } from "cc-session-io";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
+import { getAgentDir } from "../../../src/config.ts";
 import { messageContentToText } from "./convert.ts";
 
 type Rec = Record<string, unknown>;
@@ -231,7 +231,7 @@ export function nativePrefix(
 export function seedSession(empty: Session, records: readonly JsonlRecord[], model?: string): Session {
 	const own = records.map((record) => ({ ...record, sessionId: empty.sessionId }) as JsonlRecord);
 	mkdirSync(dirname(empty.jsonlPath), { recursive: true });
-	writeFileSync(empty.jsonlPath, own.map((record) => serializeRecord(record) + "\n").join(""), "utf-8");
+	writeFileSync(empty.jsonlPath, own.map((record) => `${serializeRecord(record)}\n`).join(""), "utf-8");
 	return new Session({
 		sessionId: empty.sessionId,
 		projectPath: empty.projectPath,

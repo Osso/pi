@@ -1,9 +1,5 @@
 import type { Model } from "@earendil-works/pi-ai";
-import type {
-	ExtensionAPI,
-	ExtensionCommandContext,
-	ExtensionContext,
-} from "../../../src/core/extensions/types.ts";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "../../../src/core/extensions/types.ts";
 
 const DAYBREAK_ENTRY = "codex-daybreak";
 const DAYBREAK_STATUS_KEY = "codex-daybreak";

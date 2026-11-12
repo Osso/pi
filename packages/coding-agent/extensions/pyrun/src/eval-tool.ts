@@ -1,9 +1,9 @@
 import type { AgentToolResult, ExtensionContext } from "../../../src/core/extensions/types.ts";
-import {
+import type {
+	CanonicalPyrunEvalResult,
+	CanonicalPyrunProgressUpdate,
+	PyrunPiRequestHandler,
 	PyrunRunnerClient,
-	type CanonicalPyrunEvalResult,
-	type CanonicalPyrunProgressUpdate,
-	type PyrunPiRequestHandler,
 } from "./runner.ts";
 
 export interface PyrunEvalParams {

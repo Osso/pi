@@ -1,10 +1,15 @@
 import { randomBytes } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Api, type Context, type ImageContent, type Model, streamSimple } from "@earendil-works/pi-ai/compat";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { Type, type Static } from "typebox";
-import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../../../src/core/extensions/types.ts";
+import { type Api, type Context, type ImageContent, type Model, streamSimple } from "@earendil-works/pi-ai/compat";
+import { type Static, Type } from "typebox";
+import type {
+	AgentToolResult,
+	ExtensionAPI,
+	ExtensionContext,
+	ToolDefinition,
+} from "../../../src/core/extensions/types.ts";
 
 interface ImageGenerationTool {
 	type: "image_generation";
@@ -57,7 +62,13 @@ export function createImageGenerationToolDefinition(options?: {
 		],
 		approvalRequired: true,
 		parameters: imageGenerationSchema,
-		async execute(_toolCallId, params: ImageGenerationInput, signal, _onUpdate, ctx): Promise<AgentToolResult<undefined>> {
+		async execute(
+			_toolCallId,
+			params: ImageGenerationInput,
+			signal,
+			_onUpdate,
+			ctx,
+		): Promise<AgentToolResult<undefined>> {
 			const image = await executeImageGeneration(params, ctx, signal, runGeneration, timeoutMs);
 			const outputPath = saveGeneratedImage(image, ctx.cwd);
 			return {
@@ -68,9 +79,7 @@ export function createImageGenerationToolDefinition(options?: {
 	};
 }
 
-export function isOpenAIHostedImageGenerationModel(
-	model: Model<Api> | undefined,
-): model is OpenAIImageGenerationModel {
+export function isOpenAIHostedImageGenerationModel(model: Model<Api> | undefined): model is OpenAIImageGenerationModel {
 	if (model?.api !== "openai-codex-responses") return false;
 	return (CODEX_PROVIDERS as readonly string[]).includes(model.provider);
 }
@@ -93,7 +102,9 @@ function resolveImageGenerationModel(ctx: ExtensionContext): OpenAIImageGenerati
 		const match = candidates.find((model) => `${model.provider}/${model.id}` === ref);
 		if (match) return match;
 	}
-	throw new Error("image_gen needs a logged-in Codex model as defaultModel or in enabledModels (pi login openai-codex)");
+	throw new Error(
+		"image_gen needs a logged-in Codex model as defaultModel or in enabledModels (pi login openai-codex)",
+	);
 }
 
 async function executeImageGeneration(
@@ -141,7 +152,8 @@ async function runImageGenerationWithTimeout(
 
 async function runHostedImageGeneration(request: ImageGenerationRequest): Promise<ImageContent> {
 	const context: Context = {
-		systemPrompt: "Generate the requested image. Use the hosted image generation tool and return the generated image.",
+		systemPrompt:
+			"Generate the requested image. Use the hosted image generation tool and return the generated image.",
 		messages: [{ role: "user", content: request.prompt, timestamp: Date.now() }],
 	};
 	const stream = streamSimple(request.model, context, {

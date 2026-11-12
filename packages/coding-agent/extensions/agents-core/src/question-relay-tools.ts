@@ -5,8 +5,8 @@ import {
 	type ExtensionAPI,
 	type ExtensionContext,
 } from "../../../src/core/extensions/types.ts";
-import type { RuntimeMailboxToolDelivery } from "../../../src/core/runtime-mailbox-acceptance.ts";
 import { isActiveLifecycle, type MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
+import type { RuntimeMailboxToolDelivery } from "../../../src/core/runtime-mailbox-acceptance.ts";
 import {
 	enqueueStoredRuntimeMailboxMessage,
 	type RuntimeMailboxAddress,
@@ -210,7 +210,12 @@ async function askParent(
 	const inbox = sendQuestionsToParent(transports, toolCallId, params, ctx);
 	if (!params.blocking) {
 		const text = `Questions sent to parent (request ${toolCallId}). Continue independent work; the answer will arrive in your inbox.`;
-		return childQuestionResult(params, text, { answers: {}, cancelled: false }, { queued: true, requestId: toolCallId });
+		return childQuestionResult(
+			params,
+			text,
+			{ answers: {}, cancelled: false },
+			{ queued: true, requestId: toolCallId },
+		);
 	}
 	const delivered = await waitForQuestionAnswer(inbox, toolCallId, signal);
 	if (!delivered) return childQuestionResult(params, "Questions cancelled", { answers: {}, cancelled: true });

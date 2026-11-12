@@ -1,7 +1,12 @@
-import { type Api, type Context, type Model, streamSimple } from "@earendil-works/pi-ai/compat";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import { Type, type Static } from "typebox";
-import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../../../src/core/extensions/types.ts";
+import { type Api, type Context, type Model, streamSimple } from "@earendil-works/pi-ai/compat";
+import { type Static, Type } from "typebox";
+import type {
+	AgentToolResult,
+	ExtensionAPI,
+	ExtensionContext,
+	ToolDefinition,
+} from "../../../src/core/extensions/types.ts";
 
 interface WebSearchTool {
 	type: "web_search";
@@ -114,7 +119,9 @@ async function runSearchWithTimeout(
 	}, timeoutMs);
 	timeout.unref?.();
 
-	const signal = request.signal ? AbortSignal.any([request.signal, timeoutController.signal]) : timeoutController.signal;
+	const signal = request.signal
+		? AbortSignal.any([request.signal, timeoutController.signal])
+		: timeoutController.signal;
 	try {
 		throwIfAborted(signal);
 		return await waitForWebSearch(runSearch({ ...request, signal }, ctx), signal);
@@ -148,7 +155,8 @@ function formatTimeout(timeoutMs: number): string {
 
 async function runHostedWebSearch(request: WebSearchRequest): Promise<string> {
 	const context: Context = {
-		systemPrompt: "You are a web search tool. Search the web and return concise, source-backed findings for the query.",
+		systemPrompt:
+			"You are a web search tool. Search the web and return concise, source-backed findings for the query.",
 		messages: [{ role: "user", content: request.query, timestamp: Date.now() }],
 	};
 	const stream = streamSimple(request.model, context, {

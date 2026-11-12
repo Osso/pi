@@ -1,9 +1,4 @@
-import type {
-	AgentEndEvent,
-	AgentToolResult,
-	ExtensionAPI,
-	ExtensionContext,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentEndEvent, AgentToolResult, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const PENDING_DECISION_RETRY_DELAY_MS = 1_000;
 const WAIT_REVIEW_DELAY_MS = 55 * 60 * 1_000;
@@ -12,7 +7,12 @@ type TerminalTurn = AgentEndEvent["messages"];
 
 interface GoalSchedulingOptions<TGoal, TDecision> {
 	pi: ExtensionAPI;
-	reviewGoal: (ctx: ExtensionContext, goal: TGoal, terminalTurn: TerminalTurn, wakeEvidence?: unknown) => Promise<TDecision>;
+	reviewGoal: (
+		ctx: ExtensionContext,
+		goal: TGoal,
+		terminalTurn: TerminalTurn,
+		wakeEvidence?: unknown,
+	) => Promise<TDecision>;
 	applyDecision: (
 		decision: TDecision,
 		goal: TGoal,
@@ -65,7 +65,8 @@ function activeAgentCount(details: unknown): number {
 }
 
 function waitWakeEvidence(result: AgentToolResult<unknown>): Record<string, unknown> {
-	const details = typeof result.details === "object" && result.details !== null ? result.details : { details: result.details };
+	const details =
+		typeof result.details === "object" && result.details !== null ? result.details : { details: result.details };
 	return { ...details, content: result.content };
 }
 
@@ -267,12 +268,14 @@ class GoalSchedulerImpl<TGoal, TDecision> implements GoalScheduler<TGoal, TDecis
 		this.clearWait(sessionId);
 		const controller = new AbortController();
 		this.waitControllers.set(sessionId, controller);
-		void this.waitForAgentWake(ctx, goal, terminalTurn, controller, scheduledWait, callbacks).catch((error: unknown) => {
-			if (controller.signal.aborted || !this.isEpochCurrent(ctx, scheduledWait.epoch)) return;
-			if (this.waitControllers.get(sessionId) === controller) this.waitControllers.delete(sessionId);
-			this.options.reportError(error, ctx);
-			callbacks.onReviewScheduled(scheduledWait.reviewAt);
-		});
+		void this.waitForAgentWake(ctx, goal, terminalTurn, controller, scheduledWait, callbacks).catch(
+			(error: unknown) => {
+				if (controller.signal.aborted || !this.isEpochCurrent(ctx, scheduledWait.epoch)) return;
+				if (this.waitControllers.get(sessionId) === controller) this.waitControllers.delete(sessionId);
+				this.options.reportError(error, ctx);
+				callbacks.onReviewScheduled(scheduledWait.reviewAt);
+			},
+		);
 	}
 
 	private async waitForAgentWake(

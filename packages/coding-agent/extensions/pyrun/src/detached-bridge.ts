@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 import type { DetachedJobOwnershipIdentity } from "../../../src/core/detached-job-runner.ts";
 import {
 	enqueueStoredRuntimeMailboxMessage,
-	readMultiAgentAgent,
-	readMultiAgentRuntimeOwnership,
 	type RuntimeMailboxAddress,
 	type RuntimeMailboxMessage,
+	readMultiAgentAgent,
+	readMultiAgentRuntimeOwnership,
 } from "../../../src/core/session-control-db.ts";
 
 const DETACHED_PYRUN_BRIDGE_PROTOCOL = "pyrun-bridge-v1";
@@ -55,7 +55,9 @@ export function enqueueDetachedPyrunBridgeRequest(input: {
 	return requestId;
 }
 
-export function parseDetachedPyrunBridgeRequest(message: RuntimeMailboxMessage): DetachedPyrunBridgeRequest | undefined {
+export function parseDetachedPyrunBridgeRequest(
+	message: RuntimeMailboxMessage,
+): DetachedPyrunBridgeRequest | undefined {
 	try {
 		const parsed = JSON.parse(message.body) as DetachedPyrunBridgeRequest;
 		const hasValidToolCallId = typeof parsed.toolCallId === "string" && parsed.toolCallId.trim() !== "";

@@ -1,10 +1,10 @@
-import { spawn, spawnSync, type ChildProcessByStdio } from "node:child_process";
-import type { Readable } from "node:stream";
+import { type ChildProcessByStdio, spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, openSync, readSync, realpathSync } from "node:fs";
 import { delimiter, dirname, isAbsolute, join, resolve } from "node:path";
+import type { Readable } from "node:stream";
+import { isSandboxPlatformSupported, type SandboxProfileName } from "../../../src/core/permissions/presets.ts";
 import type { BashOperations } from "../../../src/index.ts";
 import { createLocalBashOperations } from "../../../src/index.ts";
-import { isSandboxPlatformSupported, type SandboxProfileName } from "../../../src/core/permissions/presets.ts";
 
 export type BwrapSandboxProfile = Exclude<SandboxProfileName, "full-access">;
 
@@ -131,10 +131,7 @@ export function createSandboxedBashOperations(options: {
 	};
 }
 
-export function createBwrapRunnerEnvironment(
-	hostEnv: NodeJS.ProcessEnv,
-	pythonPath?: string,
-): NodeJS.ProcessEnv {
+export function createBwrapRunnerEnvironment(hostEnv: NodeJS.ProcessEnv, pythonPath?: string): NodeJS.ProcessEnv {
 	return {
 		LANG: hostEnv.LANG,
 		PATH: hostEnv.PATH,
@@ -239,9 +236,7 @@ function runnerReadOnlyPaths(
 		.map((path) => resolveSandboxPath(path, workspace))
 		.filter((path) => !isSandboxMountUnnecessary(path, workspace));
 	const uniquePaths = [...new Set(resolvedPaths)];
-	return uniquePaths.filter(
-		(path) => !uniquePaths.some((parent) => parent !== path && path.startsWith(`${parent}/`)),
-	);
+	return uniquePaths.filter((path) => !uniquePaths.some((parent) => parent !== path && path.startsWith(`${parent}/`)));
 }
 
 function resolveSandboxPath(path: string, workspace: string): string {
@@ -264,12 +259,7 @@ function buildResolvedReadOnlyMountArguments(path: string, workspace: string): s
 function buildReadOnlyMountArguments(path: string, workspace: string): string[] {
 	const resolvedPath = resolve(path);
 	if (!existsSync(resolvedPath) || resolvedPath === workspace) return [];
-	return [
-		...createParentDirectoryArguments(resolvedPath),
-		"--ro-bind",
-		resolvedPath,
-		resolvedPath,
-	];
+	return [...createParentDirectoryArguments(resolvedPath), "--ro-bind", resolvedPath, resolvedPath];
 }
 
 function buildWorkspaceMountArguments(workspace: string, profile: BwrapSandboxProfile): string[] {
@@ -297,8 +287,9 @@ function buildSandboxEnv(env: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv 
 
 function deriveParentDirectories(path: string): string[] {
 	const parts = path.split("/").filter((part) => part.length > 0);
-	return Array.from({ length: Math.max(parts.length - 1, 0) }, (_, index) =>
-		`/${parts.slice(0, index + 1).join("/")}`,
+	return Array.from(
+		{ length: Math.max(parts.length - 1, 0) },
+		(_, index) => `/${parts.slice(0, index + 1).join("/")}`,
 	);
 }
 

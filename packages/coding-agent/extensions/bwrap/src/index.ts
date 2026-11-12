@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
-import type { Readable } from "node:stream";
 import { existsSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
+import type { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
-import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../../../src/index.ts";
 import type { TSchema } from "typebox";
+import { isSandboxPlatformSupported, type SandboxProfileName } from "../../../src/core/permissions/presets.ts";
+import type { AgentToolResult, ExtensionAPI, ExtensionContext, ToolDefinition } from "../../../src/index.ts";
 import {
 	createBashToolDefinition,
 	createEditToolDefinition,
@@ -13,23 +14,22 @@ import {
 	createLsToolDefinition,
 	createReadToolDefinition,
 	createWriteToolDefinition,
-	formatSize,
-	truncateHead,
 	type EditOperations,
 	type FindOperations,
+	formatSize,
 	type GrepToolDetails,
 	type GrepToolInput,
 	type LsOperations,
 	type ReadOperations,
+	truncateHead,
 	type WriteOperations,
 } from "../../../src/index.ts";
-import { isSandboxPlatformSupported, type SandboxProfileName } from "../../../src/core/permissions/presets.ts";
 import {
-	runBwrapAvailabilityCheck,
+	type BwrapSandboxProfile,
 	buildBwrapInvocation,
 	createSandboxedBashOperations,
 	resolveBwrapSandboxProfile,
-	type BwrapSandboxProfile,
+	runBwrapAvailabilityCheck,
 } from "./backend.ts";
 
 interface BwrapExtensionOptions {
@@ -253,10 +253,7 @@ function mimeTypeForPath(path: string): string | null {
 	return null;
 }
 
-function buildGrepNotices(
-	details: GrepToolDetails,
-	truncation: ReturnType<typeof truncateHead>,
-): string[] {
+function buildGrepNotices(details: GrepToolDetails, truncation: ReturnType<typeof truncateHead>): string[] {
 	return [
 		...(details.matchLimitReached ? [`${details.matchLimitReached} matches limit reached`] : []),
 		...(details.linesTruncated ? ["long lines truncated"] : []),
@@ -264,10 +261,7 @@ function buildGrepNotices(
 	];
 }
 
-function buildGrepDetails(
-	details: GrepToolDetails,
-	truncation: ReturnType<typeof truncateHead>,
-): GrepToolDetails {
+function buildGrepDetails(details: GrepToolDetails, truncation: ReturnType<typeof truncateHead>): GrepToolDetails {
 	return truncation.truncated ? { ...details, truncation } : details;
 }
 
@@ -291,7 +285,10 @@ async function executeSandboxedGrep(
 		},
 		signal,
 	});
-	const truncation = truncateHead(result.value.text, { maxBytes: DEFAULT_MAX_BYTES, maxLines: Number.MAX_SAFE_INTEGER });
+	const truncation = truncateHead(result.value.text, {
+		maxBytes: DEFAULT_MAX_BYTES,
+		maxLines: Number.MAX_SAFE_INTEGER,
+	});
 	const details = buildGrepDetails(result.value.details ?? {}, truncation);
 	const notices = buildGrepNotices(details, truncation);
 	const text = notices.length > 0 ? `${truncation.content}\n\n[${notices.join(". ")}]` : truncation.content;

@@ -2,7 +2,14 @@
 // Extracted so they can be tested without pulling in the full extension runtime.
 
 import type { Message as PiMessage } from "@earendil-works/pi-ai";
-import type { ContentBlock, ImageBlock, Message as SessionMessage, TextBlock, ToolResultBlock, UserContentBlock } from "cc-session-io";
+import type {
+	ContentBlock,
+	ImageBlock,
+	Message as SessionMessage,
+	TextBlock,
+	ToolResultBlock,
+	UserContentBlock,
+} from "cc-session-io";
 import { pascalCase } from "change-case";
 import { MCP_TOOL_PREFIX } from "./skills.ts";
 

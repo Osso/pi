@@ -1,4 +1,3 @@
-import { readSessionHeader } from "../../../src/core/session-manager.ts";
 import type {
 	AgentEndEvent,
 	AgentToolResult,
@@ -9,9 +8,10 @@ import type {
 	ExtensionContext,
 	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
+import { readSessionHeader } from "../../../src/core/session-manager.ts";
 import { type CompletionWaitScheduler, createGoalCompletionScheduler } from "./completion-scheduling.ts";
-import { type EmptyResponseScheduler, createEmptyResponseScheduler } from "./empty-response-scheduling.ts";
-import { type ErrorStatusScheduler, createErrorStatusScheduler } from "./error-status-scheduling.ts";
+import { createEmptyResponseScheduler, type EmptyResponseScheduler } from "./empty-response-scheduling.ts";
+import { createErrorStatusScheduler, type ErrorStatusScheduler } from "./error-status-scheduling.ts";
 import { type ApplyIdleDecision, runScheduledGoalAgentEnd } from "./goal-agent-end-scheduling.ts";
 import { parseGoalArgs } from "./goal-args.ts";
 import { selectGoalForIdleReview } from "./goal-idle-selection.ts";
@@ -19,7 +19,7 @@ import { deduplicateCurrentGoalScope } from "./goal-objective.ts";
 import { parseGoalJson } from "./goal-parsing.ts";
 import { goalStartupMessage, goalSystemBlock, goalViewMessage } from "./goal-presentation.ts";
 import { createGoalReviewEvidenceController, type GoalReviewEvidenceController } from "./goal-review-evidence.ts";
-import { type GoalScheduler, createGoalScheduler } from "./goal-scheduling.ts";
+import { createGoalScheduler, type GoalScheduler } from "./goal-scheduling.ts";
 import {
 	clearGoal,
 	createGoal,
@@ -34,15 +34,14 @@ import {
 	saveGoal,
 	USER_PAUSE_REASON,
 } from "./goal-state.ts";
+import { type ManageGoalParams, registerManageGoalTool } from "./goal-tool.ts";
 import type {
 	Goal,
 	GoalEvidenceReview,
 	GoalExtensionOptions,
 	GoalSupervisorResponse,
-	GoalSupervisorReview,
 	ReviewedGoalResponse,
 } from "./goal-types.ts";
-import { type ManageGoalParams, registerManageGoalTool } from "./goal-tool.ts";
 import { createGoalWorkStarter, type GoalWorkStarter } from "./goal-work.ts";
 import {
 	continueMission,
@@ -56,9 +55,9 @@ import {
 	createSupervisorStatusController,
 	createSupervisorStatusEntryRenderer,
 	renderSupervisorMessage,
+	type SupervisorStatusController,
 	sendSupervisorInstructions,
 	supervisorInstructionContent,
-	type SupervisorStatusController,
 } from "./rendering.ts";
 import { reviewGoalWithResidentSupervisor, withSupervisorReviewStatus } from "./supervisor-review.ts";
 import { createWaitCountdownRefresher } from "./wait-countdown.ts";
@@ -287,7 +286,14 @@ async function runCompleteGoalAction(
 	});
 	const reviewStillApplies = isReviewCurrent() && goalMatchesReview(loadOrMigrateActiveGoal(ctx), activeGoal);
 	if (!reviewStillApplies) return textResult("Goal changed or review was canceled; stale decision ignored.");
-	const result = await applyCompletionDecision(reviewed.decision, activeGoal, ctx, completionReport, onWait, appendStatus);
+	const result = await applyCompletionDecision(
+		reviewed.decision,
+		activeGoal,
+		ctx,
+		completionReport,
+		onWait,
+		appendStatus,
+	);
 	if (reviewed.decision.kind !== "error") {
 		consumeReviewEvidence(ctx, activeGoal, reviewed.evidenceCount);
 	}
@@ -353,10 +359,16 @@ function recordContinuationTurn(goal: Goal, ctx: ExtensionContext): void {
 }
 
 /** A mission goal never completes, so it continues; any other goal completes and hands over to the mission. */
-function completeGoalFromIdleDecision(goal: Goal, reason: string, ctx: ExtensionContext, goalWork: GoalWorkStarter): void {
+function completeGoalFromIdleDecision(
+	goal: Goal,
+	reason: string,
+	ctx: ExtensionContext,
+	goalWork: GoalWorkStarter,
+): void {
 	if (goal.mission) {
 		recordContinuationTurn(goal, ctx);
-		return goalWork.start(ctx);
+		goalWork.start(ctx);
+		return;
 	}
 	markGoalComplete(ctx, reason);
 	ctx.ui.notify(`Goal complete: ${goal.objective}`, "info");
@@ -447,18 +459,26 @@ function handleGoalCommand(
 	clearRetry: (sessionId: string) => void,
 ): void {
 	const parsedArgs = parseGoalArgs(args);
-	if ("error" in parsedArgs) return ctx.ui.notify(parsedArgs.error, "error");
+	if ("error" in parsedArgs) {
+		ctx.ui.notify(parsedArgs.error, "error");
+		return;
+	}
 	switch (parsedArgs.action) {
 		case "view":
-			return showGoal(ctx);
+			showGoal(ctx);
+			break;
 		case "pause":
-			return handleGoalPauseCommand(ctx, clearRetry);
+			handleGoalPauseCommand(ctx, clearRetry);
+			break;
 		case "resume":
-			return handleGoalResumeCommand(ctx, goalWork, clearRetry);
+			handleGoalResumeCommand(ctx, goalWork, clearRetry);
+			break;
 		case "clear":
-			return handleGoalClearCommand(ctx, goalWork, clearRetry);
+			handleGoalClearCommand(ctx, goalWork, clearRetry);
+			break;
 		case "set":
-			return setGoalFromCommand(parsedArgs.objective, ctx, goalWork, clearRetry);
+			setGoalFromCommand(parsedArgs.objective, ctx, goalWork, clearRetry);
+			break;
 	}
 }
 

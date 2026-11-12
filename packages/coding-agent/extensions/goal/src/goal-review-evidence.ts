@@ -42,11 +42,7 @@ function appendInputEvidence(store: GoalReviewEvidenceStore, event: InputEvent, 
 	appendEvidence(store, ctx, { kind: "user", text: event.text });
 }
 
-function appendEndTurnEvidence(
-	store: GoalReviewEvidenceStore,
-	event: ToolResultEvent,
-	ctx: ExtensionContext,
-): void {
+function appendEndTurnEvidence(store: GoalReviewEvidenceStore, event: ToolResultEvent, ctx: ExtensionContext): void {
 	if (event.toolName !== "end_turn" || event.isError) return;
 	const reason = event.input.reason;
 	if (typeof reason !== "string" || reason.trim().length === 0) return;
@@ -82,8 +78,7 @@ function consumeEvidence(
 function createEvidenceReview(store: GoalReviewEvidenceStore, reviewGoal: GoalSupervisorReview): GoalEvidenceReview {
 	return async (input): Promise<ReviewedGoalResponse> => {
 		const conversationEvents = store.loadActiveGoal(input.ctx)?.reviewEvidence ?? [];
-		const payload =
-			conversationEvents.length > 0 ? { ...input.payload, conversationEvents } : input.payload;
+		const payload = conversationEvents.length > 0 ? { ...input.payload, conversationEvents } : input.payload;
 		const decision = await reviewGoal({ ...input, payload });
 		return { decision, evidenceCount: conversationEvents.length };
 	};

@@ -91,7 +91,8 @@ export default function sessionArchiveExtension(pi: ExtensionAPI): void {
 			const session = validateCurrentSessionCommandAndNotify("delete", args, ctx);
 			if (!session) return;
 			// A running child keeps writing its transcript after abort, so deleting it now could leave a partial file.
-			const runningChildren = ctx.multiAgentStore?.listActiveAgents().filter((agent) => agent.transcript?.path) ?? [];
+			const runningChildren =
+				ctx.multiAgentStore?.listActiveAgents().filter((agent) => agent.transcript?.path) ?? [];
 			if (runningChildren.length > 0) {
 				const count = runningChildren.length;
 				ctx.ui.notify(

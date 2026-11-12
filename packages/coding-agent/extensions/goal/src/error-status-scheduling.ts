@@ -32,13 +32,11 @@ class ErrorStatusSchedulerImpl implements ErrorStatusScheduler {
 		this.timers.clear();
 	}
 
-	private scheduleStatusCheck(
-		ctx: ExtensionContext,
-		message: string,
-		sessionId: string,
-		delayMs: number,
-	): void {
-		this.timers.set(sessionId, setTimeout(() => this.checkStatus(ctx, message, sessionId), delayMs));
+	private scheduleStatusCheck(ctx: ExtensionContext, message: string, sessionId: string, delayMs: number): void {
+		this.timers.set(
+			sessionId,
+			setTimeout(() => this.checkStatus(ctx, message, sessionId), delayMs),
+		);
 	}
 
 	private checkStatus(ctx: ExtensionContext, message: string, sessionId: string): void {

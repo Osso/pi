@@ -2,7 +2,7 @@
 // Logging-free like convert.ts — it returns what it derived and index.ts logs it.
 // Extracted from index.ts so tests can reach it without activating the extension.
 
-import { calculateCost, type Api, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
+import { type Api, type AssistantMessage, calculateCost, type Model } from "@earendil-works/pi-ai";
 
 /**
  * The usage counters Claude Code reports, mirroring `Usage` / `MessageDeltaUsage` in

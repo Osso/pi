@@ -152,7 +152,7 @@ function appendTrace(
 		const signature = JSON.stringify(observation);
 		if (lastObservations.get(key) === signature) return;
 		const entry = { timestamp: new Date().toISOString(), pid: process.pid, profile: profile.name, ...observation };
-		appendPrivateTrace(JSON.stringify(entry) + "\n");
+		appendPrivateTrace(`${JSON.stringify(entry)}\n`);
 		lastObservations.set(key, signature);
 	} catch (error) {
 		console.error(`Cannot write Claude authentication trace (${safeErrorCode(error)})`);

@@ -5,8 +5,7 @@ import {
 	type SandboxProfileScope,
 } from "../../../src/core/permissions/presets.ts";
 
-const SANDBOX_USAGE =
-	"Usage: /sandbox [read-only|workspace-write|full-access|inherit] [session|project|global]";
+const SANDBOX_USAGE = "Usage: /sandbox [read-only|workspace-write|full-access|inherit] [session|project|global]";
 
 type SandboxCommandSelection = {
 	profile: SandboxProfileName | undefined;

@@ -1,6 +1,4 @@
-export type ParsedGoalArgs =
-	| { action: "view" | "pause" | "resume" | "clear" }
-	| { action: "set"; objective: string };
+export type ParsedGoalArgs = { action: "view" | "pause" | "resume" | "clear" } | { action: "set"; objective: string };
 
 function unsupportedGoalFlag(parts: string[]): string | undefined {
 	const flag = parts.find((part) => part.startsWith("--"));
@@ -20,7 +18,10 @@ function isStandaloneControlAction(action: string, objectiveParts: string[]): ac
 }
 
 export function parseGoalArgs(args: string): ParsedGoalArgs | { error: string } {
-	const parts = args.trim().split(/\s+/).filter((part) => part.length > 0);
+	const parts = args
+		.trim()
+		.split(/\s+/)
+		.filter((part) => part.length > 0);
 	const flagError = unsupportedGoalFlag(parts);
 	if (flagError) return { error: flagError };
 	if (parts.length === 0) return { action: "view" };

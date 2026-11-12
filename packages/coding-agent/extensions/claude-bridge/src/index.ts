@@ -1,9 +1,11 @@
+import { type EffortLevel, query, type SDKMessage, type SettingSource } from "@anthropic-ai/claude-agent-sdk";
+import type { Base64ImageSource, ContentBlockParam } from "@anthropic-ai/sdk/resources";
 import {
-	createAssistantMessageEventStream,
 	type Api,
 	type AssistantMessage,
 	type AssistantMessageEventStream,
 	type Context,
+	createAssistantMessageEventStream,
 	type ImageContent,
 	type Model,
 	type SimpleStreamOptions,
@@ -12,48 +14,27 @@ import {
 	type UserMessage,
 } from "@earendil-works/pi-ai";
 import { getModels } from "@earendil-works/pi-ai/compat";
-import { resolveClaudeCodeExecutable } from "./bundled-runtime.ts";
-import { buildSessionContext } from "../../../src/core/session-manager.ts";
-import { compact } from "../../../src/core/compaction/compaction.ts";
-import type { CompactionEntry } from "../../../src/core/session-manager.ts";
-import { generateBranchSummary, type BranchSummaryResult } from "../../../src/core/compaction/branch-summarization.ts";
-import { keyHint } from "../../../src/modes/interactive/components/keybinding-hints.ts";
-import {
-	type ExtensionAPI,
-	type ExtensionContext,
-	type ExtensionUIContext,
-} from "../../../src/core/extensions/types.ts";
-import { query, type EffortLevel, type SDKMessage, type SettingSource } from "@anthropic-ai/claude-agent-sdk";
-import type { Base64ImageSource, ContentBlockParam } from "@anthropic-ai/sdk/resources";
 import { Text } from "@earendil-works/pi-tui";
 import {
 	createSession,
 	deleteSession,
 	getSessionPath,
-	normalizeProjectPath,
-	repairToolPairing,
 	type ImportAttachment,
 	type JsonlRecord,
 	type Message,
+	normalizeProjectPath,
+	repairToolPairing,
 	type Session,
 } from "cc-session-io";
 import { appendFileSync, mkdirSync, readFileSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
-import { PROVIDER_ID, messageContentToText, convertPiMessages } from "./convert.ts";
-import { debugLogPath, diagLogPath } from "./log-paths.ts";
-import {
-	applyLongContext,
-	buildModels,
-	claudeCodeModelId,
-	type LongContextSettings,
-	resolveModel as _resolveModel,
-} from "./models.ts";
-import { MCP_SERVER_NAME, MCP_TOOL_PREFIX, renderSkillsBlock } from "./skills.ts";
-import { verifyWrittenSession as _verifyWrittenSession } from "./session-verify.ts";
-import { extractAllToolResults as _extractAllToolResults, type McpResult } from "./extract-tool-results.ts";
-import { ACCOUNTS_EXHAUSTED, AccountProfileManager, QueryContext, ctx } from "./query-state.ts";
-import { recheckAccountProfiles } from "./account-recheck.ts";
+import { type BranchSummaryResult, generateBranchSummary } from "../../../src/core/compaction/branch-summarization.ts";
+import { compact } from "../../../src/core/compaction/compaction.ts";
+import type { ExtensionAPI, ExtensionContext, ExtensionUIContext } from "../../../src/core/extensions/types.ts";
+import type { CompactionEntry } from "../../../src/core/session-manager.ts";
+import { buildSessionContext } from "../../../src/core/session-manager.ts";
+import { keyHint } from "../../../src/modes/interactive/components/keybinding-hints.ts";
 import {
 	InvalidCredentialsError,
 	prepareAccountProfile,
@@ -61,49 +42,64 @@ import {
 	updateAccountState,
 	validateAccountProfileNames,
 } from "./account-profiles.ts";
+import { recheckAccountProfiles } from "./account-recheck.ts";
 import {
-	createAuthStderrRecorder,
-	recordAuthFailure,
-	recordCredentialTrace,
-	type AuthTraceProfile,
-} from "./auth-trace.ts";
-import { ShapeTrace } from "./shape-trace.ts";
-import { makePromptStream, userMessage, type PromptStream } from "./prompt-stream.ts";
-import { claudeCodeSettings, loadConfig, markStartupNoticeShown, type Config } from "./config.ts";
-import {
-	collectPromptSkills,
-	projectPromptCapture,
-	sharedPromptCaptures,
-	type PromptCapture,
-} from "./prompt-capture.ts";
-import { collectCarriedAttachments, placeCarriedAttachments } from "./attachments.ts";
-import {
-	nativePrefix,
-	readNativeRecords,
-	recordNativeSession,
-	recordedNativeSession,
-	seedSession,
-} from "./native-prefix.ts";
-import { createToolServer } from "./mcp-server.ts";
-import { buildActionSummary, type ToolCallState } from "./askclaude-ui.ts";
-import {
+	type AskClaudeMode,
 	askClaudeCallTags,
 	askClaudeToolDescription,
 	buildAskClaudeParams,
 	resolveAskClaudeDefaults,
 	resolveAskClaudeMode,
-	type AskClaudeMode,
 } from "./askclaude-schema.ts";
-import { updateUsage, type SdkUsage } from "./usage.ts";
+import { buildActionSummary, type ToolCallState } from "./askclaude-ui.ts";
+import { collectCarriedAttachments, placeCarriedAttachments } from "./attachments.ts";
 import {
+	type AuthTraceProfile,
+	createAuthStderrRecorder,
+	recordAuthFailure,
+	recordCredentialTrace,
+} from "./auth-trace.ts";
+import { resolveClaudeCodeExecutable } from "./bundled-runtime.ts";
+import {
+	type ClaudeAccountUsage,
 	readAllClaudeUsage,
 	reportClaudeUsage,
-	type ClaudeAccountUsage,
 	type UsageAccount,
 	type UsageAllRequest,
 	type UsageRequest,
 	type UsageRuntime,
 } from "./claude-usage.ts";
+import { type Config, claudeCodeSettings, loadConfig, markStartupNoticeShown } from "./config.ts";
+import { convertPiMessages, messageContentToText, PROVIDER_ID } from "./convert.ts";
+import { extractAllToolResults as _extractAllToolResults, type McpResult } from "./extract-tool-results.ts";
+import { debugLogPath, diagLogPath } from "./log-paths.ts";
+import { createToolServer } from "./mcp-server.ts";
+import {
+	resolveModel as _resolveModel,
+	applyLongContext,
+	buildModels,
+	claudeCodeModelId,
+	type LongContextSettings,
+} from "./models.ts";
+import {
+	nativePrefix,
+	readNativeRecords,
+	recordedNativeSession,
+	recordNativeSession,
+	seedSession,
+} from "./native-prefix.ts";
+import {
+	collectPromptSkills,
+	type PromptCapture,
+	projectPromptCapture,
+	sharedPromptCaptures,
+} from "./prompt-capture.ts";
+import { makePromptStream, type PromptStream, userMessage } from "./prompt-stream.ts";
+import { ACCOUNTS_EXHAUSTED, AccountProfileManager, ctx, QueryContext } from "./query-state.ts";
+import { verifyWrittenSession as _verifyWrittenSession } from "./session-verify.ts";
+import { ShapeTrace } from "./shape-trace.ts";
+import { MCP_SERVER_NAME, MCP_TOOL_PREFIX, renderSkillsBlock } from "./skills.ts";
+import { type SdkUsage, updateUsage } from "./usage.ts";
 
 // --- Debug logging ---
 // CLAUDE_BRIDGE_DEBUG=1 enables debug logging to the bridge log in pi's agent
@@ -151,7 +147,7 @@ function debug(...args: unknown[]) {
 	const ts = new Date().toISOString();
 	const fmt = (a: unknown): string => {
 		if (typeof a === "string") return a;
-		if (a instanceof Error) return `${a.name}: ${a.message}${a.stack ? "\n" + a.stack : ""}`;
+		if (a instanceof Error) return `${a.name}: ${a.message}${a.stack ? `\n${a.stack}` : ""}`;
 		return JSON.stringify(a);
 	};
 	const msg = args.map(fmt).join(" ");
@@ -200,7 +196,7 @@ function diagDump(label: string, data: Record<string, unknown>) {
 	const entry = { ts, moduleInstanceId, label, ...data };
 	const logPath = diagLogPath();
 	mkdirSync(dirname(logPath), { recursive: true });
-	appendFileSync(logPath, JSON.stringify(entry) + "\n");
+	appendFileSync(logPath, `${JSON.stringify(entry)}\n`);
 	debug(`DIAG: ${label} (see ${logPath})`);
 }
 
@@ -295,7 +291,10 @@ function prepareProviderAccount() {
 	if (names === undefined) return undefined;
 	if (!Array.isArray(names)) throw new Error("provider.accountProfiles must be an ordered list of profile names");
 	const home = homedir();
-	const manager = (accountProfileManager ??= createAccountProfileManager(names, home));
+	if (!accountProfileManager) {
+		accountProfileManager = createAccountProfileManager(names, home);
+	}
+	const manager = accountProfileManager;
 	let name = manager.select(Date.now() / 1000);
 	for (;;) {
 		if (name === undefined) throw new Error(ACCOUNTS_EXHAUSTED);
@@ -1765,7 +1764,6 @@ function mapStopReason(reason: string | undefined): "stop" | "length" | "toolUse
 			return "toolUse";
 		case "max_tokens":
 			return "length";
-		case "end_turn":
 		default:
 			return "stop";
 	}
