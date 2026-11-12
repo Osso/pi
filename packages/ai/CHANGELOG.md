@@ -15,6 +15,7 @@
 
 ### Fixed
 
+- Fixed tool argument validation in environments that prohibit dynamic code generation by restoring non-eval validation.
 - Fixed provider error classification to prioritize quota and balance exhaustion over HTTP 429, while keeping per-minute throughput errors distinct from retryable rate limits.
 - Fixed `isRetryableAssistantError` retrying OpenRouter's HTTP 402 `requires more credits` error. Its key URL can contain digits such as `524` that matched the retryable status patterns.
 - Fixed OpenAI, OpenAI-compatible, and OpenAI Codex provider failures dropping the response `Retry-After` delay. The failed assistant message now records it as `retryAfterMs`, from response headers or from the provider's "try again in …" error text when a streamed error carries no headers, so the agent-level retry policy can stop instead of retrying before the provider's reset time.
