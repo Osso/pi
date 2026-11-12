@@ -80,16 +80,24 @@ it("restores disabled delegation across restart without cancelling live child wo
 
 			agent.respondToLlmRequest(
 				restoredChildRequest.id,
-				fauxAssistantMessage(fauxToolCall("end_turn", { reason: "Child work completed" }), {
-					stopReason: "toolUse",
-				}),
+				fauxAssistantMessage(
+					[
+						{ type: "text", text: "Child work completed" },
+						fauxToolCall("end_turn", { reason: "Child work completed" }),
+					],
+					{
+						stopReason: "toolUse",
+					},
+				),
 			);
 			await agent.waitForAgent((candidate) => candidate.id === child.id && candidate.lifecycle === "completed");
 
 			const completionRequest = await agent.waitForLlmRequest(
 				(request) =>
 					request.agentId === null &&
-					request.userMessages.some((message) => message.includes("Disabled-mode live child completed.")),
+					request.userMessages.some((message) =>
+						message.includes("Disabled-mode live child completed: Child work completed"),
+					),
 			);
 			agent.respondToLlmRequest(
 				completionRequest.id,

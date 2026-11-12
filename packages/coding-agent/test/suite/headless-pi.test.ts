@@ -484,7 +484,7 @@ describe("headless Pi fixture", () => {
 				),
 			);
 			const commandChild = await agent.waitForAgent(
-				(candidate) => candidate.displayName === "Command child" && candidate.lifecycle === "completed",
+				(candidate) => candidate.displayName === "Command child" && candidate.lifecycle === "failed",
 			);
 			const mainAfterCommand = await agent.waitForLlmRequest(
 				(request) => request.agentId === null && request.id !== initialMainRequest.id,

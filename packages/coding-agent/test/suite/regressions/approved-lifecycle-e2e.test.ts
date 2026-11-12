@@ -343,13 +343,17 @@ describe("approved multi-agent lifecycle e2e", () => {
 
 	it("resumes DB-only persisted running work with no local runtime or parent journal on session_start", async () => {
 		const prompts: string[] = [];
-		const createAttachedSession: AttachedSessionFactory = async ({ agent, sessionPath }) => ({
-			messages: [fauxAssistantMessage("resumed complete")],
-			prompt: async (prompt) => {
-				prompts.push(prompt);
-			},
-			transcript: agent.transcript ?? { path: sessionPath, sessionId: "missing-runtime-session" },
-		});
+		const createAttachedSession: AttachedSessionFactory = async ({ agent, sessionPath }) => {
+			const messages = [fauxAssistantMessage("prior saved output")];
+			return {
+				messages,
+				prompt: async (prompt) => {
+					prompts.push(prompt);
+					messages.push(fauxAssistantMessage("resumed complete"));
+				},
+				transcript: agent.transcript ?? { path: sessionPath, sessionId: "missing-runtime-session" },
+			};
+		};
 		const fixture = await createSupervisorFixture({ bindExtensions: false, createAttachedSession });
 		const persistence = fixture.store.getPersistenceTarget();
 		if (!persistence) throw new Error("expected persisted supervisor session");
