@@ -1,4 +1,3 @@
-import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext } from "../../../src/core/extensions/types.ts";
@@ -11,7 +10,12 @@ import {
 } from "../../../src/core/multi-agent-store.ts";
 import type { ReadonlySessionManager, SessionEntry } from "../../../src/core/session-manager.ts";
 import type { Theme } from "../../../src/modes/interactive/theme/theme.ts";
-import { formatExtensionStatusTextLines, sanitizeFooterStatusText } from "../../../src/utils/footer-status.ts";
+import {
+	formatCwdForFooter,
+	formatExtensionStatusTextLines,
+	formatFooterTokens,
+	sanitizeFooterStatusText,
+} from "../../../src/utils/footer-status.ts";
 import { formatPullRequest, type PullRequest } from "./pull-request.ts";
 import { PullRequestStatus } from "./pull-request-status.ts";
 import { ReplySpeed } from "./reply-speed.ts";
@@ -46,14 +50,6 @@ export interface DefaultFooterSelectedAgent {
 	slotIndex?: number;
 }
 
-function formatTokens(count: number): string {
-	if (count < 1000) return count.toString();
-	if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
-	if (count < 1000000) return `${Math.round(count / 1000)}k`;
-	if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
-	return `${Math.round(count / 1000000)}M`;
-}
-
 function formatCost(cost: number): string | undefined {
 	if (!cost) {
 		return undefined;
@@ -76,7 +72,7 @@ function footerSession(input: DefaultFooterComponentInput): FooterSessionOverrid
 function formatContextUsage(session: FooterSessionOverride, theme: Theme): string {
 	const usage = session.contextUsage;
 	const contextWindow = usage?.contextWindow ?? session.model?.contextWindow ?? 0;
-	const contextWindowText = formatTokens(contextWindow);
+	const contextWindowText = formatFooterTokens(contextWindow);
 	const percent = usage?.percent;
 	if (percent === null || percent === undefined) {
 		return theme.fg("dim", `ctx ?/${contextWindowText}`);
@@ -104,20 +100,6 @@ function formatSelectedAgent(agent: DefaultFooterSelectedAgent | undefined): str
 
 	const slot = agent.slotIndex === undefined ? "" : ` #${agent.slotIndex}`;
 	return sanitizeFooterStatusText(`selected${slot} ${agent.displayName} ${formatAgentLifecycle(agent.lifecycle)}`);
-}
-
-function formatCwd(cwd: string, home: string | undefined): string {
-	if (!home) return cwd;
-
-	const resolvedCwd = resolve(cwd);
-	const resolvedHome = resolve(home);
-	const relativeToHome = relative(resolvedHome, resolvedCwd);
-	const isInsideHome =
-		relativeToHome === "" ||
-		(relativeToHome !== ".." && !relativeToHome.startsWith(`..${sep}`) && !isAbsolute(relativeToHome));
-
-	if (!isInsideHome) return cwd;
-	return relativeToHome === "" ? "~" : `~${sep}${relativeToHome}`;
 }
 
 function countMatchingLifecycle(
@@ -237,7 +219,7 @@ function formatStatsLine(input: DefaultFooterComponentInput, width: number): str
 function formatPwdLine(input: DefaultFooterComponentInput, width: number): string {
 	const session = footerSession(input);
 	const theme = input.theme;
-	const pwd = formatCwd(session.cwd, process.env.HOME || process.env.USERPROFILE);
+	const pwd = formatCwdForFooter(session.cwd, process.env.HOME || process.env.USERPROFILE);
 	const branch = input.footerData.getSessionOverride() ? null : input.footerData.getGitBranch();
 	const parts = [theme.fg("dim", branch ? `${pwd} (${branch})` : pwd)];
 	const pullRequest = branchCanHavePullRequest(branch) ? input.getPullRequest?.() : undefined;

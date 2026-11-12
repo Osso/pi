@@ -1,22 +1,16 @@
-import { isAbsolute, relative, resolve, sep } from "node:path";
 import { type Component, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { AgentSession } from "../../../core/agent-session.ts";
 import { areExperimentalFeaturesEnabled } from "../../../core/experimental.ts";
 import type { ContextUsage } from "../../../core/extensions/types.ts";
 import type { FooterSessionOverride, ReadonlyFooterDataProvider } from "../../../core/footer-data-provider.ts";
-import { formatExtensionStatusTextLines } from "../../../utils/footer-status.ts";
+import {
+	formatCwdForFooter,
+	formatExtensionStatusTextLines,
+	formatFooterTokens,
+} from "../../../utils/footer-status.ts";
 import { theme } from "../theme/theme.ts";
 
-/**
- * Format token counts for compact footer display.
- */
-function formatTokens(count: number): string {
-	if (count < 1000) return count.toString();
-	if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
-	if (count < 1000000) return `${Math.round(count / 1000)}k`;
-	if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
-	return `${Math.round(count / 1000000)}M`;
-}
+export { formatCwdForFooter };
 
 type SessionFooterData = {
 	input: number;
@@ -28,20 +22,6 @@ type SessionFooterData = {
 	contextUsage: ContextUsage | undefined;
 	sessionName: string | undefined;
 };
-
-export function formatCwdForFooter(cwd: string, home: string | undefined): string {
-	if (!home) return cwd;
-
-	const resolvedCwd = resolve(cwd);
-	const resolvedHome = resolve(home);
-	const relativeToHome = relative(resolvedHome, resolvedCwd);
-	const isInsideHome =
-		relativeToHome === "" ||
-		(relativeToHome !== ".." && !relativeToHome.startsWith(`..${sep}`) && !isAbsolute(relativeToHome));
-
-	if (!isInsideHome) return cwd;
-	return relativeToHome === "" ? "~" : `~${sep}${relativeToHome}`;
-}
 
 /**
  * Footer component that shows pwd, token stats, and context usage.
@@ -163,10 +143,10 @@ export class FooterComponent implements Component {
 		const statsParts = [];
 		const executableName = this.footerData.getExecutableName();
 		if (executableName) statsParts.push(`[${executableName}]`);
-		if (sessionData.input) statsParts.push(`↑${formatTokens(sessionData.input)}`);
-		if (sessionData.output) statsParts.push(`↓${formatTokens(sessionData.output)}`);
-		if (sessionData.cacheRead) statsParts.push(`R${formatTokens(sessionData.cacheRead)}`);
-		if (sessionData.cacheWrite) statsParts.push(`W${formatTokens(sessionData.cacheWrite)}`);
+		if (sessionData.input) statsParts.push(`↑${formatFooterTokens(sessionData.input)}`);
+		if (sessionData.output) statsParts.push(`↓${formatFooterTokens(sessionData.output)}`);
+		if (sessionData.cacheRead) statsParts.push(`R${formatFooterTokens(sessionData.cacheRead)}`);
+		if (sessionData.cacheWrite) statsParts.push(`W${formatFooterTokens(sessionData.cacheWrite)}`);
 		if ((sessionData.cacheRead > 0 || sessionData.cacheWrite > 0) && sessionData.latestCacheHitRate !== undefined) {
 			statsParts.push(`CH${sessionData.latestCacheHitRate.toFixed(1)}%`);
 		}
@@ -183,8 +163,8 @@ export class FooterComponent implements Component {
 		const autoIndicator = this.autoCompactEnabled ? " (auto)" : "";
 		const contextPercentDisplay =
 			contextPercent === "?"
-				? `?/${formatTokens(contextWindow)}${autoIndicator}`
-				: `${contextPercent}%/${formatTokens(contextWindow)}${autoIndicator}`;
+				? `?/${formatFooterTokens(contextWindow)}${autoIndicator}`
+				: `${contextPercent}%/${formatFooterTokens(contextWindow)}${autoIndicator}`;
 		if (contextPercentValue > 90) {
 			contextPercentStr = theme.fg("error", contextPercentDisplay);
 		} else if (contextPercentValue > 70) {
