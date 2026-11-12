@@ -7,21 +7,19 @@ import {
 	createAssistantMessageEventStream,
 	DEFAULT_MAX_RETRY_DELAY_MS,
 	getSupportedThinkingLevels,
+	isQuotaExhaustionError,
+	isRateLimitError,
 	type Model,
 	type ModelThinkingLevel,
 	registerApiProvider,
 	type SimpleStreamOptions,
 	streamSimple,
 } from "@earendil-works/pi-ai/compat";
-import { isQuotaExhaustionError } from "./codex-quota-fallback.ts";
 import type { ModelRegistry, ResolvedRequestAuth } from "./model-registry.ts";
 
 export const POOL_EXHAUSTION_COOLDOWN_MS = 15 * 60 * 1000;
 /** Skip for a rate-limited member that gave no retry delay; per-minute limits reset within a minute. */
 export const POOL_RATE_LIMIT_COOLDOWN_MS = 60 * 1000;
-
-/** Account-scoped throttling another member can absorb, including OpenAI's per-minute "Request too large". */
-const RATE_LIMIT_PATTERN = /rate.?limit|too many requests|\b429\b|(?:tokens|requests) per min/i;
 
 export type MemberAuth = Extract<ResolvedRequestAuth, { ok: true }>;
 
@@ -298,11 +296,7 @@ export class ModelPools {
  * or a requested retry delay longer than the cap, which makes the member unavailable for this request.
  */
 function rotatesBeforeOutput(message: AssistantMessage, maxRetryDelayMs: number): boolean {
-	return isQuotaExhaustionError(message) || isRateLimit(message) || exceedsRetryCap(message, maxRetryDelayMs);
-}
-
-function isRateLimit(message: AssistantMessage): boolean {
-	return RATE_LIMIT_PATTERN.test(message.errorMessage ?? "");
+	return isQuotaExhaustionError(message) || isRateLimitError(message) || exceedsRetryCap(message, maxRetryDelayMs);
 }
 
 function exceedsRetryCap(message: AssistantMessage, maxRetryDelayMs: number): boolean {
@@ -312,8 +306,7 @@ function exceedsRetryCap(message: AssistantMessage, maxRetryDelayMs: number): bo
 
 /** A rate limit within the retry cap skips the member for its retry delay; anything else for 15 minutes. */
 function memberCooldown(message: AssistantMessage, maxRetryDelayMs: number, now: number): MemberCooldown {
-	const throttled =
-		!isQuotaExhaustionError(message) && isRateLimit(message) && !exceedsRetryCap(message, maxRetryDelayMs);
+	const throttled = isRateLimitError(message) && !exceedsRetryCap(message, maxRetryDelayMs);
 	if (!throttled) return { until: now + POOL_EXHAUSTION_COOLDOWN_MS, rateLimited: false };
 	return { until: now + (message.retryAfterMs ?? POOL_RATE_LIMIT_COOLDOWN_MS), rateLimited: true };
 }

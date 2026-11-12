@@ -14,8 +14,13 @@ describe("compactionRetryCooldownMs", () => {
 		expect(compactionRetryCooldownMs("Summarization failed: 429 Too Many Requests")).toBe(60_000);
 	});
 
-	it("ignores non-rate-limit failures", () => {
+	it("ignores non-rate-limit and quota-exhausted failures", () => {
 		expect(compactionRetryCooldownMs("Summarization failed: 500 upstream error")).toBeUndefined();
+		expect(
+			compactionRetryCooldownMs(
+				'OpenAI API error (429): {"error":{"message":"Your credit balance is exhausted","code":"credit_balance_exhausted"}}',
+			),
+		).toBeUndefined();
 	});
 
 	it("caps very long hints at one hour", () => {

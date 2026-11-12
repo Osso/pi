@@ -1,4 +1,5 @@
-const RATE_LIMIT_PATTERN = /rate.?limit|too many requests|\b429\b|tokens per min/i;
+import { isRateLimitErrorText } from "@earendil-works/pi-ai/compat";
+
 const RETRY_HINT_PATTERN = /try again in\s+([\d.]+)\s*(ms|s|sec(?:ond)?s?|m|min(?:ute)?s?)/i;
 const DEFAULT_COOLDOWN_MS = 60_000;
 const MIN_COOLDOWN_MS = 1_000;
@@ -12,7 +13,7 @@ const MAX_COOLDOWN_MS = 60 * 60 * 1000;
 export const MAX_CONSECUTIVE_COMPACTION_FAILURES = 3;
 
 export function compactionRetryCooldownMs(errorMessage: string): number | undefined {
-	if (!RATE_LIMIT_PATTERN.test(errorMessage)) {
+	if (!isRateLimitErrorText(errorMessage)) {
 		return undefined;
 	}
 	const hint = RETRY_HINT_PATTERN.exec(errorMessage);

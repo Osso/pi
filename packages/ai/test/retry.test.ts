@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { fauxAssistantMessage } from "../src/providers/faux.ts";
-import { isRetryableAssistantError } from "../src/utils/retry.ts";
+import {
+	classifyProviderError,
+	classifyProviderErrorText,
+	isQuotaExhaustionError,
+	isRateLimitError,
+	isRetryableAssistantError,
+	isRetryableHttpError,
+} from "../src/utils/retry.ts";
 
 const openAIExplicitRetryMessage =
 	"An error occurred while processing your request. You can retry your request, or contact us through our help center at help.openai.com if the error persists. Please include the request ID req_******** in your message.";
@@ -178,5 +185,133 @@ describe("provider retry classification", () => {
 			),
 		).toBe(true);
 		expect(isRetryableAssistantError(fauxAssistantMessage("not an error"))).toBe(false);
+	});
+});
+
+describe("provider error classification matrix", () => {
+	it.each([
+		{
+			label: "OpenCode GoUsageLimitError (429)",
+			text: 'GoUsageLimitError: {"type":"GoUsageLimitError"}',
+			expectedKind: "quota_exhausted",
+			retryable: false,
+			rateLimited: false,
+			quotaExhausted: true,
+		},
+		{
+			label: "OpenCode FreeUsageLimitError (429)",
+			text: 'FreeUsageLimitError: {"type":"FreeUsageLimitError"}',
+			expectedKind: "quota_exhausted",
+			retryable: false,
+			rateLimited: false,
+			quotaExhausted: true,
+		},
+		{
+			label: "OpenAI 429 credit_balance_exhausted",
+			text: 'OpenAI API error (429): 429 {"error":{"message":"Your credit balance is exhausted","type":"billing_error","code":"credit_balance_exhausted"}}',
+			expectedKind: "quota_exhausted",
+			retryable: false,
+			rateLimited: false,
+			quotaExhausted: true,
+		},
+		{
+			label: "OpenAI insufficient_quota",
+			text: "insufficient_quota",
+			expectedKind: "quota_exhausted",
+			retryable: false,
+			rateLimited: false,
+			quotaExhausted: true,
+		},
+		{
+			label: "DeepSeek Insufficient Balance",
+			text: '{"error":{"message":"Insufficient Balance","type":"unknown_error"}}',
+			expectedKind: "quota_exhausted",
+			retryable: false,
+			rateLimited: false,
+			quotaExhausted: true,
+		},
+		{
+			label: "OpenRouter 402 Insufficient credits",
+			text: 'OpenAI API error (402): {"message":"Insufficient credits. Add more using https://openrouter.ai/settings/credits","code":402,"metadata":{"limit_source":"openrouter_credits"}}',
+			expectedKind: "quota_exhausted",
+			retryable: false,
+			rateLimited: false,
+			quotaExhausted: true,
+		},
+		{
+			label: "OpenRouter 402 requires more credits",
+			text: '402 This request requires more credits, or fewer max_tokens. {"code":402}',
+			expectedKind: "quota_exhausted",
+			retryable: false,
+			rateLimited: false,
+			quotaExhausted: true,
+		},
+		{
+			label: "Codex ChatGPT usage limit",
+			text: "You have hit your ChatGPT usage limit (plus plan). Try again in ~120 min.",
+			expectedKind: "quota_exhausted",
+			retryable: false,
+			rateLimited: false,
+			quotaExhausted: true,
+		},
+		{
+			label: "OpenAI TPM 429 with /account/billing URL",
+			text: 'OpenAI API error (429): {"type":"tokens","code":"rate_limit_exceeded","message":"Rate limit reached on tokens per min (TPM). Visit https://platform.openai.com/account/billing."}',
+			expectedKind: "rate_limited",
+			retryable: true,
+			rateLimited: true,
+			quotaExhausted: false,
+		},
+		{
+			label: "OpenAI Request too large on tokens per min without 429",
+			text: "OpenAI API error: Request too large for gpt-6.1-sol in organization org-test on tokens per min (TPM): Limit 2000000, Requested 2400000.",
+			expectedKind: "throughput_limited",
+			retryable: false,
+			rateLimited: true,
+			quotaExhausted: false,
+		},
+		{
+			label: "Claude bridge rate limit rejection",
+			text: "Claude rate limit (five_hour): You're out of extra usage",
+			expectedKind: "rate_limited",
+			retryable: true,
+			rateLimited: true,
+			quotaExhausted: false,
+		},
+		{
+			label: "HTTP 503 transient failure",
+			text: "503 Service Unavailable",
+			expectedKind: "transient",
+			retryable: true,
+			rateLimited: false,
+			quotaExhausted: false,
+		},
+		{
+			label: "Authentication failure (401)",
+			text: "401 Unauthorized: invalid_api_key",
+			expectedKind: "unknown",
+			retryable: false,
+			rateLimited: false,
+			quotaExhausted: false,
+		},
+	])("classifies $label", ({ text, expectedKind, retryable, rateLimited, quotaExhausted }) => {
+		const byText = classifyProviderErrorText(text);
+		expect(byText).toEqual({ kind: expectedKind, retryable, rateLimited, quotaExhausted });
+
+		const message = fauxAssistantMessage("", { stopReason: "error", errorMessage: text });
+		expect(classifyProviderError(message)).toEqual(byText);
+		expect(isQuotaExhaustionError(message)).toBe(quotaExhausted);
+		expect(isRateLimitError(message)).toBe(rateLimited);
+		expect(isRetryableAssistantError(message)).toBe(retryable);
+	});
+
+	it("classifies HTTP status codes alongside response bodies", () => {
+		expect(isRetryableHttpError(503, "upstream temporarily unavailable")).toBe(true);
+		expect(isRetryableHttpError(429, "Please slow down")).toBe(true);
+		expect(isRetryableHttpError(429, "https://platform.openai.com/account/billing")).toBe(true);
+		expect(isRetryableHttpError(429, '{"error":{"code":"insufficient_quota"}}')).toBe(false);
+		expect(isRetryableHttpError(429, "You have hit your ChatGPT usage limit")).toBe(false);
+		expect(isRetryableHttpError(402, "requires more credits")).toBe(false);
+		expect(isRetryableHttpError(401, "Unauthorized")).toBe(false);
 	});
 });

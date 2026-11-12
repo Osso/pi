@@ -1,6 +1,33 @@
 import type { AssistantMessage } from "../types.ts";
 
 const CODEX_CYBERSECURITY_RESTRICTION = "This content was flagged for possible cybersecurity risk.";
+const RETRYABLE_HTTP_STATUSES = new Set([500, 502, 503, 504]);
+
+export type ProviderErrorKind =
+	| "none"
+	| "quota_exhausted"
+	| "non_retryable"
+	| "rate_limited"
+	| "throughput_limited"
+	| "transient"
+	| "unknown";
+
+export interface ProviderErrorClassification {
+	kind: ProviderErrorKind;
+	retryable: boolean;
+	rateLimited: boolean;
+	quotaExhausted: boolean;
+}
+
+const CLASSIFICATION_FLAGS: Record<ProviderErrorKind, ProviderErrorClassification> = {
+	none: { kind: "none", retryable: false, rateLimited: false, quotaExhausted: false },
+	quota_exhausted: { kind: "quota_exhausted", retryable: false, rateLimited: false, quotaExhausted: true },
+	non_retryable: { kind: "non_retryable", retryable: false, rateLimited: false, quotaExhausted: false },
+	rate_limited: { kind: "rate_limited", retryable: true, rateLimited: true, quotaExhausted: false },
+	throughput_limited: { kind: "throughput_limited", retryable: false, rateLimited: true, quotaExhausted: false },
+	transient: { kind: "transient", retryable: true, rateLimited: false, quotaExhausted: false },
+	unknown: { kind: "unknown", retryable: false, rateLimited: false, quotaExhausted: false },
+};
 
 /** Identifies the canonical Codex cybersecurity restriction, including provider suffixes and request IDs. */
 export function isCodexCybersecurityRestriction(message: AssistantMessage): boolean {
@@ -17,45 +44,48 @@ function buildProviderErrorPattern(patterns: readonly string[]): RegExp {
 	return new RegExp(patterns.join("|"), "i");
 }
 
-const NON_RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
+const QUOTA_EXHAUSTION_PATTERN = buildProviderErrorPattern([
 	// OpenCode Go/free-tier limits returned as 429 JSON error types by OpenCode's
 	// Zen API. These are subscription/account limits, not transient throttles.
 	"GoUsageLimitError",
 	"FreeUsageLimitError",
 
-	// OpenCode Go subscription-limit text asks users to enable available-balance
-	// usage after rolling/weekly/monthly limits are reached.
-	"Monthly usage limit reached",
+	// Subscription/plan usage limits (OpenCode Go monthly limit, ChatGPT Codex usage limit).
+	"usage limit",
 	"available balance",
 
-	// Generic quota/budget/billing exhaustion. `insufficient_quota` is OpenAI's
-	// quota/billing error code; the other strings cover common gateway wording.
-	// `billing` excludes URL paths: OpenAI's transient TPM/RPM 429 links to
-	// `platform.openai.com/account/billing`.
+	// Account credit/balance exhaustion (DeepSeek, OpenRouter, OpenAI).
+	"Insufficient (?:Balance|credits)",
+	"requires more credits",
 	"insufficient_quota",
+	"credit_balance_exhausted",
 	"out of budget",
 	"quota exceeded",
+
+	// Generic billing limit/error wording. Excludes URL paths so OpenAI's transient
+	// TPM/RPM 429 link (`platform.openai.com/account/billing`) is not treated as quota.
 	"(?<!/)billing",
+]);
 
-	// OpenRouter HTTP 402 when the key's credits or limit cannot cover the request.
-	"requires more credits",
-
+const NON_RETRYABLE_REASON_PATTERN = buildProviderErrorPattern([
 	// These terminal reasons are deterministic for an unchanged request.
 	"Incomplete response returned, reason: max_output_tokens",
 	"Incomplete response returned, reason: content_filter",
 ]);
 
-const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
+const RATE_LIMIT_PATTERN = buildProviderErrorPattern(["rate.?limit", "too many requests", "\\b429\\b"]);
+
+/** Per-minute account throughput exhaustion (e.g. "Request too large ... on tokens per min"). */
+const THROUGHPUT_LIMIT_PATTERN = buildProviderErrorPattern(["(?:tokens|requests) per min"]);
+
+const TRANSIENT_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 	// Generic provider load, HTTP status, and server-side transient failures.
 	"overloaded",
-	"rate.?limit",
-	"too many requests",
-	"429",
-	"500",
-	"502",
-	"503",
-	"504",
-	"524",
+	"\\b500\\b",
+	"\\b502\\b",
+	"\\b503\\b",
+	"\\b504\\b",
+	"\\b524\\b",
 	"service.?unavailable",
 	"server.?error",
 	"server had an error",
@@ -113,6 +143,52 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
 ]);
 
 /**
+ * Classifies a provider error string (and optional HTTP status) into one canonical category.
+ * Precedence: quota exhaustion -> deterministic non-retryable -> rate limit -> throughput limit -> transient.
+ */
+export function classifyProviderErrorText(errorText: string, status?: number): ProviderErrorClassification {
+	if (!errorText && status === undefined) return CLASSIFICATION_FLAGS.none;
+	if (QUOTA_EXHAUSTION_PATTERN.test(errorText)) return CLASSIFICATION_FLAGS.quota_exhausted;
+	if (NON_RETRYABLE_REASON_PATTERN.test(errorText)) return CLASSIFICATION_FLAGS.non_retryable;
+	if (status === 429 || RATE_LIMIT_PATTERN.test(errorText)) return CLASSIFICATION_FLAGS.rate_limited;
+	if (THROUGHPUT_LIMIT_PATTERN.test(errorText)) return CLASSIFICATION_FLAGS.throughput_limited;
+	if (
+		(status !== undefined && RETRYABLE_HTTP_STATUSES.has(status)) ||
+		TRANSIENT_PROVIDER_ERROR_PATTERN.test(errorText)
+	) {
+		return CLASSIFICATION_FLAGS.transient;
+	}
+	return CLASSIFICATION_FLAGS.unknown;
+}
+
+/** Classifies a failed AssistantMessage into one canonical provider error category. */
+export function classifyProviderError(message: AssistantMessage): ProviderErrorClassification {
+	if (message.stopReason !== "error" || !message.errorMessage) return CLASSIFICATION_FLAGS.none;
+	if (isCodexCybersecurityRestriction(message)) return CLASSIFICATION_FLAGS.non_retryable;
+	return classifyProviderErrorText(message.errorMessage);
+}
+
+export function isQuotaExhaustionErrorText(errorText: string): boolean {
+	return classifyProviderErrorText(errorText).quotaExhausted;
+}
+
+export function isQuotaExhaustionError(message: AssistantMessage): boolean {
+	return classifyProviderError(message).quotaExhausted;
+}
+
+export function isRateLimitErrorText(errorText: string): boolean {
+	return classifyProviderErrorText(errorText).rateLimited;
+}
+
+export function isRateLimitError(message: AssistantMessage): boolean {
+	return classifyProviderError(message).rateLimited;
+}
+
+export function isRetryableHttpError(status: number, errorText: string): boolean {
+	return classifyProviderErrorText(errorText, status).retryable;
+}
+
+/**
  * Classifies whether a failed assistant message looks like a transient provider
  * or transport error, so callers can decide if the last assistant turn should be
  * restarted.
@@ -122,9 +198,5 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
  * before restarting the assistant turn.
  */
 export function isRetryableAssistantError(message: AssistantMessage): boolean {
-	if (message.stopReason !== "error" || !message.errorMessage) return false;
-	if (isCodexCybersecurityRestriction(message)) return false;
-	const errorMessage = message.errorMessage;
-	if (NON_RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage)) return false;
-	return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);
+	return classifyProviderError(message).retryable;
 }

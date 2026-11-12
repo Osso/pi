@@ -45,6 +45,7 @@ import { formatProviderError, normalizeProviderError } from "../utils/error-body
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { resolveHttpProxyUrlForTarget } from "../utils/node-http-proxy.ts";
+import { isQuotaExhaustionErrorText, isRetryableHttpError } from "../utils/retry.ts";
 import {
 	DEFAULT_MAX_RETRY_DELAY_MS,
 	getErrorRetryAfterMs,
@@ -125,22 +126,6 @@ interface RequestBody {
 // ============================================================================
 // Retry Helpers
 // ============================================================================
-
-function isTerminalRateLimitError(errorText: string): boolean {
-	return /GoUsageLimitError|FreeUsageLimitError|Monthly usage limit reached|available balance|insufficient_quota|out of budget|quota exceeded|billing/i.test(
-		errorText,
-	);
-}
-
-function isRetryableError(status: number, errorText: string): boolean {
-	if (status === 429 && isTerminalRateLimitError(errorText)) {
-		return false;
-	}
-	if (status === 429 || status === 500 || status === 502 || status === 503 || status === 504) {
-		return true;
-	}
-	return /rate.?limit|overloaded|service.?unavailable|upstream.?connect|connection.?refused/i.test(errorText);
-}
 
 function capRetryDelayMs(delayMs: number, options?: StreamOptions): number {
 	const maxRetryDelayMs = options?.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
@@ -377,7 +362,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 
 					const errorText = await response.text();
 					diagnostic?.failHttp(errorText);
-					if (attempt < maxRetries && isRetryableError(response.status, errorText)) {
+					if (attempt < maxRetries && isRetryableHttpError(response.status, errorText)) {
 						const retryAfterDelayMs = getRetryAfterMs(response.headers);
 						const delayMs =
 							retryAfterDelayMs === undefined
@@ -421,7 +406,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 					}
 					lastError = error instanceof Error ? error : new Error(String(error));
 					// Network errors are retryable
-					if (attempt < maxRetries && !lastError.message.includes("usage limit")) {
+					if (attempt < maxRetries && !isQuotaExhaustionErrorText(lastError.message)) {
 						const delayMs = BASE_DELAY_MS * 2 ** attempt;
 						options?.onRetry?.(
 							{ attempt: attempt + 1, maxAttempts: maxRetries + 1, delayMs, reason: lastError.message },
