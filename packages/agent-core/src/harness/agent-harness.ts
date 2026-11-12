@@ -461,7 +461,8 @@ export class AgentHarness<
 
 	private async flushPendingSessionWrites(): Promise<void> {
 		while (this.pendingSessionWrites.length > 0) {
-			const write = this.pendingSessionWrites[0]!;
+			const write = this.pendingSessionWrites[0];
+			if (!write) break;
 			if (write.type === "message") {
 				await this.session.appendMessage(write.message);
 			} else if (write.type === "model_change") {
@@ -543,7 +544,7 @@ export class AgentHarness<
 				this.nextTurnQueue.unshift(...queuedMessages);
 				throw normalizeHookError(error);
 			}
-			messages = [...queuedMessages, messages[0]!];
+			messages = [...queuedMessages, ...messages];
 		}
 		const beforeResult = await this.emitHook({
 			type: "before_agent_start",
@@ -590,8 +591,8 @@ export class AgentHarness<
 		try {
 			const newMessages = await runResultPromise;
 			for (let i = newMessages.length - 1; i >= 0; i--) {
-				const message = newMessages[i]!;
-				if (message.role === "assistant") {
+				const message = newMessages[i];
+				if (message?.role === "assistant") {
 					return message;
 				}
 			}
@@ -901,7 +902,10 @@ export class AgentHarness<
 	}
 
 	getActiveTools(): TTool[] {
-		return this.activeToolNames.map((name) => this.tools.get(name)!);
+		return this.activeToolNames.flatMap((name) => {
+			const tool = this.tools.get(name);
+			return tool ? [tool] : [];
+		});
 	}
 
 	async setActiveTools(toolNames: string[]): Promise<void> {
@@ -991,7 +995,8 @@ export class AgentHarness<
 			errors.push(toError(error));
 		}
 		if (errors.length > 0) {
-			const cause = errors.length === 1 ? errors[0]! : new AggregateError(errors, "Abort completed with errors");
+			const cause =
+				errors.length === 1 && errors[0] ? errors[0] : new AggregateError(errors, "Abort completed with errors");
 			throw normalizeHarnessError(cause, "hook");
 		}
 		return { clearedSteer, clearedFollowUp };
@@ -1009,8 +1014,9 @@ export class AgentHarness<
 			handlers = new Set();
 			this.handlers.set(SUBSCRIBER_EVENT_TYPE, handlers);
 		}
-		handlers.add(listener as AgentHarnessHandler);
-		return () => handlers!.delete(listener as AgentHarnessHandler);
+		const target = handlers;
+		target.add(listener as AgentHarnessHandler);
+		return () => target.delete(listener as AgentHarnessHandler);
 	}
 
 	on<TType extends keyof AgentHarnessEventResultMap>(
@@ -1024,7 +1030,8 @@ export class AgentHarness<
 			handlers = new Set();
 			this.handlers.set(type, handlers);
 		}
-		handlers.add(handler as AgentHarnessHandler);
-		return () => handlers!.delete(handler as AgentHarnessHandler);
+		const target = handlers;
+		target.add(handler as AgentHarnessHandler);
+		return () => target.delete(handler as AgentHarnessHandler);
 	}
 }

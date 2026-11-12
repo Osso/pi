@@ -176,7 +176,10 @@ export function streamProxy(model: Model<any>, context: Context, options: ProxyS
 				throw new Error(errorMessage);
 			}
 
-			reader = response.body!.getReader();
+			if (!response.body) {
+				throw new Error("Proxy response body is missing");
+			}
+			reader = response.body.getReader();
 			const decoder = new TextDecoder();
 			let buffer = "";
 

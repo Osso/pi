@@ -60,6 +60,16 @@
 			}
 		},
 		{
+			"includes": ["packages/agent-core/src/**/*.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noNonNullAssertion": "error"
+					}
+				}
+			}
+		},
+		{
 			"includes": [
 				"packages/coding-agent/extensions/**/*.ts",
 				"!packages/coding-agent/extensions/claude-bridge/**/*.ts"
