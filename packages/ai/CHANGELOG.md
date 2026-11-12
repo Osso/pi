@@ -15,6 +15,7 @@
 
 ### Fixed
 
+- Fixed provider error classification to prioritize quota and balance exhaustion over HTTP 429, while keeping per-minute throughput errors distinct from retryable rate limits.
 - Fixed `isRetryableAssistantError` retrying OpenRouter's HTTP 402 `requires more credits` error. Its key URL can contain digits such as `524` that matched the retryable status patterns.
 - Fixed OpenAI, OpenAI-compatible, and OpenAI Codex provider failures dropping the response `Retry-After` delay. The failed assistant message now records it as `retryAfterMs`, from response headers or from the provider's "try again in …" error text when a streamed error carries no headers, so the agent-level retry policy can stop instead of retrying before the provider's reset time.
 - Fixed mid-stream provider errors (an SSE `error` chunk after 200 OK, e.g. OpenRouter) losing their error code: `errorMessage` now carries the SDK message followed by the parsed body (`ERROR: {"message":"ERROR","code":502,...}`) instead of only `ERROR`, so transient upstream failures are retried.
@@ -57,6 +58,7 @@
 
 ### Added
 
+- Added shared provider error classification helpers for quota exhaustion, rate limits, throughput limits, and transient errors.
 - Added optional `StreamOptions.cwd` for per-call working-directory metadata in local/subprocess provider integrations; it is not a server payload field.
 - Added optional Codex `onDiagnostic` failed-attempt observations with Unix epoch millisecond timestamps, actual transport/attempt metadata, and validated available upstream codes/request IDs; excludes raw messages and content and isolates observer failures without changing retry or transport policy.
 - Added GPT-6 Sol and GPT-6 Luna to the `openai-codex`, `openai-codex-gc`, and `openai-codex-team` model catalogs with OpenAI's published per-million-token pricing: Sol $2 input/$10 output and Luna $0.10 input/$0.50 output.

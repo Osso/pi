@@ -5,7 +5,7 @@ and `packages/coding-agent/src/core/model-pool.ts`), wired into SDK sessions (`s
 compaction (`agent-session.ts`).
 
 A `pool/<name>` model routes each request through an ordered list of real provider/model members.
-It selects another member only after terminal quota or balance exhaustion before output starts.
+It selects another member on quota exhaustion, rate limits, or retry delays above the configured cap before output starts.
 The selected model remains the pool; assistant messages retain the actual member identity.
 Pools replace the former session-level OpenAI/Codex quota fallback: selecting a provider model
 directly never switches accounts; select a pool for that.
@@ -44,7 +44,8 @@ directly never switches accounts; select a pool for that.
   is a terminal quota-exhaustion error (including `insufficient_quota`, DeepSeek's `Insufficient
   Balance`, and OpenRouter's HTTP 402 `requires more credits` and `Insufficient credits`) or an account
   rate limit: `rate limit`, `too many requests`, `429`, or a per-minute token/request limit such as
-  OpenAI's TPM `Request too large`. Another member's account absorbs the throttle, so a rate-limited
+  OpenAI's TPM `Request too large`. Quota exhaustion takes precedence over a 429 rate limit.
+  Another member's account absorbs the throttle, so a rate-limited
   member never fails the turn while a later member can serve it.
 - [x] Forward all events from the chosen member unchanged. Errors after text, thinking, or tool-call
   events do not rotate members. Other errors before output (server errors, timeouts, connection
@@ -74,9 +75,8 @@ directly never switches accounts; select a pool for that.
 ## How it works
 
 - [Model pool configuration and request behavior](../../packages/coding-agent/docs/models.md#model-pools)
-- Terminal quota classification: `isQuotaExhaustionError` in
-  `packages/coding-agent/src/core/codex-quota-fallback.ts` (also used by the Supervisor's Codex
-  provider rotation, which is independent of pools).
+- Shared provider error classification: `packages/ai/src/utils/retry.ts`. The Supervisor's Codex
+  provider rotation uses the same quota classification independently of pools.
 
 ## Implementation inventory
 
@@ -84,8 +84,8 @@ directly never switches accounts; select a pool for that.
   checks auth availability, and matches member messages.
 - `packages/coding-agent/src/core/model-pool.ts` — derives capabilities, registers the pool API,
   resolves member auth, streams events, and keeps quota cooldowns.
-- `packages/coding-agent/src/core/codex-quota-fallback.ts` — classifies terminal quota errors,
-  including `Insufficient Balance`, `requires more credits` and `Insufficient credits`.
+- `packages/ai/src/utils/retry.ts` — classifies provider errors, including terminal quota and
+  balance exhaustion, rate limits, and per-minute throughput limits.
 - `packages/coding-agent/src/core/sdk.ts` — routes pool models through the SDK per-model request path.
 - `packages/coding-agent/src/core/agent-session.ts` — compaction checks accept pool members.
 - `packages/coding-agent/docs/models.md` — documents the `pools` key and its limits.
