@@ -39,7 +39,8 @@ export function findWordBackward(text: string, cursor: number, options?: WordNav
 
 	if (segments.length === 0) return newCursor;
 
-	const last = segments[segments.length - 1]!;
+	const last = segments[segments.length - 1];
+	if (!last) return newCursor;
 
 	if (isAtomic?.(last.segment)) {
 		// Skip one atomic segment.
@@ -48,10 +49,10 @@ export function findWordBackward(text: string, cursor: number, options?: WordNav
 		// Skip inside one word-like segment, preserving ASCII punctuation boundaries.
 		const segment = last.segment;
 		const matches = [...segment.matchAll(new RegExp(PUNCTUATION_REGEX, "g"))];
-		if (matches.length <= 0) {
+		const lastMatch = matches[matches.length - 1];
+		if (!lastMatch) {
 			newCursor -= segment.length;
 		} else {
-			const lastMatch = matches[matches.length - 1]!;
 			newCursor -= segment.length - (lastMatch.index + lastMatch[0].length);
 		}
 	} else {

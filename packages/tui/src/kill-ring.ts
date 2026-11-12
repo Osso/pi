@@ -20,11 +20,13 @@ export class KillRing {
 		if (!text) return;
 
 		if (opts.accumulate && this.ring.length > 0) {
-			const last = this.ring.pop()!;
-			this.ring.push(opts.prepend ? text + last : last + text);
-		} else {
-			this.ring.push(text);
+			const last = this.ring.pop();
+			if (last !== undefined) {
+				this.ring.push(opts.prepend ? text + last : last + text);
+				return;
+			}
 		}
+		this.ring.push(text);
 	}
 
 	/** Get most recent entry without modifying the ring. */
@@ -35,8 +37,10 @@ export class KillRing {
 	/** Move last entry to front (for yank-pop cycling). */
 	rotate(): void {
 		if (this.ring.length > 1) {
-			const last = this.ring.pop()!;
-			this.ring.unshift(last);
+			const last = this.ring.pop();
+			if (last !== undefined) {
+				this.ring.unshift(last);
+			}
 		}
 	}
 

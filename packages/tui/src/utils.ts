@@ -25,7 +25,8 @@ export function getWordSegmenter(): Intl.Segmenter {
  * Unicode additions.
  */
 function couldBeEmoji(segment: string): boolean {
-	const cp = segment.codePointAt(0)!;
+	const cp = segment.codePointAt(0);
+	if (cp === undefined) return false;
 	return (
 		(cp >= 0x1f000 && cp <= 0x1fbff) || // Emoji and Pictograph
 		(cp >= 0x2300 && cp <= 0x23ff) || // Misc technical
@@ -198,7 +199,8 @@ function graphemeWidth(segment: string): number {
 	// Trailing halfwidth/fullwidth forms and AM vowels that segment with a base.
 	if (segment.length > 1) {
 		for (const char of segment.slice(1)) {
-			const c = char.codePointAt(0)!;
+			const c = char.codePointAt(0);
+			if (c === undefined) continue;
 			if (c >= 0xff00 && c <= 0xffef) {
 				width += eastAsianWidth(c);
 			} else if (c === 0x0e33 || c === 0x0eb3) {
@@ -295,7 +297,7 @@ export function extractAnsiCode(str: string, pos: number): { code: string; lengt
 	// CSI sequence: ESC [ ... m/G/K/H/J
 	if (next === "[") {
 		let j = pos + 2;
-		while (j < str.length && !/[mGKHJ]/.test(str[j]!)) j++;
+		while (j < str.length && !/[mGKHJ]/.test(str[j] ?? "")) j++;
 		if (j < str.length) return { code: str.substring(pos, j + 1), length: j + 1 - pos };
 		return null;
 	}
@@ -753,7 +755,8 @@ function wrapSingleLine(line: string, width: number): string[] {
 			// Break long token - breakLongWord handles its own resets
 			const broken = breakLongWord(token, width, tracker);
 			for (let i = 0; i < broken.length - 1; i++) {
-				wrapped.push(broken[i]!);
+				const part = broken[i];
+				if (part !== undefined) wrapped.push(part);
 			}
 			currentLine = broken[broken.length - 1];
 			currentVisibleLength = visibleWidth(currentLine);

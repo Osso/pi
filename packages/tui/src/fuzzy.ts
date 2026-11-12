@@ -29,7 +29,8 @@ export function fuzzyMatch(query: string, text: string): FuzzyMatch {
 
 		for (let i = 0; i < textLower.length && queryIndex < normalizedQuery.length; i++) {
 			if (textLower[i] === normalizedQuery[queryIndex]) {
-				const isWordBoundary = i === 0 || /[\s\-_./:]/.test(textLower[i - 1]!);
+				const prevChar = i > 0 ? textLower[i - 1] : undefined;
+				const isWordBoundary = prevChar === undefined || /[\s\-_./:]/.test(prevChar);
 
 				// Reward consecutive matches
 				if (lastMatchIndex === i - 1) {

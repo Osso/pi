@@ -43,6 +43,9 @@
 			"includes": ["packages/tui/src/**/*.ts"],
 			"linter": {
 				"rules": {
+					"style": {
+						"noNonNullAssertion": "error"
+					},
 					"suspicious": {
 						"noExplicitAny": "error"
 					}

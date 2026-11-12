@@ -183,9 +183,9 @@ function isCompleteApcSequence(data: string): "complete" | "incomplete" {
  */
 function parseUnmodifiedKittyPrintableCodepoint(sequence: string): number | undefined {
 	const match = sequence.match(/^\x1b\[(\d+)(?::\d*)?(?::\d+)?u$/);
-	if (!match) return undefined;
+	if (!match?.[1]) return undefined;
 
-	const codepoint = parseInt(match[1]!, 10);
+	const codepoint = parseInt(match[1], 10);
 	return codepoint >= 32 ? codepoint : undefined;
 }
 
@@ -246,7 +246,10 @@ function extractCompleteSequences(buffer: string): { sequences: string[]; remain
 			}
 		} else {
 			// Not an escape sequence - take a single character
-			sequences.push(remaining[0]!);
+			const char = remaining[0];
+			if (char !== undefined) {
+				sequences.push(char);
+			}
 			pos++;
 		}
 	}
@@ -295,8 +298,9 @@ export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
 		// If buffer has single byte > 127, convert to ESC + (byte - 128)
 		let str: string;
 		if (Buffer.isBuffer(data)) {
-			if (data.length === 1 && data[0]! > 127) {
-				const byte = data[0]! - 128;
+			const firstByte = data.length === 1 ? data[0] : undefined;
+			if (firstByte !== undefined && firstByte > 127) {
+				const byte = firstByte - 128;
 				str = `\x1b${String.fromCharCode(byte)}`;
 			} else {
 				str = data.toString();

@@ -50,7 +50,8 @@ function segmentWithMarkers(
 	// Find all marker spans with valid IDs.
 	const markers: Array<{ start: number; end: number }> = [];
 	for (const m of text.matchAll(PASTE_MARKER_REGEX)) {
-		const id = Number.parseInt(m[1]!, 10);
+		if (!m[1]) continue;
+		const id = Number.parseInt(m[1], 10);
 		if (!validIds.has(id)) continue;
 		markers.push({ start: m.index, end: m.index + m[0].length });
 	}
@@ -65,11 +66,13 @@ function segmentWithMarkers(
 
 	for (const seg of baseSegments) {
 		// Skip past markers that are entirely before this segment.
-		while (markerIdx < markers.length && markers[markerIdx]!.end <= seg.index) {
+		while (markerIdx < markers.length) {
+			const current = markers[markerIdx];
+			if (!current || current.end > seg.index) break;
 			markerIdx++;
 		}
 
-		const marker = markerIdx < markers.length ? markers[markerIdx]! : null;
+		const marker = markers[markerIdx] ?? null;
 
 		if (marker && seg.index >= marker.start && seg.index < marker.end) {
 			// This segment falls inside a marker.
@@ -133,8 +136,7 @@ export function wordWrapLine(line: string, maxWidth: number, preSegmented?: Intl
 	let wrapOppIndex = -1;
 	let wrapOppWidth = 0;
 
-	for (let i = 0; i < segments.length; i++) {
-		const seg = segments[i]!;
+	for (const [i, seg] of segments.entries()) {
 		const grapheme = seg.segment;
 		const gWidth = visibleWidth(grapheme);
 		const charIndex = seg.index;
@@ -169,12 +171,16 @@ export function wordWrapLine(line: string, maxWidth: number, preSegmented?: Intl
 			// movement / editing — the split is purely visual for word-wrap layout.
 			const subChunks = wordWrapLine(grapheme, maxWidth);
 			for (let j = 0; j < subChunks.length - 1; j++) {
-				const sc = subChunks[j]!;
-				chunks.push({ text: sc.text, startIndex: charIndex + sc.startIndex, endIndex: charIndex + sc.endIndex });
+				const sc = subChunks[j];
+				if (sc) {
+					chunks.push({ text: sc.text, startIndex: charIndex + sc.startIndex, endIndex: charIndex + sc.endIndex });
+				}
 			}
-			const last = subChunks[subChunks.length - 1]!;
-			chunkStart = charIndex + last.startIndex;
-			currentWidth = visibleWidth(last.text);
+			const last = subChunks[subChunks.length - 1];
+			if (last) {
+				chunkStart = charIndex + last.startIndex;
+				currentWidth = visibleWidth(last.text);
+			}
 			wrapOppIndex = -1;
 			continue;
 		}
@@ -598,8 +604,7 @@ export class Editor implements Component, Focusable {
 		const query = this.historySearchQuery.toLocaleLowerCase();
 		if (!query) return [];
 		const matches: number[] = [];
-		for (let index = 0; index < this.history.length; index++) {
-			const entry = this.history[index]!;
+		for (const [index, entry] of this.history.entries()) {
 			if (entry.toLocaleLowerCase().includes(query)) {
 				matches.push(index);
 			}
@@ -834,8 +839,7 @@ export class Editor implements Component, Focusable {
 		// autocomplete (e.g. slash-command menu) is visible.
 		const emitCursorMarker = this.focused;
 
-		for (let i = 0; i < visibleLines.length; i++) {
-			const layoutLine = visibleLines[i]!;
+		for (const [i, layoutLine] of visibleLines.entries()) {
 			let displayText = layoutLine.text;
 			let lineVisibleWidth = visibleWidth(layoutLine.text);
 			let cursorInPadding = false;
@@ -1760,11 +1764,11 @@ export class Editor implements Component, Focusable {
 		sourceMaxVisualCol: number,
 		targetMaxVisualCol: number,
 	): number {
-		const hasPreferred = this.preferredVisualCol !== null; // P
+		const preferredCol = this.preferredVisualCol;
 		const cursorInMiddle = currentVisualCol < sourceMaxVisualCol; // S
 		const targetTooShort = targetMaxVisualCol < currentVisualCol; // T
 
-		if (!hasPreferred || cursorInMiddle) {
+		if (preferredCol === null || cursorInMiddle) {
 			if (targetTooShort) {
 				// Cases 2 and 7
 				this.preferredVisualCol = currentVisualCol;
@@ -1776,16 +1780,15 @@ export class Editor implements Component, Focusable {
 			return currentVisualCol;
 		}
 
-		const targetCantFitPreferred = targetMaxVisualCol < this.preferredVisualCol!; // U
+		const targetCantFitPreferred = targetMaxVisualCol < preferredCol; // U
 		if (targetTooShort || targetCantFitPreferred) {
 			// Cases 4 and 5
 			return targetMaxVisualCol;
 		}
 
 		// Case 3
-		const result = this.preferredVisualCol!;
 		this.preferredVisualCol = null;
-		return result;
+		return preferredCol;
 	}
 
 	private moveToLineStart(): void {
@@ -2173,11 +2176,11 @@ export class Editor implements Component, Focusable {
 	 * Yank (paste) the most recent kill ring entry at cursor position.
 	 */
 	private yank(): void {
-		if (this.killRing.length === 0) return;
+		const text = this.killRing.peek();
+		if (text === undefined) return;
 
 		this.pushUndoSnapshot();
 
-		const text = this.killRing.peek()!;
 		this.insertYankedText(text);
 
 		this.lastAction = "yank";
@@ -2200,8 +2203,10 @@ export class Editor implements Component, Focusable {
 		this.killRing.rotate();
 
 		// Insert the new most recent entry (now at end after rotation)
-		const text = this.killRing.peek()!;
-		this.insertYankedText(text);
+		const text = this.killRing.peek();
+		if (text !== undefined) {
+			this.insertYankedText(text);
+		}
 
 		this.lastAction = "yank";
 	}
@@ -2396,7 +2401,9 @@ export class Editor implements Component, Focusable {
 		let firstPrefixIndex = -1;
 
 		for (let i = 0; i < items.length; i++) {
-			const value = items[i]!.value;
+			const item = items[i];
+			if (!item) continue;
+			const value = item.value;
 			if (value === prefix) {
 				return i; // Exact match always wins
 			}
@@ -2548,7 +2555,8 @@ export class Editor implements Component, Focusable {
 		}
 
 		if (options.force && options.explicitTab && suggestions.items.length === 1) {
-			const item = suggestions.items[0]!;
+			const item = suggestions.items[0];
+			if (!item) return;
 			this.pushUndoSnapshot();
 			this.lastAction = null;
 			const result = this.autocompleteProvider.applyCompletion(

@@ -229,7 +229,7 @@ export class KeybindingsManager {
 		const resolved: KeybindingsConfig = {};
 		for (const id of Object.keys(this.definitions)) {
 			const keys = this.keysById.get(id as Keybinding) ?? [];
-			resolved[id] = keys.length === 1 ? keys[0]! : [...keys];
+			resolved[id] = keys.length === 1 && keys[0] !== undefined ? keys[0] : [...keys];
 		}
 		return resolved;
 	}
