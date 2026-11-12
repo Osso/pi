@@ -33,6 +33,7 @@
 			"!**/test-sessions.ts",
 			"!**/models.generated.ts",
 			"!**/*.models.ts",
+			"!packages/coding-agent/extensions/**/*.d.ts",
 			"!packages/mom/data/**/*",
 			"!!**/node_modules"
 		]
