@@ -436,6 +436,7 @@
 - Fixed the `grep` tool discarding all matches and returning only an error when ripgrep could not read some file or directory in the tree (for example `Permission denied`); it now returns the matches with a `Some paths could not be searched` notice.
 - Fixed the `find` tool returning wrong paths when searching the filesystem root (`/etc/hostname` shown as `tc/hostname`), and when custom find operations such as the bwrap sandbox return relative paths for a subdirectory search (`a.ts` shown as `../a.ts`, or relative to the process directory).
 - Fixed `grep` inside the bwrap sandbox printing shared context lines twice and an empty line past the end of files that end with a newline (the same defects fixed in the built-in `grep` tool).
+- Fixed project settings replacing whole second-level objects from global settings instead of merging them, so a project that set only `agents.explore.thinkingLevel` dropped the global `agents.explore.model` (also `retry.provider` and `permissionRules.allow`).
 
 ### Changed
 

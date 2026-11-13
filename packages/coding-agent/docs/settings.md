@@ -366,7 +366,7 @@ See [packages.md](packages.md) for package management details.
 
 ## Project Overrides
 
-Project settings (`.pi/settings.json`) override global settings. Nested objects are merged:
+Project settings (`.pi/settings.json`) override global settings. Nested objects are merged at every depth (for example `agents.explore` or `retry.provider`); arrays and other values are replaced:
 
 ```json
 // ~/.pi/agent/settings.json (global)

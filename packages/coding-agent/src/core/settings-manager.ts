@@ -173,35 +173,27 @@ export interface Settings {
 	supervisorModel?: string; // "provider/modelId" for the resident Supervisor; default: gpt-6.1-sol on Codex providers
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Deep merge: override values win; plain objects at any depth merge recursively; arrays are replaced. */
+function deepMergeRecords(base: Record<string, unknown>, overrides: Record<string, unknown>): Record<string, unknown> {
+	const result: Record<string, unknown> = { ...base };
+	for (const [key, overrideValue] of Object.entries(overrides)) {
+		if (overrideValue === undefined) continue;
+		const baseValue = base[key];
+		result[key] =
+			isPlainObject(baseValue) && isPlainObject(overrideValue)
+				? deepMergeRecords(baseValue, overrideValue)
+				: overrideValue;
+	}
+	return result;
+}
+
 /** Deep merge settings: project/overrides take precedence, nested objects merge recursively */
 function deepMergeSettings(base: Settings, overrides: Settings): Settings {
-	const result: Settings = { ...base };
-
-	for (const key of Object.keys(overrides) as (keyof Settings)[]) {
-		const overrideValue = overrides[key];
-		const baseValue = base[key];
-
-		if (overrideValue === undefined) {
-			continue;
-		}
-
-		// For nested objects, merge recursively
-		if (
-			typeof overrideValue === "object" &&
-			overrideValue !== null &&
-			!Array.isArray(overrideValue) &&
-			typeof baseValue === "object" &&
-			baseValue !== null &&
-			!Array.isArray(baseValue)
-		) {
-			(result as Record<string, unknown>)[key] = { ...baseValue, ...overrideValue };
-		} else {
-			// For primitives and arrays, override value wins
-			(result as Record<string, unknown>)[key] = overrideValue;
-		}
-	}
-
-	return result;
+	return deepMergeRecords(base as Record<string, unknown>, overrides as Record<string, unknown>) as Settings;
 }
 
 function parseTimeoutSetting(value: unknown, settingName: string): number | undefined {

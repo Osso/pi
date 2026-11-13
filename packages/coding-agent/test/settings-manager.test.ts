@@ -185,6 +185,22 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	describe("project overrides", () => {
+		it("merges nested settings at every depth instead of replacing second-level objects", () => {
+			const storage = new InMemorySettingsStorage();
+			storage.withLock("global", () =>
+				JSON.stringify({ agents: { explore: { model: "faux/global-explore", thinkingLevel: "high" } } }),
+			);
+			storage.withLock("project", () => JSON.stringify({ agents: { explore: { thinkingLevel: "low" } } }));
+			const settingsManager = SettingsManager.fromStorage(storage);
+
+			expect(settingsManager.getAgentProfile("explore")).toEqual({
+				model: "faux/global-explore",
+				thinkingLevel: "low",
+			});
+		});
+	});
+
 	describe("permission prompt tool", () => {
 		it("loads permissionPromptTool from settings with project overriding global", () => {
 			const storage = new InMemorySettingsStorage();
