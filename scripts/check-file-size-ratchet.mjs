@@ -6,7 +6,7 @@
 //
 // Files that exist only in this fork can never be raised: shrink them instead.
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const MAX_LINES = 750;
 const BASELINE_PATH = "scripts/file-size-baseline.json";
@@ -40,7 +40,9 @@ function isGenerated(text) {
 
 function readCurrentSizes() {
 	const sizes = new Map();
-	for (const path of git("ls-files", "packages").split("\n").filter(isCheckedSourceFile)) {
+	// Measure the working tree: include untracked files, skip tracked files deleted from disk.
+	const paths = git("ls-files", "--cached", "--others", "--exclude-standard", "packages").split("\n");
+	for (const path of paths.filter((path) => isCheckedSourceFile(path) && existsSync(path))) {
 		const text = readFileSync(path, "utf8");
 		if (!isGenerated(text)) sizes.set(path, countLines(text));
 	}
