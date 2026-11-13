@@ -20,6 +20,32 @@ import type { ShapeTrace } from "./shape-trace.ts";
 
 export const ACCOUNTS_EXHAUSTED = "Claude account profiles exhausted. No eligible account remains.";
 
+export function newAssistantOutput(
+	model: Model<Api>,
+	text: string,
+	stopReason: AssistantMessage["stopReason"],
+	errorMessage?: string,
+): AssistantMessage {
+	return {
+		role: "assistant",
+		content: text ? [{ type: "text", text }] : [],
+		api: model.api,
+		provider: model.provider,
+		model: model.id,
+		usage: {
+			input: 0,
+			output: 0,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 0,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason,
+		...(errorMessage ? { errorMessage } : {}),
+		timestamp: Date.now(),
+	};
+}
+
 function dateAccountDenial(previous: AccountObservation | undefined, at: number): AccountObservation {
 	const recoveredAt = previous?.available ? previous.at : previous?.recoveredAt;
 	return { at, available: false, ...(recoveredAt === undefined ? {} : { recoveredAt }) };
@@ -224,23 +250,7 @@ export class QueryContext {
 
 	resetTurnState(model: Model<Api>): void {
 		this.shapeTrace?.recordPi("turn_reset", this.turnOutput, this.turnStreamMessageId);
-		this.turnOutput = {
-			role: "assistant",
-			content: [],
-			api: model.api,
-			provider: model.provider,
-			model: model.id,
-			usage: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 0,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
-			stopReason: "stop",
-			timestamp: Date.now(),
-		};
+		this.turnOutput = newAssistantOutput(model, "", "stop");
 		this.turnStarted = false;
 		this.turnSawStreamEvent = false;
 		this.turnSawToolCall = false;

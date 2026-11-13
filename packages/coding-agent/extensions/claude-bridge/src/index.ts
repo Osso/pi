@@ -102,7 +102,7 @@ import {
 	sharedPromptCaptures,
 } from "./prompt-capture.ts";
 import { makePromptStream, type PromptStream, userMessage } from "./prompt-stream.ts";
-import { ACCOUNTS_EXHAUSTED, AccountProfileManager, ctx, QueryContext } from "./query-state.ts";
+import { ACCOUNTS_EXHAUSTED, AccountProfileManager, ctx, newAssistantOutput, QueryContext } from "./query-state.ts";
 import { verifyWrittenSession as _verifyWrittenSession } from "./session-verify.ts";
 import { ShapeTrace } from "./shape-trace.ts";
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX, renderSkillsBlock } from "./skills.ts";
@@ -875,32 +875,6 @@ function extractUserPromptBlocks(messages: Context["messages"]): ContentBlockPar
 		`extractUserPromptBlocks: ${turn.length} msgs in turn, ${blocks.length} blocks, types=${blocks.map((b) => b.type).join(",")}`,
 	);
 	return hasImage ? blocks : null;
-}
-
-function newAssistantOutput(
-	model: Model<Api>,
-	text: string,
-	stopReason: AssistantMessage["stopReason"],
-	errorMessage?: string,
-): AssistantMessage {
-	return {
-		role: "assistant",
-		content: text ? [{ type: "text", text }] : [],
-		api: model.api,
-		provider: model.provider,
-		model: model.id,
-		usage: {
-			input: 0,
-			output: 0,
-			cacheRead: 0,
-			cacheWrite: 0,
-			totalTokens: 0,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-		},
-		stopReason,
-		...(errorMessage ? { errorMessage } : {}),
-		timestamp: Date.now(),
-	};
 }
 
 function extractIsolatedSummaryPrompt(messages: Context["messages"]): string {
