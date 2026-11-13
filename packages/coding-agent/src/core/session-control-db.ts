@@ -2845,12 +2845,7 @@ function relocateMultiAgentSessionRows(
 	newSessionPath: string,
 	now: string,
 ): void {
-	db.prepare(`DELETE FROM ${table} WHERE session_path = ?`).run(newSessionPath);
-	db.prepare(`UPDATE ${table} SET session_path = ?, updated_at = ? WHERE session_path = ?`).run(
-		newSessionPath,
-		now,
-		oldSessionPath,
-	);
+	relocateSessionPathPrimaryKey(db, table, oldSessionPath, newSessionPath, now);
 }
 
 interface SessionMetadataWriteValues {
@@ -3746,7 +3741,7 @@ function steeringMutationHasAuthority(
 	recipientListener: RuntimeMailboxListenerRow,
 	input: CommitMultiAgentSteeringMutationInput,
 ): boolean {
-	if (!runtimeOwnershipMatchesLifecycleMutation(ownership, input)) return false;
+	if (!runtimeOwnerMatches(ownership, input)) return false;
 	const senderPathMatches =
 		input.owner.agentId !== null || trustedRuntimeMailboxSessionPath(senderListener) === input.sessionPath;
 	const expectedSenderId = input.owner.agentId ?? "supervisor";
@@ -4033,13 +4028,6 @@ function compareAndPersistMultiAgentDetachMark(
 	);
 }
 
-function runtimeOwnershipMatchesLifecycleMutation(
-	ownership: MultiAgentRuntimeOwnershipRow | undefined,
-	input: CommitMultiAgentLifecycleMutationInput,
-): boolean {
-	return runtimeOwnerMatches(ownership, input);
-}
-
 const MULTI_AGENT_STEERING_DELIVERY_MAX_ATTEMPTS = 3;
 
 type MultiAgentSteeringDeliveryPlan = {
@@ -4087,7 +4075,7 @@ function prepareMultiAgentSteeringDelivery(
 	const agent = parseStoredJsonObject(agentRow.data, agentContext);
 	validatePersistedAgentPayload(agent, agentContext);
 	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-	if (!runtimeOwnershipMatchesLifecycleMutation(ownership, input)) {
+	if (!runtimeOwnerMatches(ownership, input)) {
 		return { result: { ok: false, error: "mutation_mismatch" } };
 	}
 	if (!canPersistLifecycleTransition(agent.lifecycle, input.requestedLifecycle)) {
@@ -4434,7 +4422,7 @@ function prepareMultiAgentTerminalMutation(
 	if (!agentRow) return { result: { ok: false, error: "agent_not_found" } };
 	const agent = parseStoredJsonObject(agentRow.data, `multi_agent_agents:${input.sessionPath}#${input.agentId}`);
 	const ownership = readMultiAgentRuntimeOwnershipRow(db, input.sessionPath, input.agentId);
-	if (!runtimeOwnershipMatchesTerminalMutation(ownership, input)) {
+	if (!runtimeOwnerMatches(ownership, input)) {
 		return { result: { ok: false, error: "mutation_mismatch" } };
 	}
 	if (agent.lifecycle === input.terminalLifecycle) {
@@ -4614,13 +4602,6 @@ function canPersistTerminalTransition(
 			? new Set(["running", "waiting_for_input"])
 			: new Set(["running", "waiting_for_input", "steering_pending", "cancelling"]);
 	return allowedFrom.has(current);
-}
-
-function runtimeOwnershipMatchesTerminalMutation(
-	ownership: MultiAgentRuntimeOwnershipRow | undefined,
-	input: CommitMultiAgentTerminalMutationInput,
-): boolean {
-	return runtimeOwnerMatches(ownership, input);
 }
 
 const FINALIZE_DETACHED_JOB_MAX_ATTEMPTS = 3;
