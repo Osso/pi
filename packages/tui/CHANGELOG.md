@@ -27,6 +27,7 @@
 - Hide HTML comment-only tokens in the TUI Markdown renderer so literal HTML comments like `<!-- -->` are not rendered to the terminal. Non-comment HTML remains rendered as plain text. Added regression tests to cover comment hiding and plain-text behavior.
 - Fixed `Editor` rendering lines wider than the terminal at widths of 3 columns or fewer, which made the TUI stop with a width error; the prompt prefix now yields its columns to the text and lines are clipped when no layout fits.
 - Fixed the `Editor` bottom scroll indicator (`─── ↓ N more`) being wider than a narrow terminal (about 15 columns or less) when the editor had content below the visible area, which made the TUI stop with a width error; it is now truncated like the top indicator.
+- Fixed `SelectList` with no items rendering `  No matching commands` wider than a narrow width (for example 22 columns at width 5), which made the TUI stop with a width error; the message is now truncated to the width.
 
 ## [0.80.3] - 2026-06-30
 

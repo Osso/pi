@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
+import { stripVTControlCharacters } from "node:util";
 import { SelectList } from "../src/components/select-list.ts";
 import { visibleWidth } from "../src/utils.ts";
 
@@ -18,6 +19,13 @@ const visibleIndexOf = (line: string, text: string): number => {
 };
 
 describe("SelectList", () => {
+	it("keeps the no-match message within a narrow width", () => {
+		const list = new SelectList([], 5, testTheme);
+
+		assert.deepEqual(list.render(8).map(stripVTControlCharacters), ["  No mat"]);
+		assert.deepEqual(list.render(80).map(stripVTControlCharacters), ["  No matching commands"]);
+	});
+
 	it("normalizes multiline descriptions to single line", () => {
 		const items = [
 			{
