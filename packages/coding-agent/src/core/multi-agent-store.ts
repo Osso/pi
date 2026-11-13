@@ -948,8 +948,7 @@ export class MultiAgentStore {
 		}
 
 		for (const agent of state.agents as AgentSnapshot[]) {
-			const restored = this.restoreAgentSnapshot(agent);
-			this.agents.set(agent.id, restored.agent);
+			this.agents.set(agent.id, this.restoreAgentSnapshot(agent));
 		}
 		const now = Date.parse(this.now());
 		for (const message of state.mailboxMessages as AgentMailboxMessage[]) {
@@ -959,14 +958,14 @@ export class MultiAgentStore {
 		}
 	}
 
-	private restoreAgentSnapshot(agent: AgentSnapshot): { agent: AgentNode; corrected: boolean } {
+	private restoreAgentSnapshot(agent: AgentSnapshot): AgentNode {
 		const restored = copyAgent(agent);
 		// The last written lifecycle is the truth: restore never rewrites state. Worker
 		// handles are runtime metadata and cannot survive the process, so they are cleared.
 		if (!isActiveLifecycle(restored.lifecycle) || restored.worker === undefined) {
-			return { agent: restored, corrected: false };
+			return restored;
 		}
-		return { agent: { ...restored, worker: undefined }, corrected: true };
+		return { ...restored, worker: undefined };
 	}
 
 	private putMailboxMessage(message: AgentMailboxMessage): void {
