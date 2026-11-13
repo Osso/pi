@@ -113,6 +113,24 @@ describe("persisted tool result output", () => {
 		expect(textFromToolResult(runtimeEntry.message as ToolResultMessage)).toBe(original);
 	});
 
+	it("drops large details instead of cutting the tool result text the model sees after resume", () => {
+		const dir = createTempDir();
+		const session = SessionManager.create(dir, dir, { id: "session-1" });
+		const original = "x".repeat(10_000);
+		session.appendMessage(fauxAssistantMessage("assistant"));
+		session.appendMessage({ ...toolResult(original), details: { diff: "d".repeat(1_040_000) } } as ToolResultMessage);
+
+		const reopened = SessionManager.open(assertDefined(session.getSessionFile()), dir);
+		const reloaded = reopened
+			.getEntries()
+			.find((entry) => entry.type === "message" && entry.message.role === "toolResult");
+		if (!reloaded || reloaded.type !== "message") throw new Error("expected reloaded tool result");
+		const message = reloaded.message as ToolResultMessage & { details?: unknown };
+
+		expect(textFromToolResult(message)).toBe(original);
+		expect(message.details).toBeUndefined();
+	});
+
 	it("truncates multibyte UTF-8 at a valid boundary and preserves the marker", () => {
 		const entry = {
 			type: "message" as const,

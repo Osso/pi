@@ -257,6 +257,7 @@
 
 ### Fixed
 
+- Fixed session persistence truncating tool result text to keep large `details` when the entry exceeded 1 MiB; `details` are now dropped first, so a resumed session gives the model the same tool output.
 - Fixed model pools and compaction retry cooldowns to distinguish quota exhaustion from rate limits, including quota errors returned with HTTP 429.
 - Fixed `/mission` restoration after compaction and restart to read the latest active-branch mission entry, including paused or cleared state, while preserving the current working goal under existing rules.
 - Fixed stacked `Continue working toward the active goal.` follow-ups. Every extension-initiated goal and mission start now goes through one owner that sends the reminder only when no run is active and none is already waiting, so repeated `manage_goal` actions, `/goal set` during a run, and mission copies queue nothing extra; the run's `agent_end` review continues the goal. A mission copied on an idle session or after a Supervisor completion starts with one reminder instead of an empty-evidence Supervisor review. A rejected `manage_goal complete` now returns the Supervisor instruction in its tool result instead of queuing a follow-up per attempt.

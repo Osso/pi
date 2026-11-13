@@ -158,6 +158,10 @@ function capToolResultEntry(entry: SessionMessageEntry, message: ToolResultMessa
 	const initialContent = capToolResultContent(message.content);
 	const initialEntry = buildToolResultCandidate(entry, message, initialContent);
 	if (serializedEntryBytes(initialEntry) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES) return initialEntry;
+	// The model sees content again after resume; details only feed renderers, so drop them before cutting content.
+	const messageWithoutDetails = withoutToolResultDetails(message);
+	const entryWithoutDetails = buildToolResultCandidate(entry, messageWithoutDetails, initialContent);
+	if (serializedEntryBytes(entryWithoutDetails) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES) return entryWithoutDetails;
 
 	const text = message.content
 		.filter(isTextContent)
@@ -165,26 +169,26 @@ function capToolResultEntry(entry: SessionMessageEntry, message: ToolResultMessa
 		.join("\n");
 	const nonTextContent = message.content.filter((item) => !isTextContent(item));
 	const marker = TOOL_RESULT_TRUNCATION_MARKER;
-	const messageVariants = [message, withoutToolResultDetails(message)];
-	for (const messageVariant of messageVariants) {
-		let low = 0;
-		let high = utf8Bytes(text);
-		let best = buildToolResultCandidate(entry, messageVariant, [...nonTextContent, { type: "text", text: marker }]);
-		while (low <= high) {
-			const middle = Math.floor((low + high) / 2);
-			const candidate = buildToolResultCandidate(entry, messageVariant, [
-				...nonTextContent,
-				{ type: "text", text: `${utf8Prefix(text, middle)}${marker}` },
-			]);
-			if (serializedEntryBytes(candidate) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES) {
-				best = candidate;
-				low = middle + 1;
-			} else {
-				high = middle - 1;
-			}
+	let low = 0;
+	let high = utf8Bytes(text);
+	let best = buildToolResultCandidate(entry, messageWithoutDetails, [
+		...nonTextContent,
+		{ type: "text", text: marker },
+	]);
+	while (low <= high) {
+		const middle = Math.floor((low + high) / 2);
+		const candidate = buildToolResultCandidate(entry, messageWithoutDetails, [
+			...nonTextContent,
+			{ type: "text", text: `${utf8Prefix(text, middle)}${marker}` },
+		]);
+		if (serializedEntryBytes(candidate) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES) {
+			best = candidate;
+			low = middle + 1;
+		} else {
+			high = middle - 1;
 		}
-		if (serializedEntryBytes(best) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES) return best;
 	}
+	if (serializedEntryBytes(best) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES) return best;
 
 	const minimalMessage = {
 		role: "toolResult" as const,

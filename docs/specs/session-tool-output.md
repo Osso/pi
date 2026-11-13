@@ -9,6 +9,7 @@ Pi limits each persisted tool-result JSONL line to 1 MiB without changing the in
 - [x] Cap each persisted `toolResult` JSONL line at 1,048,576 UTF-8 bytes while leaving the runtime session entry unchanged (`session-tool-output.test.ts`).
 - [x] Apply the cap to single-line output and multibyte UTF-8 without producing invalid replacement characters (`session-tool-output.test.ts`).
 - [x] Preserve small tool results without allocating a replacement entry (`session-tool-output.test.ts`).
+- [x] When content and `details` together exceed the cap, drop `details` before truncating content, so a resumed session gives the model the same tool output (`session-tool-output.test.ts`).
 - [ ] Apply persistence-only truncation to normal writes, rewrites, forks, and relocation writes; the shared serializer is wired into these paths, but dedicated regression coverage is still missing.
 
 ### Historical migration
