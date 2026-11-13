@@ -37,7 +37,7 @@ import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.ts";
 import { adjustMaxTokensForThinking, buildBaseOptions, clampMaxTokensToContext } from "./simple-options.ts";
-import { transformMessages } from "./transform-messages.ts";
+import { groupToolResults, transformMessages } from "./transform-messages.ts";
 
 /**
  * Resolve cache retention preference.
@@ -1029,10 +1029,7 @@ function convertMessages(
 	// Transform messages for cross-provider compatibility
 	const transformedMessages = transformMessages(messages, model, normalizeToolCallId);
 
-	for (let i = 0; i < transformedMessages.length; i++) {
-		const msg = transformedMessages.at(i);
-		if (!msg) throw new Error(`Missing message at index ${i}`);
-
+	for (const msg of groupToolResults(transformedMessages)) {
 		if (msg.role === "user") {
 			if (typeof msg.content === "string") {
 				if (msg.content.trim().length > 0) {
@@ -1130,30 +1127,11 @@ function convertMessages(
 				role: "assistant",
 				content: blocks,
 			});
-		} else if (msg.role === "toolResult") {
-			// Collect all consecutive toolResult messages, needed for z.ai Anthropic endpoint
-			const toolResults: ContentBlockParam[] = [];
-
-			// Add the current tool result
-			toolResults.push(convertToolResultMessage(msg));
-
-			// Look ahead for consecutive toolResult messages
-			let j = i + 1;
-			while (j < transformedMessages.length) {
-				const nextMsg = transformedMessages.at(j);
-				if (!nextMsg) throw new Error(`Missing message at index ${j}`);
-				if (nextMsg.role !== "toolResult") break;
-				toolResults.push(convertToolResultMessage(nextMsg));
-				j++;
-			}
-
-			// Skip the messages we've already processed
-			i = j - 1;
-
-			// Add a single user message with all tool results
+		} else {
+			// All consecutive tool results go in one user message, needed for z.ai Anthropic endpoint
 			params.push({
 				role: "user",
-				content: toolResults,
+				content: msg.results.map((result) => convertToolResultMessage(result)),
 			});
 		}
 	}

@@ -30,7 +30,6 @@ import type {
 	ThinkingContent,
 	Tool,
 	ToolCall,
-	ToolResultMessage,
 } from "../types.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
@@ -42,7 +41,7 @@ import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.ts";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
 import { buildBaseOptions, clampStandardReasoningLevel } from "./simple-options.ts";
-import { transformMessages } from "./transform-messages.ts";
+import { groupToolResults, transformMessages } from "./transform-messages.ts";
 
 /**
  * Check if conversation messages contain tool calls or tool results.
@@ -888,11 +887,7 @@ export function convertMessages(
 
 	let lastRole: string | null = null;
 
-	for (let i = 0; i < transformedMessages.length; i++) {
-		const msg = transformedMessages[i];
-		if (!msg) {
-			throw new Error(`Expected a transformed message at index ${i}`);
-		}
+	for (const msg of groupToolResults(transformedMessages)) {
 		// Some providers don't allow user messages directly after tool results
 		// Insert a synthetic assistant message to bridge the gap
 		if (compat.requiresAssistantAfterToolResult && lastRole === "toolResult" && msg.role === "user") {
@@ -1037,15 +1032,10 @@ export function convertMessages(
 				continue;
 			}
 			params.push(assistantMsg);
-		} else if (msg.role === "toolResult") {
+		} else if (msg.role === "toolResults") {
 			const imageBlocks: Array<{ type: "image_url"; image_url: { url: string } }> = [];
-			let j = i;
 
-			for (; j < transformedMessages.length; j++) {
-				const nextMessage = transformedMessages[j];
-				if (nextMessage?.role !== "toolResult") break;
-				const toolMsg = nextMessage as ToolResultMessage;
-
+			for (const toolMsg of msg.results) {
 				// Extract text and image content
 				const textResult = toolMsg.content
 					.filter(isTextContentBlock)
@@ -1079,8 +1069,6 @@ export function convertMessages(
 					}
 				}
 			}
-
-			i = j - 1;
 
 			if (imageBlocks.length > 0) {
 				if (compat.requiresAssistantAfterToolResult) {

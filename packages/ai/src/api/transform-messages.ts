@@ -7,6 +7,7 @@ import type {
 	TextContent,
 	ToolCall,
 	ToolResultMessage,
+	UserMessage,
 } from "../types.ts";
 
 const NON_VISION_USER_IMAGE_PLACEHOLDER = "(image omitted: model does not support images)";
@@ -220,4 +221,25 @@ export function transformMessages<TApi extends Api>(
 	insertSyntheticToolResults();
 
 	return result;
+}
+
+/** A run of consecutive tool results. Providers that need one turn for all results of a tool-call batch send it as one message. */
+export interface ToolResultGroup {
+	role: "toolResults";
+	results: ToolResultMessage[];
+}
+
+/** Merge each run of consecutive toolResult messages into one group; other messages stay as they are. */
+export function groupToolResults(messages: Message[]): Array<UserMessage | AssistantMessage | ToolResultGroup> {
+	const groups: Array<UserMessage | AssistantMessage | ToolResultGroup> = [];
+	for (const message of messages) {
+		if (message.role !== "toolResult") {
+			groups.push(message);
+			continue;
+		}
+		const previous = groups.at(-1);
+		if (previous?.role === "toolResults") previous.results.push(message);
+		else groups.push({ role: "toolResults", results: [message] });
+	}
+	return groups;
 }

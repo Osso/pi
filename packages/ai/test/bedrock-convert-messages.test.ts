@@ -245,4 +245,36 @@ describe("bedrock convertMessages skips unknown content types", () => {
 		const p = payload as { messages: Array<{ role: string; content: unknown[] }> };
 		expect(p.messages).toHaveLength(0);
 	});
+
+	it("sends each run of consecutive tool results as one user message", async () => {
+		const toolResult = (toolCallId: string): Message => ({
+			role: "toolResult",
+			toolCallId,
+			toolName: "read",
+			content: [{ type: "text", text: toolCallId }],
+			isError: false,
+			timestamp: Date.now(),
+		});
+		const payload = (await capturePayload({
+			messages: [
+				toolResult("call_a"),
+				toolResult("call_b"),
+				{ role: "user", content: "next", timestamp: Date.now() },
+				toolResult("call_c"),
+			],
+		})) as {
+			messages: Array<{ role: string; content: Array<{ toolResult?: { toolUseId: string }; text?: string }> }>;
+		};
+
+		expect(
+			payload.messages.map((message) => [
+				message.role,
+				message.content.map((block) => block.toolResult?.toolUseId ?? block.text),
+			]),
+		).toEqual([
+			["user", ["call_a", "call_b"]],
+			["user", ["next"]],
+			["user", ["call_c"]],
+		]);
+	});
 });

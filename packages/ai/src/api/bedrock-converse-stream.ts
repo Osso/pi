@@ -45,7 +45,6 @@ import type {
 	ThinkingLevel,
 	Tool,
 	ToolCall,
-	ToolResultMessage,
 } from "../types.ts";
 import { normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
@@ -60,7 +59,7 @@ import {
 	clampMaxTokensToContext,
 	clampReasoning,
 } from "./simple-options.ts";
-import { transformMessages } from "./transform-messages.ts";
+import { groupToolResults, transformMessages } from "./transform-messages.ts";
 
 export type BedrockThinkingDisplay = "summarized" | "omitted";
 
@@ -748,10 +747,7 @@ function convertMessages(
 	const result: Message[] = [];
 	const transformedMessages = transformMessages(context.messages, model, normalizeToolCallId);
 
-	for (let i = 0; i < transformedMessages.length; i++) {
-		const m = transformedMessages[i];
-		if (!m) throw new Error(`Missing message at index ${i}`);
-
+	for (const m of groupToolResults(transformedMessages)) {
 		switch (m.role) {
 			case "user": {
 				const content: ContentBlock[] = [];
@@ -847,43 +843,19 @@ function convertMessages(
 				});
 				break;
 			}
-			case "toolResult": {
-				// Collect all consecutive toolResult messages into a single user message
-				// Bedrock requires all tool results to be in one message
-				const toolResults: ContentBlock.ToolResultMember[] = [];
-
-				// Add current tool result with all content blocks combined
-				toolResults.push({
-					toolResult: {
-						toolUseId: m.toolCallId,
-						content: convertToolResultContent(m.content),
-						status: m.isError ? ToolResultStatus.ERROR : ToolResultStatus.SUCCESS,
-					},
-				});
-
-				// Look ahead for consecutive toolResult messages
-				let j = i + 1;
-				while (j < transformedMessages.length) {
-					const nextMessage = transformedMessages[j];
-					if (!nextMessage) throw new Error(`Missing message at index ${j}`);
-					if (nextMessage.role !== "toolResult") break;
-					const nextMsg = nextMessage as ToolResultMessage;
-					toolResults.push({
-						toolResult: {
-							toolUseId: nextMsg.toolCallId,
-							content: convertToolResultContent(nextMsg.content),
-							status: nextMsg.isError ? ToolResultStatus.ERROR : ToolResultStatus.SUCCESS,
-						},
-					});
-					j++;
-				}
-
-				// Skip the messages we've already processed
-				i = j - 1;
-
+			case "toolResults": {
+				// Bedrock requires all tool results of a turn in one user message
 				result.push({
 					role: ConversationRole.USER,
-					content: toolResults,
+					content: m.results.map(
+						(toolResult): ContentBlock.ToolResultMember => ({
+							toolResult: {
+								toolUseId: toolResult.toolCallId,
+								content: convertToolResultContent(toolResult.content),
+								status: toolResult.isError ? ToolResultStatus.ERROR : ToolResultStatus.SUCCESS,
+							},
+						}),
+					),
 				});
 				break;
 			}

@@ -74,4 +74,29 @@ describe("Anthropic tool call ID normalization", () => {
 
 		expect(findToolResultId(payload)).toBe("call_123_fc_123");
 	});
+
+	it("sends each run of consecutive tool results as one user message", async () => {
+		const toolResult = (toolCallId: string): ToolResultMessage => ({
+			role: "toolResult",
+			toolCallId,
+			toolName: "read",
+			content: [{ type: "text", text: toolCallId }],
+			isError: false,
+			timestamp: Date.now(),
+		});
+
+		const payload = await capturePayload({
+			messages: [
+				toolResult("call_a"),
+				toolResult("call_b"),
+				{ role: "user", content: "next", timestamp: Date.now() },
+				toolResult("call_c"),
+			],
+		});
+
+		const toolResultRuns = payload.messages
+			.filter((message) => Array.isArray(message.content))
+			.map((message) => (message.content as Array<{ tool_use_id?: string }>).map((block) => block.tool_use_id));
+		expect(toolResultRuns).toEqual([["call_a", "call_b"], ["call_c"]]);
+	});
 });
