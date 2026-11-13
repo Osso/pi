@@ -81,13 +81,7 @@ import { convertPiMessages, messageContentToText, PROVIDER_ID } from "./convert.
 import { extractAllToolResults as _extractAllToolResults, type McpResult } from "./extract-tool-results.ts";
 import { debugLogPath, diagLogPath } from "./log-paths.ts";
 import { createToolServer } from "./mcp-server.ts";
-import {
-	resolveModel as _resolveModel,
-	applyLongContext,
-	buildModels,
-	claudeCodeModelId,
-	type LongContextSettings,
-} from "./models.ts";
+import { applyLongContext, buildModels, claudeCodeModelId, type LongContextSettings, resolveModel } from "./models.ts";
 import {
 	nativePrefix,
 	readNativeRecords,
@@ -446,10 +440,6 @@ function replayOnNextAccount(queryCtx: QueryContext): boolean {
 }
 
 let longContextSettings: LongContextSettings = { plan: "pro", longContextExtraUsage: false };
-
-function resolveModel(input: string) {
-	return _resolveModel(MODELS, input);
-}
 
 // --- Error handling ---
 
@@ -2673,12 +2663,7 @@ function streamClaudeAgentSdk(
 		// its instructions or leak pi's harness text. Report it on the stream, as pi-ai's
 		// provider contract expects, so any caller — not only pi's agent loop, which
 		// catches a throw — sees a failed turn rather than a synchronous exception.
-		const output = newAssistantOutput(model, "", "error", errorMessage(err));
-		queueMicrotask(() => {
-			stream.push({ type: "error", reason: "error", error: output });
-			markStreamComplete(stream);
-			stream.end();
-		});
+		emitAccountPreparationFailure(stream, model, err);
 		diagDump("prompt_capture_unresolved", {
 			promptChars: context.systemPrompt?.length ?? 0,
 			knownKeys: promptCaptures.size,
@@ -3078,7 +3063,7 @@ async function promptAndWait(
 	},
 ): Promise<{ responseText: string; stopReason: string }> {
 	const requestedModel = options?.model ?? "opus";
-	const model = resolveModel(requestedModel);
+	const model = resolveModel(MODELS, requestedModel);
 	const modelId = model?.id ?? requestedModel;
 	const account = prepareProviderAccount();
 	const cliModel = model ? claudeCodeModelId(model, longContextSettings) : modelId;
