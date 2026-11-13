@@ -191,7 +191,8 @@ async function readTextBuffer(
 	const readRange = ops.readRange;
 	if (readRange && canUseHeadRangeRead(fileStat, ops, offset, limit)) {
 		return {
-			buffer: await readRange(absolutePath, 0, DEFAULT_MAX_BYTES),
+			// One extra byte shows whether a line of exactly DEFAULT_MAX_BYTES ends at the limit.
+			buffer: await readRange(absolutePath, 0, DEFAULT_MAX_BYTES + 1),
 			fileSize: fileStat?.size,
 			rangeLimited: true,
 		};

@@ -150,7 +150,7 @@ describe("Coding Agent Tools", () => {
 			const output = getTextOutput(result);
 
 			expect(operations.readFile).not.toHaveBeenCalled();
-			expect(operations.readRange).toHaveBeenCalledWith(expect.any(String), 0, DEFAULT_MAX_BYTES);
+			expect(operations.readRange).toHaveBeenCalledWith(expect.any(String), 0, DEFAULT_MAX_BYTES + 1);
 			expect(output).toContain("Line 1");
 			expect(output).toContain("Use offset=");
 		});
@@ -185,6 +185,16 @@ describe("Coding Agent Tools", () => {
 			expect(getTextOutput(await readTool.execute("read-empty-long-3", { path: oneEmptyLine }))).toBe(
 				"\n\n[Showing lines 1-1 of file (10.0KB limit). Use offset=2 to continue.]",
 			);
+		});
+
+		it("shows a first line of exactly the head-read size in full", async () => {
+			const testFile = join(testDir, "exact-first-line.txt");
+			const firstLine = "y".repeat(DEFAULT_MAX_BYTES);
+			writeFileSync(testFile, `${firstLine}\nnext\n`);
+
+			const output = getTextOutput(await readTool.execute("read-exact-line", { path: testFile }));
+
+			expect(output).toBe(`${firstLine}\n\n[Showing lines 1-1 of file (10.0KB limit). Use offset=2 to continue.]`);
 		});
 
 		it("points at bash when the first line alone is longer than the oversized-file head read", async () => {
