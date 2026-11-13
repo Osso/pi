@@ -427,6 +427,7 @@
 - Fixed the external editor (Ctrl+G) doing nothing when the configured editor program could not be started; the main editor and extension editor dialogs now show `External editor failed: could not start <editor>: ...`.
 - Fixed resuming a session whose last write was cut off (for example by a crash or kill): the next entry was appended onto the partial line and lost, and later appends made the file fail to load with `Session file contains malformed JSONL entry`.
 - Fixed the `read` tool counting a file's final newline as an extra empty line, which produced a false `1 more lines in file` hint and accepted an offset one past the end.
+- Fixed the `read` tool showing the line cut off by its 10KB head read of large files as a complete line and then pointing the continuation offset past it, so that line was never shown in full; a first line longer than 10KB now gets the `sed` hint instead of a fragment.
 
 ### Changed
 

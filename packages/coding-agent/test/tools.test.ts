@@ -155,6 +155,32 @@ describe("Coding Agent Tools", () => {
 			expect(output).toContain("Use offset=");
 		});
 
+		it("does not show a line cut off by the oversized-file head read", async () => {
+			const testFile = join(testDir, "cut-line.txt");
+			// 100-byte lines: the 10KB head read ends 40 bytes into line 103.
+			const lines = Array.from({ length: 300 }, (_, i) => `row ${String(i + 1).padStart(4, "0")} `.padEnd(99, "x"));
+			writeFileSync(testFile, `${lines.join("\n")}\n`);
+
+			const output = getTextOutput(await readTool.execute("read-cut-1", { path: testFile }));
+
+			expect(output).toBe(
+				`${lines.slice(0, 102).join("\n")}\n\n[Showing lines 1-102 of file (10.0KB limit). Use offset=103 to continue.]`,
+			);
+			const next = getTextOutput(await readTool.execute("read-cut-2", { path: testFile, offset: 103, limit: 1 }));
+			expect(next.split("\n")[0]).toBe(lines[102]);
+		});
+
+		it("points at bash when the first line alone is longer than the oversized-file head read", async () => {
+			const testFile = join(testDir, "long-first-line.txt");
+			writeFileSync(testFile, `${"y".repeat(DEFAULT_MAX_BYTES * 2)}\nshort\n`);
+
+			const output = getTextOutput(await readTool.execute("read-long-line", { path: testFile }));
+
+			expect(output).toBe(
+				`[Line 1 is more than 10.0KB, exceeds 10.0KB limit. Use bash: sed -n '1p' ${testFile} | head -c ${DEFAULT_MAX_BYTES}]`,
+			);
+		});
+
 		it("should handle offset parameter", async () => {
 			const testFile = join(testDir, "offset-test.txt");
 			const lines = Array.from({ length: 100 }, (_, i) => `Line ${i + 1}`);

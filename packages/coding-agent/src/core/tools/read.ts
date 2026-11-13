@@ -398,6 +398,9 @@ function createReadToolDefinitionInternal(
 							const { buffer, fileSize, rangeLimited } = await readTextBuffer(absolutePath, ops, offset, limit);
 							const textContent = buffer.toString("utf-8");
 							const allLines = textContent.split("\n");
+							// A bounded head read usually stops mid-line; never present that fragment as a whole line.
+							const firstLineCut = rangeLimited && allLines.length === 1;
+							if (rangeLimited && allLines.length > 1) allLines.pop();
 							// A final newline ends the last line; it does not start another one.
 							const endsWithNewline =
 								!rangeLimited && allLines.length > 1 && allLines[allLines.length - 1] === "";
@@ -423,7 +426,14 @@ function createReadToolDefinitionInternal(
 							// Apply truncation, respecting both line and byte limits.
 							const truncation = truncateHead(selectedContent);
 							let outputText: string;
-							if (rangeLimited && !truncation.truncated) {
+							if (truncation.firstLineExceedsLimit || firstLineCut) {
+								// First line alone exceeds the byte limit. Point the model at a bash fallback.
+								const firstLineSize = firstLineCut
+									? `more than ${formatSize(DEFAULT_MAX_BYTES)}`
+									: formatSize(Buffer.byteLength(allLines[startLine], "utf-8"));
+								outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
+								details = { truncation };
+							} else if (rangeLimited && !truncation.truncated) {
 								const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
 								const nextOffset = endLineDisplay + 1;
 								outputText = `${truncation.content}\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of file (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
@@ -435,11 +445,6 @@ function createReadToolDefinitionInternal(
 										totalBytes: fileSize ?? truncation.totalBytes,
 									},
 								};
-							} else if (truncation.firstLineExceedsLimit) {
-								// First line alone exceeds the byte limit. Point the model at a bash fallback.
-								const firstLineSize = formatSize(Buffer.byteLength(allLines[startLine], "utf-8"));
-								outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
-								details = { truncation };
 							} else if (truncation.truncated) {
 								// Truncation occurred. Build an actionable continuation notice.
 								const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
