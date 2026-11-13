@@ -1,3 +1,4 @@
+import { assertDefined } from "./utilities.ts";
 /**
  * E2E tests for AgentSession compaction behavior.
  *
@@ -47,7 +48,7 @@ describe.skipIf(!API_KEY)("AgentSession compaction e2e", () => {
 	});
 
 	function createSession(inMemory = false) {
-		const model = getModel("anthropic", "claude-sonnet-4-5")!;
+		const model = assertDefined(getModel("anthropic", "claude-sonnet-4-5"));
 		const agent = new Agent({
 			getApiKey: () => API_KEY,
 			initialState: {

@@ -1,3 +1,4 @@
+import { assertDefined } from "./utilities.ts";
 /**
  * Tests for AgentSession forking behavior.
  *
@@ -45,12 +46,12 @@ describe.skipIf(!API_KEY)("AgentSession forking", () => {
 	});
 
 	async function createSession(noSession: boolean = false) {
-		const model = getModel("anthropic", "claude-sonnet-4-5")!;
+		const model = assertDefined(getModel("anthropic", "claude-sonnet-4-5"));
 		sessionManager = noSession
 			? SessionManager.inMemory(tempDir)
 			: SessionManager.create(tempDir, join(tempDir, "sessions"));
 		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		authStorage.setRuntimeApiKey("anthropic", API_KEY!);
+		authStorage.setRuntimeApiKey("anthropic", assertDefined(API_KEY));
 
 		const servicesOptions = {
 			agentDir: tempDir,
@@ -106,7 +107,7 @@ describe.skipIf(!API_KEY)("AgentSession forking", () => {
 
 		expect(session.messages.length).toBe(0);
 		expect(session.sessionFile).not.toBeNull();
-		expect(existsSync(session.sessionFile!)).toBe(false);
+		expect(existsSync(assertDefined(session.sessionFile))).toBe(false);
 	});
 
 	it("should support in-memory forking in --no-session mode", async () => {

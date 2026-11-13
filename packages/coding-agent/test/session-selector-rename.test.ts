@@ -5,6 +5,7 @@ import type { SessionInfo } from "../src/core/session-manager.ts";
 import { SessionSelectorComponent } from "../src/modes/interactive/components/session-selector.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
+import { assertDefined } from "./utilities.ts";
 
 async function flushPromises(): Promise<void> {
 	await new Promise<void>((resolve) => {
@@ -164,6 +165,6 @@ describe("session selector rename", () => {
 		await flushPromises();
 
 		expect(renameSession).toHaveBeenCalledTimes(1);
-		expect(renameSession).toHaveBeenCalledWith(sessions[0]!.path, "XOld");
+		expect(renameSession).toHaveBeenCalledWith(assertDefined(sessions[0]).path, "XOld");
 	});
 });

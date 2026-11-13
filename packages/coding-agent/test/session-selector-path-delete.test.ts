@@ -9,6 +9,11 @@ import { type SessionInfo, SessionManager } from "../src/core/session-manager.ts
 import { SessionSelectorComponent } from "../src/modes/interactive/components/session-selector.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
 
+function requireDefined<T>(value: T | null | undefined, message: string): T {
+	if (value == null) throw new Error(message);
+	return value;
+}
+
 type Deferred<T> = {
 	promise: Promise<T>;
 	resolve: (value: T) => void;
@@ -229,7 +234,7 @@ describe("session selector path/delete interactions", () => {
 		list.handleInput("a");
 		list.handleInput(CTRL_D);
 
-		expect(confirmationChanges).toEqual([sessions[0]!.path]);
+		expect(confirmationChanges).toEqual([requireDefined(sessions[0], "Expected selected session").path]);
 	});
 
 	it("does not select sessions with no messages", async () => {
@@ -280,11 +285,11 @@ describe("session selector path/delete interactions", () => {
 		};
 
 		list.handleInput(CTRL_BACKSPACE);
-		expect(confirmationChanges).toEqual([sessions[0]!.path]);
+		expect(confirmationChanges).toEqual([requireDefined(sessions[0], "Expected selected session").path]);
 
 		list.handleInput("\r");
-		expect(confirmationChanges).toEqual([sessions[0]!.path, null]);
-		expect(deletedPath).toBe(sessions[0]!.path);
+		expect(confirmationChanges).toEqual([requireDefined(sessions[0], "Expected selected session").path, null]);
+		expect(deletedPath).toBe(requireDefined(sessions[0], "Expected selected session").path);
 	});
 
 	it("does not render subagent sessions from metadata-backed resume loaders", async () => {

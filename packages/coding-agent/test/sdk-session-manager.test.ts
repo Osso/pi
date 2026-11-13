@@ -6,6 +6,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 
+function requireDefined<T>(value: T | null | undefined, message: string): T {
+	if (value == null) throw new Error(message);
+	return value;
+}
+
 describe("createAgentSession session manager defaults", () => {
 	let tempDir: string;
 	let cwd: string;
@@ -32,7 +37,7 @@ describe("createAgentSession session manager defaults", () => {
 		const { session } = await createAgentSession({
 			cwd,
 			agentDir,
-			model: model!,
+			model: requireDefined(model, "Expected Anthropic model"),
 		});
 
 		const safePath = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
@@ -54,7 +59,7 @@ describe("createAgentSession session manager defaults", () => {
 		const { session } = await createAgentSession({
 			cwd,
 			agentDir,
-			model: model!,
+			model: requireDefined(model, "Expected Anthropic model"),
 			sessionManager,
 		});
 
@@ -73,7 +78,7 @@ describe("createAgentSession session manager defaults", () => {
 		const sessionManager = SessionManager.inMemory(sessionCwd);
 		const { session } = await createAgentSession({
 			agentDir,
-			model: model!,
+			model: requireDefined(model, "Expected Anthropic model"),
 			sessionManager,
 		});
 
@@ -82,7 +87,7 @@ describe("createAgentSession session manager defaults", () => {
 
 		const bashTool = session.agent.state.tools.find((tool) => tool.name === "bash");
 		expect(bashTool).toBeTruthy();
-		const result = await bashTool!.execute("test", { command: "pwd" });
+		const result = await requireDefined(bashTool, "Expected bash tool").execute("test", { command: "pwd" });
 		const output = result.content
 			.filter((item): item is { type: "text"; text: string } => item.type === "text")
 			.map((item) => item.text)

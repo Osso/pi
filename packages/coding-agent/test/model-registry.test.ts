@@ -141,15 +141,15 @@ describe("ModelRegistry", () => {
 			const enabled = ModelRegistry.create(credentialedAuth, modelsJsonPath);
 			const haiku = enabled.find("anthropic", "claude-haiku-5-5");
 			expect(haiku).toBeDefined();
-			expect(enabled.hasConfiguredAuth(haiku!)).toBe(true);
+			expect(enabled.hasConfiguredAuth(requireValue(haiku))).toBe(true);
 
 			writeRawModelsJson({ anthropic: { disabled: true } });
 			const registry = ModelRegistry.create(credentialedAuth, modelsJsonPath);
 
 			expect(registry.getError()).toBeUndefined();
 			expect(getModelsForProvider(registry, "anthropic")).toEqual([]);
-			expect(registry.hasConfiguredAuth(haiku!)).toBe(false);
-			expect(await registry.getApiKeyAndHeaders(haiku!)).toEqual({
+			expect(registry.hasConfiguredAuth(requireValue(haiku))).toBe(false);
+			expect(await registry.getApiKeyAndHeaders(requireValue(haiku))).toEqual({
 				ok: false,
 				error: 'Provider "anthropic" is disabled in models.json',
 			});
@@ -880,7 +880,7 @@ describe("ModelRegistry", () => {
 			const sonnet = models.find((m) => m.id === "anthropic/claude-sonnet-4");
 			expect(sonnet).toBeDefined();
 
-			const auth = await registry.getApiKeyAndHeaders(sonnet!);
+			const auth = await registry.getApiKeyAndHeaders(requireValue(sonnet));
 			expect(auth.ok).toBe(true);
 			if (auth.ok) {
 				expect(auth.headers?.["X-Custom-Model-Header"]).toBe("value");
@@ -1019,7 +1019,7 @@ describe("ModelRegistry", () => {
 			const model = registry.getAll().find((m) => m.provider === "cloudflare-ai-gateway");
 			expect(model).toBeDefined();
 
-			const auth = await registry.getApiKeyAndHeaders(model!);
+			const auth = await registry.getApiKeyAndHeaders(requireValue(model));
 
 			expect(auth).toEqual({
 				ok: true,
@@ -1065,7 +1065,7 @@ describe("ModelRegistry", () => {
 				expect(await registry.getApiKeyForProvider("literal-provider")).toBe("CUSTOM_NAME");
 				const model = registry.find("literal-provider", "demo-model");
 				expect(model).toBeDefined();
-				expect(await registry.getApiKeyAndHeaders(model!)).toMatchObject({
+				expect(await registry.getApiKeyAndHeaders(requireValue(model))).toMatchObject({
 					ok: true,
 					apiKey: "CUSTOM_NAME",
 					headers: {
@@ -1090,9 +1090,9 @@ describe("ModelRegistry", () => {
 
 			expect(() =>
 				registry.registerProvider("broken-provider", {
-					streamSimple: (() => {
+					streamSimple: () => {
 						throw new Error("should not run");
-					}) as any,
+					},
 				}),
 			).toThrow('Provider broken-provider: "api" is required when registering streamSimple.');
 
@@ -1840,7 +1840,7 @@ describe("ModelRegistry", () => {
 				const model = registry.find("custom-provider", "test-model");
 				expect(model).toBeDefined();
 
-				const auth1 = await registry.getApiKeyAndHeaders(model!);
+				const auth1 = await registry.getApiKeyAndHeaders(requireValue(model));
 				expect(auth1).toEqual({
 					ok: true,
 					apiKey: "token-1",
@@ -1849,7 +1849,7 @@ describe("ModelRegistry", () => {
 
 				writeFileSync(tokenFile, "token-2");
 
-				const auth2 = await registry.getApiKeyAndHeaders(model!);
+				const auth2 = await registry.getApiKeyAndHeaders(requireValue(model));
 				expect(auth2).toEqual({
 					ok: true,
 					apiKey: "token-2",
@@ -1869,7 +1869,7 @@ describe("ModelRegistry", () => {
 				const model = registry.find("custom-provider", "test-model");
 				expect(model).toBeDefined();
 
-				const auth = await registry.getApiKeyAndHeaders(model!);
+				const auth = await registry.getApiKeyAndHeaders(requireValue(model));
 				expect(auth.ok).toBe(false);
 				if (!auth.ok) {
 					expect(auth.error).toContain('Failed to resolve API key for provider "custom-provider"');
@@ -1878,3 +1878,10 @@ describe("ModelRegistry", () => {
 		});
 	});
 });
+
+function requireValue<T>(value: T | null | undefined): T {
+	if (value === null || value === undefined) {
+		throw new Error("Expected value to be present");
+	}
+	return value;
+}

@@ -26,6 +26,7 @@ import { SessionManager } from "../src/core/session-manager.ts";
 import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { getMarkdownTheme, initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { createHarness } from "./suite/harness.ts";
+import { assertDefined } from "./utilities.ts";
 
 type SubmitContext = {
 	addSubmittedTextToHistory(this: SubmitContext, text: string): void;
@@ -610,7 +611,7 @@ describe("InteractiveMode startup input", () => {
 			await continuation;
 
 			expect(context.showError).not.toHaveBeenCalled();
-			expect(readIncomingMessageStatus(controlDbPath, message!.id)).toBe("completed");
+			expect(readIncomingMessageStatus(controlDbPath, assertDefined(message).id)).toBe("completed");
 			expect(requests.at(-1)).toContain("operator instruction");
 		} finally {
 			releaseTool?.();
@@ -631,7 +632,7 @@ describe("InteractiveMode startup input", () => {
 		await interactiveModePrototype.processControlMessage.call(context, message, controlDbPath);
 
 		expect(context.session.prompt).toHaveBeenCalledWith("harness prompt", { streamingBehavior: "steer" });
-		expect(readIncomingMessageStatus(controlDbPath, message!.id)).toBe("completed");
+		expect(readIncomingMessageStatus(controlDbPath, assertDefined(message).id)).toBe("completed");
 		expect(context.showError).not.toHaveBeenCalled();
 	});
 });

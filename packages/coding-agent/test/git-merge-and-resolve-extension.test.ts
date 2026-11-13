@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import mergeAndResolve from "../examples/extensions/git-merge-and-resolve.ts";
 import type { ExecResult, ExtensionAPI, ExtensionContext } from "../src/core/extensions/index.ts";
+import { assertDefined } from "./utilities.ts";
 
 type AgentEndHandler = (event: { type: "agent_end" }, ctx: ExtensionContext) => Promise<undefined>;
 
@@ -42,7 +43,7 @@ function setup(cwd: string, execResults: Map<string, ExecResult>) {
 	const ctx = { cwd, ui: { notify: vi.fn() } } as unknown as ExtensionContext;
 
 	async function trigger() {
-		await handler!({ type: "agent_end" }, ctx);
+		await assertDefined(handler)({ type: "agent_end" }, ctx);
 	}
 
 	return { trigger, exec, sendUserMessage };

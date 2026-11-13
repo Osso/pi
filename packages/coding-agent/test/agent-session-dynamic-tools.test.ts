@@ -10,6 +10,11 @@ import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 
+function requireModel<T>(model: T | undefined): T {
+	if (!model) throw new Error("Expected test model to exist");
+	return model;
+}
+
 describe("AgentSession dynamic tool registration", () => {
 	let tempDir: string;
 	let agentDir: string;
@@ -58,7 +63,7 @@ describe("AgentSession dynamic tool registration", () => {
 		const { session } = await createAgentSession({
 			cwd: tempDir,
 			agentDir,
-			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			model: requireModel(getModel("anthropic", "claude-sonnet-4-5")),
 			settingsManager,
 			sessionManager,
 			resourceLoader,
@@ -108,7 +113,7 @@ describe("AgentSession dynamic tool registration", () => {
 		const { session } = await createAgentSession({
 			cwd: tempDir,
 			agentDir,
-			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			model: requireModel(getModel("anthropic", "claude-sonnet-4-5")),
 			settingsManager,
 			sessionManager,
 			resourceLoader,
@@ -168,7 +173,7 @@ describe("AgentSession dynamic tool registration", () => {
 		const { session } = await createAgentSession({
 			cwd: tempDir,
 			agentDir,
-			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			model: requireModel(getModel("anthropic", "claude-sonnet-4-5")),
 			settingsManager,
 			sessionManager,
 			resourceLoader,
@@ -254,7 +259,7 @@ describe("AgentSession dynamic tool registration", () => {
 		const { session } = await createAgentSession({
 			cwd: tempDir,
 			agentDir,
-			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			model: requireModel(getModel("anthropic", "claude-sonnet-4-5")),
 			settingsManager,
 			sessionManager,
 			resourceLoader,

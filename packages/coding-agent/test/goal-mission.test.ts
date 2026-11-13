@@ -167,6 +167,11 @@ function createMissionHarness(store: SessionStore = { entries: [] }, reviewGoal 
 	};
 }
 
+function requireDefined<T>(value: T | null | undefined, message: string): T {
+	if (value == null) throw new Error(message);
+	return value;
+}
+
 describe("goal extension mission", () => {
 	beforeEach(() => {
 		vi.useFakeTimers();
@@ -418,7 +423,7 @@ describe("goal extension mission", () => {
 		const sessionDir = mkdtempSync(join(tmpdir(), "pi-mission-restore-"));
 		try {
 			const original = SessionManager.create(process.cwd(), sessionDir);
-			original.appendMessage(assistantTurn("start")[0]!);
+			original.appendMessage(requireDefined(assistantTurn("start")[0], "Expected assistant turn message"));
 			const initialHarness = createMissionHarness({ entries: [], sessionManager: original });
 			await initialHarness.command("mission", "set maintain the compiler");
 			if (action === "pause") await initialHarness.command("mission", "pause");
@@ -427,7 +432,9 @@ describe("goal extension mission", () => {
 			original.appendCompaction("Older context summarized", keptEntryId, 100);
 			original.persistForRecovery();
 
-			const reopened = SessionManager.open(original.getSessionFile()!);
+			const reopened = SessionManager.open(
+				requireDefined(original.getSessionFile(), "Expected persisted session file"),
+			);
 			expect(reopened.getEntries().some((entry) => entry.type === "custom" && entry.customType === "mission")).toBe(
 				false,
 			);
@@ -450,7 +457,7 @@ describe("goal extension mission", () => {
 		const sessionDir = mkdtempSync(join(tmpdir(), "pi-mission-working-goal-"));
 		try {
 			const original = SessionManager.create(process.cwd(), sessionDir);
-			original.appendMessage(assistantTurn("start")[0]!);
+			original.appendMessage(requireDefined(assistantTurn("start")[0], "Expected assistant turn message"));
 			await createMissionHarness({ entries: [], sessionManager: original }).command(
 				"mission",
 				"set maintain the compiler",
@@ -459,7 +466,9 @@ describe("goal extension mission", () => {
 			original.appendCompaction("Older context summarized", keptEntryId, 100);
 			original.persistForRecovery();
 
-			const reopened = SessionManager.open(original.getSessionFile()!);
+			const reopened = SessionManager.open(
+				requireDefined(original.getSessionFile(), "Expected persisted session file"),
+			);
 			const workingGoal: Goal = {
 				objective: "ship the parser",
 				branch: "master",

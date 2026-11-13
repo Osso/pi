@@ -27,11 +27,11 @@ const findTool = createFindTool(process.cwd());
 const lsTool = createLsTool(process.cwd());
 
 // Helper to extract text from content blocks
-function getTextOutput(result: any): string {
+function getTextOutput(result: { content: Array<{ type: string; text?: string }> }): string {
 	return (
 		result.content
-			?.filter((c: any) => c.type === "text")
-			.map((c: any) => c.text)
+			?.filter((c): c is { type: "text"; text: string } => c.type === "text")
+			.map((c) => c.text)
 			.join("\n") || ""
 	);
 }
@@ -286,7 +286,7 @@ describe("Coding Agent Tools", () => {
 			const output = getTextOutput(result);
 
 			expect(output).toContain("definitely not a png");
-			expect(result.content.some((c: any) => c.type === "image")).toBe(false);
+			expect(result.content.some((c) => c.type === "image")).toBe(false);
 		});
 	});
 
@@ -590,8 +590,8 @@ describe("Coding Agent Tools", () => {
 				expect(message).not.toContain("Full output: undefined");
 				const fullOutputPath = message.match(/Full output: ([^\]\n]+)/)?.[1];
 				expect(fullOutputPath).toBeDefined();
-				expect(existsSync(fullOutputPath!)).toBe(true);
-				const fullOutput = readFileSync(fullOutputPath!, "utf-8");
+				expect(existsSync(requireValue(fullOutputPath))).toBe(true);
+				const fullOutput = readFileSync(requireValue(fullOutputPath), "utf-8");
 				expect(fullOutput).toContain("1\n2\n3");
 				expect(fullOutput).toContain("2998\n2999\n3000");
 			}
@@ -829,8 +829,8 @@ describe("Coding Agent Tools", () => {
 			}
 
 			expect(fullOutputPath).toBeDefined();
-			expect(existsSync(fullOutputPath!)).toBe(true);
-			const fullOutput = readFileSync(fullOutputPath!, "utf-8");
+			expect(existsSync(requireValue(fullOutputPath))).toBe(true);
+			const fullOutput = readFileSync(requireValue(fullOutputPath), "utf-8");
 			expect(fullOutput.split("\n").filter((line) => line === "x")).toHaveLength(3000);
 		});
 
@@ -850,8 +850,8 @@ describe("Coding Agent Tools", () => {
 			}
 
 			expect(fullOutputPath).toBeDefined();
-			expect(existsSync(fullOutputPath!)).toBe(true);
-			const fullOutput = readFileSync(fullOutputPath!, "utf-8");
+			expect(existsSync(requireValue(fullOutputPath))).toBe(true);
+			const fullOutput = readFileSync(requireValue(fullOutputPath), "utf-8");
 			expect(fullOutput.split("\n").filter((line) => line === "x")).toHaveLength(3000);
 		});
 	});
@@ -1311,3 +1311,10 @@ describe("edit tool CRLF handling", () => {
 		expect(content).toBe("\uFEFFfirst\r\nSECOND\r\nthird\r\nFOURTH\r\n");
 	});
 });
+
+function requireValue<T>(value: T | null | undefined): T {
+	if (value === null || value === undefined) {
+		throw new Error("Expected value to be present");
+	}
+	return value;
+}

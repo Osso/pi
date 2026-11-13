@@ -9,6 +9,11 @@ import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHarness, createHarnessWithExtensions, type Harness } from "./test-harness.ts";
 
+function requireDefined<T>(value: T | null | undefined, message: string): T {
+	if (value == null) throw new Error(message);
+	return value;
+}
+
 describe("test harness", () => {
 	let harness: Harness;
 
@@ -127,7 +132,10 @@ describe("test harness", () => {
 
 		await harness.session.prompt("hi");
 
-		const msg = harness.session.messages.find((m): m is AssistantMessage => m.role === "assistant")!;
+		const msg = requireDefined(
+			harness.session.messages.find((m): m is AssistantMessage => m.role === "assistant"),
+			"Expected assistant message",
+		);
 		expect(msg.usage.input).toBe(100000);
 		expect(msg.usage.output).toBe(5000);
 	});
@@ -310,7 +318,7 @@ describe("test harness", () => {
 		const runner = harness.session.extensionRunner;
 		expect(runner).toBeDefined();
 
-		const commands = runner!.getRegisteredCommands();
+		const commands = requireDefined(runner, "Expected extension runner").getRegisteredCommands();
 		expect(
 			commands.map((command) => ({
 				name: command.name,
@@ -323,8 +331,12 @@ describe("test harness", () => {
 			{ name: "shared-cmd", invocationName: "shared-cmd:2", description: "Beta command", path: "<beta>" },
 		]);
 
-		await runner!.getCommand("shared-cmd:1")?.handler("first", runner!.createCommandContext());
-		await runner!.getCommand("shared-cmd:2")?.handler("second", runner!.createCommandContext());
+		await requireDefined(runner, "Expected extension runner")
+			.getCommand("shared-cmd:1")
+			?.handler("first", requireDefined(runner, "Expected extension runner").createCommandContext());
+		await requireDefined(runner, "Expected extension runner")
+			.getCommand("shared-cmd:2")
+			?.handler("second", requireDefined(runner, "Expected extension runner").createCommandContext());
 
 		expect(calls).toEqual(["alpha:first", "beta:second"]);
 	});

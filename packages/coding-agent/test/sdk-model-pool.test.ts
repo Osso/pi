@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	type Api,
 	type AssistantMessage,
 	createAssistantMessageEventStream,
 	type Model,
@@ -14,10 +15,11 @@ import { ModelRegistry } from "../src/core/model-registry.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import { assertDefined } from "./utilities.ts";
 
 type CapturedCall = { provider: string; model: string; apiKey?: string; headers?: ProviderHeaders };
 
-function assistantMessage(model: Model<any>, overrides: Partial<AssistantMessage> = {}): AssistantMessage {
+function assistantMessage(model: Model<Api>, overrides: Partial<AssistantMessage> = {}): AssistantMessage {
 	return {
 		role: "assistant",
 		content: [],
@@ -155,11 +157,11 @@ describe("createAgentSession pool models", () => {
 
 	it("reports pool request auth from its members", async () => {
 		const authenticated = createRegistry([], ["deepseek"]).modelRegistry;
-		const authenticatedPool = authenticated.find("pool", "deepseek-flash")!;
+		const authenticatedPool = assertDefined(authenticated.find("pool", "deepseek-flash"));
 		await expect(authenticated.getApiKeyAndHeaders(authenticatedPool)).resolves.toMatchObject({ ok: true });
 
 		const unauthenticated = createRegistry([], []).modelRegistry;
-		const unauthenticatedPool = unauthenticated.find("pool", "deepseek-flash")!;
+		const unauthenticatedPool = assertDefined(unauthenticated.find("pool", "deepseek-flash"));
 		await expect(unauthenticated.getApiKeyAndHeaders(unauthenticatedPool)).resolves.toEqual({
 			ok: false,
 			error: 'Pool "deepseek-flash": no member has configured authentication',

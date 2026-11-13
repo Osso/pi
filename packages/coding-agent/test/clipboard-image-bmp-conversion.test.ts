@@ -76,13 +76,13 @@ describe("readClipboardImage BMP conversion", () => {
 			platform: "linux",
 		});
 
-		expect(image).not.toBeNull();
-		expect(image!.mimeType).toBe("image/png");
+		if (!image) throw new Error("Expected clipboard image conversion to return an image");
+		expect(image.mimeType).toBe("image/png");
 
 		// Verify PNG magic bytes
-		expect(image!.bytes[0]).toBe(0x89);
-		expect(image!.bytes[1]).toBe(0x50); // P
-		expect(image!.bytes[2]).toBe(0x4e); // N
-		expect(image!.bytes[3]).toBe(0x47); // G
+		expect(image.bytes[0]).toBe(0x89);
+		expect(image.bytes[1]).toBe(0x50); // P
+		expect(image.bytes[2]).toBe(0x4e); // N
+		expect(image.bytes[3]).toBe(0x47); // G
 	});
 });

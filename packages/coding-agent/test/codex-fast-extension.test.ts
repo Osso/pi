@@ -13,6 +13,7 @@ import { FooterDataProvider, type FooterSessionOverride } from "../src/core/foot
 import { BUILTIN_SLASH_COMMANDS } from "../src/core/slash-commands.ts";
 import { initTheme, theme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
+import { assertDefined } from "./utilities.ts";
 
 type BeforeProviderRequestHandler = (event: BeforeProviderRequestEvent, ctx: ExtensionContext) => unknown;
 type ModelSelectHandler = (event: { model: ExtensionContext["model"] }, ctx: ExtensionContext) => void;
@@ -206,13 +207,13 @@ describe("Codex fast mode extension", () => {
 		const event = { payload: { model: "test-model" }, type: "before_provider_request" } as BeforeProviderRequestEvent;
 		await command.handler("on", ctx);
 		const mutableContext = ctx as unknown as { model: ExtensionContext["model"] };
-		mutableContext.model = { ...ctx.model!, api: "anthropic-messages", provider: "anthropic" };
+		mutableContext.model = { ...assertDefined(ctx.model), api: "anthropic-messages", provider: "anthropic" };
 		modelSelect({ model: mutableContext.model }, ctx);
 
 		expect(footerData.getExtensionStatuses().get("codex-fast")).toBeUndefined();
 		expect(beforeProviderRequest(event, ctx)).toBeUndefined();
 
-		mutableContext.model = { ...ctx.model!, api: "openai-codex-responses", provider: "openai-codex" };
+		mutableContext.model = { ...assertDefined(ctx.model), api: "openai-codex-responses", provider: "openai-codex" };
 		modelSelect({ model: mutableContext.model }, ctx);
 		expect(footerData.getExtensionStatuses().get("codex-fast")).toBe("fast");
 		expect(beforeProviderRequest(event, ctx)).toEqual({ model: "test-model", service_tier: "priority" });

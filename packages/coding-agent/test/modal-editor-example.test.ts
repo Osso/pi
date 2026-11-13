@@ -6,6 +6,7 @@ import modalEditor from "../examples/extensions/modal-editor.ts";
 import type { ExtensionAPI, ExtensionContext } from "../src/core/extensions/index.ts";
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import type { CustomEditor } from "../src/modes/interactive/components/custom-editor.ts";
+import { assertDefined } from "./utilities.ts";
 
 type EditorFactory = (tui: TUI, theme: typeof defaultEditorTheme, kb: KeybindingsManager) => CustomEditor;
 
@@ -26,8 +27,8 @@ function createModalEditor(): CustomEditor {
 			},
 		},
 	} as unknown as ExtensionContext;
-	sessionStart!({ type: "session_start" }, ctx);
-	return factory!(new TUI(new VirtualTerminal()), defaultEditorTheme, KeybindingsManager.create());
+	assertDefined(sessionStart)({ type: "session_start" }, ctx);
+	return assertDefined(factory)(new TUI(new VirtualTerminal()), defaultEditorTheme, KeybindingsManager.create());
 }
 
 describe("modal-editor example", () => {

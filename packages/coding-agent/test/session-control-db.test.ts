@@ -2829,11 +2829,13 @@ Date.now = () => ${Date.now()};
 		const claimed = claimMultiAgentTerminalOutbox(controlDbPath, "delivery-a", mutation.updatedAt, { sessionPath });
 		expect(claimed).toMatchObject({ agentId, attemptCount: 1, eventKind: "completed", status: "claimed" });
 		expect(claimMultiAgentTerminalOutbox(controlDbPath, "delivery-b", mutation.updatedAt)).toBeUndefined();
-		expect(failMultiAgentTerminalOutbox(controlDbPath, claimed!, "temporary", "2026-07-11T00:02:00.000Z")).toBe(true);
+		expect(
+			failMultiAgentTerminalOutbox(controlDbPath, requireValue(claimed), "temporary", "2026-07-11T00:02:00.000Z"),
+		).toBe(true);
 		const retried = claimMultiAgentTerminalOutbox(controlDbPath, "delivery-b", "2026-07-11T00:03:00.000Z");
 		expect(retried).toMatchObject({ attemptCount: 2, claimId: "delivery-b", status: "claimed" });
-		expect(deliverMultiAgentTerminalOutbox(controlDbPath, claimed!)).toBe(false);
-		expect(deliverMultiAgentTerminalOutbox(controlDbPath, retried!)).toBe(true);
+		expect(deliverMultiAgentTerminalOutbox(controlDbPath, requireValue(claimed))).toBe(false);
+		expect(deliverMultiAgentTerminalOutbox(controlDbPath, requireValue(retried))).toBe(true);
 		expect(commitMultiAgentTerminalMutation(controlDbPath, mutation)).toEqual(committed);
 
 		const db = createSqliteDatabase(controlDbPath);
@@ -2879,7 +2881,7 @@ Date.now = () => ${Date.now()};
 		});
 		expect(recovered).toMatchObject({ attemptCount: 2, claimId: "worker-b" });
 		expect(
-			failMultiAgentTerminalOutbox(controlDbPath, recovered!, "permanent", "2026-07-11T00:03:00.000Z", {
+			failMultiAgentTerminalOutbox(controlDbPath, requireValue(recovered), "permanent", "2026-07-11T00:03:00.000Z", {
 				maxAttempts: 2,
 			}),
 		).toBe(true);
@@ -3203,10 +3205,10 @@ Date.now = () => ${Date.now()};
 		]);
 		const notifications = claimTestRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "runner" });
 		expect(notifications).toHaveLength(1);
-		expect(deliverRuntimeMailboxMessage(controlDbPath, notifications[0]!.id)).toBe(true);
+		expect(deliverRuntimeMailboxMessage(controlDbPath, requireValue(notifications[0]).id)).toBe(true);
 		const outbox = claimMultiAgentTerminalOutbox(controlDbPath, "finalizer", terminal.terminalAt, { sessionPath });
 		expect(outbox).toBeDefined();
-		expect(deliverMultiAgentTerminalOutbox(controlDbPath, outbox!)).toBe(true);
+		expect(deliverMultiAgentTerminalOutbox(controlDbPath, requireValue(outbox))).toBe(true);
 		expect(finalizeDetachedJob(controlDbPath, { sessionPath, terminal })).toEqual(finalized);
 		expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
 		expect(
@@ -3755,10 +3757,10 @@ Date.now = () => ${Date.now()};
 			});
 			const notifications = claimRuntimeMailboxMessages(controlDbPath, { agentId: null, sessionId: "supervisor-a" });
 			expect(notifications).toHaveLength(1);
-			expect(deliverRuntimeMailboxMessage(controlDbPath, notifications[0]!.id)).toBe(true);
+			expect(deliverRuntimeMailboxMessage(controlDbPath, requireValue(notifications[0]).id)).toBe(true);
 			const outbox = claimMultiAgentTerminalOutbox(controlDbPath, "recovery-delivery", recoveryInput.nowIso);
 			expect(outbox).toMatchObject({ agentId, eventKind: "lost_runtime" });
-			expect(deliverMultiAgentTerminalOutbox(controlDbPath, outbox!)).toBe(true);
+			expect(deliverMultiAgentTerminalOutbox(controlDbPath, requireValue(outbox))).toBe(true);
 			expect(recoverDeadMultiAgentRuntime(controlDbPath, recoveryInput)).toEqual(recovered);
 			expect(claimMultiAgentTerminalOutbox(controlDbPath, "recovery-replay", recoveryInput.nowIso)).toBeUndefined();
 			expect(listRuntimeMailboxMessages(controlDbPath)).toEqual([]);
@@ -5882,9 +5884,9 @@ Date.now = () => ${Date.now()};
 		const claimed = claimLatestIncomingMessage(controlDbPath, "session-a");
 
 		expect(claimed).toBeDefined();
-		completeIncomingMessage(controlDbPath, claimed!.id);
+		completeIncomingMessage(controlDbPath, requireValue(claimed).id);
 
-		expect(readIncomingMessageStatus(controlDbPath, claimed!.id)).toBe("completed");
+		expect(readIncomingMessageStatus(controlDbPath, requireValue(claimed).id)).toBe("completed");
 		expect(claimLatestIncomingMessage(controlDbPath, "session-a")).toBeUndefined();
 	});
 
@@ -7808,3 +7810,10 @@ Date.now = () => ${Date.now()};
 		}
 	});
 });
+
+function requireValue<T>(value: T | null | undefined): T {
+	if (value === null || value === undefined) {
+		throw new Error("Expected value to be present");
+	}
+	return value;
+}

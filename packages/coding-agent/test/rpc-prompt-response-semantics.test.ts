@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agent } from "@earendil-works/pi-agent-core";
 import {
+	type Api,
 	type AssistantMessage,
 	type AssistantMessageEvent,
 	EventStream,
@@ -18,7 +19,7 @@ import { getControlDbPath } from "../src/core/session-control-db.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { runRpcMode } from "../src/modes/rpc/rpc-mode.ts";
-import { createTestResourceLoader } from "./utilities.ts";
+import { assertDefined, createTestResourceLoader } from "./utilities.ts";
 
 const rpcIo = vi.hoisted(() => ({
 	outputLines: [] as string[],
@@ -96,7 +97,7 @@ function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function createRuntimeHost(options: { withAuth: boolean; responseDelayMs: number; model?: Model<any> }): {
+function createRuntimeHost(options: { withAuth: boolean; responseDelayMs: number; model?: Model<Api> }): {
 	runtimeHost: AgentSessionRuntime;
 	bindExtensionsSpy: ReturnType<typeof vi.fn>;
 	agentDir: string;
@@ -179,7 +180,7 @@ function createRuntimeHost(options: { withAuth: boolean; responseDelayMs: number
 	};
 }
 
-async function startRpcMode(options: { withAuth: boolean; responseDelayMs: number; model?: Model<any> }): Promise<{
+async function startRpcMode(options: { withAuth: boolean; responseDelayMs: number; model?: Model<Api> }): Promise<{
 	lineHandler: (line: string) => void;
 	bindExtensionsSpy: ReturnType<typeof vi.fn>;
 	agentDir: string;
@@ -192,7 +193,12 @@ async function startRpcMode(options: { withAuth: boolean; responseDelayMs: numbe
 	void runRpcMode(runtimeHost);
 	await vi.waitFor(() => expect(rpcIo.lineHandler).toBeDefined());
 
-	return { lineHandler: rpcIo.lineHandler!, bindExtensionsSpy, agentDir, cleanup };
+	return { lineHandler: assertDefined(readLineHandler()), bindExtensionsSpy, agentDir, cleanup };
+}
+
+/** Reads the handler set by the mocked reader; a direct read stays narrowed to the reset value. */
+function readLineHandler(): ((line: string) => void) | undefined {
+	return rpcIo.lineHandler;
 }
 
 describe("RPC prompt response semantics", () => {

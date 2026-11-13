@@ -24,6 +24,11 @@ import {
 // substituteArgs
 // ============================================================================
 
+function requireDefined<T>(value: T | null | undefined, message: string): T {
+	if (value == null) throw new Error(message);
+	return value;
+}
+
 describe("substituteArgs", () => {
 	test("should replace $ARGUMENTS with all args joined", () => {
 		expect(substituteArgs("Test: $ARGUMENTS", ["a", "b", "c"])).toBe("Test: a b c");
@@ -515,8 +520,10 @@ You are given one or more GitHub PR URLs: $@`,
 
 		const pr = templates.find((t) => t.name === "pr");
 		expect(pr).toBeDefined();
-		expect(pr!.argumentHint).toBe("<PR-URL>");
-		expect(pr!.description).toBe("Review PRs from URLs with structured issue and code analysis");
+		expect(requireDefined(pr, "Expected pr template").argumentHint).toBe("<PR-URL>");
+		expect(requireDefined(pr, "Expected pr template").description).toBe(
+			"Review PRs from URLs with structured issue and code analysis",
+		);
 	});
 
 	test("should parse optional argument-hint from frontmatter", () => {
@@ -538,8 +545,10 @@ Wrap it. Additional instructions: $ARGUMENTS`,
 
 		const wr = templates.find((t) => t.name === "wr");
 		expect(wr).toBeDefined();
-		expect(wr!.argumentHint).toBe("[instructions]");
-		expect(wr!.description).toBe("Finish the current task end-to-end with changelog, commit, and push");
+		expect(requireDefined(wr, "Expected wr template").argumentHint).toBe("[instructions]");
+		expect(requireDefined(wr, "Expected wr template").description).toBe(
+			"Finish the current task end-to-end with changelog, commit, and push",
+		);
 	});
 
 	test("should leave argumentHint undefined when not specified", () => {
@@ -560,7 +569,7 @@ Audit changelog entries for all commits since the last release.`,
 
 		const cl = templates.find((t) => t.name === "cl");
 		expect(cl).toBeDefined();
-		expect(cl!.argumentHint).toBeUndefined();
+		expect(requireDefined(cl, "Expected cl template").argumentHint).toBeUndefined();
 	});
 
 	test("should ignore empty argument-hint", () => {
@@ -582,7 +591,7 @@ Do something`,
 
 		const tmpl = templates.find((t) => t.name === "empty-hint");
 		expect(tmpl).toBeDefined();
-		expect(tmpl!.argumentHint).toBeUndefined();
+		expect(requireDefined(tmpl, "Expected empty-hint template").argumentHint).toBeUndefined();
 	});
 
 	test("should preserve argument-hint with special characters", () => {
@@ -604,7 +613,7 @@ Analyze GitHub issue(s): $ARGUMENTS`,
 
 		const is = templates.find((t) => t.name === "is");
 		expect(is).toBeDefined();
-		expect(is!.argumentHint).toBe("<issue>");
+		expect(requireDefined(is, "Expected issue template").argumentHint).toBe("<issue>");
 	});
 
 	afterAll(() => {

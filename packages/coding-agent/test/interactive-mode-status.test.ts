@@ -115,18 +115,22 @@ describe("InteractiveMode.showStatus", () => {
 	});
 
 	test("coalesces immediately-sequential status messages", () => {
-		const fakeThis: any = {
+		const fakeThis = {
 			chatContainer: new Container(),
 			ui: { requestRender: vi.fn() },
 			lastStatusSpacer: undefined,
 			lastStatusText: undefined,
 		};
 
-		(InteractiveMode as any).prototype.showStatus.call(fakeThis, "STATUS_ONE");
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showStatus.call(fakeThis, "STATUS_ONE");
 		expect(fakeThis.chatContainer.children).toHaveLength(2);
 		expect(renderLastLine(fakeThis.chatContainer)).toContain("STATUS_ONE");
 
-		(InteractiveMode as any).prototype.showStatus.call(fakeThis, "STATUS_TWO");
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showStatus.call(fakeThis, "STATUS_TWO");
 		// second status updates the previous line instead of appending
 		expect(fakeThis.chatContainer.children).toHaveLength(2);
 		expect(renderLastLine(fakeThis.chatContainer)).toContain("STATUS_TWO");
@@ -134,21 +138,25 @@ describe("InteractiveMode.showStatus", () => {
 	});
 
 	test("appends a new status line if something else was added in between", () => {
-		const fakeThis: any = {
+		const fakeThis = {
 			chatContainer: new Container(),
 			ui: { requestRender: vi.fn() },
 			lastStatusSpacer: undefined,
 			lastStatusText: undefined,
 		};
 
-		(InteractiveMode as any).prototype.showStatus.call(fakeThis, "STATUS_ONE");
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showStatus.call(fakeThis, "STATUS_ONE");
 		expect(fakeThis.chatContainer.children).toHaveLength(2);
 
 		// Something else gets added to the chat in between status updates
 		fakeThis.chatContainer.addChild({ render: () => ["OTHER"], invalidate: () => {} });
 		expect(fakeThis.chatContainer.children).toHaveLength(3);
 
-		(InteractiveMode as any).prototype.showStatus.call(fakeThis, "STATUS_TWO");
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showStatus.call(fakeThis, "STATUS_TWO");
 		// adds spacer + text
 		expect(fakeThis.chatContainer.children).toHaveLength(5);
 		expect(renderLastLine(fakeThis.chatContainer)).toContain("STATUS_TWO");
@@ -160,7 +168,7 @@ describe("InteractiveMode.setToolsExpanded", () => {
 		const header = { setExpanded: vi.fn() };
 		const loadedResourcesChild = { setExpanded: vi.fn() };
 		const chatChild = { setExpanded: vi.fn() };
-		const fakeThis: any = {
+		const fakeThis = {
 			toolOutputExpanded: false,
 			customHeader: undefined,
 			builtInHeader: header,
@@ -169,7 +177,9 @@ describe("InteractiveMode.setToolsExpanded", () => {
 			ui: { requestRender: vi.fn() },
 		};
 
-		(InteractiveMode as any).prototype.setToolsExpanded.call(fakeThis, true);
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.setToolsExpanded.call(fakeThis, true);
 
 		expect(fakeThis.toolOutputExpanded).toBe(true);
 		expect(header.setExpanded).toHaveBeenCalledWith(true);
@@ -1335,9 +1345,13 @@ describe("InteractiveMode key handlers", () => {
 		fixture.fakeThis.loadingAnimation = mainLoader;
 		fixture.fakeThis.statusContainer.addChild(mainLoader);
 		fixture.fakeThis.session.isStreaming = true;
+		const childAgent = fixture.store.getAgent(fixture.childAgentId);
+		if (!childAgent) {
+			throw new Error("expected child agent");
+		}
 		const running = legacyMultiAgentStore(fixture.store).transitionAgent(
 			fixture.childAgentId,
-			fixture.store.getAgent(fixture.childAgentId)!.revision,
+			childAgent.revision,
 			"running",
 		);
 		expect(running.ok).toBe(true);
@@ -1375,7 +1389,10 @@ describe("InteractiveMode key handlers", () => {
 			fixture.fakeThis.session.isStreaming = true;
 			try {
 				interactiveModeKeyHandlers.subscribeToMultiAgentStore.call(fixture.fakeThis);
-				const child = fixture.store.getAgent(fixture.childAgentId)!;
+				const child = fixture.store.getAgent(fixture.childAgentId);
+				if (!child) {
+					throw new Error("expected child agent");
+				}
 				const running = legacyMultiAgentStore(fixture.store).transitionAgent(
 					fixture.childAgentId,
 					child.revision,
@@ -2582,7 +2599,7 @@ describe("InteractiveMode.createExtensionUIContext setTheme", () => {
 				currentTheme = theme;
 			}),
 		};
-		const fakeThis: any = {
+		const fakeThis = {
 			session: { settingsManager },
 			settingsManager,
 			themeController: {
@@ -2595,7 +2612,7 @@ describe("InteractiveMode.createExtensionUIContext setTheme", () => {
 			ui: { requestRender: vi.fn() },
 		};
 
-		const uiContext = (InteractiveMode as any).prototype.createExtensionUIContext.call(fakeThis);
+		const uiContext = interactiveModeKeyHandlers.createExtensionUIContext.call(fakeThis);
 		const result = uiContext.setTheme("light");
 
 		expect(result.success).toBe(true);
@@ -2612,7 +2629,7 @@ describe("InteractiveMode.createExtensionUIContext setTheme", () => {
 			getTheme: vi.fn(() => "dark"),
 			setTheme: vi.fn(),
 		};
-		const fakeThis: any = {
+		const fakeThis = {
 			session: { settingsManager },
 			settingsManager,
 			themeController: {
@@ -2622,7 +2639,7 @@ describe("InteractiveMode.createExtensionUIContext setTheme", () => {
 			ui: { requestRender: vi.fn() },
 		};
 
-		const uiContext = (InteractiveMode as any).prototype.createExtensionUIContext.call(fakeThis);
+		const uiContext = interactiveModeKeyHandlers.createExtensionUIContext.call(fakeThis);
 		const result = uiContext.setTheme("__missing_theme__");
 
 		expect(result.success).toBe(false);
@@ -2661,7 +2678,9 @@ describe("InteractiveMode.showExtensionCustom", () => {
 			factory: (tui: TUI, theme: unknown, keybindings: unknown, done: (result: T) => void) => Component,
 			options?: { overlay?: boolean },
 		): Promise<T> =>
-			(InteractiveMode as any).prototype.showExtensionCustom.call(fakeThis, factory, options) as Promise<T>;
+			(
+				InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+			).prototype.showExtensionCustom.call(fakeThis, factory, options) as Promise<T>;
 
 		editorContainer.addChild(editor);
 		ui.addChild(editorContainer);
@@ -2712,7 +2731,7 @@ describe("InteractiveMode.createExtensionUIContext addAutocompleteProvider", () 
 			setupAutocompleteProvider: vi.fn(),
 		};
 
-		const uiContext = (InteractiveMode as any).prototype.createExtensionUIContext.call(fakeThis);
+		const uiContext = interactiveModeKeyHandlers.createExtensionUIContext.call(fakeThis);
 		uiContext.addAutocompleteProvider(wrapper);
 
 		expect(fakeThis.autocompleteProviderWrappers).toEqual([wrapper]);
@@ -2762,7 +2781,9 @@ describe("InteractiveMode.setupAutocompleteProvider", () => {
 			autocompleteProviderWrappers: [wrap1, wrap2],
 		};
 
-		(InteractiveMode as any).prototype.setupAutocompleteProvider.call(fakeThis);
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.setupAutocompleteProvider.call(fakeThis);
 
 		expect(defaultEditor.setAutocompleteProvider).toHaveBeenCalledTimes(1);
 		expect(customEditor.setAutocompleteProvider).toHaveBeenCalledTimes(1);
@@ -3050,7 +3071,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 		skillDiagnostics?: Array<{ type: "warning" | "error" | "collision"; message: string }>;
 		useRealScopeGroups?: boolean;
 	}) {
-		const fakeThis: any = {
+		const fakeThis = {
 			options: { verbose: options.verbose ?? false },
 			toolOutputExpanded: options.toolOutputExpanded ?? false,
 			loadedResourcesContainer: new Container(),
@@ -3082,43 +3103,79 @@ describe("InteractiveMode.showLoadedResources", () => {
 					getThemes: () => ({ themes: [], diagnostics: [] }),
 				},
 			},
-			formatDisplayPath: (p: string) => (InteractiveMode as any).prototype.formatDisplayPath.call(fakeThis, p),
+			formatDisplayPath: (p: string) =>
+				(
+					InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+				).prototype.formatDisplayPath.call(fakeThis, p),
 			formatExtensionDisplayPath: (p: string) =>
-				(InteractiveMode as any).prototype.formatExtensionDisplayPath.call(fakeThis, p),
-			formatContextPath: (p: string) => (InteractiveMode as any).prototype.formatContextPath.call(fakeThis, p),
-			getStartupExpansionState: () => (InteractiveMode as any).prototype.getStartupExpansionState.call(fakeThis),
+				(
+					InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+				).prototype.formatExtensionDisplayPath.call(fakeThis, p),
+			formatContextPath: (p: string) =>
+				(
+					InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+				).prototype.formatContextPath.call(fakeThis, p),
+			getStartupExpansionState: () =>
+				(
+					InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+				).prototype.getStartupExpansionState.call(fakeThis),
 			buildScopeGroups: () => [],
 			formatScopeGroups: () => "resource-list",
 			isPackageSource: (sourceInfo?: SourceInfo) =>
-				(InteractiveMode as any).prototype.isPackageSource.call(fakeThis, sourceInfo),
+				(
+					InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+				).prototype.isPackageSource.call(fakeThis, sourceInfo),
 			getShortPath: (p: string, sourceInfo?: SourceInfo) =>
-				(InteractiveMode as any).prototype.getShortPath.call(fakeThis, p, sourceInfo),
+				(
+					InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+				).prototype.getShortPath.call(fakeThis, p, sourceInfo),
 			getCompactPathLabel: (p: string, sourceInfo?: SourceInfo) =>
-				(InteractiveMode as any).prototype.getCompactPathLabel.call(fakeThis, p, sourceInfo),
+				(
+					InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+				).prototype.getCompactPathLabel.call(fakeThis, p, sourceInfo),
 			getCompactPackageSourceLabel: (sourceInfo?: SourceInfo) =>
-				(InteractiveMode as any).prototype.getCompactPackageSourceLabel.call(fakeThis, sourceInfo),
+				(
+					InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+				).prototype.getCompactPackageSourceLabel.call(fakeThis, sourceInfo),
 			getCompactExtensionLabel: (p: string, sourceInfo?: SourceInfo) =>
-				(InteractiveMode as any).prototype.getCompactExtensionLabel.call(fakeThis, p, sourceInfo),
+				(
+					InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+				).prototype.getCompactExtensionLabel.call(fakeThis, p, sourceInfo),
 			getCompactDisplayPathSegments: (p: string) =>
-				(InteractiveMode as any).prototype.getCompactDisplayPathSegments.call(fakeThis, p),
+				(
+					InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+				).prototype.getCompactDisplayPathSegments.call(fakeThis, p),
 			getCompactNonPackageExtensionLabel: (
 				p: string,
 				index: number,
 				allPaths: Array<{ path: string; segments: string[] }>,
-			) => (InteractiveMode as any).prototype.getCompactNonPackageExtensionLabel.call(fakeThis, p, index, allPaths),
+			) =>
+				(
+					InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+				).prototype.getCompactNonPackageExtensionLabel.call(fakeThis, p, index, allPaths),
 			getCompactExtensionLabels: (extensions: ExtensionFixture[]) =>
-				(InteractiveMode as any).prototype.getCompactExtensionLabels.call(fakeThis, extensions),
+				(
+					InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+				).prototype.getCompactExtensionLabels.call(fakeThis, extensions),
 			formatDiagnostics: () => "diagnostics",
 			getBuiltInCommandConflictDiagnostics: () => [],
 		};
 
 		if (options.useRealScopeGroups) {
-			fakeThis.getScopeGroup = (sourceInfo?: SourceInfo) =>
-				(InteractiveMode as any).prototype.getScopeGroup.call(fakeThis, sourceInfo);
-			fakeThis.buildScopeGroups = (items: Array<{ path: string; sourceInfo?: SourceInfo }>) =>
-				(InteractiveMode as any).prototype.buildScopeGroups.call(fakeThis, items);
-			fakeThis.formatScopeGroups = (groups: unknown, formatOptions: unknown) =>
-				(InteractiveMode as any).prototype.formatScopeGroups.call(fakeThis, groups, formatOptions);
+			Object.assign(fakeThis, {
+				getScopeGroup: (sourceInfo?: SourceInfo) =>
+					(
+						InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+					).prototype.getScopeGroup.call(fakeThis, sourceInfo),
+				buildScopeGroups: (items: Array<{ path: string; sourceInfo?: SourceInfo }>) =>
+					(
+						InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+					).prototype.buildScopeGroups.call(fakeThis, items),
+				formatScopeGroups: (groups: unknown, formatOptions: unknown) =>
+					(
+						InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+					).prototype.formatScopeGroups.call(fakeThis, groups, formatOptions),
+			});
 		}
 
 		return fakeThis;
@@ -3231,7 +3288,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 		});
 
@@ -3247,7 +3306,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			activeToolNames: ["read", "bash", "edit", "write"],
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 		});
 
@@ -3264,7 +3325,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			rulesFiles: [{ path: "/home/osso/AgentConfig/rules/01-identity.md" }],
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 		});
 
@@ -3282,7 +3345,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 		});
 
@@ -3300,7 +3365,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 		});
 
@@ -3316,7 +3383,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			extensions: [{ path: "/tmp/extensions/answer.ts" }, { path: "/tmp/extensions/btw.ts" }],
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 		});
 
@@ -3333,7 +3402,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 		});
 
@@ -3379,7 +3450,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 		});
 
@@ -3407,7 +3480,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 		});
 
@@ -3435,7 +3510,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 		});
 
@@ -3472,7 +3549,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 		});
 
@@ -3509,7 +3588,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 		});
 
@@ -3546,7 +3627,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 		});
 
@@ -3574,7 +3657,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 		});
 
@@ -3602,7 +3687,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 		});
 
@@ -3618,7 +3705,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 		});
 
@@ -3652,7 +3741,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			],
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 		});
 
@@ -3675,7 +3766,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			],
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 		});
 
@@ -3692,7 +3785,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			extensions: [{ path: "/tmp/ext/index.ts" }],
 			force: false,
 			showDiagnosticsWhenQuiet: true,
@@ -3708,7 +3803,9 @@ describe("InteractiveMode.showLoadedResources", () => {
 			skillDiagnostics: [{ type: "warning", message: "duplicate skill name" }],
 		});
 
-		(InteractiveMode as any).prototype.showLoadedResources.call(fakeThis, {
+		(
+			InteractiveMode as unknown as { prototype: Record<string, (...args: unknown[]) => unknown> }
+		).prototype.showLoadedResources.call(fakeThis, {
 			force: false,
 			showDiagnosticsWhenQuiet: true,
 		});

@@ -17,7 +17,7 @@ describe("Input Event", () => {
 		extensionsDir = path.join(tempDir, "extensions");
 		fs.mkdirSync(extensionsDir);
 		// Clean globalThis test vars
-		delete (globalThis as any).testVar;
+		delete (globalThis as typeof globalThis & { testVar?: unknown }).testVar;
 	});
 
 	afterEach(() => fs.rmSync(tempDir, { recursive: true, force: true }));
@@ -75,13 +75,13 @@ describe("Input Event", () => {
 	});
 
 	it("short-circuits on handled and skips subsequent handlers", async () => {
-		(globalThis as any).testVar = false;
+		(globalThis as typeof globalThis & { testVar?: unknown }).testVar = false;
 		const r = await createRunner(
 			`export default p => p.on("input", async () => ({ action: "handled" }));`,
 			`export default p => p.on("input", async () => { globalThis.testVar = true; });`,
 		);
 		expect(await r.emitInput("X", undefined, "interactive")).toEqual({ action: "handled" });
-		expect((globalThis as any).testVar).toBe(false);
+		expect((globalThis as typeof globalThis & { testVar?: unknown }).testVar).toBe(false);
 	});
 
 	it("passes source correctly for all source types", async () => {
@@ -90,7 +90,7 @@ describe("Input Event", () => {
 		);
 		for (const source of ["interactive", "rpc", "extension"] as const) {
 			await r.emitInput("x", undefined, source);
-			expect((globalThis as any).testVar).toBe(source);
+			expect((globalThis as typeof globalThis & { testVar?: unknown }).testVar).toBe(source);
 		}
 	});
 
@@ -99,11 +99,11 @@ describe("Input Event", () => {
 			`export default p => p.on("input", async e => { globalThis.testVar = e.streamingBehavior; return { action: "continue" }; });`,
 		);
 		await r.emitInput("x", undefined, "interactive", "steer");
-		expect((globalThis as any).testVar).toBe("steer");
+		expect((globalThis as typeof globalThis & { testVar?: unknown }).testVar).toBe("steer");
 		await r.emitInput("x", undefined, "interactive", "followUp");
-		expect((globalThis as any).testVar).toBe("followUp");
+		expect((globalThis as typeof globalThis & { testVar?: unknown }).testVar).toBe("followUp");
 		await r.emitInput("x", undefined, "interactive");
-		expect((globalThis as any).testVar).toBeUndefined();
+		expect((globalThis as typeof globalThis & { testVar?: unknown }).testVar).toBeUndefined();
 	});
 
 	it("catches handler errors and continues", async () => {

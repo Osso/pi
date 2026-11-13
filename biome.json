@@ -5,12 +5,12 @@
 		"rules": {
 			"recommended": true,
 			"style": {
-				"noNonNullAssertion": "off",
+				"noNonNullAssertion": "error",
 				"useConst": "error",
 				"useNodejsImportProtocol": "off"
 			},
 			"suspicious": {
-				"noExplicitAny": "off",
+				"noExplicitAny": "error",
 				"noControlCharactersInRegex": "off",
 				"noEmptyInterface": "off"
 			}
@@ -37,77 +37,5 @@
 			"!packages/mom/data/**/*",
 			"!!**/node_modules"
 		]
-	},
-	"overrides": [
-		{
-			"includes": ["packages/tui/**/*.ts", "packages/orchestrator/**/*.ts"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noNonNullAssertion": "error"
-					},
-					"suspicious": {
-						"noExplicitAny": "error"
-					}
-				}
-			}
-		},
-		{
-			"includes": ["packages/ai/**/*.ts"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noNonNullAssertion": "error"
-					},
-					"suspicious": {
-						"noExplicitAny": "error"
-					}
-				}
-			}
-		},
-		{
-			"includes": ["packages/agent-core/**/*.ts"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noNonNullAssertion": "error"
-					},
-					"suspicious": {
-						"noExplicitAny": "error"
-					}
-				}
-			}
-		},
-		{
-			"includes": [
-				"packages/coding-agent/src/**/*.ts",
-				"packages/coding-agent/examples/**/*.ts",
-				"packages/coding-agent/test/suite/**/*.ts",
-				"packages/coding-agent/test/session-manager/**/*.ts"
-			],
-			"linter": {
-				"rules": {
-					"style": {
-						"noNonNullAssertion": "error"
-					},
-					"suspicious": {
-						"noExplicitAny": "error"
-					}
-				}
-			}
-		},
-		{
-			"includes": ["packages/coding-agent/extensions/**/*.ts"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noNonNullAssertion": "error"
-					},
-					"suspicious": {
-						"noExplicitAny": "error"
-					}
-				}
-			}
-		}
-	]
+	}
 }

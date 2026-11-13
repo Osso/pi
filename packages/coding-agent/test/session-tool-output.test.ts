@@ -20,6 +20,7 @@ import {
 	TOOL_RESULT_TRUNCATION_MARKER,
 	truncateToolResultForPersistence,
 } from "../src/core/session-tool-output.ts";
+import { assertDefined } from "./utilities.ts";
 
 const tempDirs: string[] = [];
 
@@ -91,7 +92,7 @@ describe("persisted tool result output", () => {
 		session.appendMessage(fauxAssistantMessage("assistant"));
 		const entryId = session.appendMessage(toolResult(original));
 
-		const persistedLines = readFileSync(session.getSessionFile()!, "utf8")
+		const persistedLines = readFileSync(assertDefined(session.getSessionFile()), "utf8")
 			.trim()
 			.split("\n")
 			.map((line) => JSON.parse(line));
@@ -100,7 +101,9 @@ describe("persisted tool result output", () => {
 		);
 		const persisted = persistedLines[persistedIndex];
 		const persistedText = textFromToolResult(persisted.message);
-		const persistedLine = readFileSync(session.getSessionFile()!, "utf8").trim().split("\n")[persistedIndex];
+		const persistedLine = readFileSync(assertDefined(session.getSessionFile()), "utf8").trim().split("\n")[
+			persistedIndex
+		];
 		const runtimeEntry = session.getEntry(entryId);
 		if (!runtimeEntry || runtimeEntry.type !== "message") throw new Error("expected persisted message entry");
 

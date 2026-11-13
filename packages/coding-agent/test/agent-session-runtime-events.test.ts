@@ -22,6 +22,7 @@ import type {
 	SessionShutdownEvent,
 	SessionStartEvent,
 } from "../src/index.ts";
+import { assertDefined } from "./utilities.ts";
 
 type RecordedSessionEvent =
 	| SessionBeforeSwitchEvent
@@ -214,7 +215,7 @@ describe("AgentSessionRuntime session lifecycle events", () => {
 		events.length = 0;
 		expect(secondSessionFile).toBeTruthy();
 
-		const switchResult = await runtimeHost.switchSession(originalSessionFile!);
+		const switchResult = await runtimeHost.switchSession(assertDefined(originalSessionFile));
 		expect(switchResult.cancelled).toBe(false);
 		await runtimeHost.session.bindExtensions({});
 		expect(events).toEqual([

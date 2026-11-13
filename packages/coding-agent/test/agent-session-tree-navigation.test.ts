@@ -12,6 +12,11 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { API_KEY, createTestSession, type TestSessionContext } from "./utilities.ts";
 
+function requireDefined<T>(value: T | null | undefined, message: string): T {
+	if (value == null) throw new Error(message);
+	return value;
+}
+
 describe.skipIf(!API_KEY)("AgentSession tree navigation e2e", () => {
 	let ctx: TestSessionContext;
 
@@ -66,13 +71,15 @@ describe.skipIf(!API_KEY)("AgentSession tree navigation e2e", () => {
 		expect(assistantEntry).toBeDefined();
 
 		// Navigate to assistant message
-		const result = await session.navigateTree(assistantEntry!.id, { summarize: false });
+		const result = await session.navigateTree(requireDefined(assistantEntry, "Expected assistant message entry").id, {
+			summarize: false,
+		});
 
 		expect(result.cancelled).toBe(false);
 		expect(result.editorText).toBeUndefined();
 
 		// Leaf should be the assistant entry
-		expect(sessionManager.getLeafId()).toBe(assistantEntry!.id);
+		expect(sessionManager.getLeafId()).toBe(requireDefined(assistantEntry, "Expected assistant message entry").id);
 	}, 60000);
 
 	it("should create branch summary when navigating with summarize=true", async () => {
@@ -136,7 +143,7 @@ describe.skipIf(!API_KEY)("AgentSession tree navigation e2e", () => {
 		expect(result.summaryEntry?.parentId).toBe(a1?.id);
 
 		// Verify tree structure
-		const children = sessionManager.getChildren(a1!.id);
+		const children = sessionManager.getChildren(requireDefined(a1, "Expected first assistant entry").id);
 		expect(children.length).toBe(2);
 
 		const childTypes = children.map((c) => c.type).sort();
@@ -247,7 +254,9 @@ describe.skipIf(!API_KEY)("AgentSession tree navigation e2e", () => {
 		const entriesBefore = sessionManager.getEntries().length;
 
 		// Navigate to current leaf
-		const result = await session.navigateTree(leafBefore!, { summarize: false });
+		const result = await session.navigateTree(requireDefined(leafBefore, "Expected current session leaf"), {
+			summarize: false,
+		});
 
 		expect(result.cancelled).toBe(false);
 		expect(sessionManager.getLeafId()).toBe(leafBefore);
@@ -303,7 +312,7 @@ describe.skipIf(!API_KEY)("AgentSession tree navigation - branch scenarios", () 
 		const a1 = entries.find((e) => e.type === "message" && e.message.role === "assistant");
 
 		// Create a branch from a1: a1 -> u3 -> a3
-		sessionManager.branch(a1!.id);
+		sessionManager.branch(requireDefined(a1, "Expected first assistant entry").id);
 		await session.prompt("Branch path");
 		await session.agent.waitForIdle();
 

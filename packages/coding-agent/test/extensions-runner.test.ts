@@ -1,3 +1,4 @@
+import { assertDefined } from "./utilities.ts";
 /**
  * Tests for ExtensionRunner - conflict detection, error handling, tool wrapping.
  */
@@ -797,9 +798,9 @@ describe("ExtensionRunner", () => {
 			expect(chained).toBeDefined();
 			const chainedContent = chained?.content;
 			expect(chainedContent).toBeDefined();
-			expect(chainedContent![0]).toEqual({ type: "text", text: "base" });
+			expect(assertDefined(chainedContent)[0]).toEqual({ type: "text", text: "base" });
 			expect(chainedContent).toHaveLength(3);
-			const appendedText = chainedContent!
+			const appendedText = assertDefined(chainedContent)
 				.slice(1)
 				.filter((item): item is { type: "text"; text: string } => item.type === "text")
 				.map((item) => item.text);
@@ -856,10 +857,10 @@ describe("ExtensionRunner", () => {
 			runtime.registerProvider(
 				"broken-provider",
 				{
-					streamSimple: (() => {
+					streamSimple: () => {
 						throw new Error("should not run");
-					}) as any,
-				},
+					},
+				} as unknown as ProviderConfig,
 				"/tmp/broken-extension.ts",
 			);
 

@@ -8,6 +8,7 @@ import { restoreArchivedSessionFile } from "../src/core/session-archive-storage.
 import { SessionManager } from "../src/core/session-manager.ts";
 import { createAllToolDefinitions, DEFAULT_ACTIVE_TOOL_NAMES } from "../src/core/tools/index.ts";
 import { createSearchCurrentSessionHistoryToolDefinition } from "../src/core/tools/search-current-session-history.ts";
+import { assertDefined } from "./utilities.ts";
 
 const tempDirs: string[] = [];
 
@@ -366,7 +367,7 @@ describe("search_current_session_history", () => {
 			original.appendCompaction("compacted summary", kept, 1000);
 			original.appendMessage({ role: "user", content: "later archival needle", timestamp: 3 });
 			original.persistForRecovery();
-			const file = original.getSessionFile()!;
+			const file = assertDefined(original.getSessionFile());
 			const transcript = readFileSync(file);
 			const tool = createSearchCurrentSessionHistoryToolDefinition();
 			const search = (manager: SessionManager, cursor?: string) =>
@@ -432,7 +433,7 @@ describe("search_current_session_history", () => {
 		const last = original.appendMessage({ role: "user", content: "needle last", timestamp: 5 });
 		original.appendCompaction("second summary", last, 1000);
 		original.persistForRecovery();
-		const reopened = SessionManager.open(original.getSessionFile()!);
+		const reopened = SessionManager.open(assertDefined(original.getSessionFile()));
 		const tool = createSearchCurrentSessionHistoryToolDefinition();
 		for (const cursor of ["0", "1", "2", "4", "99"]) {
 			const params = { query: "needle", context_entries: 2, limit: 2, cursor };

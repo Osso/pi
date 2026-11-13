@@ -1,3 +1,4 @@
+import { assertDefined } from "./utilities.ts";
 /**
  * A child dispatch prompt that arrives while the child session is already running a turn.
  *
@@ -90,7 +91,11 @@ function createSession(): AgentSession {
 	const seenPrompts: string[] = [];
 	const agent = new Agent({
 		getApiKey: () => "test-key",
-		initialState: { model: getModel("anthropic", "claude-sonnet-4-5")!, systemPrompt: "Test", tools: [] },
+		initialState: {
+			model: assertDefined(getModel("anthropic", "claude-sonnet-4-5")),
+			systemPrompt: "Test",
+			tools: [],
+		},
 		streamFn: (_model, context) => {
 			const stream = new MockAssistantStream();
 			const last = [...context.messages].reverse().find((message) => message.role === "user");

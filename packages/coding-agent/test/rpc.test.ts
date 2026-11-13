@@ -3,10 +3,16 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { ENV_STATE_DIR } from "../src/config.ts";
 import { getControlDbPath, readSessionMetadata } from "../src/core/session-control-db.ts";
 import { RpcClient } from "../src/modes/rpc/rpc-client.ts";
+
+function requireDefined<T>(value: T | null | undefined, message: string): T {
+	if (value == null) throw new Error(message);
+	return value;
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -172,14 +178,13 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_OAUTH_T
 		);
 
 		// Find assistant's response
-		const messageEndEvents = events.filter((e) => e.type === "message_end") as AgentEvent[];
-		const assistantMessage = messageEndEvents.find(
-			(e) => e.type === "message_end" && e.message?.role === "assistant",
-		) as any;
+		const assistantMessage = events.find(
+			(event): event is Extract<AgentEvent, { type: "message_end" }> & { message: AssistantMessage } =>
+				event.type === "message_end" && event.message.role === "assistant" && "content" in event.message,
+		);
+		if (!assistantMessage) throw new Error("Expected an assistant message_end event");
 
-		expect(assistantMessage).toBeDefined();
-
-		const textContent = assistantMessage.message.content.find((c: any) => c.type === "text");
+		const textContent = assistantMessage.message.content.find((content) => content.type === "text");
 		expect(textContent?.text).toContain(uniqueValue);
 	}, 90000);
 
@@ -204,11 +209,11 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY && !process.env.ANTHROPIC_OAUTH_T
 		// Cycle
 		const result = await client.cycleThinkingLevel();
 		expect(result).toBeDefined();
-		expect(result!.level).not.toBe(initialLevel);
+		expect(requireDefined(result, "Expected thinking level result").level).not.toBe(initialLevel);
 
 		// Verify via state
 		const newState = await client.getState();
-		expect(newState.thinkingLevel).toBe(result!.level);
+		expect(newState.thinkingLevel).toBe(requireDefined(result, "Expected thinking level result").level);
 	}, 30000);
 
 	test("should get available models", async () => {

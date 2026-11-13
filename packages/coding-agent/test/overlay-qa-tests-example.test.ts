@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import overlayQaTests from "../examples/extensions/overlay-qa-tests.ts";
 import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "../src/core/extensions/index.ts";
+import { assertDefined } from "./utilities.ts";
 
 interface CustomComponent {
 	render(width: number): string[];
@@ -37,7 +38,7 @@ describe("overlay-qa-tests example", () => {
 			},
 		} as unknown as ExtensionCommandContext;
 
-		await registerCommands().get("overlay-stack")!.handler("", ctx);
+		await assertDefined(registerCommands().get("overlay-stack")).handler("", ctx);
 
 		const truncated = "│\x1b[0m.\x1b[0m│";
 		const empty = "│ │";

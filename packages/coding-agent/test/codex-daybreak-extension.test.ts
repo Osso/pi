@@ -9,6 +9,7 @@ import type {
 	SessionStartEvent,
 } from "../src/core/extensions/types.ts";
 import { BUILTIN_SLASH_COMMANDS } from "../src/core/slash-commands.ts";
+import { assertDefined } from "./utilities.ts";
 
 type BeforeProviderRequestHandler = (event: BeforeProviderRequestEvent, ctx: ExtensionContext) => unknown;
 type ModelSelectHandler = (event: { model: ExtensionContext["model"] }, ctx: ExtensionContext) => void;
@@ -86,7 +87,7 @@ function requestFor(model: string, extra: Record<string, unknown> = {}): BeforeP
 
 function setModel(ctx: ExtensionContext, id: string, provider = "openai-codex"): ExtensionContext["model"] {
 	const mutable = ctx as unknown as { model: ExtensionContext["model"] };
-	mutable.model = { ...ctx.model!, id, provider };
+	mutable.model = { ...assertDefined(ctx.model), id, provider };
 	return mutable.model;
 }
 

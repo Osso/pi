@@ -13,6 +13,7 @@ import { join } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Agent } from "@earendil-works/pi-agent-core";
 import type {
+	Api,
 	AssistantMessage,
 	AssistantMessageEvent,
 	AssistantMessageEventStream,
@@ -279,7 +280,7 @@ export interface FauxStreamFnState {
  * Returns the stream function and a state object for inspection.
  */
 export function createFauxStreamFn(responses: FauxResponseInput[]): {
-	streamFn: (model: Model<any>, context: Context, options?: SimpleStreamOptions) => AssistantMessageEventStream;
+	streamFn: (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => AssistantMessageEventStream;
 	state: FauxStreamFnState;
 } {
 	if (responses.length === 0) {
@@ -288,7 +289,7 @@ export function createFauxStreamFn(responses: FauxResponseInput[]): {
 
 	const state: FauxStreamFnState = { callCount: 0, contexts: [] };
 
-	const streamFn = (_model: Model<any>, context: Context, _options?: SimpleStreamOptions) => {
+	const streamFn = (_model: Model<Api>, context: Context, _options?: SimpleStreamOptions) => {
 		const index = state.callCount % responses.length;
 		state.callCount++;
 		state.contexts.push(context);
@@ -321,7 +322,7 @@ export interface HarnessOptions {
 	/** Response sequence for the faux provider. String entries complete with `end_turn`. Default: single "ok" response. */
 	responses?: FauxResponseInput[];
 	/** Model to use. Default: fauxModel. */
-	model?: Model<any>;
+	model?: Model<Api>;
 	/** Context window override (applied to the model). */
 	contextWindow?: number;
 	/** Settings overrides (retry, compaction, etc.). */
@@ -367,7 +368,7 @@ function createHarnessWithResourceLoader(
 	tempDir: string,
 ): Harness {
 	const baseModel = options.model ?? fauxModel;
-	const model: Model<any> = options.contextWindow ? { ...baseModel, contextWindow: options.contextWindow } : baseModel;
+	const model: Model<Api> = options.contextWindow ? { ...baseModel, contextWindow: options.contextWindow } : baseModel;
 
 	const { streamFn, state: fauxState } = createFauxStreamFn(options.responses ?? ["ok"]);
 

@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentSession } from "../src/core/agent-session.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import {
+	type CompactionEventResult,
 	createExtensionRuntime,
 	type Extension,
 	type SessionBeforeCompactEvent,
@@ -26,6 +27,13 @@ import { createCodingTools } from "../src/index.ts";
 import { createTestResourceLoader } from "./utilities.ts";
 
 const API_KEY = process.env.ANTHROPIC_OAUTH_TOKEN || process.env.ANTHROPIC_API_KEY;
+
+type ExtensionHandler = Parameters<Extension["handlers"]["set"]>[1][number];
+
+/** Runner handlers receive untyped arguments; the first one is the event. */
+function onEvent<E>(handler: (event: E) => Promise<unknown>): ExtensionHandler {
+	return (...args: unknown[]) => handler(args[0] as E);
+}
 
 describe.skipIf(!API_KEY)("Compaction extensions", () => {
 	let session: AgentSession;
@@ -48,29 +56,29 @@ describe.skipIf(!API_KEY)("Compaction extensions", () => {
 	});
 
 	function createExtension(
-		onBeforeCompact?: (event: SessionBeforeCompactEvent) => { cancel?: boolean; compaction?: any } | undefined,
+		onBeforeCompact?: (event: SessionBeforeCompactEvent) => CompactionEventResult | undefined,
 		onCompact?: (event: SessionCompactEvent) => void,
 	): Extension {
-		const handlers = new Map<string, ((event: any, ctx: any) => Promise<any>)[]>();
+		const handlers: Extension["handlers"] = new Map();
 
 		handlers.set("session_before_compact", [
-			async (event: SessionBeforeCompactEvent) => {
+			onEvent(async (event: SessionBeforeCompactEvent) => {
 				capturedEvents.push(event);
 				if (onBeforeCompact) {
 					return onBeforeCompact(event);
 				}
 				return undefined;
-			},
+			}),
 		]);
 
 		handlers.set("session_compact", [
-			async (event: SessionCompactEvent) => {
+			onEvent(async (event: SessionCompactEvent) => {
 				capturedEvents.push(event);
 				if (onCompact) {
 					onCompact(event);
 				}
 				return undefined;
-			},
+			}),
 		]);
 
 		return {
@@ -89,7 +97,7 @@ describe.skipIf(!API_KEY)("Compaction extensions", () => {
 	}
 
 	function createSession(extensions: Extension[]) {
-		const model = getModel("anthropic", "claude-sonnet-4-5")!;
+		const model = requireValue(getModel("anthropic", "claude-sonnet-4-5"));
 		const agent = new Agent({
 			getApiKey: () => API_KEY,
 			initialState: {
@@ -199,23 +207,23 @@ describe.skipIf(!API_KEY)("Compaction extensions", () => {
 			path: "throwing-extension",
 			resolvedPath: "/test/throwing-extension.ts",
 			sourceInfo: createSyntheticSourceInfo("<test:throwing-extension>", { source: "test" }),
-			handlers: new Map<string, ((event: any, ctx: any) => Promise<any>)[]>([
+			handlers: new Map<string, ExtensionHandler[]>([
 				[
 					"session_before_compact",
 					[
-						async (event: SessionBeforeCompactEvent) => {
+						onEvent(async (event: SessionBeforeCompactEvent) => {
 							capturedEvents.push(event);
 							throw new Error("Extension intentionally throws");
-						},
+						}),
 					],
 				],
 				[
 					"session_compact",
 					[
-						async (event: SessionCompactEvent) => {
+						onEvent(async (event: SessionCompactEvent) => {
 							capturedEvents.push(event);
 							return undefined;
-						},
+						}),
 					],
 				],
 			]),
@@ -250,7 +258,7 @@ describe.skipIf(!API_KEY)("Compaction extensions", () => {
 			path: "extension1",
 			resolvedPath: "/test/extension1.ts",
 			sourceInfo: createSyntheticSourceInfo("<test:extension1>", { source: "test" }),
-			handlers: new Map<string, ((event: any, ctx: any) => Promise<any>)[]>([
+			handlers: new Map<string, ExtensionHandler[]>([
 				[
 					"session_before_compact",
 					[
@@ -283,7 +291,7 @@ describe.skipIf(!API_KEY)("Compaction extensions", () => {
 			path: "extension2",
 			resolvedPath: "/test/extension2.ts",
 			sourceInfo: createSyntheticSourceInfo("<test:extension2>", { source: "test" }),
-			handlers: new Map<string, ((event: any, ctx: any) => Promise<any>)[]>([
+			handlers: new Map<string, ExtensionHandler[]>([
 				[
 					"session_before_compact",
 					[
@@ -340,7 +348,7 @@ describe.skipIf(!API_KEY)("Compaction extensions", () => {
 		await session.compact();
 
 		expect(capturedBeforeEvent).not.toBeNull();
-		const event = capturedBeforeEvent!;
+		const event = requireValue<SessionBeforeCompactEvent>(capturedBeforeEvent);
 		expect(typeof event.preparation.isSplitTurn).toBe("boolean");
 		expect(event.preparation.firstKeptEntryId).toBeDefined();
 
@@ -361,3 +369,10 @@ describe.skipIf(!API_KEY)("Compaction extensions", () => {
 		expect(entries.length).toBeGreaterThan(0);
 	}, 120000);
 });
+
+function requireValue<T>(value: T | null | undefined): T {
+	if (value === null || value === undefined) {
+		throw new Error("Expected value to be present");
+	}
+	return value;
+}

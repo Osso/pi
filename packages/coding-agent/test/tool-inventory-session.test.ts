@@ -10,6 +10,7 @@ import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import { assertDefined } from "./utilities.ts";
 
 describe("tool inventory session data", () => {
 	let tempDir: string;
@@ -41,7 +42,7 @@ describe("tool inventory session data", () => {
 		const { session } = await createAgentSession({
 			cwd: tempDir,
 			agentDir,
-			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			model: assertDefined(getModel("anthropic", "claude-sonnet-4-5")),
 			settingsManager,
 			sessionManager,
 			resourceLoader,
@@ -86,7 +87,7 @@ describe("tool inventory session data", () => {
 		const { session } = await createAgentSession({
 			cwd: tempDir,
 			agentDir,
-			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			model: assertDefined(getModel("anthropic", "claude-sonnet-4-5")),
 			settingsManager,
 			sessionManager,
 			resourceLoader,

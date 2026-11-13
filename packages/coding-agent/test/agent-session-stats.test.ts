@@ -6,9 +6,9 @@ import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
-import { createTestResourceLoader } from "./utilities.ts";
+import { assertDefined, createTestResourceLoader } from "./utilities.ts";
 
-const model = getModel("anthropic", "claude-sonnet-4-5")!;
+const model = assertDefined(getModel("anthropic", "claude-sonnet-4-5"));
 
 function createUsage(totalTokens: number): Usage {
 	return {

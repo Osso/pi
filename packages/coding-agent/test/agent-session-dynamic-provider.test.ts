@@ -9,6 +9,7 @@ import type { ExtensionFactory } from "../src/core/sdk.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
+import { assertDefined } from "./utilities.ts";
 
 describe("AgentSession dynamic provider registration", () => {
 	let tempDir: string;
@@ -42,7 +43,7 @@ describe("AgentSession dynamic provider registration", () => {
 		const { session } = await createAgentSession({
 			cwd: tempDir,
 			agentDir,
-			model: getModel("anthropic", "claude-sonnet-4-5")!,
+			model: assertDefined(getModel("anthropic", "claude-sonnet-4-5")),
 			settingsManager,
 			sessionManager,
 			authStorage,

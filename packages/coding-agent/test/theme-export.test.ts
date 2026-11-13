@@ -3,6 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getThemeExportColors } from "../src/modes/interactive/theme/theme.ts";
+import { assertDefined } from "./utilities.ts";
 
 type ThemeFile = {
 	name: string;
@@ -58,7 +59,7 @@ describe("getThemeExportColors", () => {
 		};
 
 		writeFileSync(
-			join(process.env.PI_CODING_AGENT_DIR!, "themes", "custom-export-vars.json"),
+			join(assertDefined(process.env.PI_CODING_AGENT_DIR), "themes", "custom-export-vars.json"),
 			JSON.stringify(customTheme, null, 2),
 		);
 
@@ -91,7 +92,7 @@ describe("getThemeExportColors", () => {
 		};
 
 		writeFileSync(
-			join(process.env.PI_CODING_AGENT_DIR!, "themes", "custom-export-recursive.json"),
+			join(assertDefined(process.env.PI_CODING_AGENT_DIR), "themes", "custom-export-recursive.json"),
 			JSON.stringify(customTheme, null, 2),
 		);
 

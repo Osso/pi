@@ -7,6 +7,7 @@ import {
 	getAvailableThemesWithPaths,
 	setRegisteredThemes,
 } from "../src/modes/interactive/theme/theme.ts";
+import { assertDefined } from "./utilities.ts";
 
 type ThemeFile = {
 	name: string;
@@ -40,7 +41,7 @@ describe("theme picker", () => {
 			name: "bar",
 		};
 
-		const themePath = join(process.env.PI_CODING_AGENT_DIR!, "themes", "foo.json");
+		const themePath = join(assertDefined(process.env.PI_CODING_AGENT_DIR), "themes", "foo.json");
 		writeFileSync(themePath, JSON.stringify(customTheme, null, 2));
 
 		expect(getAvailableThemes()).toContain("bar");

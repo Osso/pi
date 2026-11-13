@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ENV_AGENT_DIR } from "../src/config.ts";
 import { importExternalSessionAlias } from "../src/core/external-session-importer.ts";
 import { getDefaultSessionDir, SessionManager } from "../src/core/session-manager.ts";
+import { assertDefined } from "./utilities.ts";
 
 const cliPath = resolve(__dirname, "../src/cli.ts");
 const tempDirs: string[] = [];
@@ -84,8 +85,8 @@ describe("importExternalSessionAlias", () => {
 		const imported = await importExternalSessionAlias(`codex/${sessionId}`, { homeDir, sessionDir });
 
 		expect(imported).not.toBeUndefined();
-		expect(imported!.path).toBe(join(sessionDir, `codex-${sessionId}.jsonl`));
-		const sessionManager = SessionManager.open(imported!.path);
+		expect(assertDefined(imported).path).toBe(join(sessionDir, `codex-${sessionId}.jsonl`));
+		const sessionManager = SessionManager.open(assertDefined(imported).path);
 		expect(sessionManager.getCwd()).toBe(projectDir);
 		expect(sessionManager.getSessionId()).toBe(`codex-${sessionId}`);
 		expect(sessionManager.buildSessionContext().messages.map((message) => message.role)).toEqual([
@@ -120,7 +121,7 @@ describe("importExternalSessionAlias", () => {
 		const imported = await importExternalSessionAlias(`claude/${sessionId}`, { homeDir, sessionDir });
 
 		expect(imported).not.toBeUndefined();
-		const entries = readJsonl(imported!.path);
+		const entries = readJsonl(assertDefined(imported).path);
 		expect(entries).toMatchObject([
 			{ type: "session", id: `claude-${sessionId}`, cwd: projectDir },
 			{ type: "message", message: { role: "user" } },

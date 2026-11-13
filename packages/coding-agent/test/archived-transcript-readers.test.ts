@@ -11,6 +11,7 @@ import { archivePersistedSession, restoreArchivedSession } from "../src/core/ses
 import { getControlDbPath } from "../src/core/session-control-db.ts";
 import { loadEntriesFromFile, readSessionHeader, SessionManager } from "../src/core/session-manager.ts";
 import { createSearchCurrentSessionHistoryToolDefinition } from "../src/core/tools/search-current-session-history.ts";
+import { assertDefined } from "./utilities.ts";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -25,7 +26,7 @@ function fixture() {
 	manager.appendMessage({ role: "user", content: "archive needle café 🧭", timestamp: 1 });
 	manager.persistForRecovery();
 	manager.setSessionGoalJson('{"objective":"preserve archived goal"}');
-	const file = manager.getSessionFile()!;
+	const file = assertDefined(manager.getSessionFile());
 	const entries = loadEntriesFromFile(file);
 	const header = readSessionHeader(file);
 	const archived = archivePersistedSession(db, file);
@@ -95,7 +96,9 @@ describe("archived transcript readers", () => {
 			readFileSync(output, "utf8"),
 		)?.[1];
 		expect(encoded).toBeDefined();
-		expect(JSON.parse(Buffer.from(encoded!, "base64").toString("utf8")).entries).toEqual(f.entries.slice(1));
+		expect(JSON.parse(Buffer.from(assertDefined(encoded), "base64").toString("utf8")).entries).toEqual(
+			f.entries.slice(1),
+		);
 		expect(existsSync(f.file)).toBe(false);
 	});
 	it.each([false, true])(

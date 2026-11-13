@@ -12,6 +12,16 @@ import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
 import { createTestResourceLoader } from "./utilities.ts";
 
+function requireDefined<T>(value: T | null | undefined, message: string): T {
+	if (value == null) throw new Error(message);
+	return value;
+}
+
+function requireModel<T>(model: T | undefined): T {
+	if (!model) throw new Error("Expected test model to exist");
+	return model;
+}
+
 describe("AgentSession auto-compaction queue resume", () => {
 	let session: AgentSession;
 	let sessionManager: SessionManager;
@@ -23,7 +33,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 		mkdirSync(tempDir, { recursive: true });
 		vi.useFakeTimers();
 
-		const model = getModel("anthropic", "claude-sonnet-4-5")!;
+		const model = requireModel(getModel("anthropic", "claude-sonnet-4-5"));
 		const agent = new Agent({
 			initialState: {
 				model,
@@ -59,7 +69,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 
 	it("should resume after threshold compaction when only agent-level queued messages exist", async () => {
 		settingsManager.applyOverrides({ compaction: { keepRecentMessages: 1 } });
-		const model = session.model!;
+		const model = requireDefined(session.model, "Expected session model to exist");
 		const now = Date.now();
 		sessionManager.appendMessage({
 			role: "user",
@@ -156,7 +166,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 	});
 
 	it("should not compact repeatedly after overflow recovery already attempted", async () => {
-		const model = session.model!;
+		const model = requireDefined(session.model, "Expected session model to exist");
 		const overflowMessage: AssistantMessage = {
 			role: "assistant",
 			content: [{ type: "text", text: "" }],
@@ -211,7 +221,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 	});
 
 	it("should ignore stale pre-compaction assistant usage on pre-prompt compaction checks", async () => {
-		const model = session.model!;
+		const model = requireDefined(session.model, "Expected session model to exist");
 		const staleAssistantTimestamp = Date.now() - 10_000;
 		const staleAssistant: AssistantMessage = {
 			role: "assistant",
@@ -238,7 +248,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 		});
 		sessionManager.appendMessage(staleAssistant);
 
-		const firstKeptEntryId = sessionManager.getEntries()[0]!.id;
+		const firstKeptEntryId = requireDefined(sessionManager.getEntries()[0], "Expected session entry").id;
 		sessionManager.appendCompaction("summary", firstKeptEntryId, staleAssistant.usage.totalTokens, undefined, false);
 
 		sessionManager.appendMessage({
@@ -268,7 +278,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 	});
 
 	it("should trigger threshold compaction for error messages using last successful usage", async () => {
-		const model = session.model!;
+		const model = requireDefined(session.model, "Expected session model to exist");
 
 		// A successful assistant message at the current model's context limit.
 		const highContextTokens = model.contextWindow;
@@ -339,7 +349,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 	});
 
 	it("should not trigger threshold compaction for error messages when no prior usage exists", async () => {
-		const model = session.model!;
+		const model = requireDefined(session.model, "Expected session model to exist");
 
 		// An error message with no prior successful assistant in context
 		const errorAssistant: AssistantMessage = {
@@ -387,7 +397,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 	});
 
 	it("should not trigger threshold compaction for error messages when only kept pre-compaction usage exists", async () => {
-		const model = session.model!;
+		const model = requireDefined(session.model, "Expected session model to exist");
 		const preCompactionTimestamp = Date.now() - 10_000;
 
 		// A "kept" assistant message from before compaction with high usage
@@ -416,7 +426,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 			timestamp: preCompactionTimestamp - 1000,
 		});
 		sessionManager.appendMessage(keptAssistant);
-		const firstKeptEntryId = sessionManager.getEntries()[0]!.id;
+		const firstKeptEntryId = requireDefined(sessionManager.getEntries()[0], "Expected session entry").id;
 		sessionManager.appendCompaction("summary", firstKeptEntryId, keptAssistant.usage.totalTokens, undefined, false);
 
 		// Post-compaction error message

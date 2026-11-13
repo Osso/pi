@@ -19,6 +19,7 @@ import {
 	waitForSelfRestartParentExit,
 } from "../src/core/self-restart.ts";
 import { loadEntriesFromFile, SessionManager } from "../src/core/session-manager.ts";
+import { assertDefined } from "./utilities.ts";
 
 function createArgs(): Args {
 	return {
@@ -132,7 +133,11 @@ describe("self restart request", () => {
 
 		try {
 			const sessionManager = SessionManager.create(cwd, sessionDir);
-			const handoff = { sessionFile: sessionManager.getSessionFile()!, prompt: "Restarted.", oldPid: process.pid };
+			const handoff = {
+				sessionFile: assertDefined(sessionManager.getSessionFile()),
+				prompt: "Restarted.",
+				oldPid: process.pid,
+			};
 			const args = createArgs();
 
 			applySelfRestartRequest(args, handoff);
@@ -159,7 +164,7 @@ describe("self restart request", () => {
 				stopReason: "stop",
 			});
 
-			const entries = loadEntriesFromFile(sessionManager.getSessionFile()!);
+			const entries = loadEntriesFromFile(assertDefined(sessionManager.getSessionFile()));
 			expect(entries.map((entry) => entry.type)).toEqual(["session", "custom_message", "message", "message"]);
 			expect(entries[1]).toMatchObject({
 				type: "custom_message",
@@ -211,7 +216,7 @@ describe("self restart request", () => {
 
 			resolveRestartInterruptedToolCalls(sessionManager);
 			appendSelfRestartNotice(sessionManager, {
-				sessionFile: sessionManager.getSessionFile()!,
+				sessionFile: assertDefined(sessionManager.getSessionFile()),
 				prompt: "Restarted.",
 				oldPid: process.pid,
 			});

@@ -59,7 +59,7 @@ function buildComponent(
 	const tui = createFakeTui();
 	const cwd = process.cwd();
 	let args: Record<string, unknown> = { query: SECRET_ARGS };
-	let definition: ToolDefinition<any, any> | undefined;
+	let definition: ToolDefinition | undefined;
 
 	switch (toolKind) {
 		case "bash":

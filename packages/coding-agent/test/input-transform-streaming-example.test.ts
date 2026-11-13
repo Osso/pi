@@ -7,6 +7,7 @@ import type {
 	InputEvent,
 	InputEventResult,
 } from "../src/core/extensions/index.ts";
+import { assertDefined } from "./utilities.ts";
 
 type InputHandler = (event: InputEvent, ctx: ExtensionContext) => Promise<InputEventResult | undefined>;
 
@@ -27,7 +28,7 @@ function setup(execResult: ExecResult) {
 	const ctx = {} as ExtensionContext;
 
 	function emit(text: string, streamingBehavior?: "steer" | "followUp") {
-		return handler!({ type: "input", text, source: "interactive", streamingBehavior }, ctx);
+		return assertDefined(handler)({ type: "input", text, source: "interactive", streamingBehavior }, ctx);
 	}
 
 	return { emit, exec };

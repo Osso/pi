@@ -30,18 +30,18 @@ describe("convertToPng", () => {
 	it("should return original data for PNG input", async () => {
 		const result = await convertToPng(TINY_PNG, "image/png");
 		expect(result).not.toBeNull();
-		expect(result!.data).toBe(TINY_PNG);
-		expect(result!.mimeType).toBe("image/png");
+		expect(requireValue(result).data).toBe(TINY_PNG);
+		expect(requireValue(result).mimeType).toBe("image/png");
 	});
 
 	it("should convert JPEG to PNG", async () => {
 		const result = await convertToPng(TINY_JPEG, "image/jpeg");
 		expect(result).not.toBeNull();
-		expect(result!.mimeType).toBe("image/png");
+		expect(requireValue(result).mimeType).toBe("image/png");
 		// Result should be valid base64
-		expect(() => Buffer.from(result!.data, "base64")).not.toThrow();
+		expect(() => Buffer.from(requireValue(result).data, "base64")).not.toThrow();
 		// PNG magic bytes
-		const buffer = Buffer.from(result!.data, "base64");
+		const buffer = Buffer.from(requireValue(result).data, "base64");
 		expect(buffer[0]).toBe(0x89);
 		expect(buffer[1]).toBe(0x50); // 'P'
 		expect(buffer[2]).toBe(0x4e); // 'N'
@@ -74,12 +74,12 @@ describe("resizeImage", () => {
 		});
 
 		expect(result).not.toBeNull();
-		expect(result!.wasResized).toBe(false);
-		expect(result!.data).toBe(TINY_PNG);
-		expect(result!.originalWidth).toBe(2);
-		expect(result!.originalHeight).toBe(2);
-		expect(result!.width).toBe(2);
-		expect(result!.height).toBe(2);
+		expect(requireValue(result).wasResized).toBe(false);
+		expect(requireValue(result).data).toBe(TINY_PNG);
+		expect(requireValue(result).originalWidth).toBe(2);
+		expect(requireValue(result).originalHeight).toBe(2);
+		expect(requireValue(result).width).toBe(2);
+		expect(requireValue(result).height).toBe(2);
 	});
 
 	it("should resize image exceeding dimension limits", async () => {
@@ -90,11 +90,11 @@ describe("resizeImage", () => {
 		});
 
 		expect(result).not.toBeNull();
-		expect(result!.wasResized).toBe(true);
-		expect(result!.originalWidth).toBe(100);
-		expect(result!.originalHeight).toBe(100);
-		expect(result!.width).toBeLessThanOrEqual(50);
-		expect(result!.height).toBeLessThanOrEqual(50);
+		expect(requireValue(result).wasResized).toBe(true);
+		expect(requireValue(result).originalWidth).toBe(100);
+		expect(requireValue(result).originalHeight).toBe(100);
+		expect(requireValue(result).width).toBeLessThanOrEqual(50);
+		expect(requireValue(result).height).toBeLessThanOrEqual(50);
 	});
 
 	it("should resize image exceeding byte limit", async () => {
@@ -110,9 +110,9 @@ describe("resizeImage", () => {
 
 		// Should have tried to reduce size
 		expect(result).not.toBeNull();
-		const resultBuffer = Buffer.from(result!.data, "base64");
+		const resultBuffer = Buffer.from(requireValue(result).data, "base64");
 		expect(resultBuffer.length).toBeLessThan(originalSize);
-		expect(result!.data.length).toBeLessThan(LARGE_PNG_200x200.length);
+		expect(requireValue(result).data.length).toBeLessThan(LARGE_PNG_200x200.length);
 	});
 
 	it("should return null when image cannot be resized below maxBytes", async () => {
@@ -133,9 +133,9 @@ describe("resizeImage", () => {
 		});
 
 		expect(result).not.toBeNull();
-		expect(result!.wasResized).toBe(false);
-		expect(result!.originalWidth).toBe(2);
-		expect(result!.originalHeight).toBe(2);
+		expect(requireValue(result).wasResized).toBe(false);
+		expect(requireValue(result).originalWidth).toBe(2);
+		expect(requireValue(result).originalHeight).toBe(2);
 	});
 });
 
@@ -168,3 +168,10 @@ describe("formatDimensionNote", () => {
 		expect(note).toContain("2.00"); // scale factor
 	});
 });
+
+function requireValue<T>(value: T | null | undefined): T {
+	if (value === null || value === undefined) {
+		throw new Error("Expected value to be present");
+	}
+	return value;
+}

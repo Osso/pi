@@ -59,6 +59,16 @@ type SessionWithExtensionEmitHook = {
 	_emitExtensionEvent: (event: AgentEvent) => Promise<void>;
 };
 
+function requireDefined<T>(value: T | null | undefined, message: string): T {
+	if (value == null) throw new Error(message);
+	return value;
+}
+
+function requireModel<T>(model: T | undefined): T {
+	if (!model) throw new Error("Expected test model to exist");
+	return model;
+}
+
 describe("AgentSession retry", () => {
 	let session: AgentSession;
 	let tempDir: string;
@@ -90,7 +100,7 @@ describe("AgentSession retry", () => {
 		const retryAfterMs = options?.retryAfterMs;
 		let callCount = 0;
 
-		const model = getModel("anthropic", "claude-sonnet-4-5")!;
+		const model = requireModel(getModel("anthropic", "claude-sonnet-4-5"));
 		const agent = new Agent({
 			getApiKey: () => "test-key",
 			initialState: { model, systemPrompt: "Test", tools: [] },
@@ -251,7 +261,7 @@ describe("AgentSession retry", () => {
 		};
 		created.session.dispose();
 
-		const model = getModel("anthropic", "claude-sonnet-4-5")!;
+		const model = requireModel(getModel("anthropic", "claude-sonnet-4-5"));
 		const agent = new Agent({
 			getApiKey: () => "test-key",
 			initialState: { model, systemPrompt: "Test", tools: [] },
@@ -303,7 +313,7 @@ describe("AgentSession retry", () => {
 			},
 		};
 
-		const model = getModel("anthropic", "claude-sonnet-4-5")!;
+		const model = requireModel(getModel("anthropic", "claude-sonnet-4-5"));
 		const agent = new Agent({
 			getApiKey: () => "test-key",
 			initialState: { model, systemPrompt: "Test", tools: [] },
@@ -386,7 +396,7 @@ describe("AgentSession retry", () => {
 		async (provider, errorMessage) => {
 			const providers: string[] = [];
 			const selections: string[] = [];
-			const baseModel = getModel("openai-codex", "gpt-5.6-luna")!;
+			const baseModel = requireModel(getModel("openai-codex", "gpt-5.6-luna"));
 			const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
 			const modelRegistry = ModelRegistry.create(authStorage, tempDir);
 			for (const apiProvider of ["openai", "openai-secondary"]) {
@@ -406,7 +416,10 @@ describe("AgentSession retry", () => {
 			]) {
 				authStorage.setRuntimeApiKey(authenticated, "test-key");
 			}
-			const model = modelRegistry.find(provider, baseModel.id)!;
+			const model = requireDefined(
+				modelRegistry.find(provider, baseModel.id),
+				`Expected model ${provider}/${baseModel.id} to exist`,
+			);
 			const agent = new Agent({
 				getApiKey: () => "test-key",
 				initialState: { model, systemPrompt: "Test", tools: [] },

@@ -89,6 +89,7 @@ import { legacyMultiAgentStore } from "./helpers/legacy-multi-agent-store.ts";
 import { CURRENT_PROCESS_IDENTITY, testProcessIdentity } from "./helpers/process-identity.ts";
 import { forceRuntimeOwnership } from "./helpers/runtime-ownership.ts";
 import { createHarness, getAssistantTexts, getMessageText, getUserTexts, type Harness } from "./suite/harness.ts";
+import { assertDefined } from "./utilities.ts";
 
 const firstPartyGoalExtension: ExtensionFactory = (pi) => goalExtension(pi);
 Object.defineProperty(firstPartyGoalExtension, "extensionPath", { value: "<first-party:goal>" });
@@ -1169,7 +1170,7 @@ describe("multi-agent extension tools", () => {
 			const saved = SessionManager.create(tempDir, tempDir);
 			saved.appendMessage({ role: "user", content: "archived attach needle", timestamp: 1 });
 			saved.persistForRecovery();
-			const archivedPath = archiveSessionFile(saved.getSessionFile()!);
+			const archivedPath = archiveSessionFile(assertDefined(saved.getSessionFile()));
 			const supervisor = SessionManager.create(tempDir, tempDir);
 			const controlDbPath = getControlDbPath(tempDir);
 			supervisor.setMetadataControlDbPath(controlDbPath);
@@ -1190,7 +1191,7 @@ describe("multi-agent extension tools", () => {
 			});
 			expect(attached.details.agent.transcript?.sessionId).toBe(saved.getSessionId());
 			expect(existsSync(archivedPath)).toBe(false);
-			expect(readFileSync(saved.getSessionFile()!, "utf8")).toContain("archived attach needle");
+			expect(readFileSync(assertDefined(saved.getSessionFile()), "utf8")).toContain("archived attach needle");
 		} finally {
 			rmSync(tempDir, { force: true, recursive: true });
 		}

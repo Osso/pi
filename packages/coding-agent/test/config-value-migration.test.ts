@@ -6,6 +6,7 @@ import { ENV_AGENT_DIR } from "../src/config.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRegistry } from "../src/core/model-registry.ts";
 import { runMigrations } from "../src/migrations.ts";
+import { assertDefined } from "./utilities.ts";
 
 describe("config value env var syntax migration", () => {
 	const tempDirs: string[] = [];
@@ -228,7 +229,7 @@ describe("config value env var syntax migration", () => {
 					}
 				>;
 			};
-			const provider = migrated.providers["custom-provider"]!;
+			const provider = assertDefined(migrated.providers["custom-provider"]);
 			expect(provider.apiKey).toBe("CUSTOM_API_KEY");
 			expect(provider.headers?.["x-api-key"]).toBe("HEADER_API_KEY");
 			expect(provider.headers?.["x-literal"]).toBe("literal");
@@ -243,7 +244,7 @@ describe("config value env var syntax migration", () => {
 			const model = registry.find("custom-provider", "model-a");
 			expect(model).toBeDefined();
 			expect(await registry.getApiKeyForProvider("custom-provider")).toBe("CUSTOM_API_KEY");
-			expect(await registry.getApiKeyAndHeaders(model!)).toMatchObject({
+			expect(await registry.getApiKeyAndHeaders(assertDefined(model))).toMatchObject({
 				ok: true,
 				apiKey: "CUSTOM_API_KEY",
 				headers: {

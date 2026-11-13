@@ -10,6 +10,7 @@ import type {
 } from "../src/core/session-manager.ts";
 import { TreeSelectorComponent } from "../src/modes/interactive/components/tree-selector.ts";
 import { initTheme } from "../src/modes/interactive/theme/theme.ts";
+import { assertDefined } from "./utilities.ts";
 
 beforeAll(() => {
 	initTheme("dark");
@@ -307,8 +308,8 @@ describe("TreeSelectorComponent", () => {
 			const entries = [userMessage("user-1", null, "hello"), assistantMessage("asst-1", "user-1", "hi")];
 			const tree = buildTree(entries);
 			const labelDate = new Date(2026, 2, 28, 14, 32, 0);
-			tree[0]!.label = "checkpoint";
-			tree[0]!.labelTimestamp = labelDate.toISOString();
+			assertDefined(tree[0]).label = "checkpoint";
+			assertDefined(tree[0]).labelTimestamp = labelDate.toISOString();
 
 			const selector = new TreeSelectorComponent(
 				tree,

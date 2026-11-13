@@ -22,6 +22,7 @@ import { InteractiveMode } from "../src/modes/interactive/interactive-mode.ts";
 import { getMarkdownTheme, initTheme } from "../src/modes/interactive/theme/theme.ts";
 import { stripAnsi } from "../src/utils/ansi.ts";
 import { createHarness, getMessageText, type Harness } from "./suite/harness.ts";
+import { assertDefined } from "./utilities.ts";
 
 interface TestView {
 	chatContainer: Container;
@@ -216,7 +217,7 @@ describe("coordination visibility", () => {
 		expect(JSON.stringify(entries)).toBe(saved);
 		expect(JSON.stringify(harness.sessionManager.buildSessionContext().messages)).toBe(context);
 		harness.sessionManager.appendMessage(fauxAssistantMessage("handled"));
-		const restored = SessionManager.open(harness.sessionManager.getSessionFile()!);
+		const restored = SessionManager.open(assertDefined(harness.sessionManager.getSessionFile()));
 		expect(
 			restored
 				.buildSessionContext()
@@ -281,7 +282,7 @@ describe("coordination visibility", () => {
 			expect(delivered[1]).toMatchObject({ role: "custom", customType: "shared_channel", display: true });
 			expect(contexts.at(-1)?.join("\n")).toContain("child failed: owner exited");
 			expect(contexts.at(-1)?.join("\n")).toContain("Release /tmp/shared");
-			const restored = SessionManager.open(harness.sessionManager.getSessionFile()!);
+			const restored = SessionManager.open(assertDefined(harness.sessionManager.getSessionFile()));
 			expect(restored.buildSessionContext().messages.map(getMessageText)).toEqual(
 				harness.session.messages.map(getMessageText),
 			);
@@ -338,7 +339,7 @@ describe("coordination visibility", () => {
 		const snapshot = harness.session.getQueuedMessagePreviews();
 		expect(snapshot.followUp[0]).toMatchObject({ text: mailboxText, inputSource: "extension" });
 		expect(snapshot.followUp[3]).toMatchObject({ text: sharedText, customType: "shared_channel" });
-		Object.assign(snapshot.followUp[0]!, { text: "mutated snapshot" });
+		Object.assign(assertDefined(snapshot.followUp[0]), { text: "mutated snapshot" });
 		expect(harness.session.getFollowUpMessages()[0]).toBe(mailboxText);
 		const steered = formatRuntimeMailboxPrompt(
 			{ ...mailbox, body: "child failed: steered owner exited" },

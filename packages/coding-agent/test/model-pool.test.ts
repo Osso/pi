@@ -127,7 +127,7 @@ describe("model pools", () => {
 	function pool(reg: ModelRegistry) {
 		const model = reg.find("pool", "flash");
 		expect(model).toBeDefined();
-		return model!;
+		return requireValue(model);
 	}
 
 	function register(
@@ -263,7 +263,7 @@ describe("model pools", () => {
 		'OpenAI API error (402): {"message":"Insufficient credits. Add more using https://openrouter.ai/settings/credits","code":402,"metadata":{"limit_source":"openrouter_credits"}}',
 	])("rotates before output for %s and exposes only the successful member events", async (error) => {
 		const reg = registry();
-		const successful = events(reg.find(SECOND, SECOND_ID)!);
+		const successful = events(requireValue(reg.find(SECOND, SECOND_ID)));
 		const request = register((model) => fromEvents(model.provider === FIRST ? events(model, error) : successful));
 		const actual = await collect(streamSimple(pool(reg), context));
 		expect(request.mock.calls.map(([model]) => model.provider)).toEqual([FIRST, SECOND]);
@@ -274,7 +274,7 @@ describe("model pools", () => {
 
 	test("rotates before output when a rate limit requests a longer delay than the cap", async () => {
 		const reg = registry();
-		const successful = events(reg.find(SECOND, SECOND_ID)!);
+		const successful = events(requireValue(reg.find(SECOND, SECOND_ID)));
 		const request = register((model) =>
 			fromEvents(
 				model.provider === FIRST ? events(model, "429 rate limit reached", undefined, 520_526_000) : successful,
@@ -337,7 +337,7 @@ describe("model pools", () => {
 
 	test("does not rotate on other provider errors and forwards start and error unchanged", async () => {
 		const reg = registry();
-		const original = events(reg.find(FIRST, FIRST_ID)!, "500 internal server error");
+		const original = events(requireValue(reg.find(FIRST, FIRST_ID)), "500 internal server error");
 		const request = register(() => fromEvents(original));
 		const actual = await collect(streamSimple(pool(reg), context));
 		expect(actual.events).toEqual(original);
@@ -350,7 +350,7 @@ describe("model pools", () => {
 		"does not rotate after %s, even when the terminal error says insufficient_quota",
 		async (outputType) => {
 			const reg = registry();
-			const original = events(reg.find(FIRST, FIRST_ID)!, "insufficient_quota", outputType);
+			const original = events(requireValue(reg.find(FIRST, FIRST_ID)), "insufficient_quota", outputType);
 			const request = register(() => fromEvents(original));
 			const actual = await collect(streamSimple(pool(reg), context));
 			expect(actual.events).toEqual(original);
@@ -361,7 +361,7 @@ describe("model pools", () => {
 
 	test("returns the last member error when every eligible member exhausts", async () => {
 		const reg = registry();
-		const last = events(reg.find(SECOND, SECOND_ID)!, "Insufficient Balance");
+		const last = events(requireValue(reg.find(SECOND, SECOND_ID)), "Insufficient Balance");
 		const request = register((model) =>
 			fromEvents(model.provider === FIRST ? events(model, "insufficient_quota") : last),
 		);
@@ -408,7 +408,7 @@ describe("model pools", () => {
 		expect((await streamSimple(pool(reg), context).result()).provider).toBe(SECOND);
 		expect(request).toHaveBeenCalledTimes(1);
 		auth.set(FIRST, { type: "api_key", key: "fixture-first-key" });
-		const firstAuth = await reg.getApiKeyAndHeaders(reg.find(FIRST, FIRST_ID)!);
+		const firstAuth = await reg.getApiKeyAndHeaders(requireValue(reg.find(FIRST, FIRST_ID)));
 		expect(firstAuth.ok).toBe(false);
 		expect((await streamSimple(pool(reg), context).result()).provider).toBe(SECOND);
 		expect(request.mock.calls.map(([model]) => model.provider)).toEqual([SECOND, SECOND]);
@@ -430,7 +430,7 @@ describe("model pools", () => {
 
 	test("buffers start until output begins, then forwards events before completion", async () => {
 		const reg = registry();
-		const member = reg.find(FIRST, FIRST_ID)!;
+		const member = requireValue(reg.find(FIRST, FIRST_ID));
 		const partial = message(member);
 		const start: AssistantMessageEvent = { type: "start", partial };
 		const text: AssistantMessageEvent = { type: "text_delta", contentIndex: 0, delta: "Hello", partial };
@@ -495,7 +495,7 @@ describe("model pools", () => {
 			fromEvents(events(model, model.provider === FIRST ? "insufficient_quota" : undefined)),
 		);
 		await streamSimple(pool(reg), context).result();
-		expect((await streamSimple(reg.find("pool", "other")!, context).result()).provider).toBe(SECOND);
+		expect((await streamSimple(requireValue(reg.find("pool", "other")), context).result()).provider).toBe(SECOND);
 		expect(request.mock.calls.map(([model]) => model.provider)).toEqual([FIRST, SECOND, SECOND]);
 		const independent = ModelRegistry.create(auth, modelsPath, () => now);
 		await streamSimple(pool(independent), context).result();
@@ -504,7 +504,7 @@ describe("model pools", () => {
 
 	test("returns the last quota error even if later members have no auth", async () => {
 		const reg = registry({ [FIRST]: provider(FIRST_ID), [SECOND]: { ...provider(SECOND_ID), apiKey: undefined } });
-		const original = events(reg.find(FIRST, FIRST_ID)!, "Insufficient Balance");
+		const original = events(requireValue(reg.find(FIRST, FIRST_ID)), "Insufficient Balance");
 		const request = register(() => fromEvents(original));
 		const actual = await collect(streamSimple(pool(reg), context));
 		expect(actual.events).toEqual([original[1]]);
@@ -520,7 +520,7 @@ describe("model pools", () => {
 		expect(reg.isMessageFromModel({ provider: "pool", model: "flash" }, selected)).toBe(true);
 		expect(reg.isMessageFromModel({ provider: FIRST, model: SECOND_ID }, selected)).toBe(false);
 		expect(reg.isMessageFromModel({ provider: "unrelated", model: FIRST_ID }, selected)).toBe(false);
-		const first = reg.find(FIRST, FIRST_ID)!;
+		const first = requireValue(reg.find(FIRST, FIRST_ID));
 		expect(reg.isMessageFromModel({ provider: FIRST, model: FIRST_ID }, first)).toBe(true);
 		expect(reg.isMessageFromModel({ provider: SECOND, model: SECOND_ID }, first)).toBe(false);
 	});
@@ -625,4 +625,11 @@ function messageFromEvent(event: AssistantMessageEvent): AssistantMessage {
 	if (event.type === "done") return event.message;
 	if (event.type === "error") return event.error;
 	throw new Error(`Expected terminal event, got ${event.type}`);
+}
+
+function requireValue<T>(value: T | null | undefined): T {
+	if (value === null || value === undefined) {
+		throw new Error("Expected value to be present");
+	}
+	return value;
 }

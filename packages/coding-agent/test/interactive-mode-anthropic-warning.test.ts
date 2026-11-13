@@ -7,9 +7,31 @@ function createSettingsManager(warnings: { anthropicExtraUsage?: boolean } = {})
 	};
 }
 
+type FakeInteractiveMode = {
+	anthropicSubscriptionWarningShown: boolean;
+	settingsManager: ReturnType<typeof createSettingsManager>;
+	session: {
+		modelRegistry: {
+			authStorage: { get: ReturnType<typeof vi.fn> };
+			getApiKeyForProvider: ReturnType<typeof vi.fn>;
+		};
+	};
+	showWarning: ReturnType<typeof vi.fn>;
+};
+
+function getWarningMethod() {
+	const prototype = InteractiveMode.prototype as unknown as {
+		maybeWarnAboutAnthropicSubscriptionAuth: (
+			this: FakeInteractiveMode,
+			model: { provider: string },
+		) => Promise<void>;
+	};
+	return prototype.maybeWarnAboutAnthropicSubscriptionAuth;
+}
+
 describe("InteractiveMode.maybeWarnAboutAnthropicSubscriptionAuth", () => {
 	test("warns once when Anthropic subscription auth is detected", async () => {
-		const fakeThis: any = {
+		const fakeThis: FakeInteractiveMode = {
 			anthropicSubscriptionWarningShown: false,
 			settingsManager: createSettingsManager(),
 			session: {
@@ -23,10 +45,10 @@ describe("InteractiveMode.maybeWarnAboutAnthropicSubscriptionAuth", () => {
 			showWarning: vi.fn(),
 		};
 
-		await (InteractiveMode as any).prototype.maybeWarnAboutAnthropicSubscriptionAuth.call(fakeThis, {
+		await getWarningMethod().call(fakeThis, {
 			provider: "anthropic",
 		});
-		await (InteractiveMode as any).prototype.maybeWarnAboutAnthropicSubscriptionAuth.call(fakeThis, {
+		await getWarningMethod().call(fakeThis, {
 			provider: "anthropic",
 		});
 
@@ -35,7 +57,7 @@ describe("InteractiveMode.maybeWarnAboutAnthropicSubscriptionAuth", () => {
 	});
 
 	test("warns when Anthropic OAuth is stored even if token refresh lookup would fail", async () => {
-		const fakeThis: any = {
+		const fakeThis: FakeInteractiveMode = {
 			anthropicSubscriptionWarningShown: false,
 			settingsManager: createSettingsManager(),
 			session: {
@@ -49,7 +71,7 @@ describe("InteractiveMode.maybeWarnAboutAnthropicSubscriptionAuth", () => {
 			showWarning: vi.fn(),
 		};
 
-		await (InteractiveMode as any).prototype.maybeWarnAboutAnthropicSubscriptionAuth.call(fakeThis, {
+		await getWarningMethod().call(fakeThis, {
 			provider: "anthropic",
 		});
 
@@ -58,7 +80,7 @@ describe("InteractiveMode.maybeWarnAboutAnthropicSubscriptionAuth", () => {
 	});
 
 	test("does not warn for non-Anthropic models", async () => {
-		const fakeThis: any = {
+		const fakeThis: FakeInteractiveMode = {
 			anthropicSubscriptionWarningShown: false,
 			settingsManager: createSettingsManager(),
 			session: {
@@ -72,7 +94,7 @@ describe("InteractiveMode.maybeWarnAboutAnthropicSubscriptionAuth", () => {
 			showWarning: vi.fn(),
 		};
 
-		await (InteractiveMode as any).prototype.maybeWarnAboutAnthropicSubscriptionAuth.call(fakeThis, {
+		await getWarningMethod().call(fakeThis, {
 			provider: "openai",
 		});
 
@@ -81,7 +103,7 @@ describe("InteractiveMode.maybeWarnAboutAnthropicSubscriptionAuth", () => {
 	});
 
 	test("does not warn when Anthropic extra usage warning is disabled", async () => {
-		const fakeThis: any = {
+		const fakeThis: FakeInteractiveMode = {
 			anthropicSubscriptionWarningShown: false,
 			settingsManager: createSettingsManager({ anthropicExtraUsage: false }),
 			session: {
@@ -95,7 +117,7 @@ describe("InteractiveMode.maybeWarnAboutAnthropicSubscriptionAuth", () => {
 			showWarning: vi.fn(),
 		};
 
-		await (InteractiveMode as any).prototype.maybeWarnAboutAnthropicSubscriptionAuth.call(fakeThis, {
+		await getWarningMethod().call(fakeThis, {
 			provider: "anthropic",
 		});
 

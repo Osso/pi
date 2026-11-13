@@ -1,3 +1,10 @@
+export function assertDefined<T>(value: T | null | undefined): T {
+	if (value === null || value === undefined) {
+		throw new Error("Expected value to be defined");
+	}
+	return value;
+}
+
 /**
  * Shared test utilities for coding-agent tests.
  */
@@ -239,7 +246,7 @@ export function createTestSession(options: TestSessionOptions = {}): TestSession
 	const tempDir = join(tmpdir(), `pi-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 	mkdirSync(tempDir, { recursive: true });
 
-	const model = getModel("anthropic", "claude-sonnet-4-5")!;
+	const model = assertDefined(getModel("anthropic", "claude-sonnet-4-5"));
 	const agent = new Agent({
 		getApiKey: () => API_KEY,
 		initialState: {

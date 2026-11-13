@@ -14,6 +14,7 @@ import {
 } from "../src/core/reminder-store.ts";
 import { withControlDb } from "../src/core/session-control-db.ts";
 import { createSqliteDatabase } from "../src/core/sqlite.ts";
+import { assertDefined } from "./utilities.ts";
 
 let directory: string;
 let controlDbPath: string;
@@ -106,8 +107,8 @@ describe("reminder store", () => {
 		const before = Date.now();
 		const completed = completeReminder(controlDbPath, reminder.id);
 		expect(completed).toEqual({ ...reminder, status: "done", completedAt: expect.any(String) });
-		expect(Date.parse(completed.completedAt!)).toBeGreaterThanOrEqual(before);
-		expect(Date.parse(completed.completedAt!)).toBeLessThanOrEqual(Date.now());
+		expect(Date.parse(assertDefined(completed.completedAt))).toBeGreaterThanOrEqual(before);
+		expect(Date.parse(assertDefined(completed.completedAt))).toBeLessThanOrEqual(Date.now());
 		await new Promise((resolve) => setTimeout(resolve, 10));
 		expect(completeReminder(controlDbPath, reminder.id)).toEqual(completed);
 		const edited = updateReminder(controlDbPath, reminder.id, {

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { VirtualTerminal } from "../../tui/test/virtual-terminal.ts";
 import questionnaire from "../examples/extensions/questionnaire.ts";
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core/extensions/index.ts";
+import { assertDefined } from "./utilities.ts";
 
 interface CustomComponent {
 	render(width: number): string[];
@@ -22,7 +23,7 @@ function registerQuestionnaire(): ToolDefinition {
 			tool = definition;
 		},
 	} as unknown as ExtensionAPI);
-	return tool!;
+	return assertDefined(tool);
 }
 
 function runWithKeys(params: unknown, keys: string[]) {

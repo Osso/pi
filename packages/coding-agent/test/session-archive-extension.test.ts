@@ -26,7 +26,7 @@ describe("session archive extension", () => {
 		const controlDbPath = getControlDbPath(baseDir);
 		const manager = SessionManager.create(baseDir, baseDir);
 		manager.appendMessage({ role: "user", content: "keep this transcript", timestamp: 1 });
-		const sessionPath = manager.getSessionFile()!;
+		const sessionPath = requireValue(manager.getSessionFile());
 		writeSessionMetadata(controlDbPath, {
 			sessionPath,
 			id: manager.getSessionId(),
@@ -57,11 +57,11 @@ describe("session archive extension", () => {
 		const f = unarchiveFixture();
 		const other = unarchiveFixture();
 		archiveSession(f.controlDbPath, f.sessionPath);
-		writeSessionMetadata(f.controlDbPath, readSessionMetadata(other.controlDbPath, other.sessionPath)!);
+		writeSessionMetadata(f.controlDbPath, requireValue(readSessionMetadata(other.controlDbPath, other.sessionPath)));
 		archiveSession(f.controlDbPath, other.sessionPath);
 		const before = f.manager.getEntries();
 		expect(f.command).toBeDefined();
-		await f.command!.handler("  ", f.ctx);
+		await requireValue(f.command).handler("  ", f.ctx);
 		expect(readSessionMetadata(f.controlDbPath, f.sessionPath)?.isArchived).toBe(false);
 		expect(readSessionMetadata(f.controlDbPath, other.sessionPath)?.isArchived).toBe(true);
 		expect(f.manager.getSessionFile()).toBe(f.sessionPath);
@@ -73,7 +73,7 @@ describe("session archive extension", () => {
 		const f = unarchiveFixture();
 		const before = readSessionMetadata(f.controlDbPath, f.sessionPath);
 		expect(f.command).toBeDefined();
-		await f.command!.handler("", f.ctx);
+		await requireValue(f.command).handler("", f.ctx);
 		expect(readSessionMetadata(f.controlDbPath, f.sessionPath)).toEqual(before);
 		expect(f.notify).toHaveBeenCalledWith("Current session is already unarchived.", "info");
 	});
@@ -91,7 +91,7 @@ describe("session archive extension", () => {
 			sessionManager: state === "no-session" ? { getSessionFile: () => undefined } : f.manager,
 		} as unknown as ExtensionCommandContext;
 		expect(f.command).toBeDefined();
-		await f.command!.handler(args, ctx);
+		await requireValue(f.command).handler(args, ctx);
 		expect(readSessionMetadata(f.controlDbPath, f.sessionPath)?.isArchived).toBe(true);
 		expect(f.notify).toHaveBeenCalledWith(message, level);
 	});
@@ -134,7 +134,7 @@ describe("session archive extension", () => {
 			manager.setMetadataControlDbPath(controlDbPath);
 			manager.appendMessage({ role: "user", content: `${name} work`, timestamp: 1 });
 			manager.persistForRecovery();
-			return manager.getSessionFile()!;
+			return requireValue(manager.getSessionFile());
 		};
 		const sessionPath = writeSession("current");
 		const childPath = writeSession("child", { parentSession: sessionPath });
@@ -183,7 +183,7 @@ describe("session archive extension", () => {
 
 	it("archives the current session when quitting after /archive", async () => {
 		const f = quitCommandFixture();
-		await f.commands.get("archive")!.handler("", f.ctx);
+		await requireValue(f.commands.get("archive")).handler("", f.ctx);
 
 		expect(f.shutdown).toHaveBeenCalledOnce();
 		expect(existsSync(f.sessionPath)).toBe(true);
@@ -198,7 +198,7 @@ describe("session archive extension", () => {
 
 	it("deletes the current session and its child sessions when quitting after a confirmed /delete", async () => {
 		const f = quitCommandFixture();
-		await f.commands.get("delete")!.handler("", f.ctx);
+		await requireValue(f.commands.get("delete")).handler("", f.ctx);
 
 		expect(f.confirm).toHaveBeenCalledOnce();
 		expect(f.shutdown).toHaveBeenCalledOnce();
@@ -214,7 +214,7 @@ describe("session archive extension", () => {
 	it("keeps the session and pi running when /delete is declined", async () => {
 		const f = quitCommandFixture();
 		f.confirm.mockResolvedValueOnce(false);
-		await f.commands.get("delete")!.handler("", f.ctx);
+		await requireValue(f.commands.get("delete")).handler("", f.ctx);
 		await f.quit();
 
 		expect(f.shutdown).not.toHaveBeenCalled();
@@ -223,7 +223,7 @@ describe("session archive extension", () => {
 
 	it("does not archive when the pending teardown is not a quit", async () => {
 		const f = quitCommandFixture();
-		await f.commands.get("archive")!.handler("", f.ctx);
+		await requireValue(f.commands.get("archive")).handler("", f.ctx);
 		await f.teardown("reload");
 		await f.quit();
 
@@ -242,7 +242,7 @@ describe("session archive extension", () => {
 				],
 			},
 		} as unknown as ExtensionCommandContext;
-		await f.commands.get("delete")!.handler("", ctx);
+		await requireValue(f.commands.get("delete")).handler("", ctx);
 
 		expect(f.notify).toHaveBeenCalledWith(
 			"Close the 1 running child agent before /delete; it could still write its transcript.",
@@ -255,7 +255,7 @@ describe("session archive extension", () => {
 
 	it("rejects /delete arguments without confirming or quitting", async () => {
 		const f = quitCommandFixture();
-		await f.commands.get("delete")!.handler("other-session", f.ctx);
+		await requireValue(f.commands.get("delete")).handler("other-session", f.ctx);
 
 		expect(f.notify).toHaveBeenCalledWith("Usage: /delete", "warning");
 		expect(f.confirm).not.toHaveBeenCalled();
@@ -312,7 +312,7 @@ describe("session archive extension", () => {
 			},
 		} as unknown as ExtensionAPI;
 		sessionArchiveExtension(pi);
-		await command!.handler("", {
+		await requireValue(command).handler("", {
 			controlDbPath,
 			ui: { notify: vi.fn() },
 			sessionManager: { getSessionFile: () => sessionPath },
@@ -376,3 +376,10 @@ describe("session archive extension", () => {
 		expect(existsSync(archivedPath)).toBe(true);
 	});
 });
+
+function requireValue<T>(value: T | null | undefined): T {
+	if (value === null || value === undefined) {
+		throw new Error("Expected value to be present");
+	}
+	return value;
+}

@@ -5,6 +5,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { ExtensionContext } from "../src/core/extensions/types.ts";
 import { createEditToolDefinition } from "../src/core/tools/edit.ts";
 
+function getPrepareArguments(definition: ReturnType<typeof createEditToolDefinition>) {
+	const prepareArguments = definition.prepareArguments;
+	if (!prepareArguments) throw new Error("Expected edit tool argument preparation function");
+	return prepareArguments;
+}
+
 const tempDirs: string[] = [];
 
 async function createTempDir(): Promise<string> {
@@ -26,7 +32,7 @@ describe("edit tool prepareArguments", () => {
 
 	it("folds top-level oldText/newText into edits", () => {
 		const definition = createEditToolDefinition(process.cwd());
-		const prepared = definition.prepareArguments!({
+		const prepared = getPrepareArguments(definition)({
 			path: "file.txt",
 			oldText: "before",
 			newText: "after",
@@ -39,7 +45,7 @@ describe("edit tool prepareArguments", () => {
 
 	it("appends legacy replacement to existing edits", () => {
 		const definition = createEditToolDefinition(process.cwd());
-		const prepared = definition.prepareArguments!({
+		const prepared = getPrepareArguments(definition)({
 			path: "file.txt",
 			edits: [{ oldText: "a", newText: "b" }],
 			oldText: "c",
@@ -60,15 +66,15 @@ describe("edit tool prepareArguments", () => {
 			path: "file.txt",
 			edits: [{ oldText: "a", newText: "b" }],
 		};
-		const prepared = definition.prepareArguments!(input);
+		const prepared = getPrepareArguments(definition)(input);
 		expect(prepared).toBe(input);
 	});
 
 	it("passes through non-object input unchanged", () => {
 		const definition = createEditToolDefinition(process.cwd());
-		expect(definition.prepareArguments!(null)).toBe(null);
-		expect(definition.prepareArguments!(undefined)).toBe(undefined);
-		expect(definition.prepareArguments!("garbage")).toBe("garbage");
+		expect(getPrepareArguments(definition)(null)).toBe(null);
+		expect(getPrepareArguments(definition)(undefined)).toBe(undefined);
+		expect(getPrepareArguments(definition)("garbage")).toBe("garbage");
 	});
 
 	it("prepared args execute correctly", async () => {
@@ -77,7 +83,7 @@ describe("edit tool prepareArguments", () => {
 		await writeFile(filePath, "before\n", "utf8");
 
 		const definition = createEditToolDefinition(dir);
-		const prepared = definition.prepareArguments!({
+		const prepared = getPrepareArguments(definition)({
 			path: "legacy.txt",
 			oldText: "before",
 			newText: "after",
@@ -92,7 +98,7 @@ describe("edit tool prepareArguments", () => {
 describe("edit tool stringified edits", () => {
 	it("parses edits from a JSON string", () => {
 		const definition = createEditToolDefinition(process.cwd());
-		const prepared = definition.prepareArguments!({
+		const prepared = getPrepareArguments(definition)({
 			path: "file.txt",
 			edits: JSON.stringify([{ oldText: "a", newText: "b" }]),
 		});
@@ -104,7 +110,7 @@ describe("edit tool stringified edits", () => {
 
 	it("leaves edits alone when the string is not valid JSON", () => {
 		const definition = createEditToolDefinition(process.cwd());
-		const prepared = definition.prepareArguments!({
+		const prepared = getPrepareArguments(definition)({
 			path: "file.txt",
 			edits: "not json",
 		});

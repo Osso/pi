@@ -217,7 +217,7 @@ describe("getLastAssistantUsage", () => {
 
 		const usage = getLastAssistantUsage(entries);
 		expect(usage).not.toBeNull();
-		expect(usage!.input).toBe(200);
+		expect(requireValue(usage).input).toBe(200);
 	});
 
 	it("should skip aborted messages", () => {
@@ -235,7 +235,7 @@ describe("getLastAssistantUsage", () => {
 
 		const usage = getLastAssistantUsage(entries);
 		expect(usage).not.toBeNull();
-		expect(usage!.input).toBe(100);
+		expect(requireValue(usage).input).toBe(100);
 	});
 
 	it("should skip all-zero assistant usage", () => {
@@ -248,7 +248,7 @@ describe("getLastAssistantUsage", () => {
 
 		const usage = getLastAssistantUsage(entries);
 		expect(usage).not.toBeNull();
-		expect(usage!.input).toBe(100);
+		expect(requireValue(usage).input).toBe(100);
 	});
 
 	it("should return undefined if no assistant messages", () => {
@@ -380,10 +380,10 @@ describe("findCutPoint", () => {
 
 		const firstKeptIndex = entries.findIndex((entry) => entry.id === preparation?.firstKeptEntryId);
 		expect(entries.length - firstKeptIndex).toBe(20);
-		expect(extractText(preparation!.messagesToSummarize)).toContain("old request");
+		expect(extractText(requireValue(preparation).messagesToSummarize)).toContain("old request");
 		const context = buildSessionContext([
 			...entries,
-			createCompactionEntry("summary", preparation!.firstKeptEntryId),
+			createCompactionEntry("summary", requireValue(preparation).firstKeptEntryId),
 		]);
 		expect(context.messages).toHaveLength(21);
 		expect(JSON.stringify(context.messages)).toContain(`edited 0 ${"z".repeat(30_000)}`);
@@ -494,7 +494,7 @@ describe("buildSessionContext", () => {
 		// summary + kept (u2, a2) + after (u3, a3) = 5
 		expect(loaded.messages.length).toBe(5);
 		expect(loaded.messages[0].role).toBe("compactionSummary");
-		expect((loaded.messages[0] as any).summary).toContain("Summary of 1,a,2,b");
+		expect(compactionSummary(loaded.messages[0]).summary).toContain("Summary of 1,a,2,b");
 	});
 
 	it("should handle multiple compactions (only latest matters)", () => {
@@ -517,7 +517,7 @@ describe("buildSessionContext", () => {
 		const loaded = buildSessionContext(entries);
 		// summary + kept from u3 (u3, c) + after (u4, d) = 5
 		expect(loaded.messages.length).toBe(5);
-		expect((loaded.messages[0] as any).summary).toContain("Second summary");
+		expect(compactionSummary(loaded.messages[0]).summary).toContain("Second summary");
 	});
 
 	it("should keep all messages when firstKeptEntryId is first entry", () => {
@@ -566,7 +566,7 @@ describe("prepareCompaction with previous compaction", () => {
 
 		expect(preparation).toBeDefined();
 		expect(preparation?.previousSummary).toBe("First summary");
-		expect(extractText(preparation!.messagesToSummarize)).toContain("user msg 2 - kept by compaction1");
+		expect(extractText(requireValue(preparation).messagesToSummarize)).toContain("user msg 2 - kept by compaction1");
 	});
 
 	it("should re-summarize previously kept messages when the recent window moves past them", () => {
@@ -587,11 +587,11 @@ describe("prepareCompaction with previous compaction", () => {
 		const preparation = prepareCompaction([u1, a1, u2, a2, u3, a3, compaction1, u4, a4], settings);
 
 		expect(preparation).toBeDefined();
-		const summarizedText = extractText(preparation!.messagesToSummarize);
+		const summarizedText = extractText(requireValue(preparation).messagesToSummarize);
 		expect(summarizedText).toContain("user msg 2 - kept by compaction1");
 		expect(summarizedText).toContain("user msg 3 - kept by compaction1");
 		expect(summarizedText).not.toContain("First summary");
-		expect(preparation!.previousSummary).toBe("First summary");
+		expect(requireValue(preparation).previousSummary).toBe("First summary");
 	});
 });
 
@@ -634,12 +634,16 @@ describe("Large session fixture", () => {
 describe.skipIf(!process.env.ANTHROPIC_OAUTH_TOKEN)("LLM summarization", () => {
 	it("should generate a compaction result for the large session", async () => {
 		const entries = loadLargeSessionEntries();
-		const model = getModel("anthropic", "claude-sonnet-4-5")!;
+		const model = requireValue(getModel("anthropic", "claude-sonnet-4-5"));
 
 		const preparation = prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS);
 		expect(preparation).toBeDefined();
 
-		const compactionResult = await compact(preparation!, model, process.env.ANTHROPIC_OAUTH_TOKEN!);
+		const compactionResult = await compact(
+			requireValue(preparation),
+			model,
+			requireValue(process.env.ANTHROPIC_OAUTH_TOKEN),
+		);
 
 		expect(compactionResult.summary.length).toBeGreaterThan(100);
 		expect(compactionResult.firstKeptEntryId).toBeTruthy();
@@ -655,12 +659,16 @@ describe.skipIf(!process.env.ANTHROPIC_OAUTH_TOKEN)("LLM summarization", () => {
 	it("should produce valid session after compaction", async () => {
 		const entries = loadLargeSessionEntries();
 		const loaded = buildSessionContext(entries);
-		const model = getModel("anthropic", "claude-sonnet-4-5")!;
+		const model = requireValue(getModel("anthropic", "claude-sonnet-4-5"));
 
 		const preparation = prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS);
 		expect(preparation).toBeDefined();
 
-		const compactionResult = await compact(preparation!, model, process.env.ANTHROPIC_OAUTH_TOKEN!);
+		const compactionResult = await compact(
+			requireValue(preparation),
+			model,
+			requireValue(process.env.ANTHROPIC_OAUTH_TOKEN),
+		);
 
 		// Simulate appending compaction to entries by creating a proper entry
 		const lastEntry = entries[entries.length - 1];
@@ -678,9 +686,23 @@ describe.skipIf(!process.env.ANTHROPIC_OAUTH_TOKEN)("LLM summarization", () => {
 		// Should have summary + kept messages
 		expect(reloaded.messages.length).toBeLessThan(loaded.messages.length);
 		expect(reloaded.messages[0].role).toBe("compactionSummary");
-		expect((reloaded.messages[0] as any).summary).toContain(compactionResult.summary);
+		expect(compactionSummary(reloaded.messages[0]).summary).toContain(compactionResult.summary);
 
 		console.log("Original messages:", loaded.messages.length);
 		console.log("After compaction:", reloaded.messages.length);
 	}, 60000);
 });
+
+function compactionSummary(message: AgentMessage): Extract<AgentMessage, { role: "compactionSummary" }> {
+	if (message.role !== "compactionSummary") {
+		throw new Error("Expected a compaction summary message");
+	}
+	return message;
+}
+
+function requireValue<T>(value: T | null | undefined): T {
+	if (value === null || value === undefined) {
+		throw new Error("Expected value to be present");
+	}
+	return value;
+}

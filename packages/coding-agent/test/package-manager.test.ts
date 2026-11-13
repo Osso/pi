@@ -26,6 +26,14 @@ class MockSpawnedProcess extends EventEmitter {
 }
 
 interface PackageManagerInternals {
+	installParsedSource(parsed: ParsedSourceForTest, scope: "user" | "project" | "temporary"): Promise<void>;
+	refreshTemporaryGitSource(source: ParsedSourceForTest, sourceStr: string): Promise<void>;
+	updateGit(source: GitSourceForTest, scope: "user" | "project" | "temporary"): Promise<void>;
+	getGlobalNpmRoot(): string;
+	gitHasAvailableUpdate(installedPath: string): Promise<boolean>;
+	getLatestNpmVersion(packageSpec: string, range?: string): Promise<string>;
+	getPackageIdentity(source: string, scope?: "user" | "project" | "temporary"): string;
+	runCommandSync(command: string, args: string[]): string;
 	runCommand(command: string, args: string[], options?: { cwd?: string }): Promise<void>;
 	runCommandCapture(
 		command: string,
@@ -33,21 +41,46 @@ interface PackageManagerInternals {
 		options?: { cwd?: string; timeoutMs?: number; env?: Record<string, string> },
 	): Promise<string>;
 	getLocalGitUpdateTarget(installedPath: string): Promise<{ ref: string; head: string; fetchArgs: string[] }>;
-	parseSource(
-		source: string,
-	):
-		| { type: "npm"; spec: string; name: string; pinned: boolean }
-		| { type: "git"; repo: string; host: string; path: string; pinned: boolean; ref?: string }
-		| { type: "local"; path: string };
+	parseSource(source: string): ParsedSourceForTest;
 	getNpmInstallPath(
 		source: { type: "npm"; spec: string; name: string; pinned: boolean },
 		scope: "user" | "project" | "temporary",
 	): string;
-	getGitInstallPath(
-		source: { type: "git"; repo: string; host: string; path: string; pinned: boolean; ref?: string },
-		scope: "user" | "project" | "temporary",
-	): string;
+	getGitInstallPath(source: ParsedSourceForTest, scope: "user" | "project" | "temporary"): string;
 }
+
+type ParsedSourceForTest =
+	| {
+			type: "npm";
+			spec: string;
+			name: string;
+			pinned: boolean;
+			repo?: undefined;
+			host?: undefined;
+			path?: undefined;
+			ref?: undefined;
+	  }
+	| {
+			type: "git";
+			repo: string;
+			host: string;
+			path: string;
+			pinned: boolean;
+			ref?: string;
+			spec?: undefined;
+			name?: undefined;
+	  }
+	| {
+			type: "local";
+			path: string;
+			spec?: undefined;
+			name?: undefined;
+			pinned?: undefined;
+			repo?: undefined;
+			host?: undefined;
+			ref?: undefined;
+	  };
+type GitSourceForTest = Extract<ParsedSourceForTest, { type: "git" }>;
 
 // Helper to check if a resource is enabled
 const isEnabled = (r: ResolvedResource, pathMatch: string, matchFn: "endsWith" | "includes" = "endsWith") => {
@@ -781,7 +814,9 @@ Content`,
 				settingsManager,
 			});
 
-			const runCommandSpy = vi.spyOn(packageManager as any, "runCommand").mockResolvedValue(undefined);
+			const runCommandSpy = vi
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommand")
+				.mockResolvedValue(undefined);
 
 			await packageManager.install("npm:@scope/pkg");
 
@@ -812,7 +847,9 @@ Content`,
 				settingsManager,
 			});
 
-			const runCommandSpy = vi.spyOn(packageManager as any, "runCommand").mockResolvedValue(undefined);
+			const runCommandSpy = vi
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommand")
+				.mockResolvedValue(undefined);
 
 			await packageManager.install("npm:@scope/pkg");
 
@@ -827,7 +864,7 @@ Content`,
 			const source = "git:github.com/user/repo";
 			const targetDir = join(agentDir, "git", "github.com", "user", "repo");
 			const runCommandSpy = vi
-				.spyOn(packageManager as any, "runCommand")
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommand")
 				.mockImplementation(async (...callArgs: unknown[]) => {
 					const [command, args] = callArgs as [string, string[]];
 					if (command === "git" && args[0] === "clone") {
@@ -914,7 +951,7 @@ Content`,
 			const source = "git:github.com/user/repo";
 			const targetDir = join(agentDir, "git", "github.com", "user", "repo");
 			const runCommandSpy = vi
-				.spyOn(packageManager as any, "runCommand")
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommand")
 				.mockImplementation(async (...callArgs: unknown[]) => {
 					const [command, args] = callArgs as [string, string[]];
 					if (command === "git" && args[0] === "clone") {
@@ -935,20 +972,24 @@ Content`,
 			writeFileSync(join(targetDir, "package.json"), JSON.stringify({ name: "repo", version: "1.0.0" }));
 			settingsManager.setProjectPackages([source]);
 
-			vi.spyOn(packageManager as any, "runCommandCapture").mockImplementation(async (...callArgs: unknown[]) => {
-				const [_command, args] = callArgs as [string, string[]];
-				if (args[0] === "rev-parse" && args[1] === "--abbrev-ref" && args[2] === "@{upstream}") {
-					return "origin/main";
-				}
-				if (args[0] === "rev-parse" && (args[1] === "@{upstream}" || args[1] === "@{upstream}^{commit}")) {
-					return "remote-head";
-				}
-				if (args[0] === "rev-parse" && args[1] === "HEAD") {
-					return "local-head";
-				}
-				throw new Error(`Unexpected runCommandCapture args: ${args.join(" ")}`);
-			});
-			const runCommandSpy = vi.spyOn(packageManager as any, "runCommand").mockResolvedValue(undefined);
+			vi.spyOn(packageManager as unknown as PackageManagerInternals, "runCommandCapture").mockImplementation(
+				async (...callArgs: unknown[]) => {
+					const [_command, args] = callArgs as [string, string[]];
+					if (args[0] === "rev-parse" && args[1] === "--abbrev-ref" && args[2] === "@{upstream}") {
+						return "origin/main";
+					}
+					if (args[0] === "rev-parse" && (args[1] === "@{upstream}" || args[1] === "@{upstream}^{commit}")) {
+						return "remote-head";
+					}
+					if (args[0] === "rev-parse" && args[1] === "HEAD") {
+						return "local-head";
+					}
+					throw new Error(`Unexpected runCommandCapture args: ${args.join(" ")}`);
+				},
+			);
+			const runCommandSpy = vi
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommand")
+				.mockResolvedValue(undefined);
 
 			await packageManager.update(source);
 
@@ -971,20 +1012,24 @@ Content`,
 			writeFileSync(join(targetDir, "package.json"), JSON.stringify({ name: "repo", version: "1.0.0" }));
 			settingsManager.setProjectPackages([source]);
 
-			vi.spyOn(packageManager as any, "runCommandCapture").mockImplementation(async (...callArgs: unknown[]) => {
-				const [_command, args] = callArgs as [string, string[]];
-				if (args[0] === "rev-parse" && args[1] === "--abbrev-ref" && args[2] === "@{upstream}") {
-					return "origin/main";
-				}
-				if (args[0] === "rev-parse" && (args[1] === "@{upstream}" || args[1] === "@{upstream}^{commit}")) {
-					return "remote-head";
-				}
-				if (args[0] === "rev-parse" && args[1] === "HEAD") {
-					return "local-head";
-				}
-				throw new Error(`Unexpected runCommandCapture args: ${args.join(" ")}`);
-			});
-			const runCommandSpy = vi.spyOn(packageManager as any, "runCommand").mockResolvedValue(undefined);
+			vi.spyOn(packageManager as unknown as PackageManagerInternals, "runCommandCapture").mockImplementation(
+				async (...callArgs: unknown[]) => {
+					const [_command, args] = callArgs as [string, string[]];
+					if (args[0] === "rev-parse" && args[1] === "--abbrev-ref" && args[2] === "@{upstream}") {
+						return "origin/main";
+					}
+					if (args[0] === "rev-parse" && (args[1] === "@{upstream}" || args[1] === "@{upstream}^{commit}")) {
+						return "remote-head";
+					}
+					if (args[0] === "rev-parse" && args[1] === "HEAD") {
+						return "local-head";
+					}
+					throw new Error(`Unexpected runCommandCapture args: ${args.join(" ")}`);
+				},
+			);
+			const runCommandSpy = vi
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommand")
+				.mockResolvedValue(undefined);
 
 			await packageManager.update(source);
 
@@ -1008,7 +1053,7 @@ Content`,
 			mkdirSync(join(root20, "@scope", "pkg"), { recursive: true });
 
 			const runCommandSyncSpy = vi
-				.spyOn(packageManager as any, "runCommandSync")
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommandSync")
 				.mockImplementation((...callArgs: unknown[]) => {
 					const [command, args] = callArgs as [string, string[]];
 					if (command !== "mise") {
@@ -1044,11 +1089,11 @@ Content`,
 			});
 
 			const packagePath = join(agentDir, "npm", "node_modules", "pnpm-pkg");
-			vi.spyOn(packageManager as any, "runCommandSync").mockImplementation(() => {
+			vi.spyOn(packageManager as unknown as PackageManagerInternals, "runCommandSync").mockImplementation(() => {
 				throw new Error("legacy lookup unavailable");
 			});
 			const runCommandSpy = vi
-				.spyOn(packageManager as any, "runCommand")
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommand")
 				.mockImplementation(async (...callArgs: unknown[]) => {
 					const [command, args] = callArgs as [string, string[]];
 					expect(command).toBe("pnpm");
@@ -1096,22 +1141,26 @@ Content`,
 			writeFileSync(join(packagePath, "package.json"), JSON.stringify({ name: "pnpm-pkg", version: "1.0.0" }));
 			writeFileSync(join(packagePath, "extensions", "index.ts"), "export default function() {};");
 
-			vi.spyOn(packageManager as any, "runCommandSync").mockImplementation((...callArgs: unknown[]) => {
-				const [command, args] = callArgs as [string, string[]];
-				if (command !== "pnpm") {
-					throw new Error(`unexpected command ${command}`);
-				}
-				if (args.join(" ") === "list -g --depth 0 --json") {
-					return JSON.stringify([
-						{
-							path: pnpmRoot,
-							dependencies: { "pnpm-pkg": { version: "1.0.0", path: packagePath } },
-						},
-					]);
-				}
-				throw new Error(`unexpected args ${args.join(" ")}`);
-			});
-			const runCommandSpy = vi.spyOn(packageManager as any, "runCommand").mockResolvedValue(undefined);
+			vi.spyOn(packageManager as unknown as PackageManagerInternals, "runCommandSync").mockImplementation(
+				(...callArgs: unknown[]) => {
+					const [command, args] = callArgs as [string, string[]];
+					if (command !== "pnpm") {
+						throw new Error(`unexpected command ${command}`);
+					}
+					if (args.join(" ") === "list -g --depth 0 --json") {
+						return JSON.stringify([
+							{
+								path: pnpmRoot,
+								dependencies: { "pnpm-pkg": { version: "1.0.0", path: packagePath } },
+							},
+						]);
+					}
+					throw new Error(`unexpected args ${args.join(" ")}`);
+				},
+			);
+			const runCommandSpy = vi
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommand")
+				.mockResolvedValue(undefined);
 
 			const result = await packageManager.resolve();
 
@@ -1136,14 +1185,16 @@ Content`,
 			const packagePath = join(pnpmRoot, "20-hash", "node_modules", "pnpm-pkg");
 			mkdirSync(packagePath, { recursive: true });
 
-			vi.spyOn(packageManager as any, "runCommandSync").mockImplementation((...callArgs: unknown[]) => {
-				const [command, args] = callArgs as [string, string[]];
-				expect(command).toBe("mise");
-				if (args.join(" ") === "exec node@20 -- pnpm list -g --depth 0 --json") {
-					return JSON.stringify([{ path: pnpmRoot, dependencies: { "pnpm-pkg": { path: packagePath } } }]);
-				}
-				throw new Error(`unexpected args ${args.join(" ")}`);
-			});
+			vi.spyOn(packageManager as unknown as PackageManagerInternals, "runCommandSync").mockImplementation(
+				(...callArgs: unknown[]) => {
+					const [command, args] = callArgs as [string, string[]];
+					expect(command).toBe("mise");
+					if (args.join(" ") === "exec node@20 -- pnpm list -g --depth 0 --json") {
+						return JSON.stringify([{ path: pnpmRoot, dependencies: { "pnpm-pkg": { path: packagePath } } }]);
+					}
+					throw new Error(`unexpected args ${args.join(" ")}`);
+				},
+			);
 
 			expect(packageManager.getInstalledPath("npm:pnpm-pkg", "user")).toBe(packagePath);
 		});
@@ -1158,7 +1209,7 @@ Content`,
 				settingsManager,
 			});
 
-			vi.spyOn(packageManager as any, "runCommandSync").mockReturnValue("not json");
+			vi.spyOn(packageManager as unknown as PackageManagerInternals, "runCommandSync").mockReturnValue("not json");
 
 			expect(packageManager.getInstalledPath("npm:pnpm-pkg", "user")).toBeUndefined();
 		});
@@ -1209,7 +1260,7 @@ Content`,
 
 		it("should parse package source types from docs examples", () => {
 			const parseNpm = (source: string) => {
-				const parsed = (packageManager as any).parseSource(source);
+				const parsed = (packageManager as unknown as PackageManagerInternals).parseSource(source);
 				if (parsed.type !== "npm") {
 					throw new Error(`Expected npm source: ${source}`);
 				}
@@ -1220,22 +1271,39 @@ Content`,
 			expect(parseNpm("npm:@scope/pkg@^1.2.3").pinned).toBe(false);
 			expect(parseNpm("npm:pkg").pinned).toBe(false);
 
-			expect((packageManager as any).parseSource("git:github.com/user/repo@v1").type).toBe("git");
-			expect((packageManager as any).parseSource("https://github.com/user/repo@v1").type).toBe("git");
-			expect((packageManager as any).parseSource("git:git@github.com:user/repo@v1").type).toBe("git");
-			expect((packageManager as any).parseSource("ssh://git@github.com/user/repo@v1").type).toBe("git");
+			expect(
+				(packageManager as unknown as PackageManagerInternals).parseSource("git:github.com/user/repo@v1").type,
+			).toBe("git");
+			expect(
+				(packageManager as unknown as PackageManagerInternals).parseSource("https://github.com/user/repo@v1").type,
+			).toBe("git");
+			expect(
+				(packageManager as unknown as PackageManagerInternals).parseSource("git:git@github.com:user/repo@v1").type,
+			).toBe("git");
+			expect(
+				(packageManager as unknown as PackageManagerInternals).parseSource("ssh://git@github.com/user/repo@v1")
+					.type,
+			).toBe("git");
 
-			expect((packageManager as any).parseSource("/absolute/path/to/package").type).toBe("local");
-			expect((packageManager as any).parseSource("./relative/path/to/package").type).toBe("local");
-			expect((packageManager as any).parseSource("../relative/path/to/package").type).toBe("local");
+			expect(
+				(packageManager as unknown as PackageManagerInternals).parseSource("/absolute/path/to/package").type,
+			).toBe("local");
+			expect(
+				(packageManager as unknown as PackageManagerInternals).parseSource("./relative/path/to/package").type,
+			).toBe("local");
+			expect(
+				(packageManager as unknown as PackageManagerInternals).parseSource("../relative/path/to/package").type,
+			).toBe("local");
 		});
 
 		it("should never parse dot-relative paths as git", () => {
-			const dotSlash = (packageManager as any).parseSource("./packages/agent-timers");
+			const dotSlash = (packageManager as unknown as PackageManagerInternals).parseSource("./packages/agent-timers");
 			expect(dotSlash.type).toBe("local");
 			expect(dotSlash.path).toBe("./packages/agent-timers");
 
-			const dotDotSlash = (packageManager as any).parseSource("../packages/agent-timers");
+			const dotDotSlash = (packageManager as unknown as PackageManagerInternals).parseSource(
+				"../packages/agent-timers",
+			);
 			expect(dotDotSlash.type).toBe("local");
 			expect(dotDotSlash.path).toBe("../packages/agent-timers");
 		});
@@ -1364,7 +1432,9 @@ Content`,
 
 	describe("HTTPS git URL parsing (old behavior)", () => {
 		it("should parse HTTPS GitHub URLs correctly", async () => {
-			const parsed = (packageManager as any).parseSource("https://github.com/user/repo");
+			const parsed = (packageManager as unknown as PackageManagerInternals).parseSource(
+				"https://github.com/user/repo",
+			);
 			expect(parsed.type).toBe("git");
 			expect(parsed.host).toBe("github.com");
 			expect(parsed.path).toBe("user/repo");
@@ -1372,14 +1442,18 @@ Content`,
 		});
 
 		it("should parse HTTPS URLs with git: prefix", async () => {
-			const parsed = (packageManager as any).parseSource("git:https://github.com/user/repo");
+			const parsed = (packageManager as unknown as PackageManagerInternals).parseSource(
+				"git:https://github.com/user/repo",
+			);
 			expect(parsed.type).toBe("git");
 			expect(parsed.host).toBe("github.com");
 			expect(parsed.path).toBe("user/repo");
 		});
 
 		it("should parse HTTPS URLs with ref", async () => {
-			const parsed = (packageManager as any).parseSource("https://github.com/user/repo@v1.2.3");
+			const parsed = (packageManager as unknown as PackageManagerInternals).parseSource(
+				"https://github.com/user/repo@v1.2.3",
+			);
 			expect(parsed.type).toBe("git");
 			expect(parsed.host).toBe("github.com");
 			expect(parsed.path).toBe("user/repo");
@@ -1388,50 +1462,66 @@ Content`,
 		});
 
 		it("should parse host/path shorthand only with git: prefix", async () => {
-			const parsed = (packageManager as any).parseSource("git:github.com/user/repo");
+			const parsed = (packageManager as unknown as PackageManagerInternals).parseSource("git:github.com/user/repo");
 			expect(parsed.type).toBe("git");
 			expect(parsed.host).toBe("github.com");
 			expect(parsed.path).toBe("user/repo");
 		});
 
 		it("should treat host/path shorthand as local without git: prefix", async () => {
-			const parsed = (packageManager as any).parseSource("github.com/user/repo");
+			const parsed = (packageManager as unknown as PackageManagerInternals).parseSource("github.com/user/repo");
 			expect(parsed.type).toBe("local");
 		});
 
 		it("should parse HTTPS URLs with .git suffix", async () => {
-			const parsed = (packageManager as any).parseSource("https://github.com/user/repo.git");
+			const parsed = (packageManager as unknown as PackageManagerInternals).parseSource(
+				"https://github.com/user/repo.git",
+			);
 			expect(parsed.type).toBe("git");
 			expect(parsed.host).toBe("github.com");
 			expect(parsed.path).toBe("user/repo");
 		});
 
 		it("should parse GitLab HTTPS URLs", async () => {
-			const parsed = (packageManager as any).parseSource("https://gitlab.com/user/repo");
+			const parsed = (packageManager as unknown as PackageManagerInternals).parseSource(
+				"https://gitlab.com/user/repo",
+			);
 			expect(parsed.type).toBe("git");
 			expect(parsed.host).toBe("gitlab.com");
 			expect(parsed.path).toBe("user/repo");
 		});
 
 		it("should parse Bitbucket HTTPS URLs", async () => {
-			const parsed = (packageManager as any).parseSource("https://bitbucket.org/user/repo");
+			const parsed = (packageManager as unknown as PackageManagerInternals).parseSource(
+				"https://bitbucket.org/user/repo",
+			);
 			expect(parsed.type).toBe("git");
 			expect(parsed.host).toBe("bitbucket.org");
 			expect(parsed.path).toBe("user/repo");
 		});
 
 		it("should parse Codeberg HTTPS URLs", async () => {
-			const parsed = (packageManager as any).parseSource("https://codeberg.org/user/repo");
+			const parsed = (packageManager as unknown as PackageManagerInternals).parseSource(
+				"https://codeberg.org/user/repo",
+			);
 			expect(parsed.type).toBe("git");
 			expect(parsed.host).toBe("codeberg.org");
 			expect(parsed.path).toBe("user/repo");
 		});
 
 		it("should generate correct package identity for protocol and git:-prefixed URLs", async () => {
-			const identity1 = (packageManager as any).getPackageIdentity("https://github.com/user/repo");
-			const identity2 = (packageManager as any).getPackageIdentity("https://github.com/user/repo@v1.0.0");
-			const identity3 = (packageManager as any).getPackageIdentity("git:github.com/user/repo");
-			const identity4 = (packageManager as any).getPackageIdentity("https://github.com/user/repo.git");
+			const identity1 = (packageManager as unknown as PackageManagerInternals).getPackageIdentity(
+				"https://github.com/user/repo",
+			);
+			const identity2 = (packageManager as unknown as PackageManagerInternals).getPackageIdentity(
+				"https://github.com/user/repo@v1.0.0",
+			);
+			const identity3 = (packageManager as unknown as PackageManagerInternals).getPackageIdentity(
+				"git:github.com/user/repo",
+			);
+			const identity4 = (packageManager as unknown as PackageManagerInternals).getPackageIdentity(
+				"https://github.com/user/repo.git",
+			);
 
 			// All should have the same identity (normalized)
 			expect(identity1).toBe("git:github.com/user/repo");
@@ -1455,9 +1545,15 @@ Content`,
 
 			// Since these URLs don't actually exist and we can't clone them,
 			// we verify they produce the same identity
-			const id1 = (packageManager as any).getPackageIdentity("https://github.com/user/repo");
-			const id2 = (packageManager as any).getPackageIdentity("git:github.com/user/repo");
-			const id3 = (packageManager as any).getPackageIdentity("https://github.com/user/repo.git");
+			const id1 = (packageManager as unknown as PackageManagerInternals).getPackageIdentity(
+				"https://github.com/user/repo",
+			);
+			const id2 = (packageManager as unknown as PackageManagerInternals).getPackageIdentity(
+				"git:github.com/user/repo",
+			);
+			const id3 = (packageManager as unknown as PackageManagerInternals).getPackageIdentity(
+				"https://github.com/user/repo.git",
+			);
 
 			expect(id1).toBe(id2);
 			expect(id2).toBe(id3);
@@ -1465,11 +1561,15 @@ Content`,
 
 		it("should handle HTTPS URLs with refs in resolve", async () => {
 			// This tests that the ref is properly extracted and stored
-			const parsed = (packageManager as any).parseSource("https://github.com/user/repo@main");
+			const parsed = (packageManager as unknown as PackageManagerInternals).parseSource(
+				"https://github.com/user/repo@main",
+			);
 			expect(parsed.ref).toBe("main");
 			expect(parsed.pinned).toBe(true);
 
-			const parsed2 = (packageManager as any).parseSource("https://github.com/user/repo@feature/branch");
+			const parsed2 = (packageManager as unknown as PackageManagerInternals).parseSource(
+				"https://github.com/user/repo@feature/branch",
+			);
 			expect(parsed2.ref).toBe("feature/branch");
 		});
 	});
@@ -1968,8 +2068,8 @@ Content`,
 			const httpsUrl = "https://github.com/user/repo";
 			const sshUrl = "git:git@github.com:user/repo";
 
-			const httpsIdentity = (packageManager as any).getPackageIdentity(httpsUrl);
-			const sshIdentity = (packageManager as any).getPackageIdentity(sshUrl);
+			const httpsIdentity = (packageManager as unknown as PackageManagerInternals).getPackageIdentity(httpsUrl);
+			const sshIdentity = (packageManager as unknown as PackageManagerInternals).getPackageIdentity(sshUrl);
 
 			// Both should resolve to the same identity
 			expect(httpsIdentity).toBe("git:github.com/user/repo");
@@ -1981,8 +2081,8 @@ Content`,
 			const httpsUrl = "https://github.com/user/repo@v1.0.0";
 			const sshUrl = "git:git@github.com:user/repo@v1.0.0";
 
-			const httpsIdentity = (packageManager as any).getPackageIdentity(httpsUrl);
-			const sshIdentity = (packageManager as any).getPackageIdentity(sshUrl);
+			const httpsIdentity = (packageManager as unknown as PackageManagerInternals).getPackageIdentity(httpsUrl);
+			const sshIdentity = (packageManager as unknown as PackageManagerInternals).getPackageIdentity(sshUrl);
 
 			// Identity should ignore ref (version)
 			expect(httpsIdentity).toBe("git:github.com/user/repo");
@@ -1994,8 +2094,10 @@ Content`,
 			const sshProtocol = "ssh://git@github.com/user/repo";
 			const gitAt = "git:git@github.com:user/repo";
 
-			const sshProtocolIdentity = (packageManager as any).getPackageIdentity(sshProtocol);
-			const gitAtIdentity = (packageManager as any).getPackageIdentity(gitAt);
+			const sshProtocolIdentity = (packageManager as unknown as PackageManagerInternals).getPackageIdentity(
+				sshProtocol,
+			);
+			const gitAtIdentity = (packageManager as unknown as PackageManagerInternals).getPackageIdentity(gitAt);
 
 			// Both SSH formats should resolve to same identity
 			expect(sshProtocolIdentity).toBe("git:github.com/user/repo");
@@ -2014,7 +2116,9 @@ Content`,
 				"git:git@github.com:user/repo.git",
 			];
 
-			const identities = urls.map((url) => (packageManager as any).getPackageIdentity(url));
+			const identities = urls.map((url) =>
+				(packageManager as unknown as PackageManagerInternals).getPackageIdentity(url),
+			);
 
 			// All should produce the same identity
 			const uniqueIdentities = [...new Set(identities)];
@@ -2026,8 +2130,8 @@ Content`,
 			const repo1Https = "https://github.com/user/repo1";
 			const repo2Ssh = "git:git@github.com:user/repo2";
 
-			const id1 = (packageManager as any).getPackageIdentity(repo1Https);
-			const id2 = (packageManager as any).getPackageIdentity(repo2Ssh);
+			const id1 = (packageManager as unknown as PackageManagerInternals).getPackageIdentity(repo1Https);
+			const id2 = (packageManager as unknown as PackageManagerInternals).getPackageIdentity(repo2Ssh);
 
 			// Different repos should have different identities
 			expect(id1).toBe("git:github.com/user/repo1");
@@ -2148,9 +2252,11 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			settingsManager.setProjectPackages(["npm:example@^1.0.0"]);
 
 			const runCommandCaptureSpy = vi
-				.spyOn(packageManager as any, "runCommandCapture")
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommandCapture")
 				.mockResolvedValue('["1.0.0","1.2.0"]');
-			const runCommandSpy = vi.spyOn(packageManager as any, "runCommand").mockResolvedValue(undefined);
+			const runCommandSpy = vi
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommand")
+				.mockResolvedValue(undefined);
 
 			await packageManager.update("npm:example");
 
@@ -2173,9 +2279,11 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			settingsManager.setProjectPackages(["npm:example@^1.0.0"]);
 
 			const runCommandCaptureSpy = vi
-				.spyOn(packageManager as any, "runCommandCapture")
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommandCapture")
 				.mockResolvedValue('["1.0.0","1.3.1","1.0.2"]');
-			const runCommandSpy = vi.spyOn(packageManager as any, "runCommand").mockResolvedValue(undefined);
+			const runCommandSpy = vi
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommand")
+				.mockResolvedValue(undefined);
 
 			await packageManager.update("npm:example");
 
@@ -2195,10 +2303,12 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			writeFileSync(join(legacyPath, "package.json"), JSON.stringify({ name: "legacy-pkg", version: "1.0.0" }));
 			settingsManager.setPackages(["npm:legacy-pkg"]);
 
-			vi.spyOn(packageManager as any, "getGlobalNpmRoot").mockReturnValue(legacyRoot);
-			const runCommandCaptureSpy = vi.spyOn(packageManager as any, "runCommandCapture").mockResolvedValue('"1.0.0"');
+			vi.spyOn(packageManager as unknown as PackageManagerInternals, "getGlobalNpmRoot").mockReturnValue(legacyRoot);
+			const runCommandCaptureSpy = vi
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommandCapture")
+				.mockResolvedValue('"1.0.0"');
 			const runCommandSpy = vi
-				.spyOn(packageManager as any, "runCommand")
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommand")
 				.mockImplementation(async (...callArgs: unknown[]) => {
 					const [command, args] = callArgs as [string, string[]];
 					expect(command).toBe("npm");
@@ -2267,7 +2377,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			]);
 
 			const runCommandCaptureSpy = vi
-				.spyOn(packageManager as any, "runCommandCapture")
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommandCapture")
 				.mockImplementation(async (...callArgs: unknown[]) => {
 					const [_command, args] = callArgs as [string, string[]];
 					if (args[0] !== "view") {
@@ -2290,7 +2400,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			let activeNpmUpdates = 0;
 			let maxConcurrentNpmUpdates = 0;
 			const runCommandSpy = vi
-				.spyOn(packageManager as any, "runCommand")
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommand")
 				.mockImplementation(async (...callArgs: unknown[]) => {
 					const [command, args] = callArgs as [string, string[]];
 					if (command !== "npm") {
@@ -2304,12 +2414,14 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 
 			let activeGitUpdates = 0;
 			let maxConcurrentGitUpdates = 0;
-			const updateGitSpy = vi.spyOn(packageManager as any, "updateGit").mockImplementation(async () => {
-				activeGitUpdates += 1;
-				maxConcurrentGitUpdates = Math.max(maxConcurrentGitUpdates, activeGitUpdates);
-				await new Promise((resolve) => setTimeout(resolve, 20));
-				activeGitUpdates -= 1;
-			});
+			const updateGitSpy = vi
+				.spyOn(packageManager as unknown as PackageManagerInternals, "updateGit")
+				.mockImplementation(async () => {
+					activeGitUpdates += 1;
+					maxConcurrentGitUpdates = Math.max(maxConcurrentGitUpdates, activeGitUpdates);
+					await new Promise((resolve) => setTimeout(resolve, 20));
+					activeGitUpdates -= 1;
+				});
 
 			await packageManager.update();
 
@@ -2366,7 +2478,10 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			process.env.PI_OFFLINE = "1";
 			settingsManager.setProjectPackages(["npm:missing-package", "git:github.com/example/missing-repo"]);
 
-			const installParsedSourceSpy = vi.spyOn(packageManager as any, "installParsedSource");
+			const installParsedSourceSpy = vi.spyOn(
+				packageManager as unknown as PackageManagerInternals,
+				"installParsedSource",
+			);
 
 			const result = await packageManager.resolve();
 			const allResources = [...result.extensions, ...result.skills, ...result.prompts, ...result.themes];
@@ -2377,13 +2492,19 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 		it("should skip refreshing temporary git sources when offline", async () => {
 			process.env.PI_OFFLINE = "1";
 			const gitSource = "git:github.com/example/repo";
-			const parsedGitSource = (packageManager as any).parseSource(gitSource);
-			const installedPath = (packageManager as any).getGitInstallPath(parsedGitSource, "temporary") as string;
+			const parsedGitSource = (packageManager as unknown as PackageManagerInternals).parseSource(gitSource);
+			const installedPath = (packageManager as unknown as PackageManagerInternals).getGitInstallPath(
+				parsedGitSource,
+				"temporary",
+			) as string;
 
 			mkdirSync(join(installedPath, "extensions"), { recursive: true });
 			writeFileSync(join(installedPath, "extensions", "index.ts"), "export default function() {};");
 
-			const refreshTemporaryGitSourceSpy = vi.spyOn(packageManager as any, "refreshTemporaryGitSource");
+			const refreshTemporaryGitSourceSpy = vi.spyOn(
+				packageManager as unknown as PackageManagerInternals,
+				"refreshTemporaryGitSource",
+			);
 
 			const result = await packageManager.resolveExtensionSources([gitSource], { temporary: true });
 			expect(result.extensions.some((r) => pathEndsWith(r.path, "extensions/index.ts") && r.enabled)).toBe(true);
@@ -2398,7 +2519,10 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			writeFileSync(join(installedPath, "extensions", "index.ts"), "export default function() {};");
 			settingsManager.setProjectPackages(["npm:example@^1.0.0"]);
 
-			const runCommandCaptureSpy = vi.spyOn(packageManager as any, "runCommandCapture");
+			const runCommandCaptureSpy = vi.spyOn(
+				packageManager as unknown as PackageManagerInternals,
+				"runCommandCapture",
+			);
 
 			const result = await packageManager.resolve();
 			expect(result.extensions.some((r) => pathEndsWith(r.path, "extensions/index.ts") && r.enabled)).toBe(true);
@@ -2412,7 +2536,7 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			settingsManager.setProjectPackages(["npm:example@2.0.0"]);
 
 			const installParsedSourceSpy = vi
-				.spyOn(packageManager as any, "installParsedSource")
+				.spyOn(packageManager as unknown as PackageManagerInternals, "installParsedSource")
 				.mockResolvedValue(undefined);
 
 			await packageManager.resolve();
@@ -2421,7 +2545,10 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 
 		it("should not check package updates when offline", async () => {
 			process.env.PI_OFFLINE = "1";
-			const runCommandCaptureSpy = vi.spyOn(packageManager as any, "runCommandCapture");
+			const runCommandCaptureSpy = vi.spyOn(
+				packageManager as unknown as PackageManagerInternals,
+				"runCommandCapture",
+			);
 
 			const updates = await packageManager.checkForAvailableUpdates();
 			expect(updates).toEqual([]);
@@ -2434,7 +2561,9 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			writeFileSync(join(installedPath, "package.json"), JSON.stringify({ name: "example", version: "1.0.0" }));
 			settingsManager.setProjectPackages(["npm:example"]);
 
-			vi.spyOn(packageManager as any, "runCommandCapture").mockResolvedValue('"1.2.3"');
+			vi.spyOn(packageManager as unknown as PackageManagerInternals, "runCommandCapture").mockResolvedValue(
+				'"1.2.3"',
+			);
 
 			const updates = await packageManager.checkForAvailableUpdates();
 			expect(updates).toEqual([
@@ -2451,14 +2580,22 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 			const installedNpmPath = join(tempDir, ".pi", "npm", "node_modules", "example");
 			mkdirSync(installedNpmPath, { recursive: true });
 			writeFileSync(join(installedNpmPath, "package.json"), JSON.stringify({ name: "example", version: "1.0.0" }));
-			const parsedGitSource = (packageManager as any).parseSource("git:github.com/example/repo@v1");
-			const installedGitPath = (packageManager as any).getGitInstallPath(parsedGitSource, "project") as string;
+			const parsedGitSource = (packageManager as unknown as PackageManagerInternals).parseSource(
+				"git:github.com/example/repo@v1",
+			);
+			const installedGitPath = (packageManager as unknown as PackageManagerInternals).getGitInstallPath(
+				parsedGitSource,
+				"project",
+			) as string;
 			mkdirSync(installedGitPath, { recursive: true });
 
 			settingsManager.setProjectPackages(["npm:example@1.0.0", "git:github.com/example/repo@v1"]);
 
-			const runCommandCaptureSpy = vi.spyOn(packageManager as any, "runCommandCapture");
-			const gitUpdateSpy = vi.spyOn(packageManager as any, "gitHasAvailableUpdate");
+			const runCommandCaptureSpy = vi.spyOn(
+				packageManager as unknown as PackageManagerInternals,
+				"runCommandCapture",
+			);
+			const gitUpdateSpy = vi.spyOn(packageManager as unknown as PackageManagerInternals, "gitHasAvailableUpdate");
 
 			const updates = await packageManager.checkForAvailableUpdates();
 			expect(updates).toEqual([]);
@@ -2467,9 +2604,11 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 		});
 
 		it("should use npm view to fetch latest version", async () => {
-			const runCommandCaptureSpy = vi.spyOn(packageManager as any, "runCommandCapture").mockResolvedValue('"1.2.3"');
+			const runCommandCaptureSpy = vi
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommandCapture")
+				.mockResolvedValue('"1.2.3"');
 
-			const latest = await (packageManager as any).getLatestNpmVersion("example");
+			const latest = await (packageManager as unknown as PackageManagerInternals).getLatestNpmVersion("example");
 			expect(latest).toBe("1.2.3");
 			expect(runCommandCaptureSpy).toHaveBeenCalledTimes(1);
 			expect(runCommandCaptureSpy).toHaveBeenCalledWith(
@@ -2489,9 +2628,11 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 				settingsManager,
 			});
 
-			const runCommandCaptureSpy = vi.spyOn(packageManager as any, "runCommandCapture").mockResolvedValue('"1.2.3"');
+			const runCommandCaptureSpy = vi
+				.spyOn(packageManager as unknown as PackageManagerInternals, "runCommandCapture")
+				.mockResolvedValue('"1.2.3"');
 
-			const latest = await (packageManager as any).getLatestNpmVersion("@scope/pkg");
+			const latest = await (packageManager as unknown as PackageManagerInternals).getLatestNpmVersion("@scope/pkg");
 			expect(latest).toBe("1.2.3");
 			expect(runCommandCaptureSpy).toHaveBeenCalledWith(
 				"mise",
@@ -2546,12 +2687,14 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 				getPnpmGlobalPackagePath(packageName: string): string | undefined;
 			};
 
-			vi.spyOn(packageManager as any, "runCommandCapture").mockResolvedValueOnce("{bad-json");
+			vi.spyOn(packageManager as unknown as PackageManagerInternals, "runCommandCapture").mockResolvedValueOnce(
+				"{bad-json",
+			);
 			await expect(managerWithInternals.getLatestNpmVersion("pi-pkg")).rejects.toThrow(
 				/Invalid JSON response from npm view/,
 			);
 
-			vi.spyOn(packageManager as any, "runCommandSync")
+			vi.spyOn(packageManager as unknown as PackageManagerInternals, "runCommandSync")
 				.mockReturnValueOnce("{bad-json")
 				.mockReturnValueOnce(JSON.stringify({ dependencies: {} }));
 			expect(managerWithInternals.getPnpmGlobalPackagePath("pi-pkg")).toBeUndefined();
