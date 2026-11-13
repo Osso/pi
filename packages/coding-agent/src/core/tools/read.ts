@@ -459,7 +459,12 @@ function createReadToolDefinitionInternal(
 								} else {
 									outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
 								}
-								details = { truncation };
+								// A head read counts only the lines in its buffer, not the file's line total.
+								details = {
+									truncation: rangeLimited
+										? { ...truncation, truncatedBy: "bytes", totalBytes: fileSize ?? truncation.totalBytes }
+										: truncation,
+								};
 							} else if (userLimitedLines !== undefined && startLine + userLimitedLines < lineCount) {
 								// User-specified limit stopped early, but the file still has more content.
 								const remaining = lineCount - (startLine + userLimitedLines);

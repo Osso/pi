@@ -1,3 +1,5 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Text, type TUI } from "@earendil-works/pi-tui";
 import { type TSchema, Type } from "typebox";
@@ -586,6 +588,32 @@ describe("ToolExecutionComponent parity", () => {
 		expect(rendered).toContain("one");
 		expect(rendered).toContain("two");
 		expect(rendered).not.toContain("two\n\n");
+	});
+
+	test("does not show the head-read buffer line count as the total of an oversized file", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-read-render-"));
+		try {
+			const path = join(dir, "many-short-lines.txt");
+			writeFileSync(path, "x\n".repeat(60_000));
+			const result = await createReadTool(dir).execute("read-total", { path });
+			const component = new ToolExecutionComponent(
+				"read",
+				"tool-read-total",
+				{ path },
+				{},
+				createReadToolDefinition(dir),
+				createFakeTui(),
+				dir,
+			);
+			component.updateResult({ ...result, isError: false }, false);
+			component.setExpanded(true);
+			const rendered = stripAnsi(component.render(120).join("\n"));
+
+			expect(rendered).toContain("[Truncated: 2000 lines shown (10.0KB limit)]");
+			expect(rendered).not.toMatch(/of \d+ lines/);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	test("trims trailing blank display lines from read results", () => {

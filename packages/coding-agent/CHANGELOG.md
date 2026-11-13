@@ -257,6 +257,7 @@
 
 ### Fixed
 
+- Fixed the expanded `read` result for files over 10KB showing the head-read buffer's line count as the file's line total; it now shows `[Truncated: N lines shown (10.0KB limit)]`.
 - Fixed session persistence truncating tool result text to keep large `details` when the entry exceeded 1 MiB; `details` are now dropped first, so a resumed session gives the model the same tool output.
 - Fixed model pools and compaction retry cooldowns to distinguish quota exhaustion from rate limits, including quota errors returned with HTTP 429.
 - Fixed `/mission` restoration after compaction and restart to read the latest active-branch mission entry, including paused or cleared state, while preserving the current working goal under existing rules.
