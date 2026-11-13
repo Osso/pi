@@ -906,6 +906,11 @@ async function finalizeExecutedToolCall(
  */
 const MAX_TOOL_RESULT_TEXT_BYTES = DEFAULT_MAX_BYTES + 1024;
 const MAX_TOOL_RESULT_TEXT_LINES = DEFAULT_MAX_LINES + 10;
+/**
+ * Cap on serialized tool result details. Details are never sent to the model; renderers and SDK consumers read them
+ * (for example the edit diff), so the cap only bounds storage and is sized like the session tool-output cap.
+ */
+const MAX_TOOL_RESULT_DETAILS_BYTES = 1024 * 1024;
 
 function createErrorToolResult(message: string): AgentToolResult<unknown> {
 	return {
@@ -942,14 +947,13 @@ function capToolResultContent(content: AgentToolResult<unknown>["content"]): Age
 
 function capToolResultDetails(details: unknown): unknown {
 	const text = stringifyToolResultDetails(details);
-	if (text === undefined || !isToolResultTextTooLarge(text)) {
+	if (text === undefined || Buffer.byteLength(text, "utf-8") <= MAX_TOOL_RESULT_DETAILS_BYTES) {
 		return details;
 	}
 	return {
 		truncated: true,
 		reason: "tool result details exceeded storage cap",
-		maxBytes: MAX_TOOL_RESULT_TEXT_BYTES,
-		maxLines: MAX_TOOL_RESULT_TEXT_LINES,
+		maxBytes: MAX_TOOL_RESULT_DETAILS_BYTES,
 		preview: capToolResultText(text),
 	};
 }

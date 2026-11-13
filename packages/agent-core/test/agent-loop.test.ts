@@ -648,6 +648,61 @@ describe("agentLoop with AgentMessage", () => {
 		expect(executed).toEqual([[{ oldText: "before", newText: "after" }]]);
 	});
 
+	it("keeps tool result details up to the storage cap and replaces larger details", async () => {
+		const toolSchema = Type.Object({ size: Type.Number() });
+		const tool: AgentTool<typeof toolSchema, { diff: string }> = {
+			name: "diff",
+			label: "Diff",
+			description: "Returns a diff of the requested size",
+			parameters: toolSchema,
+			async execute(_toolCallId, params) {
+				return { content: [{ type: "text", text: "done" }], details: { diff: "+".repeat(params.size) } };
+			},
+		};
+		const context: AgentContext = { systemPrompt: "", messages: [], tools: [tool] };
+		const config: AgentLoopConfig = { model: createModel(), convertToLlm: identityConverter };
+		let llmCalls = 0;
+		const stream = agentLoop([createUserMessage("diff")], context, config, undefined, () => {
+			const mockStream = new MockAssistantStream();
+			queueMicrotask(() => {
+				if (llmCalls++ === 0) {
+					mockStream.push({
+						type: "done",
+						reason: "toolUse",
+						message: createAssistantMessage(
+							[
+								{ type: "toolCall", id: "medium", name: "diff", arguments: { size: 50_000 } },
+								{ type: "toolCall", id: "huge", name: "diff", arguments: { size: 2 * 1024 * 1024 } },
+							],
+							"toolUse",
+						),
+					});
+				} else {
+					mockStream.push({
+						type: "done",
+						reason: "stop",
+						message: createAssistantMessage([{ type: "text", text: "done" }]),
+					});
+				}
+			});
+			return mockStream;
+		});
+
+		const results = new Map<string, unknown>();
+		for await (const event of stream) {
+			if (event.type === "message_end" && event.message.role === "toolResult") {
+				results.set(event.message.toolCallId, event.message.details);
+			}
+		}
+
+		expect(results.get("medium")).toEqual({ diff: "+".repeat(50_000) });
+		expect(results.get("huge")).toMatchObject({
+			truncated: true,
+			reason: "tool result details exceeded storage cap",
+			maxBytes: 1024 * 1024,
+		});
+	});
+
 	it("persists prepared agentId on assistant tool calls and passes it to execution", async () => {
 		const toolSchema = Type.Object({ value: Type.String() });
 		const executedAgentIds: string[] = [];
