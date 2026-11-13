@@ -27,17 +27,24 @@ To learn more about upstream Pi:
 
 This fork extends upstream Pi with workflows for long-running, supervised coding tasks:
 
-- **Persistent goals**: set, pause, resume, review, and complete objectives that survive across turns and sessions. See the [goal system spec](docs/specs/goal-system.md).
+- **Persistent goals and missions**: set, pause, resume, review, and complete objectives that survive across turns and sessions, under an optional user-owned `/mission` that stays above the working goal. See the [goal system spec](docs/specs/goal-system.md).
 - **Native multi-agent workflows**: spawn or attach agents, choose inherited or fresh context, exchange mailbox messages, steer active work, and monitor agent status. See the [multi-agent spec](docs/specs/multi-agent.md).
-- **Supervisor integration**: use a resident service for bounded advice, approval decisions, and goal continuation or completion review. See the [Supervisor spec](docs/specs/supervisor-service.md).
+- **Supervisor integration**: use a resident service for bounded advice, approval decisions, and goal continuation or completion review, on a model set with `supervisorModel`. See the [Supervisor spec](docs/specs/supervisor-service.md).
+- **Bundled Claude bridge**: use Claude Code-backed `claude-bridge/<model>` models without a separate installation. See the [Claude bridge spec](docs/specs/claude-bridge.md).
+- **Model pools and usage reporting**: route a `pool/<name>` model through an ordered, quota-aware list of provider models, and view Codex, Claude, OpenAI, and DeepSeek account usage together with `/usage all`. See the [model pools](docs/specs/model-pools.md) and [usage view](docs/specs/consolidated-usage-view.md) specs.
+- **Tool backgrounding**: detach a running Bash or Pyrun call with `Ctrl+B`, or automatically after 600 seconds, into a durable background job that keeps running across restarts. See the [tool backgrounding spec](docs/specs/tool-backgrounding.md).
+- **Reminders and periodic checks**: store persistent follow-ups shared across sessions with the `reminders` tool and `/reminders`, and schedule opt-in, report-only project audits with `/periodic-checks`. See the [reminders](docs/specs/reminders.md) and [periodic checks](docs/specs/periodic-checks.md) specs.
 - **Standalone workers**: `pi --no-supervisor --no-session -p "task"` runs ordinary tools and foreground Pyrun without Supervisor or multi-agent orchestration. SDK: `createAgentSession({ noSupervisor: true })`. See the [worker contract](docs/specs/standalone-worker.md).
 - **Approval and sandbox controls**: select approval policies, persist permission rules, delegate permission prompts, and route supported tool workers through bubblewrap profiles. See the [approval](docs/specs/approval-system.md) and [sandbox](docs/specs/bwrap-sandbox.md) specs.
 - **Isolated worktree startup**: launch with `-w` or `--worktree` to create or reuse a sibling Git worktree. See the [worktree startup spec](docs/specs/worktree-startup-option.md).
 - **Layered project context**: load global and project rules plus repository-local context such as `docs/local/memory.md`. See the [user rules](docs/specs/user-rules-loader.md) and [project context](docs/specs/project-context-files.md) specs.
-- **Expanded coding workflows and tools**: run `PLAN.md` tasks, validate feature specs, use structural code indexing and browser automation, call hosted web search, execute Python through Pyrun, schedule recurring prompts, restrict sessions with safe mode, and require explicit end-turn handling. See the [run-plan](docs/specs/run-plan-command.md) and [spec-validation](docs/specs/spec-validation.md) specs.
+- **Expanded coding workflows and tools**: run `PLAN.md` tasks, validate feature specs, use structural code indexing and browser automation, call [hosted web search](docs/specs/web-search-tool.md), execute Python through Pyrun, request secrets through [`ask_secret`](docs/specs/ask-secret-tool.md), schedule recurring prompts, restrict sessions with safe mode, and require explicit end-turn handling. See the [run-plan](docs/specs/run-plan-command.md) and [spec-validation](docs/specs/spec-validation.md) specs.
 - **Read-only terminal history export**: see [usage and transport integration](packages/coding-agent/docs/terminal-history-export.md).
-- **Persistent runtime operations**: control-database-backed session lookup, naming and archive state, shared coordination channels, cwd/session switching, history search, self-restart, and detached job tracking.
-- **Codex enhancements**: runtime fast mode, usage visibility, and hosted image generation. See the specs for [fast mode](docs/specs/codex-fast-mode.md), [image generation](docs/specs/codex-image-generation.md), and [retained native compaction history](docs/specs/openai-remote-compaction.md).
+- **Persistent runtime operations**: [control-database-backed](docs/specs/session-control-db.md) session lookup and naming, [zstd archives of idle sessions](docs/specs/session-archive.md), a [shared coordination channel](docs/specs/shared-channel.md) replicated between hosts, cwd/session switching, [history search](docs/specs/current-session-history-search.md), [self-restart](docs/specs/self-restart.md), and detached job tracking.
+- **Cache-aware compaction**: compact large idle `claude-bridge` and Codex sessions before the provider prompt cache expires. See the [idle compaction spec](docs/specs/idle-compaction.md).
+- **Codex enhancements**: runtime fast mode, `/daybreak` request selection, hosted image generation, and sanitized failure diagnostics. See the specs for [fast mode](docs/specs/codex-fast-mode.md), [Daybreak](docs/specs/codex-daybreak.md), [image generation](docs/specs/codex-image-generation.md), [failure diagnostics](docs/specs/provider-failure-diagnostics.md), and [retained native compaction history](docs/specs/openai-remote-compaction.md).
+- **Integrations**: [T3 Code](docs/specs/t3-code.md) approval delegation in RPC mode and [Claude-memory prompt enrichment](docs/specs/claude-memory-enrichment.md).
+- **Native macOS core**: process ownership and detached job identity work on Darwin without Linux-only process inspection. See the [macOS core spec](docs/specs/macos-core.md).
 
 Detailed behavior contracts and test coverage are tracked in the [feature specifications](docs/specs/README.md). The [implementation wiki](docs/wiki/README.md) explains system behavior, source boundaries, and limitations.
 
@@ -49,6 +56,7 @@ Detailed behavior contracts and test coverage are tracked in the [feature specif
 | **[@earendil-works/pi-agent-core](packages/agent-core)** | Agent runtime with tool calling and state management |
 | **[@earendil-works/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
 | **[@earendil-works/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
+| **[@earendil-works/pi-orchestrator](packages/orchestrator)** | Experimental orchestrator CLI (unstable) |
 
 For Slack/chat automation and workflows see [earendil-works/pi-chat](https://github.com/earendil-works/pi-chat).
 
