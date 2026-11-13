@@ -1670,6 +1670,8 @@ describe("headless Pi fixture", () => {
 				const afterDetach = await agent.waitForLlmRequest(
 					(request) => request.agentId === null && request.id !== initialRequest.id,
 				);
+				killProcessGroup(runnerPid);
+				await vi.waitFor(() => expect(isProcessAlive(runnerPid)).toBe(false));
 				agent.respondToLlmRequest(
 					afterDetach.id,
 					fauxAssistantMessage(fauxToolCall("close_agent", { agentId: runner.id, reason: "test cancellation" }), {
