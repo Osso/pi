@@ -219,7 +219,8 @@ class TreeList implements Component {
 			const allNodes: SessionTreeNode[] = [];
 			const preOrderStack: SessionTreeNode[] = [...roots];
 			while (preOrderStack.length > 0) {
-				const node = preOrderStack.pop()!;
+				const node = preOrderStack.pop();
+				if (!node) continue;
 				allNodes.push(node);
 				// Push children in reverse so they're processed left-to-right
 				for (let i = node.children.length - 1; i >= 0; i--) {
@@ -249,7 +250,9 @@ class TreeList implements Component {
 		}
 
 		while (stack.length > 0) {
-			const [node, indent, justBranched, showConnector, isLast, gutters, isVirtualRootChild] = stack.pop()!;
+			const next = stack.pop();
+			if (!next) continue;
+			const [node, indent, justBranched, showConnector, isLast, gutters, isVirtualRootChild] = next;
 
 			// Extract tool calls from assistant messages for later lookup
 			const entry = node.entry;
@@ -484,14 +487,16 @@ class TreeList implements Component {
 			const ancestorId = findVisibleAncestor(nodeId);
 			visibleParent.set(nodeId, ancestorId);
 
-			if (!visibleChildren.has(ancestorId)) {
-				visibleChildren.set(ancestorId, []);
+			let siblings = visibleChildren.get(ancestorId);
+			if (!siblings) {
+				siblings = [];
+				visibleChildren.set(ancestorId, siblings);
 			}
-			visibleChildren.get(ancestorId)!.push(nodeId);
+			siblings.push(nodeId);
 		}
 
 		// Update multipleRoots based on visible roots
-		const visibleRootIds = visibleChildren.get(null)!;
+		const visibleRootIds = visibleChildren.get(null) ?? [];
 		this.multipleRoots = visibleRootIds.length > 1;
 
 		// Build a map for quick lookup: nodeId → FlatNode
@@ -520,7 +525,9 @@ class TreeList implements Component {
 		}
 
 		while (stack.length > 0) {
-			const [nodeId, indent, justBranched, showConnector, isLast, gutters, isVirtualRootChild] = stack.pop()!;
+			const next = stack.pop();
+			if (!next) continue;
+			const [nodeId, indent, justBranched, showConnector, isLast, gutters, isVirtualRootChild] = next;
 
 			const flatNode = filteredNodeMap.get(nodeId);
 			if (!flatNode) continue;
@@ -1130,8 +1137,8 @@ class TreeList implements Component {
 		if (direction === "down") {
 			while (true) {
 				const children: string[] = this.visibleChildrenMap.get(currentId) ?? [];
-				if (children.length === 0) return indexByEntryId.get(currentId)!;
-				if (children.length > 1) return indexByEntryId.get(children[0])!;
+				if (children.length === 0) return indexByEntryId.get(currentId) ?? this.selectedIndex;
+				if (children.length > 1) return indexByEntryId.get(children[0]) ?? this.selectedIndex;
 				currentId = children[0];
 			}
 		}
@@ -1139,10 +1146,10 @@ class TreeList implements Component {
 		// direction === "up"
 		while (true) {
 			const parentId: string | null = this.visibleParentMap.get(currentId) ?? null;
-			if (parentId === null) return indexByEntryId.get(currentId)!;
+			if (parentId === null) return indexByEntryId.get(currentId) ?? this.selectedIndex;
 			const children = this.visibleChildrenMap.get(parentId) ?? [];
 			if (children.length > 1) {
-				const segmentStart = indexByEntryId.get(currentId)!;
+				const segmentStart = indexByEntryId.get(currentId) ?? this.selectedIndex;
 				if (segmentStart < this.selectedIndex) {
 					return segmentStart;
 				}
@@ -1251,7 +1258,8 @@ function formatHelpKeys(keybindings: Keybinding[]): string {
 }
 
 function compactRawKeys(keys: string[]): string {
-	if (keys.length === 1) return keys[0]!;
+	if (keys.length === 0) return "";
+	if (keys.length === 1) return keys[0];
 
 	const parts = keys.map((key) => {
 		const separatorIndex = key.lastIndexOf("+");
@@ -1259,7 +1267,7 @@ function compactRawKeys(keys: string[]): string {
 			? { prefix: "", suffix: key }
 			: { prefix: key.slice(0, separatorIndex + 1), suffix: key.slice(separatorIndex + 1) };
 	});
-	const prefix = parts[0]!.prefix;
+	const prefix = parts[0]?.prefix ?? "";
 	return prefix && parts.every((part) => part.prefix === prefix)
 		? `${prefix}${parts.map((part) => part.suffix).join("/")}`
 		: keys.join("/");

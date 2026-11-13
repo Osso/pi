@@ -25,7 +25,11 @@ export const APPROVAL_PRESETS = [
 export type ApprovalPresetName = (typeof APPROVAL_PRESETS)[number]["name"];
 
 export function findApprovalPreset(name: ApprovalPresetName): ApprovalPreset {
-	return APPROVAL_PRESETS.find((preset) => preset.name === name)!;
+	const found = APPROVAL_PRESETS.find((preset) => preset.name === name);
+	if (!found) {
+		throw new Error(`Unknown approval preset: ${name}`);
+	}
+	return found;
 }
 
 export function isApprovalPresetName(value: unknown): value is ApprovalPresetName {

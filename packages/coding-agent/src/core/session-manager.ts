@@ -1940,7 +1940,8 @@ export class SessionManager {
 
 		// Build tree
 		for (const entry of entries) {
-			const node = nodeMap.get(entry.id)!;
+			const node = nodeMap.get(entry.id);
+			if (!node) continue;
 			if (entry.parentId === null || entry.parentId === entry.id) {
 				roots.push(node);
 			} else {
@@ -1958,7 +1959,8 @@ export class SessionManager {
 		// Use iterative approach to avoid stack overflow on deep trees
 		const stack: SessionTreeNode[] = [...roots];
 		while (stack.length > 0) {
-			const node = stack.pop()!;
+			const node = stack.pop();
+			if (!node) continue;
 			node.children.sort((a, b) => new Date(a.entry.timestamp).getTime() - new Date(b.entry.timestamp).getTime());
 			stack.push(...node.children);
 		}
@@ -2058,7 +2060,10 @@ export class SessionManager {
 		const labelsToWrite: Array<{ targetId: string; label: string; timestamp: string }> = [];
 		for (const [targetId, label] of this.labelsById) {
 			if (pathEntryIds.has(targetId)) {
-				labelsToWrite.push({ targetId, label, timestamp: this.labelTimestampsById.get(targetId)! });
+				const labelTimestamp = this.labelTimestampsById.get(targetId);
+				if (labelTimestamp !== undefined) {
+					labelsToWrite.push({ targetId, label, timestamp: labelTimestamp });
+				}
 			}
 		}
 

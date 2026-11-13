@@ -94,7 +94,8 @@ export async function executeBashWithOperations(
 		outputChunks.push(text);
 		outputBytes += text.length;
 		while (outputBytes > maxOutputBytes && outputChunks.length > 1) {
-			const removed = outputChunks.shift()!;
+			const removed = outputChunks.shift();
+			if (!removed) break;
 			outputBytes -= removed.length;
 		}
 

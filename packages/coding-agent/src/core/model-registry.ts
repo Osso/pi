@@ -1001,10 +1001,13 @@ export class ModelRegistry {
 		}
 
 		if (config.streamSimple) {
+			if (!config.api) {
+				throw new Error(`Provider ${providerName}: "api" is required when registering streamSimple.`);
+			}
 			const streamSimple = config.streamSimple;
 			registerApiProvider(
 				{
-					api: config.api!,
+					api: config.api,
 					stream: (model, context, options) => streamSimple(model, context, options as SimpleStreamOptions),
 					streamSimple,
 				},
@@ -1021,6 +1024,10 @@ export class ModelRegistry {
 			// Parse and add new models
 			for (const modelDef of config.models) {
 				const api = modelDef.api || config.api;
+				const baseUrl = modelDef.baseUrl ?? config.baseUrl;
+				if (!baseUrl) {
+					throw new Error(`Provider ${providerName}: "baseUrl" is required when defining models.`);
+				}
 				this.storeModelHeaders(providerName, modelDef.id, modelDef.headers);
 
 				this.models.push({
@@ -1028,7 +1035,7 @@ export class ModelRegistry {
 					name: modelDef.name,
 					api: api as Api,
 					provider: providerName,
-					baseUrl: modelDef.baseUrl ?? config.baseUrl!,
+					baseUrl,
 					reasoning: modelDef.reasoning,
 					thinkingLevelMap: modelDef.thinkingLevelMap,
 					input: modelDef.input as ("text" | "image")[],

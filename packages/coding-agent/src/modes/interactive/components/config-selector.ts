@@ -97,18 +97,18 @@ function buildGroups(resolved: ResolvedPaths, agentDir: string): ResourceGroup[]
 			const { path, enabled, metadata } = res;
 			const groupKey = `${metadata.origin}:${metadata.scope}:${metadata.source}:${metadata.baseDir ?? ""}`;
 
-			if (!groupMap.has(groupKey)) {
-				groupMap.set(groupKey, {
+			let group = groupMap.get(groupKey);
+			if (!group) {
+				group = {
 					key: groupKey,
 					label: getGroupLabel(metadata, agentDir),
 					scope: metadata.scope,
 					origin: metadata.origin,
 					source: metadata.source,
 					subgroups: [],
-				});
+				};
+				groupMap.set(groupKey, group);
 			}
-
-			const group = groupMap.get(groupKey)!;
 			const subgroupKey = `${groupKey}:${resourceType}`;
 
 			let subgroup = group.subgroups.find((sg) => sg.type === resourceType);

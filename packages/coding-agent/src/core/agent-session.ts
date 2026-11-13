@@ -6118,7 +6118,10 @@ export class AgentSession {
 			let summaryText: string | undefined;
 			let summaryDetails: unknown;
 			if (options.summarize && entriesToSummarize.length > 0 && !extensionSummary) {
-				const model = this.model!;
+				const model = this.model;
+				if (!model) {
+					throw new Error("No model available for summarization");
+				}
 				const { apiKey, headers, env } = await this._getRequiredRequestAuth(model);
 				const branchSummarySettings = this.settingsManager.getBranchSummarySettings();
 				const result = await generateBranchSummary(entriesToSummarize, {

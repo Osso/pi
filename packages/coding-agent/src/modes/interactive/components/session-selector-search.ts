@@ -77,8 +77,7 @@ export function parseSearchQuery(query: string): ParsedSearchQuery {
 		tokens.push({ kind, value: v });
 	};
 
-	for (let i = 0; i < trimmed.length; i++) {
-		const ch = trimmed[i]!;
+	for (const ch of trimmed) {
 		if (ch === '"') {
 			if (inQuote) {
 				flush("phrase");

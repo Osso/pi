@@ -115,7 +115,9 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	const tools = selectedTools || DEFAULT_ACTIVE_TOOL_NAMES;
 	const visibleTools = tools.filter((name) => !!toolSnippets?.[name]);
 	const toolsList =
-		visibleTools.length > 0 ? visibleTools.map((name) => `- ${name}: ${toolSnippets![name]}`).join("\n") : "(none)";
+		visibleTools.length > 0
+			? visibleTools.map((name) => `- ${name}: ${toolSnippets?.[name] ?? ""}`).join("\n")
+			: "(none)";
 
 	// Build guidelines based on which tools are actually available
 	const guidelinesList: string[] = [];

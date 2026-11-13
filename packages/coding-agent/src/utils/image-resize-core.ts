@@ -105,8 +105,10 @@ export async function resizeImageInProcess(
 			targetHeight = opts.maxHeight;
 		}
 
+		const loadedPhoton = photon;
+		const loadedImage = image;
 		function tryEncodings(width: number, height: number, jpegQualities: number[]): EncodedCandidate[] {
-			const resized = photon!.resize(image!, width, height, photon!.SamplingFilter.Lanczos3);
+			const resized = loadedPhoton.resize(loadedImage, width, height, loadedPhoton.SamplingFilter.Lanczos3);
 
 			try {
 				const candidates: EncodedCandidate[] = [encodeCandidate(resized.get_bytes(), "image/png")];

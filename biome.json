@@ -76,6 +76,16 @@
 			}
 		},
 		{
+			"includes": ["packages/coding-agent/src/**/*.ts"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noNonNullAssertion": "error"
+					}
+				}
+			}
+		},
+		{
 			"includes": ["packages/coding-agent/extensions/**/*.ts"],
 			"linter": {
 				"rules": {

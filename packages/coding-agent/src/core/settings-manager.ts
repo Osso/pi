@@ -679,10 +679,12 @@ export class SettingsManager {
 	private markModified(field: keyof Settings, nestedKey?: string): void {
 		this.modifiedFields.add(field);
 		if (nestedKey) {
-			if (!this.modifiedNestedFields.has(field)) {
-				this.modifiedNestedFields.set(field, new Set());
+			let nested = this.modifiedNestedFields.get(field);
+			if (!nested) {
+				nested = new Set();
+				this.modifiedNestedFields.set(field, nested);
 			}
-			this.modifiedNestedFields.get(field)!.add(nestedKey);
+			nested.add(nestedKey);
 		}
 	}
 
@@ -690,10 +692,12 @@ export class SettingsManager {
 	private markProjectModified(field: keyof Settings, nestedKey?: string): void {
 		this.modifiedProjectFields.add(field);
 		if (nestedKey) {
-			if (!this.modifiedProjectNestedFields.has(field)) {
-				this.modifiedProjectNestedFields.set(field, new Set());
+			let nested = this.modifiedProjectNestedFields.get(field);
+			if (!nested) {
+				nested = new Set();
+				this.modifiedProjectNestedFields.set(field, nested);
 			}
-			this.modifiedProjectNestedFields.get(field)!.add(nestedKey);
+			nested.add(nestedKey);
 		}
 	}
 
@@ -754,8 +758,8 @@ export class SettingsManager {
 			const mergedSettings: Settings = { ...currentFileSettings };
 			for (const field of modifiedFields) {
 				const value = snapshotSettings[field];
-				if (modifiedNestedFields.has(field) && typeof value === "object" && value !== null) {
-					const nestedModified = modifiedNestedFields.get(field)!;
+				const nestedModified = modifiedNestedFields.get(field);
+				if (nestedModified && typeof value === "object" && value !== null) {
 					const baseNested = (currentFileSettings[field] as Record<string, unknown>) ?? {};
 					const inMemoryNested = value as Record<string, unknown>;
 					const mergedNested = { ...baseNested };

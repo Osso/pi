@@ -135,7 +135,10 @@ export class RpcClient {
 		});
 
 		// Set up strict JSONL reader for stdout.
-		this.stopReadingStdout = attachJsonlLineReader(childProcess.stdout!, (line) => {
+		if (!childProcess.stdout) {
+			throw new Error("Agent process stdout stream is unavailable");
+		}
+		this.stopReadingStdout = attachJsonlLineReader(childProcess.stdout, (line) => {
 			this.handleLine(line);
 		});
 
@@ -523,11 +526,13 @@ export class RpcClient {
 			const data = JSON.parse(line);
 
 			// Check if it's a response to a pending request
-			if (data.type === "response" && data.id && this.pendingRequests.has(data.id)) {
-				const pending = this.pendingRequests.get(data.id)!;
-				this.pendingRequests.delete(data.id);
-				pending.resolve(data as RpcResponse);
-				return;
+			if (data.type === "response" && data.id) {
+				const pending = this.pendingRequests.get(data.id);
+				if (pending) {
+					this.pendingRequests.delete(data.id);
+					pending.resolve(data as RpcResponse);
+					return;
+				}
 			}
 
 			// Otherwise it's an event

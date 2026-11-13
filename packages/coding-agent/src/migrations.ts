@@ -138,7 +138,8 @@ export function migrateSessionsFromAgentRoot(): void {
 
 			// Move the file
 			const fileName = file.split("/").pop() || file.split("\\").pop();
-			const newPath = join(correctDir, fileName!);
+			if (!fileName) continue;
+			const newPath = join(correctDir, fileName);
 
 			if (existsSync(newPath)) continue; // Skip if target exists
 

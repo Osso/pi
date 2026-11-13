@@ -644,9 +644,9 @@ function matchesAnyPattern(filePath: string, patterns: string[], baseDir: string
 	const filePathPosix = toPosixPath(filePath);
 	const isSkillFile = name === "SKILL.md";
 	const parentDir = isSkillFile ? dirname(filePath) : undefined;
-	const parentRel = isSkillFile ? toPosixPath(relative(baseDir, parentDir!)) : undefined;
-	const parentName = isSkillFile ? basename(parentDir!) : undefined;
-	const parentDirPosix = isSkillFile ? toPosixPath(parentDir!) : undefined;
+	const parentRel = parentDir !== undefined ? toPosixPath(relative(baseDir, parentDir)) : undefined;
+	const parentName = parentDir !== undefined ? basename(parentDir) : undefined;
+	const parentDirPosix = parentDir !== undefined ? toPosixPath(parentDir) : undefined;
 
 	return patterns.some((pattern) => {
 		const normalizedPattern = toPosixPath(pattern);
@@ -657,11 +657,11 @@ function matchesAnyPattern(filePath: string, patterns: string[], baseDir: string
 		) {
 			return true;
 		}
-		if (!isSkillFile) return false;
+		if (parentRel === undefined || parentName === undefined || parentDirPosix === undefined) return false;
 		return (
-			minimatch(parentRel!, normalizedPattern) ||
-			minimatch(parentName!, normalizedPattern) ||
-			minimatch(parentDirPosix!, normalizedPattern)
+			minimatch(parentRel, normalizedPattern) ||
+			minimatch(parentName, normalizedPattern) ||
+			minimatch(parentDirPosix, normalizedPattern)
 		);
 	});
 }
@@ -678,8 +678,8 @@ function matchesAnyExactPattern(filePath: string, patterns: string[], baseDir: s
 	const filePathPosix = toPosixPath(filePath);
 	const isSkillFile = name === "SKILL.md";
 	const parentDir = isSkillFile ? dirname(filePath) : undefined;
-	const parentRel = isSkillFile ? toPosixPath(relative(baseDir, parentDir!)) : undefined;
-	const parentDirPosix = isSkillFile ? toPosixPath(parentDir!) : undefined;
+	const parentRel = parentDir !== undefined ? toPosixPath(relative(baseDir, parentDir)) : undefined;
+	const parentDirPosix = parentDir !== undefined ? toPosixPath(parentDir) : undefined;
 
 	return patterns.some((pattern) => {
 		const normalized = normalizeExactPattern(pattern);

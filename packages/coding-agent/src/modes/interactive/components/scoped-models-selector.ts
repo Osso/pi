@@ -153,13 +153,17 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 
 	private buildItems(): ModelItem[] {
 		// Filter out IDs that no longer have a corresponding model (e.g., after logout)
-		return getSortedIds(this.enabledIds, this.allIds)
-			.filter((id) => this.modelsById.has(id))
-			.map((id) => ({
+		const items: ModelItem[] = [];
+		for (const id of getSortedIds(this.enabledIds, this.allIds)) {
+			const model = this.modelsById.get(id);
+			if (!model) continue;
+			items.push({
 				fullId: id,
-				model: this.modelsById.get(id)!,
+				model,
 				enabled: isEnabled(this.enabledIds, id),
-			}));
+			});
+		}
+		return items;
 	}
 
 	private getFooterText(): string {
@@ -213,7 +217,8 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 		const allEnabled = this.enabledIds === null;
 
 		for (let i = startIndex; i < endIndex; i++) {
-			const item = this.filteredItems[i]!;
+			const item = this.filteredItems[i];
+			if (!item) continue;
 			const isSelected = i === this.selectedIndex;
 			const prefix = isSelected ? theme.fg("accent", "→ ") : "  ";
 			const modelText = isSelected ? theme.fg("accent", item.model.id) : item.model.id;
@@ -312,7 +317,7 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 			const item = this.filteredItems[this.selectedIndex];
 			if (item) {
 				const provider = item.model.provider;
-				const providerIds = this.allIds.filter((id) => this.modelsById.get(id)!.provider === provider);
+				const providerIds = this.allIds.filter((id) => this.modelsById.get(id)?.provider === provider);
 				const allEnabled = providerIds.every((id) => isEnabled(this.enabledIds, id));
 				this.enabledIds = allEnabled
 					? clearAll(this.enabledIds, this.allIds, providerIds)

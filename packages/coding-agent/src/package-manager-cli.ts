@@ -655,13 +655,16 @@ export async function handlePackageCommand(
 
 	try {
 		switch (options.command) {
-			case "install":
-				await packageManager.installAndPersist(source!, { local: options.local });
+			case "install": {
+				if (!source) return true;
+				await packageManager.installAndPersist(source, { local: options.local });
 				console.log(chalk.green(`Installed ${source}`));
 				return true;
+			}
 
 			case "remove": {
-				const removed = await packageManager.removeAndPersist(source!, { local: options.local });
+				if (!source) return true;
+				const removed = await packageManager.removeAndPersist(source, { local: options.local });
 				if (!removed) {
 					console.error(chalk.red(`No matching package found for ${source}`));
 					process.exitCode = 1;

@@ -1330,8 +1330,9 @@ export class ExtensionRunner {
 						? await callContextHandlerAbortable(() => handler(event, ctx), signal)
 						: await handler(event, ctx);
 
-					if (handlerResult && (handlerResult as ContextEventResult).messages) {
-						currentMessages = (handlerResult as ContextEventResult).messages!;
+					const resultMessages = (handlerResult as ContextEventResult | undefined)?.messages;
+					if (resultMessages) {
+						currentMessages = resultMessages;
 					}
 				} catch (err) {
 					if (signal?.aborted) {

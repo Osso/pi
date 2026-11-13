@@ -231,11 +231,13 @@ function buildSessionTree(sessions: SessionInfo[]): SessionTreeNode[] {
 
 	for (const session of sessions) {
 		const sessionPath = canonicalizePath(session.path) ?? session.path;
-		const node = byPath.get(sessionPath)!;
+		const node = byPath.get(sessionPath);
+		if (!node) continue;
 		const parentPath = canonicalizePath(session.parentSessionPath);
+		const parent = parentPath ? byPath.get(parentPath) : undefined;
 
-		if (parentPath && byPath.has(parentPath)) {
-			byPath.get(parentPath)!.children.push(node);
+		if (parent) {
+			parent.children.push(node);
 		} else {
 			roots.push(node);
 		}
@@ -283,15 +285,18 @@ function flattenSessionTree(roots: SessionTreeNode[]): FlatSessionNode[] {
 		result.push({ session: node.session, depth, isLast, ancestorContinues });
 
 		for (let i = 0; i < node.children.length; i++) {
+			const child = node.children[i];
+			if (!child) continue;
 			const childIsLast = i === node.children.length - 1;
 			// Only show continuation line for non-root ancestors
 			const continues = depth > 0 ? !isLast : false;
-			walk(node.children[i]!, depth + 1, [...ancestorContinues, continues], childIsLast);
+			walk(child, depth + 1, [...ancestorContinues, continues], childIsLast);
 		}
 	};
 
 	for (let i = 0; i < roots.length; i++) {
-		walk(roots[i]!, 0, [], i === roots.length - 1);
+		const root = roots[i];
+		if (root) walk(root, 0, [], i === roots.length - 1);
 	}
 
 	return result;
@@ -471,7 +476,8 @@ class SessionList implements Component, Focusable {
 
 		// Render visible sessions (one line each with tree structure)
 		for (let i = startIndex; i < endIndex; i++) {
-			const node = this.filteredSessions[i]!;
+			const node = this.filteredSessions[i];
+			if (!node) continue;
 			const session = node.session;
 			const isSelected = i === this.selectedIndex;
 			const isConfirmingDelete = session.path === this.confirmingDeletePath;
@@ -956,7 +962,13 @@ export class SessionSelectorComponent extends Container implements Focusable {
 
 	private async loadScope(scope: SessionScope, reason: "initial" | "refresh" | "toggle"): Promise<void> {
 		const showCwd = scope !== "current";
-		if (scope === "archived" && !this.archivedSessionsLoader) return;
+		const loader =
+			scope === "current"
+				? this.currentSessionsLoader
+				: scope === "all"
+					? this.allSessionsLoader
+					: this.archivedSessionsLoader;
+		if (!loader) return;
 
 		if (scope === "current") this.currentLoading = true;
 		else if (scope === "all") this.allLoading = true;
@@ -976,12 +988,6 @@ export class SessionSelectorComponent extends Container implements Focusable {
 		};
 
 		try {
-			const loader =
-				scope === "current"
-					? this.currentSessionsLoader
-					: scope === "all"
-						? this.allSessionsLoader
-						: this.archivedSessionsLoader!;
 			const sessions = await loader(onProgress);
 
 			if (scope === "current") {

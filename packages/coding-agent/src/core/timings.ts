@@ -22,11 +22,12 @@ export function time(label: string, namespace: TimingLabel = "main"): void {
 	if (!ENABLED) return;
 	const now = Date.now();
 
-	if (!timingNamespaces.has(namespace)) {
-		resetTimings(namespace);
+	let timingNamespace = timingNamespaces.get(namespace);
+	if (!timingNamespace) {
+		timingNamespace = { timings: [], lastTime: Date.now() };
+		timingNamespaces.set(namespace, timingNamespace);
 	}
 
-	const timingNamespace = timingNamespaces.get(namespace)!;
 	timingNamespace.timings.push({ label, ms: now - timingNamespace.lastTime });
 	timingNamespace.lastTime = now;
 }

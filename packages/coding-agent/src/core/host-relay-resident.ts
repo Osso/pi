@@ -99,8 +99,13 @@ export async function ensureRelayRunning(
 
 function resolveCurrentRelayLaunchInvocation(): RelayLaunchInvocation {
 	const entrypoint = process.argv[1];
-	if (!isBunBinary && !entrypoint) throw new Error("Cannot start relay without the active Pi CLI entrypoint");
-	const args = isBunBinary ? ["relay", "connect"] : [...process.execArgv, entrypoint!, "relay", "connect"];
+	let args: string[];
+	if (isBunBinary) {
+		args = ["relay", "connect"];
+	} else {
+		if (!entrypoint) throw new Error("Cannot start relay without the active Pi CLI entrypoint");
+		args = [...process.execArgv, entrypoint, "relay", "connect"];
+	}
 	return { command: process.execPath, args, env: process.env };
 }
 

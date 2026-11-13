@@ -1539,8 +1539,9 @@ export class InteractiveMode {
 		const shortPath = this.getShortPath(resourcePath, sourceInfo);
 		const normalizedPath = shortPath.replace(/\\/g, "/");
 		const segments = normalizedPath.split("/").filter((segment) => segment.length > 0 && segment !== "~");
-		if (segments.length > 0) {
-			return segments[segments.length - 1]!;
+		const lastSegment = segments[segments.length - 1];
+		if (lastSegment !== undefined) {
+			return lastSegment;
 		}
 		return shortPath;
 	}
@@ -1982,11 +1983,13 @@ export class InteractiveMode {
 
 			// Show loaded themes (excluding built-in)
 			const loadedThemes = themesResult.themes;
-			const customThemes = loadedThemes.filter((t) => t.sourcePath);
+			const customThemes = loadedThemes.flatMap((loadedTheme) =>
+				loadedTheme.sourcePath ? [{ loadedTheme, sourcePath: loadedTheme.sourcePath }] : [],
+			);
 			if (customThemes.length > 0) {
 				const groups = this.buildScopeGroups(
-					customThemes.map((loadedTheme) => ({
-						path: loadedTheme.sourcePath!,
+					customThemes.map(({ loadedTheme, sourcePath }) => ({
+						path: sourcePath,
 						sourceInfo: loadedTheme.sourceInfo,
 					})),
 				);
@@ -1996,8 +1999,8 @@ export class InteractiveMode {
 				});
 				const themeCompactList = formatCompactList(
 					customThemes.map(
-						(loadedTheme) =>
-							loadedTheme.name ?? this.getCompactPathLabel(loadedTheme.sourcePath!, loadedTheme.sourceInfo),
+						({ loadedTheme, sourcePath }) =>
+							loadedTheme.name ?? this.getCompactPathLabel(sourcePath, loadedTheme.sourceInfo),
 					),
 				);
 				addLoadedSection("Themes", themeCompactList, themeList);
