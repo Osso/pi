@@ -190,6 +190,15 @@ describe("parseArgs", () => {
 			expect(result.mode).toBe("rpc");
 		});
 
+		test("rejects an invalid --mode instead of silently starting interactive mode", () => {
+			const result = parseArgs(["--mode", "RPC", "hello"]);
+			expect(result.mode).toBeUndefined();
+			expect(result.diagnostics).toEqual([
+				{ type: "error", message: "Invalid --mode value: RPC. Valid values: text, json, rpc" },
+			]);
+			expect(result.messages).toEqual(["hello"]);
+		});
+
 		test("parses --session", () => {
 			const result = parseArgs(["--session", "/path/to/session.jsonl"]);
 			expect(result.session).toBe("/path/to/session.jsonl");

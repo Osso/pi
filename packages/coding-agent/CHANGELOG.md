@@ -415,6 +415,7 @@
 - Fixed Pi exiting with a terminal width error when text was typed in the editor while the terminal was 3 columns wide or narrower.
 - Fixed the `read` tool accepting `limit: 0`, which returned no lines and a continuation hint pointing back to the same offset; `limit` must now be at least 1.
 - Fixed the `grep` tool returning matches from `.gitignore`d files in directories outside a git repository; it now applies `.gitignore` there like the `find` tool.
+- Fixed `--mode` silently ignoring an invalid value (for example `--mode RPC`) and starting interactive mode; Pi now exits with `Invalid --mode value`.
 
 ### Changed
 
