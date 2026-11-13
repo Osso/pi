@@ -47,4 +47,51 @@ describe("OpenAI Responses native context", () => {
 
 		expect(input).toEqual([...nativeItems, { role: "user", content: [{ type: "input_text", text: "recent" }] }]);
 	});
+
+	test("ignores malformed or non-reasoning thinkingSignature payloads instead of throwing", () => {
+		const model = createModel();
+		const validReasoning = { id: "rs_1", type: "reasoning", summary: [] };
+		const context: Context = {
+			messages: [
+				{
+					role: "assistant",
+					content: [
+						{ type: "thinking", thinking: "bad json", thinkingSignature: "{not-json" },
+						{ type: "thinking", thinking: "wrong shape", thinkingSignature: '{"type":"other"}' },
+						{ type: "thinking", thinking: "valid", thinkingSignature: JSON.stringify(validReasoning) },
+						{ type: "text", text: "ok" },
+					],
+					api: "openai-responses",
+					provider: "openai",
+					model: "gpt-4.1-mini",
+					usage: {
+						input: 0,
+						output: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						totalTokens: 0,
+						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+					},
+					stopReason: "stop",
+					timestamp: 1,
+				},
+			],
+		};
+
+		const input = convertResponsesMessages(model, context, new Set(["openai"]), {
+			includeSystemPrompt: false,
+		});
+
+		expect(input).toEqual([
+			validReasoning,
+			{
+				type: "message",
+				role: "assistant",
+				content: [{ type: "output_text", text: "ok", annotations: [] }],
+				status: "completed",
+				id: "msg_pi_0",
+				phase: undefined,
+			},
+		]);
+	});
 });

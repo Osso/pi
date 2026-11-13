@@ -43,6 +43,24 @@ function encodeTextSignatureV1(id: string, phase?: TextSignatureV1["phase"]): st
 	return JSON.stringify(payload);
 }
 
+function parseReasoningSignature(signature: string | undefined): ResponseReasoningItem | undefined {
+	if (!signature) return undefined;
+	try {
+		const parsed: unknown = JSON.parse(signature);
+		if (
+			parsed &&
+			typeof parsed === "object" &&
+			!Array.isArray(parsed) &&
+			(parsed as { type?: unknown }).type === "reasoning"
+		) {
+			return parsed as ResponseReasoningItem;
+		}
+	} catch {
+		// Fall through and ignore malformed or non-Responses reasoning signatures.
+	}
+	return undefined;
+}
+
 function parseTextSignature(
 	signature: string | undefined,
 ): { id: string; phase?: TextSignatureV1["phase"] } | undefined {
@@ -322,8 +340,8 @@ export function convertResponsesMessages<TApi extends Api>(
 
 			for (const block of msg.content) {
 				if (block.type === "thinking") {
-					if (block.thinkingSignature) {
-						const reasoningItem = JSON.parse(block.thinkingSignature) as ResponseReasoningItem;
+					const reasoningItem = parseReasoningSignature(block.thinkingSignature);
+					if (reasoningItem) {
 						output.push(reasoningItem);
 					}
 				} else if (block.type === "text") {
