@@ -32,7 +32,7 @@ const readSchema = Type.Object({
 			description: "Line number to start reading from (1-indexed)",
 		}),
 	),
-	limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
+	limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read", minimum: 1 })),
 });
 
 export type ReadToolInput = Static<typeof readSchema>;

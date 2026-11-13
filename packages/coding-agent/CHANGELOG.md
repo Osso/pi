@@ -413,6 +413,7 @@
 - Fixed archiving from the session picker exiting Pi when the archive failed, for example after the transcript was already moved by idle archival; the picker now shows `Archive failed: ...`.
 - Fixed the `edit` tool rewriting every line ending in a file with mixed CRLF/LF (or lone CR) endings; lines outside the edit now keep their original bytes.
 - Fixed Pi exiting with a terminal width error when text was typed in the editor while the terminal was 3 columns wide or narrower.
+- Fixed the `read` tool accepting `limit: 0`, which returned no lines and a continuation hint pointing back to the same offset; `limit` must now be at least 1.
 
 ### Changed
 

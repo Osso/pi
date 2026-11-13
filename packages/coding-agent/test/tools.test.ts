@@ -1,6 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { validateToolArguments } from "@earendil-works/pi-ai";
 import { applyPatch } from "diff";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executeBashWithOperations } from "../src/core/bash-executor.ts";
@@ -187,6 +188,18 @@ describe("Coding Agent Tools", () => {
 			expect(output).toContain("Line 10");
 			expect(output).not.toContain("Line 11");
 			expect(output).toContain("[90 more lines in file. Use offset=11 to continue.]");
+		});
+
+		it("rejects a zero limit instead of returning a continuation hint that cannot advance", () => {
+			const readCall = (limit: number) => ({
+				type: "toolCall" as const,
+				id: "read-limit",
+				name: "read",
+				arguments: { path: join(testDir, "limit-zero.txt"), offset: 1, limit },
+			});
+
+			expect(() => validateToolArguments(readTool, readCall(0))).toThrow(/limit/);
+			expect(validateToolArguments(readTool, readCall(1))).toMatchObject({ limit: 1 });
 		});
 
 		it("should handle offset + limit together", async () => {
