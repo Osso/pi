@@ -1109,6 +1109,43 @@ describe("runtime SQLite mailbox delivery", () => {
 		).not.toThrow();
 	});
 
+	it("retires a stale lifecycle mirror subscription instead of logging listener errors after context invalidation", async () => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		const controlDbPath = getControlDbPath(tempDir);
+		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
+		const handler = createMultiAgentPiRequestHandler({ store });
+		const staleContext = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
+		let contextReplaced = false;
+		Object.defineProperty(staleContext, "controlDbPath", {
+			get() {
+				if (contextReplaced) throw new Error("This extension ctx is stale after session replacement");
+				return controlDbPath;
+			},
+		});
+		await handler({ method: "agents.list", params: {} }, staleContext, undefined);
+		contextReplaced = true;
+
+		const child = legacyMultiAgentStore(store).spawnAgent({
+			agentType: "worker",
+			cwd: "/repo",
+			displayName: "Worker",
+			parentId: "main",
+			permission: { narrowed: true, policy: "on-request" },
+		});
+		const errors: unknown[] = [];
+		const originalError = console.error;
+		console.error = (...args: unknown[]) => errors.push(args);
+		try {
+			legacyMultiAgentStore(store).transitionAgent(child.agent.id, child.agent.revision, "waiting_for_input");
+		} finally {
+			console.error = originalError;
+		}
+		expect(errors).toEqual([]);
+	});
+
 	it("rebinds Pyrun multi-agent bridge lifecycle mirroring when a session context is replaced", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);

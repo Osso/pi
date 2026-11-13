@@ -2970,6 +2970,12 @@ function createRuntimeLifecycleMirror(store: MultiAgentStore): RuntimeLifecycleM
 	let boundCtx: ExtensionContext | undefined;
 	let boundSessionId: string | undefined;
 	let unsubscribe: (() => void) | undefined;
+	const dispose = () => {
+		unsubscribe?.();
+		boundCtx = undefined;
+		unsubscribe = undefined;
+		boundSessionId = undefined;
+	};
 	return {
 		bind(ctx) {
 			const sessionManager = ctx.sessionManager;
@@ -2981,16 +2987,20 @@ function createRuntimeLifecycleMirror(store: MultiAgentStore): RuntimeLifecycleM
 			boundSessionId = sessionId;
 			unsubscribe = store.subscribeLifecycleNotifications((message) => {
 				if (!boundCtx) return;
+				try {
+					void boundCtx.controlDbPath;
+				} catch (error) {
+					if (error instanceof Error && /\bstale\b/i.test(error.message)) {
+						dispose();
+						return;
+					}
+					throw error;
+				}
 				mirrorLifecycleRuntimeMailboxMessage(store, message, boundCtx);
 			});
 			mirrorPendingLifecycleRuntimeMailboxMessages(store, ctx);
 		},
-		dispose() {
-			unsubscribe?.();
-			boundCtx = undefined;
-			unsubscribe = undefined;
-			boundSessionId = undefined;
-		},
+		dispose,
 	};
 }
 
