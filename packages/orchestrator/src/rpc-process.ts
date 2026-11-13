@@ -99,7 +99,16 @@ export class RpcProcessInstance {
 	}
 
 	private handleLine(line: string): void {
-		const parsed = JSON.parse(line) as { type?: string; id?: string };
+		let raw: unknown;
+		try {
+			raw = JSON.parse(line);
+		} catch {
+			return;
+		}
+		if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+			return;
+		}
+		const parsed = raw as { type?: string; id?: string };
 		switch (parsed.type) {
 			case "response": {
 				if (!parsed.id) {
