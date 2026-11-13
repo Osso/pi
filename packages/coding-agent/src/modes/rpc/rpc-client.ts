@@ -523,21 +523,30 @@ export class RpcClient {
 
 	private handleLine(line: string): void {
 		try {
-			const data = JSON.parse(line);
+			const data: unknown = JSON.parse(line);
+			if (
+				typeof data !== "object" ||
+				data === null ||
+				Array.isArray(data) ||
+				typeof (data as { type?: unknown }).type !== "string"
+			) {
+				return;
+			}
+			const record = data as Record<string, unknown>;
 
 			// Check if it's a response to a pending request
-			if (data.type === "response" && data.id) {
-				const pending = this.pendingRequests.get(data.id);
+			if (record.type === "response" && typeof record.id === "string") {
+				const pending = this.pendingRequests.get(record.id);
 				if (pending) {
-					this.pendingRequests.delete(data.id);
-					pending.resolve(data as RpcResponse);
+					this.pendingRequests.delete(record.id);
+					pending.resolve(record as unknown as RpcResponse);
 					return;
 				}
 			}
 
 			// Otherwise it's an event
 			for (const listener of this.eventListeners) {
-				listener(data as AgentEvent);
+				listener(record as unknown as AgentEvent);
 			}
 		} catch {
 			// Ignore non-JSON lines

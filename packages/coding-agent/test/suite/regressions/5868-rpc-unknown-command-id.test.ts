@@ -110,4 +110,38 @@ describe("RPC unknown command responses (#5868)", () => {
 			restoreListeners(listenerSnapshot);
 		}
 	});
+
+	test("returns a parse error response for null, array, or untyped JSON commands without rejecting", async () => {
+		const listenerSnapshot = takeListenerSnapshot();
+		const harness = await createHarness();
+		const unhandled: unknown[] = [];
+		const onUnhandled = (reason: unknown) => unhandled.push(reason);
+		process.on("unhandledRejection", onUnhandled);
+
+		try {
+			void runRpcMode(createRuntimeHost(harness));
+			await vi.waitFor(() => expect(rpcIo.lineHandler).toBeDefined());
+
+			rpcIo.lineHandler?.("null");
+			rpcIo.lineHandler?.("[]");
+			rpcIo.lineHandler?.("{}");
+
+			await vi.waitFor(() => {
+				expect(parseOutputLines()).toHaveLength(3);
+			});
+			for (const response of parseOutputLines()) {
+				expect(response).toEqual({
+					type: "response",
+					command: "parse",
+					success: false,
+					error: "Failed to parse command: expected JSON object with string type",
+				});
+			}
+			expect(unhandled).toEqual([]);
+		} finally {
+			process.off("unhandledRejection", onUnhandled);
+			harness.cleanup();
+			restoreListeners(listenerSnapshot);
+		}
+	});
 });

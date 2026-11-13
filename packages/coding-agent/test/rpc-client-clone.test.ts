@@ -26,4 +26,18 @@ describe("RpcClient clone", () => {
 		expect(send).toHaveBeenCalledWith({ type: "clone" });
 		expect(result).toEqual({ cancelled: false });
 	});
+
+	it("ignores null, array, and untyped JSON stdout lines without throwing or emitting events", () => {
+		const client = new RpcClient();
+		const events: unknown[] = [];
+		client.onEvent((event) => events.push(event));
+
+		const internal = client as unknown as { handleLine: (line: string) => void };
+		expect(() => {
+			internal.handleLine("null");
+			internal.handleLine("[]");
+			internal.handleLine("{}");
+		}).not.toThrow();
+		expect(events).toEqual([]);
+	});
 });

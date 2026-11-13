@@ -762,13 +762,20 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			return;
 		}
 
-		// Handle extension UI responses
 		if (
-			typeof parsed === "object" &&
-			parsed !== null &&
-			"type" in parsed &&
-			parsed.type === "extension_ui_response"
+			typeof parsed !== "object" ||
+			parsed === null ||
+			Array.isArray(parsed) ||
+			typeof (parsed as { type?: unknown }).type !== "string"
 		) {
+			output(error(undefined, "parse", "Failed to parse command: expected JSON object with string type"));
+			await waitForRawStdoutBackpressure();
+			return;
+		}
+		const message = parsed as { type: string };
+
+		// Handle extension UI responses
+		if (message.type === "extension_ui_response") {
 			const response = parsed as RpcExtensionUIResponse;
 			const pending = pendingExtensionRequests.get(response.id);
 			if (pending) {
