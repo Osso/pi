@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { complete } from "../src/compat.ts";
 import { MODELS } from "../src/models.generated.ts";
-import type { Model } from "../src/types.ts";
+import type { Api, Model } from "../src/types.ts";
 
 describe.skipIf(!process.env.OPENCODE_API_KEY)("OpenCode Models Smoke Test", () => {
 	const providers = [
@@ -13,7 +13,7 @@ describe.skipIf(!process.env.OPENCODE_API_KEY)("OpenCode Models Smoke Test", () 
 		const providerModels = Object.values(MODELS[key]);
 		providerModels.forEach((model) => {
 			it(`${label}: ${model.id}`, async () => {
-				const response = await complete(model as Model<any>, {
+				const response = await complete(model as Model<Api>, {
 					messages: [{ role: "user", content: "Say hello.", timestamp: Date.now() }],
 				});
 

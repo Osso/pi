@@ -126,9 +126,10 @@ async function handleToolCall<TApi extends Api>(model: Model<TApi>, options?: St
 				expect(toolCall.name).toBe("math_operation");
 				JSON.parse(accumulatedToolArgs);
 				expect(toolCall.arguments).not.toBeUndefined();
-				expect((toolCall.arguments as any).a).toBe(15);
-				expect((toolCall.arguments as any).b).toBe(27);
-				expect((toolCall.arguments as any).operation).oneOf(["add", "subtract", "multiply", "divide"]);
+				const args = toolCall.arguments as { a?: unknown; b?: unknown; operation?: unknown };
+				expect(args.a).toBe(15);
+				expect(args.b).toBe(27);
+				expect(args.operation).oneOf(["add", "subtract", "multiply", "divide"]);
 			}
 		}
 	}
@@ -390,7 +391,8 @@ describe("Generate E2E Tests", () => {
 		});
 
 		it.skipIf(!vertexApiKey)("should complete basic text generation with Vertex API key", { retry: 3 }, async () => {
-			await basicTextGeneration(llm, { apiKey: vertexApiKey! });
+			if (!vertexApiKey) throw new Error("Expected GOOGLE_CLOUD_API_KEY");
+			await basicTextGeneration(llm, { apiKey: vertexApiKey });
 		});
 
 		it.skipIf(!isVertexConfigured)("should handle tool calling", { retry: 3 }, async () => {

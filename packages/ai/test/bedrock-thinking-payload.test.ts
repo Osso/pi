@@ -198,7 +198,12 @@ describe("Application inference profile support", () => {
 			name: "Claude Sonnet 4.6",
 		};
 
-		let capturedPayload: any;
+		let capturedPayload:
+			| {
+					system?: unknown[];
+					messages?: Array<{ content: unknown[] }>;
+			  }
+			| undefined;
 		const s = streamBedrock(
 			model,
 			{
@@ -207,7 +212,7 @@ describe("Application inference profile support", () => {
 			},
 			{
 				onPayload: (payload) => {
-					capturedPayload = payload;
+					capturedPayload = payload as typeof capturedPayload;
 					throw new PayloadCaptured();
 				},
 			},
@@ -218,12 +223,12 @@ describe("Application inference profile support", () => {
 		}
 
 		// System prompt should have a cache point
-		expect(capturedPayload.system).toHaveLength(2);
-		expect(capturedPayload.system[1]).toHaveProperty("cachePoint");
+		expect(capturedPayload?.system).toHaveLength(2);
+		expect(capturedPayload?.system?.[1]).toHaveProperty("cachePoint");
 
 		// Last user message should have a cache point
-		const lastMsg = capturedPayload.messages[capturedPayload.messages.length - 1];
-		const lastContent = lastMsg.content[lastMsg.content.length - 1];
+		const lastMsg = capturedPayload?.messages?.[capturedPayload.messages.length - 1];
+		const lastContent = lastMsg?.content[lastMsg.content.length - 1];
 		expect(lastContent).toHaveProperty("cachePoint");
 	});
 

@@ -74,7 +74,7 @@ describe("bedrock convertMessages skips unknown content types", () => {
 				content: [
 					{ type: "text", text: "hello" },
 					{ type: "unknown", data: "foo" },
-				] as any,
+				] as unknown as Extract<Message, { role: "user" }>["content"],
 				timestamp: Date.now(),
 			},
 		];
@@ -93,7 +93,7 @@ describe("bedrock convertMessages skips unknown content types", () => {
 				content: [
 					{ type: "text", text: "hello" },
 					{ type: "unknown", data: "foo" },
-				] as any,
+				] as unknown as Extract<Message, { role: "assistant" }>["content"],
 				api: "bedrock-converse-stream",
 				provider: "amazon-bedrock",
 				model: baseModel.id,
@@ -121,7 +121,7 @@ describe("bedrock convertMessages skips unknown content types", () => {
 		const messages: Message[] = [
 			{
 				role: "user",
-				content: [{ type: "unknown", data: "foo" }] as any,
+				content: [{ type: "unknown", data: "foo" }] as unknown as Extract<Message, { role: "user" }>["content"],
 				timestamp: Date.now(),
 			},
 		];
@@ -221,7 +221,10 @@ describe("bedrock convertMessages skips unknown content types", () => {
 		const messages: Message[] = [
 			{
 				role: "assistant",
-				content: [{ type: "unknown", data: "foo" }] as any,
+				content: [{ type: "unknown", data: "foo" }] as unknown as Extract<
+					Message,
+					{ role: "assistant" }
+				>["content"],
 				api: "bedrock-converse-stream",
 				provider: "amazon-bedrock",
 				model: baseModel.id,

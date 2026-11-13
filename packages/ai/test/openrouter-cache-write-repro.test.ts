@@ -28,7 +28,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)("OpenRouter cache_write repro E
 			};
 
 			const options = {
-				apiKey: process.env.OPENROUTER_API_KEY!,
+				apiKey: process.env.OPENROUTER_API_KEY ?? "",
 				maxTokens: 32,
 				temperature: 0,
 				onPayload: (payload: unknown) => {

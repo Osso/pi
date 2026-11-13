@@ -148,12 +148,12 @@ describe.skipIf(!process.env.OPENAI_API_KEY || !process.env.ANTHROPIC_API_KEY)(
 				tools: [testTool],
 			};
 
-			let capturedPayload: any = null;
+			let capturedPayload: { input?: Array<{ type?: string; id?: string }> } | undefined;
 			const response = await complete(modelB, context, {
 				apiKey,
 				reasoningEffort: "high",
 				onPayload: (payload) => {
-					capturedPayload = payload;
+					capturedPayload = payload as typeof capturedPayload;
 				},
 			});
 
@@ -163,9 +163,9 @@ describe.skipIf(!process.env.OPENAI_API_KEY || !process.env.ANTHROPIC_API_KEY)(
 			expect(response.content.length).toBeGreaterThan(0);
 
 			// Log what was sent for debugging
-			const input = capturedPayload?.input as any[];
-			const functionCalls = input?.filter((item: any) => item.type === "function_call") || [];
-			const reasoningItems = input?.filter((item: any) => item.type === "reasoning") || [];
+			const input = capturedPayload?.input;
+			const functionCalls = input?.filter((item) => item.type === "function_call") || [];
+			const reasoningItems = input?.filter((item) => item.type === "reasoning") || [];
 
 			console.log("Payload sent to API:");
 			console.log("- function_calls:", functionCalls.length);
@@ -174,8 +174,8 @@ describe.skipIf(!process.env.OPENAI_API_KEY || !process.env.ANTHROPIC_API_KEY)(
 
 			// Verify the model understood the context
 			const responseText = response.content
-				.filter((b) => b.type === "text")
-				.map((b) => (b as any).text)
+				.filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
+				.map((b) => b.text)
 				.join("");
 			expect(responseText).toContain("42");
 		});
@@ -251,19 +251,19 @@ describe.skipIf(!process.env.OPENAI_API_KEY || !process.env.ANTHROPIC_API_KEY)(
 				tools: [testTool],
 			};
 
-			let capturedPayload: any = null;
+			let capturedPayload: { input?: Array<{ type?: string; id?: string }> } | undefined;
 			const response = await complete(codexModel, context, {
 				apiKey: openaiApiKey,
 				reasoningEffort: "high",
 				onPayload: (payload) => {
-					capturedPayload = payload;
+					capturedPayload = payload as typeof capturedPayload;
 				},
 			});
 
 			// Log what was sent
-			const input = capturedPayload?.input as any[];
-			const functionCalls = input?.filter((item: any) => item.type === "function_call") || [];
-			const reasoningItems = input?.filter((item: any) => item.type === "reasoning") || [];
+			const input = capturedPayload?.input;
+			const functionCalls = input?.filter((item) => item.type === "function_call") || [];
+			const reasoningItems = input?.filter((item) => item.type === "reasoning") || [];
 
 			console.log("Payload sent to Codex:");
 			console.log("- function_calls:", functionCalls.length);
@@ -271,7 +271,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY || !process.env.ANTHROPIC_API_KEY)(
 			if (functionCalls.length > 0) {
 				console.log(
 					"- function_call IDs:",
-					functionCalls.map((fc: any) => fc.id),
+					functionCalls.map((fc) => fc.id),
 				);
 			}
 
@@ -282,8 +282,8 @@ describe.skipIf(!process.env.OPENAI_API_KEY || !process.env.ANTHROPIC_API_KEY)(
 
 			// Verify the model understood the context
 			const responseText = response.content
-				.filter((b) => b.type === "text")
-				.map((b) => (b as any).text)
+				.filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
+				.map((b) => b.text)
 				.join("");
 			expect(responseText).toContain("42");
 		});

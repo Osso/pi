@@ -43,7 +43,8 @@ describe("responseId E2E Tests", () => {
 		});
 
 		it.skipIf(!vertexApiKey)("should expose responseId with API key", { retry: 3, timeout: 30000 }, async () => {
-			await expectResponseId(llm, { apiKey: vertexApiKey! });
+			if (!vertexApiKey) throw new Error("Expected GOOGLE_CLOUD_API_KEY");
+			await expectResponseId(llm, { apiKey: vertexApiKey });
 		});
 	});
 

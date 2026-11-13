@@ -53,7 +53,7 @@
 			}
 		},
 		{
-			"includes": ["packages/ai/src/**/*.ts"],
+			"includes": ["packages/ai/**/*.ts"],
 			"linter": {
 				"rules": {
 					"style": {

@@ -65,7 +65,8 @@ describe("OpenAI Codex team provider", () => {
 			}));
 		}
 		for (const id of providerIds) {
-			const model = models.getModel(id, "gpt-6-sol")!;
+			const model = models.getModel(id, "gpt-6-sol");
+			if (!model) throw new Error(`Expected ${id}/gpt-6-sol`);
 			expect(await models.getAuth(model)).toEqual({ auth: { apiKey: `${id}-access` }, source: "OAuth" });
 			expect(await credentials.read(id)).toMatchObject({ access: `${id}-access` });
 		}
@@ -73,7 +74,8 @@ describe("OpenAI Codex team provider", () => {
 
 	it("preserves Codex tool-call history in team requests and reports the team provider", async () => {
 		const models = builtinModels();
-		const model = models.getModel("openai-codex-team", "gpt-6-sol")!;
+		const model = models.getModel("openai-codex-team", "gpt-6-sol");
+		if (!model) throw new Error("Expected openai-codex-team/gpt-6-sol");
 		const previous: AssistantMessage = {
 			role: "assistant",
 			api: "openai-codex-responses",

@@ -92,7 +92,7 @@ describe("Token Statistics on Abort", () => {
 	});
 
 	describe.skipIf(!process.env.OPENAI_API_KEY)("OpenAI Completions Provider", () => {
-		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini")!;
+		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini");
 		void _compat;
 		const llm: Model<"openai-completions"> = {
 			...baseModel,

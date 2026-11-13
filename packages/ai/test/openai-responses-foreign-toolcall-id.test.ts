@@ -58,7 +58,9 @@ describe("OpenAI Responses foreign tool call ID normalization", () => {
 			throw new Error("Expected function_call item");
 		}
 
-		const expectedItemId = `fc_${shortHash(COPILOT_RAW_TOOL_CALL_ID.split("|")[1]!)}`;
+		const rawItemId = COPILOT_RAW_TOOL_CALL_ID.split("|")[1];
+		if (!rawItemId) throw new Error("Expected pipe-delimited raw tool call id");
+		const expectedItemId = `fc_${shortHash(rawItemId)}`;
 		expect(functionCall.id).toBe(expectedItemId);
 		expect(functionCall.id?.length ?? 0).toBeLessThanOrEqual(64);
 		expect(functionCall.id).toMatch(/^fc_[A-Za-z0-9]+$/);

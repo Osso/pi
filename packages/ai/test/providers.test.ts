@@ -99,7 +99,8 @@ describe("builtin providers", () => {
 			authContext: fakeAuthContext({ ANTHROPIC_API_KEY: "key", ANTHROPIC_OAUTH_TOKEN: "oauth-token" }),
 		});
 		models.setProvider(anthropicProvider());
-		const model = models.getModel("anthropic", "claude-haiku-4-5")!;
+		const model = models.getModel("anthropic", "claude-haiku-4-5");
+		if (!model) throw new Error("Expected anthropic/claude-haiku-4-5");
 
 		const result = await models.getAuth(model);
 		expect(result?.auth.apiKey).toBe("oauth-token");

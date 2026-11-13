@@ -85,10 +85,14 @@ describe("faux provider", () => {
 		expect(registration.getModel("faux-fast")?.reasoning).toBe(false);
 		expect(registration.getModel("faux-thinker")?.reasoning).toBe(true);
 
-		const fast = await complete(registration.getModel("faux-fast")!, {
+		const fastModel = registration.getModel("faux-fast");
+		const thinkerModel = registration.getModel("faux-thinker");
+		if (!fastModel || !thinkerModel) throw new Error("Expected faux models");
+
+		const fast = await complete(fastModel, {
 			messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
 		});
-		const thinker = await complete(registration.getModel("faux-thinker")!, {
+		const thinker = await complete(thinkerModel, {
 			messages: [{ role: "user", content: "hi", timestamp: Date.now() }],
 		});
 

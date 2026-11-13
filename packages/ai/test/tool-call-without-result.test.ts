@@ -103,7 +103,7 @@ describe("Tool Call Without Result Tests", () => {
 	});
 
 	describe.skipIf(!process.env.OPENAI_API_KEY)("OpenAI Completions Provider", () => {
-		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini")!;
+		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini");
 		void _compat;
 		const model: Model<"openai-completions"> = {
 			...baseModel,

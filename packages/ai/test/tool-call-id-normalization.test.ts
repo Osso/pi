@@ -69,18 +69,18 @@ describe("Tool Call ID Normalization - Live Handoff", () => {
 
 			const toolCall = assistantResponse.content.find((c) => c.type === "toolCall");
 			expect(toolCall).toBeDefined();
-			expect(toolCall!.type).toBe("toolCall");
+			if (!toolCall || toolCall.type !== "toolCall") {
+				throw new Error("Expected toolCall block");
+			}
 
 			// Verify it's a pipe-separated ID (OpenAI Responses format)
-			if (toolCall?.type === "toolCall") {
-				expect(toolCall.id).toContain("|");
-				console.log(`Tool call ID from github-copilot: ${toolCall.id.slice(0, 80)}...`);
-			}
+			expect(toolCall.id).toContain("|");
+			console.log(`Tool call ID from github-copilot: ${toolCall.id.slice(0, 80)}...`);
 
 			// Create tool result
 			const toolResult: ToolResultMessage = {
 				role: "toolResult",
-				toolCallId: (toolCall as any).id,
+				toolCallId: toolCall.id,
 				toolName: "echo",
 				content: [{ type: "text", text: "hello world" }],
 				isError: false,
@@ -138,12 +138,14 @@ describe("Tool Call ID Normalization - Live Handoff", () => {
 			expect(assistantResponse.stopReason, `Copilot error: ${assistantResponse.errorMessage}`).toBe("toolUse");
 
 			const toolCall = assistantResponse.content.find((c) => c.type === "toolCall");
-			expect(toolCall).toBeDefined();
+			if (!toolCall || toolCall.type !== "toolCall") {
+				throw new Error("Expected toolCall block");
+			}
 
 			// Create tool result
 			const toolResult: ToolResultMessage = {
 				role: "toolResult",
-				toolCallId: (toolCall as any).id,
+				toolCallId: toolCall.id,
 				toolName: "echo",
 				content: [{ type: "text", text: "test message" }],
 				isError: false,

@@ -74,8 +74,9 @@ describe("Copilot Claude via Anthropic Messages", () => {
 			if (event.type === "error") break;
 		}
 
-		const opts = mockState.constructorOpts!;
+		const opts = mockState.constructorOpts;
 		expect(opts).toBeDefined();
+		if (!opts) throw new Error("Expected constructorOpts");
 
 		// Auth: apiKey null, authToken for Bearer
 		expect(opts.apiKey).toBeNull();
@@ -95,7 +96,9 @@ describe("Copilot Claude via Anthropic Messages", () => {
 		expect(beta).not.toContain("fine-grained-tool-streaming");
 
 		// Payload is valid Anthropic Messages format
-		const params = mockState.createParams!;
+		const params = mockState.createParams;
+		expect(params).toBeDefined();
+		if (!params) throw new Error("Expected createParams");
 		expect(params.model).toBe("claude-sonnet-4.6");
 		expect(params.stream).toBe(true);
 		expect(params.max_tokens).toBe(model.maxTokens);
@@ -112,7 +115,7 @@ describe("Copilot Claude via Anthropic Messages", () => {
 			if (event.type === "error") break;
 		}
 
-		const headers = mockState.constructorOpts!.defaultHeaders as Record<string, string>;
-		expect(headers["anthropic-beta"] ?? "").not.toContain("interleaved-thinking-2025-05-14");
+		const headers = mockState.constructorOpts?.defaultHeaders as Record<string, string> | undefined;
+		expect(headers?.["anthropic-beta"] ?? "").not.toContain("interleaved-thinking-2025-05-14");
 	});
 });

@@ -90,7 +90,8 @@ describe("ImagesModels", () => {
 		const calls: GenerateCall[] = [];
 		const models = createImagesModels({ authContext: fakeAuthContext({ TEST_KEY: "env-key" }) });
 		models.setProvider(testProvider({ id: "p1", envVar: "TEST_KEY", calls }));
-		const model = models.getModel("p1", "model-a")!;
+		const model = models.getModel("p1", "model-a");
+		if (!model) throw new Error("Expected p1/model-a");
 
 		expect((await models.getAuth(model))?.auth.apiKey).toBe("env-key");
 
@@ -126,7 +127,8 @@ describe("ImagesModels", () => {
 				},
 			}),
 		);
-		const model = models.getModel("p1", "model-a")!;
+		const model = models.getModel("p1", "model-a");
+		if (!model) throw new Error("Expected p1/model-a");
 
 		await models.generateImages(model, context, {
 			apiKey: "request-key",
@@ -150,7 +152,8 @@ describe("ImagesModels", () => {
 		// unconfigured (resolve -> undefined) still dispatches; provider decides what to do
 		const calls: GenerateCall[] = [];
 		models.setProvider(testProvider({ id: "p1", envVar: "MISSING", calls }));
-		const model = models.getModel("p1", "model-a")!;
+		const model = models.getModel("p1", "model-a");
+		if (!model) throw new Error("Expected p1/model-a");
 		expect(await models.getAuth(model)).toBeUndefined();
 		await models.generateImages(model, context);
 		expect(calls[0].options?.apiKey).toBeUndefined();

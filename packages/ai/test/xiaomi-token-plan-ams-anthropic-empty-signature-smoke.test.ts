@@ -101,13 +101,12 @@ describe.skipIf(!apiKey)("Xiaomi Token Plan AMS Anthropic empty thinking signatu
 		const replayPayload = await captureReplayPayload(replayContext);
 		const assistantPayload = replayPayload.messages?.find((message) => message.role === "assistant");
 		expect(assistantPayload).toBeDefined();
-		expect(Array.isArray(assistantPayload!.content)).toBe(true);
-		const replayedThinking = (assistantPayload!.content as Array<{ type: string; text?: string }>).filter(
-			(block) => block.type === "thinking",
-		);
-		const replayedText = (assistantPayload!.content as Array<{ type: string; text?: string }>).filter(
-			(block) => block.type === "text",
-		);
+		if (!assistantPayload || !Array.isArray(assistantPayload.content)) {
+			throw new Error("Expected assistant payload with array content");
+		}
+		const contentBlocks = assistantPayload.content as Array<{ type: string; text?: string }>;
+		const replayedThinking = contentBlocks.filter((block) => block.type === "thinking");
+		const replayedText = contentBlocks.filter((block) => block.type === "text");
 		expect(replayedThinking).toEqual([{ type: "thinking", thinking: thinkingBlocks[0].thinking, signature: "" }]);
 		expect(replayedText.some((block) => block.text === thinkingBlocks[0].thinking)).toBe(false);
 	});

@@ -110,7 +110,7 @@ describe("AI Providers Abort Tests", () => {
 	});
 
 	describe.skipIf(!process.env.OPENAI_API_KEY)("OpenAI Completions Provider Abort", () => {
-		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini")!;
+		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini");
 		void _compat;
 		const llm: Model<"openai-completions"> = {
 			...baseModel,
