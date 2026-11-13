@@ -970,7 +970,8 @@ export async function compact(
 						env,
 						sessionId,
 					)
-				: "No prior history.";
+				: // The kept turn began before the previous compaction: carry its summary forward unchanged.
+					(previousSummary ?? "No prior history.");
 		const turnPrefixResult = await generateTurnPrefixSummary(
 			turnPrefixMessages,
 			model,

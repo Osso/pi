@@ -439,6 +439,7 @@
 - Fixed project settings replacing whole second-level objects from global settings instead of merging them, so a project that set only `agents.explore.thinkingLevel` dropped the global `agents.explore.model` (also `retry.provider` and `permissionRules.allow`).
 - Fixed an invalid `keybindings.json` (for example a trailing comma) silently dropping every custom keybinding; interactive mode now shows `keybindings.json error: ...` at startup and after `/reload`.
 - Fixed RPC `switch_session` with a path that does not exist creating a new empty session there and reporting success; it now returns `Session not found: <path>` and keeps the current session (archived `.zst` sessions still resume). `pi --session <path>` is unchanged.
+- Fixed repeated compaction discarding the previous compaction summary when it split a long turn that the previous compaction had kept: the summary became `No prior history.` plus the turn prefix, so all earlier history was lost. The previous summary is now carried forward.
 
 ### Changed
 

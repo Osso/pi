@@ -32,6 +32,7 @@
 - Fixed harness split-turn compaction to serialize summary requests so single-concurrency providers are not asked to run overlapping generations ([#5536](https://github.com/earendil-works/pi/issues/5536)).
 - Fixed harness compaction to split a boundary-start active turn once cumulative assistant/tool context exceeds the protected suffix, while retaining later active turns whole when older compactable history exists.
 - Fixed `formatPromptTemplateInvocation` substituting placeholders found inside argument values: an argument such as `use $@ here` was expanded again instead of being inserted literally.
+- Fixed repeated compaction discarding the previous compaction summary when it split a long turn that the previous compaction had kept: the summary became `No prior history.` plus the turn prefix, so all earlier history was lost. The previous summary is now carried forward.
 
 ## [0.80.3] - 2026-06-30
 

@@ -694,7 +694,8 @@ export async function compact(
 						previousSummary,
 						thinkingLevel,
 					)
-				: ok<string, CompactionError>("No prior history.");
+				: // The kept turn began before the previous compaction: carry its summary forward unchanged.
+					ok<string, CompactionError>(previousSummary ?? "No prior history.");
 		if (!historyResult.ok) return err(historyResult.error);
 		const turnPrefixResult = await generateTurnPrefixSummary(
 			turnPrefixMessages,

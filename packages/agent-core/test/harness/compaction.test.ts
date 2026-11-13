@@ -851,6 +851,27 @@ describe("harness compaction", () => {
 		expect(seenOptions[0]).not.toHaveProperty("reasoning");
 	});
 
+	it("keeps the previous summary when a split turn has no new history to summarize", async () => {
+		const { faux, model } = createFauxModel(false);
+		faux.setResponses([fauxAssistantMessage("## Original Request\nRefactor the parser")]);
+		const preparation: CompactionPreparation = {
+			firstKeptEntryId: "entry-keep",
+			messagesToSummarize: [],
+			turnPrefixMessages: [createUserMessage("Refactor the parser")],
+			isSplitTurn: true,
+			previousSummary: "FIRST SUMMARY: deadline Friday",
+			tokensBefore: 100,
+			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			settings: { enabled: true, reserveTokens: 2000, keepRecentMessages: 20 },
+		};
+
+		const result = getOrThrow(await compact(preparation, models, model));
+
+		expect(result.summary).toMatch(
+			/^FIRST SUMMARY: deadline Friday\n\n---\n\n\*\*Turn Context \(split turn\):\*\*\n\n## Original Request\nRefactor the parser/,
+		);
+	});
+
 	it("returns turn-prefix compaction errors without throwing", async () => {
 		const messages: AgentMessage[] = [createUserMessage("Summarize this.")];
 		const preparation: CompactionPreparation = {
