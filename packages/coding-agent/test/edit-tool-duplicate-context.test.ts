@@ -35,4 +35,12 @@ describe("edit tool duplicate match errors", () => {
 			),
 		).toThrowError(/Found 2 occurrences of edits\[1\] in sample\.txt\.[\s\S]*1\) line 2[\s\S]*2\) line 4/);
 	});
+
+	it("does not show an empty line after the final newline as file context", () => {
+		expect(() =>
+			applyEditsToNormalizedContent("x = 1\nx = 1\n", [{ oldText: "x = 1", newText: "x = 2" }], "dup.txt"),
+		).toThrowError(
+			"Duplicate match context:\n1) line 1\n> 1: x = 1\n  2: x = 1\n\n2) line 2\n  1: x = 1\n> 2: x = 1",
+		);
+	});
 });

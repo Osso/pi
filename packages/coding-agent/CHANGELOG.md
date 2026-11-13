@@ -430,6 +430,7 @@
 - Fixed the `read` tool showing the line cut off by its 10KB head read of large files as a complete line and then pointing the continuation offset past it, so that line was never shown in full; a first line longer than 10KB now gets the `sed` hint instead of a fragment.
 - Fixed the `grep` tool with `context` printing a line twice when the context windows of two matches overlapped, and printing an empty line past the end of files that end with a newline.
 - Fixed RPC `bash` running the literal shell command `undefined` (or a number) when `command` was missing or not a string, and adding that run to the conversation context; it now returns `command must be a string`.
+- Fixed the `edit` tool's duplicate-match error showing a non-existent empty line after the last line of files that end with a newline.
 
 ### Changed
 

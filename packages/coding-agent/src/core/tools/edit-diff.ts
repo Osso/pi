@@ -340,6 +340,8 @@ function formatDuplicateMatchContexts(
 	}
 
 	const lines = content.split("\n");
+	// A final newline ends the last line; it does not start another one.
+	if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
 	const lineNumberWidth = String(lines.length).length;
 	const shownOccurrences = occurrences.slice(0, maxMatches);
 	const blocks = shownOccurrences.map((occurrence, occurrenceIndex) => {
