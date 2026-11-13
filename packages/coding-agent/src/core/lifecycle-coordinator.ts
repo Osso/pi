@@ -319,7 +319,29 @@ export class LifecycleCoordinator {
 	}
 
 	prepareChild(input: PrepareChildCommandInput): AgentSnapshot {
-		return this.buildChildSnapshot(input);
+		const nowIso = this.options.now();
+		return {
+			account: input.account,
+			agentType: input.agentType,
+			createdAt: nowIso,
+			cwd: input.cwd,
+			detached: input.detached,
+			displayName: input.displayName,
+			eventStream: input.eventStream,
+			id: input.agentId ?? this.options.createAgentId(),
+			lifecycle: "running",
+			model: input.model,
+			origin: input.origin,
+			parentId: input.parentId ?? MAIN_THREAD_AGENT_ID,
+			permission: { ...input.permission },
+			result: input.result,
+			revision: 1,
+			slot: input.slot,
+			transcript: input.transcript,
+			updatedAt: nowIso,
+			worker: input.worker,
+			worktree: input.worktree,
+		};
 	}
 
 	commitFailedChild(agent: AgentSnapshot, error: NonNullable<AgentSnapshot["error"]>): CommitFailedChildCommandResult {
@@ -347,41 +369,6 @@ export class LifecycleCoordinator {
 		if (agent.lifecycle !== "running" || agent.revision !== 1) {
 			throw new Error("Constructed child must enter persistence as running revision 1");
 		}
-		return this.persistChildWithOwnership(agent, ownerSessionId, processIdentity, ownerAgentId);
-	}
-
-	private buildChildSnapshot(input: PrepareChildCommandInput): AgentSnapshot {
-		const nowIso = this.options.now();
-		return {
-			account: input.account,
-			agentType: input.agentType,
-			createdAt: nowIso,
-			cwd: input.cwd,
-			detached: input.detached,
-			displayName: input.displayName,
-			eventStream: input.eventStream,
-			id: input.agentId ?? this.options.createAgentId(),
-			lifecycle: "running",
-			model: input.model,
-			origin: input.origin,
-			parentId: input.parentId ?? MAIN_THREAD_AGENT_ID,
-			permission: { ...input.permission },
-			result: input.result,
-			revision: 1,
-			slot: input.slot,
-			transcript: input.transcript,
-			updatedAt: nowIso,
-			worker: input.worker,
-			worktree: input.worktree,
-		};
-	}
-
-	private persistChildWithOwnership(
-		agent: AgentSnapshot,
-		ownerSessionId: string,
-		processIdentity: ProcessIdentity,
-		ownerAgentId: string | null,
-	): CreateChildCommandResult {
 		const result = createMultiAgentChildWithRuntimeOwnership(this.options.controlDbPath, {
 			agent,
 			agentId: agent.id,
