@@ -408,6 +408,7 @@
 - Fixed compaction and branch summarization failing on claude-bridge with prompt-capture errors by marking summary requests as uncached one-off calls (`cacheRetention: "none"`).
 - Fixed `attach_session_agent` by path losing the session's display name; attached agents now default to the control-DB session name, then the original sub-agent name, before `Session <id>`.
 - Fixed malformed persisted process identity JSON breaking lifecycle traces; invalid relay mailbox data now reports a contextual error.
+- Fixed interactive mode exiting with `pi exiting due to uncaughtException` when a submitted command or async keybinding rejected, such as `/continue` without a selected model or valid credentials; the error now appears in the chat.
 
 ### Changed
 

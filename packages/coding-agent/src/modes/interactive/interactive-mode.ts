@@ -176,6 +176,17 @@ const MAX_CHILD_TRANSCRIPT_RELOAD_RETRIES = 3;
 const CHILD_WORKING_LIFECYCLES = new Set<AgentLifecycleState>(["running", "steering_pending", "cancelling"]);
 const CHILD_STEERABLE_LIFECYCLES = new Set<AgentLifecycleState>(["running", "waiting_for_input", "steering_pending"]);
 
+/**
+ * The editor drops the promises returned by submit and keybinding handlers, so a rejection would end
+ * the process as an unhandled rejection. Report it in the chat instead.
+ */
+function reportAsyncFailure(task: Promise<unknown>, showError: (message: string) => void): Promise<void> {
+	return task.then(
+		() => undefined,
+		(error: unknown) => showError(error instanceof Error ? error.message : String(error)),
+	);
+}
+
 import { AgentSwitcherComponent } from "./components/agent-switcher.ts";
 import { ApprovalSelectorComponent } from "./components/approval-selector.ts";
 import { ArminComponent } from "./components/armin.ts";
@@ -3785,23 +3796,28 @@ export class InteractiveMode {
 		this.defaultEditor.onCtrlD = () => this.handleCtrlD();
 		this.defaultEditor.onAction("app.suspend", () => this.handleCtrlZ());
 		this.defaultEditor.onAction("app.thinking.cycle", () => this.cycleThinkingLevel());
-		this.defaultEditor.onAction("app.model.cycleForward", () => this.cycleModel("forward"));
-		this.defaultEditor.onAction("app.model.cycleBackward", () => this.cycleModel("backward"));
+		const showError = (message: string) => this.showError(message);
+		this.defaultEditor.onAction("app.model.cycleForward", () =>
+			reportAsyncFailure(this.cycleModel("forward"), showError),
+		);
+		this.defaultEditor.onAction("app.model.cycleBackward", () =>
+			reportAsyncFailure(this.cycleModel("backward"), showError),
+		);
 
 		// Global debug shortcut uses the same registered extension command as editor input.
 		this.ui.onDebug = () => {
-			void this.session.prompt("/debug").catch((error: unknown) => {
-				this.showError(error instanceof Error ? error.message : String(error));
-			});
+			void reportAsyncFailure(this.session.prompt("/debug"), showError);
 		};
 		this.defaultEditor.onAction("app.model.select", () => this.showModelSelector());
 		this.defaultEditor.onAction("app.tools.expand", () => this.toggleToolOutputExpansion());
 		this.defaultEditor.onAction("app.tool.background", () => this.detachRunningTool());
 		this.defaultEditor.onAction("app.thinking.toggle", () => this.toggleThinkingBlockVisibility());
-		this.defaultEditor.onAction("app.editor.external", () => this.openExternalEditor());
-		this.defaultEditor.onAction("app.message.followUp", () => this.handleFollowUp());
+		this.defaultEditor.onAction("app.editor.external", () =>
+			reportAsyncFailure(this.openExternalEditor(), showError),
+		);
+		this.defaultEditor.onAction("app.message.followUp", () => reportAsyncFailure(this.handleFollowUp(), showError));
 		this.defaultEditor.onAction("app.message.dequeue", () => this.handleDequeue());
-		this.defaultEditor.onAction("app.session.new", () => this.handleClearCommand());
+		this.defaultEditor.onAction("app.session.new", () => reportAsyncFailure(this.handleClearCommand(), showError));
 		this.defaultEditor.onAction("app.session.tree", () => this.showTreeSelector());
 		this.defaultEditor.onAction("app.session.fork", () => this.showUserMessageSelector());
 		this.defaultEditor.onAction("app.session.resume", () => this.showSessionSelector());
@@ -3999,7 +4015,7 @@ export class InteractiveMode {
 	}
 
 	private setupEditorSubmitHandler(): void {
-		this.defaultEditor.onSubmit = async (text: string) => {
+		const submit = async (text: string): Promise<void> => {
 			const submittedText = text;
 			text = text.trim();
 			if (!text) return;
@@ -4225,6 +4241,8 @@ export class InteractiveMode {
 			}
 			this.addSubmittedTextToHistory(text);
 		};
+		this.defaultEditor.onSubmit = (text: string) =>
+			reportAsyncFailure(submit(text), (message) => this.showError(message));
 	}
 
 	private subscribeToAgent(): void {
