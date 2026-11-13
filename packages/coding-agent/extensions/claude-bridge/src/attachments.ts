@@ -81,14 +81,16 @@ export function collectCarriedAttachments(records: readonly JsonlRecord[]): Carr
 		// message. Inherit the ordinal so the whole run keys to the prompt that
 		// caused it. Recorded for every attachment, not just the ones carried, since
 		// a content-bearing one can chain off a `skill_listing` we ignore.
-		if (parent === null || !ordinalOf.has(parent)) continue;
-		const inherited = ordinalOf.get(parent)!;
+		if (parent === null) continue;
+		const inherited = ordinalOf.get(parent);
+		const parentText = textOf.get(parent);
+		if (inherited === undefined || parentText === undefined) continue;
 		ordinalOf.set(record.uuid as string, inherited);
-		textOf.set(record.uuid as string, textOf.get(parent)!);
+		textOf.set(record.uuid as string, parentText);
 
 		const attachment = record.attachment as { type: string; [key: string]: unknown } | undefined;
 		if (!attachment || !CONTENT_BEARING.has(attachment.type)) continue;
-		carried.push({ attachment, userOrdinal: inherited, parentText: textOf.get(parent)! });
+		carried.push({ attachment, userOrdinal: inherited, parentText });
 	}
 	return carried;
 }

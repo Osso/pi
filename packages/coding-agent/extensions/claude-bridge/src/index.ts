@@ -1,4 +1,10 @@
-import { type EffortLevel, query, type SDKMessage, type SettingSource } from "@anthropic-ai/claude-agent-sdk";
+import {
+	type EffortLevel,
+	query,
+	type SDKMessage,
+	type SDKPartialAssistantMessage,
+	type SettingSource,
+} from "@anthropic-ai/claude-agent-sdk";
 import type { Base64ImageSource, ContentBlockParam } from "@anthropic-ai/sdk/resources";
 import {
 	type Api,
@@ -11,6 +17,7 @@ import {
 	type SimpleStreamOptions,
 	type TextContent,
 	type Tool,
+	type ToolCall,
 	type UserMessage,
 } from "@earendil-works/pi-ai";
 import { getModels } from "@earendil-works/pi-ai/compat";
@@ -411,7 +418,7 @@ function emitAccountPreparationFailure(
 /** The Pi request each claimed stream answers, so a quota-rejected query can be served again. */
 const piRequests = new WeakMap<
 	AssistantMessageEventStream,
-	{ model: Model<any>; context: Context; options?: SimpleStreamOptions }
+	{ model: Model<Api>; context: Context; options?: SimpleStreamOptions }
 >();
 
 /** A subscription limit rejected this query before any output reached Pi, and the account
@@ -876,7 +883,7 @@ function extractUserPromptBlocks(messages: Context["messages"]): ContentBlockPar
 }
 
 function newAssistantOutput(
-	model: Model<any>,
+	model: Model<Api>,
 	text: string,
 	stopReason: AssistantMessage["stopReason"],
 	errorMessage?: string,
@@ -959,7 +966,7 @@ interface IsolatedAttempt {
 /** Drain one isolated query: its text, its failure, and the rate-limit rejection that caused it. */
 async function consumeIsolatedQuery(
 	sdkQuery: ReturnType<typeof query>,
-	model: Model<any>,
+	model: Model<Api>,
 	aborted: () => boolean,
 ): Promise<IsolatedAttempt> {
 	let assistantText = "";
@@ -977,11 +984,11 @@ async function consumeIsolatedQuery(
 		if (aborted()) break;
 
 		if (message.type === "assistant") {
-			for (const block of (message as any).message?.content ?? []) {
+			for (const block of message.message?.content ?? []) {
 				if (block.type === "text" && typeof block.text === "string") assistantText += block.text;
 			}
 		} else if (message.type === "rate_limit_event") {
-			const info = (message as any).rate_limit_info;
+			const info = message.rate_limit_info;
 			if (info?.status === "rejected") rejection = info;
 		} else if (message.type === "result") {
 			logServedContextWindow("compact summary", message, model);
@@ -1014,7 +1021,7 @@ async function consumeIsolatedQueryWithAuthTrace(
 }
 
 function isolatedStreamFn(
-	model: Model<any>,
+	model: Model<Api>,
 	context: Context,
 	options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
@@ -1024,7 +1031,7 @@ function isolatedStreamFn(
 }
 
 async function runIsolatedSummary(
-	model: Model<any>,
+	model: Model<Api>,
 	context: Context,
 	options: SimpleStreamOptions | undefined,
 	stream: AssistantMessageEventStream,
@@ -1370,9 +1377,9 @@ function syncSharedSession(
 	const nativeSessionId = previousSessionId ?? recordedSessionFor(piSessionId, cwd);
 	// Before deleteSession — it wipes the file these live in.
 	const native = nativeSessionId !== undefined ? readPreviousSession(nativeSessionId, cwd) : [];
-	if (preserveId) {
+	if (preserveId && previousSessionId !== undefined) {
 		// Wipe prior jsonl + companion dir (no-op if nothing to wipe).
-		deleteSession(previousSessionId!, cwd, process.env.CLAUDE_CONFIG_DIR);
+		deleteSession(previousSessionId, cwd, process.env.CLAUDE_CONFIG_DIR);
 	}
 	const session = createSession({
 		projectPath: cwd,
@@ -1696,13 +1703,13 @@ function buildMcpServers(
 		description: tool.description,
 		inputSchema: tool.parameters,
 		handler: async (toolCallId: string) => {
-			if (queryCtx.pendingResults.has(toolCallId)) {
-				const result = queryCtx.pendingResults.get(toolCallId)!;
+			const queuedResult = queryCtx.pendingResults.get(toolCallId);
+			if (queuedResult !== undefined) {
 				queryCtx.pendingResults.delete(toolCallId);
 				debug(
 					`mcp handler: ${tool.name} [${toolCallId}] → resolved from queue (${queryCtx.pendingResults.size} remaining)`,
 				);
-				return result;
+				return queuedResult;
 			}
 			debug(`mcp handler: ${tool.name} [${toolCallId}] → waiting`);
 			return new Promise<McpResult>((resolve) => {
@@ -1717,7 +1724,7 @@ function buildMcpServers(
 
 // The counter mapping lives in usage.ts; the debug line is this side's job, so every
 // call site logs the same way rather than three times over.
-function recordUsage(output: AssistantMessage, usage: SdkUsage, model: Model<any>): void {
+function recordUsage(output: AssistantMessage, usage: SdkUsage, model: Model<Api>): void {
 	const { cachePct, reasoning } = updateUsage(output, usage, model);
 	const reasoningText = reasoning == null ? "" : ` reasoning=${reasoning}`;
 	debug(
@@ -1731,10 +1738,9 @@ function recordUsage(output: AssistantMessage, usage: SdkUsage, model: Model<any
 // match the docs — e.g. bare Opus served 200K on Pro, or [1m] not honored.
 // The result message's modelUsage is otherwise discarded; this makes the
 // gap observable. See issue #18.
-function logServedContextWindow(label: string, message: SDKMessage, model: Model<any>): void {
-	const modelUsage = (message as any).modelUsage as
-		| Record<string, { contextWindow?: number; maxOutputTokens?: number }>
-		| undefined;
+function logServedContextWindow(label: string, message: SDKMessage, model: Model<Api>): void {
+	if (message.type !== "result") return;
+	const modelUsage = message.modelUsage;
 	if (!modelUsage) return;
 	for (const [k, v] of Object.entries(modelUsage)) {
 		debug(
@@ -1809,42 +1815,47 @@ function claimCurrentPiStream(stream: AssistantMessageEventStream, label: string
 }
 
 function ensureTurnStarted(c: QueryContext): void {
-	if (!c.turnStarted && c.currentPiStream && c.turnOutput) {
-		c.currentPiStream!.push({ type: "start", partial: c.turnOutput });
+	const stream = c.currentPiStream;
+	const output = c.turnOutput;
+	if (!c.turnStarted && stream && output) {
+		stream.push({ type: "start", partial: output });
 		c.turnStarted = true;
 	}
 }
 
 function finalizeCurrentStream(c: QueryContext, stopReason?: string): void {
-	if (!c.currentPiStream || !c.turnOutput) return;
+	const stream = c.currentPiStream;
+	const output = c.turnOutput;
+	if (!stream || !output) return;
 	debug(
-		`provider: finalizeCurrentStream called, stopReason=${stopReason}, turnOutput=${JSON.stringify({ stopReason: c.turnOutput!.stopReason, error: c.turnOutput!.errorMessage })}`,
+		`provider: finalizeCurrentStream called, stopReason=${stopReason}, turnOutput=${JSON.stringify({ stopReason: output.stopReason, error: output.errorMessage })}`,
 	);
 	if (!c.turnStarted) ensureTurnStarted(c);
-	c.shapeTrace?.recordPi("pi_final", c.turnOutput, c.turnStreamMessageId);
-	const stream = c.currentPiStream;
-	if (c.turnOutput.stopReason === "error") {
-		stream!.push({ type: "error", reason: "error", error: c.turnOutput });
+	c.shapeTrace?.recordPi("pi_final", output, c.turnStreamMessageId);
+	if (output.stopReason === "error") {
+		stream.push({ type: "error", reason: "error", error: output });
 	} else {
 		const reason = stopReason === "length" ? "length" : "stop";
-		stream!.push({ type: "done", reason, message: c.turnOutput });
+		stream.push({ type: "done", reason, message: output });
 	}
 	markStreamComplete(stream);
-	stream!.end();
+	stream.end();
 	c.currentPiStream = null;
 }
 
 /** Maps Anthropic stream events to pi stream events (text, thinking, toolcall).
  *  On message_stop with tool_use: ends currentPiStream so pi can execute the tool. */
 function processStreamEvent(
-	message: SDKMessage,
+	message: SDKPartialAssistantMessage,
 	customToolNameToPi: Map<string, string>,
-	model: Model<any>,
+	model: Model<Api>,
 	c: QueryContext,
 ): void {
-	if (!c.currentPiStream || !c.turnOutput) return;
+	const stream = c.currentPiStream;
+	const output = c.turnOutput;
+	if (!stream || !output) return;
 	c.turnSawStreamEvent = true;
-	const event = (message as SDKMessage & { event: any }).event;
+	const event: SDKPartialAssistantMessage["event"] | { type: "ping" } = message.event;
 
 	if (event?.type === "message_start") {
 		// Still open from an earlier message_start: Claude Code gave up on that
@@ -1854,7 +1865,7 @@ function processStreamEvent(
 		c.turnStreamMessageId = event.message?.id;
 		c.turnStreamOpen = true;
 		c.turnStreamBlockStart = c.turnBlocks.length;
-		if (event.message?.usage) recordUsage(c.turnOutput, event.message.usage, model);
+		if (event.message?.usage) recordUsage(output, event.message.usage, model);
 		return;
 	}
 
@@ -1862,13 +1873,13 @@ function processStreamEvent(
 		ensureTurnStarted(c);
 		if (event.content_block?.type === "text") {
 			c.turnBlocks.push({ type: "text", text: "", index: event.index });
-			c.currentPiStream!.push({ type: "text_start", contentIndex: c.turnBlocks.length - 1, partial: c.turnOutput });
+			stream.push({ type: "text_start", contentIndex: c.turnBlocks.length - 1, partial: output });
 		} else if (event.content_block?.type === "thinking") {
 			c.turnBlocks.push({ type: "thinking", thinking: "", thinkingSignature: "", index: event.index });
-			c.currentPiStream!.push({
+			stream.push({
 				type: "thinking_start",
 				contentIndex: c.turnBlocks.length - 1,
-				partial: c.turnOutput,
+				partial: output,
 			});
 		} else if (event.content_block?.type === "tool_use") {
 			const piName = piToolNameFor(event.content_block.name, customToolNameToPi);
@@ -1888,10 +1899,10 @@ function processStreamEvent(
 				partialJson: "",
 				index: event.index,
 			});
-			c.currentPiStream!.push({
+			stream.push({
 				type: "toolcall_start",
 				contentIndex: c.turnBlocks.length - 1,
-				partial: c.turnOutput,
+				partial: output,
 			});
 		} else {
 			debug("processStreamEvent: unhandled content_block_start type", event.content_block?.type);
@@ -1900,33 +1911,33 @@ function processStreamEvent(
 	}
 
 	if (event?.type === "content_block_delta") {
-		const index = c.turnBlocks.findIndex((b: any) => b.index === event.index);
+		const index = c.turnBlocks.findIndex((b) => b.index === event.index);
 		const block = c.turnBlocks[index];
 		if (!block) return;
 		if (event.delta?.type === "text_delta" && block.type === "text") {
 			block.text += event.delta.text;
-			c.currentPiStream!.push({
+			stream.push({
 				type: "text_delta",
 				contentIndex: index,
 				delta: event.delta.text,
-				partial: c.turnOutput,
+				partial: output,
 			});
 		} else if (event.delta?.type === "thinking_delta" && block.type === "thinking") {
 			block.thinking += event.delta.thinking;
-			c.currentPiStream!.push({
+			stream.push({
 				type: "thinking_delta",
 				contentIndex: index,
 				delta: event.delta.thinking,
-				partial: c.turnOutput,
+				partial: output,
 			});
 		} else if (event.delta?.type === "input_json_delta" && block.type === "toolCall") {
 			block.partialJson = (block.partialJson ?? "") + event.delta.partial_json;
 			block.arguments = parsePartialJson(block.partialJson, block.arguments);
-			c.currentPiStream!.push({
+			stream.push({
 				type: "toolcall_delta",
 				contentIndex: index,
 				delta: event.delta.partial_json,
-				partial: c.turnOutput,
+				partial: output,
 			});
 		} else if (event.delta?.type === "signature_delta" && block.type === "thinking") {
 			block.thinkingSignature = (block.thinkingSignature ?? "") + event.delta.signature;
@@ -1937,31 +1948,31 @@ function processStreamEvent(
 	}
 
 	if (event?.type === "content_block_stop") {
-		const index = c.turnBlocks.findIndex((b: any) => b.index === event.index);
+		const index = c.turnBlocks.findIndex((b) => b.index === event.index);
 		const block = c.turnBlocks[index];
 		if (!block) return;
 		delete block.index;
 		if (block.type === "text") {
-			c.currentPiStream!.push({ type: "text_end", contentIndex: index, content: block.text, partial: c.turnOutput });
+			stream.push({ type: "text_end", contentIndex: index, content: block.text, partial: output });
 		} else if (block.type === "thinking") {
-			c.currentPiStream!.push({
+			stream.push({
 				type: "thinking_end",
 				contentIndex: index,
 				content: block.thinking,
-				partial: c.turnOutput,
+				partial: output,
 			});
 		} else if (block.type === "toolCall") {
 			c.turnSawToolCall = true;
 			block.arguments = mapToolArgs(block.name, parsePartialJson(block.partialJson ?? "", block.arguments));
 			delete block.partialJson;
-			c.currentPiStream!.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: c.turnOutput });
+			stream.push({ type: "toolcall_end", contentIndex: index, toolCall: block, partial: output });
 		}
 		return;
 	}
 
 	if (event?.type === "message_delta") {
-		c.turnOutput.stopReason = mapStopReason(event.delta?.stop_reason);
-		if (event.usage) recordUsage(c.turnOutput, event.usage, model);
+		output.stopReason = mapStopReason(event.delta?.stop_reason ?? undefined);
+		if (event.usage) recordUsage(output, event.usage, model);
 		return;
 	}
 
@@ -1972,12 +1983,11 @@ function processStreamEvent(
 		// assistant message for this turn, but currentPiStream=null causes
 		// consumeQuery to skip it. The MCP handler blocks the generator until
 		// pi delivers the tool result via the next streamSimple call.
-		c.turnOutput.stopReason = "toolUse";
-		c.shapeTrace?.recordPi("pi_tool_boundary", c.turnOutput, c.turnStreamMessageId);
-		const stream = c.currentPiStream;
-		stream!.push({ type: "done", reason: "toolUse", message: c.turnOutput });
+		output.stopReason = "toolUse";
+		c.shapeTrace?.recordPi("pi_tool_boundary", output, c.turnStreamMessageId);
+		stream.push({ type: "done", reason: "toolUse", message: output });
 		markStreamComplete(stream);
-		stream!.end();
+		stream.end();
 		c.currentPiStream = null;
 
 		// Cursor is updated by the next streamSimple call (tool result delivery path)
@@ -1985,8 +1995,9 @@ function processStreamEvent(
 		return;
 	}
 
-	if (event?.type !== "message_stop" && event?.type !== "ping") {
-		debug("processStreamEvent: unhandled event type", event?.type);
+	const eventType: string | undefined = event?.type;
+	if (eventType !== "message_stop" && eventType !== "ping") {
+		debug("processStreamEvent: unhandled event type", eventType);
 	}
 }
 
@@ -2001,10 +2012,10 @@ function dropAbandonedStreamBlocks(c: QueryContext, why: string): void {
 	const dropped = c.turnBlocks.splice(c.turnStreamBlockStart);
 	c.shapeTrace?.recordPi("discarded", dropped, c.turnStreamMessageId);
 	debug(
-		`dropAbandonedStreamBlocks: ${why}; dropped ${dropped.length} blocks from ${c.turnStreamMessageId} types=${dropped.map((b: any) => b.type).join(",")}`,
+		`dropAbandonedStreamBlocks: ${why}; dropped ${dropped.length} blocks from ${c.turnStreamMessageId} types=${dropped.map((b) => b.type).join(",")}`,
 	);
 	c.turnToolCallIds = [];
-	c.turnSawToolCall = c.turnBlocks.some((b: any) => b.type === "toolCall");
+	c.turnSawToolCall = c.turnBlocks.some((b) => b.type === "toolCall");
 	c.turnStreamOpen = false;
 }
 
@@ -2023,12 +2034,12 @@ function dropAbandonedStreamBlocks(c: QueryContext, why: string): void {
 // sat in the MCP handler waiting for their results, and the turn hung on "Working"
 // until the user aborted it.
 function processAssistantMessage(
-	message: SDKMessage,
-	model: Model<any>,
+	message: Extract<SDKMessage, { type: "assistant" }>,
+	model: Model<Api>,
 	customToolNameToPi: Map<string, string>,
 	c: QueryContext,
 ): void {
-	const assistantMsg = (message as any).message;
+	const assistantMsg = message.message;
 	if (!assistantMsg?.content) return;
 	const output = c.turnOutput;
 	if (!output) throw new Error("Claude assistant message arrived before turn output was initialized");
@@ -2065,7 +2076,7 @@ function processAssistantMessage(
 	c.turnToolCallIds = [];
 	if (assistantMsg.stop_reason) output.stopReason = mapStopReason(assistantMsg.stop_reason);
 	debug(
-		`processAssistantMessage fallback: ${assistantMsg.content.length} blocks, types=${assistantMsg.content.map((b: any) => b.type).join(",")}`,
+		`processAssistantMessage fallback: ${assistantMsg.content.length} blocks, types=${assistantMsg.content.map((b) => b.type).join(",")}`,
 	);
 	for (const block of assistantMsg.content) {
 		if (block.type === "text" && block.text) {
@@ -2108,19 +2119,24 @@ function processAssistantMessage(
 			ensureTurnStarted(c);
 			c.turnSawToolCall = true;
 			c.turnToolCallIds.push(block.id);
-			c.turnBlocks.push({
+			const toolBlock: ToolCall = {
 				type: "toolCall",
 				id: block.id,
 				name: piName,
-				arguments: mapToolArgs(piName, block.input),
-			});
+				arguments: mapToolArgs(
+					piName,
+					block.input && typeof block.input === "object" && !Array.isArray(block.input)
+						? (block.input as Record<string, unknown>)
+						: undefined,
+				),
+			};
+			c.turnBlocks.push(toolBlock);
 			const idx = c.turnBlocks.length - 1;
-			const toolBlock = c.turnBlocks[idx];
 			c.currentPiStream?.push({ type: "toolcall_start", contentIndex: idx, partial: output });
 			c.currentPiStream?.push({
 				type: "toolcall_end",
 				contentIndex: idx,
-				toolCall: toolBlock as any,
+				toolCall: toolBlock,
 				partial: output,
 			});
 		} else {
@@ -2149,7 +2165,7 @@ function processAssistantMessage(
 async function consumeQuery(
 	sdkQuery: ReturnType<typeof query>,
 	customToolNameToPi: Map<string, string>,
-	model: Model<any>,
+	model: Model<Api>,
 	wasAborted: () => boolean,
 	queryCtx: QueryContext,
 ): Promise<{ capturedSessionId?: string }> {
@@ -2199,7 +2215,7 @@ async function consumeQuery(
 			}
 		}
 		if (message.type === "rate_limit_event") {
-			const info = (message as any).rate_limit_info;
+			const info = message.rate_limit_info;
 			debug("consumeQuery: rate_limit_event", JSON.stringify(info).slice(0, 300));
 			if (info?.status === "rejected") {
 				// Held so the failure Claude Code sends next can be named as a rate limit.
@@ -2265,8 +2281,8 @@ async function consumeQuery(
 				break;
 			}
 			case "system":
-				if ((message as any).subtype === "init" && (message as any).session_id) {
-					capturedSessionId = (message as any).session_id;
+				if (message.subtype === "init" && message.session_id) {
+					capturedSessionId = message.session_id;
 				}
 				break;
 			case "user":
@@ -2354,8 +2370,8 @@ async function deliverToolResults(
 	);
 	for (const result of results) {
 		const id = result.toolCallId;
-		if (id && c.pendingToolCalls.has(id)) {
-			const pending = c.pendingToolCalls.get(id)!;
+		const pending = id ? c.pendingToolCalls.get(id) : undefined;
+		if (id && pending) {
 			c.pendingToolCalls.delete(id);
 			debug(
 				`provider: resolving ${pending.toolName} [${id}]${result.isError ? " (error)" : ""}`,
@@ -2498,7 +2514,7 @@ async function closeEndedTurn(piSessionId: string | null, runMessages: Context["
 /** Provider entry point. Pi calls this for each new prompt and each tool result.
  *  Two cases: tool result delivery (active query) or fresh query. */
 function streamClaudeAgentSdk(
-	model: Model<any>,
+	model: Model<Api>,
 	context: Context,
 	options?: SimpleStreamOptions,
 	allowQuotaRecheck = true,
@@ -2767,19 +2783,21 @@ function streamClaudeAgentSdk(
 	// Guard: empty prompt means the last context message isn't a user message.
 	// This should never happen with per-query state — dump diagnostics if it does.
 	if (!promptText && !promptBlocks) {
+		const sessionState = sessionStateFor(piSessionId);
+		const defaultSessionState = sessionStateFor(null);
 		diagDump("empty_prompt", {
 			contextLength: context.messages.length,
 			lastMsgRole: lastMsg?.role,
 			isReentrant,
 			activeQueryContexts: activeQueryContexts.size,
 			activeQueryExists: queryCtx.activeQuery !== null,
-			sharedSession: sessionStateFor(piSessionId)
+			sharedSession: sessionState
 				? {
-						sessionId: sessionStateFor(piSessionId)!.sessionId.slice(0, 8),
-						cursor: sessionStateFor(piSessionId)!.cursor,
+						sessionId: sessionState.sessionId.slice(0, 8),
+						cursor: sessionState.cursor,
 					}
-				: sessionStateFor(null)
-					? { sessionId: sessionStateFor(null)!.sessionId.slice(0, 8), cursor: sessionStateFor(null)!.cursor }
+				: defaultSessionState
+					? { sessionId: defaultSessionState.sessionId.slice(0, 8), cursor: defaultSessionState.cursor }
 					: null,
 			messageRoles: context.messages.map((m, i) => `[${i}]${m.role}`).join(" "),
 		});
@@ -2956,7 +2974,9 @@ function streamClaudeAgentSdk(
 					queryCtx.turnOutput.errorMessage = "Operation aborted";
 				}
 				const stream = queryCtx.currentPiStream;
-				stream?.push({ type: "error", reason: "aborted", error: queryCtx.turnOutput! });
+				if (stream && queryCtx.turnOutput) {
+					stream.push({ type: "error", reason: "aborted", error: queryCtx.turnOutput });
+				}
 				markStreamComplete(stream);
 				stream?.end();
 				queryCtx.currentPiStream = null;
@@ -3036,11 +3056,13 @@ function streamClaudeAgentSdk(
 			if (!wasAborted && !options?.signal?.aborted && replayOnNextAccount(queryCtx)) return;
 			retainPendingToolFailure(queryCtx);
 			const stream = queryCtx.currentPiStream;
-			stream?.push({
-				type: "error",
-				reason: (queryCtx.turnOutput?.stopReason ?? "error") as "aborted" | "error",
-				error: queryCtx.turnOutput!,
-			});
+			if (stream && queryCtx.turnOutput) {
+				stream.push({
+					type: "error",
+					reason: (queryCtx.turnOutput.stopReason ?? "error") as "aborted" | "error",
+					error: queryCtx.turnOutput,
+				});
+			}
 			markStreamComplete(stream);
 			stream?.end();
 			queryCtx.currentPiStream = null;
@@ -3217,7 +3239,7 @@ async function promptAndWait(
 
 			switch (message.type) {
 				case "stream_event": {
-					const event = (message as SDKMessage & { event: any }).event;
+					const event = message.event;
 					// Text deltas → accumulate and stream
 					if (event?.type === "content_block_delta" && event.delta?.type === "text_delta") {
 						responseText += event.delta.text;
@@ -3236,12 +3258,15 @@ async function promptAndWait(
 				}
 				case "assistant": {
 					// Update tool calls with full input for action summary
-					for (const block of (message as any).message?.content ?? []) {
+					for (const block of message.message?.content ?? []) {
 						if (block.type === "tool_use") {
 							toolCalls.set(block.id, {
 								name: mapToolName(block.name),
 								status: "complete",
-								rawInput: block.input,
+								rawInput:
+									block.input && typeof block.input === "object" && !Array.isArray(block.input)
+										? (block.input as Record<string, unknown>)
+										: undefined,
 							});
 						}
 					}
@@ -3249,10 +3274,9 @@ async function promptAndWait(
 				}
 				case "result": {
 					resultSubtype = message.subtype;
-					const r = message as any;
-					if (r.usage) {
+					if (message.usage) {
 						debug(
-							`askClaude: result usage: in=${r.usage.input_tokens} out=${r.usage.output_tokens} cacheRead=${r.usage.cache_read_input_tokens ?? 0} cacheWrite=${r.usage.cache_creation_input_tokens ?? 0} turns=${r.num_turns ?? "?"}`,
+							`askClaude: result usage: in=${message.usage.input_tokens} out=${message.usage.output_tokens} cacheRead=${message.usage.cache_read_input_tokens ?? 0} cacheWrite=${message.usage.cache_creation_input_tokens ?? 0} turns=${message.num_turns ?? "?"}`,
 						);
 					}
 					// Claude Code reports an API failure with `is_error` on a result whose
@@ -3367,7 +3391,7 @@ export default function (pi: ExtensionAPI) {
 		// Clear the global streamSimple if this instance registered it.
 		// This allows /reload to work — the old instance clears the flag so
 		// the new instance can register fresh without wrapping stale state.
-		const g = globalThis as Record<symbol, any>;
+		const g = globalThis as Record<symbol, unknown>;
 		if (g[ACTIVE_STREAM_SIMPLE_KEY] === streamClaudeAgentSdk) {
 			debug(`${event}: clearing ACTIVE_STREAM_SIMPLE_KEY`);
 			g[ACTIVE_STREAM_SIMPLE_KEY] = undefined;
@@ -3576,7 +3600,7 @@ export default function (pi: ExtensionAPI) {
 	// ACTIVE_STREAM_SIMPLE_KEY so a freshly loaded module can register as first
 	// again.
 
-	const g = globalThis as Record<symbol, any>;
+	const g = globalThis as Record<symbol, unknown>;
 	const providerConfig = {
 		baseUrl: "claude-bridge",
 		apiKey: "not-used",
