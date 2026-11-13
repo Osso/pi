@@ -769,11 +769,14 @@ export class Editor implements Component, Focusable {
 		const maxPadding = Math.max(0, Math.floor((width - 1) / 2));
 		const paddingX = Math.min(this.paddingX, maxPadding);
 		const contentWidth = Math.max(1, width - paddingX * 2);
-		const promptPrefixWidth = Math.min(
-			visibleWidth(this.promptPrefix) + (this.promptPrefix ? 1 : 0),
-			contentWidth - 1,
+		// Text needs room for one wide grapheme, plus the end-of-line cursor
+		// column when there is no padding for it to overflow into.
+		const minTextWidth = paddingX ? 2 : 3;
+		const promptPrefixWidth = Math.max(
+			0,
+			Math.min(visibleWidth(this.promptPrefix) + (this.promptPrefix ? 1 : 0), contentWidth - minTextWidth),
 		);
-		const editorContentWidth = Math.max(1, contentWidth - promptPrefixWidth);
+		const editorContentWidth = contentWidth - promptPrefixWidth;
 
 		// Layout width: with padding the cursor can overflow into it,
 		// without padding we reserve 1 column for the cursor.
@@ -906,7 +909,8 @@ export class Editor implements Component, Focusable {
 
 		this.promptPosition = promptPosition;
 		this.updatePromptCellPlacement();
-		return result;
+		// Too narrow for any layout that fits: clip rather than overflow the terminal.
+		return contentWidth < minTextWidth ? result.map((line) => truncateToWidth(line, width, "")) : result;
 	}
 
 	handleInput(data: string): void {

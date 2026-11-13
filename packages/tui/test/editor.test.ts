@@ -1031,6 +1031,25 @@ describe("Editor component", () => {
 			assert.strictEqual(visibleWidth(lines[1] ?? ""), 12);
 		});
 
+		it("keeps every line within very narrow terminal widths", () => {
+			for (const paddingX of [0, 1]) {
+				for (const text of ["hello world", "界界界 hi"]) {
+					for (let width = 1; width <= 6; width++) {
+						const editor = new Editor(createTestTUI(), promptEditorTheme, { paddingX });
+						editor.focused = true;
+						editor.setText(text);
+						for (const line of editor.render(width)) {
+							const lineWidth = visibleWidth(line);
+							assert.ok(
+								lineWidth <= width,
+								`paddingX=${paddingX} text=${JSON.stringify(text)} width=${width}: ${JSON.stringify(line)} is ${lineWidth} wide`,
+							);
+						}
+					}
+				}
+			}
+		});
+
 		it("wraps lines correctly when text contains wide emojis", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 			const width = 20;

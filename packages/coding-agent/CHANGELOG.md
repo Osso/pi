@@ -412,6 +412,7 @@
 - Fixed Ctrl+C (`SIGINT`) during `pi -p` or RPC mode leaving a running Bash tool command alive; Pi now kills the command's process tree, disposes the runtime, and exits with status 130.
 - Fixed archiving from the session picker exiting Pi when the archive failed, for example after the transcript was already moved by idle archival; the picker now shows `Archive failed: ...`.
 - Fixed the `edit` tool rewriting every line ending in a file with mixed CRLF/LF (or lone CR) endings; lines outside the edit now keep their original bytes.
+- Fixed Pi exiting with a terminal width error when text was typed in the editor while the terminal was 3 columns wide or narrower.
 
 ### Changed
 
