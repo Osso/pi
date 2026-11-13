@@ -3663,20 +3663,15 @@ export function commitMultiAgentSteeringMutation(
 	controlDbPath: string,
 	input: CommitMultiAgentSteeringMutationInput,
 ): CommitMultiAgentSteeringMutationResult {
-	return withControlDb(controlDbPath, (db) => commitMultiAgentSteeringMutationWithDb(db, input));
-}
-
-function commitMultiAgentSteeringMutationWithDb(
-	db: SqliteDatabase,
-	input: CommitMultiAgentSteeringMutationInput,
-): CommitMultiAgentSteeringMutationResult {
-	for (let attempt = 1; attempt <= MULTI_AGENT_STEERING_MUTATION_MAX_ATTEMPTS; attempt += 1) {
-		const preflight = prepareMultiAgentSteeringMutation(db, input);
-		if ("result" in preflight) return preflight.result;
-		const result = persistMultiAgentSteeringMutation(db, input, preflight.plan);
-		if (result) return result;
-	}
-	return { ok: false, error: "mutation_mismatch" };
+	return withControlDb(controlDbPath, (db) => {
+		for (let attempt = 1; attempt <= MULTI_AGENT_STEERING_MUTATION_MAX_ATTEMPTS; attempt += 1) {
+			const preflight = prepareMultiAgentSteeringMutation(db, input);
+			if ("result" in preflight) return preflight.result;
+			const result = persistMultiAgentSteeringMutation(db, input, preflight.plan);
+			if (result) return result;
+		}
+		return { ok: false, error: "mutation_mismatch" };
+	});
 }
 
 function prepareMultiAgentSteeringMutation(
@@ -3951,21 +3946,16 @@ export function commitMultiAgentDetachMark(
 	controlDbPath: string,
 	input: CommitMultiAgentDetachMarkInput,
 ): CommitMultiAgentDetachMarkResult {
-	return withControlDb(controlDbPath, (db) => commitMultiAgentDetachMarkWithDb(db, input));
-}
-
-function commitMultiAgentDetachMarkWithDb(
-	db: SqliteDatabase,
-	input: CommitMultiAgentDetachMarkInput,
-): CommitMultiAgentDetachMarkResult {
-	for (let attempt = 1; attempt <= MULTI_AGENT_DETACH_MARK_MAX_ATTEMPTS; attempt += 1) {
-		const preflight = prepareMultiAgentDetachMark(db, input);
-		if ("result" in preflight) return preflight.result;
-		if (compareAndPersistMultiAgentDetachMark(db, input, preflight.plan)) {
-			return { agent: preflight.plan.updatedAgent, ok: true };
+	return withControlDb(controlDbPath, (db) => {
+		for (let attempt = 1; attempt <= MULTI_AGENT_DETACH_MARK_MAX_ATTEMPTS; attempt += 1) {
+			const preflight = prepareMultiAgentDetachMark(db, input);
+			if ("result" in preflight) return preflight.result;
+			if (compareAndPersistMultiAgentDetachMark(db, input, preflight.plan)) {
+				return { agent: preflight.plan.updatedAgent, ok: true };
+			}
 		}
-	}
-	return { ok: false, error: "mutation_mismatch" };
+		return { ok: false, error: "mutation_mismatch" };
+	});
 }
 
 function prepareMultiAgentDetachMark(
@@ -4047,20 +4037,15 @@ export function commitMultiAgentSteeringDelivery(
 	controlDbPath: string,
 	input: CommitMultiAgentSteeringDeliveryInput,
 ): CommitMultiAgentSteeringDeliveryResult {
-	return withControlDb(controlDbPath, (db) => commitMultiAgentSteeringDeliveryWithDb(db, input));
-}
-
-function commitMultiAgentSteeringDeliveryWithDb(
-	db: SqliteDatabase,
-	input: CommitMultiAgentSteeringDeliveryInput,
-): CommitMultiAgentSteeringDeliveryResult {
-	for (let attempt = 1; attempt <= MULTI_AGENT_STEERING_DELIVERY_MAX_ATTEMPTS; attempt += 1) {
-		const preflight = prepareMultiAgentSteeringDelivery(db, input);
-		if ("result" in preflight) return preflight.result;
-		const result = persistMultiAgentSteeringDelivery(db, input, preflight.plan);
-		if (result) return result;
-	}
-	return { ok: false, error: "mutation_mismatch" };
+	return withControlDb(controlDbPath, (db) => {
+		for (let attempt = 1; attempt <= MULTI_AGENT_STEERING_DELIVERY_MAX_ATTEMPTS; attempt += 1) {
+			const preflight = prepareMultiAgentSteeringDelivery(db, input);
+			if ("result" in preflight) return preflight.result;
+			const result = persistMultiAgentSteeringDelivery(db, input, preflight.plan);
+			if (result) return result;
+		}
+		return { ok: false, error: "mutation_mismatch" };
+	});
 }
 
 function prepareMultiAgentSteeringDelivery(
@@ -4210,21 +4195,16 @@ export function commitMultiAgentLifecycleMutation(
 	controlDbPath: string,
 	input: CommitMultiAgentLifecycleMutationInput,
 ): CommitMultiAgentLifecycleMutationResult {
-	return withControlDb(controlDbPath, (db) => commitMultiAgentLifecycleMutationWithDb(db, input));
-}
-
-function commitMultiAgentLifecycleMutationWithDb(
-	db: SqliteDatabase,
-	input: CommitMultiAgentLifecycleMutationInput,
-): CommitMultiAgentLifecycleMutationResult {
-	for (let attempt = 1; attempt <= MULTI_AGENT_LIFECYCLE_MUTATION_MAX_ATTEMPTS; attempt += 1) {
-		const preflight = prepareMultiAgentLifecycleMutation(db, input);
-		if ("result" in preflight) return preflight.result;
-		if (persistMultiAgentLifecycleMutation(db, input, preflight.plan)) {
-			return { agent: preflight.plan.updatedAgent, ok: true };
+	return withControlDb(controlDbPath, (db) => {
+		for (let attempt = 1; attempt <= MULTI_AGENT_LIFECYCLE_MUTATION_MAX_ATTEMPTS; attempt += 1) {
+			const preflight = prepareMultiAgentLifecycleMutation(db, input);
+			if ("result" in preflight) return preflight.result;
+			if (persistMultiAgentLifecycleMutation(db, input, preflight.plan)) {
+				return { agent: preflight.plan.updatedAgent, ok: true };
+			}
 		}
-	}
-	return { ok: false, error: "mutation_mismatch" };
+		return { ok: false, error: "mutation_mismatch" };
+	});
 }
 
 function prepareMultiAgentLifecycleMutation(
@@ -4396,20 +4376,15 @@ export function commitMultiAgentTerminalMutation(
 	controlDbPath: string,
 	input: CommitMultiAgentTerminalMutationInput,
 ): CommitMultiAgentTerminalMutationResult {
-	return withControlDb(controlDbPath, (db) => commitMultiAgentTerminalMutationWithDb(db, input));
-}
-
-function commitMultiAgentTerminalMutationWithDb(
-	db: SqliteDatabase,
-	input: CommitMultiAgentTerminalMutationInput,
-): CommitMultiAgentTerminalMutationResult {
-	for (let attempt = 1; attempt <= MULTI_AGENT_TERMINAL_MUTATION_MAX_ATTEMPTS; attempt += 1) {
-		const preflight = prepareMultiAgentTerminalMutation(db, input);
-		if ("result" in preflight) return preflight.result;
-		const result = persistMultiAgentTerminalMutation(db, input, preflight.plan);
-		if (result) return result;
-	}
-	return { ok: false, error: "mutation_mismatch" };
+	return withControlDb(controlDbPath, (db) => {
+		for (let attempt = 1; attempt <= MULTI_AGENT_TERMINAL_MUTATION_MAX_ATTEMPTS; attempt += 1) {
+			const preflight = prepareMultiAgentTerminalMutation(db, input);
+			if ("result" in preflight) return preflight.result;
+			const result = persistMultiAgentTerminalMutation(db, input, preflight.plan);
+			if (result) return result;
+		}
+		return { ok: false, error: "mutation_mismatch" };
+	});
 }
 
 function prepareMultiAgentTerminalMutation(
@@ -4626,17 +4601,15 @@ type FinalizeDetachedJobPlan = {
 type FinalizeDetachedJobPreflight = { plan: FinalizeDetachedJobPlan } | { result: FinalizeDetachedJobResult };
 
 export function finalizeDetachedJob(controlDbPath: string, input: FinalizeDetachedJobInput): FinalizeDetachedJobResult {
-	return withControlDb(controlDbPath, (db) => finalizeDetachedJobWithDb(db, input));
-}
-
-function finalizeDetachedJobWithDb(db: SqliteDatabase, input: FinalizeDetachedJobInput): FinalizeDetachedJobResult {
-	for (let attempt = 1; attempt <= FINALIZE_DETACHED_JOB_MAX_ATTEMPTS; attempt += 1) {
-		const preflight = prepareDetachedJobFinalization(db, input);
-		if ("result" in preflight) return preflight.result;
-		const result = persistDetachedJobFinalization(db, input.terminal, preflight.plan);
-		if (result) return result;
-	}
-	return { ok: false, error: "mutation_mismatch" };
+	return withControlDb(controlDbPath, (db) => {
+		for (let attempt = 1; attempt <= FINALIZE_DETACHED_JOB_MAX_ATTEMPTS; attempt += 1) {
+			const preflight = prepareDetachedJobFinalization(db, input);
+			if ("result" in preflight) return preflight.result;
+			const result = persistDetachedJobFinalization(db, input.terminal, preflight.plan);
+			if (result) return result;
+		}
+		return { ok: false, error: "mutation_mismatch" };
+	});
 }
 
 function findDetachedJobSessionPath(db: SqliteDatabase, input: FinalizeDetachedJobInput): string | undefined {
@@ -4900,29 +4873,28 @@ export function recoverDeadMultiAgentRuntime(
 	controlDbPath: string,
 	input: RecoverDeadMultiAgentRuntimeInput,
 ): RecoverDeadMultiAgentRuntimeResult {
-	return withControlDb(controlDbPath, (db) => recoverDeadMultiAgentRuntimeWithDb(db, input));
-}
-
-function recoverDeadMultiAgentRuntimeWithDb(
-	db: SqliteDatabase,
-	input: RecoverDeadMultiAgentRuntimeInput,
-): RecoverDeadMultiAgentRuntimeResult {
-	for (let attempt = 1; attempt <= DEAD_RUNTIME_RECOVERY_MAX_ATTEMPTS; attempt += 1) {
-		const supervisorAuthority = readSupervisorRecoveryAuthority(
-			db,
-			input.expectedOwner.sessionPath,
-			input.supervisor,
-		);
-		if (!supervisorAuthority) return { ok: false, error: "mutation_mismatch" };
-		const replay = readDeadRuntimeRecoveryReplay(db, input.expectedOwner);
-		if (replay) return replay;
-		const recoverable = readRecoverableMultiAgentRuntime(db, input.expectedOwner, input.supervisor.processIdentity);
-		if (!recoverable.ok) return recoverable;
-		const plan = prepareDeadRuntimeRecovery(recoverable, input.expectedOwner, input.nowIso);
-		const result = persistDeadRuntimeRecovery(db, input.expectedOwner, plan, supervisorAuthority);
-		if (result) return result;
-	}
-	return { ok: false, error: "mutation_mismatch" };
+	return withControlDb(controlDbPath, (db) => {
+		for (let attempt = 1; attempt <= DEAD_RUNTIME_RECOVERY_MAX_ATTEMPTS; attempt += 1) {
+			const supervisorAuthority = readSupervisorRecoveryAuthority(
+				db,
+				input.expectedOwner.sessionPath,
+				input.supervisor,
+			);
+			if (!supervisorAuthority) return { ok: false, error: "mutation_mismatch" };
+			const replay = readDeadRuntimeRecoveryReplay(db, input.expectedOwner);
+			if (replay) return replay;
+			const recoverable = readRecoverableMultiAgentRuntime(
+				db,
+				input.expectedOwner,
+				input.supervisor.processIdentity,
+			);
+			if (!recoverable.ok) return recoverable;
+			const plan = prepareDeadRuntimeRecovery(recoverable, input.expectedOwner, input.nowIso);
+			const result = persistDeadRuntimeRecovery(db, input.expectedOwner, plan, supervisorAuthority);
+			if (result) return result;
+		}
+		return { ok: false, error: "mutation_mismatch" };
+	});
 }
 
 function readDeadRuntimeRecoveryReplay(
@@ -5532,20 +5504,15 @@ export function acquireAttachedRuntimeOwnership(
 	controlDbPath: string,
 	input: AcquireAttachedRuntimeOwnershipInput,
 ): AcquireAttachedRuntimeOwnershipResult {
-	return withControlDb(controlDbPath, (db) => acquireAttachedRuntimeOwnershipWithDb(db, input));
-}
-
-function acquireAttachedRuntimeOwnershipWithDb(
-	db: SqliteDatabase,
-	input: AcquireAttachedRuntimeOwnershipInput,
-): AcquireAttachedRuntimeOwnershipResult {
-	for (let attempt = 1; attempt <= ATTACHED_RUNTIME_OWNERSHIP_MAX_ATTEMPTS; attempt += 1) {
-		const preflight = prepareAttachedRuntimeOwnershipAcquisition(db, input);
-		if ("result" in preflight) return preflight.result;
-		const result = commitAttachedRuntimeOwnershipAcquisition(db, input, preflight.plan);
-		if (result) return result;
-	}
-	return { ok: false, error: "mutation_mismatch" };
+	return withControlDb(controlDbPath, (db) => {
+		for (let attempt = 1; attempt <= ATTACHED_RUNTIME_OWNERSHIP_MAX_ATTEMPTS; attempt += 1) {
+			const preflight = prepareAttachedRuntimeOwnershipAcquisition(db, input);
+			if ("result" in preflight) return preflight.result;
+			const result = commitAttachedRuntimeOwnershipAcquisition(db, input, preflight.plan);
+			if (result) return result;
+		}
+		return { ok: false, error: "mutation_mismatch" };
+	});
 }
 
 function prepareAttachedRuntimeOwnershipAcquisition(
