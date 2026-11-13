@@ -3,6 +3,13 @@ import { describe, it } from "node:test";
 import { KeybindingsManager, TUI_KEYBINDINGS } from "../src/keybindings.ts";
 
 describe("KeybindingsManager", () => {
+	it("returns the definition of a known id and undefined for an id without a definition", () => {
+		const keybindings = new KeybindingsManager({ "tui.editor.cursorUp": TUI_KEYBINDINGS["tui.editor.cursorUp"] });
+
+		assert.deepStrictEqual(keybindings.getDefinition("tui.editor.cursorUp"), TUI_KEYBINDINGS["tui.editor.cursorUp"]);
+		assert.strictEqual(keybindings.getDefinition("tui.editor.cursorDown"), undefined);
+	});
+
 	it("binds Ctrl+J as a default newline alias", () => {
 		const keybindings = new KeybindingsManager(TUI_KEYBINDINGS);
 

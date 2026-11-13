@@ -208,10 +208,9 @@ export class KeybindingsManager {
 		return [...(this.keysById.get(keybinding) ?? [])];
 	}
 
-	getDefinition(keybinding: Keybinding): KeybindingDefinition {
-		const definition = this.definitions[keybinding];
-		if (!definition) throw new Error(`Missing keybinding definition: ${keybinding}`);
-		return definition;
+	/** Definition of a keybinding id, or undefined when this manager has no definition for it. */
+	getDefinition(keybinding: Keybinding): KeybindingDefinition | undefined {
+		return this.definitions[keybinding];
 	}
 
 	getConflicts(): KeybindingConflict[] {
