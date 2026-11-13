@@ -1785,9 +1785,11 @@ describe("agentLoopContinue with AgentMessage", () => {
 		expect(messages[0].role).toBe("assistant");
 
 		// Should NOT have user message events (that's the key difference from agentLoop)
-		const messageEndEvents = events.filter((e) => e.type === "message_end");
+		const messageEndEvents = events.filter(
+			(e): e is Extract<typeof e, { type: "message_end" }> => e.type === "message_end",
+		);
 		expect(messageEndEvents.length).toBe(1);
-		expect((messageEndEvents[0] as any).message.role).toBe("assistant");
+		expect(messageEndEvents[0]?.message.role).toBe("assistant");
 	});
 
 	it("should allow custom message types as last message (caller responsibility)", async () => {
@@ -1816,10 +1818,11 @@ describe("agentLoopContinue with AgentMessage", () => {
 				// Convert custom to user message
 				return messages
 					.map((m) => {
-						if ((m as any).role === "custom") {
+						const custom = m as unknown as { role: string; text?: string; timestamp: number };
+						if (custom.role === "custom") {
 							return {
 								role: "user" as const,
-								content: (m as any).text,
+								content: custom.text ?? "",
 								timestamp: m.timestamp,
 							};
 						}

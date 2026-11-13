@@ -38,7 +38,7 @@ describe("NodeExecutionEnv", () => {
 			kind: "file",
 			size: 5,
 		});
-		expect(typeof entries[0]!.mtimeMs).toBe("number");
+		expect(typeof entries[0]?.mtimeMs).toBe("number");
 
 		expect(getOrThrow(await env.exists("nested/child/file.txt"))).toBe(true);
 		getOrThrow(await env.remove("nested/child/file.txt"));
@@ -314,7 +314,8 @@ describe("NodeExecutionEnv", () => {
 		const result = getOrThrow(await executeShellWithCapture(env, "yes line | head -n 15000"));
 		expect(result.truncated).toBe(true);
 		expect(result.fullOutputPath).toBeDefined();
-		const fullOutput = getOrThrow(await env.readTextFile(result.fullOutputPath!));
+		if (!result.fullOutputPath) throw new Error("Expected fullOutputPath");
+		const fullOutput = getOrThrow(await env.readTextFile(result.fullOutputPath));
 		expect(fullOutput.split("\n").length).toBeGreaterThan(10000);
 		expect(result.output.length).toBeLessThan(fullOutput.length);
 	});
@@ -330,7 +331,8 @@ describe("NodeExecutionEnv", () => {
 		);
 		expect(result.truncated).toBe(true);
 		expect(result.fullOutputPath).toBeDefined();
-		const fullOutput = getOrThrow(await env.readTextFile(result.fullOutputPath!));
+		if (!result.fullOutputPath) throw new Error("Expected fullOutputPath");
+		const fullOutput = getOrThrow(await env.readTextFile(result.fullOutputPath));
 		expect(fullOutput).toContain("start");
 		expect(fullOutput).toContain("end");
 		expect(result.output.length).toBeLessThan(fullOutput.length);

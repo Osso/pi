@@ -42,13 +42,15 @@ export function createTempDir(): string {
 }
 
 export function getLatestTempDir(): string {
-	return tempDirs[tempDirs.length - 1]!;
+	const dir = tempDirs[tempDirs.length - 1];
+	if (!dir) throw new Error("No temp directory recorded");
+	return dir;
 }
 
 afterEach(() => {
 	while (tempDirs.length > 0) {
-		const dir = tempDirs.pop()!;
-		if (existsSync(dir)) {
+		const dir = tempDirs.pop();
+		if (dir && existsSync(dir)) {
 			rmSync(dir, { recursive: true, force: true });
 		}
 	}

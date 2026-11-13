@@ -71,8 +71,8 @@ async function runSessionSuite(
 			const session = new Session(await createStorage());
 			const user1 = await session.appendMessage(createUserMessage("one"));
 			const summaryId = await session.moveTo(user1, { summary: "summary text" });
-			expect(summaryId).toBeTruthy();
-			const summaryEntry = await session.getEntry(summaryId!);
+			if (!summaryId) throw new Error("Expected summaryId");
+			const summaryEntry = await session.getEntry(summaryId);
 			expect(summaryEntry).toMatchObject({ type: "branch_summary", parentId: user1, fromId: user1 });
 			const context = await session.buildContext();
 			expect(context.messages[1]?.role).toBe("branchSummary");
@@ -143,7 +143,7 @@ runSessionSuite(
 		const filePath = join(dir, "session.jsonl");
 		const lines = readFileSync(filePath, "utf8").trim().split("\n");
 		expect(lines.length).toBeGreaterThan(1);
-		const header = JSON.parse(lines[0]!);
+		const header = JSON.parse(lines[0] ?? "");
 		expect(header.type).toBe("session");
 		expect(header.version).toBe(3);
 		const entries = lines.slice(1).map((line) => JSON.parse(line));

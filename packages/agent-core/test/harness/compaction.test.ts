@@ -567,9 +567,9 @@ describe("harness compaction", () => {
 		expect(preparation).toMatchObject({ previousSummary: "First summary", isSplitTurn: false });
 		expect(preparation?.firstKeptEntryId).toBe(u2.id);
 		expect(preparation?.turnPrefixMessages).toEqual([]);
-		expect([...preparation!.fileOps.read]).toContain("old-read.ts");
-		expect([...preparation!.fileOps.edited]).toContain("old-edit.ts");
-		expect([...preparation!.fileOps.written]).toContain("written.ts");
+		expect([...(preparation?.fileOps.read ?? [])]).toContain("old-read.ts");
+		expect([...(preparation?.fileOps.edited ?? [])]).toContain("old-edit.ts");
+		expect([...(preparation?.fileOps.written ?? [])]).toContain("written.ts");
 	});
 
 	it("prepares custom and branch summary entries for summarization", () => {
@@ -893,7 +893,8 @@ describe("harness compaction", () => {
 		expect(preparation).toBeDefined();
 		const { faux, model } = createFauxModel(false);
 		faux.setResponses([fauxAssistantMessage("## Goal\nTest summary")]);
-		const result = getOrThrow(await compact(preparation!, models, model));
+		if (!preparation) throw new Error("Expected compaction preparation");
+		const result = getOrThrow(await compact(preparation, models, model));
 		expect(result.summary.length).toBeGreaterThan(0);
 		expect(result.firstKeptEntryId).toBeTruthy();
 		expect(result.details).toBeDefined();

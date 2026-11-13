@@ -125,8 +125,8 @@ describe("JsonlSessionStorage", () => {
 			message: createUserMessage("one"),
 		});
 		const lines = readFileSync(filePath, "utf8").trim().split("\n");
-		expect(JSON.parse(lines[0]!).type).toBe("session");
-		expect(JSON.parse(lines[1]!).id).toBe("user-1");
+		expect(JSON.parse(lines[0] ?? "").type).toBe("session");
+		expect(JSON.parse(lines[1] ?? "").id).toBe("user-1");
 		expect(lines).toHaveLength(2);
 	});
 
