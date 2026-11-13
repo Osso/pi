@@ -965,7 +965,10 @@ async function getWebSocketConstructor(env?: ProviderEnv): Promise<WebSocketCons
 					url.toString().replace(/^wss:/, "https:").replace(/^ws:/, "http:"),
 					env,
 				);
-				super(url, { ..._opts, ...(proxyUrl ? { proxy: proxyUrl.toString() } : {}) } as any);
+				super(url, {
+					..._opts,
+					...(proxyUrl ? { proxy: proxyUrl.toString() } : {}),
+				} as ConstructorParameters<typeof WebSocket>[1]);
 			}
 		};
 		if (!env) {

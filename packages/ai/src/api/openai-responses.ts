@@ -234,7 +234,7 @@ function buildParams(model: Model<"openai-responses">, context: Context, options
 
 	// OpenRouter provider routing preferences
 	if (model.compat?.openRouterRouting) {
-		(params as any).provider = model.compat.openRouterRouting;
+		(params as ResponseCreateParamsStreaming & { provider?: unknown }).provider = model.compat.openRouterRouting;
 	}
 
 	if (options?.maxTokens) {
