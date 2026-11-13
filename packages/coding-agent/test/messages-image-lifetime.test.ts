@@ -8,7 +8,7 @@ import { convertToLlm } from "../src/core/messages.ts";
 const firstImage: ImageContent = {
 	type: "image",
 	mimeType: "image/png",
-	data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aLPsAAAAASUVORK5CYII=",
+	data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGP4DwQACfsD/fteaysAAAAASUVORK5CYII=",
 };
 const secondImage: ImageContent = {
 	...firstImage,
