@@ -531,11 +531,17 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			// =================================================================
 
 			case "set_steering_mode": {
+				if (command.mode !== "all" && command.mode !== "one-at-a-time") {
+					return error(id, "set_steering_mode", `Invalid steering mode: ${command.mode}`);
+				}
 				session.setSteeringMode(command.mode);
 				return success(id, "set_steering_mode");
 			}
 
 			case "set_follow_up_mode": {
+				if (command.mode !== "all" && command.mode !== "one-at-a-time") {
+					return error(id, "set_follow_up_mode", `Invalid follow-up mode: ${command.mode}`);
+				}
 				session.setFollowUpMode(command.mode);
 				return success(id, "set_follow_up_mode");
 			}

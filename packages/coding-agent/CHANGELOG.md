@@ -420,6 +420,7 @@
 - Fixed Pi exiting when the external editor (Ctrl+G) failed inside an extension editor dialog, for example when the temp file could not be written or the editor removed it; the dialog now shows `External editor failed: ...` and keeps the draft.
 - Fixed Pi exiting when an extension `onTerminalInput` handler threw; the error is now shown and the input continues to the editor.
 - Fixed piped stdin being glued to the CLI message (`echo "fix this error" | pi -p explain` sent `fix this errorexplain`); stdin, `@file` text, and the message are now separated by a line break.
+- Fixed RPC `set_steering_mode` and `set_follow_up_mode` accepting unknown modes, saving them to global settings, and reporting success; they now return `Invalid steering mode` / `Invalid follow-up mode`.
 
 ### Changed
 

@@ -359,6 +359,11 @@ Response:
 {"type": "response", "command": "set_steering_mode", "success": true}
 ```
 
+Any other mode returns an error and leaves the current mode unchanged:
+```json
+{"type": "response", "command": "set_steering_mode", "success": false, "error": "Invalid steering mode: bad"}
+```
+
 #### set_follow_up_mode
 
 Control how follow-up messages (from `follow_up`) are delivered.
@@ -374,6 +379,11 @@ Modes:
 Response:
 ```json
 {"type": "response", "command": "set_follow_up_mode", "success": true}
+```
+
+Any other mode returns an error and leaves the current mode unchanged:
+```json
+{"type": "response", "command": "set_follow_up_mode", "success": false, "error": "Invalid follow-up mode: bad"}
 ```
 
 ### Compaction
