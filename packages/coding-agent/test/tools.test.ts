@@ -187,6 +187,15 @@ describe("Coding Agent Tools", () => {
 			);
 		});
 
+		it("does not invent a line total when the oversized-file head read hits the line limit", async () => {
+			const testFile = join(testDir, "many-short-lines.txt");
+			writeFileSync(testFile, "x\n".repeat(60_000));
+
+			const output = getTextOutput(await readTool.execute("read-many-lines", { path: testFile }));
+
+			expect(output).toMatch(/\nx\n\n\[Showing lines 1-2000 of file\. Use offset=2001 to continue\.\]$/);
+		});
+
 		it("shows a first line of exactly the head-read size in full", async () => {
 			const testFile = join(testDir, "exact-first-line.txt");
 			const firstLine = "y".repeat(DEFAULT_MAX_BYTES);

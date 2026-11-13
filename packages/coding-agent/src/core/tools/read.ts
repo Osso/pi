@@ -406,7 +406,8 @@ function createReadToolDefinitionInternal(
 							const endsWithNewline =
 								!rangeLimited && allLines.length > 1 && allLines[allLines.length - 1] === "";
 							const lineCount = endsWithNewline ? allLines.length - 1 : allLines.length;
-							const totalFileLines = rangeLimited ? lineCount + 1 : lineCount;
+							// A head read does not know how many lines the whole file has.
+							const totalFileLines = rangeLimited ? "file" : String(lineCount);
 							// Apply offset if specified. Convert from 1-indexed input to 0-indexed array access.
 							const startLine = offset ? Math.max(0, offset - 1) : 0;
 							const startLineDisplay = startLine + 1;
