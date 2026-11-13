@@ -114,6 +114,32 @@ function buildProxyRequestOptions(options: ProxyStreamOptions): ProxySerializabl
 	};
 }
 
+function parseProxyEventLine(rawLine: string): ProxyAssistantMessageEvent | undefined {
+	const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+	if (!line.startsWith("data: ")) {
+		return undefined;
+	}
+	const data = line.slice(6).trim();
+	if (!data || data === "[DONE]") {
+		return undefined;
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(data);
+	} catch (error) {
+		throw new Error(`Invalid proxy SSE JSON payload: ${error instanceof Error ? error.message : String(error)}`);
+	}
+	if (
+		typeof parsed !== "object" ||
+		parsed === null ||
+		Array.isArray(parsed) ||
+		typeof (parsed as { type?: unknown }).type !== "string"
+	) {
+		throw new Error("Invalid proxy SSE payload: expected JSON object with string type");
+	}
+	return parsed as ProxyAssistantMessageEvent;
+}
+
 export function streamProxy(model: Model<Api>, context: Context, options: ProxyStreamOptions): ProxyMessageEventStream {
 	const stream = new ProxyMessageEventStream();
 
@@ -197,15 +223,23 @@ export function streamProxy(model: Model<Api>, context: Context, options: ProxyS
 				buffer = lines.pop() || "";
 
 				for (const line of lines) {
-					if (line.startsWith("data: ")) {
-						const data = line.slice(6).trim();
-						if (data) {
-							const proxyEvent = JSON.parse(data) as ProxyAssistantMessageEvent;
-							const event = processProxyEvent(proxyEvent, partial);
-							if (event) {
-								stream.push(event);
-							}
+					const proxyEvent = parseProxyEventLine(line);
+					if (proxyEvent) {
+						const event = processProxyEvent(proxyEvent, partial);
+						if (event) {
+							stream.push(event);
 						}
+					}
+				}
+			}
+
+			buffer += decoder.decode();
+			if (buffer.trim()) {
+				const proxyEvent = parseProxyEventLine(buffer);
+				if (proxyEvent) {
+					const event = processProxyEvent(proxyEvent, partial);
+					if (event) {
+						stream.push(event);
 					}
 				}
 			}
