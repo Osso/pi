@@ -399,15 +399,6 @@ function emptyResult(): AgentToolResult<Record<string, never>> {
 	return { content: [], details: {} };
 }
 
-function errorResult<TDetails extends Record<string, unknown>>(
-	text: string,
-	details: TDetails,
-): AgentToolResult<TDetails> {
-	return {
-		content: [{ type: "text", text }],
-		details,
-	};
-}
 
 function notifyBackgroundDispatch(
 	promise: Promise<AgentSnapshot>,
@@ -1080,7 +1071,7 @@ async function spawnAgent(
 ): Promise<AgentToolResult<AgentToolDetails>> {
 	requireSpawnAgentParams(params);
 	if (isChildAgentRuntime(ctx)) {
-		return errorResult(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, {
+		return result(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, {
 			agent: emptyAgent("spawn_agent"),
 			dispatched: false,
 			prompt: params.prompt,
@@ -1089,7 +1080,7 @@ async function spawnAgent(
 	if (isProductionChildSessionFactory(createChildSession)) {
 		const validation = validateGoalObjective(params.prompt);
 		if (!validation.ok) {
-			return errorResult(spawnPromptValidationMessage(validation), {
+			return result(spawnPromptValidationMessage(validation), {
 				agent: emptyAgent("spawn_agent"),
 				dispatched: false,
 				prompt: params.prompt,
@@ -1097,7 +1088,7 @@ async function spawnAgent(
 		}
 	}
 	if (!createChildSession) {
-		return errorResult("spawn_agent is unavailable: no child session runtime is configured.", {
+		return result("spawn_agent is unavailable: no child session runtime is configured.", {
 			agent: emptyAgent("spawn_agent"),
 			dispatched: false,
 			prompt: params.prompt,
@@ -1110,7 +1101,7 @@ async function spawnAgent(
 	const context = params.context ?? profile?.context ?? "inherit";
 	const coordinator = createLifecycleCoordinator(store);
 	if (!coordinator) {
-		return errorResult("spawn_agent requires a persisted supervisor session.", {
+		return result("spawn_agent requires a persisted supervisor session.", {
 			agent: emptyAgent("spawn_agent"),
 			dispatched: false,
 			prompt: params.prompt,
@@ -1143,7 +1134,7 @@ async function spawnAgent(
 			};
 			const failed = coordinator.commitFailedChild(prepared, runtimeError);
 			if (failed.ok) publishCoordinatorSnapshot(store, failed.agent);
-			return errorResult(`spawn_agent failed to construct child session: ${runtimeError.message}`, {
+			return result(`spawn_agent failed to construct child session: ${runtimeError.message}`, {
 				agent: failed.ok ? failed.agent : prepared,
 				dispatched: false,
 				prompt: params.prompt,
@@ -1157,7 +1148,7 @@ async function spawnAgent(
 	);
 	if (!created.ok) {
 		await childSession?.dispose?.();
-		return errorResult(`spawn_agent failed: ${created.error}`, {
+		return result(`spawn_agent failed: ${created.error}`, {
 			agent: prepared,
 			dispatched: false,
 			prompt: params.prompt,
@@ -1226,14 +1217,14 @@ interface AttachSessionAgentRuntimeInput {
 async function attachSessionAgent(input: AttachSessionAgentRuntimeInput): Promise<AgentToolResult<AgentToolDetails>> {
 	const { ctx, params, store } = input;
 	if (isChildAgentRuntime(ctx)) {
-		return errorResult(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, {
+		return result(CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, {
 			agent: emptyAgent("attach_session_agent"),
 			dispatched: false,
 		});
 	}
 	const resolution = await resolveAttachSessionTarget(params, ctx);
 	if (!resolution.ok) {
-		return errorResult(resolution.message, {
+		return result(resolution.message, {
 			agent: emptyAgent("attach_session_agent"),
 			dispatched: false,
 		});
@@ -1242,7 +1233,7 @@ async function attachSessionAgent(input: AttachSessionAgentRuntimeInput): Promis
 
 	const prompt = params.prompt?.trim();
 	if (prompt && !input.createAttachedSession) {
-		return errorResult(`Could not resume session ${resolved.sessionId}: no attached session runtime is configured.`, {
+		return result(`Could not resume session ${resolved.sessionId}: no attached session runtime is configured.`, {
 			agent: emptyAgent("attach_session_agent"),
 			dispatched: false,
 			prompt,
@@ -1251,7 +1242,7 @@ async function attachSessionAgent(input: AttachSessionAgentRuntimeInput): Promis
 
 	const attached = spawnAttachedSessionAgent(store, params, resolved, ctx);
 	if (!attached.ok) {
-		return errorResult(`Could not attach session ${resolved.sessionId}: ${attached.error}`, {
+		return result(`Could not attach session ${resolved.sessionId}: ${attached.error}`, {
 			agent: attached.parent ?? emptyAgent(params.parentId ?? "attach_session_agent"),
 			dispatched: false,
 		});
@@ -1912,9 +1903,9 @@ function sendAgentMessage(
 	const routeError = senderId ? sessionMessageRouteError(ctx?.controlDbPath, params) : undefined;
 	if (routeError)
 		return {
-			...errorResult(`Could not send agent message to ${target}: ${routeError}`, {
+			...result(`Could not send agent message to ${target}: ${routeError}`, {
 				agent: currentMessageSenderAgent(store, ctx),
-				message: emptyDirectMessage(senderId ?? "unknown_subagent", params.toAgentId, params.message),
+				message: failedMessage(senderId ?? "unknown_subagent", params.toAgentId, "message", params.message),
 			}),
 			isError: true,
 		};
@@ -1925,24 +1916,20 @@ function sendAgentMessage(
 		}
 		const targetSessionId = resolveAgentRuntimeSessionId(store, params.toAgentId);
 		if (targetSessionId !== undefined && targetSessionId !== params.toSessionId) {
-			return errorResult(
+			return result(
 				`Could not send agent message to ${params.toAgentId}: target session does not match ${params.toSessionId}.`,
 				{
 					agent: currentMessageSenderAgent(store, ctx),
-					message: emptyDirectMessage(
-						currentMessageSenderId(store, ctx) ?? "unknown_subagent",
-						params.toAgentId,
-						params.message,
-					),
+					message: failedMessage(currentMessageSenderId(store, ctx) ?? "unknown_subagent", params.toAgentId, "message", params.message),
 				},
 			);
 		}
 	}
 
 	if (!senderId) {
-		return errorResult(`Could not send agent message to ${target}: subagent runtime identity is unavailable.`, {
+		return result(`Could not send agent message to ${target}: subagent runtime identity is unavailable.`, {
 			agent: emptyAgent("unknown_subagent"),
-			message: emptyDirectMessage("unknown_subagent", params.toAgentId, params.message),
+			message: failedMessage("unknown_subagent", params.toAgentId, "message", params.message),
 		});
 	}
 	const sender = store.getAgent(senderId);
@@ -1953,9 +1940,9 @@ function sendAgentMessage(
 		!isActiveLifecycle(recipient.lifecycle)
 	) {
 		return {
-			...errorResult(`Could not send agent message to ${target}: agent is closed; use attach_session_agent.`, {
+			...result(`Could not send agent message to ${target}: agent is closed; use attach_session_agent.`, {
 				agent: sender ?? emptyAgent(senderId),
-				message: emptyDirectMessage(senderId, params.toAgentId, params.message),
+				message: failedMessage(senderId, params.toAgentId, "message", params.message),
 			}),
 			isError: true,
 		};
@@ -1970,9 +1957,9 @@ function sendAgentMessage(
 		? store.sendMailboxMessage(sender.id, sender.revision, messageInput)
 		: store.sendMainThreadMailboxMessage(messageInput);
 	if (!sent.ok) {
-		return errorResult(`Could not send agent message from ${senderId} to ${target}: ${sent.error}`, {
+		return result(`Could not send agent message from ${senderId} to ${target}: ${sent.error}`, {
 			agent: "current" in sent ? sent.current : emptyAgent(senderId),
-			message: emptyDirectMessage(senderId, params.toAgentId, params.message),
+			message: failedMessage(senderId, params.toAgentId, "message", params.message),
 		});
 	}
 
@@ -1987,13 +1974,13 @@ function sendAgentMessage(
 		) {
 			const failedMessage = markFailedMailboxTransportMessage(store, sent.message);
 			const error = `Could not send runtime session message to ${target}: runtime mailbox transport is unavailable.`;
-			return errorResult(error, { agent: sent.agent, message: failedMessage });
+			return result(error, { agent: sent.agent, message: failedMessage });
 		}
 		onSessionMessageSent?.({ message: sent.message, toSessionId: params.toSessionId });
 	} else if (!mirrorRuntimeMailboxMessage(store, sent.message, ctx)) {
 		const failedMessage = markFailedMailboxTransportMessage(store, sent.message);
 		const error = `Could not send agent message to ${target}: runtime mailbox transport is unavailable.`;
-		return errorResult(error, { agent: sent.agent, message: failedMessage });
+		return result(error, { agent: sent.agent, message: failedMessage });
 	}
 
 	return result(`Sent message to ${formatSentMessageTarget(sent.message, params.toSessionId)}.`, {
@@ -2012,16 +1999,16 @@ function sendMainRuntimeSessionMessage(
 	const sender = currentMessageSenderAgent(store, ctx);
 	const senderId = currentMessageSenderId(store, ctx);
 	if (!params.toSessionId) {
-		return errorResult(`Could not send runtime session message to ${target}: target session unavailable.`, {
+		return result(`Could not send runtime session message to ${target}: target session unavailable.`, {
 			agent: sender,
-			message: emptyDirectMessage(senderId ?? "unknown_subagent", params.toAgentId, params.message),
+			message: failedMessage(senderId ?? "unknown_subagent", params.toAgentId, "message", params.message),
 		});
 	}
 	if (!senderId) {
 		const error = `Could not send runtime session message to ${target}: subagent runtime identity is unavailable.`;
-		return errorResult(error, {
+		return result(error, {
 			agent: sender,
-			message: emptyDirectMessage("unknown_subagent", params.toAgentId, params.message),
+			message: failedMessage("unknown_subagent", params.toAgentId, "message", params.message),
 		});
 	}
 	const message = store.recordOutboundSessionMessage({
@@ -2040,7 +2027,7 @@ function sendMainRuntimeSessionMessage(
 	) {
 		const failedMessage = markFailedMailboxTransportMessage(store, message);
 		const error = `Could not send runtime session message to ${target}: runtime mailbox transport is unavailable.`;
-		return errorResult(error, { agent: sender, message: failedMessage });
+		return result(error, { agent: sender, message: failedMessage });
 	}
 	const remote = isRemoteSessionMessage(params);
 	if (!remote) onSessionMessageSent?.({ message, toSessionId: params.toSessionId });
@@ -2378,7 +2365,7 @@ export function consumeNotifications(
 ): AgentToolResult<WaitAgentsToolDetails> {
 	switch (wake.kind) {
 		case "cancelled":
-			return errorResult("Wait cancelled.", {});
+			return result("Wait cancelled.", {});
 		case "coordination": {
 			if (wake.prompt) return result(wake.prompt, {});
 			const coordination = takePendingWaitCoordination(runtimeCoordinationRecipient(ctx));
@@ -2388,7 +2375,7 @@ export function consumeNotifications(
 		}
 		case "error": {
 			const message = wake.error instanceof Error ? wake.error.message : String(wake.error);
-			return errorResult(`Wait failed: ${message}`, {});
+			return result(`Wait failed: ${message}`, {});
 		}
 		case "none":
 			return emptyResult();
@@ -2398,7 +2385,7 @@ export function consumeNotifications(
 				{ timedOut: true as const },
 			);
 		case "unavailable":
-			return errorResult(wake.message, {});
+			return result(wake.message, {});
 		case "wake_up": {
 			const agent = wake.wakeUp.agentId ? store.getAgent(wake.wakeUp.agentId) : undefined;
 			const text = agent ? `Woken after steering ${agent.displayName}.` : "Woken after supervisor steering.";
@@ -2671,7 +2658,7 @@ async function cancelAgent(
 	if (!cancelled.ok) {
 		const error =
 			cancelled.error === "runtime_ownership_unavailable" ? "runtime ownership unavailable" : cancelled.error;
-		return errorResult(`Could not cancel ${params.agentId}: ${error}`, {
+		return result(`Could not cancel ${params.agentId}: ${error}`, {
 			agent: cancelled.agent ?? emptyAgent(params.agentId),
 			reason: params.reason,
 		});
@@ -2691,9 +2678,9 @@ function contactParent(
 ): AgentToolResult<ContactParentToolDetails> {
 	const currentAgentId = ctx?.multiAgentAgentId;
 	if (!currentAgentId) {
-		return errorResult("Could not contact parent: agent runtime identity is unavailable.", {
+		return result("Could not contact parent: agent runtime identity is unavailable.", {
 			agent: emptyAgent(""),
-			message: emptyParentRequest("", params.message),
+			message: failedMessage("", "", "parent_request", params.message),
 		});
 	}
 	const contacted = store.contactParent(currentAgentId, {
@@ -2702,15 +2689,15 @@ function contactParent(
 		threadId: params.threadId,
 	});
 	if (!contacted.ok) {
-		return errorResult(`Could not contact parent for ${currentAgentId}: ${contacted.error}`, {
+		return result(`Could not contact parent for ${currentAgentId}: ${contacted.error}`, {
 			agent: "current" in contacted ? contacted.current : emptyAgent(currentAgentId),
-			message: emptyParentRequest(currentAgentId, params.message),
+			message: failedMessage(currentAgentId, "", "parent_request", params.message),
 		});
 	}
 
 	if (!mirrorRuntimeMailboxMessage(store, contacted.message, ctx)) {
 		const failedMessage = markFailedMailboxTransportMessage(store, contacted.message);
-		return errorResult("Could not contact parent: runtime mailbox transport is unavailable.", {
+		return result("Could not contact parent: runtime mailbox transport is unavailable.", {
 			agent: contacted.agent,
 			message: failedMessage,
 		});
@@ -2777,7 +2764,7 @@ export function requestAgentSteering(
 		return {
 			agent: emptyAgent(params.agentId),
 			error: `Could not steer ${params.agentId}: not_found`,
-			message: emptyMessage(params.agentId, params.message),
+			message: failedMessage("supervisor", params.agentId, "steer", params.message),
 			ok: false,
 		};
 	}
@@ -2785,7 +2772,7 @@ export function requestAgentSteering(
 		return {
 			agent: current,
 			error: `Could not steer ${params.agentId}: inactive (${current.lifecycle})`,
-			message: emptyMessage(params.agentId, params.message),
+			message: failedMessage("supervisor", params.agentId, "steer", params.message),
 			ok: false,
 		};
 	}
@@ -2811,7 +2798,7 @@ export function requestAgentSteering(
 		return {
 			agent: current,
 			error: `Could not steer ${params.agentId}: runtime ownership unavailable`,
-			message: emptyMessage(params.agentId, params.message),
+			message: failedMessage("supervisor", params.agentId, "steer", params.message),
 			ok: false,
 		};
 	}
@@ -2829,7 +2816,7 @@ export function requestAgentSteering(
 		return {
 			agent: current,
 			error: `Could not steer ${params.agentId}: ${error}`,
-			message: emptyMessage(params.agentId, params.message),
+			message: failedMessage("supervisor", params.agentId, "steer", params.message),
 			ok: false,
 		};
 	}
@@ -2850,9 +2837,9 @@ function steerAgent(
 	const controlDbPath = ctx?.controlDbPath ?? persistence?.controlDbPath;
 	const senderId = currentSteeringSenderId(store, ctx);
 	if (!ctx || !controlDbPath || !senderId) {
-		return errorResult("Could not steer agent: subagent runtime identity is unavailable.", {
+		return result("Could not steer agent: subagent runtime identity is unavailable.", {
 			agent: emptyAgent(params.agentId),
-			message: emptyMessage(params.agentId, params.message),
+			message: failedMessage("supervisor", params.agentId, "steer", params.message),
 		});
 	}
 	const steered = requestAgentSteering(
@@ -2866,7 +2853,7 @@ function steerAgent(
 		runtimeHandles,
 	);
 	if (!steered.ok) {
-		return errorResult(steered.error, { agent: steered.agent, message: steered.message });
+		return result(steered.error, { agent: steered.agent, message: steered.message });
 	}
 	return result(`Queued steering for ${steered.agent.displayName}.`, {
 		agent: steered.agent,
@@ -3109,11 +3096,7 @@ function resolveRuntimeRecipient(
 		return { agentId: message.toAgentId, sessionId: ctx.sessionManager.getSessionId() };
 	}
 	const currentSessionId = ctx.sessionManager.getSessionId();
-	return { agentId: null, sessionId: resolveParentRuntimeSessionId(ctx) ?? currentSessionId };
-}
-
-function resolveParentRuntimeSessionId(ctx: ExtensionContext): string | undefined {
-	return ctx.multiAgentParentSessionId;
+	return { agentId: null, sessionId: ctx.multiAgentParentSessionId ?? currentSessionId };
 }
 
 function emptyAgent(agentId: string): AgentSnapshot {
@@ -3132,42 +3115,19 @@ function emptyAgent(agentId: string): AgentSnapshot {
 	};
 }
 
-function emptyMessage(agentId: string, body: string): AgentMailboxMessage {
-	const timestamp = new Date(0).toISOString();
-	return {
-		body,
-		createdAt: timestamp,
-		fromAgentId: "supervisor",
-		id: "",
-		kind: "steer",
-		status: "failed",
-		toAgentId: agentId,
-		updatedAt: timestamp,
-	};
-}
-
-function emptyParentRequest(agentId: string, body: string): AgentMailboxMessage {
-	const timestamp = new Date(0).toISOString();
-	return {
-		body,
-		createdAt: timestamp,
-		fromAgentId: agentId,
-		id: "",
-		kind: "parent_request",
-		status: "failed",
-		toAgentId: "",
-		updatedAt: timestamp,
-	};
-}
-
-function emptyDirectMessage(fromAgentId: string, toAgentId: string, body: string): AgentMailboxMessage {
+function failedMessage(
+	fromAgentId: string,
+	toAgentId: string,
+	kind: AgentMailboxMessage["kind"],
+	body: string,
+): AgentMailboxMessage {
 	const timestamp = new Date(0).toISOString();
 	return {
 		body,
 		createdAt: timestamp,
 		fromAgentId,
 		id: "",
-		kind: "message",
+		kind,
 		status: "failed",
 		toAgentId,
 		updatedAt: timestamp,
