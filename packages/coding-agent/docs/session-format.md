@@ -57,7 +57,7 @@ interface ImageContent {
 }
 ```
 
-Image data remains in persisted history. Provider and compaction requests include images from user, custom, and tool-result messages until a later assistant completion with `stop`, `toolUse`, or `length`; later requests receive `[Previously processed image omitted]` in their place. Error and aborted responses leave images pending. This conversion does not change stored messages, so transcript content and text file references remain available.
+Image data remains in persisted history. Model-context conversion preserves images in user, custom, and tool-result messages across requests, including after assistant completions and tool calls. Normal compaction can remove older messages from the active context; it does not remove them from persisted history.
 
 ```typescript
 interface ThinkingContent {
