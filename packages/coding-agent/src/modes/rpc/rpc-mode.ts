@@ -402,6 +402,10 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			// =================================================================
 
 			case "prompt": {
+				const behavior = command.streamingBehavior;
+				if (behavior !== undefined && behavior !== "steer" && behavior !== "followUp") {
+					return error(id, "prompt", `Invalid streamingBehavior: ${behavior}`);
+				}
 				// Start prompt handling immediately, but emit the authoritative response only after
 				// prompt preflight succeeds. Queued and immediately handled prompts also count as success.
 				let preflightSucceeded = false;
@@ -556,6 +560,9 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			}
 
 			case "set_auto_compaction": {
+				if (typeof command.enabled !== "boolean") {
+					return error(id, "set_auto_compaction", "enabled must be a boolean");
+				}
 				session.setAutoCompactionEnabled(command.enabled);
 				return success(id, "set_auto_compaction");
 			}
@@ -565,6 +572,9 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			// =================================================================
 
 			case "set_auto_retry": {
+				if (typeof command.enabled !== "boolean") {
+					return error(id, "set_auto_retry", "enabled must be a boolean");
+				}
 				session.setAutoRetryEnabled(command.enabled);
 				return success(id, "set_auto_retry");
 			}

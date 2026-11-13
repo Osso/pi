@@ -65,6 +65,8 @@ With images:
 {"type": "prompt", "message": "New instruction", "streamingBehavior": "steer"}
 ```
 
+Any other `streamingBehavior` value returns an error (`Invalid streamingBehavior: <value>`).
+
 - `"steer"`: Queue the message while the agent is running. It is delivered after the current assistant turn finishes executing its tool calls, before the next LLM call.
 - `"followUp"`: Wait until the agent finishes. Message is delivered only when agent stops.
 
@@ -432,6 +434,8 @@ Response:
 {"type": "response", "command": "set_auto_compaction", "success": true}
 ```
 
+A non-boolean `enabled` returns an error (`enabled must be a boolean`).
+
 ### Retry
 
 #### set_auto_retry
@@ -446,6 +450,8 @@ Response:
 ```json
 {"type": "response", "command": "set_auto_retry", "success": true}
 ```
+
+A non-boolean `enabled` returns an error (`enabled must be a boolean`).
 
 #### abort_retry
 
