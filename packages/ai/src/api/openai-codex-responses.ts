@@ -1335,7 +1335,11 @@ async function* parseWebSocket(
 				if (!event || typeof event !== "object" || !("data" in event)) return;
 				text = await decodeWebSocketData((event as { data?: unknown }).data);
 				if (!text) return;
-				const parsed = JSON.parse(text) as Record<string, unknown>;
+				const rawParsed: unknown = JSON.parse(text);
+				if (typeof rawParsed !== "object" || rawParsed === null || Array.isArray(rawParsed)) {
+					throw new Error("Expected JSON object");
+				}
+				const parsed = rawParsed as Record<string, unknown>;
 				const type = typeof parsed.type === "string" ? parsed.type : "";
 				liveness.lastEventAt = Date.now();
 				liveness.lastEventType = type;

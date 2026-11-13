@@ -461,6 +461,34 @@ describe("Codex metadata diagnostics", () => {
 		);
 	});
 
+	it("rejects non-object JSON websocket frames as protocol failures", async () => {
+		class MockWebSocket extends EventTarget {
+			constructor() {
+				super();
+				queueMicrotask(() => this.dispatchEvent(new Event("open")));
+			}
+			send(): void {
+				queueMicrotask(() => this.dispatchEvent(Object.assign(new Event("message"), { data: "[]" })));
+			}
+			close(): void {}
+		}
+		vi.stubGlobal("WebSocket", MockWebSocket);
+		const events: ProviderDiagnosticEvent[] = [];
+		const result = await streamOpenAICodexResponses(model, context, {
+			apiKey: mockToken(),
+			transport: "websocket",
+			maxRetries: 0,
+			onDiagnostic: (event) => {
+				events.push(event);
+			},
+		}).result();
+		expect(result.stopReason).toBe("error");
+		expect(result.errorMessage).toMatch(/Invalid Codex WebSocket JSON: Expected JSON object/);
+		expect(events.map(({ timestamp, elapsedMs, ...event }) => event)).toEqual([
+			{ phase: "error", transport: "websocket", attempt: 1, failureKind: "protocol" },
+		]);
+	});
+
 	it("observes an actual aborted SSE attempt but not pre-request validation failures", async () => {
 		const controller = new AbortController();
 		const events: ProviderDiagnosticEvent[] = [];
