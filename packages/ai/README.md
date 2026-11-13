@@ -182,7 +182,7 @@ const toolCalls = finalMessage.content.filter(b => b.type === 'toolCall');
 for (const call of toolCalls) {
   const result = call.name === 'get_time'
     ? new Date().toLocaleString('en-US', {
-        timeZone: call.arguments.timezone || 'UTC',
+        timeZone: typeof call.arguments.timezone === 'string' ? call.arguments.timezone : 'UTC',
         dateStyle: 'full',
         timeStyle: 'long'
       })
@@ -540,7 +540,7 @@ for await (const event of s) {
 
 ### Validating Tool Arguments
 
-When implementing your own tool execution loop, use `validateToolCall` to validate arguments before passing them to your tools:
+When implementing your own tool execution loop, use `validateToolCall` to validate arguments before passing them to your tools. Its return type is `unknown`; narrow it to the expected tool schema before use. `validateToolArguments` likewise returns `unknown`.
 
 ```typescript
 import { validateToolCall, type Tool } from '@earendil-works/pi-ai';

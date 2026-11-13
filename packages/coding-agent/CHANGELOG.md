@@ -405,6 +405,7 @@
 - Fixed subagent (spawned or attached) model and thinking level changes overwriting the global `settings.json` defaults (`defaultModel`, `defaultProvider`, `defaultThinkingLevel`); agent sessions now persist changes only to their own session.
 - Fixed compaction and branch summarization failing on claude-bridge with prompt-capture errors by marking summary requests as uncached one-off calls (`cacheRetention: "none"`).
 - Fixed `attach_session_agent` by path losing the session's display name; attached agents now default to the control-DB session name, then the original sub-agent name, before `Session <id>`.
+- Fixed malformed persisted process identity JSON breaking lifecycle traces; invalid relay mailbox data now reports a contextual error.
 
 ### Changed
 

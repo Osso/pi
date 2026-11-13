@@ -6,6 +6,8 @@
 
 - Changed OpenAI Codex `auto`, `websocket`, and `websocket-cached` transports to surface WebSocket failures instead of falling back to SSE; explicit `transport: "sse"` remains available. Removed the fallback-only `sseFallbacks` and `websocketFallbackActive` fields from `OpenAICodexWebSocketDebugStats`.
 
+- Changed `ToolCall.arguments` values and the return types of `validateToolCall` and `validateToolArguments` from `any` to `unknown`; callers must narrow them before use. `ToolResultMessage` details now default to `unknown` unless a type is supplied.
+
 ### Changed
 
 - Added the Retry-After helpers and `DEFAULT_MAX_RETRY_DELAY_MS` to the compatibility entrypoint so retry policy consumers share one parser and default.
