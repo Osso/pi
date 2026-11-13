@@ -438,6 +438,7 @@
 - Fixed `grep` inside the bwrap sandbox printing shared context lines twice and an empty line past the end of files that end with a newline (the same defects fixed in the built-in `grep` tool).
 - Fixed project settings replacing whole second-level objects from global settings instead of merging them, so a project that set only `agents.explore.thinkingLevel` dropped the global `agents.explore.model` (also `retry.provider` and `permissionRules.allow`).
 - Fixed an invalid `keybindings.json` (for example a trailing comma) silently dropping every custom keybinding; interactive mode now shows `keybindings.json error: ...` at startup and after `/reload`.
+- Fixed RPC `switch_session` with a path that does not exist creating a new empty session there and reporting success; it now returns `Session not found: <path>` and keeps the current session (archived `.zst` sessions still resume). `pi --session <path>` is unchanged.
 
 ### Changed
 

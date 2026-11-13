@@ -617,6 +617,8 @@ Load a different session file. Can be cancelled by a `session_before_switch` ext
 {"type": "switch_session", "sessionPath": "/path/to/session.jsonl"}
 ```
 
+The session file (or its archived `.zst` form) must exist; otherwise the command fails with `Session not found: <path>` and the current session stays active.
+
 Response:
 ```json
 {"type": "response", "command": "switch_session", "success": true, "data": {"cancelled": false}}

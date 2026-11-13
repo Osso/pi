@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { withHeadlessPi } from "../headless-pi.ts";
 
@@ -40,6 +42,23 @@ describe("RPC field validation", () => {
 				});
 			}
 			expect(await agent.send({ type: "get_messages" })).toMatchObject({ data: { messages: [] } });
+		});
+	});
+
+	it("rejects switching to a session file that does not exist instead of creating it", async () => {
+		await withHeadlessPi(async (agent) => {
+			const before = (await agent.send({ type: "get_state" })) as { data: { sessionFile: string } };
+			const missingPath = join(agent.paths.sessionDir, "missing-session.jsonl");
+
+			expect(await agent.send({ type: "switch_session", sessionPath: missingPath })).toMatchObject({
+				command: "switch_session",
+				success: false,
+				error: `Session not found: ${missingPath}`,
+			});
+			expect(existsSync(missingPath)).toBe(false);
+			expect(await agent.send({ type: "get_state" })).toMatchObject({
+				data: { sessionFile: before.data.sessionFile },
+			});
 		});
 	});
 });

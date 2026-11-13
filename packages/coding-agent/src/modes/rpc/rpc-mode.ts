@@ -12,6 +12,7 @@
  */
 
 import * as crypto from "node:crypto";
+import { existsSync } from "node:fs";
 import { isValidThinkingLevel } from "../../cli/args.ts";
 import { shouldContinueInterruptedSession } from "../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
@@ -29,6 +30,7 @@ import {
 	writeRawStdout,
 } from "../../core/output-guard.ts";
 import { getControlDbPath } from "../../core/session-control-db.ts";
+import { readSessionTranscriptPath } from "../../core/session-transcript.ts";
 import { killTrackedDetachedChildren, shutdownSignals, signalExitCode } from "../../utils/shell.ts";
 import { type Theme, theme } from "../interactive/theme/theme.ts";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
@@ -618,6 +620,13 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			}
 
 			case "switch_session": {
+				if (typeof command.sessionPath !== "string" || !command.sessionPath) {
+					return error(id, "switch_session", "sessionPath must be a non-empty string");
+				}
+				// Unlike `pi --session <path>`, RPC never creates a session at an unknown path.
+				if (!existsSync(readSessionTranscriptPath(command.sessionPath))) {
+					return error(id, "switch_session", `Session not found: ${command.sessionPath}`);
+				}
 				const result = await runtimeHost.switchSession(command.sessionPath);
 				if (!result.cancelled) {
 					await rebindSession();
