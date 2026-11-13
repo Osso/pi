@@ -470,6 +470,17 @@ describe("SettingsManager", () => {
 			expect(errors.map((e) => e.scope).sort()).toEqual(["global", "project"]);
 			expect(manager.drainErrors()).toEqual([]);
 		});
+
+		it("should record a load error when settings.json parses to a non-object JSON value", () => {
+			writeFileSync(join(agentDir, "settings.json"), "[]");
+			writeFileSync(join(projectDir, ".pi", "settings.json"), "null");
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+			const errors = manager.drainErrors();
+
+			expect(errors).toHaveLength(2);
+			expect(errors.every((e) => /Settings must be a JSON object/.test(e.error.message))).toBe(true);
+		});
 	});
 
 	describe("project trust", () => {

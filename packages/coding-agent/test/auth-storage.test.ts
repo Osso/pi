@@ -773,6 +773,22 @@ describe("AuthStorage", () => {
 			const secondDrain = authStorage.drainErrors();
 			expect(secondDrain).toHaveLength(0);
 		});
+
+		test("records a load error and preserves in-memory auth when auth.json is a non-object JSON value", () => {
+			writeAuthJson({
+				anthropic: { type: "api_key", key: "anthropic-key" },
+			});
+
+			authStorage = AuthStorage.create(authJsonPath);
+			writeFileSync(authJsonPath, "[]", "utf-8");
+
+			authStorage.reload();
+
+			expect(authStorage.get("anthropic")).toEqual({ type: "api_key", key: "anthropic-key" });
+			const errors = authStorage.drainErrors();
+			expect(errors).toHaveLength(1);
+			expect(errors[0]?.message).toMatch(/Auth storage must be a JSON object/);
+		});
 	});
 
 	describe("auth status", () => {

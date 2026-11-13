@@ -402,6 +402,14 @@ export class SettingsManager {
 		return SettingsManager.fromStorage(storage, options);
 	}
 
+	private static parseSettingsObject(content: string): Record<string, unknown> {
+		const parsed: unknown = JSON.parse(content);
+		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+			throw new Error("Settings must be a JSON object");
+		}
+		return parsed as Record<string, unknown>;
+	}
+
 	private static loadFromStorage(storage: SettingsStorage, scope: SettingsScope, projectTrusted = true): Settings {
 		if (scope === "project" && !projectTrusted) {
 			return {};
@@ -416,7 +424,7 @@ export class SettingsManager {
 		if (!content) {
 			return {};
 		}
-		const settings = JSON.parse(content);
+		const settings = SettingsManager.parseSettingsObject(content);
 		return SettingsManager.migrateSettings(settings);
 	}
 
@@ -753,7 +761,7 @@ export class SettingsManager {
 	): void {
 		this.storage.withLock(scope, (current) => {
 			const currentFileSettings = current
-				? SettingsManager.migrateSettings(JSON.parse(current) as Record<string, unknown>)
+				? SettingsManager.migrateSettings(SettingsManager.parseSettingsObject(current))
 				: {};
 			const mergedSettings: Settings = { ...currentFileSettings };
 			for (const field of modifiedFields) {

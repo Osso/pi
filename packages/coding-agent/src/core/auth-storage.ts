@@ -256,7 +256,11 @@ export class AuthStorage {
 		if (!content) {
 			return {};
 		}
-		return JSON.parse(content) as AuthStorageData;
+		const parsed: unknown = JSON.parse(content);
+		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+			throw new Error("Auth storage must be a JSON object");
+		}
+		return parsed as AuthStorageData;
 	}
 
 	/**
