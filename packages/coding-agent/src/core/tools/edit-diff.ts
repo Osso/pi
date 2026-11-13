@@ -300,7 +300,8 @@ function findTextOccurrences(content: string, oldText: string): TextOccurrence[]
 			break;
 		}
 		occurrences.push({ index, length: oldText.length });
-		startIndex = index + oldText.length;
+		// Overlapping matches are separate locations: "}\n}" occurs twice in "}\n}\n}".
+		startIndex = index + 1;
 	}
 	return occurrences;
 }

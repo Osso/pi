@@ -444,6 +444,7 @@
 - Fixed the `grep` notice for paths that could not be searched quoting the full ripgrep error: a deep unreadable path made the notice over 1KB, so the outer tool-result cap cut the start of the matches again. The notice now shows the last 160 characters of the error.
 - Fixed the `edit` tool rejecting an `oldText` that occurs exactly once with `Found 2 occurrences` when another line differs only in trailing whitespace or Unicode quotes/dashes; uniqueness is now counted by exact text when no edit in the call needs fuzzy matching, and still by normalized text when one does (every edit then applies to normalized content).
 - Fixed edits that change about 5KB or more losing their diff and patch: the tool-result cap replaced `details` over 11KB, so the diff was missing after a resume, a chat rebuild, and in HTML export. Details now have a separate 1 MiB storage cap.
+- Fixed the `edit` tool accepting an `oldText` whose occurrences overlap (for example `}\n}` in `}\n}\n}`) as unique and replacing the first one; overlapping occurrences now count as duplicates.
 
 ### Changed
 

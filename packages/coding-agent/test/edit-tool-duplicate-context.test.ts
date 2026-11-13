@@ -69,4 +69,10 @@ describe("edit tool duplicate match errors", () => {
 			),
 		).toThrowError(/Found \d+ occurrences of edits\[0\] in mixed\.txt\./);
 	});
+
+	it("rejects an oldText whose occurrences overlap", () => {
+		expect(() =>
+			applyEditsToNormalizedContent("if (a) {\n}\n}\n}\n", [{ oldText: "}\n}", newText: "}" }], "braces.ts"),
+		).toThrowError(/^Found 2 occurrences of the text in braces\.ts\.[\s\S]*1\) line 2[\s\S]*2\) line 3/);
+	});
 });
