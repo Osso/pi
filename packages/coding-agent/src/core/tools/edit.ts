@@ -16,7 +16,7 @@ import {
 	generateDiffString,
 	generateUnifiedPatch,
 	normalizeToLF,
-	restoreLineEndings,
+	restoreOriginalLineEndings,
 	stripBom,
 } from "./edit-diff.ts";
 import { withFileMutationQueue } from "./file-mutation-queue.ts";
@@ -343,7 +343,7 @@ export function createEditToolDefinition(
 				const { baseContent, newContent } = applyEditsToNormalizedContent(normalizedContent, edits, path);
 				throwIfAborted();
 
-				const finalContent = bom + restoreLineEndings(newContent, originalEnding);
+				const finalContent = bom + restoreOriginalLineEndings(content, baseContent, newContent, originalEnding);
 				await ops.writeFile(absolutePath, finalContent);
 				throwIfAborted();
 

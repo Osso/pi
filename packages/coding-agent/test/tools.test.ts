@@ -1282,6 +1282,19 @@ describe("edit tool CRLF handling", () => {
 		).rejects.toThrow(/Found 2 occurrences/);
 	});
 
+	it("keeps line endings outside the edit in a file with mixed endings", async () => {
+		const testFile = join(testDir, "mixed-preserve.txt");
+		writeFileSync(testFile, "a\r\nb\r\nc\nd\r\n");
+
+		await editTool.execute("test-mixed-preserve", {
+			path: testFile,
+			edits: [{ oldText: "b\n", newText: "B1\nB2\n" }],
+		});
+
+		// The untouched LF line stays LF; the inserted lines use the file's first ending (CRLF).
+		expect(readFileSync(testFile, "utf-8")).toBe("a\r\nB1\r\nB2\r\nc\nd\r\n");
+	});
+
 	it("should preserve UTF-8 BOM after edit", async () => {
 		const testFile = join(testDir, "bom-test.txt");
 		writeFileSync(testFile, "\uFEFFfirst\r\nsecond\r\nthird\r\n");

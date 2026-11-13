@@ -19,8 +19,38 @@ export function normalizeToLF(text: string): string {
 	return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
-export function restoreLineEndings(text: string, ending: "\r\n" | "\n"): string {
-	return ending === "\r\n" ? text.replace(/\n/g, "\r\n") : text;
+/** Original lines with their own ending; each `\r\n`, `\n`, or lone `\r` became one `\n` in normalized content. */
+const ORIGINAL_LINE = /[^\r\n]*(?:\r\n|\n|\r)|[^\r\n]+/g;
+
+/**
+ * Convert edited LF content back to file bytes. Unchanged lines keep their original bytes, so an edit in a
+ * file with mixed line endings does not rewrite endings outside the edit; changed lines use `ending`.
+ */
+export function restoreOriginalLineEndings(
+	original: string,
+	normalizedBase: string,
+	normalizedEdited: string,
+	ending: "\r\n" | "\n",
+): string {
+	const originalLines = original.match(ORIGINAL_LINE) ?? [];
+	const withEnding = (line: string) => (ending === "\r\n" ? line.replace(/\n$/, "\r\n") : line);
+	let baseIndex = 0;
+	let result = "";
+	for (const part of Diff.diffArrays(splitLinesWithEndings(normalizedBase), splitLinesWithEndings(normalizedEdited))) {
+		if (part.removed) {
+			baseIndex += part.value.length;
+			continue;
+		}
+		for (const line of part.value) {
+			if (part.added) {
+				result += withEnding(line);
+				continue;
+			}
+			result += originalLines[baseIndex] ?? withEnding(line);
+			baseIndex++;
+		}
+	}
+	return result;
 }
 
 /**
