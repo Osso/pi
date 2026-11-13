@@ -2043,18 +2043,7 @@ export function listSharedChannelMessagesAfter(
 }
 
 export function readSharedChannelCursor(controlDbPath: string, recipient: RuntimeMailboxAddress): number | undefined {
-	return withControlDb(controlDbPath, (db) => {
-		const row = db
-			.prepare(
-				`
-				SELECT last_seen_id
-				FROM shared_channel_cursors
-				WHERE session_id = ? AND agent_id_key = ?
-				`,
-			)
-			.get(recipient.sessionId, runtimeMailboxAgentIdKey(recipient.agentId)) as SharedChannelCursorRow | undefined;
-		return row?.last_seen_id;
-	});
+	return withControlDb(controlDbPath, (db) => readSharedChannelCursorRow(db, recipient));
 }
 
 export function hasPendingRuntimeCoordinationMessage(controlDbPath: string, recipient: RuntimeMailboxAddress): boolean {
@@ -3092,29 +3081,31 @@ export function readSessionGoal(controlDbPath: string, sessionPath: string): str
 	});
 }
 
+const SESSION_METADATA_COLUMNS = `
+	session_path,
+	id,
+	cwd,
+	name,
+	parent_session_path,
+	archived_at,
+	goal_json,
+	is_subagent,
+	subagent_name,
+	model_provider,
+	model_id,
+	thinking_level,
+	created_at,
+	modified_at,
+	message_count,
+	first_message,
+	updated_at`;
+
 export function readSessionMetadata(controlDbPath: string, sessionPath: string): SessionMetadata | undefined {
 	return withControlDb(controlDbPath, (db) => {
 		const row = db
 			.prepare(
 				`
-				SELECT
-					session_path,
-					id,
-					cwd,
-					name,
-					parent_session_path,
-					archived_at,
-					goal_json,
-					is_subagent,
-					subagent_name,
-					model_provider,
-					model_id,
-					thinking_level,
-					created_at,
-					modified_at,
-					message_count,
-					first_message,
-					updated_at
+				SELECT ${SESSION_METADATA_COLUMNS}
 				FROM session_metadata
 				WHERE session_path = ?
 				`,
@@ -3169,24 +3160,7 @@ export function listResumeSessionMetadata(
 		const rows = db
 			.prepare(
 				`
-				SELECT
-					session_path,
-					id,
-					cwd,
-					name,
-					parent_session_path,
-					archived_at,
-					goal_json,
-					is_subagent,
-					subagent_name,
-					model_provider,
-					model_id,
-					thinking_level,
-					created_at,
-					modified_at,
-					message_count,
-					first_message,
-					updated_at
+				SELECT ${SESSION_METADATA_COLUMNS}
 				FROM session_metadata
 				WHERE ${predicates.join(" AND ")}
 				ORDER BY modified_at DESC, updated_at DESC, session_path DESC
@@ -3212,24 +3186,7 @@ function findActiveSessionMetadata(controlDbPath: string, field: "id" | "name", 
 		const rows = db
 			.prepare(
 				`
-				SELECT
-					session_path,
-					id,
-					cwd,
-					name,
-					parent_session_path,
-					archived_at,
-					goal_json,
-					is_subagent,
-					subagent_name,
-					model_provider,
-					model_id,
-					thinking_level,
-					created_at,
-					modified_at,
-					message_count,
-					first_message,
-					updated_at
+				SELECT ${SESSION_METADATA_COLUMNS}
 				FROM session_metadata
 				WHERE archived_at IS NULL AND is_subagent = 0 AND ${matchClause}
 				ORDER BY modified_at DESC, updated_at DESC, session_path DESC
@@ -3247,24 +3204,7 @@ function listSessionMetadataByArchiveState(controlDbPath: string, archived?: boo
 		const rows = db
 			.prepare(
 				`
-				SELECT
-					session_path,
-					id,
-					cwd,
-					name,
-					parent_session_path,
-					archived_at,
-					goal_json,
-					is_subagent,
-					subagent_name,
-					model_provider,
-					model_id,
-					thinking_level,
-					created_at,
-					modified_at,
-					message_count,
-					first_message,
-					updated_at
+				SELECT ${SESSION_METADATA_COLUMNS}
 				FROM session_metadata
 				${archiveClause}
 				ORDER BY modified_at DESC, updated_at DESC, session_path DESC
