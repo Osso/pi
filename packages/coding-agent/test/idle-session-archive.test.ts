@@ -451,4 +451,25 @@ describe("idle transcript archival", () => {
 			errors: [],
 		});
 	});
+	it("returns cleanly without logging when the sessions root disappears before locking", async () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-idle-archive-vanished-"));
+		const db = getControlDbPath(root);
+		const sessionsRoot = join(root, "sessions");
+		mkdirSync(sessionsRoot, { recursive: true });
+		rmSync(root, { recursive: true, force: true });
+
+		const errors: unknown[] = [];
+		const originalError = console.error;
+		console.error = (...args: unknown[]) => errors.push(args);
+		try {
+			await expect(storage.archiveIdleSessionTranscripts(db, { agentDir: root, now })).resolves.toEqual({
+				archivedPaths: [],
+				errors: [],
+			});
+			await storage.runIdleSessionArchive(db, root);
+		} finally {
+			console.error = originalError;
+		}
+		expect(errors).toEqual([]);
+	});
 });

@@ -103,6 +103,7 @@ export class AgentSessionRuntime {
 	private processRestarter: ProcessRestarter = restartCurrentProcess;
 	private lifecycleTransitionTail: Promise<void> = Promise.resolve();
 	private preparedToolResultRelocation: PreparedToolResultRelocation | undefined;
+	private readonly startupArchivePromise: Promise<void>;
 
 	constructor(
 		_session: AgentSession,
@@ -110,12 +111,14 @@ export class AgentSessionRuntime {
 		createRuntime: CreateAgentSessionRuntimeFactory,
 		_diagnostics: AgentSessionRuntimeDiagnostic[] = [],
 		_modelFallbackMessage?: string,
+		startupArchivePromise: Promise<void> = Promise.resolve(),
 	) {
 		this._session = _session;
 		this._services = _services;
 		this.createRuntime = createRuntime;
 		this._diagnostics = _diagnostics;
 		this._modelFallbackMessage = _modelFallbackMessage;
+		this.startupArchivePromise = startupArchivePromise;
 		this.bindSessionRuntimeActions();
 	}
 
@@ -674,7 +677,11 @@ export class AgentSessionRuntime {
 	}
 
 	async dispose(): Promise<void> {
-		return this.runLifecycleTransition(() => this.teardownCurrent("quit"));
+		try {
+			await this.runLifecycleTransition(() => this.teardownCurrent("quit"));
+		} finally {
+			await this.startupArchivePromise;
+		}
 	}
 }
 
@@ -698,9 +705,14 @@ export async function createAgentSessionRuntime(
 		throw new Error("Standalone worker requires an in-memory session");
 	assertSessionCwdExists(options.sessionManager, options.cwd);
 	const controlDbPath = options.sessionManager.getMetadataControlDbPath();
+	let startupArchivePromise: Promise<void> = Promise.resolve();
 	if (controlDbPath && !options.noSupervisor) {
 		runDetachedJobArtifactCleanup(controlDbPath, options.agentDir);
-		runIdleSessionArchive(controlDbPath, options.agentDir, options.sessionManager.getSessionFile());
+		startupArchivePromise = runIdleSessionArchive(
+			controlDbPath,
+			options.agentDir,
+			options.sessionManager.getSessionFile(),
+		);
 	}
 	const result = await createRuntime(options);
 	return new AgentSessionRuntime(
@@ -709,6 +721,7 @@ export async function createAgentSessionRuntime(
 		createRuntime,
 		result.diagnostics,
 		result.modelFallbackMessage,
+		startupArchivePromise,
 	);
 }
 

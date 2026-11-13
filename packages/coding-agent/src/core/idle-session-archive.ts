@@ -109,13 +109,20 @@ async function acquireArchiveClaim(
 	try {
 		return await lockfile.lock(root, { onCompromised });
 	} catch (error) {
-		if (error instanceof Error && "code" in error && error.code === "ELOCKED") return undefined;
+		if (error instanceof Error && "code" in error) {
+			if (error.code === "ELOCKED") return undefined;
+			if (error.code === "ENOENT" && !existsSync(root)) return undefined;
+		}
 		throw error;
 	}
 }
 
-export function runIdleSessionArchive(controlDbPath: string, agentDir: string, currentSessionPath?: string): void {
-	void archiveIdleSessionTranscripts(controlDbPath, { agentDir, currentSessionPath }).then(
+export function runIdleSessionArchive(
+	controlDbPath: string,
+	agentDir: string,
+	currentSessionPath?: string,
+): Promise<void> {
+	return archiveIdleSessionTranscripts(controlDbPath, { agentDir, currentSessionPath }).then(
 		(result) => {
 			for (const error of result.errors) console.error(`Idle session archive: ${error}`);
 		},
