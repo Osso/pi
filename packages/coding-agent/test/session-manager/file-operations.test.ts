@@ -283,14 +283,15 @@ describe("SessionManager relocate", () => {
 			timestamp: 2,
 		});
 
+		if (!sourceFile) throw new Error("Expected sourceFile");
 		session.setSessionGoalJson(JSON.stringify({ objective: "keep goal" }));
-		writeSessionName(controlDbPath, sourceFile!, "Keep name");
-		bootstrapMultiAgentAgent(controlDbPath, sourceFile!, "agent_1", { id: "agent_1" });
-		upsertMultiAgentMailboxMessage(controlDbPath, sourceFile!, "message_1", {
+		writeSessionName(controlDbPath, sourceFile, "Keep name");
+		bootstrapMultiAgentAgent(controlDbPath, sourceFile, "agent_1", { id: "agent_1" });
+		upsertMultiAgentMailboxMessage(controlDbPath, sourceFile, "message_1", {
 			messageId: "message_1",
 			status: "pending",
 		});
-		writeMultiAgentCounters(controlDbPath, sourceFile!, {
+		writeMultiAgentCounters(controlDbPath, sourceFile, {
 			nextAgentNumber: 2,
 			nextMessageNumber: 4,
 		});
@@ -298,34 +299,35 @@ describe("SessionManager relocate", () => {
 			recipient: { sessionId: "recipient", agentId: "agent_1" },
 			sender: { sessionId: "sender", agentId: null },
 			kind: "message",
-			storeRef: { sessionPath: sourceFile!, messageId: "message_1" },
+			storeRef: { sessionPath: sourceFile, messageId: "message_1" },
 		});
-		const sourceState = readMultiAgentState(controlDbPath, sourceFile!);
+		const sourceState = readMultiAgentState(controlDbPath, sourceFile);
 		session.relocate(projectB, agentDir);
 
 		const movedFile = session.getSessionFile();
-		expect(movedFile).toBe(join(defaultSessionDir(projectB), basename(sourceFile!)));
-		expect(existsSync(sourceFile!)).toBe(false);
-		expect(existsSync(movedFile!)).toBe(true);
+		if (!movedFile) throw new Error("Expected movedFile");
+		expect(movedFile).toBe(join(defaultSessionDir(projectB), basename(sourceFile)));
+		expect(existsSync(sourceFile)).toBe(false);
+		expect(existsSync(movedFile)).toBe(true);
 		expect(session.getCwd()).toBe(projectB);
 
-		const header = JSON.parse(readFileSync(movedFile!, "utf8").split("\n")[0]!) as { cwd: string };
+		const header = JSON.parse(readFileSync(movedFile, "utf8").split("\n")[0] ?? "{}") as { cwd: string };
 		expect(header.cwd).toBe(projectA);
-		const reopened = SessionManager.open(movedFile!);
+		const reopened = SessionManager.open(movedFile);
 		reopened.setMetadataControlDbPath(controlDbPath);
 		expect(reopened.getCwd()).toBe(projectB);
-		expect(readSessionMetadata(controlDbPath, sourceFile!)).toBeUndefined();
-		const movedMetadata = readSessionMetadata(controlDbPath, movedFile!);
+		expect(readSessionMetadata(controlDbPath, sourceFile)).toBeUndefined();
+		const movedMetadata = readSessionMetadata(controlDbPath, movedFile);
 		expect(movedMetadata).toMatchObject({
 			cwd: projectB,
 			isSubagent: true,
 			name: "Keep name",
 			subagentName: "worker",
 		});
-		expect(readSessionGoal(controlDbPath, movedFile!)).toBe(JSON.stringify({ objective: "keep goal" }));
-		expect(readMultiAgentState(controlDbPath, sourceFile!)).toBeUndefined();
-		expect(readMultiAgentState(controlDbPath, movedFile!)).toEqual(sourceState);
-		expect(readMultiAgentState(controlDbPath, movedFile!)).toEqual({
+		expect(readSessionGoal(controlDbPath, movedFile)).toBe(JSON.stringify({ objective: "keep goal" }));
+		expect(readMultiAgentState(controlDbPath, sourceFile)).toBeUndefined();
+		expect(readMultiAgentState(controlDbPath, movedFile)).toEqual(sourceState);
+		expect(readMultiAgentState(controlDbPath, movedFile)).toEqual({
 			agents: [{ id: "agent_1" }],
 			mailboxMessages: [
 				{
@@ -341,10 +343,10 @@ describe("SessionManager relocate", () => {
 			counters: { nextAgentNumber: 2, nextMessageNumber: 4 },
 		});
 		expect(
-			consumeRuntimeMailboxMessageByStoreRef(controlDbPath, { sessionPath: sourceFile!, messageId: "message_1" }),
+			consumeRuntimeMailboxMessageByStoreRef(controlDbPath, { sessionPath: sourceFile, messageId: "message_1" }),
 		).toBe(0);
 		expect(
-			consumeRuntimeMailboxMessageByStoreRef(controlDbPath, { sessionPath: movedFile!, messageId: "message_1" }),
+			consumeRuntimeMailboxMessageByStoreRef(controlDbPath, { sessionPath: movedFile, messageId: "message_1" }),
 		).toBe(1);
 	});
 });

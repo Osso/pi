@@ -143,11 +143,11 @@ describe("buildSessionContext", () => {
 
 			// Should have: summary + kept (3,4) + after (6,7) = 5 messages
 			expect(ctx.messages).toHaveLength(5);
-			expect((ctx.messages[0] as any).summary).toContain("Summary of first two turns");
-			expect((ctx.messages[1] as any).content).toBe("second");
-			expect((ctx.messages[2] as any).content[0].text).toBe("response2");
-			expect((ctx.messages[3] as any).content).toBe("third");
-			expect((ctx.messages[4] as any).content[0].text).toBe("response3");
+			expect(ctx.messages[0]).toMatchObject({ summary: expect.stringContaining("Summary of first two turns") });
+			expect(ctx.messages[1]).toMatchObject({ content: "second" });
+			expect(ctx.messages[2]).toMatchObject({ content: [{ text: "response2" }] });
+			expect(ctx.messages[3]).toMatchObject({ content: "third" });
+			expect(ctx.messages[4]).toMatchObject({ content: [{ text: "response3" }] });
 		});
 
 		it("handles compaction keeping from first message", () => {
@@ -161,7 +161,7 @@ describe("buildSessionContext", () => {
 
 			// Summary + all messages (1,2,4)
 			expect(ctx.messages).toHaveLength(4);
-			expect((ctx.messages[0] as any).summary).toContain("Empty summary");
+			expect(ctx.messages[0]).toMatchObject({ summary: expect.stringContaining("Empty summary") });
 		});
 
 		it("multiple compactions uses latest", () => {
@@ -178,7 +178,7 @@ describe("buildSessionContext", () => {
 
 			// Should use second summary, keep from 4
 			expect(ctx.messages).toHaveLength(4);
-			expect((ctx.messages[0] as any).summary).toContain("Second summary");
+			expect(ctx.messages[0]).toMatchObject({ summary: expect.stringContaining("Second summary") });
 		});
 
 		it("buildContextEntries returns compaction-aware entries including custom entries", () => {
@@ -227,11 +227,11 @@ describe("buildSessionContext", () => {
 
 			const ctxA = buildSessionContext(entries, "3");
 			expect(ctxA.messages).toHaveLength(3);
-			expect((ctxA.messages[2] as any).content).toBe("branch A");
+			expect(ctxA.messages[2]).toMatchObject({ content: "branch A" });
 
 			const ctxB = buildSessionContext(entries, "4");
 			expect(ctxB.messages).toHaveLength(3);
-			expect((ctxB.messages[2] as any).content).toBe("branch B");
+			expect(ctxB.messages[2]).toMatchObject({ content: "branch B" });
 		});
 
 		it("includes branch summary in path", () => {
@@ -245,8 +245,8 @@ describe("buildSessionContext", () => {
 			const ctx = buildSessionContext(entries, "5");
 
 			expect(ctx.messages).toHaveLength(4);
-			expect((ctx.messages[2] as any).summary).toContain("Summary of abandoned work");
-			expect((ctx.messages[3] as any).content).toBe("new direction");
+			expect(ctx.messages[2]).toMatchObject({ summary: expect.stringContaining("Summary of abandoned work") });
+			expect(ctx.messages[3]).toMatchObject({ content: "new direction" });
 		});
 
 		it("complex tree with multiple branches and compaction", () => {
@@ -273,20 +273,20 @@ describe("buildSessionContext", () => {
 			// Main path to 7: summary + kept(3,4) + after(6,7)
 			const ctxMain = buildSessionContext(entries, "7");
 			expect(ctxMain.messages).toHaveLength(5);
-			expect((ctxMain.messages[0] as any).summary).toContain("Compacted history");
-			expect((ctxMain.messages[1] as any).content).toBe("q2");
-			expect((ctxMain.messages[2] as any).content[0].text).toBe("r2");
-			expect((ctxMain.messages[3] as any).content).toBe("q3");
-			expect((ctxMain.messages[4] as any).content[0].text).toBe("r3");
+			expect(ctxMain.messages[0]).toMatchObject({ summary: expect.stringContaining("Compacted history") });
+			expect(ctxMain.messages[1]).toMatchObject({ content: "q2" });
+			expect(ctxMain.messages[2]).toMatchObject({ content: [{ text: "r2" }] });
+			expect(ctxMain.messages[3]).toMatchObject({ content: "q3" });
+			expect(ctxMain.messages[4]).toMatchObject({ content: [{ text: "r3" }] });
 
 			// Branch path to 11: 1,2,3 + branch_summary + 11
 			const ctxBranch = buildSessionContext(entries, "11");
 			expect(ctxBranch.messages).toHaveLength(5);
-			expect((ctxBranch.messages[0] as any).content).toBe("start");
-			expect((ctxBranch.messages[1] as any).content[0].text).toBe("r1");
-			expect((ctxBranch.messages[2] as any).content).toBe("q2");
-			expect((ctxBranch.messages[3] as any).summary).toContain("Tried wrong approach");
-			expect((ctxBranch.messages[4] as any).content).toBe("better approach");
+			expect(ctxBranch.messages[0]).toMatchObject({ content: "start" });
+			expect(ctxBranch.messages[1]).toMatchObject({ content: [{ text: "r1" }] });
+			expect(ctxBranch.messages[2]).toMatchObject({ content: "q2" });
+			expect(ctxBranch.messages[3]).toMatchObject({ summary: expect.stringContaining("Tried wrong approach") });
+			expect(ctxBranch.messages[4]).toMatchObject({ content: "better approach" });
 		});
 	});
 

@@ -16,7 +16,7 @@ describe("SessionManager.newSession with custom id", () => {
 	it("uses the provided id when creating an in-memory session", () => {
 		const session = SessionManager.inMemory(process.cwd(), { id: "memory-session-id" });
 		expect(session.getSessionId()).toBe("memory-session-id");
-		expect(session.getHeader()!.id).toBe("memory-session-id");
+		expect(session.getHeader()?.id).toBe("memory-session-id");
 		expect(session.getSessionFile()).toBeUndefined();
 	});
 
@@ -61,13 +61,13 @@ describe("SessionManager.newSession with custom id", () => {
 
 		const header = session.getHeader();
 		expect(header).not.toBeNull();
-		expect(header!.id).toBe("header-test-id");
+		expect(header?.id).toBe("header-test-id");
 	});
 
 	it("generates a UUIDv7 id when constructed without an explicit id", () => {
 		const session = SessionManager.inMemory();
 		expect(session.getSessionId()).toMatch(UUID_V7_RE);
-		expect(session.getHeader()!.id).toBe(session.getSessionId());
+		expect(session.getHeader()?.id).toBe(session.getSessionId());
 	});
 
 	it("uses the provided id when creating a persisted session", () => {
@@ -75,8 +75,9 @@ describe("SessionManager.newSession with custom id", () => {
 		const session = SessionManager.create(tempDir, tempDir, { id: "created-session-id" });
 
 		expect(session.getSessionId()).toBe("created-session-id");
-		expect(session.getHeader()!.id).toBe("created-session-id");
-		const sessionFile = session.getSessionFile()!;
+		expect(session.getHeader()?.id).toBe("created-session-id");
+		const sessionFile = session.getSessionFile();
+		if (!sessionFile) throw new Error("Expected sessionFile");
 		expect(sessionFile).toContain("created-session-id");
 		expect(basename(sessionFile)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_created-session-id\.jsonl$/);
 		expect(existsSync(sessionFile)).toBe(false);
@@ -93,7 +94,7 @@ describe("SessionManager.newSession with custom id", () => {
 		session.createBranchedSession(firstId);
 
 		expect(session.getSessionId()).toMatch(UUID_V7_RE);
-		expect(session.getHeader()!.id).toBe(session.getSessionId());
+		expect(session.getHeader()?.id).toBe(session.getSessionId());
 	});
 
 	it("generates a UUIDv7 id when forking from another session file", () => {
@@ -139,8 +140,8 @@ describe("SessionManager.newSession with custom id", () => {
 		const forked = SessionManager.forkFrom(sourcePath, tempDir, tempDir);
 		const header = forked.getHeader();
 		expect(header).not.toBeNull();
-		expect(header!.id).toMatch(UUID_V7_RE);
-		expect(header!.parentSession).toBe(sourcePath);
+		expect(header?.id).toMatch(UUID_V7_RE);
+		expect(header?.parentSession).toBe(sourcePath);
 	});
 
 	it("uses the provided id when forking from another session file", () => {
@@ -160,9 +161,10 @@ describe("SessionManager.newSession with custom id", () => {
 		const forked = SessionManager.forkFrom(sourcePath, tempDir, tempDir, { id: "forked-session-id" });
 		const header = forked.getHeader();
 		expect(header).not.toBeNull();
-		expect(header!.id).toBe("forked-session-id");
-		expect(header!.parentSession).toBe(sourcePath);
-		const sessionFile = forked.getSessionFile()!;
+		expect(header?.id).toBe("forked-session-id");
+		expect(header?.parentSession).toBe(sourcePath);
+		const sessionFile = forked.getSessionFile();
+		if (!sessionFile) throw new Error("Expected forked sessionFile");
 		expect(sessionFile).toContain("forked-session-id");
 		expect(basename(sessionFile)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z_forked-session-id\.jsonl$/);
 	});

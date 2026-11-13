@@ -82,7 +82,8 @@
 			"includes": [
 				"packages/coding-agent/src/**/*.ts",
 				"packages/coding-agent/examples/**/*.ts",
-				"packages/coding-agent/test/suite/**/*.ts"
+				"packages/coding-agent/test/suite/**/*.ts",
+				"packages/coding-agent/test/session-manager/**/*.ts"
 			],
 			"linter": {
 				"rules": {

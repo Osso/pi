@@ -40,8 +40,8 @@ describe("SessionManager append and tree traversal", () => {
 
 			const thinkingEntry = entries.find((e) => e.type === "thinking_level_change");
 			expect(thinkingEntry).toBeDefined();
-			expect(thinkingEntry!.id).toBe(thinkingId);
-			expect(thinkingEntry!.parentId).toBe(msgId);
+			expect(thinkingEntry?.id).toBe(thinkingId);
+			expect(thinkingEntry?.parentId).toBe(msgId);
 
 			expect(entries[2].parentId).toBe(thinkingId);
 		});
@@ -267,10 +267,12 @@ describe("SessionManager append and tree traversal", () => {
 			const node2 = tree[0].children[0];
 			expect(node2.children).toHaveLength(2); // id3 and id5
 
-			const node5 = node2.children.find((c) => c.entry.id === id5)!;
+			const node5 = node2.children.find((c) => c.entry.id === id5);
+			if (!node5) throw new Error("Expected node5");
 			expect(node5.children).toHaveLength(2); // id6 and id7
 
-			const node3 = node2.children.find((c) => c.entry.id === id3)!;
+			const node3 = node2.children.find((c) => c.entry.id === id3);
+			if (!node3) throw new Error("Expected node3");
 			expect(node3.children).toHaveLength(1); // id4
 		});
 	});
@@ -306,8 +308,8 @@ describe("SessionManager append and tree traversal", () => {
 			const id3 = session.appendMessage(userMsg("branched"));
 
 			const entries = session.getEntries();
-			const branchedEntry = entries.find((e) => e.id === id3)!;
-			expect(branchedEntry.parentId).toBe(id1); // sibling of id2
+			const branchedEntry = entries.find((e) => e.id === id3);
+			expect(branchedEntry?.parentId).toBe(id1); // sibling of id2
 		});
 	});
 
@@ -353,8 +355,7 @@ describe("SessionManager append and tree traversal", () => {
 			const id2 = session.appendMessage(assistantMsg("2"));
 
 			const leaf = session.getLeafEntry();
-			expect(leaf).toBeDefined();
-			expect(leaf!.id).toBe(id2);
+			expect(leaf?.id).toBe(id2);
 		});
 	});
 
@@ -380,7 +381,7 @@ describe("SessionManager append and tree traversal", () => {
 			const entry2 = session.getEntry(id2);
 			expect(entry2).toBeDefined();
 			if (entry2?.type === "message" && entry2.message.role === "assistant") {
-				expect((entry2.message.content as any)[0].text).toBe("second");
+				expect(entry2.message.content).toMatchObject([{ text: "second" }]);
 			}
 		});
 	});
@@ -401,9 +402,9 @@ describe("SessionManager append and tree traversal", () => {
 			const ctx = session.buildSessionContext();
 			expect(ctx.messages).toHaveLength(3); // msg1, msg2, msg4-branch (not msg3)
 
-			expect((ctx.messages[0] as any).content).toBe("msg1");
-			expect((ctx.messages[1] as any).content[0].text).toBe("msg2");
-			expect((ctx.messages[2] as any).content[0].text).toBe("msg4-branch");
+			expect(ctx.messages[0]).toMatchObject({ content: "msg1" });
+			expect(ctx.messages[1]).toMatchObject({ content: [{ text: "msg2" }] });
+			expect(ctx.messages[2]).toMatchObject({ content: [{ text: "msg4-branch" }] });
 		});
 	});
 });
@@ -475,11 +476,11 @@ describe("createBranchedSession", () => {
 
 			// Fork from the very first user message (no assistant in the branched path)
 			const newFile = session.createBranchedSession(id1);
-			expect(newFile).toBeDefined();
+			if (!newFile) throw new Error("Expected newFile");
 
 			// The branched path has no assistant, so the file should not exist yet
 			// (deferred to _persist on first assistant, matching newSession() contract)
-			expect(existsSync(newFile!)).toBe(false);
+			expect(existsSync(newFile)).toBe(false);
 
 			// Simulate extension adding entry before assistant (like preset on turn_start)
 			session.appendCustomEntry("preset-state", { name: "plan" });
@@ -488,8 +489,8 @@ describe("createBranchedSession", () => {
 			session.appendMessage(assistantMsg("new answer"));
 
 			// File should now exist with exactly one header and no duplicate IDs
-			expect(existsSync(newFile!)).toBe(true);
-			const content = readFileSync(newFile!, "utf-8");
+			expect(existsSync(newFile)).toBe(true);
+			const content = readFileSync(newFile, "utf-8");
 			const lines = content.trim().split("\n").filter(Boolean);
 			const records = lines.map((line) => JSON.parse(line));
 
@@ -518,11 +519,11 @@ describe("createBranchedSession", () => {
 
 			// Fork including the assistant message
 			const newFile = session.createBranchedSession(id2);
-			expect(newFile).toBeDefined();
+			if (!newFile) throw new Error("Expected newFile");
 
 			// Path includes an assistant, so file should be written immediately
-			expect(existsSync(newFile!)).toBe(true);
-			const content = readFileSync(newFile!, "utf-8");
+			expect(existsSync(newFile)).toBe(true);
+			const content = readFileSync(newFile, "utf-8");
 			const lines = content.trim().split("\n").filter(Boolean);
 			const records = lines.map((line) => JSON.parse(line));
 			expect(records.filter((r) => r.type === "session")).toHaveLength(1);

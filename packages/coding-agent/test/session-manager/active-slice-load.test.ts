@@ -566,9 +566,9 @@ describe("active slice session loading", () => {
 
 		const forked = SessionManager.forkFrom(file, tempDir, join(tempDir, "forks"), { id: "forked" });
 		const forkedFile = forked.getSessionFile();
-		expect(forkedFile).toBeDefined();
+		if (!forkedFile) throw new Error("Expected forked session file");
 		const serializedIds = fs
-			.readFileSync(forkedFile!, "utf8")
+			.readFileSync(forkedFile, "utf8")
 			.trim()
 			.split("\n")
 			.map((line) => JSON.parse(line) as { id: string; type: string })

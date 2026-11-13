@@ -25,18 +25,18 @@ describe("migrateSessionEntries", () => {
 		migrateSessionEntries(entries);
 
 		// Header should have version set (v3 is current after hookMessage->custom migration)
-		expect((entries[0] as any).version).toBe(3);
+		expect(entries[0]).toMatchObject({ version: 3 });
 
 		// Entries should have id/parentId
-		const msg1 = entries[1] as any;
-		const msg2 = entries[2] as any;
+		const msg1 = entries[1] as { id?: string; parentId?: string | null };
+		const msg2 = entries[2] as { id?: string; parentId?: string | null };
 
 		expect(msg1.id).toBeDefined();
-		expect(msg1.id.length).toBe(8);
+		expect(msg1.id?.length).toBe(8);
 		expect(msg1.parentId).toBeNull();
 
 		expect(msg2.id).toBeDefined();
-		expect(msg2.id.length).toBe(8);
+		expect(msg2.id?.length).toBe(8);
 		expect(msg2.parentId).toBe(msg1.id);
 	});
 
@@ -71,8 +71,7 @@ describe("migrateSessionEntries", () => {
 		migrateSessionEntries(entries);
 
 		// IDs should be unchanged
-		expect((entries[1] as any).id).toBe("abc12345");
-		expect((entries[2] as any).id).toBe("def67890");
-		expect((entries[2] as any).parentId).toBe("abc12345");
+		expect(entries[1]).toMatchObject({ id: "abc12345" });
+		expect(entries[2]).toMatchObject({ id: "def67890", parentId: "abc12345" });
 	});
 });
