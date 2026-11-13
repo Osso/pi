@@ -1,5 +1,6 @@
 import { accessSync, constants } from "node:fs";
 import { access } from "node:fs/promises";
+import path from "node:path";
 import { normalizePath, resolvePath } from "../../utils/paths.ts";
 
 const NARROW_NO_BREAK_SPACE = "\u202F";
@@ -34,6 +35,20 @@ export async function pathExists(filePath: string): Promise<boolean> {
 		return true;
 	} catch {
 		return false;
+	}
+}
+
+/**
+ * fd and rg honor .gitignore only inside git repos unless given --no-require-git.
+ * Inside repos, their default git-aware behavior stops parent .gitignore rules at
+ * nested repo boundaries: https://github.com/earendil-works/pi/issues/5960
+ */
+export async function isInsideGitRepo(searchPath: string): Promise<boolean> {
+	for (let current = searchPath; ; ) {
+		if (await pathExists(path.join(current, ".git"))) return true;
+		const parent = path.dirname(current);
+		if (parent === current) return false;
+		current = parent;
 	}
 }
 
