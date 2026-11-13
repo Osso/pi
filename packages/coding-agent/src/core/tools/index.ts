@@ -158,8 +158,8 @@ import { createSearchCurrentSessionHistoryToolDefinition } from "./search-curren
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
 import { createWriteTool, createWriteToolDefinition, type WriteToolOptions } from "./write.ts";
 
-export type Tool = AgentTool<any>;
-export type ToolDef = ToolDefinition<any, any>;
+export type Tool = AgentTool;
+export type ToolDef = ToolDefinition;
 export type ToolName =
 	| "read"
 	| "bash"

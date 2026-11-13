@@ -517,7 +517,7 @@ export interface AgentSessionConfig {
 	settingsManager: SettingsManager;
 	cwd: string;
 	/** Models to cycle through with Ctrl+P (from --models flag) */
-	scopedModels?: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
+	scopedModels?: Array<{ model: Model<Api>; thinkingLevel?: ThinkingLevel }>;
 	/** Resource loader for skills, prompts, themes, context files, system prompt */
 	resourceLoader: ResourceLoader;
 	/** SDK custom tools registered outside extensions */
@@ -606,7 +606,7 @@ export interface PromptOptions {
 
 /** Result from cycleModel() */
 export interface ModelCycleResult {
-	model: Model<any>;
+	model: Model<Api>;
 	thinkingLevel: ThinkingLevel;
 	/** Whether cycling through scoped models (--models flag) or all available */
 	isScoped: boolean;
@@ -846,7 +846,7 @@ export class AgentSession {
 	readonly settingsManager: SettingsManager;
 	readonly noSupervisor: boolean;
 
-	private _scopedModels: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
+	private _scopedModels: Array<{ model: Model<Api>; thinkingLevel?: ThinkingLevel }>;
 
 	// Event subscription state
 	private _unsubscribeAgent?: () => void;
@@ -1042,7 +1042,7 @@ export class AgentSession {
 		return this._modelRegistry;
 	}
 
-	private async _getRequiredRequestAuth(model: Model<any>): Promise<{
+	private async _getRequiredRequestAuth(model: Model<Api>): Promise<{
 		apiKey: string;
 		headers?: Record<string, string>;
 		env?: Record<string, string>;
@@ -1069,7 +1069,7 @@ export class AgentSession {
 		throw new Error(formatNoApiKeyFoundMessage(model.provider));
 	}
 
-	private async _getCompactionRequestAuth(model: Model<any>): Promise<{
+	private async _getCompactionRequestAuth(model: Model<Api>): Promise<{
 		apiKey?: string;
 		headers?: Record<string, string>;
 		env?: Record<string, string>;
@@ -1694,7 +1694,7 @@ export class AgentSession {
 	}
 
 	private _describeAgentModel(
-		model: Model<any> | undefined,
+		model: Model<Api> | undefined,
 		thinkingLevel: ThinkingLevel,
 	): NonNullable<AgentSnapshot["model"]> {
 		if (!model) throw new Error(`Child agent ${this._multiAgentAgentId} has no effective model`);
@@ -1702,7 +1702,7 @@ export class AgentSession {
 	}
 
 	/** Publishes a child's model and effort before they take effect, so a rejected write leaves the child unchanged. */
-	private _publishChildAgentModel(model: Model<any> | undefined, thinkingLevel: ThinkingLevel): void {
+	private _publishChildAgentModel(model: Model<Api> | undefined, thinkingLevel: ThinkingLevel): void {
 		if (!this._multiAgentStore || !this._multiAgentAgentId) return;
 		this._multiAgentStore.publishAgentModel(
 			this._multiAgentAgentId,
@@ -2292,7 +2292,7 @@ export class AgentSession {
 	}
 
 	/** Current model (may be undefined if not yet selected) */
-	get model(): Model<any> | undefined {
+	get model(): Model<Api> | undefined {
 		return this.agent.state.model;
 	}
 
@@ -2525,12 +2525,12 @@ export class AgentSession {
 	}
 
 	/** Scoped models for cycling (from --models flag) */
-	get scopedModels(): ReadonlyArray<{ model: Model<any>; thinkingLevel?: ThinkingLevel }> {
+	get scopedModels(): ReadonlyArray<{ model: Model<Api>; thinkingLevel?: ThinkingLevel }> {
 		return this._scopedModels;
 	}
 
 	/** Update scoped models for cycling */
-	setScopedModels(scopedModels: Array<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>): void {
+	setScopedModels(scopedModels: Array<{ model: Model<Api>; thinkingLevel?: ThinkingLevel }>): void {
 		this._scopedModels = scopedModels;
 	}
 
@@ -4141,8 +4141,8 @@ export class AgentSession {
 	// =========================================================================
 
 	private async _emitModelSelect(
-		nextModel: Model<any>,
-		previousModel: Model<any> | undefined,
+		nextModel: Model<Api>,
+		previousModel: Model<Api> | undefined,
 		source: "set" | "cycle" | "restore",
 	): Promise<void> {
 		if (modelsAreEqual(previousModel, nextModel)) return;
@@ -4160,7 +4160,7 @@ export class AgentSession {
 	 * @throws Error if no auth is configured for the model
 	 */
 	async setModel(
-		model: Model<any>,
+		model: Model<Api>,
 		source: "set" | "cycle" = "set",
 		thinkingLevel = this._getThinkingLevelForModelSwitch(),
 	): Promise<void> {
@@ -4650,7 +4650,7 @@ export class AgentSession {
 
 	private async _generateLocalBackgroundCompaction(
 		cache: BackgroundCompactionCache,
-		model: Model<any>,
+		model: Model<Api>,
 	): Promise<CompactionResult | undefined> {
 		if (!cache.settings.enabled) return undefined;
 		const { apiKey, headers, env } = await this._getCompactionRequestAuth(model);
@@ -4682,7 +4682,7 @@ export class AgentSession {
 		this._scheduleBackgroundCompactionInstall(cache);
 	}
 
-	private async _generateBackgroundCompaction(cache: BackgroundCompactionCache, model: Model<any>): Promise<void> {
+	private async _generateBackgroundCompaction(cache: BackgroundCompactionCache, model: Model<Api>): Promise<void> {
 		try {
 			await cache.extensionRunner.emit({ type: "background_compaction_start" });
 			const startedAt = Date.now();

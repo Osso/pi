@@ -67,7 +67,7 @@ function formatLsCall(args: { path?: string; limit?: number } | undefined, theme
 
 function formatLsResult(
 	result: {
-		content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+		content: readonly { type: string; text?: string; data?: string; mimeType?: string }[];
 		details?: LsToolDetails;
 	},
 	options: ToolRenderResultOptions,
@@ -158,8 +158,8 @@ export function createLsToolDefinition(
 						let entries: string[];
 						try {
 							entries = await ops.readdir(dirPath);
-						} catch (e: any) {
-							reject(new Error(`Cannot read directory: ${e.message}`));
+						} catch (e: unknown) {
+							reject(new Error(`Cannot read directory: ${e instanceof Error ? e.message : String(e)}`));
 							return;
 						}
 
@@ -217,7 +217,7 @@ export function createLsToolDefinition(
 							content: [{ type: "text", text: output }],
 							details: Object.keys(details).length > 0 ? details : undefined,
 						});
-					} catch (e: any) {
+					} catch (e: unknown) {
 						signal?.removeEventListener("abort", onAbort);
 						reject(e);
 					}
@@ -231,7 +231,7 @@ export function createLsToolDefinition(
 		},
 		renderResult(result, options, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			text.setText(formatLsResult(result as any, options, theme, context.showImages));
+			text.setText(formatLsResult(result, options, theme, context.showImages));
 			return text;
 		},
 	};

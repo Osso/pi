@@ -87,7 +87,7 @@ function formatGrepCall(
 
 function formatGrepResult(
 	result: {
-		content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+		content: readonly { type: string; text?: string; data?: string; mimeType?: string }[];
 		details?: GrepToolDetails;
 	},
 	options: ToolRenderResultOptions,
@@ -280,9 +280,12 @@ export function createGrepToolDefinition(
 						const matches: Array<{ filePath: string; lineNumber: number; lineText?: string }> = [];
 						rl.on("line", (line) => {
 							if (!line.trim() || matchCount >= effectiveLimit) return;
-							let event: any;
+							let event: {
+								type?: unknown;
+								data?: { path?: { text?: string }; line_number?: number; lines?: { text?: string } };
+							};
 							try {
-								event = JSON.parse(line);
+								event = JSON.parse(line) as typeof event;
 							} catch {
 								return;
 							}
@@ -383,7 +386,7 @@ export function createGrepToolDefinition(
 		},
 		renderResult(result, options, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			const output = context.isError ? formatGrepResult(result as any, options, theme, context.showImages) : "";
+			const output = context.isError ? formatGrepResult(result, options, theme, context.showImages) : "";
 			text.setText(output);
 			return text;
 		},

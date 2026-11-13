@@ -151,7 +151,7 @@ describe("wrapToolDefinition", () => {
 				},
 			}),
 		);
-		const updates: AgentToolResult<{ ok: boolean }>[] = [];
+		const updates: AgentToolResult<unknown>[] = [];
 
 		await tool.execute("test-call-huge-update", {}, undefined, (update) => updates.push(update));
 		const output = textOutput(updates[0]);
@@ -181,7 +181,7 @@ describe("wrapToolDefinition", () => {
 				},
 			}),
 		);
-		const updates: AgentToolResult<{ ok: boolean }>[] = [];
+		const updates: AgentToolResult<unknown>[] = [];
 
 		await tool.execute("test-call-repeated-huge-updates", {}, undefined, (update) => updates.push(update));
 		const firstPath = requireFullOutputPath(updates[0].details);

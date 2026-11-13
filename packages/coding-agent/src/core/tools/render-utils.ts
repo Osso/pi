@@ -41,7 +41,7 @@ export function sanitizeToolDisplayText(text: string): string {
 }
 
 export function getTextOutput(
-	result: { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> } | undefined,
+	result: { content: readonly { type: string; text?: string; data?: string; mimeType?: string }[] } | undefined,
 	showImages: boolean,
 ): string {
 	if (!result) return "";

@@ -519,7 +519,7 @@ function terminateForegroundBashRunner(pid: number): void {
 function rebuildBashResultRenderComponent(
 	component: BashResultRenderComponent,
 	result: {
-		content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+		content: readonly { type: string; text?: string; data?: string; mimeType?: string }[];
 		details?: BashToolDetails;
 	},
 	options: ToolRenderResultOptions,
@@ -530,7 +530,7 @@ function rebuildBashResultRenderComponent(
 	const state = component.state;
 	component.clear();
 
-	let output = getTextOutput(result as any, showImages).trim();
+	let output = getTextOutput(result, showImages).trim();
 	const truncation = result.details?.truncation;
 	const fullOutputPath = result.details?.fullOutputPath;
 	if (!options.isPartial && truncation?.truncated && fullOutputPath && output.endsWith("]")) {
@@ -825,7 +825,7 @@ export function createBashToolDefinition(
 				(context.lastComponent as BashResultRenderComponent | undefined) ?? new BashResultRenderComponent();
 			rebuildBashResultRenderComponent(
 				component,
-				result as any,
+				result,
 				options,
 				context.showImages,
 				state.startedAt,

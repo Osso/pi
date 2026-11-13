@@ -75,7 +75,7 @@ function formatFindCall(args: { pattern: string; path?: string; limit?: number }
 
 function formatFindResult(
 	result: {
-		content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>;
+		content: readonly { type: string; text?: string; data?: string; mimeType?: string }[];
 		details?: FindToolDetails;
 	},
 	options: ToolRenderResultOptions,
@@ -364,7 +364,7 @@ export function createFindToolDefinition(
 		},
 		renderResult(result, options, theme, context) {
 			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
-			text.setText(formatFindResult(result as any, options, theme, context.showImages));
+			text.setText(formatFindResult(result, options, theme, context.showImages));
 			return text;
 		},
 	};

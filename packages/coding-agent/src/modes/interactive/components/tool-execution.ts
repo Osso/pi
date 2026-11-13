@@ -1,3 +1,4 @@
+import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import {
 	Box,
 	type Component,
@@ -77,19 +78,19 @@ export class ToolExecutionComponent extends Container {
 	private selfRenderContainer: Container;
 	private callRendererComponent?: Component;
 	private resultRendererComponent?: Component;
-	private rendererState: any = {};
+	private rendererState: Record<string, unknown> = {};
 	private imageComponents: Image[] = [];
 	private imageSpacers: Spacer[] = [];
 	private toolName: string;
 	private toolCallId: string;
-	private args: any;
+	private args: unknown;
 	private expanded = false;
 	private showImages: boolean;
 	private hideOutput: boolean;
 	private imageWidthCells: number;
 	private isPartial = true;
-	private toolDefinition?: ToolDefinition<any, any>;
-	private builtInToolDefinition?: ToolDefinition<any, any>;
+	private toolDefinition?: ToolDefinition;
+	private builtInToolDefinition?: ToolDefinition;
 	private ui: TUI;
 	private cwd: string;
 	private executionStarted = false;
@@ -105,7 +106,7 @@ export class ToolExecutionComponent extends Container {
 			mimeType?: string;
 		}>;
 		isError: boolean;
-		details?: any;
+		details?: unknown;
 	};
 	private convertedImages: Map<number, { data: string; mimeType: string }> = new Map();
 	private hideComponent = false;
@@ -113,9 +114,9 @@ export class ToolExecutionComponent extends Container {
 	constructor(
 		toolName: string,
 		toolCallId: string,
-		args: any,
+		args: unknown,
 		options: ToolExecutionOptions = {},
-		toolDefinition: ToolDefinition<any, any> | undefined,
+		toolDefinition: ToolDefinition | undefined,
 		ui: TUI,
 		cwd: string,
 	) {
@@ -149,7 +150,7 @@ export class ToolExecutionComponent extends Container {
 		this.updateDisplay();
 	}
 
-	private getCallRenderer(): ToolDefinition<any, any>["renderCall"] | undefined {
+	private getCallRenderer(): ToolDefinition["renderCall"] | undefined {
 		if (!this.builtInToolDefinition) {
 			return this.toolDefinition?.renderCall;
 		}
@@ -159,7 +160,7 @@ export class ToolExecutionComponent extends Container {
 		return this.toolDefinition.renderCall ?? this.builtInToolDefinition.renderCall;
 	}
 
-	private getResultRenderer(): ToolDefinition<any, any>["renderResult"] | undefined {
+	private getResultRenderer(): ToolDefinition["renderResult"] | undefined {
 		if (!this.builtInToolDefinition) {
 			return this.toolDefinition?.renderResult;
 		}
@@ -250,7 +251,7 @@ export class ToolExecutionComponent extends Container {
 		return new Text(theme.fg("toolOutput", output), 0, 0);
 	}
 
-	updateArgs(args: any): void {
+	updateArgs(args: unknown): void {
 		this.args = args;
 		this.updateDisplay();
 	}
@@ -278,7 +279,7 @@ export class ToolExecutionComponent extends Container {
 				data?: string;
 				mimeType?: string;
 			}>;
-			details?: any;
+			details?: unknown;
 			isError: boolean;
 		},
 		isPartial = false,
@@ -526,7 +527,7 @@ export class ToolExecutionComponent extends Container {
 		try {
 			const component = resultRenderer(
 				{
-					content: this.getDisplayContent() as any,
+					content: this.getDisplayContent() as AgentToolResult<unknown>["content"],
 					details: this.result.details,
 				},
 				{ expanded: this.expanded, isPartial: this.isPartial },

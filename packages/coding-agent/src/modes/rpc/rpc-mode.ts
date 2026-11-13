@@ -81,7 +81,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 	// Pending extension UI requests waiting for response
 	const pendingExtensionRequests = new Map<
 		string,
-		{ resolve: (value: any) => void; reject: (error: Error) => void }
+		{ resolve: (value: RpcExtensionUIResponse) => void; reject: (error: Error) => void }
 	>();
 
 	// Shutdown request flag

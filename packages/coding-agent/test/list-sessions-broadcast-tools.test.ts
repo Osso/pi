@@ -78,8 +78,9 @@ describe("session coordination tools", () => {
 
 	it("documents mandatory shared-channel posting policy on the active channel_post tool", () => {
 		const tools = createAllToolDefinitions("/tmp");
-		const messageDescription = (tools.channel_post.parameters.properties.message as { description?: string })
-			.description;
+		const messageDescription = (
+			tools.channel_post.parameters as { properties?: { message?: { description?: string } } }
+		).properties?.message?.description;
 		const guidance = [
 			tools.channel_post.description,
 			messageDescription,

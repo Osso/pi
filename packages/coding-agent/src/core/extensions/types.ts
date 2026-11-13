@@ -360,15 +360,15 @@ export interface ExtensionContext {
 	/** Shared detach registry for in-flight tools that can move to background. */
 	toolDetachRegistry?: ToolDetachRegistry;
 	/** Current model for the selected mutable session target, when available. */
-	model: Model<any> | undefined;
+	model: Model<Api> | undefined;
 	/** Set the model on the currently selected mutable session target, when supported. */
-	setModel?: (model: Model<any>) => Promise<boolean>;
+	setModel?: (model: Model<Api>) => Promise<boolean>;
 	/** Current thinking/effort level for the selected mutable session target, when available. */
 	getThinkingLevel?: () => ThinkingLevel;
 	/** Set thinking level on the currently selected mutable session target, when supported. */
 	setThinkingLevel?: (level: ThinkingLevel) => void;
 	/** Current scoped models used for model cycling, when available. */
-	getScopedModels?: () => ReadonlyArray<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
+	getScopedModels?: () => ReadonlyArray<{ model: Model<Api>; thinkingLevel?: ThinkingLevel }>;
 	/** Whether the agent is idle (not streaming) */
 	isIdle(): boolean;
 	/** Whether an automatic provider retry has started and has not yet settled. */
@@ -410,7 +410,7 @@ export interface ExtensionContext {
  */
 export interface ExtensionCommandContext extends ExtensionContext {
 	/** Set the model on the currently selected mutable session target. */
-	setModel(model: Model<any>): Promise<boolean>;
+	setModel(model: Model<Api>): Promise<boolean>;
 	/** Read thinking level from the currently selected mutable session target. */
 	getThinkingLevel(): ThinkingLevel;
 	/** Set thinking level on the currently selected mutable session target. */
@@ -489,7 +489,7 @@ export interface ToolRenderResultOptions {
 }
 
 /** Context passed to tool renderers. */
-export interface ToolRenderContext<TState = any, TArgs = any> {
+export interface ToolRenderContext<TState = unknown, TArgs = unknown> {
 	/** Current tool call arguments. Shared across call/result renders for the same tool call. */
 	args: TArgs;
 	/** Unique id for this tool execution. Stable across call/result renders for the same tool call. */
@@ -519,7 +519,7 @@ export interface ToolRenderContext<TState = any, TArgs = any> {
 /**
  * Tool definition for registerTool().
  */
-export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = unknown, TState = any> {
+export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = unknown, TState = unknown> {
 	/** Tool name (used in LLM tool calls) */
 	name: string;
 	/** Human-readable label for UI */
@@ -540,7 +540,7 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 	renderShell?: "default" | "self";
 
 	/** Optional compatibility shim to prepare raw tool call arguments before schema validation. Must return an object conforming to TParams. */
-	prepareArguments?: (args: unknown) => Static<TParams>;
+	prepareArguments?(args: unknown): Static<TParams>;
 
 	/** Prepare durable execution metadata before the assistant tool call is persisted. */
 	prepareExecution?(
@@ -568,30 +568,21 @@ export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = un
 	): Promise<AgentToolResult<TDetails>>;
 
 	/** Custom rendering for tool call display */
-	renderCall?: (args: Static<TParams>, theme: Theme, context: ToolRenderContext<TState, Static<TParams>>) => Component;
+	renderCall?(args: Static<TParams>, theme: Theme, context: ToolRenderContext<TState, Static<TParams>>): Component;
 
 	/** Custom rendering for tool result display */
-	renderResult?: (
+	renderResult?(
 		result: AgentToolResult<TDetails>,
 		options: ToolRenderResultOptions,
 		theme: Theme,
 		context: ToolRenderContext<TState, Static<TParams>>,
-	) => Component;
+	): Component;
 }
 
-type AnyToolDefinition = ToolDefinition<any, any, any>;
-
-/**
- * Preserve parameter inference for standalone tool definitions.
- *
- * Use this when assigning a tool to a variable or passing it through arrays such
- * as `customTools`, where contextual typing would otherwise widen params to
- * `unknown`.
- */
-export function defineTool<TParams extends TSchema, TDetails = unknown, TState = any>(
+export function defineTool<TParams extends TSchema, TDetails = unknown, TState = unknown>(
 	tool: ToolDefinition<TParams, TDetails, TState>,
-): ToolDefinition<TParams, TDetails, TState> & AnyToolDefinition {
-	return tool as ToolDefinition<TParams, TDetails, TState> & AnyToolDefinition;
+): ToolDefinition<TParams, TDetails, TState> {
+	return tool;
 }
 
 // ============================================================================
@@ -886,7 +877,7 @@ export interface ToolExecutionStartEvent {
 	type: "tool_execution_start";
 	toolCallId: string;
 	toolName: string;
-	args: any;
+	args: unknown;
 }
 
 /** Fired during tool execution with partial/streaming output */
@@ -894,8 +885,8 @@ export interface ToolExecutionUpdateEvent {
 	type: "tool_execution_update";
 	toolCallId: string;
 	toolName: string;
-	args: any;
-	partialResult: any;
+	args: unknown;
+	partialResult: AgentToolResult<unknown>;
 }
 
 /** Fired when a tool finishes executing */
@@ -903,7 +894,7 @@ export interface ToolExecutionEndEvent {
 	type: "tool_execution_end";
 	toolCallId: string;
 	toolName: string;
-	result: any;
+	result: AgentToolResult<unknown>;
 	isError: boolean;
 }
 
@@ -916,8 +907,8 @@ export type ModelSelectSource = "set" | "cycle" | "restore";
 /** Fired when a new model is selected */
 export interface ModelSelectEvent {
 	type: "model_select";
-	model: Model<any>;
-	previousModel: Model<any> | undefined;
+	model: Model<Api>;
+	previousModel: Model<Api> | undefined;
 	source: ModelSelectSource;
 }
 
@@ -1450,7 +1441,7 @@ export interface ExtensionAPI {
 	delegateToolApprovalsTo(extensionPath: string): void;
 
 	/** Register a tool that the LLM can call. */
-	registerTool<TParams extends TSchema = TSchema, TDetails = unknown, TState = any>(
+	registerTool<TParams extends TSchema = TSchema, TDetails = unknown, TState = unknown>(
 		tool: ToolDefinition<TParams, TDetails, TState>,
 	): void;
 
@@ -1574,7 +1565,7 @@ export interface ExtensionAPI {
 	// =========================================================================
 
 	/** Set the current model. Returns false if no API key available. */
-	setModel(model: Model<any>): Promise<boolean>;
+	setModel(model: Model<Api>): Promise<boolean>;
 
 	/** Get current thinking level. */
 	getThinkingLevel(): ThinkingLevel;
@@ -1793,7 +1784,7 @@ export type SetActiveToolsHandler = (toolNames: string[]) => void;
 
 export type RefreshToolsHandler = () => void;
 
-export type SetModelHandler = (model: Model<any>) => Promise<boolean>;
+export type SetModelHandler = (model: Model<Api>) => Promise<boolean>;
 
 export type GetThinkingLevelHandler = () => ThinkingLevel;
 
@@ -1806,10 +1797,10 @@ export type SetLabelHandler = (entryId: string, label: string | undefined) => vo
  * Contains flag values (defaults set during registration, CLI values set after).
  */
 export interface SessionMutationTarget {
-	model: Model<any> | undefined;
+	model: Model<Api> | undefined;
 	thinkingLevel: ThinkingLevel;
 	/** Applies from the next model request; an optional thinking level is set together with the model. */
-	setModel(model: Model<any>, source?: "set" | "cycle", thinkingLevel?: ThinkingLevel): Promise<void>;
+	setModel(model: Model<Api>, source?: "set" | "cycle", thinkingLevel?: ThinkingLevel): Promise<void>;
 	setThinkingLevel(level: ThinkingLevel): void;
 }
 
@@ -1866,9 +1857,9 @@ export interface ExtensionActions {
  */
 export interface ExtensionContextActions {
 	getNoSupervisor?: () => boolean;
-	getModel: () => Model<any> | undefined;
+	getModel: () => Model<Api> | undefined;
 	getThinkingLevel?: () => ThinkingLevel;
-	getScopedModels?: () => ReadonlyArray<{ model: Model<any>; thinkingLevel?: ThinkingLevel }>;
+	getScopedModels?: () => ReadonlyArray<{ model: Model<Api>; thinkingLevel?: ThinkingLevel }>;
 	getFooterData?: () => ReadonlyFooterDataProvider | undefined;
 	isIdle: () => boolean;
 	hasActiveRetry: () => boolean;

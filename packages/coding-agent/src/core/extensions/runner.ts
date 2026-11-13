@@ -312,7 +312,7 @@ export class ExtensionRunner {
 	private modelRegistry: ModelRegistry;
 	private settingsManager: SettingsManager | undefined;
 	private errorListeners: Set<ExtensionErrorListener> = new Set();
-	private getModel: () => Model<any> | undefined = () => undefined;
+	private getModel: () => Model<Api> | undefined = () => undefined;
 	private getThinkingLevelFn: () => ThinkingLevel = () => "off";
 	private isIdleFn: () => boolean = () => true;
 	private hasActiveRetryFn: () => boolean = () => false;

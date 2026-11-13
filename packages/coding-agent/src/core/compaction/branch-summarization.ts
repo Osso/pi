@@ -6,7 +6,7 @@
  */
 
 import type { AgentMessage, StreamFn } from "@earendil-works/pi-agent-core";
-import type { Model, SimpleStreamOptions } from "@earendil-works/pi-ai/compat";
+import type { Api, Model, SimpleStreamOptions } from "@earendil-works/pi-ai/compat";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
 import {
 	convertToLlm,
@@ -64,7 +64,7 @@ export interface CollectEntriesResult {
 
 export interface GenerateBranchSummaryOptions {
 	/** Model to use for summarization */
-	model: Model<any>;
+	model: Model<Api>;
 	/** API key for the model */
 	apiKey: string;
 	/** Request headers for the model */
