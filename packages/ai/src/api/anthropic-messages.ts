@@ -1030,7 +1030,8 @@ function convertMessages(
 	const transformedMessages = transformMessages(messages, model, normalizeToolCallId);
 
 	for (let i = 0; i < transformedMessages.length; i++) {
-		const msg = transformedMessages[i];
+		const msg = transformedMessages.at(i);
+		if (!msg) throw new Error(`Missing message at index ${i}`);
 
 		if (msg.role === "user") {
 			if (typeof msg.content === "string") {
@@ -1138,8 +1139,10 @@ function convertMessages(
 
 			// Look ahead for consecutive toolResult messages
 			let j = i + 1;
-			while (j < transformedMessages.length && transformedMessages[j].role === "toolResult") {
-				const nextMsg = transformedMessages[j] as ToolResultMessage; // We know it's a toolResult
+			while (j < transformedMessages.length) {
+				const nextMsg = transformedMessages.at(j);
+				if (!nextMsg) throw new Error(`Missing message at index ${j}`);
+				if (nextMsg.role !== "toolResult") break;
 				toolResults.push(convertToolResultMessage(nextMsg));
 				j++;
 			}
@@ -1157,8 +1160,8 @@ function convertMessages(
 
 	// Add cache_control to the last user message to cache conversation history
 	if (cacheControl && params.length > 0) {
-		const lastMessage = params[params.length - 1];
-		if (lastMessage.role === "user") {
+		const lastMessage = params.at(-1);
+		if (lastMessage?.role === "user") {
 			if (Array.isArray(lastMessage.content)) {
 				const lastBlock = lastMessage.content[lastMessage.content.length - 1];
 				if (

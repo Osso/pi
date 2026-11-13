@@ -478,7 +478,7 @@ function handleContentBlockDelta(
 			const newBlock: Block = { type: "text", text: "", index: contentBlockIndex };
 			output.content.push(newBlock);
 			index = blocks.length - 1;
-			block = blocks[index];
+			block = newBlock;
 			stream.push({ type: "text_start", contentIndex: index, partial: output });
 		}
 		if (block.type === "text") {
@@ -497,7 +497,7 @@ function handleContentBlockDelta(
 			const newBlock: Block = { type: "thinking", thinking: "", thinkingSignature: "", index: contentBlockIndex };
 			output.content.push(newBlock);
 			thinkingIndex = blocks.length - 1;
-			thinkingBlock = blocks[thinkingIndex];
+			thinkingBlock = newBlock;
 			stream.push({ type: "thinking_start", contentIndex: thinkingIndex, partial: output });
 		}
 
@@ -750,6 +750,7 @@ function convertMessages(
 
 	for (let i = 0; i < transformedMessages.length; i++) {
 		const m = transformedMessages[i];
+		if (!m) throw new Error(`Missing message at index ${i}`);
 
 		switch (m.role) {
 			case "user": {
@@ -862,8 +863,11 @@ function convertMessages(
 
 				// Look ahead for consecutive toolResult messages
 				let j = i + 1;
-				while (j < transformedMessages.length && transformedMessages[j].role === "toolResult") {
-					const nextMsg = transformedMessages[j] as ToolResultMessage;
+				while (j < transformedMessages.length) {
+					const nextMessage = transformedMessages[j];
+					if (!nextMessage) throw new Error(`Missing message at index ${j}`);
+					if (nextMessage.role !== "toolResult") break;
+					const nextMsg = nextMessage as ToolResultMessage;
 					toolResults.push({
 						toolResult: {
 							toolUseId: nextMsg.toolCallId,
@@ -891,7 +895,7 @@ function convertMessages(
 	// Add cache point to the last user message for supported Claude models when caching is enabled
 	if (cacheRetention !== "none" && supportsPromptCaching(model, env) && result.length > 0) {
 		const lastMessage = result[result.length - 1];
-		if (lastMessage.role === ConversationRole.USER && lastMessage.content) {
+		if (lastMessage?.role === ConversationRole.USER && lastMessage.content) {
 			(lastMessage.content as ContentBlock[]).push({
 				cachePoint: {
 					type: CachePointType.DEFAULT,

@@ -52,8 +52,8 @@ async function login(providerId: OAuthProviderId): Promise<void> {
 			},
 			onSelect: async (p) => {
 				console.log(`\n${p.message}`);
-				for (let i = 0; i < p.options.length; i++) {
-					console.log(`  ${i + 1}. ${p.options[i].label}`);
+				for (const [i, option] of p.options.entries()) {
+					console.log(`  ${i + 1}. ${option.label}`);
 				}
 				const choice = await promptFn(`Enter number (1-${p.options.length}):`);
 				const index = parseInt(choice, 10) - 1;
@@ -109,8 +109,8 @@ Examples:
 		if (!provider) {
 			const rl = createInterface({ input: process.stdin, output: process.stdout });
 			console.log("Select a provider:\n");
-			for (let i = 0; i < PROVIDERS.length; i++) {
-				console.log(`  ${i + 1}. ${PROVIDERS[i].name}`);
+			for (const [i, availableProvider] of PROVIDERS.entries()) {
+				console.log(`  ${i + 1}. ${availableProvider.name}`);
 			}
 			console.log();
 
@@ -118,11 +118,12 @@ Examples:
 			rl.close();
 
 			const index = parseInt(choice, 10) - 1;
-			if (index < 0 || index >= PROVIDERS.length) {
+			const selectedProvider = PROVIDERS[index];
+			if (!selectedProvider) {
 				console.error("Invalid selection");
 				process.exit(1);
 			}
-			provider = PROVIDERS[index].id;
+			provider = selectedProvider.id;
 		}
 
 		if (!PROVIDERS.some((p) => p.id === provider)) {

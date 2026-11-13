@@ -35,6 +35,7 @@ export function repairJson(json: string): string {
 
 	for (let index = 0; index < json.length; index++) {
 		const char = json[index];
+		if (char === undefined) throw new Error(`Missing character at index ${index}`);
 
 		if (!inString) {
 			repaired += char;

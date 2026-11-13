@@ -89,10 +89,14 @@ export const generateImages: ImagesFunction<"openrouter-images", ImagesOptions> 
 				if (!imageUrl?.startsWith("data:")) continue;
 				const matches = imageUrl.match(/^data:([^;]+);base64,(.+)$/);
 				if (!matches) continue;
+				const [, mimeType, data] = matches;
+				if (mimeType === undefined || data === undefined) {
+					throw new Error("Expected MIME type and image data in data URL");
+				}
 				output.output.push({
 					type: "image",
-					mimeType: matches[1],
-					data: matches[2],
+					mimeType,
+					data,
 				} satisfies ImageContent);
 			}
 		}

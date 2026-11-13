@@ -1648,7 +1648,9 @@ function extractAccountId(token: string): string {
 	try {
 		const parts = token.split(".");
 		if (parts.length !== 3) throw new Error("Invalid token");
-		const payload = JSON.parse(atob(parts[1]));
+		const payloadPart = parts[1];
+		if (payloadPart === undefined) throw new Error("Invalid token");
+		const payload = JSON.parse(atob(payloadPart));
 		const accountId = payload?.[JWT_CLAIM_PATH]?.chatgpt_account_id;
 		if (!accountId) throw new Error("No account ID in token");
 		return accountId;

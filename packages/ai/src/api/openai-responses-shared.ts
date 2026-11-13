@@ -268,6 +268,9 @@ export function convertResponsesMessages<TApi extends Api>(
 		if (!allowedToolCallProviders.has(model.provider)) return normalizeIdPart(id);
 		if (!id.includes("|")) return normalizeIdPart(id);
 		const [callId, itemId] = id.split("|");
+		if (callId === undefined || itemId === undefined) {
+			throw new Error("Expected call and item IDs separated by a pipe");
+		}
 		const normalizedCallId = normalizeIdPart(callId);
 		const isForeignToolCall = source.provider !== model.provider || source.api !== model.api;
 		let normalizedItemId = isForeignToolCall ? buildForeignResponsesItemId(itemId) : normalizeIdPart(itemId);
@@ -368,6 +371,9 @@ export function convertResponsesMessages<TApi extends Api>(
 				} else if (block.type === "toolCall") {
 					const toolCall = block as ToolCall;
 					const [callId, itemIdRaw] = toolCall.id.split("|");
+					if (callId === undefined) {
+						throw new Error("Expected a call ID");
+					}
 					emittedToolCallIds.add(callId);
 					let itemId: string | undefined = itemIdRaw;
 
@@ -390,7 +396,10 @@ export function convertResponsesMessages<TApi extends Api>(
 			if (output.length === 0) continue;
 			messages.push(...output);
 		} else if (msg.role === "toolResult") {
-			const [callId] = msg.toolCallId.split("|");
+			const callId = msg.toolCallId.split("|")[0];
+			if (callId === undefined) {
+				throw new Error("Expected a call ID");
+			}
 			if (!emittedToolCallIds.has(callId)) continue;
 
 			const textResult = msg.content

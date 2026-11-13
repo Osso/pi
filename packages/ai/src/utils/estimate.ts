@@ -63,6 +63,7 @@ export function estimateMessageTokens(message: Message): number {
 function getLastAssistantUsageInfo(messages: readonly Message[]): { usage: Usage; index: number } | undefined {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const message = messages[i];
+		if (!message) throw new Error(`Missing message at index ${i}`);
 		if (message.role !== "assistant") continue;
 		const assistant = message as AssistantMessage;
 		if (assistant.stopReason === "aborted" || assistant.stopReason === "error") continue;
@@ -77,7 +78,9 @@ function estimateMessages(messages: readonly Message[]): ContextUsageEstimate {
 		const usageTokens = calculateContextTokens(usageInfo.usage);
 		let trailingTokens = 0;
 		for (let i = usageInfo.index + 1; i < messages.length; i++) {
-			trailingTokens += estimateMessageTokens(messages[i]);
+			const message = messages[i];
+			if (!message) throw new Error(`Missing message at index ${i}`);
+			trailingTokens += estimateMessageTokens(message);
 		}
 		return { tokens: usageTokens + trailingTokens, usageTokens, trailingTokens, lastUsageIndex: usageInfo.index };
 	}

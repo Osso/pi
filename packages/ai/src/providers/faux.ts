@@ -332,6 +332,7 @@ async function streamWithDeltas(
 		}
 
 		const block = message.content[index];
+		if (!block) throw new Error(`Missing content block at index ${index}`);
 
 		if (block.type === "thinking") {
 			partial.content = [...partial.content, { type: "thinking", thinking: "" }];

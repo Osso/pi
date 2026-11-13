@@ -774,8 +774,7 @@ function addCacheControlToLastConversationMessage(
 	messages: ChatCompletionMessageParam[],
 	cacheControl: OpenAICompatCacheControl,
 ): void {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const message = messages[i];
+	for (const message of [...messages].reverse()) {
 		if (message.role === "user" || message.role === "assistant") {
 			if (addCacheControlToMessage(message, cacheControl)) {
 				return;
@@ -792,7 +791,10 @@ function addCacheControlToLastTool(
 		return;
 	}
 
-	const lastTool = tools[tools.length - 1] as ChatCompletionToolWithCacheControl;
+	const lastTool: ChatCompletionToolWithCacheControl | undefined = tools.at(-1);
+	if (!lastTool) {
+		throw new Error("Expected at least one tool when setting cache control");
+	}
 	lastTool.cache_control = cacheControl;
 }
 
@@ -864,7 +866,10 @@ export function convertMessages(
 		// These come from providers like github-copilot, openai-codex, opencode
 		// Extract just the call_id part and normalize it
 		if (id.includes("|")) {
-			const [callId] = id.split("|");
+			const callId = id.split("|")[0];
+			if (callId === undefined) {
+				throw new Error("Expected a call ID before the separator");
+			}
 			// Sanitize to allowed chars and truncate to 40 chars (OpenAI limit)
 			return callId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40);
 		}
@@ -885,6 +890,9 @@ export function convertMessages(
 
 	for (let i = 0; i < transformedMessages.length; i++) {
 		const msg = transformedMessages[i];
+		if (!msg) {
+			throw new Error(`Expected a transformed message at index ${i}`);
+		}
 		// Some providers don't allow user messages directly after tool results
 		// Insert a synthetic assistant message to bridge the gap
 		if (compat.requiresAssistantAfterToolResult && lastRole === "toolResult" && msg.role === "user") {
@@ -962,7 +970,11 @@ export function convertMessages(
 					}
 
 					// Use the signature from the first thinking block if available (for llama.cpp server + gpt-oss)
-					let signature = nonEmptyThinkingBlocks[0].thinkingSignature;
+					const firstThinkingBlock = nonEmptyThinkingBlocks[0];
+					if (!firstThinkingBlock) {
+						throw new Error("Expected a non-empty thinking block");
+					}
+					let signature = firstThinkingBlock.thinkingSignature;
 					if (model.provider === "opencode-go" && signature === "reasoning") {
 						signature = "reasoning_content";
 					}
@@ -1029,8 +1041,10 @@ export function convertMessages(
 			const imageBlocks: Array<{ type: "image_url"; image_url: { url: string } }> = [];
 			let j = i;
 
-			for (; j < transformedMessages.length && transformedMessages[j].role === "toolResult"; j++) {
-				const toolMsg = transformedMessages[j] as ToolResultMessage;
+			for (; j < transformedMessages.length; j++) {
+				const nextMessage = transformedMessages[j];
+				if (nextMessage?.role !== "toolResult") break;
+				const toolMsg = nextMessage as ToolResultMessage;
 
 				// Extract text and image content
 				const textResult = toolMsg.content

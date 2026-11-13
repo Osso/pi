@@ -98,8 +98,9 @@ export function requiresToolCallId(modelId: string): boolean {
 
 function getGeminiMajorVersion(modelId: string): number | undefined {
 	const match = modelId.toLowerCase().match(/^gemini(?:-live)?-(\d+)/);
-	if (!match) return undefined;
-	return Number.parseInt(match[1], 10);
+	const [, majorVersion] = match ?? [];
+	if (majorVersion === undefined) return undefined;
+	return Number.parseInt(majorVersion, 10);
 }
 
 function supportsMultimodalFunctionResponse(modelId: string): boolean {

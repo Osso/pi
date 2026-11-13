@@ -49,7 +49,7 @@ function shouldProxyHostname(hostname: string, port: number, env?: ProviderEnv):
 		}
 
 		const parsedProxy = proxy.match(/^(.+):(\d+)$/);
-		let proxyHostname = parsedProxy ? parsedProxy[1] : proxy;
+		let proxyHostname = parsedProxy?.[1] ?? proxy;
 		const proxyPort = parsedProxy?.[2] ? Number.parseInt(parsedProxy[2], 10) : 0;
 		if (proxyPort && proxyPort !== port) {
 			return true;

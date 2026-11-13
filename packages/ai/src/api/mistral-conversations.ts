@@ -471,6 +471,7 @@ async function consumeChatStream(
 	finishCurrentBlock(currentBlock);
 	for (const index of toolBlocksByKey.values()) {
 		const block = output.content[index];
+		if (!block) throw new Error(`Missing tool call content block at index ${index}`);
 		if (block.type !== "toolCall") continue;
 		const toolBlock = block as ToolCall & { partialArgs?: string };
 		toolBlock.arguments = parseStreamingJson<Record<string, unknown>>(toolBlock.partialArgs);
