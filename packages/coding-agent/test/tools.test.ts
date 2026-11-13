@@ -228,6 +228,20 @@ describe("Coding Agent Tools", () => {
 			expect(validateToolArguments(readTool, readCall(1))).toMatchObject({ limit: 1 });
 		});
 
+		it("rejects a zero ls or find limit instead of reporting an empty directory or a limit hint that cannot advance", () => {
+			const call = (name: string, limit: number) => ({
+				type: "toolCall" as const,
+				id: `${name}-limit`,
+				name,
+				arguments: name === "find" ? { pattern: "*", limit } : { limit },
+			});
+
+			expect(() => validateToolArguments(lsTool, call("ls", 0))).toThrow(/limit/);
+			expect(() => validateToolArguments(findTool, call("find", 0))).toThrow(/limit/);
+			expect(validateToolArguments(lsTool, call("ls", 1))).toMatchObject({ limit: 1 });
+			expect(validateToolArguments(findTool, call("find", 1))).toMatchObject({ limit: 1 });
+		});
+
 		it("should handle offset + limit together", async () => {
 			const testFile = join(testDir, "offset-limit-test.txt");
 			const lines = Array.from({ length: 100 }, (_, i) => `Line ${i + 1}`);

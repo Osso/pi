@@ -22,7 +22,7 @@ const findSchema = Type.Object({
 		description: "Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'",
 	}),
 	path: Type.Optional(Type.String({ description: "Directory to search in (default: current directory)" })),
-	limit: Type.Optional(Type.Number({ description: "Maximum number of results (default: 1000)" })),
+	limit: Type.Optional(Type.Number({ description: "Maximum number of results (default: 1000)", minimum: 1 })),
 });
 
 export type FindToolInput = Static<typeof findSchema>;
