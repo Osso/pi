@@ -109,7 +109,16 @@ export function resolveCodexDisplayEmail(token: string, storedEmail: unknown): s
 function decodeCodexTokenPayload(token: string): CodexTokenPayload {
 	const parts = token.split(".");
 	if (parts.length !== 3) throw new Error("Invalid OpenAI Codex access token");
-	return JSON.parse(Buffer.from(parts[1] ?? "", "base64url").toString("utf8")) as CodexTokenPayload;
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(Buffer.from(parts[1] ?? "", "base64url").toString("utf8"));
+	} catch {
+		throw new Error("Invalid OpenAI Codex access token");
+	}
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+		throw new Error("Invalid OpenAI Codex access token");
+	}
+	return parsed as CodexTokenPayload;
 }
 
 export function mapCodexUsagePayload(payload: CodexUsagePayload): CodexUsage {

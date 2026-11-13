@@ -1778,7 +1778,10 @@ function mapStopReason(reason: string | undefined): "stop" | "length" | "toolUse
 function parsePartialJson(input: string, fallback: Record<string, unknown>): Record<string, unknown> {
 	if (!input) return fallback;
 	try {
-		return JSON.parse(input);
+		const parsed: unknown = JSON.parse(input);
+		return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+			? (parsed as Record<string, unknown>)
+			: fallback;
 	} catch {
 		return fallback;
 	}

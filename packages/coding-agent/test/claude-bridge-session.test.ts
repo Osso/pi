@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import bridge, { __test } from "../extensions/claude-bridge/src/index.ts";
+import { recordedNativeSession, recordNativeSession } from "../extensions/claude-bridge/src/native-prefix.ts";
 import { AuthStorage } from "../src/core/auth-storage.ts";
 import { DefaultResourceLoader } from "../src/core/resource-loader.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
@@ -83,5 +84,19 @@ describe("bundled Claude session", () => {
 		} finally {
 			session.dispose();
 		}
+	});
+
+	it("returns undefined instead of throwing when a recorded native session hint is corrupt or non-object JSON", () => {
+		root = mkdtempSync(join(tmpdir(), "pi-native-prefix-corrupt-"));
+		vi.stubEnv("PI_CODING_AGENT_DIR", root);
+		recordNativeSession("pi-sess-1", "cc-sess-1", "/repo");
+		expect(recordedNativeSession("pi-sess-1", "/repo")).toBe("cc-sess-1");
+
+		const hintFile = join(root, "claude-bridge-sessions", "pi-sess-1.json");
+		writeFileSync(hintFile, "{bad-json");
+		expect(recordedNativeSession("pi-sess-1", "/repo")).toBeUndefined();
+
+		writeFileSync(hintFile, "null");
+		expect(recordedNativeSession("pi-sess-1", "/repo")).toBeUndefined();
 	});
 });

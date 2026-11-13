@@ -270,6 +270,15 @@ export function recordedNativeSession(piSessionId: string, cwd: string): string 
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
 		throw error;
 	}
-	const record = JSON.parse(content) as { sessionId?: unknown; cwd?: unknown };
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(content);
+	} catch {
+		return undefined;
+	}
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+		return undefined;
+	}
+	const record = parsed as { sessionId?: unknown; cwd?: unknown };
 	return record.cwd === cwd && typeof record.sessionId === "string" ? record.sessionId : undefined;
 }

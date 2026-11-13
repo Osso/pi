@@ -170,4 +170,12 @@ describe("codex usage extension", () => {
 
 		expect(resolveCodexDisplayEmail(token, "stored@example.com")).toBe("stored@example.com");
 	});
+
+	it("rejects malformed or non-object Codex JWT payloads explicitly", () => {
+		const badJson = `header.${Buffer.from("{bad-json").toString("base64url")}.signature`;
+		expect(() => resolveCodexAccountInfo(badJson)).toThrow("Invalid OpenAI Codex access token");
+
+		expect(() => resolveCodexAccountInfo(tokenWithClaims(null))).toThrow("Invalid OpenAI Codex access token");
+		expect(() => resolveCodexAccountInfo(tokenWithClaims(["acct_123"]))).toThrow("Invalid OpenAI Codex access token");
+	});
 });
