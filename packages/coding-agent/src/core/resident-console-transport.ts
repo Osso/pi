@@ -86,7 +86,7 @@ export class ResidentConsoleServer<Entry, Event> {
 				buffer = buffer.slice(newline + 1);
 				if (!line) continue;
 				try {
-					this.handleMessage(socket, JSON.parse(line) as ClientMessage);
+					this.handleMessage(socket, parseJsonRecord(line, "Invalid resident console message") as ClientMessage);
 				} catch {
 					this.sendError(socket, "invalid_message", "Invalid resident console message");
 				}
@@ -274,7 +274,7 @@ export class ResidentConsoleClient<Entry, Event> {
 			this.buffer = this.buffer.slice(newline + 1);
 			if (!line) continue;
 			try {
-				this.handleMessage(JSON.parse(line) as Record<string, unknown>);
+				this.handleMessage(parseJsonRecord(line, "Invalid resident console response"));
 			} catch {
 				this.finish(new Error("Invalid resident console response"));
 			}
@@ -414,7 +414,13 @@ function readResidentConsoleIdentity(value: unknown): ResidentConsoleIdentity | 
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseJsonRecord(line: string, errorMessage: string): Record<string, unknown> {
+	const parsed: unknown = JSON.parse(line);
+	if (!isRecord(parsed)) throw new Error(errorMessage);
+	return parsed;
 }
 
 function readResidentConsoleLine(
@@ -442,7 +448,7 @@ function readResidentConsoleLine(
 			cleanup();
 			try {
 				resolve({
-					message: JSON.parse(buffer.slice(0, newline)) as Record<string, unknown>,
+					message: parseJsonRecord(buffer.slice(0, newline), "Invalid resident console attach response"),
 					remainingBuffer: buffer.slice(newline + 1),
 				});
 			} catch {

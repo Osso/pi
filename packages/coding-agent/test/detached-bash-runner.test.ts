@@ -15,6 +15,7 @@ import { createDetachedJobTerminalInput } from "../src/core/detached-job-runner.
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { readMultiAgentState } from "../src/core/session-control-db.ts";
+import { readForegroundBashCompletion } from "../src/core/tools/bash.ts";
 import { testProcessIdentity } from "./helpers/process-identity.ts";
 
 const temporaryDirectories: string[] = [];
@@ -278,6 +279,16 @@ describe("detached Bash runner", () => {
 
 		writeFileSync(manifestPath, JSON.stringify({ version: 3, checksum: "bad" }));
 		expect(() => readDetachedBashLaunchManifest(manifestPath)).toThrow(/Invalid detached Bash launch manifest:/);
+
+		const completionPath = join(root, "completion.json");
+		writeFileSync(completionPath, "{broken");
+		expect(readForegroundBashCompletion(completionPath)).toBeUndefined();
+
+		writeFileSync(completionPath, "[]");
+		expect(readForegroundBashCompletion(completionPath)).toBeUndefined();
+
+		writeFileSync(completionPath, JSON.stringify({ exitCode: 0, signal: null, timedOut: false }));
+		expect(readForegroundBashCompletion(completionPath)).toEqual({ exitCode: 0, signal: null, timedOut: false });
 	});
 });
 

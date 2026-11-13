@@ -507,9 +507,29 @@ function activateDetachedBashRunner(
 	}
 }
 
-function readForegroundBashCompletion(path: string): DetachedBashForegroundCompletion | undefined {
+export function readForegroundBashCompletion(path: string): DetachedBashForegroundCompletion | undefined {
 	if (!existsSync(path)) return undefined;
-	return JSON.parse(readFileSync(path, "utf8")) as DetachedBashForegroundCompletion;
+	try {
+		const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
+		const candidate = parsed as Record<string, unknown>;
+		if (
+			typeof candidate.timedOut !== "boolean" ||
+			(candidate.exitCode !== null && typeof candidate.exitCode !== "number") ||
+			(candidate.signal !== null && typeof candidate.signal !== "string") ||
+			(candidate.cancelReason !== undefined && typeof candidate.cancelReason !== "string")
+		) {
+			return undefined;
+		}
+		return {
+			...(candidate.cancelReason !== undefined ? { cancelReason: candidate.cancelReason } : {}),
+			exitCode: candidate.exitCode,
+			signal: candidate.signal as NodeJS.Signals | null,
+			timedOut: candidate.timedOut,
+		};
+	} catch {
+		return undefined;
+	}
 }
 
 function terminateForegroundBashRunner(pid: number): void {

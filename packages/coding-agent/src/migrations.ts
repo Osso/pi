@@ -122,10 +122,12 @@ export function migrateSessionsFromAgentRoot(): void {
 			const firstLine = content.split("\n")[0];
 			if (!firstLine?.trim()) continue;
 
-			const header = JSON.parse(firstLine);
-			if (header.type !== "session" || !header.cwd) continue;
+			const header: unknown = JSON.parse(firstLine);
+			if (!isRecord(header) || header.type !== "session" || typeof header.cwd !== "string" || !header.cwd) {
+				continue;
+			}
 
-			const cwd: string = header.cwd;
+			const cwd = header.cwd;
 
 			// Compute the correct session directory (same encoding as session-manager.ts)
 			const safePath = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;

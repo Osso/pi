@@ -1,4 +1,5 @@
 import { mkdtempSync } from "node:fs";
+import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -180,5 +181,49 @@ describe("ResidentConsoleClient", () => {
 		await expect(ResidentConsoleClient.connect({ socketPath: socketPath(), service: "architect" })).rejects.toThrow(
 			"Resident console is unavailable",
 		);
+	});
+
+	it("rejects non-object JSON frames on server and client sockets", async () => {
+		const server = new ResidentConsoleServer({
+			socketPath: socketPath(),
+			service: "supervisor",
+			getSnapshot: snapshot,
+			enqueuePrompt: () => {},
+			subscribe: () => () => {},
+		});
+		resources.push(server);
+		await server.start();
+
+		const serverError = await new Promise<Record<string, unknown>>((resolve, reject) => {
+			const socket = createConnection(server.socketPath);
+			let buffer = "";
+			socket.on("connect", () => socket.write("null\n"));
+			socket.on("data", (chunk) => {
+				buffer += chunk.toString("utf8");
+				const newline = buffer.indexOf("\n");
+				if (newline < 0) return;
+				socket.destroy();
+				resolve(JSON.parse(buffer.slice(0, newline)) as Record<string, unknown>);
+			});
+			socket.on("error", reject);
+		});
+		expect(serverError).toEqual({
+			type: "error",
+			code: "invalid_message",
+			message: "Invalid resident console message",
+		});
+
+		const badClientSocketPath = socketPath();
+		const mockServer = createServer((socket) => {
+			socket.once("data", () => socket.write("null\n"));
+		});
+		await new Promise<void>((resolve) => mockServer.listen(badClientSocketPath, resolve));
+		try {
+			await expect(probeResidentConsole({ socketPath: badClientSocketPath, service: "supervisor" })).rejects.toThrow(
+				"Invalid resident console attach response",
+			);
+		} finally {
+			await new Promise<void>((resolve, reject) => mockServer.close((error) => (error ? reject(error) : resolve())));
+		}
 	});
 });
