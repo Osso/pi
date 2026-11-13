@@ -434,6 +434,7 @@
 - Fixed the `edit` tool's duplicate-match error showing a non-existent empty line after the last line of files that end with a newline.
 - Fixed the `ls` and `find` tools accepting `limit: 0`: `ls` reported `(empty directory)` for a non-empty directory and `find` returned every result with a `Use limit=0 for more` hint; the limit must now be at least 1.
 - Fixed the `grep` tool discarding all matches and returning only an error when ripgrep could not read some file or directory in the tree (for example `Permission denied`); it now returns the matches with a `Some paths could not be searched` notice.
+- Fixed the `find` tool returning wrong paths when searching the filesystem root (`/etc/hostname` shown as `tc/hostname`), and when custom find operations such as the bwrap sandbox return relative paths for a subdirectory search (`a.ts` shown as `../a.ts`, or relative to the process directory).
 
 ### Changed
 

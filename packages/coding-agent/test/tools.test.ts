@@ -1083,6 +1083,23 @@ describe("Coding Agent Tools", () => {
 			expect(output).not.toContain("ignored.txt");
 		});
 
+		it("keeps custom glob paths relative to the searched subdirectory", async () => {
+			const customFindTool = createFindTool(testDir, {
+				operations: { exists: () => true, glob: () => ["a.ts", "lib/b.ts", join(testDir, "src", "c.ts")] },
+			});
+
+			const result = await customFindTool.execute("find-custom-relative", { pattern: "*.ts", path: "src" });
+
+			expect(getTextOutput(result)).toBe("a.ts\nlib/b.ts\nc.ts");
+		});
+
+		it.skipIf(process.platform !== "linux")("returns real paths when searching the filesystem root", async () => {
+			const result = await findTool.execute("find-root", { pattern: "hostname", path: "/", limit: 1 });
+			const [firstPath] = getTextOutput(result).split("\n");
+
+			expect(existsSync(join("/", firstPath))).toBe(true);
+		});
+
 		it("should surface fd glob parse errors", async () => {
 			await expect(
 				findTool.execute("test-call-15", {
