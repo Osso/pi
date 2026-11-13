@@ -5534,12 +5534,14 @@ export class InteractiveMode {
 			// Do not use spawnSync here. On Windows, synchronous child_process calls can keep
 			// Node/libuv's console input read active after ui.stop() pauses stdin, racing
 			// vim/nvim for the console input buffer until Ctrl+C cancels the pending read.
-			const status = await new Promise<number | null>((resolve) => {
+			const status = await new Promise<number | null>((resolve, reject) => {
 				const child = spawn(editor, [...editorArgs, tmpFile], {
 					stdio: "inherit",
 					shell: process.platform === "win32",
 				});
-				child.on("error", () => resolve(null));
+				child.on("error", (error) =>
+					reject(new Error(`External editor failed: could not start ${editor}: ${error.message}`)),
+				);
 				child.on("close", (code) => resolve(code));
 			});
 

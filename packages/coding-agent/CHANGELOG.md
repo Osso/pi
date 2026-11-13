@@ -424,6 +424,7 @@
 - Fixed RPC `prompt` treating an unknown `streamingBehavior` (for example `"followup"`) as `steer`, which interrupted the running turn instead of queueing; it now returns an error. `set_auto_compaction` and `set_auto_retry` now reject non-boolean `enabled` values.
 - Fixed very thin images (for example 5000x1) being omitted when resized for the model; the short side now stays at least 1 pixel.
 - Fixed `pi @<directory>` (or an unreadable `@file`) printing `EISDIR`/`EACCES` and then hanging; Pi now reports the path and exits with status 1.
+- Fixed the external editor (Ctrl+G) doing nothing when the configured editor program could not be started; the main editor and extension editor dialogs now show `External editor failed: could not start <editor>: ...`.
 
 ### Changed
 

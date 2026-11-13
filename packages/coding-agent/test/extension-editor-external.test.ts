@@ -30,17 +30,12 @@ describe("ExtensionEditorComponent external editor", () => {
 		rmSync(dir, { recursive: true, force: true });
 	});
 
-	it("reports an external editor failure instead of rejecting unhandled", async () => {
-		// An editor that removes the file and exits 0 makes reading the result fail.
-		const editorScript = join(dir, "remove-file-editor.sh");
-		writeFileSync(editorScript, '#!/bin/sh\nrm -f "$1"\n');
-		chmodSync(editorScript, 0o755);
-
+	function createComponent(editorCommand: string): ExtensionEditorComponent {
 		const tui = new TUI(new VirtualTerminal(80, 24));
 		vi.spyOn(tui, "stop").mockImplementation(() => {});
 		vi.spyOn(tui, "start").mockImplementation(() => {});
 		vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-		const component = new ExtensionEditorComponent(
+		return new ExtensionEditorComponent(
 			tui,
 			new KeybindingsManager(),
 			"Edit",
@@ -48,8 +43,32 @@ describe("ExtensionEditorComponent external editor", () => {
 			() => {},
 			() => {},
 			undefined,
-			editorScript,
+			editorCommand,
 		);
+	}
+
+	it("reports an editor program that cannot be started", async () => {
+		const missingEditor = join(dir, "missing-editor");
+		const component = createComponent(missingEditor);
+
+		component.handleInput("\x07");
+
+		await vi.waitFor(() => {
+			expect(stripAnsi(component.render(200).join("\n"))).toContain(
+				`External editor failed: could not start ${missingEditor}`,
+			);
+		});
+		expect(unhandled).toEqual([]);
+		expect(stripAnsi(component.render(80).join("\n"))).toContain("draft text");
+	});
+
+	it("reports an external editor failure instead of rejecting unhandled", async () => {
+		// An editor that removes the file and exits 0 makes reading the result fail.
+		const editorScript = join(dir, "remove-file-editor.sh");
+		writeFileSync(editorScript, '#!/bin/sh\nrm -f "$1"\n');
+		chmodSync(editorScript, 0o755);
+
+		const component = createComponent(editorScript);
 
 		component.handleInput("\x07");
 
