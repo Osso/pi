@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed the `pi-ai login` provider prompt crashing with a `TypeError` on a non-numeric selection; it now prints `Invalid selection` and exits with code 1.
 - Fixed OpenRouter mandatory-reasoning Google Gemini models (`gemini-2.5-pro*`, `gemini-3*-pro*`, `gemini-3.5+` flash, and `gemini-4-*`) to mark `thinkingLevelMap.off` as `null` and added `google/gemini-4-hydrogen`, preventing `reasoning.effort: "none"` HTTP 400 errors during compaction and thinking-off requests.
 - Fixed tool argument validation in environments that prohibit dynamic code generation by restoring non-eval validation.
 - Fixed provider error classification to prioritize quota and balance exhaustion over HTTP 429, while keeping per-minute throughput errors distinct from retryable rate limits.
