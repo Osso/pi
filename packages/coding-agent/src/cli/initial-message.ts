@@ -37,8 +37,11 @@ export function buildInitialMessage({
 	}
 
 	return {
-		// Piped stdin arrives trimmed, so each part needs its own line break before the next.
-		initialMessage: parts.length > 0 ? parts.map((part) => part.replace(/\n+$/, "")).join("\n") : undefined,
+		// Piped stdin arrives trimmed, so add a line break between parts that lack one.
+		initialMessage:
+			parts.length > 0
+				? parts.reduce((text, part) => (text === "" || text.endsWith("\n") ? text + part : `${text}\n${part}`))
+				: undefined,
 		initialImages: fileImages && fileImages.length > 0 ? fileImages : undefined,
 	};
 }

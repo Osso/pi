@@ -30,6 +30,12 @@ describe("buildInitialMessage", () => {
 		expect(result.initialMessage).toBe("fix this error\nexplain");
 	});
 
+	test("sends a lone CLI message unchanged", () => {
+		const result = buildInitialMessage({ parsed: createArgs(["hello\n\n"]) });
+
+		expect(result.initialMessage).toBe("hello\n\n");
+	});
+
 	test("uses stdin as the initial prompt when no CLI message is present", () => {
 		const parsed = createArgs();
 		const result = buildInitialMessage({
