@@ -31,6 +31,8 @@
 - Removed `MultiAgentStore.transitionAgent`, `sendSteering`, and `ackSteering`, plus their public command-detail/result types; lifecycle and steering mutations now require `LifecycleCoordinator` exact-owner commands.
 - Removed the in-process LLM approval reviewer, `approvalReviewerModel`, recent approval-decision prompt history, and `approval-memory.jsonl`; LLM-approved presets now use the resident Supervisor and its KB memory.
 
+- Changed `ToolRenderContext` argument and state defaults and `ToolDefinition` state defaults to `unknown`; tool execution event arguments and result details also require narrowing. `defineTool` preserves its concrete definition type without an `any` intersection, built-in tool factories preserve details types, and public model types use `Model<Api>` instead of `Model<any>`.
+
 ### Changed
 
 - Root TypeScript and Biome checks now include coding-agent extensions.

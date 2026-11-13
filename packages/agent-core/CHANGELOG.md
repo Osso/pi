@@ -8,6 +8,8 @@
 - Added `model_request_start` and `model_request_end` to `AgentEvent`; exhaustive event consumers must handle the provider-request lifecycle variants.
 - Added required `startedAt` timing metadata to `tool_execution_start` and required `startedAt`/`finishedAt` metadata to `tool_execution_end` `AgentEvent` payloads. Custom `AgentEvent` producers must include Unix-epoch millisecond timestamps; consumers can calculate elapsed tool time as `finishedAt - startedAt`.
 
+- Changed `AgentTool` details and `AgentToolUpdateCallback` type defaults from `any` to `unknown`; tool execution event arguments and result details also require narrowing. Tool execution and preparation members now use method syntax, and public model types use `Model<Api>` instead of `Model<any>`.
+
 ### Added
 
 - Added authoritative `AgentState.isModelRequestActive` state for distinguishing model requests from tool execution.

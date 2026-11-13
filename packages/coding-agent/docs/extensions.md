@@ -675,7 +675,7 @@ pi.on("message_end", async (event, ctx) => {
 
 #### tool_execution_start / tool_execution_update / tool_execution_end
 
-Fired for tool execution lifecycle updates.
+Fired for tool execution lifecycle updates. The start and update event `args` are `unknown`; narrow them before use. Update `partialResult` and end `result` are `AgentToolResult<unknown>`, so their `details` also require narrowing.
 
 In parallel tool mode:
 - `tool_execution_start` is emitted in assistant source order during the preflight phase
