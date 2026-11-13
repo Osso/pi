@@ -43,4 +43,17 @@ describe("edit tool duplicate match errors", () => {
 			"Duplicate match context:\n1) line 1\n> 1: x = 1\n  2: x = 1\n\n2) line 2\n  1: x = 1\n> 2: x = 1",
 		);
 	});
+
+	it("applies an exact unique match even when a fuzzy-equivalent line exists", () => {
+		const content = 'say "hi";\nsay \u201chi\u201d;\nvalue = 1;   \nvalue = 1;\n';
+
+		expect(
+			applyEditsToNormalizedContent(content, [{ oldText: 'say "hi";', newText: 'say "bye";' }], "quotes.ts")
+				.newContent,
+		).toBe('say "bye";\nsay \u201chi\u201d;\nvalue = 1;   \nvalue = 1;\n');
+		expect(
+			applyEditsToNormalizedContent(content, [{ oldText: "value = 1;   \n", newText: "value = 2;\n" }], "spaces.ts")
+				.newContent,
+		).toBe('say "hi";\nsay \u201chi\u201d;\nvalue = 2;\nvalue = 1;\n');
+	});
 });

@@ -305,12 +305,6 @@ function findTextOccurrences(content: string, oldText: string): TextOccurrence[]
 	return occurrences;
 }
 
-function countOccurrences(content: string, oldText: string): number {
-	const fuzzyContent = normalizeForFuzzyMatch(content);
-	const fuzzyOldText = normalizeForFuzzyMatch(oldText);
-	return findTextOccurrences(fuzzyContent, fuzzyOldText).length;
-}
-
 function getLineNumberAtOffset(content: string, offset: number): number {
 	let lineNumber = 1;
 	for (let i = 0; i < offset; i++) {
@@ -446,9 +440,12 @@ export function applyEditsToNormalizedContent(
 			throw getNotFoundError(path, i, normalizedEdits.length);
 		}
 
-		const occurrences = countOccurrences(replacementBaseContent, edit.oldText);
+		// Count matches the way this edit matched: an exact match is unique even when fuzzy twins exist.
+		// A fuzzy match already searched normalized content (replacementBaseContent), so only oldText needs normalizing.
+		const searchText = matchResult.usedFuzzyMatch ? normalizeForFuzzyMatch(edit.oldText) : edit.oldText;
+		const occurrences = findTextOccurrences(replacementBaseContent, searchText).length;
 		if (occurrences > 1) {
-			throw getDuplicateError(path, i, normalizedEdits.length, occurrences, replacementBaseContent, edit.oldText);
+			throw getDuplicateError(path, i, normalizedEdits.length, occurrences, replacementBaseContent, searchText);
 		}
 
 		matchedEdits.push({
