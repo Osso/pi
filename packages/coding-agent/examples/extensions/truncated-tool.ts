@@ -69,15 +69,16 @@ export default function (pi: ExtensionAPI) {
 					encoding: "utf-8",
 					maxBuffer: 100 * 1024 * 1024, // 100MB buffer to capture full output
 				});
-			} catch (err: any) {
+			} catch (err: unknown) {
 				// ripgrep exits with 1 when no matches found
-				if (err.status === 1) {
+				if (typeof err === "object" && err !== null && "status" in err && err.status === 1) {
 					return {
 						content: [{ type: "text", text: "No matches found" }],
 						details: { pattern, path: searchPath, glob, matchCount: 0 } as RgDetails,
 					};
 				}
-				throw new Error(`ripgrep failed: ${err.message}`);
+				const message = err instanceof Error ? err.message : String(err);
+				throw new Error(`ripgrep failed: ${message}`);
 			}
 
 			if (!output.trim()) {

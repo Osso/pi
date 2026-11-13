@@ -27,7 +27,7 @@ function colorize(text: string, shinePos: number): string {
 	return (
 		[...text]
 			.map((c, i) => {
-				const baseColor = COLORS[i % COLORS.length]!;
+				const baseColor = COLORS[i % COLORS.length] ?? [255, 255, 255];
 				// 3-letter shine: center bright, adjacent dimmer
 				let factor = 0;
 				if (shinePos >= 0) {

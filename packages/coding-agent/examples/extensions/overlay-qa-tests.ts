@@ -57,11 +57,12 @@ export default function (pi: ExtensionAPI) {
 
 			let index = 0;
 			while (true) {
+				const anchor = anchors[index] ?? "center";
 				const result = await ctx.ui.custom<"next" | "confirm" | "cancel">(
-					(_tui, theme, _kb, done) => new AnchorTestComponent(theme, anchors[index]!, done),
+					(_tui, theme, _kb, done) => new AnchorTestComponent(theme, anchor, done),
 					{
 						overlay: true,
-						overlayOptions: { anchor: anchors[index], width: 40 },
+						overlayOptions: { anchor, width: 40 },
 					},
 				);
 
@@ -94,11 +95,13 @@ export default function (pi: ExtensionAPI) {
 
 			let index = 0;
 			while (true) {
+				const config = configs[index];
+				if (!config) break;
 				const result = await ctx.ui.custom<"next" | "close">(
-					(_tui, theme, _kb, done) => new MarginTestComponent(theme, configs[index]!, done),
+					(_tui, theme, _kb, done) => new MarginTestComponent(theme, config, done),
 					{
 						overlay: true,
-						overlayOptions: configs[index]!.options,
+						overlayOptions: config.options,
 					},
 				);
 
@@ -191,7 +194,8 @@ export default function (pi: ExtensionAPI) {
 
 			let index = 0;
 			while (true) {
-				const config = configs[index]!;
+				const config = configs[index];
+				if (!config) break;
 				const result = await ctx.ui.custom<"next" | "close">(
 					(_tui, theme, _kb, done) => new PercentTestComponent(theme, config, done),
 					{
@@ -434,7 +438,7 @@ class StackOverlayComponent extends BaseOverlay {
 		const th = this.theme;
 		// Use different colors for each overlay to show stacking
 		const colors = ["error", "success", "accent"] as const;
-		const color = colors[(this.num - 1) % colors.length]!;
+		const color = colors[(this.num - 1) % colors.length] ?? "accent";
 		const innerW = Math.max(1, width - 2);
 		const border = (char: string) => th.fg(color, char);
 		const padLine = (s: string) => truncateToWidth(s, innerW, "...", true);
@@ -741,7 +745,7 @@ class SidepanelComponent extends BaseOverlay {
 
 		// Menu items
 		for (let i = 0; i < this.items.length; i++) {
-			const item = this.items[i]!;
+			const item = this.items[i] ?? "";
 			const isSelected = i === this.selectedIndex;
 			const prefix = isSelected ? th.fg("accent", "→ ") : "  ";
 			const text = isSelected ? th.fg("accent", item) : item;
@@ -824,8 +828,8 @@ class AnimationDemoComponent extends BaseOverlay {
 
 		// Spinning character
 		const spinChars = ["◐", "◓", "◑", "◒"];
-		const spin = spinChars[this.frame % spinChars.length];
-		lines.push(border("│") + padLine(` Spinner: ${th.fg("warning", spin!)}`) + border("│"));
+		const spin = spinChars[this.frame % spinChars.length] ?? "◐";
+		lines.push(border("│") + padLine(` Spinner: ${th.fg("warning", spin)}`) + border("│"));
 
 		// Color cycling
 		const hue = (this.frame * 3) % 360;
@@ -1270,8 +1274,8 @@ class StreamingInputController extends BaseOverlay {
 		for (let i = 0; i < 3; i++) {
 			const panel = new StreamingInputPanel(
 				theme,
-				labels[i]!,
-				colors[i]!,
+				labels[i] ?? "Panel",
+				colors[i] ?? "accent",
 				() => this.cycleFocus(),
 				() => this.close(),
 			);
@@ -1303,7 +1307,7 @@ class StreamingInputController extends BaseOverlay {
 	private cycleFocus(): void {
 		// Unfocus current panel if any
 		if (this.focusIndex >= 0 && this.focusIndex < this.handles.length) {
-			this.handles[this.focusIndex]!.unfocus();
+			this.handles[this.focusIndex]?.unfocus();
 		}
 
 		// Cycle: -1 (controller) → 0 → 1 → 2 → -1 ...
@@ -1314,7 +1318,7 @@ class StreamingInputController extends BaseOverlay {
 
 		// Focus new panel if any
 		if (this.focusIndex >= 0) {
-			this.handles[this.focusIndex]!.focus();
+			this.handles[this.focusIndex]?.focus();
 		}
 
 		this.tui.requestRender();

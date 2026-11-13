@@ -50,9 +50,14 @@ export default function (pi: ExtensionAPI) {
 					activeWadPath = wad;
 				}
 
+				const engine = activeEngine;
+				if (!engine) {
+					throw new Error("DOOM engine failed to initialize");
+				}
+
 				await ctx.ui.custom(
 					(tui, _theme, _keybindings, done) => {
-						return new DoomOverlayComponent(tui, activeEngine!, () => done(undefined), isResume);
+						return new DoomOverlayComponent(tui, engine, () => done(undefined), isResume);
 					},
 					{
 						overlay: true,

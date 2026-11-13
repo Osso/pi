@@ -86,7 +86,8 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			if (!ctx.model) {
+			const model = ctx.model;
+			if (!model) {
 				ctx.ui.notify("No model selected", "error");
 				return;
 			}
@@ -117,9 +118,9 @@ export default function (pi: ExtensionAPI) {
 				loader.onAbort = () => done(null);
 
 				const doGenerate = async () => {
-					const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model!);
+					const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 					if (!auth.ok || !auth.apiKey) {
-						throw new Error(auth.ok ? `No API key for ${ctx.model!.provider}` : auth.error);
+						throw new Error(auth.ok ? `No API key for ${model.provider}` : auth.error);
 					}
 
 					const userMessage: Message = {
@@ -134,7 +135,7 @@ export default function (pi: ExtensionAPI) {
 					};
 
 					const response = await complete(
-						ctx.model!,
+						model,
 						{ systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
 						{ apiKey: auth.apiKey, headers: auth.headers, env: auth.env, signal: loader.signal },
 					);

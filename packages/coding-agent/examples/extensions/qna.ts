@@ -36,7 +36,8 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			if (!ctx.model) {
+			const model = ctx.model;
+			if (!model) {
 				ctx.ui.notify("No model selected", "error");
 				return;
 			}
@@ -70,25 +71,27 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
+			const assistantText = lastAssistantText;
+
 			// Run extraction with loader UI
 			const result = await ctx.ui.custom<string | null>((tui, theme, _kb, done) => {
-				const loader = new BorderedLoader(tui, theme, `Extracting questions using ${ctx.model!.id}...`);
+				const loader = new BorderedLoader(tui, theme, `Extracting questions using ${model.id}...`);
 				loader.onAbort = () => done(null);
 
 				// Do the work
 				const doExtract = async () => {
-					const auth = await ctx.modelRegistry.getApiKeyAndHeaders(ctx.model!);
+					const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
 					if (!auth.ok || !auth.apiKey) {
-						throw new Error(auth.ok ? `No API key for ${ctx.model!.provider}` : auth.error);
+						throw new Error(auth.ok ? `No API key for ${model.provider}` : auth.error);
 					}
 					const userMessage: UserMessage = {
 						role: "user",
-						content: [{ type: "text", text: lastAssistantText! }],
+						content: [{ type: "text", text: assistantText }],
 						timestamp: Date.now(),
 					};
 
 					const response = await complete(
-						ctx.model!,
+						model,
 						{ systemPrompt: SYSTEM_PROMPT, messages: [userMessage] },
 						{ apiKey: auth.apiKey, headers: auth.headers, env: auth.env, signal: loader.signal },
 					);

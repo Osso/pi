@@ -282,8 +282,14 @@ async function main() {
 
 	// -- Agent communication --
 
+	const agentStdin = agent.stdin;
+	const agentStdout = agent.stdout;
+	if (!agentStdin || !agentStdout) {
+		throw new Error("Agent process missing stdio streams");
+	}
+
 	function send(obj: Record<string, unknown>): void {
-		agent.stdin!.write(`${JSON.stringify(obj)}\n`);
+		agentStdin.write(`${JSON.stringify(obj)}\n`);
 	}
 
 	let isStreaming = false;
@@ -509,7 +515,7 @@ async function main() {
 
 	// -- Process agent stdout --
 
-	const stdoutRl = readline.createInterface({ input: agent.stdout!, terminal: false });
+	const stdoutRl = readline.createInterface({ input: agentStdout, terminal: false });
 
 	stdoutRl.on("line", (line) => {
 		let data: Record<string, unknown>;

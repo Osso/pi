@@ -59,7 +59,7 @@ function getIndicator(mode: WorkingIndicatorMode): WorkingIndicatorOptions | und
 		case "spinner":
 			return {
 				frames: SPINNER_FRAMES.map((frame, index) =>
-					colorize(frame, PASTEL_RAINBOW[index % PASTEL_RAINBOW.length]!),
+					colorize(frame, PASTEL_RAINBOW[index % PASTEL_RAINBOW.length] ?? [255, 255, 255]),
 				),
 				intervalMs: 80,
 			};

@@ -116,7 +116,10 @@ export class DoomEngine {
 
 		const argvPtr = this.module._malloc(argPtrs.length * 4);
 		for (let i = 0; i < argPtrs.length; i++) {
-			this.module.setValue(argvPtr + i * 4, argPtrs[i]!, "i32");
+			const ptr = argPtrs[i];
+			if (ptr !== undefined) {
+				this.module.setValue(argvPtr + i * 4, ptr, "i32");
+			}
 		}
 
 		this.module._doomgeneric_Create(args.length, argvPtr);

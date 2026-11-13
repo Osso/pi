@@ -116,9 +116,10 @@ export default function (pi: ExtensionAPI) {
 					content: [{ type: "text", text }] as TextContent[],
 					details: { lines: lines.length },
 				};
-			} catch (error: any) {
+			} catch (error: unknown) {
+				const message = error instanceof Error ? error.message : String(error);
 				return {
-					content: [{ type: "text", text: `Error reading file: ${error.message}` }] as TextContent[],
+					content: [{ type: "text", text: `Error reading file: ${message}` }] as TextContent[],
 					details: { error: true },
 				};
 			}

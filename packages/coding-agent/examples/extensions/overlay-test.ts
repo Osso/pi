@@ -56,7 +56,8 @@ class OverlayTestComponent implements Focusable {
 			return;
 		}
 
-		const current = this.items[this.selected]!;
+		const current = this.items[this.selected];
+		if (!current) return;
 
 		if (matchesKey(data, "return")) {
 			this.done({ action: current.label, query: current.hasInput ? current.text : undefined });
@@ -116,7 +117,8 @@ class OverlayTestComponent implements Focusable {
 		lines.push(row(` ${th.fg("dim", "─── Actions ───")}`));
 
 		for (let i = 0; i < this.items.length; i++) {
-			const item = this.items[i]!;
+			const item = this.items[i];
+			if (!item) continue;
 			const isSelected = i === this.selected;
 			const prefix = isSelected ? " ▶ " : "   ";
 
