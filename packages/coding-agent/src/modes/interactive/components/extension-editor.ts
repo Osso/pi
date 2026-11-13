@@ -29,6 +29,7 @@ export class ExtensionEditorComponent extends Container implements Focusable {
 	private tui: TUI;
 	private keybindings: KeybindingsManager;
 	private externalEditorCommand: string | undefined;
+	private hintText: Text;
 
 	private _focused = false;
 	get focused(): boolean {
@@ -87,7 +88,8 @@ export class ExtensionEditorComponent extends Container implements Focusable {
 			"  " +
 			keyHint("tui.select.cancel", "cancel") +
 			(hasExternalEditor ? `  ${keyHint("app.editor.external", "external editor")}` : "");
-		this.addChild(new Text(hint, 1, 0));
+		this.hintText = new Text(hint, 1, 0);
+		this.addChild(this.hintText);
 
 		this.addChild(new Spacer(1));
 
@@ -105,7 +107,11 @@ export class ExtensionEditorComponent extends Container implements Focusable {
 
 		// External editor (app keybinding)
 		if (this.keybindings.matches(keyData, "app.editor.external")) {
-			this.openExternalEditor();
+			this.openExternalEditor().catch((error: unknown) => {
+				const message = error instanceof Error ? error.message : String(error);
+				this.hintText.setText(theme.fg("error", `External editor failed: ${message}`));
+				this.tui.requestRender();
+			});
 			return;
 		}
 
