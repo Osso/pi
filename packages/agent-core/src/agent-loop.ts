@@ -120,6 +120,7 @@ export function restoredPendingToolMessage(messages: readonly AgentMessage[]): A
 	const completedToolCallIds = new Set<string>();
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const message = messages[index];
+		if (!message) throw new Error(`Missing message at index ${index}`);
 		if (message.role === "toolResult") {
 			completedToolCallIds.add(message.toolCallId);
 			continue;
@@ -907,8 +908,9 @@ async function finalizeExecutedToolCall(
 const MAX_TOOL_RESULT_TEXT_BYTES = DEFAULT_MAX_BYTES + 1024;
 const MAX_TOOL_RESULT_TEXT_LINES = DEFAULT_MAX_LINES + 10;
 /**
- * Cap on serialized tool result details. Details are never sent to the model; renderers and SDK consumers read them
- * (for example the edit diff), so the cap only bounds storage and is sized like the session tool-output cap.
+ * Cap on serialized tool result details. Details are not part of the tool result content the model receives; renderers
+ * and SDK consumers read them (for example the edit diff), so the cap bounds storage and is sized like the session
+ * tool-output cap. Compaction only copies small fields such as `fullOutputPath` into its prompt.
  */
 const MAX_TOOL_RESULT_DETAILS_BYTES = 1024 * 1024;
 

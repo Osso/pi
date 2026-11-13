@@ -76,8 +76,10 @@ export async function collectEntriesForBranchSummary(
 	const targetPath = await session.getBranch(targetId);
 	let commonAncestorId: string | null = null;
 	for (let i = targetPath.length - 1; i >= 0; i--) {
-		if (oldPath.has(targetPath[i].id)) {
-			commonAncestorId = targetPath[i].id;
+		const entry = targetPath[i];
+		if (!entry) throw new Error(`Missing target branch entry at index ${i}`);
+		if (oldPath.has(entry.id)) {
+			commonAncestorId = entry.id;
 			break;
 		}
 	}
@@ -87,7 +89,7 @@ export async function collectEntriesForBranchSummary(
 	while (current && current !== commonAncestorId) {
 		const entry = await session.getEntry(current);
 		if (!entry) throw new SessionError("invalid_session", `Entry ${current} not found`);
-		entries.push(entry as SessionTreeEntry);
+		entries.push(entry);
 		current = entry.parentId;
 	}
 	entries.reverse();
@@ -141,6 +143,7 @@ export function prepareBranchEntries(entries: SessionTreeEntry[], tokenBudget: n
 	}
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const entry = entries[i];
+		if (!entry) throw new Error(`Missing branch entry at index ${i}`);
 		const message = getMessageFromEntry(entry);
 		if (!message) continue;
 		extractFileOpsFromMessage(message, fileOps);

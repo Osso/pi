@@ -5,6 +5,7 @@
 		"noEmit": true
 	},
 	"include": [
-		"packages/ai/src/**/*.ts"
+		"packages/ai/src/**/*.ts",
+		"packages/agent-core/src/**/*.ts"
 	]
 }

@@ -18,7 +18,11 @@ export function uuidv7(): string {
 	const timestamp = Date.now();
 
 	if (timestamp > lastTimestamp) {
-		sequence = random[6] * 0x1000000 + random[7] * 0x10000 + random[8] * 0x100 + random[9];
+		const [, , , , , , random6, random7, random8, random9] = random;
+		if (random6 === undefined || random7 === undefined || random8 === undefined || random9 === undefined) {
+			throw new Error("Random byte buffer is incomplete");
+		}
+		sequence = random6 * 0x1000000 + random7 * 0x10000 + random8 * 0x100 + random9;
 		lastTimestamp = timestamp;
 	} else {
 		sequence = (sequence + 1) >>> 0;
@@ -38,12 +42,23 @@ export function uuidv7(): string {
 	bytes[7] = (sequence >>> 20) & 0xff;
 	bytes[8] = 0x80 | ((sequence >>> 14) & 0x3f);
 	bytes[9] = (sequence >>> 6) & 0xff;
-	bytes[10] = ((sequence & 0x3f) << 2) | (random[10] & 0x03);
-	bytes[11] = random[11];
-	bytes[12] = random[12];
-	bytes[13] = random[13];
-	bytes[14] = random[14];
-	bytes[15] = random[15];
+	const [, , , , , , , , , , random10, random11, random12, random13, random14, random15] = random;
+	if (
+		random10 === undefined ||
+		random11 === undefined ||
+		random12 === undefined ||
+		random13 === undefined ||
+		random14 === undefined ||
+		random15 === undefined
+	) {
+		throw new Error("Random byte buffer is incomplete");
+	}
+	bytes[10] = ((sequence & 0x3f) << 2) | (random10 & 0x03);
+	bytes[11] = random11;
+	bytes[12] = random12;
+	bytes[13] = random13;
+	bytes[14] = random14;
+	bytes[15] = random15;
 
 	return formatUuid(bytes);
 }

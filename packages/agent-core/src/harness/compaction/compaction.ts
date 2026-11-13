@@ -141,6 +141,7 @@ function getAssistantUsage(msg: AgentMessage): Usage | undefined {
 export function getLastAssistantUsage(entries: SessionTreeEntry[]): Usage | undefined {
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const entry = entries[i];
+		if (!entry) throw new Error(`Missing session entry at index ${i}`);
 		if (entry.type === "message") {
 			const usage = getAssistantUsage(entry.message as AgentMessage);
 			if (usage) return usage;
@@ -163,7 +164,9 @@ export interface ContextUsageEstimate {
 
 function getLastAssistantUsageInfo(messages: AgentMessage[]): { usage: Usage; index: number } | undefined {
 	for (let i = messages.length - 1; i >= 0; i--) {
-		const usage = getAssistantUsage(messages[i]);
+		const message = messages[i];
+		if (!message) throw new Error(`Missing message at index ${i}`);
+		const usage = getAssistantUsage(message);
 		if (usage) return { usage, index: i };
 	}
 	return undefined;
@@ -189,7 +192,9 @@ export function estimateContextTokens(messages: AgentMessage[]): ContextUsageEst
 	const usageTokens = calculateContextTokens(usageInfo.usage);
 	let trailingTokens = 0;
 	for (let i = usageInfo.index + 1; i < messages.length; i++) {
-		trailingTokens += estimateTokens(messages[i]);
+		const message = messages[i];
+		if (!message) throw new Error(`Missing message at index ${i}`);
+		trailingTokens += estimateTokens(message);
 	}
 
 	return {
@@ -277,7 +282,9 @@ function findRecentMessagesStartIndex(
 ): number {
 	let messageCount = 0;
 	for (let i = endIndex - 1; i >= startIndex; i--) {
-		if (!getMessageFromEntry(entries[i])) continue;
+		const entry = entries[i];
+		if (!entry) throw new Error(`Missing session entry at index ${i}`);
+		if (!getMessageFromEntry(entry)) continue;
 		messageCount++;
 		if (messageCount >= keepRecentMessages) return i;
 	}
@@ -286,7 +293,9 @@ function findRecentMessagesStartIndex(
 
 /** Nearest cut point at or before `index`, so a kept tool result keeps its tool call. */
 function findCutPointAtOrBefore(cutPoints: number[], index: number): number {
-	let result = cutPoints[0];
+	const firstCutPoint = cutPoints[0];
+	if (firstCutPoint === undefined) throw new Error("No cut points available");
+	let result = firstCutPoint;
 	for (const cutPoint of cutPoints) {
 		if (cutPoint > index) break;
 		result = cutPoint;
@@ -296,7 +305,9 @@ function findCutPointAtOrBefore(cutPoints: number[], index: number): number {
 
 function findProtectedSuffixStartIndex(entries: SessionTreeEntry[], startIndex: number, endIndex: number): number {
 	for (let i = endIndex - 1; i >= startIndex; i--) {
-		if (entries[i].type === "compaction") return i + 1;
+		const entry = entries[i];
+		if (!entry) throw new Error(`Missing session entry at index ${i}`);
+		if (entry.type === "compaction") return i + 1;
 	}
 	return startIndex;
 }
@@ -315,6 +326,7 @@ function findValidCutPoints(entries: SessionTreeEntry[], startIndex: number, end
 	const cutPoints: number[] = [];
 	for (let i = startIndex; i < endIndex; i++) {
 		const entry = entries[i];
+		if (!entry) throw new Error(`Missing session entry at index ${i}`);
 		switch (entry.type) {
 			case "message": {
 				const role = entry.message.role;
@@ -355,6 +367,7 @@ function findValidCutPoints(entries: SessionTreeEntry[], startIndex: number, end
 export function findTurnStartIndex(entries: SessionTreeEntry[], entryIndex: number, startIndex: number): number {
 	for (let i = entryIndex; i >= startIndex; i--) {
 		const entry = entries[i];
+		if (!entry) throw new Error(`Missing session entry at index ${i}`);
 		if (isTurnStartEntry(entry)) {
 			return i;
 		}
@@ -389,6 +402,7 @@ export function findCutPoint(
 	let cutIndex = findCutPointAtOrBefore(cutPoints, recentStartIndex);
 	while (cutIndex > startIndex) {
 		const prevEntry = entries[cutIndex - 1];
+		if (!prevEntry) throw new Error(`Missing session entry at index ${cutIndex - 1}`);
 		if (prevEntry.type === "compaction") {
 			break;
 		}
@@ -398,6 +412,7 @@ export function findCutPoint(
 		cutIndex--;
 	}
 	const cutEntry = entries[cutIndex];
+	if (!cutEntry) throw new Error(`Missing session entry at index ${cutIndex}`);
 	const isUserMessage = cutEntry.type === "message" && cutEntry.message.role === "user";
 	const turnStartIndex = isUserMessage ? -1 : findTurnStartIndex(entries, cutIndex, startIndex);
 
@@ -571,13 +586,16 @@ export function prepareCompaction(
 	pathEntries: SessionTreeEntry[],
 	settings: CompactionSettings,
 ): Result<CompactionPreparation | undefined, CompactionError> {
-	if (pathEntries.length === 0 || pathEntries[pathEntries.length - 1].type === "compaction") {
+	const lastEntry = pathEntries.at(-1);
+	if (lastEntry?.type === "compaction" || pathEntries.length === 0) {
 		return ok(undefined);
 	}
 
 	let prevCompactionIndex = -1;
 	for (let i = pathEntries.length - 1; i >= 0; i--) {
-		if (pathEntries[i].type === "compaction") {
+		const entry = pathEntries[i];
+		if (!entry) throw new Error(`Missing session entry at index ${i}`);
+		if (entry.type === "compaction") {
 			prevCompactionIndex = i;
 			break;
 		}
@@ -605,13 +623,17 @@ export function prepareCompaction(
 	const historyEnd = cutPoint.isSplitTurn ? cutPoint.turnStartIndex : cutPoint.firstKeptEntryIndex;
 	const messagesToSummarize: AgentMessage[] = [];
 	for (let i = boundaryStart; i < historyEnd; i++) {
-		const msg = getMessageFromEntryForCompaction(pathEntries[i]);
+		const entry = pathEntries[i];
+		if (!entry) throw new Error(`Missing session entry at index ${i}`);
+		const msg = getMessageFromEntryForCompaction(entry);
 		if (msg) messagesToSummarize.push(msg);
 	}
 	const turnPrefixMessages: AgentMessage[] = [];
 	if (cutPoint.isSplitTurn) {
 		for (let i = cutPoint.turnStartIndex; i < cutPoint.firstKeptEntryIndex; i++) {
-			const msg = getMessageFromEntryForCompaction(pathEntries[i]);
+			const entry = pathEntries[i];
+			if (!entry) throw new Error(`Missing session entry at index ${i}`);
+			const msg = getMessageFromEntryForCompaction(entry);
 			if (msg) turnPrefixMessages.push(msg);
 		}
 	}

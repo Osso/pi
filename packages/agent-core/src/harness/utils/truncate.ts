@@ -87,7 +87,7 @@ function replaceUnpairedSurrogates(content: string): string {
 			if (i + 1 < content.length) {
 				const next = content.charCodeAt(i + 1);
 				if (next >= 0xdc00 && next <= 0xdfff) {
-					output += content[i] + content[i + 1];
+					output += content.charAt(i) + content.charAt(i + 1);
 					i++;
 					continue;
 				}
@@ -148,7 +148,9 @@ export function truncateHead(content: string, options: TruncationOptions = {}): 
 	}
 
 	// Check if first line alone exceeds byte limit
-	const firstLineBytes = utf8ByteLength(lines[0]);
+	const firstLine = lines.at(0);
+	if (firstLine === undefined) throw new Error("Missing first line after splitting content");
+	const firstLineBytes = utf8ByteLength(firstLine);
 	if (firstLineBytes > maxBytes) {
 		return {
 			content: "",
@@ -170,8 +172,8 @@ export function truncateHead(content: string, options: TruncationOptions = {}): 
 	let outputBytesCount = 0;
 	let truncatedBy: "lines" | "bytes" = "lines";
 
-	for (let i = 0; i < lines.length && i < maxLines; i++) {
-		const line = lines[i];
+	for (const [i, line] of lines.entries()) {
+		if (i >= maxLines) break;
 		const lineBytes = utf8ByteLength(line) + (i > 0 ? 1 : 0); // +1 for newline
 
 		if (outputBytesCount + lineBytes > maxBytes) {
@@ -218,7 +220,7 @@ export function truncateTail(content: string, options: TruncationOptions = {}): 
 
 	const totalBytes = utf8ByteLength(content);
 	const lines = content.split("\n");
-	if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+	if (lines.length > 1 && lines.at(-1) === "") lines.pop();
 	const totalLines = lines.length;
 
 	// Check if no truncation needed
@@ -244,8 +246,8 @@ export function truncateTail(content: string, options: TruncationOptions = {}): 
 	let truncatedBy: "lines" | "bytes" = "lines";
 	let lastLinePartial = false;
 
-	for (let i = lines.length - 1; i >= 0 && outputLinesArr.length < maxLines; i--) {
-		const line = lines[i];
+	for (const line of [...lines].reverse()) {
+		if (outputLinesArr.length >= maxLines) break;
 		const lineBytes = utf8ByteLength(line) + (outputLinesArr.length > 0 ? 1 : 0); // +1 for newline
 
 		if (outputBytesCount + lineBytes > maxBytes) {
