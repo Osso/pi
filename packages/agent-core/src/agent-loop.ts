@@ -12,6 +12,7 @@ import {
 	type UserMessage,
 	validateToolArguments,
 } from "@earendil-works/pi-ai/compat";
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "./harness/utils/truncate.ts";
 import type {
 	AgentContext,
 	AgentEvent,
@@ -899,8 +900,12 @@ async function finalizeExecutedToolCall(
 	};
 }
 
-const MAX_TOOL_RESULT_TEXT_BYTES = 10 * 1024;
-const MAX_TOOL_RESULT_TEXT_LINES = 2000;
+/**
+ * Hard cap on tool result text. Tools truncate their output to DEFAULT_MAX_BYTES / DEFAULT_MAX_LINES and then append
+ * a short continuation notice; the headroom lets that notice through, so this cap only cuts output no tool truncated.
+ */
+const MAX_TOOL_RESULT_TEXT_BYTES = DEFAULT_MAX_BYTES + 1024;
+const MAX_TOOL_RESULT_TEXT_LINES = DEFAULT_MAX_LINES + 10;
 
 function createErrorToolResult(message: string): AgentToolResult<unknown> {
 	return {
@@ -969,7 +974,8 @@ function capToolResultText(text: string): string {
 	return `[tool output truncated: max ${MAX_TOOL_RESULT_TEXT_BYTES} bytes / ${MAX_TOOL_RESULT_TEXT_LINES} lines]\n${byteCapped}`;
 }
 
-function isToolResultTextTooLarge(text: string): boolean {
+/** Whether text exceeds the hard tool result cap and would be cut by the agent loop. */
+export function isToolResultTextTooLarge(text: string): boolean {
 	return (
 		text.split("\n").length > MAX_TOOL_RESULT_TEXT_LINES ||
 		Buffer.byteLength(text, "utf-8") > MAX_TOOL_RESULT_TEXT_BYTES

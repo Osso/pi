@@ -2167,7 +2167,7 @@ See [examples/extensions/ssh.ts](../examples/extensions/ssh.ts) for a complete S
 - Compaction failures
 - Degraded model performance
 
-The built-in limit is **10KB** and **2000 lines**, whichever is hit first. Use the exported truncation utilities:
+The built-in limit is **10KB** and **2000 lines**, whichever is hit first. Truncated output may append a short continuation notice; Pi cuts tool text over 11KB or 2010 lines from the start, so truncate to the limits above. Use the exported truncation utilities:
 
 ```typescript
 import {

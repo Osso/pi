@@ -33,6 +33,7 @@
 - Fixed harness compaction to split a boundary-start active turn once cumulative assistant/tool context exceeds the protected suffix, while retaining later active turns whole when older compactable history exists.
 - Fixed `formatPromptTemplateInvocation` substituting placeholders found inside argument values: an argument such as `use $@ here` was expanded again instead of being inserted literally.
 - Fixed repeated compaction discarding the previous compaction summary when it split a long turn that the previous compaction had kept: the summary became `No prior history.` plus the turn prefix, so all earlier history was lost. The previous summary is now carried forward.
+- Fixed the tool-result cap cutting the start of tool output that was already truncated to 10KB / 2000 lines plus a continuation notice; the cap is now 11KB / 2010 lines, and `isToolResultTextTooLarge` is exported for hosts that apply their own cap.
 
 ## [0.80.3] - 2026-06-30
 

@@ -2,7 +2,12 @@ import { randomBytes } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentTool, AgentToolExecutionContext, AgentToolResult } from "@earendil-works/pi-agent-core";
+import {
+	type AgentTool,
+	type AgentToolExecutionContext,
+	type AgentToolResult,
+	isToolResultTextTooLarge,
+} from "@earendil-works/pi-agent-core";
 import type { TSchema } from "typebox";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 import { formatSize, type TruncationResult, truncateTail } from "./truncate.ts";
@@ -50,10 +55,11 @@ function capToolResultOutput<TDetails>(
 		return entry.type === "text" && typeof entry.text === "string";
 	});
 	const fullText = textContent.map((entry) => entry.text).join("\n");
-	const truncation = truncateTail(fullText);
-	if (!truncation.truncated) {
+	// Output a tool already truncated may exceed the truncation limit by its continuation notice; keep it whole.
+	if (!isToolResultTextTooLarge(fullText)) {
 		return result;
 	}
+	const truncation = truncateTail(fullText);
 
 	spill.fullOutputPath ??= createFullOutputPath();
 	const fullOutputPath = spill.fullOutputPath;
