@@ -170,6 +170,23 @@ describe("Coding Agent Tools", () => {
 			expect(next.split("\n")[0]).toBe(lines[102]);
 		});
 
+		it("advances past empty lines that precede a line cut off by the oversized-file head read", async () => {
+			const testFile = join(testDir, "empty-then-long.txt");
+			writeFileSync(testFile, `\n\n${"y".repeat(DEFAULT_MAX_BYTES * 2)}\nshort\n`);
+
+			const first = getTextOutput(await readTool.execute("read-empty-long-1", { path: testFile }));
+			expect(first).toBe("\n\n\n[Showing lines 1-2 of file (10.0KB limit). Use offset=3 to continue.]");
+
+			const next = getTextOutput(await readTool.execute("read-empty-long-2", { path: testFile, offset: 3 }));
+			expect(next).toMatch(/^\[Line 3 is 20\.0KB, exceeds 10\.0KB limit\. Use bash: sed -n '3p'/);
+
+			const oneEmptyLine = join(testDir, "one-empty-then-long.txt");
+			writeFileSync(oneEmptyLine, `\n${"y".repeat(DEFAULT_MAX_BYTES * 2)}\n`);
+			expect(getTextOutput(await readTool.execute("read-empty-long-3", { path: oneEmptyLine }))).toBe(
+				"\n\n[Showing lines 1-1 of file (10.0KB limit). Use offset=2 to continue.]",
+			);
+		});
+
 		it("points at bash when the first line alone is longer than the oversized-file head read", async () => {
 			const testFile = join(testDir, "long-first-line.txt");
 			writeFileSync(testFile, `${"y".repeat(DEFAULT_MAX_BYTES * 2)}\nshort\n`);

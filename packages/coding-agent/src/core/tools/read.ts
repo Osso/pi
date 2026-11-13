@@ -434,7 +434,9 @@ function createReadToolDefinitionInternal(
 								outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
 								details = { truncation };
 							} else if (rangeLimited && !truncation.truncated) {
-								const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
+								// Count the selected lines: truncateHead reports 0 lines for a lone empty line.
+								const shownLines = userLimitedLines ?? lineCount - startLine;
+								const endLineDisplay = startLineDisplay + shownLines - 1;
 								const nextOffset = endLineDisplay + 1;
 								outputText = `${truncation.content}\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of file (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
 								details = {
