@@ -213,6 +213,33 @@ describe("session selector path/delete interactions", () => {
 		).toBe(true);
 	});
 
+	it("reports an archive failure in the header instead of rejecting", async () => {
+		const baseDir = mkdtempSync(join(tmpdir(), "pi-session-selector-archive-fail-"));
+		tempDirs.push(baseDir);
+		const projectDir = join(baseDir, "project");
+		mkdirSync(projectDir, { recursive: true });
+		const controlDbPath = getControlDbPath(baseDir);
+		const sessionPath = createMetadataBackedSession(projectDir, baseDir, controlDbPath, "vanishes");
+		const selector = new SessionSelectorComponent(
+			(onProgress) => SessionManager.list(projectDir, baseDir, onProgress, controlDbPath),
+			(onProgress) => SessionManager.listAll(baseDir, onProgress, controlDbPath),
+			() => {},
+			() => {},
+			() => {},
+			() => {},
+			{ keybindings, controlDbPath },
+		);
+		await flushPromises();
+		// The listed transcript disappears before archiving, as when idle archival moved it.
+		rmSync(sessionPath);
+
+		const list = selector.getSessionList();
+		await expect(list.onArchiveSession?.(sessionPath)).resolves.toBeUndefined();
+
+		const rendered = stripAnsi(selector.render(160).join("\n"));
+		expect(rendered).toContain("Archive failed: Session file does not exist");
+	});
+
 	it("enters confirmation mode on Ctrl+D even with a non-empty search query", async () => {
 		const sessions = [makeSession({ id: "a" }), makeSession({ id: "b" })];
 

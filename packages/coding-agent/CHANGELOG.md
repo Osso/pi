@@ -410,6 +410,7 @@
 - Fixed malformed persisted process identity JSON breaking lifecycle traces; invalid relay mailbox data now reports a contextual error.
 - Fixed interactive mode exiting with `pi exiting due to uncaughtException` when a submitted command or async keybinding rejected, such as `/continue` without a selected model or valid credentials; the error now appears in the chat.
 - Fixed Ctrl+C (`SIGINT`) during `pi -p` or RPC mode leaving a running Bash tool command alive; Pi now kills the command's process tree, disposes the runtime, and exits with status 130.
+- Fixed archiving from the session picker exiting Pi when the archive failed, for example after the transcript was already moved by idle archival; the picker now shows `Archive failed: ...`.
 
 ### Changed
 

@@ -858,9 +858,15 @@ export class SessionSelectorComponent extends Container implements Focusable {
 				this.requestRender();
 				return;
 			}
-			archivePersistedSession(this.controlDbPath, sessionPath);
-			this.header.setStatusMessage({ type: "info", message: "Session archived" }, 2000);
-			await this.refreshSessionsAfterMutation();
+			// The list calls this without awaiting, so a failure must be reported here, not thrown.
+			try {
+				archivePersistedSession(this.controlDbPath, sessionPath);
+				this.header.setStatusMessage({ type: "info", message: "Session archived" }, 2000);
+				await this.refreshSessionsAfterMutation();
+			} catch (error: unknown) {
+				const message = error instanceof Error ? error.message : String(error);
+				this.header.setStatusMessage({ type: "error", message: `Archive failed: ${message}` }, 3000);
+			}
 			this.requestRender();
 		};
 
