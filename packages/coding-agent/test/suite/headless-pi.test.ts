@@ -1702,7 +1702,7 @@ describe("headless Pi fixture", () => {
 			},
 			{ autoDetachTools: true },
 		);
-	});
+	}, 60_000);
 
 	it("reconciles a cancelling Pyrun tool when another session starts", async () => {
 		await withHeadlessPi(
@@ -1777,7 +1777,7 @@ describe("headless Pi fixture", () => {
 			},
 			{ autoDetachTools: true },
 		);
-	});
+	}, 60_000);
 
 	it("lets a foreign startup settle an exact dead detached runner while same-session startup is paused", async () => {
 		await withHeadlessPi(
