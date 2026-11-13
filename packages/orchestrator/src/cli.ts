@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { RpcCommand, RpcExtensionUIResponse } from "@earendil-works/pi-coding-agent";
 import { getSocketPath } from "./config.ts";
 import { sendIpcRequest } from "./ipc/client.ts";
-import { encodeMessage } from "./ipc/protocol.ts";
+import { encodeMessage, parseRpcClientMessage } from "./ipc/protocol.ts";
 import { serve } from "./serve.ts";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -70,7 +70,13 @@ async function rpcStream(instanceId: string): Promise<void> {
 			if (!line) {
 				continue;
 			}
-			const parsed = JSON.parse(line) as RpcCommand | RpcExtensionUIResponse;
+			let parsed: RpcCommand | RpcExtensionUIResponse;
+			try {
+				parsed = parseRpcClientMessage(line);
+			} catch (error) {
+				console.error(error instanceof Error ? error.message : String(error));
+				continue;
+			}
 			socket.write(encodeMessage(parsed));
 		}
 	});
@@ -133,11 +139,22 @@ async function main(): Promise<void> {
 			console.error("Usage: orchestrator rpc <instance-id> <json-command>");
 			process.exit(1);
 		}
+		let command: ReturnType<typeof parseRpcClientMessage>;
+		try {
+			command = parseRpcClientMessage(commandJson);
+		} catch (error) {
+			console.error(error instanceof Error ? error.message : String(error));
+			process.exit(1);
+		}
+		if (command.type === "extension_ui_response") {
+			console.error("orchestrator rpc expects an RpcCommand; use rpc-stream for extension_ui_response");
+			process.exit(1);
+		}
 		printResponse(
 			await sendIpcRequest({
 				type: "rpc",
 				instanceId,
-				command: JSON.parse(commandJson),
+				command,
 			}),
 		);
 		return;

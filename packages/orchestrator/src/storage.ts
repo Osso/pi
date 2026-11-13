@@ -1,6 +1,57 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { getInstancesPath, getMachinePath, getOrchestratorDir } from "./config.ts";
-import type { InstanceRecord, MachineRecord } from "./types.ts";
+import type { InstanceRecord, InstanceStatus, MachineRecord } from "./types.ts";
+
+const INSTANCE_STATUSES: ReadonlySet<InstanceStatus> = new Set(["starting", "online", "stopping", "stopped", "error"]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isOptionalString(value: unknown): boolean {
+	return value === undefined || typeof value === "string";
+}
+
+function isMachineRecord(value: unknown): value is MachineRecord {
+	if (!isRecord(value)) {
+		return false;
+	}
+	return (
+		typeof value.id === "string" &&
+		typeof value.createdAt === "string" &&
+		isOptionalString(value.lastSeenAt) &&
+		isOptionalString(value.label)
+	);
+}
+
+function isInstanceRecord(value: unknown): value is InstanceRecord {
+	if (!isRecord(value)) {
+		return false;
+	}
+	return (
+		typeof value.id === "string" &&
+		typeof value.status === "string" &&
+		INSTANCE_STATUSES.has(value.status as InstanceStatus) &&
+		typeof value.cwd === "string" &&
+		typeof value.createdAt === "string" &&
+		isOptionalString(value.lastSeenAt) &&
+		isOptionalString(value.label) &&
+		isOptionalString(value.sessionId) &&
+		isOptionalString(value.sessionFile) &&
+		isOptionalString(value.radiusPiId)
+	);
+}
+
+function parseJsonFile(path: string, label: string): unknown {
+	const data = readFileSync(path, "utf-8");
+	try {
+		return JSON.parse(data) as unknown;
+	} catch (error) {
+		throw new Error(
+			`Failed to parse ${label} JSON in ${path}: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	}
+}
 
 function ensureOrchestratorDir(): void {
 	const orchestratorDir = getOrchestratorDir();
@@ -15,8 +66,11 @@ export function loadMachine(): MachineRecord | undefined {
 		return undefined;
 	}
 
-	const data = readFileSync(machinePath, "utf-8");
-	return JSON.parse(data) as MachineRecord;
+	const parsed = parseJsonFile(machinePath, "machine");
+	if (!isMachineRecord(parsed)) {
+		throw new Error(`Invalid machine record in ${machinePath}`);
+	}
+	return parsed;
 }
 
 export function saveMachine(machine: MachineRecord): void {
@@ -38,8 +92,11 @@ export function loadInstances(): InstanceRecord[] {
 		return [];
 	}
 
-	const data = readFileSync(instancesPath, "utf-8");
-	return JSON.parse(data) as InstanceRecord[];
+	const parsed = parseJsonFile(instancesPath, "instances");
+	if (!Array.isArray(parsed) || !parsed.every(isInstanceRecord)) {
+		throw new Error(`Invalid instances list in ${instancesPath}`);
+	}
+	return parsed;
 }
 
 export function saveInstances(instances: InstanceRecord[]): void {

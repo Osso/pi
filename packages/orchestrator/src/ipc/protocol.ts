@@ -127,16 +127,47 @@ export type ResponseFor<T extends OrchestratorRequest> = T extends { type: infer
 		: ErrorResponse
 	: ErrorResponse;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseJsonObject(line: string, context: string): Record<string, unknown> {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(line);
+	} catch (error) {
+		throw new Error(`Invalid ${context} JSON: ${error instanceof Error ? error.message : String(error)}`);
+	}
+	if (!isRecord(parsed)) {
+		throw new Error(`Invalid ${context}: expected a JSON object`);
+	}
+	return parsed;
+}
+
 export function encodeMessage(message: ProtocolMessage): string {
 	return `${JSON.stringify(message)}\n`;
 }
 
 export function parseRequestLine(line: string): OrchestratorRequest {
-	const value = JSON.parse(line) as OrchestratorRequest;
-	return value;
+	const value = parseJsonObject(line, "orchestrator request");
+	if (typeof value.type !== "string" || value.type.length === 0) {
+		throw new Error("Invalid orchestrator request: missing string type");
+	}
+	return value as unknown as OrchestratorRequest;
 }
 
 export function parseResponseLine(line: string): OrchestratorResponse {
-	const value = JSON.parse(line) as OrchestratorResponse;
-	return value;
+	const value = parseJsonObject(line, "orchestrator response");
+	if (typeof value.type !== "string" || value.type.length === 0 || typeof value.ok !== "boolean") {
+		throw new Error("Invalid orchestrator response: missing type or ok");
+	}
+	return value as unknown as OrchestratorResponse;
+}
+
+export function parseRpcClientMessage(line: string): RpcClientMessage {
+	const value = parseJsonObject(line, "RPC command");
+	if (typeof value.type !== "string" || value.type.length === 0) {
+		throw new Error("Invalid RPC command: missing string type");
+	}
+	return value as unknown as RpcClientMessage;
 }

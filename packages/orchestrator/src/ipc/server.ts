@@ -10,6 +10,7 @@ import {
 	type OrchestratorRequest,
 	type OrchestratorResponse,
 	parseRequestLine,
+	parseRpcClientMessage,
 	type RpcBridgeResponse,
 	type RpcReadyResponse,
 	type RpcRequest,
@@ -107,7 +108,7 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 							rpcRequestQueue = rpcRequestQueue
 								.then(async () => {
 									try {
-										await rpcStream.handleRequest(JSON.parse(rpcLine));
+										await rpcStream.handleRequest(parseRpcClientMessage(rpcLine));
 									} catch (rpcError: unknown) {
 										socket.write(
 											encodeMessage({

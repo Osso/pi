@@ -90,4 +90,19 @@ describe("IPC buffered lines", () => {
 		expect(responses).toEqual([{ type: "list_result", ok: true, instances: [] }]);
 		expect(handledRequests).toEqual([{ type: "list" }]);
 	});
+
+	it("returns an error frame for malformed stream RPC commands without killing the stream", async () => {
+		client.write('{"type":"rpc_stream","instanceId":"test"}\n{bad-json}\n{"id":"ok","type":"get_state"}\n');
+
+		await vi.waitFor(() => {
+			expect(responses).toHaveLength(3);
+		});
+		expect(responses[0]).toEqual({
+			type: "rpc_ready",
+			ok: true,
+			instance: { id: "test", cwd: "/tmp", status: "online" },
+		});
+		expect(responses[1]).toMatchObject({ type: "error", ok: false });
+		expect(responses[2]).toEqual({ type: "response", id: "ok", command: "get_state", success: true });
+	});
 });
