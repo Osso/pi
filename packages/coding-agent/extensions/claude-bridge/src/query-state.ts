@@ -164,8 +164,6 @@ export class QueryContext {
 	rateLimitRejection: Pick<SDKRateLimitInfo, "rateLimitType" | "resetsAt" | "errorCode"> | null = null;
 	/** Identity stays with the query even when a concurrent query advances selection. */
 	accountProfile: { name: string; manager: AccountProfileManager } | null = null;
-	/** Successful pending-request result; recovery waits for non-cancelled settlement. */
-	accountAccepted = false;
 	/** Quota failure awaits query settlement so cancellation never rejects an account. */
 	quotaFailure: { resetsAt?: number } | null = null;
 	/** Highest 5% utilization bucket we notified for, so repeat rate_limit_event spam is suppressed. */

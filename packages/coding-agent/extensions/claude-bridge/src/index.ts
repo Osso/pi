@@ -518,11 +518,6 @@ interface SessionState {
 	sessionId: string;
 	cursor: number;
 	cwd: string;
-	// The pi session this CC conversation serves, from the provider call's
-	// options.sessionId. Attribution for history rewrites: a subagent's
-	// session_compact must not force a rebuild of a conversation that belongs
-	// to a different pi session. Null until a provider call recorded it.
-	piSessionId?: string;
 	// Force the next syncSharedSession call down the REBUILD path. Set when
 	// pi has mutated its messages array out from under us (compact, tree
 	// navigation) or after an abort left the JSONL in an indeterminate state.
@@ -960,7 +955,6 @@ interface IsolatedAttempt {
 	text: string;
 	errorText?: string;
 	quotaFailure: QueryContext["quotaFailure"];
-	accepted: boolean;
 }
 
 /** Drain one isolated query: its text, its failure, and the rate-limit rejection that caused it. */
@@ -971,7 +965,6 @@ async function consumeIsolatedQuery(
 ): Promise<IsolatedAttempt> {
 	let assistantText = "";
 	let finalText = "";
-	let accepted = false;
 	let errorText: string | undefined;
 	let rejection: QueryContext["rateLimitRejection"] = null;
 	let quotaFailure: QueryContext["quotaFailure"] = null;
@@ -993,7 +986,6 @@ async function consumeIsolatedQuery(
 		} else if (message.type === "result") {
 			logServedContextWindow("compact summary", message, model);
 			errorText = resultErrorText(message);
-			accepted = errorText === undefined;
 			// A rejection belongs only to the failure Claude Code sends next.
 			quotaFailure = errorText ? classifyAccountFailure(errorText, rejection) : null;
 			if (errorText && rejection) errorText = describeRateLimitFailure(rejection, errorText);
@@ -1001,7 +993,7 @@ async function consumeIsolatedQuery(
 			if (!errorText && message.subtype === "success") finalText = message.result || assistantText;
 		}
 	}
-	return { text: finalText || assistantText, errorText, quotaFailure, accepted };
+	return { text: finalText || assistantText, errorText, quotaFailure };
 }
 
 async function consumeIsolatedQueryWithAuthTrace(
@@ -1396,7 +1388,6 @@ function syncSharedSession(
 		sessionId: session.sessionId,
 		cursor: priorMessages.length,
 		cwd,
-		piSessionId: piSessionId ?? undefined,
 	});
 	if (previousSessionId === undefined) {
 		const seededFrom =
@@ -2200,7 +2191,6 @@ async function consumeQuery(
 			queryCtx.promptStream?.end();
 			logServedContextWindow("result", message, model);
 			resultError = resultErrorText(message);
-			queryCtx.accountAccepted = resultError === undefined;
 			const rejection = queryCtx.rateLimitRejection;
 			queryCtx.rateLimitRejection = null;
 			if (resultError !== undefined) {
@@ -2750,7 +2740,6 @@ function streamClaudeAgentSdk(
 	queryCtx.missedSteer = false;
 	queryCtx.rateLimitRejection = null;
 	queryCtx.quotaFailure = null;
-	queryCtx.accountAccepted = false;
 	queryCtx.accountProfile = account ? { name: account.name, manager: account.manager } : null;
 	quotaRetrySessions.delete(queryCtx.piSessionId);
 
@@ -3013,7 +3002,6 @@ function streamClaudeAgentSdk(
 						sessionId,
 						cursor,
 						cwd,
-						piSessionId: queryCtx.piSessionId ?? undefined,
 						needsRebuild: queryCtx.missedSteer || state?.needsRebuild,
 					});
 				}
