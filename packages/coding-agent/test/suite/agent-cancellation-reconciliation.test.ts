@@ -138,10 +138,12 @@ async function expectSilentDetachedCleanupAndSingleParentCompletion(
 	expect(pi.listRuntimeMailboxMessages().filter((message) => message.sender.agentId === detachedAgentId)).toHaveLength(
 		0,
 	);
-	expect(pi.listMailboxMessages().filter((message) => message.fromAgentId === parentAgentId)).toHaveLength(1);
-	expect(pi.listRuntimeMailboxMessages().filter((message) => message.sender.agentId === parentAgentId)).toHaveLength(
-		1,
-	);
+	await vi.waitFor(() => {
+		expect(pi.listMailboxMessages().filter((message) => message.fromAgentId === parentAgentId)).toHaveLength(1);
+		expect(
+			pi.listRuntimeMailboxMessages().filter((message) => message.sender.agentId === parentAgentId),
+		).toHaveLength(1);
+	});
 	expect(
 		pi
 			.readSessionEntries(parentAgentId)
