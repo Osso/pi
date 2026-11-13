@@ -433,6 +433,7 @@
 - Fixed RPC `bash` running the literal shell command `undefined` (or a number) when `command` was missing or not a string, and adding that run to the conversation context; it now returns `command must be a string`.
 - Fixed the `edit` tool's duplicate-match error showing a non-existent empty line after the last line of files that end with a newline.
 - Fixed the `ls` and `find` tools accepting `limit: 0`: `ls` reported `(empty directory)` for a non-empty directory and `find` returned every result with a `Use limit=0 for more` hint; the limit must now be at least 1.
+- Fixed the `grep` tool discarding all matches and returning only an error when ripgrep could not read some file or directory in the tree (for example `Permission denied`); it now returns the matches with a `Some paths could not be searched` notice.
 
 ### Changed
 

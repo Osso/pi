@@ -322,7 +322,9 @@ export function createGrepToolDefinition(
 								settle(() => reject(new Error("Operation aborted")));
 								return;
 							}
-							if (!killedDueToLimit && code !== 0 && code !== 1) {
+							// rg exits 2 when some paths could not be searched; keep the matches it did find.
+							const searchErrors = code === 2 && matchCount > 0 ? stderr.trim().split("\n") : [];
+							if (!killedDueToLimit && code !== 0 && code !== 1 && searchErrors.length === 0) {
 								const errorMsg = stderr.trim() || `ripgrep exited with code ${code}`;
 								settle(() => reject(new Error(errorMsg)));
 								return;
@@ -382,6 +384,10 @@ export function createGrepToolDefinition(
 									`Some lines truncated to ${GREP_MAX_LINE_LENGTH} chars. Use read tool to see full lines`,
 								);
 								details.linesTruncated = true;
+							}
+							if (searchErrors.length > 0) {
+								const more = searchErrors.length > 1 ? ` (and ${searchErrors.length - 1} more)` : "";
+								notices.push(`Some paths could not be searched: ${searchErrors[0]}${more}`);
 							}
 							if (notices.length > 0) output += `\n\n[${notices.join(". ")}]`;
 							settle(() =>

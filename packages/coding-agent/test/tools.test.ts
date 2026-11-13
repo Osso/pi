@@ -995,6 +995,29 @@ describe("Coding Agent Tools", () => {
 			expect(output).not.toContain("match two");
 		});
 
+		// chmod cannot hide a directory from root or on Windows.
+		it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+			"keeps matches when some paths cannot be searched",
+			async () => {
+				const searchDir = join(testDir, "partly-locked");
+				mkdirSync(join(searchDir, "locked"), { recursive: true });
+				writeFileSync(join(searchDir, "open.txt"), "needle\n");
+				writeFileSync(join(searchDir, "locked", "hidden.txt"), "needle\n");
+				chmodSync(join(searchDir, "locked"), 0o000);
+				try {
+					const output = getTextOutput(
+						await grepTool.execute("grep-partial", { pattern: "needle", path: searchDir }),
+					);
+
+					expect(output).toMatch(
+						/^open\.txt:1: needle\n\n\[Some paths could not be searched: rg: .*locked: Permission denied \(os error 13\)\]$/,
+					);
+				} finally {
+					chmodSync(join(searchDir, "locked"), 0o755);
+				}
+			},
+		);
+
 		it("prints shared context lines once and no line past the end of the file", async () => {
 			const testFile = join(testDir, "overlap.txt");
 			writeFileSync(testFile, "needle line\nother\nneedle again\n");
