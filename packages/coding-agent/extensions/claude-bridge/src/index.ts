@@ -33,9 +33,7 @@ import {
 	repairToolPairing,
 	type Session,
 } from "cc-session-io";
-import { appendFileSync, readFileSync, realpathSync, statSync } from "fs";
-import { homedir } from "os";
-import { join } from "path";
+import { appendFileSync, realpathSync, statSync } from "fs";
 import { type BranchSummaryResult, generateBranchSummary } from "../../../src/core/compaction/branch-summarization.ts";
 import { compact } from "../../../src/core/compaction/compaction.ts";
 import type { ExtensionAPI, ExtensionContext, ExtensionUIContext } from "../../../src/core/extensions/types.ts";
@@ -43,13 +41,19 @@ import type { CompactionEntry } from "../../../src/core/session-manager.ts";
 import { buildSessionContext } from "../../../src/core/session-manager.ts";
 import { keyHint } from "../../../src/modes/interactive/components/keybinding-hints.ts";
 import {
-	InvalidCredentialsError,
-	prepareAccountProfile,
-	readAccountState,
-	updateAccountState,
-	validateAccountProfileNames,
-} from "./account-profiles.ts";
-import { recheckAccountProfiles } from "./account-recheck.ts";
+	classifyAccountFailure,
+	completedStreams,
+	configureAccountRuntime,
+	emitAccountPreparationFailure,
+	errorMessage,
+	fetchAccountRetryProfiles,
+	logServedContextWindow,
+	markStreamComplete,
+	prepareProviderAccount,
+	recordUsage,
+	registerClaudeUsageListener,
+	resetAccountProfiles,
+} from "./account-runtime.ts";
 import {
 	type AskClaudeMode,
 	askClaudeCallTags,
@@ -62,15 +66,7 @@ import { buildActionSummary, type ToolCallState } from "./askclaude-ui.ts";
 import { collectCarriedAttachments, placeCarriedAttachments } from "./attachments.ts";
 import { type AuthTraceProfile, recordAuthFailure, recordCredentialTrace } from "./auth-trace.ts";
 import { resolveClaudeCodeExecutable } from "./bundled-runtime.ts";
-import {
-	type ClaudeAccountUsage,
-	readAllClaudeUsage,
-	reportClaudeUsage,
-	type UsageAccount,
-	type UsageAllRequest,
-	type UsageRequest,
-	type UsageRuntime,
-} from "./claude-usage.ts";
+
 import { type Config, claudeCodeSettings, loadConfig, markStartupNoticeShown } from "./config.ts";
 import { convertPiMessages, messageContentToText, PROVIDER_ID } from "./convert.ts";
 import { DEBUG, debug, diagDump, makeCliDebugOptions, moduleInstanceId } from "./diagnostics.ts";
@@ -92,11 +88,10 @@ import {
 	sharedPromptCaptures,
 } from "./prompt-capture.ts";
 import { makePromptStream, type PromptStream, userMessage } from "./prompt-stream.ts";
-import { ACCOUNTS_EXHAUSTED, AccountProfileManager, ctx, newAssistantOutput, QueryContext } from "./query-state.ts";
+import { ACCOUNTS_EXHAUSTED, ctx, newAssistantOutput, QueryContext } from "./query-state.ts";
 import { verifyWrittenSession as _verifyWrittenSession } from "./session-verify.ts";
 import { ShapeTrace } from "./shape-trace.ts";
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX, renderSkillsBlock } from "./skills.ts";
-import { type SdkUsage, updateUsage } from "./usage.ts";
 
 // Applied to every Claude Code subprocess the bridge spawns — provider, AskClaude
 // and the compact summary. One place, so a guard is added once rather than three
@@ -144,100 +139,7 @@ const SDK_TO_PI_TOOL_NAME: Record<string, string> = {
 const MODELS = buildModels(getModels("anthropic"));
 let providerSettings: NonNullable<Config["provider"]> = {};
 let claudeExecutable: string | undefined;
-let accountProfileManager: AccountProfileManager | undefined;
 const quotaRetrySessions = new Set<string | null>();
-// SDKRateLimitInfo subscription windows; overage/credit gates do not exhaust accounts.
-const SUBSCRIPTION_QUOTA_WINDOWS = new Set([
-	"five_hour",
-	"seven_day",
-	"seven_day_opus",
-	"seven_day_sonnet",
-	"seven_day_overage_included",
-]);
-
-function readActiveAccountProfile(home: string, configDir = join(home, ".claude")): string | undefined {
-	try {
-		return readFileSync(join(configDir, ".active-profile"), "utf8").trim();
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-		throw new Error("Cannot read Claude active profile marker");
-	}
-}
-
-function readCurrentUsageAccount(): UsageAccount | undefined {
-	const home = homedir();
-	const names = providerSettings.accountProfiles;
-	if (names === undefined) {
-		const configDir = process.env.CLAUDE_CONFIG_DIR;
-		const active = readActiveAccountProfile(home, configDir ?? join(home, ".claude"));
-		return { home, name: active || "current", configDir };
-	}
-	if (!Array.isArray(names)) throw new Error("Invalid Claude account profiles configuration");
-	const name = accountProfileManager
-		? accountProfileManager.selectedProfile
-		: createAccountProfileManager(names, home).selectedProfile;
-	return name === undefined ? undefined : { home, name, profile: name };
-}
-
-async function readConfiguredClaudeUsage(): Promise<ClaudeAccountUsage[]> {
-	const names = providerSettings.accountProfiles;
-	if (names !== undefined) {
-		if (!Array.isArray(names)) throw new Error("Invalid Claude account profiles configuration");
-		validateAccountProfileNames(names);
-	}
-	const current = readCurrentUsageAccount();
-	if (names === undefined) {
-		if (current === undefined) throw new Error("No selected Claude account profile");
-		return readAllClaudeUsage([current], current.name, usageRuntime());
-	}
-	const home = homedir();
-	return readAllClaudeUsage(
-		names.map((name) => ({ home, name, profile: name })),
-		current?.name,
-		usageRuntime(),
-	);
-}
-
-/** Token refresh runs the same Claude executable as SDK queries. */
-function usageRuntime(): Partial<UsageRuntime> {
-	return claudeExecutable ? { claudeExecutable } : {};
-}
-
-function createAccountProfileManager(names: readonly string[], home: string): AccountProfileManager {
-	return new AccountProfileManager(names, readActiveAccountProfile(home), {
-		read: () => readAccountState(home),
-		update: (change) => updateAccountState(home, change),
-	});
-}
-
-function prepareProviderAccount() {
-	const names = providerSettings.accountProfiles;
-	if (names === undefined) return undefined;
-	if (!Array.isArray(names)) throw new Error("provider.accountProfiles must be an ordered list of profile names");
-	const home = homedir();
-	if (!accountProfileManager) {
-		accountProfileManager = createAccountProfileManager(names, home);
-	}
-	const manager = accountProfileManager;
-	let name = manager.select(Date.now() / 1000);
-	for (;;) {
-		if (name === undefined) throw new Error(ACCOUNTS_EXHAUSTED);
-		try {
-			return { home, name, manager, configDir: prepareAccountProfile(home, name) };
-		} catch (error) {
-			if (!(error instanceof InvalidCredentialsError)) throw error;
-			// Blocked without a reset time: only a live recheck after a new login brings it back.
-			debug(`provider: ${name} has no usable credentials (${error.message}); using the next account`);
-			name = manager.reject(name, undefined, Date.now() / 1000);
-		}
-	}
-}
-
-async function fetchAccountRetryProfiles(model: Model<Api>, signal?: AbortSignal) {
-	const names = providerSettings.accountProfiles;
-	if (!names || !accountProfileManager) throw new Error(ACCOUNTS_EXHAUSTED);
-	return recheckAccountProfiles(accountProfileManager, names, homedir(), model.id, signal, usageRuntime());
-}
 
 async function resumeAfterAccountRecheck(
 	stream: AssistantMessageEventStream,
@@ -264,22 +166,6 @@ function rejectQueryAccount(queryCtx: QueryContext, rejection: { resetsAt?: numb
 	// Exhaustion still ends this query; recorded tool results belong to the next fresh call.
 	quotaRetrySessions.add(queryCtx.piSessionId);
 	return next !== undefined;
-}
-
-function isSubscriptionQuotaRejection(rejection: NonNullable<QueryContext["rateLimitRejection"]>): boolean {
-	return rejection.errorCode !== "credits_required" && SUBSCRIPTION_QUOTA_WINDOWS.has(rejection.rateLimitType ?? "");
-}
-
-function classifyAccountFailure(
-	failure: string,
-	rejection: QueryContext["rateLimitRejection"] | undefined,
-): QueryContext["quotaFailure"] {
-	if (
-		failure ===
-		"Your organization has disabled Claude subscription access for Claude Code · Use an Anthropic API key instead, or ask your admin to enable access"
-	)
-		return {};
-	return rejection && isSubscriptionQuotaRejection(rejection) ? rejection : null;
 }
 
 function settleQueryAccount(
@@ -317,21 +203,6 @@ function failQueryStartup(
 	finalizeCurrentStream(queryCtx, "error");
 }
 
-function emitAccountPreparationFailure(
-	stream: AssistantMessageEventStream,
-	model: Model<Api>,
-	error: unknown,
-	aborted = false,
-): void {
-	const reason = aborted ? "aborted" : "error";
-	const output = newAssistantOutput(model, "", reason, errorMessage(error));
-	queueMicrotask(() => {
-		stream.push({ type: "error", reason, error: output });
-		markStreamComplete(stream);
-		stream.end();
-	});
-}
-
 /** The Pi request each claimed stream answers, so a quota-rejected query can be served again. */
 const piRequests = new WeakMap<
 	AssistantMessageEventStream,
@@ -365,19 +236,6 @@ function replayOnNextAccount(queryCtx: QueryContext): boolean {
 let longContextSettings: LongContextSettings = { plan: "pro", longContextExtraUsage: false };
 
 // --- Error handling ---
-
-function errorMessage(err: unknown): string {
-	if (err instanceof Error) return err.message;
-	if (err && typeof err === "object") {
-		const obj = err as Record<string, unknown>;
-		if (typeof obj.message === "string") return obj.message;
-		if (typeof obj.error === "string") return obj.error;
-		try {
-			return JSON.stringify(err);
-		} catch {}
-	}
-	return String(err);
-}
 
 // AskClaude mode presets — controls which CC tools are blocked per mode.
 // Only block tools that can't work (no pi TUI for user interaction).
@@ -1325,7 +1183,7 @@ export const __test = {
 		askClaudeQueryImpl = fn ?? query;
 	},
 	resetAccountProfiles() {
-		accountProfileManager = undefined;
+		resetAccountProfiles();
 		quotaRetrySessions.clear();
 	},
 	resetSharedSession(piSessionId?: string | null) {
@@ -1598,35 +1456,6 @@ function buildMcpServers(
 	return { [MCP_SERVER_NAME]: createToolServer(MCP_SERVER_NAME, mcpTools) };
 }
 
-// --- Usage helpers ---
-
-// The counter mapping lives in usage.ts; the debug line is this side's job, so every
-// call site logs the same way rather than three times over.
-function recordUsage(output: AssistantMessage, usage: SdkUsage, model: Model<Api>): void {
-	const { cachePct, reasoning } = updateUsage(output, usage, model);
-	const reasoningText = reasoning == null ? "" : ` reasoning=${reasoning}`;
-	debug(
-		`usage: in=${output.usage.input} out=${output.usage.output} cacheRead=${output.usage.cacheRead} cacheWrite=${output.usage.cacheWrite} total=${output.usage.totalTokens}${reasoningText} cachePct=${cachePct}% model=${model.id}`,
-	);
-}
-
-// Log the *served* context window reported by an SDK result message
-// (modelUsage[id].contextWindow), which can differ from the window pi
-// registered (model.contextWindow) when the runtime entitlement doesn't
-// match the docs — e.g. bare Opus served 200K on Pro, or [1m] not honored.
-// The result message's modelUsage is otherwise discarded; this makes the
-// gap observable. See issue #18.
-function logServedContextWindow(label: string, message: SDKMessage, model: Model<Api>): void {
-	if (message.type !== "result") return;
-	const modelUsage = message.modelUsage;
-	if (!modelUsage) return;
-	for (const [k, v] of Object.entries(modelUsage)) {
-		debug(
-			`${label}: served contextWindow=${v.contextWindow ?? "?"} maxOutputTokens=${v.maxOutputTokens ?? "?"} servedModel=${k} registered=${model.contextWindow}`,
-		);
-	}
-}
-
 // --- Effort level mapping ---
 // Pi reasoning levels → CC SDK effort levels
 
@@ -1679,12 +1508,6 @@ function parsePartialJson(input: string, fallback: Record<string, unknown>): Rec
 // have queued messages from the previous turn. This is safe because step 3 nulls
 // currentPiStream, so any leftover messages hit the `!ctx().currentPiStream` guard
 // in consumeQuery and are skipped before resetTurnState runs.
-
-const completedStreams = new WeakSet<object>();
-
-function markStreamComplete(stream: AssistantMessageEventStream | null): void {
-	if (stream) completedStreams.add(stream as object);
-}
 
 function claimCurrentPiStream(stream: AssistantMessageEventStream, label: string, c: QueryContext): void {
 	if (c.currentPiStream && !completedStreams.has(c.currentPiStream as object)) {
@@ -3190,31 +3013,6 @@ const PREVIEW_MAX_LINES = 6;
 
 let askClaudeToolName = "AskClaude";
 
-function registerClaudeUsageListener(pi: ExtensionAPI): void {
-	const unsubscribeUsage = pi.events.on("claude-bridge:usage-request", (payload) => {
-		const request = payload as UsageRequest;
-		if (request.handled !== undefined) return;
-		request.handled = reportClaudeUsage(
-			request.args,
-			request.ctx,
-			readCurrentUsageAccount,
-			(report) => {
-				pi.sendMessage({ customType: "claude-usage", content: report, display: true });
-			},
-			usageRuntime(),
-		);
-	});
-	const unsubscribeAllUsage = pi.events.on("claude-bridge:usage-all-request", (payload) => {
-		const request = payload as UsageAllRequest;
-		if (request.accounts !== undefined) return;
-		request.accounts = readConfiguredClaudeUsage();
-	});
-	pi.on("session_shutdown", () => {
-		unsubscribeUsage();
-		unsubscribeAllUsage();
-	});
-}
-
 export default function (pi: ExtensionAPI) {
 	// Disable non-essential Claude Code traffic (update checks, MCP registry, telemetry)
 	process.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1";
@@ -3223,6 +3021,7 @@ export default function (pi: ExtensionAPI) {
 	debug("loadConfig:", JSON.stringify(config));
 	providerSettings = config.provider ?? {};
 	claudeExecutable = resolveClaudeCodeExecutable(providerSettings.pathToClaudeCodeExecutable);
+	configureAccountRuntime(providerSettings, claudeExecutable);
 	registerClaudeUsageListener(pi);
 	// We need these settings to know if we're eligible for 1M context on certain models
 	// Validate at the boundary: a non-array here would throw inside every
