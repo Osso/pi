@@ -4406,3 +4406,18 @@ describe("Editor component", () => {
 		});
 	});
 });
+
+describe("Editor scroll indicators", () => {
+	it("keeps the lines-below indicator within a narrow terminal width", () => {
+		const width = 10;
+		const editor = new Editor(createTestTUI(width, 24), defaultEditorTheme);
+		editor.setText(Array.from({ length: 150 }, (_, index) => `line ${index}`).join("\n"));
+		for (let i = 0; i < 150; i++) editor.handleInput("\x1b[A");
+
+		const lines = editor.render(width).map((line) => stripVTControlCharacters(line));
+
+		assert.strictEqual(editor.getCursor().line, 0);
+		assert.strictEqual(lines.at(-1), "─── ↓ 1...");
+		for (const line of lines) assert.ok(visibleWidth(line) <= width, `line too wide: ${JSON.stringify(line)}`);
+	});
+});

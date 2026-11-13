@@ -765,6 +765,12 @@ export class Editor implements Component, Focusable {
 		// No cached state to invalidate currently
 	}
 
+	/** Border line carrying a scroll indicator, filled with border characters and never wider than the editor. */
+	private renderScrollIndicator(indicator: string, width: number): string {
+		const remaining = width - visibleWidth(indicator);
+		return this.borderColor(remaining >= 0 ? indicator + "─".repeat(remaining) : truncateToWidth(indicator, width));
+	}
+
 	render(width: number): string[] {
 		const maxPadding = Math.max(0, Math.floor((width - 1) / 2));
 		const paddingX = Math.min(this.paddingX, maxPadding);
@@ -825,13 +831,7 @@ export class Editor implements Component, Focusable {
 
 		// Render top border (with scroll indicator if scrolled down)
 		if (this.scrollOffset > 0) {
-			const indicator = `─── ↑ ${this.scrollOffset} more `;
-			const remaining = width - visibleWidth(indicator);
-			if (remaining >= 0) {
-				result.push(this.borderColor(indicator + "─".repeat(remaining)));
-			} else {
-				result.push(this.borderColor(truncateToWidth(indicator, width)));
-			}
+			result.push(this.renderScrollIndicator(`─── ↑ ${this.scrollOffset} more `, width));
 		} else {
 			result.push(horizontal.repeat(width));
 		}
@@ -889,9 +889,7 @@ export class Editor implements Component, Focusable {
 		// Render bottom border (with scroll indicator if more content below)
 		const linesBelow = layoutLines.length - (this.scrollOffset + visibleLines.length);
 		if (linesBelow > 0) {
-			const indicator = `─── ↓ ${linesBelow} more `;
-			const remaining = width - visibleWidth(indicator);
-			result.push(this.borderColor(indicator + "─".repeat(Math.max(0, remaining))));
+			result.push(this.renderScrollIndicator(`─── ↓ ${linesBelow} more `, width));
 		} else {
 			result.push(horizontal.repeat(width));
 		}
