@@ -12,6 +12,7 @@ import {
 	readdirSync,
 	readSync,
 	statSync,
+	truncateSync,
 	unlinkSync,
 	writeFileSync,
 } from "fs";
@@ -579,6 +580,45 @@ function parseSessionEntryLine(line: string): FileEntry | null {
 	} catch {
 		// Skip malformed lines
 		return null;
+	}
+}
+
+const TRAILING_LINE_SCAN_BYTES = 64 * 1024;
+
+/**
+ * A crash mid-write can leave a partial last line, which loading ignores. Appending
+ * after it would glue the next entry onto it and corrupt the file, so end that line
+ * first: add the missing newline after a complete entry, or drop a partial one.
+ */
+function terminateTrailingLine(filePath: string): void {
+	const size = statSync(filePath).size;
+	if (size === 0) return;
+	const fd = openSync(filePath, "r");
+	let trailing: Buffer;
+	let lineStart = 0;
+	try {
+		const chunk = Buffer.alloc(TRAILING_LINE_SCAN_BYTES);
+		readSync(fd, chunk, 0, 1, size - 1);
+		if (chunk[0] === 0x0a) return;
+		for (let end = size; end > 0; ) {
+			const start = Math.max(0, end - chunk.length);
+			readSync(fd, chunk, 0, end - start, start);
+			const newline = chunk.subarray(0, end - start).lastIndexOf(0x0a);
+			if (newline !== -1) {
+				lineStart = start + newline + 1;
+				break;
+			}
+			end = start;
+		}
+		trailing = Buffer.alloc(size - lineStart);
+		readSync(fd, trailing, 0, trailing.length, lineStart);
+	} finally {
+		closeSync(fd);
+	}
+	if (parseSessionEntryLine(trailing.toString("utf8"))) {
+		appendFileSync(filePath, "\n");
+	} else {
+		truncateSync(filePath, lineStart);
 	}
 }
 
@@ -1211,6 +1251,8 @@ export class SessionManager {
 	private cwd: string;
 	private persist: boolean;
 	private flushed: boolean = false;
+	/** Loaded file whose last line may be a partial write; ended before the first append. */
+	private unterminatedSessionFile: string | undefined;
 	private fileEntries: FileEntry[] = [];
 	private sessionInfoAccumulator: SessionInfoAccumulator | undefined;
 	private byId: Map<string, SessionEntry> = new Map();
@@ -1280,6 +1322,7 @@ export class SessionManager {
 			this._buildIndex();
 			this.restorePersistedMetadata();
 			this.flushed = true;
+			this.unterminatedSessionFile = this.sessionFile;
 		} else {
 			const explicitPath = this.sessionFile;
 			this.newSession();
@@ -1597,7 +1640,7 @@ export class SessionManager {
 		const hasAssistant = this.fileEntries.some((e) => e.type === "message" && e.message.role === "assistant");
 		if (!hasAssistant) {
 			if (this.flushed) {
-				appendFileSync(this.sessionFile, `${serializeSessionEntryForPersistence(entry)}\n`);
+				this._appendToFile(this.sessionFile, entry);
 			} else {
 				// Mark as not flushed so when assistant arrives, all entries get written
 				this.flushed = false;
@@ -1609,8 +1652,16 @@ export class SessionManager {
 			this._writeNewFile();
 			this.flushed = true;
 		} else {
-			appendFileSync(this.sessionFile, `${serializeSessionEntryForPersistence(entry)}\n`);
+			this._appendToFile(this.sessionFile, entry);
 		}
+	}
+
+	private _appendToFile(sessionFile: string, entry: SessionEntry): void {
+		if (this.unterminatedSessionFile === sessionFile) {
+			terminateTrailingLine(sessionFile);
+			this.unterminatedSessionFile = undefined;
+		}
+		appendFileSync(sessionFile, `${serializeSessionEntryForPersistence(entry)}\n`);
 	}
 
 	/** Persist the current session before its first assistant response so interrupted runtimes can resume it safely. */

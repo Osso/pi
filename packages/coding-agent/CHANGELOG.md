@@ -425,6 +425,7 @@
 - Fixed very thin images (for example 5000x1) being omitted when resized for the model; the short side now stays at least 1 pixel.
 - Fixed `pi @<directory>` (or an unreadable `@file`) printing `EISDIR`/`EACCES` and then hanging; Pi now reports the path and exits with status 1.
 - Fixed the external editor (Ctrl+G) doing nothing when the configured editor program could not be started; the main editor and extension editor dialogs now show `External editor failed: could not start <editor>: ...`.
+- Fixed resuming a session whose last write was cut off (for example by a crash or kill): the next entry was appended onto the partial line and lost, and later appends made the file fail to load with `Session file contains malformed JSONL entry`.
 
 ### Changed
 
