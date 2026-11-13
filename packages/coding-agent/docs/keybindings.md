@@ -6,7 +6,7 @@ The config file uses the same namespaced keybinding ids that pi uses internally 
 
 Older configs using pre-namespaced ids such as `cursorUp` or `expandTools` are migrated automatically to the namespaced ids on startup.
 
-After editing `keybindings.json`, run `/reload` in pi to apply the changes without restarting the session.
+After editing `keybindings.json`, run `/reload` in pi to apply the changes without restarting the session. If the file is not a valid JSON object, Pi shows `keybindings.json error: ...` at startup and after `/reload`, and uses the default keybindings.
 
 ## Key Format
 

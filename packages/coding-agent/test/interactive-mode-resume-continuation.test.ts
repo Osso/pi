@@ -29,6 +29,7 @@ type ResumeContext = {
 };
 
 type StartupContext = ResumeContext & {
+	keybindings: { getError: () => string | undefined };
 	options: Record<string, undefined>;
 	init: () => Promise<void>;
 	checkTmuxKeyboardSetup: () => Promise<string | undefined>;
@@ -72,6 +73,7 @@ describe("InteractiveMode session resume continuation", () => {
 	it("continues an interrupted transcript during startup resume", async () => {
 		const stopLoop = new Error("stop interactive loop");
 		const context = Object.assign(createResumeContext("toolResult"), {
+			keybindings: { getError: () => undefined },
 			options: {},
 			init: vi.fn(async () => {}),
 			checkTmuxKeyboardSetup: vi.fn(async () => undefined),

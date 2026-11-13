@@ -18,6 +18,7 @@ describe("InteractiveMode update checks", () => {
 			init: async () => undefined,
 			maybeWarnAboutAnthropicSubscriptionAuth: async () => undefined,
 			processControlMessage: async () => undefined,
+			keybindings: { getError: () => undefined },
 			options: {},
 			session: {
 				modelRegistry: {

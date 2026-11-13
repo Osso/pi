@@ -401,18 +401,26 @@ function orderKeybindingsConfig(config: Record<string, unknown>): Record<string,
 	return ordered;
 }
 
-function loadRawConfig(path: string): Record<string, unknown> | undefined {
-	if (!existsSync(path)) return undefined;
+interface KeybindingsFileLoad {
+	bindings: KeybindingsConfig;
+	error?: string;
+}
+
+function readKeybindingsFile(path: string): KeybindingsFileLoad {
+	if (!existsSync(path)) return { bindings: {} };
+	let parsed: unknown;
 	try {
-		const parsed = JSON.parse(readFileSync(path, "utf-8")) as unknown;
-		return isRecord(parsed) ? parsed : undefined;
-	} catch {
-		return undefined;
+		parsed = JSON.parse(readFileSync(path, "utf-8"));
+	} catch (error) {
+		return { bindings: {}, error: error instanceof Error ? error.message : String(error) };
 	}
+	if (!isRecord(parsed)) return { bindings: {}, error: "expected a JSON object" };
+	return { bindings: toKeybindingsConfig(migrateKeybindingsConfig(parsed).config) };
 }
 
 export class KeybindingsManager extends TuiKeybindingsManager {
 	private configPath: string | undefined;
+	private loadError: string | undefined;
 
 	constructor(userBindings: KeybindingsConfig = {}, configPath?: string) {
 		super(KEYBINDINGS, userBindings);
@@ -421,23 +429,26 @@ export class KeybindingsManager extends TuiKeybindingsManager {
 
 	static create(agentDir: string = getAgentDir()): KeybindingsManager {
 		const configPath = join(agentDir, "keybindings.json");
-		const userBindings = KeybindingsManager.loadFromFile(configPath);
-		return new KeybindingsManager(userBindings, configPath);
+		const { bindings, error } = readKeybindingsFile(configPath);
+		const manager = new KeybindingsManager(bindings, configPath);
+		manager.loadError = error;
+		return manager;
 	}
 
 	reload(): void {
 		if (!this.configPath) return;
-		this.setUserBindings(KeybindingsManager.loadFromFile(this.configPath));
+		const { bindings, error } = readKeybindingsFile(this.configPath);
+		this.loadError = error;
+		this.setUserBindings(bindings);
+	}
+
+	/** Why keybindings.json was ignored at the last load, or undefined when it loaded or is absent. */
+	getError(): string | undefined {
+		return this.loadError;
 	}
 
 	getEffectiveConfig(): KeybindingsConfig {
 		return this.getResolvedBindings();
-	}
-
-	private static loadFromFile(path: string): KeybindingsConfig {
-		const rawConfig = loadRawConfig(path);
-		if (!rawConfig) return {};
-		return toKeybindingsConfig(migrateKeybindingsConfig(rawConfig).config);
 	}
 }
 

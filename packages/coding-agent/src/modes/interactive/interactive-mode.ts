@@ -1188,6 +1188,10 @@ export class InteractiveMode {
 		if (modelsJsonError) {
 			this.showError(`models.json error: ${modelsJsonError}`);
 		}
+		const keybindingsError = this.keybindings.getError();
+		if (keybindingsError) {
+			this.showError(`keybindings.json error: ${keybindingsError}; using default keybindings`);
+		}
 
 		if (modelFallbackMessage) {
 			this.showWarning(modelFallbackMessage);
@@ -7284,6 +7288,10 @@ export class InteractiveMode {
 			const modelsJsonError = this.session.modelRegistry.getError();
 			if (modelsJsonError) {
 				this.showError(`models.json error: ${modelsJsonError}`);
+			}
+			const keybindingsError = this.keybindings.getError();
+			if (keybindingsError) {
+				this.showError(`keybindings.json error: ${keybindingsError}; using default keybindings`);
 			}
 			this.showStatus(
 				savedImplicitProjectTrust
