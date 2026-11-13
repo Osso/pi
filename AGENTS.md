@@ -126,6 +126,7 @@ Upstream update strategy:
 - If a clean upstream PR branch is needed, create a separate branch from `origin/main` and cherry-pick or rework selected changes there.
 - Before merging upstream, fetch, record divergence (`git rev-list --left-right --count origin/main...HEAD`), list overlapping files, and make a backup branch or tag.
 - After merging upstream, run targeted tests for conflicted/touched systems and `npm run check` before committing the merge.
+- `npm run check` runs a file-size ratchet (`scripts/check-file-size-ratchet.mjs`, baseline `scripts/file-size-baseline.json`): source files over 750 lines may not grow and new ones may not exceed 750. In an upstream merge commit, run `node scripts/check-file-size-ratchet.mjs --upstream-merge`; it raises only paths that exist in `upstream/main`. After shrinking a file, run `--tighten`. Never edit the baseline by hand to allow growth.
 
 ## Issues and PRs
 
