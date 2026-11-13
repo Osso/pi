@@ -29,4 +29,17 @@ describe("RPC field validation", () => {
 			expect(await agent.send({ type: "get_state" })).toMatchObject({ data: { autoCompactionEnabled: true } });
 		});
 	});
+
+	it("rejects a bash command that is missing or not a string instead of running it", async () => {
+		await withHeadlessPi(async (agent) => {
+			for (const request of ['{"type":"bash"}', '{"type":"bash","command":7}']) {
+				expect(await agent.send(raw(request))).toMatchObject({
+					command: "bash",
+					success: false,
+					error: "command must be a string",
+				});
+			}
+			expect(await agent.send({ type: "get_messages" })).toMatchObject({ data: { messages: [] } });
+		});
+	});
 });

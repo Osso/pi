@@ -589,6 +589,9 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			// =================================================================
 
 			case "bash": {
+				if (typeof command.command !== "string") {
+					return error(id, "bash", "command must be a string");
+				}
 				const result = await session.executeBash(command.command, undefined, {
 					excludeFromContext: command.excludeFromContext,
 				});

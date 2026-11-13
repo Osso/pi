@@ -476,6 +476,8 @@ Execute a shell command and add output to conversation context.
 {"type": "bash", "command": "ls -la"}
 ```
 
+A missing or non-string `command` is rejected with `command must be a string`; nothing runs.
+
 Response:
 ```json
 {
