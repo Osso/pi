@@ -269,7 +269,7 @@ describe("InteractiveMode idle desktop notifications", () => {
 			type: "tool_execution_end",
 			toolCallId: "tool-1",
 			toolName: "read",
-			result: { content: [{ type: "text", text: "done" }] },
+			result: { content: [{ type: "text", text: "done" }], details: undefined },
 			isError: false,
 			startedAt: 1_000,
 			finishedAt: 2_000,

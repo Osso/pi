@@ -339,27 +339,27 @@ describe("InteractiveMode streaming render throttling", () => {
 			toolCallId: "tool-1",
 			toolName: "read",
 			args: { path: "README.md" },
-			partialResult: { content: [{ type: "text", text: "one" }] },
+			partialResult: { content: [{ type: "text", text: "one" }], details: undefined },
 		});
 		await handleEvent.call(fakeThis, {
 			type: "tool_execution_update",
 			toolCallId: "tool-2",
 			toolName: "bash",
 			args: { command: "echo two" },
-			partialResult: { content: [{ type: "text", text: "two" }] },
+			partialResult: { content: [{ type: "text", text: "two" }], details: undefined },
 		});
 		await handleEvent.call(fakeThis, {
 			type: "tool_execution_update",
 			toolCallId: "tool-1",
 			toolName: "read",
 			args: { path: "README.md" },
-			partialResult: { content: [{ type: "text", text: "latest" }] },
+			partialResult: { content: [{ type: "text", text: "latest" }], details: undefined },
 		});
 
 		expect(fakeThis.ui.requestRender).not.toHaveBeenCalled();
 		expect(fakeThis.footer.invalidate).not.toHaveBeenCalled();
 		expect(firstTool.updateResult).toHaveBeenLastCalledWith(
-			{ content: [{ type: "text", text: "latest" }], isError: false },
+			{ content: [{ type: "text", text: "latest" }], details: undefined, isError: false },
 			true,
 		);
 
@@ -380,13 +380,13 @@ describe("InteractiveMode streaming render throttling", () => {
 			toolCallId: "tool-1",
 			toolName: "read",
 			args: { path: "README.md" },
-			partialResult: { content: [{ type: "text", text: "partial" }] },
+			partialResult: { content: [{ type: "text", text: "partial" }], details: undefined },
 		});
 		await handleEvent.call(fakeThis, {
 			type: "tool_execution_end",
 			toolCallId: "tool-1",
 			toolName: "read",
-			result: { content: [{ type: "text", text: "final" }] },
+			result: { content: [{ type: "text", text: "final" }], details: undefined },
 			isError: false,
 			startedAt: 1_000,
 			finishedAt: 2_000,
@@ -396,6 +396,7 @@ describe("InteractiveMode streaming render throttling", () => {
 		expect(tool.updateResult).toHaveBeenLastCalledWith(
 			{
 				content: [{ type: "text", text: "final" }],
+				details: undefined,
 				isError: false,
 			},
 			false,
@@ -463,7 +464,7 @@ describe("InteractiveMode streaming render throttling", () => {
 			type: "tool_execution_end",
 			toolCallId: "bash-1",
 			toolName: "bash",
-			result: { content: [{ type: "text", text: "hi" }] },
+			result: { content: [{ type: "text", text: "hi" }], details: undefined },
 			isError: false,
 			startedAt: 1_000,
 			finishedAt: 2_000,
@@ -474,7 +475,7 @@ describe("InteractiveMode streaming render throttling", () => {
 			type: "tool_execution_end",
 			toolCallId: "read-1",
 			toolName: "read",
-			result: { content: [{ type: "text", text: "contents" }] },
+			result: { content: [{ type: "text", text: "contents" }], details: undefined },
 			isError: false,
 			startedAt: 1_000,
 			finishedAt: 2_000,
@@ -545,7 +546,10 @@ describe("InteractiveMode streaming render throttling", () => {
 			type: "tool_execution_end",
 			toolCallId: "bash-1",
 			toolName: "bash",
-			result: { content: [{ type: "text", text: "Command moved to background as job agent_1" }] },
+			result: {
+				content: [{ type: "text", text: "Command moved to background as job agent_1" }],
+				details: undefined,
+			},
 			isError: false,
 			startedAt: 1_000,
 			finishedAt: 2_000,

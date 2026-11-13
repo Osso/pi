@@ -71,6 +71,9 @@
 				"rules": {
 					"style": {
 						"noNonNullAssertion": "error"
+					},
+					"suspicious": {
+						"noExplicitAny": "error"
 					}
 				}
 			}

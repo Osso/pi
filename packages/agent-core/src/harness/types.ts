@@ -1,4 +1,12 @@
-import type { ImageContent, Model, Models, SimpleStreamOptions, TextContent, Transport } from "@earendil-works/pi-ai";
+import type {
+	Api,
+	ImageContent,
+	Model,
+	Models,
+	SimpleStreamOptions,
+	TextContent,
+	Transport,
+} from "@earendil-works/pi-ai";
 import type { AgentEvent, AgentMessage, AgentTool, QueueMode, ThinkingLevel } from "../index.ts";
 import type { Session } from "./session/session.ts";
 
@@ -539,14 +547,14 @@ export interface ContextEvent {
 
 export interface BeforeProviderRequestEvent {
 	type: "before_provider_request";
-	model: Model<any>;
+	model: Model<Api>;
 	sessionId: string;
 	streamOptions: AgentHarnessStreamOptions;
 }
 
 export interface BeforeProviderPayloadEvent {
 	type: "before_provider_payload";
-	model: Model<any>;
+	model: Model<Api>;
 	payload: unknown;
 }
 
@@ -603,8 +611,8 @@ export interface SessionTreeEvent {
 
 export interface ModelUpdateEvent {
 	type: "model_update";
-	model: Model<any>;
-	previousModel: Model<any> | undefined;
+	model: Model<Api>;
+	previousModel: Model<Api> | undefined;
 	source: "set" | "restore";
 }
 
@@ -782,7 +790,7 @@ export interface TreePreparation {
 }
 
 export interface GenerateBranchSummaryOptions {
-	model: Model<any>;
+	model: Model<Api>;
 	apiKey: string;
 	headers?: Record<string, string>;
 	signal: AbortSignal;
@@ -821,14 +829,14 @@ export interface AgentHarnessOptions<
 		| ((context: {
 				env: ExecutionEnv;
 				session: Session;
-				model: Model<any>;
+				model: Model<Api>;
 				thinkingLevel: ThinkingLevel;
 				activeTools: TTool[];
 				resources: AgentHarnessResources<TSkill, TPromptTemplate>;
 		  }) => string | Promise<string>);
 	/** Curated stream/provider request options. Snapshotted at turn start. */
 	streamOptions?: AgentHarnessStreamOptions;
-	model: Model<any>;
+	model: Model<Api>;
 	thinkingLevel?: ThinkingLevel;
 	activeToolNames?: string[];
 	steeringMode?: QueueMode;

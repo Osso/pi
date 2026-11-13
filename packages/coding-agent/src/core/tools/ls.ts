@@ -316,6 +316,9 @@ function isCommandError(error: unknown): error is Error & { code?: unknown; stde
 	return error instanceof Error;
 }
 
-export function createLsTool(cwd: string, options?: LsToolOptions): AgentTool<typeof lsSchema> {
+export function createLsTool(
+	cwd: string,
+	options?: LsToolOptions,
+): AgentTool<typeof lsSchema, LsToolDetails | undefined> {
 	return wrapToolDefinition(createLsToolDefinition(cwd, options));
 }

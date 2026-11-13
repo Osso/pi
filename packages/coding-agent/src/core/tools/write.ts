@@ -262,6 +262,6 @@ export function createWriteToolDefinition(
 	};
 }
 
-export function createWriteTool(cwd: string, options?: WriteToolOptions): AgentTool<typeof writeSchema> {
+export function createWriteTool(cwd: string, options?: WriteToolOptions): AgentTool<typeof writeSchema, undefined> {
 	return wrapToolDefinition(createWriteToolDefinition(cwd, options));
 }

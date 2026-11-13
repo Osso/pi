@@ -500,6 +500,9 @@ export function createAgentConfigReadToolDefinition(cwd: string, agentConfigRoot
 	return defineTool(createReadToolDefinitionInternal(cwd, { agentConfigRoot }));
 }
 
-export function createReadTool(cwd: string, options?: ReadToolOptions): AgentTool<typeof readSchema> {
+export function createReadTool(
+	cwd: string,
+	options?: ReadToolOptions,
+): AgentTool<typeof readSchema, ReadToolDetails | undefined> {
 	return wrapToolDefinition(createReadToolDefinition(cwd, options));
 }

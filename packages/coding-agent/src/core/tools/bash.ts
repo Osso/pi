@@ -837,6 +837,9 @@ export function createBashToolDefinition(
 	};
 }
 
-export function createBashTool(cwd: string, options?: BashToolOptions): AgentTool<typeof bashSchema> {
+export function createBashTool(
+	cwd: string,
+	options?: BashToolOptions,
+): AgentTool<typeof bashSchema, BashToolDetails | undefined> {
 	return wrapToolDefinition(createBashToolDefinition(cwd, options));
 }

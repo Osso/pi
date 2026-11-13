@@ -1,4 +1,4 @@
-import type { AssistantMessage, ImageContent, Model, Models, TextContent, Usage } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, ImageContent, Model, Models, TextContent, Usage } from "@earendil-works/pi-ai";
 import type { AgentMessage, ThinkingLevel } from "../../types.ts";
 import {
 	convertToLlm,
@@ -488,7 +488,7 @@ Keep each section concise. Preserve exact file paths, function names, and error 
 export async function generateSummary(
 	currentMessages: AgentMessage[],
 	models: Models,
-	model: Model<any>,
+	model: Model<Api>,
 	reserveTokens: number,
 	signal?: AbortSignal,
 	customInstructions?: string,
@@ -658,7 +658,7 @@ export { serializeConversation } from "./utils.ts";
 export async function compact(
 	preparation: CompactionPreparation,
 	models: Models,
-	model: Model<any>,
+	model: Model<Api>,
 	customInstructions?: string,
 	signal?: AbortSignal,
 	thinkingLevel?: ThinkingLevel,
@@ -735,7 +735,7 @@ export async function compact(
 async function generateTurnPrefixSummary(
 	messages: AgentMessage[],
 	models: Models,
-	model: Model<any>,
+	model: Model<Api>,
 	reserveTokens: number,
 	signal?: AbortSignal,
 	_thinkingLevel?: ThinkingLevel,

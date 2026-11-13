@@ -5,6 +5,7 @@
 
 // Internal import for JSON parsing utility
 import {
+	type Api,
 	type AssistantMessage,
 	type AssistantMessageEvent,
 	type Context,
@@ -113,7 +114,7 @@ function buildProxyRequestOptions(options: ProxyStreamOptions): ProxySerializabl
 	};
 }
 
-export function streamProxy(model: Model<any>, context: Context, options: ProxyStreamOptions): ProxyMessageEventStream {
+export function streamProxy(model: Model<Api>, context: Context, options: ProxyStreamOptions): ProxyMessageEventStream {
 	const stream = new ProxyMessageEventStream();
 
 	(async () => {
@@ -321,10 +322,10 @@ function processProxyEvent(
 			return { type: "toolcall_start", contentIndex: proxyEvent.contentIndex, partial };
 
 		case "toolcall_delta": {
-			const content = partial.content[proxyEvent.contentIndex];
+			const content = partial.content[proxyEvent.contentIndex] as (ToolCall & { partialJson?: string }) | undefined;
 			if (content?.type === "toolCall") {
-				(content as any).partialJson += proxyEvent.delta;
-				content.arguments = parseStreamingJson((content as any).partialJson) || {};
+				content.partialJson = (content.partialJson ?? "") + proxyEvent.delta;
+				content.arguments = parseStreamingJson(content.partialJson) || {};
 				partial.content[proxyEvent.contentIndex] = { ...content }; // Trigger reactivity
 				return {
 					type: "toolcall_delta",
@@ -337,9 +338,9 @@ function processProxyEvent(
 		}
 
 		case "toolcall_end": {
-			const content = partial.content[proxyEvent.contentIndex];
+			const content = partial.content[proxyEvent.contentIndex] as (ToolCall & { partialJson?: string }) | undefined;
 			if (content?.type === "toolCall") {
-				delete (content as any).partialJson;
+				delete content.partialJson;
 				return {
 					type: "toolcall_end",
 					contentIndex: proxyEvent.contentIndex,
@@ -363,7 +364,7 @@ function processProxyEvent(
 
 		default: {
 			const _exhaustiveCheck: never = proxyEvent;
-			console.warn(`Unhandled proxy event type: ${(proxyEvent as any).type}`);
+			console.warn(`Unhandled proxy event type: ${(proxyEvent as { type?: unknown }).type}`);
 			return undefined;
 		}
 	}

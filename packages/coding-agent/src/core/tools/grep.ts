@@ -390,6 +390,9 @@ export function createGrepToolDefinition(
 	};
 }
 
-export function createGrepTool(cwd: string, options?: GrepToolOptions): AgentTool<typeof grepSchema> {
+export function createGrepTool(
+	cwd: string,
+	options?: GrepToolOptions,
+): AgentTool<typeof grepSchema, GrepToolDetails | undefined> {
 	return wrapToolDefinition(createGrepToolDefinition(cwd, options));
 }

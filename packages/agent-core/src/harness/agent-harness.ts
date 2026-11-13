@@ -1,4 +1,4 @@
-import type { AssistantMessage, ImageContent, Model, Models, UserMessage } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, ImageContent, Model, Models, UserMessage } from "@earendil-works/pi-ai";
 import { runAgentLoop } from "../agent-loop.ts";
 import type {
 	AgentContext,
@@ -40,7 +40,7 @@ function createUserMessage(text: string, images?: ImageContent[]): UserMessage {
 	return { role: "user", content, timestamp: Date.now() };
 }
 
-function createFailureMessage(model: Model<any>, error: unknown, aborted: boolean): AssistantMessage {
+function createFailureMessage(model: Model<Api>, error: unknown, aborted: boolean): AssistantMessage {
 	return {
 		role: "assistant",
 		content: [{ type: "text", text: "" }],
@@ -121,9 +121,16 @@ function applyStreamOptionsPatch(
 	return result;
 }
 
-const SUBSCRIBER_EVENT_TYPE = "*";
+type AgentHarnessSubscriber<TSkill extends Skill = Skill, TPromptTemplate extends PromptTemplate = PromptTemplate> = (
+	event: AgentHarnessEvent<TSkill, TPromptTemplate>,
+	signal?: AbortSignal,
+) => Promise<void> | void;
 
-type AgentHarnessHandler = (event: any, signal?: AbortSignal) => Promise<any> | any;
+type AgentHarnessHookHandler<TType extends keyof AgentHarnessEventResultMap = keyof AgentHarnessEventResultMap> = (
+	event: Extract<AgentHarnessOwnEvent, { type: TType }>,
+) => Promise<AgentHarnessEventResultMap[TType]> | AgentHarnessEventResultMap[TType];
+
+type StoredAgentHarnessHookHandler = (event: never) => Promise<unknown> | unknown;
 
 function normalizeHarnessError(error: unknown, fallbackCode: AgentHarnessError["code"]): AgentHarnessError {
 	if (error instanceof AgentHarnessError) return error;
@@ -148,7 +155,7 @@ interface AgentHarnessTurnState<
 	streamOptions: AgentHarnessStreamOptions;
 	sessionId: string;
 	systemPrompt: string;
-	model: Model<any>;
+	model: Model<Api>;
 	thinkingLevel: ThinkingLevel;
 	tools: TTool[];
 	activeTools: TTool[];
@@ -166,7 +173,7 @@ export class AgentHarness<
 	private runAbortController?: AbortController;
 	private runPromise?: Promise<void>;
 	private pendingSessionWrites: PendingSessionWrite[] = [];
-	private model: Model<any>;
+	private model: Model<Api>;
 	private thinkingLevel: ThinkingLevel;
 	private systemPrompt: AgentHarnessOptions<TSkill, TPromptTemplate, TTool>["systemPrompt"];
 	private streamOptions: AgentHarnessStreamOptions;
@@ -178,7 +185,8 @@ export class AgentHarness<
 	private followUpQueue: UserMessage[] = [];
 	private followUpQueueMode: QueueMode;
 	private nextTurnQueue: AgentMessage[] = [];
-	private handlers = new Map<string, Set<AgentHarnessHandler>>();
+	private subscriberListeners = new Set<AgentHarnessSubscriber<TSkill, TPromptTemplate>>();
+	private hookHandlers = new Map<keyof AgentHarnessEventResultMap, Set<StoredAgentHarnessHookHandler>>();
 
 	constructor(options: AgentHarnessOptions<TSkill, TPromptTemplate, TTool>) {
 		this.env = options.env;
@@ -205,12 +213,14 @@ export class AgentHarness<
 		this.followUpQueueMode = options.followUpMode ?? "one-at-a-time";
 	}
 
-	private getHandlers(type: string): Set<AgentHarnessHandler> | undefined {
-		return this.handlers.get(type);
+	private getHookHandlers<TType extends keyof AgentHarnessEventResultMap>(
+		type: TType,
+	): Set<AgentHarnessHookHandler<TType>> | undefined {
+		return this.hookHandlers.get(type) as Set<AgentHarnessHookHandler<TType>> | undefined;
 	}
 
 	private async emitOwn(event: AgentHarnessOwnEvent<TSkill, TPromptTemplate>, signal?: AbortSignal): Promise<void> {
-		for (const listener of this.getHandlers(SUBSCRIBER_EVENT_TYPE) ?? []) {
+		for (const listener of this.subscriberListeners) {
 			try {
 				await listener(event, signal);
 			} catch (error) {
@@ -220,7 +230,7 @@ export class AgentHarness<
 	}
 
 	private async emitAny(event: AgentHarnessEvent<TSkill, TPromptTemplate>, signal?: AbortSignal): Promise<void> {
-		for (const listener of this.getHandlers(SUBSCRIBER_EVENT_TYPE) ?? []) {
+		for (const listener of this.subscriberListeners) {
 			try {
 				await listener(event, signal);
 			} catch (error) {
@@ -232,7 +242,7 @@ export class AgentHarness<
 	private async emitHook<TType extends keyof AgentHarnessEventResultMap>(
 		event: Extract<AgentHarnessOwnEvent, { type: TType }>,
 	): Promise<AgentHarnessEventResultMap[TType] | undefined> {
-		const handlers = this.getHandlers(event.type as TType);
+		const handlers = this.getHookHandlers(event.type as TType);
 		if (!handlers || handlers.size === 0) return undefined;
 		let lastResult: AgentHarnessEventResultMap[TType] | undefined;
 		for (const handler of handlers) {
@@ -249,11 +259,11 @@ export class AgentHarness<
 	}
 
 	private async emitBeforeProviderRequest(
-		model: Model<any>,
+		model: Model<Api>,
 		sessionId: string,
 		streamOptions: AgentHarnessStreamOptions,
 	): Promise<AgentHarnessStreamOptions> {
-		const handlers = this.getHandlers("before_provider_request");
+		const handlers = this.getHookHandlers("before_provider_request");
 		let current = cloneStreamOptions(streamOptions);
 		if (!handlers || handlers.size === 0) return current;
 		for (const handler of handlers) {
@@ -274,8 +284,8 @@ export class AgentHarness<
 		return current;
 	}
 
-	private async emitBeforeProviderPayload(model: Model<any>, payload: unknown): Promise<unknown> {
-		const handlers = this.getHandlers("before_provider_payload");
+	private async emitBeforeProviderPayload(model: Model<Api>, payload: unknown): Promise<unknown> {
+		const handlers = this.getHookHandlers("before_provider_payload");
 		let current = payload;
 		if (!handlers || handlers.size === 0) return current;
 		for (const handler of handlers) {
@@ -516,7 +526,7 @@ export class AgentHarness<
 	}
 
 	private async emitRunFailure(
-		model: Model<any>,
+		model: Model<Api>,
 		error: unknown,
 		aborted: boolean,
 		signal: AbortSignal,
@@ -828,11 +838,11 @@ export class AgentHarness<
 		}
 	}
 
-	getModel(): Model<any> {
+	getModel(): Model<Api> {
 		return this.model;
 	}
 
-	async setModel(model: Model<any>): Promise<void> {
+	async setModel(model: Model<Api>): Promise<void> {
 		try {
 			const previousModel = this.model;
 			if (this.phase === "idle") {
@@ -1006,32 +1016,23 @@ export class AgentHarness<
 		await this.runPromise;
 	}
 
-	subscribe(
-		listener: (event: AgentHarnessEvent<TSkill, TPromptTemplate>, signal?: AbortSignal) => Promise<void> | void,
-	): () => void {
-		let handlers = this.handlers.get(SUBSCRIBER_EVENT_TYPE);
-		if (!handlers) {
-			handlers = new Set();
-			this.handlers.set(SUBSCRIBER_EVENT_TYPE, handlers);
-		}
-		const target = handlers;
-		target.add(listener as AgentHarnessHandler);
-		return () => target.delete(listener as AgentHarnessHandler);
+	subscribe(listener: AgentHarnessSubscriber<TSkill, TPromptTemplate>): () => void {
+		this.subscriberListeners.add(listener);
+		return () => this.subscriberListeners.delete(listener);
 	}
 
 	on<TType extends keyof AgentHarnessEventResultMap>(
 		type: TType,
-		handler: (
-			event: Extract<AgentHarnessOwnEvent, { type: TType }>,
-		) => Promise<AgentHarnessEventResultMap[TType]> | AgentHarnessEventResultMap[TType],
+		handler: AgentHarnessHookHandler<TType>,
 	): () => void {
-		let handlers = this.handlers.get(type);
+		let handlers = this.hookHandlers.get(type);
 		if (!handlers) {
 			handlers = new Set();
-			this.handlers.set(type, handlers);
+			this.hookHandlers.set(type, handlers);
 		}
 		const target = handlers;
-		target.add(handler as AgentHarnessHandler);
-		return () => target.delete(handler as AgentHarnessHandler);
+		const storedHandler = handler as unknown as StoredAgentHarnessHookHandler;
+		target.add(storedHandler);
+		return () => target.delete(storedHandler);
 	}
 }

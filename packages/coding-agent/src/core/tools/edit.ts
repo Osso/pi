@@ -432,6 +432,9 @@ export function createEditToolDefinition(
 	};
 }
 
-export function createEditTool(cwd: string, options?: EditToolOptions): AgentTool<typeof editSchema> {
+export function createEditTool(
+	cwd: string,
+	options?: EditToolOptions,
+): AgentTool<typeof editSchema, EditToolDetails | undefined> {
 	return wrapToolDefinition(createEditToolDefinition(cwd, options));
 }

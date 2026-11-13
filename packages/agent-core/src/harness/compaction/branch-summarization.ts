@@ -1,4 +1,4 @@
-import type { Model, Models } from "@earendil-works/pi-ai";
+import type { Api, Model, Models } from "@earendil-works/pi-ai";
 
 import type { AgentMessage } from "../../types.ts";
 import {
@@ -52,7 +52,7 @@ export interface GenerateBranchSummaryOptions {
 	/** Provider collection the summarization request goes through; owns auth resolution. */
 	models: Models;
 	/** Model used for summarization. */
-	model: Model<any>;
+	model: Model<Api>;
 	/** Abort signal for the summarization request. */
 	signal: AbortSignal;
 	/** Optional instructions appended to or replacing the default prompt. */

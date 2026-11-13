@@ -421,7 +421,7 @@ async function* iterateWithAbort<T>(source: AsyncIterable<T>, signal: AbortSigna
 
 async function prepareAssistantToolExecutions(
 	message: AssistantMessage,
-	tools: AgentTool<any>[] | undefined,
+	tools: AgentTool[] | undefined,
 	signal: AbortSignal | undefined,
 ): Promise<AssistantMessage> {
 	if (!tools || tools.length === 0) return message;
@@ -692,25 +692,25 @@ async function executeToolCallsParallel(
 type PreparedToolCall = {
 	kind: "prepared";
 	toolCall: AgentToolCall;
-	tool: AgentTool<any>;
+	tool: AgentTool;
 	args: unknown;
 };
 
 type ImmediateToolCallOutcome = {
 	kind: "immediate";
-	result: AgentToolResult<any>;
+	result: AgentToolResult<unknown>;
 	isError: boolean;
 	args: unknown;
 };
 
 type ExecutedToolCallOutcome = {
-	result: AgentToolResult<any>;
+	result: AgentToolResult<unknown>;
 	isError: boolean;
 };
 
 type FinalizedToolCallOutcome = {
 	toolCall: AgentToolCall;
-	result: AgentToolResult<any>;
+	result: AgentToolResult<unknown>;
 	isError: boolean;
 };
 
@@ -720,7 +720,7 @@ function shouldTerminateToolBatch(finalizedCalls: FinalizedToolCallOutcome[]): b
 	return finalizedCalls.length > 0 && finalizedCalls.every((finalized) => finalized.result.terminate === true);
 }
 
-function prepareToolCallArguments(tool: AgentTool<any>, toolCall: AgentToolCall): AgentToolCall {
+function prepareToolCallArguments(tool: AgentTool, toolCall: AgentToolCall): AgentToolCall {
 	if (!tool.prepareArguments) {
 		return toolCall;
 	}
@@ -730,7 +730,7 @@ function prepareToolCallArguments(tool: AgentTool<any>, toolCall: AgentToolCall)
 	}
 	return {
 		...toolCall,
-		arguments: preparedArguments as Record<string, any>,
+		arguments: preparedArguments as Record<string, unknown>,
 	};
 }
 
@@ -902,7 +902,7 @@ async function finalizeExecutedToolCall(
 const MAX_TOOL_RESULT_TEXT_BYTES = 10 * 1024;
 const MAX_TOOL_RESULT_TEXT_LINES = 2000;
 
-function createErrorToolResult(message: string): AgentToolResult<any> {
+function createErrorToolResult(message: string): AgentToolResult<unknown> {
 	return {
 		content: [{ type: "text", text: message }],
 		details: {},
@@ -914,7 +914,7 @@ function capFinalizedToolCallOutcome(finalized: FinalizedToolCallOutcome): Final
 	return cappedResult === finalized.result ? finalized : { ...finalized, result: cappedResult };
 }
 
-function capToolResult(result: AgentToolResult<any>): AgentToolResult<any> {
+function capToolResult(result: AgentToolResult<unknown>): AgentToolResult<unknown> {
 	const content = capToolResultContent(result.content);
 	const details = capToolResultDetails(result.details);
 	if (content === result.content && details === result.details) {
@@ -923,7 +923,7 @@ function capToolResult(result: AgentToolResult<any>): AgentToolResult<any> {
 	return { ...result, content, details };
 }
 
-function capToolResultContent(content: AgentToolResult<any>["content"]): AgentToolResult<any>["content"] {
+function capToolResultContent(content: AgentToolResult<unknown>["content"]): AgentToolResult<unknown>["content"] {
 	let changed = false;
 	const capped = content.map((part) => {
 		if (part.type !== "text") return part;
