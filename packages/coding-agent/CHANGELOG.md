@@ -423,6 +423,7 @@
 - Fixed RPC `set_steering_mode` and `set_follow_up_mode` accepting unknown modes, saving them to global settings, and reporting success; they now return `Invalid steering mode` / `Invalid follow-up mode`.
 - Fixed RPC `prompt` treating an unknown `streamingBehavior` (for example `"followup"`) as `steer`, which interrupted the running turn instead of queueing; it now returns an error. `set_auto_compaction` and `set_auto_retry` now reject non-boolean `enabled` values.
 - Fixed very thin images (for example 5000x1) being omitted when resized for the model; the short side now stays at least 1 pixel.
+- Fixed `pi @<directory>` (or an unreadable `@file`) printing `EISDIR`/`EACCES` and then hanging; Pi now reports the path and exits with status 1.
 
 ### Changed
 

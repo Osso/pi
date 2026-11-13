@@ -20,6 +20,12 @@ export interface ProcessFileOptions {
 	autoResizeImages?: boolean;
 }
 
+function exitUnreadableFile(absolutePath: string, error: unknown): never {
+	const message = error instanceof Error ? error.message : String(error);
+	console.error(chalk.red(`Error: Could not read file ${absolutePath}: ${message}`));
+	process.exit(1);
+}
+
 /** Process @file arguments into text content and image attachments */
 export async function processFileArguments(fileArgs: string[], options?: ProcessFileOptions): Promise<ProcessedFiles> {
 	const autoResizeImages = options?.autoResizeImages ?? true;
@@ -38,14 +44,22 @@ export async function processFileArguments(fileArgs: string[], options?: Process
 			process.exit(1);
 		}
 
-		// Check if file is empty
 		const stats = await stat(absolutePath);
+		if (stats.isDirectory()) {
+			console.error(chalk.red(`Error: ${absolutePath} is a directory; @ arguments must be files`));
+			process.exit(1);
+		}
 		if (stats.size === 0) {
 			// Skip empty files
 			continue;
 		}
 
-		const mimeType = await detectSupportedImageMimeTypeFromFile(absolutePath);
+		let mimeType: string | null;
+		try {
+			mimeType = await detectSupportedImageMimeTypeFromFile(absolutePath);
+		} catch (error: unknown) {
+			exitUnreadableFile(absolutePath, error);
+		}
 
 		if (mimeType) {
 			// Handle image file
@@ -76,9 +90,7 @@ export async function processFileArguments(fileArgs: string[], options?: Process
 				const content = await readFile(absolutePath, "utf-8");
 				text += `<file name="${absolutePath}">\n${content}\n</file>\n`;
 			} catch (error: unknown) {
-				const message = error instanceof Error ? error.message : String(error);
-				console.error(chalk.red(`Error: Could not read file ${absolutePath}: ${message}`));
-				process.exit(1);
+				exitUnreadableFile(absolutePath, error);
 			}
 		}
 	}

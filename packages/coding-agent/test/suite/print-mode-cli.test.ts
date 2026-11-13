@@ -126,4 +126,11 @@ describe("print-mode CLI", () => {
 				: firstUser?.content.map((part) => (part.type === "text" ? part.text : "")).join("");
 		expect(text).toBe("fix this error\nexplain");
 	}, 30_000);
+
+	it("exits with an error instead of hanging when an @ argument is a directory", async () => {
+		const run = await runPrintMode("unused", ["-p", "@.", "hi"]);
+		expect(run.exitCode).toBe(1);
+		expect(run.stderr).toMatch(/is a directory; @ arguments must be files/);
+		expect(run.requestMessages).toEqual([]);
+	}, 30_000);
 });
