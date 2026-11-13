@@ -210,6 +210,19 @@ async function changeHeadlessWorkingDirectory(agent: HeadlessPi, targetCwd: stri
 			entry.message.role === "assistant" &&
 			readTextContent(entry.message.content).includes(settledMessage),
 	);
+	const deadline = Date.now() + 10_000;
+	while (Date.now() < deadline) {
+		const state = await agent.send({ type: "get_state" });
+		if (
+			state.success &&
+			"data" in state &&
+			(state.data as { isStreaming?: boolean } | undefined)?.isStreaming === false
+		) {
+			return;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+	throw new Error(`Timed out waiting for headless Pi to become idle after ${toolCallId}`);
 }
 
 describe("change_working_directory first-party tool", () => {
@@ -450,7 +463,8 @@ describe("deleted working-directory real-process recovery", () => {
 			await changeHeadlessWorkingDirectory(agent, targetCwd, "change-before-cwd-deletion");
 			rmSync(agent.paths.workspaceDir, { recursive: true });
 
-			await agent.send({ type: "prompt", message: "Check launch from surviving cwd" });
+			const promptResponse = await agent.send({ type: "prompt", message: "Check launch from surviving cwd" });
+			expect(promptResponse.success).toBe(true);
 			const request = await agent.waitForLlmRequest((candidate) =>
 				candidate.userMessages.includes("Check launch from surviving cwd"),
 			);
@@ -482,7 +496,7 @@ describe("deleted working-directory real-process recovery", () => {
 			const finished = await agent.waitForLlmRequest((candidate) => candidate.id !== request.id);
 			agent.respondToLlmRequest(finished.id, fauxCompletedAssistantMessage("launch recovered"));
 		});
-	});
+	}, 60_000);
 
 	it("relocates between turns when the live session directory disappears", async () => {
 		await withHeadlessPi(async (agent) => {

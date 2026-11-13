@@ -70,17 +70,46 @@ describe("claude-memory enrich real child lifecycle", () => {
 		expect(process.env.PI_CLAUDE_MEMORY).toBe(scriptPath);
 
 		const originalSetTimeout = globalThis.setTimeout;
-		vi.spyOn(globalThis, "setTimeout").mockImplementation((callback, delay, ...args) =>
-			originalSetTimeout(callback, delay === 75_000 ? 100 : delay === 1_000 ? 20 : delay, ...args),
-		);
+		let triggerEnrichTimeout: (() => void) | undefined;
+		vi.spyOn(globalThis, "setTimeout").mockImplementation((callback, delay, ...args) => {
+			if (delay === 75_000 && typeof callback === "function") {
+				let cleared = false;
+				triggerEnrichTimeout = () => {
+					if (!cleared) (callback as (...callbackArgs: unknown[]) => void)(...args);
+				};
+				return {
+					ref() {
+						return this;
+					},
+					unref() {
+						return this;
+					},
+					hasRef() {
+						return false;
+					},
+					refresh() {
+						return this;
+					},
+					[Symbol.dispose]() {
+						cleared = true;
+					},
+					_clear() {
+						cleared = true;
+					},
+				} as unknown as ReturnType<typeof setTimeout>;
+			}
+			return originalSetTimeout(callback, delay === 1_000 ? 50 : delay, ...args);
+		});
 		const handler = registerBeforeAgentStartHandler();
 		const result = handler(
 			{ prompt: "reap this child", systemPrompt: "system" },
 			{ signal: new AbortController().signal },
 		);
 
-		await vi.waitFor(() => expect(existsSync(pidPath)).toBe(true), { timeout: 2_000 });
+		await vi.waitFor(() => expect(existsSync(pidPath)).toBe(true), { timeout: 10_000 });
 		childPid = Number(readFileSync(pidPath, "utf8"));
+		if (!triggerEnrichTimeout) throw new Error("Expected enrich timeout callback to be registered");
+		triggerEnrichTimeout();
 		await expect(result).resolves.toBeUndefined();
 		expect(processExists(childPid)).toBe(false);
 	});

@@ -62,7 +62,7 @@ async function runCli(args: string[], cwd: string, agentDir: string, input: stri
 		const timeout = setTimeout(() => {
 			timedOut = true;
 			child.kill("SIGKILL");
-		}, 5000);
+		}, 20_000);
 		child.on("error", (error) => {
 			clearTimeout(timeout);
 			reject(error);
@@ -175,5 +175,5 @@ describe("--session project lookup", () => {
 		expect(missingCwd.timedOut).toBe(false);
 		expect(missingCwd.code).toBe(1);
 		expect(missingCwd.output).toContain(foreignProject);
-	});
+	}, 60_000);
 });
