@@ -866,6 +866,7 @@ export const OPENROUTER_MODELS = {
 		baseUrl: "https://openrouter.ai/api/v1",
 		compat: {"supportsDeveloperRole":false,"thinkingFormat":"openrouter"},
 		reasoning: true,
+		thinkingLevelMap: {"off":null},
 		input: ["text", "image"],
 		cost: {
 			input: 1.25,
@@ -884,6 +885,7 @@ export const OPENROUTER_MODELS = {
 		baseUrl: "https://openrouter.ai/api/v1",
 		compat: {"supportsDeveloperRole":false,"thinkingFormat":"openrouter"},
 		reasoning: true,
+		thinkingLevelMap: {"off":null},
 		input: ["text", "image"],
 		cost: {
 			input: 1.25,
@@ -902,6 +904,7 @@ export const OPENROUTER_MODELS = {
 		baseUrl: "https://openrouter.ai/api/v1",
 		compat: {"supportsDeveloperRole":false,"thinkingFormat":"openrouter"},
 		reasoning: true,
+		thinkingLevelMap: {"off":null},
 		input: ["text", "image"],
 		cost: {
 			input: 1.25,
@@ -938,6 +941,7 @@ export const OPENROUTER_MODELS = {
 		baseUrl: "https://openrouter.ai/api/v1",
 		compat: {"supportsDeveloperRole":false,"thinkingFormat":"openrouter"},
 		reasoning: true,
+		thinkingLevelMap: {"off":null},
 		input: ["text", "image"],
 		cost: {
 			input: 2,
@@ -992,6 +996,7 @@ export const OPENROUTER_MODELS = {
 		baseUrl: "https://openrouter.ai/api/v1",
 		compat: {"supportsDeveloperRole":false,"thinkingFormat":"openrouter"},
 		reasoning: true,
+		thinkingLevelMap: {"off":null},
 		input: ["text", "image"],
 		cost: {
 			input: 2,
@@ -1010,6 +1015,7 @@ export const OPENROUTER_MODELS = {
 		baseUrl: "https://openrouter.ai/api/v1",
 		compat: {"supportsDeveloperRole":false,"thinkingFormat":"openrouter"},
 		reasoning: true,
+		thinkingLevelMap: {"off":null},
 		input: ["text", "image"],
 		cost: {
 			input: 2,
@@ -1028,6 +1034,7 @@ export const OPENROUTER_MODELS = {
 		baseUrl: "https://openrouter.ai/api/v1",
 		compat: {"supportsDeveloperRole":false,"thinkingFormat":"openrouter"},
 		reasoning: true,
+		thinkingLevelMap: {"off":null},
 		input: ["text", "image"],
 		cost: {
 			input: 1.5,
@@ -1037,6 +1044,25 @@ export const OPENROUTER_MODELS = {
 		},
 		contextWindow: 1048576,
 		maxTokens: 65536,
+	} satisfies Model<"openai-completions">,
+	"google/gemini-4-hydrogen": {
+		id: "google/gemini-4-hydrogen",
+		name: "Google: Gemini 4 Hydrogen",
+		api: "openai-completions",
+		provider: "openrouter",
+		baseUrl: "https://openrouter.ai/api/v1",
+		compat: {"supportsDeveloperRole":false,"thinkingFormat":"openrouter"},
+		reasoning: true,
+		thinkingLevelMap: {"off":null},
+		input: ["text", "image"],
+		cost: {
+			input: 1.5,
+			output: 7.5,
+			cacheRead: 0.075,
+			cacheWrite: 0.083333,
+		},
+		contextWindow: 1048576,
+		maxTokens: 943718,
 	} satisfies Model<"openai-completions">,
 	"google/gemma-3-12b-it": {
 		id: "google/gemma-3-12b-it",

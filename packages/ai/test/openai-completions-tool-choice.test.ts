@@ -1630,6 +1630,55 @@ describe("openai-completions tool_choice", () => {
 		expect(params.reasoning_effort).toBeUndefined();
 	});
 
+	it("omits reasoning when thinking is omitted for mandatory-reasoning OpenRouter Gemini models", async () => {
+		for (const modelId of [
+			"google/gemini-2.5-pro",
+			"google/gemini-3.1-pro-preview",
+			"google/gemini-3.5-flash",
+			"google/gemini-4-hydrogen",
+		] as const) {
+			const model = getModel("openrouter", modelId);
+			expect(model, modelId).toBeDefined();
+			let payload: unknown;
+
+			await streamSimple(
+				model!,
+				{
+					messages: [{ role: "user", content: "Hi", timestamp: Date.now() }],
+				},
+				{
+					apiKey: "test",
+					onPayload: (params: unknown) => {
+						payload = params;
+					},
+				},
+			).result();
+
+			const params = (payload ?? mockState.lastParams) as { reasoning?: unknown };
+			expect(params.reasoning).toBeUndefined();
+			expect(params).not.toHaveProperty("reasoning");
+		}
+
+		const flashModel = getModel("openrouter", "google/gemini-3-flash-preview")!;
+		let flashPayload: unknown;
+		await streamSimple(
+			flashModel,
+			{
+				messages: [{ role: "user", content: "Hi", timestamp: Date.now() }],
+			},
+			{
+				apiKey: "test",
+				onPayload: (params: unknown) => {
+					flashPayload = params;
+				},
+			},
+		).result();
+
+		expect((flashPayload ?? mockState.lastParams) as { reasoning?: unknown }).toMatchObject({
+			reasoning: { effort: "none" },
+		});
+	});
+
 	it("uses Ant Ling compatibility metadata", async () => {
 		const model = getModel("ant-ling", "Ring-2.6-1T")!;
 		let payload: unknown;

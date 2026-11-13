@@ -119,4 +119,24 @@ describe("getSupportedThinkingLevels", () => {
 		expect(getSupportedThinkingLevels(model!)).toContain("xhigh");
 		expect(getSupportedThinkingLevels(model!)).not.toContain("off");
 	});
+
+	it("excludes thinking off for mandatory-reasoning OpenRouter Gemini models", () => {
+		for (const modelId of [
+			"google/gemini-2.5-pro",
+			"google/gemini-3.1-pro-preview",
+			"google/gemini-3.5-flash",
+			"google/gemini-4-hydrogen",
+		] as const) {
+			const model = getModel("openrouter", modelId);
+			expect(model, modelId).toBeDefined();
+			expect(getSupportedThinkingLevels(model!)).not.toContain("off");
+			expect(getSupportedThinkingLevels(model!)).toEqual(["minimal", "low", "medium", "high"]);
+		}
+
+		for (const modelId of ["google/gemini-2.5-flash", "google/gemini-3-flash-preview"] as const) {
+			const model = getModel("openrouter", modelId);
+			expect(model, modelId).toBeDefined();
+			expect(getSupportedThinkingLevels(model!)).toContain("off");
+		}
+	});
 });

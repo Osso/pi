@@ -455,6 +455,17 @@ function isGemma4Model(modelId: string): boolean {
 	return /gemma-?4/.test(modelId.toLowerCase());
 }
 
+function isOpenRouterMandatoryReasoningGeminiModel(modelId: string): boolean {
+	const id = modelId.toLowerCase();
+	if (!id.startsWith("google/gemini-")) return false;
+	return (
+		/gemini-2\.5-pro/.test(id) ||
+		isGemini3ProModel(id) ||
+		/gemini-3\.[5-9]-flash/.test(id) ||
+		/gemini-4-/.test(id)
+	);
+}
+
 function applyThinkingLevelMetadata(model: Model<any>): void {
 	if (model.api === "openai-responses" && model.id.startsWith("gpt-5")) {
 		mergeThinkingLevelMap(model, { off: null });
@@ -546,6 +557,10 @@ function applyThinkingLevelMetadata(model: Model<any>): void {
 		// Mark "off" unsupported so the openai-completions provider omits the reasoning param
 		// instead of defaulting to {reasoning:{effort:"none"}} (see openai-completions.ts:575).
 		// Pi's low/medium/high pass through verbatim; OpenRouter normalizes to Mercury's vocabulary.
+		mergeThinkingLevelMap(model, { off: null });
+	}
+	if (model.provider === "openrouter" && model.reasoning && isOpenRouterMandatoryReasoningGeminiModel(model.id)) {
+		// OpenRouter rejects reasoning.effort="none" on these Gemini endpoints with HTTP 400.
 		mergeThinkingLevelMap(model, { off: null });
 	}
 	if (model.provider === "openrouter" && model.id === "z-ai/glm-5.2") {
