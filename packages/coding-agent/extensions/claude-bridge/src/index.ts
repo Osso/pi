@@ -33,9 +33,9 @@ import {
 	repairToolPairing,
 	type Session,
 } from "cc-session-io";
-import { appendFileSync, mkdirSync, readFileSync, realpathSync, statSync } from "fs";
+import { appendFileSync, readFileSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
-import { dirname, join } from "path";
+import { join } from "path";
 import { type BranchSummaryResult, generateBranchSummary } from "../../../src/core/compaction/branch-summarization.ts";
 import { compact } from "../../../src/core/compaction/compaction.ts";
 import type { ExtensionAPI, ExtensionContext, ExtensionUIContext } from "../../../src/core/extensions/types.ts";
@@ -60,12 +60,7 @@ import {
 } from "./askclaude-schema.ts";
 import { buildActionSummary, type ToolCallState } from "./askclaude-ui.ts";
 import { collectCarriedAttachments, placeCarriedAttachments } from "./attachments.ts";
-import {
-	type AuthTraceProfile,
-	createAuthStderrRecorder,
-	recordAuthFailure,
-	recordCredentialTrace,
-} from "./auth-trace.ts";
+import { type AuthTraceProfile, recordAuthFailure, recordCredentialTrace } from "./auth-trace.ts";
 import { resolveClaudeCodeExecutable } from "./bundled-runtime.ts";
 import {
 	type ClaudeAccountUsage,
@@ -78,8 +73,9 @@ import {
 } from "./claude-usage.ts";
 import { type Config, claudeCodeSettings, loadConfig, markStartupNoticeShown } from "./config.ts";
 import { convertPiMessages, messageContentToText, PROVIDER_ID } from "./convert.ts";
+import { DEBUG, debug, diagDump, makeCliDebugOptions, moduleInstanceId } from "./diagnostics.ts";
 import { extractAllToolResults as _extractAllToolResults, type McpResult } from "./extract-tool-results.ts";
-import { debugLogPath, diagLogPath } from "./log-paths.ts";
+import { debugLogPath } from "./log-paths.ts";
 import { createToolServer } from "./mcp-server.ts";
 import { applyLongContext, buildModels, claudeCodeModelId, type LongContextSettings, resolveModel } from "./models.ts";
 import {
@@ -101,12 +97,6 @@ import { verifyWrittenSession as _verifyWrittenSession } from "./session-verify.
 import { ShapeTrace } from "./shape-trace.ts";
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX, renderSkillsBlock } from "./skills.ts";
 import { type SdkUsage, updateUsage } from "./usage.ts";
-
-// --- Debug logging ---
-// CLAUDE_BRIDGE_DEBUG=1 enables debug logging to the bridge log in pi's agent
-// dir (log-paths.ts), not a fixed ~/.pi/agent.
-
-const DEBUG = process.env.CLAUDE_BRIDGE_DEBUG === "1";
 
 // Applied to every Claude Code subprocess the bridge spawns — provider, AskClaude
 // and the compact summary. One place, so a guard is added once rather than three
@@ -133,73 +123,6 @@ const CC_CHILD_ENV = {
 // paths; the filename globs cover user, ancestor, project and .claude/ copies,
 // while rules need their own. Managed/policy memory is not excludable by design.
 const CLAUDE_MD_EXCLUDES = ["**/CLAUDE.md", "**/AGENTS.md", "**/.claude/rules/**"];
-
-// Unique per module evaluation — confirms whether subagents share module state
-const moduleInstanceId = Math.random().toString(36).slice(2, 8);
-
-function debug(...args: unknown[]) {
-	if (!DEBUG) return;
-	const logPath = debugLogPath();
-	try {
-		mkdirSync(dirname(logPath), { recursive: true });
-	} catch {
-		/* ignore */
-	}
-	const ts = new Date().toISOString();
-	const fmt = (a: unknown): string => {
-		if (typeof a === "string") return a;
-		if (a instanceof Error) return `${a.name}: ${a.message}${a.stack ? `\n${a.stack}` : ""}`;
-		return JSON.stringify(a);
-	};
-	const msg = args.map(fmt).join(" ");
-	appendFileSync(logPath, `[${ts}] [${moduleInstanceId}] ${msg}\n`);
-}
-
-// Per-query CLI debug capture. When CLAUDE_BRIDGE_DEBUG=1, ask the Claude Code
-// CLI subprocess to write its own debug log to a file we choose, and also
-// forward its stderr into our debug stream. Drops straight into the real SDK's
-// Options — see @anthropic-ai/claude-agent-sdk sdk.d.ts:1245 (debug, debugFile,
-// stderr). Without this, CC's internal view of the world is invisible to us
-// and "No conversation found" / empty-error reports are unactionable.
-let nextCliDebugSeq = 1;
-function makeCliDebugOptions(
-	tag: string,
-	profile?: AuthTraceProfile,
-): { debug?: boolean; debugFile?: string; stderr?: (data: string) => void } {
-	const traceStderr = profile ? createAuthStderrRecorder(profile) : undefined;
-	if (!DEBUG) return traceStderr ? { stderr: traceStderr } : {};
-	const seq = nextCliDebugSeq++;
-	const ts = new Date().toISOString().replace(/[:.]/g, "-");
-	const logDir = join(dirname(debugLogPath()), "cc-cli-logs");
-	try {
-		mkdirSync(logDir, { recursive: true });
-	} catch {
-		/* ignore */
-	}
-	const debugFile = join(logDir, `${ts}-${tag}-${seq}.log`);
-	debug(`cli-debug: ${tag} #${seq} → ${debugFile}`);
-	return {
-		debug: true,
-		debugFile,
-		stderr: (data: string) => {
-			traceStderr?.(data);
-			for (const line of data.split(/\r?\n/)) {
-				if (line) debug(`[cli-stderr ${tag}#${seq}] ${line}`);
-			}
-		},
-	};
-}
-
-/** Unconditional diagnostic dump — for "should never happen" paths. Creates pi's agent
- *  dir itself: callers run inside streamSimple, where a missing dir must not throw. */
-function diagDump(label: string, data: Record<string, unknown>) {
-	const ts = new Date().toISOString();
-	const entry = { ts, moduleInstanceId, label, ...data };
-	const logPath = diagLogPath();
-	mkdirSync(dirname(logPath), { recursive: true });
-	appendFileSync(logPath, `${JSON.stringify(entry)}\n`);
-	debug(`DIAG: ${label} (see ${logPath})`);
-}
 
 // --- Constants ---
 
