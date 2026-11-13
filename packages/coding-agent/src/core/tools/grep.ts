@@ -206,6 +206,8 @@ export function createGrepToolDefinition(
 								try {
 									const content = await ops.readFile(filePath);
 									lines = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+									// A final newline ends the last line; it does not start another one.
+									if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
 								} catch {
 									lines = [];
 								}
@@ -257,17 +259,23 @@ export function createGrepToolDefinition(
 							stderr += chunk.toString();
 						});
 
-						const formatBlock = async (filePath: string, lineNumber: number): Promise<string[]> => {
+						// Print each line once, even when the context windows of nearby matches overlap.
+						const formatBlock = async (filePath: string, matchLines: number[]): Promise<string[]> => {
 							const relativePath = formatPath(filePath);
 							const lines = await getFileLines(filePath);
-							if (!lines.length) return [`${relativePath}:${lineNumber}: (unable to read file)`];
+							if (!lines.length)
+								return matchLines.map((line) => `${relativePath}:${line}: (unable to read file)`);
+							const shownLines = new Set<number>();
+							for (const lineNumber of matchLines) {
+								const start = Math.max(1, lineNumber - contextValue);
+								const end = Math.min(lines.length, lineNumber + contextValue);
+								for (let current = start; current <= end; current++) shownLines.add(current);
+							}
 							const block: string[] = [];
-							const start = contextValue > 0 ? Math.max(1, lineNumber - contextValue) : lineNumber;
-							const end = contextValue > 0 ? Math.min(lines.length, lineNumber + contextValue) : lineNumber;
-							for (let current = start; current <= end; current++) {
+							for (const current of [...shownLines].sort((a, b) => a - b)) {
 								const lineText = lines[current - 1] ?? "";
 								const sanitized = lineText.replace(/\r/g, "");
-								const isMatchLine = current === lineNumber;
+								const isMatchLine = matchLines.includes(current);
 								// Truncate long lines so grep output stays compact.
 								const { text: truncatedText, wasTruncated } = truncateLine(sanitized);
 								if (wasTruncated) linesTruncated = true;
@@ -327,6 +335,12 @@ export function createGrepToolDefinition(
 							}
 
 							// Format matches after streaming finishes so custom readFile() backends can be async.
+							const matchLinesByFile = new Map<string, number[]>();
+							for (const match of matches) {
+								const fileMatchLines = matchLinesByFile.get(match.filePath) ?? [];
+								fileMatchLines.push(match.lineNumber);
+								matchLinesByFile.set(match.filePath, fileMatchLines);
+							}
 							for (const match of matches) {
 								if (contextValue === 0 && match.lineText !== undefined) {
 									const relativePath = formatPath(match.filePath);
@@ -338,8 +352,11 @@ export function createGrepToolDefinition(
 									if (wasTruncated) linesTruncated = true;
 									outputLines.push(`${relativePath}:${match.lineNumber}: ${truncatedText}`);
 								} else {
-									const block = await formatBlock(match.filePath, match.lineNumber);
-									outputLines.push(...block);
+									const fileMatchLines = matchLinesByFile.get(match.filePath);
+									if (!fileMatchLines) continue;
+									// The first match of a file prints the whole merged block for that file.
+									matchLinesByFile.delete(match.filePath);
+									outputLines.push(...(await formatBlock(match.filePath, fileMatchLines)));
 								}
 							}
 

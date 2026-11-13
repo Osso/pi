@@ -428,6 +428,7 @@
 - Fixed resuming a session whose last write was cut off (for example by a crash or kill): the next entry was appended onto the partial line and lost, and later appends made the file fail to load with `Session file contains malformed JSONL entry`.
 - Fixed the `read` tool counting a file's final newline as an extra empty line, which produced a false `1 more lines in file` hint and accepted an offset one past the end.
 - Fixed the `read` tool showing the line cut off by its 10KB head read of large files as a complete line and then pointing the continuation offset past it, so that line was never shown in full; a first line longer than 10KB now gets the `sed` hint instead of a fragment.
+- Fixed the `grep` tool with `context` printing a line twice when the context windows of two matches overlapped, and printing an empty line past the end of files that end with a newline.
 
 ### Changed
 

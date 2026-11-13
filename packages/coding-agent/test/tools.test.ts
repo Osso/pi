@@ -945,6 +945,17 @@ describe("Coding Agent Tools", () => {
 			expect(output).not.toContain("match two");
 		});
 
+		it("prints shared context lines once and no line past the end of the file", async () => {
+			const testFile = join(testDir, "overlap.txt");
+			writeFileSync(testFile, "needle line\nother\nneedle again\n");
+
+			const output = getTextOutput(
+				await grepTool.execute("grep-overlap", { pattern: "needle", path: testFile, context: 1 }),
+			);
+
+			expect(output).toBe("overlap.txt:1: needle line\noverlap.txt-2- other\noverlap.txt:3: needle again");
+		});
+
 		it("should treat flag-like patterns as search text", async () => {
 			const marker = join(testDir, "grep-injection-marker");
 			const payload = join(testDir, "payload.sh");
