@@ -317,6 +317,11 @@ Response:
 {"type": "response", "command": "set_thinking_level", "success": true}
 ```
 
+An unknown level returns an error and leaves the current level unchanged:
+```json
+{"type": "response", "command": "set_thinking_level", "success": false, "error": "Invalid thinking level: hgh"}
+```
+
 #### cycle_thinking_level
 
 Cycle through available thinking levels. Returns `null` data if model doesn't support thinking.

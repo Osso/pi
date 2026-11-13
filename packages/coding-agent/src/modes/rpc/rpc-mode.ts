@@ -12,6 +12,7 @@
  */
 
 import * as crypto from "node:crypto";
+import { isValidThinkingLevel } from "../../cli/args.ts";
 import { shouldContinueInterruptedSession } from "../../core/agent-session.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
 import type {
@@ -510,6 +511,9 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			// =================================================================
 
 			case "set_thinking_level": {
+				if (!isValidThinkingLevel(command.level)) {
+					return error(id, "set_thinking_level", `Invalid thinking level: ${command.level}`);
+				}
 				session.setThinkingLevel(command.level);
 				return success(id, "set_thinking_level");
 			}

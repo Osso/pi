@@ -416,6 +416,7 @@
 - Fixed the `read` tool accepting `limit: 0`, which returned no lines and a continuation hint pointing back to the same offset; `limit` must now be at least 1.
 - Fixed the `grep` tool returning matches from `.gitignore`d files in directories outside a git repository; it now applies `.gitignore` there like the `find` tool.
 - Fixed `--mode` silently ignoring an invalid value (for example `--mode RPC`) and starting interactive mode; Pi now exits with `Invalid --mode value`.
+- Fixed RPC `set_thinking_level` accepting an unknown level, which turned thinking off, saved `off` as the default thinking level, and reported success; it now returns `Invalid thinking level`.
 
 ### Changed
 
