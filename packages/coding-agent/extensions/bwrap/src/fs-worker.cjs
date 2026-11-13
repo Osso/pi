@@ -174,7 +174,10 @@ async function find() {
 }
 
 function normalizeGrepLines(content) {
-	return content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+	const lines = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+	// A final newline ends the last line; it does not start another one.
+	if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+	return lines;
 }
 
 async function readGrepLines(filePath) {
@@ -187,13 +190,24 @@ async function readGrepLines(filePath) {
 	}
 }
 
-function formatGrepMatch({ relativePath, lines, matchIndex, context }) {
-	const start = context > 0 ? Math.max(0, matchIndex - context) : matchIndex;
-	const end = context > 0 ? Math.min(lines.length - 1, matchIndex + context) : matchIndex;
-	const renderedLines = Array.from({ length: end - start + 1 }, (_value, offset) => {
-		const current = start + offset;
+function collectShownLineIndexes(lineCount, matchIndexes, context) {
+	const shownIndexes = new Set();
+	for (const matchIndex of matchIndexes) {
+		const start = Math.max(0, matchIndex - context);
+		const end = Math.min(lineCount - 1, matchIndex + context);
+		for (let current = start; current <= end; current++) {
+			shownIndexes.add(current);
+		}
+	}
+	return [...shownIndexes].sort((a, b) => a - b);
+}
+
+// Print each line once, even when the context windows of nearby matches overlap.
+function formatGrepMatches({ relativePath, lines, matchIndexes, context }) {
+	const matchIndexSet = new Set(matchIndexes);
+	const renderedLines = collectShownLineIndexes(lines.length, matchIndexes, context).map((current) => {
 		const truncatedLine = truncateLine(lines[current] || "");
-		const separator = current === matchIndex ? ":" : "-";
+		const separator = matchIndexSet.has(current) ? ":" : "-";
 		return {
 			text: `${relativePath}${separator}${current + 1}${separator} ${truncatedLine.text}`,
 			truncated: truncatedLine.truncated,
@@ -210,12 +224,8 @@ function formatGrepFile({ filePath, rootPath, rootIsDirectory, lines, matcher, c
 	const matchIndexes = lines
 		.flatMap((line, index) => (matcher(line || "") ? [index] : []))
 		.slice(0, limit);
-	const formattedMatches = matchIndexes.map((matchIndex) => formatGrepMatch({ relativePath, lines, matchIndex, context }));
-	return {
-		count: matchIndexes.length,
-		linesTruncated: formattedMatches.some(({ linesTruncated }) => linesTruncated),
-		text: formattedMatches.map(({ text }) => text).join("\n"),
-	};
+	const formattedMatches = formatGrepMatches({ relativePath, lines, matchIndexes, context });
+	return { count: matchIndexes.length, linesTruncated: formattedMatches.linesTruncated, text: formattedMatches.text };
 }
 
 function relativeGrepPath(filePath, options) {

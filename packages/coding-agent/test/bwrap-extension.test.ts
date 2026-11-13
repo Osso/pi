@@ -503,6 +503,26 @@ console.log(JSON.stringify({
 		});
 	});
 
+	it("grep prints shared context lines once and no line past the end of the file", () => {
+		writeFileSync(join(workspaceDir, "overlap.txt"), "needle line\nother\nneedle again\n", "utf8");
+
+		const result = spawnSync(
+			process.execPath,
+			[
+				FS_WORKER_PATH,
+				"grep",
+				JSON.stringify({ context: 1, path: workspaceDir, pattern: "needle", workspace: workspaceDir }),
+			],
+			{ encoding: "utf8" },
+		);
+
+		expect(result.status).toBe(0);
+		expect(JSON.parse(result.stdout)).toEqual({
+			details: {},
+			text: "overlap.txt:1: needle line\noverlap.txt-2- other\noverlap.txt:3: needle again",
+		});
+	});
+
 	it("bypasses sandboxing for full-access", () => {
 		expect(resolveBwrapSandboxProfile("full-access")).toBeUndefined();
 	});
