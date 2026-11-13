@@ -18,6 +18,8 @@ import {
 } from "../extensions/pyrun/src/detached-bridge.ts";
 import {
 	launchDetachedPyrunRunner,
+	readDetachedPyrunActivation,
+	readDetachedPyrunLaunchManifest,
 	writeDetachedPyrunActivation,
 	writeDetachedPyrunLaunchManifest,
 } from "../extensions/pyrun/src/detached-runner.ts";
@@ -432,6 +434,25 @@ describe("detached Pyrun runner", () => {
 			}
 		},
 	);
+
+	it("rejects malformed or non-object detached Pyrun activation and launch manifests explicitly", () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-detached-pyrun-boundary-"));
+		temporaryDirectories.push(root);
+		const activationPath = join(root, "activation.json");
+		const manifestPath = join(root, "manifest.json");
+
+		writeFileSync(activationPath, "{not-json");
+		expect(() => readDetachedPyrunActivation(activationPath)).toThrow(/Invalid detached Pyrun activation JSON/);
+
+		writeFileSync(activationPath, JSON.stringify({ jobId: 123 }));
+		expect(() => readDetachedPyrunActivation(activationPath)).toThrow(/Invalid detached Pyrun activation:/);
+
+		writeFileSync(manifestPath, "null");
+		expect(() => readDetachedPyrunLaunchManifest(manifestPath)).toThrow(/expected JSON object/);
+
+		writeFileSync(manifestPath, JSON.stringify({ version: 3, startedAt: 1, checksum: "bad" }));
+		expect(() => readDetachedPyrunLaunchManifest(manifestPath)).toThrow(/Invalid detached Pyrun launch manifest:/);
+	});
 });
 
 async function requestAndAssertDetachedPyrunStatus(input: {

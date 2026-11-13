@@ -290,7 +290,11 @@ export class PyrunRunnerClient {
 			return;
 		}
 		try {
-			const message = JSON.parse(line) as CanonicalPyrunRunnerMessage;
+			const parsed: unknown = JSON.parse(line);
+			if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+				throw new Error("Expected JSON object from pyrun-jsonl");
+			}
+			const message = parsed as CanonicalPyrunRunnerMessage;
 			if (isFinalEvalResult(message)) {
 				this.pending.splice(pendingIndex, 1);
 				pending.cleanup?.();

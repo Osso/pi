@@ -59,7 +59,11 @@ export function parseDetachedPyrunBridgeRequest(
 	message: RuntimeMailboxMessage,
 ): DetachedPyrunBridgeRequest | undefined {
 	try {
-		const parsed = JSON.parse(message.body) as DetachedPyrunBridgeRequest;
+		const raw: unknown = JSON.parse(message.body);
+		if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+			return undefined;
+		}
+		const parsed = raw as Partial<DetachedPyrunBridgeRequest>;
 		const hasValidToolCallId = typeof parsed.toolCallId === "string" && parsed.toolCallId.trim() !== "";
 		if (
 			parsed.protocol !== DETACHED_PYRUN_BRIDGE_PROTOCOL ||
@@ -72,7 +76,7 @@ export function parseDetachedPyrunBridgeRequest(
 		) {
 			return undefined;
 		}
-		return parsed;
+		return parsed as DetachedPyrunBridgeRequest;
 	} catch {
 		return undefined;
 	}

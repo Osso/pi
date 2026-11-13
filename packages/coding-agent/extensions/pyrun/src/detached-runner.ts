@@ -360,22 +360,66 @@ function readJsonLines<T>(path: string, offset: number): { offset: number; value
 	return { offset: data.length, values };
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseJsonObjectFile(path: string, label: string): Record<string, unknown> {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(readFileSync(path, "utf8"));
+	} catch (error) {
+		throw new Error(`Invalid ${label} JSON in ${path}: ${error instanceof Error ? error.message : String(error)}`);
+	}
+	if (!isPlainRecord(parsed)) {
+		throw new Error(`Invalid ${label} in ${path}: expected JSON object`);
+	}
+	return parsed;
+}
+
 export function readDetachedPyrunActivation(path: string): DetachedJobOwnershipIdentity | undefined {
 	if (!existsSync(path)) return undefined;
-	return JSON.parse(readFileSync(path, "utf8")) as DetachedJobOwnershipIdentity;
+	const parsed = parseJsonObjectFile(path, "detached Pyrun activation");
+	if (
+		typeof parsed.jobId !== "string" ||
+		!isPlainRecord(parsed.owner) ||
+		typeof parsed.owner.sessionId !== "string" ||
+		(parsed.owner.agentId !== null && typeof parsed.owner.agentId !== "string") ||
+		!isPlainRecord(parsed.processIdentity) ||
+		typeof parsed.outputLabel !== "string"
+	) {
+		throw new Error(`Invalid detached Pyrun activation: ${path}`);
+	}
+	return parsed as unknown as DetachedJobOwnershipIdentity;
 }
 
 export function readDetachedPyrunLaunchManifest(path: string): DetachedPyrunLaunchManifest {
-	const parsed = JSON.parse(readFileSync(path, "utf8")) as DetachedPyrunLaunchManifest;
+	const parsed = parseJsonObjectFile(path, "detached Pyrun launch manifest");
 	const { checksum, ...unsigned } = parsed;
 	if (
 		parsed.version !== DETACHED_PYRUN_LAUNCH_VERSION ||
+		typeof checksum !== "string" ||
 		!Number.isFinite(parsed.startedAt) ||
+		typeof parsed.activationPath !== "string" ||
+		!isPlainRecord(parsed.artifacts) ||
+		typeof parsed.artifacts.directory !== "string" ||
+		typeof parsed.artifacts.outputPath !== "string" ||
+		typeof parsed.bridgeRequestPath !== "string" ||
+		typeof parsed.bridgeResponsePath !== "string" ||
+		typeof parsed.controlDbPath !== "string" ||
+		typeof parsed.foregroundCompletionPath !== "string" ||
+		!isPlainRecord(parsed.params) ||
+		!isPlainRecord(parsed.runnerAddress) ||
+		!isPlainRecord(parsed.runnerOptions) ||
+		!isPlainRecord(parsed.runnerProcessIdentity) ||
+		typeof parsed.sessionPath !== "string" ||
+		!isPlainRecord(parsed.supervisorProcessIdentity) ||
+		(parsed.toolCallId !== undefined && typeof parsed.toolCallId !== "string") ||
 		checksum !== hashJson(unsigned)
 	) {
 		throw new Error(`Invalid detached Pyrun launch manifest: ${path}`);
 	}
-	return parsed;
+	return parsed as unknown as DetachedPyrunLaunchManifest;
 }
 
 function appendArtifactRecord(path: string, record: unknown): void {
