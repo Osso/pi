@@ -399,7 +399,6 @@ function emptyResult(): AgentToolResult<Record<string, never>> {
 	return { content: [], details: {} };
 }
 
-
 function notifyBackgroundDispatch(
 	promise: Promise<AgentSnapshot>,
 	handles: BackgroundSessionHandles,
@@ -1920,7 +1919,7 @@ function sendAgentMessage(
 				`Could not send agent message to ${params.toAgentId}: target session does not match ${params.toSessionId}.`,
 				{
 					agent: currentMessageSenderAgent(store, ctx),
-					message: failedMessage(currentMessageSenderId(store, ctx) ?? "unknown_subagent", params.toAgentId, "message", params.message),
+					message: failedMessage(senderId ?? "unknown_subagent", params.toAgentId, "message", params.message),
 				},
 			);
 		}
