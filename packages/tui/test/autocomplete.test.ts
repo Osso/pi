@@ -460,9 +460,9 @@ describe("CombinedAutocompleteProvider", () => {
 
 			assert.notEqual(result, null, "Should return suggestions for quoted @ path");
 			const item = result?.items.find((entry) => entry.value === '@"my folder/test.txt"');
-			assert.ok(item, "Should find test.txt suggestion");
+			assert.ok(item && result, "Should find test.txt suggestion");
 
-			const applied = provider.applyCompletion([line], 0, cursorCol, item!, result!.prefix);
+			const applied = provider.applyCompletion([line], 0, cursorCol, item, result.prefix);
 			assert.strictEqual(applied.lines[0], '@"my folder/test.txt" ');
 		});
 	});
@@ -573,9 +573,9 @@ describe("CombinedAutocompleteProvider", () => {
 
 			assert.notEqual(result, null, "Should return suggestions for quoted path");
 			const item = result?.items.find((entry) => entry.value === '"my folder/test.txt"');
-			assert.ok(item, "Should find test.txt suggestion");
+			assert.ok(item && result, "Should find test.txt suggestion");
 
-			const applied = provider.applyCompletion([line], 0, cursorCol, item!, result!.prefix);
+			const applied = provider.applyCompletion([line], 0, cursorCol, item, result.prefix);
 			assert.strictEqual(applied.lines[0], '"my folder/test.txt"');
 		});
 	});

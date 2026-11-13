@@ -28,11 +28,12 @@ function withEnv(name: string, value: string | undefined, fn: () => void): void 
 function withEnvVars(vars: Record<string, string | undefined>, fn: () => void): void {
 	const entries = Object.entries(vars);
 	const run = (index: number): void => {
-		if (index >= entries.length) {
+		const entry = entries[index];
+		if (!entry) {
 			fn();
 			return;
 		}
-		const [name, value] = entries[index]!;
+		const [name, value] = entry;
 		withEnv(name, value, () => run(index + 1));
 	};
 	run(0);

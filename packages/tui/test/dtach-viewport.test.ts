@@ -104,27 +104,27 @@ it(
 			};
 			try {
 				await write(`${markers.join("\r\n")}\r\n${"\r\n".repeat(10)}\x1b[H`);
-				await write(captures.initial!);
+				await write(captures.initial ?? "");
 				const seededHistory = history();
 				assert.deepEqual(
 					seededHistory.filter((line) => line.startsWith("SSH_HISTORY_")),
 					markers,
 				);
 				for (let index = 0; index < 2; index++) {
-					await write(captures[`attach${index}`]!);
+					await write(captures[`attach${index}`] ?? "");
 					assert.deepEqual(viewport(), [
 						...Array.from({ length: 9 }, (_, i) => `content ${i + 6}`),
 						`update ${index}`,
 					]);
 					assert.deepEqual(history(), seededHistory);
 					assertCursor();
-					await write(captures[`update${index}`]!);
+					await write(captures[`update${index}`] ?? "");
 					assert.equal(viewport()[9], `update ${index + 1}`);
 					assert.deepEqual(history(), seededHistory);
 					assertCursor();
 				}
 				terminal.resize(41, 10);
-				await write(captures.changed!);
+				await write(captures.changed ?? "");
 				assert.equal(viewport()[9], "update 2");
 				assertCursor();
 				assert.deepEqual(
@@ -135,18 +135,19 @@ it(
 			} finally {
 				terminal.dispose();
 			}
-			const baseline = events.find((event) => event.event === "baseline")!;
-			const ready = events.find((event) => event.event === "ready")!;
-			const stopped = events.find((event) => event.event === "input:s")!;
-			const restarted = events.find((event) => event.event === "restarted")!;
+			const baseline = events.find((event) => event.event === "baseline");
+			const ready = events.find((event) => event.event === "ready");
+			const stopped = events.find((event) => event.event === "input:s");
+			const restarted = events.find((event) => event.event === "restarted");
+			assert.ok(baseline && ready && stopped && restarted);
 			assert.equal(ready.winchListeners, baseline.winchListeners + 1);
 			assert.equal(ready.resizeListeners, baseline.resizeListeners + 1);
 			assert.equal(stopped.winchListeners, baseline.winchListeners);
 			assert.equal(stopped.resizeListeners, baseline.resizeListeners);
 			assert.equal(restarted.winchListeners, ready.winchListeners);
 			assert.equal(restarted.resizeListeners, ready.resizeListeners);
-			assert.equal(events[events.indexOf(stopped) + 1]!.renders, stopped.renders);
-			assert.equal(events.at(-1)!.renders, restarted.renders + 1);
+			assert.equal(events[events.indexOf(stopped) + 1]?.renders, stopped.renders);
+			assert.equal(events.at(-1)?.renders, restarted.renders + 1);
 			assert.equal(new Set(events.map((event) => event.pid)).size, 1);
 		} finally {
 			fs.rmSync(root, { recursive: true, force: true });

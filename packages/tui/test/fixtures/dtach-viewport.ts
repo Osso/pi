@@ -2,7 +2,8 @@ import * as fs from "node:fs";
 import { ProcessTerminal } from "../../src/terminal.ts";
 import { CURSOR_MARKER, TUI } from "../../src/tui.ts";
 
-const eventsPath = process.argv[2]!;
+const eventsPath = process.argv[2] ?? "";
+if (!eventsPath) throw new Error("Expected eventsPath argv");
 const terminal = new ProcessTerminal();
 const tui = new TUI(terminal, true);
 let updates = 0;

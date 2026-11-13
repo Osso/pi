@@ -44,6 +44,10 @@ tui.addChild(new Spacer(1));
 tui.addChild(new Text("Press Ctrl+C to exit", 1, 0));
 
 const editor = {
+	render() {
+		return [];
+	},
+	invalidate() {},
 	handleInput(data: string) {
 		if (data.charCodeAt(0) === 3) {
 			tui.stop();
@@ -52,5 +56,5 @@ const editor = {
 	},
 };
 
-tui.setFocus(editor as any);
+tui.setFocus(editor);
 tui.start();

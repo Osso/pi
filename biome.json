@@ -40,7 +40,7 @@
 	},
 	"overrides": [
 		{
-			"includes": ["packages/tui/src/**/*.ts", "packages/orchestrator/**/*.ts"],
+			"includes": ["packages/tui/**/*.ts", "packages/orchestrator/**/*.ts"],
 			"linter": {
 				"rules": {
 					"style": {
