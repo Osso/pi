@@ -31,6 +31,7 @@
 - Fixed harness compaction summaries to omit assistant thinking content and avoid reasoning-mode summary requests.
 - Fixed harness split-turn compaction to serialize summary requests so single-concurrency providers are not asked to run overlapping generations ([#5536](https://github.com/earendil-works/pi/issues/5536)).
 - Fixed harness compaction to split a boundary-start active turn once cumulative assistant/tool context exceeds the protected suffix, while retaining later active turns whole when older compactable history exists.
+- Fixed `formatPromptTemplateInvocation` substituting placeholders found inside argument values: an argument such as `use $@ here` was expanded again instead of being inserted literally.
 
 ## [0.80.3] - 2026-06-30
 

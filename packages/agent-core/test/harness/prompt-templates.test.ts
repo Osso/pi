@@ -87,4 +87,13 @@ describe("formatPromptTemplateInvocation", () => {
 			"hello world test hello world test",
 		);
 	});
+
+	it("keeps placeholders inside argument values literal", () => {
+		expect(formatPromptTemplateInvocation({ name: "fix", content: "Fix: $1" }, ["use $@ here", "b"])).toBe(
+			"Fix: use $@ here",
+		);
+		expect(formatPromptTemplateInvocation({ name: "all", content: "$ARGUMENTS" }, ["costs $1", "$ARGUMENTS"])).toBe(
+			"costs $1 $ARGUMENTS",
+		);
+	});
 });
