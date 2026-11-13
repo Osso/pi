@@ -23,6 +23,13 @@ describe("buildInitialMessage", () => {
 		expect(parsed.messages).toEqual([]);
 	});
 
+	test("separates trimmed stdin from the CLI message", () => {
+		const parsed = createArgs(["explain"]);
+		const result = buildInitialMessage({ parsed, stdinContent: "fix this error" });
+
+		expect(result.initialMessage).toBe("fix this error\nexplain");
+	});
+
 	test("uses stdin as the initial prompt when no CLI message is present", () => {
 		const parsed = createArgs();
 		const result = buildInitialMessage({

@@ -419,6 +419,7 @@
 - Fixed RPC `set_thinking_level` accepting an unknown level, which turned thinking off, saved `off` as the default thinking level, and reported success; it now returns `Invalid thinking level`.
 - Fixed Pi exiting when the external editor (Ctrl+G) failed inside an extension editor dialog, for example when the temp file could not be written or the editor removed it; the dialog now shows `External editor failed: ...` and keeps the draft.
 - Fixed Pi exiting when an extension `onTerminalInput` handler threw; the error is now shown and the input continues to the editor.
+- Fixed piped stdin being glued to the CLI message (`echo "fix this error" | pi -p explain` sent `fix this errorexplain`); stdin, `@file` text, and the message are now separated by a line break.
 
 ### Changed
 
