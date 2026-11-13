@@ -221,6 +221,21 @@ describe("Coding Agent Tools", () => {
 			expect(output).toContain("[40 more lines in file. Use offset=61 to continue.]");
 		});
 
+		it("does not count the final newline as an extra line", async () => {
+			const testFile = join(testDir, "trailing-newline.txt");
+			writeFileSync(testFile, "alpha\nbeta\ngamma\n");
+
+			const firstLine = getTextOutput(await readTool.execute("read-nl-1", { path: testFile, limit: 1 }));
+			expect(firstLine).toBe("alpha\n\n[2 more lines in file. Use offset=2 to continue.]");
+
+			const wholeFile = getTextOutput(await readTool.execute("read-nl-2", { path: testFile, limit: 3 }));
+			expect(wholeFile).toBe("alpha\nbeta\ngamma");
+
+			await expect(readTool.execute("read-nl-3", { path: testFile, offset: 4 })).rejects.toThrow(
+				/Offset 4 is beyond end of file \(3 lines total\)/,
+			);
+		});
+
 		it("should show error when offset is beyond file length", async () => {
 			const testFile = join(testDir, "short.txt");
 			writeFileSync(testFile, "Line 1\nLine 2\nLine 3");

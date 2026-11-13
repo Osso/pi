@@ -398,13 +398,17 @@ function createReadToolDefinitionInternal(
 							const { buffer, fileSize, rangeLimited } = await readTextBuffer(absolutePath, ops, offset, limit);
 							const textContent = buffer.toString("utf-8");
 							const allLines = textContent.split("\n");
-							const totalFileLines = rangeLimited ? allLines.length + 1 : allLines.length;
+							// A final newline ends the last line; it does not start another one.
+							const endsWithNewline =
+								!rangeLimited && allLines.length > 1 && allLines[allLines.length - 1] === "";
+							const lineCount = endsWithNewline ? allLines.length - 1 : allLines.length;
+							const totalFileLines = rangeLimited ? lineCount + 1 : lineCount;
 							// Apply offset if specified. Convert from 1-indexed input to 0-indexed array access.
 							const startLine = offset ? Math.max(0, offset - 1) : 0;
 							const startLineDisplay = startLine + 1;
 							// Check if offset is out of bounds.
-							if (startLine >= allLines.length) {
-								throw new Error(`Offset ${offset} is beyond end of file (${allLines.length} lines total)`);
+							if (startLine >= lineCount) {
+								throw new Error(`Offset ${offset} is beyond end of file (${lineCount} lines total)`);
 							}
 							let selectedContent: string;
 							let userLimitedLines: number | undefined;
@@ -447,9 +451,9 @@ function createReadToolDefinitionInternal(
 									outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
 								}
 								details = { truncation };
-							} else if (userLimitedLines !== undefined && startLine + userLimitedLines < allLines.length) {
+							} else if (userLimitedLines !== undefined && startLine + userLimitedLines < lineCount) {
 								// User-specified limit stopped early, but the file still has more content.
-								const remaining = allLines.length - (startLine + userLimitedLines);
+								const remaining = lineCount - (startLine + userLimitedLines);
 								const nextOffset = startLine + userLimitedLines + 1;
 								outputText = `${truncation.content}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue.]`;
 							} else {

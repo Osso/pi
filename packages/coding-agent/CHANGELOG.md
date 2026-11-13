@@ -426,6 +426,7 @@
 - Fixed `pi @<directory>` (or an unreadable `@file`) printing `EISDIR`/`EACCES` and then hanging; Pi now reports the path and exits with status 1.
 - Fixed the external editor (Ctrl+G) doing nothing when the configured editor program could not be started; the main editor and extension editor dialogs now show `External editor failed: could not start <editor>: ...`.
 - Fixed resuming a session whose last write was cut off (for example by a crash or kill): the next entry was appended onto the partial line and lost, and later appends made the file fail to load with `Session file contains malformed JSONL entry`.
+- Fixed the `read` tool counting a file's final newline as an extra empty line, which produced a false `1 more lines in file` hint and accepted an offset one past the end.
 
 ### Changed
 
