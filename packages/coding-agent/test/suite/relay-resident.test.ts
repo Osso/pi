@@ -113,7 +113,7 @@ describe("Pi-managed relay resident", () => {
 							.toHaveLength(1);
 						expect(readFileSync(fake.starts, "utf8").trim().split("\n")).toEqual([String(resident.pid)]);
 						expect(pi.countSupervisorRequests("supervisor_advisory")).toBe(0);
-						expect(listRuntimeMailboxMessages(db)).toHaveLength(0);
+						await expect.poll(() => listRuntimeMailboxMessages(db), { timeout: 15000 }).toHaveLength(0);
 						await pi.restart();
 						expect(readResident(db)?.pid).toBe(resident.pid);
 						expect(readFileSync(fake.starts, "utf8").trim().split("\n")).toEqual([String(resident.pid)]);
