@@ -304,6 +304,9 @@ async function multiTurn<TApi extends Api>(model: Model<TApi>, options?: StreamO
 				expect(block.arguments).toBeTruthy();
 
 				const { a, b, operation } = block.arguments;
+				if (typeof a !== "number" || typeof b !== "number") {
+					throw new Error("Expected numeric operands");
+				}
 				let result: number;
 				switch (operation) {
 					case "add":

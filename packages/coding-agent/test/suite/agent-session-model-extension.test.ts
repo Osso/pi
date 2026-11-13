@@ -1624,7 +1624,11 @@ describe("AgentSession model and extension characterization", () => {
 		expect(resultEvents[0]?.toolCallId).toMatch(/^tool[:_-]/);
 		expect(getAssistantTexts(harness)).toContain("patched result");
 		expect(
-			harness.session.messages.find((message) => message.role === "toolResult" && message.details?.patched === true),
+			harness.session.messages.find(
+				(message) =>
+					message.role === "toolResult" &&
+					(message.details as { patched?: unknown } | undefined)?.patched === true,
+			),
 		).toBeDefined();
 		expect(
 			harness.session.messages.find((message) => message.role === "toolResult" && message.isError),

@@ -797,7 +797,7 @@ function convertMessages(
 						}
 						case "toolCall":
 							contentBlocks.push({
-								toolUse: { toolUseId: c.id, name: c.name, input: c.arguments },
+								toolUse: { toolUseId: c.id, name: c.name, input: c.arguments as DocumentType },
 							});
 							break;
 						case "thinking": {
