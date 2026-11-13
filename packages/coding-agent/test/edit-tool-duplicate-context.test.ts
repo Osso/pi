@@ -56,4 +56,17 @@ describe("edit tool duplicate match errors", () => {
 				.newContent,
 		).toBe('say "hi";\nsay \u201chi\u201d;\nvalue = 2;\nvalue = 1;\n');
 	});
+
+	it("rejects an exact edit that becomes ambiguous when another edit needs fuzzy matching", () => {
+		expect(() =>
+			applyEditsToNormalizedContent(
+				"a   \na   b\nfoo \u2018x\u2019\n",
+				[
+					{ oldText: "a   ", newText: "Z" },
+					{ oldText: "foo 'x'", newText: "FOO" },
+				],
+				"mixed.txt",
+			),
+		).toThrowError(/Found \d+ occurrences of edits\[0\] in mixed\.txt\./);
+	});
 });

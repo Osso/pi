@@ -440,9 +440,11 @@ export function applyEditsToNormalizedContent(
 			throw getNotFoundError(path, i, normalizedEdits.length);
 		}
 
-		// Count matches the way this edit matched: an exact match is unique even when fuzzy twins exist.
-		// A fuzzy match already searched normalized content (replacementBaseContent), so only oldText needs normalizing.
-		const searchText = matchResult.usedFuzzyMatch ? normalizeForFuzzyMatch(edit.oldText) : edit.oldText;
+		// Count occurrences in the content the replacement is applied to. Without fuzzy matching that is the original
+		// text, where an exact match is unique even when fuzzy twins exist. With fuzzy matching every edit applies to
+		// normalized content (replacementBaseContent), so oldText is normalized too: trailing whitespace that told two
+		// lines apart no longer does there.
+		const searchText = usedFuzzyMatch ? normalizeForFuzzyMatch(edit.oldText) : edit.oldText;
 		const occurrences = findTextOccurrences(replacementBaseContent, searchText).length;
 		if (occurrences > 1) {
 			throw getDuplicateError(path, i, normalizedEdits.length, occurrences, replacementBaseContent, searchText);
