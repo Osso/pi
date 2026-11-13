@@ -60,7 +60,16 @@ export function nextRelayMailbox(path: string, peer: string): RelayMailbox | und
 				| { session_path: string; message_id: string; data: string }
 				| undefined;
 			if (!row) return undefined;
-			const data: Record<string, unknown> = JSON.parse(row.data);
+			let parsed: unknown;
+			try {
+				parsed = JSON.parse(row.data);
+			} catch {
+				throw new Error(`Invalid stored relay mailbox JSON for ${peer}`);
+			}
+			if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+				throw new Error(`Invalid stored relay mailbox data for ${peer}`);
+			}
+			const data = parsed as Record<string, unknown>;
 			let seq = data.relaySeq;
 			if (seq === undefined) {
 				seq = readCounter(db, `relay-out:${peer}`) + 1;

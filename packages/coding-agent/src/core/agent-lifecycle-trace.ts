@@ -371,8 +371,13 @@ function formatTraceEvent(event: AgentLifecycleTraceEvent): string {
 
 function parseProcessIdentity(serialized: string | null): ProcessIdentity | undefined {
 	if (!serialized) return undefined;
-	const value: unknown = JSON.parse(serialized);
-	if (!value || typeof value !== "object") return undefined;
+	let value: unknown;
+	try {
+		value = JSON.parse(serialized);
+	} catch {
+		return undefined;
+	}
+	if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
 	const candidate = value as { incarnation?: unknown; pid?: unknown; startTimeTicks?: unknown };
 	if (typeof candidate.pid !== "number" || typeof candidate.startTimeTicks !== "number") return undefined;
 	return {
