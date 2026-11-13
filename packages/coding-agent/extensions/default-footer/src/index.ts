@@ -196,11 +196,11 @@ function formatStats(input: DefaultFooterComponentInput): string {
 	return parts.filter((part): part is string => part !== undefined).join(" ");
 }
 
-function formatRightSide(input: DefaultFooterComponentInput): string {
+function formatRightSide(input: DefaultFooterComponentInput, includeProvider: boolean): string {
 	const session = footerSession(input);
 	const modelName = session.model?.id || "no-model";
 	const effortSuffix = session.model?.reasoning ? ` • effort ${session.thinkingLevel}` : "";
-	if (input.footerData.getAvailableProviderCount() > 1 && session.model) {
+	if (includeProvider && input.footerData.getAvailableProviderCount() > 1 && session.model) {
 		return `(${session.model.provider}) ${modelName}${effortSuffix}`;
 	}
 	return `${modelName}${effortSuffix}`;
@@ -208,7 +208,10 @@ function formatRightSide(input: DefaultFooterComponentInput): string {
 
 function formatStatsLine(input: DefaultFooterComponentInput, width: number): string {
 	let left = formatStats(input);
-	const right = input.theme.fg("dim", formatRightSide(input));
+	let right = input.theme.fg("dim", formatRightSide(input, true));
+	if (visibleWidth(left) + 2 + visibleWidth(right) > width) {
+		right = input.theme.fg("dim", formatRightSide(input, false));
+	}
 	if (visibleWidth(left) + 2 + visibleWidth(right) > width) {
 		left = truncateToWidth(left, Math.max(0, width - visibleWidth(right) - 2), input.theme.fg("dim", "..."));
 	}

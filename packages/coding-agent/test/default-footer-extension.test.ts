@@ -535,4 +535,27 @@ describe("default footer extension", () => {
 		const line = stripAnsi(footer.render(120)[1] ?? "");
 		expect(line).toContain("reasoner • effort high");
 	});
+
+	it("drops provider prefix before truncating stats at narrow widths", () => {
+		initTheme(undefined, false);
+		const footer = createDefaultFooterComponent({
+			ctx: createContext({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 9.39 } }),
+			footerData: {
+				...createFooterData(),
+				getAvailableProviderCount: () => 2,
+			},
+			theme,
+		});
+
+		const wide = stripAnsi(footer.render(60)[1] ?? "");
+		expect(wide).toContain("(test) test-model");
+		expect(wide).toContain("cost $9.39 ctx 60.9%/272k");
+
+		// Left side ("cost $9.39 ctx 60.9%/272k", 25 cols) + 2 + "test-model" (10 cols) = 37 cols,
+		// whereas "(test) test-model" (17 cols) would need 44 cols and truncate left stats.
+		const narrow = stripAnsi(footer.render(38)[1] ?? "");
+		expect(narrow).toContain("cost $9.39 ctx 60.9%/272k");
+		expect(narrow).toContain("test-model");
+		expect(narrow).not.toContain("(test)");
+	});
 });
