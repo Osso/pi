@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	finalizeDetachedJobWithRetry,
+	readDetachedBashActivation,
+	readDetachedBashLaunchManifest,
 	runDetachedBashRunner,
 	writeDetachedBashActivation,
 	writeDetachedBashLaunchManifest,
@@ -257,6 +259,25 @@ describe("detached Bash runner", () => {
 			expect(result).toEqual({ ok: true, terminalRevision: 8 });
 			expect(attempts).toEqual([terminal, terminal, terminal]);
 		}
+	});
+
+	it("rejects malformed or non-object detached Bash activation and launch manifests explicitly", () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-detached-bash-boundary-"));
+		temporaryDirectories.push(root);
+		const activationPath = join(root, "activation.json");
+		const manifestPath = join(root, "manifest.json");
+
+		writeFileSync(activationPath, "{not-json");
+		expect(() => readDetachedBashActivation(activationPath)).toThrow(/Invalid detached Bash activation JSON/);
+
+		writeFileSync(activationPath, JSON.stringify({ jobId: 123 }));
+		expect(() => readDetachedBashActivation(activationPath)).toThrow(/Invalid detached Bash activation:/);
+
+		writeFileSync(manifestPath, "null");
+		expect(() => readDetachedBashLaunchManifest(manifestPath)).toThrow(/expected JSON object/);
+
+		writeFileSync(manifestPath, JSON.stringify({ version: 3, checksum: "bad" }));
+		expect(() => readDetachedBashLaunchManifest(manifestPath)).toThrow(/Invalid detached Bash launch manifest:/);
 	});
 });
 

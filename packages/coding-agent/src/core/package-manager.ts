@@ -1468,7 +1468,14 @@ export class DefaultPackageManager implements PackageManager {
 		);
 		const raw = stdout.trim();
 		if (!raw) throw new Error("Empty response from npm view");
-		const parsed = JSON.parse(raw) as unknown;
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(raw) as unknown;
+		} catch (error) {
+			throw new Error(
+				`Invalid JSON response from npm view: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
 		if (typeof parsed === "string") {
 			return parsed;
 		}
@@ -1942,10 +1949,23 @@ export class DefaultPackageManager implements PackageManager {
 		}
 
 		const output = this.runNpmCommandSync(["list", "-g", "--depth", "0", "--json"]);
-		const entries = JSON.parse(output) as Array<{ dependencies?: Record<string, { path?: string }> }>;
-		for (const entry of entries) {
-			const path = entry.dependencies?.[packageName]?.path;
-			if (path) return path;
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(output) as unknown;
+		} catch {
+			return undefined;
+		}
+		if (!Array.isArray(parsed)) {
+			return undefined;
+		}
+		for (const entry of parsed) {
+			if (typeof entry !== "object" || entry === null) continue;
+			const dependencies = (entry as { dependencies?: unknown }).dependencies;
+			if (typeof dependencies !== "object" || dependencies === null) continue;
+			const pkg = (dependencies as Record<string, unknown>)[packageName];
+			if (typeof pkg === "object" && pkg !== null && typeof (pkg as { path?: unknown }).path === "string") {
+				return (pkg as { path: string }).path;
+			}
 		}
 		return undefined;
 	}

@@ -136,7 +136,14 @@ function readSettings(settingsPath: string): Record<string, unknown> & { permiss
 		return {};
 	}
 
-	const parsed: unknown = JSON.parse(readFileSync(settingsPath, "utf-8"));
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(readFileSync(settingsPath, "utf-8"));
+	} catch (error) {
+		throw new Error(
+			`Failed to parse settings JSON in ${settingsPath}: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	}
 	return isRecord(parsed) ? parsed : {};
 }
 

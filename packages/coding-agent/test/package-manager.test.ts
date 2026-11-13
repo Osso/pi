@@ -2532,5 +2532,30 @@ export default function(api) { api.registerTool({ name: "test", description: "te
 
 			await expect(capturePromise).resolves.toBe("abc123");
 		});
+
+		it("should reject invalid JSON from npm view and ignore non-array pnpm list output", async () => {
+			settingsManager = SettingsManager.inMemory({ npmCommand: ["pnpm"] });
+			packageManager = new DefaultPackageManager({
+				cwd: tempDir,
+				agentDir,
+				settingsManager,
+			});
+
+			const managerWithInternals = packageManager as unknown as {
+				getLatestNpmVersion(packageSpec: string, range?: string): Promise<string>;
+				getPnpmGlobalPackagePath(packageName: string): string | undefined;
+			};
+
+			vi.spyOn(packageManager as any, "runCommandCapture").mockResolvedValueOnce("{bad-json");
+			await expect(managerWithInternals.getLatestNpmVersion("pi-pkg")).rejects.toThrow(
+				/Invalid JSON response from npm view/,
+			);
+
+			vi.spyOn(packageManager as any, "runCommandSync")
+				.mockReturnValueOnce("{bad-json")
+				.mockReturnValueOnce(JSON.stringify({ dependencies: {} }));
+			expect(managerWithInternals.getPnpmGlobalPackagePath("pi-pkg")).toBeUndefined();
+			expect(managerWithInternals.getPnpmGlobalPackagePath("pi-pkg")).toBeUndefined();
+		});
 	});
 });

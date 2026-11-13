@@ -95,4 +95,21 @@ describe("writePermissionRules", () => {
 		expect(content).toContain('"extensions":["./ext.ts"]');
 		expect(JSON.parse(content).permissionRules.allow.bash).toEqual(["git status"]);
 	});
+
+	it("fails with file path context without overwriting corrupt settings JSON", () => {
+		const settingsPath = join(agentDir, "settings.json");
+		writeFileSync(settingsPath, "{not-valid-json");
+
+		expect(() =>
+			writePermissionRules({
+				agentDir,
+				behavior: "allow",
+				cwd,
+				destination: "userSettings",
+				rules: ["git status"],
+				toolName: "bash",
+			}),
+		).toThrow(new RegExp(`Failed to parse settings JSON in ${settingsPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+		expect(readFileSync(settingsPath, "utf-8")).toBe("{not-valid-json");
+	});
 });

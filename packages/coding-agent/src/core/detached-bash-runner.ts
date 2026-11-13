@@ -70,9 +70,37 @@ export function writeDetachedBashActivation(path: string, identity: DetachedJobO
 	writeAtomicJson(path, identity);
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseJsonObjectFile(path: string, label: string): Record<string, unknown> {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(readFileSync(path, "utf8"));
+	} catch (error) {
+		throw new Error(`Invalid ${label} JSON in ${path}: ${error instanceof Error ? error.message : String(error)}`);
+	}
+	if (!isPlainRecord(parsed)) {
+		throw new Error(`Invalid ${label} in ${path}: expected JSON object`);
+	}
+	return parsed;
+}
+
 export function readDetachedBashActivation(path: string): DetachedJobOwnershipIdentity | undefined {
 	if (!existsSync(path)) return undefined;
-	return JSON.parse(readFileSync(path, "utf8")) as DetachedJobOwnershipIdentity;
+	const parsed = parseJsonObjectFile(path, "detached Bash activation");
+	if (
+		typeof parsed.jobId !== "string" ||
+		!isPlainRecord(parsed.owner) ||
+		typeof parsed.owner.sessionId !== "string" ||
+		(parsed.owner.agentId !== null && typeof parsed.owner.agentId !== "string") ||
+		!isPlainRecord(parsed.processIdentity) ||
+		typeof parsed.outputLabel !== "string"
+	) {
+		throw new Error(`Invalid detached Bash activation: ${path}`);
+	}
+	return parsed as unknown as DetachedJobOwnershipIdentity;
 }
 
 export function getDetachedBashRunnerInvocation(
@@ -248,13 +276,30 @@ async function waitForDetachedBashLaunchManifest(path: string): Promise<Detached
 	return readDetachedBashLaunchManifest(path);
 }
 
-function readDetachedBashLaunchManifest(path: string): DetachedBashLaunchManifest {
-	const parsed = JSON.parse(readFileSync(path, "utf8")) as DetachedBashLaunchManifest;
+export function readDetachedBashLaunchManifest(path: string): DetachedBashLaunchManifest {
+	const parsed = parseJsonObjectFile(path, "detached Bash launch manifest");
 	const { checksum, ...unsigned } = parsed;
-	if (parsed.version !== DETACHED_BASH_LAUNCH_VERSION || checksum !== hashJson(unsigned)) {
+	if (
+		parsed.version !== DETACHED_BASH_LAUNCH_VERSION ||
+		typeof checksum !== "string" ||
+		typeof parsed.activationPath !== "string" ||
+		!Array.isArray(parsed.args) ||
+		!parsed.args.every((arg): arg is string => typeof arg === "string") ||
+		!isPlainRecord(parsed.artifacts) ||
+		typeof parsed.artifacts.directory !== "string" ||
+		typeof parsed.artifacts.outputPath !== "string" ||
+		typeof parsed.command !== "string" ||
+		typeof parsed.controlDbPath !== "string" ||
+		typeof parsed.cwd !== "string" ||
+		!isPlainRecord(parsed.env) ||
+		typeof parsed.foregroundCompletionPath !== "string" ||
+		!isPlainRecord(parsed.runnerAddress) ||
+		typeof parsed.sessionPath !== "string" ||
+		checksum !== hashJson(unsigned)
+	) {
 		throw new Error(`Invalid detached Bash launch manifest: ${path}`);
 	}
-	return parsed;
+	return parsed as unknown as DetachedBashLaunchManifest;
 }
 
 function detachedBashOutcome(exitCode: number | null, signal: NodeJS.Signals | null): DetachedJobOutcome {
