@@ -409,6 +409,7 @@
 - Fixed `attach_session_agent` by path losing the session's display name; attached agents now default to the control-DB session name, then the original sub-agent name, before `Session <id>`.
 - Fixed malformed persisted process identity JSON breaking lifecycle traces; invalid relay mailbox data now reports a contextual error.
 - Fixed interactive mode exiting with `pi exiting due to uncaughtException` when a submitted command or async keybinding rejected, such as `/continue` without a selected model or valid credentials; the error now appears in the chat.
+- Fixed Ctrl+C (`SIGINT`) during `pi -p` or RPC mode leaving a running Bash tool command alive; Pi now kills the command's process tree, disposes the runtime, and exits with status 130.
 
 ### Changed
 

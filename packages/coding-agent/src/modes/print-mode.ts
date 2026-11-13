@@ -12,7 +12,7 @@ import type { AgentSessionRuntime } from "../core/agent-session-runtime.ts";
 import { getAssistantContentText } from "../core/assistant-narration.ts";
 import { flushRawStdout, writeRawStdout } from "../core/output-guard.ts";
 import { getControlDbPath } from "../core/session-control-db.ts";
-import { killTrackedDetachedChildren } from "../utils/shell.ts";
+import { killTrackedDetachedChildren, shutdownSignals, signalExitCode } from "../utils/shell.ts";
 import { toJsonPrintModeEvent } from "./json-event.ts";
 
 /**
@@ -62,16 +62,11 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 	};
 
 	const registerSignalHandlers = (): void => {
-		const signals: NodeJS.Signals[] = ["SIGTERM"];
-		if (process.platform !== "win32") {
-			signals.push("SIGHUP");
-		}
-
-		for (const signal of signals) {
+		for (const signal of shutdownSignals()) {
 			const handler = () => {
 				killTrackedDetachedChildren();
 				void disposeRuntime().finally(() => {
-					process.exit(signal === "SIGHUP" ? 129 : 143);
+					process.exit(signalExitCode(signal));
 				});
 			};
 			process.on(signal, handler);

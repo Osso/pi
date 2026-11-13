@@ -28,7 +28,7 @@ import {
 	writeRawStdout,
 } from "../../core/output-guard.ts";
 import { getControlDbPath } from "../../core/session-control-db.ts";
-import { killTrackedDetachedChildren } from "../../utils/shell.ts";
+import { killTrackedDetachedChildren, shutdownSignals, signalExitCode } from "../../utils/shell.ts";
 import { type Theme, theme } from "../interactive/theme/theme.ts";
 import { attachJsonlLineReader, serializeJsonLine } from "./jsonl.ts";
 import type {
@@ -378,15 +378,10 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 	};
 
 	const registerSignalHandlers = (): void => {
-		const signals: NodeJS.Signals[] = ["SIGTERM"];
-		if (process.platform !== "win32") {
-			signals.push("SIGHUP");
-		}
-
-		for (const signal of signals) {
+		for (const signal of shutdownSignals()) {
 			const handler = () => {
 				killTrackedDetachedChildren();
-				void shutdown(signal === "SIGHUP" ? 129 : 143, signal);
+				void shutdown(signalExitCode(signal), signal);
 			};
 			process.on(signal, handler);
 			signalCleanupHandlers.push(() => process.off(signal, handler));
@@ -735,7 +730,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		await runtimeHost.dispose();
 		detachInput();
 		process.stdin.pause();
-		if (signal !== "SIGTERM") {
+		// After SIGTERM or Ctrl+C the client may have stopped reading; a flush could block exit.
+		if (signal !== "SIGTERM" && signal !== "SIGINT") {
 			await flushRawStdout();
 		}
 		process.exit(exitCode);

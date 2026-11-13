@@ -174,10 +174,21 @@ export function sanitizeBinaryOutput(str: string): string {
 }
 
 /**
- * Detached child processes must be tracked so they can be killed on parent
- * shutdown signals (SIGHUP/SIGTERM).
+ * Detached child processes run in their own process group, so terminal signals do not reach them.
+ * They must be tracked so they can be killed on parent shutdown signals (SIGINT/SIGHUP/SIGTERM).
  */
 const trackedDetachedChildPids = new Set<number>();
+
+/** Signals that end a non-interactive run; the parent kills tracked children before exiting. */
+export function shutdownSignals(): NodeJS.Signals[] {
+	return process.platform === "win32" ? ["SIGINT", "SIGTERM"] : ["SIGINT", "SIGTERM", "SIGHUP"];
+}
+
+/** Conventional shell exit status for a process ended by the signal: 128 + signal number. */
+export function signalExitCode(signal: NodeJS.Signals): number {
+	if (signal === "SIGINT") return 130;
+	return signal === "SIGHUP" ? 129 : 143;
+}
 
 export function trackDetachedChildPid(pid: number): void {
 	trackedDetachedChildPids.add(pid);
