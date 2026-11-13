@@ -1,6 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { isToolResultTextTooLarge } from "@earendil-works/pi-agent-core";
 import { validateToolArguments } from "@earendil-works/pi-ai";
 import { applyPatch } from "diff";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1014,6 +1015,31 @@ describe("Coding Agent Tools", () => {
 					);
 				} finally {
 					chmodSync(join(searchDir, "locked"), 0o755);
+				}
+			},
+		);
+
+		// chmod cannot hide a directory from root or on Windows.
+		it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+			"keeps a byte-truncated result with an unsearchable deep path under the tool-result cap",
+			async () => {
+				const searchDir = join(testDir, "deep-locked");
+				const lockedDir = join(searchDir, ...Array.from({ length: 12 }, (_, depth) => `${depth}`.padEnd(100, "d")));
+				mkdirSync(lockedDir, { recursive: true });
+				writeFileSync(join(searchDir, "open.txt"), `${"needle line with some text\n".repeat(1000)}`);
+				writeFileSync(join(lockedDir, "hidden.txt"), "needle\n");
+				chmodSync(lockedDir, 0o000);
+				try {
+					const output = getTextOutput(
+						await grepTool.execute("grep-deep-partial", { pattern: "needle", path: searchDir, limit: 5000 }),
+					);
+
+					expect(output).toMatch(
+						/\n\n\[10\.0KB limit reached\. Some paths could not be searched: \.\.\.[^\n]*d: Permission denied \(os error 13\)\]$/,
+					);
+					expect(isToolResultTextTooLarge(output)).toBe(false);
+				} finally {
+					chmodSync(lockedDir, 0o755);
 				}
 			},
 		);

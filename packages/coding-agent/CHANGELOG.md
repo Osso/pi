@@ -441,6 +441,7 @@
 - Fixed RPC `switch_session` with a path that does not exist creating a new empty session there and reporting success; it now returns `Session not found: <path>` and keeps the current session (archived `.zst` sessions still resume). `pi --session <path>` is unchanged.
 - Fixed repeated compaction discarding the previous compaction summary when it split a long turn that the previous compaction had kept: the summary became `No prior history.` plus the turn prefix, so all earlier history was lost. The previous summary is now carried forward.
 - Fixed large tool outputs losing their first lines before reaching the model: a full `read` of a file over 10KB, and other output truncated to the 10KB / 2000-line limit, exceeded the outer tool-result caps once the continuation notice was appended, so the caps cut the start again (a 3000-line file arrived as lines 229-1891 under a `Showing lines 1-1891` notice). The outer caps now leave 1KB / 10 lines of room for the notice.
+- Fixed the `grep` notice for paths that could not be searched quoting the full ripgrep error: a deep unreadable path made the notice over 1KB, so the outer tool-result cap cut the start of the matches again. The notice now shows the last 160 characters of the error.
 
 ### Changed
 

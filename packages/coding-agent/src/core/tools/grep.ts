@@ -387,7 +387,10 @@ export function createGrepToolDefinition(
 							}
 							if (searchErrors.length > 0) {
 								const more = searchErrors.length > 1 ? ` (and ${searchErrors.length - 1} more)` : "";
-								notices.push(`Some paths could not be searched: ${searchErrors[0]}${more}`);
+								// Keep the notice within the tool-result cap headroom: a deep path can make the error kilobytes long.
+								const [error] = searchErrors;
+								const shownError = error.length > 160 ? `...${error.slice(-160)}` : error;
+								notices.push(`Some paths could not be searched: ${shownError}${more}`);
 							}
 							if (notices.length > 0) output += `\n\n[${notices.join(". ")}]`;
 							settle(() =>
