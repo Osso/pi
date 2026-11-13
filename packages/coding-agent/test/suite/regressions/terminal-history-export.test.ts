@@ -91,7 +91,8 @@ describe("saved terminal history export", () => {
 				timestamp: 0,
 			});
 		}
-		const branchPoint = session.getLeafId()!;
+		const branchPoint = session.getLeafId();
+		if (!branchPoint) throw new Error("Expected branchPoint");
 		session.appendMessage({ role: "user", content: "ABANDONED-SIBLING", timestamp: 0 });
 		session.branch(branchPoint);
 		session.appendCompaction("saved summary", kept, 50000);
@@ -190,7 +191,8 @@ describe("saved terminal history export", () => {
 			.trim()
 			.split("\n")
 			.map((line) => JSON.parse(line)) as FileEntry[];
-		const leaf = entries.at(-1)!;
+		const leaf = entries.at(-1);
+		if (!leaf) throw new Error("Expected leaf entry");
 		if (leaf.type !== "session") leaf.parentId = leaf.id;
 		writeFileSync(path, `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
 		expect(() => terminalExport.exportSessionToTerminal(path, 80)).toThrow(/parent|cycle/i);

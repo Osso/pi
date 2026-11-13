@@ -119,13 +119,16 @@ describe("child effective model metadata", () => {
 				modelId: "reasoning-one",
 				thinkingLevel: "high",
 			});
-			await child.session.setModel(child.getModel("reasoning-two")!);
+			const reasoningTwo = child.getModel("reasoning-two");
+			const plainModel = child.getModel("plain");
+			if (!reasoningTwo || !plainModel) throw new Error("Expected child models");
+			await child.session.setModel(reasoningTwo);
 			expect(readChild()?.model).toEqual({
 				providerId: "metadata-child",
 				modelId: "reasoning-two",
 				thinkingLevel: "high",
 			});
-			await child.session.setModel(child.getModel("plain")!);
+			await child.session.setModel(plainModel);
 			expect(child.session.thinkingLevel).toBe("off");
 			expect(readChild()?.model).toEqual({ providerId: "metadata-child", modelId: "plain", thinkingLevel: "off" });
 			child.session.setThinkingLevel("xhigh");
@@ -157,9 +160,9 @@ describe("child effective model metadata", () => {
 			expect(() => child.session.setThinkingLevel("high")).toThrow(/metadata update was rejected/);
 			expect(readChild()).toEqual(before);
 			expect(child.session.thinkingLevel).toBe(thinkingBefore);
-			await expect(child.session.setModel(child.getModel("reasoning-two")!)).rejects.toThrow(
-				/metadata update was rejected/,
-			);
+			const reasoningTwo = child.getModel("reasoning-two");
+			if (!reasoningTwo) throw new Error("Expected reasoning-two model");
+			await expect(child.session.setModel(reasoningTwo)).rejects.toThrow(/metadata update was rejected/);
 			expect(readChild()).toEqual(before);
 			expect(child.session.model).toBe(modelBefore);
 			expect(child.session.thinkingLevel).toBe(thinkingBefore);

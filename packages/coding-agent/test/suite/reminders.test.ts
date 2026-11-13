@@ -304,7 +304,11 @@ describe("/reminders command", () => {
 		});
 		await runReminderTool(writer, { action: "add", title: "Overdue backup check", dueAt: "2026-10-20T09:00:00Z" });
 		await runReminderTool(writer, { action: "add", title: "Finished audit", dueAt: "2026-10-21T09:00:00Z" });
-		const byTitle = (title: string) => listReminders(path, "all").find((reminder) => reminder.title === title)!;
+		const byTitle = (title: string) => {
+			const found = listReminders(path, "all").find((reminder) => reminder.title === title);
+			if (!found) throw new Error(`Missing reminder: ${title}`);
+			return found;
+		};
 		const [certificate, backup, audit] = ["Renew certificate", "Overdue backup check", "Finished audit"].map(byTitle);
 		await runReminderTool(writer, { action: "complete", id: audit.id });
 		const beforeListing = listReminders(path, "all");

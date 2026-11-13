@@ -81,8 +81,8 @@ describe("regression #5661: uppercase models.json header values", () => {
 
 		const registry = ModelRegistry.create(AuthStorage.create(join(harness.tempDir, "auth.json")), modelsPath);
 		const model = registry.find("my-provider", "my-model");
-		expect(model).toBeDefined();
-		expect(await registry.getApiKeyAndHeaders(model!)).toMatchObject({
+		if (!model) throw new Error("Expected my-provider/my-model");
+		expect(await registry.getApiKeyAndHeaders(model)).toMatchObject({
 			ok: true,
 			apiKey: "CUSTOM_API_KEY",
 			headers: { Authorization: "BEARER" },

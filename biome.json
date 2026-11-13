@@ -79,7 +79,11 @@
 			}
 		},
 		{
-			"includes": ["packages/coding-agent/src/**/*.ts", "packages/coding-agent/examples/**/*.ts"],
+			"includes": [
+				"packages/coding-agent/src/**/*.ts",
+				"packages/coding-agent/examples/**/*.ts",
+				"packages/coding-agent/test/suite/**/*.ts"
+			],
 			"linter": {
 				"rules": {
 					"style": {

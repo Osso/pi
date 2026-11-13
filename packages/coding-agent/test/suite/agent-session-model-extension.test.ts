@@ -40,7 +40,8 @@ describe("AgentSession model and extension characterization", () => {
 			harnesses.pop()?.cleanup();
 		}
 		while (hookScriptDirs.length > 0) {
-			rmSync(hookScriptDirs.pop()!, { force: true, recursive: true });
+			const dir = hookScriptDirs.pop();
+			if (dir) rmSync(dir, { force: true, recursive: true });
 		}
 		desktopNotifier.mockReset();
 		if (originalClaudeBashHook === undefined) {
@@ -158,7 +159,8 @@ describe("AgentSession model and extension characterization", () => {
 			],
 		});
 		harnesses.push(harness);
-		const nextModel = harness.getModel("faux-2")!;
+		const nextModel = harness.getModel("faux-2");
+		if (!nextModel) throw new Error("Expected faux-2 model");
 
 		harness.session.setThinkingLevel("high");
 		await harness.session.setModel(nextModel);
@@ -166,8 +168,8 @@ describe("AgentSession model and extension characterization", () => {
 		expect(harness.session.model?.id).toBe("faux-2");
 		expect(modelEvents).toEqual(["faux-1->faux-2:set"]);
 		const sessionFile = harness.sessionManager.getSessionFile();
-		expect(sessionFile).toBeDefined();
-		expect(readSessionMetadata(getControlDbPath(harness.tempDir), sessionFile!)).toMatchObject({
+		if (!sessionFile) throw new Error("Expected sessionFile");
+		expect(readSessionMetadata(getControlDbPath(harness.tempDir), sessionFile)).toMatchObject({
 			modelProvider: nextModel.provider,
 			modelId: nextModel.id,
 			thinkingLevel: harness.session.thinkingLevel,
@@ -193,8 +195,9 @@ describe("AgentSession model and extension characterization", () => {
 		const mainHarness = await createHarness({ models, settings });
 		harnesses.push(childHarness, mainHarness);
 
-		const childModelOne = childHarness.getModel("faux-1")!;
-		const childModelTwo = childHarness.getModel("faux-2")!;
+		const childModelOne = childHarness.getModel("faux-1");
+		const childModelTwo = childHarness.getModel("faux-2");
+		if (!childModelOne || !childModelTwo) throw new Error("Expected child faux models");
 		await childHarness.session.setModel(childModelTwo);
 		childHarness.session.setThinkingLevel("high");
 		childHarness.session.setScopedModels([{ model: childModelOne }, { model: childModelTwo }]);
@@ -204,7 +207,9 @@ describe("AgentSession model and extension characterization", () => {
 		expect(childHarness.settingsManager.getDefaultModel()).toBe("initial-model");
 		expect(childHarness.settingsManager.getDefaultThinkingLevel()).toBe("medium");
 
-		await mainHarness.session.setModel(mainHarness.getModel("faux-2")!);
+		const mainModelTwo = mainHarness.getModel("faux-2");
+		if (!mainModelTwo) throw new Error("Expected main faux-2 model");
+		await mainHarness.session.setModel(mainModelTwo);
 		mainHarness.session.setThinkingLevel("high");
 
 		expect(mainHarness.settingsManager.getDefaultProvider()).toBe("faux");
@@ -220,8 +225,9 @@ describe("AgentSession model and extension characterization", () => {
 			],
 		});
 		harnesses.push(harness);
-		const modelOne = harness.getModel("faux-1")!;
-		const modelTwo = harness.getModel("faux-2")!;
+		const modelOne = harness.getModel("faux-1");
+		const modelTwo = harness.getModel("faux-2");
+		if (!modelOne || !modelTwo) throw new Error("Expected faux models");
 		harness.session.setScopedModels([{ model: modelOne, thinkingLevel: "high" }, { model: modelTwo }] as Array<{
 			model: Model<string>;
 			thinkingLevel?: ThinkingLevel;
@@ -283,7 +289,9 @@ describe("AgentSession model and extension characterization", () => {
 		});
 		harnesses.push(harness);
 
-		await expect(harness.session.setModel(harness.getModel("faux-2")!)).rejects.toThrow(
+		const modelTwo = harness.getModel("faux-2");
+		if (!modelTwo) throw new Error("Expected faux-2 model");
+		await expect(harness.session.setModel(modelTwo)).rejects.toThrow(
 			`No API key for ${harness.getModel().provider}/faux-2`,
 		);
 	});

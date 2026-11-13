@@ -1,5 +1,6 @@
 import type { AgentMessage, AgentTool } from "@earendil-works/pi-agent-core";
 import {
+	type Api,
 	type AssistantMessage,
 	createAssistantMessageEventStream,
 	fauxAssistantMessage,
@@ -437,7 +438,7 @@ describe("AgentSession compaction characterization", () => {
 	it("throws when compacting without a model", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
-		harness.session.agent.state.model = undefined as unknown as Model<any>;
+		harness.session.agent.state.model = undefined as unknown as Model<Api>;
 
 		await expect(harness.session.compact()).rejects.toThrow("No model selected");
 	});
@@ -1194,7 +1195,8 @@ describe("AgentSession compaction characterization", () => {
 			timestamp: staleTimestamp - 1000,
 		});
 		harness.sessionManager.appendMessage(staleAssistant);
-		const firstKeptEntryId = harness.sessionManager.getEntries()[0]!.id;
+		const firstKeptEntryId = harness.sessionManager.getEntries()[0]?.id;
+		if (!firstKeptEntryId) throw new Error("Expected firstKeptEntryId");
 		harness.sessionManager.appendCompaction(
 			"summary",
 			firstKeptEntryId,
@@ -1281,7 +1283,8 @@ describe("AgentSession compaction characterization", () => {
 			timestamp: preCompactionTimestamp - 1000,
 		});
 		harness.sessionManager.appendMessage(keptAssistant);
-		const firstKeptEntryId = harness.sessionManager.getEntries()[0]!.id;
+		const firstKeptEntryId = harness.sessionManager.getEntries()[0]?.id;
+		if (!firstKeptEntryId) throw new Error("Expected firstKeptEntryId");
 		harness.sessionManager.appendCompaction(
 			"summary",
 			firstKeptEntryId,

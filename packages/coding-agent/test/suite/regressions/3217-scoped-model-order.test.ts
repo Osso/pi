@@ -106,9 +106,10 @@ describe("issue #3217 scoped model ordering", () => {
 		});
 		harnesses.push(harness);
 
-		const modelOne = harness.getModel("faux-1")!;
-		const modelTwo = harness.getModel("faux-2")!;
-		const modelThree = harness.getModel("faux-3")!;
+		const modelOne = harness.getModel("faux-1");
+		const modelTwo = harness.getModel("faux-2");
+		const modelThree = harness.getModel("faux-3");
+		if (!modelOne || !modelTwo || !modelThree) throw new Error("Expected faux models");
 		const selector = new ModelSelectorComponent(
 			createFakeTui(),
 			modelOne,

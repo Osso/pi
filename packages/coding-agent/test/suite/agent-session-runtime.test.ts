@@ -213,10 +213,13 @@ describe("AgentSessionRuntime characterization", () => {
 		expect(runtime.cwd).toBe(targetCwd);
 		expect(runtime.session.sessionManager.getCwd()).toBe(targetCwd);
 		expect(runtime.session.sessionManager.getSessionFile()).not.toBe(originalSessionFile);
-		expect(existsSync(originalSessionFile!)).toBe(false);
+		if (!originalSessionFile) throw new Error("Expected originalSessionFile");
+		expect(existsSync(originalSessionFile)).toBe(false);
 		expect(rebindCalls).toEqual([targetCwd]);
-		const sessionText = readFileSync(runtime.session.sessionManager.getSessionFile()!, "utf8");
-		const header = JSON.parse(sessionText.split("\n")[0]!) as { cwd: string };
+		const relocatedSessionFile = runtime.session.sessionManager.getSessionFile();
+		if (!relocatedSessionFile) throw new Error("Expected relocated session file");
+		const sessionText = readFileSync(relocatedSessionFile, "utf8");
+		const header = JSON.parse(sessionText.split("\n")[0] ?? "{}") as { cwd: string };
 		expect(header.cwd).toBe(tempDir);
 		expect(sessionText).toContain("Working directory changed from");
 	});
@@ -365,7 +368,8 @@ describe("AgentSessionRuntime characterization", () => {
 
 		events.length = 0;
 
-		const switchResult = await runtime.switchSession(originalSessionFile!);
+		if (!originalSessionFile) throw new Error("Expected originalSessionFile");
+		const switchResult = await runtime.switchSession(originalSessionFile);
 		expect(switchResult.cancelled).toBe(false);
 		await runtime.session.bindExtensions({});
 		expect(events).toEqual([
@@ -422,7 +426,9 @@ describe("AgentSessionRuntime characterization", () => {
 			timestamp: Date.now(),
 		});
 
-		await runtime.switchSession(targetSession.getSessionFile()!);
+		const targetSessionFile = targetSession.getSessionFile();
+		if (!targetSessionFile) throw new Error("Expected targetSessionFile");
+		await runtime.switchSession(targetSessionFile);
 
 		const currentSessionId = runtime.session.sessionId;
 		const mainListeners = listRuntimeMailboxListeners(getControlDbPath(tempDir)).filter(
@@ -474,8 +480,9 @@ describe("AgentSessionRuntime characterization", () => {
 		const otherSession = SessionManager.create(otherDir, defaultSessionDir(otherDir, tempDir));
 		otherSession.appendMessage({ role: "user", content: [{ type: "text", text: "other" }], timestamp: Date.now() });
 		const otherSessionFile = otherSession.getSessionFile();
+		if (!otherSessionFile) throw new Error("Expected otherSessionFile");
 		cancelReason = "resume";
-		const resumeResult = await runtime.switchSession(otherSessionFile!);
+		const resumeResult = await runtime.switchSession(otherSessionFile);
 		expect(resumeResult.cancelled).toBe(true);
 		expect(runtime.session.sessionFile).toBe(originalSessionFile);
 	});
@@ -518,7 +525,8 @@ describe("AgentSessionRuntime characterization", () => {
 
 		events.length = 0;
 		await runtime.session.prompt("hello");
-		const userMessage = runtime.session.getUserMessagesForForking()[0]!;
+		const userMessage = runtime.session.getUserMessagesForForking()[0];
+		if (!userMessage) throw new Error("Expected user message for forking");
 		const previousSessionFile = runtime.session.sessionFile;
 
 		const successResult = await runtime.fork(userMessage.entryId);
@@ -530,7 +538,9 @@ describe("AgentSessionRuntime characterization", () => {
 			{ type: "session_shutdown", reason: "fork", targetSessionFile: runtime.session.sessionFile },
 			{ type: "session_start", reason: "fork", previousSessionFile },
 		]);
-		const sessionFileName = parse(runtime.session.sessionFile!).name;
+		const forkedSessionFile = runtime.session.sessionFile;
+		if (!forkedSessionFile) throw new Error("Expected forked sessionFile");
+		const sessionFileName = parse(forkedSessionFile).name;
 		expect(sessionFileName.endsWith(`_${runtime.session.sessionId}`)).toBe(true);
 
 		events.length = 0;
@@ -683,10 +693,10 @@ describe("AgentSessionRuntime characterization", () => {
 					: undefined,
 		}));
 		const leafId = runtime.session.sessionManager.getLeafId();
-		expect(leafId).toBeTruthy();
+		if (!leafId) throw new Error("Expected leafId");
 		expect(runtime.session.sessionFile).toBeUndefined();
 
-		const result = await runtime.fork(leafId!, { position: "at" });
+		const result = await runtime.fork(leafId, { position: "at" });
 		expect(result).toEqual({ cancelled: false, selectedText: undefined });
 		expect(runtime.session.sessionFile).toBeUndefined();
 		expect(
@@ -775,7 +785,8 @@ describe("AgentSessionRuntime characterization", () => {
 			await otherRuntime.dispose();
 		});
 		await otherRuntime.session.prompt("other");
-		const otherSessionFile = otherRuntime.session.sessionFile!;
+		const otherSessionFile = otherRuntime.session.sessionFile;
+		if (!otherSessionFile) throw new Error("Expected otherSessionFile");
 
 		await runtime.switchSession(otherSessionFile);
 
@@ -796,7 +807,8 @@ describe("AgentSessionRuntime characterization", () => {
 		const existingSession = SessionManager.create(otherDir, defaultSessionDir(otherDir, tempDir));
 		existingSession.setMetadataControlDbPath(controlDbPath);
 		existingSession.persistForRecovery();
-		const targetSessionFile = existingSession.getSessionFile()!;
+		const targetSessionFile = existingSession.getSessionFile();
+		if (!targetSessionFile) throw new Error("Expected targetSessionFile");
 
 		await runtime.switchSession(targetSessionFile);
 
@@ -882,10 +894,13 @@ describe("AgentSessionRuntime characterization", () => {
 		cleanups.push(async () => {
 			await otherRuntime.dispose();
 		});
-		await otherRuntime.session.setModel(faux.getModel("faux-2")!);
+		const faux2 = faux.getModel("faux-2");
+		if (!faux2) throw new Error("Expected faux-2");
+		await otherRuntime.session.setModel(faux2);
 		otherRuntime.session.setThinkingLevel("off");
 		otherRuntime.session.sessionManager.persistForRecovery();
-		const targetSessionFile = otherRuntime.session.sessionFile!;
+		const targetSessionFile = otherRuntime.session.sessionFile;
+		if (!targetSessionFile) throw new Error("Expected targetSessionFile");
 		const controlDbPath = getControlDbPath(tempDir);
 		const settingsBeforeResume = readSessionMetadata(controlDbPath, targetSessionFile);
 

@@ -107,7 +107,8 @@ describe("Pi-managed relay resident", () => {
 					try {
 						await Promise.all([pi.startSharedSession(), pi.startSharedSession()]);
 						await expect.poll(() => readResident(db), { timeout: 15000 }).toMatchObject({ version: VERSION });
-						const resident = readResident(db)!;
+						const resident = readResident(db);
+						if (!resident) throw new Error("Expected resident");
 						await expect
 							.poll(() => listRuntimeMailboxMessages(fake.remoteDb), { timeout: 15000 })
 							.toHaveLength(1);
@@ -142,11 +143,12 @@ describe("Pi-managed relay resident", () => {
 					try {
 						await pi.startSharedSession();
 						await expect.poll(() => readResident(db), { timeout: 15000 }).toMatchObject({ version: VERSION });
-						const old = readResident(db)!;
+						const old = readResident(db);
+						if (!old) throw new Error("Expected previous resident");
 						writeFileSync(`${db}.relay.json`, JSON.stringify({ ...old, version: "0.0.0" }));
 						await pi.startSharedSession();
 						await expect.poll(() => readResident(db), { timeout: 15000 }).toMatchObject({ version: VERSION });
-						expect(readResident(db)!.pid).not.toBe(old.pid);
+						expect(readResident(db)?.pid).not.toBe(old.pid);
 						expect(isProcessIdentityAlive(old)).toBe(false);
 					} finally {
 						await stopResident(db);

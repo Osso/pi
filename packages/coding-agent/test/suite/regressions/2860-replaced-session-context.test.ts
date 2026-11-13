@@ -232,7 +232,9 @@ describe("regression #2860: replaced session callbacks", () => {
 
 		expect(events).toEqual(["start:startup", "shutdown:restart", "start:restart"]);
 		expect(runtime.session.sessionFile).toBe(sessionFiles[0]);
-		expect(getText(runtime.session.messages.at(-1)!)).toBe("Restarted test session.");
+		const lastMessage = runtime.session.messages.at(-1);
+		if (!lastMessage) throw new Error("Expected last session message");
+		expect(getText(lastMessage)).toBe("Restarted test session.");
 	});
 
 	it("supports withSession for fork", async () => {
@@ -291,8 +293,10 @@ describe("regression #2860: replaced session callbacks", () => {
 		const newSessionResult = await runtime.newSession();
 		expect(newSessionResult.cancelled).toBe(false);
 		await runtime.session.prompt("target");
-		targetSessionPath = runtime.session.sessionFile!;
-		await runtime.switchSession(originalSessionPath!);
+		const nextSessionFile = runtime.session.sessionFile;
+		if (!nextSessionFile || !originalSessionPath) throw new Error("Expected session file paths");
+		targetSessionPath = nextSessionFile;
+		await runtime.switchSession(originalSessionPath);
 
 		await runtime.session.prompt("/switch-it");
 

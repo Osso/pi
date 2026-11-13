@@ -252,7 +252,8 @@ describe("wait_agent request-relative deadline", () => {
 		// An idle goal review waits for agents through callTool, outside any model turn.
 		vi.setSystemTime(REQUEST_START + 26 * MINUTE);
 		let settled = false;
-		const wait = api!.callTool("wait_agent", {}).then((result) => {
+		if (!api) throw new Error("Expected multi-agent extension api");
+		const wait = api.callTool("wait_agent", {}).then((result) => {
 			settled = true;
 			return result;
 		});

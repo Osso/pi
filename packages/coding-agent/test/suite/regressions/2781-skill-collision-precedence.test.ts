@@ -69,8 +69,8 @@ describe("issue #2781 skill collision precedence: user skills should override pa
 		const { skills } = loader.getSkills();
 		const webFetch = skills.find((s) => s.name === "web-fetch");
 		expect(webFetch).toBeDefined();
-		expect(webFetch!.filePath).toBe(userSkillPath);
-		expect(webFetch!.description).toBe("User web-fetch override");
+		expect(webFetch?.filePath).toBe(userSkillPath);
+		expect(webFetch?.description).toBe("User web-fetch override");
 	});
 
 	it("project auto-discovered skill should override package skill with same name", async () => {
@@ -84,8 +84,8 @@ describe("issue #2781 skill collision precedence: user skills should override pa
 		const { skills } = loader.getSkills();
 		const webFetch = skills.find((s) => s.name === "web-fetch");
 		expect(webFetch).toBeDefined();
-		expect(webFetch!.filePath).toBe(projectSkillPath);
-		expect(webFetch!.description).toBe("Project web-fetch override");
+		expect(webFetch?.filePath).toBe(projectSkillPath);
+		expect(webFetch?.description).toBe("Project web-fetch override");
 	});
 
 	it("project skill should override user skill which should override package skill", async () => {
@@ -100,8 +100,8 @@ describe("issue #2781 skill collision precedence: user skills should override pa
 		const { skills } = loader.getSkills();
 		const webFetch = skills.find((s) => s.name === "web-fetch");
 		expect(webFetch).toBeDefined();
-		expect(webFetch!.filePath).toBe(projectSkillPath);
-		expect(webFetch!.description).toBe("Project web-fetch override");
+		expect(webFetch?.filePath).toBe(projectSkillPath);
+		expect(webFetch?.description).toBe("Project web-fetch override");
 	});
 
 	it("collision diagnostics should report package skill as loser when user skill wins", async () => {
@@ -115,6 +115,6 @@ describe("issue #2781 skill collision precedence: user skills should override pa
 		const { diagnostics } = loader.getSkills();
 		const collision = diagnostics.find((d) => d.type === "collision" && d.collision?.name === "web-fetch");
 		expect(collision).toBeDefined();
-		expect(collision!.collision!.loserPath).toContain("fake-package");
+		expect(collision?.collision?.loserPath).toContain("fake-package");
 	});
 });

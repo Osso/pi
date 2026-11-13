@@ -2,7 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { fauxAssistantMessage, fauxToolCall, type Model } from "@earendil-works/pi-ai";
+import { type Api, fauxAssistantMessage, fauxToolCall, type Model } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { InputEvent } from "../../src/core/extensions/index.ts";
@@ -86,7 +86,9 @@ describe("AgentSession prompt characterization", () => {
 			"assistant",
 			"toolResult",
 		]);
-		expect(getMessageText(harness.session.messages[0]!)).toBe("hi");
+		const firstMessage = harness.session.messages[0];
+		if (!firstMessage) throw new Error("Expected first message");
+		expect(getMessageText(firstMessage)).toBe("hi");
 		expect(harness.getPendingResponseCount()).toBe(0);
 	});
 
@@ -581,7 +583,9 @@ describe("AgentSession prompt characterization", () => {
 			"assistant",
 			"toolResult",
 		]);
-		expect(getMessageText(harness.session.messages[0]!)).toBe("from extension");
+		const firstMessage = harness.session.messages[0];
+		if (!firstMessage) throw new Error("Expected first message");
+		expect(getMessageText(firstMessage)).toBe("from extension");
 	});
 
 	it("does not report streamingBehavior to input handlers while idle", async () => {
@@ -902,7 +906,7 @@ describe("AgentSession prompt characterization", () => {
 	it("throws when prompting without a model", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
-		harness.session.agent.state.model = undefined as unknown as Model<any>;
+		harness.session.agent.state.model = undefined as unknown as Model<Api>;
 
 		await expect(harness.session.prompt("hi")).rejects.toThrow("No model selected.");
 	});

@@ -103,7 +103,9 @@ function expectRestartJobResult(request: HeadlessLlmRequest, toolName: string, j
 	const results = request.messages.filter((message) => message.role === "toolResult" && message.toolName === toolName);
 	expect(results).toHaveLength(1);
 	expect(results[0]).toMatchObject({ isError: false, details: { backgroundJobId: jobId } });
-	const resultIndex = request.messages.indexOf(results[0]!);
+	const firstResult = results[0];
+	if (!firstResult) throw new Error("Expected restart job toolResult");
+	const resultIndex = request.messages.indexOf(firstResult);
 	const noticeIndex = request.messages.findIndex((message) =>
 		JSON.stringify(message).includes("The agent process was restarted"),
 	);
