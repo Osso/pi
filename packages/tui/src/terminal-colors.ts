@@ -38,11 +38,13 @@ export function parseOsc11BackgroundColor(data: string): RgbColor | undefined {
 		return undefined;
 	}
 
-	const value = match[1].trim();
-	if (value.startsWith("#")) {
-		const hex = value.slice(1);
+	const value = match[1];
+	if (value === undefined) return undefined;
+	const trimmedValue = value.trim();
+	if (trimmedValue.startsWith("#")) {
+		const hex = trimmedValue.slice(1);
 		if (/^[0-9a-f]{6}$/i.test(hex)) {
-			return hexToRgb(value);
+			return hexToRgb(trimmedValue);
 		}
 		if (/^[0-9a-f]{12}$/i.test(hex)) {
 			const r = parseOscHexChannel(hex.slice(0, 4));

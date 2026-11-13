@@ -1674,7 +1674,9 @@ export class Editor implements Component, Focusable {
 		let currentVisualCol: number;
 		if (this.snappedFromCursorCol !== null) {
 			const vlIndex = this.findVisualLineAt(visualLines, currentVL.logicalLine, this.snappedFromCursorCol);
-			currentVisualCol = this.snappedFromCursorCol - visualLines[vlIndex].startCol;
+			const snappedVisualLine = visualLines[vlIndex];
+			if (!snappedVisualLine) throw new Error(`Missing visual line at index ${vlIndex}`);
+			currentVisualCol = this.snappedFromCursorCol - snappedVisualLine.startCol;
 		} else {
 			currentVisualCol = this.state.cursorCol - currentVL.startCol;
 		}
@@ -1715,11 +1717,10 @@ export class Editor implements Component, Focusable {
 					// continuation VLs and land on the first VL past it.
 					const segEnd = seg.index + seg.segment.length;
 					let next = targetVisualLine + 1;
-					while (
-						next < visualLines.length &&
-						visualLines[next].logicalLine === targetVL.logicalLine &&
-						visualLines[next].startCol < segEnd
-					) {
+					while (next < visualLines.length) {
+						const nextVisualLine = visualLines[next];
+						if (!nextVisualLine) throw new Error(`Missing visual line at index ${next}`);
+						if (nextVisualLine.logicalLine !== targetVL.logicalLine || nextVisualLine.startCol >= segEnd) break;
 						next++;
 					}
 					if (next < visualLines.length) {

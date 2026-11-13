@@ -26,6 +26,7 @@ class StrictStrikethroughTokenizer extends Tokenizer {
 		}
 
 		const text = match[2];
+		if (text === undefined) return undefined;
 		return {
 			type: "del",
 			raw: match[0],
@@ -276,6 +277,7 @@ export class Markdown implements Component {
 
 		for (let i = 0; i < tokens.length; i++) {
 			const token = tokens[i];
+			if (!token) throw new Error(`Missing markdown token at index ${i}`);
 			const nextTokenType = tokens[i + 1]?.type;
 			const fingerprint = JSON.stringify(token);
 			const previousCache = this.previousTokenCaches[i];
@@ -511,6 +513,7 @@ export class Markdown implements Component {
 				const renderedQuoteLines: string[] = [];
 				for (let i = 0; i < quoteTokens.length; i++) {
 					const quoteToken = quoteTokens[i];
+					if (!quoteToken) throw new Error(`Missing blockquote token at index ${i}`);
 					const nextQuoteToken = quoteTokens[i + 1];
 					renderedQuoteLines.push(
 						...this.renderToken(quoteToken, quoteContentWidth, nextQuoteToken?.type, quoteInlineStyleContext),
@@ -688,6 +691,7 @@ export class Markdown implements Component {
 
 		for (let i = 0; i < token.items.length; i++) {
 			const item = token.items[i];
+			if (!item) throw new Error(`Missing list item at index ${i}`);
 			const isLastItem = i === token.items.length - 1;
 			const bullet = token.ordered
 				? this.options.preserveOrderedListMarkers
@@ -793,13 +797,17 @@ export class Markdown implements Component {
 		const naturalWidths: number[] = [];
 		const minWordWidths: number[] = [];
 		for (let i = 0; i < numCols; i++) {
-			const headerText = this.renderInlineTokens(token.header[i].tokens || [], styleContext);
+			const headerCell = token.header[i];
+			if (!headerCell) throw new Error(`Missing table header cell at index ${i}`);
+			const headerText = this.renderInlineTokens(headerCell.tokens || [], styleContext);
 			naturalWidths[i] = visibleWidth(headerText);
 			minWordWidths[i] = Math.max(1, this.getLongestWordWidth(headerText, maxUnbrokenWordWidth));
 		}
 		for (const row of token.rows) {
 			for (let i = 0; i < row.length; i++) {
-				const cellText = this.renderInlineTokens(row[i].tokens || [], styleContext);
+				const cell = row[i];
+				if (!cell) throw new Error(`Missing table cell at index ${i}`);
+				const cellText = this.renderInlineTokens(cell.tokens || [], styleContext);
 				naturalWidths[i] = Math.max(naturalWidths[i] || 0, visibleWidth(cellText));
 				minWordWidths[i] = Math.max(
 					minWordWidths[i] || 1,
@@ -823,13 +831,20 @@ export class Markdown implements Component {
 				});
 
 				for (let i = 0; i < numCols; i++) {
-					minColumnWidths[i] += growth[i] ?? 0;
+					const growthForColumn = growth[i];
+					const minimumWidth = minColumnWidths[i];
+					if (growthForColumn === undefined || minimumWidth === undefined) {
+						throw new Error(`Missing table width at index ${i}`);
+					}
+					minColumnWidths[i] = minimumWidth + growthForColumn;
 				}
 
 				const allocated = growth.reduce((total, width) => total + width, 0);
 				let leftover = remaining - allocated;
 				for (let i = 0; leftover > 0 && i < numCols; i++) {
-					minColumnWidths[i]++;
+					const minimumWidth = minColumnWidths[i];
+					if (minimumWidth === undefined) throw new Error(`Missing minimum table width at index ${i}`);
+					minColumnWidths[i] = minimumWidth + 1;
 					leftover--;
 				}
 			}
@@ -843,15 +858,22 @@ export class Markdown implements Component {
 
 		if (totalNaturalWidth <= availableWidth) {
 			// Everything fits naturally
-			columnWidths = naturalWidths.map((width, index) => Math.max(width, minColumnWidths[index]));
+			columnWidths = naturalWidths.map((width, index) => {
+				const minWidth = minColumnWidths[index];
+				if (minWidth === undefined) throw new Error(`Missing minimum table width at index ${index}`);
+				return Math.max(width, minWidth);
+			});
 		} else {
 			// Need to shrink columns to fit
 			const totalGrowPotential = naturalWidths.reduce((total, width, index) => {
-				return total + Math.max(0, width - minColumnWidths[index]);
+				const minWidth = minColumnWidths[index];
+				if (minWidth === undefined) throw new Error(`Missing minimum table width at index ${index}`);
+				return total + Math.max(0, width - minWidth);
 			}, 0);
 			const extraWidth = Math.max(0, availableForCells - minCellsWidth);
 			columnWidths = minColumnWidths.map((minWidth, index) => {
 				const naturalWidth = naturalWidths[index];
+				if (naturalWidth === undefined) throw new Error(`Missing natural table width at index ${index}`);
 				const minWidthDelta = Math.max(0, naturalWidth - minWidth);
 				let grow = 0;
 				if (totalGrowPotential > 0) {
@@ -866,8 +888,13 @@ export class Markdown implements Component {
 			while (remaining > 0) {
 				let grew = false;
 				for (let i = 0; i < numCols && remaining > 0; i++) {
-					if (columnWidths[i] < naturalWidths[i]) {
-						columnWidths[i]++;
+					const columnWidth = columnWidths[i];
+					const naturalWidth = naturalWidths[i];
+					if (columnWidth === undefined || naturalWidth === undefined) {
+						throw new Error(`Missing table width at index ${i}`);
+					}
+					if (columnWidth < naturalWidth) {
+						columnWidths[i] = columnWidth + 1;
 						remaining--;
 						grew = true;
 					}
@@ -884,15 +911,19 @@ export class Markdown implements Component {
 
 		// Render header with wrapping
 		const headerCellLines: string[][] = token.header.map((cell, i) => {
+			const columnWidth = columnWidths[i];
+			if (columnWidth === undefined) throw new Error(`Missing table width at index ${i}`);
 			const text = this.renderInlineTokens(cell.tokens || [], styleContext);
-			return this.wrapCellText(text, columnWidths[i]);
+			return this.wrapCellText(text, columnWidth);
 		});
 		const headerLineCount = Math.max(...headerCellLines.map((c) => c.length));
 
 		for (let lineIdx = 0; lineIdx < headerLineCount; lineIdx++) {
 			const rowParts = headerCellLines.map((cellLines, colIdx) => {
 				const text = cellLines[lineIdx] || "";
-				const padded = text + " ".repeat(Math.max(0, columnWidths[colIdx] - visibleWidth(text)));
+				const columnWidth = columnWidths[colIdx];
+				if (columnWidth === undefined) throw new Error(`Missing table width at index ${colIdx}`);
+				const padded = text + " ".repeat(Math.max(0, columnWidth - visibleWidth(text)));
 				return this.theme.bold(padded);
 			});
 			lines.push(`│ ${rowParts.join(" │ ")} │`);
@@ -906,16 +937,21 @@ export class Markdown implements Component {
 		// Render rows with wrapping
 		for (let rowIndex = 0; rowIndex < token.rows.length; rowIndex++) {
 			const row = token.rows[rowIndex];
+			if (!row) throw new Error(`Missing table row at index ${rowIndex}`);
 			const rowCellLines: string[][] = row.map((cell, i) => {
+				const columnWidth = columnWidths[i];
+				if (columnWidth === undefined) throw new Error(`Missing table width at index ${i}`);
 				const text = this.renderInlineTokens(cell.tokens || [], styleContext);
-				return this.wrapCellText(text, columnWidths[i]);
+				return this.wrapCellText(text, columnWidth);
 			});
 			const rowLineCount = Math.max(...rowCellLines.map((c) => c.length));
 
 			for (let lineIdx = 0; lineIdx < rowLineCount; lineIdx++) {
 				const rowParts = rowCellLines.map((cellLines, colIdx) => {
 					const text = cellLines[lineIdx] || "";
-					return text + " ".repeat(Math.max(0, columnWidths[colIdx] - visibleWidth(text)));
+					const columnWidth = columnWidths[colIdx];
+					if (columnWidth === undefined) throw new Error(`Missing table width at index ${colIdx}`);
+					return text + " ".repeat(Math.max(0, columnWidth - visibleWidth(text)));
 				});
 				lines.push(`│ ${rowParts.join(" │ ")} │`);
 			}

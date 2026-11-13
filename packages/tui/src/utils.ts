@@ -402,6 +402,7 @@ class AnsiCodeTracker {
 		if (!match) return;
 
 		const params = match[1];
+		if (params === undefined) return;
 		if (params === "" || params === "0") {
 			// Full reset
 			this.reset();
@@ -412,7 +413,9 @@ class AnsiCodeTracker {
 		const parts = params.split(";");
 		let i = 0;
 		while (i < parts.length) {
-			const code = Number.parseInt(parts[i], 10);
+			const part = parts[i];
+			if (part === undefined) throw new Error(`Missing ANSI parameter at index ${i}`);
+			const code = Number.parseInt(part, 10);
 
 			// Handle 256-color and RGB codes which consume multiple parameters
 			if (code === 38 || code === 48) {
@@ -758,7 +761,9 @@ function wrapSingleLine(line: string, width: number): string[] {
 				const part = broken[i];
 				if (part !== undefined) wrapped.push(part);
 			}
-			currentLine = broken[broken.length - 1];
+			const finalPart = broken[broken.length - 1];
+			if (finalPart === undefined) throw new Error("Word wrapping produced no final line");
+			currentLine = finalPart;
 			currentVisibleLength = visibleWidth(currentLine);
 			continue;
 		}

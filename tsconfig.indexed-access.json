@@ -6,6 +6,7 @@
 	},
 	"include": [
 		"packages/ai/src/**/*.ts",
-		"packages/agent-core/src/**/*.ts"
+		"packages/agent-core/src/**/*.ts",
+		"packages/tui/src/**/*.ts"
 	]
 }
