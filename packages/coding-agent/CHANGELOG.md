@@ -422,6 +422,7 @@
 - Fixed piped stdin being glued to the CLI message (`echo "fix this error" | pi -p explain` sent `fix this errorexplain`); stdin, `@file` text, and the message are now separated by a line break.
 - Fixed RPC `set_steering_mode` and `set_follow_up_mode` accepting unknown modes, saving them to global settings, and reporting success; they now return `Invalid steering mode` / `Invalid follow-up mode`.
 - Fixed RPC `prompt` treating an unknown `streamingBehavior` (for example `"followup"`) as `steer`, which interrupted the running turn instead of queueing; it now returns an error. `set_auto_compaction` and `set_auto_retry` now reject non-boolean `enabled` values.
+- Fixed very thin images (for example 5000x1) being omitted when resized for the model; the short side now stays at least 1 pixel.
 
 ### Changed
 
