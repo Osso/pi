@@ -2788,7 +2788,16 @@ export class InteractiveMode {
 	private addExtensionTerminalInputListener(
 		handler: (data: string) => { consume?: boolean; data?: string } | undefined,
 	): () => void {
-		const unsubscribe = this.ui.addInputListener(handler);
+		// An extension handler runs inside stdin dispatch; a throw there would exit Pi.
+		const unsubscribe = this.ui.addInputListener((data) => {
+			try {
+				return handler(data);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				this.showError(`Extension terminal input handler failed: ${message}`);
+				return undefined;
+			}
+		});
 		this.extensionTerminalInputUnsubscribers.add(unsubscribe);
 		return () => {
 			unsubscribe();

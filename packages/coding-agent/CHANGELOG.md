@@ -418,6 +418,7 @@
 - Fixed `--mode` silently ignoring an invalid value (for example `--mode RPC`) and starting interactive mode; Pi now exits with `Invalid --mode value`.
 - Fixed RPC `set_thinking_level` accepting an unknown level, which turned thinking off, saved `off` as the default thinking level, and reported success; it now returns `Invalid thinking level`.
 - Fixed Pi exiting when the external editor (Ctrl+G) failed inside an extension editor dialog, for example when the temp file could not be written or the editor removed it; the dialog now shows `External editor failed: ...` and keeps the draft.
+- Fixed Pi exiting when an extension `onTerminalInput` handler threw; the error is now shown and the input continues to the editor.
 
 ### Changed
 
