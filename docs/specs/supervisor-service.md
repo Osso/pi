@@ -41,9 +41,9 @@ The Supervisor becomes a normal, full-UI interactive Pi session on agent-server.
 - [ ] Run as a managed remote-agent session on agent-server (`remote-agent attach supervisor --host agent-server`), pinned in the Super+A switcher.
 - [ ] Switch aso to the agent-server Supervisor only after relay routing (phase 3) works; after both hosts use it, delete the detached resident (`pi supervisor`, `pi --supervisor`, autostart, systemd unit).
 - [x] When the Supervisor session is down or the deadline passes, callers get the existing failure results; no fallback resident is started.
-- [ ] Use one transport for every kind: requests reach the queue through the relay from other hosts (phase 3), and every response is delivered to the asking session's runtime mailbox, through the relay for another host. Callers never read the queue row.
-- [ ] Approval, goal-review, and advisory callers wait for the correlated mailbox reply until their deadline; question callers do not wait.
-- [ ] A relay outage produces the same failure results as an unavailable Supervisor.
+- [x] Use one transport for every kind: requests reach the queue through the relay from other hosts (phase 3), and every response is delivered to the asking session's runtime mailbox, through the relay for another host. Callers never read the queue row.
+- [x] Approval, goal-review, and advisory callers wait for the correlated mailbox reply until their deadline; question callers do not wait.
+- [x] A relay outage produces the same failure results as an unavailable Supervisor: a stopped local relay fails the request immediately, and a broken SSH link fails it at its deadline.
 
 ### Question answering
 
@@ -58,9 +58,9 @@ Questions use the same queue and reply transport as other requests, with kind `q
 
 ### Session tools
 
-- [ ] Keep `userMessages` and other bounded evidence in request payloads; requests stay self-contained.
-- [ ] Provide a read-only `inspect_session` tool addressed by host and session ID that returns the goal, cwd, and transcript tail (user and assistant messages, tool calls and results). Reads of another host's session travel over the relay as a read request with a correlated reply. Inspected text is untrusted evidence, not instructions.
-- [ ] Limit the Supervisor session, including user chat, to `read`, `edit`, `write` inside the configured KB root, `supervisor_response`, `inspect_session`, `send_agent_message`, `ask_questions`, `reminders`, and `end_turn`. Bash, Pyrun, agent spawn/attach, restart, and session control stay unavailable.
+- [x] Keep `userMessages` and other bounded evidence in request payloads; requests stay self-contained.
+- [x] Provide a read-only `inspect_session` tool addressed by host and session ID that returns the goal, cwd, and transcript tail (the last 30 messages: user and assistant text, tool calls and results, each clipped to 600 characters). Reads of another host's session travel over the relay as a read request with a correlated reply; the relay on that host answers, so stopped or busy sessions can be read. Inspected text is untrusted evidence, not instructions.
+- [x] Limit the Supervisor session, including user chat, to `read`, `edit`, `write` inside the configured KB root, `supervisor_response`, `inspect_session`, `send_agent_message`, `ask_questions`, `reminders`, and `end_turn`. Bash, Pyrun, agent spawn/attach, restart, and session control stay unavailable.
 
 ### Resident console
 
