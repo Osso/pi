@@ -192,7 +192,7 @@ function parsePackageCommand(args: string[]): PackageCommandOptions | undefined 
 	let extensionFlagSource: string | undefined;
 
 	for (let index = 0; index < rest.length; index++) {
-		const arg = rest[index];
+		const arg = rest[index] ?? "";
 		if (arg === "-h" || arg === "--help") {
 			help = true;
 			continue;

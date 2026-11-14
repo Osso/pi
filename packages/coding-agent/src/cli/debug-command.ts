@@ -27,6 +27,7 @@ export async function handleDebugCommand(args: string[], dependencies: DebugComm
 	}
 
 	const sessionId = args[2];
+	if (sessionId === undefined) throw new Error("Session ID missing from validated debug command");
 	const health = readSessionHealth(getControlDbPath(), sessionId);
 	if (!health?.pid || health.checkStatus !== "ok") {
 		stderr(`Session ${sessionId} is not running.\n`);

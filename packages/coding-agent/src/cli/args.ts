@@ -84,9 +84,14 @@ export function parseArgs(args: string[]): Args {
 		unknownFlags: new Map(),
 		diagnostics: [],
 	};
-
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i];
+		if (arg === undefined) throw new Error("Argument missing while parsing CLI arguments");
+		const consumeNext = (): string => {
+			const value = args[++i];
+			if (value === undefined) throw new Error("Argument missing after validated option");
+			return value;
+		};
 		const ephemeralSessionFlag = EPHEMERAL_SESSION_FLAGS.get(arg);
 
 		if (arg === "--help" || arg === "-h") {
@@ -94,7 +99,7 @@ export function parseArgs(args: string[]): Args {
 		} else if (arg === "--version" || arg === "-v") {
 			result.version = true;
 		} else if (arg === "--mode" && i + 1 < args.length) {
-			const mode = args[++i];
+			const mode = consumeNext();
 			if (mode === "text" || mode === "json" || mode === "rpc") {
 				result.mode = mode;
 			} else {
@@ -108,63 +113,65 @@ export function parseArgs(args: string[]): Args {
 		} else if (arg === "--resume" || arg === "-r") {
 			result.resume = true;
 		} else if (arg === "--provider" && i + 1 < args.length) {
-			result.provider = args[++i];
+			result.provider = consumeNext();
 		} else if (arg === "--model" && i + 1 < args.length) {
-			result.model = args[++i];
+			result.model = consumeNext();
 		} else if (arg === "--api-key" && i + 1 < args.length) {
-			result.apiKey = args[++i];
+			result.apiKey = consumeNext();
 		} else if (arg === "--system-prompt" && i + 1 < args.length) {
-			result.systemPrompt = args[++i];
+			result.systemPrompt = consumeNext();
 		} else if (arg === "--append-system-prompt" && i + 1 < args.length) {
 			result.appendSystemPrompt = result.appendSystemPrompt ?? [];
-			result.appendSystemPrompt.push(args[++i]);
+			result.appendSystemPrompt.push(consumeNext());
 		} else if (arg === "--name" || arg === "-n") {
 			if (i + 1 < args.length) {
-				result.name = args[++i];
+				result.name = consumeNext();
 			} else {
 				result.diagnostics.push({ type: "error", message: "--name requires a value" });
 			}
 		} else if (ephemeralSessionFlag !== undefined) {
 			result[ephemeralSessionFlag] = true;
 		} else if (arg === "--session" && i + 1 < args.length) {
-			result.session = args[++i];
+			result.session = consumeNext();
 		} else if (arg === "--session-id" && i + 1 < args.length) {
-			result.sessionId = args[++i];
+			result.sessionId = consumeNext();
 		} else if (arg === "--fork" && i + 1 < args.length) {
-			result.fork = args[++i];
+			result.fork = consumeNext();
 		} else if (arg === "--session-dir" && i + 1 < args.length) {
-			result.sessionDir = args[++i];
+			result.sessionDir = consumeNext();
 		} else if (arg === "--worktree" || arg === "-w") {
 			if (i + 1 < args.length) {
-				result.worktree = args[++i];
+				result.worktree = consumeNext();
 			} else {
 				result.diagnostics.push({ type: "error", message: "--worktree requires a value" });
 			}
 		} else if (arg === "--models" && i + 1 < args.length) {
-			result.models = args[++i].split(",").map((s) => s.trim());
+			result.models = consumeNext()
+				.split(",")
+				.map((s) => s.trim());
 		} else if (arg === "--no-tools" || arg === "-nt") {
 			result.noTools = true;
 		} else if (arg === "--no-builtin-tools" || arg === "-nbt") {
 			result.noBuiltinTools = true;
 		} else if ((arg === "--tools" || arg === "-t") && i + 1 < args.length) {
-			result.tools = args[++i]
+			result.tools = consumeNext()
 				.split(",")
 				.map((s) => s.trim())
 				.filter((name) => name.length > 0);
 		} else if ((arg === "--exclude-tools" || arg === "-xt") && i + 1 < args.length) {
-			result.excludeTools = args[++i]
+			result.excludeTools = consumeNext()
 				.split(",")
 				.map((s) => s.trim())
 				.filter((name) => name.length > 0);
 		} else if (arg === "--permission-prompt-tool") {
 			if (i + 1 < args.length) {
-				result.permissionPromptTool = args[++i];
+				result.permissionPromptTool = consumeNext();
 			} else {
 				result.diagnostics.push({ type: "error", message: "--permission-prompt-tool requires a value" });
 			}
 		} else if (arg === "--approval-preset") {
-			if (i + 1 < args.length && !args[i + 1].startsWith("-")) {
-				const preset = args[++i];
+			if (i + 1 < args.length && !args[i + 1]?.startsWith("-")) {
+				const preset = consumeNext();
 				if (isApprovalPresetName(preset)) {
 					result.approvalPreset = preset;
 				} else {
@@ -174,8 +181,8 @@ export function parseArgs(args: string[]): Args {
 				result.diagnostics.push({ type: "error", message: "--approval-preset requires a value" });
 			}
 		} else if (arg === "--approval-policy") {
-			if (i + 1 < args.length && !args[i + 1].startsWith("-")) {
-				const policy = args[++i];
+			if (i + 1 < args.length && !args[i + 1]?.startsWith("-")) {
+				const policy = consumeNext();
 				if (isApprovalPolicy(policy)) {
 					result.approvalPreset = approvalPresetForPolicy(policy);
 				} else {
@@ -187,7 +194,7 @@ export function parseArgs(args: string[]): Args {
 		} else if (arg === "--dangerously-bypass-approvals") {
 			result.approvalPreset = "auto-approve";
 		} else if (arg === "--thinking" && i + 1 < args.length) {
-			const level = args[++i];
+			const level = consumeNext();
 			if (isValidThinkingLevel(level)) {
 				result.thinking = level;
 			} else {
@@ -221,21 +228,21 @@ export function parseArgs(args: string[]): Args {
 				result.diagnostics.push({ type: "error", message: "--export-columns requires a positive integer" });
 			}
 		} else if (arg === "--export" && i + 1 < args.length) {
-			result.export = args[++i];
+			result.export = consumeNext();
 		} else if ((arg === "--extension" || arg === "-e") && i + 1 < args.length) {
 			result.extensions = result.extensions ?? [];
-			result.extensions.push(args[++i]);
+			result.extensions.push(consumeNext());
 		} else if (arg === "--no-extensions" || arg === "-ne") {
 			result.noExtensions = true;
 		} else if (arg === "--skill" && i + 1 < args.length) {
 			result.skills = result.skills ?? [];
-			result.skills.push(args[++i]);
+			result.skills.push(consumeNext());
 		} else if (arg === "--prompt-template" && i + 1 < args.length) {
 			result.promptTemplates = result.promptTemplates ?? [];
-			result.promptTemplates.push(args[++i]);
+			result.promptTemplates.push(consumeNext());
 		} else if (arg === "--theme" && i + 1 < args.length) {
 			result.themes = result.themes ?? [];
-			result.themes.push(args[++i]);
+			result.themes.push(consumeNext());
 		} else if (arg === "--no-skills" || arg === "-ns") {
 			result.noSkills = true;
 		} else if (arg === "--no-prompt-templates" || arg === "-np") {
@@ -246,8 +253,8 @@ export function parseArgs(args: string[]): Args {
 			result.noContextFiles = true;
 		} else if (arg === "--list-models") {
 			// Check if next arg is a search pattern (not a flag or file arg)
-			if (i + 1 < args.length && !args[i + 1].startsWith("-") && !args[i + 1].startsWith("@")) {
-				result.listModels = args[++i];
+			if (i + 1 < args.length && !args[i + 1]?.startsWith("-") && !args[i + 1]?.startsWith("@")) {
+				result.listModels = consumeNext();
 			} else {
 				result.listModels = true;
 			}

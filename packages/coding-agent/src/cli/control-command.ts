@@ -111,6 +111,7 @@ function parseSendCommand(args: string[]): ParsedSendCommand | undefined {
 
 	for (let index = 0; index < args.length; index++) {
 		const arg = args[index];
+		if (arg === undefined) throw new Error("Argument missing while parsing control command");
 		if (arg === "--pid") {
 			const rawPid = args[++index];
 			const parsedPid = rawPid ? Number(rawPid) : NaN;

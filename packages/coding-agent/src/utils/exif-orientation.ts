@@ -5,17 +5,30 @@ type Photon = typeof import("@silvia-odwyer/photon-node");
 function readOrientationFromTiff(bytes: Uint8Array, tiffStart: number): number {
 	if (tiffStart + 8 > bytes.length) return 1;
 
-	const byteOrder = (bytes[tiffStart] << 8) | bytes[tiffStart + 1];
+	const byteOrder = ((bytes[tiffStart] ?? 0) << 8) | (bytes[tiffStart + 1] ?? 0);
 	const le = byteOrder === 0x4949;
 
 	const read16 = (pos: number): number => {
-		if (le) return bytes[pos] | (bytes[pos + 1] << 8);
-		return (bytes[pos] << 8) | bytes[pos + 1];
+		if (le) return (bytes[pos] ?? 0) | ((bytes[pos + 1] ?? 0) << 8);
+		return ((bytes[pos] ?? 0) << 8) | (bytes[pos + 1] ?? 0);
 	};
 
 	const read32 = (pos: number): number => {
-		if (le) return (bytes[pos] | (bytes[pos + 1] << 8) | (bytes[pos + 2] << 16) | (bytes[pos + 3] << 24)) >>> 0;
-		return ((bytes[pos] << 24) | (bytes[pos + 1] << 16) | (bytes[pos + 2] << 8) | bytes[pos + 3]) >>> 0;
+		if (le)
+			return (
+				((bytes[pos] ?? 0) |
+					((bytes[pos + 1] ?? 0) << 8) |
+					((bytes[pos + 2] ?? 0) << 16) |
+					((bytes[pos + 3] ?? 0) << 24)) >>>
+				0
+			);
+		return (
+			(((bytes[pos] ?? 0) << 24) |
+				((bytes[pos + 1] ?? 0) << 16) |
+				((bytes[pos + 2] ?? 0) << 8) |
+				(bytes[pos + 3] ?? 0)) >>>
+			0
+		);
 	};
 
 	const ifdOffset = read32(tiffStart + 4);
@@ -39,8 +52,8 @@ function readOrientationFromTiff(bytes: Uint8Array, tiffStart: number): number {
 function findJpegTiffOffset(bytes: Uint8Array): number {
 	let offset = 2;
 	while (offset < bytes.length - 1) {
-		if (bytes[offset] !== 0xff) return -1;
-		const marker = bytes[offset + 1];
+		if ((bytes[offset] ?? 0) !== 0xff) return -1;
+		const marker = bytes[offset + 1] ?? 0;
 		if (marker === 0xff) {
 			offset++;
 			continue;
@@ -55,7 +68,7 @@ function findJpegTiffOffset(bytes: Uint8Array): number {
 		}
 
 		if (offset + 4 > bytes.length) return -1;
-		const length = (bytes[offset + 2] << 8) | bytes[offset + 3];
+		const length = ((bytes[offset + 2] ?? 0) << 8) | (bytes[offset + 3] ?? 0);
 		const nextOffset = offset + 2 + length;
 		if (nextOffset > bytes.length || nextOffset <= offset) return -1;
 		offset = nextOffset;
@@ -67,9 +80,18 @@ function findJpegTiffOffset(bytes: Uint8Array): number {
 function findWebpTiffOffset(bytes: Uint8Array): number {
 	let offset = 12;
 	while (offset + 8 <= bytes.length) {
-		const chunkId = String.fromCharCode(bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]);
+		const chunkId = String.fromCharCode(
+			bytes[offset] ?? 0,
+			bytes[offset + 1] ?? 0,
+			bytes[offset + 2] ?? 0,
+			bytes[offset + 3] ?? 0,
+		);
 		const chunkSize =
-			(bytes[offset + 4] | (bytes[offset + 5] << 8) | (bytes[offset + 6] << 16) | (bytes[offset + 7] << 24)) >>> 0;
+			((bytes[offset + 4] ?? 0) |
+				((bytes[offset + 5] ?? 0) << 8) |
+				((bytes[offset + 6] ?? 0) << 16) |
+				((bytes[offset + 7] ?? 0) << 24)) >>>
+			0;
 		const dataStart = offset + 8;
 		// RIFF chunks are padded to even size
 		const nextOffset = dataStart + chunkSize + (chunkSize % 2);
@@ -88,13 +110,14 @@ function findWebpTiffOffset(bytes: Uint8Array): number {
 }
 
 function hasExifHeader(bytes: Uint8Array, offset: number): boolean {
+	if (offset < 0 || offset + 6 > bytes.length) return false;
 	return (
-		bytes[offset] === 0x45 &&
-		bytes[offset + 1] === 0x78 &&
-		bytes[offset + 2] === 0x69 &&
-		bytes[offset + 3] === 0x66 &&
-		bytes[offset + 4] === 0x00 &&
-		bytes[offset + 5] === 0x00
+		(bytes[offset] ?? 0) === 0x45 &&
+		(bytes[offset + 1] ?? 0) === 0x78 &&
+		(bytes[offset + 2] ?? 0) === 0x69 &&
+		(bytes[offset + 3] ?? 0) === 0x66 &&
+		(bytes[offset + 4] ?? 0) === 0x00 &&
+		(bytes[offset + 5] ?? 0) === 0x00
 	);
 }
 
@@ -102,20 +125,20 @@ function getExifOrientation(bytes: Uint8Array): number {
 	let tiffOffset = -1;
 
 	// JPEG: starts with FF D8
-	if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+	if (bytes.length >= 2 && (bytes[0] ?? 0) === 0xff && (bytes[1] ?? 0) === 0xd8) {
 		tiffOffset = findJpegTiffOffset(bytes);
 	}
 	// WebP: starts with RIFF....WEBP
 	else if (
 		bytes.length >= 12 &&
-		bytes[0] === 0x52 &&
-		bytes[1] === 0x49 &&
-		bytes[2] === 0x46 &&
-		bytes[3] === 0x46 &&
-		bytes[8] === 0x57 &&
-		bytes[9] === 0x45 &&
-		bytes[10] === 0x42 &&
-		bytes[11] === 0x50
+		(bytes[0] ?? 0) === 0x52 &&
+		(bytes[1] ?? 0) === 0x49 &&
+		(bytes[2] ?? 0) === 0x46 &&
+		(bytes[3] ?? 0) === 0x46 &&
+		(bytes[8] ?? 0) === 0x57 &&
+		(bytes[9] ?? 0) === 0x45 &&
+		(bytes[10] ?? 0) === 0x42 &&
+		(bytes[11] ?? 0) === 0x50
 	) {
 		tiffOffset = findWebpTiffOffset(bytes);
 	}
@@ -136,10 +159,10 @@ function rotate90(photon: Photon, image: PhotonImageType, dstIndex: DstIndexFn):
 		for (let x = 0; x < w; x++) {
 			const srcIdx = (y * w + x) * 4;
 			const dstIdx = dstIndex(x, y, w, h) * 4;
-			dst[dstIdx] = src[srcIdx];
-			dst[dstIdx + 1] = src[srcIdx + 1];
-			dst[dstIdx + 2] = src[srcIdx + 2];
-			dst[dstIdx + 3] = src[srcIdx + 3];
+			dst[dstIdx] = src[srcIdx] ?? 0;
+			dst[dstIdx + 1] = src[srcIdx + 1] ?? 0;
+			dst[dstIdx + 2] = src[srcIdx + 2] ?? 0;
+			dst[dstIdx + 3] = src[srcIdx + 3] ?? 0;
 		}
 	}
 

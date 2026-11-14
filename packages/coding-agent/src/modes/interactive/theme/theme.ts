@@ -189,7 +189,7 @@ function findClosestCubeIndex(value: number): number {
 	let minDist = Infinity;
 	let minIdx = 0;
 	for (let i = 0; i < CUBE_VALUES.length; i++) {
-		const dist = Math.abs(value - CUBE_VALUES[i]);
+		const dist = Math.abs(value - (CUBE_VALUES[i] ?? 0));
 		if (dist < minDist) {
 			minDist = dist;
 			minIdx = i;
@@ -202,7 +202,7 @@ function findClosestGrayIndex(gray: number): number {
 	let minDist = Infinity;
 	let minIdx = 0;
 	for (let i = 0; i < GRAY_VALUES.length; i++) {
-		const dist = Math.abs(gray - GRAY_VALUES[i]);
+		const dist = Math.abs(gray - (GRAY_VALUES[i] ?? 0));
 		if (dist < minDist) {
 			minDist = dist;
 			minIdx = i;
@@ -228,14 +228,14 @@ function rgbTo256(r: number, g: number, b: number): number {
 	const cubeG = CUBE_VALUES[gIdx];
 	const cubeB = CUBE_VALUES[bIdx];
 	const cubeIndex = 16 + 36 * rIdx + 6 * gIdx + bIdx;
-	const cubeDist = colorDistance(r, g, b, cubeR, cubeG, cubeB);
+	const cubeDist = colorDistance(r, g, b, cubeR ?? 0, cubeG ?? 0, cubeB ?? 0);
 
 	// Find closest grayscale
 	const gray = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
 	const grayIdx = findClosestGrayIndex(gray);
 	const grayValue = GRAY_VALUES[grayIdx];
 	const grayIndex = 232 + grayIdx;
-	const grayDist = colorDistance(r, g, b, grayValue, grayValue, grayValue);
+	const grayDist = colorDistance(r, g, b, grayValue ?? 0, grayValue ?? 0, grayValue ?? 0);
 
 	// Check if color has noticeable saturation (hue matters)
 	// If max-min spread is significant, prefer cube to preserve tint
@@ -298,11 +298,10 @@ function resolveVarRefs(
 	if (visited.has(value)) {
 		throw new Error(`Circular variable reference detected: ${value}`);
 	}
-	if (!(value in vars)) {
-		throw new Error(`Variable reference not found: ${value}`);
-	}
+	const referenced = vars[value];
+	if (referenced === undefined) throw new Error(`Variable reference not found: ${value}`);
 	visited.add(value);
-	return resolveVarRefs(vars[value], vars, visited);
+	return resolveVarRefs(referenced, vars, visited);
 }
 
 function resolveThemeColors<T extends Record<string, ColorValue>>(
@@ -568,9 +567,8 @@ function parseThemeJsonContent(label: string, content: string): ThemeJson {
 
 function loadThemeJson(name: string): ThemeJson {
 	const builtinThemes = getBuiltinThemes();
-	if (name in builtinThemes) {
-		return builtinThemes[name];
-	}
+	const builtinTheme = builtinThemes[name];
+	if (builtinTheme) return builtinTheme;
 	const registeredTheme = registeredThemes.get(name);
 	if (registeredTheme?.sourcePath) {
 		const content = fs.readFileSync(registeredTheme.sourcePath, "utf-8");
@@ -701,7 +699,7 @@ export interface TerminalAutoThemeDetectionOptions extends TerminalThemeDetectio
 function getColorFgBgBackgroundIndex(colorfgbg: string): number | undefined {
 	const parts = colorfgbg.split(";");
 	for (let i = parts.length - 1; i >= 0; i--) {
-		const bg = parseInt(parts[i].trim(), 10);
+		const bg = parseInt((parts[i] ?? "").trim(), 10);
 		if (Number.isInteger(bg) && bg >= 0 && bg <= 255) {
 			return bg;
 		}
@@ -990,7 +988,9 @@ function ansi256ToHex(index: number): string {
 		"#ffffff",
 	];
 	if (index < 16) {
-		return basicColors[index];
+		const basicColor = basicColors[index];
+		if (basicColor === undefined) throw new Error(`Invalid 256-color index: ${index}`);
+		return basicColor;
 	}
 
 	// Color cube (16-231): 6x6x6 = 216 colors

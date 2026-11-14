@@ -32,7 +32,7 @@ export function buildInitialMessage({
 	}
 
 	if (parsed.messages.length > 0) {
-		parts.push(parsed.messages[0]);
+		parts.push(String(parsed.messages[0]));
 		parsed.messages.shift();
 	}
 

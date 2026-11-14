@@ -141,9 +141,9 @@ export function parseChangelog(changelogPath: string): ChangelogEntry[] {
 				const versionMatch = line.match(/##\s+\[?(\d+)\.(\d+)\.(\d+)\]?/);
 				if (versionMatch) {
 					currentVersion = {
-						major: Number.parseInt(versionMatch[1], 10),
-						minor: Number.parseInt(versionMatch[2], 10),
-						patch: Number.parseInt(versionMatch[3], 10),
+						major: Number.parseInt(versionMatch[1] ?? "undefined", 10),
+						minor: Number.parseInt(versionMatch[2] ?? "undefined", 10),
+						patch: Number.parseInt(versionMatch[3] ?? "undefined", 10),
 					};
 					currentLines = [line];
 				} else {

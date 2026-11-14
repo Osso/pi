@@ -560,7 +560,7 @@ function buildSessionOptions(
 			if (!parsed.thinking && savedInScope.thinkingLevel) {
 				options.thinkingLevel = savedInScope.thinkingLevel;
 			}
-		} else {
+		} else if (scopedModels[0]) {
 			options.model = scopedModels[0].model;
 			// Use thinking level from first scoped model if explicitly set
 			if (!parsed.thinking && scopedModels[0].thinkingLevel) {
@@ -855,8 +855,8 @@ function readTerminalExportSettings(): SettingsManager {
 		},
 		{ projectTrusted: false },
 	);
-	const settingsErrors = settings.drainErrors();
-	if (settingsErrors.length > 0) throw settingsErrors[0].error;
+	const [settingsError] = settings.drainErrors();
+	if (settingsError) throw settingsError.error;
 	return settings;
 }
 

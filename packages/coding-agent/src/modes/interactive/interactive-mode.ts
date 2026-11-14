@@ -420,7 +420,7 @@ function formatFollowUpPreview(message: string): string {
 		(message.trim() === "Continue working toward the active goal." ? "goal" : "unknown");
 	const bodyMarker = "\nMessage:\n";
 	const bodyText = message.split(bodyMarker, 2)[1] ?? message;
-	const body = bodyText.split("\n", 1)[0].trim();
+	const body = (bodyText.split("\n", 1)[0] ?? "").trim();
 	const bodyPreview =
 		body.length > FOLLOW_UP_BODY_PREVIEW_LENGTH ? `${body.slice(0, FOLLOW_UP_BODY_PREVIEW_LENGTH)}…` : body;
 	return `Follow-up from ${sender}: ${bodyPreview}`;
@@ -1540,12 +1540,12 @@ export class InteractiveMode {
 		const source = sourceInfo?.source ?? "";
 		const npmMatch = fullPath.match(/node_modules\/(@?[^/]+(?:\/[^/]+)?)\/(.*)/);
 		if (npmMatch && source.startsWith("npm:")) {
-			return npmMatch[2];
+			return npmMatch[2] ?? "";
 		}
 
 		const gitMatch = fullPath.match(/git\/[^/]+\/[^/]+\/(.*)/);
 		if (gitMatch && source.startsWith("git:")) {
-			return gitMatch[1];
+			return gitMatch[1] ?? "";
 		}
 
 		return this.formatDisplayPath(fullPath);
@@ -5531,7 +5531,7 @@ export class InteractiveMode {
 			this.ui.stop();
 
 			// Split by space to support editor arguments (e.g., "code --wait")
-			const [editor, ...editorArgs] = editorCmd.split(" ");
+			const [editor = "", ...editorArgs] = editorCmd.split(" ");
 
 			process.stdout.write(`Launching external editor: ${editorCmd}\nPi will resume when the editor exits.\n`);
 
@@ -5754,7 +5754,8 @@ export class InteractiveMode {
 
 			// Find first non-extension-command message to use as prompt
 			const firstPromptIndex = queuedMessages.findIndex((message) => !this.isExtensionCommand(message.text));
-			if (firstPromptIndex === -1) {
+			const firstPrompt = queuedMessages[firstPromptIndex];
+			if (firstPrompt === undefined) {
 				// All extension commands - execute them all
 				for (const message of queuedMessages) {
 					await this.session.prompt(message.text);
@@ -5764,7 +5765,6 @@ export class InteractiveMode {
 
 			// Execute any extension commands before the first prompt
 			const preCommands = queuedMessages.slice(0, firstPromptIndex);
-			const firstPrompt = queuedMessages[firstPromptIndex];
 			const rest = queuedMessages.slice(firstPromptIndex + 1);
 
 			for (const message of preCommands) {
