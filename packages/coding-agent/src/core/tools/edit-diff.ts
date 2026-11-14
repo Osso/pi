@@ -266,7 +266,7 @@ export function fuzzyFindText(content: string, oldText: string): FuzzyMatchResul
 	// Try fuzzy match - work entirely in normalized space
 	const fuzzyContent = normalizeForFuzzyMatch(content);
 	const fuzzyOldText = normalizeForFuzzyMatch(oldText);
-	const fuzzyIndex = fuzzyContent.indexOf(fuzzyOldText);
+	const fuzzyIndex = fuzzyOldText.length === 0 ? -1 : fuzzyContent.indexOf(fuzzyOldText);
 
 	if (fuzzyIndex === -1) {
 		return {
