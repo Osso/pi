@@ -1092,7 +1092,6 @@ export class AgentSession {
 		this._overflowRecoveryAttempted = false;
 		this._lengthRecoveryAttempted = false;
 		const messageText = this._getUserMessageText(event.message);
-		if (!messageText) return;
 
 		const steeringIndex = this._steeringMessages.findIndex((message) => message.text === messageText);
 		if (steeringIndex !== -1) {

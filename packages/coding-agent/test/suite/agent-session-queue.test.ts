@@ -501,6 +501,28 @@ describe("AgentSession queue characterization", () => {
 		expect(harness.session.pendingMessageCount).toBe(0);
 	});
 
+	it("removes image-only queued messages once they are delivered", async () => {
+		const { harness, waitForToolStart, promptPromise, releaseToolExecution } = await createWaitingHarness();
+		harnesses.push(harness);
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage("after steer"),
+			fauxAssistantMessage("after follow-up"),
+		]);
+
+		await waitForToolStart;
+		const image = { type: "image" as const, data: "aGVsbG8=", mimeType: "image/png" };
+		await harness.session.steer("", [image]);
+		await harness.session.followUp("", [image]);
+		expect(harness.session.pendingMessageCount).toBe(2);
+		releaseToolExecution();
+		await promptPromise;
+
+		expect(harness.session.messages.filter((message) => message.role === "user")).toHaveLength(3);
+		expect(harness.session.pendingMessageCount).toBe(0);
+		expect(harness.session.getQueuedMessagePreviews()).toEqual({ steering: [], followUp: [] });
+	});
+
 	it("throws when queueing an extension command with steer", async () => {
 		const harness = await createHarness({
 			extensionFactories: [
