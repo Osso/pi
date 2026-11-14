@@ -278,3 +278,39 @@ describe("bedrock convertMessages skips unknown content types", () => {
 		]);
 	});
 });
+
+describe("bedrock convertMessages omitted thinking", () => {
+	it("replays an empty signed thinking block from omitted display", async () => {
+		const messages: Message[] = [
+			{ role: "user", content: "question", timestamp: 1 },
+			{
+				role: "assistant",
+				content: [
+					{ type: "thinking", thinking: "", thinkingSignature: "opaque-signature" },
+					{ type: "text", text: "answer" },
+				],
+				api: "bedrock-converse-stream",
+				provider: "amazon-bedrock",
+				model: baseModel.id,
+				usage: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+				},
+				stopReason: "stop",
+				timestamp: 2,
+			},
+			{ role: "user", content: "follow-up", timestamp: 3 },
+		];
+
+		const payload = (await capturePayload({ messages })) as { messages: Array<{ role: string; content: unknown[] }> };
+
+		expect(payload.messages[1]?.content).toEqual([
+			{ reasoningContent: { reasoningText: { text: "", signature: "opaque-signature" } } },
+			{ text: "answer" },
+		]);
+	});
+});

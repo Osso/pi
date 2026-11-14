@@ -252,9 +252,7 @@ export const stream: StreamFunction<"bedrock-converse-stream", BedrockOptions> =
 				await options?.onResponse?.({ status: response.$metadata.httpStatusCode, headers: responseHeaders }, model);
 			}
 
-			if (!response.stream) {
-				throw new Error("Bedrock response stream is missing");
-			}
+			if (!response.stream) throw new Error("Bedrock response stream is missing");
 			for await (const item of response.stream) {
 				if (item.messageStart) {
 					if (item.messageStart.role !== ConversationRole.ASSISTANT) {
@@ -858,9 +856,10 @@ function convertMessages(
 								}
 								continue;
 							}
-							// Skip empty thinking blocks
+							// Skip empty thinking blocks unless they carry a signature ("omitted" display)
 							const thinking = sanitizeSurrogates(c.thinking);
-							if (thinking.trim().length === 0) continue;
+							const signed = supportsThinkingSignature(model) && !!c.thinkingSignature?.trim();
+							if (thinking.trim().length === 0 && !signed) continue;
 							// Only Anthropic models support the signature field in reasoningText.
 							// For other models, we omit the signature to avoid errors like:
 							// "This model doesn't support the reasoningContent.reasoningText.signature field"
