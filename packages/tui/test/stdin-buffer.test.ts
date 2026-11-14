@@ -80,6 +80,11 @@ describe("StdinBuffer", () => {
 			assert.deepStrictEqual(emittedSequences, ["\x1b[[5~", "\x1b[[A"]);
 		});
 
+		it("should end rxvt modified keys at $ and ^", () => {
+			processInput("\x1b[2$a\x1b[5^b");
+			assert.deepStrictEqual(emittedSequences, ["\x1b[2$", "a", "\x1b[5^", "b"]);
+		});
+
 		it("should pass through SS3 sequences", () => {
 			const ss3 = "\x1bOA";
 			processInput(ss3);

@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed rxvt Shift-modified keys such as `ESC [ 2 $` (Shift+Insert) swallowing the next typed character when both arrived in one stdin chunk.
 - Fixed stdin splitting Linux console double-bracket keys such as `ESC [ [ 5 ~` (Page Up) into `ESC [ [`, `5`, and `~`.
 - Fixed `Markdown` rendering lines wider than the render width when its horizontal padding fills a narrow viewport.
 - Fixed wrapped Markdown table links leaking color into borders and neighboring cells, including tables inside blockquotes ([#8335](https://github.com/earendil-works/pi/issues/8335)).
