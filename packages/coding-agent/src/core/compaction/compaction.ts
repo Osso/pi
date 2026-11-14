@@ -26,6 +26,7 @@ import {
 } from "../messages.ts";
 import { buildSessionContext, type CompactionEntry, type SessionEntry } from "../session-manager.ts";
 import {
+	addSummaryFileOps,
 	computeFileLists,
 	createFileOps,
 	extractFileOpsFromMessage,
@@ -56,19 +57,8 @@ function extractFileOperations(
 	const fileOps = createFileOps();
 
 	// Collect from previous compaction's details (if pi-generated)
-	if (prevCompactionIndex >= 0) {
-		const prevCompaction = entries[prevCompactionIndex] as CompactionEntry;
-		if (!prevCompaction.fromHook && prevCompaction.details) {
-			// fromHook field kept for session file compatibility
-			const details = prevCompaction.details as CompactionDetails;
-			if (Array.isArray(details.readFiles)) {
-				for (const f of details.readFiles) fileOps.read.add(f);
-			}
-			if (Array.isArray(details.modifiedFiles)) {
-				for (const f of details.modifiedFiles) fileOps.edited.add(f);
-			}
-		}
-	}
+	const prevCompaction = entries[prevCompactionIndex];
+	if (prevCompaction?.type === "compaction") addSummaryFileOps(prevCompaction, fileOps);
 
 	// Extract from tool calls in messages
 	for (const msg of messages) {
@@ -880,6 +870,10 @@ export function prepareCompaction(
 
 	// Extract file operations from messages and previous compaction
 	const fileOps = extractFileOperations(messagesToSummarize, pathEntries, prevCompactionIndex);
+	// Built-in branch summaries carry the file lists of the branch they replaced.
+	for (const entry of pathEntries.slice(boundaryStart, cutPoint.firstKeptEntryIndex)) {
+		if (entry.type === "branch_summary") addSummaryFileOps(entry, fileOps);
+	}
 
 	// Also extract file ops from turn prefix if splitting
 	if (cutPoint.isSplitTurn) {

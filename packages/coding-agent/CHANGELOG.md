@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed compaction dropping the read and modified file lists of summarized `/tree` branch summaries from the new compaction details.
 - Fixed the footer session cost leaving out replies on another branch after `/tree` navigation; navigation now resets the incremental cost cache.
 - Fixed the footer showing the previous branch's pull request when the branch changed while its status was being read; the stale result is dropped and the new branch is read immediately.
 - Fixed resuming a legacy archived session (plain transcript with archived metadata) leaving it marked archived, so it stayed out of the active session list.

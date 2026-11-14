@@ -55,6 +55,14 @@ export function extractFileOpsFromMessage(message: AgentMessage, fileOps: FileOp
 	}
 }
 
+/** Add the file lists stored in the details of a pi-generated compaction or branch summary entry. */
+export function addSummaryFileOps(entry: { fromHook?: boolean; details?: unknown }, fileOps: FileOperations): void {
+	if (entry.fromHook || typeof entry.details !== "object" || entry.details === null) return;
+	const { readFiles, modifiedFiles } = entry.details as { readFiles?: unknown; modifiedFiles?: unknown };
+	if (Array.isArray(readFiles)) for (const file of readFiles) fileOps.read.add(String(file));
+	if (Array.isArray(modifiedFiles)) for (const file of modifiedFiles) fileOps.edited.add(String(file));
+}
+
 /**
  * Compute final file lists from file operations.
  * Returns readFiles (files only read, not modified) and modifiedFiles.

@@ -550,6 +550,32 @@ describe("buildSessionContext", () => {
 });
 
 describe("prepareCompaction with previous compaction", () => {
+	it("carries file lists from summarized branch summaries into the compaction details", () => {
+		const user = createMessageEntry(createUserMessage("start"));
+		const branchSummary: SessionEntry = {
+			type: "branch_summary",
+			id: `test-id-${entryCounter++}`,
+			parentId: lastId,
+			timestamp: new Date().toISOString(),
+			fromId: user.id,
+			summary: "Explored the parser",
+			details: { readFiles: ["source.ts"], modifiedFiles: ["parser.ts"] },
+		};
+		lastId = branchSummary.id;
+		const entries = [
+			user,
+			branchSummary,
+			createMessageEntry(createAssistantMessage("old answer")),
+			createMessageEntry(createUserMessage("current")),
+			createMessageEntry(createAssistantMessage("current answer")),
+		];
+
+		const preparation = prepareCompaction(entries, { ...DEFAULT_COMPACTION_SETTINGS, keepRecentMessages: 2 });
+
+		expect(requireValue(preparation).fileOps.read).toEqual(new Set(["source.ts"]));
+		expect(requireValue(preparation).fileOps.edited).toEqual(new Set(["parser.ts"]));
+	});
+
 	it("should prepare repeated compactions when the active suffix moves past previously kept messages", () => {
 		const u1 = createMessageEntry(createUserMessage("user msg 1 (summarized by compaction1)"));
 		const a1 = createMessageEntry(createAssistantMessage("assistant msg 1"));
