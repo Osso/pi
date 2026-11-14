@@ -603,16 +603,9 @@ export class Editor implements Component, Focusable {
 	}
 
 	private getHistorySearchMatches(): number[] {
-		if (!this.historySearchDraft) return [];
 		const query = this.historySearchQuery.toLocaleLowerCase();
-		if (!query) return [];
-		const matches: number[] = [];
-		for (const [index, entry] of this.history.entries()) {
-			if (entry.toLocaleLowerCase().includes(query)) {
-				matches.push(index);
-			}
-		}
-		return matches;
+		if (!this.historySearchDraft || !query) return [];
+		return this.history.flatMap((entry, index) => (entry.toLocaleLowerCase().includes(query) ? [index] : []));
 	}
 
 	private updateHistorySearch(startMatchIndex: number): void {
