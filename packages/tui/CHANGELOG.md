@@ -34,6 +34,7 @@
 - Fixed `KeybindingsManager.getDefinition()` throwing `Missing keybinding definition` for an id the manager has no definition for (introduced while enabling `noUncheckedIndexedAccess`); it returns `undefined` again, and its return type is now `KeybindingDefinition | undefined`.
 - Fixed `+` key bindings, including modified Kitty and xterm sequences and typed `Key.plus` helpers.
 - Fixed modified F1–F12 key bindings and parsing for legacy xterm and Kitty encodings.
+- Fixed reverse history search Backspace deleting only part of an emoji or combining-character grapheme.
 
 ## [0.80.3] - 2026-06-30
 

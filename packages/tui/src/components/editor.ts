@@ -673,11 +673,11 @@ export class Editor implements Component, Focusable {
 			return true;
 		}
 		if (kb.matches(data, "tui.editor.deleteCharBackward")) {
-			this.historySearchQuery = this.historySearchQuery.slice(0, -1);
+			const end = [...graphemeSegmenter.segment(this.historySearchQuery)].at(-1)?.index ?? 0;
+			this.historySearchQuery = this.historySearchQuery.slice(0, end);
 			this.updateHistorySearch(0);
 			return true;
 		}
-
 		const printable = decodePrintableKey(data) ?? (data.charCodeAt(0) >= 32 ? data : undefined);
 		if (printable !== undefined) {
 			this.historySearchQuery += printable;

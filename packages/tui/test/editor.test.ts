@@ -507,6 +507,25 @@ describe("Editor component", () => {
 			assert.match(rendered, /1\/1/);
 		});
 
+		for (const grapheme of ["😀", "👩‍💻", "e\u0301"]) {
+			it(`deletes the complete ${grapheme} grapheme from reverse history search with Backspace`, () => {
+				const editor = new Editor(createTestTUI(), defaultEditorTheme);
+				editor.addToHistory("find config");
+				editor.handleInput("\x12"); // Ctrl+R
+				editor.handleInput(`f${grapheme}`);
+				assert.strictEqual(editor.getText(), `f${grapheme}`);
+
+				editor.handleInput("\x7f"); // Backspace
+				assert.strictEqual(editor.getText(), "f");
+				assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 1 });
+				assert.match(stripVTControlCharacters(editor.render(60).join("\n")), /> find config/);
+
+				editor.handleInput("\x7f");
+				editor.handleInput("\x7f"); // Empty query stays empty
+				assert.strictEqual(editor.getText(), "");
+			});
+		}
+
 		it("steps through older reverse search matches on repeated Ctrl+R", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
