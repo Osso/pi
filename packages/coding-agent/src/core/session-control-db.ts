@@ -1,15 +1,9 @@
-import { hostname } from "node:os";
 import { join } from "node:path";
 import { getUserStateRoot } from "../config.ts";
 import type { AgentSnapshot } from "./multi-agent-store.ts";
 import { isSandboxProfileName, type SandboxProfileName } from "./permissions/presets.ts";
 import { parseStoredJsonObject, validatePersistedAgentPayload } from "./session-control-db/codecs.ts";
-import { parseProcessIdentity, withImmediateTransaction } from "./session-control-db/helpers.ts";
-import type {
-	RuntimeMailboxAddress,
-	RuntimeMailboxListedRow,
-	RuntimeMailboxMessage,
-} from "./session-control-db/types.ts";
+import type { RuntimeMailboxAddress, RuntimeMailboxListedRow } from "./session-control-db/types.ts";
 import type { SessionHealthRecord } from "./session-health.ts";
 import type { SqliteDatabase } from "./sqlite.ts";
 
@@ -80,17 +74,6 @@ export {
 	removeSessionsMetadata,
 	writeSessionName,
 } from "./session-control-db/session-relocation.ts";
-
-export type { MultiAgentTerminalOutboxRecord } from "./session-control-db/terminal-outbox.ts";
-export {
-	claimMultiAgentTerminalOutbox,
-	cleanupMultiAgentTerminalOutbox,
-	deliverMultiAgentTerminalOutbox,
-	failMultiAgentTerminalOutbox,
-} from "./session-control-db/terminal-outbox.ts";
-
-import { readCanonicalMailboxRowsForRecipient } from "./session-control-db/shared-channel.ts";
-
 export {
 	advanceSharedChannelCursor,
 	hasPendingRuntimeCoordinationMessage,
@@ -101,17 +84,17 @@ export {
 	readSharedChannelCursor,
 	readSharedChannelTail,
 } from "./session-control-db/shared-channel.ts";
+export type { MultiAgentTerminalOutboxRecord } from "./session-control-db/terminal-outbox.ts";
+export {
+	claimMultiAgentTerminalOutbox,
+	cleanupMultiAgentTerminalOutbox,
+	deliverMultiAgentTerminalOutbox,
+	failMultiAgentTerminalOutbox,
+} from "./session-control-db/terminal-outbox.ts";
 
 import {
-	compareAndDeleteCanonicalMailboxPayload,
-	compareAndWriteSerializedCanonicalMailboxPayload,
-	currentRuntimeOwnsMailboxAuthority,
-	parseCanonicalMailboxPayload,
 	RUNTIME_PROCESS_INSTANCE_ID,
-	type RuntimeMailboxCandidate,
 	readMultiAgentRuntimeOwnershipRow,
-	readRuntimeMailboxAuthoritySnapshot,
-	runtimeMailboxAuthoritySnapshotsEqual,
 	runtimeMailboxClaimantIsLive,
 } from "./session-control-db/runtime-mailbox-enqueue.ts";
 
@@ -124,11 +107,6 @@ export {
 	notifyRuntimeMailboxRecipient,
 	recoverDeadRuntimeMailboxClaims,
 } from "./session-control-db/runtime-mailbox-enqueue.ts";
-
-import {
-	readCanonicalMailboxRowById,
-	runtimeMailboxMessageFromCanonicalRow,
-} from "./session-control-db/runtime-mailbox-status.ts";
 
 export {
 	failRuntimeMailboxMessage,
@@ -155,10 +133,41 @@ export {
 	recoverDeadMultiAgentRuntime,
 } from "./session-control-db/detached-job-recovery.ts";
 export {
+	claimLatestIncomingMessage,
+	completeIncomingMessage,
+	enqueueIncomingMessage,
+	failIncomingMessage,
+	readIncomingMessageStatus,
+} from "./session-control-db/incoming-control.ts";
+export {
+	updateMultiAgentAgentActivity,
+	updateMultiAgentAgentCurrentActivity,
+	updateMultiAgentAgentDisplayName,
+	updateMultiAgentAgentModel,
+	updateMultiAgentAgentSlot,
+	updateMultiAgentAgentTranscript,
+} from "./session-control-db/multi-agent-agent-updates.ts";
+export {
 	acquireAttachedRuntimeOwnership,
 	createMultiAgentAttachment,
 	readMultiAgentRuntimeOwnership,
 } from "./session-control-db/multi-agent-attachment.ts";
+export type {
+	AcquireMultiAgentRuntimeOwnershipInput,
+	CreateFailedMultiAgentChildInput,
+	CreateFailedMultiAgentChildResult,
+	CreateMultiAgentChildWithRuntimeOwnershipInput,
+	CreateMultiAgentChildWithRuntimeOwnershipResult,
+	MultiAgentRuntimeOwnership,
+} from "./session-control-db/multi-agent-child-creation.ts";
+export {
+	createFailedMultiAgentChild,
+	createMultiAgentChildWithRuntimeOwnership,
+} from "./session-control-db/multi-agent-child-creation.ts";
+export {
+	commitMultiAgentLifecycleMutation,
+	commitMultiAgentTerminalMutation,
+} from "./session-control-db/multi-agent-lifecycle.ts";
 export {
 	consumeRuntimeMailboxMessageByStoreRef,
 	getMultiAgentMailboxMessageStatus,
@@ -177,56 +186,24 @@ export {
 	readMultiAgentState,
 	writeMultiAgentCounters,
 } from "./session-control-db/multi-agent-state.ts";
+export { commitMultiAgentSteeringMutation } from "./session-control-db/multi-agent-steering.ts";
+export {
+	commitMultiAgentDetachMark,
+	commitMultiAgentSteeringDelivery,
+} from "./session-control-db/multi-agent-steering-delivery.ts";
+export {
+	claimRuntimeMailboxMessages,
+	deliverRuntimeMailboxMessage,
+	hasPendingRuntimeMailboxMessage,
+	readRuntimeMailboxMessageForDelivery,
+	takeRuntimeMailboxMessagesForDelivery,
+} from "./session-control-db/runtime-mailbox-delivery.ts";
 export {
 	listRuntimeMailboxListeners,
 	readRuntimeMailboxListener,
 	retireRuntimeMailboxListener,
 } from "./session-control-db/runtime-mailbox-listeners.ts";
 export { registerRuntimeMailboxListener } from "./session-control-db/runtime-mailbox-registration.ts";
-
-import {
-	type CommitMultiAgentSteeringDeliveryInput,
-	persistMultiAgentSteeringDelivery,
-	prepareMultiAgentSteeringDelivery,
-} from "./session-control-db/multi-agent-steering-delivery.ts";
-
-export {
-	claimLatestIncomingMessage,
-	completeIncomingMessage,
-	enqueueIncomingMessage,
-	failIncomingMessage,
-	readIncomingMessageStatus,
-} from "./session-control-db/incoming-control.ts";
-export {
-	updateMultiAgentAgentActivity,
-	updateMultiAgentAgentCurrentActivity,
-	updateMultiAgentAgentDisplayName,
-	updateMultiAgentAgentModel,
-	updateMultiAgentAgentSlot,
-	updateMultiAgentAgentTranscript,
-} from "./session-control-db/multi-agent-agent-updates.ts";
-
-export type {
-	AcquireMultiAgentRuntimeOwnershipInput,
-	CreateFailedMultiAgentChildInput,
-	CreateFailedMultiAgentChildResult,
-	CreateMultiAgentChildWithRuntimeOwnershipInput,
-	CreateMultiAgentChildWithRuntimeOwnershipResult,
-	MultiAgentRuntimeOwnership,
-} from "./session-control-db/multi-agent-child-creation.ts";
-export {
-	createFailedMultiAgentChild,
-	createMultiAgentChildWithRuntimeOwnership,
-} from "./session-control-db/multi-agent-child-creation.ts";
-export {
-	commitMultiAgentLifecycleMutation,
-	commitMultiAgentTerminalMutation,
-} from "./session-control-db/multi-agent-lifecycle.ts";
-export { commitMultiAgentSteeringMutation } from "./session-control-db/multi-agent-steering.ts";
-export {
-	commitMultiAgentDetachMark,
-	commitMultiAgentSteeringDelivery,
-} from "./session-control-db/multi-agent-steering-delivery.ts";
 
 export type {
 	ArchitectRequest,
@@ -313,189 +290,6 @@ export function isKnownLocalSession(controlDbPath: string, sessionId: string): b
 				.get(sessionId, sessionId),
 		),
 	);
-}
-
-export function takeRuntimeMailboxMessagesForDelivery(
-	controlDbPath: string,
-	recipient: RuntimeMailboxAddress,
-	isEligible: (message: RuntimeMailboxMessage) => boolean,
-	limit = 20,
-): RuntimeMailboxMessage[] {
-	return withControlDb(controlDbPath, (db) => {
-		const candidates = readEligibleRuntimeMailboxDeliveryCandidates(db, recipient, isEligible);
-		return deliverRuntimeMailboxCandidates(db, recipient, candidates, limit, new Date().toISOString());
-	});
-}
-
-/** Reports whether an eligible pending message exists without delivering it. */
-export function hasPendingRuntimeMailboxMessage(
-	controlDbPath: string,
-	recipient: RuntimeMailboxAddress,
-	isEligible: (message: RuntimeMailboxMessage) => boolean,
-): boolean {
-	return withControlDb(
-		controlDbPath,
-		(db) => readEligibleRuntimeMailboxDeliveryCandidates(db, recipient, isEligible).length > 0,
-	);
-}
-
-function readEligibleRuntimeMailboxDeliveryCandidates(
-	db: SqliteDatabase,
-	recipient: RuntimeMailboxAddress,
-	isEligible: (message: RuntimeMailboxMessage) => boolean,
-): RuntimeMailboxCandidate[] {
-	const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "pending", Number.MAX_SAFE_INTEGER);
-	return rows.flatMap((row) => {
-		const authority = readRuntimeMailboxAuthoritySnapshot(db, recipient, row.session_path);
-		if (!currentRuntimeOwnsMailboxAuthority(recipient, authority)) return [];
-		const data = parseCanonicalMailboxPayload(row);
-		const message = runtimeMailboxMessageFromCanonicalRow(row, data);
-		return isEligible(message) ? [{ authority, data, row }] : [];
-	});
-}
-
-function deliverRuntimeMailboxCandidates(
-	db: SqliteDatabase,
-	recipient: RuntimeMailboxAddress,
-	candidates: RuntimeMailboxCandidate[],
-	limit: number,
-	nowIso: string,
-): RuntimeMailboxMessage[] {
-	const deliveredMessages: RuntimeMailboxMessage[] = [];
-	for (const candidate of candidates) {
-		if (deliveredMessages.length === limit) break;
-		const delivered = deliverRuntimeMailboxCandidate(db, recipient, candidate, nowIso);
-		if (delivered) deliveredMessages.push(delivered);
-	}
-	return deliveredMessages;
-}
-
-function deliverRuntimeMailboxCandidate(
-	db: SqliteDatabase,
-	recipient: RuntimeMailboxAddress,
-	candidate: RuntimeMailboxCandidate,
-	nowIso: string,
-): RuntimeMailboxMessage | undefined {
-	if (candidate.data.kind === "steer" && candidate.authority.ownership) {
-		return deliverRuntimeMailboxSteeringCandidate(db, recipient, candidate, nowIso);
-	}
-	return claimRuntimeMailboxCandidate(db, recipient, candidate, nowIso);
-}
-
-function deliverRuntimeMailboxSteeringCandidate(
-	db: SqliteDatabase,
-	recipient: RuntimeMailboxAddress,
-	candidate: RuntimeMailboxCandidate,
-	nowIso: string,
-): RuntimeMailboxMessage | undefined {
-	const ownership = candidate.authority.ownership;
-	if (!ownership?.process_identity || !ownership.owner_session_id) return undefined;
-	const input: CommitMultiAgentSteeringDeliveryInput = {
-		agentId: ownership.agent_id,
-		messageId: candidate.row.message_id,
-		owner: { agentId: ownership.owner_agent_id, sessionId: ownership.owner_session_id },
-		processIdentity: parseProcessIdentity(ownership.process_identity),
-		requestedLifecycle: "running",
-		sessionPath: candidate.row.session_path,
-		updatedAt: nowIso,
-	};
-	const preflight = prepareMultiAgentSteeringDelivery(db, input);
-	if ("result" in preflight || preflight.plan.messageData !== candidate.row.data) return undefined;
-	const result = persistMultiAgentSteeringDelivery(db, input, preflight.plan, { recipient, candidate });
-	return result?.ok
-		? runtimeMailboxMessageFromCanonicalRow(candidate.row, {
-				...candidate.data,
-				status: "claimed",
-				claimedAt: nowIso,
-				updatedAt: nowIso,
-			})
-		: undefined;
-}
-
-export function claimRuntimeMailboxMessages(
-	controlDbPath: string,
-	recipient: RuntimeMailboxAddress,
-	limit = 20,
-): RuntimeMailboxMessage[] {
-	return withControlDb(controlDbPath, (db) => {
-		const candidates = readClaimableRuntimeMailboxCandidates(db, recipient, limit);
-		return claimRuntimeMailboxCandidates(db, recipient, candidates, new Date().toISOString());
-	});
-}
-
-function readClaimableRuntimeMailboxCandidates(
-	db: SqliteDatabase,
-	recipient: RuntimeMailboxAddress,
-	limit: number,
-): RuntimeMailboxCandidate[] {
-	const rows = readCanonicalMailboxRowsForRecipient(db, recipient, "pending", limit);
-	return rows.flatMap((row) => {
-		const authority = readRuntimeMailboxAuthoritySnapshot(db, recipient, row.session_path);
-		if (!currentRuntimeOwnsMailboxAuthority(recipient, authority)) return [];
-		return [{ authority, data: parseCanonicalMailboxPayload(row), row }];
-	});
-}
-
-function claimRuntimeMailboxCandidates(
-	db: SqliteDatabase,
-	recipient: RuntimeMailboxAddress,
-	candidates: RuntimeMailboxCandidate[],
-	nowIso: string,
-): RuntimeMailboxMessage[] {
-	return candidates.flatMap((candidate) => {
-		const claimed = claimRuntimeMailboxCandidate(db, recipient, candidate, nowIso);
-		return claimed ? [claimed] : [];
-	});
-}
-
-function claimRuntimeMailboxCandidate(
-	db: SqliteDatabase,
-	recipient: RuntimeMailboxAddress,
-	candidate: RuntimeMailboxCandidate,
-	nowIso: string,
-): RuntimeMailboxMessage | undefined {
-	const claimed = {
-		...candidate.data,
-		claimedAt: nowIso,
-		claimantProcessIdentity: RUNTIME_PROCESS_INSTANCE_ID,
-		status: "claimed",
-		updatedAt: nowIso,
-	};
-	const serialized = JSON.stringify(claimed);
-	const updated = withImmediateTransaction(db, () => {
-		const currentAuthority = readRuntimeMailboxAuthoritySnapshot(db, recipient, candidate.row.session_path);
-		if (!runtimeMailboxAuthoritySnapshotsEqual(candidate.authority, currentAuthority)) return false;
-		return compareAndWriteSerializedCanonicalMailboxPayload(db, candidate.row, serialized, nowIso);
-	});
-	return updated ? runtimeMailboxMessageFromCanonicalRow(candidate.row, claimed) : undefined;
-}
-
-export function readRuntimeMailboxMessageForDelivery(
-	controlDbPath: string,
-	id: number,
-): { message: RuntimeMailboxMessage; payloadData?: string; payloadValid: boolean } | undefined {
-	return withControlDb(controlDbPath, (db) => {
-		const row = readCanonicalMailboxRowById(db, id);
-		if (!row) return undefined;
-		const message = parseCanonicalMailboxPayload(row);
-		return {
-			message: runtimeMailboxMessageFromCanonicalRow(row, message),
-			payloadData: row.data,
-			payloadValid: message.status === "claimed" && message.claimantProcessIdentity === RUNTIME_PROCESS_INSTANCE_ID,
-		};
-	});
-}
-
-export function deliverRuntimeMailboxMessage(controlDbPath: string, id: number, expectedPayloadData?: string): boolean {
-	return withControlDb(controlDbPath, (db) => {
-		const row = readCanonicalMailboxRowById(db, id);
-		if (!row) return false;
-		const message = parseCanonicalMailboxPayload(row);
-		if (message.recipientHost && message.recipientHost !== hostname()) return false;
-		if (message.status !== "claimed" || message.claimantProcessIdentity !== RUNTIME_PROCESS_INSTANCE_ID) return false;
-		if (expectedPayloadData !== undefined && row.data !== expectedPayloadData) return false;
-		return withImmediateTransaction(db, () => compareAndDeleteCanonicalMailboxPayload(db, row));
-	});
 }
 
 export function readLiveRuntimeMailboxSessionAgentIds(controlDbPath: string, sessionId: string): Array<string | null> {
