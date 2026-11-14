@@ -11,3 +11,10 @@ export function shortHash(str: string): string {
 	h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
 	return (h2 >>> 0).toString(36) + (h1 >>> 0).toString(36);
 }
+
+/** Shorten `value` to `maxLength`, replacing the cut tail with a hash of the whole value so distinct values stay distinct. */
+export function truncateWithHash(value: string, maxLength: number): string {
+	if (value.length <= maxLength) return value;
+	const hash = shortHash(value);
+	return `${value.slice(0, maxLength - hash.length - 1)}_${hash}`;
+}

@@ -28,7 +28,7 @@ import type {
 	Usage,
 } from "../types.ts";
 import type { AssistantMessageEventStream } from "../utils/event-stream.ts";
-import { shortHash } from "../utils/hash.ts";
+import { shortHash, truncateWithHash } from "../utils/hash.ts";
 import { parseStreamingJson } from "../utils/json-parse.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { transformMessages } from "./transform-messages.ts";
@@ -255,7 +255,7 @@ export function convertResponsesMessages<TApi extends Api>(
 
 	const normalizeIdPart = (part: string): string => {
 		const sanitized = part.replace(/[^a-zA-Z0-9_-]/g, "_");
-		const normalized = sanitized.length > 64 ? sanitized.slice(0, 64) : sanitized;
+		const normalized = truncateWithHash(sanitized, 64);
 		return normalized.replace(/_+$/, "");
 	};
 

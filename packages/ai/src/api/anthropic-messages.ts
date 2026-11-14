@@ -30,11 +30,11 @@ import type {
 	ToolResultMessage,
 } from "../types.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
+import { truncateWithHash } from "../utils/hash.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseJsonWithRepair, parseStreamingJson } from "../utils/json-parse.ts";
 import { getProviderEnvValue } from "../utils/provider-env.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
-
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.ts";
 import { adjustMaxTokensForThinking, buildBaseOptions, clampMaxTokensToContext } from "./simple-options.ts";
 import { groupToolResults, transformMessages } from "./transform-messages.ts";
@@ -1005,7 +1005,7 @@ function buildParams(
 
 // Normalize tool call IDs to match Anthropic's required pattern and length
 function normalizeToolCallId(id: string): string {
-	return id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
+	return truncateWithHash(id.replace(/[^a-zA-Z0-9_-]/g, "_"), 64);
 }
 
 function convertToolResultMessage(msg: ToolResultMessage): ContentBlockParam {

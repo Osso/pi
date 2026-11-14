@@ -48,6 +48,7 @@ import type {
 } from "../types.ts";
 import { normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
+import { truncateWithHash } from "../utils/hash.ts";
 import { providerHeadersToRecord } from "../utils/headers.ts";
 import { parseStreamingJson } from "../utils/json-parse.ts";
 import { resolveHttpProxyUrlForTarget } from "../utils/node-http-proxy.ts";
@@ -711,8 +712,7 @@ function buildSystemPrompt(
 }
 
 function normalizeToolCallId(id: string): string {
-	const sanitized = id.replace(/[^a-zA-Z0-9_-]/g, "_");
-	return sanitized.length > 64 ? sanitized.slice(0, 64) : sanitized;
+	return truncateWithHash(id.replace(/[^a-zA-Z0-9_-]/g, "_"), 64);
 }
 
 function createNonBlankTextBlock(text: string): ContentBlock.TextMember | undefined {

@@ -33,6 +33,7 @@ import type {
 } from "../types.ts";
 import { formatProviderError, normalizeProviderError } from "../utils/error-body.ts";
 import { AssistantMessageEventStream } from "../utils/event-stream.ts";
+import { truncateWithHash } from "../utils/hash.ts";
 import { headersToRecord } from "../utils/headers.ts";
 import { parseStreamingJson } from "../utils/json-parse.ts";
 import { getProviderEnvValue } from "../utils/provider-env.ts";
@@ -870,11 +871,10 @@ export function convertMessages(
 				throw new Error("Expected a call ID before the separator");
 			}
 			// Sanitize to allowed chars and truncate to 40 chars (OpenAI limit)
-			return callId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 40);
+			return truncateWithHash(callId.replace(/[^a-zA-Z0-9_-]/g, "_"), 40);
 		}
 
-		if (model.provider === "openai") return id.length > 40 ? id.slice(0, 40) : id;
-		return id;
+		return model.provider === "openai" ? truncateWithHash(id, 40) : id;
 	};
 
 	const transformedMessages = transformMessages(context.messages, model, (id) => normalizeToolCallId(id));

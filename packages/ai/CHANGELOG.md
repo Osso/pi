@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed long tool call ids (for example Google ids built from MCP tool names) colliding after truncation to another provider's length limit; the shortened id now ends with a hash of the full id, so each call keeps its own result.
 - Fixed Google Generative AI and Vertex merging distinct thinking parts of one streamed chunk into one block, which dropped the earlier part's thought signature on replay.
 - Fixed OpenAI Chat Completions and Responses sending `(see attached image)` for an empty tool result without images; they now send `(no output)`.
 - Fixed Mistral streams splitting one tool call into two when a continuation fragment omits the tool call id.

@@ -4,6 +4,7 @@
 
 import { type Content, FinishReason, FunctionCallingConfigMode, type Part } from "@google/genai";
 import type { Context, ImageContent, Model, StopReason, TextContent, Tool } from "../types.ts";
+import { truncateWithHash } from "../utils/hash.ts";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { transformMessages } from "./transform-messages.ts";
 
@@ -118,7 +119,7 @@ export function convertMessages<T extends GoogleApiType>(model: Model<T>, contex
 	const contents: Content[] = [];
 	const normalizeToolCallId = (id: string): string => {
 		if (!requiresToolCallId(model.id)) return id;
-		return id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
+		return truncateWithHash(id.replace(/[^a-zA-Z0-9_-]/g, "_"), 64);
 	};
 
 	const transformedMessages = transformMessages(context.messages, model, normalizeToolCallId);
