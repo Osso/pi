@@ -147,6 +147,19 @@ describe("loop extension", () => {
 		);
 	});
 
+	it("keeps leading newlines and indentation of the slash-command prompt body", async () => {
+		vi.useFakeTimers();
+		const harness = createLoopHarness();
+
+		await harness.runCommand('1s \n    print("ready")\n');
+		await vi.advanceTimersByTimeAsync(1_000);
+
+		expect(harness.sendMessage).toHaveBeenCalledWith(
+			expect.objectContaining({ customType: "loop", content: '\n    print("ready")\n' }),
+			{ deliverAs: "followUp", triggerTurn: true },
+		);
+	});
+
 	it("keeps the tool prompt body unchanged", async () => {
 		vi.useFakeTimers();
 		const harness = createLoopHarness();

@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed `/loop <interval> <prompt>` dropping leading newlines and indentation from the prompt body; only the separator after the interval is removed.
 - Fixed `/fork` and `/clone` dropping compaction-retained context, and producing a session that failed to reopen, when the compaction boundary was a label entry ([#8989](https://github.com/earendil-works/pi/issues/8989)).
 - Fixed branch summary entries recording the navigation destination in `fromId` instead of the pre-navigation source leaf.
 - Fixed prompt templates and skills that start with a `----` Markdown thematic break losing their first lines: frontmatter now requires whole `---` delimiter lines.

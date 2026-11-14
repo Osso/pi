@@ -161,7 +161,7 @@ function parseLoopCommand(
 	if (trimmedArgs === "stop" || trimmedArgs === "off" || trimmedArgs === "clear") return { action: "stop" };
 
 	// Split off only the interval; the prompt body keeps its spacing, newlines, and indentation.
-	const [, intervalText = "", prompt = ""] = /^(\S+)\s*([\s\S]*)$/.exec(args.trimStart()) ?? [];
+	const [, intervalText = "", prompt = ""] = /^(\S+)(?:[ \t]+|\n|$)([\s\S]*)$/.exec(args.trimStart()) ?? [];
 	const intervalMs = parseIntervalMs(intervalText);
 	if (!intervalMs) {
 		return {
