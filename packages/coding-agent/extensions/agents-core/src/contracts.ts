@@ -1,3 +1,5 @@
+export const MAX_GOAL_OBJECTIVE_CHARS = 10_000;
+
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
 import type { AgentSessionEvent } from "../../../src/core/agent-session.ts";
