@@ -98,6 +98,14 @@ describe("Input component", () => {
 		});
 	});
 
+	it("keeps an emoji intact when typing after setValue moved the cursor inside it", () => {
+		const input = new Input();
+		input.handleInput("x");
+		input.setValue("🙂");
+		input.handleInput("a");
+		assert.strictEqual(input.getValue(), "a🙂");
+	});
+
 	describe("Kill ring", () => {
 		it("Ctrl+W saves deleted text to kill ring and Ctrl+Y yanks it", () => {
 			const input = new Input();

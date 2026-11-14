@@ -51,7 +51,17 @@ export class Input implements Component, Focusable {
 
 	setValue(value: string): void {
 		this.value = value;
-		this.cursor = Math.min(this.cursor, value.length);
+		if (this.cursor >= value.length) {
+			this.cursor = value.length;
+			return;
+		}
+		// Keep the old offset only on a grapheme boundary of the new value, never inside an emoji or surrogate pair.
+		let boundary = 0;
+		for (const { index } of segmenter.segment(value)) {
+			if (index > this.cursor) break;
+			boundary = index;
+		}
+		this.cursor = boundary;
 	}
 
 	handleInput(data: string): void {
