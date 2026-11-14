@@ -1,11 +1,9 @@
-import { isAbsolute } from "node:path";
 import { isMailboxMessageExpired } from "./mailbox-retention.ts";
 import type {
 	ActiveAgentTargetSelectionResult,
 	AgentCommandResult,
 	AgentCurrentActivity,
 	AgentCurrentActivityOwner,
-	AgentEventStreamMetadata,
 	AgentFileReference,
 	AgentLifecycleNotificationInput,
 	AgentLifecycleNotificationLifecycle,
@@ -14,7 +12,6 @@ import type {
 	AgentMailboxMessage,
 	AgentMetadataCommandResult,
 	AgentNode,
-	AgentResult,
 	AgentRowProjection,
 	AgentSlotProjection,
 	AgentSnapshot,
@@ -23,7 +20,6 @@ import type {
 	AgentTransitionListener,
 	AgentUpdateListener,
 	AgentViewSelectionResult,
-	AgentWorkerAdapter,
 	ContactParentInput,
 	MailboxMessageCommandResult,
 	MultiAgentProjectionSnapshot,
@@ -84,6 +80,14 @@ export type {
 	TerminalAgentLifecycleState,
 } from "./multi-agent-types.ts";
 
+import {
+	copyAgent,
+	copyFileRefs,
+	copyMessage,
+	copyTranscript,
+	validateFileRefs,
+	validateOptionalPath,
+} from "./multi-agent-snapshots.ts";
 import {
 	allocateMultiAgentCounter,
 	consumeRuntimeMailboxMessageByStoreRef,
@@ -1169,149 +1173,4 @@ function appendAgentDuration(body: string, durationMs: number | undefined): stri
 
 function formatWaitingForInputNotificationBody(agent: AgentNode): string {
 	return `${agent.displayName} is waiting for input.`;
-}
-
-function copyAgent(agent: AgentNode): AgentSnapshot {
-	return {
-		...agent,
-		account: copyAccount(agent.account),
-		error: copyOptional(agent.error),
-		currentActivity: copyOptional(agent.currentActivity),
-		lastActivity: copyOptional(agent.lastActivity),
-		model: copyOptional(agent.model),
-		permission: { ...agent.permission },
-		result: copyResult(agent.result),
-		slot: copyOptional(agent.slot),
-		eventStream: copyEventStream(agent.eventStream),
-		transcript: copyTranscript(agent.transcript),
-		worker: copyWorker(agent.worker),
-		worktree: copyWorktree(agent.worktree),
-	};
-}
-
-function copyMessage(message: AgentMailboxMessage): AgentMailboxMessage {
-	return {
-		body: message.body,
-		createdAt: message.createdAt,
-		error: message.error,
-		fileRefs: copyFileRefs(message.fileRefs),
-		fromAgentId: message.fromAgentId,
-		id: message.id,
-		kind: message.kind,
-		status: message.status,
-		targetCheckpoint: message.targetCheckpoint,
-		threadId: message.threadId,
-		toAgentId: message.toAgentId,
-		updatedAt: message.updatedAt,
-	};
-}
-
-function copyAccount(account: AgentNode["account"] | undefined): AgentNode["account"] | undefined {
-	if (!account) {
-		return undefined;
-	}
-	return {
-		budgetId: account.budgetId,
-		concurrencyCap: account.concurrencyCap,
-		id: account.id,
-		providerFallback: account.providerFallback ? [...account.providerFallback] : undefined,
-		rateLimit: account.rateLimit ? { ...account.rateLimit } : undefined,
-		tokenBudget: account.tokenBudget ? { ...account.tokenBudget } : undefined,
-	};
-}
-
-function copyWorker(worker: AgentWorkerAdapter | undefined): AgentWorkerAdapter | undefined {
-	if (!worker) {
-		return undefined;
-	}
-	validateOptionalPath(worker.cwd, "agent_worker.cwd");
-	return {
-		adapter: worker.adapter,
-		cwd: worker.cwd,
-		handleId: worker.handleId,
-		toolCallId: worker.toolCallId,
-	};
-}
-
-function copyTranscript(transcript: AgentTranscriptMetadata | undefined): AgentTranscriptMetadata | undefined {
-	if (!transcript) {
-		return undefined;
-	}
-	validateOptionalPath(transcript.path, "agent_transcript.path");
-	return {
-		path: transcript.path,
-		sessionId: transcript.sessionId,
-	};
-}
-
-function copyEventStream(eventStream: AgentEventStreamMetadata | undefined): AgentEventStreamMetadata | undefined {
-	if (!eventStream) {
-		return undefined;
-	}
-	validateAbsolutePath(eventStream.path, "agent_event_stream.path");
-	return {
-		byteLimit: eventStream.byteLimit,
-		eventCount: eventStream.eventCount,
-		path: eventStream.path,
-		truncated: eventStream.truncated,
-	};
-}
-
-function copyOptional<T extends object>(value: T | undefined): T | undefined {
-	return value ? { ...value } : undefined;
-}
-
-function copyWorktree(worktree: AgentNode["worktree"]): AgentNode["worktree"] {
-	if (!worktree) {
-		return undefined;
-	}
-	validateAbsolutePath(worktree.path, "agent_worktree.path");
-	return { ...worktree };
-}
-
-function validateAbsolutePath(path: string, context: string): void {
-	if (!isAbsolute(path)) {
-		throw new Error(`Invalid path at ${context}: expected an absolute path, received ${path}`);
-	}
-}
-
-function validateOptionalPath(path: string | undefined, context: string): void {
-	if (path !== undefined) {
-		validateAbsolutePath(path, context);
-	}
-}
-
-function copyFileRefs(refs: AgentFileReference[] | undefined): AgentFileReference[] | undefined {
-	return validateFileRefs(refs, "file_reference_copy");
-}
-
-function validateFileRefs(refs: AgentFileReference[] | undefined, context: string): AgentFileReference[] | undefined {
-	if (!refs) {
-		return undefined;
-	}
-	return refs.map((ref, index) => {
-		if (!ref || typeof ref !== "object" || Array.isArray(ref)) {
-			throw new Error(`Invalid file reference at ${context}[${index}]`);
-		}
-		if (typeof ref.path !== "string" || !isAbsolute(ref.path)) {
-			const path = typeof ref.path === "string" ? ref.path : String(ref.path);
-			throw new Error(`Invalid file reference at ${context}[${index}]: path must be absolute, received ${path}`);
-		}
-		if (ref.label !== undefined && typeof ref.label !== "string") {
-			throw new Error(`Invalid file reference at ${context}[${index}]: label must be a string`);
-		}
-		return { path: ref.path, label: ref.label };
-	});
-}
-
-function copyResult(result: AgentResult | undefined): AgentResult | undefined {
-	if (!result) {
-		return undefined;
-	}
-	return {
-		durationMs: result.durationMs,
-		fileRefs: validateFileRefs(result.fileRefs, "agent_result"),
-		summary: result.summary,
-		toolCallId: result.toolCallId,
-	};
 }
