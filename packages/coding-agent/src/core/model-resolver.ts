@@ -276,8 +276,11 @@ function matchesModelGlob(reference: string, pattern: string): boolean {
 export async function resolveModelScopeWithDiagnostics(
 	patterns: string[],
 	modelRegistry: ModelRegistry,
+	options?: { includeUnauthenticated?: boolean },
 ): Promise<ResolveModelScopeResult> {
-	const availableModels = await modelRegistry.getAvailable();
+	const availableModels = options?.includeUnauthenticated
+		? modelRegistry.getAll()
+		: await modelRegistry.getAvailable();
 	const scopedModels: ScopedModel[] = [];
 	const diagnostics: ModelScopeDiagnostic[] = [];
 
@@ -337,8 +340,12 @@ export async function resolveModelScopeWithDiagnostics(
 	return { scopedModels, diagnostics };
 }
 
-export async function resolveModelScope(patterns: string[], modelRegistry: ModelRegistry): Promise<ScopedModel[]> {
-	const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(patterns, modelRegistry);
+export async function resolveModelScope(
+	patterns: string[],
+	modelRegistry: ModelRegistry,
+	options?: { includeUnauthenticated?: boolean },
+): Promise<ScopedModel[]> {
+	const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(patterns, modelRegistry, options);
 	for (const diagnostic of diagnostics) {
 		console.warn(chalk.yellow(`Warning: ${diagnostic.message}`));
 	}

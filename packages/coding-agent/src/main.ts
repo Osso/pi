@@ -1221,8 +1221,8 @@ export async function main(args: string[], options?: MainOptions) {
 		];
 
 		const modelPatterns = parsed.models ?? settingsManager.getEnabledModels();
-		const scopedModels =
-			modelPatterns && modelPatterns.length > 0 ? await resolveModelScope(modelPatterns, modelRegistry) : [];
+		const scopeOptions = { includeUnauthenticated: Boolean(parsed.apiKey) };
+		const scopedModels = await resolveModelScope(modelPatterns ?? [], modelRegistry, scopeOptions);
 		const {
 			options: sessionOptions,
 			cliThinkingFromModel,

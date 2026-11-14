@@ -261,6 +261,7 @@
 - Fixed explicit MCP permission approvals and matching allow rules falling through to Supervisor review or native approval prompts.
 - Fixed persisted permission allow rules in `.pi/settings.local.json` being ignored after restart; trusted projects now load these rules without loading other local settings.
 - Fixed model scope wildcards excluding IDs that contain `/`, including provider-qualified patterns and thinking-level suffixes.
+- Fixed `--models` rejecting first-time models when `--api-key` supplies their authentication.
 - Fixed `/tree` and `/fork` failing on the first retained user message after reopening a compacted session; branching to its unloaded parent now loads the full history and restores the original conversation context.
 - Fixed editing a compaction summary in `/tree` after reopening a compacted session deleting the summarized history and all inactive branches from the session file; only the edited summary changes now.
 - Fixed hidden thinking printing one `Thinking...` label per reasoning block when a provider splits one reasoning phase into many blocks (OpenAI Responses reasoning items); consecutive blocks now share one label.
