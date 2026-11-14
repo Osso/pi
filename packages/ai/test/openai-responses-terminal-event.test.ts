@@ -1,5 +1,6 @@
 import type { ResponseStreamEvent } from "openai/resources/responses/responses.js";
 import { describe, expect, it, vi } from "vitest";
+import { stream as streamCodex } from "../src/api/openai-codex-responses.ts";
 import { stream as streamOpenAIResponses } from "../src/api/openai-responses.ts";
 import { processResponsesStream } from "../src/api/openai-responses-shared.ts";
 import type { AssistantMessage, AssistantMessageEvent, Context, Model } from "../src/types.ts";
@@ -326,6 +327,97 @@ describe("OpenAI Responses terminal event handling", () => {
 			processResponsesStream(createIncompleteEvents("content_filter"), output, stream, model),
 		).rejects.toThrow("Incomplete response returned, reason: content_filter");
 	});
+
+	it.each(["completed", "incomplete"] as const)(
+		"preserves usage and costs in the Codex %s final result",
+		async (status) => {
+			const model: Model<"openai-codex-responses"> = {
+				...createModel(),
+				api: "openai-codex-responses",
+				provider: "openai-codex",
+				compat: undefined,
+				cost: { input: 2, output: 8, cacheRead: 1, cacheWrite: 0 },
+			};
+			const events = [
+				{
+					type: "response.output_item.added",
+					output_index: 0,
+					item: { type: "message", id: "msg_partial", role: "assistant", status: "in_progress", content: [] },
+				},
+				{
+					type: "response.output_item.done",
+					output_index: 0,
+					item: {
+						type: "message",
+						id: "msg_partial",
+						role: "assistant",
+						status: "completed",
+						content: [{ type: "output_text", text: "Partial answer", annotations: [] }],
+					},
+				},
+				{
+					type: `response.${status}`,
+					response: {
+						id: "resp_partial",
+						status,
+						incomplete_details: status === "incomplete" ? { reason: "content_filter" } : null,
+						usage: {
+							input_tokens: 12,
+							output_tokens: 3,
+							total_tokens: 15,
+							input_tokens_details: { cached_tokens: 2 },
+							output_tokens_details: { reasoning_tokens: 2 },
+						},
+					},
+				},
+			];
+			const payload = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("");
+			const fetchMock = vi
+				.spyOn(globalThis, "fetch")
+				.mockResolvedValue(new Response(payload, { headers: { "Content-Type": "text/event-stream" } }));
+			const tokenPayload = Buffer.from(
+				JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "acc_test" } }),
+			).toString("base64url");
+
+			try {
+				const stream = streamCodex(
+					model,
+					{ messages: [] },
+					{
+						apiKey: `test.${tokenPayload}.test`,
+						transport: "sse",
+						maxRetries: 0,
+					},
+				);
+				const streamedEvents: AssistantMessageEvent[] = [];
+				for await (const event of stream) streamedEvents.push(event);
+				const result = await stream.result();
+
+				expect(result.stopReason).toBe(status === "incomplete" ? "error" : "stop");
+				expect(result.errorMessage).toBe(
+					status === "incomplete" ? "Incomplete response returned, reason: content_filter" : undefined,
+				);
+				expect(streamedEvents.at(-1)?.type).toBe(status === "incomplete" ? "error" : "done");
+				expect(result.content).toEqual([expect.objectContaining({ type: "text", text: "Partial answer" })]);
+				expect(result.usage).toMatchObject({
+					input: 10,
+					cacheRead: 2,
+					cacheWrite: 0,
+					output: 3,
+					reasoning: 2,
+					totalTokens: 15,
+				});
+				expect(result.usage.cost.input).toBeCloseTo(0.00002, 10);
+				expect(result.usage.cost.output).toBeCloseTo(0.000024, 10);
+				expect(result.usage.cost.cacheRead).toBeCloseTo(0.000002, 10);
+				expect(result.usage.cost.cacheWrite).toBe(0);
+				expect(result.usage.cost.total).toBeCloseTo(0.000046, 10);
+				expect(result.responseId).toBe("resp_partial");
+			} finally {
+				fetchMock.mockRestore();
+			}
+		},
+	);
 
 	it("rejects failed terminal events with the provider error", async () => {
 		const model = createModel();
