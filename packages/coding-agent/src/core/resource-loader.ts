@@ -210,7 +210,7 @@ export function loadRulesFilesFromDir(dirPath: string): Array<{ path: string; co
 	}
 
 	return readdirSync(dirPath)
-		.filter((entry) => entry.endsWith(".md"))
+		.filter((entry) => entry.endsWith(".md") && statSync(join(dirPath, entry), { throwIfNoEntry: false })?.isFile())
 		.sort((a, b) => a.localeCompare(b))
 		.map((entry) => {
 			const filePath = join(dirPath, entry);

@@ -775,6 +775,18 @@ Content`,
 			expect(loadRulesFromDir(rulesDir)).toBeUndefined();
 		});
 
+		it("should skip directories and broken symlinks whose names end in .md", async () => {
+			const rulesDir = join(agentDir, "rules");
+			mkdirSync(join(rulesDir, "archive.md"), { recursive: true });
+			symlinkSync(join(rulesDir, "missing-target.md"), join(rulesDir, "broken.md"));
+			writeFileSync(join(rulesDir, "valid.md"), "Valid rule.");
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload();
+
+			expect(loader.getRulesContent()).toBe("Valid rule.");
+		});
+
 		it("should silently skip missing and untrusted project rules", async () => {
 			const projectRulesDir = join(cwd, ".pi", "rules");
 			mkdirSync(projectRulesDir, { recursive: true });
