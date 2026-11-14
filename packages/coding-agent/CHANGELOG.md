@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed `RpcClient` command helpers such as `prompt()`, `steer()`, `abort()` and `setSessionName()` resolving when the RPC server rejected the command; they now throw the server error.
 - Fixed `models.json` model overrides replacing the whole inherited OpenRouter `max_price` object; individual price limits now merge.
 - Fixed `grep` glob filters including files excluded by `.gitignore`, and globs with a directory part (such as `src/**/*.ts`) matching nothing.
 - Fixed the session picker ignoring Enter after Down or PageDown on an empty search result followed by clearing the search.

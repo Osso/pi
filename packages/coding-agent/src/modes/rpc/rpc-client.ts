@@ -213,35 +213,35 @@ export class RpcClient {
 	 * Use waitForIdle() to wait for completion.
 	 */
 	async prompt(message: string, images?: ImageContent[]): Promise<void> {
-		await this.send({ type: "prompt", message, images });
+		this.getData(await this.send({ type: "prompt", message, images }));
 	}
 
 	/**
 	 * Queue a steering message to interrupt the agent mid-run.
 	 */
 	async steer(message: string, images?: ImageContent[]): Promise<void> {
-		await this.send({ type: "steer", message, images });
+		this.getData(await this.send({ type: "steer", message, images }));
 	}
 
 	/**
 	 * Queue a follow-up message to be processed after the agent finishes.
 	 */
 	async followUp(message: string, images?: ImageContent[]): Promise<void> {
-		await this.send({ type: "follow_up", message, images });
+		this.getData(await this.send({ type: "follow_up", message, images }));
 	}
 
 	/**
 	 * Abort current operation.
 	 */
 	async abort(): Promise<void> {
-		await this.send({ type: "abort" });
+		this.getData(await this.send({ type: "abort" }));
 	}
 
 	/**
 	 * Abort the current operation and resubmit queued steering/follow-up input.
 	 */
 	async interrupt(): Promise<void> {
-		await this.send({ type: "interrupt" });
+		this.getData(await this.send({ type: "interrupt" }));
 	}
 
 	/**
@@ -294,7 +294,7 @@ export class RpcClient {
 	 * Set thinking level.
 	 */
 	async setThinkingLevel(level: ThinkingLevel): Promise<void> {
-		await this.send({ type: "set_thinking_level", level });
+		this.getData(await this.send({ type: "set_thinking_level", level }));
 	}
 
 	/**
@@ -309,14 +309,14 @@ export class RpcClient {
 	 * Set steering mode.
 	 */
 	async setSteeringMode(mode: "all" | "one-at-a-time"): Promise<void> {
-		await this.send({ type: "set_steering_mode", mode });
+		this.getData(await this.send({ type: "set_steering_mode", mode }));
 	}
 
 	/**
 	 * Set follow-up mode.
 	 */
 	async setFollowUpMode(mode: "all" | "one-at-a-time"): Promise<void> {
-		await this.send({ type: "set_follow_up_mode", mode });
+		this.getData(await this.send({ type: "set_follow_up_mode", mode }));
 	}
 
 	/**
@@ -331,21 +331,21 @@ export class RpcClient {
 	 * Set auto-compaction enabled/disabled.
 	 */
 	async setAutoCompaction(enabled: boolean): Promise<void> {
-		await this.send({ type: "set_auto_compaction", enabled });
+		this.getData(await this.send({ type: "set_auto_compaction", enabled }));
 	}
 
 	/**
 	 * Set auto-retry enabled/disabled.
 	 */
 	async setAutoRetry(enabled: boolean): Promise<void> {
-		await this.send({ type: "set_auto_retry", enabled });
+		this.getData(await this.send({ type: "set_auto_retry", enabled }));
 	}
 
 	/**
 	 * Abort in-progress retry.
 	 */
 	async abortRetry(): Promise<void> {
-		await this.send({ type: "abort_retry" });
+		this.getData(await this.send({ type: "abort_retry" }));
 	}
 
 	/**
@@ -360,7 +360,7 @@ export class RpcClient {
 	 * Abort running bash command.
 	 */
 	async abortBash(): Promise<void> {
-		await this.send({ type: "abort_bash" });
+		this.getData(await this.send({ type: "abort_bash" }));
 	}
 
 	/**
@@ -442,7 +442,7 @@ export class RpcClient {
 	 * Set the session display name.
 	 */
 	async setSessionName(name: string): Promise<void> {
-		await this.send({ type: "set_session_name", name });
+		this.getData(await this.send({ type: "set_session_name", name }));
 	}
 
 	/**
@@ -513,7 +513,11 @@ export class RpcClient {
 	 */
 	async promptAndWait(message: string, images?: ImageContent[], timeout = 60000): Promise<AgentEvent[]> {
 		const eventsPromise = this.collectEvents(timeout);
-		await this.prompt(message, images);
+		// A rejected prompt never reaches agent_end; keep the collector's later timeout from going unhandled.
+		await this.prompt(message, images).catch((error: unknown) => {
+			eventsPromise.catch(() => {});
+			throw error;
+		});
 		return eventsPromise;
 	}
 
