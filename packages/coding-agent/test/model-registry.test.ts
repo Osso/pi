@@ -1935,6 +1935,17 @@ describe("ModelRegistry", () => {
 					expect(auth.error).toContain('Failed to resolve API key for provider "custom-provider"');
 				}
 			});
+
+			test("getApiKeyAndHeaders keeps an unresolved auth.json key instead of the models.json key", async () => {
+				authStorage.set("custom-provider", { type: "api_key", key: "$PI_TEST_UNSET_PROVIDER_KEY" });
+				writeRawModelsJson({ "custom-provider": providerWithApiKey("models-key") });
+
+				const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+				const auth = await registry.getApiKeyAndHeaders(
+					requireValue(registry.find("custom-provider", "test-model")),
+				);
+				expect(auth).toEqual({ ok: true, apiKey: undefined, headers: undefined });
+			});
 		});
 	});
 });

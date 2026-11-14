@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed requests using a provider's `models.json` `apiKey` when that provider has an `auth.json` entry whose key does not resolve; the `auth.json` entry now owns the provider as documented.
 - Fixed the legacy credential migration deleting `settings.json` API keys and renaming `oauth.json` before writing `auth.json`, so a failed write lost the keys for later startups.
 - Fixed a global approval preset staying active when a project `approvalPolicy` overrode it with a different policy: `/approvals` marked the wrong preset, and the stale preset still selected the reviewer and the tool-call `bypassPermissions` flag.
 - Fixed a symlinked `auth.json` letting an OAuth refresh overwrite a login or logout that another Pi process completed during the refresh; refresh and synchronous writes now lock the same path.

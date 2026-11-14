@@ -804,7 +804,7 @@ export class ModelRegistry {
 			});
 			const apiKey =
 				apiKeyFromAuthStorage ??
-				(providerConfig?.apiKey
+				(providerConfig?.apiKey && !this.authStorage.has(model.provider) // an auth.json entry owns the provider
 					? resolveConfigValueOrThrow(
 							providerConfig.apiKey,
 							`API key for provider "${model.provider}"`,
