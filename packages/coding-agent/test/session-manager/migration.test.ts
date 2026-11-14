@@ -1,5 +1,8 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { type FileEntry, migrateSessionEntries } from "../../src/core/session-manager.ts";
+import { type FileEntry, migrateSessionEntries, SessionManager } from "../../src/core/session-manager.ts";
 
 describe("migrateSessionEntries", () => {
 	it("should add id/parentId to v1 entries", () => {
@@ -73,5 +76,37 @@ describe("migrateSessionEntries", () => {
 		// IDs should be unchanged
 		expect(entries[1]).toMatchObject({ id: "abc12345" });
 		expect(entries[2]).toMatchObject({ id: "def67890", parentId: "abc12345" });
+	});
+});
+
+describe("SessionManager.forkFrom with a legacy source", () => {
+	it("migrates v1 entries so every message stays in the fork", () => {
+		const dir = mkdtempSync(join(tmpdir(), "pi-legacy-fork-"));
+		try {
+			const sourcePath = join(dir, "source.jsonl");
+			const lines = [
+				{ type: "session", id: "legacy", timestamp: "2025-01-01T00:00:00Z", cwd: dir },
+				{
+					type: "message",
+					timestamp: "2025-01-01T00:00:01Z",
+					message: { role: "user", content: "first", timestamp: 1 },
+				},
+				{
+					type: "message",
+					timestamp: "2025-01-01T00:00:02Z",
+					message: { role: "user", content: "second", timestamp: 2 },
+				},
+			];
+			writeFileSync(sourcePath, `${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
+
+			const forked = SessionManager.forkFrom(sourcePath, dir, dir);
+
+			const contents = forked
+				.buildSessionContext()
+				.messages.map((message) => "content" in message && message.content);
+			expect(contents).toEqual(["first", "second"]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });
