@@ -68,6 +68,9 @@ await runHostRelay({ controlDbPath: ${JSON.stringify(receiverDb)}, host: "agent-
 		);
 		try {
 			await expect.poll(() => log.mock.calls.map((call) => call.join(" ")).join("\n")).toContain("peer unavailable");
+			expect(String(log.mock.calls[0]?.[0])).toMatch(
+				/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z \[relay:server-alias\] ssh exited 255: peer unavailable$/,
+			);
 			expect(listRuntimeMailboxMessages(senderDb)).toHaveLength(1);
 			await expect.poll(() => listRuntimeMailboxMessages(receiverDb), { timeout: 5000 }).toHaveLength(1);
 			await expect.poll(() => listRuntimeMailboxMessages(senderDb)).toHaveLength(0);

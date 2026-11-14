@@ -168,6 +168,15 @@ describe("cross-host relay", () => {
 		second.stop();
 		await second.done;
 	});
+	it("names the relay step that failed", async () => {
+		const input = new PassThrough();
+		const relay = runHostRelay({ controlDbPath: dbB, host: "agent-server", input, output: new PassThrough() });
+		input.write(`${JSON.stringify({ type: "hello", host: "aso" })}\n`);
+		const data = { recipientHost: "elsewhere", relaySeq: 1 };
+		const frame = { type: "mailbox", seq: 1, sessionPath: "/laptop/session.jsonl", messageId: "m", data };
+		input.write(`${JSON.stringify(frame)}\n`);
+		await expect(relay).rejects.toThrow("relay mailbox frame: Relay mailbox route/sequence mismatch");
+	});
 	it("tells the sender when the remote recipient session is not running", async () => {
 		const stopped = { sessionId: "stopped-session", agentId: null };
 		enqueueStoredRuntimeMessageTo(dbA, stopped, "agent-server", "deploy", "Please deploy the website");

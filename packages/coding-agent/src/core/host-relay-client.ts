@@ -56,6 +56,11 @@ async function connectRelay(controlDbPath: string, settings: RelaySettings, sign
 	}
 }
 
+/** Timestamped so relay failures can be matched to peer deployments and lock holders. */
+function logRelay(peer: string, message: string): void {
+	console.error(`${new Date().toISOString()} [relay:${peer}] ${message}`);
+}
+
 /** Failure is confined to this connection; authoritative local queues stay untouched. */
 export async function runSshRelayClient(
 	controlDbPath: string,
@@ -69,10 +74,9 @@ export async function runSshRelayClient(
 			if (!settings.peer?.trim() || settings.peer.startsWith("-"))
 				throw new Error("relay.peer must be a non-empty SSH alias, not an option");
 			await connectRelay(controlDbPath, settings, signal);
-			if (!signal.aborted) console.error(`[relay:${settings.peer}] connection closed; reconnecting`);
+			if (!signal.aborted) logRelay(settings.peer, "connection closed; reconnecting");
 		} catch (error) {
-			if (!signal.aborted)
-				console.error(`[relay:${settings.peer}] ${error instanceof Error ? error.message : String(error)}`);
+			if (!signal.aborted) logRelay(settings.peer, error instanceof Error ? error.message : String(error));
 		}
 		if (signal.aborted) break;
 		if (Date.now() - started >= 30_000) failures = 0;

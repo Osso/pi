@@ -69,6 +69,11 @@ function parseFrame(line: string): RelayFrame {
 	}
 }
 
+/** Names the relay step that failed; the peer only sees the message, so it must identify the operation. */
+function relayStepError(step: string, error: unknown): Error {
+	return new Error(`relay ${step}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+}
+
 /** One mailbox and one channel in flight; retries preserve persisted sequence and channel origin. */
 export function runHostRelay(options: HostRelayOptions): Promise<void> {
 	const host = options.host ?? hostname();
@@ -106,7 +111,7 @@ export function runHostRelay(options: HostRelayOptions): Promise<void> {
 			try {
 				scan();
 			} catch (error) {
-				fail(error instanceof Error ? error : new Error(String(error)));
+				fail(relayStepError("scan", error));
 			}
 		};
 		const timer = setInterval(guardedScan, options.pollMs ?? 2000);
@@ -115,8 +120,10 @@ export function runHostRelay(options: HostRelayOptions): Promise<void> {
 		options.signal?.addEventListener("abort", stop, { once: true });
 		lines.on("close", stop);
 		lines.on("line", (line) => {
+			let step = "frame parse";
 			try {
 				const frame = parseFrame(line);
+				step = frame.type === "ack" ? `${frame.kind} ack` : `${frame.type} frame`;
 				if (frame.type === "hello") {
 					if (peer || frame.host === host) throw new Error("Invalid relay peer hello");
 					peer = frame.host;
@@ -141,7 +148,7 @@ export function runHostRelay(options: HostRelayOptions): Promise<void> {
 					channel = undefined;
 				}
 			} catch (error) {
-				fail(error instanceof Error ? error : new Error(String(error)));
+				fail(relayStepError(step, error));
 			}
 		});
 		if (options.signal?.aborted) stop();

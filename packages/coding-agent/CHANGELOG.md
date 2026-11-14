@@ -35,6 +35,7 @@
 
 ### Changed
 
+- Relay connection log lines (`<control-db>.relay.log`) start with an ISO timestamp, and relay failures name the failing step (for example `relay scan: database is locked`), so remote exits can be matched to deployments and lock holders.
 - Root TypeScript and Biome checks now include coding-agent extensions.
 - When a structured `supervisor_response` is present, Supervisor response extraction validates its current-request arguments and ignores accompanying assistant text; the model remains instructed to call the tool without text, and prior responses are never reused.
 - Normal tool cards no longer add blank rows above and below their content; outer margins remain unchanged.
