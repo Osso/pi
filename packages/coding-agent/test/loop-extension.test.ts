@@ -216,6 +216,25 @@ describe("loop extension", () => {
 		expect(harness.notify).toHaveBeenLastCalledWith("Loop stopped", "info");
 	});
 
+	it("rejects intervals longer than the timer limit instead of firing at once", async () => {
+		vi.useFakeTimers();
+		const harness = createLoopHarness();
+
+		const result = await harness.runTool({ action: "start", intervalSeconds: 2_592_000, prompt: "review" });
+		expect(result.content.find((item) => item.type === "text")?.text).toBe(
+			"intervalSeconds must be between 1 and 2147483 (about 24.8 days).",
+		);
+		await harness.runCommand("720h review");
+		expect(harness.notify).toHaveBeenLastCalledWith(
+			"Usage: /loop <interval> <prompt> | /loop status | /loop stop (interval from 1s to 24.8 days)",
+			"error",
+		);
+		const status = await harness.runTool({ action: "status" });
+		expect(status.details).toMatchObject({ active: false });
+		await vi.advanceTimersByTimeAsync(60_000);
+		expect(harness.sendMessage).not.toHaveBeenCalled();
+	});
+
 	it("starts and stops a loop through the tool", async () => {
 		vi.useFakeTimers();
 		const harness = createLoopHarness();

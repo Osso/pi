@@ -24,6 +24,7 @@ The loop tool lets the agent or user schedule a recurring prompt that is injecte
 - [ ] Support `/loop` and `/loop status` to inspect the active loop.
 - [x] Accept interval units `ms`, `s`, `m`, and `h`, with seconds as the default unit.
 - [x] Reject intervals below one second.
+- [x] Reject intervals above 2^31 - 1 ms (about 24.8 days) in both the tool and the slash command; Node fires longer timers after 1 ms.
 
 ### Runtime behavior
 

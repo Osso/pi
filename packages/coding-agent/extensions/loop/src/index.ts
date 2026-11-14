@@ -4,6 +4,8 @@ import { Type } from "typebox";
 
 const intervalPattern = /^(\d+(?:\.\d+)?)(ms|s|m|h)?$/;
 const minimumIntervalMs = 1_000;
+// Node fires timers above 2^31 - 1 ms after 1 ms, so longer intervals cannot be scheduled.
+const maximumIntervalMs = 2_147_483_647;
 const loopMessageType = "loop";
 
 type LoopAction = "start" | "stop" | "status";
@@ -42,7 +44,7 @@ function parseIntervalMs(value: string): number | undefined {
 	const multiplier = unit === "ms" ? 1 : unit === "s" ? 1_000 : unit === "m" ? 60_000 : 3_600_000;
 	const intervalMs = Math.floor(amount * multiplier);
 
-	return intervalMs >= minimumIntervalMs ? intervalMs : undefined;
+	return intervalMs >= minimumIntervalMs && intervalMs <= maximumIntervalMs ? intervalMs : undefined;
 }
 
 function formatInterval(intervalMs: number): string {
@@ -161,7 +163,9 @@ function parseLoopCommand(
 	const [intervalText, ...promptParts] = trimmedArgs.split(/\s+/);
 	const intervalMs = parseIntervalMs(intervalText ?? "");
 	if (!intervalMs) {
-		return { error: "Usage: /loop <interval> <prompt> | /loop status | /loop stop" };
+		return {
+			error: "Usage: /loop <interval> <prompt> | /loop status | /loop stop (interval from 1s to 24.8 days)",
+		};
 	}
 
 	const prompt = promptParts.join(" ").trim();
@@ -229,7 +233,10 @@ export default function loopExtension(pi: ExtensionAPI) {
 				params.intervalSeconds !== undefined ? parseIntervalMs(`${params.intervalSeconds}s`) : undefined;
 
 			if (!intervalMs) {
-				return textResult("intervalSeconds must be at least 1.", { action: "start", active: false });
+				return textResult("intervalSeconds must be between 1 and 2147483 (about 24.8 days).", {
+					action: "start",
+					active: false,
+				});
 			}
 
 			if (!prompt) {
