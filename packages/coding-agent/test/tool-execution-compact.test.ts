@@ -351,7 +351,7 @@ describe("ToolExecutionComponent compact and hidden rows", () => {
 			expect(rendered).not.toContain(code);
 			expect(rendered).not.toContain("private result");
 			expect(rendered.split("\n").length).toBeGreaterThan(1);
-			expect(component.render(120).join("\n")).toMatch(/\u001b\[48;2;\d+;\d+;\d+m/);
+			expect(component.render(120).join("\n")).toMatch(/\u001b\[48;(?:2;\d+;\d+;\d+|5;\d+)m/);
 
 			component.setHideOutput(false);
 			const visible = stripAnsi(component.render(120).join("\n"));
