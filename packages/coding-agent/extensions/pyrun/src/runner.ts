@@ -55,6 +55,7 @@ interface PendingRequest {
 	generation: RunnerGeneration;
 	onPiRequest?: PyrunPiRequestHandler;
 	onProgress?: (update: CanonicalPyrunProgressUpdate) => void;
+	payload: string;
 	reject: (error: Error) => void;
 	resolve: (result: CanonicalPyrunEvalResult) => void;
 }
@@ -181,7 +182,7 @@ export class PyrunRunnerClient {
 		const generation = this.ensureProcess();
 		const payload = JSON.stringify(params);
 		return new Promise((resolve, reject) => {
-			const pending: PendingRequest = { generation, onPiRequest, onProgress, reject, resolve };
+			const pending: PendingRequest = { generation, onPiRequest, onProgress, payload, reject, resolve };
 			if (signal) {
 				const onAbort = () => {
 					this.terminateGeneration(generation);
@@ -190,13 +191,25 @@ export class PyrunRunnerClient {
 				signal.addEventListener("abort", onAbort, { once: true });
 				pending.cleanup = () => signal.removeEventListener("abort", onAbort);
 			}
+			// The runner reads one request at a time and takes the next stdin line as a bridge reply,
+			// so a request is written only after the previous one on this runner has finished.
+			const runnerIdle = !this.hasPendingGeneration(generation);
 			this.pending.push(pending);
-			generation.child.stdin.write(`${payload}\n`, (error) => {
-				if (error) {
-					this.rejectPending(pending, error);
-				}
-			});
+			if (runnerIdle) this.writeRequest(pending);
 		});
+	}
+
+	private writeRequest(pending: PendingRequest): void {
+		pending.generation.child.stdin.write(`${pending.payload}\n`, (error) => {
+			if (error) this.rejectPending(pending, error);
+		});
+	}
+
+	private finishRequest(pendingIndex: number, pending: PendingRequest): void {
+		this.pending.splice(pendingIndex, 1);
+		pending.cleanup?.();
+		const next = this.pending.find((request) => request.generation === pending.generation);
+		if (next) this.writeRequest(next);
 	}
 
 	dispose(): void {
@@ -296,8 +309,7 @@ export class PyrunRunnerClient {
 			}
 			const message = parsed as CanonicalPyrunRunnerMessage;
 			if (isFinalEvalResult(message)) {
-				this.pending.splice(pendingIndex, 1);
-				pending.cleanup?.();
+				this.finishRequest(pendingIndex, pending);
 				pending.resolve(message);
 				return;
 			}
@@ -307,8 +319,7 @@ export class PyrunRunnerClient {
 			}
 			pending.onProgress?.(message);
 		} catch (error) {
-			this.pending.splice(pendingIndex, 1);
-			pending.cleanup?.();
+			this.finishRequest(pendingIndex, pending);
 			pending.reject(error instanceof Error ? error : new Error(String(error)));
 		}
 	}
