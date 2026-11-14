@@ -1112,10 +1112,10 @@ export class AgentSession {
 		this._lastAssistantMessage = message;
 		this._writeLastAssistantControlMessage(message);
 		this._trackDuplicateAssistantTurn(message);
-		if (message.stopReason !== "error") this._overflowRecoveryAttempted = false;
+		const overflowed = isContextOverflow(message, this.model?.contextWindow ?? 0);
+		if (message.stopReason !== "error" && !overflowed) this._overflowRecoveryAttempted = false;
 		if (message.stopReason !== "length") this._lengthRecoveryAttempted = false;
 		if (message.stopReason === "error" || this._retryAttempt === 0) return;
-
 		this._emit({ type: "auto_retry_end", success: true, attempt: this._retryAttempt });
 		this._retryAttempt = 0;
 	}

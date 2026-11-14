@@ -1028,6 +1028,72 @@ describe("AgentSession compaction characterization", () => {
 		});
 	});
 
+	it("preserves the overflow retry bound after a zero-output length response", async () => {
+		let compactionCalls = 0;
+		const harness = await createHarness({
+			models: [{ id: "faux-1", contextWindow: 200_000 }],
+			settings: { compaction: { enabled: true, keepRecentMessages: 1, reserveTokens: 5_000 } },
+			extensionFactories: [
+				(pi) => {
+					pi.on("compaction", async (event) => {
+						compactionCalls++;
+						return {
+							compaction: {
+								summary: "zero-output overflow summary",
+								firstKeptEntryId: event.preparation.firstKeptEntryId,
+								tokensBefore: event.preparation.tokensBefore,
+							},
+						};
+					});
+				},
+			],
+		});
+		harnesses.push(harness);
+		// The faux provider estimates usage from text, so set the provider's full-window usage at message end.
+		harness.session.subscribe((event) => {
+			if (event.type !== "message_end" || event.message.role !== "assistant") return;
+			if (event.message.stopReason === "length") event.message.usage = createUsage(200_000);
+		});
+		for (let index = 0; index < 4; index++) {
+			harness.sessionManager.appendMessage({
+				role: "user",
+				content: [{ type: "text", text: `old request ${index}` }],
+				timestamp: Date.now() - (4 - index) * 1_000,
+			});
+		}
+		harness.session.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
+		harness.setResponses([
+			fauxAssistantMessage("", {
+				stopReason: "error",
+				errorMessage: "Your input exceeds the context window of this model",
+			}),
+			() => ({
+				...createAssistant(harness, { stopReason: "length", totalTokens: 200_000 }),
+				content: [],
+			}),
+			fauxCompletedTurn("done"),
+		]);
+
+		await expect(harness.session.prompt("continue the work")).resolves.toBeUndefined();
+
+		expect(harness.faux.state.callCount).toBe(2);
+		expect(harness.getPendingResponseCount()).toBe(1);
+		expect(compactionCalls).toBe(1);
+		expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(1);
+		expect(harness.eventsOfType("compaction_end")).toEqual([
+			expect.objectContaining({ reason: "overflow", aborted: false, willRetry: true }),
+			expect.objectContaining({
+				reason: "overflow",
+				result: undefined,
+				aborted: false,
+				willRetry: false,
+				errorMessage:
+					"Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.",
+			}),
+		]);
+		expect(getAssistantTexts(harness)).not.toContain("done");
+	});
+
 	it("surfaces request-buffer compaction failure without issuing a retry", async () => {
 		const harness = await createHarness({
 			settings: { compaction: { enabled: false, keepRecentMessages: 1, reserveTokens: 5_000 } },
