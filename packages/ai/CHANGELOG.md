@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Anthropic-compatible streams losing tool input that arrives only in `content_block_start` without `input_json_delta` events.
 - Fixed Anthropic streams failing with `Could not parse Anthropic SSE event` when a CRLF line ending was split across network chunks.
 - Fixed OpenAI Completions streams dropping encrypted `reasoning_details` for a tool call whose id arrives on a later delta.
 - Fixed Google and Vertex streams reporting a prompt blocked by `promptFeedback.blockReason` as a successful empty answer; it is now an error.

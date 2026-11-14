@@ -153,6 +153,32 @@ describe("Anthropic raw SSE parsing", () => {
 		},
 	);
 
+	it("keeps tool input sent only in content_block_start", async () => {
+		const toolEvents = [
+			{
+				type: "content_block_start",
+				index: 0,
+				content_block: { type: "tool_use", id: "toolu_read", name: "read", input: { path: "/tmp/example.txt" } },
+			},
+			{ type: "content_block_stop", index: 0 },
+		];
+		const response = createSseResponse([
+			...minimalAnthropicEvents.slice(0, 1),
+			...toolEvents.map((event) => ({ event: event.type, data: JSON.stringify(event) })),
+			...minimalAnthropicEvents.slice(-2),
+		]);
+
+		const result = await streamAnthropic(
+			getModel("anthropic", "claude-haiku-4-5"),
+			{ messages: [{ role: "user", content: "Read the file.", timestamp: 1 }] },
+			{ client: createFakeAnthropicClient(response) },
+		).result();
+
+		expect(result.content).toEqual([
+			{ type: "toolCall", id: "toolu_read", name: "read", arguments: { path: "/tmp/example.txt" } },
+		]);
+	});
+
 	it("parses CRLF line endings split across network chunks", async () => {
 		const body = minimalAnthropicEvents.map(({ event, data }) => `event: ${event}\r\ndata: ${data}\r\n\r\n`).join("");
 		const encoder = new TextEncoder();
