@@ -66,6 +66,17 @@ describe("parseArgs", () => {
 		});
 	});
 
+	describe("command words after a message", () => {
+		test("keeps tools, extensions and login as messages after the first message", () => {
+			const result = parseArgs(["Read package.json", "tools", "extensions", "login"]);
+			expect(result.messages).toEqual(["Read package.json", "tools", "extensions", "login"]);
+			expect(result.listTools).toBeUndefined();
+			expect(result.listExtensions).toBeUndefined();
+			expect(result.loginProvider).toBeUndefined();
+			expect(result.diagnostics).toEqual([]);
+		});
+	});
+
 	describe("--help flag", () => {
 		test("parses --help flag", () => {
 			const result = parseArgs(["--help"]);

@@ -260,11 +260,11 @@ export function parseArgs(args: string[]): Args {
 			}
 		} else if (arg === "--refresh-models") {
 			result.refreshModels = true;
-		} else if (arg === "tools") {
+		} else if (arg === "tools" && result.messages.length === 0) {
 			result.listTools = true;
-		} else if (arg === "extensions") {
+		} else if (arg === "extensions" && result.messages.length === 0) {
 			result.listExtensions = true;
-		} else if (arg === "login") {
+		} else if (arg === "login" && result.messages.length === 0) {
 			const provider = args[i + 1];
 			if (provider !== undefined && !provider.startsWith("-") && !provider.startsWith("@")) {
 				result.loginProvider = provider;
