@@ -2180,11 +2180,12 @@ describe("runtime SQLite mailbox delivery", () => {
 			);
 			const completionResult = await waiting;
 			expect(completionResult.content).toEqual([
-				{ type: "text", text: "Verifier is completed: finished during steering" },
+				{ type: "text", text: "Verifier completed: finished during steering" },
 			]);
 			expect(completionResult.details).toMatchObject({
 				agent: { id: runtime.agent.id, lifecycle: "completed" },
 			});
+			expect(store.listPendingLifecycleNotificationsForAgent(runtime.agent.id, "completed")).toEqual([]);
 		} finally {
 			unsubscribe();
 		}
