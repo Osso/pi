@@ -343,7 +343,9 @@ function findRecentMessagesStartIndex(
 ): number {
 	let messageCount = 0;
 	for (const [reverseIndex, entry] of [...entries.slice(startIndex, endIndex)].reverse().entries()) {
-		if (!getMessageFromEntry(entry)) continue;
+		const message = getMessageFromEntry(entry);
+		// Hidden `!!` commands never reach the model, so they do not count as retained context.
+		if (!message || (message.role === "bashExecution" && message.excludeFromContext)) continue;
 		messageCount++;
 		if (messageCount >= keepRecentMessages) return endIndex - reverseIndex - 1;
 	}

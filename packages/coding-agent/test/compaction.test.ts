@@ -348,6 +348,29 @@ describe("findCutPoint", () => {
 		expect(prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS)).toBeUndefined();
 	});
 
+	it("does not count hidden !! commands as retained messages", () => {
+		const bash = (command: string): AgentMessage => ({
+			role: "bashExecution",
+			command,
+			output: "/tmp",
+			exitCode: 0,
+			cancelled: false,
+			truncated: false,
+			excludeFromContext: true,
+			timestamp: Date.now(),
+		});
+		const entries: SessionEntry[] = [
+			createMessageEntry(createUserMessage("user-old")),
+			createMessageEntry(createAssistantMessage("assistant-old")),
+			createMessageEntry(createUserMessage("user-current")),
+			createMessageEntry(createAssistantMessage("assistant-current")),
+			createMessageEntry(bash("pwd")),
+			createMessageEntry(bash("date")),
+		];
+
+		expect(findCutPoint(entries, 0, entries.length, 2).firstKeptEntryIndex).toBe(2);
+	});
+
 	it("keeps the 20 most recent messages untruncated when a short nudge turn follows a long turn", () => {
 		const entries: SessionEntry[] = [
 			createMessageEntry(createUserMessage("old request")),
