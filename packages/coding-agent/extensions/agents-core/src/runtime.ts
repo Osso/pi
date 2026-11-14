@@ -5,16 +5,22 @@ export {
 	createProductionChildAgentSessionFactory,
 } from "./session-factories.ts";
 
+import type { WaitingDesktopNotificationHandles } from "./dispatch-pipeline.ts";
+import {
+	closeWaitingDesktopNotification,
+	publishCoordinatorSnapshot,
+	runAgentSession,
+	startToolDispatch,
+	trackAgentDispatch,
+} from "./dispatch-pipeline.ts";
+
+export { deliverTerminalOutboxForStore } from "./dispatch-pipeline.ts";
+
 import { randomUUID } from "node:crypto";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { clampThinkingLevel } from "@earendil-works/pi-ai/compat";
 import { DEFAULT_THINKING_LEVEL } from "../../../src/core/defaults.ts";
-import {
-	type DesktopNotificationHandle,
-	PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
-	sendDesktopNotification,
-	toDesktopNotificationHandle,
-} from "../../../src/core/desktop-notification.ts";
+import { sendDesktopNotification } from "../../../src/core/desktop-notification.ts";
 import {
 	type AgentToolResult,
 	defineTool,
@@ -64,18 +70,15 @@ import { deliverTerminalOutboxProjections } from "../../../src/core/terminal-out
 import { registerAgentViewerTools } from "../../agent-viewer/src/runtime.ts";
 import { registerSetAgentModelTool, resolveLiveAgentMutationTarget } from "./agent-model-tool.ts";
 import { type AttachSessionInfo, findAttachSessionsById, readStoredSessionModel } from "./attach-session-lookup.ts";
-import { readCurrentChildAssistantText } from "./child-response.ts";
 import type {
 	ActiveAgentDispatches,
 	BackgroundSessionHandles,
 	MultiAgentRuntimeHandles,
 	OwnedAgentRuntime,
 } from "./contracts.ts";
-import { waitForActiveDescendants } from "./descendant-settlement.ts";
 import {
 	type DetachedRuntimeCancellationOptions,
 	readDetachedRuntimeAgentIds,
-	requestDirectDetachedRuntimeCancellations,
 	requestPersistedDetachedRuntimeCancellation,
 } from "./detached-runtime-cancellation.ts";
 import { createLifecycleCoordinator, RUNTIME_PROCESS_IDENTITY } from "./lifecycle-runtime.ts";
@@ -148,7 +151,6 @@ import {
 	RUNTIME_COORDINATION_POLL_INTERVAL_MS,
 	requireSpawnAgentParams,
 	type SteerAgentParams,
-	SUBAGENT_TERMINAL_CLEANUP_REASON,
 	spawnAgentSchema,
 	steerAgentSchema,
 	THINKING_LEVELS,
@@ -170,13 +172,6 @@ export function resolveSelectedSessionMutationTarget(
 	if (!selectedAgentId || selectedAgentId === MAIN_THREAD_AGENT_ID) return undefined;
 	return resolveLiveAgentMutationTarget(store, runtimeHandles.sessions, selectedAgentId);
 }
-
-interface WaitingDesktopNotificationRegistration {
-	handle: DesktopNotificationHandle;
-	unsubscribeTransition: () => void;
-}
-
-type WaitingDesktopNotificationHandles = Map<string, WaitingDesktopNotificationRegistration>;
 
 interface BackgroundDispatchContext {
 	createChildSession: ChildAgentSessionFactory | undefined;
@@ -1121,67 +1116,6 @@ function findMatchingSession(
 	return nameMatches[0] ? { status: "found", session: nameMatches[0] } : { status: "not_found" };
 }
 
-function startToolDispatch(
-	store: MultiAgentStore,
-	dispatches: ActiveAgentDispatches,
-	agent: AgentSnapshot,
-	dispatch: () => Promise<AgentSnapshot>,
-	desktopNotifier: AgentDesktopNotifier,
-	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
-	handles: BackgroundSessionHandles | undefined,
-	reservedRuntime: OwnedAgentRuntime,
-): AgentSnapshot {
-	const unsubscribeLifecycleNotifications = store.subscribeLifecycleNotifications((message) => {
-		if (message.fromAgentId !== agent.id) {
-			return;
-		}
-		const notificationHandle = notifyWaitingAgent(message, desktopNotifier);
-		if (isWaitingForInputNotification(message)) {
-			rememberWaitingDesktopNotification(store, message, notificationHandle, waitingDesktopNotifications);
-		} else {
-			closeWaitingDesktopNotification(message.fromAgentId, waitingDesktopNotifications);
-		}
-	});
-	const trackedDispatch = trackAgentDispatch(store, dispatches, agent, dispatch(), reservedRuntime, handles);
-	void trackedDispatch.finally(() => {
-		unsubscribeLifecycleNotifications();
-		closeWaitingDesktopNotificationWhenNotWaiting(store, agent.id, waitingDesktopNotifications);
-	});
-
-	return store.getAgent(agent.id) ?? agent;
-}
-
-function trackAgentDispatch(
-	store: MultiAgentStore,
-	dispatches: ActiveAgentDispatches,
-	agent: AgentSnapshot,
-	dispatch: Promise<AgentSnapshot>,
-	reservedRuntime: OwnedAgentRuntime,
-	handles?: BackgroundSessionHandles,
-): Promise<AgentSnapshot> {
-	const restoreGeneration = store.getRestoreGeneration();
-	const trackedDispatch = dispatch.catch((error: unknown) => {
-		const current = store.getAgent(agent.id) ?? agent;
-		return finalizeReservedRuntime(
-			store,
-			current,
-			"failed",
-			{ error: { message: error instanceof Error ? error.message : String(error) } },
-			reservedRuntime,
-			restoreGeneration,
-		);
-	});
-	dispatches.set(agent.id, trackedDispatch);
-	void trackedDispatch.finally(() => {
-		if (dispatches.get(agent.id) === trackedDispatch) {
-			handles?.delete(agent.id);
-			dispatches.delete(agent.id);
-		}
-	});
-
-	return trackedDispatch;
-}
-
 async function dispatchReservedAgentSession(
 	store: MultiAgentStore,
 	createChildSession: ChildAgentSessionFactory,
@@ -1242,172 +1176,6 @@ async function dispatchReservedAgentSession(
 		},
 		restoreGeneration,
 	);
-}
-
-async function runAgentSession(
-	store: MultiAgentStore,
-	createChildSession: ChildAgentSessionFactory,
-	runningAgent: AgentSnapshot,
-	prompt: string,
-	ctx: ExtensionContext,
-	handles: BackgroundSessionHandles | undefined,
-	createdSession: ChildAgentSession | undefined,
-	reservedRuntime: OwnedAgentRuntime,
-	expectedRestoreGeneration?: number,
-): Promise<AgentSnapshot> {
-	const restoreGeneration = expectedRestoreGeneration ?? store.getRestoreGeneration();
-	const running = { agent: runningAgent };
-	let childSession: ChildAgentSession | undefined;
-	let unregisterAbortHandler: (() => void) | undefined;
-	let unregisterLeaseAbort: (() => void) | undefined;
-	try {
-		const activeSession =
-			createdSession ??
-			(await createChildSession({
-				agent: running.agent,
-				context: "fresh",
-				ctx,
-				prompt,
-				signal: reservedRuntime.abortController.signal,
-			}));
-		childSession = activeSession;
-		const leaseSignal = reservedRuntime.abortController.signal;
-		const abortForLeaseLoss = () => {
-			try {
-				activeSession.abort?.();
-			} catch (error) {
-				console.error(`Failed to abort child session ${running.agent.id}:`, error);
-			}
-		};
-		leaseSignal.addEventListener("abort", abortForLeaseLoss, { once: true });
-		unregisterLeaseAbort = () => leaseSignal.removeEventListener("abort", abortForLeaseLoss);
-		if (leaseSignal.aborted) activeSession.abort?.();
-		const current = store.getAgent(running.agent.id);
-		if (store.getRestoreGeneration() !== restoreGeneration || !current || !isActiveLifecycle(current.lifecycle)) {
-			activeSession.abort?.();
-			return current ?? running.agent;
-		}
-
-		unregisterAbortHandler = store.registerAgentAbortHandler(running.agent.id, () => {
-			reservedRuntime.abortController.abort();
-			handles?.delete(running.agent.id);
-		});
-		handles?.set(running.agent.id, activeSession);
-		if (activeSession.transcript) {
-			store.updateAgentTranscript(running.agent.id, activeSession.transcript);
-		}
-		const previousMessages = new Set(activeSession.messages);
-		await activeSession.prompt(prompt);
-		await settleDescendantsBeforeTerminalization(store, running.agent.id, reservedRuntime.abortController.signal);
-		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
-		if (cancelled) return cancelled;
-		while (true) {
-			const summary = readCurrentChildAssistantText(activeSession.messages, previousMessages);
-			const result = summary ? { summary } : undefined;
-			const currentSnapshot = store.getAgent(running.agent.id);
-			const completed = finalizeReservedRuntime(
-				store,
-				currentSnapshot ?? running.agent,
-				"completed",
-				{ result },
-				reservedRuntime,
-				restoreGeneration,
-			);
-			if (completed.lifecycle !== "steering_pending") {
-				return completed;
-			}
-			if (!activeSession.drainRuntimeCoordination) {
-				throw new Error("Child session cannot drain pending steering before completion");
-			}
-			await activeSession.drainRuntimeCoordination();
-			const current = store.getAgent(running.agent.id);
-			if (current?.lifecycle === "steering_pending") {
-				throw new Error("Child session did not deliver pending steering before completion");
-			}
-		}
-	} catch (error) {
-		await settleDescendantsBeforeTerminalization(store, running.agent.id);
-		const cancelled = acknowledgeCancelledRuntime(store, running.agent.id, reservedRuntime, restoreGeneration);
-		if (cancelled) return cancelled;
-		const failure = { message: error instanceof Error ? error.message : String(error) };
-		const current = store.getAgent(running.agent.id) ?? running.agent;
-		return finalizeReservedRuntime(store, current, "failed", { error: failure }, reservedRuntime, restoreGeneration);
-	} finally {
-		unregisterLeaseAbort?.();
-		unregisterAbortHandler?.();
-		handles?.delete(running.agent.id);
-		await childSession?.dispose?.();
-	}
-}
-
-async function settleDescendantsBeforeTerminalization(
-	store: MultiAgentStore,
-	agentId: string,
-	signal?: AbortSignal,
-): Promise<void> {
-	requestDirectDetachedRuntimeCancellations(store, agentId, SUBAGENT_TERMINAL_CLEANUP_REASON);
-	await waitForActiveDescendants(store, agentId, signal);
-}
-
-function finalizeReservedRuntime(
-	store: MultiAgentStore,
-	agent: AgentSnapshot,
-	terminalLifecycle: "completed" | "failed" | "aborted",
-	metadata: { error?: AgentSnapshot["error"]; result?: AgentSnapshot["result"] },
-	reservedRuntime: OwnedAgentRuntime,
-	expectedRestoreGeneration?: number,
-): AgentSnapshot {
-	if (expectedRestoreGeneration !== undefined && store.getRestoreGeneration() !== expectedRestoreGeneration)
-		return agent;
-	if (!isActiveLifecycle(agent.lifecycle)) return agent;
-	const finalized = reservedRuntime.coordinator.finalizeChild({
-		agent,
-		error: metadata.error,
-		ownership: reservedRuntime.lifecycle.ownership,
-		result: metadata.result,
-		terminalLifecycle,
-	});
-	if (!finalized.ok) return store.getAgent(agent.id) ?? agent;
-	publishCoordinatorSnapshot(store, finalized.agent);
-	return finalized.agent;
-}
-
-function publishCoordinatorSnapshot(store: MultiAgentStore, agent: AgentSnapshot): void {
-	store.publishLifecycleCoordinatorSnapshot(agent);
-	if (isActiveLifecycle(agent.lifecycle)) return;
-	deliverTerminalOutboxForStore(store);
-}
-
-export function deliverTerminalOutboxForStore(store: MultiAgentStore): number {
-	const persistence = store.getPersistenceTarget();
-	if (!persistence) return 0;
-	return deliverTerminalOutboxProjections({
-		artifactRoot: artifactRootForStore(store),
-		claimId: randomUUID(),
-		controlDbPath: persistence.controlDbPath,
-		now: () => new Date().toISOString(),
-		store,
-	});
-}
-
-function acknowledgeCancelledRuntime(
-	store: MultiAgentStore,
-	agentId: string,
-	reservedRuntime: OwnedAgentRuntime | undefined,
-	expectedRestoreGeneration?: number,
-): AgentSnapshot | undefined {
-	if (!reservedRuntime) return undefined;
-	if (expectedRestoreGeneration !== undefined && store.getRestoreGeneration() !== expectedRestoreGeneration)
-		return undefined;
-	const current = store.getAgent(agentId);
-	if (current?.lifecycle !== "cancelling") return undefined;
-	const acknowledged = reservedRuntime.coordinator.acknowledgeCancellation({
-		agent: current,
-		ownership: reservedRuntime.lifecycle.ownership,
-	});
-	if (!acknowledged.ok) return current;
-	publishCoordinatorSnapshot(store, acknowledged.agent);
-	return acknowledged.agent;
 }
 
 function listAgents(store: MultiAgentStore, params: ListAgentsParams): AgentToolResult<AgentListToolDetails> {
@@ -2187,85 +1955,6 @@ function currentSteeringSenderId(store: MultiAgentStore, ctx: ExtensionContext |
 		return undefined;
 	}
 	return senderId === MAIN_THREAD_AGENT_ID ? "supervisor" : senderId;
-}
-
-function notifyWaitingAgent(
-	message: AgentMailboxMessage,
-	desktopNotifier: AgentDesktopNotifier,
-): DesktopNotificationHandle | undefined {
-	if (!isWaitingForInputNotification(message)) {
-		return undefined;
-	}
-	try {
-		return toDesktopNotificationHandle(
-			desktopNotifier({
-				body: message.body ?? `${message.fromAgentId} is waiting for input.`,
-				expireTimeMs: PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
-				title: "Pi agent needs input",
-			}),
-		);
-	} catch (error) {
-		console.error("Failed to send agent input-needed desktop notification:", error);
-		return undefined;
-	}
-}
-
-function rememberWaitingDesktopNotification(
-	store: MultiAgentStore,
-	message: AgentMailboxMessage,
-	notificationHandle: DesktopNotificationHandle | undefined,
-	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
-): void {
-	if (!notificationHandle) {
-		return;
-	}
-	closeWaitingDesktopNotification(message.fromAgentId, waitingDesktopNotifications);
-	const unsubscribeTransition = store.subscribeAgentTransitions((previous, current) => {
-		if (current.id !== message.fromAgentId || previous.lifecycle !== "waiting_for_input") {
-			return;
-		}
-		if (current.lifecycle !== "waiting_for_input") {
-			closeWaitingDesktopNotification(current.id, waitingDesktopNotifications);
-		}
-	});
-	waitingDesktopNotifications.set(message.fromAgentId, { handle: notificationHandle, unsubscribeTransition });
-}
-
-function closeWaitingDesktopNotificationWhenNotWaiting(
-	store: MultiAgentStore,
-	agentId: string,
-	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
-): void {
-	const current = store.getAgent(agentId);
-	if (current?.lifecycle === "waiting_for_input") {
-		return;
-	}
-	closeWaitingDesktopNotification(agentId, waitingDesktopNotifications);
-}
-
-function closeWaitingDesktopNotification(
-	agentId: string,
-	waitingDesktopNotifications: WaitingDesktopNotificationHandles,
-): void {
-	const notificationRegistration = waitingDesktopNotifications.get(agentId);
-	if (!notificationRegistration) {
-		return;
-	}
-	waitingDesktopNotifications.delete(agentId);
-	notificationRegistration.unsubscribeTransition();
-	try {
-		notificationRegistration.handle.close();
-	} catch (error) {
-		console.error("Failed to close agent input-needed desktop notification:", error);
-	}
-}
-
-function isWaitingForInputNotification(message: AgentMailboxMessage): boolean {
-	return (
-		message.kind === "system" &&
-		message.status === "pending" &&
-		(message.threadId?.startsWith("agent-waiting-for-input:") ?? false)
-	);
 }
 
 interface RuntimeLifecycleMirror {
