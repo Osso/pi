@@ -1,5 +1,5 @@
 {
-	"packages/agent-core/src/agent-loop.ts": 1029,
+	"packages/agent-core/src/agent-loop.ts": 959,
 	"packages/agent-core/src/harness/agent-harness.ts": 1038,
 	"packages/agent-core/src/harness/compaction/compaction.ts": 804,
 	"packages/agent-core/src/harness/types.ts": 846,
