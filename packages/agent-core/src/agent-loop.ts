@@ -880,7 +880,7 @@ async function finalizeExecutedToolCall(
 			if (afterResult) {
 				result = {
 					content: afterResult.content ?? result.content,
-					details: afterResult.details ?? result.details,
+					details: afterResult.details !== undefined ? afterResult.details : result.details,
 					terminate: afterResult.terminate ?? result.terminate,
 				};
 				isError = afterResult.isError ?? isError;
