@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed HTML export dropping images returned by custom tools; only `read` results showed their images.
 - Fixed saving an approved permission rule overwriting the next setting when another setting's value was the string `"permissionRules"`.
 - Fixed compaction counting hidden `!!` commands toward `keepRecentMessages`, which could leave only the summary in context when the newest entries were hidden commands.
 - Fixed compaction dropping the read and modified file lists of summarized `/tree` branch summaries from the new compaction details.

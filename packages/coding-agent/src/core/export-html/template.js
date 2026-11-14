@@ -1047,7 +1047,6 @@
                 if (output) html += formatExpandableOutput(output, 10);
               }
             } else {
-              // Fallback to JSON display (existing behavior)
               html += `<div class="tool-header"><span class="tool-name">${escapeHtml(name)}</span></div>`;
               html += `<div class="tool-output"><pre>${escapeHtml(JSON.stringify(args, null, 2))}</pre></div>`;
               if (result) {
@@ -1055,6 +1054,7 @@
                 if (output) html += formatExpandableOutput(output, 10);
               }
             }
+            html += renderResultImages();
           }
         }
 
