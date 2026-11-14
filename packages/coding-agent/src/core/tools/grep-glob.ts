@@ -7,7 +7,23 @@ import { minimatch } from "minimatch";
  */
 export function grepGlobArgs(glob: string): string[] {
 	if (glob.startsWith("!")) return ["--glob", glob];
-	return ["--type-add", `pigrep:${glob.slice(glob.lastIndexOf("/") + 1)}`, "--type", "pigrep"];
+	const nameStart = lastTopLevelSlash(glob) + 1;
+	// A slash inside a brace group (`{src/*.ts,test/*.js}`) leaves no single file-name part; matchesGrepGlob filters alone.
+	if (nameStart === 0 && glob.includes("/")) return [];
+	return ["--type-add", `pigrep:${glob.slice(nameStart)}`, "--type", "pigrep"];
+}
+
+function lastTopLevelSlash(glob: string): number {
+	let depth = 0;
+	let last = -1;
+	for (let index = 0; index < glob.length; index++) {
+		const char = glob[index];
+		if (char === "\\") index++;
+		else if (char === "{") depth++;
+		else if (char === "}") depth = Math.max(0, depth - 1);
+		else if (char === "/" && depth === 0) last = index;
+	}
+	return last;
 }
 
 /** Check a path relative to the search directory against a glob that has a directory part. */

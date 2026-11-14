@@ -49,6 +49,8 @@ describe("grep respects .gitignore outside git repositories", () => {
 		{ insideGit: true, glob: "**/*.ts", expected: ["kept.ts", "src/deep/nested.ts", "src/top.ts"] },
 		{ insideGit: false, glob: "src/*.ts", expected: ["src/top.ts"] },
 		{ insideGit: true, glob: "src/**/*.ts", expected: ["src/deep/nested.ts", "src/top.ts"] },
+		{ insideGit: false, glob: "{src/*.ts,kept.ts}", expected: ["kept.ts", "src/top.ts"] },
+		{ insideGit: true, glob: "{src/deep/*.ts,*.txt}", expected: ["kept.txt", "src/deep/nested.ts"] },
 	])(
 		"filters by $glob without including ignored files (insideGit: $insideGit)",
 		async ({ insideGit, glob, expected }) => {
