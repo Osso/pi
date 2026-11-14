@@ -92,6 +92,8 @@ function isCompleteCsiSequence(data: string): "complete" | "incomplete" {
 	}
 
 	const payload = data.slice(2);
+	// Linux console keys use a second "[" (ESC [ [ A, ESC [ [ 5 ~), so it is a prefix, not a final byte.
+	if (payload === "[") return "incomplete";
 
 	// CSI sequences end with a byte in the range 0x40-0x7E (@-~)
 	// This includes all letters and several special characters

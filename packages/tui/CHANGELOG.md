@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed stdin splitting Linux console double-bracket keys such as `ESC [ [ 5 ~` (Page Up) into `ESC [ [`, `5`, and `~`.
 - Fixed `Markdown` rendering lines wider than the render width when its horizontal padding fills a narrow viewport.
 - Fixed wrapped Markdown table links leaking color into borders and neighboring cells, including tables inside blockquotes ([#8335](https://github.com/earendil-works/pi/issues/8335)).
 - Fixed padded text exceeding narrow terminal widths ([#8252](https://github.com/earendil-works/pi/issues/8252)).

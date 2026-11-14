@@ -75,6 +75,11 @@ describe("StdinBuffer", () => {
 			assert.deepStrictEqual(emittedSequences, [metaA]);
 		});
 
+		it("should keep Linux console double-bracket keys whole", () => {
+			processInput("\x1b[[5~\x1b[[A");
+			assert.deepStrictEqual(emittedSequences, ["\x1b[[5~", "\x1b[[A"]);
+		});
+
 		it("should pass through SS3 sequences", () => {
 			const ss3 = "\x1bOA";
 			processInput(ss3);
