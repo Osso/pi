@@ -56,9 +56,8 @@ export function readDetachedRuntimeAgentIds(store: MultiAgentStore, agentIds: re
 function readAuthoritativeAgentSnapshots(store: MultiAgentStore): AgentSnapshot[] {
 	const persistence = store.getPersistenceTarget();
 	if (!persistence) return store.listAgents();
-	const state = readMultiAgentState(persistence.controlDbPath, persistence.sessionPath);
-	if (!state) throw new Error(`Could not read persisted multi-agent state for ${persistence.sessionPath}`);
-	return state.agents as AgentSnapshot[];
+	// No persisted state means no agents yet; read failures throw inside readMultiAgentState.
+	return (readMultiAgentState(persistence.controlDbPath, persistence.sessionPath)?.agents ?? []) as AgentSnapshot[];
 }
 
 export function requestPersistedDetachedRuntimeCancellation(

@@ -3484,6 +3484,15 @@ describe("multi-agent extension tools", () => {
 		});
 	});
 
+	it("reports an unknown agent when the persisted store has no agents yet", async () => {
+		const harness = createMultiAgentHarness();
+		expect(harness.store.getPersistenceTarget()).toBeDefined();
+
+		const cancelled = await harness.call<CancelAgentDetails>("close_agent", { agentId: "missing-agent" });
+
+		expect(cancelled.content).toEqual([{ text: "Could not cancel missing-agent: agent_not_found", type: "text" }]);
+	});
+
 	it("rejects cancellation for rows without runtime ownership", async () => {
 		const harness = createMultiAgentHarness();
 		const spawned = spawnStoreFixture(harness.store, {

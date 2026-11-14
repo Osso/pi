@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed `close_agent` with an unknown agent ID failing with `Could not read persisted multi-agent state` in a session that had no agents yet; it now reports `agent_not_found`.
 - Fixed `write` reporting the UTF-16 length of the content as its byte count; it now reports the UTF-8 bytes written.
 - Fixed `find` trimming spaces from file names, which returned paths such as `report.txt` for a file named `report.txt ` that does not exist.
 - Fixed prompt-template arguments dropping a quoted empty argument: `/t "" beta` now sets `$1` to empty (so `${1:-default}` applies) and `$2` to `beta`.
