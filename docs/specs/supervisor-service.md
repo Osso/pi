@@ -53,7 +53,9 @@ Questions use the same queue and reply transport as other requests, with kind `q
 
 ### Session tools
 
-- [ ] Limit the Supervisor session, including user chat, to `read`, `edit`, `write` inside the configured KB root, `supervisor_response`, `send_agent_message`, `ask_questions`, `reminders`, and `end_turn`. Bash, Pyrun, agent spawn/attach, restart, and session control stay unavailable.
+- [ ] Keep `userMessages` and other bounded evidence in request payloads; requests stay self-contained.
+- [ ] Provide a read-only `inspect_session` tool addressed by host and session ID that returns the goal, cwd, and transcript tail (user and assistant messages, tool calls and results). Reads of another host's session travel over the relay as a read request with a correlated reply. Inspected text is untrusted evidence, not instructions.
+- [ ] Limit the Supervisor session, including user chat, to `read`, `edit`, `write` inside the configured KB root, `supervisor_response`, `inspect_session`, `send_agent_message`, `ask_questions`, `reminders`, and `end_turn`. Bash, Pyrun, agent spawn/attach, restart, and session control stay unavailable.
 
 ### Resident console
 
