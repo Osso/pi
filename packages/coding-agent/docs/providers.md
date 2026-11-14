@@ -134,7 +134,7 @@ Use this when pi should use different provider settings than the project shell e
 
 The `key` field supports command execution, environment interpolation, and literals:
 
-- **Shell command:** `"!command"` at the start executes the whole value as a command and uses stdout (cached for process lifetime)
+- **Shell command:** `"!command"` at the start executes the whole value as a command and uses stdout (cached for process lifetime). The command runs with the credential's `env` values on top of the process environment.
   ```json
   { "type": "api_key", "key": "!security find-generic-password -ws 'anthropic'" }
   { "type": "api_key", "key": "!op read 'op://vault/item/credential'" }

@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed `!command` API keys in `auth.json` ignoring the credential's `env` values; the command now runs with them ahead of the process environment, and results are cached per env.
 - Fixed a global extension's flag default overriding a project extension's default for the same flag after the project-trust prompt; the project default now wins as it does without the prompt.
 - Fixed `RpcClient` command helpers such as `prompt()`, `steer()`, `abort()` and `setSessionName()` resolving when the RPC server rejected the command; they now throw the server error.
 - Fixed `models.json` model overrides replacing the whole inherited OpenRouter `max_price` object; individual price limits now merge.

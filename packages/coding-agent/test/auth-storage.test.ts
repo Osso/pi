@@ -189,6 +189,37 @@ describe("AuthStorage", () => {
 			}
 		});
 
+		test("apiKey command sees the credential env bag ahead of process.env", async () => {
+			const originalEnv = process.env.TEST_AUTH_COMMAND_SCOPED_12345;
+			process.env.TEST_AUTH_COMMAND_SCOPED_12345 = "process-env-value";
+
+			try {
+				writeAuthJson({
+					anthropic: {
+						type: "api_key",
+						key: "!echo $TEST_AUTH_COMMAND_SCOPED_12345",
+						env: { TEST_AUTH_COMMAND_SCOPED_12345: "anthropic-env-value" },
+					},
+					openai: {
+						type: "api_key",
+						key: "!echo $TEST_AUTH_COMMAND_SCOPED_12345",
+						env: { TEST_AUTH_COMMAND_SCOPED_12345: "openai-env-value" },
+					},
+				});
+
+				authStorage = AuthStorage.create(authJsonPath);
+
+				expect(await authStorage.getApiKey("anthropic")).toBe("anthropic-env-value");
+				expect(await authStorage.getApiKey("openai")).toBe("openai-env-value");
+			} finally {
+				if (originalEnv === undefined) {
+					delete process.env.TEST_AUTH_COMMAND_SCOPED_12345;
+				} else {
+					process.env.TEST_AUTH_COMMAND_SCOPED_12345 = originalEnv;
+				}
+			}
+		});
+
 		test("apiKey with braced env syntax resolves to env value", async () => {
 			const originalEnv = process.env.TEST_AUTH_BRACED_API_KEY_12345;
 			process.env.TEST_AUTH_BRACED_API_KEY_12345 = "braced-env-api-key-value";

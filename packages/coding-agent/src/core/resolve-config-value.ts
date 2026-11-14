@@ -145,12 +145,15 @@ export function isConfigValueConfigured(config: string, env?: Record<string, str
 export function resolveConfigValue(config: string, env?: Record<string, string>): string | undefined {
 	const reference = parseConfigValueReference(config);
 	if (reference.type === "command") {
-		return executeCommand(reference.config);
+		return executeCommand(reference.config, env);
 	}
 	return resolveTemplate(reference.parts, env);
 }
 
-function executeWithConfiguredShell(command: string): { executed: boolean; value: string | undefined } {
+function executeWithConfiguredShell(
+	command: string,
+	env: NodeJS.ProcessEnv | undefined,
+): { executed: boolean; value: string | undefined } {
 	try {
 		const { shell, args, commandTransport } = getShellConfig();
 		const commandFromStdin = commandTransport === "stdin";
@@ -159,6 +162,7 @@ function executeWithConfiguredShell(command: string): { executed: boolean; value
 			input: commandFromStdin ? command : undefined,
 			timeout: 10000,
 			stdio: [commandFromStdin ? "pipe" : "ignore", "pipe", "ignore"],
+			env,
 			shell: false,
 			windowsHide: true,
 		});
@@ -182,12 +186,13 @@ function executeWithConfiguredShell(command: string): { executed: boolean; value
 	}
 }
 
-function executeWithDefaultShell(command: string): string | undefined {
+function executeWithDefaultShell(command: string, env: NodeJS.ProcessEnv | undefined): string | undefined {
 	try {
 		const output = execSync(command, {
 			encoding: "utf-8",
 			timeout: 10000,
 			stdio: ["ignore", "pipe", "ignore"],
+			env,
 		});
 		return output.trim() || undefined;
 	} catch {
@@ -195,23 +200,26 @@ function executeWithDefaultShell(command: string): string | undefined {
 	}
 }
 
-function executeCommandUncached(commandConfig: string): string | undefined {
+function executeCommandUncached(commandConfig: string, scopedEnv?: Record<string, string>): string | undefined {
 	const command = commandConfig.slice(1);
+	// Provider-scoped env values apply to key commands too, ahead of the process environment.
+	const env = scopedEnv ? { ...process.env, ...scopedEnv } : undefined;
 	return process.platform === "win32"
 		? (() => {
-				const configuredResult = executeWithConfiguredShell(command);
-				return configuredResult.executed ? configuredResult.value : executeWithDefaultShell(command);
+				const configuredResult = executeWithConfiguredShell(command, env);
+				return configuredResult.executed ? configuredResult.value : executeWithDefaultShell(command, env);
 			})()
-		: executeWithDefaultShell(command);
+		: executeWithDefaultShell(command, env);
 }
 
-function executeCommand(commandConfig: string): string | undefined {
-	if (commandResultCache.has(commandConfig)) {
-		return commandResultCache.get(commandConfig);
+function executeCommand(commandConfig: string, env?: Record<string, string>): string | undefined {
+	const cacheKey = env ? `${commandConfig}\0${JSON.stringify(env)}` : commandConfig;
+	if (commandResultCache.has(cacheKey)) {
+		return commandResultCache.get(cacheKey);
 	}
 
-	const result = executeCommandUncached(commandConfig);
-	commandResultCache.set(commandConfig, result);
+	const result = executeCommandUncached(commandConfig, env);
+	commandResultCache.set(cacheKey, result);
 	return result;
 }
 
@@ -221,7 +229,7 @@ function executeCommand(commandConfig: string): string | undefined {
 export function resolveConfigValueUncached(config: string, env?: Record<string, string>): string | undefined {
 	const reference = parseConfigValueReference(config);
 	if (reference.type === "command") {
-		return executeCommandUncached(reference.config);
+		return executeCommandUncached(reference.config, env);
 	}
 	return resolveTemplate(reference.parts, env);
 }
