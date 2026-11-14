@@ -473,6 +473,7 @@
 - Fixed reopening compacted sessions replacing whole-session resume-list counts, first messages, and activity times with values from the retained slice; new messages now extend the authoritative metadata.
 - Fixed RPC `interrupt` and interactive Escape dropping images from queued steering and follow-up messages when resubmitting them after abort.
 - Fixed extension flag defaults to follow the first successfully loaded registration, including flags without defaults; failed factories no longer leave flag defaults behind. Explicit flag values still override defaults.
+- Fixed `/clone` and `/fork` after `/cd` or `change_working_directory` returning the new session to the original working directory, so relative tool paths used the wrong project.
 - Fixed HTML export showing a tree label that was later cleared.
 - Fixed `loop` and `/loop` intervals longer than about 24.8 days firing after 1 ms (Node's timer limit); such intervals are now rejected.
 - Fixed zero-output `length` responses at a full context window resetting the overflow-recovery guard and allowing repeated compaction retries; recovery now stops after one compact-and-retry attempt.

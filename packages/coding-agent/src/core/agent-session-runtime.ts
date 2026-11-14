@@ -585,7 +585,7 @@ export class AgentSessionRuntime {
 				return { cancelled: false, selectedText };
 			}
 
-			const sessionManager = SessionManager.open(currentSessionFile, sessionDir);
+			const sessionManager = SessionManager.open(currentSessionFile, sessionDir, this.cwd);
 			const forkedSessionPath = sessionManager.createBranchedSession(targetLeafId);
 			if (!forkedSessionPath) {
 				throw new Error("Failed to create forked session");

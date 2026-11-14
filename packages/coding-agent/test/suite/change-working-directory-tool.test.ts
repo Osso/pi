@@ -359,6 +359,34 @@ describe("change_working_directory first-party tool", () => {
 		expect(readTextContent(result.content)).toContain("relative tool used changed cwd");
 	});
 
+	it("keeps the changed cwd when cloning the session", async () => {
+		const { faux, runtime, tempDir } = await createRuntimeForTest();
+		const targetCwd = join(tempDir, "clone-target");
+		mkdirSync(targetCwd);
+		writeFileSync(join(tempDir, "marker.txt"), "from original cwd");
+		writeFileSync(join(targetCwd, "marker.txt"), "from changed cwd");
+		await executeAndDeliverChangeWorkingDirectory(runtime, "change-cwd-before-clone", { path: targetCwd });
+		faux.setResponses([fauxAssistantMessage("done")]);
+		await runtime.session.prompt("Work in the new directory");
+		const leafId = runtime.session.sessionManager.getLeafId();
+		if (!leafId) throw new Error("Missing leaf");
+
+		await runtime.fork(leafId, { position: "at" });
+
+		expect(runtime.cwd).toBe(targetCwd);
+		expect(runtime.session.sessionManager.getCwd()).toBe(targetCwd);
+		const readTool = runtime.session.getToolDefinition("read");
+		if (!readTool) throw new Error("Missing read tool");
+		const result = await readTool.execute(
+			"read-after-clone",
+			{ path: "marker.txt" },
+			undefined,
+			undefined,
+			runtime.session.extensionRunner.createContext(),
+		);
+		expect(readTextContent(result.content)).toContain("from changed cwd");
+	});
+
 	it("relocates after an extension rewrites the persisted tool call id", async () => {
 		const rewrittenToolCallId = "rewritten-change-cwd";
 		const { faux, runtime, tempDir } = await createRuntimeForTest((pi) => {
