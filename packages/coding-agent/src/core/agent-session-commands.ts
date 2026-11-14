@@ -1,6 +1,26 @@
 import type { ExtensionCommandContext, ViewedSessionMutationTarget } from "./extensions/index.ts";
+import { BUILTIN_SLASH_COMMANDS } from "./slash-commands.ts";
 
 export type SessionMutationTargetResolver = () => ViewedSessionMutationTarget | undefined;
+
+export function slashCommandName(text: string): string {
+	const match = text.match(/^\/([^\s]+)/);
+	return `/${match?.[1] ?? ""}`;
+}
+
+export function isKnownSlashCommand(
+	text: string,
+	skills: readonly { name: string }[],
+	promptTemplates: readonly { name: string }[],
+): boolean {
+	const commandName = slashCommandName(text).slice(1);
+	if (BUILTIN_SLASH_COMMANDS.some((command) => command.name === commandName)) return true;
+	if (commandName.startsWith("skill:")) {
+		const skillName = commandName.slice("skill:".length);
+		return skills.some((skill) => skill.name === skillName);
+	}
+	return promptTemplates.some((template) => template.name === commandName);
+}
 
 const sessionMutationTargetResolvers = new WeakMap<object, SessionMutationTargetResolver>();
 

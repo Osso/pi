@@ -53,7 +53,12 @@ import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
 import { type BackgroundCompactionCache, BackgroundCompactionState } from "./agent-session-background-compaction.ts";
-import { bindSessionMutationTargetResolver, createViewedSessionCommandContext } from "./agent-session-commands.ts";
+import {
+	bindSessionMutationTargetResolver,
+	createViewedSessionCommandContext,
+	isKnownSlashCommand,
+	slashCommandName,
+} from "./agent-session-commands.ts";
 
 import { CodexRestrictionRecoveryState } from "./agent-session-restriction-recovery.ts";
 import { reviewToolApproval } from "./agent-session-tool-approval.ts";
@@ -187,7 +192,7 @@ import {
 import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager } from "./session-manager.ts";
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
-import { BUILTIN_SLASH_COMMANDS, type SlashCommandInfo } from "./slash-commands.ts";
+import type { SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
 import {
 	deliverTerminalOutboxProjections,
@@ -2614,18 +2619,11 @@ export class AgentSession {
 	 * Try to execute an extension command. Returns true if command was found and executed.
 	 */
 	private _slashCommandName(text: string): string {
-		const match = text.match(/^\/([^\s]+)/);
-		return `/${match?.[1] ?? ""}`;
+		return slashCommandName(text);
 	}
 
 	private _isKnownSlashCommand(text: string): boolean {
-		const commandName = this._slashCommandName(text).slice(1);
-		if (BUILTIN_SLASH_COMMANDS.some((command) => command.name === commandName)) return true;
-		if (commandName.startsWith("skill:")) {
-			const skillName = commandName.slice("skill:".length);
-			return this.resourceLoader.getSkills().skills.some((skill) => skill.name === skillName);
-		}
-		return this.promptTemplates.some((template) => template.name === commandName);
+		return isKnownSlashCommand(text, this.resourceLoader.getSkills().skills, this.promptTemplates);
 	}
 
 	private _tryExecuteExtensionCommand(text: string, options?: PromptOptions): Promise<void> | undefined {
