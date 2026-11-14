@@ -201,6 +201,7 @@ export function prepareBranchEntries(entries: SessionEntry[], tokenBudget: numbe
 	// This ensures we capture cumulative file tracking from nested branch summaries
 	// Only extract from pi-generated summaries (fromHook !== true), not extension-generated ones
 	for (const entry of entries) {
+		if (entry.type === "message") extractFileOpsFromMessage(entry.message, fileOps);
 		if (entry.type === "branch_summary" && !entry.fromHook && entry.details) {
 			const details = entry.details as BranchSummaryDetails;
 			if (Array.isArray(details.readFiles)) {
@@ -221,9 +222,6 @@ export function prepareBranchEntries(entries: SessionEntry[], tokenBudget: numbe
 		if (entry === undefined) throw new Error("session entry missing while summarizing branch");
 		const message = getMessageFromEntry(entry);
 		if (!message) continue;
-
-		// Extract file ops from assistant messages (tool calls)
-		extractFileOpsFromMessage(message, fileOps);
 
 		const tokens = estimateTokens(message);
 

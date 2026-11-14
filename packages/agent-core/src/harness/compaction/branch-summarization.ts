@@ -128,7 +128,9 @@ export function prepareBranchEntries(entries: SessionTreeEntry[], tokenBudget: n
 	const messages: AgentMessage[] = [];
 	const fileOps = createFileOps();
 	let totalTokens = 0;
+	// File tracking covers the whole branch, independently of the message token budget.
 	for (const entry of entries) {
+		if (entry.type === "message") extractFileOpsFromMessage(entry.message, fileOps);
 		if (entry.type === "branch_summary" && !entry.fromHook && entry.details) {
 			const details = entry.details as BranchSummaryDetails;
 			if (Array.isArray(details.readFiles)) {
@@ -146,7 +148,6 @@ export function prepareBranchEntries(entries: SessionTreeEntry[], tokenBudget: n
 		if (!entry) throw new Error(`Missing branch entry at index ${i}`);
 		const message = getMessageFromEntry(entry);
 		if (!message) continue;
-		extractFileOpsFromMessage(message, fileOps);
 
 		const tokens = estimateTokens(message);
 		if (tokenBudget > 0 && totalTokens + tokens > tokenBudget) {

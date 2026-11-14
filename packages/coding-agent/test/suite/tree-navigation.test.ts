@@ -121,6 +121,48 @@ describe("AgentSession tree navigation", () => {
 		expect(harness.sessionManager.getLeafId()).toBe(result.summaryEntry?.id);
 	});
 
+	it("preserves file operations from entries outside the branch-summary token budget", async () => {
+		const harness = await createHarness({
+			models: [{ id: "branch-summary", contextWindow: 2000, maxTokens: 1024 }],
+			settings: { branchSummary: { reserveTokens: 1000 } },
+		});
+		harnesses.push(harness);
+		const root = harness.sessionManager.appendMessage({ role: "user", content: "Explore files", timestamp: 1 });
+		harness.sessionManager.appendMessage(
+			fauxAssistantMessage([
+				{ type: "toolCall", id: "read-old", name: "read", arguments: { path: "old-read.ts" } },
+				{
+					type: "toolCall",
+					id: "write-old",
+					name: "write",
+					arguments: { path: "old-write.ts", content: "export const value = 1;" },
+				},
+			]),
+		);
+		harness.sessionManager.appendMessage({ role: "user", content: "x".repeat(8000), timestamp: 2 });
+		harness.sessionManager.appendMessage(fauxAssistantMessage("Recent reply"));
+		let summaryPrompt = "";
+		harness.appendResponses([
+			(context) => {
+				summaryPrompt = lastUserText(context);
+				return fauxAssistantMessage("Explored the files.");
+			},
+		]);
+
+		const result = await harness.session.navigateTree(root, { summarize: true });
+
+		expect(result.cancelled).toBe(false);
+		expect(result.summaryEntry?.details).toEqual({
+			readFiles: ["old-read.ts"],
+			modifiedFiles: ["old-write.ts"],
+		});
+		expect(result.summaryEntry?.summary).toContain("<read-files>\nold-read.ts\n</read-files>");
+		expect(result.summaryEntry?.summary).toContain("<modified-files>\nold-write.ts\n</modified-files>");
+		expect(summaryPrompt).toContain("Recent reply");
+		expect(summaryPrompt).not.toContain("old-read.ts");
+		expect(summaryPrompt).not.toContain("x".repeat(8000));
+	});
+
 	it("attaches the summary to the parent of a nested user message", async () => {
 		const harness = await setup();
 		await converse(harness, ["Message one", "Message two", "Message three"]);
