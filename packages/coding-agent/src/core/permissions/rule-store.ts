@@ -28,6 +28,7 @@ export type PermissionRuleStoreOptions = {
 	agentDir?: string;
 	writer?: PermissionRuleWriter;
 	settings?: { permissionRules?: unknown };
+	projectTrusted?: boolean;
 };
 
 type PermissionRulesSettings = {
@@ -45,6 +46,9 @@ export class PermissionRuleStore {
 		this.agentDir = options.agentDir;
 		this.writer = options.writer ?? writePermissionRules;
 		this.addSettingsRules(options.settings);
+		if (this.cwd && options.projectTrusted === true) {
+			this.addSettingsRules(readSettings(join(this.cwd, CONFIG_DIR_NAME, "settings.local.json")));
+		}
 	}
 
 	static fromSettings(settings: { permissionRules?: unknown }): PermissionRuleStore {

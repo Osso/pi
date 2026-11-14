@@ -66,7 +66,9 @@ in `docs/wiki/systems/permission-prompt-tool.md` (stub — not yet written).
   the same Pi session.
 - [x] `destination:"userSettings"` writes the rule to `~/.config/pi/agent/settings.json`.
 - [x] `destination:"projectSettings"` writes the rule to `.pi/settings.json`.
-- [x] `destination:"localSettings"` writes to `.pi/settings.local.json`.
+- [x] `destination:"localSettings"` writes to `.pi/settings.local.json`. New permission
+  rule stores load its `permissionRules.allow` rules alongside merged global/project
+  rules only when the project is trusted. Other local settings are not loaded.
 - [x] JSON writes preserve existing file formatting using surgical key insertion,
   not full re-serialization.
 - [x] Non-session rules do not suppress in-memory follow-up prompts unless they

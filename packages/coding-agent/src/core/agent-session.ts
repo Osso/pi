@@ -731,7 +731,6 @@ export class AgentSession {
 	private _disableRuntimeCoordinationInbound: boolean;
 	private readonly _onSharedChannelMessageDelivered?: (prompt: string) => void;
 	private _systemPromptOverride?: string;
-
 	constructor(config: AgentSessionConfig) {
 		assertStandaloneWorkerOptions(config);
 		validateMultiAgentRuntimeRole(config);
@@ -768,6 +767,7 @@ export class AgentSession {
 			agentDir: this._agentDir,
 			cwd: this._cwd,
 			settings: this.settingsManager.getMergedSettings(),
+			projectTrusted: this.settingsManager.isProjectTrusted(),
 		});
 		this._baseToolsOverride = config.baseToolsOverride;
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
