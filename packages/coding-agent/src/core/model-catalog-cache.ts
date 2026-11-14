@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
-import { type Api, getModels, type Model } from "@earendil-works/pi-ai/compat";
+import { type Api, getModels, type Model, type OpenRouterRouting } from "@earendil-works/pi-ai/compat";
 import { getUserCacheRoot } from "../config.ts";
 
 const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
@@ -323,4 +323,11 @@ export async function ensureModelCatalogFresh(
 
 export function getOpenRouterCatalogModels(): Model<Api>[] {
 	return memoizedOpenRouterModels ?? bundledOpenRouterModels;
+}
+
+/** Merge OpenRouter routing so an override replaces single price limits, not the whole max_price object. */
+export function mergeOpenRouterRouting(base?: OpenRouterRouting, override?: OpenRouterRouting): OpenRouterRouting {
+	const maxPrice = base?.max_price &&
+		override?.max_price && { max_price: { ...base.max_price, ...override.max_price } };
+	return { ...base, ...override, ...maxPrice };
 }

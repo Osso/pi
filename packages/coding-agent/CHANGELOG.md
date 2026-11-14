@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed `models.json` model overrides replacing the whole inherited OpenRouter `max_price` object; individual price limits now merge.
 - Fixed `grep` glob filters including files excluded by `.gitignore`, and globs with a directory part (such as `src/**/*.ts`) matching nothing.
 - Fixed the session picker ignoring Enter after Down or PageDown on an empty search result followed by clearing the search.
 - Fixed `/export` writing relative paths and the default file name into the original directory after `/cd`; JSONL and HTML exports now resolve against the session's current working directory.

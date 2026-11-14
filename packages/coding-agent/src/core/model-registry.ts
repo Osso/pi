@@ -29,7 +29,7 @@ import { getAgentDir } from "../config.ts";
 import { stripJsonComments } from "../utils/json.ts";
 import { normalizePath } from "../utils/paths.ts";
 import type { AuthStatus, AuthStorage } from "./auth-storage.ts";
-import { getOpenRouterCatalogModels } from "./model-catalog-cache.ts";
+import { getOpenRouterCatalogModels, mergeOpenRouterRouting } from "./model-catalog-cache.ts";
 import { ModelPools, type PoolMemberStream } from "./model-pool.ts";
 import { BUILT_IN_PROVIDER_DISPLAY_NAMES } from "./provider-display-names.ts";
 import {
@@ -304,10 +304,10 @@ function mergeCompat(
 	const mergedCompletions = merged as OpenAICompletionsCompat;
 
 	if (baseCompletions?.openRouterRouting || overrideCompletions.openRouterRouting) {
-		mergedCompletions.openRouterRouting = {
-			...baseCompletions?.openRouterRouting,
-			...overrideCompletions.openRouterRouting,
-		};
+		mergedCompletions.openRouterRouting = mergeOpenRouterRouting(
+			baseCompletions?.openRouterRouting,
+			overrideCompletions.openRouterRouting,
+		);
 	}
 
 	if (baseCompletions?.vercelGatewayRouting || overrideCompletions.vercelGatewayRouting) {

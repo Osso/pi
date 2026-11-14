@@ -771,6 +771,30 @@ describe("ModelRegistry", () => {
 			expect(compat?.openRouterRouting).toEqual({ order: ["anthropic", "together"] });
 		});
 
+		test("model override keeps inherited OpenRouter max_price fields", () => {
+			writeRawModelsJson({
+				openrouter: {
+					compat: {
+						openRouterRouting: { max_price: { prompt: 1, completion: 2 }, data_collection: "deny" },
+					},
+					modelOverrides: {
+						"anthropic/claude-sonnet-4": {
+							compat: { openRouterRouting: { max_price: { completion: 0.5 } } },
+						},
+					},
+				},
+			});
+
+			const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+			const sonnet = getModelsForProvider(registry, "openrouter").find((m) => m.id === "anthropic/claude-sonnet-4");
+
+			const compat = sonnet?.compat as OpenAICompletionsCompat | undefined;
+			expect(compat?.openRouterRouting).toEqual({
+				max_price: { prompt: 1, completion: 0.5 },
+				data_collection: "deny",
+			});
+		});
+
 		test("multiple model overrides on same provider", () => {
 			writeRawModelsJson({
 				openrouter: {
