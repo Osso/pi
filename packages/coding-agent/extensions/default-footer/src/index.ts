@@ -136,7 +136,7 @@ interface SessionUsage {
 
 /** Longest parent chain walked from the previous leaf before recounting every entry. */
 const MAX_INCREMENTAL_USAGE_ENTRIES = 256;
-const usageByLeaf = new WeakMap<ReadonlySessionManager, { leafId: string | null; usage: SessionUsage }>();
+let usageByLeaf = new WeakMap<ReadonlySessionManager, { leafId: string | null; usage: SessionUsage }>();
 
 function addEntryUsage(usage: SessionUsage, entry: SessionEntry | undefined): SessionUsage {
 	if (entry?.type !== "message" || entry.message.role !== "assistant") return usage;
@@ -144,7 +144,10 @@ function addEntryUsage(usage: SessionUsage, entry: SessionEntry | undefined): Se
 	return { cost: usage.cost + message.usage.cost.total };
 }
 
-/** Entries are append-only and new entries become the leaf, so usage since a cached leaf lies on the parent chain. */
+/**
+ * Entries are append-only and new entries become the leaf, so usage since a cached leaf lies on the parent chain.
+ * Tree navigation breaks that: replies left on the old branch are off the chain, so it clears the cache.
+ */
 function usageSinceLeaf(
 	sessionManager: ReadonlySessionManager,
 	fromLeafId: string | null,
@@ -314,6 +317,9 @@ export default function defaultFooterExtension(pi: ExtensionAPI, options: Defaul
 	const replySpeed = new ReplySpeed();
 	registerBackgroundCompactionStatus(pi);
 	registerReplySpeed(pi, replySpeed);
+	pi.on("session_tree", async () => {
+		usageByLeaf = new WeakMap();
+	});
 	pi.on("session_start", async (_event, ctx) => {
 		setBackgroundCompactionStatus(ctx, undefined);
 		ctx.ui.setDefaultFooter((tui, thm, footerData) => {

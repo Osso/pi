@@ -450,6 +450,52 @@ describe("default footer extension", () => {
 		expect(stats()).toContain("cost $201.50");
 	});
 
+	it("counts replies left on another branch after tree navigation", async () => {
+		initTheme(undefined, false);
+		const session = SessionManager.inMemory("/tmp/project");
+		const appendAssistant = (cost: number) =>
+			session.appendMessage({
+				role: "assistant",
+				content: [{ type: "text", text: "done" }],
+				api: "openai-responses",
+				provider: "openai",
+				model: "gpt-test",
+				usage: {
+					input: 1,
+					output: 1,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 2,
+					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: cost },
+				},
+				stopReason: "stop",
+				timestamp: Date.now(),
+			});
+		type CapturedHandler = (event: unknown, ctx: ExtensionContext) => Promise<void>;
+		const handlers = new Map<string, CapturedHandler>();
+		defaultFooterExtension({
+			on: (eventName: string, handler: CapturedHandler) => handlers.set(eventName, handler),
+		} as unknown as ExtensionAPI);
+		const ctx = {
+			...createContext({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } }),
+			sessionManager: createReadonlySessionManager(session),
+		} as unknown as ExtensionContext;
+		const footer = createDefaultFooterComponent({ ctx, footerData: createFooterData(), theme });
+		const stats = () => stripAnsi(footer.render(200)[1] ?? "");
+
+		session.appendMessage({ role: "user", content: "start", timestamp: Date.now() });
+		appendAssistant(1);
+		const branchPoint = session.getLeafId();
+		if (!branchPoint) throw new Error("Expected a branch point");
+		expect(stats()).toContain("cost $1.00");
+		appendAssistant(2);
+		session.branch(branchPoint);
+		await handlers.get("session_tree")?.({ type: "session_tree" }, ctx);
+		appendAssistant(3);
+
+		expect(stats()).toContain("cost $6.00");
+	});
+
 	it("shows the latest reply's output speed from streaming events", async () => {
 		initTheme(undefined, false);
 		type CapturedHandler = (event: unknown, ctx: ExtensionContext) => Promise<void>;
