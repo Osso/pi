@@ -741,6 +741,7 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("periodic-checks", periodicChecksExtension),
 		firstPartyExtensionFactory("reminders", remindersExtension),
 		firstPartyExtensionFactory("supervisor-session", supervisorSessionExtension),
+		firstPartyExtensionFactory("supervisor-session", supervisorSessionExtension),
 		firstPartyExtensionFactory("run-plan", runPlanExtension),
 		firstPartyExtensionFactory("safe", safeExtension),
 		firstPartyExtensionFactory("spec-validation", specValidationExtension),
