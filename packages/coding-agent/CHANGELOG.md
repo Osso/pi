@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed `send_agent_message` from a main-thread child to `toAgentId: "main"` without `toSessionId` failing with `target_not_found`; the direct parent edge to the main thread now delivers.
 - Fixed RPC `switch_session` not continuing an interrupted session or honoring an extension's `requestResumeContinuation()`; it now continues like RPC startup and interactive resume.
 - Fixed `/skill:name` and extension commands followed by a newline or tab instead of a space: the skill was not expanded and the extension command was not found.
 - Fixed JPEG EXIF orientation being ignored when an XMP APP1 segment comes before the EXIF segment, so such photos were sent rotated.

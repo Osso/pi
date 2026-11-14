@@ -304,11 +304,13 @@ export function sendMailboxMessage(
 	}
 
 	const target = store.agents.get(input.toAgentId);
-	if (!target) {
+	// The main thread has no agent row; a main-thread child still has a direct edge to it.
+	const toMainParent = input.toAgentId === MAIN_THREAD_AGENT_ID && store.isMainThreadChild(current);
+	if (!target && !toMainParent) {
 		return { ok: false, error: "target_not_found", current: copyAgent(current), targetId: input.toAgentId };
 	}
 
-	if (!store.canSendDirectMessage(current.id, target.id)) {
+	if (target && !store.canSendDirectMessage(current.id, target.id)) {
 		return { ok: false, error: "forbidden_target", current: copyAgent(current), target: copyAgent(target) };
 	}
 
@@ -317,7 +319,7 @@ export function sendMailboxMessage(
 		id: store.createMessageId(),
 		threadId: input.threadId,
 		fromAgentId: current.id,
-		toAgentId: target.id,
+		toAgentId: input.toAgentId,
 		kind: "message",
 		status: "pending",
 		createdAt: timestamp,
