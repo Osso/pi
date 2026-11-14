@@ -585,10 +585,8 @@ export class SettingsManager {
 	}
 
 	private getExplicitConfiguredSandboxProfile(): SandboxProfileName | undefined {
-		if (isSandboxProfileName(this.projectSettings.sandboxProfile)) {
-			return this.projectSettings.sandboxProfile;
-		}
-		return isSandboxProfileName(this.globalSettings.sandboxProfile) ? this.globalSettings.sandboxProfile : undefined;
+		const layers = [this.overrides, this.projectSettings, this.globalSettings];
+		return layers.map((layer) => layer.sandboxProfile).find(isSandboxProfileName);
 	}
 
 	getExplicitSandboxProfile(): SandboxProfileName | undefined {

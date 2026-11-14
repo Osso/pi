@@ -325,6 +325,18 @@ describe("SettingsManager", () => {
 			expect(settingsManager.getMergedSettings().sandboxProfile).toBe("read-only");
 		});
 
+		it("lets an SDK settings override win over project and global sandbox profiles", () => {
+			const storage = new InMemorySettingsStorage();
+			storage.withLock("global", () => JSON.stringify({ sandboxProfile: "full-access" }));
+			storage.withLock("project", () => JSON.stringify({ sandboxProfile: "workspace-write" }));
+			const settingsManager = SettingsManager.fromStorage(storage);
+
+			settingsManager.applyOverrides({ sandboxProfile: "read-only" });
+
+			expect(settingsManager.getConfiguredSandboxProfile()).toBe("read-only");
+			expect(settingsManager.getSandboxProfile()).toBe("read-only");
+		});
+
 		it("returns to project and global precedence when the session override is cleared", () => {
 			const storage = new InMemorySettingsStorage();
 			storage.withLock("global", () => JSON.stringify({ sandboxProfile: "read-only" }));
