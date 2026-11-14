@@ -720,6 +720,15 @@ Content`,
 			expect(loader.getRulesContent()).toBe("First rule.\n\nSecond rule.");
 		});
 
+		it("should order rules by filename code units regardless of letter case", () => {
+			const rulesDir = join(agentDir, "rules");
+			mkdirSync(rulesDir, { recursive: true });
+			writeFileSync(join(rulesDir, "10-a.md"), "a rule.");
+			writeFileSync(join(rulesDir, "10-B.md"), "B rule.");
+
+			expect(loadRulesFromDir(rulesDir)).toBe("B rule.\n\na rule.");
+		});
+
 		it("should load shared and main rules for main sessions", async () => {
 			const rulesDir = join(agentDir, "rules");
 			mkdirSync(join(rulesDir, "main"), { recursive: true });

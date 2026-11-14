@@ -211,7 +211,7 @@ export function loadRulesFilesFromDir(dirPath: string): Array<{ path: string; co
 
 	return readdirSync(dirPath)
 		.filter((entry) => entry.endsWith(".md") && statSync(join(dirPath, entry), { throwIfNoEntry: false })?.isFile())
-		.sort((a, b) => a.localeCompare(b))
+		.sort() // code-unit order, independent of the host locale
 		.map((entry) => {
 			const filePath = join(dirPath, entry);
 			return { path: filePath, content: readFileSync(filePath, "utf-8").trim() };
