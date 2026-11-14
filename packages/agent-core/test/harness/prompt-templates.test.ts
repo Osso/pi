@@ -6,6 +6,7 @@ import {
 	formatPromptTemplateInvocation,
 	loadPromptTemplates,
 	loadSourcedPromptTemplates,
+	parseCommandArgs,
 } from "../../src/harness/prompt-templates.ts";
 import { createTempDir } from "./session-test-utils.ts";
 
@@ -95,5 +96,13 @@ describe("formatPromptTemplateInvocation", () => {
 		expect(formatPromptTemplateInvocation({ name: "all", content: "$ARGUMENTS" }, ["costs $1", "$ARGUMENTS"])).toBe(
 			"costs $1 $ARGUMENTS",
 		);
+	});
+});
+
+describe("parseCommandArgs", () => {
+	it("keeps quoted empty strings as positional arguments", () => {
+		const args = parseCommandArgs(`alpha "" beta ''`);
+		expect(args).toEqual(["alpha", "", "beta", ""]);
+		expect(formatPromptTemplateInvocation({ name: "t", content: "[$1][$2][$3]" }, args)).toBe("[alpha][][beta]");
 	});
 });

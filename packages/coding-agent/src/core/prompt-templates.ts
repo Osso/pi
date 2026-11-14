@@ -24,6 +24,8 @@ export interface PromptTemplate {
 export function parseCommandArgs(argsString: string): string[] {
 	const args: string[] = [];
 	let current = "";
+	// A quoted empty string ("") is still an argument, as in bash.
+	let inArg = false;
 	let inQuote: string | null = null;
 
 	for (let i = 0; i < argsString.length; i++) {
@@ -37,17 +39,20 @@ export function parseCommandArgs(argsString: string): string[] {
 			}
 		} else if (char === '"' || char === "'") {
 			inQuote = char;
+			inArg = true;
 		} else if (/\s/.test(char)) {
-			if (current) {
+			if (inArg) {
 				args.push(current);
 				current = "";
+				inArg = false;
 			}
 		} else {
 			current += char;
+			inArg = true;
 		}
 	}
 
-	if (current) {
+	if (inArg) {
 		args.push(current);
 	}
 

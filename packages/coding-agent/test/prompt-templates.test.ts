@@ -378,9 +378,9 @@ describe("parseCommandArgs", () => {
 		expect(parseCommandArgs("a\tb\tc")).toEqual(["a", "b", "c"]);
 	});
 
-	test("should handle quoted empty string", () => {
-		// Note: Empty quotes are skipped by current implementation
-		expect(parseCommandArgs('"" " "')).toEqual([" "]);
+	test("should keep quoted empty strings as arguments", () => {
+		expect(parseCommandArgs('"" " "')).toEqual(["", " "]);
+		expect(substituteArgs("$" + "{1:-none} $2", parseCommandArgs('"" beta'))).toBe("none beta");
 	});
 
 	test("should handle arguments with special characters", () => {

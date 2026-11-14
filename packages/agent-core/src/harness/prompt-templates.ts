@@ -223,6 +223,8 @@ function basenameEnvPath(path: string): string {
 export function parseCommandArgs(argsString: string): string[] {
 	const args: string[] = [];
 	let current = "";
+	// A quoted empty string ("") is still an argument, as in bash.
+	let inArg = false;
 	let inQuote: string | null = null;
 
 	for (const char of argsString) {
@@ -231,16 +233,19 @@ export function parseCommandArgs(argsString: string): string[] {
 			else current += char;
 		} else if (char === '"' || char === "'") {
 			inQuote = char;
+			inArg = true;
 		} else if (char === " " || char === "\t") {
-			if (current) {
+			if (inArg) {
 				args.push(current);
 				current = "";
+				inArg = false;
 			}
 		} else {
 			current += char;
+			inArg = true;
 		}
 	}
-	if (current) args.push(current);
+	if (inArg) args.push(current);
 	return args;
 }
 
