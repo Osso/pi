@@ -12,13 +12,15 @@ The `ask_questions` built-in tool lets the model ask choice or free-text questio
 - [x] Support optional `header`, option `description`, option `preview`, `multiSelect`, and caller `metadata` fields.
 - [x] Add an `Other` path automatically instead of requiring callers to include one.
 
-### Supervisor answering (planned)
+### Supervisor answering
 
-- [ ] In a main session, when a Supervisor session is configured and the caller is not that session, post the questions as a `question` Supervisor request (through the relay for another host) while the local panel opens. Posting never blocks or polls; the answer arrives in the session mailbox; see [Supervisor question answering](supervisor-service.md#question-answering).
-- [ ] The first answer wins: a Supervisor answer arriving while the panel is open closes it and becomes the tool result; a local user answer cancels the request.
-- [ ] Mark the result source: `→ <answer> (Supervisor: <reason>)` for Supervisor answers.
-- [ ] On `escalate`, keep the local panel open; the user may answer either there or in the Supervisor UI.
-- [ ] Nonblocking calls receive a Supervisor answer through the normal inbox, correlated by `requestId`.
+- [x] In a main session, when a Supervisor session is configured and the caller is not that session, post the questions as a `question` Supervisor request (through the relay for another host) while the local panel opens. Posting never blocks or polls; the answer arrives in the session mailbox; see [Supervisor question answering](supervisor-service.md#question-answering).
+- [x] The first answer wins: a Supervisor answer arriving while the panel is open closes it and becomes the tool result; a local user answer cancels the request.
+- [x] Mark the result source: `→ <answer> (Supervisor: <reason>)` for Supervisor answers.
+- [x] On `escalate`, keep the local panel open; the user may answer either there or in the Supervisor UI.
+- [x] Nonblocking calls receive a Supervisor answer through the normal inbox, correlated by `requestId`, titled `Supervisor answered questions (request …)`.
+- [x] Supervisor answers are not user evidence for goal reviews; an answer the user gave in the Supervisor session is.
+- [x] A reply that arrives after a restart dropped the panel reaches the model as an ordinary inbox message.
 
 ### Scheduling and delivery
 
@@ -70,6 +72,8 @@ The `ask_questions` built-in tool lets the model ask choice or free-text questio
 - See [`docs/wiki/systems/ask-questions-tool.md`](../wiki/systems/ask-questions-tool.md) for implementation notes.
 
 ## Implementation inventory
+
+- `packages/coding-agent/src/core/tools/ask-questions-supervisor.ts` — posts `question` Supervisor requests, takes correlated replies on the mailbox signal, and withdraws answered questions.
 
 - `packages/coding-agent/src/core/tools/ask-questions.ts` — built-in tool schema, validation, and transcript rendering.
 - `packages/coding-agent/extensions/agents-core/src/question-relay-tools.ts` — child-runtime `ask_questions` relay and parent `answer_question` tool, registered by `agents-mailbox`.

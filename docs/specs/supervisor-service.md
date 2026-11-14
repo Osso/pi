@@ -49,11 +49,12 @@ The Supervisor becomes a normal, full-UI interactive Pi session on agent-server.
 
 Questions use the same queue and reply transport as other requests, with kind `question`. The only difference is that the asking session does not wait for the reply.
 
-- [ ] A `question` row carries the asking host, session, `requestId`, blocking flag, and questions. It has no deadline and runs after approval, goal-review, and advisory requests.
-- [ ] Respond through `supervisor_response` with `answer` (answers keyed by exact question text, each with a short reason) or `escalate` (reason).
-- [ ] Answer trivial and non-trivial questions decidable from user rules, specs, KB, earlier user decisions, repo evidence, or reasoning. Always escalate new scope, cost, safety risk, irreversible actions, and product tradeoffs the evidence does not settle.
-- [ ] On `escalate`, open the questions as an `ask_questions` panel in the Supervisor UI; the user's answer there is delivered to the asking session as a user answer.
-- [ ] A local user answer cancels the row; a cancelled question is never answered.
+- [x] A `question` row carries the asking host, session, `requestId`, blocking flag, and questions. It has no deadline and runs after approval, goal-review, and advisory requests.
+- [x] Respond through `supervisor_response` with `answer` (answers keyed by exact question text, each with a short reason) or `escalate` (reason).
+- [x] Answer trivial and non-trivial questions decidable from user rules, specs, KB, earlier user decisions, repo evidence, or reasoning. Always escalate new scope, cost, safety risk, irreversible actions, and product tradeoffs the evidence does not settle.
+- [x] On `escalate`, open the questions as an `ask_questions` panel in the Supervisor UI; the user's answer there is delivered to the asking session as a user answer.
+- [x] A local user answer cancels the row; a cancelled question is never answered.
+- [x] Deliver each question reply (escalation, then any answer) to the asking session's mailbox. A failed question decision is delivered as an escalation.
 
 ### Session tools
 
@@ -208,6 +209,7 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 ## Implementation inventory
 
 - `packages/coding-agent/extensions/supervisor-session/src/index.ts` — interactive Supervisor session: queue serving between user turns, visible request turns ending in `supervisor_response`, approval preemption of user turns with resumption, tool allow-list with KB-only file access.
+- `packages/coding-agent/src/supervisor/question-reply.ts` — question reply mailbox messages from the Supervisor session to the asker.
 - `packages/coding-agent/src/supervisor/ensure-running.ts` `ensureSupervisorAvailable` — fails fast when the configured Supervisor session is not running; starts the resident only when `supervisor.sessionId` is unset.
 - `packages/coding-agent/src/supervisor/main.ts` — resident `gpt-6.1-sol` SDK service with Codex provider selection and instruction-veto quota fallback, restricted tool surface, persistent transcript, stateless instruction-veto evaluation, hidden policy feedback, and request loop.
 - `packages/coding-agent/src/supervisor/service.ts` — bounded prompts, typed response validation, veto tokens and policy contract, deadlines, approval preemption, and active-evaluation cancellation.
@@ -232,6 +234,7 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 ## Tests asserting this spec
 
 - `packages/coding-agent/test/suite/supervisor-session.test.ts` — typed response recording, missing-response error, approval interrupting and resuming a user turn, tool allow-list and KB-only writes, other sessions unaffected.
+- `packages/coding-agent/test/suite/supervisor-questions.test.ts` — Supervisor answer closes the asker's panel with reasons, local answer cancels the row, escalation opens a Supervisor panel whose answer returns as a user answer, nonblocking answers arrive through the inbox.
 - `packages/coding-agent/test/suite/headless-supervisor-session.test.ts` — real Pi process serves queued requests and reruns a claimed request after restart.
 - `packages/coding-agent/test/supervisor-ensure-running.test.ts` — fail-fast for a down configured session without resident startup.
 - `packages/coding-agent/test/provider-restriction-recovery.test.ts` — bounded advisory evidence and strict, fail-closed main-validation response parsing.
