@@ -141,6 +141,7 @@ export function readNextSupervisorRequestToClaim(db: SqliteDatabase): Supervisor
 			 ORDER BY CASE kind
 				 WHEN 'approval_review' THEN 0
 				 WHEN 'supervisor_advisory' THEN 2
+				 WHEN 'question' THEN 3
 				 ELSE 1
 			 END, id ASC
 			 LIMIT 1`,
@@ -211,6 +212,7 @@ export function isSupervisorResponseValidForRequest(
 	if (requestKind === "approval_review") return responseKind === "approve" || responseKind === "reject";
 	if (requestKind === "goal_set_review") return responseKind === "set";
 	if (requestKind === "supervisor_advisory") return responseKind === "advisory";
+	if (requestKind === "question") return responseKind === "answer" || responseKind === "escalate";
 	return (
 		responseKind === "complete" || responseKind === "continue" || responseKind === "pause" || responseKind === "wait"
 	);

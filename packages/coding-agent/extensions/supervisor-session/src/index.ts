@@ -4,10 +4,13 @@ import type { ExtensionAPI, ExtensionContext, ToolCallEventResult } from "../../
 import {
 	claimNextSupervisorRequest,
 	hasPendingSupervisorApprovalRequest,
+	readSupervisorRequest,
 	recoverSupervisorRequests,
 	type SupervisorRequest,
 } from "../../../src/core/session-control-db.ts";
 import type { SessionEntry } from "../../../src/core/session-manager.ts";
+import { askQuestionsInUi, validateQuestions } from "../../../src/core/tools/ask-questions.ts";
+import { deliverSupervisorQuestionReply } from "../../../src/core/tools/ask-questions-supervisor.ts";
 import {
 	applySupervisorInstructionVeto,
 	blockSupervisorFileAccess,
@@ -17,6 +20,7 @@ import {
 	type SupervisorInstructionReviewer,
 } from "../../../src/supervisor/main.ts";
 import { DEFAULT_SUPERVISOR_KB_DIR } from "../../../src/supervisor/project-resolver.ts";
+import { sendSupervisorQuestionReply } from "../../../src/supervisor/question-reply.ts";
 import { notifySupervisorRequest, SupervisorRequestWakeServer } from "../../../src/supervisor/request-wake.ts";
 import { createSupervisorResponseTool, SUPERVISOR_RESPONSE_TOOL_NAME } from "../../../src/supervisor/response-tool.ts";
 import type { SupervisorEvaluator } from "../../../src/supervisor/service.ts";
@@ -162,6 +166,7 @@ class SupervisorSessionServer {
 			const request = claimNextSupervisorRequest(controlDbPath, this.claimToken);
 			if (!request) break;
 			await evaluateAndCompleteSupervisorRequest(controlDbPath, request, this.createEvaluator(ctx, request));
+			if (request.kind === "question") this.replyToQuestion(ctx, controlDbPath, request);
 		}
 		if (this.chatInterrupted && ctx.isIdle()) {
 			this.chatInterrupted = false;
@@ -170,6 +175,50 @@ class SupervisorSessionServer {
 				{ triggerTurn: true },
 			);
 		}
+	}
+
+	/** Sends the decision to the asking session; an escalation, or a failed decision, goes to the user here. */
+	private replyToQuestion(ctx: ExtensionContext, controlDbPath: string, request: SupervisorRequest): void {
+		const response = readSupervisorRequest(controlDbPath, request.id)?.response;
+		if (!response) return;
+		const sessionPath = ctx.sessionManager.getSessionFile();
+		if (!sessionPath) throw new Error("Supervisor question replies require a persisted Supervisor session");
+		const supervisor = { sessionId: ctx.sessionManager.getSessionId(), sessionPath };
+		if (response.kind === "answer") {
+			const entries = Object.entries(response.answers);
+			sendSupervisorQuestionReply(controlDbPath, supervisor, request, {
+				kind: "answer",
+				source: "supervisor",
+				answers: Object.fromEntries(entries.map(([question, entry]) => [question, entry.answer])),
+				reasons: Object.fromEntries(entries.map(([question, entry]) => [question, entry.reason])),
+			});
+			return;
+		}
+		const reason = "reason" in response ? response.reason : `Unexpected Supervisor response ${response.kind}`;
+		sendSupervisorQuestionReply(controlDbPath, supervisor, request, { kind: "escalate", reason });
+		void this.askUser(ctx, controlDbPath, supervisor, request).catch((error: unknown) => {
+			const message = error instanceof Error ? error.message : String(error);
+			ctx.ui.notify(`Escalated question ${request.id} failed: ${message}`, "error");
+		});
+	}
+
+	private async askUser(
+		ctx: ExtensionContext,
+		controlDbPath: string,
+		supervisor: { sessionId: string; sessionPath: string },
+		request: SupervisorRequest,
+	): Promise<void> {
+		if (!ctx.hasUI || ctx.mode !== "tui") return;
+		const questions = request.payload.questions as Parameters<typeof askQuestionsInUi>[1];
+		validateQuestions(questions);
+		const { answers, cancelled } = await askQuestionsInUi(ctx.ui, questions);
+		if (cancelled) return;
+		sendSupervisorQuestionReply(controlDbPath, supervisor, request, {
+			kind: "answer",
+			source: "user",
+			answers,
+			reasons: {},
+		});
 	}
 
 	private createEvaluator(ctx: ExtensionContext, request: SupervisorRequest): SupervisorEvaluator {
@@ -232,4 +281,5 @@ export default function supervisorSessionExtension(pi: ExtensionAPI): void {
 	pi.on("session_start", (_event, ctx) => server.start(ctx));
 	pi.on("session_shutdown", () => server.stop());
 	pi.on("agent_end", (_event, ctx) => server.onAgentEnd(ctx));
+	pi.on("runtime_mailbox", (event) => ({ handled: deliverSupervisorQuestionReply(event.message) }));
 }

@@ -207,6 +207,7 @@ export type {
 	RuntimeMailboxStoreRef,
 	SessionMetadata,
 	SharedChannelMessage,
+	SupervisorQuestionAnswer,
 	SupervisorRequest,
 	SupervisorRequestKind,
 	SupervisorRequestStatus,

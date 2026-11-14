@@ -90,6 +90,7 @@ export type SupervisorRequestKind =
 	| "goal_completion_review"
 	| "goal_idle_review"
 	| "goal_set_review"
+	| "question"
 	| "supervisor_advisory";
 
 export type SupervisorRequestStatus = "pending" | "claimed" | "completed" | "cancelled";
@@ -102,7 +103,15 @@ export type SupervisorResponse =
 	| { kind: "wait"; reason: string }
 	| { kind: "set"; objective: string; reason: string }
 	| { kind: "advisory"; answer: string }
+	| { kind: "answer"; answers: Record<string, SupervisorQuestionAnswer> }
+	| { kind: "escalate"; reason: string }
 	| { kind: "error"; reason: string };
+
+/** The Supervisor's answer to one question of a `question` request, with why it applies. */
+export interface SupervisorQuestionAnswer {
+	answer: string;
+	reason: string;
+}
 
 export interface SupervisorRequest {
 	id: number;

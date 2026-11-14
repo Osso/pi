@@ -1,6 +1,7 @@
 import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
+import type { SupervisorQuestionReply } from "../../supervisor/question-reply.ts";
 import {
 	type DesktopNotificationHandle,
 	PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
@@ -13,6 +14,7 @@ import {
 	type RuntimeMailboxMessage,
 } from "../session-control-db.ts";
 import { type AskQuestionsPanelResult, createAskQuestionsPanel } from "./ask-questions-panel.ts";
+import { askSupervisorQuestions } from "./ask-questions-supervisor.ts";
 
 const MIN_OPTIONS = 2;
 const MAX_OPTIONS = 4;
@@ -20,6 +22,7 @@ const MAX_QUESTIONS = 4;
 const ASK_QUESTIONS_NOTIFICATION_TITLE = "Pi question needs input";
 const QUEUED_ANSWER_MESSAGE_ID_PREFIX = "ask_questions:";
 const QUEUED_ANSWER_TITLE_PREFIX = "User answered questions (request ";
+const SUPERVISOR_ANSWER_TITLE_PREFIX = "Supervisor answered questions (request ";
 
 const questionOptionSchema = Type.Object({
 	label: Type.String({
@@ -84,6 +87,8 @@ export interface AskQuestionsToolDetails {
 	questions: AskQuestionsToolInput["questions"];
 	answers: Record<string, string>;
 	cancelled: boolean;
+	/** Set when a Supervisor reply answered: the Supervisor itself, or the user in the Supervisor session. */
+	answeredBy?: "supervisor" | "user";
 	metadata?: Record<string, unknown>;
 }
 
@@ -120,15 +125,46 @@ function validateQuestionOptions(question: AskQuestionsToolInput["questions"][nu
 
 const questionQueues = new WeakMap<ExtensionUIContext, Promise<void>>();
 
+type AnsweredBy = NonNullable<AskQuestionsToolDetails["answeredBy"]>;
+
+export type AskQuestionsAnswer = AskQuestionsPanelResult & { answeredBy?: AnsweredBy };
+
+/** The first answer for one request wins: the local panel, or a Supervisor reply that closes it. */
+interface QuestionPanelRace {
+	result?: AskQuestionsAnswer;
+	close?: (result: AskQuestionsAnswer) => void;
+}
+
+function settleQuestionRace(race: QuestionPanelRace, result: AskQuestionsAnswer): void {
+	if (race.result) return;
+	race.result = result;
+	race.close?.(result);
+}
+
 async function showQuestions(
 	ui: ExtensionUIContext,
 	questions: AskQuestionsToolInput["questions"],
-): Promise<AskQuestionsPanelResult> {
+	race: QuestionPanelRace,
+): Promise<AskQuestionsAnswer> {
+	if (race.result) return race.result;
 	const notification = notifyAskQuestionsWaiting(questions.length);
 	try {
-		return await ui.custom<AskQuestionsPanelResult>((tui, theme, keybindings, done) =>
-			createAskQuestionsPanel({ questions, theme, keybindings, requestRender: () => tui.requestRender(), done }),
-		);
+		await ui.custom<AskQuestionsAnswer>((tui, theme, keybindings, done) => {
+			const finish = (result: AskQuestionsAnswer) => {
+				race.result ??= result;
+				done(result);
+			};
+			race.close = finish;
+			return createAskQuestionsPanel({
+				questions,
+				theme,
+				keybindings,
+				requestRender: () => tui.requestRender(),
+				done: finish,
+			});
+		});
+		if (!race.result) throw new Error("ask_questions panel closed without a result");
+		return race.result;
 	} finally {
 		closeAskQuestionsNotification(notification);
 	}
@@ -137,9 +173,10 @@ async function showQuestions(
 function queueQuestions(
 	ui: ExtensionUIContext,
 	questions: AskQuestionsToolInput["questions"],
-): Promise<AskQuestionsPanelResult> {
+	race: QuestionPanelRace = {},
+): Promise<AskQuestionsAnswer> {
 	const previous = questionQueues.get(ui) ?? Promise.resolve();
-	const result = previous.then(() => showQuestions(ui, questions));
+	const result = previous.then(() => showQuestions(ui, questions, race));
 	// Each caller handles its own failure; a failed panel must not strand later requests.
 	const settled = result.then(
 		() => undefined,
@@ -150,6 +187,52 @@ function queueQuestions(
 		if (questionQueues.get(ui) === settled) questionQueues.delete(ui);
 	});
 	return result;
+}
+
+/** Opens the questions panel in this UI's question queue; used for questions the Supervisor escalated. */
+export function askQuestionsInUi(
+	ui: ExtensionUIContext,
+	questions: AskQuestionsToolInput["questions"],
+): Promise<AskQuestionsPanelResult> {
+	return queueQuestions(ui, questions);
+}
+
+function supervisorAnswerResult(reply: Extract<SupervisorQuestionReply, { kind: "answer" }>): AskQuestionsAnswer {
+	const answers = Object.fromEntries(
+		Object.entries(reply.answers).map(([question, answer]) => {
+			const reason = reply.reasons[question];
+			return [question, reply.source === "supervisor" && reason ? `${answer} (Supervisor: ${reason})` : answer];
+		}),
+	);
+	return { answers, cancelled: false, answeredBy: reply.source };
+}
+
+/**
+ * Opens the local panel and, when a Supervisor session is configured, posts the questions to it too.
+ * A Supervisor answer closes the panel; a local answer or cancellation withdraws the posted question.
+ */
+async function askQuestions(
+	ctx: ExtensionContext,
+	requestId: string,
+	params: AskQuestionsToolInput,
+): Promise<AskQuestionsAnswer> {
+	const race: QuestionPanelRace = {};
+	const supervisor = askSupervisorQuestions(ctx, requestId, params, (reply) => {
+		if (reply.kind === "escalate") {
+			ctx.ui.notify(`The Supervisor asked the user to answer: ${reply.reason}`, "info");
+			return;
+		}
+		settleQuestionRace(race, supervisorAnswerResult(reply));
+	});
+	try {
+		const result = await queueQuestions(ctx.ui, params.questions, race);
+		if (result.answeredBy) supervisor?.stop();
+		else supervisor?.withdraw();
+		return result;
+	} catch (error) {
+		supervisor?.withdraw();
+		throw error;
+	}
 }
 
 interface QuestionInboxTarget {
@@ -193,14 +276,13 @@ async function deliverQueuedAnswers(
 	ui: ExtensionUIContext,
 	target: QuestionInboxTarget,
 	requestId: string,
-	pending: Promise<AskQuestionsPanelResult>,
+	pending: Promise<AskQuestionsAnswer>,
 ): Promise<void> {
 	let body: string;
 	try {
-		const { answers, cancelled } = await pending;
-		const title = cancelled
-			? `Questions cancelled (request ${requestId})`
-			: `${QUEUED_ANSWER_TITLE_PREFIX}${requestId}):`;
+		const { answers, cancelled, answeredBy } = await pending;
+		const titlePrefix = answeredBy === "supervisor" ? SUPERVISOR_ANSWER_TITLE_PREFIX : QUEUED_ANSWER_TITLE_PREFIX;
+		const title = cancelled ? `Questions cancelled (request ${requestId})` : `${titlePrefix}${requestId}):`;
 		body = `${title}\n${formatAnswers(answers)}`;
 	} catch (error) {
 		body = `Questions failed (request ${requestId}): ${error instanceof Error ? error.message : String(error)}`;
@@ -288,14 +370,16 @@ function cancelledResult(params: AskQuestionsToolInput, answers: Record<string, 
 	};
 }
 
-function answeredResult(params: AskQuestionsToolInput, answers: Record<string, string>) {
+function answeredResult(params: AskQuestionsToolInput, answers: Record<string, string>, answeredBy?: AnsweredBy) {
+	const answerer = answeredBy === "supervisor" ? "Supervisor" : "User";
 	return {
-		content: [{ type: "text" as const, text: `User answered questions:\n${formatAnswers(answers)}` }],
+		content: [{ type: "text" as const, text: `${answerer} answered questions:\n${formatAnswers(answers)}` }],
 		details: {
 			blocking: params.blocking,
 			questions: params.questions,
 			answers,
 			cancelled: false,
+			...(answeredBy ? { answeredBy } : {}),
 			metadata: params.metadata,
 		},
 	};
@@ -330,7 +414,7 @@ function closeAskQuestionsNotification(notification: DesktopNotificationHandle |
 function startQueuedQuestionRequest(toolCallId: string, params: AskQuestionsToolInput, ctx: ExtensionContext) {
 	const ui = ctx.ui;
 	const target = captureQuestionInboxTarget(ctx);
-	const pending = queueQuestions(ui, params.questions);
+	const pending = askQuestions(ctx, toolCallId, params);
 	void deliverQueuedAnswers(ui, target, toolCallId, pending).catch((error: unknown) => {
 		console.error(`Failed question delivery handler (request ${toolCallId}):`, error);
 	});
@@ -376,8 +460,8 @@ export function createAskQuestionsToolDefinition(): ToolDefinition<typeof askQue
 			if (!ctx.hasUI || ctx.mode !== "tui") return unavailableResult(params);
 			validateQuestions(params.questions);
 			if (!params.blocking) return startQueuedQuestionRequest(toolCallId, params, ctx);
-			const { answers, cancelled } = await queueQuestions(ctx.ui, params.questions);
-			return cancelled ? cancelledResult(params, answers) : answeredResult(params, answers);
+			const { answers, cancelled, answeredBy } = await askQuestions(ctx, toolCallId, params);
+			return cancelled ? cancelledResult(params, answers) : answeredResult(params, answers, answeredBy);
 		},
 		renderCall(args, theme, context) {
 			const state = context.state as AskQuestionsRenderState;

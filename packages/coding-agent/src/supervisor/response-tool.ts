@@ -13,6 +13,8 @@ const supervisorResponseParameters = Type.Object({
 		Type.Literal("wait"),
 		Type.Literal("set"),
 		Type.Literal("advisory"),
+		Type.Literal("answer"),
+		Type.Literal("escalate"),
 		Type.Literal("error"),
 	]),
 	reason: Type.Optional(Type.String({ description: "Why this decision applies." })),
@@ -21,6 +23,16 @@ const supervisorResponseParameters = Type.Object({
 	),
 	objective: Type.Optional(Type.String({ description: "Additive objective for goal set decisions." })),
 	answer: Type.Optional(Type.String({ description: "Text answer for advisory decisions." })),
+	answers: Type.Optional(
+		Type.Record(
+			Type.String(),
+			Type.Object({
+				answer: Type.String({ description: "The answer: an option label, comma-separated labels, or free text." }),
+				reason: Type.String({ description: "Short reason naming the evidence for this answer." }),
+			}),
+			{ description: "Question answers keyed by exact question text, for kind answer." },
+		),
+	),
 });
 
 export function createSupervisorResponseTool(): ToolDefinition<typeof supervisorResponseParameters, unknown> {

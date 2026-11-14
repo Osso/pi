@@ -117,6 +117,15 @@ function goalProgressResponseContract(): string {
 	].join("\n");
 }
 
+function questionResponseContract(): string {
+	return [
+		"payload.questions are questions an agent asked its user; the user may also answer them directly, and the first answer wins.",
+		"Use kind answer when user rules, specs, KB memory, earlier user decisions, repository evidence, or sound reasoning settle every question, trivial or not.",
+		"An answer gives answers keyed by the exact question text, one entry per question, each with a non-empty answer and a short reason naming its evidence. For a question with options, answer with one option label, or several comma-separated labels when multiSelect is true.",
+		"Use kind escalate with a non-empty reason when any question involves new scope, cost, safety risk, an irreversible action, or a product tradeoff the evidence does not settle. The user then answers.",
+	].join("\n");
+}
+
 function responseContractForRequest(kind: SupervisorRequestKind): string {
 	switch (kind) {
 		case "approval_review":
@@ -130,6 +139,8 @@ function responseContractForRequest(kind: SupervisorRequestKind): string {
 				"Only an explicit user instruction may reset or narrow that parent.",
 				"When no grounded parent is known, derive the objective from the user request and supported parts of the proposal; do not copy unsupported constraints unchanged.",
 			].join("\n");
+		case "question":
+			return questionResponseContract();
 		case "supervisor_advisory":
 			return "Use kind advisory with a non-empty answer. This response is advisory only and cannot direct or control the caller.";
 		case "goal_completion_review":
@@ -175,10 +186,12 @@ function parseGoalSetResponse(response: Record<string, unknown>): SupervisorResp
 export function parseSupervisorResponse(
 	kind: SupervisorRequestKind,
 	rawResponse: unknown,
+	payload: Record<string, unknown> = {},
 ): SupervisorResponse | undefined {
 	const response = parseResponseObject(rawResponse);
 	if (!response || typeof response.kind !== "string") return undefined;
 	if (kind === "supervisor_advisory") return parseAdvisoryResponse(response);
+	if (kind === "question") return parseQuestionResponse(response, payload);
 	if (kind === "goal_set_review") return parseGoalSetResponse(response);
 	if (typeof response.reason !== "string") return undefined;
 	if (response.kind === "error") return { kind: "error", reason: response.reason };
@@ -194,6 +207,36 @@ export function parseSupervisorResponse(
 		return { instructions: response.instructions, kind: "continue", reason: response.reason };
 	}
 	return undefined;
+}
+
+function readQuestionTexts(payload: Record<string, unknown>): string[] {
+	if (!Array.isArray(payload.questions)) return [];
+	return payload.questions.flatMap((question) =>
+		isRecord(question) && typeof question.question === "string" ? [question.question] : [],
+	);
+}
+
+/** An answer must cover exactly the asked questions, each with a non-empty answer and reason. */
+function parseQuestionResponse(
+	response: Record<string, unknown>,
+	payload: Record<string, unknown>,
+): SupervisorResponse | undefined {
+	if (response.kind === "escalate" || response.kind === "error") {
+		return typeof response.reason === "string" && response.reason.trim()
+			? { kind: response.kind, reason: response.reason }
+			: undefined;
+	}
+	if (response.kind !== "answer" || !isRecord(response.answers)) return undefined;
+	const questions = readQuestionTexts(payload);
+	const answers: Record<string, { answer: string; reason: string }> = {};
+	for (const question of questions) {
+		const entry = response.answers[question];
+		if (!isRecord(entry) || typeof entry.answer !== "string" || typeof entry.reason !== "string") return undefined;
+		if (!entry.answer.trim() || !entry.reason.trim()) return undefined;
+		answers[question] = { answer: entry.answer, reason: entry.reason };
+	}
+	const coversExactly = questions.length > 0 && Object.keys(response.answers).length === questions.length;
+	return coversExactly ? { kind: "answer", answers } : undefined;
 }
 
 function parseAdvisoryResponse(response: Record<string, unknown>): SupervisorResponse | undefined {
@@ -219,7 +262,7 @@ export async function runSupervisorRequest(
 	if (readSupervisorRequest(input.controlDbPath, input.request.id)?.status === "cancelled") return "cancelled";
 	const rawResponse = await evaluation;
 	if (readSupervisorRequest(input.controlDbPath, input.request.id)?.status === "cancelled") return "cancelled";
-	const response = parseSupervisorResponse(input.request.kind, rawResponse) ?? {
+	const response = parseSupervisorResponse(input.request.kind, rawResponse, input.request.payload) ?? {
 		kind: "error" as const,
 		reason: "Supervisor returned an invalid response",
 	};

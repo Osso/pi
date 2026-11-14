@@ -94,8 +94,8 @@ describe("headless Supervisor advisory tool", () => {
 				question: "Is the AGENTS.md evidence complete?",
 			});
 			const deadlineMs = Date.parse(advisory.deadlineAt) - Date.parse(advisory.createdAt);
-			expect(deadlineMs).toBeGreaterThanOrEqual(179_000);
-			expect(deadlineMs).toBeLessThanOrEqual(181_000);
+			expect(deadlineMs).toBeGreaterThanOrEqual(899_000);
+			expect(deadlineMs).toBeLessThanOrEqual(901_000);
 			agent.respondToSupervisorRequest(advisory, {
 				kind: "advisory",
 				answer: "Yes. The scoped evidence is complete.",

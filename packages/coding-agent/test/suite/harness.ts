@@ -86,6 +86,8 @@ export interface HarnessOptions {
 	withConfiguredAuth?: boolean;
 	/** Use a file-backed session so control-DB persistence (multi-agent rows, mailbox refs) works. */
 	persistedSession?: boolean;
+	/** Control DB shared with other harnesses; defaults to one inside the harness temp dir. */
+	controlDbPath?: string;
 	/** Store handed to AgentSession so transport delivery can mark store mailbox rows delivered. */
 	multiAgentStore?: MultiAgentStore;
 	multiAgentRuntimeRole?: AgentSessionConfig["multiAgentRuntimeRole"];
@@ -138,7 +140,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
 	const sessionManager = options.persistedSession
 		? SessionManager.create(tempDir, join(tempDir, "sessions"))
 		: SessionManager.inMemory();
-	sessionManager.setMetadataControlDbPath(getControlDbPath(tempDir));
+	sessionManager.setMetadataControlDbPath(options.controlDbPath ?? getControlDbPath(tempDir));
 	const settingsManager = SettingsManager.inMemory(options.settings);
 
 	const authStorage = AuthStorage.inMemory();

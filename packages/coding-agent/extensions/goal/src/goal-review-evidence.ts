@@ -49,11 +49,11 @@ function appendEndTurnEvidence(store: GoalReviewEvidenceStore, event: ToolResult
 	appendEvidence(store, ctx, { kind: "end_turn", reason });
 }
 
-// Blocking ask_questions answers are user input delivered through a tool result.
+// Blocking ask_questions answers are user input delivered through a tool result; Supervisor answers are not.
 function answeredQuestionsText(event: ToolResultEvent): string | undefined {
 	if (event.toolName !== "ask_questions" || event.isError) return undefined;
 	const details = event.details as AskQuestionsToolDetails | undefined;
-	if (!details || details.cancelled || details.queued) return undefined;
+	if (!details || details.cancelled || details.queued || details.answeredBy === "supervisor") return undefined;
 	const text = event.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
 	return text.length > 0 ? text : undefined;
 }
