@@ -165,13 +165,16 @@ export class OutputAccumulator {
 			newlines++;
 			lastNewline = i;
 		}
+		// currentLineBytes is the size of the last logical line; a final newline ends that line, it does not start one.
+		const openLineBytes = this.hasOpenLine ? this.currentLineBytes : 0;
 		if (newlines === 0) {
-			this.currentLineBytes += bytes;
+			this.currentLineBytes = openLineBytes + bytes;
 			this.hasOpenLine = true;
 		} else {
 			this.completedLines += newlines;
 			const tail = text.slice(lastNewline + 1);
-			this.currentLineBytes = byteLength(tail);
+			const endedLine = text.slice(text.lastIndexOf("\n", lastNewline - 1) + 1, lastNewline);
+			this.currentLineBytes = tail ? byteLength(tail) : (newlines === 1 ? openLineBytes : 0) + byteLength(endedLine);
 			this.hasOpenLine = tail.length > 0;
 		}
 		this.totalLines = this.completedLines + (this.hasOpenLine ? 1 : 0);

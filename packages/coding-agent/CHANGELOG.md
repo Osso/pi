@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed the Bash truncation notice reporting `line is 0B` when a long final line ended with a newline; it now reports that line's size.
 - Fixed rule files loading in host-locale order (for example `10-a.md` before `10-B.md`) instead of the specified lexicographic filename order.
 - Fixed the resized-image note giving one scale factor for both axes when dimension rounding made them differ (for example a 100x12000 image shown at 17x2000); the note now gives separate x and y factors in that case.
 - Fixed requests using a provider's `models.json` `apiKey` when that provider has an `auth.json` entry whose key does not resolve; the `auth.json` entry now owns the provider as documented.

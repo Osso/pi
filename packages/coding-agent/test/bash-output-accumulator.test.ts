@@ -34,7 +34,7 @@ it.each([
 	const expectedTail = "x".repeat(DEFAULT_MAX_BYTES);
 
 	expect(output.split("\n\n")[0]).toBe(expectedTail);
-	expect(output).toContain("[Showing last 10.0KB of line 1 (");
+	expect(output).toContain("[Showing last 10.0KB of line 1 (line is 48.8KB). Full output: ");
 	expect(updates.at(-1)).toBe(expectedTail);
 	expect(result.details?.truncation).toMatchObject({
 		truncated: true,
