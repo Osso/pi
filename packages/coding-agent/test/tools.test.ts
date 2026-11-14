@@ -409,6 +409,16 @@ describe("Coding Agent Tools", () => {
 			expect(output).toContain("definitely not a png");
 			expect(result.content.some((c) => c.type === "image")).toBe(false);
 		});
+
+		it("should read text that starts with GIF as text", async () => {
+			const testFile = join(testDir, "README.txt");
+			writeFileSync(testFile, "GIF files are supported.\nThis is ordinary documentation.\n");
+
+			const result = await readTool.execute("test-call-gif-text", { path: testFile });
+
+			expect(getTextOutput(result)).toContain("GIF files are supported.");
+			expect(result.content.some((c) => c.type === "image")).toBe(false);
+		});
 	});
 
 	describe("write tool", () => {
