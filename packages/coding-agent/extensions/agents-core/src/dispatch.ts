@@ -176,6 +176,11 @@ export async function backgroundCommand(
 	);
 }
 
+/**
+ * Model and effort a spawned child starts with: the profile's values, else the parent's model and medium effort,
+ * independent of the parent's current effort, clamped to the model's capabilities. Recording both lets displays and
+ * resumes show what the child runs.
+ */
 export function spawnModelMetadata(
 	profile: ResolvedAgentProfile | undefined,
 	ctx: ExtensionContext,

@@ -39,7 +39,6 @@ export {
 	waitNotifications,
 } from "./wait.ts";
 
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { sendDesktopNotification } from "../../../src/core/desktop-notification.ts";
 import {
 	type AgentToolResult,
@@ -106,7 +105,6 @@ import {
 	type MultiAgentPiRequestHandler,
 	spawnAgentSchema,
 	steerAgentSchema,
-	THINKING_LEVELS,
 	waitAgentsSchema,
 } from "./contracts.ts";
 
@@ -118,15 +116,6 @@ function jobsCommand(store: MultiAgentStore, ctx: ExtensionCommandContext): void
 	}
 
 	ctx.ui.notify(agents.map((agent) => `${agent.id} ${formatAgentStatus(agent)}`).join("\n"), "info");
-}
-
-/**
- * Model and effort a spawned child starts with: the profile's values, else the parent's model and medium effort,
- * independent of the parent's current effort, clamped to the model's capabilities. Recording both lets displays and
- * resumes show what the child runs.
- */
-function _toThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
-	return value && THINKING_LEVELS.has(value as ThinkingLevel) ? (value as ThinkingLevel) : undefined;
 }
 
 export function createMultiAgentPiRequestHandler(options: MultiAgentExtensionOptions): MultiAgentPiRequestHandler {
