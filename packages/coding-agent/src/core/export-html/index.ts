@@ -44,18 +44,24 @@ export interface ExportOptions {
 function parseColor(color: string): { r: number; g: number; b: number } | undefined {
 	const hexMatch = color.match(/^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/);
 	if (hexMatch) {
+		const [, red, green, blue] = hexMatch;
+		if (red === undefined || green === undefined || blue === undefined)
+			throw new Error("Matched hex color is incomplete");
 		return {
-			r: Number.parseInt(hexMatch[1], 16),
-			g: Number.parseInt(hexMatch[2], 16),
-			b: Number.parseInt(hexMatch[3], 16),
+			r: Number.parseInt(red, 16),
+			g: Number.parseInt(green, 16),
+			b: Number.parseInt(blue, 16),
 		};
 	}
 	const rgbMatch = color.match(/^rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/);
 	if (rgbMatch) {
+		const [, red, green, blue] = rgbMatch;
+		if (red === undefined || green === undefined || blue === undefined)
+			throw new Error("Matched RGB color is incomplete");
 		return {
-			r: Number.parseInt(rgbMatch[1], 10),
-			g: Number.parseInt(rgbMatch[2], 10),
-			b: Number.parseInt(rgbMatch[3], 10),
+			r: Number.parseInt(red, 10),
+			g: Number.parseInt(green, 10),
+			b: Number.parseInt(blue, 10),
 		};
 	}
 	return undefined;

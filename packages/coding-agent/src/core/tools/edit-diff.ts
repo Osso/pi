@@ -126,6 +126,7 @@ function getReplacementLineRange(lines: LineSpan[], replacement: TextReplacement
 	let startLine = -1;
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
+		if (!line) throw new Error(`Base line ${i} is missing`);
 		if (replacementStart >= line.start && replacementStart < line.end) {
 			startLine = i;
 			break;
@@ -136,7 +137,10 @@ function getReplacementLineRange(lines: LineSpan[], replacement: TextReplacement
 	}
 
 	let endLine = startLine;
-	while (endLine < lines.length && lines[endLine].end < replacementEnd) {
+	while (endLine < lines.length) {
+		const line = lines[endLine];
+		if (!line) throw new Error(`Base line ${endLine} is missing`);
+		if (line.end >= replacementEnd) break;
 		endLine++;
 	}
 	if (endLine >= lines.length) {
@@ -150,6 +154,7 @@ function applyReplacements(content: string, replacements: TextReplacement[], off
 	let result = content;
 	for (let i = replacements.length - 1; i >= 0; i--) {
 		const replacement = replacements[i];
+		if (!replacement) throw new Error(`Replacement ${i} is missing`);
 		const matchIndex = replacement.matchIndex - offset;
 		result =
 			result.substring(0, matchIndex) + replacement.newText + result.substring(matchIndex + replacement.matchLength);
@@ -196,8 +201,11 @@ export function applyReplacementsPreservingUnchangedLines(
 	for (const group of groups) {
 		result += originalLines.slice(originalLineIndex, group.startLine).join("");
 
-		const groupStartOffset = baseLines[group.startLine].start;
-		const groupEndOffset = baseLines[group.endLine - 1].end;
+		const firstLine = baseLines[group.startLine];
+		const lastLine = baseLines[group.endLine - 1];
+		if (!firstLine || !lastLine) throw new Error("Replacement group line is missing");
+		const groupStartOffset = firstLine.start;
+		const groupEndOffset = lastLine.end;
 		result += applyReplacements(
 			baseContent.slice(groupStartOffset, groupEndOffset),
 			group.replacements,
@@ -424,7 +432,9 @@ export function applyEditsToNormalizedContent(
 	}));
 
 	for (let i = 0; i < normalizedEdits.length; i++) {
-		if (normalizedEdits[i].oldText.length === 0) {
+		const edit = normalizedEdits[i];
+		if (!edit) throw new Error(`Edit ${i} is missing`);
+		if (edit.oldText.length === 0) {
 			throw getEmptyOldTextError(path, i, normalizedEdits.length);
 		}
 	}
@@ -436,6 +446,7 @@ export function applyEditsToNormalizedContent(
 	const matchedEdits: MatchedEdit[] = [];
 	for (let i = 0; i < normalizedEdits.length; i++) {
 		const edit = normalizedEdits[i];
+		if (!edit) throw new Error(`Edit ${i} is missing`);
 		const matchResult = fuzzyFindText(replacementBaseContent, edit.oldText);
 		if (!matchResult.found) {
 			throw getNotFoundError(path, i, normalizedEdits.length);
@@ -463,6 +474,7 @@ export function applyEditsToNormalizedContent(
 	for (let i = 1; i < matchedEdits.length; i++) {
 		const previous = matchedEdits[i - 1];
 		const current = matchedEdits[i];
+		if (!previous || !current) throw new Error(`Matched edit ${i} is missing`);
 		if (previous.matchIndex + previous.matchLength > current.matchIndex) {
 			throw new Error(
 				`edits[${previous.editIndex}] and edits[${current.editIndex}] overlap in ${path}. Merge them into one edit or target disjoint regions.`,
@@ -514,6 +526,7 @@ export function generateDiffString(
 
 	for (let i = 0; i < parts.length; i++) {
 		const part = parts[i];
+		if (!part) throw new Error(`Diff part ${i} is missing`);
 		const raw = part.value.split("\n");
 		if (raw[raw.length - 1] === "") {
 			raw.pop();
@@ -541,7 +554,8 @@ export function generateDiffString(
 			lastWasChange = true;
 		} else {
 			// Context lines - only show a few before/after changes
-			const nextPartIsChange = i < parts.length - 1 && (parts[i + 1].added || parts[i + 1].removed);
+			const nextPart = parts[i + 1];
+			const nextPartIsChange = nextPart !== undefined && (nextPart.added || nextPart.removed);
 			const hasLeadingChange = lastWasChange;
 			const hasTrailingChange = nextPartIsChange;
 

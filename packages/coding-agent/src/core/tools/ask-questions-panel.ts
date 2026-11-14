@@ -64,19 +64,26 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 	let finished = false;
 
 	const isSubmitTab = () => hasSubmitTab && tab === questions.length;
-	const isFreeText = () => !isSubmitTab() && questions[tab].options === undefined;
+	function getQuestionState(index: number) {
+		const question = questions[index];
+		const answer = answers[index];
+		if (!question || !answer) throw new Error(`Question state ${index} is missing`);
+		return { question, answer };
+	}
+	const isFreeText = () => !isSubmitTab() && getQuestionState(tab).question.options === undefined;
 	const canSubmit = () =>
-		questions.every(
-			(question, index) => (question.options !== undefined && question.multiSelect) || hasAnswer(answers[index]),
-		);
+		questions.every((question, index) => {
+			const { answer } = getQuestionState(index);
+			return (question.options !== undefined && question.multiSelect) || hasAnswer(answer);
+		});
 
 	function finish(cancelled: boolean): void {
 		if (finished) return;
 		finished = true;
 		const collected: Record<string, string> = {};
 		questions.forEach((question, index) => {
-			if (!cancelled || hasAnswer(answers[index]))
-				collected[question.question] = formatAnswer(question, answers[index]);
+			const { answer } = getQuestionState(index);
+			if (!cancelled || hasAnswer(answer)) collected[question.question] = formatAnswer(question, answer);
 		});
 		done({ answers: collected, cancelled });
 	}
@@ -97,11 +104,11 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 	inputs.forEach((input, index) => {
 		input.onSubmit = (value) => {
 			const text = value.trim();
-			const answer = answers[index];
+			const { answer, question } = getQuestionState(index);
 			answer.custom = text || undefined;
 			if (isFreeText() && !text) return;
 			editing = false;
-			if (!questions[index].multiSelect && text) {
+			if (!question.multiSelect && text) {
 				answer.selected = [];
 				advanceAfterAnswer();
 			}
@@ -115,12 +122,14 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 	});
 
 	function activateRow(): void {
-		const question = questions[tab];
-		const answer = answers[tab];
-		const option = question.options?.[cursors[tab]];
+		const { question, answer } = getQuestionState(tab);
+		const cursor = cursors[tab];
+		const input = inputs[tab];
+		if (cursor === undefined || !input) throw new Error(`Question controls ${tab} are missing`);
+		const option = question.options?.[cursor];
 		if (!option) {
 			editing = true;
-			inputs[tab].setValue(answer.custom ?? "");
+			input.setValue(answer.custom ?? "");
 			return;
 		}
 		if (question.multiSelect) {
@@ -141,8 +150,11 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 			return;
 		}
 		const index = tab;
-		inputs[index].handleInput(data);
-		if (freeText) answers[index].custom = inputs[index].getValue().trim() || undefined;
+		const { answer } = getQuestionState(index);
+		const input = inputs[index];
+		if (!input) throw new Error(`Question input ${index} is missing`);
+		input.handleInput(data);
+		if (freeText) answer.custom = input.getValue().trim() || undefined;
 	}
 
 	function handleKey(data: string): void {
@@ -155,15 +167,22 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 		else if (kb.matches(data, "tui.select.cancel")) finish(true);
 		else if (isSubmitTab()) {
 			if (kb.matches(data, "tui.select.confirm") && canSubmit()) finish(false);
-		} else if (kb.matches(data, "tui.select.up")) cursors[tab] = Math.max(0, cursors[tab] - 1);
-		else if (kb.matches(data, "tui.select.down")) {
-			cursors[tab] = Math.min(questions[tab].options?.length ?? 0, cursors[tab] + 1);
+		} else if (kb.matches(data, "tui.select.up")) {
+			const cursor = cursors[tab];
+			if (cursor === undefined) throw new Error(`Question cursor ${tab} is missing`);
+			cursors[tab] = Math.max(0, cursor - 1);
+		} else if (kb.matches(data, "tui.select.down")) {
+			const { question } = getQuestionState(tab);
+			const cursor = cursors[tab];
+			if (cursor === undefined) throw new Error(`Question cursor ${tab} is missing`);
+			cursors[tab] = Math.min(question.options?.length ?? 0, cursor + 1);
 		} else if (kb.matches(data, "tui.select.confirm")) activateRow();
 	}
 
 	function renderTabBar(): string {
 		const labels = questions.map((question, index) => {
-			const marker = hasAnswer(answers[index]) ? "■" : "□";
+			const { answer } = getQuestionState(index);
+			const marker = hasAnswer(answer) ? "■" : "□";
 			const text = ` ${marker} ${question.header ?? `Q${index + 1}`} `;
 			return index === tab ? theme.bg("selectedBg", theme.fg("text", text)) : theme.fg("muted", text);
 		});
@@ -175,17 +194,18 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 	}
 
 	function renderOptionRows(width: number): string[] {
-		const question = questions[tab];
-		const answer = answers[tab];
+		const { question, answer } = getQuestionState(tab);
+		const cursor = cursors[tab];
+		if (cursor === undefined) throw new Error(`Question cursor ${tab} is missing`);
 		if (!question.options) return [];
 		const rows = question.options.map((option, index) => {
 			const chosen = answer.selected.includes(option.label);
 			const marker = formatOptionMarker(question.multiSelect, chosen);
 			const description = option.description ? theme.fg("muted", ` — ${option.description}`) : "";
-			return { text: `${marker}${index + 1}. ${option.label}${description}`, active: index === cursors[tab] };
+			return { text: `${marker}${index + 1}. ${option.label}${description}`, active: index === cursor };
 		});
 		const other = answer.custom === undefined ? OTHER_LABEL : `${OTHER_LABEL}: ${answer.custom}`;
-		rows.push({ text: `${answer.custom === undefined ? "  " : "✎ "}${other}`, active: cursors[tab] === rows.length });
+		rows.push({ text: `${answer.custom === undefined ? "  " : "✎ "}${other}`, active: cursor === rows.length });
 		return rows.map((row) => {
 			const prefix = row.active ? theme.fg("accent", "> ") : "  ";
 			return truncateToWidth(` ${prefix}${row.active ? theme.fg("accent", row.text) : row.text}`, width);
@@ -194,7 +214,8 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 
 	function renderSubmitSummary(width: number): string[] {
 		const lines = questions.map((question, index) => {
-			const value = hasAnswer(answers[index]) ? formatAnswer(question, answers[index]) : theme.fg("warning", "—");
+			const { answer } = getQuestionState(index);
+			const value = hasAnswer(answer) ? formatAnswer(question, answer) : theme.fg("warning", "—");
 			return truncateToWidth(`   ${theme.fg("muted", `${question.question} `)}→ ${value}`, width);
 		});
 		const status = canSubmit()
@@ -205,13 +226,16 @@ export function createAskQuestionsPanel(options: AskQuestionsPanelOptions): Comp
 
 	function renderBody(width: number): string[] {
 		if (isSubmitTab()) return renderSubmitSummary(width);
-		const lines = wrapTextWithAnsi(theme.fg("text", questions[tab].question), Math.max(1, width - 2)).map(
+		const { question } = getQuestionState(tab);
+		const lines = wrapTextWithAnsi(theme.fg("text", question.question), Math.max(1, width - 2)).map(
 			(line) => ` ${line}`,
 		);
 		lines.push("", ...renderOptionRows(width));
 		if (editing) {
-			inputs[tab].focused = focused;
-			lines.push("", ` ${theme.fg("muted", "Your answer:")}`, ...inputs[tab].render(Math.max(1, width - 2)));
+			const input = inputs[tab];
+			if (!input) throw new Error(`Question input ${tab} is missing`);
+			input.focused = focused;
+			lines.push("", ` ${theme.fg("muted", "Your answer:")}`, ...input.render(Math.max(1, width - 2)));
 		}
 		return lines;
 	}

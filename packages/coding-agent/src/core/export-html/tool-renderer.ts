@@ -50,8 +50,18 @@ function isBlankRenderedLine(line: string): boolean {
 function trimRenderedResultLines(lines: string[]): string[] {
 	let start = 0;
 	let end = lines.length;
-	while (start < end && isBlankRenderedLine(lines[start])) start++;
-	while (end > start && isBlankRenderedLine(lines[end - 1])) end--;
+	while (start < end) {
+		const line = lines[start];
+		if (line === undefined) throw new Error(`Rendered line ${start} is missing`);
+		if (!isBlankRenderedLine(line)) break;
+		start++;
+	}
+	while (end > start) {
+		const line = lines[end - 1];
+		if (line === undefined) throw new Error(`Rendered line ${end - 1} is missing`);
+		if (!isBlankRenderedLine(line)) break;
+		end--;
+	}
 	return lines.slice(start, end);
 }
 

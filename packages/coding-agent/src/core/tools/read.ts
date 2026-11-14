@@ -430,9 +430,16 @@ function createReadToolDefinitionInternal(
 							let outputText: string;
 							if (truncation.firstLineExceedsLimit || firstLineCut) {
 								// First line alone exceeds the byte limit. Point the model at a bash fallback.
-								const firstLineSize = firstLineCut
-									? `more than ${formatSize(DEFAULT_MAX_BYTES)}`
-									: formatSize(Buffer.byteLength(allLines[startLine], "utf-8"));
+								const firstLine = allLines[startLine];
+								if (firstLine === undefined && !firstLineCut)
+									throw new Error(`Line ${startLine} is missing from ${path}`);
+								let firstLineSize: string;
+								if (firstLineCut) {
+									firstLineSize = `more than ${formatSize(DEFAULT_MAX_BYTES)}`;
+								} else {
+									if (firstLine === undefined) throw new Error(`Line ${startLine} is missing from ${path}`);
+									firstLineSize = formatSize(Buffer.byteLength(firstLine, "utf-8"));
+								}
 								outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
 								details = { truncation };
 							} else if (rangeLimited && !truncation.truncated) {

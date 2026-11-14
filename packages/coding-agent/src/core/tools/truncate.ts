@@ -101,7 +101,9 @@ export function truncateHead(content: string, options: TruncationOptions = {}): 
 	}
 
 	// Check if first line alone exceeds byte limit
-	const firstLineBytes = Buffer.byteLength(lines[0], "utf-8");
+	const firstLine = lines[0];
+	if (firstLine === undefined) throw new Error("First line is missing from non-empty content");
+	const firstLineBytes = Buffer.byteLength(firstLine, "utf-8");
 	if (firstLineBytes > maxBytes) {
 		return {
 			content: "",
@@ -125,6 +127,7 @@ export function truncateHead(content: string, options: TruncationOptions = {}): 
 
 	for (let i = 0; i < lines.length && i < maxLines; i++) {
 		const line = lines[i];
+		if (line === undefined) throw new Error(`Line ${i} is missing from truncation input`);
 		const lineBytes = Buffer.byteLength(line, "utf-8") + (i > 0 ? 1 : 0); // +1 for newline
 
 		if (outputBytesCount + lineBytes > maxBytes) {
@@ -198,6 +201,7 @@ export function truncateTail(content: string, options: TruncationOptions = {}): 
 
 	for (let i = lines.length - 1; i >= 0 && outputLinesArr.length < maxLines; i--) {
 		const line = lines[i];
+		if (line === undefined) throw new Error(`Line ${i} is missing from truncation input`);
 		const lineBytes = Buffer.byteLength(line, "utf-8") + (outputLinesArr.length > 0 ? 1 : 0); // +1 for newline
 
 		if (outputBytesCount + lineBytes > maxBytes) {
@@ -254,7 +258,10 @@ function truncateStringToBytesFromEnd(str: string, maxBytes: number): string {
 	let start = buf.length - maxBytes;
 
 	// Find a valid UTF-8 boundary (start of a character)
-	while (start < buf.length && (buf[start] & 0xc0) === 0x80) {
+	while (start < buf.length) {
+		const byte = buf[start];
+		if (byte === undefined) throw new Error(`UTF-8 buffer byte ${start} is missing`);
+		if ((byte & 0xc0) !== 0x80) break;
 		start++;
 	}
 

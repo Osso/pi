@@ -109,12 +109,17 @@ function updateWriteHighlightCacheIncremental(
 	}
 
 	const segments = deltaNormalized.split("\n");
+	const firstSegment = segments[0];
 	const lastIndex = cache.normalizedLines.length - 1;
-	cache.normalizedLines[lastIndex] += segments[0];
+	const lastLine = cache.normalizedLines[lastIndex];
+	if (firstSegment === undefined || lastLine === undefined) throw new Error("Write highlight cache line is missing");
+	cache.normalizedLines[lastIndex] = lastLine + firstSegment;
 	cache.highlightedLines[lastIndex] = highlightSingleLine(cache.normalizedLines[lastIndex], cache.lang);
 	for (let i = 1; i < segments.length; i++) {
-		cache.normalizedLines.push(segments[i]);
-		cache.highlightedLines.push(highlightSingleLine(segments[i], cache.lang));
+		const segment = segments[i];
+		if (segment === undefined) throw new Error(`Write content segment ${i} is missing`);
+		cache.normalizedLines.push(segment);
+		cache.highlightedLines.push(highlightSingleLine(segment, cache.lang));
 	}
 	refreshWriteHighlightPrefix(cache);
 	return cache;

@@ -185,7 +185,10 @@ export class OutputAccumulator {
 		}
 
 		let start = buffer.length - this.maxRollingBytes;
-		while (start < buffer.length && (buffer[start] & 0xc0) === 0x80) {
+		while (start < buffer.length) {
+			const byte = buffer[start];
+			if (byte === undefined) throw new Error(`UTF-8 buffer byte ${start} is missing`);
+			if ((byte & 0xc0) !== 0x80) break;
 			start++;
 		}
 
