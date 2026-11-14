@@ -1,21 +1,13 @@
 import type { AgentSession, AgentSessionEvent } from "../../../src/core/agent-session.ts";
-import type { SessionShutdownEvent } from "../../../src/core/extensions/types.ts";
-import type { SessionManager } from "../../../src/core/session-manager.ts";
-import type { ChildAgentSession } from "./runtime.ts";
+import type { ChildAgentSession, UnboundChildAgentSession } from "./contracts.ts";
+
+export type { UnboundChildAgentSession } from "./contracts.ts";
 
 type LiveChildAgentSession = ChildAgentSession &
 	Pick<
 		AgentSession,
 		"model" | "thinkingLevel" | "setModel" | "setThinkingLevel" | "modelRegistry" | "scopedModels" | "cycleModel"
 	>;
-
-export interface UnboundChildAgentSession extends Omit<LiveChildAgentSession, "prompt"> {
-	prompt: AgentSession["prompt"];
-	readonly agent: Pick<AgentSession["agent"], "waitForIdle">;
-	readonly sessionManager: Pick<SessionManager, "getBranch">;
-	extensionRunner: { emit(event: SessionShutdownEvent): Promise<unknown> };
-	bindExtensions(bindings: Record<string, never>): Promise<void>;
-}
 
 async function shutdownChildSession(session: UnboundChildAgentSession): Promise<void> {
 	try {

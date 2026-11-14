@@ -2,15 +2,15 @@ export const MAX_GOAL_OBJECTIVE_CHARS = 10_000;
 
 import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { type Static, Type } from "typebox";
-import type { AgentSessionEvent } from "../../../src/core/agent-session.ts";
+import type { AgentSession, AgentSessionEvent } from "../../../src/core/agent-session.ts";
 import type { DesktopNotification, DesktopNotifier } from "../../../src/core/desktop-notification.ts";
-import type { ExtensionContext, ExtensionFactory } from "../../../src/core/extensions/types.ts";
+import type { ExtensionContext, ExtensionFactory, SessionShutdownEvent } from "../../../src/core/extensions/types.ts";
 import type { LifecycleCoordinator, OwnedLifecycleCommandInput } from "../../../src/core/lifecycle-coordinator.ts";
 import type { AgentMailboxMessage, AgentSnapshot, MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
 import type { RuntimeMailboxToolDelivery } from "../../../src/core/runtime-mailbox-acceptance.ts";
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
+import type { SessionManager } from "../../../src/core/session-manager.ts";
 import { CHILD_DISABLED_AGENT_TOOL_NAMES, SUPERVISOR_ONLY_TOOL_NAMES } from "../../../src/core/tool-capabilities.ts";
-import type { UnboundChildAgentSession } from "./child-session.ts";
 
 export const checkpointSchema = Type.Union([
 	Type.Literal("next_model_call"),
@@ -167,6 +167,28 @@ export interface ChildAgentSession {
 }
 
 export type ChildAgentSessionFactory = (input: ChildAgentDispatchInput) => Promise<ChildAgentSession>;
+
+export interface UnboundChildAgentSession
+	extends Omit<
+		ChildAgentSession &
+			Pick<
+				AgentSession,
+				| "model"
+				| "thinkingLevel"
+				| "setModel"
+				| "setThinkingLevel"
+				| "modelRegistry"
+				| "scopedModels"
+				| "cycleModel"
+			>,
+		"prompt"
+	> {
+	prompt: AgentSession["prompt"];
+	readonly agent: Pick<AgentSession["agent"], "waitForIdle">;
+	readonly sessionManager: Pick<SessionManager, "getBranch">;
+	extensionRunner: { emit(event: SessionShutdownEvent): Promise<unknown> };
+	bindExtensions(bindings: Record<string, never>): Promise<void>;
+}
 
 export const productionChildSessionFactoryMarker = Symbol("productionChildSessionFactory");
 
