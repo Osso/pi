@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed RPC mode ignoring `ctx.shutdown()` until the client sent another command when it was requested by an extension command after a dialog or by a turn the extension started.
 - Fixed startup failing with `EISDIR` when a rules folder contained a directory (or broken symlink) whose name ends in `.md`.
 - Fixed skills, prompts and themes losing their package source metadata when an extension added resources ([#6968](https://github.com/earendil-works/pi-mono/issues/6968)).
 - Fixed branch summaries created by tree navigation dropping the read and modified file lists from earlier compaction entries.

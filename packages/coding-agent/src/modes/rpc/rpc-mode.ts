@@ -165,9 +165,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			} as RpcExtensionUIRequest);
 		},
 
-		requestRender(): void {
-			// RPC clients do not own a TUI render loop.
-		},
+		requestRender(): void {}, // RPC clients do not own a TUI render loop.
 
 		onTerminalInput(): () => void {
 			// Raw terminal input not supported in RPC mode
@@ -220,9 +218,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			// Custom footer not supported in RPC mode - requires TUI access
 		},
 
-		setDefaultFooter(_factory: unknown): void {
-			// Default footer not supported in RPC mode - requires TUI access
-		},
+		setDefaultFooter(_factory: unknown): void {}, // Not supported in RPC mode - requires TUI access
 
 		setHeader(_factory: unknown): void {
 			// Custom header not supported in RPC mode - requires TUI access
@@ -358,9 +354,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 				reload: async () => {
 					await runtimeHost.reload();
 				},
-				restart: async (options) => {
-					await runtimeHost.restart(options);
-				},
+				restart: (options) => runtimeHost.restart(options),
 			},
 			shutdownHandler: () => {
 				shutdownRequested = true;
@@ -374,6 +368,9 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		unsubscribeBackpressure?.();
 		unsubscribe = session.subscribe((event) => {
 			output(event);
+			if (event.type === "agent_settled") {
+				void checkShutdownRequested();
+			}
 		});
 		unsubscribeBackpressure = session.agent.subscribe(async () => {
 			await waitForRawStdoutBackpressure();
@@ -424,6 +421,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 							}
 						},
 					})
+					// An extension command can request shutdown without starting a turn (no agent_settled).
+					.then(() => (session.isStreaming ? undefined : checkShutdownRequested()))
 					.catch((e) => {
 						if (!preflightSucceeded) {
 							output(error(id, "prompt", e.message));
