@@ -33,10 +33,25 @@ export function restoreOriginalLineEndings(
 	ending: "\r\n" | "\n",
 ): string {
 	const originalLines = original.match(ORIGINAL_LINE) ?? [];
+	const baseLines = splitLinesWithEndings(normalizedBase);
+	const editedLines = splitLinesWithEndings(normalizedEdited);
+	// Lines equal before the first and after the last change are unchanged; diffing only the span between them keeps
+	// a repeated line next to an edit from being aligned with the replacement and swapping endings with it.
+	let prefix = 0;
+	while (prefix < baseLines.length && prefix < editedLines.length && baseLines[prefix] === editedLines[prefix])
+		prefix++;
+	let suffix = 0;
+	while (
+		suffix < baseLines.length - prefix &&
+		suffix < editedLines.length - prefix &&
+		baseLines[baseLines.length - 1 - suffix] === editedLines[editedLines.length - 1 - suffix]
+	)
+		suffix++;
 	const withEnding = (line: string) => (ending === "\r\n" ? line.replace(/\n$/, "\r\n") : line);
-	let baseIndex = 0;
-	let result = "";
-	for (const part of Diff.diffArrays(splitLinesWithEndings(normalizedBase), splitLinesWithEndings(normalizedEdited))) {
+	let baseIndex = prefix;
+	let result = originalLines.slice(0, prefix).join("");
+	const changedBase = baseLines.slice(prefix, baseLines.length - suffix);
+	for (const part of Diff.diffArrays(changedBase, editedLines.slice(prefix, editedLines.length - suffix))) {
 		if (part.removed) {
 			baseIndex += part.value.length;
 			continue;
@@ -50,7 +65,7 @@ export function restoreOriginalLineEndings(
 			baseIndex++;
 		}
 	}
-	return result;
+	return result + originalLines.slice(baseLines.length - suffix).join("");
 }
 
 /**

@@ -1534,6 +1534,18 @@ describe("edit tool CRLF handling", () => {
 		expect(readFileSync(testFile, "utf-8")).toBe("a\r\nB1\r\nB2\r\nc\nd\r\n");
 	});
 
+	it("keeps the ending of an untouched line that repeats the replacement", async () => {
+		const testFile = join(testDir, "mixed-repeat.txt");
+		writeFileSync(testFile, "prefix\r\ntarget\r\nsame\nsuffix\r\n");
+
+		await editTool.execute("test-mixed-repeat", {
+			path: testFile,
+			edits: [{ oldText: "target\n", newText: "same\n" }],
+		});
+
+		expect(readFileSync(testFile, "utf-8")).toBe("prefix\r\nsame\r\nsame\nsuffix\r\n");
+	});
+
 	it("should preserve UTF-8 BOM after edit", async () => {
 		const testFile = join(testDir, "bom-test.txt");
 		writeFileSync(testFile, "\uFEFFfirst\r\nsecond\r\nthird\r\n");
