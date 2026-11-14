@@ -17,6 +17,7 @@ import {
 import type { ReadonlySessionManager, SessionEntry } from "../session-manager.ts";
 import { estimateTokens } from "./compaction.ts";
 import {
+	addSummaryFileOps,
 	computeFileLists,
 	createFileOps,
 	extractFileOpsFromMessage,
@@ -187,7 +188,7 @@ function getMessageFromEntry(entry: SessionEntry): AgentMessage | undefined {
  *
  * Also collects file operations from:
  * - Tool calls in assistant messages
- * - Existing branch_summary entries' details (for cumulative tracking)
+ * - Existing compaction and branch_summary entries' details (for cumulative tracking)
  *
  * @param entries - Entries in chronological order
  * @param tokenBudget - Maximum tokens to include (0 = no limit)
@@ -202,18 +203,7 @@ export function prepareBranchEntries(entries: SessionEntry[], tokenBudget: numbe
 	// Only extract from pi-generated summaries (fromHook !== true), not extension-generated ones
 	for (const entry of entries) {
 		if (entry.type === "message") extractFileOpsFromMessage(entry.message, fileOps);
-		if (entry.type === "branch_summary" && !entry.fromHook && entry.details) {
-			const details = entry.details as BranchSummaryDetails;
-			if (Array.isArray(details.readFiles)) {
-				for (const f of details.readFiles) fileOps.read.add(f);
-			}
-			if (Array.isArray(details.modifiedFiles)) {
-				// Modified files go into both edited and written for proper deduplication
-				for (const f of details.modifiedFiles) {
-					fileOps.edited.add(f);
-				}
-			}
-		}
+		if (entry.type === "branch_summary" || entry.type === "compaction") addSummaryFileOps(entry, fileOps);
 	}
 
 	// Second pass: walk from newest to oldest, adding messages until token budget

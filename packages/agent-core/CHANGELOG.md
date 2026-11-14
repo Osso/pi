@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Fixed harness branch summaries dropping the read and modified file lists from earlier compaction entries.
 - Fixed `afterToolCall` returning `details: null` keeping the tool's original details instead of replacing them.
 - Fixed parallel tool execution starting tools whose preflight finished before a later preflight aborted the run ([#8935](https://github.com/earendil-works/pi-mono/issues/8935)).
 - Fixed prompt templates and skills that start with a `----` Markdown thematic break losing their first lines: frontmatter now requires whole `---` delimiter lines.

@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed branch summaries created by tree navigation dropping the read and modified file lists from earlier compaction entries.
 - Fixed user `!` bash commands returning `fullOutputPath` before the full-output file was written.
 - Fixed signal-terminated local shell commands being reported as successful with partial output ([#9577](https://github.com/earendil-works/pi/issues/9577)).
 - Fixed `settingsManager.applyOverrides({ sandboxProfile })` being ignored by the sandbox profile getters, so SDK sessions ran with the file-configured profile.

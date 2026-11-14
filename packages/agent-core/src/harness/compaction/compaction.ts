@@ -9,6 +9,7 @@ import {
 import { buildSessionContext } from "../session/session.ts";
 import { type CompactionEntry, CompactionError, err, ok, type Result, type SessionTreeEntry } from "../types.ts";
 import {
+	addSummaryFileOps,
 	computeFileLists,
 	createFileOps,
 	extractFileOpsFromMessage,
@@ -38,18 +39,8 @@ function extractFileOperations(
 	prevCompactionIndex: number,
 ): FileOperations {
 	const fileOps = createFileOps();
-	if (prevCompactionIndex >= 0) {
-		const prevCompaction = entries[prevCompactionIndex] as CompactionEntry;
-		if (!prevCompaction.fromHook && prevCompaction.details) {
-			const details = prevCompaction.details as CompactionDetails;
-			if (Array.isArray(details.readFiles)) {
-				for (const f of details.readFiles) fileOps.read.add(f);
-			}
-			if (Array.isArray(details.modifiedFiles)) {
-				for (const f of details.modifiedFiles) fileOps.edited.add(f);
-			}
-		}
-	}
+	const prevCompaction = entries[prevCompactionIndex];
+	if (prevCompaction?.type === "compaction") addSummaryFileOps(prevCompaction, fileOps);
 	for (const msg of messages) {
 		extractFileOpsFromMessage(msg, fileOps);
 	}

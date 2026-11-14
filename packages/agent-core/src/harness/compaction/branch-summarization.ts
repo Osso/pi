@@ -11,6 +11,7 @@ import type { BranchSummaryResult, Session, SessionTreeEntry } from "../types.ts
 import { BranchSummaryError, err, ok, type Result, SessionError } from "../types.ts";
 import { estimateTokens, SUMMARIZATION_SYSTEM_PROMPT } from "./compaction.ts";
 import {
+	addSummaryFileOps,
 	computeFileLists,
 	createFileOps,
 	extractFileOpsFromMessage,
@@ -131,17 +132,7 @@ export function prepareBranchEntries(entries: SessionTreeEntry[], tokenBudget: n
 	// File tracking covers the whole branch, independently of the message token budget.
 	for (const entry of entries) {
 		if (entry.type === "message") extractFileOpsFromMessage(entry.message, fileOps);
-		if (entry.type === "branch_summary" && !entry.fromHook && entry.details) {
-			const details = entry.details as BranchSummaryDetails;
-			if (Array.isArray(details.readFiles)) {
-				for (const f of details.readFiles) fileOps.read.add(f);
-			}
-			if (Array.isArray(details.modifiedFiles)) {
-				for (const f of details.modifiedFiles) {
-					fileOps.edited.add(f);
-				}
-			}
-		}
+		if (entry.type === "branch_summary" || entry.type === "compaction") addSummaryFileOps(entry, fileOps);
 	}
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const entry = entries[i];

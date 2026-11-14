@@ -40,4 +40,26 @@ describe("branch summarization file operations", () => {
 		});
 		expect(preparation.messages).toEqual(tokenBudget === 0 ? messages : [recentReply]);
 	});
+
+	it("adds file lists from pi-generated compaction entries", () => {
+		const compaction = (id: string, fromHook: boolean, file: string) => ({
+			type: "compaction" as const,
+			id,
+			parentId: null,
+			timestamp: "2026-11-14T00:00:00.000Z",
+			summary: "Earlier work",
+			firstKeptEntryId: id,
+			tokensBefore: 100,
+			details: { readFiles: [`${file}-read.ts`], modifiedFiles: [`${file}-modified.ts`] },
+			fromHook,
+		});
+		const entries: SessionEntry[] = [compaction("pi", false, "pi"), compaction("hook", true, "hook")];
+
+		const preparation = prepareBranchEntries(entries);
+
+		expect(computeFileLists(preparation.fileOps)).toEqual({
+			readFiles: ["pi-read.ts"],
+			modifiedFiles: ["pi-modified.ts"],
+		});
+	});
 });
