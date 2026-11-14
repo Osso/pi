@@ -1021,6 +1021,29 @@ describe("Coding Agent Tools", () => {
 
 		// chmod cannot hide a directory from root or on Windows.
 		it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+			"reports unsearchable paths when the match limit stops the search",
+			async () => {
+				const searchDir = join(testDir, "limited-locked");
+				mkdirSync(join(searchDir, "locked"), { recursive: true });
+				writeFileSync(join(searchDir, "open.txt"), "needle\n".repeat(50));
+				writeFileSync(join(searchDir, "locked", "hidden.txt"), "needle\n");
+				chmodSync(join(searchDir, "locked"), 0o000);
+				try {
+					const output = getTextOutput(
+						await grepTool.execute("grep-limited-partial", { pattern: "needle", path: searchDir, limit: 5 }),
+					);
+
+					expect(output).toMatch(
+						/\n\n\[5 matches limit reached\. Use limit=10 for more, or refine pattern\. Some paths could not be searched: rg: .*locked: Permission denied \(os error 13\)\]$/,
+					);
+				} finally {
+					chmodSync(join(searchDir, "locked"), 0o755);
+				}
+			},
+		);
+
+		// chmod cannot hide a directory from root or on Windows.
+		it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
 			"keeps a byte-truncated result with an unsearchable deep path under the tool-result cap",
 			async () => {
 				const searchDir = join(testDir, "deep-locked");

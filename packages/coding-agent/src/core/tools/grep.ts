@@ -322,8 +322,10 @@ export function createGrepToolDefinition(
 								settle(() => reject(new Error("Operation aborted")));
 								return;
 							}
-							// rg exits 2 when some paths could not be searched; keep the matches it did find.
-							const searchErrors = code === 2 && matchCount > 0 ? stderr.trim().split("\n") : [];
+							// rg exits 2 when some paths could not be searched; keep the matches it did find. When the match
+							// limit stops rg first there is no exit code, but stderr still lists the paths it could not search.
+							const stderrLines = stderr.trim() ? stderr.trim().split("\n") : [];
+							const searchErrors = (code === 2 || killedDueToLimit) && matchCount > 0 ? stderrLines : [];
 							if (!killedDueToLimit && code !== 0 && code !== 1 && searchErrors.length === 0) {
 								const errorMsg = stderr.trim() || `ripgrep exited with code ${code}`;
 								settle(() => reject(new Error(errorMsg)));
