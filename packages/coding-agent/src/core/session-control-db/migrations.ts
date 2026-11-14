@@ -499,80 +499,66 @@ export function migrateLegacyRuntimeMailboxRow(db: SqliteDatabase, row: LegacyRu
 	writeCanonicalMailboxPayload(db, canonical.id, updated, row.updated_at || nowIso);
 }
 
+/**
+ * Processes that open a database at the same time all see a column missing. Checking again inside an immediate
+ * transaction makes the check and the ALTER atomic, so only the first process changes the table.
+ */
+function alterTableColumns(db: SqliteDatabase, table: string, add: Record<string, string>, drop: string[] = []): void {
+	const pendingStatements = () => {
+		const columns = new Set(
+			(db.prepare(`PRAGMA table_info(${table})`).all() as TableInfoRow[]).map((column) => column.name),
+		);
+		return [
+			...Object.entries(add)
+				.filter(([column]) => !columns.has(column))
+				.map(([column, definition]) => `ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`),
+			...drop.filter((column) => columns.has(column)).map((column) => `ALTER TABLE ${table} DROP COLUMN ${column}`),
+		];
+	};
+	if (pendingStatements().length === 0) return;
+	withImmediateTransaction(db, () => {
+		for (const statement of pendingStatements()) db.exec(statement);
+	});
+}
+
 export function addMissingSharedChannelOriginColumns(db: SqliteDatabase): void {
-	const columns = new Set(
-		(db.prepare("PRAGMA table_info(shared_channel_messages)").all() as TableInfoRow[]).map((column) => column.name),
-	);
-	if (!columns.has("origin_host")) db.exec("ALTER TABLE shared_channel_messages ADD COLUMN origin_host TEXT");
-	if (!columns.has("origin_id")) db.exec("ALTER TABLE shared_channel_messages ADD COLUMN origin_id INTEGER");
+	alterTableColumns(db, "shared_channel_messages", { origin_host: "TEXT", origin_id: "INTEGER" });
 	db.exec(
 		"CREATE UNIQUE INDEX IF NOT EXISTS shared_channel_origin_idx ON shared_channel_messages(origin_host, origin_id) WHERE origin_host IS NOT NULL",
 	);
 }
 
 export function addMissingIncomingMessageColumns(db: SqliteDatabase): void {
-	const columns = new Set(
-		(db.prepare("PRAGMA table_info(incoming_messages)").all() as TableInfoRow[]).map((column) => column.name),
-	);
-	if (!columns.has("target_session_id")) db.exec("ALTER TABLE incoming_messages ADD COLUMN target_session_id TEXT");
+	alterTableColumns(db, "incoming_messages", { target_session_id: "TEXT" });
 }
 
 export function addMissingArchitectRequestColumns(db: SqliteDatabase): void {
-	const columns = new Set(
-		(db.prepare("PRAGMA table_info(architect_requests)").all() as TableInfoRow[]).map((column) => column.name),
-	);
-	if (!columns.has("project_cwd")) db.exec("ALTER TABLE architect_requests ADD COLUMN project_cwd TEXT");
-	if (!columns.has("claimed_at")) db.exec("ALTER TABLE architect_requests ADD COLUMN claimed_at TEXT");
-	if (!columns.has("claim_token")) db.exec("ALTER TABLE architect_requests ADD COLUMN claim_token TEXT");
+	alterTableColumns(db, "architect_requests", { project_cwd: "TEXT", claimed_at: "TEXT", claim_token: "TEXT" });
 }
 
 export function addMissingRuntimeMailboxListenerColumns(db: SqliteDatabase): void {
-	const columns = new Set(
-		(db.prepare("PRAGMA table_info(runtime_mailbox_listeners)").all() as TableInfoRow[]).map((column) => column.name),
-	);
-	if (!columns.has("runtime_instance_id")) {
-		db.exec("ALTER TABLE runtime_mailbox_listeners ADD COLUMN runtime_instance_id TEXT");
-	}
-	if (!columns.has("session_path")) {
-		db.exec("ALTER TABLE runtime_mailbox_listeners ADD COLUMN session_path TEXT");
-	}
-	if (!columns.has("session_path_asserted_at")) {
-		db.exec("ALTER TABLE runtime_mailbox_listeners ADD COLUMN session_path_asserted_at TEXT");
-	}
+	alterTableColumns(db, "runtime_mailbox_listeners", {
+		runtime_instance_id: "TEXT",
+		session_path: "TEXT",
+		session_path_asserted_at: "TEXT",
+	});
 }
 
 export function addMissingSessionMetadataColumns(db: SqliteDatabase): void {
-	const columns = new Set(
-		(db.prepare("PRAGMA table_info(session_metadata)").all() as TableInfoRow[]).map((column) => column.name),
+	alterTableColumns(
+		db,
+		"session_metadata",
+		{
+			name: "TEXT",
+			parent_session_path: "TEXT",
+			archived_at: "TEXT",
+			goal_json: "TEXT",
+			is_subagent: "INTEGER NOT NULL DEFAULT 0",
+			subagent_name: "TEXT",
+			model_provider: "TEXT",
+			model_id: "TEXT",
+			thinking_level: "TEXT",
+		},
+		["all_messages_text"],
 	);
-	if (!columns.has("name")) {
-		db.exec("ALTER TABLE session_metadata ADD COLUMN name TEXT");
-	}
-	if (!columns.has("parent_session_path")) {
-		db.exec("ALTER TABLE session_metadata ADD COLUMN parent_session_path TEXT");
-	}
-	if (!columns.has("archived_at")) {
-		db.exec("ALTER TABLE session_metadata ADD COLUMN archived_at TEXT");
-	}
-	if (!columns.has("goal_json")) {
-		db.exec("ALTER TABLE session_metadata ADD COLUMN goal_json TEXT");
-	}
-	if (!columns.has("is_subagent")) {
-		db.exec("ALTER TABLE session_metadata ADD COLUMN is_subagent INTEGER NOT NULL DEFAULT 0");
-	}
-	if (!columns.has("subagent_name")) {
-		db.exec("ALTER TABLE session_metadata ADD COLUMN subagent_name TEXT");
-	}
-	if (!columns.has("model_provider")) {
-		db.exec("ALTER TABLE session_metadata ADD COLUMN model_provider TEXT");
-	}
-	if (!columns.has("model_id")) {
-		db.exec("ALTER TABLE session_metadata ADD COLUMN model_id TEXT");
-	}
-	if (!columns.has("thinking_level")) {
-		db.exec("ALTER TABLE session_metadata ADD COLUMN thinking_level TEXT");
-	}
-	if (columns.has("all_messages_text")) {
-		db.exec("ALTER TABLE session_metadata DROP COLUMN all_messages_text");
-	}
 }
