@@ -7,6 +7,8 @@
 	"include": [
 		"packages/ai/src/**/*.ts",
 		"packages/agent-core/src/**/*.ts",
-		"packages/tui/src/**/*.ts"
+		"packages/tui/src/**/*.ts",
+		"packages/coding-agent/src/**/*.ts",
+		"packages/coding-agent/extensions/**/*.ts"
 	]
 }
