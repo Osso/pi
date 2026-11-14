@@ -626,9 +626,7 @@ export class Editor implements Component, Focusable {
 
 	private acceptHistorySearch(): void {
 		const selectedEntry = this.historySearchIndex >= 0 ? this.history[this.historySearchIndex] : undefined;
-		this.historySearchQuery = "";
-		this.historySearchIndex = -1;
-		this.historySearchDraft = null;
+		this.exitHistorySearch();
 		if (selectedEntry !== undefined) {
 			this.setTextInternal(selectedEntry);
 		}
@@ -1546,6 +1544,7 @@ export class Editor implements Component, Focusable {
 		const result = this.expandPasteMarkers(this.state.lines.join("\n")).trim();
 
 		this.state = { lines: [""], cursorLine: 0, cursorCol: 0 };
+		this.killRing.map((entry) => this.expandPasteMarkers(entry)); // paste IDs restart after submit
 		this.pastes.clear();
 		this.pasteCounter = 0;
 		this.exitHistoryBrowsing();

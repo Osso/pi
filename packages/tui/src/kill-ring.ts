@@ -44,6 +44,11 @@ export class KillRing {
 		}
 	}
 
+	/** Rewrite every entry, e.g. to expand references that are about to become invalid. */
+	map(transform: (entry: string) => string): void {
+		this.ring = this.ring.map(transform);
+	}
+
 	get length(): number {
 		return this.ring.length;
 	}

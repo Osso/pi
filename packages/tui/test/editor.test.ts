@@ -1820,6 +1820,23 @@ describe("Editor component", () => {
 			assert.strictEqual(editor.getText(), "ab\ncd");
 		});
 
+		it("keeps a killed large paste intact when yanked after a submit", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+			const submitted: string[] = [];
+			editor.onSubmit = (text) => submitted.push(text);
+
+			editor.handleInput(`\x1b[200~${"A".repeat(1001)}\x1b[201~`);
+			editor.handleInput("\x15"); // Ctrl+U kills the paste marker
+			editor.handleInput("o");
+			editor.handleInput("k");
+			editor.handleInput("\r");
+			editor.handleInput("\x19"); // Ctrl+Y
+			editor.handleInput(`\x1b[200~${"B".repeat(1001)}\x1b[201~`);
+			editor.handleInput("\r");
+
+			assert.deepStrictEqual(submitted, ["ok", `${"A".repeat(1001)}${"B".repeat(1001)}`]);
+		});
+
 		it("handles yank in middle of text", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
