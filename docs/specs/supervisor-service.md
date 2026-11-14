@@ -32,15 +32,15 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 
 The Supervisor becomes a normal, full-UI interactive Pi session on agent-server. It replaces the detached `pi supervisor` resident and absorbs the [machine assistant](machine-assistant.md) role. The user talks to it like any Pi session; it also serves typed Supervisor requests. Decided 2026-11-14.
 
-- [ ] Serve the durable `supervisor_requests` queue from the session named by setting `supervisor.sessionId` on the host that owns it; no detached resident is spawned when the setting is present.
-- [ ] Use one shared model context for user chat, duties, and typed requests. Process a claimed request as a turn between user turns; never interleave turns. Order: approval, goal review, advisory, question.
-- [ ] Record each typed response through a response tool whose arguments are validated per request kind; show each request and decision in the session UI.
+- [x] Serve the durable `supervisor_requests` queue from the session named by setting `supervisor.sessionId` on the host that owns it; no detached resident is spawned when the setting is present.
+- [x] Use one shared model context for user chat, duties, and typed requests. Process a claimed request as a turn between user turns; never interleave turns. Order: approval, goal review, advisory, question.
+- [x] Record each typed response through a response tool whose arguments are validated per request kind; show each request and decision in the session UI.
 - [x] Request deadlines: approval 5 min (then human escalation), goal review 15 min with one attempt (then `error` and the existing wake/55-minute re-review), advisory 15 min.
-- [ ] An approval request arriving during a user chat turn aborts that turn, is answered, and the aborted turn then continues.
-- [ ] The session uses the model and effort the user selects; no model is pinned.
+- [x] An approval request arriving during a user chat turn aborts that turn, is answered, and the aborted turn then continues.
+- [x] The session uses the model and effort the user selects; no model is pinned.
 - [ ] Run as a managed remote-agent session on agent-server (`remote-agent attach supervisor --host agent-server`), pinned in the Super+A switcher.
 - [ ] Switch aso to the agent-server Supervisor only after relay routing (phase 3) works; after both hosts use it, delete the detached resident (`pi supervisor`, `pi --supervisor`, autostart, systemd unit).
-- [ ] When the Supervisor session is down or the deadline passes, callers get the existing failure results; no fallback resident is started.
+- [x] When the Supervisor session is down or the deadline passes, callers get the existing failure results; no fallback resident is started.
 - [ ] Use one transport for every kind: requests reach the queue through the relay from other hosts (phase 3), and every response is delivered to the asking session's runtime mailbox, through the relay for another host. Callers never read the queue row.
 - [ ] Approval, goal-review, and advisory callers wait for the correlated mailbox reply until their deadline; question callers do not wait.
 - [ ] A relay outage produces the same failure results as an unavailable Supervisor.
@@ -207,6 +207,8 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 
 ## Implementation inventory
 
+- `packages/coding-agent/extensions/supervisor-session/src/index.ts` — interactive Supervisor session: queue serving between user turns, visible request turns ending in `supervisor_response`, approval preemption of user turns with resumption, tool allow-list with KB-only file access.
+- `packages/coding-agent/src/supervisor/ensure-running.ts` `ensureSupervisorAvailable` — fails fast when the configured Supervisor session is not running; starts the resident only when `supervisor.sessionId` is unset.
 - `packages/coding-agent/src/supervisor/main.ts` — resident `gpt-6.1-sol` SDK service with Codex provider selection and instruction-veto quota fallback, restricted tool surface, persistent transcript, stateless instruction-veto evaluation, hidden policy feedback, and request loop.
 - `packages/coding-agent/src/supervisor/service.ts` — bounded prompts, typed response validation, veto tokens and policy contract, deadlines, approval preemption, and active-evaluation cancellation.
 - `packages/coding-agent/src/supervisor/client.ts` — ensures resident readiness, performs durable synchronous caller transport, and propagates caller cancellation.
@@ -229,6 +231,9 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 
 ## Tests asserting this spec
 
+- `packages/coding-agent/test/suite/supervisor-session.test.ts` — typed response recording, missing-response error, approval interrupting and resuming a user turn, tool allow-list and KB-only writes, other sessions unaffected.
+- `packages/coding-agent/test/suite/headless-supervisor-session.test.ts` — real Pi process serves queued requests and reruns a claimed request after restart.
+- `packages/coding-agent/test/supervisor-ensure-running.test.ts` — fail-fast for a down configured session without resident startup.
 - `packages/coding-agent/test/provider-restriction-recovery.test.ts` — bounded advisory evidence and strict, fail-closed main-validation response parsing.
 - `packages/coding-agent/test/suite/agent-session-codex-restriction-recovery.test.ts` — main validation, denied/tool-call no-operation behavior, restored tools, and harmless-status handling.
 - `packages/coding-agent/test/suite/headless-codex-restriction-recovery.test.ts` — controlled real-process recovery, goal/evidence/settings preservation, live-child cancellation, stale advice, restart, rewind/fork budgets, and main denial of a prohibited proposal.
