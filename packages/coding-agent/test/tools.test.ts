@@ -207,6 +207,22 @@ describe("Coding Agent Tools", () => {
 			expect(output).toBe(`${firstLine}\n\n[Showing lines 1-1 of file (10.0KB limit). Use offset=2 to continue.]`);
 		});
 
+		it("does not suggest continuation after a head read reaches EOF at a final newline", async () => {
+			const testFile = join(testDir, "exact-line-at-eof.txt");
+			const onlyLine = "x".repeat(DEFAULT_MAX_BYTES);
+			writeFileSync(testFile, `${onlyLine}\n`);
+
+			const result = await readTool.execute("read-exact-line-at-eof", { path: testFile });
+			const output = getTextOutput(result);
+
+			expect(output).not.toContain("Use offset=");
+			expect(output).toBe(onlyLine);
+			expect(result.details).toBeUndefined();
+			await expect(readTool.execute("read-past-exact-line-at-eof", { path: testFile, offset: 2 })).rejects.toThrow(
+				"Offset 2 is beyond end of file (1 lines total)",
+			);
+		});
+
 		it("points at bash when the first line alone is longer than the oversized-file head read", async () => {
 			const testFile = join(testDir, "long-first-line.txt");
 			writeFileSync(testFile, `${"y".repeat(DEFAULT_MAX_BYTES * 2)}\nshort\n`);

@@ -399,6 +399,7 @@ function createReadToolDefinitionInternal(
 							const { buffer, fileSize, rangeLimited } = await readTextBuffer(absolutePath, ops, offset, limit);
 							const textContent = buffer.toString("utf-8");
 							const allLines = textContent.split("\n");
+							const rangeHasMoreLines = buffer.length !== fileSize || allLines[allLines.length - 1] !== "";
 							// A bounded head read usually stops mid-line; never present that fragment as a whole line.
 							const firstLineCut = rangeLimited && allLines.length === 1;
 							if (rangeLimited && allLines.length > 1) allLines.pop();
@@ -442,7 +443,7 @@ function createReadToolDefinitionInternal(
 								}
 								outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
 								details = { truncation };
-							} else if (rangeLimited && !truncation.truncated) {
+							} else if (rangeLimited && rangeHasMoreLines && !truncation.truncated) {
 								// Count the selected lines: truncateHead reports 0 lines for a lone empty line.
 								const shownLines = userLimitedLines ?? lineCount - startLine;
 								const endLineDisplay = startLineDisplay + shownLines - 1;
