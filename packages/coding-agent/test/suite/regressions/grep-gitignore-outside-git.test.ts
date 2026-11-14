@@ -12,10 +12,10 @@ import { createGrepToolDefinition } from "../../../src/core/tools/grep.ts";
 describe("grep respects .gitignore outside git repositories", () => {
 	let tempRoot: string;
 
-	async function grepFiles(): Promise<string[]> {
+	async function grepFiles(glob?: string): Promise<string[]> {
 		const def = createGrepToolDefinition(tempRoot);
 		const ctx = {} as Parameters<typeof def.execute>[4];
-		const result = (await def.execute("call-1", { pattern: "needle" }, undefined, undefined, ctx)) as {
+		const result = (await def.execute("call-1", { pattern: "needle", glob }, undefined, undefined, ctx)) as {
 			content: Array<{ type: string; text?: string }>;
 		};
 		const text = result.content[0]?.text ?? "";
@@ -42,5 +42,31 @@ describe("grep respects .gitignore outside git repositories", () => {
 	it("skips ignored files inside a git repository", async () => {
 		mkdirSync(join(tempRoot, ".git"));
 		expect(await grepFiles()).toEqual(["kept.txt"]);
+	});
+
+	it.each([
+		{ insideGit: false, glob: "*.ts", expected: ["kept.ts", "src/deep/nested.ts", "src/top.ts"] },
+		{ insideGit: true, glob: "**/*.ts", expected: ["kept.ts", "src/deep/nested.ts", "src/top.ts"] },
+		{ insideGit: false, glob: "src/*.ts", expected: ["src/top.ts"] },
+		{ insideGit: true, glob: "src/**/*.ts", expected: ["src/deep/nested.ts", "src/top.ts"] },
+	])(
+		"filters by $glob without including ignored files (insideGit: $insideGit)",
+		async ({ insideGit, glob, expected }) => {
+			if (insideGit) mkdirSync(join(tempRoot, ".git"));
+			writeFileSync(join(tempRoot, ".gitignore"), "ignored.txt\nignored.ts\nbuild/\n");
+			writeFileSync(join(tempRoot, "ignored.ts"), "needle\n");
+			writeFileSync(join(tempRoot, "kept.ts"), "needle\n");
+			writeFileSync(join(tempRoot, "build", "out.ts"), "needle\n");
+			mkdirSync(join(tempRoot, "src", "deep"), { recursive: true });
+			writeFileSync(join(tempRoot, "src", "top.ts"), "needle\n");
+			writeFileSync(join(tempRoot, "src", "ignored.ts"), "needle\n");
+			writeFileSync(join(tempRoot, "src", "deep", "nested.ts"), "needle\n");
+			expect(await grepFiles(glob)).toEqual(expected);
+		},
+	);
+
+	it("supports exclusion globs without including ignored files", async () => {
+		writeFileSync(join(tempRoot, "other.ts"), "needle\n");
+		expect(await grepFiles("!*.ts")).toEqual(["kept.txt"]);
 	});
 });

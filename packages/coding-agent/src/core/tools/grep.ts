@@ -9,6 +9,7 @@ import { keyHint } from "../../modes/interactive/components/keybinding-hints.ts"
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
 import { ensureTool } from "../../utils/tools-manager.ts";
 import type { ToolDefinition, ToolRenderResultOptions } from "../extensions/types.ts";
+import { grepGlobArgs, matchesGrepGlob } from "./grep-glob.ts";
 import { isInsideGitRepo, resolveToCwd } from "./path-utils.ts";
 import { getTextOutput, invalidArgText, shortenPath, str } from "./render-utils.ts";
 import { wrapToolDefinition } from "./tool-definition-wrapper.ts";
@@ -227,7 +228,7 @@ export function createGrepToolDefinition(
 						if (!(await isInsideGitRepo(searchPath))) args.push("--no-require-git");
 						if (ignoreCase) args.push("--ignore-case");
 						if (literal) args.push("--fixed-strings");
-						if (glob) args.push("--glob", glob);
+						if (glob) args.push(...grepGlobArgs(glob));
 						args.push("--", pattern, searchPath);
 
 						const child = spawn(rgPath, args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -298,9 +299,10 @@ export function createGrepToolDefinition(
 							} catch {
 								return;
 							}
+							const filePath = event.data?.path?.text;
+							if (glob && isDirectory && filePath && !matchesGrepGlob(formatPath(filePath), glob)) return;
 							if (event.type === "match") {
 								matchCount++;
-								const filePath = event.data?.path?.text;
 								const lineNumber = event.data?.line_number;
 								const lineText = event.data?.lines?.text;
 								if (filePath && typeof lineNumber === "number")
