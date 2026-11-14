@@ -213,6 +213,9 @@ export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 					}
 				}
 
+				if (chunk.promptFeedback?.blockReason) {
+					throw new Error(`Prompt blocked: ${chunk.promptFeedback.blockReason}`);
+				}
 				if (candidate?.finishReason) {
 					output.stopReason = mapStopReason(candidate.finishReason);
 					if (output.stopReason === "stop" && output.content.some((b) => b.type === "toolCall")) {
