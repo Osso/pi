@@ -157,6 +157,51 @@ describe("Agent", () => {
 		expect(agent.state.errorMessage).toBe("provider exploded");
 	});
 
+	it("pairs turn events when a running tool is aborted", async () => {
+		const toolSchema = Type.Object({});
+		const toolStarted = createDeferred();
+		const tool: AgentTool<typeof toolSchema, undefined> = {
+			name: "wait_tool",
+			label: "Wait Tool",
+			description: "Waits until aborted",
+			parameters: toolSchema,
+			async execute(_toolCallId, _params, signal) {
+				toolStarted.resolve();
+				await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true }));
+				throw new Error("cancelled");
+			},
+		};
+		const agent = new Agent({
+			initialState: { tools: [tool] },
+			streamFn: () => {
+				const stream = new MockAssistantStream();
+				queueMicrotask(() => {
+					stream.push({
+						type: "done",
+						reason: "toolUse",
+						message: createAssistantToolUseMessage([
+							{ type: "toolCall", id: "running", name: "wait_tool", arguments: {} },
+						]),
+					});
+				});
+				return stream;
+			},
+		});
+		const turnEvents: string[] = [];
+		agent.subscribe((event) => {
+			if (event.type === "turn_start" || event.type === "turn_end") turnEvents.push(event.type);
+		});
+
+		const prompt = agent.prompt("run tool");
+		await toolStarted.promise;
+		agent.abort();
+		await prompt;
+
+		expect(turnEvents).toEqual(["turn_start", "turn_end", "turn_start", "turn_end"]);
+		const lastMessage = agent.state.messages.at(-1);
+		expect(lastMessage?.role === "assistant" ? lastMessage.stopReason : undefined).toBe("aborted");
+	});
+
 	it("should await async subscribers before prompt resolves", async () => {
 		const barrier = createDeferred();
 		const agent = new Agent({

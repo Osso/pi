@@ -219,6 +219,7 @@ export class Agent {
 	) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined;
 	public shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext) => boolean | Promise<boolean>;
 	private activeRun?: ActiveRun;
+	private turnOpen = false;
 	/** Session identifier forwarded to providers for cache-aware backends. */
 	public sessionId?: string;
 	/** Optional per-level thinking token budgets forwarded to the stream function. */
@@ -513,6 +514,7 @@ export class Agent {
 		this._state.isModelRequestActive = false;
 		this._state.streamingMessage = undefined;
 		this._state.errorMessage = undefined;
+		this.turnOpen = false;
 
 		try {
 			await executor(abortController.signal);
@@ -538,6 +540,8 @@ export class Agent {
 			stopReason: aborted ? "aborted" : "error",
 			errorMessage: error instanceof Error ? error.message : String(error),
 		} satisfies AgentMessage;
+		// A failure between turns (for example an abort after a tool batch) reports the failure as its own turn.
+		if (!this.turnOpen) await this.processEvents({ type: "turn_start" });
 		if (!partialMessage) {
 			await this.processEvents({ type: "message_start", message: failureMessage });
 		}
@@ -599,7 +603,12 @@ export class Agent {
 				break;
 			}
 
+			case "turn_start":
+				this.turnOpen = true;
+				break;
+
 			case "turn_end":
+				this.turnOpen = false;
 				if (event.message.role === "assistant" && event.message.errorMessage) {
 					this._state.errorMessage = event.message.errorMessage;
 				}

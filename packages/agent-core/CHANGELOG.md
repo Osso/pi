@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Fixed `Agent` emitting an unpaired `turn_end` when a run fails between turns, such as an abort during tool execution; the failure message now gets its own `turn_start`.
 - Fixed `agentLoopContinue` omitting `turn_start` for the model response that follows a restored unfinished tool batch.
 - Fixed `parseCommandArgs` dropping quoted empty arguments (`""`, `''`), which shifted later positional template arguments.
 - Fixed steering aborts discarding an in-flight assistant reply; streamed content and metadata are retained with one message completion instead of a new empty assistant message, and tool calls from the interrupted response are not executed.
