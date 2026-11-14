@@ -57,4 +57,18 @@ describe("KeybindingsManager", () => {
 		]);
 		assert.deepStrictEqual(keybindings.getKeys("tui.editor.cursorLeft"), ["left", "ctrl+b"]);
 	});
+
+	it("reports conflicts between different spellings of the same key", () => {
+		const keybindings = new KeybindingsManager(TUI_KEYBINDINGS, {
+			"tui.input.submit": "ctrl+shift+x",
+			"tui.select.confirm": "shift+ctrl+x",
+			"tui.select.cancel": "return",
+			"tui.input.tab": "enter",
+		});
+
+		assert.deepStrictEqual(keybindings.getConflicts(), [
+			{ key: "ctrl+shift+x", keybindings: ["tui.input.submit", "tui.select.confirm"] },
+			{ key: "enter", keybindings: ["tui.select.cancel", "tui.input.tab"] },
+		]);
+	});
 });

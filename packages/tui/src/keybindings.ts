@@ -1,3 +1,4 @@
+import { canonicalKeyId } from "./key-id.ts";
 import { type KeyId, matchesKey } from "./keys.ts";
 
 /**
@@ -176,7 +177,7 @@ export class KeybindingsManager {
 		const userClaims = new Map<KeyId, Set<Keybinding>>();
 		for (const [keybinding, keys] of Object.entries(this.userBindings)) {
 			if (!(keybinding in this.definitions)) continue;
-			for (const key of normalizeKeys(keys)) {
+			for (const key of normalizeKeys(keys).map((id) => canonicalKeyId(id) as KeyId)) {
 				const claimants = userClaims.get(key) ?? new Set<Keybinding>();
 				claimants.add(keybinding as Keybinding);
 				userClaims.set(key, claimants);

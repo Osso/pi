@@ -162,6 +162,34 @@ describe("ExtensionRunner", () => {
 			warnSpy.mockRestore();
 		});
 
+		it("blocks a reserved shortcut written with a different modifier order or key alias", async () => {
+			const extCode = `
+				export default function(pi) {
+					pi.registerShortcut("shift+ctrl+x", { description: "Reordered modifiers", handler: async () => {} });
+					pi.registerShortcut("return", { description: "Enter alias", handler: async () => {} });
+				}
+			`;
+			fs.writeFileSync(path.join(extensionsDir, "spellings.ts"), extCode);
+
+			const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			const keybindings = {
+				...defaultKeybindings,
+				"app.clear": "ctrl+shift+x" as KeyId,
+				"tui.input.submit": "enter" as KeyId,
+			};
+			const shortcuts = runner.getShortcuts(keybindings);
+
+			expect(shortcuts.size).toBe(0);
+			expect(warnSpy).toHaveBeenCalledTimes(2);
+			expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("'shift+ctrl+x'"));
+			expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("'return'"));
+
+			warnSpy.mockRestore();
+		});
+
 		it("allows a shortcut when the reserved set no longer contains the default key", async () => {
 			const extCode = `
 				export default function(pi) {

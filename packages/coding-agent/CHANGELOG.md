@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed extension shortcuts bypassing reserved keybindings when written with a different modifier order or key alias, such as `shift+ctrl+x` for `ctrl+shift+x` or `return` for `enter`.
 - Fixed `/loop` collapsing repeated spaces, newlines and indentation in the prompt body; only the interval is split off now.
 - Fixed `read` and `@file` arguments treating any text file that starts with `GIF` as an image; detection now requires the `GIF87a`/`GIF89a` signature.
 - Fixed `!command` API keys in `auth.json` ignoring the credential's `env` values; the command now runs with them ahead of the process environment, and results are cached per env.

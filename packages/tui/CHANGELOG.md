@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed keybinding conflict detection missing the same key written with a different modifier order (`shift+ctrl+x`) or alias (`return`, `esc`); added `canonicalKeyId`.
 - Fixed markdown tables ignoring GFM column alignment (`:---:`, `---:`); cells are now centered or right-aligned as declared.
 - Fixed `truncateToWidth` leaving an OSC 8 hyperlink open over the ellipsis and padding when the cut falls inside a link.
 - Fixed `TruncatedText` rendering lines wider than the render width when its horizontal padding fills the viewport.
