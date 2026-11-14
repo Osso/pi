@@ -15,7 +15,7 @@ import { createDetachedJobTerminalInput } from "../src/core/detached-job-runner.
 import { LifecycleCoordinator } from "../src/core/lifecycle-coordinator.ts";
 import { MultiAgentStore } from "../src/core/multi-agent-store.ts";
 import { readMultiAgentState } from "../src/core/session-control-db.ts";
-import { readForegroundBashCompletion } from "../src/core/tools/bash.ts";
+import { readForegroundBashCompletion } from "../src/core/tools/bash-runner.ts";
 import { testProcessIdentity } from "./helpers/process-identity.ts";
 
 const temporaryDirectories: string[] = [];
