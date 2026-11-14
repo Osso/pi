@@ -51,6 +51,12 @@ import {
 	writeSessionThinkingLevel,
 } from "./session-control-db.ts";
 import { loadEntriesFromFile, parseSessionEntryLine, SESSION_READ_BUFFER_SIZE } from "./session-file-reader.ts";
+import {
+	applySessionInfoEntry,
+	createSessionInfoAccumulator,
+	finishSessionInfo,
+	type SessionInfoAccumulator,
+} from "./session-info-accumulator.ts";
 import { serializeSessionEntryForPersistence } from "./session-tool-output.ts";
 import { createSessionTranscriptReadStream, readSessionTranscriptPath } from "./session-transcript.ts";
 import { withSeekableSessionTranscript } from "./session-transcript-spool.ts";
@@ -873,91 +879,6 @@ export function findMostRecentSession(sessionDir: string, cwd?: string): string 
 	}
 }
 
-function isMessageWithContent(message: AgentMessage): message is Message {
-	return typeof (message as Message).role === "string" && "content" in message;
-}
-
-function extractTextContent(message: Message): string {
-	const content = message.content;
-	if (typeof content === "string") {
-		return content;
-	}
-	return content
-		.filter((block): block is TextContent => block.type === "text")
-		.map((block) => block.text)
-		.join(" ");
-}
-
-function getMessageActivityTime(entry: SessionMessageEntry): number | undefined {
-	const message = entry.message;
-	if (!isMessageWithContent(message)) return undefined;
-	if (message.role !== "user" && message.role !== "assistant") return undefined;
-
-	const msgTimestamp = (message as { timestamp?: number }).timestamp;
-	if (typeof msgTimestamp === "number") {
-		return msgTimestamp;
-	}
-
-	const t = new Date(entry.timestamp).getTime();
-	return Number.isNaN(t) ? undefined : t;
-}
-
-interface SessionInfoAccumulator {
-	messageCount: number;
-	firstMessage: string;
-	lastActivityTime?: number;
-}
-
-function createSessionInfoAccumulator(): SessionInfoAccumulator {
-	return {
-		messageCount: 0,
-		firstMessage: "",
-	};
-}
-
-function applySessionInfoEntry(accumulator: SessionInfoAccumulator, entry: SessionEntry): void {
-	if (entry.type !== "message") return;
-	accumulator.messageCount++;
-
-	const activityTime = getMessageActivityTime(entry);
-	if (typeof activityTime === "number") {
-		accumulator.lastActivityTime = Math.max(accumulator.lastActivityTime ?? 0, activityTime);
-	}
-
-	if (accumulator.firstMessage) return;
-	const message = entry.message;
-	if (!isMessageWithContent(message)) return;
-	if (message.role !== "user" || message.inputSource === "extension") return;
-	accumulator.firstMessage = extractTextContent(message);
-}
-
-function finishSessionInfo(
-	filePath: string,
-	header: SessionHeader,
-	accumulator: SessionInfoAccumulator,
-	fallbackModified: Date,
-): SessionInfo {
-	const cwd = typeof header.cwd === "string" ? header.cwd : "";
-	const headerTime = typeof header.timestamp === "string" ? new Date(header.timestamp).getTime() : NaN;
-	const modified =
-		typeof accumulator.lastActivityTime === "number" && accumulator.lastActivityTime > 0
-			? new Date(accumulator.lastActivityTime)
-			: !Number.isNaN(headerTime)
-				? new Date(headerTime)
-				: fallbackModified;
-
-	return {
-		path: filePath,
-		id: header.id,
-		cwd,
-		parentSessionPath: header.parentSession,
-		created: new Date(header.timestamp),
-		modified,
-		messageCount: accumulator.messageCount,
-		firstMessage: accumulator.firstMessage || "(no messages)",
-	};
-}
-
 export async function buildSessionInfo(filePath: string): Promise<SessionInfo | null> {
 	try {
 		const stats = await stat(filePath);
@@ -1592,17 +1513,23 @@ export class SessionManager {
 		});
 	}
 
-	// The accumulator folds entries one at a time as they are appended; it is rebuilt from
-	// fileEntries only after wholesale replacements (resume, branch, new session).
+	// Appends fold incrementally; slice loads must seed from whole-session metadata or disk.
 	private currentSessionInfoAccumulator(): SessionInfoAccumulator {
-		if (!this.sessionInfoAccumulator) {
-			const accumulator = createSessionInfoAccumulator();
-			for (const entry of this.fileEntries) {
+		if (this.sessionInfoAccumulator) return this.sessionInfoAccumulator;
+		const metadata =
+			this.hasActiveSlice && this.metadataControlDbPath && this.sessionFile
+				? readSessionMetadata(this.metadataControlDbPath, this.sessionFile)
+				: undefined;
+		const accumulator = createSessionInfoAccumulator(metadata);
+		if (!metadata) {
+			const entries =
+				this.hasActiveSlice && this.sessionFile ? loadEntriesFromFile(this.sessionFile) : this.fileEntries;
+			for (const entry of entries) {
 				if (isSessionEntry(entry)) applySessionInfoEntry(accumulator, entry);
 			}
-			this.sessionInfoAccumulator = accumulator;
 		}
-		return this.sessionInfoAccumulator;
+		this.sessionInfoAccumulator = accumulator;
+		return accumulator;
 	}
 
 	_persist(entry: SessionEntry): void {
@@ -1648,14 +1575,16 @@ export class SessionManager {
 	}
 
 	private _appendEntry(entry: SessionEntry): void {
+		const affectsInfo = affectsSessionInfo(entry);
+		const accumulator = affectsInfo ? this.currentSessionInfoAccumulator() : this.sessionInfoAccumulator;
 		this.fileEntries.push(entry);
 		this.byId.set(entry.id, entry);
 		this.leafId = entry.id;
 		this._persist(entry);
-		if (this.sessionInfoAccumulator) {
-			applySessionInfoEntry(this.sessionInfoAccumulator, entry);
+		if (accumulator) {
+			applySessionInfoEntry(accumulator, entry);
 		}
-		if (affectsSessionInfo(entry)) {
+		if (affectsInfo) {
 			this.writeMetadataSnapshot();
 		}
 	}

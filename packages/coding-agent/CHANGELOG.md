@@ -466,6 +466,7 @@
 - Fixed the `edit` tool accepting an `oldText` whose occurrences overlap (for example `}\n}` in `}\n}\n}`) as unique and replacing the first one; overlapping occurrences now count as duplicates.
 - Fixed the `edit` tool inserting text at the start of a file when a missing whitespace-only `oldText` becomes empty after fuzzy normalization; the edit now reports text not found and leaves the file unchanged.
 - Fixed Bash output losing a long newline-terminated line after rolling-buffer trimming; the result now retains the final bytes as a partial line.
+- Fixed reopening compacted sessions replacing whole-session resume-list counts, first messages, and activity times with values from the retained slice; new messages now extend the authoritative metadata.
 
 - Fixed RPC `interrupt` and interactive Escape dropping images from queued steering and follow-up messages when resubmitting them after abort.
 
