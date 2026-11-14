@@ -52,12 +52,12 @@ import { requestSupervisorDecision } from "../supervisor/client.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
+import { type BackgroundCompactionCache, BackgroundCompactionState } from "./agent-session-background-compaction.ts";
 import { reviewToolApproval } from "./agent-session-tool-approval.ts";
 import { callActiveTool } from "./agent-session-tool-call.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
 import {
-	type CompactionPreparation,
 	type CompactionResult,
 	type CompactionSourceInfo,
 	calculateContextTokens,
@@ -165,7 +165,6 @@ interface ThinkingTimeoutDispatch {
 	cancelled: boolean;
 }
 
-import { computeIdleCompactionDueAt } from "./idle-compaction.ts";
 import {
 	advanceSharedChannelCursor,
 	claimCodexRestrictionRecovery,
@@ -229,26 +228,6 @@ function estimateThresholdContextTokens(
 
 const RUNTIME_MAILBOX_POLL_INTERVAL_MS = 30_000;
 const RUNTIME_MAILBOX_HEARTBEAT_INTERVAL_MS = 60_000;
-const BACKGROUND_COMPACTION_CONTEXT_RATIO = 0.7;
-
-interface BackgroundCompactionCache {
-	state: "pending" | "ready" | "failed";
-	sessionId: string;
-	snapshotLeafId: string;
-	branchEntries: SessionEntry[];
-	preparation: CompactionPreparation;
-	settings: { enabled: boolean; reserveTokens: number; keepRecentMessages: number };
-	model: { provider: string; id: string; api: string };
-	thinkingLevel: ThinkingLevel;
-	systemPrompt: string;
-	extensionRunner: ExtensionRunner;
-	abortController: AbortController;
-	promise?: Promise<void>;
-	compaction?: CompactionResult;
-	fromExtension?: boolean;
-	generationDurationMs?: number;
-}
-
 function readHeadlessToolAutoDetachAfterMs(env: NodeJS.ProcessEnv = process.env): number | undefined {
 	const value = env.PI_HEADLESS_TOOL_AUTO_DETACH_MS;
 	if (value === undefined) return undefined;
@@ -754,7 +733,7 @@ export class AgentSession {
 	private _autoCompactionAbortController: AbortController | undefined = undefined;
 	private _compactionCooldownUntil = 0;
 	private _compactionFailureCount = 0;
-	private _backgroundCompactionCache: BackgroundCompactionCache | undefined = undefined;
+	private _backgroundCompaction!: BackgroundCompactionState;
 	private _compactionSummaryMaterializationAbortController: AbortController | undefined = undefined;
 	private _overflowRecoveryAttempted = false;
 	private _lengthRecoveryAttempted = false;
@@ -850,7 +829,6 @@ export class AgentSession {
 	private _multiAgentRequiresAgentId: boolean;
 	private readonly _thinkingPhaseTimeoutMs: number;
 	private _thinkingPhaseTimer: ReturnType<typeof setTimeout> | undefined;
-	private _idleCompactionTimer: ReturnType<typeof setTimeout> | undefined;
 	private _thinkingPhaseTimeoutError: Error | undefined;
 	private _thinkingTimeoutDispatch: ThinkingTimeoutDispatch | undefined;
 	private _disableRuntimeCoordinationInbound: boolean;
@@ -897,6 +875,35 @@ export class AgentSession {
 		this._baseToolsOverride = config.baseToolsOverride;
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
 		this.sessionManager.setMetadataControlDbPath(this._controlDbPath);
+		this._backgroundCompaction = new BackgroundCompactionState({
+			getAgentStreamFn: () => this.agent.streamFn,
+			settingsManager: this.settingsManager,
+			getModel: () => this.model,
+			getThinkingLevel: () => this.thinkingLevel,
+			getSystemPrompt: () => this.agent.state.systemPrompt,
+			getExtensionRunner: () => this._extensionRunner,
+			getBranch: () => this.sessionManager.getBranch(),
+			getSessionId: () => this.sessionManager.getSessionId(),
+			getLeafId: () => this.sessionManager.getLeafId() ?? undefined,
+			getModelRegistry: () => this._modelRegistry,
+			getCompactionAuth: (model) => this._getCompactionRequestAuth(model),
+			getCooldownUntil: () => this._compactionCooldownUntil,
+			isAutoCompacting: () => this._autoCompactionAbortController !== undefined,
+			isCompacting: () => this._compactionAbortController !== undefined,
+			isDisposed: () => this._disposed,
+			isObserver: () => this._multiAgentRuntimeRole === "observer",
+			findLastAssistantMessage: () => this._findLastAssistantMessage(),
+			getLatestCompactionEntry,
+			assistantMessagePrecedesCompaction,
+			withTurnStartLock: (callback) => this._withTurnStartLock(callback),
+			getIsStreaming: () => this.isStreaming,
+			getLastAssistantMessage: () => this._lastAssistantMessage,
+			runAutoCompaction: (reason, willRetry) => this._runAutoCompaction(reason, willRetry),
+			hasPendingMessages: () => this.hasPendingMessages(),
+			hasQueuedMessages: () => this.agent.hasQueuedMessages(),
+			isSessionCompacting: () => this.isCompacting,
+			recordCompactionFailure: (message) => this._recordCompactionFailure(message),
+		});
 
 		// Always subscribe to agent events for internal handling
 		// (session persistence, extensions, auto-compaction, retry logic)
@@ -1914,7 +1921,7 @@ export class AgentSession {
 		}
 
 		this._clearThinkingPhaseDeadline();
-		clearTimeout(this._idleCompactionTimer);
+		this._backgroundCompaction.clearIdleTimer();
 		this._thinkingPhaseTimeoutError = undefined;
 		this._extensionRunner.invalidate(
 			"This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().",
@@ -4146,228 +4153,32 @@ export class AgentSession {
 	abortCompaction(): void {
 		this._compactionAbortController?.abort();
 		this._autoCompactionAbortController?.abort();
-		this._backgroundCompactionCache?.abortController.abort();
-	}
-
-	private _backgroundCompactionMatchesCurrentSession(cache: BackgroundCompactionCache): boolean {
-		const model = this.model;
-		if (!model) return false;
-		const settings = this.settingsManager.getCompactionSettings();
-		const snapshotIsAncestor = this.sessionManager.getBranch().some((entry) => entry.id === cache.snapshotLeafId);
-		return (
-			cache.sessionId === this.sessionManager.getSessionId() &&
-			snapshotIsAncestor &&
-			cache.model.provider === model.provider &&
-			cache.model.id === model.id &&
-			cache.model.api === model.api &&
-			cache.thinkingLevel === this.thinkingLevel &&
-			cache.systemPrompt === this.agent.state.systemPrompt &&
-			cache.extensionRunner === this._extensionRunner &&
-			cache.settings.enabled === settings.enabled &&
-			cache.settings.reserveTokens === settings.reserveTokens &&
-			cache.settings.keepRecentMessages === settings.keepRecentMessages
-		);
+		this._backgroundCompaction.abort();
 	}
 
 	private _hasReadyBackgroundCompaction(): boolean {
-		const cache = this._backgroundCompactionCache;
-		if (!cache || cache.state !== "ready") return false;
-		if (this._backgroundCompactionMatchesCurrentSession(cache)) return true;
-		this._backgroundCompactionCache = undefined;
-		return false;
+		return this._backgroundCompaction.hasReady();
 	}
 
 	private async _cancelBackgroundCompaction(): Promise<void> {
-		const cache = this._backgroundCompactionCache;
-		if (!cache) return;
-		cache.abortController.abort();
-		await cache.promise;
-		if (this._backgroundCompactionCache === cache) {
-			this._backgroundCompactionCache = undefined;
-		}
+		await this._backgroundCompaction.cancel();
 	}
 
 	private async _takeBackgroundCompaction(): Promise<BackgroundCompactionCache | undefined> {
-		const cache = this._backgroundCompactionCache;
-		if (!cache) return undefined;
-		if (cache.state === "pending") {
-			await this._cancelBackgroundCompaction();
-			return undefined;
-		}
-		this._backgroundCompactionCache = undefined;
-		if (cache.state !== "ready" || !this._backgroundCompactionMatchesCurrentSession(cache)) return undefined;
-		return cache;
-	}
-
-	private _scheduleBackgroundCompactionInstall(cache: BackgroundCompactionCache): void {
-		void this._withTurnStartLock(async () => {
-			if (!this._backgroundCompactionMatchesCurrentSession(cache)) {
-				if (this._backgroundCompactionCache === cache) this._backgroundCompactionCache = undefined;
-				return;
-			}
-			const agentRunNeedsPostProcessing = this.isStreaming || this._lastAssistantMessage !== undefined;
-			if (this._backgroundCompactionCache !== cache || cache.state !== "ready" || agentRunNeedsPostProcessing) {
-				return;
-			}
-			await this._runAutoCompaction("threshold", false);
-		}).catch((error: unknown) => {
-			console.error("Failed to install background compaction cache:", error);
-		});
-	}
-
-	private async _generateLocalBackgroundCompaction(
-		cache: BackgroundCompactionCache,
-		model: Model<Api>,
-	): Promise<CompactionResult | undefined> {
-		if (!cache.settings.enabled) return undefined;
-		const { apiKey, headers, env } = await this._getCompactionRequestAuth(model);
-		return compact(
-			cache.preparation,
-			model,
-			apiKey,
-			headers,
-			undefined,
-			cache.abortController.signal,
-			cache.thinkingLevel,
-			this.agent.streamFn,
-			env,
-			this.sessionManager.getSessionId(),
-		);
-	}
-
-	private _storeReadyBackgroundCompaction(
-		cache: BackgroundCompactionCache,
-		compaction: CompactionResult,
-		fromExtension: boolean,
-		startedAt: number,
-	): void {
-		if (cache.abortController.signal.aborted || this._backgroundCompactionCache !== cache) return;
-		cache.compaction = compaction;
-		cache.fromExtension = fromExtension;
-		cache.generationDurationMs = Date.now() - startedAt;
-		cache.state = "ready";
-		this._scheduleBackgroundCompactionInstall(cache);
-	}
-
-	private async _generateBackgroundCompaction(cache: BackgroundCompactionCache, model: Model<Api>): Promise<void> {
-		try {
-			await cache.extensionRunner.emit({ type: "background_compaction_start" });
-			const startedAt = Date.now();
-			const extensionResult = cache.extensionRunner.hasHandlers("compaction")
-				? await cache.extensionRunner.emit({
-						type: "compaction",
-						preparation: cache.preparation,
-						branchEntries: cache.branchEntries,
-						customInstructions: undefined,
-						reason: "threshold",
-						willRetry: false,
-						signal: cache.abortController.signal,
-					})
-				: undefined;
-			if (extensionResult?.cancel) return;
-			const extensionCompaction = extensionResult?.compaction;
-			const compaction = extensionCompaction ?? (await this._generateLocalBackgroundCompaction(cache, model));
-			if (!compaction) return;
-			this._storeReadyBackgroundCompaction(cache, compaction, extensionCompaction !== undefined, startedAt);
-		} catch (error) {
-			if (cache.abortController.signal.aborted) return;
-			cache.state = "failed";
-			this._recordCompactionFailure(errorMessage(error));
-			console.error(`Background compaction cache generation failed: ${errorMessage(error)}`);
-		} finally {
-			await cache.extensionRunner.emit({ type: "background_compaction_end" });
-		}
+		return this._backgroundCompaction.take();
 	}
 
 	private _startBackgroundCompactionDuringToolTurn(message: AssistantMessage): void {
-		if (message.stopReason !== "toolUse") return;
-		const model = this.model;
-		if (!model || !this._modelRegistry.isMessageFromModel(message, model)) return;
-
-		const contextWindow = model.contextWindow;
-		const contextTokens = message.usage ? calculateContextTokens(message.usage) : 0;
-		if (contextTokens <= 0 || contextWindow <= 0) return;
-
-		const settings = this.settingsManager.getCompactionSettings();
-		const thresholdReached = shouldCompact(
-			contextTokens,
-			contextWindow,
-			{ ...settings, enabled: true },
-			model.autoCompactionThreshold,
-		);
-		if (thresholdReached) return;
-		this._startBackgroundCompaction(contextTokens, contextWindow);
+		this._backgroundCompaction.startDuringToolTurn(message);
 	}
 
 	private _startBackgroundCompaction(contextTokens: number, contextWindow: number): void {
-		if (Date.now() < this._compactionCooldownUntil) return;
-		if (contextWindow <= 0 || contextTokens < contextWindow * BACKGROUND_COMPACTION_CONTEXT_RATIO) return;
-		if (this._backgroundCompactionCache || this._autoCompactionAbortController || this._compactionAbortController) {
-			return;
-		}
-		const model = this.model;
-		if (!model) return;
-		const settings = this.settingsManager.getCompactionSettings();
-		if (!settings.enabled && !this._extensionRunner.hasHandlers("compaction")) return;
-		const branchEntries = this.sessionManager.getBranch();
-		const snapshotLeafId = this.sessionManager.getLeafId();
-		if (!snapshotLeafId) return;
-		const preparation = prepareCompaction(branchEntries, settings);
-		if (!preparation) return;
-		const cache: BackgroundCompactionCache = {
-			state: "pending",
-			sessionId: this.sessionManager.getSessionId(),
-			snapshotLeafId,
-			branchEntries,
-			preparation,
-			settings,
-			model: { provider: model.provider, id: model.id, api: model.api },
-			thinkingLevel: this.thinkingLevel,
-			systemPrompt: this.agent.state.systemPrompt,
-			extensionRunner: this._extensionRunner,
-			abortController: new AbortController(),
-		};
-		this._backgroundCompactionCache = cache;
-		cache.promise = this._generateBackgroundCompaction(cache, model);
+		this._backgroundCompaction.start(contextTokens, contextWindow);
 	}
 
 	/** Arm one timer that compacts the idle session shortly before its provider prompt cache expires. */
 	private _scheduleIdleCompaction(): void {
-		clearTimeout(this._idleCompactionTimer);
-		this._idleCompactionTimer = undefined;
-		const target = this._findIdleCompactionTarget();
-		if (!target) return;
-		const delayMs = Math.max(0, target.dueAt - Date.now());
-		this._idleCompactionTimer = setTimeout(() => void this._runIdleCompaction(target.message), delayMs);
-		this._idleCompactionTimer.unref?.();
-	}
-
-	/** The latest request whose cache idle compaction would preserve, with the time it should run. */
-	private _findIdleCompactionTarget(): { message: AssistantMessage; dueAt: number } | undefined {
-		if (this._disposed || this._multiAgentRuntimeRole === "observer") return undefined;
-		const settingsAllowIdleCompaction =
-			this.settingsManager.getCompactionEnabled() && this.settingsManager.getIdleCompactionEnabled();
-		if (!settingsAllowIdleCompaction) return undefined;
-		const message = this._findLastAssistantMessage();
-		if (!message || message.stopReason === "error") return undefined;
-		// The cache only helps if the next request goes to the model that wrote it.
-		const isCurrentModel = !!this.model && this._modelRegistry.isMessageFromModel(message, this.model);
-		if (!isCurrentModel) return undefined;
-		const branchEntries = this.sessionManager.getBranch();
-		const compactionEntry = getLatestCompactionEntry(branchEntries);
-		if (assistantMessagePrecedesCompaction(branchEntries, message, compactionEntry)) return undefined;
-		const dueAt = computeIdleCompactionDueAt(message);
-		return dueAt === undefined ? undefined : { message, dueAt };
-	}
-
-	private async _runIdleCompaction(message: AssistantMessage): Promise<void> {
-		this._idleCompactionTimer = undefined;
-		await this._withTurnStartLock(async () => {
-			const hasQueuedInput = this.hasPendingMessages() || this.agent.hasQueuedMessages();
-			const sessionIsBusy = this.isStreaming || this.isCompacting || hasQueuedInput;
-			if (sessionIsBusy || this._findIdleCompactionTarget()?.message !== message) return;
-			await this._runAutoCompaction("idle", false);
-		});
+		this._backgroundCompaction.scheduleIdle();
 	}
 
 	/** Cancel in-progress compaction-summary materialization. */
