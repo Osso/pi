@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed `authHeader: true` providers in `models.json` failing with `No API key found` when the key came only from the provider's environment variable.
 - Fixed pinned git extensions loaded with `-e` continuing to use the first downloaded commit after the ref changes ([#9982](https://github.com/earendil-works/pi/issues/9982)).
 - Fixed `grep` rejecting brace globs whose alternatives contain directories, such as `{src/*.ts,test/*.js}`, with a ripgrep glob parse error.
 - Fixed an active `/loop` never injecting again after the user aborted one of its turns, while `/loop status` still reported it as active.

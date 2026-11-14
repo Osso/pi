@@ -1881,6 +1881,24 @@ describe("ModelRegistry", () => {
 				});
 			});
 
+			test("getApiKeyAndHeaders sends an environment-only key as the authHeader", async () => {
+				vi.stubEnv("OPENAI_API_KEY", "env-openai-key");
+				try {
+					writeRawModelsJson({ openai: { baseUrl: "https://proxy.invalid/v1", authHeader: true } });
+					const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+					const model = registry.getAll().find((candidate) => candidate.provider === "openai");
+
+					const auth = await registry.getApiKeyAndHeaders(requireValue(model));
+					expect(auth).toMatchObject({
+						ok: true,
+						apiKey: "env-openai-key",
+						headers: { Authorization: "Bearer env-openai-key" },
+					});
+				} finally {
+					vi.unstubAllEnvs();
+				}
+			});
+
 			test("getApiKeyAndHeaders returns an error for failed authHeader resolution", async () => {
 				writeRawModelsJson({
 					"custom-provider": {
