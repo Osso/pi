@@ -387,3 +387,65 @@ export function formatAgentStatus(agent: AgentSnapshot): string {
 
 	return `${agent.displayName} is ${agent.lifecycle}.`;
 }
+
+export async function dispatchReservedAgentSession(
+	store: MultiAgentStore,
+	createChildSession: ChildAgentSessionFactory,
+	reservedRuntime: OwnedAgentRuntime,
+	prompt: string,
+	ctx: ExtensionContext,
+	handles?: BackgroundSessionHandles,
+): Promise<AgentSnapshot> {
+	const { coordinator, lifecycle } = reservedRuntime;
+	const restoreGeneration = store.getRestoreGeneration();
+	let childSession: ChildAgentSession;
+	try {
+		childSession = await createChildSession({
+			agent: lifecycle.agent,
+			context: "fresh",
+			ctx,
+			prompt,
+			signal: reservedRuntime.abortController.signal,
+		});
+	} catch (error) {
+		const runtimeError = {
+			code: "runtime_spawn_failed",
+			message: error instanceof Error ? error.message : String(error),
+		};
+		const failed = coordinator.finalizeChild({
+			agent: lifecycle.agent,
+			error: runtimeError,
+			ownership: lifecycle.ownership,
+			terminalLifecycle: "failed",
+		});
+		if (!failed.ok) return lifecycle.agent;
+		publishCoordinatorSnapshot(store, failed.agent);
+		return failed.agent;
+	}
+	if (store.getRestoreGeneration() !== restoreGeneration) {
+		childSession.abort?.();
+		await childSession.dispose?.();
+		return store.getAgent(lifecycle.agent.id) ?? lifecycle.agent;
+	}
+	const running = coordinator.confirmChildRuntime(lifecycle);
+	if (!running.ok) {
+		childSession.abort?.();
+		await childSession.dispose?.();
+		return lifecycle.agent;
+	}
+	store.publishLifecycleCoordinatorSnapshot(running.agent);
+	return runAgentSession(
+		store,
+		createChildSession,
+		running.agent,
+		prompt,
+		ctx,
+		handles,
+		childSession,
+		{
+			...reservedRuntime,
+			lifecycle: { agent: running.agent, ownership: reservedRuntime.lifecycle.ownership },
+		},
+		restoreGeneration,
+	);
+}

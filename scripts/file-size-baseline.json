@@ -9,7 +9,7 @@
 	"packages/ai/src/api/openai-completions.ts": 1303,
 	"packages/ai/src/api/openai-responses-shared.ts": 760,
 	"packages/ai/src/types.ts": 755,
-	"packages/coding-agent/extensions/agents-core/src/runtime.ts": 1904,
+	"packages/coding-agent/extensions/agents-core/src/runtime.ts": 1513,
 	"packages/coding-agent/extensions/claude-bridge/src/index.ts": 1739,
 	"packages/coding-agent/extensions/codex-usage/src/index.ts": 1078,
 	"packages/coding-agent/extensions/pyrun/src/detached-evaluation.ts": 764,
