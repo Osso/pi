@@ -145,19 +145,14 @@ export async function runPrintMode(runtimeHost: AgentSessionRuntime, options: Pr
 			await session.prompt(message);
 		}
 
-		if (mode === "text") {
-			const assistantMsg = findLastPrintableAssistant(session.state.messages);
-
-			if (assistantMsg) {
-				if (assistantMsg.stopReason === "error" || assistantMsg.stopReason === "aborted") {
-					console.error(assistantMsg.errorMessage || `Request ${assistantMsg.stopReason}`);
-					exitCode = 1;
-				} else {
-					for (const content of assistantMsg.content) {
-						const text = getAssistantContentText(content);
-						if (text !== undefined) writeRawStdout(`${text}\n`);
-					}
-				}
+		const assistantMsg = findLastPrintableAssistant(session.state.messages);
+		if (assistantMsg?.stopReason === "error" || assistantMsg?.stopReason === "aborted") {
+			console.error(assistantMsg.errorMessage || `Request ${assistantMsg.stopReason}`);
+			exitCode = 1;
+		} else if (mode === "text" && assistantMsg) {
+			for (const content of assistantMsg.content) {
+				const text = getAssistantContentText(content);
+				if (text !== undefined) writeRawStdout(`${text}\n`);
 			}
 		}
 

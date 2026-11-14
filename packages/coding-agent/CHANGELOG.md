@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed `pi --mode json` exiting 0 when the final assistant message ended with an error or was aborted; it now exits 1 like text mode.
 - Fixed HTML export rendering custom messages with content blocks as raw JSON instead of their text.
 - Fixed HTML export showing a tool result from an abandoned branch on the tool call of the selected branch.
 - Fixed a fork cancelled by a `session_before_fork` handler returning no text, so RPC `fork` omitted the documented `text` field.

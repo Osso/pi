@@ -631,4 +631,19 @@ describe("runPrintMode", () => {
 			expect(output.join("")).toBe("");
 		},
 	);
+
+	it.each(["error", "aborted"] as const)("returns non-zero in JSON mode after a trailing %s", async (stopReason) => {
+		const output = captureStdout();
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		const runtimeHost = createRuntimeHost([
+			{ role: "user", content: "question", timestamp: 1 },
+			createAssistantMessage({ stopReason, errorMessage: "fixture provider failure" }),
+		]);
+		const exitCode = await runPrintMode(runtimeHost as unknown as Parameters<typeof runPrintMode>[0], {
+			mode: "json",
+		});
+		expect(exitCode).toBe(1);
+		expect(errorSpy).toHaveBeenCalledWith("fixture provider failure");
+		expect(output.join("")).toBe("");
+	});
 });

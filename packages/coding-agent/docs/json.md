@@ -6,6 +6,8 @@ pi --mode json "Your prompt"
 
 Outputs session events as JSON lines to stdout, with lean message and lifecycle payloads. This is a wire projection, not a serialization of the internal `AgentSessionEvent` type. SDK subscriptions, internal events, the TUI, and RPC retain their existing payloads.
 
+The process exits nonzero when the final assistant message ended with an error or was aborted; the error message is also written to stderr.
+
 ## Output Format
 
 Each line is a JSON object. The first line is the session header:
