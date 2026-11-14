@@ -40,5 +40,6 @@ export * from "./harness/utils/shell-output.ts";
 export * from "./harness/utils/truncate.ts";
 // Proxy utilities
 export * from "./proxy.ts";
+export { isToolResultTextTooLarge } from "./tool-result-cap.ts";
 // Types
 export * from "./types.ts";
