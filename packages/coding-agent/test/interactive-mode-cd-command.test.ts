@@ -67,9 +67,10 @@ describe("InteractiveMode /cd", () => {
 
 		await interactiveModePrototype.handleCdCommand.call(context, "/cd");
 		await interactiveModePrototype.handleCdCommand.call(context, "/cd one two");
+		await interactiveModePrototype.handleCdCommand.call(context, '/cd ""');
 
 		expect(context.runtimeHost.relocate).not.toHaveBeenCalled();
-		expect(context.showError).toHaveBeenCalledTimes(2);
+		expect(context.showError).toHaveBeenCalledTimes(3);
 		expect(context.showError).toHaveBeenCalledWith("Usage: /cd <path>");
 	});
 

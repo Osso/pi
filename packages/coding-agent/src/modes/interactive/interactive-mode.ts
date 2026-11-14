@@ -6346,7 +6346,7 @@ export class InteractiveMode {
 
 	private async handleCdCommand(text: string): Promise<void> {
 		const args = parseCommandArgs(text.slice(3).trim());
-		if (args.length !== 1) {
+		if (args.length !== 1 || !args[0]) {
 			this.showError("Usage: /cd <path>");
 			return;
 		}
