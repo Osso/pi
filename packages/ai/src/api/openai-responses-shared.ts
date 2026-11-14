@@ -432,7 +432,7 @@ export function convertResponsesMessages<TApi extends Api>(
 
 				output = contentParts;
 			} else {
-				output = sanitizeSurrogates(hasText ? textResult : "(see attached image)");
+				output = sanitizeSurrogates(hasText ? textResult : hasImages ? "(see attached image)" : "(no output)");
 			}
 
 			messages.push({

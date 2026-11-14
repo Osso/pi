@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed OpenAI Chat Completions and Responses sending `(see attached image)` for an empty tool result without images; they now send `(no output)`.
 - Fixed Mistral streams splitting one tool call into two when a continuation fragment omits the tool call id.
 - Fixed the `pi-ai login` provider prompt crashing with a `TypeError` on a non-numeric selection; it now prints `Invalid selection` and exits with code 1.
 - Fixed OpenRouter mandatory-reasoning Google Gemini models (`gemini-2.5-pro*`, `gemini-3*-pro*`, `gemini-3.5+` flash, and `gemini-4-*`) to mark `thinkingLevelMap.off` as `null` and added `google/gemini-4-hydrogen`, preventing `reasoning.effort: "none"` HTTP 400 errors during compaction and thinking-off requests.
