@@ -268,14 +268,13 @@ function retainPendingToolFailure(c: QueryContext): void {
 // firing it on startup would write that file for every pi session that merely
 // has this extension installed. One message, because consecutive info notifies
 // overwrite each other in the TUI.
-let pendingNotices: string[] = [];
+const pendingNotices: string[] = [];
 
 function showStartupNoticeOnce(): void {
 	// `hasUI` is true in RPC mode too — it means dialogs are possible, not that a
 	// human is watching. Only a terminal user can act on this.
 	if (pendingNotices.length === 0 || piMode !== "tui") return;
-	const notices = pendingNotices;
-	pendingNotices = [];
+	const notices = pendingNotices.splice(0);
 	const path = markStartupNoticeShown();
 	// pi wraps the whole notify string in the theme's dim foreground; the inner reset
 	// drops back to the terminal default rather than dim, which is fine here.
