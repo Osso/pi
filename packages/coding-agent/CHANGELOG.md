@@ -482,6 +482,7 @@
 - Fixed indexed sessions disappearing from Current Folder, All, and Archived when the configured session directory contains dot segments.
 - Fixed `--continue` selecting relocated sessions by their original header cwd instead of their current control-DB cwd.
 - Fixed nested skill ignore rules matching only immediate children during skill and resource discovery, while preserving anchored patterns, negation, and escaped prefixes.
+- Fixed `grep` context showing the wrong matching line when a file contains a bare carriage return; CRLF line endings still work.
 
 ### Changed
 

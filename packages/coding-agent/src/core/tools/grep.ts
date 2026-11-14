@@ -205,7 +205,7 @@ export function createGrepToolDefinition(
 							if (!lines) {
 								try {
 									const content = await ops.readFile(filePath);
-									lines = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+									lines = content.replace(/\r\n/g, "\n").split("\n");
 									// A final newline ends the last line; it does not start another one.
 									if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
 								} catch {
