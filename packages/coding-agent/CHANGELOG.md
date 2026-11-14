@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed an active `/loop` never injecting again after the user aborted one of its turns, while `/loop status` still reported it as active.
 - Fixed `/loop <interval> <prompt>` dropping leading newlines and indentation from the prompt body; only the separator after the interval is removed.
 - Fixed `/fork` and `/clone` dropping compaction-retained context, and producing a session that failed to reopen, when the compaction boundary was a label entry ([#8989](https://github.com/earendil-works/pi/issues/8989)).
 - Fixed branch summary entries recording the navigation destination in `fromId` instead of the pre-navigation source leaf.

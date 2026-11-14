@@ -159,4 +159,50 @@ describe("loop extension runtime", () => {
 		},
 		REAL_PROCESS_TEST_TIMEOUT_MS,
 	);
+
+	it(
+		"keeps injecting after the user aborts a loop turn",
+		async () => {
+			await withHeadlessPi(async (agent) => {
+				await agent.send({ type: "prompt", message: "Start loop before abort" });
+				const startRequest = await agent.waitForLlmRequest();
+				agent.respondToLlmRequest(
+					startRequest.id,
+					fauxAssistantMessage(
+						fauxToolCall("loop", { action: "start", intervalSeconds: 1, prompt: LOOP_PROMPT }),
+						{ stopReason: "toolUse" },
+					),
+				);
+				const afterStart = await agent.waitForLlmRequest((request) => request.id !== startRequest.id);
+				agent.respondToLlmRequest(afterStart.id, fauxEndTurn("Loop started"));
+
+				const firstLoop = await agent.waitForLlmRequest((request) => request.userMessages.includes(LOOP_PROMPT));
+				await agent.send({ type: "abort" });
+
+				const secondLoop = await agent.waitForLlmRequest(
+					(request) => request.id !== firstLoop.id && request.userMessages.includes(LOOP_PROMPT),
+				);
+				agent.respondToLlmRequest(
+					secondLoop.id,
+					fauxAssistantMessage(fauxToolCall("loop", { action: "stop" }), { stopReason: "toolUse" }),
+				);
+				const stopped = await agent.waitForLlmRequest(
+					(request) =>
+						request.id !== secondLoop.id &&
+						request.id !== firstLoop.id &&
+						request.userMessages.includes(LOOP_PROMPT),
+				);
+				agent.respondToLlmRequest(stopped.id, fauxEndTurn("Loop stopped after abort"));
+				await agent.waitForSessionEntry(
+					null,
+					(entry) =>
+						entry.type === "message" &&
+						entry.message.role === "toolResult" &&
+						entry.message.toolName === "end_turn" &&
+						entryText(entry).includes("Loop stopped after abort"),
+				);
+			});
+		},
+		REAL_PROCESS_TEST_TIMEOUT_MS,
+	);
 });

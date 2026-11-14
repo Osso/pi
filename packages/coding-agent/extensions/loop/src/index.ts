@@ -15,6 +15,8 @@ interface ActiveLoop {
 	deferred: boolean;
 	generation: number;
 	inFlight: boolean;
+	/** The in-flight loop prompt entered a run; that run's agent_end (even an aborted one) settles it. */
+	started: boolean;
 	intervalMs: number;
 	prompt: string;
 	sessionId: string;
@@ -81,6 +83,7 @@ class LoopController {
 			deferred: false,
 			generation,
 			inFlight: false,
+			started: false,
 			intervalMs,
 			prompt,
 			sessionId,
@@ -105,10 +108,18 @@ class LoopController {
 		return this.activeLoop;
 	}
 
-	handleAgentEnd(messages: AgentMessage[], ctx: LoopRuntimeContext): void {
+	handleMessageEnd(message: AgentMessage): void {
+		const loop = this.activeLoop;
+		if (loop && this.isLoopPrompt(message, loop)) loop.started = true;
+	}
+
+	handleAgentEnd(ctx: LoopRuntimeContext): void {
 		const loop = this.activeLoop;
 		if (!loop || loop.sessionId !== ctx.sessionManager.getSessionId()) return;
-		if (this.includesLoopPrompt(messages, loop)) loop.inFlight = false;
+		if (loop.started) {
+			loop.inFlight = false;
+			loop.started = false;
+		}
 		if (!loop.deferred) return;
 		if (loop.inFlight) return;
 		if (ctx.hasPendingMessages()) return;
@@ -130,12 +141,10 @@ class LoopController {
 		this.sendLoopPrompt(loop);
 	}
 
-	private includesLoopPrompt(messages: AgentMessage[], loop: ActiveLoop): boolean {
-		return messages.some((message) => {
-			if (message.role !== "custom" || message.customType !== loopMessageType) return false;
-			const details = message.details as Partial<LoopMessageDetails> | undefined;
-			return details?.generation === loop.generation && details.sessionId === loop.sessionId;
-		});
+	private isLoopPrompt(message: AgentMessage, loop: ActiveLoop): boolean {
+		if (message.role !== "custom" || message.customType !== loopMessageType) return false;
+		const details = message.details as Partial<LoopMessageDetails> | undefined;
+		return details?.generation === loop.generation && details.sessionId === loop.sessionId;
 	}
 
 	private sendLoopPrompt(loop: ActiveLoop): void {
@@ -187,9 +196,12 @@ export default function loopExtension(pi: ExtensionAPI) {
 	pi.on("session_shutdown", () => {
 		loop.shutdown();
 	});
+	pi.on("message_end", (event) => {
+		loop.handleMessageEnd(event.message);
+	});
 	pi.on("agent_end", (event, ctx) => {
 		if (event.sessionContinuation) return;
-		loop.handleAgentEnd(event.messages, ctx);
+		loop.handleAgentEnd(ctx);
 	});
 
 	pi.registerTool({
