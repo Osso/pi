@@ -1,4 +1,7 @@
 import type { AgentFileReference } from "../multi-agent-store.ts";
+
+export type { AgentFileReference } from "../multi-agent-store.ts";
+
 import type { RuntimeMailboxAcceptanceCheck } from "../runtime-mailbox-transcript.ts";
 
 export const LIFECYCLE_PROTOCOL_SCHEMA_VERSION = 14;
