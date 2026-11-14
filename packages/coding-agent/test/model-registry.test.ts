@@ -1314,6 +1314,24 @@ describe("ModelRegistry", () => {
 					headers: { "x-proxy": "enabled" },
 				});
 			});
+
+			test("headers-only override keeps the registered API key without a refresh", async () => {
+				const registry = ModelRegistry.create(authStorage, modelsJsonPath);
+
+				registry.registerProvider(
+					"custom-provider",
+					providerConfig("https://custom.test/v1", [{ id: "custom-a" }], "openai-completions"),
+				);
+				registry.registerProvider("custom-provider", { headers: { "x-proxy": "enabled" } });
+
+				const [model] = getModelsForProvider(registry, "custom-provider");
+				expect(registry.getAvailable().some((m) => m.provider === "custom-provider")).toBe(true);
+				expect(await registry.getApiKeyAndHeaders(requireValue(model))).toMatchObject({
+					ok: true,
+					apiKey: "test-key",
+					headers: { "x-proxy": "enabled" },
+				});
+			});
 		});
 	});
 

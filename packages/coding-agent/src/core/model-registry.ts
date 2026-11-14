@@ -926,8 +926,8 @@ export class ModelRegistry {
 	 */
 	registerProvider(providerName: string, config: ProviderConfigInput): void {
 		this.validateProviderConfig(providerName, config);
-		this.applyProviderConfig(providerName, config);
 		this.upsertRegisteredProvider(providerName, config);
+		this.applyProviderConfig(providerName, this.registeredProviders.get(providerName) ?? config);
 		this.rebuildPools();
 	}
 

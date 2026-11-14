@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed a partial `pi.registerProvider()` update (for example headers only) dropping the provider's registered API key until the next model refresh.
 - Fixed `authHeader: true` providers in `models.json` failing with `No API key found` when the key came only from the provider's environment variable.
 - Fixed pinned git extensions loaded with `-e` continuing to use the first downloaded commit after the ref changes ([#9982](https://github.com/earendil-works/pi/issues/9982)).
 - Fixed `grep` rejecting brace globs whose alternatives contain directories, such as `{src/*.ts,test/*.js}`, with a ripgrep glob parse error.
