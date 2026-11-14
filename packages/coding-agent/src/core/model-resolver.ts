@@ -268,6 +268,11 @@ export interface ResolveModelScopeResult {
 	diagnostics: ModelScopeDiagnostic[];
 }
 
+function matchesModelGlob(reference: string, pattern: string): boolean {
+	// Model references are not paths: keep slashes literal without giving them segment boundaries.
+	return minimatch(reference.replaceAll("/", "\0"), pattern.replaceAll("/", "\0"), { nocase: true });
+}
+
 export async function resolveModelScopeWithDiagnostics(
 	patterns: string[],
 	modelRegistry: ModelRegistry,
@@ -296,7 +301,7 @@ export async function resolveModelScopeWithDiagnostics(
 			// This allows "*sonnet*" to match without requiring "anthropic/*sonnet*"
 			const matchingModels = availableModels.filter((m) => {
 				const fullId = `${m.provider}/${m.id}`;
-				return minimatch(fullId, globPattern, { nocase: true }) || minimatch(m.id, globPattern, { nocase: true });
+				return matchesModelGlob(fullId, globPattern) || matchesModelGlob(m.id, globPattern);
 			});
 
 			if (matchingModels.length === 0) {
