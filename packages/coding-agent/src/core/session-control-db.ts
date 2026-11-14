@@ -1,5 +1,4 @@
 import type { AgentSnapshot } from "./multi-agent-store.ts";
-import { isSandboxProfileName, type SandboxProfileName } from "./permissions/presets.ts";
 import { parseStoredJsonObject, validatePersistedAgentPayload } from "./session-control-db/codecs.ts";
 import type { RuntimeMailboxListedRow } from "./session-control-db/types.ts";
 
@@ -26,20 +25,6 @@ export {
 	recordPromptHistoryEntry,
 	writeLastMessage,
 } from "./session-control-db/incoming-history.ts";
-
-export {
-	cancelSupervisorRequest,
-	claimNextSupervisorRequest,
-	completeSupervisorRequest,
-	hasPendingSupervisorApprovalRequest,
-	postSupervisorRequest,
-	readSupervisorRequest,
-	recoverSupervisorRequests,
-	requeueSupervisorRequest,
-} from "./session-control-db/supervisor.ts";
-
-import { assertSessionMetadataIdentity } from "./session-control-db/session-metadata.ts";
-
 export { archiveSession, archiveSessionsOlderThan, unarchiveSession } from "./session-control-db/session-archive.ts";
 export {
 	clearSessionSandboxProfile,
@@ -80,6 +65,17 @@ export {
 	readSharedChannelCursor,
 	readSharedChannelTail,
 } from "./session-control-db/shared-channel.ts";
+export {
+	cancelSupervisorRequest,
+	claimNextSupervisorRequest,
+	completeSupervisorRequest,
+	hasPendingSupervisorApprovalRequest,
+	postSupervisorRequest,
+	readSupervisorRequest,
+	recoverSupervisorRequests,
+	requeueSupervisorRequest,
+} from "./session-control-db/supervisor.ts";
+
 export type { MultiAgentTerminalOutboxRecord } from "./session-control-db/terminal-outbox.ts";
 export {
 	claimMultiAgentTerminalOutbox,
@@ -123,6 +119,7 @@ export {
 	readMultiAgentRuntimeOwnership,
 } from "./session-control-db/multi-agent-attachment.ts";
 export { bootstrapMultiAgentAgent } from "./session-control-db/multi-agent-bootstrap.ts";
+
 export type {
 	AcquireMultiAgentRuntimeOwnershipInput,
 	CreateFailedMultiAgentChildInput,
@@ -195,8 +192,8 @@ export {
 	readRuntimeMailboxMessage,
 	releaseRuntimeMailboxMessageClaim,
 } from "./session-control-db/runtime-mailbox-status.ts";
-
 export { listSessionHealth, readSessionHealth, writeSessionHealth } from "./session-control-db/session-health.ts";
+export { readSessionSandboxProfile } from "./session-control-db/session-sandbox-profile.ts";
 
 export type {
 	ArchitectRequest,
@@ -225,11 +222,6 @@ export type {
 	WritableSessionMetadata,
 } from "./session-control-db/types.ts";
 
-type SessionSandboxProfileRow = {
-	profile: string;
-	session_id: string;
-};
-
 export function readLiveRuntimeMailboxSessionAgentIds(controlDbPath: string, sessionId: string): Array<string | null> {
 	return withControlDb(controlDbPath, (db) => {
 		const rows = db
@@ -243,29 +235,6 @@ export function readLiveRuntimeMailboxSessionAgentIds(controlDbPath: string, ses
 			if (!row.runtime_instance_id || !runtimeMailboxClaimantIsLive(row.runtime_instance_id)) return [];
 			return [row.recipient_agent_id_key === "" ? null : row.recipient_agent_id_key];
 		});
-	});
-}
-
-export function readSessionSandboxProfile(
-	controlDbPath: string,
-	sessionPath: string,
-	sessionId: string,
-): SandboxProfileName | undefined {
-	return withControlDb(controlDbPath, (db) => {
-		const row = db
-			.prepare("SELECT session_id, profile FROM session_sandbox_profiles WHERE session_path = ?")
-			.get(sessionPath) as SessionSandboxProfileRow | undefined;
-		if (!row) return undefined;
-		assertSessionMetadataIdentity(db, sessionPath, sessionId);
-		if (row.session_id !== sessionId) {
-			throw new Error(
-				`Session identity mismatch for ${sessionPath}: stored ${row.session_id}, received ${sessionId}`,
-			);
-		}
-		if (!isSandboxProfileName(row.profile)) {
-			throw new Error(`Invalid sandbox profile '${row.profile}' for session ${sessionId}`);
-		}
-		return row.profile;
 	});
 }
 
