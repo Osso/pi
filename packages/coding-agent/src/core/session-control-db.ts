@@ -4,7 +4,6 @@ import type { AgentSnapshot } from "./multi-agent-store.ts";
 import { isSandboxProfileName, type SandboxProfileName } from "./permissions/presets.ts";
 import { parseStoredJsonObject, validatePersistedAgentPayload } from "./session-control-db/codecs.ts";
 import type { RuntimeMailboxAddress, RuntimeMailboxListedRow } from "./session-control-db/types.ts";
-import type { SessionHealthRecord } from "./session-health.ts";
 import type { SqliteDatabase } from "./sqlite.ts";
 
 export {
@@ -121,10 +120,6 @@ import {
 	assertRuntimeReplacementAllowed,
 	type RuntimeMailboxRegistration,
 	readRuntimeMailboxRegistrationSnapshot,
-	readSessionHealthRow,
-	type SessionHealthRow,
-	sessionHealthFromRow,
-	writeSessionHealthRow,
 } from "./session-control-db/runtime-mailbox-registration.ts";
 
 export { finalizeDetachedJob } from "./session-control-db/detached-job-finalization.ts";
@@ -152,6 +147,7 @@ export {
 	createMultiAgentAttachment,
 	readMultiAgentRuntimeOwnership,
 } from "./session-control-db/multi-agent-attachment.ts";
+
 export type {
 	AcquireMultiAgentRuntimeOwnershipInput,
 	CreateFailedMultiAgentChildInput,
@@ -204,6 +200,7 @@ export {
 	retireRuntimeMailboxListener,
 } from "./session-control-db/runtime-mailbox-listeners.ts";
 export { registerRuntimeMailboxListener } from "./session-control-db/runtime-mailbox-registration.ts";
+export { listSessionHealth, readSessionHealth, writeSessionHealth } from "./session-control-db/session-health.ts";
 
 export type {
 	ArchitectRequest,
@@ -350,38 +347,6 @@ export function resolveOwnMainRuntimeCoordinationRecipient(controlDbPath: string
 		if (rows.length !== 1) return undefined;
 		return { agentId: null, sessionId: rows[0].recipient_session_id };
 	});
-}
-
-export function readSessionHealth(controlDbPath: string, sessionId: string): SessionHealthRecord | undefined {
-	return withControlDb(controlDbPath, (db) => readSessionHealthRow(db, sessionId));
-}
-
-export function listSessionHealth(controlDbPath: string): SessionHealthRecord[] {
-	return withControlDb(controlDbPath, (db) => {
-		const rows = db
-			.prepare(
-				`
-				SELECT
-					session_id,
-					agent_generation,
-					pid,
-					last_active_at,
-					last_checked_at,
-					check_status,
-					checked_generation,
-					check_latency_ms,
-					updated_at
-				FROM session_health
-				ORDER BY updated_at DESC
-				`,
-			)
-			.all() as SessionHealthRow[];
-		return rows.map(sessionHealthFromRow);
-	});
-}
-
-export function writeSessionHealth(controlDbPath: string, health: SessionHealthRecord): void {
-	withControlDb(controlDbPath, (db) => writeSessionHealthRow(db, health));
 }
 
 export function readSessionSandboxProfile(
