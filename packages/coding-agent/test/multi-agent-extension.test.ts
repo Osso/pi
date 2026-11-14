@@ -3573,6 +3573,52 @@ describe("multi-agent extension tools", () => {
 		}
 	});
 
+	it("wait_agent delivers an externally committed completion once and resyncs list_agents", async () => {
+		vi.useFakeTimers();
+		try {
+			const harness = createMultiAgentHarness();
+			const persistence = harness.store.getPersistenceTarget();
+			if (!persistence) throw new Error("expected persisted store fixture");
+			const coordinator = new LifecycleCoordinator({
+				controlDbPath: persistence.controlDbPath,
+				createAgentId: () => harness.store.allocateAgentIdForLifecycleCoordinator(),
+				now: () => "2026-07-12T00:00:00.000Z",
+				processIdentity: testProcessIdentity("external-owner"),
+				sessionPath: persistence.sessionPath,
+			});
+			const prepared = coordinator.prepareChild({
+				agentId: harness.store.allocateAgentIdForLifecycleCoordinator(),
+				agentType: "worker",
+				cwd: "/repo",
+				displayName: "External worker",
+				permission: { narrowed: true, policy: "on-request" },
+			});
+			const created = coordinator.commitRunningChild(prepared, persistence.sessionPath);
+			if (!created.ok) throw new Error("expected running child");
+			harness.store.publishLifecycleCoordinatorSnapshot(created.agent);
+
+			const waited = harness.call<WaitAgentsDetails>("wait_agent", {});
+			await vi.advanceTimersByTimeAsync(0);
+			const finalized = coordinator.finalizeChild({
+				agent: created.agent,
+				ownership: created.ownership,
+				result: { summary: "external done" },
+				terminalLifecycle: "completed",
+			});
+			expect(finalized.ok).toBe(true);
+			await vi.advanceTimersByTimeAsync(3_000);
+			const first = await waited;
+
+			expect(first.details.agent).toMatchObject({ id: created.agent.id, lifecycle: "completed" });
+			expect(await harness.call<ListAgentsDetails>("list_agents", {})).toMatchObject({
+				details: { activeCount: 0, agents: [] },
+			});
+			expect(await harness.call<WaitAgentsDetails>("wait_agent", {})).toEqual({ content: [], details: {} });
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("wait_agent returns immediately when no agents are active", async () => {
 		const harness = createMultiAgentHarness();
 

@@ -311,6 +311,15 @@ export function consumeNotifications(
 	}
 	const persistence = store.getPersistenceTarget();
 	if (persistence) {
+		// The wake read the committed snapshot directly. Project its terminal outbox now so the store
+		// resyncs and its notification is consumed here instead of being reported by a later wait.
+		deliverTerminalOutboxProjections({
+			artifactRoot: artifactRootForStore(store),
+			claimId: randomUUID(),
+			controlDbPath: persistence.controlDbPath,
+			now: () => new Date().toISOString(),
+			store,
+		});
 		const pending = consumePendingTerminalNotifications(store, persistence.controlDbPath, persistence.sessionPath);
 		if (pending) return pending;
 	}

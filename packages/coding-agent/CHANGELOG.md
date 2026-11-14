@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed `wait_agent` reporting an externally committed completion without projecting it: `list_agents` kept showing the agent as active, and the later terminal-outbox delivery reported the same completion to the next `wait_agent`.
 - Fixed `close_agent` with an unknown agent ID failing with `Could not read persisted multi-agent state` in a session that had no agents yet; it now reports `agent_not_found`.
 - Fixed `write` reporting the UTF-16 length of the content as its byte count; it now reports the UTF-8 bytes written.
 - Fixed `find` trimming spaces from file names, which returned paths such as `report.txt` for a file named `report.txt ` that does not exist.
