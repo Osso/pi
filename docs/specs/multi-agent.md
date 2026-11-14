@@ -687,7 +687,7 @@ The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the
   it exposes no lifecycle or steering mutation methods.
 - [`packages/coding-agent/src/core/index.ts`](../../packages/coding-agent/src/core/index.ts) exports
   projection and metadata types, not direct lifecycle command APIs.
-- [`packages/coding-agent/extensions/agents-core/src/runtime.ts`](../../packages/coding-agent/extensions/agents-core/src/runtime.ts)
+- [`packages/coding-agent/extensions/agents-core/src/`](../../packages/coding-agent/extensions/agents-core/src/)
   provides capability-gated tools, coordinator-backed child dispatch/cancellation/steering/recovery,
   background jobs, fan-out waits, and the production child-session factories. Both factories install the
   extension-owned `child-report.ts` guard through `customTools`; `child-response.ts` extracts current-dispatch
@@ -711,7 +711,7 @@ The [shared-channel contract](shared-channel.md) owns cross-host broadcasts; the
   registers the read-only tree/status/transcript projection tool against the shared store.
 - [`packages/coding-agent/extensions/agents-mailbox/src/index.ts`](../../packages/coding-agent/extensions/agents-mailbox/src/index.ts)
   registers inbox/outbox summary, direct-parent-contact, and direct-message tools against the shared store.
-- [`packages/coding-agent/src/core/session-control-db.ts`](../../packages/coding-agent/src/core/session-control-db.ts)
+- [`packages/coding-agent/src/core/session-control-db/`](../../packages/coding-agent/src/core/session-control-db/)
   owns SQLite schema, exact-owner lifecycle/steering/terminal transactions and runtime ownership,
   terminal agent rows and completion outbox delivery, canonical mailbox delivery, session health, and path
   relocation.

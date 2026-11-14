@@ -47,7 +47,7 @@ The bubblewrap sandbox backend is a Linux extension that routes selected Pi tool
 - `packages/coding-agent/extensions/bwrap/src/backend.ts` — builds bubblewrap invocations for sandbox-required profiles, including runner commands.
 - `packages/coding-agent/extensions/bwrap/src/index.ts` — extension entry point; routes file tools and bash/user_bash.
 - `packages/coding-agent/extensions/approval-controls/src/index.ts` — exposes selector and deterministic `/sandbox` profile/scope arguments.
-- `packages/coding-agent/src/core/session-control-db.ts` — persists one validated sandbox override per canonical session path with exact session-ID validation.
+- `packages/coding-agent/src/core/session-control-db/session-sandbox-profile.ts` — persists one validated sandbox override per canonical session path with exact session-ID validation.
 - `packages/coding-agent/src/core/session-manager.ts` — materializes a new session before saving its override and reads persisted session settings.
 - `packages/coding-agent/src/core/settings-manager.ts` — resolves session, project, and global profile precedence.
 - `packages/coding-agent/src/core/sdk.ts` — restores or clears the session overlay before runtime construction.

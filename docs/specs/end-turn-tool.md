@@ -39,7 +39,7 @@ The built-in `end_turn` tool gives normal coding-agent model turns an explicit c
 
 - `packages/coding-agent/src/core/tools/end-turn.ts` — defines the built-in tool schema and terminating result.
 - `packages/coding-agent/src/core/tools/index.ts` — exports and registers the tool in default tool collections.
-- `packages/coding-agent/extensions/agents-core/src/runtime.ts` — installs the child-only `end_turn` guard through `customTools` in both spawned and attached factories.
+- `packages/coding-agent/extensions/agents-core/src/session-factories.ts` — installs the child-only `end_turn` guard through `customTools` in both spawned and attached factories.
 - `packages/coding-agent/extensions/agents-core/src/child-report.ts` — reconstructs current-task report eligibility from the persisted branch and rejects reportless completion.
 - `packages/coding-agent/extensions/agents-core/src/child-response.ts` — extracts current-dispatch public assistant text, including signed public narration, and is the terminal report-validation boundary; original provider errors remain unchanged.
 - `packages/coding-agent/src/core/assistant-narration.ts` — shared public-text classification for signed narration.

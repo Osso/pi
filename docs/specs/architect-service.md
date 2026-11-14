@@ -51,7 +51,7 @@ The resident Architect is a retained but temporarily disabled Sol advisor. Its i
 ## Implementation inventory
 
 - `packages/coding-agent/src/core/tools/ask-architect.ts` — queues explicit requests with sender session and a validated absolute directory path, such as an active worktree.
-- `packages/coding-agent/src/core/session-control-db.ts` — persists and migrates durable Architect requests.
+- `packages/coding-agent/src/core/session-control-db/architect.ts` and `migrations.ts` — persist and migrate durable Architect requests.
 - `packages/coding-agent/src/architect/observer.ts` — read-only, bounded, current-main-session control-DB snapshots and material-change detection.
 - `packages/coding-agent/src/architect/prompt.ts` — advisor policy, authoritative-spec discovery, and structured observation prompt.
 - `packages/coding-agent/src/architect/project-spec.ts` — Architect-only, canonical-path-constrained reader for Markdown files under the originating project's `docs/specs/` tree.

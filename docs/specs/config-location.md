@@ -54,7 +54,7 @@ Pi stores global user configuration under the XDG config tree instead of the leg
 ## Implementation inventory
 
 - `packages/coding-agent/src/config.ts` — Resolves global user config, state, and cache paths, legacy path helpers, and environment overrides.
-- `packages/coding-agent/src/core/session-control-db.ts` — Resolves the configured control database under the state root and creates missing state directories before writes.
+- `packages/coding-agent/src/core/session-control-db/control-db-path.ts` and `connection.ts` — Resolve the configured control database under the state root and creates missing state directories before writes.
 - `packages/coding-agent/src/core/settings-manager.ts` — Reads global settings from the resolved agent directory and project settings from `.pi/settings.json`.
 - `packages/coding-agent/src/core/resource-loader.ts` — Loads global rules from the resolved agent directory and project rules from `.pi/rules`.
 - `packages/coding-agent/src/core/package-manager.ts` — Discovers user resources under the resolved agent directory and project resources under `.pi/`.

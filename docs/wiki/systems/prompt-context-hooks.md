@@ -10,7 +10,7 @@
 
 The runner reports ordinary handler errors and continues. Context cancellation is different: an aborted signal propagates rather than being swallowed. `emitBeforeAgentStart` returns no combined result when nothing was contributed.
 
-`session_start` supplies lifecycle reason and optional previous-session path for restoring extension state. [Goal](../../../packages/coding-agent/extensions/goal/src/index.ts) uses `before_agent_start` for goal context. [Agents-core](../../../packages/coding-agent/extensions/agents-core/src/runtime.ts) constructs ordinary child AgentSessions with explicit runtime identity; that construction alone is not proof of agent-specific hook injection.
+`session_start` supplies lifecycle reason and optional previous-session path for restoring extension state. [Goal](../../../packages/coding-agent/extensions/goal/src/index.ts) uses `before_agent_start` for goal context. [Agents-core](../../../packages/coding-agent/extensions/agents-core/src/session-factories.ts) constructs ordinary child AgentSessions with explicit runtime identity; that construction alone is not proof of agent-specific hook injection.
 
 ## Limits and implementation gaps
 

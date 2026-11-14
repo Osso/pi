@@ -32,7 +32,7 @@ Module boundary: first-party extension at `packages/coding-agent/extensions/agen
 - `packages/coding-agent/extensions/agents-status/src/index.ts`: widget extension that collects, orders, and renders rows.
 - `packages/coding-agent/src/core/agent-activity-detail.ts`: builds the one-line tool-argument summary.
 - `packages/coding-agent/src/core/agent-session.ts`: publishes child `currentActivity`, including `detail`.
-- `packages/coding-agent/src/core/multi-agent-store.ts`: `AgentCurrentActivity` type.
+- `packages/coding-agent/src/core/multi-agent-types.ts`: `AgentCurrentActivity` type.
 - `packages/coding-agent/src/main.ts`: registers the extension alongside the other orchestration extensions.
 - `packages/coding-agent/src/modes/interactive/interactive-mode.ts`, `interactive-root-compositor.ts`: place the above-editor widget container as a render region for in-place updates.
 

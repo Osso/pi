@@ -126,7 +126,7 @@ A mission is a continuous, user-owned objective above the working goal. It is ne
 - `packages/coding-agent/extensions/goal/src/rendering.ts` — preserves tagged Supervisor model content while rendering one visible `[Supervisor]` header and plain instruction body.
 - `packages/coding-agent/extensions/goal/src/goal-args.ts` — parses supported `/goal` command actions and rejects removed flags.
 - `packages/coding-agent/src/core/tool-capabilities.ts` — defines the supervisor-only tool capability list used by non-supervisor runtimes.
-- `packages/coding-agent/extensions/agents-core/src/runtime.ts` — excludes supervisor-only tools from spawned and attached child session factories while preserving first-party goal-extension filtering.
+- `packages/coding-agent/extensions/agents-core/src/session-factories.ts` — excludes supervisor-only tools from spawned and attached child session factories while preserving first-party goal-extension filtering.
 - `packages/coding-agent/src/architect/main.ts` — excludes supervisor-only tools from the resident Architect service.
 - `packages/coding-agent/extensions/goal/package.json` — workspace metadata for the first-party goal extension package.
 - `package.json` / `package-lock.json` — include the goal extension as a reviewed workspace package.

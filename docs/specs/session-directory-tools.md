@@ -63,7 +63,7 @@ Module boundary: core built-in tools + session control DB.
 
 - `packages/coding-agent/src/core/session-health.ts` — health TS types and pure sticky-check rules.
 - `packages/coding-agent/src/core/session-directory.ts` — inventory assembly and checks.
-- `packages/coding-agent/src/core/session-control-db.ts` — `session_health` persistence and listener
+- `packages/coding-agent/src/core/session-control-db/session-health.ts` and `runtime-mailbox-listeners.ts` — `session_health` persistence and listener
   generation bookkeeping.
 - `packages/coding-agent/src/core/tools/list-sessions.ts` — `list_sessions` tool.
 - `packages/coding-agent/src/core/tools/index.ts` — built-in tool registration.

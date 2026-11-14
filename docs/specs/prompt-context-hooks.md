@@ -50,7 +50,7 @@ First-party dependents: `/goal` needs `before_agent_start` to keep the active go
 - `packages/coding-agent/src/core/extensions/runner.ts:946-978` — `emitBeforeProviderRequest`: chained payload replacement, `undefined` = no-op, per-extension error catch.
 - `packages/coding-agent/src/core/extensions/runner.ts:980-1044` — `emitBeforeAgentStart`: `ctx.getSystemPrompt()` returns the chained value, collects `message[]`, returns combined result only if modified.
 - `packages/coding-agent/extensions/goal/src/index.ts` — first-party `/goal` extension injects active-goal context with `before_agent_start`.
-- `packages/coding-agent/extensions/agents-core/src/runtime.ts` — first-party multi-agent extension creates normal child `AgentSession` prompts; agent-specific prompt state belongs on this hook surface rather than in core prompt assembly.
+- `packages/coding-agent/extensions/agents-core/src/session-factories.ts` — first-party multi-agent extension creates normal child `AgentSession` prompts; agent-specific prompt state belongs on this hook surface rather than in core prompt assembly.
 
 ## Tests asserting this spec
 

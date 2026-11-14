@@ -291,14 +291,14 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
 
 ## Implementation inventory
 
-- `packages/coding-agent/src/core/session-control-db.ts` — global SQLite path and schema,
+- `packages/coding-agent/src/core/session-control-db/` — global SQLite path and schema,
   incoming-message claim/complete API, canonical mailbox delivery and listener/health lifecycle,
   per-session cwd/model/thinking metadata, multi-agent rows and counters, prompt-history and
   session-metadata APIs, and
   persisted spawned-agent ghost reconciliation.
 - `packages/coding-agent/src/core/detached-job-control.ts` — timestamps status request/response envelopes.
 - `packages/coding-agent/extensions/pyrun/src/detached-bridge.ts` — timestamps bridge request/response envelopes.
-- `buildDetachedCancellationMessage` in `session-control-db.ts` — timestamps cancellation from the mutation creation clock.
+- `buildDetachedCancellationMessage` in `session-control-db/multi-agent-lifecycle.ts` — timestamps cancellation from the mutation creation clock.
 - `packages/coding-agent/src/core/sqlite.ts` — shared multi-consumer SQLite open
   configuration helper used by the control DB.
 - `packages/coding-agent/src/core/tools/channel-post.ts` — built-in tool that appends to the

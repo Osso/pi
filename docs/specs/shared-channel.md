@@ -69,7 +69,7 @@ once needed.
 
 ## Implementation inventory
 
-- `packages/coding-agent/src/core/session-control-db.ts` — shared channel tables and cursor/message APIs.
+- `packages/coding-agent/src/core/session-control-db/schema.ts` and `packages/coding-agent/src/core/session-control-db/shared-channel.ts` — shared channel tables and cursor/message APIs.
 - `packages/coding-agent/src/core/agent-session.ts` — idle drain integration and shared-channel custom-message delivery.
 - `packages/coding-agent/src/core/runtime-coordination-format.ts` — sender/body formatting and receive-side handling context.
 - `packages/coding-agent/src/core/tools/channel-post.ts` — `channel_post` built-in tool and posting policy.

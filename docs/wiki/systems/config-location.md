@@ -12,7 +12,7 @@
 | State | `PI_CODING_AGENT_STATE_DIR` | `$XDG_STATE_HOME/pi` | `~/.local/state/pi` |
 | Cache | None | `$XDG_CACHE_HOME/pi` | `~/.cache/pi` |
 
-Overrides support tilde expansion. Agent-relative helpers resolve auth, settings, models, themes, tools, prompts and sessions. [`session-control-db.ts`](../../../packages/coding-agent/src/core/session-control-db.ts) puts `control.sqlite` under the state root and creates its parent before opening for writes; callers can supply an explicit directory for isolation.
+Overrides support tilde expansion. Agent-relative helpers resolve auth, settings, models, themes, tools, prompts and sessions. [`control-db-path.ts`](../../../packages/coding-agent/src/core/session-control-db/control-db-path.ts) puts `control.sqlite` under the state root, and [`connection.ts`](../../../packages/coding-agent/src/core/session-control-db/connection.ts) creates its parent before opening for writes; callers can supply an explicit directory for isolation.
 
 [`settings-manager.ts`](../../../packages/coding-agent/src/core/settings-manager.ts) reads global `settings.json` under the agent directory and project `.pi/settings.json`. [`resource-loader.ts`](../../../packages/coding-agent/src/core/resource-loader.ts) loads global agent rules and, for trusted projects, project `.pi/rules`. [`package-manager.ts`](../../../packages/coding-agent/src/core/package-manager.ts) keeps project resources rooted in workspace `.pi/`.
 

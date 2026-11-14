@@ -308,11 +308,11 @@ folder from reading stale manifests or output belonging to another supervisor.
 ## Implementation inventory
 
 - `packages/coding-agent/src/core/lifecycle-coordinator.ts` — sole control-plane lifecycle commands.
-- `packages/coding-agent/src/core/session-control-db.ts` — exact process-owner transactions,
+- `packages/coding-agent/src/core/session-control-db/` — exact process-owner transactions,
   terminal agent rows, completion outbox delivery, and schema/version enforcement.
 - `packages/coding-agent/src/core/multi-agent-store.ts` — read/projection state, metadata, listeners,
   and restore-time removal of runtime-only worker handles; no lifecycle mutation API.
-- `packages/coding-agent/extensions/agents-core/src/runtime.ts` — coordinator-backed dispatch,
+- `packages/coding-agent/extensions/agents-core/src/` — coordinator-backed dispatch,
   cancellation, steering, attached recovery, waits, and shutdown ordering.
 - `packages/coding-agent/extensions/agents-core/src/detached-runtime-cancellation.ts` — direct detached
   Bash/Pyrun classification, persisted cancellation requests, and silent subagent terminal cleanup.

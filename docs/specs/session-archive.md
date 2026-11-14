@@ -87,7 +87,7 @@ Sessions archived through `/archive`, the resume picker, or `pi sessions archive
 
 - `packages/coding-agent/extensions/session-archive/src/index.ts` — registers argument-free `/archive`, `/delete`, and `/unarchive` commands targeting only the current persisted session.
 - `packages/coding-agent/src/core/session-delete.ts` — shared session and child-agent-session deletion used by `/delete` and the picker.
-- `packages/coding-agent/src/core/session-control-db.ts` — archive metadata schema, migration, listing, and archive APIs.
+- `packages/coding-agent/src/core/session-control-db/schema.ts`, `migrations.ts`, and `session-archive.ts` — archive metadata schema, migration, listing, and archive APIs.
 - `packages/coding-agent/src/core/session-manager.ts` — active, archived, and read-only session loaders.
 - `packages/coding-agent/src/core/idle-session-archive.ts` — age/ownership screening, streamed byte-verified automatic archival.
 - `packages/coding-agent/src/core/session-transcript.ts` — shared archived path resolution and text/stream readers.

@@ -4,9 +4,9 @@ Contract: [Session control DB](../../specs/session-control-db.md).
 
 ## Storage boundary
 
-[session-control-db.ts](../../../packages/coding-agent/src/core/session-control-db.ts) owns SQLite schema and repository operations. `getControlDbPath()` appends `control.sqlite` to the state root from [config.ts](../../../packages/coding-agent/src/config.ts): `PI_CODING_AGENT_STATE_DIR`, otherwise `$XDG_STATE_HOME/pi`, otherwise `~/.local/state/pi`. An explicit directory gives an isolated database. There is no automatic agent-config-directory migration.
+The [session-control-db modules](../../../packages/coding-agent/src/core/session-control-db/) own SQLite schema and repository operations. `getControlDbPath()` appends `control.sqlite` to the state root from [config.ts](../../../packages/coding-agent/src/config.ts): `PI_CODING_AGENT_STATE_DIR`, otherwise `$XDG_STATE_HOME/pi`, otherwise `~/.local/state/pi`. An explicit directory gives an isolated database. There is no automatic agent-config-directory migration.
 
-[sqlite.ts](../../../packages/coding-agent/src/core/sqlite.ts) selects Node/Bun SQLite and configures WAL and NORMAL synchronous. The default busy timeout is 10,000 ms (previously 5,000 ms) for both read-only and shared configured connections; explicit caller `busyTimeoutMs` overrides remain honored. Repository calls open/close connections unless retained by a runtime; retained calls finalize Bun statements after the outermost call. Coupled writes use immediate transactions. Initialization rejects schema versions above 15. Lifecycle-protocol and name migrations check runtime quiescence before writer acquisition and revalidate the snapshot inside the transaction; validated same-PID restart can exempt only its own process.
+[sqlite.ts](../../../packages/coding-agent/src/core/sqlite.ts) selects Node/Bun SQLite and configures WAL and NORMAL synchronous. The default busy timeout is 10,000 ms (previously 5,000 ms) for both read-only and shared configured connections; explicit caller `busyTimeoutMs` overrides remain honored. Repository calls open/close connections unless retained by a runtime; retained calls finalize Bun statements after the outermost call. Coupled writes use immediate transactions. Additive column migrations run in one immediate transaction per table when changes are needed. Initialization rejects schema versions above 15. Lifecycle-protocol and name migrations check runtime quiescence before writer acquisition and revalidate the snapshot inside the transaction; validated same-PID restart can exempt only its own process.
 
 ### Busy-timeout behavior
 
@@ -49,13 +49,12 @@ JSONL remains conversation storage; control state is not a replacement transcrip
 
 ## Mailbox lookup and retention
 
-[agents-core runtime.ts](../../../packages/coding-agent/extensions/agents-core/src/runtime.ts) uses
-`listRuntimeMailboxMessagesForSession()` for terminal duplicate lookup across all recipients/statuses
-in the exact owning `session_path`. Sender, `system` kind, parsed terminal body type, agent ID, and
-terminal revision matching are unchanged. Core retains `listRuntimeMailboxMessages()` for global
+[runtime-mailbox-status.ts](../../../packages/coding-agent/src/core/session-control-db/runtime-mailbox-status.ts) defines
+`listRuntimeMailboxMessagesForSession()` for lookup across all recipients/statuses
+in the exact owning `session_path`. Core retains `listRuntimeMailboxMessages()` for global
 administrative listing.
 
-`session-control-db.ts` indexes a creation-time expression over canonical payload `createdAt`, with
+`session-control-db/connection.ts` indexes a creation-time expression over canonical payload `createdAt`, with
 missing/unparseable values ordered as expired. Initialization and one unref'ed 60-second timer per
 retained connection run cleanup; final release cancels the timer. Cleanup probes read-only and, when
 due, deletes all expired canonical rows in one statement, without a batch limit. Age never uses

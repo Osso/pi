@@ -183,7 +183,7 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 - `packages/coding-agent/src/main.ts` — early dispatch for resident-console flags without changing service commands.
 - `packages/coding-agent/src/supervisor/project-resolver.ts` — KB config loading and canonical project-family resolution.
 - `packages/coding-agent/src/supervisor/approval-reviewer.ts` — approval decision enforcement and human escalation.
-- `packages/coding-agent/src/core/session-control-db.ts` — durable `supervisor_requests` repository.
+- `packages/coding-agent/src/core/session-control-db/supervisor.ts` — durable `supervisor_requests` repository.
 - `packages/coding-agent/src/core/tools/ask-supervisor.ts` — main-session-only bounded advisory tool.
 - `packages/coding-agent/src/core/agent-session.ts` / `packages/coding-agent/src/modes/interactive/interactive-mode.ts` — active-review cancellation registration and global Escape routing.
 - `packages/coding-agent/extensions/goal/src/index.ts` — completion and existing `agent_end` continuation gates.

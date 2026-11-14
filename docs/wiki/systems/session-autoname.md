@@ -8,7 +8,7 @@ Contract: [Session naming](../../specs/session-autoname.md).
 
 ## Write path
 
-The tool normalizes the requested name, then writes it through `pi.setSessionName`. [AgentSession](../../../packages/coding-agent/src/core/agent-session.ts) emits `session_info_changed`; [SessionManager](../../../packages/coding-agent/src/core/session-manager.ts) persists through [control DB name APIs](../../../packages/coding-agent/src/core/session-control-db.ts), not JSONL. `NULL` means never named; an explicit clear stores `''` and blocks further naming. See [session control DB](session-control-db.md).
+The tool normalizes the requested name, then writes it through `pi.setSessionName`. [AgentSession](../../../packages/coding-agent/src/core/agent-session.ts) emits `session_info_changed`; [SessionManager](../../../packages/coding-agent/src/core/session-manager.ts) persists through [control DB name APIs](../../../packages/coding-agent/src/core/session-control-db/session-metadata.ts), not JSONL. `NULL` means never named; an explicit clear stores `''` and blocks further naming. See [session control DB](session-control-db.md).
 
 Refusals return an error tool result instead of writing:
 

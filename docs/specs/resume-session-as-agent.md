@@ -55,12 +55,12 @@ Resume Session as Agent lets a supervisor session attach an existing Pi session 
 ## Implementation inventory
 
 - `packages/coding-agent/src/core/multi-agent-store.ts` — owns agent node lifecycle, revisions, transcript metadata, mailbox state, and projections.
-- `packages/coding-agent/extensions/agents-core/src/runtime.ts` — exposes attach/list/wait/cancel/steer runtime operations and child/attached session factory integration.
+- `packages/coding-agent/extensions/agents-core/src/runtime.ts` — registers attach/list/wait/cancel/steer tools; `session-factories.ts` implements child/attached session factories.
 - `packages/coding-agent/extensions/agents-core/src/index.ts` — exports the attached-session factory and related types from the first-party agents-core package.
 - `packages/coding-agent/src/main.ts` — wires production attached-session factories into first-party agents-core.
 - `packages/coding-agent/src/core/session-manager.ts` — owns persisted session metadata and session file resolution needed to find an existing transcript.
 - `packages/coding-agent/src/core/agent-session.ts` — owns live agent runtime, explicit multi-agent identity, prompt processing, follow-up queues, tool approval, abort, and compaction behavior.
-- `packages/coding-agent/src/core/session-control-db.ts` — owns the SQLite control channel and runtime mailbox primitives used for cross-session delivery.
+- `packages/coding-agent/src/core/session-control-db/` — owns the SQLite control channel and runtime mailbox primitives used for cross-session delivery.
 - `packages/coding-agent/src/core/extensions/types.ts` — defines session lifecycle events, extension tool/command contracts, and explicit runtime agent identity on extension contexts.
 - `packages/coding-agent/src/core/extensions/runner.ts` — carries explicit runtime agent identity into extension contexts.
 - `packages/coding-agent/src/core/sdk.ts` — passes explicit runtime agent identity into created agent sessions.
