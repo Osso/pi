@@ -17,7 +17,9 @@
  * - setKittyProtocolActive(active) - Set global Kitty protocol state
  * - isKittyProtocolActive() - Query global Kitty protocol state
  */
+import { FUNCTION_KEY_CODEPOINTS, formatFunctionKeyName, parseFunctionKeySequence } from "./function-key.ts";
 import { splitKeyId } from "./key-id.ts";
+
 // =============================================================================
 // Global Kitty Protocol State
 // =============================================================================
@@ -650,7 +652,7 @@ function parseKittySequence(data: string): ParsedKittySequence | null {
 		return { codepoint, modifier: modValue - 1, eventType };
 	}
 
-	return null;
+	return parseFunctionKeySequence(data);
 }
 
 function matchesKittySequence(data: string, expectedCodepoint: number, expectedModifier: number): boolean {
@@ -1140,11 +1142,9 @@ export function matchesKey(data: string, keyId: KeyId): boolean {
 		case "f10":
 		case "f11":
 		case "f12": {
-			if (modifier !== 0) {
-				return false;
-			}
-			const functionKey = key as keyof typeof LEGACY_KEY_SEQUENCES;
-			return matchesLegacySequence(data, LEGACY_KEY_SEQUENCES[functionKey]);
+			const functionKey = key as keyof typeof FUNCTION_KEY_CODEPOINTS;
+			if (modifier === 0 && matchesLegacySequence(data, LEGACY_KEY_SEQUENCES[functionKey])) return true;
+			return matchesKittySequence(data, FUNCTION_KEY_CODEPOINTS[functionKey], modifier);
 		}
 	}
 
@@ -1228,7 +1228,7 @@ function formatParsedKey(codepoint: number, modifier: number, baseLayoutKey?: nu
 	const effectiveCodepoint =
 		isLatinLetter || isDigit || isKnownSymbol ? identityCodepoint : (baseLayoutKey ?? identityCodepoint);
 
-	let keyName: string | undefined;
+	let keyName = formatFunctionKeyName(effectiveCodepoint);
 	if (effectiveCodepoint === CODEPOINTS.escape) keyName = "escape";
 	else if (effectiveCodepoint === CODEPOINTS.tab) keyName = "tab";
 	else if (effectiveCodepoint === CODEPOINTS.enter || effectiveCodepoint === CODEPOINTS.kpEnter) keyName = "enter";

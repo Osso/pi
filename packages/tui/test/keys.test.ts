@@ -13,6 +13,63 @@ import {
 	setKittyProtocolActive,
 } from "../src/keys.ts";
 
+const functionKeys = [
+	["f1", 11, "P", 57364],
+	["f2", 12, "Q", 57365],
+	["f3", 13, "R", 57366],
+	["f4", 14, "S", 57367],
+	["f5", 15, "", 57368],
+	["f6", 17, "", 57369],
+	["f7", 18, "", 57370],
+	["f8", 19, "", 57371],
+	["f9", 20, "", 57372],
+	["f10", 21, "", 57373],
+	["f11", 23, "", 57374],
+	["f12", 24, "", 57375],
+] as const;
+
+function assertFunctionKeyEncodings([key, tildeCode, letter, kittyCode]: (typeof functionKeys)[number]): void {
+	const prefixes = [
+		"",
+		"shift+",
+		"alt+",
+		"shift+alt+",
+		"ctrl+",
+		"shift+ctrl+",
+		"ctrl+alt+",
+		"shift+ctrl+alt+",
+		"super+",
+		"shift+super+",
+		"alt+super+",
+		"shift+alt+super+",
+		"ctrl+super+",
+		"shift+ctrl+super+",
+		"ctrl+alt+super+",
+		"shift+ctrl+alt+super+",
+	] as const;
+	for (const [modifier, prefix] of prefixes.entries()) {
+		const binding = `${prefix}${key}` as const;
+		for (const event of ["", ":1", ":2", ":3"]) {
+			const sequences = [
+				`\x1b[${tildeCode};${modifier + 1}${event}~`,
+				`\x1b[${kittyCode};${modifier + 1}${event}u`,
+				...(letter ? [`\x1b[1;${modifier + 1}${event}${letter}`] : []),
+			];
+			for (const data of sequences) {
+				assert.strictEqual(parseKey(data), binding, JSON.stringify(data));
+				assert.strictEqual(matchesKey(data, binding), true, binding);
+				assert.strictEqual(matchesKey(data, "ctrl+f1"), binding === "ctrl+f1");
+				assert.strictEqual(matchesKey(data, key), modifier === 0);
+			}
+		}
+	}
+	for (const data of [`\x1b[${tildeCode}~`, `\x1b[${kittyCode}u`, ...(letter ? [`\x1b[${letter}`] : [])]) {
+		assert.strictEqual(parseKey(data), key);
+		assert.strictEqual(matchesKey(data, key), true);
+		assert.strictEqual(matchesKey(data, Key.shift(key)), false);
+	}
+}
+
 function withEnv(name: string, value: string | undefined, fn: () => void): void {
 	const previous = process.env[name];
 	if (value === undefined) delete process.env[name];
@@ -508,6 +565,31 @@ describe("matchesKey", () => {
 			assert.strictEqual(matchesKey("\x1bOP", "f1"), true);
 			assert.strictEqual(matchesKey("\x1b[24~", "f12"), true);
 			assert.strictEqual(matchesKey("\x1b[E", "clear"), true);
+		});
+
+		describe("modified function keys", () => {
+			it("matches legacy Ctrl+F12", () => {
+				assert.strictEqual(matchesKey("\x1b[24;5~", "ctrl+f12"), true);
+				assert.strictEqual(parseKey("\x1b[24;5~"), "ctrl+f12");
+			});
+
+			it("matches legacy Shift+F1", () => {
+				assert.strictEqual(matchesKey("\x1b[1;2P", "shift+f1"), true);
+				assert.strictEqual(parseKey("\x1b[1;2P"), "shift+f1");
+			});
+
+			for (const functionKey of functionKeys) {
+				for (const kittyActive of [false, true]) {
+					it(`parses and matches ${functionKey[0]} encodings with Kitty ${kittyActive}`, () => {
+						setKittyProtocolActive(kittyActive);
+						try {
+							assertFunctionKeyEncodings(functionKey);
+						} finally {
+							setKittyProtocolActive(false);
+						}
+					});
+				}
+			}
 		});
 
 		it("should match alt+arrows", () => {
