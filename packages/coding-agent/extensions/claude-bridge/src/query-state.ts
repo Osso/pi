@@ -274,3 +274,5 @@ export function ctx(): QueryContext {
 export function resetCtx(): void {
 	_ctx = new QueryContext();
 }
+
+export const activeQueryContexts = new Set<QueryContext>();
