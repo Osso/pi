@@ -9,6 +9,7 @@
 		"packages/agent-core/src/**/*.ts",
 		"packages/tui/src/**/*.ts",
 		"packages/coding-agent/src/**/*.ts",
-		"packages/coding-agent/extensions/**/*.ts"
+		"packages/coding-agent/extensions/**/*.ts",
+		"packages/orchestrator/src/**/*.ts"
 	]
 }
