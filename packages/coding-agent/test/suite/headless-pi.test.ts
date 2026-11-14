@@ -311,7 +311,8 @@ describe("headless Pi fixture", () => {
 			expect(readSessionMetadata(getControlDbPath(agentDir), sessionFile)).toBeUndefined();
 			expect(existsSync(sessionFile)).toBe(false);
 		} finally {
-			rmSync(dirname(agentDir), { recursive: true, force: true });
+			// agentDir stays empty when Pi fails before the callback runs, and dirname("") is the working directory.
+			if (agentDir) rmSync(dirname(agentDir), { recursive: true, force: true });
 		}
 	});
 	it("does not throw when a provider socket emits an expected ECONNRESET teardown error", async () => {
