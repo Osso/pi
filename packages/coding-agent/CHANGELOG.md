@@ -464,6 +464,7 @@
 - Fixed edits that change about 5KB or more losing their diff and patch: the tool-result cap replaced `details` over 11KB, so the diff was missing after a resume, a chat rebuild, and in HTML export. Details now have a separate 1 MiB storage cap.
 - Fixed the `edit` tool accepting an `oldText` whose occurrences overlap (for example `}\n}` in `}\n}\n}`) as unique and replacing the first one; overlapping occurrences now count as duplicates.
 - Fixed the `edit` tool inserting text at the start of a file when a missing whitespace-only `oldText` becomes empty after fuzzy normalization; the edit now reports text not found and leaves the file unchanged.
+- Fixed Bash output losing a long newline-terminated line after rolling-buffer trimming; the result now retains the final bytes as a partial line.
 
 ### Changed
 
