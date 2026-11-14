@@ -62,6 +62,7 @@
 - Fixed missing thought signature error (HTTP 400) when replaying unsigned tool calls on Google Generative AI thinking models by sending the `skip_thought_signature_validator` sentinel.
 - Fixed OpenAI Responses and Codex content-filter incomplete responses discarding terminal token usage, reasoning tokens, and costs while preserving the content-filter error.
 - Fixed Anthropic replay to preserve signed empty thinking blocks returned with `thinkingDisplay: "omitted"` for multi-turn continuity.
+- Fixed Google AI Studio and Vertex streams replacing error and token-limit stop reasons with tool use after a function call.
 
 ### Added
 

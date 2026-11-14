@@ -212,7 +212,7 @@ export const stream: StreamFunction<"google-generative-ai", GoogleOptions> = (
 
 				if (candidate?.finishReason) {
 					output.stopReason = mapStopReason(candidate.finishReason);
-					if (output.content.some((b) => b.type === "toolCall")) {
+					if (output.stopReason === "stop" && output.content.some((b) => b.type === "toolCall")) {
 						output.stopReason = "toolUse";
 					}
 				}
