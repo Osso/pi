@@ -1030,12 +1030,6 @@ describe("Coding Agent Tools", () => {
 
 			expect(result.truncated).toBe(true);
 			expect(fullOutputPath).toBeDefined();
-
-			for (let i = 0; i < 20 && (!fullOutputPath || !existsSync(fullOutputPath)); i++) {
-				await new Promise((resolve) => setTimeout(resolve, 10));
-			}
-
-			expect(fullOutputPath).toBeDefined();
 			expect(existsSync(requireValue(fullOutputPath))).toBe(true);
 			const fullOutput = readFileSync(requireValue(fullOutputPath), "utf-8");
 			expect(fullOutput.split("\n").filter((line) => line === "x")).toHaveLength(3000);

@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed user `!` bash commands returning `fullOutputPath` before the full-output file was written.
 - Fixed signal-terminated local shell commands being reported as successful with partial output ([#9577](https://github.com/earendil-works/pi/issues/9577)).
 - Fixed `settingsManager.applyOverrides({ sandboxProfile })` being ignored by the sandbox profile getters, so SDK sessions ran with the file-configured profile.
 - Fixed `pi "<message>" tools` (also `extensions` and `login`) treating a later message word as a command; command words are only recognized before the first message.
