@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed `find` trimming spaces from file names, which returned paths such as `report.txt` for a file named `report.txt ` that does not exist.
 - Fixed prompt-template arguments dropping a quoted empty argument: `/t "" beta` now sets `$1` to empty (so `${1:-default}` applies) and `$2` to `beta`.
 - Fixed the control DB keeping every finished Supervisor request forever (245 MB after four months); `completed` and `cancelled` `supervisor_requests` rows are now deleted 24 hours after they finish.
 - claude-bridge continues the turn when tool results arrive after the Claude Code query ended (a long wait, a detached tool, or a new process), instead of replying with an empty message that dropped the results.

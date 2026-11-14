@@ -293,7 +293,8 @@ export function createFindToolDefinition(
 
 							const relativized: string[] = [];
 							for (const rawLine of lines) {
-								const line = rawLine.replace(/\r$/, "").trim();
+								// Only the line ending is framing: spaces belong to the file name.
+								const line = rawLine.replace(/\r$/, "");
 								if (!line) continue;
 								const hadTrailingSlash = line.endsWith("/") || line.endsWith("\\");
 								let relativePath = path.relative(searchPath, line);
