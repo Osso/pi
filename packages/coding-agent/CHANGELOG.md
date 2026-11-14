@@ -257,6 +257,7 @@
 
 ### Fixed
 
+- Fixed `database is locked` failures when several processes open a new control or other shared SQLite database at the same time: SQLite switches the journal mode to WAL without calling the busy handler, so the switch is now retried within the busy timeout.
 - Fixed the expanded `read` result for files over 10KB showing the head-read buffer's line count as the file's line total; it now shows `[Truncated: N lines shown (10.0KB limit)]`.
 - Fixed session persistence truncating tool result text to keep large `details` when the entry exceeded 1 MiB; `details` are now dropped first, so a resumed session gives the model the same tool output.
 - Fixed model pools and compaction retry cooldowns to distinguish quota exhaustion from rate limits, including quota errors returned with HTTP 429.

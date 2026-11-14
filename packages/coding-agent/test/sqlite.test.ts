@@ -133,6 +133,66 @@ describe("SQLite adapter", () => {
 		}
 	});
 
+	test("processes that open the same new database at the same time all enable WAL", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "pi-sqlite-concurrent-create-"));
+		const scriptPath = join(directory, "open.ts");
+		const sqliteModuleUrl = pathToFileURL(resolve(import.meta.dirname, "../src/core/sqlite.ts")).href;
+		writeFileSync(
+			scriptPath,
+			`import { configureSharedSqliteDatabase, createSqliteDatabase } from ${JSON.stringify(sqliteModuleUrl)};
+const [directory, startAt] = process.argv.slice(2);
+while (Date.now() < Number(startAt)) {}
+const errors = [];
+for (let index = 0; index < 40; index++) {
+	const database = createSqliteDatabase(directory + "/db-" + index + ".sqlite");
+	try {
+		configureSharedSqliteDatabase(database);
+		database.exec("CREATE TABLE IF NOT EXISTS values_table (value INTEGER)");
+	} catch (error) {
+		errors.push(String(error));
+	} finally {
+		database.close();
+	}
+}
+console.log(JSON.stringify(errors));
+`,
+		);
+		try {
+			const startAt = String(Date.now() + 1500);
+			const outputs = await Promise.all(
+				Array.from(
+					{ length: 8 },
+					() =>
+						new Promise<string>((resolveOutput, reject) => {
+							const child = spawn(process.execPath, [scriptPath, directory, startAt], { stdio: "pipe" });
+							let stdout = "";
+							let stderr = "";
+							child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
+								stdout += chunk;
+							});
+							child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+								stderr += chunk;
+							});
+							child.once("error", reject);
+							child.once("close", (code) =>
+								code === 0 ? resolveOutput(stdout) : reject(new Error(`exit ${code}: ${stderr}`)),
+							);
+						}),
+				),
+			);
+			const errors = outputs.flatMap((output) => JSON.parse(output) as string[]);
+			expect(errors).toEqual([]);
+			const database = createReadOnlySqliteDatabase(join(directory, "db-0.sqlite"));
+			try {
+				expect(database.prepare("PRAGMA journal_mode").get()).toEqual({ journal_mode: "wal" });
+			} finally {
+				database.close();
+			}
+		} finally {
+			rmSync(directory, { force: true, recursive: true });
+		}
+	}, 30000);
+
 	test.runIf(hasBun)(
 		"Bun default shared timeout persists a write after another process holds the lock beyond five seconds",
 		async () => {

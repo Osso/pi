@@ -120,12 +120,31 @@ export function configureSharedSqliteDatabase(
 	db.exec(`PRAGMA busy_timeout = ${busyTimeoutMs}`);
 	const journalMode = readPragmaValue(db, "PRAGMA journal_mode");
 	if (journalMode !== "wal") {
-		db.exec("PRAGMA journal_mode = WAL");
+		enableWalJournalMode(db, busyTimeoutMs);
 	}
 	const synchronous = readPragmaValue(db, "PRAGMA synchronous");
 	// 1 == NORMAL. WAL + NORMAL is the standard multi-consumer throughput tradeoff.
 	if (synchronous !== "1" && synchronous !== "normal") {
 		db.exec("PRAGMA synchronous = NORMAL");
+	}
+}
+
+const retrySleepCell = new Int32Array(new SharedArrayBuffer(4));
+
+/**
+ * SQLite takes the exclusive lock for a journal-mode change without calling the busy handler, so processes that
+ * open a new database at the same time get SQLITE_BUSY at once. Retry within the busy timeout instead.
+ */
+function enableWalJournalMode(db: SqliteDatabase, busyTimeoutMs: number): void {
+	const deadline = Date.now() + busyTimeoutMs;
+	for (let delayMs = 5; ; delayMs = Math.min(delayMs * 2, 200)) {
+		try {
+			db.exec("PRAGMA journal_mode = WAL");
+			return;
+		} catch (error) {
+			if (!isSqliteContentionError(error) || Date.now() >= deadline) throw error;
+			Atomics.wait(retrySleepCell, 0, 0, delayMs * (0.5 + Math.random() / 2));
+		}
 	}
 }
 
