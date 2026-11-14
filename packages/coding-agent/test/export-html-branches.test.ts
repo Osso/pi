@@ -40,4 +40,23 @@ describe("export HTML conversation path", () => {
 		expect(html).not.toContain("ABANDONED-RESULT");
 	});
 
+	it("shows the text of a custom message with content blocks", () => {
+		const html = renderExportHtml(
+			[
+				{
+					type: "custom_message",
+					id: "c1",
+					parentId: null,
+					timestamp,
+					customType: "notice",
+					content: [{ type: "text", text: "NOTICE-TEXT" }],
+					display: true,
+				},
+			],
+			"c1",
+		);
+
+		expect(html).toContain("NOTICE-TEXT");
+		expect(html).not.toContain('"type":"text"');
+	});
 });
