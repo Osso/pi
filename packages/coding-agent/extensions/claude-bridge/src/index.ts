@@ -58,7 +58,6 @@ import { MCP_SERVER_NAME, MCP_TOOL_PREFIX } from "./skills.ts";
 import {
 	continueWithToolResults,
 	emitDeferredToolFailure,
-	emitOrphanedToolResultEnd,
 	resetQueryContextForFreshQuery,
 	resolveFreshPromptText,
 } from "./stream-dispatch.ts";
@@ -567,19 +566,12 @@ function streamClaudeAgentSdk(
 		return stream;
 	}
 
-	// --- Orphaned tool result (e.g. user aborted a tool call): see emitOrphanedToolResultEnd ---
+	// --- Unowned tool results ---
+	// No live query owns these results: the query ended while Pi ran the tools (a long
+	// wait, a detached tool, a new process) or another provider made the calls. Pi still
+	// expects an answer, so a fresh query over the rebuilt history continues the turn.
 	const lastMsg = context.messages[context.messages.length - 1];
-	const previousAssistant = [...context.messages].reverse().find((message) => message.role === "assistant") as
-		| AssistantMessage
-		| undefined;
-	const continuingOtherProvider =
-		lastMsg?.role === "toolResult" &&
-		previousAssistant !== undefined &&
-		previousAssistant.provider !== model.provider;
-	if (lastMsg?.role === "toolResult" && !rewrittenUnderQuery && !quotaRetry && !continuingOtherProvider) {
-		emitOrphanedToolResultEnd(stream, model, context, options, allResults);
-		return stream;
-	}
+	const continuingFromToolResults = lastMsg?.role === "toolResult";
 
 	// --- Fresh query ---
 	pendingToolFailures.delete(piSession);
@@ -634,7 +626,7 @@ function streamClaudeAgentSdk(
 		isReentrant,
 		rewrittenUnderQuery,
 		quotaRetry,
-		continuingOtherProvider,
+		continuingFromToolResults,
 	);
 
 	// Always stream the prompt rather than passing a string: a parked input

@@ -257,6 +257,7 @@
 
 ### Fixed
 
+- claude-bridge continues the turn when tool results arrive after the Claude Code query ended (a long wait, a detached tool, or a new process), instead of replying with an empty message that dropped the results.
 - Fixed `grep` dropping the `Some paths could not be searched` notice when the match limit stopped the search.
 - Fixed RPC `prompt`, `steer` and `follow_up` with a missing or non-string `message` failing with an internal TypeError text; they now fail with `message must be a string`.
 - Fixed RPC `set_session_name` with a missing or non-string `name` failing with an internal TypeError text; it now fails with `name must be a string`.
