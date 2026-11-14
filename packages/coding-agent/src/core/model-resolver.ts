@@ -278,6 +278,7 @@ export async function resolveModelScopeWithDiagnostics(
 	modelRegistry: ModelRegistry,
 	options?: { includeUnauthenticated?: boolean },
 ): Promise<ResolveModelScopeResult> {
+	if (patterns.length === 0) return { scopedModels: [], diagnostics: [] };
 	const availableModels = options?.includeUnauthenticated
 		? modelRegistry.getAll()
 		: await modelRegistry.getAvailable();
