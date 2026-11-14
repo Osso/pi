@@ -1,15 +1,4 @@
-import {
-	closeSync,
-	existsSync,
-	type FSWatcher,
-	fstatSync,
-	fsyncSync,
-	openSync,
-	readFileSync,
-	readSync,
-	renameSync,
-	writeFileSync,
-} from "node:fs";
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 import { finalizeDetachedJobWithRetry } from "../../../src/core/detached-bash-runner.ts";
 import { createDetachedJobLifecycleController } from "../../../src/core/detached-job-lifecycle.ts";
@@ -24,7 +13,17 @@ import {
 } from "../../../src/core/runtime-process.ts";
 import { finalizeDetachedJob, readMultiAgentAgent } from "../../../src/core/session-control-db.ts";
 import type { ToolDetachRegistry } from "../../../src/core/tool-detach-registry.ts";
-import { closeWatcher, watchWithErrorHandler } from "../../../src/utils/fs-watch.ts";
+
+import {
+	ARTIFACT_POLL_MS,
+	createArtifactWakeup,
+	createJsonLineReadCursor,
+	type JsonLineReadCursor,
+	type JsonLineReadResult,
+	readNewArtifactRecords,
+	readNewJsonLines,
+	waitForArtifactActivity,
+} from "./detached-evaluation-artifacts.ts";
 import { createArtifactProgressAccumulator, type PyrunArtifactRecord } from "./detached-progress.ts";
 import {
 	launchDetachedPyrunRunner,
@@ -42,83 +41,7 @@ import {
 } from "./eval-tool.ts";
 import type { CanonicalPyrunEvalResult, CanonicalPyrunProgressUpdate, PyrunRunnerOptions } from "./runner.ts";
 
-const ARTIFACT_POLL_MS = 1_000;
-const ARTIFACT_READ_BYTE_LIMIT = 1_048_576;
 const FOREGROUND_RUNNER_LIVENESS_POLL_MS = 3_000;
-
-interface ArtifactWakeup {
-	wait(): Promise<void>;
-	close(): void;
-}
-
-class ArtifactWakeupController implements ArtifactWakeup {
-	private watcher: FSWatcher | null;
-	private pendingResolve: (() => void) | undefined;
-	private fallbackTimer: NodeJS.Timeout | undefined;
-	private wakePending = false;
-	private closed = false;
-
-	constructor(directory: string) {
-		this.watcher = watchWithErrorHandler(
-			directory,
-			() => this.handleActivity(),
-			() => this.handleWatchError(),
-		);
-	}
-
-	wait(): Promise<void> {
-		if (this.closed || this.wakePending) {
-			this.wakePending = false;
-			return Promise.resolve();
-		}
-		return new Promise<void>((resolve) => this.startWait(resolve));
-	}
-
-	close(): void {
-		if (this.closed) return;
-		this.closed = true;
-		closeWatcher(this.watcher);
-		this.watcher = null;
-		this.resolvePendingWait();
-	}
-
-	private startWait(resolve: () => void): void {
-		this.pendingResolve = resolve;
-		this.fallbackTimer = setTimeout(() => this.resolvePendingWait(), ARTIFACT_POLL_MS);
-	}
-
-	private handleActivity(): void {
-		this.wakePending = true;
-		this.resolvePendingWait();
-	}
-
-	private handleWatchError(): void {
-		closeWatcher(this.watcher);
-		this.watcher = null;
-	}
-
-	private resolvePendingWait(): void {
-		const resolve = this.pendingResolve;
-		this.pendingResolve = undefined;
-		this.clearFallbackTimer();
-		resolve?.();
-	}
-
-	private clearFallbackTimer(): void {
-		if (!this.fallbackTimer) return;
-		clearTimeout(this.fallbackTimer);
-		this.fallbackTimer = undefined;
-	}
-}
-
-function createArtifactWakeup(directory: string): ArtifactWakeup {
-	return new ArtifactWakeupController(directory);
-}
-
-async function waitForArtifactActivity(artifactWakeup: ArtifactWakeup, hasUnreadBytes: boolean): Promise<void> {
-	if (hasUnreadBytes) return;
-	await artifactWakeup.wait();
-}
 
 export async function runDurableDetachablePyrunEvaluation(input: {
 	agentId: string;
@@ -682,73 +605,6 @@ function formatTerminalAgentError(params: PyrunEvalParams, agent: AgentSnapshot)
 		details: { error, executed: params.code, type: "error" },
 		isError: true,
 	};
-}
-
-interface JsonLineReadCursor {
-	fragments: Buffer[];
-	fragmentBytes: number;
-	offset: number;
-}
-
-function createJsonLineReadCursor(): JsonLineReadCursor {
-	return { fragments: [], fragmentBytes: 0, offset: 0 };
-}
-
-interface JsonLineReadResult<T> {
-	hasUnreadBytes: boolean;
-	values: T[];
-}
-
-function readNewJsonLines<T>(path: string, cursor: JsonLineReadCursor): T[] {
-	return readJsonLineChunk<T>(path, cursor).values;
-}
-
-function readJsonLineChunk<T>(path: string, cursor: JsonLineReadCursor, byteLimit?: number): JsonLineReadResult<T> {
-	if (!existsSync(path)) return { hasUnreadBytes: false, values: [] };
-	const descriptor = openSync(path, "r");
-	try {
-		const size = fstatSync(descriptor).size;
-		if (size <= cursor.offset) return { hasUnreadBytes: false, values: [] };
-		const unreadBytes = size - cursor.offset;
-		const bytesToRead = byteLimit === undefined ? unreadBytes : Math.min(unreadBytes, byteLimit);
-		const data = Buffer.allocUnsafe(bytesToRead);
-		const bytesRead = readSync(descriptor, data, 0, data.length, cursor.offset);
-		cursor.offset += bytesRead;
-		return {
-			hasUnreadBytes: cursor.offset < size,
-			values: consumeJsonLineBytes<T>(cursor, data.subarray(0, bytesRead)),
-		};
-	} finally {
-		closeSync(descriptor);
-	}
-}
-
-function consumeJsonLineBytes<T>(cursor: JsonLineReadCursor, data: Buffer): T[] {
-	const values: T[] = [];
-	let start = 0;
-	for (;;) {
-		const newline = data.indexOf(0x0a, start);
-		if (newline === -1) break;
-		const fragment = data.subarray(start, newline);
-		const line =
-			cursor.fragmentBytes === 0
-				? fragment
-				: Buffer.concat([...cursor.fragments, fragment], cursor.fragmentBytes + fragment.length);
-		cursor.fragments = [];
-		cursor.fragmentBytes = 0;
-		if (line.length > 0) values.push(JSON.parse(line.toString("utf8")) as T);
-		start = newline + 1;
-	}
-	if (start < data.length) {
-		const fragment = data.subarray(start);
-		cursor.fragments.push(fragment);
-		cursor.fragmentBytes += fragment.length;
-	}
-	return values;
-}
-
-function readNewArtifactRecords(path: string, cursor: JsonLineReadCursor): JsonLineReadResult<PyrunArtifactRecord> {
-	return readJsonLineChunk<PyrunArtifactRecord>(path, cursor, ARTIFACT_READ_BYTE_LIMIT);
 }
 
 function detachedResult(params: PyrunEvalParams, jobId: string, logPath: string): AgentToolResult<unknown> {

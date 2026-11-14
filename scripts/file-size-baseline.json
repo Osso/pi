@@ -11,7 +11,6 @@
 	"packages/ai/src/types.ts": 755,
 	"packages/coding-agent/extensions/claude-bridge/src/index.ts": 1739,
 	"packages/coding-agent/extensions/codex-usage/src/index.ts": 1078,
-	"packages/coding-agent/extensions/pyrun/src/detached-evaluation.ts": 764,
 	"packages/coding-agent/src/core/agent-session.ts": 6476,
 	"packages/coding-agent/src/core/compaction/compaction.ts": 1070,
 	"packages/coding-agent/src/core/export-html/template.js": 1864,
