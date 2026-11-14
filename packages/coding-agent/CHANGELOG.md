@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed the resized-image note giving one scale factor for both axes when dimension rounding made them differ (for example a 100x12000 image shown at 17x2000); the note now gives separate x and y factors in that case.
 - Fixed requests using a provider's `models.json` `apiKey` when that provider has an `auth.json` entry whose key does not resolve; the `auth.json` entry now owns the provider as documented.
 - Fixed the legacy credential migration deleting `settings.json` API keys and renaming `oauth.json` before writing `auth.json`, so a failed write lost the keys for later startups.
 - Fixed a global approval preset staying active when a project `approvalPolicy` overrode it with a different policy: `/approvals` marked the wrong preset, and the stale preset still selected the reviewer and the tool-call `bypassPermissions` flag.

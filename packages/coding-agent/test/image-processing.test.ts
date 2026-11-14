@@ -205,6 +205,21 @@ describe("formatDimensionNote", () => {
 		expect(note).toContain("displayed at 1000x500");
 		expect(note).toContain("2.00"); // scale factor
 	});
+
+	it("gives separate axis scales when rounding makes them differ", () => {
+		const note = formatDimensionNote({
+			data: "",
+			mimeType: "image/png",
+			originalWidth: 100,
+			originalHeight: 12000,
+			width: 17,
+			height: 2000,
+			wasResized: true,
+		});
+		expect(note).toBe(
+			"[Image: original 100x12000, displayed at 17x2000. Multiply x by 5.88 and y by 6.00 to map to original image.]",
+		);
+	});
 });
 
 function requireValue<T>(value: T | null | undefined): T {
