@@ -110,6 +110,26 @@ describe("config value env var syntax migration", () => {
 		expect(settings.apiKeys).toBeUndefined();
 	});
 
+	it("keeps legacy credentials in place when writing auth.json fails", () => {
+		const agentDir = createAgentDir();
+		const authPath = path.join(agentDir, "auth.json");
+		fs.writeFileSync(authPath, "{}", { mode: 0o400 });
+		fs.writeFileSync(path.join(agentDir, "oauth.json"), JSON.stringify({ "openai-codex": { access: "legacy" } }));
+		fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ apiKeys: { openai: "openai-key" } }));
+
+		withAgentDir(agentDir, () => expect(() => runMigrations(agentDir)).toThrow(/EACCES/));
+		fs.chmodSync(authPath, 0o600);
+		withAgentDir(agentDir, () =>
+			expect(runMigrations(agentDir).migratedAuthProviders).toEqual(["openai-codex", "openai"]),
+		);
+
+		expect(JSON.parse(fs.readFileSync(authPath, "utf-8"))).toEqual({
+			"openai-codex": { type: "oauth", access: "legacy" },
+			openai: { type: "api_key", key: "openai-key" },
+		});
+		expect(JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf-8"))).toEqual({});
+	});
+
 	it("does not throw or overwrite when existing auth.json is malformed", () => {
 		const agentDir = createAgentDir();
 		const authPath = path.join(agentDir, "auth.json");

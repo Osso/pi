@@ -48,6 +48,8 @@ export function migrateAuthToAuthJson(): string[] {
 	if (!migrated) return [];
 
 	const providers: string[] = [];
+	// Consume legacy sources only after auth.json holds their credentials.
+	const consumeSources: Array<() => void> = [];
 
 	// Migrate oauth.json
 	if (existsSync(oauthPath)) {
@@ -58,7 +60,7 @@ export function migrateAuthToAuthJson(): string[] {
 				migrated[provider] = { type: "oauth", ...cred };
 				providers.push(provider);
 			}
-			renameSync(oauthPath, `${oauthPath}.migrated`);
+			consumeSources.push(() => renameSync(oauthPath, `${oauthPath}.migrated`));
 		} catch {
 			// Skip on error
 		}
@@ -76,7 +78,7 @@ export function migrateAuthToAuthJson(): string[] {
 					providers.push(provider);
 				}
 				delete settings.apiKeys;
-				writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+				consumeSources.push(() => writeFileSync(settingsPath, JSON.stringify(settings, null, 2)));
 			}
 		} catch {
 			// Skip on error
@@ -86,6 +88,13 @@ export function migrateAuthToAuthJson(): string[] {
 	if (providers.length > 0) {
 		mkdirSync(dirname(authPath), { recursive: true });
 		writeFileSync(authPath, JSON.stringify(migrated, null, 2), { mode: 0o600 });
+	}
+	for (const consume of consumeSources) {
+		try {
+			consume();
+		} catch {
+			// Skip on error
+		}
 	}
 
 	return providers;
