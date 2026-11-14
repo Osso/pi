@@ -1054,18 +1054,22 @@ export class Editor implements Component, Focusable {
 		// Cursor movement actions
 		if (kb.matches(data, "tui.editor.cursorLineStart")) {
 			this.moveToLineStart();
+			this.refreshStaleAutocomplete();
 			return;
 		}
 		if (kb.matches(data, "tui.editor.cursorLineEnd")) {
 			this.moveToLineEnd();
+			this.refreshStaleAutocomplete();
 			return;
 		}
 		if (kb.matches(data, "tui.editor.cursorWordLeft")) {
 			this.moveWordBackwards();
+			this.refreshStaleAutocomplete();
 			return;
 		}
 		if (kb.matches(data, "tui.editor.cursorWordRight")) {
 			this.moveWordForwards();
+			this.refreshStaleAutocomplete();
 			return;
 		}
 
@@ -2094,17 +2098,13 @@ export class Editor implements Component, Focusable {
 			}
 		}
 
-		// Keep an open autocomplete picker in sync with the new cursor
-		// position: cursor movement changes the text before the cursor, so a
-		// picker computed for the old position is stale. Re-query so it
-		// refreshes — or closes when the new position yields no suggestions —
-		// mirroring insertCharacter()/handleBackspace(). Without this, arrowing
-		// left from `/cmd ` back into the command name leaves the argument
-		// picker showing against a `/cmd` prefix (and a Tab there would
-		// concatenate the stale suggestion onto the partial command name).
-		if (this.autocompleteState) {
-			this.updateAutocomplete();
-		}
+		this.refreshStaleAutocomplete();
+	}
+
+	// A picker computed for the old cursor position is stale: re-query so it refreshes or closes,
+	// as insertCharacter()/handleBackspace() do. Otherwise Tab applies the stale suggestion.
+	private refreshStaleAutocomplete(): void {
+		if (this.autocompleteState) this.updateAutocomplete();
 	}
 
 	/**

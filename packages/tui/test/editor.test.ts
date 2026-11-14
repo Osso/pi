@@ -2688,6 +2688,31 @@ describe("Editor component", () => {
 			assert.ok(!afterMove.includes("message"), "stale argument menu must not survive the cursor move");
 		});
 
+		it("re-queries the autocomplete picker after Home, End, and word moves", async () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+			editor.setAutocompleteProvider({
+				getSuggestions: async (lines, _cursorLine, cursorCol) => {
+					const before = (lines[0] || "").slice(0, cursorCol);
+					return before.startsWith("/") ? { items: [{ value: "help", label: "help" }], prefix: before } : null;
+				},
+				applyCompletion,
+			});
+
+			for (const ch of "/he") {
+				editor.handleInput(ch);
+				await flushAutocomplete();
+			}
+			assert.strictEqual(editor.isShowingAutocomplete(), true);
+
+			editor.handleInput("\x01"); // Ctrl+A - line start, where the provider has no suggestions
+			await flushAutocomplete();
+			assert.strictEqual(editor.isShowingAutocomplete(), false);
+
+			editor.handleInput("\t");
+			await flushAutocomplete();
+			assert.strictEqual(editor.getText(), "/he");
+		});
+
 		it("debounces # autocomplete while typing", async () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 			let suggestionCalls = 0;
