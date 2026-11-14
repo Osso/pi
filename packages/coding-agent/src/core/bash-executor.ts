@@ -96,10 +96,9 @@ export async function executeBashWithOperations(
 		// Keep rolling buffer
 		outputChunks.push(text);
 		outputBytes += text.length;
-		while (outputBytes > maxOutputBytes && outputChunks.length > 1) {
-			const removed = outputChunks.shift();
-			if (!removed) break;
-			outputBytes -= removed.length;
+		// Drop the oldest chunk only while the rest still covers the limit, so the tail kept by truncation survives.
+		while (outputChunks.length > 1 && outputBytes - (outputChunks[0]?.length ?? 0) >= maxOutputBytes) {
+			outputBytes -= outputChunks.shift()?.length ?? 0;
 		}
 
 		// Stream to callback

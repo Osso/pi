@@ -330,6 +330,12 @@ describe("AgentSession bash and persistence characterization", () => {
 			expect(streamed).toBe("ok\uFFFD");
 		});
 
+		it("keeps the output tail when one large chunk is followed by a short one", async () => {
+			const { output } = await runChunks(["xx\n".repeat(40_000), "done\n"]);
+			expect(output.endsWith("xx\nxx\ndone")).toBe(true);
+			expect(output.split("\n").length).toBeGreaterThan(1_000);
+		});
+
 		it("does not hold back output behind a long unterminated sequence", async () => {
 			const long = "x".repeat(300);
 			let streamedBeforeExit = "";
