@@ -1382,15 +1382,23 @@ export class SessionManager {
 		}
 	}
 
-	private _rewriteFile(): void {
+	private _rewriteFile(entries: readonly FileEntry[] = this.fileEntries): void {
 		if (!this.persist || !this.sessionFile) return;
-		this._writeEntries(this.sessionFile, "w");
+		this._writeEntries(this.sessionFile, "w", entries);
 	}
 
-	private _writeEntries(filePath: string, flags: "w" | "wx"): void {
+	/** Persisted entries with one replaced; a reopened session holds only its active slice in memory. */
+	private _persistedEntriesWith(updated: SessionEntry): readonly FileEntry[] {
+		if (!this.persist || !this.flushed || !this.sessionFile) return this.fileEntries;
+		return loadEntriesFromFile(this.sessionFile).map((e) =>
+			e.type !== "session" && e.id === updated.id ? updated : e,
+		);
+	}
+
+	private _writeEntries(filePath: string, flags: "w" | "wx", entries: readonly FileEntry[] = this.fileEntries): void {
 		const fd = openSync(filePath, flags);
 		try {
-			for (const entry of this.fileEntries) {
+			for (const entry of entries) {
 				writeFileSync(fd, `${serializeSessionEntryForPersistence(entry)}\n`);
 			}
 		} finally {
@@ -1767,32 +1775,20 @@ export class SessionManager {
 	/** Update a compaction summary without changing its tree position or core metadata. */
 	updateCompactionSummary(entryId: string, summary: string): void {
 		const entry = this.byId.get(entryId);
-		if (!entry) {
-			throw new Error(`Entry ${entryId} not found`);
-		}
-		if (entry.type !== "compaction") {
-			throw new Error(`Entry ${entryId} is not a compaction`);
-		}
+		if (!entry) throw new Error(`Entry ${entryId} not found`);
+		if (entry.type !== "compaction") throw new Error(`Entry ${entryId} is not a compaction`);
 		const trimmedSummary = summary.trim();
-		if (!trimmedSummary) {
-			throw new Error("Compaction summary must be non-empty");
-		}
-		const previous = {
-			details: entry.details,
-			providerNative: entry.providerNative,
-			summary: entry.summary,
-		};
+		if (!trimmedSummary) throw new Error("Compaction summary must be non-empty");
+		const previous = { details: entry.details, providerNative: entry.providerNative, summary: entry.summary };
 		entry.summary = trimmedSummary;
 		if (entry.providerNative) {
 			entry.details = undefined;
 			entry.providerNative = undefined;
 		}
 		try {
-			this._rewriteFile();
+			this._rewriteFile(this._persistedEntriesWith(entry));
 		} catch (error: unknown) {
-			entry.details = previous.details;
-			entry.providerNative = previous.providerNative;
-			entry.summary = previous.summary;
+			Object.assign(entry, previous);
 			throw error;
 		}
 	}

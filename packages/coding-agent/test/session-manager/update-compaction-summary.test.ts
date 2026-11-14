@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { convertResponsesMessages } from "../../../ai/src/api/openai-responses-shared.ts";
 import { convertToLlm } from "../../src/core/messages.ts";
-import { SessionManager } from "../../src/core/session-manager.ts";
+import { loadEntriesFromFile, SessionManager } from "../../src/core/session-manager.ts";
 import { assistantMsg, userMsg } from "../utilities.ts";
 
 describe("SessionManager.updateCompactionSummary", () => {
@@ -68,6 +68,35 @@ describe("SessionManager.updateCompactionSummary", () => {
 
 		const context = reopened.buildSessionContext();
 		expect(context.messages[0]).toMatchObject({ role: "compactionSummary", summary: "edited summary" });
+	});
+
+	it("keeps the summarized prefix and inactive branches on disk when editing after reopening", () => {
+		const cwd = join(tempDir, "project");
+		mkdirSync(cwd);
+		const session = SessionManager.create(cwd, tempDir);
+		session.appendMessage(userMsg("old question"));
+		const oldAnswerId = session.appendMessage(assistantMsg("old answer"));
+		session.appendMessage(userMsg("inactive branch"));
+		session.appendMessage(assistantMsg("inactive answer"));
+		session.branch(oldAnswerId);
+		const firstKeptEntryId = session.appendMessage(userMsg("kept question"));
+		session.appendMessage(assistantMsg("kept answer"));
+		const compactionId = session.appendCompaction("original summary", firstKeptEntryId, 42_000);
+		session.appendMessage(userMsg("new question"));
+		session.appendMessage(assistantMsg("new answer"));
+		const sessionFile = session.getSessionFile();
+		if (!sessionFile) throw new Error("Expected persisted session file");
+		const before = loadEntriesFromFile(sessionFile);
+		expect(before).toHaveLength(10);
+
+		const reopened = SessionManager.open(sessionFile, tempDir);
+		reopened.updateCompactionSummary(compactionId, "edited summary");
+
+		expect(loadEntriesFromFile(sessionFile)).toEqual(
+			before.map((entry) =>
+				entry.type === "compaction" && entry.id === compactionId ? { ...entry, summary: "edited summary" } : entry,
+			),
+		);
 	});
 
 	it("replaces provider-native compaction context with the edited plaintext summary", () => {

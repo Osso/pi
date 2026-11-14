@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed editing a compaction summary in `/tree` after reopening a compacted session deleting the summarized history and all inactive branches from the session file; only the edited summary changes now.
 - Fixed hidden thinking printing one `Thinking...` label per reasoning block when a provider splits one reasoning phase into many blocks (OpenAI Responses reasoning items); consecutive blocks now share one label.
 - Fixed `wait_agent` reporting an externally committed completion without projecting it: `list_agents` kept showing the agent as active, and the later terminal-outbox delivery reported the same completion to the next `wait_agent`.
 - Fixed `close_agent` with an unknown agent ID failing with `Could not read persisted multi-agent state` in a session that had no agents yet; it now reports `agent_not_found`.
