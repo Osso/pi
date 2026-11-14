@@ -149,13 +149,10 @@ function finalizeTruncatedResult(
 ): string {
 	const reset = "\x1b[0m";
 	const visibleWidth = prefixWidth + ellipsisWidth;
-	let result: string;
-
-	if (ellipsis.length > 0) {
-		result = `${prefix}${reset}${ellipsis}${reset}`;
-	} else {
-		result = `${prefix}${reset}`;
-	}
+	// A hyperlink opened in the kept prefix must not extend over the ellipsis and padding.
+	const linkStart = prefix.lastIndexOf("\x1b]8;");
+	const link = linkStart >= 0 ? parseOsc8Hyperlink(extractAnsiCode(prefix, linkStart)?.code ?? "") : undefined;
+	const result = `${prefix}${link ? formatOsc8Close(link.terminator) : ""}${reset}${ellipsis ? `${ellipsis}${reset}` : ""}`;
 
 	return pad ? result + " ".repeat(Math.max(0, maxWidth - visibleWidth)) : result;
 }

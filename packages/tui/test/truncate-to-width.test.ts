@@ -49,6 +49,16 @@ describe("truncateToWidth", () => {
 		assert.strictEqual(truncated.endsWith("\x1b[0m"), true);
 	});
 
+	it("closes an open OSC 8 hyperlink before the ellipsis", () => {
+		for (const terminator of ["\x1b\\", "\x07"]) {
+			const text = `\x1b]8;;https://example.com${terminator}abcdefghij\x1b]8;;${terminator}`;
+			assert.strictEqual(
+				truncateToWidth(text, 6, "…", true),
+				`\x1b]8;;https://example.com${terminator}abcde\x1b]8;;${terminator}\x1b[0m…\x1b[0m`,
+			);
+		}
+	});
+
 	it("keeps a contiguous prefix instead of skipping a wide grapheme and resuming later", () => {
 		const truncated = truncateToWidth("🙂\t界 \x1b_abc\x07", 7, "…", true);
 		assert.strictEqual(truncated, "🙂\t\x1b[0m…\x1b[0m ");
