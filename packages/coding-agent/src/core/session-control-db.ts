@@ -1,7 +1,7 @@
 import type { AgentSnapshot } from "./multi-agent-store.ts";
 import { isSandboxProfileName, type SandboxProfileName } from "./permissions/presets.ts";
 import { parseStoredJsonObject, validatePersistedAgentPayload } from "./session-control-db/codecs.ts";
-import type { RuntimeMailboxAddress, RuntimeMailboxListedRow } from "./session-control-db/types.ts";
+import type { RuntimeMailboxListedRow } from "./session-control-db/types.ts";
 
 export {
 	prepareControlDbForSelfRestart,
@@ -88,35 +88,7 @@ export {
 	failMultiAgentTerminalOutbox,
 } from "./session-control-db/terminal-outbox.ts";
 
-import {
-	RUNTIME_PROCESS_INSTANCE_ID,
-	runtimeMailboxClaimantIsLive,
-} from "./session-control-db/runtime-mailbox-enqueue.ts";
-
-export type { MultiAgentRuntimeOwnershipIdentity } from "./session-control-db/detached-job-finalization.ts";
-export {
-	enqueueRuntimeMailboxMessage,
-	enqueueStoredRuntimeMailboxMessage,
-	enqueueStoredRuntimeMailboxMessageInTransaction,
-	getRuntimeProcessInstanceId,
-	notifyRuntimeMailboxRecipient,
-	recoverDeadRuntimeMailboxClaims,
-} from "./session-control-db/runtime-mailbox-enqueue.ts";
-
-export {
-	failRuntimeMailboxMessage,
-	listRuntimeMailboxMessages,
-	listRuntimeMailboxMessagesForSession,
-	markRuntimeMailboxMessageDelivered,
-	readRuntimeMailboxMessage,
-	releaseRuntimeMailboxMessageClaim,
-} from "./session-control-db/runtime-mailbox-status.ts";
-
-import {
-	assertRuntimeReplacementAllowed,
-	type RuntimeMailboxRegistration,
-	readRuntimeMailboxRegistrationSnapshot,
-} from "./session-control-db/runtime-mailbox-registration.ts";
+import { runtimeMailboxClaimantIsLive } from "./session-control-db/runtime-mailbox-enqueue.ts";
 
 export {
 	claimCodexRestrictionRecovery,
@@ -124,6 +96,7 @@ export {
 	isKnownLocalSession,
 	readRunningSessionIdByPid,
 } from "./session-control-db/control-db-path.ts";
+export type { MultiAgentRuntimeOwnershipIdentity } from "./session-control-db/detached-job-finalization.ts";
 export { finalizeDetachedJob } from "./session-control-db/detached-job-finalization.ts";
 export {
 	reconcileDeadDetachedAgentRuntimes,
@@ -150,7 +123,6 @@ export {
 	readMultiAgentRuntimeOwnership,
 } from "./session-control-db/multi-agent-attachment.ts";
 export { bootstrapMultiAgentAgent } from "./session-control-db/multi-agent-bootstrap.ts";
-
 export type {
 	AcquireMultiAgentRuntimeOwnershipInput,
 	CreateFailedMultiAgentChildInput,
@@ -191,6 +163,10 @@ export {
 	commitMultiAgentSteeringDelivery,
 } from "./session-control-db/multi-agent-steering-delivery.ts";
 export {
+	assertMainSessionRuntimeAvailable,
+	resolveOwnMainRuntimeCoordinationRecipient,
+} from "./session-control-db/runtime-coordination.ts";
+export {
 	claimRuntimeMailboxMessages,
 	deliverRuntimeMailboxMessage,
 	hasPendingRuntimeMailboxMessage,
@@ -198,11 +174,28 @@ export {
 	takeRuntimeMailboxMessagesForDelivery,
 } from "./session-control-db/runtime-mailbox-delivery.ts";
 export {
+	enqueueRuntimeMailboxMessage,
+	enqueueStoredRuntimeMailboxMessage,
+	enqueueStoredRuntimeMailboxMessageInTransaction,
+	getRuntimeProcessInstanceId,
+	notifyRuntimeMailboxRecipient,
+	recoverDeadRuntimeMailboxClaims,
+} from "./session-control-db/runtime-mailbox-enqueue.ts";
+export {
 	listRuntimeMailboxListeners,
 	readRuntimeMailboxListener,
 	retireRuntimeMailboxListener,
 } from "./session-control-db/runtime-mailbox-listeners.ts";
 export { registerRuntimeMailboxListener } from "./session-control-db/runtime-mailbox-registration.ts";
+export {
+	failRuntimeMailboxMessage,
+	listRuntimeMailboxMessages,
+	listRuntimeMailboxMessagesForSession,
+	markRuntimeMailboxMessageDelivered,
+	readRuntimeMailboxMessage,
+	releaseRuntimeMailboxMessageClaim,
+} from "./session-control-db/runtime-mailbox-status.ts";
+
 export { listSessionHealth, readSessionHealth, writeSessionHealth } from "./session-control-db/session-health.ts";
 
 export type {
@@ -250,50 +243,6 @@ export function readLiveRuntimeMailboxSessionAgentIds(controlDbPath: string, ses
 			if (!row.runtime_instance_id || !runtimeMailboxClaimantIsLive(row.runtime_instance_id)) return [];
 			return [row.recipient_agent_id_key === "" ? null : row.recipient_agent_id_key];
 		});
-	});
-}
-
-export function assertMainSessionRuntimeAvailable(controlDbPath: string, sessionId: string): void {
-	withControlDb(controlDbPath, (db) => {
-		const registration: RuntimeMailboxRegistration = {
-			options: {},
-			pid: process.pid,
-			recipient: { agentId: null, sessionId },
-			runtimeInstanceId: RUNTIME_PROCESS_INSTANCE_ID,
-			sessionPath: undefined,
-		};
-		const snapshot = readRuntimeMailboxRegistrationSnapshot(db, registration.recipient);
-		assertRuntimeReplacementAllowed(db, registration, snapshot);
-	});
-}
-
-/**
- * Resolve this process's own main-thread runtime coordination address from the
- * persisted listener registration, not from mutable UI/store context.
- *
- * Matches the single listener row whose exact process identity (PID + /proc
- * start ticks) equals the current runtime, whose recipient is the main thread
- * (`recipient_agent_id_key = ''`), and whose main session path is freshly
- * asserted. Zero or multiple matches are rejected (returns undefined) so wait
- * primitives never poll a selected child's address.
- */
-export function resolveOwnMainRuntimeCoordinationRecipient(controlDbPath: string): RuntimeMailboxAddress | undefined {
-	return withControlDb(controlDbPath, (db) => {
-		const rows = db
-			.prepare(
-				`
-				SELECT recipient_session_id
-				FROM runtime_mailbox_listeners
-				WHERE recipient_agent_id_key = ''
-					AND pid = ?
-					AND runtime_instance_id = ?
-					AND session_path IS NOT NULL
-					AND session_path_asserted_at = updated_at
-				`,
-			)
-			.all(process.pid, RUNTIME_PROCESS_INSTANCE_ID) as Array<{ recipient_session_id: string }>;
-		if (rows.length !== 1) return undefined;
-		return { agentId: null, sessionId: rows[0].recipient_session_id };
 	});
 }
 
