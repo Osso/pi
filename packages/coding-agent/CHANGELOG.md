@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed `--model provider/id:<thinking>` choosing an unauthenticated provider when an authenticated model has the literal id `provider/id`; the shorthand now resolves like `--thinking` and keeps its thinking level.
 - Fixed `--fork` of a legacy (v1/v2) session copying unmigrated entries under a v3 header, which dropped all but the last v1 message and kept v2 `hookMessage` roles.
 - Fixed `find` path patterns such as `src/**/*.ts` matching every file when a directory above the search root had a matching name.
 - Fixed `edit` in a file with mixed line endings swapping the ending of an untouched line that repeats the replacement text.

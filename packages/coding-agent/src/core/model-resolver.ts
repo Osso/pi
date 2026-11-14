@@ -466,15 +466,16 @@ export function resolveCliModel(options: {
 		// literal id starts with a known provider name (for example
 		// commandcode model id "xiaomi/mimo-v2.5-pro").
 		if (inferredProvider) {
+			const rawId = (thinkingLevel ? cliModel.slice(0, cliModel.lastIndexOf(":")) : cliModel).toLowerCase();
 			const rawExactMatches = availableModels.filter(
-				(m) => m.id.toLowerCase() === cliModel.toLowerCase() && !modelsAreEqual(m, model),
+				(m) => m.id.toLowerCase() === rawId && !modelsAreEqual(m, model),
 			);
 			if (rawExactMatches.length > 0 && !modelRegistry.hasConfiguredAuth(model)) {
 				const authenticatedRawMatches = rawExactMatches.filter((m) => modelRegistry.hasConfiguredAuth(m));
 				if (authenticatedRawMatches.length === 1) {
 					return {
 						model: authenticatedRawMatches[0],
-						thinkingLevel: undefined,
+						thinkingLevel,
 						warning: undefined,
 						error: undefined,
 					};

@@ -438,14 +438,17 @@ describe("resolveCliModel", () => {
 			hasConfiguredAuth: (model: Model<"anthropic-messages">) => model.provider === "commandcode",
 		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
 
-		const result = resolveCliModel({
-			cliModel: "xiaomi/mimo-v2.5-pro",
-			modelRegistry: registry,
-		});
+		for (const [cliModel, thinkingLevel] of [
+			["xiaomi/mimo-v2.5-pro", undefined],
+			["xiaomi/mimo-v2.5-pro:high", "high"],
+		]) {
+			const result = resolveCliModel({ cliModel, modelRegistry: registry });
 
-		expect(result.error).toBeUndefined();
-		expect(result.model?.provider).toBe("commandcode");
-		expect(result.model?.id).toBe("xiaomi/mimo-v2.5-pro");
+			expect(result.error).toBeUndefined();
+			expect(result.model?.provider).toBe("commandcode");
+			expect(result.model?.id).toBe("xiaomi/mimo-v2.5-pro");
+			expect(result.thinkingLevel).toBe(thinkingLevel);
+		}
 	});
 
 	test("resolves provider-prefixed fuzzy patterns (openrouter/qwen -> openrouter model)", () => {
