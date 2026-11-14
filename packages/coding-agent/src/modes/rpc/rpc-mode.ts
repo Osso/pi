@@ -14,7 +14,7 @@
 import * as crypto from "node:crypto";
 import { existsSync } from "node:fs";
 import { isValidThinkingLevel } from "../../cli/args.ts";
-import { shouldContinueInterruptedSession } from "../../core/agent-session.ts";
+import { continueRestoredSession } from "../../core/agent-session-continuation.ts";
 import type { AgentSessionRuntime } from "../../core/agent-session-runtime.ts";
 import type {
 	ExtensionUIContext,
@@ -627,6 +627,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 				const result = await runtimeHost.switchSession(command.sessionPath);
 				if (!result.cancelled) {
 					await rebindSession();
+					continueRestoredSession(session);
 				}
 				return success(id, "switch_session", result);
 			}
@@ -844,14 +845,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 		};
 	})();
 
-	const extensionRequestedContinuation = session.consumeResumeContinuationRequest();
-	if (extensionRequestedContinuation || shouldContinueInterruptedSession(session.messages)) {
-		void session.continue().catch((continuationError: unknown) => {
-			process.stderr.write(
-				`Failed to continue restored session: ${continuationError instanceof Error ? continuationError.message : String(continuationError)}\n`,
-			);
-		});
-	}
+	continueRestoredSession(session);
 
 	// Keep process alive forever
 	return new Promise(() => {});

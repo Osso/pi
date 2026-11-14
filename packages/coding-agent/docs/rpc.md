@@ -619,6 +619,8 @@ Load a different session file. Can be cancelled by a `session_before_switch` ext
 
 The session file (or its archived `.zst` form) must exist; otherwise the command fails with `Session not found: <path>` and the current session stays active.
 
+After the switch, the loaded session continues on its own when its last run was interrupted or an extension called `requestResumeContinuation()`, as on startup.
+
 Response:
 ```json
 {"type": "response", "command": "switch_session", "success": true, "data": {"cancelled": false}}

@@ -43,3 +43,19 @@ export function shouldContinueInterruptedSession(messages: readonly AgentMessage
 	if (isCompletedEndTurnBatch(relevantMessages, toolCalls)) return false;
 	return toolCalls.length > 0 && toolCalls.every((content) => content.name !== "resume_session");
 }
+
+interface RestorableSession {
+	readonly messages: readonly AgentMessage[];
+	consumeResumeContinuationRequest(): boolean;
+	continue(): Promise<void>;
+}
+
+/** Headless startup and session switch: continue when an extension asked for it or the restored run was interrupted. */
+export function continueRestoredSession(session: RestorableSession): void {
+	if (!session.consumeResumeContinuationRequest() && !shouldContinueInterruptedSession(session.messages)) return;
+	void session.continue().catch((error: unknown) => {
+		process.stderr.write(
+			`Failed to continue restored session: ${error instanceof Error ? error.message : String(error)}\n`,
+		);
+	});
+}

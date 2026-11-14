@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed RPC `switch_session` not continuing an interrupted session or honoring an extension's `requestResumeContinuation()`; it now continues like RPC startup and interactive resume.
 - Fixed `/skill:name` and extension commands followed by a newline or tab instead of a space: the skill was not expanded and the extension command was not found.
 - Fixed JPEG EXIF orientation being ignored when an XMP APP1 segment comes before the EXIF segment, so such photos were sent rotated.
 - Fixed `!` and RPC `bash` output dropping all but the last short chunk when a large output chunk was followed by a small one, without marking the output truncated.
