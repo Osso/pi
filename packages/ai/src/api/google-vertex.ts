@@ -116,11 +116,14 @@ export const stream: StreamFunction<"google-vertex", GoogleVertexOptions> = (
 				output.responseId ||= chunk.responseId;
 				const candidate = chunk.candidates?.[0];
 				if (candidate?.content?.parts) {
-					for (const part of candidate.content.parts) {
+					for (const [partIndex, part] of candidate.content.parts.entries()) {
 						if (part.text !== undefined) {
 							const isThinking = isThinkingPart(part);
+							// Distinct parts of one chunk keep their boundaries (and signatures); deltas across chunks merge.
+							const startsTextPart = !isThinking && partIndex > 0;
 							if (
 								!currentBlock ||
+								startsTextPart ||
 								(isThinking && currentBlock.type !== "thinking") ||
 								(!isThinking && currentBlock.type !== "text")
 							) {

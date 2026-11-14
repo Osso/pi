@@ -1,7 +1,8 @@
 import type * as GoogleSdk from "@google/genai";
-import { FinishReason, type GenerateContentResponse } from "@google/genai";
+import { FinishReason, type GenerateContentResponse, type Part } from "@google/genai";
 import { describe, expect, it, vi } from "vitest";
 import { stream as streamGoogle } from "../src/api/google-generative-ai.ts";
+import { convertMessages } from "../src/api/google-shared.ts";
 import { stream as streamVertex } from "../src/api/google-vertex.ts";
 import type { Context, Model, StopReason } from "../src/types.ts";
 
@@ -44,11 +45,11 @@ const context: Context = {
 
 const providers = [
 	{
-		api: "google-generative-ai",
+		api: "google-generative-ai" as const,
 		stream: () => streamGoogle(makeModel("google-generative-ai"), context, { apiKey: "fake-key" }),
 	},
 	{
-		api: "google-vertex",
+		api: "google-vertex" as const,
 		stream: () => streamVertex(makeModel("google-vertex"), context, { apiKey: "fake-key" }),
 	},
 ];
@@ -62,7 +63,19 @@ const finishReasons: { finishReason: FinishReason; stopReason: StopReason }[] = 
 	{ finishReason: FinishReason.STOP, stopReason: "toolUse" },
 ];
 
-describe.each(providers)("$api streamed responses", ({ stream }) => {
+const textParts: { name: string; parts: Part[] }[] = [
+	{ name: "unsigned then signed", parts: [{ text: "First" }, { text: "Second", thoughtSignature: "QkJC" }] },
+	{ name: "signed then unsigned", parts: [{ text: "First", thoughtSignature: "QUFB" }, { text: "Second" }] },
+	{
+		name: "two signed parts",
+		parts: [
+			{ text: "First", thoughtSignature: "QUFB" },
+			{ text: "Second", thoughtSignature: "QkJC" },
+		],
+	},
+];
+
+describe.each(providers)("$api streamed responses", ({ api, stream }) => {
 	it.each(finishReasons)("preserves $finishReason after a function call", async ({ finishReason, stopReason }) => {
 		sdkStream.chunks = [
 			{ candidates: [{ content: { parts: [{ functionCall: { name: "read", args: { path: "a.txt" } } }] } }] },
@@ -86,5 +99,51 @@ describe.each(providers)("$api streamed responses", ({ stream }) => {
 			expect(message.errorMessage).toBeUndefined();
 			expect(eventTypes.at(-1)).toBe("done");
 		}
+	});
+
+	it.each(textParts)("preserves $name during streaming and replay", async ({ parts }) => {
+		sdkStream.chunks = [{ candidates: [{ content: { parts }, finishReason: FinishReason.STOP }] }];
+		const response = stream();
+		const textEnds: string[] = [];
+		for await (const event of response) {
+			if (event.type === "text_end") textEnds.push(event.content);
+		}
+		const message = await response.result();
+
+		expect(message.stopReason).toBe("stop");
+		expect(message.content).toEqual(
+			parts.map((part) => ({ type: "text", text: part.text, textSignature: part.thoughtSignature })),
+		);
+		expect(textEnds).toEqual(parts.map((part) => part.text));
+		expect(convertMessages(makeModel(api), { messages: [message] })).toEqual([{ role: "model", parts }]);
+	});
+
+	it("merges a signature-bearing delta from a later chunk into the current text part", async () => {
+		sdkStream.chunks = [
+			{ candidates: [{ content: { parts: [{ text: "First" }] } }] },
+			{
+				candidates: [
+					{ content: { parts: [{ text: "Second", thoughtSignature: "QkJC" }] }, finishReason: FinishReason.STOP },
+				],
+			},
+		];
+		const message = await stream().result();
+
+		expect(message.stopReason).toBe("stop");
+		expect(message.content).toEqual([{ type: "text", text: "FirstSecond", textSignature: "QkJC" }]);
+	});
+
+	it.each([undefined, "QUFB"])("merges deltas of one text part across chunks with signature %s", async (signature) => {
+		sdkStream.chunks = [
+			{ candidates: [{ content: { parts: [{ text: "First", thoughtSignature: signature }] } }] },
+			{ candidates: [{ content: { parts: [{ text: "Second" }] }, finishReason: FinishReason.STOP }] },
+		];
+		const message = await stream().result();
+
+		expect(message.stopReason).toBe("stop");
+		expect(message.content).toEqual([{ type: "text", text: "FirstSecond", textSignature: signature }]);
+		expect(convertMessages(makeModel(api), { messages: [message] })).toEqual([
+			{ role: "model", parts: [{ text: "FirstSecond", ...(signature && { thoughtSignature: signature }) }] },
+		]);
 	});
 });
