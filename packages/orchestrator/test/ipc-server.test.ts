@@ -25,6 +25,10 @@ describe("IPC buffered lines", () => {
 		handledRequests = [];
 		streamReadyDelay = Promise.resolve();
 		streamMessages = [];
+		let answerDialog = () => {};
+		const dialogAnswered = new Promise<void>((resolve) => {
+			answerDialog = resolve;
+		});
 		const handleRequest = async (request: OrchestratorRequest): Promise<OrchestratorResponse> => {
 			handledRequests.push(request);
 			if (request.type === "rpc_stream") {
@@ -37,6 +41,12 @@ describe("IPC buffered lines", () => {
 			openRpcStream: (_instanceId: string, onResponse: (response: unknown) => void) => ({
 				async handleRequest(command: { id?: string; type: string }) {
 					streamMessages.push(command);
+					if (command.type === "extension_ui_response") {
+						answerDialog();
+						return;
+					}
+					// Like the child process, new_session settles only after its extension dialog is answered.
+					if (command.type === "new_session") await dialogAnswered;
 					onResponse({ type: "response", id: command.id, command: command.type, success: true });
 				},
 				close() {},
@@ -116,6 +126,16 @@ describe("IPC buffered lines", () => {
 		await ended;
 		expect(responses).toEqual([{ type: "list_result", ok: true, instances: [] }]);
 		expect(handledRequests).toEqual([{ type: "list" }]);
+	});
+
+	it("delivers a dialog answer to the stream while the command that waits for it is pending", async () => {
+		client.write('{"type":"rpc_stream","instanceId":"test"}\n{"id":"new","type":"new_session"}\n');
+		await vi.waitFor(() => expect(streamMessages).toHaveLength(1));
+		client.write('{"type":"extension_ui_response","id":"dialog","confirmed":true}\n');
+
+		await vi.waitFor(() => {
+			expect(responses[1]).toEqual({ type: "response", id: "new", command: "new_session", success: true });
+		});
 	});
 
 	it("decodes multibyte characters split across request chunks", async () => {

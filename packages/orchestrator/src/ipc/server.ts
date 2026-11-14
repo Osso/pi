@@ -12,6 +12,7 @@ import {
 	parseRequestLine,
 	parseRpcClientMessage,
 	type RpcBridgeResponse,
+	type RpcClientMessage,
 	type RpcReadyResponse,
 	type RpcRequest,
 	type RpcStreamRequest,
@@ -101,6 +102,10 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 
 					socket.write(encodeMessage(response));
 					let rpcRequestQueue = Promise.resolve();
+					const writeRpcError = (rpcError: unknown) => {
+						const error = rpcError instanceof Error ? rpcError.message : String(rpcError);
+						socket.write(encodeMessage({ type: "error", ok: false, error }));
+					};
 					const drainRpcRequests = () => {
 						for (;;) {
 							const rpcNewlineIndex = buffer.indexOf("\n");
@@ -112,29 +117,17 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 							if (!rpcLine) {
 								continue;
 							}
-							rpcRequestQueue = rpcRequestQueue
-								.then(async () => {
-									try {
-										await rpcStream.handleRequest(parseRpcClientMessage(rpcLine));
-									} catch (rpcError: unknown) {
-										socket.write(
-											encodeMessage({
-												type: "error",
-												ok: false,
-												error: rpcError instanceof Error ? rpcError.message : String(rpcError),
-											}),
-										);
-									}
-								})
-								.catch((rpcError: Error) => {
-									socket.write(
-										encodeMessage({
-											type: "error",
-											ok: false,
-											error: rpcError.message,
-										}),
-									);
-								});
+							let message: RpcClientMessage;
+							try {
+								message = parseRpcClientMessage(rpcLine);
+							} catch (rpcError: unknown) {
+								writeRpcError(rpcError);
+								continue;
+							}
+							const handleMessage = () => rpcStream.handleRequest(message).catch(writeRpcError);
+							// A dialog answer settles the queued command that waits for it, so it must not queue behind it.
+							if (message.type === "extension_ui_response") void handleMessage();
+							else rpcRequestQueue = rpcRequestQueue.then(handleMessage);
 						}
 					};
 					socket.on("data", (rpcChunk: Buffer | string) => {
