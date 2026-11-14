@@ -9,9 +9,9 @@ const activePlanEntryType = "run-plan:active";
 export async function findNextPlanItem(filePath: string): Promise<string | null> {
 	const content = await readFile(filePath, "utf-8");
 	for (const line of content.split(/\r?\n/)) {
-		const match = uncheckedItemPattern.exec(line);
-		if (match) {
-			return match[1].trim();
+		const item = uncheckedItemPattern.exec(line)?.[1];
+		if (item !== undefined) {
+			return item.trim();
 		}
 	}
 	return null;

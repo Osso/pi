@@ -263,7 +263,8 @@ export async function waitNotifications(
 		return { kind: "unavailable", message: "wait_agent requires a persisted supervisor session." };
 	}
 	const pending = listPendingTerminalNotifications(store, persistence.controlDbPath, persistence.sessionPath);
-	if (pending.length > 0) return { agent: pending[0].agent, kind: "agent" };
+	const [firstPending] = pending;
+	if (firstPending) return { agent: firstPending.agent, kind: "agent" };
 	return waitForAgentOrCoordination(
 		store,
 		persistence.controlDbPath,

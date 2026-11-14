@@ -24,8 +24,8 @@ export function parseGoalArgs(args: string): ParsedGoalArgs | { error: string } 
 		.filter((part) => part.length > 0);
 	const flagError = unsupportedGoalFlag(parts);
 	if (flagError) return { error: flagError };
-	if (parts.length === 0) return { action: "view" };
 	const [action, ...objectiveParts] = parts;
+	if (action === undefined) return { action: "view" };
 	if (action === "set") {
 		const objective = objectiveParts.join(" ");
 		return objective ? { action: "set", objective } : { error: "Use /goal set <objective> to set a goal" };

@@ -61,7 +61,7 @@ export function setLongContextSettings(settings: LongContextSettings): void {
  *  the real one (see issue #34) makes the turn longer than one message. */
 export function turnStart(messages: Context["messages"]): number {
 	let i = messages.length;
-	while (i > 0 && messages[i - 1].role === "user") i--;
+	while (i > 0 && messages[i - 1]?.role === "user") i--;
 	return i;
 }
 
@@ -127,7 +127,7 @@ export function extractUserPromptBlocks(messages: Context["messages"]): ContentB
 }
 
 function extractIsolatedSummaryPrompt(messages: Context["messages"]): string {
-	if (messages.length !== 1 || messages[0].role !== "user") {
+	if (messages.length !== 1 || messages[0]?.role !== "user") {
 		throw new Error(
 			`isolatedStreamFn: expected exactly 1 user message, got ${messages.length} ` +
 				`(${messages.map((m) => m.role).join(",")})`,

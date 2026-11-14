@@ -196,7 +196,7 @@ export class PromptCaptures {
 			throw new Error(
 				`prompt-capture: no capture for this ${systemPrompt.length}-char system prompt, and it embeds none of the ${this.captures.size} known. ` +
 					`Closest known match diverges at offset ${matches[0]?.firstDivergent ?? "?"} ` +
-					`(${matches.length ? matches[0].key.length : 0}-char key${matches[0]?.source ? `, last recorded at ${matches[0].source}` : ""}). ` +
+					`(${matches[0]?.key.length ?? 0}-char key${matches[0]?.source ? `, last recorded at ${matches[0].source}` : ""}). ` +
 					`Claude Code would receive none of this turn's context files, skills or custom instructions. ` +
 					`When the divergence sits at a section's opening tag, the capture and this prompt disagree about that section — ` +
 					`pi's mcp_servers since pi 0.99.2, or one an extension added. ` +

@@ -310,10 +310,10 @@ export function extractAllToolResults(context: Context): McpResult[] {
 		`extractAllToolResults: ${results.length} results from ${context.messages.length} msgs, stopped at index ${stopIdx}`,
 	);
 	debug(`extractAllToolResults: all msg roles:`, context.messages.map((m, i) => `[${i}]${m.role}`).join(" "));
-	for (let r = 0; r < results.length; r++) {
+	for (const [r, result] of results.entries()) {
 		debug(
-			`extractAllToolResults: result[${r}] id=${results[r].toolCallId}${results[r].isError ? " ERROR" : ""} preview:`,
-			JSON.stringify(results[r].content).slice(0, 150),
+			`extractAllToolResults: result[${r}] id=${result.toolCallId}${result.isError ? " ERROR" : ""} preview:`,
+			JSON.stringify(result.content).slice(0, 150),
 		);
 	}
 	return results;

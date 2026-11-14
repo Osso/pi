@@ -36,8 +36,8 @@ export function verifyWrittenSession(
 		return warnings;
 	}
 	try {
-		const firstRec = JSON.parse(lines[0]);
-		const lastRec = JSON.parse(lines[lines.length - 1]);
+		const firstRec = JSON.parse(String(lines[0]));
+		const lastRec = JSON.parse(String(lines.at(-1)));
 		if (firstRec.sessionId !== expectedSessionId || lastRec.sessionId !== expectedSessionId) {
 			warnings.push(
 				`sessionId drift — expected=${expectedSessionId} first=${firstRec.sessionId} last=${lastRec.sessionId}`,

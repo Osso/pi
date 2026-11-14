@@ -185,7 +185,11 @@ export function formatDeepseekUsage(rows: DeepseekRow[]): string {
 	return lines.join("\n");
 }
 
-function formatDeepseekColumns(cells: string[], balanceWidth: number, providerWidth: number): string {
+function formatDeepseekColumns(
+	cells: [string, string, string, string, string, string],
+	balanceWidth: number,
+	providerWidth: number,
+): string {
 	const [day, week, month, balance, provider, details] = cells;
 	return [
 		day.padEnd(6),

@@ -87,5 +87,7 @@ export function describeResult(request: ReminderRequest, reminders: Reminder[]):
 	const verb = { add: "Added", edit: "Edited", reschedule: "Rescheduled", complete: "Completed", reopen: "Reopened" }[
 		request.action
 	];
-	return `${verb} reminder ${formatReminder(reminders[0])}`;
+	const [reminder] = reminders;
+	if (!reminder) throw new Error(`${verb} reminder result is missing the reminder`);
+	return `${verb} reminder ${formatReminder(reminder)}`;
 }

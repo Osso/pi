@@ -49,7 +49,7 @@ function readPersistedProgram(ctx: ExtensionContext): DaybreakProgram | undefine
 	const branch = ctx.sessionManager.getBranch();
 	for (let index = branch.length - 1; index >= 0; index--) {
 		const entry = branch[index];
-		if (entry.type !== "custom" || entry.customType !== DAYBREAK_ENTRY || !isPlainObject(entry.data)) continue;
+		if (entry?.type !== "custom" || entry.customType !== DAYBREAK_ENTRY || !isPlainObject(entry.data)) continue;
 		const { cyber } = entry.data;
 		if (cyber === null) return undefined;
 		if (cyber === DAYBREAK_BLUE) return cyber;

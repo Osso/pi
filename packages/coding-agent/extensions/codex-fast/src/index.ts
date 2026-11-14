@@ -70,7 +70,7 @@ function readPersistedFastMode(ctx: ExtensionContext): FastServiceTier | null | 
 	const branch = ctx.sessionManager.getBranch();
 	for (let index = branch.length - 1; index >= 0; index--) {
 		const entry = branch[index];
-		if (entry.type !== "custom" || entry.customType !== FAST_MODE_ENTRY) continue;
+		if (entry?.type !== "custom" || entry.customType !== FAST_MODE_ENTRY) continue;
 		const persistedTier = parsePersistedServiceTier(entry.data);
 		if (persistedTier !== undefined) return persistedTier;
 	}

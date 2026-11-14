@@ -47,7 +47,7 @@ function capConsoleText(text: string, byteLimit = STREAMED_CONSOLE_BYTE_LIMIT): 
 	const bytes = Buffer.from(text);
 	if (bytes.length <= byteLimit) return text;
 	let start = bytes.length - byteLimit;
-	while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start += 1;
+	while (start < bytes.length && ((bytes[start] ?? 0) & 0xc0) === 0x80) start += 1;
 	return bytes.subarray(start).toString("utf8");
 }
 
@@ -115,8 +115,8 @@ function capConsoleHistory(
 	let remainingBytes = STREAMED_CONSOLE_BYTE_LIMIT;
 	let remainingLines = STREAMED_CONSOLE_LINE_LIMIT;
 	const boundedEntries: NonNullable<CanonicalPyrunEvalResult["console"]> = [];
-	for (let index = entries.length - 1; index >= 0 && remainingLines > 0 && remainingBytes > 0; index -= 1) {
-		const entry = entries[index];
+	for (const entry of [...entries].reverse()) {
+		if (remainingLines <= 0 || remainingBytes <= 0) break;
 		const entryText = typeof entry === "string" ? entry : entry.message;
 		const text = capConsoleLines(capConsoleText(entryText, remainingBytes), remainingLines);
 		remainingBytes -= Buffer.byteLength(text);

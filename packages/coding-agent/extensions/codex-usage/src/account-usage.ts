@@ -64,7 +64,7 @@ async function readAccountRows(
 function formatAccountReport(scope: UsageScope, rows: AccountUsageRow[]): UsageSection {
 	const legend = scope === "claude" ? `${MISSING} = not reported` : RESET_CREDITS_LEGEND;
 	const accountWidth = Math.max("Account".length, ...rows.map((row) => row.account.length));
-	const header = ["5h", "Week", "Resets", "Provider", "Account", "Resets Central (5h | week)"];
+	const header: AccountColumns = ["5h", "Week", "Resets", "Provider", "Account", "Resets Central (5h | week)"];
 	const table = [
 		formatAccountColumns(header, accountWidth),
 		...rows.map((row) => formatAccountRow(row, accountWidth)),
@@ -179,17 +179,24 @@ function toClaudeUsageCell(window: UsageWindow | null): UsageCell | null {
 
 function formatAccountRow(row: AccountUsageRow, accountWidth: number): string {
 	const resets = `${formatUsageReset(row.fiveHour)} | ${formatUsageReset(row.weekly)}`;
-	const percents = [formatUsagePercent(row.fiveHour), formatUsagePercent(row.weekly)];
 	const resetCredits = row.resetCreditsAvailable?.toString() ?? MISSING;
 	return formatAccountColumns(
-		[...percents, resetCredits, row.provider, row.account, row.status ?? resets],
+		[
+			formatUsagePercent(row.fiveHour),
+			formatUsagePercent(row.weekly),
+			resetCredits,
+			row.provider,
+			row.account,
+			row.status ?? resets,
+		],
 		accountWidth,
 	);
 }
 
 /** Percent columns first: fixed width so they line up regardless of account name length. */
+type AccountColumns = [string, string, string, string, string, string];
 
-function formatAccountColumns(cells: string[], accountWidth: number): string {
+function formatAccountColumns(cells: AccountColumns, accountWidth: number): string {
 	const [fiveHour, weekly, resetCredits, provider, account, details] = cells;
 	return [
 		fiveHour.padEnd(5),

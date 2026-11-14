@@ -41,7 +41,7 @@ const CATALOG_ADDITIONS: BridgeCatalogModelInput[] = [
 // Version rank of a claude id, e.g. claude-opus-4-7 → ["opus", 4, 7]. Shared by
 // the display sort and resolveModel's newest-first partial tiebreak.
 function versionRank(id: string): { family: string; tuple: [number, number] } {
-	const [, family, major, minor] = id.split("-");
+	const [, family = "", major, minor] = id.split("-");
 	return { family, tuple: [Number(major) || 0, Number(minor) || 0] };
 }
 

@@ -82,7 +82,7 @@ export function buildActionSummary(calls: Map<string, ToolCallState>, cwd: strin
 	for (const [, tc] of calls) {
 		const action = formatToolAction(tc, cwd);
 		if (!action) continue;
-		const verb = tc.name.toLowerCase().split(/\s/)[0];
+		const [verb = ""] = tc.name.toLowerCase().split(/\s/);
 		// Collapse consecutive calls to the same tool — keep only the latest
 		if (verb === prevVerb) {
 			parts[parts.length - 1] = action;

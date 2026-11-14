@@ -34,7 +34,7 @@ function isDeliveredParentReport(message: ToolResultMessage<unknown>, parentRepo
 function findCurrentPromptIndex(branch: SessionEntry[]): number {
 	for (let index = branch.length - 1; index >= 0; index -= 1) {
 		const entry = branch[index];
-		if (entry.type === "message" && entry.message.role === "user") return index;
+		if (entry?.type === "message" && entry.message.role === "user") return index;
 	}
 	return -1;
 }

@@ -36,7 +36,7 @@ export function extractAllToolResults(
 	let stopIdx = -1;
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const msg = messages[i];
-		if (msg.role === "toolResult") {
+		if (msg?.role === "toolResult") {
 			results.unshift({
 				content: toolResultToMcpContent(
 					msg.content as string | Array<{ type: string; text?: string; data?: string; mimeType?: string }>,
@@ -44,7 +44,7 @@ export function extractAllToolResults(
 				isError: msg.isError,
 				toolCallId: msg.toolCallId,
 			});
-		} else if (msg.role === "assistant") {
+		} else if (msg?.role === "assistant") {
 			stopIdx = i;
 			break;
 		}

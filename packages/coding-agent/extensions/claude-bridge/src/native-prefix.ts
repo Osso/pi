@@ -211,15 +211,17 @@ export function nativePrefix(
 	while (
 		matched < native.length &&
 		matched < converted.length &&
-		native[matched].role === converted[matched].role &&
-		native[matched].key === converted[matched].key
+		native[matched]?.role === converted[matched]?.role &&
+		native[matched]?.key === converted[matched]?.key
 	)
 		matched++;
-	while (matched > 0 && converted[matched - 1].hasToolUse) matched--;
-	if (matched === 0) return { records: [], covered: 0 };
+	while (matched > 0 && converted[matched - 1]?.hasToolUse) matched--;
+	const lastNative = native[matched - 1];
+	const lastConverted = converted[matched - 1];
+	if (!lastNative || !lastConverted) return { records: [], covered: 0 };
 	return {
-		records: conversation.slice(0, native[matched - 1].end + 1) as JsonlRecord[],
-		covered: converted[matched - 1].end + 1,
+		records: conversation.slice(0, lastNative.end + 1) as JsonlRecord[],
+		covered: lastConverted.end + 1,
 	};
 }
 

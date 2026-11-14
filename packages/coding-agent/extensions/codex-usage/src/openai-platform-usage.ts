@@ -145,7 +145,11 @@ export function formatOpenAiPlatformReport(rows: OpenAiPlatformRow[]): UsageSect
 	return { title: OPENAI_PLATFORM_TITLE, table: [header, ...body].join("\n") };
 }
 
-function formatPlatformColumns(cells: string[], providerWidth: number, accountWidth: number): string {
+function formatPlatformColumns(
+	cells: [string, string, string, string, string],
+	providerWidth: number,
+	accountWidth: number,
+): string {
 	const [today, month, provider, account, status] = cells;
 	return [
 		today.padEnd(PLATFORM_AMOUNT_WIDTH),
