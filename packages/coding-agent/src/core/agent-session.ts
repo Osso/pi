@@ -54,6 +54,18 @@ import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
 import { type BackgroundCompactionCache, BackgroundCompactionState } from "./agent-session-background-compaction.ts";
 import {
+	createAgentSessionDetachedJobLifecycleController,
+	readHeadlessToolAutoDetachAfterMs,
+	recordDetachedToolCallCompletion,
+} from "./agent-session-detached-tools.ts";
+
+export {
+	buildDetachedToolCallCompletionEntry,
+	DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE,
+	type DetachedToolCallCompletionEntryData,
+} from "./agent-session-detached-tools.ts";
+
+import {
 	bindSessionMutationTargetResolver,
 	createInternalCommands,
 	createViewedSessionCommandContext,
@@ -88,7 +100,6 @@ import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 
 export { shouldContinueInterruptedSession } from "./agent-session-continuation.ts";
 
-import { createDetachedJobLifecycleController } from "./detached-job-lifecycle.ts";
 import type { DetachedJobLifecycleController } from "./detached-job-runner.ts";
 import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.ts";
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
@@ -232,16 +243,6 @@ function estimateThresholdContextTokens(
 
 const RUNTIME_MAILBOX_POLL_INTERVAL_MS = 30_000;
 const RUNTIME_MAILBOX_HEARTBEAT_INTERVAL_MS = 60_000;
-function readHeadlessToolAutoDetachAfterMs(env: NodeJS.ProcessEnv = process.env): number | undefined {
-	const value = env.PI_HEADLESS_TOOL_AUTO_DETACH_MS;
-	if (value === undefined) return undefined;
-	const milliseconds = Number(value);
-	if (!Number.isSafeInteger(milliseconds) || milliseconds <= 0) {
-		throw new Error(`PI_HEADLESS_TOOL_AUTO_DETACH_MS must be a positive integer: ${value}`);
-	}
-	return milliseconds;
-}
-
 async function waitForHeadlessSessionStartRelease(env: NodeJS.ProcessEnv = process.env): Promise<void> {
 	const releasePath = env.PI_HEADLESS_SESSION_START_RELEASE_PATH;
 	if (releasePath === undefined) return;
@@ -632,44 +633,6 @@ function validateMultiAgentRuntimeRole(config: AgentSessionConfig): void {
 // ============================================================================
 // AgentSession Class
 // ============================================================================
-
-/**
- * Custom session-entry type recording the terminal outcome of a detached tool
- * call (e.g. a Pyrun/Bash job that was moved to the background). The original
- * tool_result is immutable at "detached", so this entry carries the eventual
- * outcome keyed by the originating toolCallId for correlation in the transcript.
- */
-export const DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE = "detached_tool_call_completion";
-
-export interface DetachedToolCallCompletionEntryData {
-	toolCallId: string;
-	agentId: string;
-	lifecycle: "completed" | "failed" | "aborted";
-	summary?: string;
-	error?: string;
-}
-
-/**
- * Builds the transcript entry data for a detached tool call's terminal outcome,
- * or undefined when the agent is not a terminal detached tool-call job (no
- * originating toolCallId on its active worker or terminal result, or still active).
- */
-export function buildDetachedToolCallCompletionEntry(
-	agent: AgentSnapshot | undefined,
-): DetachedToolCallCompletionEntryData | undefined {
-	const toolCallId = agent?.worker?.toolCallId ?? agent?.result?.toolCallId;
-	if (!agent || !toolCallId) return undefined;
-	if (agent.lifecycle !== "completed" && agent.lifecycle !== "failed" && agent.lifecycle !== "aborted") {
-		return undefined;
-	}
-	return {
-		agentId: agent.id,
-		lifecycle: agent.lifecycle,
-		toolCallId,
-		...(agent.result?.summary === undefined ? {} : { summary: agent.result.summary }),
-		...(agent.error?.message === undefined ? {} : { error: agent.error.message }),
-	};
-}
 
 export class AgentSession {
 	readonly agent: Agent;
@@ -2804,25 +2767,13 @@ export class AgentSession {
 	}
 
 	private _getDetachedJobLifecycleController(): DetachedJobLifecycleController | undefined {
-		const store = this._multiAgentStore;
-		const persistence = store?.getPersistenceTarget();
-		const controlDbPath = this._getRuntimeMailboxControlDbPath();
-		if (!store || !persistence || !controlDbPath) return undefined;
-		const coordinator = new LifecycleCoordinator({
-			controlDbPath,
-			createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
-			now: () => new Date().toISOString(),
+		return createAgentSessionDetachedJobLifecycleController({
+			store: this._multiAgentStore,
+			controlDbPath: this._getRuntimeMailboxControlDbPath(),
 			processIdentity: this._detachedJobProcessIdentity,
-			sessionPath: persistence.sessionPath,
-		});
-		return createDetachedJobLifecycleController({
 			artifactRoot: this._agentDir,
-			controlDbPath,
-			coordinator,
 			ownerAgentId: this._multiAgentAgentId,
 			ownerSessionId: this.sessionId,
-			sessionPath: persistence.sessionPath,
-			store,
 		});
 	}
 
@@ -3001,23 +2952,7 @@ export class AgentSession {
 	 * toolCallId (the immutable tool_result only ever says "detached").
 	 */
 	private _recordDetachedToolCallCompletion(message: RuntimeMailboxMessage): void {
-		const senderId = message.sender.agentId;
-		if (!this._multiAgentStore || !senderId) return;
-		const data = buildDetachedToolCallCompletionEntry(this._multiAgentStore.getAgent(senderId));
-		if (!data) return;
-		const alreadyRecorded = this.sessionManager.getEntries().some((entry) => {
-			if (entry.type !== "custom" || entry.customType !== DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE) return false;
-			const existing = entry.data;
-			return (
-				typeof existing === "object" &&
-				existing !== null &&
-				"agentId" in existing &&
-				existing.agentId === data.agentId &&
-				"toolCallId" in existing &&
-				existing.toolCallId === data.toolCallId
-			);
-		});
-		if (!alreadyRecorded) this.sessionManager.appendCustomEntry(DETACHED_TOOL_CALL_COMPLETION_CUSTOM_TYPE, data);
+		recordDetachedToolCallCompletion({ message, store: this._multiAgentStore, sessionManager: this.sessionManager });
 	}
 
 	private async _interceptRuntimeMailboxMessage(message: RuntimeMailboxMessage): Promise<boolean> {
