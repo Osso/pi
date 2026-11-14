@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Fixed `agentLoopContinue` omitting `turn_start` for the model response that follows a restored unfinished tool batch.
 - Fixed `parseCommandArgs` dropping quoted empty arguments (`""`, `''`), which shifted later positional template arguments.
 - Fixed steering aborts discarding an in-flight assistant reply; streamed content and metadata are retained with one message completion instead of a new empty assistant message, and tool calls from the interrupted response are not executed.
 - Fixed queued steering after a text-only response being paired with the stale runtime-only `end_turn` completion instruction; steering now takes precedence for the following provider request.

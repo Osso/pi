@@ -17,6 +17,7 @@ import type {
 	AgentContext,
 	AgentEvent,
 	AgentLoopConfig,
+	AgentLoopTurnUpdate,
 	AgentMessage,
 	AgentTool,
 	AgentToolCall,
@@ -184,16 +185,7 @@ export async function runAgentLoopContinue(
 		const nextTurnSnapshot = await continuationConfig.prepareNextTurn?.(nextTurnContext);
 		if (nextTurnSnapshot) {
 			currentContext = nextTurnSnapshot.context ?? currentContext;
-			continuationConfig = {
-				...continuationConfig,
-				model: nextTurnSnapshot.model ?? continuationConfig.model,
-				reasoning:
-					nextTurnSnapshot.thinkingLevel === undefined
-						? continuationConfig.reasoning
-						: nextTurnSnapshot.thinkingLevel === "off"
-							? undefined
-							: nextTurnSnapshot.thinkingLevel,
-			};
+			continuationConfig = applyTurnUpdate(continuationConfig, nextTurnSnapshot);
 		}
 		if (
 			await continuationConfig.shouldStopAfterTurn?.({
@@ -206,10 +198,19 @@ export async function runAgentLoopContinue(
 			await emit({ type: "agent_end", messages: newMessages });
 			return newMessages;
 		}
+		// The restored batch closed its own turn; the next assistant response starts a new one.
+		await emit({ type: "turn_start" });
 	}
 
 	await runLoop(currentContext, newMessages, continuationConfig, signal, emit, streamFn);
 	return newMessages;
+}
+
+function applyTurnUpdate(config: AgentLoopConfig, update: AgentLoopTurnUpdate): AgentLoopConfig {
+	const { model = config.model, thinkingLevel } = update;
+	const reasoning =
+		thinkingLevel === undefined ? config.reasoning : thinkingLevel === "off" ? undefined : thinkingLevel;
+	return { ...config, model, reasoning };
 }
 
 function createAgentStream(): EventStream<AgentEvent, AgentMessage[]> {
@@ -324,16 +325,7 @@ async function runLoop(
 			const nextTurnSnapshot = await config.prepareNextTurn?.(nextTurnContext);
 			if (nextTurnSnapshot) {
 				currentContext = nextTurnSnapshot.context ?? currentContext;
-				config = {
-					...config,
-					model: nextTurnSnapshot.model ?? config.model,
-					reasoning:
-						nextTurnSnapshot.thinkingLevel === undefined
-							? config.reasoning
-							: nextTurnSnapshot.thinkingLevel === "off"
-								? undefined
-								: nextTurnSnapshot.thinkingLevel,
-				};
+				config = applyTurnUpdate(config, nextTurnSnapshot);
 			}
 
 			if (

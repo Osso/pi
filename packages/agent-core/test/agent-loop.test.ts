@@ -1684,6 +1684,8 @@ describe("agentLoopContinue with AgentMessage", () => {
 		expect(executed).toEqual(["restored"]);
 		expect(messages.map((message) => message.role)).toEqual(["toolResult", "assistant"]);
 		expect(events.filter((event) => event.type === "tool_execution_start")).toHaveLength(1);
+		const turnEvents = events.filter((event) => event.type === "turn_start" || event.type === "turn_end");
+		expect(turnEvents.map((event) => event.type)).toEqual(["turn_start", "turn_end", "turn_start", "turn_end"]);
 	});
 
 	it("reuses a persisted agentId when continuing an interrupted tool call", async () => {
