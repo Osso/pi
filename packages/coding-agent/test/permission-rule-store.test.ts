@@ -82,6 +82,26 @@ describe("writePermissionRules", () => {
 		expect(settings.permissionRules?.allow?.bash).toEqual(["git status"]);
 	});
 
+	it("does not mistake a permissionRules string value for the property", () => {
+		const settingsPath = join(agentDir, "settings.json");
+		writeFileSync(settingsPath, JSON.stringify({ theme: "permissionRules", approvalPolicy: "on-request" }));
+
+		writePermissionRules({
+			agentDir,
+			behavior: "allow",
+			cwd,
+			destination: "userSettings",
+			rules: ["git status"],
+			toolName: "bash",
+		});
+
+		expect(JSON.parse(readFileSync(settingsPath, "utf-8"))).toEqual({
+			theme: "permissionRules",
+			approvalPolicy: "on-request",
+			permissionRules: { allow: { bash: ["git status"] } },
+		});
+	});
+
 	it.each(["userSettings", "projectSettings", "localSettings"] as const)(
 		"suppresses matching MCP reviews after reloading %s rules",
 		async (destination) => {

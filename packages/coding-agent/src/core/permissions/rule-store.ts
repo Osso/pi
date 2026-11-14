@@ -203,9 +203,9 @@ function findTopLevelPropertyValueRange(
 		if (char === '"') {
 			const endQuote = findStringEnd(content, index);
 			const name = JSON.parse(content.slice(index, endQuote + 1)) as string;
-			if (depth === 1 && name === propertyName) {
-				const colonIndex = content.indexOf(":", endQuote + 1);
-				if (colonIndex === -1) return undefined;
+			// Only a string followed by a colon is a property name; an equal string value is not.
+			const colonIndex = findNextNonWhitespace(content, endQuote + 1);
+			if (depth === 1 && name === propertyName && colonIndex !== undefined && content[colonIndex] === ":") {
 				const start = findNextNonWhitespace(content, colonIndex + 1);
 				if (start === undefined) return undefined;
 				return { start, end: findJsonValueEnd(content, start) };
