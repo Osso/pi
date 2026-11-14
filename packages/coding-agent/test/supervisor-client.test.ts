@@ -8,7 +8,6 @@ import {
 	completeSupervisorRequest,
 	getControlDbPath,
 	readSupervisorRequest,
-	recoverSupervisorRequests,
 } from "../src/core/session-control-db.ts";
 import { DEFAULT_SUPERVISOR_POLL_INTERVAL_MS, requestSupervisorDecision } from "../src/supervisor/client.ts";
 
@@ -103,56 +102,15 @@ describe("Supervisor client", () => {
 		await expect(decision).resolves.toEqual({ kind: "approve", reason: "bounded" });
 	});
 
-	it("retries a timed-out request before returning a later durable response", async () => {
-		vi.useFakeTimers();
-		const decision = requestSupervisorDecision(
-			{
-				controlDbPath,
-				kind: "goal_idle_review",
-				maxAttempts: 2,
-				payload: { objective: "finish" },
-				pollIntervalMs: 1,
-				projectId: "pi",
-				retryDelayMs: 1,
-				retryJitterRatio: 0,
-				senderSessionId: "main",
-				timeoutMs: 100,
-			},
-			runningDependencies,
-		);
-
-		await vi.advanceTimersByTimeAsync(100);
-		await vi.advanceTimersByTimeAsync(1);
-		if (!readSupervisorRequest(controlDbPath, 2)) throw new Error("expected retried request record");
-
-		recoverSupervisorRequests(controlDbPath);
-		const retriedRequest = claimNextSupervisorRequest(controlDbPath, "runtime");
-		if (!retriedRequest) throw new Error("expected claimable retried request");
-		completeSupervisorRequest(controlDbPath, retriedRequest.id, "runtime", {
-			instructions: "Continue the goal.",
-			kind: "continue",
-			reason: "recovered",
-		});
-
-		await vi.advanceTimersByTimeAsync(1);
-		await expect(decision).resolves.toEqual({
-			instructions: "Continue the goal.",
-			kind: "continue",
-			reason: "recovered",
-		});
-	});
-
-	it("cancels polling, retries, and the durable request when its signal aborts", async () => {
+	it("cancels polling and the durable request when its signal aborts", async () => {
 		const controller = new AbortController();
 		const decision = requestSupervisorDecision(
 			{
 				controlDbPath,
 				kind: "goal_idle_review",
-				maxAttempts: 3,
 				payload: { objective: "keep active" },
 				pollIntervalMs: 10_000,
 				projectId: "pi",
-				retryDelayMs: 10_000,
 				senderSessionId: "goal-session",
 				signal: controller.signal,
 				timeoutMs: 60_000,
@@ -175,23 +133,20 @@ describe("Supervisor client", () => {
 		expect(DEFAULT_SUPERVISOR_POLL_INTERVAL_MS).toBe(300);
 	});
 
-	it("returns error when all request attempts expire without a service response", async () => {
+	it("returns error when the request expires without a service response", async () => {
 		await expect(
 			requestSupervisorDecision(
 				{
 					controlDbPath,
 					kind: "goal_idle_review",
-					maxAttempts: 2,
 					payload: { objective: "finish" },
 					pollIntervalMs: 1,
 					projectId: "pi",
-					retryDelayMs: 1,
-					retryJitterRatio: 0,
 					senderSessionId: "main",
 					timeoutMs: 20,
 				},
 				runningDependencies,
 			),
-		).resolves.toMatchObject({ kind: "error", reason: "Supervisor request timed out after 2 attempts" });
+		).resolves.toMatchObject({ kind: "error", reason: "Supervisor request timed out" });
 	});
 });

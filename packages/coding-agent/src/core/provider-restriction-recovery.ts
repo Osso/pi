@@ -30,7 +30,7 @@ type CodexRestrictionValidationDecision = {
 	basisQuote: string;
 };
 
-const RESTRICTION_ADVISORY_TIMEOUT_MS = 45_000;
+const RESTRICTION_ADVISORY_TIMEOUT_MS = 15 * 60 * 1_000;
 const MAX_ADVISORY_CONTEXT_CHARACTERS = 8_000;
 const CANCELLATION_REASON = "Restriction advisory request cancelled";
 const RESTRICTION_ADVISORY_QUESTION = [

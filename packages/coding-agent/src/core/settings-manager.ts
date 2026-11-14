@@ -113,9 +113,15 @@ export interface ReminderSettings {
 	deliverySessionId?: string;
 }
 
+export interface SupervisorSettings {
+	/** Session ID of the interactive Supervisor session that serves typed Supervisor requests. */
+	sessionId?: string;
+}
+
 export interface Settings {
 	relay?: RelaySettings;
 	reminders?: ReminderSettings;
+	supervisor?: SupervisorSettings;
 	lastChangelogVersion?: string;
 	defaultProvider?: string;
 	defaultModel?: string;
@@ -534,6 +540,10 @@ export class SettingsManager {
 
 	getSupervisorModel(): string | undefined {
 		return this.settings.supervisorModel;
+	}
+
+	getSupervisorSessionId(): string | undefined {
+		return this.settings.supervisor?.sessionId;
 	}
 
 	getApprovalPolicy(): ApprovalPolicy {

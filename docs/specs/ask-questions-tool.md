@@ -14,8 +14,8 @@ The `ask_questions` built-in tool lets the model ask choice or free-text questio
 
 ### Supervisor answering (planned)
 
-- [ ] In a main session, when a Supervisor session is configured and the caller is not that session, send the questions to it as a mailbox message (through the relay for another host) while the local panel opens. Sending never blocks or polls; see [Supervisor question answering](supervisor-service.md#question-answering).
-- [ ] The first answer wins: a Supervisor answer arriving while the panel is open closes it and becomes the tool result; a local user answer sends a withdrawal message, and a later Supervisor reply is ignored.
+- [ ] In a main session, when a Supervisor session is configured and the caller is not that session, post the questions as a `question` Supervisor request (through the relay for another host) while the local panel opens. Posting never blocks or polls; the answer arrives in the session mailbox; see [Supervisor question answering](supervisor-service.md#question-answering).
+- [ ] The first answer wins: a Supervisor answer arriving while the panel is open closes it and becomes the tool result; a local user answer cancels the request.
 - [ ] Mark the result source: `→ <answer> (Supervisor: <reason>)` for Supervisor answers.
 - [ ] On `escalate`, keep the local panel open; the user may answer either there or in the Supervisor UI.
 - [ ] Nonblocking calls receive a Supervisor answer through the normal inbox, correlated by `requestId`.

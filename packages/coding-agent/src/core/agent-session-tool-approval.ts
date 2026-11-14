@@ -11,6 +11,8 @@ import type { PermissionRuleStore } from "./permissions/rule-store.ts";
 import type { SessionManager } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
 
+const SUPERVISOR_APPROVAL_TIMEOUT_MS = 5 * 60_000;
+
 const MCP_TOOL_NAME_PATTERN = /^mcp__[^_]+(?:_[^_]+)*__[^_]+(?:_[^_]+)*$/;
 const PERMISSION_PROMPT_TOOL_NAME = "approval_prompt";
 const PERMISSION_PROMPT_SCHEMA_FIELDS = ["tool_name", "input", "tool_use_id", "cwd"] as const;
@@ -287,7 +289,7 @@ function createToolApprovalLlmReviewer(
 					},
 					projectId: resolveSupervisorProjectForCwd(dependencies.getCwd(), kbDir),
 					senderSessionId: dependencies.getSessionId(),
-					timeoutMs: 30_000,
+					timeoutMs: SUPERVISOR_APPROVAL_TIMEOUT_MS,
 				}),
 			async (reason) => {
 				const humanReviewer = createToolApprovalHumanReviewer(

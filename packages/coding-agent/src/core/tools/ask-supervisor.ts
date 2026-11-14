@@ -4,7 +4,7 @@ import { requestSupervisorDecision } from "../../supervisor/client.ts";
 import { DEFAULT_SUPERVISOR_KB_DIR, resolveSupervisorProjectForCwd } from "../../supervisor/project-resolver.ts";
 import type { ExtensionContext, ToolDefinition } from "../extensions/types.ts";
 
-const SUPERVISOR_ADVISORY_TIMEOUT_MS = 3 * 60 * 1_000;
+const SUPERVISOR_ADVISORY_TIMEOUT_MS = 15 * 60 * 1_000;
 const askSupervisorSchema = Type.Object({
 	question: Type.String({ description: "Bounded advisory question for the resident Supervisor.", maxLength: 4_000 }),
 	context: Type.Optional(

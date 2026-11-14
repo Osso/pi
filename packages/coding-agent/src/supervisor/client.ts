@@ -5,7 +5,7 @@ import {
 	type SupervisorRequestKind,
 	type SupervisorResponse,
 } from "../core/session-control-db.ts";
-import { ensureSupervisorRunning } from "./ensure-running.ts";
+import { ensureSupervisorAvailable } from "./ensure-running.ts";
 import { notifySupervisorRequest } from "./request-wake.ts";
 
 export const SUPERVISOR_REQUEST_CANCELLED_REASON = "Supervisor request cancelled";
@@ -18,10 +18,7 @@ export interface RequestSupervisorDecisionInput {
 	projectId: string;
 	senderSessionId: string;
 	timeoutMs: number;
-	maxAttempts?: number;
 	pollIntervalMs?: number;
-	retryDelayMs?: number;
-	retryJitterRatio?: number;
 	signal?: AbortSignal;
 }
 
@@ -93,28 +90,13 @@ async function requestSupervisorDecisionAttempt(
 	}
 }
 
-function retryDelay(input: RequestSupervisorDecisionInput, attempt: number): number {
-	const baseDelayMs = input.retryDelayMs ?? 1_000;
-	const jitterRatio = input.retryJitterRatio ?? 0.2;
-	const exponentialDelayMs = baseDelayMs * 2 ** (attempt - 1);
-	return exponentialDelayMs * (1 - jitterRatio + Math.random() * jitterRatio * 2);
-}
-
 export async function requestSupervisorDecision(
 	input: RequestSupervisorDecisionInput,
 	dependencies: SupervisorClientDependencies = {},
 ): Promise<SupervisorResponse> {
-	const resolvedDependencies = { ensureRunning: dependencies.ensureRunning ?? ensureSupervisorRunning };
-	const maxAttempts = input.maxAttempts ?? 1;
-	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-		const response = await requestSupervisorDecisionAttempt(input, resolvedDependencies);
-		if (response) return response;
-		if (attempt < maxAttempts && !(await delay(retryDelay(input, attempt), input.signal))) {
-			return { kind: "error", reason: SUPERVISOR_REQUEST_CANCELLED_REASON };
-		}
-	}
-	const suffix = maxAttempts === 1 ? "" : ` after ${maxAttempts} attempts`;
-	return { kind: "error", reason: `Supervisor request timed out${suffix}` };
+	const resolvedDependencies = { ensureRunning: dependencies.ensureRunning ?? ensureSupervisorAvailable };
+	const response = await requestSupervisorDecisionAttempt(input, resolvedDependencies);
+	return response ?? { kind: "error", reason: "Supervisor request timed out" };
 }
 
 function delay(milliseconds: number, signal?: AbortSignal): Promise<boolean> {

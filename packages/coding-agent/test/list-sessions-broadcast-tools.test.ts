@@ -22,7 +22,7 @@ import { createAllToolDefinitions, DEFAULT_ACTIVE_TOOL_NAMES } from "../src/core
 import { createListSessionsToolDefinition } from "../src/core/tools/list-sessions.ts";
 import { createHarness } from "./suite/harness.ts";
 
-vi.mock("../src/supervisor/ensure-running.ts", () => ({ ensureSupervisorRunning: async () => ({}) }));
+vi.mock("../src/supervisor/ensure-running.ts", () => ({ ensureSupervisorAvailable: async () => {} }));
 
 describe("session coordination tools", () => {
 	it("excludes broadcast from active tools while keeping channel_post", async () => {

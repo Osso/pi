@@ -39,7 +39,7 @@ import {
 } from "../src/core/session-control-db.ts";
 import { SUPERVISOR_REQUEST_CANCELLED_REASON } from "../src/supervisor/client.ts";
 
-vi.mock("../src/supervisor/ensure-running.ts", () => ({ ensureSupervisorRunning: async () => ({}) }));
+vi.mock("../src/supervisor/ensure-running.ts", () => ({ ensureSupervisorAvailable: async () => {} }));
 
 type RegisteredGoalCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
 type GoalTool = ToolDefinition;
@@ -941,7 +941,7 @@ describe("goal extension", () => {
 		expect(result).toBeUndefined();
 	});
 
-	it("gives resident goal reviews an approximately 60-second deadline", async () => {
+	it("gives resident goal reviews an approximately 15-minute deadline", async () => {
 		const agentDir = join(cwd, "agent-dir");
 		mkdirSync(agentDir, { recursive: true });
 		const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
@@ -964,8 +964,8 @@ describe("goal extension", () => {
 				reason: "verified",
 			});
 			await review;
-			expect(deadlineMs).toBeGreaterThanOrEqual(59_000);
-			expect(deadlineMs).toBeLessThanOrEqual(60_000);
+			expect(deadlineMs).toBeGreaterThanOrEqual(15 * 60_000 - 1_000);
+			expect(deadlineMs).toBeLessThanOrEqual(15 * 60_000);
 		} finally {
 			if (previousAgentDir === undefined) {
 				delete process.env.PI_CODING_AGENT_DIR;

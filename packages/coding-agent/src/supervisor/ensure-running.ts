@@ -5,6 +5,8 @@ import lockfile from "proper-lockfile";
 import { isBunBinary, VERSION } from "../config.ts";
 import { probeResidentConsole, type ResidentConsoleIdentity } from "../core/resident-console-transport.ts";
 import { isRuntimeExecutableReplaced, isVerifiedPiRuntimeProcess } from "../core/runtime-process.ts";
+import { readSessionHealth } from "../core/session-control-db/session-health.ts";
+import { SettingsManager } from "../core/settings-manager.ts";
 import { spawnProcess } from "../utils/child-process.ts";
 
 export const SUPERVISOR_AUTOSTART_ENV = "PI_SUPERVISOR_AUTOSTARTED";
@@ -59,6 +61,24 @@ export function resolveSupervisorLaunchInvocation(runtime: SupervisorLaunchRunti
 		cwd: runtime.homeDir,
 		env,
 	};
+}
+
+/**
+ * Makes typed requests servable: the configured interactive Supervisor session must be live; without one,
+ * the detached resident is started on demand.
+ */
+export async function ensureSupervisorAvailable(input: EnsureSupervisorRunningInput): Promise<void> {
+	const sessionId = SettingsManager.create(process.cwd(), undefined, {
+		projectTrusted: false,
+	}).getSupervisorSessionId();
+	if (!sessionId) {
+		await ensureSupervisorRunning(input);
+		return;
+	}
+	const pid = readSessionHealth(input.controlDbPath, sessionId)?.pid;
+	if (!pid || !isVerifiedPiRuntimeProcess(pid)) {
+		throw new Error(`the Supervisor session ${sessionId} is not running`);
+	}
 }
 
 export async function ensureSupervisorRunning(

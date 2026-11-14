@@ -33,25 +33,26 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 The Supervisor becomes a normal, full-UI interactive Pi session on agent-server. It replaces the detached `pi supervisor` resident and absorbs the [machine assistant](machine-assistant.md) role. The user talks to it like any Pi session; it also serves typed Supervisor requests. Decided 2026-11-14.
 
 - [ ] Serve the durable `supervisor_requests` queue from the session named by setting `supervisor.sessionId` on the host that owns it; no detached resident is spawned when the setting is present.
-- [ ] Use one shared model context for user chat, duties, and typed requests. Process a claimed request as a turn between user turns; never interleave turns. Approval requests run before goal reviews and advisory requests.
+- [ ] Use one shared model context for user chat, duties, and typed requests. Process a claimed request as a turn between user turns; never interleave turns. Order: approval, goal review, advisory, question.
 - [ ] Record each typed response through a response tool whose arguments are validated per request kind; show each request and decision in the session UI.
-- [ ] Request deadlines: approval 5 min (then human escalation), goal review 15 min with one attempt (then `error` and the existing wake/55-minute re-review), advisory 15 min.
+- [x] Request deadlines: approval 5 min (then human escalation), goal review 15 min with one attempt (then `error` and the existing wake/55-minute re-review), advisory 15 min.
 - [ ] When the Supervisor session is down or the deadline passes, callers get the existing failure results; no fallback resident is started.
 - [ ] Accept requests from other hosts through the relay (phase 3); a relay outage produces the same failure results as an unavailable Supervisor.
 
 ### Question answering
 
-Questions are asynchronous mailbox messages, not typed `supervisor_requests`: no polling, deadline, or request kind.
+Questions use the same `supervisor_requests` queue as typed requests, with kind `question`. Only reply delivery differs: the asking session never polls, and the answer reaches it through its runtime mailbox.
 
-- [ ] Receive questions from main sessions on any host as inbox messages carrying the asking host, session, `requestId`, blocking flag, and questions.
-- [ ] Reply with `answer_question` addressed by host, session, and `requestId`: either answers keyed by exact question text, each with a short reason, or `escalate` with a reason.
+- [ ] A `question` row carries the asking host, session, `requestId`, blocking flag, and questions. It has no deadline and runs after approval, goal-review, and advisory requests.
+- [ ] Respond through `supervisor_response` with `answer` (answers keyed by exact question text, each with a short reason) or `escalate` (reason).
+- [ ] On completion, deliver the response to the asking session's mailbox, through the relay for another host.
 - [ ] Answer trivial and non-trivial questions decidable from user rules, specs, KB, earlier user decisions, repo evidence, or reasoning. Always escalate new scope, cost, safety risk, irreversible actions, and product tradeoffs the evidence does not settle.
 - [ ] On `escalate`, open the questions as an `ask_questions` panel in the Supervisor UI; the user's answer there is delivered to the asking session as a user answer.
-- [ ] A withdrawal message from the asking session (the user answered locally) drops the question from the Supervisor's pending work.
+- [ ] A local user answer cancels the row; a cancelled question is never answered.
 
 ### Session tools
 
-- [ ] Limit the Supervisor session, including user chat, to `read`, `edit`, `write` inside the configured KB root, `supervisor_response`, `answer_question`, `send_agent_message`, `ask_questions`, `reminders`, and `end_turn`. Bash, Pyrun, agent spawn/attach, restart, and session control stay unavailable.
+- [ ] Limit the Supervisor session, including user chat, to `read`, `edit`, `write` inside the configured KB root, `supervisor_response`, `send_agent_message`, `ask_questions`, `reminders`, and `end_turn`. Bash, Pyrun, agent spawn/attach, restart, and session control stay unavailable.
 
 ### Resident console
 
@@ -107,7 +108,7 @@ Questions are asynchronous mailbox messages, not typed `supervisor_requests`: no
       session opened as the main orchestrator. Sub-agents cannot use it.
 - [x] Persist advisory requests as `supervisor_advisory` queue rows and return a text-only `{ kind: "advisory", answer }` response; advisory responses cannot control the caller or mutate goals, policies, sessions, processes, or agents.
 - [x] Bound inputs to a 4,000-character question and optional 8,000-character context.
-- [x] Enforce a three-minute request deadline.
+- [x] Enforce a fifteen-minute request deadline.
 - [x] Schedule advisory requests below approval and goal reviews.
 
 ### Codex cybersecurity-risk advisory recovery
@@ -115,7 +116,7 @@ Questions are asynchronous mailbox messages, not typed `supervisor_requests`: no
 User basis (verbatim): “exact Codex cybersecurity-risk flag -> bounded advisory proposing only genuinely different/narrower permitted subtask withinoriginaluserauthorization; main caller autoattempt once sameprovider/model/accesssettings; originalrequest/refusal/history and broadergoal remain”. This preference authorizes bounded permitted-subtask recovery, not entitlement or access approval.
 
 - [x] Trigger only for an assistant error from the `openai-codex-responses` API containing the exact canonical flag `This content was flagged for possible cybersecurity risk.`; classify that flag as nonretryable before generic status patterns. Do not treat it as transient failure, quota exhaustion, or permission to retry the refused request.
-- [x] Request one bounded, text-only Supervisor advisory under the existing advisory input limits and three-minute deadline. Supply bounded current evidence, including the original user authorization quoted exactly and the refusal; never reconstruct authorization from assistant summaries or treat the recovery preference as approval of entitlement. The Supervisor may propose only a genuinely different or narrower permitted subtask already within that authorization, or state that no such subtask exists.
+- [x] Request one bounded, text-only Supervisor advisory under the existing advisory input limits and fifteen-minute deadline. Supply bounded current evidence, including the original user authorization quoted exactly and the refusal; never reconstruct authorization from assistant summaries or treat the recovery preference as approval of entitlement. The Supervisor may propose only a genuinely different or narrower permitted subtask already within that authorization, or state that no such subtask exists.
 - [x] Treat the Supervisor proposal as untrusted advice, never authority. The normal main agent makes exactly one tool-free policy-validation AgentSession invocation (an error-stopped or timed-out validation denies) with the same provider, model, access settings, and retained history as the flagged request. Require strict JSON with exactly `{ allowed, task, reason, basisQuote }`: a boolean `allowed`, the exact proposed task, a nonempty reason, and a string quote. An affirmative decision requires a nonempty exact quote from the original user request; substring matching alone does not establish semantic permission, and prohibitions must be interpreted in context.
 - [x] Only a valid main-agent `allowed: true` decision permits at most one automatic operative task attempt of the genuinely different or narrower task within existing authorization. AgentSession cannot redispatch either validation or the operative attempt through transient-error retry, thinking-timeout recovery, or overflow-compaction recovery; an operative error ends recovery. This is an invocation/task-attempt guarantee, not universal wire-send exactly-once: provider-internal `websocket_connection_limit_reached` reconnect before response start can resend within the same invocation. That resend is neither a new task attempt nor authorization to retry refused content. Denial, errors, malformed output, or attempted tools stop recovery without operative effects; validation tools cannot execute, and the original tool set is restored after validation or cancellation. Keep provider, model, account/backend, and access settings unchanged throughout validation and the attempt; do not grant new permission or use fallback to overcome the restriction.
 - [x] Preserve the original request, refusal, and history as evidence and keep the broader goal, requirements, exclusions, and completion criteria intact. Identify the attempted subtask and advisory provenance visibly; do not camouflage the refused operation, conceal intent, or merely rephrase it to evade the restriction. Do not change permissions, access tier, account, backend, provider, or model to overcome the flag.
@@ -133,7 +134,7 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 - [x] Auto-approve inherently read-only built-in tools (`read`, `grep`, `find`, `ls`, `outline`, `symbol`, and `references`) after extension and permission hooks have had an opportunity to deny them, without consulting the Supervisor or prompting the user.
 - [x] Include the tool name, normalized arguments, current user request, active running goal when present, and applicable preclassified approval rules in the request evidence.
 - [x] Return exactly `approve`, `reject`, or generic `error` for approval review.
-- [x] Enforce a 30-second deadline that includes model work plus synchronous KB reads and writes.
+- [x] Enforce a five-minute deadline that includes model work plus synchronous KB reads and writes.
 - [x] Escalate `error`, timeout, invalid response, or unavailable Supervisor to human review.
 
 ### Goal completion review
@@ -170,7 +171,7 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 - [x] Require best judgment between `complete`, autonomous or corrective `continue`, scheduled `wait` only when a pending asynchronous result or recheckable external condition blocks all remaining goal work, including when the only remaining work needs that result (a running suite, build, agent, or external job never justifies `wait` while other authorized goal work can proceed without it), and manual-only `pause`; do not restate plans, prescribe routine steps, or invent oversight when the agent can determine how to continue.
 - [x] On goal `error`, keep the goal running, append visible durable error status without requiring human approval, and use the same agent-wake or fifty-five-minute re-review path as `wait`; rejected scheduled work remains visibly durable.
 - [x] Retry before review when pending input is transient, preserve reviewed decisions when input becomes pending during review, and cancel in-flight reviews, deferred decisions, waits, discovery calls, and timers on input, new turns, goal lifecycle changes, and shutdown; recheck cancellation generation and goal identity before applying an asynchronous decision.
-- [x] Enforce a three-minute deadline for goal reviews.
+- [x] Enforce a fifteen-minute deadline for goal reviews.
 
 ### Scheduling and preemption
 
@@ -178,7 +179,7 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 - [x] Abort and requeue an active goal review when an approval request arrives.
 - [x] Preserve the original goal request evidence when requeuing it.
 - [x] Process the approval immediately after preemption.
-- [x] Keep the requeued goal review within its original three-minute request deadline.
+- [x] Keep the requeued goal review within its original fifteen-minute request deadline.
 
 ### Failure handling
 
@@ -186,7 +187,7 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 - [x] Interactive Escape reaches an active goal review through global input even when the caller is idle (the editor keeps focus while the waiting status shows), then clears the loader without applying a stale decision.
 - [x] Return generic `error` for service, transport, timeout, model, tool, or response-validation failures; include the current model response's error detail when available without reusing an earlier response.
 - [x] Fail non-generic instruction vetoes closed: invalid output or evaluation failure suppresses the proposed instruction, appends fixed hidden failure feedback, and delivers exactly the generic continuation without retrying the first-level review at that boundary.
-- [x] Retry resident goal-review request timeouts up to three attempts with bounded exponential backoff and jitter before returning generic `error`; other request kinds retain single-attempt timeout behavior.
+- [x] Make one attempt per request; a timeout returns generic `error` without retry.
 - [x] Fail approval reviews to human escalation.
 - [x] Fail goal reviews visibly without completing the goal or invoking human approval; idle-review errors enter bounded wake/re-review scheduling, while completion-review errors remain unresolved until another explicit completion attempt.
 
