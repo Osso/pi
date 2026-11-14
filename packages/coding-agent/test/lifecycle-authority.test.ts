@@ -4,7 +4,10 @@ import { describe, expect, it } from "vitest";
 
 const packageRoot = join(import.meta.dirname, "..");
 const productionRoots = [join(packageRoot, "src"), join(packageRoot, "extensions")];
-const excludedFiles = new Set(["src/core/lifecycle-coordinator.ts", "src/core/session-control-db.ts"]);
+// The control DB repository is session-control-db.ts plus the modules in session-control-db/.
+function isRepositoryFile(relativePath: string): boolean {
+	return relativePath === "src/core/session-control-db.ts" || relativePath.startsWith("src/core/session-control-db/");
+}
 const repositoryWriterAllowlist = new Map<string, Set<string>>([
 	["acquireAttachedRuntimeOwnership(", new Set(["src/core/lifecycle-coordinator.ts"])],
 	["commitMultiAgentLifecycleMutation(", new Set(["src/core/lifecycle-coordinator.ts"])],
@@ -52,7 +55,7 @@ describe("lifecycle authority", () => {
 		const violations: string[] = [];
 		for (const file of productionRoots.flatMap(listTypeScriptFiles)) {
 			const relativePath = relative(packageRoot, file);
-			if (relativePath === "src/core/session-control-db.ts") continue;
+			if (isRepositoryFile(relativePath)) continue;
 			const source = readFileSync(file, "utf8");
 			for (const [call, allowedFiles] of repositoryWriterAllowlist) {
 				if (source.includes(call) && !allowedFiles.has(relativePath)) violations.push(`${relativePath}: ${call}`);
@@ -65,7 +68,7 @@ describe("lifecycle authority", () => {
 		const violations: string[] = [];
 		for (const file of productionRoots.flatMap(listTypeScriptFiles)) {
 			const relativePath = relative(packageRoot, file);
-			if (excludedFiles.has(relativePath)) continue;
+			if (relativePath === "src/core/lifecycle-coordinator.ts" || isRepositoryFile(relativePath)) continue;
 			const source = readFileSync(file, "utf8");
 			for (const call of forbiddenCalls) {
 				if (source.includes(call)) violations.push(`${relativePath}: ${call}`);
