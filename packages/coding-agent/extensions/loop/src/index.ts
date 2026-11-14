@@ -160,15 +160,16 @@ function parseLoopCommand(
 	if (!trimmedArgs || trimmedArgs === "status") return { action: "status" };
 	if (trimmedArgs === "stop" || trimmedArgs === "off" || trimmedArgs === "clear") return { action: "stop" };
 
-	const [intervalText, ...promptParts] = trimmedArgs.split(/\s+/);
-	const intervalMs = parseIntervalMs(intervalText ?? "");
+	// Split off only the interval; the prompt body keeps its spacing, newlines, and indentation.
+	const [, intervalText = "", promptText = ""] = /^(\S+)\s*([\s\S]*)$/.exec(trimmedArgs) ?? [];
+	const intervalMs = parseIntervalMs(intervalText);
 	if (!intervalMs) {
 		return {
 			error: "Usage: /loop <interval> <prompt> | /loop status | /loop stop (interval from 1s to 24.8 days)",
 		};
 	}
 
-	const prompt = promptParts.join(" ").trim();
+	const prompt = promptText;
 	if (!prompt) {
 		return { error: "Loop prompt is required." };
 	}

@@ -132,6 +132,20 @@ describe("loop extension", () => {
 		);
 	});
 
+	it("keeps the slash-command prompt body unchanged", async () => {
+		vi.useFakeTimers();
+		const harness = createLoopHarness();
+		const prompt = 'Check for the exact text "retry  later".\nIf found, run:\n```python\nif ready:\n    retry()\n```';
+
+		await harness.runCommand(`1s ${prompt}`);
+		await vi.advanceTimersByTimeAsync(1_000);
+
+		expect(harness.sendMessage).toHaveBeenCalledWith(
+			expect.objectContaining({ customType: "loop", content: prompt }),
+			{ deliverAs: "followUp", triggerTurn: true },
+		);
+	});
+
 	it("coalesces busy interval ticks into one deferred loop follow-up", async () => {
 		vi.useFakeTimers();
 		const harness = createLoopHarness();
