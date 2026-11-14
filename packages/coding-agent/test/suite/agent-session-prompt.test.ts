@@ -432,7 +432,7 @@ describe("AgentSession prompt characterization", () => {
 		expect(sawImage).toBe(true);
 	});
 
-	it("expands skill commands before sending the prompt", async () => {
+	it.each([" ", "\n", "\t"])("expands a skill command followed by %j before sending the prompt", async (separator) => {
 		const tempDir = join(tmpdir(), `pi-skill-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 		mkdirSync(tempDir, { recursive: true });
 		tempDirs.push(tempDir);
@@ -472,7 +472,7 @@ describe("AgentSession prompt characterization", () => {
 			},
 		]);
 
-		await harness.session.prompt("/skill:test explain this");
+		await harness.session.prompt(`/skill:test${separator}explain this`);
 
 		expect(expandedPrompt).toContain('<skill name="test" location="');
 		expect(expandedPrompt).toContain("Use the skill body.");
@@ -530,11 +530,15 @@ describe("AgentSession prompt characterization", () => {
 		harness.setResponses([fauxAssistantMessage("should stay queued")]);
 
 		await harness.session.prompt("/testcmd hello world");
+		await harness.session.prompt("/testcmd\nsecond line");
 
-		expect(commandRuns).toEqual(["hello world"]);
+		expect(commandRuns).toEqual(["hello world", "second line"]);
 		expect(harness.session.messages).toEqual([]);
 		expect(harness.getPendingResponseCount()).toBe(1);
-		expect(readPromptHistory(getControlDbPath(harness.tempDir))).toEqual(["/testcmd hello world"]);
+		expect(readPromptHistory(getControlDbPath(harness.tempDir))).toEqual([
+			"/testcmd\nsecond line",
+			"/testcmd hello world",
+		]);
 	});
 
 	it("rejects unknown slash commands instead of sending them to the provider", async () => {
