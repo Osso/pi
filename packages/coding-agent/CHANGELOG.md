@@ -477,6 +477,7 @@
 - Fixed `loop` and `/loop` intervals longer than about 24.8 days firing after 1 ms (Node's timer limit); such intervals are now rejected.
 - Fixed zero-output `length` responses at a full context window resetting the overflow-recovery guard and allowing repeated compaction retries; recovery now stops after one compact-and-retry attempt.
 - Fixed indexed sessions disappearing from Current Folder, All, and Archived when the configured session directory contains dot segments.
+- Fixed `--continue` selecting relocated sessions by their original header cwd instead of their current control-DB cwd.
 
 ### Changed
 

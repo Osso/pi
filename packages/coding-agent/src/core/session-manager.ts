@@ -33,6 +33,7 @@ import { isResidentSession } from "./resident-session.ts";
 import { isArchivedSessionFile } from "./session-archive-storage.ts";
 import {
 	clearSessionSandboxProfile as clearPersistedSessionSandboxProfile,
+	getControlDbPath,
 	listResumeSessionMetadata,
 	listSessionMetadata,
 	normalizeSessionName,
@@ -857,7 +858,7 @@ function sessionCwdMatches(cwd: string | undefined, resolvedCwd: string): boolea
 }
 
 /** Exported for testing */
-export function findMostRecentSession(sessionDir: string, cwd?: string): string | null {
+export function findMostRecentSession(sessionDir: string, cwd?: string, controlDbPath?: string): string | null {
 	const resolvedSessionDir = normalizePath(sessionDir);
 	const resolvedCwd = cwd ? resolvePath(cwd) : undefined;
 	try {
@@ -865,11 +866,11 @@ export function findMostRecentSession(sessionDir: string, cwd?: string): string 
 			.filter((f) => f.endsWith(".jsonl"))
 			.map((f) => join(resolvedSessionDir, f))
 			.map((path) => ({ path, header: readSessionHeader(path) }))
-			.filter(
-				(file): file is { path: string; header: SessionHeader } =>
-					file.header !== null &&
-					(!resolvedCwd || sessionCwdMatches(getSessionHeaderCwd(file.header), resolvedCwd)),
-			)
+			.filter(({ path, header }) => {
+				if (!header) return false;
+				const metadata = controlDbPath ? readSessionMetadata(controlDbPath, path) : undefined;
+				return !resolvedCwd || sessionCwdMatches(metadata?.cwd ?? getSessionHeaderCwd(header), resolvedCwd);
+			})
 			.map(({ path }) => ({ path, mtime: statSync(path).mtime }))
 			.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
 
@@ -2121,13 +2122,11 @@ export class SessionManager {
 	 * @param sessionDir Optional session directory. If omitted, uses default global sessions dir.
 	 */
 	static continueRecent(cwd: string, sessionDir?: string): SessionManager {
+		const controlDbPath = getControlDbPath();
 		const dir = sessionDir ? normalizePath(sessionDir) : getDefaultSessionDir(cwd);
 		const filterCwd = sessionDir !== undefined && dir !== getDefaultSessionDirPath(cwd);
-		const mostRecent = findMostRecentSession(dir, filterCwd ? cwd : undefined);
-		if (mostRecent) {
-			return new SessionManager(cwd, dir, mostRecent, true);
-		}
-		return new SessionManager(cwd, dir, undefined, true);
+		const mostRecent = findMostRecentSession(dir, filterCwd ? cwd : undefined, controlDbPath);
+		return new SessionManager(cwd, dir, mostRecent ?? undefined, true);
 	}
 
 	/** Create an in-memory session (no file persistence) */
