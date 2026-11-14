@@ -372,4 +372,18 @@ describe("AgentSessionRuntime fork lifecycle events", () => {
 		expect(cancelAtResult).toEqual({ cancelled: true });
 		expect(events).toEqual([{ type: "session_before_fork", entryId: "missing-entry", position: "at" }]);
 	});
+
+	it("returns the forked message text when an extension cancels the fork", async () => {
+		const { runtimeHost } = await createRuntimeHost((pi) => {
+			pi.on("session_before_fork", () => ({ cancel: true }));
+		});
+		await runtimeHost.session.prompt("fork this user prompt");
+		const userMessage = runtimeHost.session.getUserMessagesForForking()[0];
+		const sessionFile = runtimeHost.session.sessionFile;
+
+		const result = await runtimeHost.fork(userMessage.entryId);
+
+		expect(result).toEqual({ cancelled: true, selectedText: "fork this user prompt" });
+		expect(runtimeHost.session.sessionFile).toBe(sessionFile);
+	});
 });

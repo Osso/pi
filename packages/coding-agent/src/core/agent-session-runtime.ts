@@ -542,6 +542,10 @@ export class AgentSessionRuntime {
 		const position = options?.position ?? "before";
 		const beforeResult = await this.emitBeforeFork(entryId, { position });
 		if (beforeResult.cancelled) {
+			const entry = this.session.sessionManager.getEntry(entryId);
+			if (position === "before" && entry?.type === "message" && entry.message.role === "user") {
+				return { cancelled: true, selectedText: extractUserMessageText(entry.message.content) };
+			}
 			return { cancelled: true };
 		}
 		let targetLeafId: string | null;
