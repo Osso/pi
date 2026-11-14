@@ -8,7 +8,9 @@ import { theme } from "../theme/theme.ts";
 function parseDiffLine(line: string): { prefix: string; lineNum: string; content: string } | null {
 	const match = line.match(/^([+-\s])(\s*\d*)\s(.*)$/);
 	if (!match) return null;
-	return { prefix: match[1], lineNum: match[2], content: match[3] };
+	const [, prefix, lineNum, content] = match;
+	if (prefix === undefined || lineNum === undefined || content === undefined) return null;
+	return { prefix, lineNum, content };
 }
 
 /**
@@ -83,6 +85,7 @@ export function renderDiff(diffText: string, _options: RenderDiffOptions = {}): 
 	let i = 0;
 	while (i < lines.length) {
 		const line = lines[i];
+		if (line === undefined) break;
 		const parsed = parseDiffLine(line);
 
 		if (!parsed) {
@@ -95,7 +98,9 @@ export function renderDiff(diffText: string, _options: RenderDiffOptions = {}): 
 			// Collect consecutive removed lines
 			const removedLines: { lineNum: string; content: string }[] = [];
 			while (i < lines.length) {
-				const p = parseDiffLine(lines[i]);
+				const line = lines[i];
+				if (line === undefined) break;
+				const p = parseDiffLine(line);
 				if (!p || p.prefix !== "-") break;
 				removedLines.push({ lineNum: p.lineNum, content: p.content });
 				i++;
@@ -104,7 +109,9 @@ export function renderDiff(diffText: string, _options: RenderDiffOptions = {}): 
 			// Collect consecutive added lines
 			const addedLines: { lineNum: string; content: string }[] = [];
 			while (i < lines.length) {
-				const p = parseDiffLine(lines[i]);
+				const line = lines[i];
+				if (line === undefined) break;
+				const p = parseDiffLine(line);
 				if (!p || p.prefix !== "+") break;
 				addedLines.push({ lineNum: p.lineNum, content: p.content });
 				i++;
@@ -115,6 +122,7 @@ export function renderDiff(diffText: string, _options: RenderDiffOptions = {}): 
 			if (removedLines.length === 1 && addedLines.length === 1) {
 				const removed = removedLines[0];
 				const added = addedLines[0];
+				if (!removed || !added) throw new Error("Expected one removed and one added diff line");
 
 				const { removedLine, addedLine } = renderIntraLineDiff(
 					replaceTabs(removed.content),

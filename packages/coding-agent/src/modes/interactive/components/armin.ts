@@ -31,7 +31,9 @@ function getPixel(x: number, y: number): boolean {
 	if (y >= HEIGHT) return false;
 	const byteIndex = y * BYTES_PER_ROW + Math.floor(x / 8);
 	const bitIndex = x % 8;
-	return ((BITS[byteIndex] >> bitIndex) & 1) === 0;
+	const byte = BITS[byteIndex];
+	if (byte === undefined) throw new Error(`Missing image byte at index ${byteIndex}`);
+	return ((byte >> bitIndex) & 1) === 0;
 }
 
 // Get the character for a cell (2 vertical pixels packed)
@@ -71,7 +73,9 @@ export class ArminComponent implements Component {
 
 	constructor(ui: TUI) {
 		this.ui = ui;
-		this.effect = EFFECTS[Math.floor(Math.random() * EFFECTS.length)];
+		const effect = EFFECTS[Math.floor(Math.random() * EFFECTS.length)];
+		if (effect === undefined) throw new Error("Missing animation effect");
+		this.effect = effect;
 		this.finalGrid = buildFinalGrid();
 		this.currentGrid = this.createEmptyGrid();
 
@@ -141,7 +145,11 @@ export class ArminComponent implements Component {
 				// Fisher-Yates shuffle
 				for (let i = positions.length - 1; i > 0; i--) {
 					const j = Math.floor(Math.random() * (i + 1));
-					[positions[i], positions[j]] = [positions[j], positions[i]];
+					const current = positions[i];
+					const target = positions[j];
+					if (current === undefined || target === undefined)
+						throw new Error(`Missing fade position at index ${i}`);
+					[positions[i], positions[j]] = [target, current];
 				}
 				this.effectState = { positions, idx: 0 };
 				break;
@@ -157,7 +165,9 @@ export class ArminComponent implements Component {
 				this.currentGrid = Array.from({ length: DISPLAY_HEIGHT }, () =>
 					Array.from({ length: WIDTH }, () => {
 						const chars = [" ", "░", "▒", "▓", "█", "▀", "▄"];
-						return chars[Math.floor(Math.random() * chars.length)];
+						const char = chars[Math.floor(Math.random() * chars.length)];
+						if (char === undefined) throw new Error("Missing dissolve character");
+						return char;
 					}),
 				);
 				// Shuffle positions for gradual resolve
@@ -169,7 +179,11 @@ export class ArminComponent implements Component {
 				}
 				for (let i = dissolvePositions.length - 1; i > 0; i--) {
 					const j = Math.floor(Math.random() * (i + 1));
-					[dissolvePositions[i], dissolvePositions[j]] = [dissolvePositions[j], dissolvePositions[i]];
+					const current = dissolvePositions[i];
+					const target = dissolvePositions[j];
+					if (current === undefined || target === undefined)
+						throw new Error(`Missing dissolve position at index ${i}`);
+					[dissolvePositions[i], dissolvePositions[j]] = [target, current];
 				}
 				this.effectState = { positions: dissolvePositions, idx: 0 };
 				break;
@@ -225,7 +239,11 @@ export class ArminComponent implements Component {
 			const row = Math.floor(state.pos / WIDTH);
 			const x = state.pos % WIDTH;
 			if (row >= DISPLAY_HEIGHT) return true;
-			this.currentGrid[row][x] = this.finalGrid[row][x];
+			const currentRow = this.currentGrid[row];
+			const pixel = this.finalGrid[row]?.[x];
+			if (currentRow === undefined || pixel === undefined)
+				throw new Error(`Missing typewriter pixel at ${row},${x}`);
+			currentRow[x] = pixel;
 			state.pos++;
 		}
 		return false;
@@ -236,8 +254,13 @@ export class ArminComponent implements Component {
 		if (state.row >= DISPLAY_HEIGHT) return true;
 
 		// Copy row
+		const currentRow = this.currentGrid[state.row];
+		const finalRow = this.finalGrid[state.row];
+		if (currentRow === undefined || finalRow === undefined) throw new Error(`Missing scanline row ${state.row}`);
 		for (let x = 0; x < WIDTH; x++) {
-			this.currentGrid[state.row][x] = this.finalGrid[state.row][x];
+			const pixel = finalRow[x];
+			if (pixel === undefined) throw new Error(`Missing scanline pixel at ${state.row},${x}`);
+			currentRow[x] = pixel;
 		}
 		state.row++;
 		return false;
@@ -251,13 +274,16 @@ export class ArminComponent implements Component {
 		let allSettled = true;
 		this.currentGrid = this.createEmptyGrid();
 
-		for (let x = 0; x < WIDTH; x++) {
-			const drop = state.drops[x];
-
+		for (const [x, drop] of state.drops.entries()) {
 			// Draw settled pixels
 			for (let row = DISPLAY_HEIGHT - 1; row >= DISPLAY_HEIGHT - drop.settled; row--) {
 				if (row >= 0) {
-					this.currentGrid[row][x] = this.finalGrid[row][x];
+					const currentRow = this.currentGrid[row];
+					const finalPixel = this.finalGrid[row]?.[x];
+					if (currentRow === undefined || finalPixel === undefined) {
+						throw new Error(`Missing settled rain pixel at ${row},${x}`);
+					}
+					currentRow[x] = finalPixel;
 				}
 			}
 
@@ -269,7 +295,9 @@ export class ArminComponent implements Component {
 			// Find the target row for this column (lowest non-space pixel)
 			let targetRow = -1;
 			for (let row = DISPLAY_HEIGHT - 1 - drop.settled; row >= 0; row--) {
-				if (this.finalGrid[row][x] !== " ") {
+				const pixel = this.finalGrid[row]?.[x];
+				if (pixel === undefined) throw new Error(`Missing rain target pixel at ${row},${x}`);
+				if (pixel !== " ") {
 					targetRow = row;
 					break;
 				}
@@ -286,7 +314,9 @@ export class ArminComponent implements Component {
 					drop.y = -Math.floor(Math.random() * 5) - 1;
 				} else {
 					// Still falling
-					this.currentGrid[drop.y][x] = "▓";
+					const currentRow = this.currentGrid[drop.y];
+					if (currentRow === undefined) throw new Error(`Missing falling rain row ${drop.y}`);
+					currentRow[x] = "▓";
 				}
 			}
 		}
@@ -300,8 +330,13 @@ export class ArminComponent implements Component {
 
 		for (let i = 0; i < pixelsPerFrame; i++) {
 			if (state.idx >= state.positions.length) return true;
-			const [row, x] = state.positions[state.idx];
-			this.currentGrid[row][x] = this.finalGrid[row][x];
+			const position = state.positions[state.idx];
+			if (position === undefined) throw new Error(`Missing fade position at index ${state.idx}`);
+			const [row, x] = position;
+			const currentRow = this.currentGrid[row];
+			const finalPixel = this.finalGrid[row]?.[x];
+			if (currentRow === undefined || finalPixel === undefined) throw new Error(`Missing fade pixel at ${row},${x}`);
+			currentRow[x] = finalPixel;
 			state.idx++;
 		}
 		return false;
@@ -318,8 +353,13 @@ export class ArminComponent implements Component {
 		const bottom = midRow + state.expansion;
 
 		for (let row = Math.max(0, top); row <= Math.min(DISPLAY_HEIGHT - 1, bottom); row++) {
+			const currentRow = this.currentGrid[row];
+			const finalRow = this.finalGrid[row];
+			if (currentRow === undefined || finalRow === undefined) throw new Error(`Missing CRT row ${row}`);
 			for (let x = 0; x < WIDTH; x++) {
-				this.currentGrid[row][x] = this.finalGrid[row][x];
+				const pixel = finalRow[x];
+				if (pixel === undefined) throw new Error(`Missing CRT pixel at ${row},${x}`);
+				currentRow[x] = pixel;
 			}
 		}
 
@@ -345,7 +385,9 @@ export class ArminComponent implements Component {
 				// Random vertical swap
 				if (Math.random() < 0.2) {
 					const swapRow = Math.floor(Math.random() * DISPLAY_HEIGHT);
-					return [...this.finalGrid[swapRow]];
+					const row = this.finalGrid[swapRow];
+					if (row === undefined) throw new Error(`Missing glitch row ${swapRow}`);
+					return [...row];
 				}
 
 				return glitchRow;
@@ -365,8 +407,14 @@ export class ArminComponent implements Component {
 
 		for (let i = 0; i < pixelsPerFrame; i++) {
 			if (state.idx >= state.positions.length) return true;
-			const [row, x] = state.positions[state.idx];
-			this.currentGrid[row][x] = this.finalGrid[row][x];
+			const position = state.positions[state.idx];
+			if (position === undefined) throw new Error(`Missing dissolve position at index ${state.idx}`);
+			const [row, x] = position;
+			const currentRow = this.currentGrid[row];
+			const finalPixel = this.finalGrid[row]?.[x];
+			if (currentRow === undefined || finalPixel === undefined)
+				throw new Error(`Missing dissolve pixel at ${row},${x}`);
+			currentRow[x] = finalPixel;
 			state.idx++;
 		}
 		return false;

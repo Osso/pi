@@ -141,6 +141,7 @@ export class ExtensionEditorComponent extends Container implements Focusable {
 			this.tui.stop();
 
 			const [editor, ...editorArgs] = editorCmd.split(" ");
+			if (editor === undefined) throw new Error("Missing external editor command");
 			process.stdout.write(`Launching external editor: ${editorCmd}\nPi will resume when the editor exits.\n`);
 
 			// Do not use spawnSync here. On Windows, synchronous child_process calls can keep
@@ -148,7 +149,7 @@ export class ExtensionEditorComponent extends Container implements Focusable {
 			// vim/nvim for the console input buffer until Ctrl+C cancels the pending read.
 			const status = await new Promise<number | null>((resolve, reject) => {
 				const child = spawn(editor, [...editorArgs, tmpFile], {
-					stdio: "inherit",
+					stdio: ["inherit", "inherit", "inherit"],
 					shell: process.platform === "win32",
 				});
 				child.on("error", (error) => reject(new Error(`could not start ${editor}: ${error.message}`)));

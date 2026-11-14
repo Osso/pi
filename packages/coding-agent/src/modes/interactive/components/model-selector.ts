@@ -102,8 +102,9 @@ export class ModelSelectorComponent extends Container implements Focusable {
 		}
 		this.searchInput.onSubmit = () => {
 			// Enter on search input selects the first filtered item
-			if (this.filteredModels[this.selectedIndex]) {
-				this.handleSelect(this.filteredModels[this.selectedIndex].model);
+			const selected = this.filteredModels[this.selectedIndex];
+			if (selected) {
+				this.handleSelect(selected.model);
 			}
 		};
 		this.addChild(this.searchInput);
@@ -274,6 +275,7 @@ export class ModelSelectorComponent extends Container implements Focusable {
 			this.listContainer.addChild(new Text(theme.fg("muted", "  No matching models"), 0, 0));
 		} else {
 			const selected = this.filteredModels[this.selectedIndex];
+			if (selected === undefined) throw new Error(`Missing selected model at index ${this.selectedIndex}`);
 			this.listContainer.addChild(new Spacer(1));
 			this.listContainer.addChild(new Text(theme.fg("muted", `  Model Name: ${selected.model.name}`), 0, 0));
 		}

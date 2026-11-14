@@ -365,8 +365,8 @@ class SessionList implements Component, Focusable {
 
 		// Handle Enter in search input - select current item
 		this.searchInput.onSubmit = () => {
-			if (this.filteredSessions[this.selectedIndex]) {
-				const selected = this.filteredSessions[this.selectedIndex];
+			const selected = this.filteredSessions[this.selectedIndex];
+			if (selected) {
 				if (this.onSelect) {
 					this.onSelect(selected.session.path);
 				}

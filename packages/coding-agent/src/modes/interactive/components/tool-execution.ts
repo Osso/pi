@@ -300,8 +300,7 @@ export class ToolExecutionComponent extends Container {
 		if (!this.result) return;
 
 		const imageBlocks = this.result.content.filter((c) => c.type === "image");
-		for (let i = 0; i < imageBlocks.length; i++) {
-			const img = imageBlocks[i];
+		for (const [i, img] of imageBlocks.entries()) {
 			if (!img.data || !img.mimeType) continue;
 			if (img.mimeType === "image/png") continue;
 			if (this.convertedImages.has(i)) continue;
@@ -490,8 +489,7 @@ export class ToolExecutionComponent extends Container {
 		if (this.result && !this.hideOutput) {
 			const imageBlocks = this.result.content.filter((c) => c.type === "image");
 			const caps = getCapabilities();
-			for (let i = 0; i < imageBlocks.length; i++) {
-				const img = imageBlocks[i];
+			for (const [i, img] of imageBlocks.entries()) {
 				if (caps.images && this.showImages && img.data && img.mimeType) {
 					const converted = this.convertedImages.get(i);
 					const imageData = converted?.data ?? img.data;

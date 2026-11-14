@@ -224,12 +224,13 @@ class TreeList implements Component {
 				allNodes.push(node);
 				// Push children in reverse so they're processed left-to-right
 				for (let i = node.children.length - 1; i >= 0; i--) {
-					preOrderStack.push(node.children[i]);
+					const child = node.children[i];
+					if (child === undefined) throw new Error(`Missing session tree child at index ${i}`);
+					preOrderStack.push(child);
 				}
 			}
 			// Process in reverse (post-order): children before parents
-			for (let i = allNodes.length - 1; i >= 0; i--) {
-				const node = allNodes[i];
+			for (const node of [...allNodes].reverse()) {
 				let has = leafId !== null && node.entry.id === leafId;
 				for (const child of node.children) {
 					if (containsActive.get(child)) {
@@ -244,9 +245,9 @@ class TreeList implements Component {
 		// If multiple roots, treat them as children of a virtual root that branches
 		const multipleRoots = roots.length > 1;
 		const orderedRoots = [...roots].sort((a, b) => Number(containsActive.get(b)) - Number(containsActive.get(a)));
-		for (let i = orderedRoots.length - 1; i >= 0; i--) {
+		for (const [i, root] of [...orderedRoots.entries()].reverse()) {
 			const isLast = i === orderedRoots.length - 1;
-			stack.push([orderedRoots[i], multipleRoots ? 1 : 0, multipleRoots, multipleRoots, isLast, [], multipleRoots]);
+			stack.push([root, multipleRoots ? 1 : 0, multipleRoots, multipleRoots, isLast, [], multipleRoots]);
 		}
 
 		while (stack.length > 0) {
@@ -313,17 +314,9 @@ class TreeList implements Component {
 				: gutters;
 
 			// Add children in reverse order
-			for (let i = orderedChildren.length - 1; i >= 0; i--) {
+			for (const [i, child] of [...orderedChildren.entries()].reverse()) {
 				const childIsLast = i === orderedChildren.length - 1;
-				stack.push([
-					orderedChildren[i],
-					childIndent,
-					multipleChildren,
-					multipleChildren,
-					childIsLast,
-					childGutters,
-					false,
-				]);
+				stack.push([child, childIndent, multipleChildren, multipleChildren, childIsLast, childGutters, false]);
 			}
 		}
 
@@ -511,10 +504,10 @@ class TreeList implements Component {
 		const stack: StackItem[] = [];
 
 		// Add visible roots in reverse order (to process in forward order via stack)
-		for (let i = visibleRootIds.length - 1; i >= 0; i--) {
+		for (const [i, rootId] of [...visibleRootIds.entries()].reverse()) {
 			const isLast = i === visibleRootIds.length - 1;
 			stack.push([
-				visibleRootIds[i],
+				rootId,
 				this.multipleRoots ? 1 : 0,
 				this.multipleRoots,
 				this.multipleRoots,
@@ -562,17 +555,9 @@ class TreeList implements Component {
 				: gutters;
 
 			// Add children in reverse order (to process in forward order via stack)
-			for (let i = children.length - 1; i >= 0; i--) {
+			for (const [i, child] of [...children.entries()].reverse()) {
 				const childIsLast = i === children.length - 1;
-				stack.push([
-					children[i],
-					childIndent,
-					multipleChildren,
-					multipleChildren,
-					childIsLast,
-					childGutters,
-					false,
-				]);
+				stack.push([child, childIndent, multipleChildren, multipleChildren, childIsLast, childGutters, false]);
 			}
 		}
 
@@ -720,6 +705,7 @@ class TreeList implements Component {
 		const renderedRows: HorizontalViewportRow[] = [];
 		for (let i = startIndex; i < endIndex; i++) {
 			const flatNode = this.filteredNodes[i];
+			if (flatNode === undefined) throw new Error(`Missing filtered tree node at index ${i}`);
 			const entry = flatNode.node.entry;
 			const isSelected = i === this.selectedIndex;
 
@@ -1071,14 +1057,18 @@ class TreeList implements Component {
 			// Cycle filter backwards
 			const modes: FilterMode[] = ["default", "no-tools", "user-only", "labeled-only", "all"];
 			const currentIndex = modes.indexOf(this.filterMode);
-			this.filterMode = modes[(currentIndex - 1 + modes.length) % modes.length];
+			const mode = modes[(currentIndex - 1 + modes.length) % modes.length];
+			if (mode === undefined) throw new Error("Missing previous tree filter mode");
+			this.filterMode = mode;
 			this.foldedNodes.clear();
 			this.applyFilter();
 		} else if (kb.matches(keyData, "app.tree.filter.cycleForward")) {
 			// Cycle filter forwards: default → no-tools → user-only → labeled-only → all → default
 			const modes: FilterMode[] = ["default", "no-tools", "user-only", "labeled-only", "all"];
 			const currentIndex = modes.indexOf(this.filterMode);
-			this.filterMode = modes[(currentIndex + 1) % modes.length];
+			const mode = modes[(currentIndex + 1) % modes.length];
+			if (mode === undefined) throw new Error("Missing next tree filter mode");
+			this.filterMode = mode;
 			this.foldedNodes.clear();
 			this.applyFilter();
 		} else if (kb.matches(keyData, "tui.editor.deleteCharBackward")) {
@@ -1138,8 +1128,10 @@ class TreeList implements Component {
 			while (true) {
 				const children: string[] = this.visibleChildrenMap.get(currentId) ?? [];
 				if (children.length === 0) return indexByEntryId.get(currentId) ?? this.selectedIndex;
-				if (children.length > 1) return indexByEntryId.get(children[0]) ?? this.selectedIndex;
-				currentId = children[0];
+				const firstChild = children[0];
+				if (firstChild === undefined) throw new Error(`Missing child for session entry ${currentId}`);
+				if (children.length > 1) return indexByEntryId.get(firstChild) ?? this.selectedIndex;
+				currentId = firstChild;
 			}
 		}
 
@@ -1259,7 +1251,11 @@ function formatHelpKeys(keybindings: Keybinding[]): string {
 
 function compactRawKeys(keys: string[]): string {
 	if (keys.length === 0) return "";
-	if (keys.length === 1) return keys[0];
+	if (keys.length === 1) {
+		const key = keys[0];
+		if (key === undefined) throw new Error("Missing single compact key");
+		return key;
+	}
 
 	const parts = keys.map((key) => {
 		const separatorIndex = key.lastIndexOf("+");

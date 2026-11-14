@@ -44,9 +44,22 @@ function buildImage(): string[] {
 	for (let row = 0; row < HEIGHT; row += 2) {
 		let line = "";
 		for (let x = 0; x < WIDTH; x++) {
-			const top = pixels[row][x];
+			const top = pixels[row]?.[x];
+			if (top === undefined) throw new Error(`Missing top pixel at row ${row}, column ${x}`);
 			const bottom = pixels[row + 1]?.[x] ?? top;
-			line += `${rgb(bottom[0], bottom[1], bottom[2])}${rgb(top[0], top[1], top[2], true)}▄`;
+			const [topRed, topGreen, topBlue] = top;
+			const [bottomRed, bottomGreen, bottomBlue] = bottom;
+			if (
+				topRed === undefined ||
+				topGreen === undefined ||
+				topBlue === undefined ||
+				bottomRed === undefined ||
+				bottomGreen === undefined ||
+				bottomBlue === undefined
+			) {
+				throw new Error(`Missing color channel at row ${row}, column ${x}`);
+			}
+			line += `${rgb(bottomRed, bottomGreen, bottomBlue)}${rgb(topRed, topGreen, topBlue, true)}▄`;
 		}
 		line += RESET;
 		lines.push(line);
@@ -116,7 +129,9 @@ export class DaxnutsComponent implements Component {
 
 		for (let i = 0; i < this.image.length; i++) {
 			if (i < revealedRows) {
-				lines.push(center(this.image[i]));
+				const imageLine = this.image[i];
+				if (imageLine === undefined) throw new Error(`Missing image line ${i}`);
+				lines.push(center(imageLine));
 			} else {
 				// Show scan line
 				if (i === revealedRows) {

@@ -55,7 +55,10 @@ function move(enabledIds: EnabledIds, id: string, delta: number): EnabledIds {
 	const newIndex = index + delta;
 	if (newIndex < 0 || newIndex >= list.length) return list;
 	const result = [...list];
-	[result[index], result[newIndex]] = [result[newIndex], result[index]];
+	const current = result[index];
+	const next = result[newIndex];
+	if (current === undefined || next === undefined) throw new Error(`Missing model while swapping index ${index}`);
+	[result[index], result[newIndex]] = [next, current];
 	return result;
 }
 
@@ -236,6 +239,7 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 
 		if (this.filteredItems.length > 0) {
 			const selected = this.filteredItems[this.selectedIndex];
+			if (selected === undefined) throw new Error(`Missing selected model at index ${this.selectedIndex}`);
 			this.listContainer.addChild(new Spacer(1));
 			this.listContainer.addChild(new Text(theme.fg("muted", `  Model Name: ${selected.model.name}`), 0, 0));
 		}
