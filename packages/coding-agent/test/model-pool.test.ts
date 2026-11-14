@@ -335,6 +335,21 @@ describe("model pools", () => {
 		expect(second.retryAfterMs).toBe(8_000);
 	});
 
+	test("stays retryable when the last member is out of quota and an earlier one is rate limited", async () => {
+		const reg = registry();
+		register((model) =>
+			fromEvents(
+				model.provider === FIRST
+					? events(model, "429 rate limit reached", undefined, 5_000)
+					: events(model, "insufficient_quota"),
+			),
+		);
+		const result = await streamSimple(pool(reg), context, { maxRetryDelayMs: 60_000 }).result();
+		expect(result).toMatchObject({ stopReason: "error", retryAfterMs: 5_000 });
+		expect(result.errorMessage).toContain("Last error: 429 rate limit reached");
+		expect(isRetryableAssistantError(result)).toBe(true);
+	});
+
 	test("does not rotate on other provider errors and forwards start and error unchanged", async () => {
 		const reg = registry();
 		const original = events(requireValue(reg.find(FIRST, FIRST_ID)), "500 internal server error");

@@ -216,6 +216,7 @@ export class ModelPools {
 		const { model, context, options, output } = request;
 		const maxRetryDelayMs = options?.maxRetryDelayMs ?? DEFAULT_MAX_RETRY_DELAY_MS;
 		let lastError: ErrorEvent | undefined;
+		let lastRateLimitError: ErrorEvent | undefined;
 		for (const member of this.getMembers(model)) {
 			const auth = await this.resolveAvailableMember(member);
 			if (options?.signal?.aborted) return;
@@ -225,10 +226,13 @@ export class ModelPools {
 			const rotationError = await this.forwardMember(member, input, output, options?.signal, maxRetryDelayMs);
 			if (!rotationError) return;
 			lastError = rotationError;
-			this.cooldowns.set(memberKey(member), memberCooldown(rotationError.error, maxRetryDelayMs, this.now()));
+			const cooldown = memberCooldown(rotationError.error, maxRetryDelayMs, this.now());
+			if (cooldown.rateLimited) lastRateLimitError = rotationError;
+			this.cooldowns.set(memberKey(member), cooldown);
 		}
 		output.push(
-			this.rateLimitedPoolError(model, lastError) ??
+			// Quoting a quota error here would make the whole retryable pool error classify as quota exhaustion.
+			this.rateLimitedPoolError(model, lastRateLimitError) ??
 				lastError ??
 				createError(model, `Pool "${model.id}": no eligible members available.`),
 		);
@@ -238,7 +242,7 @@ export class ModelPools {
 	 * When no member could serve but one is only rate limited, a retryable error naming the earliest free member;
 	 * the caller's retry then reaches it instead of failing the turn.
 	 */
-	private rateLimitedPoolError(model: Model<Api>, lastError: ErrorEvent | undefined): ErrorEvent | undefined {
+	private rateLimitedPoolError(model: Model<Api>, rateLimitError: ErrorEvent | undefined): ErrorEvent | undefined {
 		const now = this.now();
 		const waits = this.getMembers(model).flatMap((member) => {
 			const cooldown = this.cooldowns.get(memberKey(member));
@@ -246,7 +250,7 @@ export class ModelPools {
 		});
 		if (waits.length === 0) return undefined;
 		const retryAfterMs = Math.min(...waits);
-		const reason = lastError?.error.errorMessage ? ` Last error: ${lastError.error.errorMessage}` : "";
+		const reason = rateLimitError?.error.errorMessage ? ` Last error: ${rateLimitError.error.errorMessage}` : "";
 		const event = createError(
 			model,
 			`Pool "${model.id}": every member is rate limited or out of quota; the next frees in ${Math.ceil(retryAfterMs / 1000)}s.${reason}`,
