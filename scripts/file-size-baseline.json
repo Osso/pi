@@ -18,7 +18,6 @@
 	"packages/coding-agent/src/core/extensions/runner.ts": 1564,
 	"packages/coding-agent/src/core/extensions/types.ts": 1955,
 	"packages/coding-agent/src/core/model-registry.ts": 1097,
-	"packages/coding-agent/src/core/multi-agent-store.ts": 810,
 	"packages/coding-agent/src/core/package-manager.ts": 2630,
 	"packages/coding-agent/src/core/resource-loader.ts": 1231,
 	"packages/coding-agent/src/core/session-manager.ts": 2385,

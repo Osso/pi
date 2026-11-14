@@ -1,5 +1,25 @@
 import { isMailboxMessageExpired } from "./mailbox-retention.ts";
 import {
+	clearAgentSlot,
+	clearSelectedAgentView,
+	getActiveAgentCount,
+	getAgent,
+	getProjectionSnapshot,
+	getSelectedAgentId,
+	listActiveAgents,
+	listAgents,
+	listDescendants,
+	pinAgentSlot,
+	selectActiveAgentSlotTarget,
+	selectActiveAgentSlotTargetWithStatus,
+	selectActiveAgentTarget,
+	selectActiveAgentTargetWithStatus,
+	selectAgentSlot,
+	selectAgentSlotWithStatus,
+	selectAgentView,
+	selectAgentViewWithStatus,
+} from "./multi-agent-agent-selection.ts";
+import {
 	consumeCompletionNotificationsForAgent,
 	consumeFailureNotificationsForAgent,
 	contactParent,
@@ -31,8 +51,6 @@ import type {
 	AgentMailboxMessage,
 	AgentMetadataCommandResult,
 	AgentNode,
-	AgentRowProjection,
-	AgentSlotProjection,
 	AgentSnapshot,
 	AgentTranscriptCommandResult,
 	AgentTranscriptMetadata,
@@ -122,7 +140,8 @@ export class MultiAgentStore {
 	private restoreGeneration = 0;
 	/** @internal */
 	persistence: { controlDbPath: string; sessionPath: string } | undefined;
-	private selectedAgentId: string | undefined;
+	/** @internal */
+	selectedAgentId: string | undefined;
 
 	constructor(options: MultiAgentStoreOptions = {}) {
 		this.now = options.now ?? (() => new Date().toISOString());
@@ -187,78 +206,43 @@ export class MultiAgentStore {
 	}
 
 	selectAgentView(agentId: string): AgentSnapshot | undefined {
-		const result = this.selectAgentViewWithStatus(agentId);
-		return result.ok ? result.agent : undefined;
+		return selectAgentView(this, agentId);
 	}
 
 	selectAgentViewWithStatus(agentId: string): AgentViewSelectionResult {
-		const agent = this.agents.get(agentId);
-		if (!agent) {
-			return { ok: false, error: "not_found", agentId };
-		}
-
-		this.selectedAgentId = agent.id;
-
-		return { ok: true, agent: copyAgent(agent) };
+		return selectAgentViewWithStatus(this, agentId);
 	}
 
 	selectActiveAgentTarget(agentId: string): AgentSnapshot | undefined {
-		const result = this.selectActiveAgentTargetWithStatus(agentId);
-		return result.ok ? result.agent : undefined;
+		return selectActiveAgentTarget(this, agentId);
 	}
 
 	selectActiveAgentTargetWithStatus(agentId: string): ActiveAgentTargetSelectionResult {
-		const agent = this.agents.get(agentId);
-		if (!agent) {
-			return { ok: false, error: "not_found", agentId };
-		}
-		if (!isActiveLifecycle(agent.lifecycle)) {
-			return { ok: false, error: "inactive", agent: copyAgent(agent) };
-		}
-
-		this.selectedAgentId = agent.id;
-		return { ok: true, agent: copyAgent(agent) };
+		return selectActiveAgentTargetWithStatus(this, agentId);
 	}
 
 	selectAgentSlot(slotIndex: number): AgentSnapshot | undefined {
-		const result = this.selectAgentSlotWithStatus(slotIndex);
-		return result.ok ? result.agent : undefined;
+		return selectAgentSlot(this, slotIndex);
 	}
 
 	selectAgentSlotWithStatus(slotIndex: number): AgentViewSelectionResult {
-		const selectedAgent = this.findAgentForSlotSelection(slotIndex);
-		if (!selectedAgent) {
-			return { ok: false, error: "not_found", agentId: String(slotIndex) };
-		}
-
-		this.selectedAgentId = selectedAgent.id;
-		return { ok: true, agent: copyAgent(selectedAgent) };
+		return selectAgentSlotWithStatus(this, slotIndex);
 	}
 
 	selectActiveAgentSlotTarget(slotIndex: number): AgentSnapshot | undefined {
-		const result = this.selectActiveAgentSlotTargetWithStatus(slotIndex);
-		return result.ok ? result.agent : undefined;
+		return selectActiveAgentSlotTarget(this, slotIndex);
 	}
 
 	selectActiveAgentSlotTargetWithStatus(slotIndex: number): ActiveAgentTargetSelectionResult {
-		const selectedAgent = this.findAgentForSlotSelection(slotIndex);
-		if (!selectedAgent) {
-			return { ok: false, error: "not_found", agentId: String(slotIndex) };
-		}
-		if (!isActiveLifecycle(selectedAgent.lifecycle)) {
-			return { ok: false, error: "inactive", agent: copyAgent(selectedAgent) };
-		}
-
-		this.selectedAgentId = selectedAgent.id;
-		return { ok: true, agent: copyAgent(selectedAgent) };
+		return selectActiveAgentSlotTargetWithStatus(this, slotIndex);
 	}
 
 	getSelectedAgentId(): string | undefined {
-		return this.selectedAgentId;
+		return getSelectedAgentId(this);
 	}
 
 	clearSelectedAgentView(): void {
-		this.selectedAgentId = undefined;
+		clearSelectedAgentView(this);
 	}
 
 	/** @internal */
@@ -269,31 +253,15 @@ export class MultiAgentStore {
 	}
 
 	getAgent(agentId: string): AgentSnapshot | undefined {
-		const agent = this.agents.get(agentId);
-		return agent ? copyAgent(agent) : undefined;
+		return getAgent(this, agentId);
 	}
 
 	listAgents(): AgentSnapshot[] {
-		return Array.from(this.agents.values(), copyAgent);
+		return listAgents(this);
 	}
 
 	listDescendants(parentId: string): AgentSnapshot[] {
-		const descendants: AgentNode[] = [];
-
-		const visitChildren = (currentParentId: string) => {
-			for (const agent of this.agents.values()) {
-				if (agent.parentId !== currentParentId) {
-					continue;
-				}
-
-				descendants.push(agent);
-				visitChildren(agent.id);
-			}
-		};
-
-		visitChildren(parentId);
-
-		return descendants.map(copyAgent);
+		return listDescendants(this, parentId);
 	}
 
 	expireMailboxMessages(now: number): void {
@@ -337,62 +305,19 @@ export class MultiAgentStore {
 	}
 
 	getProjectionSnapshot(): MultiAgentProjectionSnapshot {
-		return {
-			activeCount: this.getActiveAgentCount(),
-			agents: this.listAgents(),
-			mailboxMessages: this.listMailboxMessages(),
-			rows: this.listRowProjections(),
-			selectedAgentId: this.selectedAgentId,
-			slots: this.listSlotProjections(),
-		};
+		return getProjectionSnapshot(this);
 	}
 
 	listActiveAgents(): AgentSnapshot[] {
-		return this.listAgents().filter((agent) => isActiveLifecycle(agent.lifecycle));
+		return listActiveAgents(this);
 	}
 
 	getActiveAgentCount(): number {
-		let activeCount = 0;
-
-		for (const agent of this.agents.values()) {
-			if (isActiveLifecycle(agent.lifecycle)) {
-				activeCount += 1;
-			}
-		}
-
-		return activeCount;
+		return getActiveAgentCount(this);
 	}
 
 	pinAgentSlot(agentId: string, expectedRevision: number, slotIndex: number): AgentMetadataCommandResult {
-		const current = this.agents.get(agentId);
-		if (!current) {
-			return { ok: false, error: "not_found", agentId };
-		}
-
-		if (current.revision !== expectedRevision) {
-			return {
-				ok: false,
-				error: "stale_revision",
-				current: copyAgent(current),
-				projection: this.getProjectionSnapshot(),
-			};
-		}
-
-		const occupant = this.findSlotOccupant(slotIndex, current.id);
-		if (occupant) {
-			return {
-				ok: false,
-				error: "slot_conflict",
-				current: copyAgent(current),
-				occupant: copyAgent(occupant),
-				projection: this.getProjectionSnapshot(),
-			};
-		}
-
-		const updated = this.updateAgentMetadata(current, {
-			slot: { index: slotIndex, pinned: true },
-		});
-		return { ok: true, agent: copyAgent(updated) };
+		return pinAgentSlot(this, agentId, expectedRevision, slotIndex);
 	}
 
 	publishAgentCurrentActivity(
@@ -453,24 +378,7 @@ export class MultiAgentStore {
 	}
 
 	clearAgentSlot(agentId: string, expectedRevision: number): AgentMetadataCommandResult {
-		const current = this.agents.get(agentId);
-		if (!current) {
-			return { ok: false, error: "not_found", agentId };
-		}
-
-		if (current.revision !== expectedRevision) {
-			return {
-				ok: false,
-				error: "stale_revision",
-				current: copyAgent(current),
-				projection: this.getProjectionSnapshot(),
-			};
-		}
-
-		const updated = this.updateAgentMetadata(current, {
-			slot: undefined,
-		});
-		return { ok: true, agent: copyAgent(updated) };
+		return clearAgentSlot(this, agentId, expectedRevision);
 	}
 
 	contactParent(agentId: string, input: ContactParentInput): ParentContactResult {
@@ -565,61 +473,6 @@ export class MultiAgentStore {
 			return restored;
 		}
 		return { ...restored, worker: undefined };
-	}
-
-	private listSlotProjections(): AgentSlotProjection[] {
-		return Array.from(this.agents.values())
-			.filter((agent): agent is AgentNode & { slot: NonNullable<AgentNode["slot"]> } => agent.slot !== undefined)
-			.map((agent) => ({
-				agentId: agent.id,
-				agent: copyAgent(agent),
-				index: agent.slot.index,
-				pinned: agent.slot.pinned,
-				revision: agent.revision,
-			}))
-			.sort((left, right) => left.index - right.index || left.agentId.localeCompare(right.agentId));
-	}
-
-	private listRowProjections(): AgentRowProjection[] {
-		return Array.from(this.agents.values()).map((agent) => ({
-			active: isActiveLifecycle(agent.lifecycle),
-			agentId: agent.id,
-			displayName: agent.displayName,
-			lifecycle: agent.lifecycle,
-			revision: agent.revision,
-			selected: this.selectedAgentId === agent.id,
-			slotIndex: agent.slot?.index,
-			workerAdapter: agent.worker?.adapter,
-		}));
-	}
-
-	private findAgentForSlotSelection(slotIndex: number): AgentNode | undefined {
-		const pinnedAgent = this.findActiveAgentByPinnedSlot(slotIndex);
-		return pinnedAgent ?? this.listActiveAgentNodes()[slotIndex - 1];
-	}
-
-	private findActiveAgentByPinnedSlot(slotIndex: number): AgentNode | undefined {
-		for (const agent of this.agents.values()) {
-			if (agent.slot?.index === slotIndex && isActiveLifecycle(agent.lifecycle)) {
-				return agent;
-			}
-		}
-
-		return undefined;
-	}
-
-	private listActiveAgentNodes(): AgentNode[] {
-		return Array.from(this.agents.values()).filter((agent) => isActiveLifecycle(agent.lifecycle));
-	}
-
-	private findSlotOccupant(slotIndex: number, excludedAgentId: string): AgentNode | undefined {
-		for (const agent of this.agents.values()) {
-			if (agent.id !== excludedAgentId && agent.slot?.index === slotIndex) {
-				return agent;
-			}
-		}
-
-		return undefined;
 	}
 
 	/** @internal */
