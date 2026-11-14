@@ -90,7 +90,7 @@ describe("createPermissionPromptHandler", () => {
 		const handler = createHandler(callTool);
 		const event = createToolCallEvent();
 
-		await expect(handler(event)).resolves.toBeUndefined();
+		await expect(handler(event)).resolves.toEqual({ block: false });
 
 		expect(event.input).toEqual({ command: "git status" });
 		expect(callTool).toHaveBeenCalledWith("mcp__approval__prompt", {
@@ -106,7 +106,7 @@ describe("createPermissionPromptHandler", () => {
 		const callTool = vi.fn<PermissionPromptCaller>().mockResolvedValue('{"behavior":"allow"}');
 		const handler = createHandler(callTool, { desktopNotifier });
 
-		await expect(handler(createToolCallEvent())).resolves.toBeUndefined();
+		await expect(handler(createToolCallEvent())).resolves.toEqual({ block: false });
 
 		expect(desktopNotifier).toHaveBeenCalledWith({
 			body: "Permission approval needed for bash in /repo.",
@@ -123,7 +123,7 @@ describe("createPermissionPromptHandler", () => {
 
 		await expect(
 			handler(createToolCallEvent({ command: "curl -H 'Authorization: Bearer secret-token'" })),
-		).resolves.toBeUndefined();
+		).resolves.toEqual({ block: false });
 
 		expect(desktopNotifier.mock.calls[0]?.[0].body).not.toContain("secret-token");
 		expect(desktopNotifier.mock.calls[0]?.[0].body).not.toContain("Authorization");
@@ -137,7 +137,7 @@ describe("createPermissionPromptHandler", () => {
 		const callTool = vi.fn<PermissionPromptCaller>().mockResolvedValue('{"behavior":"allow"}');
 		const handler = createHandler(callTool, { desktopNotifier });
 
-		await expect(handler(createToolCallEvent())).resolves.toBeUndefined();
+		await expect(handler(createToolCallEvent())).resolves.toEqual({ block: false });
 
 		expect(callTool).toHaveBeenCalledTimes(1);
 		expect(consoleError).toHaveBeenCalledOnce();
@@ -164,7 +164,7 @@ describe("createPermissionPromptHandler", () => {
 		const callTool = vi.fn<PermissionPromptCaller>().mockResolvedValue('{"behavior":"allow"}');
 		const handler = createHandler(callTool, { desktopNotifier });
 
-		await expect(handler(createToolCallEvent())).resolves.toBeUndefined();
+		await expect(handler(createToolCallEvent())).resolves.toEqual({ block: false });
 
 		expect(callTool).toHaveBeenCalledTimes(1);
 		expect(close).toHaveBeenCalledOnce();
@@ -183,7 +183,7 @@ describe("createPermissionPromptHandler", () => {
 		const handler = createHandler(callTool);
 		const event = createToolCallEvent(originalInput);
 
-		await expect(handler(event)).resolves.toBeUndefined();
+		await expect(handler(event)).resolves.toEqual({ block: false });
 
 		expect(event.input).toBe(originalInput);
 		expect(event.input).toEqual({ command: "git status --short" });
@@ -245,8 +245,8 @@ describe("createPermissionPromptHandler", () => {
 		);
 		const handler = createHandler(callTool, { ruleStore });
 
-		await expect(handler(createToolCallEvent())).resolves.toBeUndefined();
-		await expect(handler(createToolCallEvent())).resolves.toBeUndefined();
+		await expect(handler(createToolCallEvent())).resolves.toEqual({ block: false });
+		await expect(handler(createToolCallEvent())).resolves.toEqual({ block: false });
 
 		expect(callTool).toHaveBeenCalledTimes(1);
 	});
@@ -273,8 +273,8 @@ describe("createPermissionPromptHandler", () => {
 		);
 		const handler = createHandler(callTool, { ruleStore });
 
-		await expect(handler(createToolCallEvent())).resolves.toBeUndefined();
-		await expect(handler(createToolCallEvent())).resolves.toBeUndefined();
+		await expect(handler(createToolCallEvent())).resolves.toEqual({ block: false });
+		await expect(handler(createToolCallEvent())).resolves.toEqual({ block: false });
 
 		expect(callTool).toHaveBeenCalledTimes(2);
 		expect(writer).toHaveBeenCalledTimes(2);

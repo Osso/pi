@@ -83,7 +83,7 @@ export function createPermissionPromptHandler(
 
 		const ruleContent = buildPermissionRuleContent(event.toolName, event.input);
 		if (options.ruleStore?.hasAllowRule(event.toolName, ruleContent)) {
-			return undefined;
+			return { block: false };
 		}
 
 		const notificationHandle = notifyPermissionPrompt(event, options.cwd, options.desktopNotifier);
@@ -116,7 +116,7 @@ export function createPermissionPromptHandler(
 			replaceInputInPlace(event.input, decision.updatedInput);
 		}
 
-		return undefined;
+		return { block: false };
 	};
 }
 

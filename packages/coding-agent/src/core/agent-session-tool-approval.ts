@@ -135,7 +135,7 @@ function createToolApprovalHookReviewer(
 				return tool.execute(`permission-prompt:${input.tool_use_id}`, input as never);
 			},
 		})(event);
-		if (permissionPromptResult?.block) {
+		if (permissionPromptResult !== undefined) {
 			return permissionPromptResult;
 		}
 
