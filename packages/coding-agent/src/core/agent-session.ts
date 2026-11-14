@@ -54,10 +54,25 @@ import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
 import { type BackgroundCompactionCache, BackgroundCompactionState } from "./agent-session-background-compaction.ts";
 import {
+	assertStandaloneWorkerOptions,
+	isAllowedSessionTool,
+	type MultiAgentExecutionCapability,
+	type MultiAgentRuntimeRole,
+	validateMultiAgentRuntimeRole,
+} from "./agent-session-capabilities.ts";
+import {
 	abortCompactionSummaryMaterialization,
 	materializeCompactionSummary,
 	updateCompactionSummary,
 } from "./agent-session-compaction-summary.ts";
+
+export {
+	assertStandaloneWorkerOptions,
+	createMultiAgentExecutionCapability,
+	type MultiAgentExecutionCapability,
+	type MultiAgentRuntimeRole,
+} from "./agent-session-capabilities.ts";
+
 import {
 	createAgentSessionDetachedJobLifecycleController,
 	readHeadlessToolAutoDetachAfterMs,
@@ -280,18 +295,6 @@ function assistantMessagePrecedesCompaction(
 const DUPLICATE_TURN_GUARD_PROMPT =
 	"You repeated the same response. Stop looping. Call `end_turn` with a concise reason describing the current state.";
 
-function isAllowedSessionTool(
-	name: string,
-	allowedToolNames: Set<string> | undefined,
-	excludedToolNames: Set<string> | undefined,
-	noSupervisor: boolean,
-): boolean {
-	const requiresSupervisor = STANDALONE_DISABLED_TOOL_NAMES.has(name);
-	if (noSupervisor && requiresSupervisor) return false;
-	if (name === "end_turn") return true;
-	return (!allowedToolNames || allowedToolNames.has(name)) && !excludedToolNames?.has(name);
-}
-
 // Once this process has ever advertised its pid as a runtime mailbox listener, stray
 // SIGUSR2 wakes can arrive at any later moment (stale listener rows, signals pending
 // across a session switch). Reverting to the OS default disposition would terminate
@@ -372,20 +375,6 @@ export type AgentSessionEventListener = (event: AgentSessionEvent) => void;
 // ============================================================================
 // Types
 // ============================================================================
-
-export type MultiAgentRuntimeRole = "standalone" | "orchestrator" | "child" | "observer";
-
-export interface MultiAgentExecutionCapability {
-	readonly kind: "multi-agent-execution";
-}
-
-const issuedMultiAgentExecutionCapabilities = new WeakSet<MultiAgentExecutionCapability>();
-
-export function createMultiAgentExecutionCapability(): MultiAgentExecutionCapability {
-	const capability: MultiAgentExecutionCapability = Object.freeze({ kind: "multi-agent-execution" });
-	issuedMultiAgentExecutionCapabilities.add(capability);
-	return capability;
-}
 
 export type SupervisorDecisionRequester = typeof requestSupervisorDecision;
 
@@ -608,31 +597,6 @@ function isSessionBusyPromptError(error: unknown): boolean {
 
 /** Standard thinking levels */
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high"];
-
-export function assertStandaloneWorkerOptions(config: Partial<AgentSessionConfig>): void {
-	if (!config.noSupervisor) return;
-	if (config.sessionManager?.isPersisted()) throw new Error("Standalone worker requires an in-memory session");
-	const hasOrchestration =
-		config.multiAgentStore ||
-		(config.multiAgentRuntimeRole && config.multiAgentRuntimeRole !== "standalone") ||
-		config.multiAgentExecutionCapability ||
-		config.multiAgentAgentId ||
-		config.multiAgentParentSessionId ||
-		config.multiAgentRequiresAgentId;
-	if (hasOrchestration) throw new Error("Standalone worker cannot receive multi-agent orchestration");
-}
-
-function validateMultiAgentRuntimeRole(config: AgentSessionConfig): void {
-	const role = config.multiAgentRuntimeRole ?? "standalone";
-	const capability = config.multiAgentExecutionCapability;
-	const hasIssuedCapability = capability !== undefined && issuedMultiAgentExecutionCapabilities.has(capability);
-	if (role === "orchestrator" && !hasIssuedCapability) {
-		throw new Error("Multi-agent orchestrator requires an issued execution capability");
-	}
-	if (role !== "orchestrator" && capability !== undefined) {
-		throw new Error(`Multi-agent ${role} runtime cannot receive execution capability`);
-	}
-}
 
 // ============================================================================
 // AgentSession Class
