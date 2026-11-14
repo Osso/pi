@@ -302,6 +302,7 @@ async function consumeChatStream(
 	const blocks = output.content;
 	const blockIndex = () => blocks.length - 1;
 	const toolBlocksByKey = new Map<string, number>();
+	const toolBlocksByIndex = new Map<number, number>();
 
 	const finishCurrentBlock = (block?: typeof currentBlock) => {
 		if (!block) return;
@@ -426,7 +427,9 @@ async function consumeChatStream(
 					? toolCall.id
 					: deriveMistralToolCallId(`toolcall:${toolCall.index ?? 0}`, 0);
 			const key = `${callId}:${toolCall.index || 0}`;
-			const existingIndex = toolBlocksByKey.get(key);
+			// Continuation fragments may omit the id; they extend the call already open at the same stream index.
+			const continued = callId === toolCall.id ? undefined : toolBlocksByIndex.get(toolCall.index || 0);
+			const existingIndex = toolBlocksByKey.get(key) ?? continued;
 			let block: (ToolCall & { partialArgs?: string }) | undefined;
 
 			if (existingIndex !== undefined) {
@@ -450,6 +453,7 @@ async function consumeChatStream(
 				output.content.push(block);
 				contentIndex = output.content.length - 1;
 				toolBlocksByKey.set(key, contentIndex);
+				toolBlocksByIndex.set(toolCall.index || 0, contentIndex);
 				stream.push({ type: "toolcall_start", contentIndex, partial: output });
 			}
 
