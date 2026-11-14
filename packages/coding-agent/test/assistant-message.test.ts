@@ -81,6 +81,29 @@ describe("AssistantMessageComponent", () => {
 		expect(rendered).toContain("response may be incomplete");
 	});
 
+	test("shows one hidden-thinking label for consecutive reasoning blocks", () => {
+		initTheme("dark");
+
+		const component = new AssistantMessageComponent(
+			createAssistantMessage([
+				{ type: "thinking", thinking: "Inspecting tests" },
+				{ type: "thinking", thinking: "Checking setup" },
+				{ type: "thinking", thinking: "Planning edit" },
+				{ type: "text", text: "Next step" },
+				{ type: "thinking", thinking: "Reconsidering" },
+				{ type: "thinking", thinking: "Deciding" },
+				{ type: "toolCall", id: "tool-1", name: "read", arguments: { path: "setup.ts" } },
+			]),
+			true,
+		);
+		const lines = component
+			.render(80)
+			.map((line) => stripAnsi(line).trim())
+			.filter((line) => line.length > 0);
+
+		expect(lines).toEqual(["Thinking...", "Next step", "Thinking..."]);
+	});
+
 	test("uses configured output padding for text and thinking", () => {
 		initTheme("dark");
 

@@ -104,6 +104,7 @@ export class AssistantMessageComponent extends Container {
 		this.contentSlots = message.content.map((content, contentIndex) =>
 			this.reconcileContentSlot(this.contentSlots[contentIndex], content),
 		);
+		this.collapseConsecutiveHiddenThinking();
 		this.updateThinkingSpacers();
 
 		this.hasToolCalls = message.content.some((content) => content.type === "toolCall");
@@ -220,6 +221,16 @@ export class AssistantMessageComponent extends Container {
 			visible: text.length > 0,
 			hiddenThinking: false,
 		};
+	}
+
+	/** Providers can split one reasoning phase into many blocks; hidden, each would repeat the same label. */
+	private collapseConsecutiveHiddenThinking(): void {
+		let previousVisible: ContentSlot | undefined;
+		for (const slot of this.contentSlots) {
+			if (!slot.visible) continue;
+			if (slot.hiddenThinking && previousVisible?.hiddenThinking) slot.visible = false;
+			else previousVisible = slot;
+		}
 	}
 
 	private updateThinkingSpacers(): void {
