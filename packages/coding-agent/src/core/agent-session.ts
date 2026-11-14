@@ -54,6 +54,11 @@ import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
 import { type BackgroundCompactionCache, BackgroundCompactionState } from "./agent-session-background-compaction.ts";
 import {
+	abortCompactionSummaryMaterialization,
+	materializeCompactionSummary,
+	updateCompactionSummary,
+} from "./agent-session-compaction-summary.ts";
+import {
 	createAgentSessionDetachedJobLifecycleController,
 	readHeadlessToolAutoDetachAfterMs,
 	recordDetachedToolCallCompletion,
@@ -91,7 +96,6 @@ import {
 	estimateTokens,
 	generateBranchSummary,
 	type MaterializeCompactionSummaryResult,
-	materializeCompactionSummary as materializeProviderNativeCompactionSummary,
 	prepareCompaction,
 	shouldCompact,
 } from "./compaction/index.ts";
@@ -3883,7 +3887,7 @@ export class AgentSession {
 
 	/** Cancel in-progress compaction-summary materialization. */
 	abortCompactionSummaryMaterialization(): void {
-		this._compactionSummaryMaterializationAbortController?.abort();
+		abortCompactionSummaryMaterialization(this._compactionSummaryMaterializationAbortController);
 	}
 
 	/**
@@ -5029,54 +5033,22 @@ export class AgentSession {
 	}
 
 	updateCompactionSummary(entryId: string, summary: string): void {
-		this.sessionManager.updateCompactionSummary(entryId, summary);
-		this.agent.state.messages = this.sessionManager.buildSessionContext().messages;
-	}
-
-	private requireCompactionSummaryMaterializationTarget(entryId: string): {
-		entry: CompactionEntry;
-		model: Model<Api>;
-	} {
-		const entry = this.sessionManager.getEntry(entryId);
-		if (!entry) throw new Error(`Entry ${entryId} not found`);
-		if (entry.type !== "compaction") throw new Error(`Entry ${entryId} is not a compaction`);
-		const checkpoint = entry.providerNative;
-		if (!checkpoint) throw new Error(`Compaction entry ${entryId} has no provider-native checkpoint`);
-		const model = this.model;
-		if (!model) throw new Error("No model available for compaction summary materialization");
-		const matchingProvider = checkpoint.provider === model.provider;
-		const matchingApi = checkpoint.api === model.api;
-		const supportedFormat = checkpoint.format === "openai.responses.input" && Array.isArray(checkpoint.value);
-		if (!matchingProvider || !matchingApi || !supportedFormat) {
-			throw new Error(
-				`Compaction summary materialization requires an active ${checkpoint.provider}/${checkpoint.api} model`,
-			);
-		}
-		return { entry, model };
+		updateCompactionSummary(this.sessionManager, this.agent, entryId, summary);
 	}
 
 	async materializeCompactionSummary(entryId: string): Promise<MaterializeCompactionSummaryResult> {
-		const { entry, model } = this.requireCompactionSummaryMaterializationTarget(entryId);
-		if (this._compactionSummaryMaterializationAbortController) {
-			throw new Error("Compaction summary materialization is already running");
-		}
-		const abortController = new AbortController();
-		this._compactionSummaryMaterializationAbortController = abortController;
-		try {
-			const { apiKey, headers, env } = await this._getRequiredRequestAuth(model);
-			const settings = this.settingsManager.getCompactionSettings();
-			return await materializeProviderNativeCompactionSummary(entry, model, {
-				apiKey,
-				env,
-				headers,
-				reserveTokens: settings.reserveTokens,
-				signal: abortController.signal,
-				streamFn: this.agent.streamFn,
-				sessionId: this.sessionManager.getSessionId(),
-			});
-		} finally {
-			this._compactionSummaryMaterializationAbortController = undefined;
-		}
+		return materializeCompactionSummary({
+			entryId,
+			sessionManager: this.sessionManager,
+			model: this.model,
+			settingsManager: this.settingsManager,
+			streamFn: this.agent.streamFn,
+			getRequiredRequestAuth: (model) => this._getRequiredRequestAuth(model),
+			abortController: this._compactionSummaryMaterializationAbortController,
+			setAbortController: (controller) => {
+				this._compactionSummaryMaterializationAbortController = controller;
+			},
+		});
 	}
 
 	// =========================================================================
