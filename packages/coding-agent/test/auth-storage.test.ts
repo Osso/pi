@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as piAiCompat from "@earendil-works/pi-ai/compat";
@@ -693,6 +693,58 @@ describe("AuthStorage", () => {
 	});
 
 	describe("persistence semantics", () => {
+		test("a symlinked auth file shares one lock between refresh and synchronous writes", async () => {
+			const providerId = `test-oauth-provider-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+			let finishRefresh: (() => void) | undefined;
+			let refreshStarted: (() => void) | undefined;
+			const started = new Promise<void>((resolve) => {
+				refreshStarted = resolve;
+			});
+			registerOAuthProvider({
+				id: providerId,
+				name: "Test OAuth Provider",
+				async login() {
+					throw new Error("Not used in this test");
+				},
+				async refreshToken(credentials) {
+					refreshStarted?.();
+					await new Promise<void>((resolve) => {
+						finishRefresh = resolve;
+					});
+					return {
+						...credentials,
+						access: "rotated-access",
+						refresh: "rotated-refresh",
+						expires: Date.now() + 60_000,
+					};
+				},
+				getApiKey(credentials) {
+					return `Bearer ${credentials.access}`;
+				},
+			});
+			writeAuthJson({ [providerId]: { type: "oauth", refresh: "old-refresh", access: "expired", expires: 0 } });
+			const linkedPath = join(tempDir, "linked-auth.json");
+			symlinkSync(authJsonPath, linkedPath);
+			const refresher = AuthStorage.create(linkedPath);
+			const writer = AuthStorage.create(linkedPath);
+
+			const refresh = refresher.getApiKey(providerId);
+			await started;
+			expect(() => writer.set("openai", { type: "api_key", key: "new-login-key" })).toThrow(
+				expect.objectContaining({ code: "ELOCKED" }),
+			);
+			finishRefresh?.();
+			expect(await refresh).toBe("Bearer rotated-access");
+
+			writer.set("openai", { type: "api_key", key: "new-login-key" });
+			const stored = JSON.parse(readFileSync(authJsonPath, "utf-8")) as Record<
+				string,
+				{ key?: string; refresh?: string }
+			>;
+			expect(stored.openai?.key).toBe("new-login-key");
+			expect(stored[providerId]?.refresh).toBe("rotated-refresh");
+		});
+
 		test("set preserves unrelated external edits", () => {
 			writeAuthJson({
 				anthropic: { type: "api_key", key: "old-anthropic" },

@@ -147,6 +147,7 @@ export class FileAuthStorageBackend implements AuthStorageBackend {
 
 		try {
 			release = await lockfile.lock(this.authPath, {
+				realpath: false,
 				retries: {
 					retries: 10,
 					factor: 2,

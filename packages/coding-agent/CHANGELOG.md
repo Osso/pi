@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed a symlinked `auth.json` letting an OAuth refresh overwrite a login or logout that another Pi process completed during the refresh; refresh and synchronous writes now lock the same path.
 - Fixed `pi --mode json` exiting 0 when the final assistant message ended with an error or was aborted; it now exits 1 like text mode.
 - Fixed HTML export rendering custom messages with content blocks as raw JSON instead of their text.
 - Fixed HTML export showing a tool result from an abandoned branch on the tool call of the selected branch.
