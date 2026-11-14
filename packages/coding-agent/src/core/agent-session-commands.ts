@@ -1,4 +1,5 @@
 import type { ExtensionCommandContext, ResolvedCommand, ViewedSessionMutationTarget } from "./extensions/index.ts";
+import { findExactModelReferenceMatch } from "./model-resolver.ts";
 import { BUILTIN_SLASH_COMMANDS } from "./slash-commands.ts";
 
 export type SessionMutationTargetResolver = () => ViewedSessionMutationTarget | undefined;
@@ -74,6 +75,31 @@ const sessionMutationTargetResolvers = new WeakMap<object, SessionMutationTarget
 
 export function bindSessionMutationTargetResolver(session: object, resolver: SessionMutationTargetResolver): void {
 	sessionMutationTargetResolvers.set(session, resolver);
+}
+
+export function createInternalCommands(): ReadonlyMap<
+	string,
+	(args: string, context: ExtensionCommandContext) => Promise<void>
+> {
+	return new Map([
+		[
+			"model",
+			async (args: string, context: ExtensionCommandContext) => {
+				const modelReference = args.trim();
+				if (!modelReference) return;
+				const scopedModels = context.getScopedModels?.() ?? [];
+				const models =
+					scopedModels.length > 0
+						? scopedModels.map((scoped) => scoped.model)
+						: context.modelRegistry.getAvailable();
+				const model = findExactModelReferenceMatch(modelReference, models);
+				if (!model) throw new Error(`Model not found or not authenticated: ${modelReference}`);
+				if (!(await context.setModel(model))) {
+					throw new Error(`No API key for ${model.provider}/${model.id}`);
+				}
+			},
+		],
+	]);
 }
 
 export function createViewedSessionCommandContext(

@@ -55,6 +55,7 @@ import { sleep } from "../utils/sleep.ts";
 import { type BackgroundCompactionCache, BackgroundCompactionState } from "./agent-session-background-compaction.ts";
 import {
 	bindSessionMutationTargetResolver,
+	createInternalCommands,
 	createViewedSessionCommandContext,
 	executeExtensionCommand,
 	isKnownSlashCommand,
@@ -127,7 +128,7 @@ import type { ReadonlyFooterDataProvider } from "./footer-data-provider.ts";
 import { LifecycleCoordinator } from "./lifecycle-coordinator.ts";
 import { type BashExecutionMessage, type CustomMessage, createCompactionSummaryMessage } from "./messages.ts";
 import type { ModelRegistry } from "./model-registry.ts";
-import { findExactModelReferenceMatch, resolveModelScope, type ScopedModel } from "./model-resolver.ts";
+import { resolveModelScope, type ScopedModel } from "./model-resolver.ts";
 import type {
 	AgentCurrentActivityOwner,
 	AgentLifecycleState,
@@ -4482,25 +4483,7 @@ export class AgentSession {
 		string,
 		(args: string, ctx: ExtensionCommandContext) => Promise<void>
 	> {
-		return new Map([
-			[
-				"model",
-				async (args: string, ctx: ExtensionCommandContext) => {
-					const modelReference = args.trim();
-					if (!modelReference) return;
-					const scopedModels = ctx.getScopedModels?.() ?? [];
-					const models =
-						scopedModels.length > 0
-							? scopedModels.map((scoped) => scoped.model)
-							: ctx.modelRegistry.getAvailable();
-					const model = findExactModelReferenceMatch(modelReference, models);
-					if (!model) throw new Error(`Model not found or not authenticated: ${modelReference}`);
-					if (!(await ctx.setModel(model))) {
-						throw new Error(`No API key for ${model.provider}/${model.id}`);
-					}
-				},
-			],
-		]);
+		return createInternalCommands();
 	}
 
 	private _restartFromExtension(options?: { notice?: string; process?: boolean }): Promise<void> {
