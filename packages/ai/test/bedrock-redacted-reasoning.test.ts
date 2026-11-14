@@ -159,7 +159,7 @@ describe("Bedrock redacted reasoning", () => {
 		expect(thinking?.thinkingSignature).toBe(bedrockMock.redactedBase64);
 		// The byte buffer is streaming scratch state: persisting it would bloat the
 		// session, since a Uint8Array serializes to an index-keyed object.
-		expect("redactedChunks" in thinking!).toBe(false);
+		expect(Object.hasOwn(thinking ?? {}, "redactedChunks")).toBe(false);
 	});
 
 	it("encodes the payload when the stream never sends contentBlockStop", async () => {
@@ -181,8 +181,8 @@ describe("Bedrock redacted reasoning", () => {
 		const thinking = response.content.find((c): c is ThinkingContent => c.type === "thinking");
 		expect(thinking?.thinkingSignature).toBe(bedrockMock.redactedBase64);
 		// Streaming scratch state must not survive into the persisted message.
-		expect("redactedChunks" in thinking!).toBe(false);
-		expect("index" in thinking!).toBe(false);
+		expect(Object.hasOwn(thinking ?? {}, "redactedChunks")).toBe(false);
+		expect(Object.hasOwn(thinking ?? {}, "index")).toBe(false);
 	});
 
 	it("joins encrypted reasoning split across deltas", async () => {
@@ -226,9 +226,9 @@ describe("Bedrock redacted reasoning", () => {
 
 		const payload = await capturePayload({ messages });
 
-		const assistant = payload.messages.find((m: any) => m.role === "assistant");
+		const assistant = payload.messages.find((m) => m.role === "assistant");
 		expect(assistant).toBeDefined();
-		expect(assistant!.content).toEqual([
+		expect(assistant?.content).toEqual([
 			{ reasoningContent: { redactedContent: bedrockMock.redactedBytes } },
 			{ text: "done" },
 		]);
@@ -264,9 +264,9 @@ describe("Bedrock redacted reasoning", () => {
 
 		const payload = await capturePayload({ messages });
 
-		const assistant = payload.messages.find((m: any) => m.role === "assistant");
+		const assistant = payload.messages.find((m) => m.role === "assistant");
 		expect(assistant).toBeDefined();
-		expect(assistant!.content).toEqual([
+		expect(assistant?.content).toEqual([
 			{ reasoningContent: { redactedContent: bedrockMock.redactedBytes } },
 			{ toolUse: { toolUseId: "tool-1", name: "read", input: { path: "/tmp/a.txt" } } },
 		]);
