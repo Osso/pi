@@ -51,6 +51,7 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 	const server = createServer((socket) => {
 		let buffer = "";
 		let requestReceived = false;
+		socket.setEncoding("utf8"); // decode multibyte characters split across chunks
 
 		socket.on("data", async (chunk: Buffer | string) => {
 			buffer += chunk.toString();

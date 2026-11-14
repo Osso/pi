@@ -7,6 +7,7 @@ export async function sendIpcRequest(request: OrchestratorRequest): Promise<Orch
 
 	return new Promise<OrchestratorResponse>((resolve, reject) => {
 		const socket = createConnection(socketPath);
+		socket.setEncoding("utf8"); // decode multibyte characters split across chunks
 		let buffer = "";
 		let settled = false;
 
