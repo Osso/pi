@@ -61,6 +61,7 @@
 - Fixed Gemini latest aliases sending unsupported explicit thinking configuration by omitting `thinkingConfig` for `gemini-flash-latest` on Google AI Studio and Vertex.
 - Fixed missing thought signature error (HTTP 400) when replaying unsigned tool calls on Google Generative AI thinking models by sending the `skip_thought_signature_validator` sentinel.
 - Fixed OpenAI Responses and Codex content-filter incomplete responses discarding terminal token usage, reasoning tokens, and costs while preserving the content-filter error.
+- Fixed Anthropic replay to preserve signed empty thinking blocks returned with `thinkingDisplay: "omitted"` for multi-turn continuity.
 
 ### Added
 

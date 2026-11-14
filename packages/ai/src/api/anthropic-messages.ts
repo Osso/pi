@@ -1089,7 +1089,7 @@ function convertMessages(
 						}
 						continue;
 					}
-					if (block.thinking.trim().length === 0) continue;
+					if (block.thinking.trim().length === 0 && !block.thinkingSignature?.trim()) continue;
 					// If thinking signature is missing/empty (e.g., from aborted stream),
 					// convert to plain text for Anthropic. Some compatible providers emit
 					// and accept empty signatures, so let marked models preserve the block.

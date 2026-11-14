@@ -1,4 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import type { MessageCreateParamsStreaming } from "@anthropic-ai/sdk/resources/messages.js";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { stream as streamAnthropic } from "../src/api/anthropic-messages.ts";
@@ -79,6 +80,79 @@ function createFakeAnthropicClient(response: Response): Anthropic {
 }
 
 describe("Anthropic raw SSE parsing", () => {
+	it.each(["opaque-encrypted", "", " "])(
+		"replays omitted thinking only with a nonempty signature (%j)",
+		async (signature) => {
+			const model = getModel("anthropic", "claude-haiku-4-5");
+			const context: Context = {
+				messages: [{ role: "user", content: "Answer the question.", timestamp: 1 }],
+			};
+			const contentEvents = [
+				{
+					type: "content_block_start",
+					index: 0,
+					content_block: { type: "thinking", thinking: "", signature: "" },
+				},
+				{
+					type: "content_block_delta",
+					index: 0,
+					delta: { type: "signature_delta", signature },
+				},
+				{ type: "content_block_stop", index: 0 },
+				{
+					type: "content_block_start",
+					index: 1,
+					content_block: { type: "text", text: "" },
+				},
+				{
+					type: "content_block_delta",
+					index: 1,
+					delta: { type: "text_delta", text: "Answer" },
+				},
+				{ type: "content_block_stop", index: 1 },
+			];
+			const response = createSseResponse([
+				...minimalAnthropicEvents.slice(0, 1),
+				...contentEvents.map((event) => ({ event: event.type, data: JSON.stringify(event) })),
+				...minimalAnthropicEvents.slice(-2),
+			]);
+			const result = await streamAnthropic(model, context, {
+				client: createFakeAnthropicClient(response),
+				thinkingEnabled: true,
+				thinkingDisplay: "omitted",
+				onPayload: (payload) => {
+					expect(payload).toMatchObject({ thinking: { display: "omitted" } });
+				},
+			}).result();
+
+			expect(result.stopReason).toBe("stop");
+			expect(result.content).toEqual([
+				{ type: "thinking", thinking: "", thinkingSignature: signature },
+				{ type: "text", text: "Answer" },
+			]);
+
+			let replayPayload: MessageCreateParamsStreaming | undefined;
+			const replay = await streamAnthropic(
+				model,
+				{
+					messages: [...context.messages, result, { role: "user", content: "Continue.", timestamp: 2 }],
+				},
+				{
+					client: createFakeAnthropicClient(createSseResponse(minimalAnthropicEvents)),
+					onPayload: (payload) => {
+						replayPayload = payload as MessageCreateParamsStreaming;
+					},
+				},
+			).result();
+
+			expect(replay.stopReason).toBe("stop");
+			expect(replayPayload?.messages.find((message) => message.role === "assistant")?.content).toEqual([
+				...(signature.trim() ? [{ type: "thinking", thinking: "", signature }] : []),
+				{ type: "text", text: "Answer" },
+			]);
+		},
+	);
+
 	it("repairs malformed SSE JSON and malformed streamed tool JSON", async () => {
 		const model = getModel("anthropic", "claude-haiku-4-5");
 		const context: Context = {
