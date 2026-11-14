@@ -27,6 +27,7 @@ import { DEFAULT_SUPERVISOR_KB_DIR } from "../../../src/supervisor/project-resol
 import { notifySupervisorRequest, SupervisorRequestWakeServer } from "../../../src/supervisor/request-wake.ts";
 import { createSupervisorResponseTool, SUPERVISOR_RESPONSE_TOOL_NAME } from "../../../src/supervisor/response-tool.ts";
 import type { SupervisorEvaluator } from "../../../src/supervisor/service.ts";
+import { createInspectSessionTool } from "./inspect-session-tool.ts";
 
 export const SUPERVISOR_REQUEST_MESSAGE_TYPE = "supervisor_request";
 export const SUPERVISOR_RESUME_MESSAGE_TYPE = "supervisor_resume";
@@ -37,6 +38,7 @@ export const SUPERVISOR_SESSION_TOOL_NAMES = [
 	"edit",
 	"write",
 	SUPERVISOR_RESPONSE_TOOL_NAME,
+	"inspect_session",
 	"send_agent_message",
 	"ask_questions",
 	"reminders",
@@ -108,6 +110,7 @@ class SupervisorSessionServer {
 		const controlDbPath = ctx.controlDbPath;
 		if (!controlDbPath) throw new Error("The Supervisor session requires the Pi control database.");
 		this.pi.registerTool(createSupervisorResponseTool());
+		this.pi.registerTool(createInspectSessionTool());
 		const available = new Set(this.pi.getAllTools().map((tool) => tool.name));
 		this.pi.setActiveTools(SUPERVISOR_SESSION_TOOL_NAMES.filter((name) => available.has(name)));
 		const wakeServer = new SupervisorRequestWakeServer(controlDbPath);

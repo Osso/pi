@@ -31,7 +31,7 @@ export interface SupervisorQuestionHandle {
 function toQuestionReply(reply: SupervisorReply): SupervisorQuestionReply {
 	const response = reply.response;
 	if (response.kind !== "answer") {
-		const reason = "reason" in response ? response.reason : `Unexpected Supervisor response ${response.kind}`;
+		const reason = "reason" in response ? response.reason : `Unexpected Supervisor reply ${response.kind}`;
 		return { kind: "escalate", reason };
 	}
 	const entries = Object.entries(response.answers);

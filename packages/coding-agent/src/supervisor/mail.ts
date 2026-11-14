@@ -22,15 +22,22 @@ import { notifySupervisorRequest } from "./request-wake.ts";
 const REPLY_PREFIX = "supervisor_response:";
 const REQUEST_PREFIX = "supervisor_request:";
 const CANCEL_PREFIX = "supervisor_cancel:";
+const INSPECT_PREFIX = "supervisor_inspect:";
 const NOT_RUNNING_SUFFIX = "-not-running";
 const STORE_PATH = "supervisor-mail";
 const MAIL_CHECK_INTERVAL_MS = 1_000;
+
+/** A session description answering an `inspect_session` call; not a Supervisor decision. */
+export interface SessionInspection {
+	kind: "inspection";
+	text: string;
+}
 
 export interface SupervisorReply {
 	type: "supervisor_response";
 	requestId: string;
 	requestKind: SupervisorRequestKind;
-	response: SupervisorResponse;
+	response: SupervisorResponse | SessionInspection;
 	/** Set when the user answered an escalated question in the Supervisor session. */
 	answeredBy?: "user";
 }
@@ -173,6 +180,45 @@ export function cancelSubmittedSupervisorRequest(
 		return;
 	}
 	if (cancelSupervisorRequest(controlDbPath, route, reason)) notifySupervisorRequest(controlDbPath);
+}
+
+/** Asks the relay on `target.host` to describe a session there; the answer arrives as a reply to `route`. */
+export function sendSessionInspectionRequest(
+	controlDbPath: string,
+	target: { sessionId: string; host: string },
+	route: SupervisorReplyRoute,
+): void {
+	enqueueMail(controlDbPath, {
+		kind: "message",
+		messageId: `${INSPECT_PREFIX}${routeKey(route)}`,
+		body: { type: "supervisor_inspect", replyTo: route },
+		from: { sessionId: route.sessionId, agentId: route.agentId },
+		to: { sessionId: target.sessionId, agentId: null, host: target.host },
+	});
+}
+
+export function isSessionInspectionRequest(messageId: string): boolean {
+	return messageId.startsWith(INSPECT_PREFIX);
+}
+
+/** Answers a relayed inspection request on the host that owns the session, without waking that session. */
+export function answerSessionInspectionRequest(
+	controlDbPath: string,
+	peer: string,
+	data: Record<string, unknown>,
+	describe: (sessionId: string) => string,
+): void {
+	const sessionId = String(data.recipientSessionId);
+	const body = JSON.parse(String(data.body)) as { replyTo: SupervisorReplyRoute };
+	sendSupervisorReply(
+		controlDbPath,
+		sessionId,
+		{ ...body.replyTo, host: peer },
+		{
+			requestKind: "supervisor_advisory",
+			response: { kind: "inspection", text: describe(sessionId) },
+		},
+	);
 }
 
 function parseBody(message: RuntimeMailboxMessage): Record<string, unknown> {

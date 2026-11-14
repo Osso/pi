@@ -1,3 +1,5 @@
+import { describeSession } from "../supervisor/inspect-session.ts";
+import { answerSessionInspectionRequest, isSessionInspectionRequest } from "../supervisor/mail.ts";
 import { isMailboxMessageExpired, MAILBOX_MESSAGE_RETENTION_MS } from "./mailbox-retention.ts";
 import {
 	enqueueStoredRuntimeMailboxMessage,
@@ -113,9 +115,14 @@ export function importRelayMailbox(path: string, peer: string, message: RelayMai
 		sessionId: requireText(data.senderSessionId, "senderSessionId"),
 		agentId: nullableText(data.senderAgentId, "senderAgentId"),
 	};
+	const inspection = isSessionInspectionRequest(message.messageId);
 	const applied = withControlDb(path, (db) =>
 		withImmediateTransaction(db, () => {
 			if (message.seq <= readCounter(db, `relay-in:${peer}`)) return false;
+			if (inspection) {
+				writeCounter(db, `relay-in:${peer}`, message.seq);
+				return true;
+			}
 			enqueueStoredRuntimeMailboxMessageInTransaction(db, {
 				kind: requireText(data.kind, "kind") as RuntimeMailboxMessageKind,
 				recipient,
@@ -128,6 +135,11 @@ export function importRelayMailbox(path: string, peer: string, message: RelayMai
 		}),
 	);
 	if (!applied) return;
+	if (inspection) {
+		// The relay answers on the session's host, so a busy or stopped session can still be inspected.
+		answerSessionInspectionRequest(path, peer, data, (sessionId) => describeSession(path, sessionId));
+		return;
+	}
 	notifyRuntimeMailboxRecipient(path, recipient);
 	// The relay acknowledges on import, so the sender would otherwise only see "queued" while the message waits.
 	// Notices are system messages and are never answered with another notice.

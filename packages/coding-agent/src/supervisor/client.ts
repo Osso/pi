@@ -72,7 +72,13 @@ export async function requestSupervisorDecision(
 			() => finish({ kind: "error", reason: "Supervisor request timed out" }),
 			input.timeoutMs,
 		);
-		const stopWatching = watchSupervisorReplies(input.controlDbPath, route, (reply) => finish(reply.response));
+		const stopWatching = watchSupervisorReplies(input.controlDbPath, route, (reply) =>
+			finish(
+				reply.response.kind === "inspection"
+					? { kind: "error", reason: "Unexpected session inspection reply" }
+					: reply.response,
+			),
+		);
 		input.signal?.addEventListener("abort", onAbort, { once: true });
 		submitSupervisorRequest(input.controlDbPath, supervisor, {
 			deadlineAt: new Date(Date.now() + input.timeoutMs).toISOString(),
