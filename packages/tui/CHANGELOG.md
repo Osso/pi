@@ -35,6 +35,7 @@
 - Fixed `+` key bindings, including modified Kitty and xterm sequences and typed `Key.plus` helpers.
 - Fixed modified F1–F12 key bindings and parsing for legacy xterm and Kitty encodings.
 - Fixed reverse history search Backspace deleting only part of an emoji or combining-character grapheme.
+- Fixed vertical editor movement using string offsets instead of terminal-cell columns across wide or combining characters; a column inside a wide grapheme selects its start.
 
 ## [0.80.3] - 2026-06-30
 

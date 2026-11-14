@@ -1,4 +1,5 @@
 import type { AutocompleteProvider, AutocompleteSuggestions } from "../autocomplete.ts";
+import { maxCursorColumn } from "../editor-columns.ts";
 import { getKeybindings } from "../keybindings.ts";
 import { decodePrintableKey, matchesKey } from "../keys.ts";
 import { KillRing } from "../kill-ring.ts";
@@ -9,6 +10,7 @@ import {
 	getGraphemeSegmenter,
 	getWordSegmenter,
 	isWhitespaceChar,
+	sliceByColumn,
 	truncateToWidth,
 	visibleWidth,
 } from "../utils.ts";
@@ -1671,33 +1673,31 @@ export class Editor implements Component, Focusable {
 		// When the cursor was snapped to a segment start, resolve the pre-snap
 		// position against the VL it belongs to. This gives the correct visual
 		// column even after a resize reshuffles VLs.
-		let currentVisualCol: number;
-		if (this.snappedFromCursorCol !== null) {
-			const vlIndex = this.findVisualLineAt(visualLines, currentVL.logicalLine, this.snappedFromCursorCol);
-			const snappedVisualLine = visualLines[vlIndex];
-			if (!snappedVisualLine) throw new Error(`Missing visual line at index ${vlIndex}`);
-			currentVisualCol = this.snappedFromCursorCol - snappedVisualLine.startCol;
-		} else {
-			currentVisualCol = this.state.cursorCol - currentVL.startCol;
-		}
+		const cursorCol = this.snappedFromCursorCol ?? this.state.cursorCol;
+		const vlIndex = this.findVisualLineAt(visualLines, currentVL.logicalLine, cursorCol);
+		const sourceVL = visualLines[vlIndex];
+		if (!sourceVL) throw new Error(`Missing visual line at index ${vlIndex}`);
+		const sourceLine = this.state.lines[currentVL.logicalLine] || "";
+		const currentVisualCol = visibleWidth(sourceLine.slice(sourceVL.startCol, cursorCol));
 
-		// For non-last segments, clamp to length-1 to stay within the segment
+		// For non-last segments, clamp to the last grapheme start to stay within the segment
 		const isLastSourceSegment =
 			currentVisualLine === visualLines.length - 1 ||
 			visualLines[currentVisualLine + 1]?.logicalLine !== currentVL.logicalLine;
-		const sourceMaxVisualCol = isLastSourceSegment ? currentVL.length : Math.max(0, currentVL.length - 1);
+		const sourceText = sourceLine.slice(currentVL.startCol, currentVL.startCol + currentVL.length);
+		const sourceMaxVisualCol = maxCursorColumn(sourceText, isLastSourceSegment);
 
 		const isLastTargetSegment =
 			targetVisualLine === visualLines.length - 1 ||
 			visualLines[targetVisualLine + 1]?.logicalLine !== targetVL.logicalLine;
-		const targetMaxVisualCol = isLastTargetSegment ? targetVL.length : Math.max(0, targetVL.length - 1);
+		const logicalLine = this.state.lines[targetVL.logicalLine] || "";
+		const targetText = logicalLine.slice(targetVL.startCol, targetVL.startCol + targetVL.length);
+		const targetMaxVisualCol = maxCursorColumn(targetText, isLastTargetSegment);
 
 		const moveToVisualCol = this.computeVerticalMoveColumn(currentVisualCol, sourceMaxVisualCol, targetMaxVisualCol);
-
 		// Set cursor position
 		this.state.cursorLine = targetVL.logicalLine;
-		const targetCol = targetVL.startCol + moveToVisualCol;
-		const logicalLine = this.state.lines[targetVL.logicalLine] || "";
+		const targetCol = targetVL.startCol + sliceByColumn(targetText, 0, moveToVisualCol, true).length;
 		this.state.cursorCol = Math.min(targetCol, logicalLine.length);
 
 		// Snap cursor to atomic segment boundary (e.g. paste markers)
@@ -2105,7 +2105,7 @@ export class Editor implements Component, Focusable {
 					// At end of last line - can't move, but set preferredVisualCol for up/down navigation
 					const currentVL = visualLines[currentVisualLine];
 					if (currentVL) {
-						this.preferredVisualCol = this.state.cursorCol - currentVL.startCol;
+						this.preferredVisualCol = visibleWidth(currentLine.slice(currentVL.startCol, this.state.cursorCol));
 					}
 				}
 			} else {

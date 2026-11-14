@@ -3423,6 +3423,90 @@ describe("Editor component", () => {
 			for (let i = 0; i < col; i++) editor.handleInput("\x1b[C");
 		}
 
+		it("preserves the terminal-cell column when moving down and up across CJK text", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+			editor.setText("abcdX\n界界界界X");
+			editor.render(80);
+			editor.handleInput("\x01"); // Ctrl+A
+			editor.handleInput("\x1b[A"); // Up
+			for (let i = 0; i < 4; i++) editor.handleInput("\x1b[C");
+
+			editor.handleInput("\x1b[B");
+			assert.deepStrictEqual(editor.getCursor(), { line: 1, col: 2 });
+			assert.ok(editor.render(80)[2]?.includes("界界\x1b[7m界\x1b[0m界X"));
+			editor.handleInput("\x1b[A");
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 4 });
+		});
+
+		for (const [target, column, grapheme] of [
+			["界界界界X", 3, "界"],
+			["a👩‍💻bcX", 2, "👩‍💻"],
+		] as const) {
+			it(`lands at the start of ${grapheme} when the terminal-cell column falls inside it`, () => {
+				const editor = new Editor(createTestTUI(), defaultEditorTheme);
+				editor.setText(`abcdX\n${target}`);
+				editor.render(80);
+				positionCursor(editor, 0, column);
+
+				editor.handleInput("\x1b[B");
+				assert.deepStrictEqual(editor.getCursor(), { line: 1, col: 1 });
+				assert.ok(editor.render(80)[2]?.includes(`\x1b[7m${grapheme}\x1b[0m`));
+			});
+		}
+
+		it("converts terminal-cell columns to complete combining-character offsets", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+			editor.setText("abcdX\nae\u0301bcX");
+			editor.render(80);
+			positionCursor(editor, 0, 4);
+
+			editor.handleInput("\x1b[B");
+			assert.deepStrictEqual(editor.getCursor(), { line: 1, col: 5 });
+			editor.handleInput("\x1b[A");
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 4 });
+		});
+
+		it("preserves the terminal-cell column through a shorter CJK line", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+			editor.setText("abcdefX\n界\nabcdefX");
+			editor.render(80);
+			positionCursor(editor, 0, 6);
+
+			editor.handleInput("\x1b[B");
+			assert.deepStrictEqual(editor.getCursor(), { line: 1, col: 1 });
+			editor.handleInput("\x1b[B");
+			assert.deepStrictEqual(editor.getCursor(), { line: 2, col: 6 });
+			editor.handleInput("\x1b[A");
+			editor.handleInput("\x1b[A");
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 6 });
+		});
+
+		it("keeps wrapped wide-character movement on grapheme starts", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+			editor.setText("abcde\n😀😀Z");
+			editor.render(5);
+			positionCursor(editor, 0, 3);
+
+			editor.handleInput("\x1b[B"); // Short final segment of the ASCII line
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 5 });
+			editor.handleInput("\x1b[B"); // Non-final wide segment: cannot land at its end
+			assert.deepStrictEqual(editor.getCursor(), { line: 1, col: 2 });
+			assert.ok(editor.render(5)[3]?.includes("😀\x1b[7m😀\x1b[0m"));
+			editor.handleInput("\x1b[B");
+			assert.deepStrictEqual(editor.getCursor(), { line: 1, col: 5 });
+		});
+
+		it("captures a terminal-cell column when pressing Right at the end of wide text", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+			editor.setText("abcdefgX\n\n界界界X");
+			editor.render(80);
+			editor.handleInput("\x1b[C"); // Right at the end: terminal-cell column 7
+			editor.handleInput("\x1b[A");
+			assert.deepStrictEqual(editor.getCursor(), { line: 1, col: 0 });
+			editor.handleInput("\x1b[A");
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 7 });
+		});
+
 		it("preserves target column when moving up through a shorter line", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
