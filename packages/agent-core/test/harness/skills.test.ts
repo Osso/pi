@@ -35,6 +35,34 @@ Use this skill.
 		]);
 	});
 
+	it.each([
+		["drafts/", ["bang", "hash", "kept", "outside"]],
+		["/drafts/", ["bang", "deep-draft", "hash", "kept", "outside"]],
+		["tools/drafts/", ["bang", "direct", "hash", "kept", "outside"]],
+		["SKILL.md\n!tools/kept/SKILL.md", ["kept", "outside"]],
+		["\\!literal/\n\\#literal/", ["deep-draft", "direct", "kept", "outside"]],
+	])("honors nested ignore pattern %s", async (pattern, expectedNames) => {
+		const root = createTempDir();
+		const env = new NodeExecutionEnv({ cwd: root });
+		for (const path of [
+			"collection/drafts/direct",
+			"collection/tools/drafts/deep-draft",
+			"collection/tools/kept",
+			"collection/tools/!literal/bang",
+			"collection/tools/#literal/hash",
+			"outside/drafts/outside",
+		]) {
+			await env.createDir(`skills/${path}`, { recursive: true });
+			await env.writeFile(`skills/${path}/SKILL.md`, "---\ndescription: Test skill\n---\nContent");
+		}
+		await env.writeFile("skills/collection/.gitignore", `${pattern}\n`);
+
+		const { skills, diagnostics } = await loadSkills(env, "skills");
+
+		expect(diagnostics).toEqual([]);
+		expect(skills.map((skill) => skill.name).sort()).toEqual(expectedNames);
+	});
+
 	it("loads skills through symlinked directories", async () => {
 		const root = createTempDir();
 		const env = new NodeExecutionEnv({ cwd: root });

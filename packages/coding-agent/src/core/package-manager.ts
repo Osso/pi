@@ -24,6 +24,7 @@ function getEnv(): NodeJS.ProcessEnv {
 
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
+import { prefixIgnorePattern } from "@earendil-works/pi-agent-core";
 import { globSync } from "glob";
 import ignore from "ignore";
 import { minimatch } from "minimatch";
@@ -222,29 +223,6 @@ export function getExtensionTempFolder(agentDir: string): string {
 	mkdirSync(tempFolder, { recursive: true, mode: 0o700 });
 	chmodSync(tempFolder, 0o700);
 	return tempFolder;
-}
-
-function prefixIgnorePattern(line: string, prefix: string): string | null {
-	const trimmed = line.trim();
-	if (!trimmed) return null;
-	if (trimmed.startsWith("#") && !trimmed.startsWith("\\#")) return null;
-
-	let pattern = line;
-	let negated = false;
-
-	if (pattern.startsWith("!")) {
-		negated = true;
-		pattern = pattern.slice(1);
-	} else if (pattern.startsWith("\\!")) {
-		pattern = pattern.slice(1);
-	}
-
-	if (pattern.startsWith("/")) {
-		pattern = pattern.slice(1);
-	}
-
-	const prefixed = prefix ? `${prefix}${pattern}` : pattern;
-	return negated ? `!${prefixed}` : prefixed;
 }
 
 function addIgnoreRules(ig: IgnoreMatcher, dir: string, rootDir: string): void {

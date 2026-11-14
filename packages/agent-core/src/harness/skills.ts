@@ -212,21 +212,18 @@ async function addIgnoreRules(
 	}
 }
 
-function prefixIgnorePattern(line: string, prefix: string): string | null {
+/** Rebase an ignore rule without changing its anchoring, negation, or leading escapes. */
+export function prefixIgnorePattern(line: string, prefix: string): string | null {
 	const trimmed = line.trim();
-	if (!trimmed) return null;
-	if (trimmed.startsWith("#") && !trimmed.startsWith("\\#")) return null;
+	if (!trimmed || trimmed.startsWith("#")) return null;
+	if (!prefix) return line;
 
-	let pattern = line;
-	let negated = false;
-	if (pattern.startsWith("!")) {
-		negated = true;
-		pattern = pattern.slice(1);
-	} else if (pattern.startsWith("\\!")) {
-		pattern = pattern.slice(1);
-	}
-	if (pattern.startsWith("/")) pattern = pattern.slice(1);
-	const prefixed = prefix ? `${prefix}${pattern}` : pattern;
+	const negated = line.startsWith("!");
+	const pattern = negated ? line.slice(1) : line;
+	const anchored = pattern.startsWith("/") || pattern.replace(/\/$/, "").includes("/");
+	const relativePattern = pattern.startsWith("/") ? pattern.slice(1) : pattern;
+	// Basename rules match at every depth below the ignore file's directory.
+	const prefixed = `${prefix}${anchored ? "" : "**/"}${relativePattern}`;
 	return negated ? `!${prefixed}` : prefixed;
 }
 

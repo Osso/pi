@@ -1,3 +1,4 @@
+import { prefixIgnorePattern } from "@earendil-works/pi-agent-core";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import ignore from "ignore";
 import { basename, dirname, join, relative, resolve, sep } from "path";
@@ -19,29 +20,6 @@ type IgnoreMatcher = ReturnType<typeof ignore>;
 
 function toPosixPath(p: string): string {
 	return p.split(sep).join("/");
-}
-
-function prefixIgnorePattern(line: string, prefix: string): string | null {
-	const trimmed = line.trim();
-	if (!trimmed) return null;
-	if (trimmed.startsWith("#") && !trimmed.startsWith("\\#")) return null;
-
-	let pattern = line;
-	let negated = false;
-
-	if (pattern.startsWith("!")) {
-		negated = true;
-		pattern = pattern.slice(1);
-	} else if (pattern.startsWith("\\!")) {
-		pattern = pattern.slice(1);
-	}
-
-	if (pattern.startsWith("/")) {
-		pattern = pattern.slice(1);
-	}
-
-	const prefixed = prefix ? `${prefix}${pattern}` : pattern;
-	return negated ? `!${prefixed}` : prefixed;
 }
 
 function addIgnoreRules(ig: IgnoreMatcher, dir: string, rootDir: string): void {

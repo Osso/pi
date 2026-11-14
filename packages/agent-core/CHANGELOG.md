@@ -36,6 +36,7 @@
 - Fixed repeated compaction discarding the previous compaction summary when it split a long turn that the previous compaction had kept: the summary became `No prior history.` plus the turn prefix, so all earlier history was lost. The previous summary is now carried forward.
 - Fixed the tool-result cap cutting the start of tool output that was already truncated to 10KB / 2000 lines plus a continuation notice; the cap is now 11KB / 2010 lines, and `isToolResultTextTooLarge` is exported for hosts that apply their own cap.
 - Fixed tool result `details` being replaced by a truncation marker once their JSON exceeded the 11KB model-text cap, although details are not part of the tool result content the model receives; details now have a separate 1 MiB storage cap.
+- Fixed nested skill ignore rules matching only immediate children instead of all descendant paths, while preserving anchored patterns, negation, and escaped prefixes.
 
 ## [0.80.3] - 2026-06-30
 
