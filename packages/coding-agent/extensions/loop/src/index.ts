@@ -161,7 +161,7 @@ function parseLoopCommand(
 	if (trimmedArgs === "stop" || trimmedArgs === "off" || trimmedArgs === "clear") return { action: "stop" };
 
 	// Split off only the interval; the prompt body keeps its spacing, newlines, and indentation.
-	const [, intervalText = "", promptText = ""] = /^(\S+)\s*([\s\S]*)$/.exec(trimmedArgs) ?? [];
+	const [, intervalText = "", prompt = ""] = /^(\S+)\s*([\s\S]*)$/.exec(args.trimStart()) ?? [];
 	const intervalMs = parseIntervalMs(intervalText);
 	if (!intervalMs) {
 		return {
@@ -169,8 +169,7 @@ function parseLoopCommand(
 		};
 	}
 
-	const prompt = promptText;
-	if (!prompt) {
+	if (!prompt.trim()) {
 		return { error: "Loop prompt is required." };
 	}
 
@@ -229,7 +228,7 @@ export default function loopExtension(pi: ExtensionAPI) {
 				return textResult(stopped ? "Loop stopped" : "No active loop", { action: "stop", active: false });
 			}
 
-			const prompt = params.prompt?.trim();
+			const prompt = params.prompt;
 			const intervalMs =
 				params.intervalSeconds !== undefined ? parseIntervalMs(`${params.intervalSeconds}s`) : undefined;
 
@@ -240,7 +239,7 @@ export default function loopExtension(pi: ExtensionAPI) {
 				});
 			}
 
-			if (!prompt) {
+			if (!prompt?.trim()) {
 				return textResult("Prompt is required for action=start.", { action: "start", active: false });
 			}
 
