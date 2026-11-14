@@ -142,8 +142,9 @@ function enableWalJournalMode(db: SqliteDatabase, busyTimeoutMs: number): void {
 			db.exec("PRAGMA journal_mode = WAL");
 			return;
 		} catch (error) {
-			if (!isSqliteContentionError(error) || Date.now() >= deadline) throw error;
-			Atomics.wait(retrySleepCell, 0, 0, delayMs * (0.5 + Math.random() / 2));
+			const remainingMs = deadline - Date.now();
+			if (!isSqliteContentionError(error) || remainingMs <= 0) throw error;
+			Atomics.wait(retrySleepCell, 0, 0, Math.min(remainingMs, delayMs * (0.5 + Math.random() / 2)));
 		}
 	}
 }

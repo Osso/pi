@@ -7,8 +7,10 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, test } from "vitest";
 import {
 	configureReadOnlySqliteDatabase,
+	configureSharedSqliteDatabase,
 	createReadOnlySqliteDatabase,
 	createSqliteDatabase,
+	type SqliteDatabase,
 } from "../src/core/sqlite.ts";
 
 const hasBun = spawnSync("bun", ["--version"], { encoding: "utf8" }).status === 0;
@@ -131,6 +133,31 @@ describe("SQLite adapter", () => {
 		} finally {
 			rmSync(directory, { force: true, recursive: true });
 		}
+	});
+
+	test("gives up enabling WAL when the database stays busy for the whole busy timeout", () => {
+		const busy = Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" });
+		let walAttempts = 0;
+		const database: SqliteDatabase = {
+			close: () => {},
+			exec: (sql) => {
+				if (sql !== "PRAGMA journal_mode = WAL") return;
+				walAttempts += 1;
+				throw busy;
+			},
+			prepare: () => ({
+				all: () => [],
+				get: () => ({ journal_mode: "delete" }),
+				run: () => ({ changes: 0, lastInsertRowid: 0 }),
+			}),
+		};
+		const startedAt = performance.now();
+
+		expect(() => configureSharedSqliteDatabase(database, { busyTimeoutMs: 60 })).toThrow(busy);
+		const elapsedMs = performance.now() - startedAt;
+		expect(walAttempts).toBeGreaterThan(1);
+		expect(elapsedMs).toBeGreaterThanOrEqual(55);
+		expect(elapsedMs).toBeLessThan(120);
 	});
 
 	test("processes that open the same new database at the same time all enable WAL", async () => {
