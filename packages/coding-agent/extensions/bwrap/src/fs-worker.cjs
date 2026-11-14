@@ -220,10 +220,10 @@ function formatGrepMatches({ relativePath, lines, matchIndexes, context }) {
 }
 
 function formatGrepFile({ filePath, rootPath, rootIsDirectory, lines, matcher, context, limit }) {
-	const relativePath = rootIsDirectory ? path.relative(rootPath, filePath).split(path.sep).join("/") : path.basename(filePath);
-	const matchIndexes = lines
-		.flatMap((line, index) => (matcher(line || "") ? [index] : []))
-		.slice(0, limit);
+	const relativePath = rootIsDirectory
+		? path.relative(rootPath, filePath).split(path.sep).join("/")
+		: path.basename(filePath);
+	const matchIndexes = lines.flatMap((line, index) => (matcher(line || "") ? [index] : [])).slice(0, limit);
 	const formattedMatches = formatGrepMatches({ relativePath, lines, matchIndexes, context });
 	return { count: matchIndexes.length, linesTruncated: formattedMatches.linesTruncated, text: formattedMatches.text };
 }
@@ -318,6 +318,6 @@ async function main() {
 main()
 	.then((value) => process.stdout.write(JSON.stringify(value)))
 	.catch((error) => {
-		process.stderr.write(error && error.stack ? error.stack : String(error));
+		process.stderr.write(error?.stack ? error.stack : String(error));
 		process.exit(1);
 	});

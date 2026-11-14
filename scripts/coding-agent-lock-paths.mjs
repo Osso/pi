@@ -32,7 +32,9 @@ export function findOutputPath(name, outputFrom, sourcePath, outputPackages, emi
 	if (!outputPackages[rootCandidate] || emittedOrigins.get(rootCandidate) === sourcePath) {
 		return rootCandidate;
 	}
-	throw new Error(`Conflicting output package ${rootCandidate}: ${emittedOrigins.get(rootCandidate)} and ${sourcePath}`);
+	throw new Error(
+		`Conflicting output package ${rootCandidate}: ${emittedOrigins.get(rootCandidate)} and ${sourcePath}`,
+	);
 }
 
 export function resolveOutputDependency(packages, packageName, fromPath) {
@@ -68,7 +70,16 @@ export function populateLockPackages(options) {
 		const item = queue.shift();
 		const workspace = internalWorkspaces.get(item.name);
 		if (!workspace) {
-			options.addExternalPackage(lockPackages, outputPackages, emittedOrigins, queue, item.name, item.from, item.outputFrom, workspaceOutputPaths);
+			options.addExternalPackage(
+				lockPackages,
+				outputPackages,
+				emittedOrigins,
+				queue,
+				item.name,
+				item.from,
+				item.outputFrom,
+				workspaceOutputPaths,
+			);
 			continue;
 		}
 
@@ -83,7 +94,14 @@ export function populateLockPackages(options) {
 	return internalNames;
 }
 
-export function outputPathForDependency(name, outputFrom, sourcePath, outputPackages, emittedOrigins, workspaceOutputPaths) {
+export function outputPathForDependency(
+	name,
+	outputFrom,
+	sourcePath,
+	outputPackages,
+	emittedOrigins,
+	workspaceOutputPaths,
+) {
 	const canonicalPath = canonicalOutputPathForDependency(sourcePath, workspaceOutputPaths);
 	if (canonicalPath && (!outputPackages[canonicalPath] || emittedOrigins.get(canonicalPath) === sourcePath)) {
 		return canonicalPath;

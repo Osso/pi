@@ -87,9 +87,22 @@ function copyLockEntry(entry) {
 }
 
 function copyPackageJsonEntry(packageJson, options) {
-	const entry = options.includeName ? { name: packageJson.name, version: packageJson.version } : { version: packageJson.version };
+	const entry = options.includeName
+		? { name: packageJson.name, version: packageJson.version }
+		: { version: packageJson.version };
 
-	for (const field of ["license", "dependencies", "optionalDependencies", "peerDependencies", "peerDependenciesMeta", "bin", "engines", "os", "cpu", "libc"]) {
+	for (const field of [
+		"license",
+		"dependencies",
+		"optionalDependencies",
+		"peerDependencies",
+		"peerDependenciesMeta",
+		"bin",
+		"engines",
+		"os",
+		"cpu",
+		"libc",
+	]) {
 		if (packageJson[field] !== undefined) {
 			entry[field] = packageJson[field];
 		}
@@ -179,7 +192,7 @@ function resolveExternalDependency(lockPackages, packageName, fromLockPath) {
 	}
 
 	throw new Error(
-		`Cannot resolve ${packageName} from ${fromLockPath || "root"}. ` + (matches.length > 1 ? `Matches: ${matches.join(", ")}` : "No matching lockfile entry found."),
+		`Cannot resolve ${packageName} from ${fromLockPath || "root"}. ${matches.length > 1 ? `Matches: ${matches.join(", ")}` : "No matching lockfile entry found."}`,
 	);
 }
 
@@ -199,9 +212,25 @@ function addInternalWorkspace(shrinkwrapPackages, queue, name, workspace, output
 	}
 }
 
-function addExternalPackage(lockPackages, shrinkwrapPackages, emittedOrigins, queue, name, from, outputFrom, workspaceOutputPaths) {
+function addExternalPackage(
+	lockPackages,
+	shrinkwrapPackages,
+	emittedOrigins,
+	queue,
+	name,
+	from,
+	outputFrom,
+	workspaceOutputPaths,
+) {
 	const lockPath = resolveExternalDependency(lockPackages, name, from);
-	const outputPath = outputPathForDependency(name, outputFrom, lockPath, shrinkwrapPackages, emittedOrigins, workspaceOutputPaths);
+	const outputPath = outputPathForDependency(
+		name,
+		outputFrom,
+		lockPath,
+		shrinkwrapPackages,
+		emittedOrigins,
+		workspaceOutputPaths,
+	);
 	if (emittedOrigins.has(outputPath)) {
 		return;
 	}
@@ -245,7 +274,9 @@ function validateInstallScriptEntry(lockPath, entry, packageName, errors, seenAl
 		return;
 	}
 
-	errors.push(`${lockPath} has install scripts (${packageId}). Review it and add it to allowedInstallScriptPackages if intentional.`);
+	errors.push(
+		`${lockPath} has install scripts (${packageId}). Review it and add it to allowedInstallScriptPackages if intentional.`,
+	);
 }
 
 function validateAllowedInstallScripts(seenAllowedInstallScriptPackages, errors) {
@@ -277,7 +308,9 @@ function validateDependencyVersions(shrinkwrap, errors) {
 
 			const dependencyEntry = shrinkwrap.packages[dependencyLockPath];
 			if (isExactVersionSpec(dependencySpec) && dependencyEntry.version !== dependencySpec) {
-				errors.push(`${lockPath || "root"} dependency ${dependencyName}@${dependencySpec} resolves to ${dependencyEntry.version}`);
+				errors.push(
+					`${lockPath || "root"} dependency ${dependencyName}@${dependencySpec} resolves to ${dependencyEntry.version}`,
+				);
 			}
 		}
 	}
@@ -364,8 +397,12 @@ try {
 	} else {
 		writeFileSync(shrinkwrapPath, content);
 		const packageCount = Object.keys(shrinkwrap.packages).length - 1;
-		const platformPackageCount = Object.values(shrinkwrap.packages).filter((entry) => entry.os || entry.cpu || entry.libc).length;
-		console.log(`Wrote packages/coding-agent/npm-shrinkwrap.json (${packageCount} packages, ${platformPackageCount} platform-specific).`);
+		const platformPackageCount = Object.values(shrinkwrap.packages).filter(
+			(entry) => entry.os || entry.cpu || entry.libc,
+		).length;
+		console.log(
+			`Wrote packages/coding-agent/npm-shrinkwrap.json (${packageCount} packages, ${platformPackageCount} platform-specific).`,
+		);
 	}
 } catch (error) {
 	console.error(error instanceof Error ? error.message : String(error));

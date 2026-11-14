@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, posix } from "node:path";
-import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const generators = [
@@ -56,7 +56,10 @@ function assertWorkspaceResolutions(lockPackages, isInstallLock, script) {
 	assert.equal(resolvePackage(lockPackages, "@anthropic-ai/sdk", ai).version, "0.91.1", script);
 	if (isInstallLock) {
 		assert.equal(lockPackages["node_modules/@anthropic-ai/sdk"].version, "0.91.1");
-		assert.equal(lockPackages["node_modules/@earendil-works/pi-coding-agent/node_modules/@anthropic-ai/sdk"].version, "0.124.0");
+		assert.equal(
+			lockPackages["node_modules/@earendil-works/pi-coding-agent/node_modules/@anthropic-ai/sdk"].version,
+			"0.124.0",
+		);
 	} else {
 		assert.equal(lockPackages["node_modules/@anthropic-ai/sdk"].version, "0.124.0");
 		assert.equal(lockPackages[`${ai}/node_modules/@anthropic-ai/sdk`].version, "0.91.1");
@@ -87,7 +90,10 @@ test("both coding-agent lock generators preserve workspace-specific dependency v
 	for (const { script } of generators) {
 		writeFileSync(join(scriptDir, script), readFileSync(join(repoRoot, "scripts", script)));
 	}
-	writeFileSync(join(scriptDir, "coding-agent-lock-paths.mjs"), readFileSync(join(repoRoot, "scripts/coding-agent-lock-paths.mjs")));
+	writeFileSync(
+		join(scriptDir, "coding-agent-lock-paths.mjs"),
+		readFileSync(join(repoRoot, "scripts/coding-agent-lock-paths.mjs")),
+	);
 
 	writeJson(join(fixture, "packages/coding-agent/package.json"), {
 		name: "@earendil-works/pi-coding-agent",

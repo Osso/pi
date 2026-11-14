@@ -1,7 +1,7 @@
 // Usage: node scripts/smoke-archived-session-open.mjs /absolute/path/to/compiled/pi
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { Readable } from "node:stream";
@@ -46,7 +46,9 @@ try {
 		},
 	});
 	assert.equal(child.status, 0, child.stderr || String(child.error));
-	const encoded = /<script id="session-data" type="application\/json">([^<]+)<\/script>/.exec(readFileSync(output, "utf8"))?.[1];
+	const encoded = /<script id="session-data" type="application\/json">([^<]+)<\/script>/.exec(
+		readFileSync(output, "utf8"),
+	)?.[1];
 	assert(encoded, "HTML export must contain loaded session data");
 	const loaded = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
 	const loadedEntryIds = loaded.entries.map((entry) => entry.id);

@@ -24,7 +24,10 @@ for (const platform of platforms) {
 			assert.equal(readFileSync(join(destination, "claude", filename), "utf8"), `executable for ${platform}`);
 			assert.equal(readFileSync(join(destination, "claude", "SDK-LICENSE.md"), "utf8"), "SDK terms");
 			assert.equal(readFileSync(join(destination, "claude", "LICENSE.md"), "utf8"), "native terms");
-			assert.equal(claudeRuntimePackage(platform), `@anthropic-ai/claude-agent-sdk-${platform.replace("windows-", "win32-")}`);
+			assert.equal(
+				claudeRuntimePackage(platform),
+				`@anthropic-ai/claude-agent-sdk-${platform.replace("windows-", "win32-")}`,
+			);
 			if (!platform.startsWith("windows-") && process.platform !== "win32") {
 				assert.equal(statSync(join(destination, "claude", filename)).mode & 0o777, 0o755);
 			}
@@ -38,7 +41,10 @@ test("rejects unsupported platforms before creating a release directory", () => 
 	const root = mkdtempSync(join(tmpdir(), "pi-claude-runtime-"));
 	try {
 		const destination = join(root, "release");
-		assert.throws(() => copyClaudeRuntime({ platform: "linux-riscv64", destination }), /Unsupported Claude runtime platform/);
+		assert.throws(
+			() => copyClaudeRuntime({ platform: "linux-riscv64", destination }),
+			/Unsupported Claude runtime platform/,
+		);
 		assert.equal(existsSync(destination), false);
 	} finally {
 		rmSync(root, { recursive: true, force: true });

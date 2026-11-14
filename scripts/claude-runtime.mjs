@@ -9,7 +9,14 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const requireFromAgent = createRequire(join(repoRoot, "packages/coding-agent/package.json"));
 
 export function claudeRuntimePackage(platform) {
-	const supported = new Set(["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64", "windows-x64", "windows-arm64"]);
+	const supported = new Set([
+		"linux-x64",
+		"linux-arm64",
+		"darwin-x64",
+		"darwin-arm64",
+		"windows-x64",
+		"windows-arm64",
+	]);
 	if (!supported.has(platform)) throw new Error(`Unsupported Claude runtime platform: ${platform}`);
 	return `@anthropic-ai/claude-agent-sdk-${platform.replace("windows-", "win32-")}`;
 }

@@ -24,7 +24,8 @@ function git(...args) {
 
 function isCheckedSourceFile(path) {
 	if (!/\.(ts|tsx|js|mjs|cjs)$/.test(path) || path.endsWith(".d.ts")) return false;
-	if (/(^|\/)(test|tests|dist|node_modules|examples)\//.test(path) || /\.(test|spec)\.[a-z]+$/.test(path)) return false;
+	if (/(^|\/)(test|tests|dist|node_modules|examples)\//.test(path) || /\.(test|spec)\.[a-z]+$/.test(path))
+		return false;
 	return /^packages\/[^/]+\/src\//.test(path) || path.startsWith("packages/coding-agent/extensions/");
 }
 
