@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed `/tree` and `/fork` failing on the first retained user message after reopening a compacted session; branching to its unloaded parent now loads the full history and restores the original conversation context.
 - Fixed editing a compaction summary in `/tree` after reopening a compacted session deleting the summarized history and all inactive branches from the session file; only the edited summary changes now.
 - Fixed hidden thinking printing one `Thinking...` label per reasoning block when a provider splits one reasoning phase into many blocks (OpenAI Responses reasoning items); consecutive blocks now share one label.
 - Fixed `wait_agent` reporting an externally committed completion without projecting it: `list_agents` kept showing the agent as active, and the later terminal-outbox delivery reported the same completion to the next `wait_agent`.

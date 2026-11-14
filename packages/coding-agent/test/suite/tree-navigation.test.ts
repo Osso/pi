@@ -1,7 +1,8 @@
 import { type AssistantMessage, type Context, fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
 import type { SessionEntry } from "../../src/core/session-manager.ts";
-import { createHarness, type Harness } from "./harness.ts";
+import { writeCompactedSessionFixture } from "./compacted-session-fixture.ts";
+import { createHarness, getMessageText, type Harness } from "./harness.ts";
 
 /**
  * Faux-provider coverage for AgentSession.navigateTree. The scenarios mirror
@@ -55,6 +56,42 @@ describe("AgentSession tree navigation", () => {
 		// The leaf moves to the user message's parent, so the message can be edited and resent.
 		expect(harness.sessionManager.getLeafId()).toBe(first.parentId);
 	});
+
+	it.each([false, true])(
+		"navigates before the first retained user message after reopening (summarize: %s)",
+		async (summarize) => {
+			const harness = await createHarness({ persistedSession: true });
+			harnesses.push(harness);
+			const filePath = harness.sessionManager.getSessionFile();
+			if (!filePath) throw new Error("Expected persisted session");
+			writeCompactedSessionFixture(filePath, harness.tempDir, harness.getModel());
+			harness.sessionManager.setSessionFile(filePath);
+			harness.session.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
+			expect(harness.sessionManager.getEntries().map((entry) => entry.id)).toEqual([
+				"kept-user",
+				"kept-assistant",
+				"compaction",
+				"after-user",
+				"after-assistant",
+			]);
+			if (summarize) harness.appendResponses([fauxAssistantMessage("Abandoned branch summary")]);
+
+			const result = await harness.session.navigateTree("kept-user", { summarize });
+
+			expect(result.cancelled).toBe(false);
+			expect(result.editorText).toBe("Retained request");
+			expect(result.summaryEntry?.parentId ?? harness.sessionManager.getLeafId()).toBe("old-label");
+			expect(harness.session.messages.slice(0, 2).map(getMessageText)).toEqual([
+				"Original request",
+				"Original reply",
+			]);
+			expect(harness.session.messages.map((message) => message.role)).toEqual(
+				summarize ? ["user", "assistant", "branchSummary"] : ["user", "assistant"],
+			);
+			expect(harness.sessionManager.getLabel("old-user")).toBe("Original");
+			expect(harness.sessionManager.getEntry("inactive-user")).toMatchObject({ parentId: "old-assistant" });
+		},
+	);
 
 	it("navigates to an assistant message without editor text", async () => {
 		const harness = await setup();

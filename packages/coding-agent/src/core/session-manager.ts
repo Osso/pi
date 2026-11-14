@@ -19,7 +19,6 @@ import {
 import { readdir, stat } from "fs/promises";
 import { basename, join, resolve, sep } from "path";
 import { createInterface } from "readline";
-import { StringDecoder } from "string_decoder";
 import { getAgentDir as getDefaultAgentDir, getSessionsDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
 import {
@@ -51,9 +50,12 @@ import {
 	writeSessionSandboxProfile,
 	writeSessionThinkingLevel,
 } from "./session-control-db.ts";
+import { loadEntriesFromFile, parseSessionEntryLine, SESSION_READ_BUFFER_SIZE } from "./session-file-reader.ts";
 import { serializeSessionEntryForPersistence } from "./session-tool-output.ts";
 import { createSessionTranscriptReadStream, readSessionTranscriptPath } from "./session-transcript.ts";
 import { withSeekableSessionTranscript } from "./session-transcript-spool.ts";
+
+export { loadEntriesFromFile } from "./session-file-reader.ts";
 
 export const CURRENT_SESSION_VERSION = 3;
 
@@ -569,18 +571,6 @@ export function getDefaultSessionDir(cwd: string, agentDir: string = getDefaultA
 	return sessionDir;
 }
 
-const SESSION_READ_BUFFER_SIZE = 1024 * 1024;
-
-function parseSessionEntryLine(line: string): FileEntry | null {
-	if (!line.trim()) return null;
-	try {
-		return JSON.parse(line) as FileEntry;
-	} catch {
-		// Skip malformed lines
-		return null;
-	}
-}
-
 const TRAILING_LINE_SCAN_BYTES = 64 * 1024;
 
 /**
@@ -634,11 +624,13 @@ interface ReverseSessionScan {
 interface LoadedSessionEntries {
 	entries: SessionEntry[];
 	precedingCwd?: string;
+	hasActiveSlice: boolean;
 }
 
 interface LoadedCurrentVersionSession {
 	fileEntries: FileEntry[];
 	precedingCwd?: string;
+	hasActiveSlice?: boolean;
 }
 
 interface ReverseLineScanResult {
@@ -707,7 +699,11 @@ function scanSessionEntryReverse(scan: ReverseSessionScan, entry: FileEntry): bo
 }
 
 function loadedActiveSlice(scan: ReverseSessionScan): LoadedSessionEntries {
-	return { entries: scan.activePath.slice().reverse(), precedingCwd: scan.precedingCwd };
+	return {
+		entries: scan.activePath.slice().reverse(),
+		precedingCwd: scan.precedingCwd,
+		hasActiveSlice: scan.foundFirstKeptEntry,
+	};
 }
 
 function scanCompleteReverseLines(scan: ReverseSessionScan, pending: Buffer, filePath: string): ReverseLineScanResult {
@@ -775,7 +771,11 @@ function loadCurrentVersionEntriesFromFile(filePath: string, header: SessionHead
 		// An uncompacted tree needs its inactive branches too. Defer their payloads
 		// until we know there is no cutoff; linear histories need no second read.
 		if (!loaded) return { fileEntries: loadEntriesFromFile(filePath) };
-		return { fileEntries: [header, ...loaded.entries], precedingCwd: loaded.precedingCwd };
+		return {
+			fileEntries: [header, ...loaded.entries],
+			precedingCwd: loaded.precedingCwd,
+			hasActiveSlice: loaded.hasActiveSlice,
+		};
 	} finally {
 		closeSync(fd);
 	}
@@ -789,56 +789,6 @@ function loadSessionFileEntries(filePath: string): LoadedCurrentVersionSession {
 		}
 		return { fileEntries: loadEntriesFromFile(plain) };
 	});
-}
-
-/** Load persisted entries without migration or writes. */
-export function loadEntriesFromFile(filePath: string): FileEntry[] {
-	const resolvedFilePath = readSessionTranscriptPath(normalizePath(filePath));
-	if (!existsSync(resolvedFilePath)) return [];
-	if (isArchivedSessionFile(resolvedFilePath)) {
-		return withSeekableSessionTranscript(resolvedFilePath, loadEntriesFromFile);
-	}
-
-	const entries: FileEntry[] = [];
-	const fd = openSync(resolvedFilePath, "r");
-	try {
-		const decoder = new StringDecoder("utf8");
-		const buffer = Buffer.allocUnsafe(SESSION_READ_BUFFER_SIZE);
-		let pending = "";
-
-		while (true) {
-			const bytesRead = readSync(fd, buffer, 0, buffer.length, null);
-			if (bytesRead === 0) break;
-
-			pending += decoder.write(buffer.subarray(0, bytesRead));
-			let lineStart = 0;
-			let newlineIndex = pending.indexOf("\n", lineStart);
-			while (newlineIndex !== -1) {
-				const line = pending.slice(lineStart, newlineIndex);
-				const entry = parseSessionEntryLine(line);
-				if (entry) entries.push(entry);
-				lineStart = newlineIndex + 1;
-				newlineIndex = pending.indexOf("\n", lineStart);
-			}
-			pending = pending.slice(lineStart);
-		}
-
-		pending += decoder.end();
-		const finalEntry = parseSessionEntryLine(pending);
-		if (finalEntry) entries.push(finalEntry);
-	} finally {
-		closeSync(fd);
-	}
-
-	// Validate session header
-	if (entries.length === 0) return entries;
-	const header = entries[0];
-	if (header === undefined) throw new Error("session header missing");
-	if (header.type !== "session" || typeof (header as { id?: unknown }).id !== "string") {
-		return [];
-	}
-
-	return entries;
 }
 
 /** Read the normal compaction-aware loaded history, migrating legacy entries only in memory. */
@@ -1253,6 +1203,7 @@ export class SessionManager {
 	/** Loaded file whose last line may be a partial write; ended before the first append. */
 	private unterminatedSessionFile: string | undefined;
 	private fileEntries: FileEntry[] = [];
+	private hasActiveSlice: boolean = false;
 	private sessionInfoAccumulator: SessionInfoAccumulator | undefined;
 	private byId: Map<string, SessionEntry> = new Map();
 	private labelsById: Map<string, string> = new Map();
@@ -1319,6 +1270,7 @@ export class SessionManager {
 				this._rewriteFile();
 			}
 			this._buildIndex();
+			this.hasActiveSlice = loaded.hasActiveSlice ?? false;
 			this.restorePersistedMetadata();
 			this.flushed = true;
 			this.unterminatedSessionFile = this.sessionFile;
@@ -1347,6 +1299,7 @@ export class SessionManager {
 			parentSession: options?.parentSession,
 		};
 		this.fileEntries = [header];
+		this.hasActiveSlice = false;
 		this.sessionInfoAccumulator = undefined;
 		this.byId.clear();
 		this.labelsById.clear();
@@ -1361,6 +1314,7 @@ export class SessionManager {
 	}
 
 	private _buildIndex(): void {
+		this.hasActiveSlice = false;
 		this.sessionInfoAccumulator = undefined;
 		this.byId.clear();
 		this.labelsById.clear();
@@ -1380,6 +1334,16 @@ export class SessionManager {
 				}
 			}
 		}
+	}
+
+	/** Navigation outside a retained slice needs the original ancestors and branch labels. */
+	private _loadFullHistoryForEntry(entryId: string | null): void {
+		if (entryId === null || this.byId.has(entryId)) return;
+		if (!this.hasActiveSlice || !this.sessionFile) return;
+		const leafId = this.leafId;
+		this.fileEntries = loadEntriesFromFile(this.sessionFile);
+		this._buildIndex();
+		this.leafId = leafId;
 	}
 
 	private _rewriteFile(entries: readonly FileEntry[] = this.fileEntries): void {
@@ -2025,6 +1989,7 @@ export class SessionManager {
 	 * are not modified or deleted.
 	 */
 	branch(branchFromId: string): void {
+		this._loadFullHistoryForEntry(branchFromId);
 		if (!this.byId.has(branchFromId)) {
 			throw new Error(`Entry ${branchFromId} not found`);
 		}
@@ -2046,6 +2011,7 @@ export class SessionManager {
 	 * context from the abandoned conversation path.
 	 */
 	branchWithSummary(branchFromId: string | null, summary: string, details?: unknown, fromHook?: boolean): string {
+		this._loadFullHistoryForEntry(branchFromId);
 		if (branchFromId !== null && !this.byId.has(branchFromId)) {
 			throw new Error(`Entry ${branchFromId} not found`);
 		}
@@ -2070,6 +2036,7 @@ export class SessionManager {
 	 * Returns the new session file path, or undefined if not persisting.
 	 */
 	createBranchedSession(leafId: string): string | undefined {
+		this._loadFullHistoryForEntry(leafId);
 		const previousSessionFile = this.sessionFile;
 		const path = this.getBranch(leafId);
 		if (path.length === 0) {
@@ -2215,6 +2182,7 @@ export class SessionManager {
 		manager.fileEntries = loaded.fileEntries;
 		migrateToCurrentVersion(manager.fileEntries);
 		manager._buildIndex();
+		manager.hasActiveSlice = loaded.hasActiveSlice ?? false;
 		return manager;
 	}
 

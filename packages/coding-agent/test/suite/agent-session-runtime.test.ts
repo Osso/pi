@@ -32,6 +32,9 @@ import type {
 	SessionStartEvent,
 } from "../../src/index.ts";
 
+import { writeCompactedSessionFixture } from "./compacted-session-fixture.ts";
+import { getMessageText } from "./harness.ts";
+
 type RecordedSessionEvent =
 	| SessionBeforeSwitchEvent
 	| SessionBeforeForkEvent
@@ -502,6 +505,39 @@ describe("AgentSessionRuntime characterization", () => {
 
 		expect(readSessionMetadata(getControlDbPath(tempDir), forkSessionFile)).toBeUndefined();
 		expect(existsSync(forkSessionFile)).toBe(false);
+	});
+
+	it("forks before the first retained user message after reopening a compacted session", async () => {
+		const { runtime, faux, tempDir } = await createRuntimeForTest(() => {});
+		const sourcePath = join(tempDir, "compacted.jsonl");
+		writeCompactedSessionFixture(sourcePath, tempDir, faux.getModel());
+		await runtime.switchSession(sourcePath);
+		expect(runtime.session.sessionManager.getEntries().map((entry) => entry.id)).toEqual([
+			"kept-user",
+			"kept-assistant",
+			"compaction",
+			"after-user",
+			"after-assistant",
+		]);
+		expect(runtime.session.getUserMessagesForForking()[0]).toEqual({
+			entryId: "kept-user",
+			text: "Retained request",
+		});
+
+		const result = await runtime.fork("kept-user");
+
+		expect(result).toEqual({ cancelled: false, selectedText: "Retained request" });
+		expect(runtime.session.messages.map(getMessageText)).toEqual(["Original request", "Original reply"]);
+		expect(runtime.session.sessionManager.getLabel("old-user")).toBe("Original");
+		const forkPath = runtime.session.sessionFile;
+		if (!forkPath) throw new Error("Expected persisted fork");
+		expect(forkPath).not.toBe(sourcePath);
+		const reopenedFork = SessionManager.open(forkPath);
+		expect(reopenedFork.buildSessionContext().messages.map(getMessageText)).toEqual([
+			"Original request",
+			"Original reply",
+		]);
+		expect(reopenedFork.getLabel("old-user")).toBe("Original");
 	});
 
 	it("emits session_before_fork and session_start and honors cancellation", async () => {
