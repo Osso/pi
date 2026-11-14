@@ -7,7 +7,14 @@
 // Extracted from index.ts so tests can import without activating the extension.
 
 import type { SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
-import type { Api, AssistantMessage, AssistantMessageEventStream, Model } from "@earendil-works/pi-ai";
+import type {
+	Api,
+	AssistantMessage,
+	AssistantMessageEventStream,
+	Context,
+	Model,
+	SimpleStreamOptions,
+} from "@earendil-works/pi-ai";
 import {
 	type AccountObservation,
 	type AccountState,
@@ -276,3 +283,9 @@ export function resetCtx(): void {
 }
 
 export const activeQueryContexts = new Set<QueryContext>();
+
+/** The Pi request each claimed stream answers, so a quota-rejected query can be served again. */
+export const piRequests = new WeakMap<
+	AssistantMessageEventStream,
+	{ model: Model<Api>; context: Context; options?: SimpleStreamOptions }
+>();
