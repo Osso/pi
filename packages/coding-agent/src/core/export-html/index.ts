@@ -278,11 +278,10 @@ export async function exportSessionToHtml(
 
 	const html = generateHtml(sessionData, opts.themeName);
 
-	let outputPath = opts.outputPath ? normalizePath(opts.outputPath) : undefined;
-	if (!outputPath) {
-		const sessionBasename = basename(sessionFile, ".jsonl");
-		outputPath = `${APP_NAME}-session-${sessionBasename}.html`;
-	}
+	const outputPath = resolvePath(
+		opts.outputPath ?? `${APP_NAME}-session-${basename(sessionFile, ".jsonl")}.html`,
+		sm.getCwd(),
+	);
 
 	writeFileSync(outputPath, html, "utf8");
 	return outputPath;

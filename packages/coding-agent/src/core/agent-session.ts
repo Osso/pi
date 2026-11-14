@@ -5326,7 +5326,7 @@ export class AgentSession {
 	exportToJsonl(outputPath?: string): string {
 		const filePath = resolvePath(
 			outputPath ?? `session-${new Date().toISOString().replace(/[:.]/g, "-")}.jsonl`,
-			process.cwd(),
+			this.sessionManager.getCwd(),
 		);
 		const dir = dirname(filePath);
 		if (!existsSync(dir)) {

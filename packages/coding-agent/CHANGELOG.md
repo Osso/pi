@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed `/export` writing relative paths and the default file name into the original directory after `/cd`; JSONL and HTML exports now resolve against the session's current working directory.
 - Fixed explicit MCP permission approvals and matching allow rules falling through to Supervisor review or native approval prompts.
 - Fixed persisted permission allow rules in `.pi/settings.local.json` being ignored after restart; trusted projects now load these rules without loading other local settings.
 - Fixed model scope wildcards excluding IDs that contain `/`, including provider-qualified patterns and thinking-level suffixes.

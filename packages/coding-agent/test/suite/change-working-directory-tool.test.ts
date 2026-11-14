@@ -387,6 +387,25 @@ describe("change_working_directory first-party tool", () => {
 		expect(readTextContent(result.content)).toContain("from changed cwd");
 	});
 
+	it("exports relative paths into the changed cwd", async () => {
+		const { faux, runtime, tempDir } = await createRuntimeForTest();
+		const targetCwd = join(tempDir, "export-target");
+		mkdirSync(targetCwd);
+		await executeAndDeliverChangeWorkingDirectory(runtime, "change-cwd-before-export", { path: targetCwd });
+		faux.setResponses([fauxAssistantMessage("done")]);
+		await runtime.session.prompt("Export from the new directory");
+
+		const jsonlPath = runtime.session.exportToJsonl("out.jsonl");
+		const htmlPath = await runtime.session.exportToHtml("out.html");
+
+		expect(jsonlPath).toBe(join(targetCwd, "out.jsonl"));
+		expect(htmlPath).toBe(join(targetCwd, "out.html"));
+		expect(readFileSync(jsonlPath, "utf8")).toContain("Export from the new directory");
+		expect(readFileSync(htmlPath, "utf8")).toContain("<html");
+		expect(existsSync(join(tempDir, "out.jsonl"))).toBe(false);
+		expect(existsSync(join(tempDir, "out.html"))).toBe(false);
+	});
+
 	it("relocates after an extension rewrites the persisted tool call id", async () => {
 		const rewrittenToolCallId = "rewritten-change-cwd";
 		const { faux, runtime, tempDir } = await createRuntimeForTest((pi) => {
