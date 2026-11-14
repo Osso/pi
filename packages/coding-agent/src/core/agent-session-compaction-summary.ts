@@ -26,7 +26,7 @@ export async function materializeCompactionSummary(input: {
 	sessionManager: SessionManager;
 	model: Model<Api> | undefined;
 	settingsManager: SettingsManager;
-	streamFn: Agent["streamFn"];
+	agent: Agent;
 	getRequiredRequestAuth: (model: Model<Api>) => Promise<{
 		apiKey: string;
 		headers?: Record<string, string>;
@@ -64,7 +64,7 @@ export async function materializeCompactionSummary(input: {
 			headers,
 			reserveTokens: settings.reserveTokens,
 			signal: abortController.signal,
-			streamFn: input.streamFn,
+			streamFn: input.agent.streamFn,
 			sessionId: input.sessionManager.getSessionId(),
 		});
 	} finally {

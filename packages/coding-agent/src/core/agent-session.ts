@@ -52,7 +52,7 @@ import { requestSupervisorDecision } from "../supervisor/client.ts";
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
-import { type BackgroundCompactionCache, BackgroundCompactionState } from "./agent-session-background-compaction.ts";
+import { BackgroundCompactionState } from "./agent-session-background-compaction.ts";
 import {
 	assertStandaloneWorkerOptions,
 	isAllowedSessionTool,
@@ -89,11 +89,7 @@ import {
 	bindSessionMutationTargetResolver,
 	createInternalCommands,
 	createViewedSessionCommandContext,
-	executeExtensionCommand,
-	isKnownSlashCommand,
 	recordHandledSlashCommandHistory,
-	slashCommandName,
-	tryExecuteExtensionCommand,
 } from "./agent-session-commands.ts";
 
 import { CodexRestrictionRecoveryState } from "./agent-session-restriction-recovery.ts";
@@ -225,7 +221,7 @@ import {
 import type { BranchSummaryEntry, CompactionEntry, SessionEntry, SessionManager } from "./session-manager.ts";
 import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, type SessionHeader } from "./session-manager.ts";
 import type { SettingsManager } from "./settings-manager.ts";
-import type { SlashCommandInfo } from "./slash-commands.ts";
+import { BUILTIN_SLASH_COMMANDS, type SlashCommandInfo } from "./slash-commands.ts";
 import { createSyntheticSourceInfo, type SourceInfo } from "./source-info.ts";
 import {
 	deliverTerminalOutboxProjections,
@@ -1248,7 +1244,7 @@ export class AgentSession {
 		if (event.type === "message_end") {
 			await this._persistCompletedMessage(event, originalToolCallId, mailboxDelivery);
 			if (event.message.role === "assistant") {
-				this._startBackgroundCompactionDuringToolTurn(event.message);
+				this._backgroundCompaction.startDuringToolTurn(event.message);
 			}
 		}
 		if (event.type === "agent_end" && sessionContinuation === "cwd_relocation") {
@@ -2259,14 +2255,6 @@ export class AgentSession {
 		return coordinationMessageReady ? "queued" : undefined;
 	}
 
-	private _recordCodexRestrictionUserRequest(text: string, source: InputSource | undefined): void {
-		this._codexRestrictionRecovery.recordUserRequest(text, source);
-	}
-
-	private async _prepareCodexRestrictionRecovery(message: AssistantMessage): Promise<boolean> {
-		return this._codexRestrictionRecovery.prepareRecovery(message);
-	}
-
 	private async _handlePostAgentRun(): Promise<PostAgentRunContinuation | undefined> {
 		if (this._disposed) return undefined;
 		const message = this._lastAssistantMessage;
@@ -2279,7 +2267,7 @@ export class AgentSession {
 			return execute ? "normal" : this._selectPostAgentRunContinuation();
 		}
 		if (isCodexCybersecurityRestriction(message)) {
-			const rescope = await this._prepareCodexRestrictionRecovery(message);
+			const rescope = await this._codexRestrictionRecovery.prepareRecovery(message);
 			this._finishExhaustedRetry(message);
 			return rescope ? "normal" : this._selectPostAgentRunContinuation();
 		}
@@ -2417,7 +2405,7 @@ export class AgentSession {
 				}
 			}
 
-			this._recordCodexRestrictionUserRequest(text, options?.source);
+			this._codexRestrictionRecovery.recordUserRequest(text, options?.source);
 
 			// Expand skill commands (/skill:name args) and prompt templates (/template args)
 			let expandedText = currentText;
@@ -2538,29 +2526,33 @@ export class AgentSession {
 		}
 	}
 
-	private _recordHandledSlashCommandHistory(text: string): void {
-		recordHandledSlashCommandHistory(this._controlDbPath, text);
-	}
-
 	/**
 	 * Try to execute an extension command. Returns true if command was found and executed.
 	 */
 	private _slashCommandName(text: string): string {
-		return slashCommandName(text);
+		const match = text.match(/^\/([^\s]+)/);
+		return `/${match?.[1] ?? ""}`;
 	}
 
 	private _isKnownSlashCommand(text: string): boolean {
-		return isKnownSlashCommand(text, this.resourceLoader.getSkills().skills, this.promptTemplates);
+		const commandName = this._slashCommandName(text).slice(1);
+		if (BUILTIN_SLASH_COMMANDS.some((command) => command.name === commandName)) return true;
+		if (commandName.startsWith("skill:")) {
+			const skillName = commandName.slice("skill:".length);
+			return this.resourceLoader.getSkills().skills.some((skill) => skill.name === skillName);
+		}
+		return this.promptTemplates.some((template) => template.name === commandName);
 	}
 
 	private _tryExecuteExtensionCommand(text: string, options?: PromptOptions): Promise<void> | undefined {
-		return tryExecuteExtensionCommand(
-			text,
-			options,
-			(name) => this._extensionRunner.getPromptCommand(name),
-			(commandText, args, command, commandOptions) =>
-				this._executeExtensionCommand(commandText, args, command, commandOptions),
-		);
+		const shouldExpandSlashCommand = (options?.expandPromptTemplates ?? true) && text.startsWith("/");
+		if (!shouldExpandSlashCommand) return undefined;
+		const spaceIndex = text.indexOf(" ");
+		const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
+		const args = spaceIndex === -1 ? "" : text.slice(spaceIndex + 1);
+		const command = this._extensionRunner.getPromptCommand(commandName);
+		if (!command) return undefined;
+		return this._executeExtensionCommand(text, args, command, options);
 	}
 
 	private async _executeExtensionCommand(
@@ -2569,24 +2561,24 @@ export class AgentSession {
 		command: ResolvedCommand,
 		options?: PromptOptions,
 	): Promise<void> {
-		return executeExtensionCommand(text, args, command, options, {
-			runBeforeRecovery: async (commandText, commandOptions) => {
-				if (this.isStreaming) return false;
-				const replacement = await this._beforeWorkingDirectoryRecoveryRun?.();
-				if (!replacement || replacement === this) return false;
-				await replacement.prompt(commandText, commandOptions);
-				return true;
-			},
-			createContext: (commandName) => this._createCommandContext(commandName),
-			emitError: (error, commandName) => {
-				this._extensionRunner.emitError({
-					extensionPath: `command:${commandName}`,
-					event: "command",
-					error: error instanceof Error ? error.message : String(error),
-				});
-			},
-			recordHistory: (commandText) => this._recordHandledSlashCommandHistory(commandText),
-		});
+		if (!this.isStreaming) {
+			const replacement = await this._beforeWorkingDirectoryRecoveryRun?.();
+			if (replacement && replacement !== this) {
+				await replacement.prompt(text, options);
+				return;
+			}
+		}
+		try {
+			await command.handler(args, this._createCommandContext(command.invocationName));
+		} catch (err) {
+			this._extensionRunner.emitError({
+				extensionPath: `command:${command.invocationName}`,
+				event: "command",
+				error: err instanceof Error ? err.message : String(err),
+			});
+		}
+		recordHandledSlashCommandHistory(this._controlDbPath, text);
+		options?.preflightResult?.(true);
 	}
 
 	/**
@@ -2597,10 +2589,6 @@ export class AgentSession {
 	private _createCommandContext(commandName: string): ExtensionCommandContext {
 		const context = this._extensionRunner.createCommandContext();
 		if (this._multiAgentAgentId || (commandName !== "model" && commandName !== "effort")) return context;
-		return this._createViewedSessionCommandContext(context);
-	}
-
-	private _createViewedSessionCommandContext(context: ExtensionCommandContext): ExtensionCommandContext {
 		return createViewedSessionCommandContext(context, this);
 	}
 
@@ -3611,7 +3599,7 @@ export class AgentSession {
 		const wasRunningAgentTurn = this.isStreaming;
 		this._disconnectFromAgent();
 		await this.abort();
-		await this._cancelBackgroundCompaction();
+		await this._backgroundCompaction.cancel();
 		const compactionAbortController = new AbortController();
 		this._compactionAbortController = compactionAbortController;
 		const sourceHint = await this.getCompactionSourceHint("manual", false);
@@ -3828,22 +3816,6 @@ export class AgentSession {
 		return this._backgroundCompaction.hasReady();
 	}
 
-	private async _cancelBackgroundCompaction(): Promise<void> {
-		await this._backgroundCompaction.cancel();
-	}
-
-	private async _takeBackgroundCompaction(): Promise<BackgroundCompactionCache | undefined> {
-		return this._backgroundCompaction.take();
-	}
-
-	private _startBackgroundCompactionDuringToolTurn(message: AssistantMessage): void {
-		this._backgroundCompaction.startDuringToolTurn(message);
-	}
-
-	private _startBackgroundCompaction(contextTokens: number, contextWindow: number): void {
-		this._backgroundCompaction.start(contextTokens, contextWindow);
-	}
-
 	/** Arm one timer that compacts the idle session shortly before its provider prompt cache expires. */
 	private _scheduleIdleCompaction(): void {
 		this._backgroundCompaction.scheduleIdle();
@@ -3977,7 +3949,7 @@ export class AgentSession {
 		if (this._hasReadyBackgroundCompaction()) {
 			return await this._runAutoCompaction("threshold", false);
 		}
-		this._startBackgroundCompaction(contextTokens, contextWindow);
+		this._backgroundCompaction.start(contextTokens, contextWindow);
 		return false;
 	}
 
@@ -4016,7 +3988,7 @@ export class AgentSession {
 				return false;
 			}
 
-			const cachedCompaction = await this._takeBackgroundCompaction();
+			const cachedCompaction = await this._backgroundCompaction.take();
 			let apiKey: string | undefined;
 			let headers: Record<string, string> | undefined;
 			let env: Record<string, string> | undefined;
@@ -4375,13 +4347,6 @@ export class AgentSession {
 		this.agent.state.model = refreshedModel;
 	}
 
-	private _createInternalCommands(): ReadonlyMap<
-		string,
-		(args: string, ctx: ExtensionCommandContext) => Promise<void>
-	> {
-		return createInternalCommands();
-	}
-
 	private _restartFromExtension(options?: { notice?: string; process?: boolean }): Promise<void> {
 		if (this._multiAgentRuntimeRole === "child") {
 			throw new Error("Child agent runtimes cannot restart Pi");
@@ -4677,7 +4642,7 @@ export class AgentSession {
 			this.sessionManager,
 			this._modelRegistry,
 			this.settingsManager,
-			this._createInternalCommands(),
+			createInternalCommands(),
 		);
 		if (this._extensionRunnerRef) {
 			this._extensionRunnerRef.current = this._extensionRunner;
@@ -5006,7 +4971,7 @@ export class AgentSession {
 			sessionManager: this.sessionManager,
 			model: this.model,
 			settingsManager: this.settingsManager,
-			streamFn: this.agent.streamFn,
+			agent: this.agent,
 			getRequiredRequestAuth: (model) => this._getRequiredRequestAuth(model),
 			abortController: this._compactionSummaryMaterializationAbortController,
 			setAbortController: (controller) => {
