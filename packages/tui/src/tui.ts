@@ -822,11 +822,11 @@ export class TUI extends Container {
 
 	/** Hide the topmost overlay and restore previous focus. */
 	hideOverlay(): void {
-		const overlay = this.overlayStack[this.overlayStack.length - 1];
+		const overlay = [...this.overlayStack].sort((a, b) => b.focusOrder - a.focusOrder)[0];
 		if (!overlay) return;
 		this.clearOverlayFocusRestoreFor(overlay);
 		this.retargetOverlayPreFocus(overlay);
-		this.overlayStack.pop();
+		this.overlayStack.splice(this.overlayStack.indexOf(overlay), 1);
 		if (this.focusedComponent === overlay.component) {
 			// Find topmost visible overlay, or fall back to preFocus
 			const topVisible = this.getTopmostVisibleOverlay();

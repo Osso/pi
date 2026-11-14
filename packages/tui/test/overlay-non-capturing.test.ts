@@ -1126,6 +1126,33 @@ describe("TUI overlay non-capturing", () => {
 			}
 		});
 
+		it("hideOverlay() removes the visually topmost overlay after focus()", async () => {
+			const terminal = new VirtualTerminal(20, 6);
+			const tui = new TUI(terminal);
+			const editor = new FocusableOverlay(["EDITOR"]);
+			const lowerOverlay = new FocusableOverlay(["AAA"]);
+			const upperOverlay = new FocusableOverlay(["BBB"]);
+			tui.addChild(new EmptyContent());
+			tui.setFocus(editor);
+			tui.start();
+			try {
+				const lower = tui.showOverlay(lowerOverlay, { row: 0, col: 0, width: 3 });
+				tui.showOverlay(upperOverlay, { row: 0, col: 0, width: 3 });
+				lower.focus();
+				tui.hideOverlay();
+				await renderAndFlush(tui, terminal);
+				assert.strictEqual(terminal.getViewport()[0]?.slice(0, 3), "BBB");
+				terminal.sendInput("x");
+				assert.deepStrictEqual(upperOverlay.inputs, ["x"]);
+				assert.deepStrictEqual(lowerOverlay.inputs, []);
+				tui.hideOverlay();
+				terminal.sendInput("y");
+				assert.deepStrictEqual(editor.inputs, ["y"]);
+			} finally {
+				tui.stop();
+			}
+		});
+
 		it("focusing middle overlay places it on top while preserving others relative order", async () => {
 			const terminal = new VirtualTerminal(20, 6);
 			const tui = new TUI(terminal);

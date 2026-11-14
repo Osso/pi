@@ -51,6 +51,7 @@
 - Fixed modified F1–F12 key bindings and parsing for legacy xterm and Kitty encodings.
 - Fixed reverse history search Backspace deleting only part of an emoji or combining-character grapheme.
 - Fixed vertical editor movement using string offsets instead of terminal-cell columns across wide or combining characters; a column inside a wide grapheme selects its start.
+- Fixed `hideOverlay()` removing the newest overlay instead of the visually topmost one after `focus()` raised an older overlay, which left the focused overlay open and closed the one behind it.
 
 ## [0.80.3] - 2026-06-30
 
