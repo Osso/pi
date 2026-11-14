@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
-import { readSessionMetadata, relocateAndArchiveSession, relocateAndUnarchiveSession } from "./session-control-db.ts";
+import {
+	readSessionMetadata,
+	relocateAndArchiveSession,
+	relocateAndUnarchiveSession,
+	unarchiveSession,
+} from "./session-control-db.ts";
 import { readSessionTranscriptPath } from "./session-transcript.ts";
 
 export const ARCHIVED_SESSION_SUFFIX = ".zst";
@@ -29,6 +34,9 @@ export function restoreArchivedSession(controlDbPath: string, sessionPath: strin
 		// A surviving writable transcript may include appends newer than the archive.
 		if (readSessionMetadata(controlDbPath, archivedPath)) {
 			relocateAndUnarchiveSession(controlDbPath, archivedPath, restoredPath);
+		} else if (readSessionMetadata(controlDbPath, restoredPath)?.isArchived) {
+			// Legacy archives kept the plain file and only flagged its metadata.
+			unarchiveSession(controlDbPath, restoredPath);
 		}
 		rmSync(archivedPath, { force: true });
 		return restoredPath;

@@ -24,6 +24,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import * as storage from "../src/core/idle-session-archive.ts";
 import { restoreArchivedSession } from "../src/core/session-archive-storage.ts";
 import {
+	archiveSession,
 	bootstrapMultiAgentAgent,
 	getControlDbPath,
 	readSessionMetadata,
@@ -362,6 +363,14 @@ describe("idle transcript archival", () => {
 		expect(SessionManager.open(restored).getSessionId()).toBe("old");
 		expect(readFileSync(restored, "utf8")).toBe(f.content);
 	});
+	it("resumes a legacy metadata-only archive as an active session", () => {
+		const f = fixture();
+		archiveSession(f.db, f.file);
+		expect(readSessionMetadata(f.db, f.file)?.isArchived).toBe(true);
+
+		assertWritableRestore(f, f.file);
+	});
+
 	it("preserves source permissions under a restrictive process umask", async () => {
 		const f = fixture();
 		chmodSync(f.file, 0o640);
