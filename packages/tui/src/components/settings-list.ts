@@ -96,7 +96,7 @@ export class SettingsList implements Component {
 		}
 
 		if (this.items.length === 0) {
-			lines.push(this.theme.hint("  No settings available"));
+			lines.push(truncateToWidth(this.theme.hint("  No settings available"), width));
 			if (this.searchEnabled) {
 				this.addHintLine(lines, width);
 			}
