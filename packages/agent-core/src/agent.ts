@@ -383,11 +383,7 @@ export class Agent {
 		}
 
 		const lastMessage = this._state.messages[this._state.messages.length - 1];
-		if (!lastMessage) {
-			throw new Error("No messages to continue from");
-		}
-
-		if (options.processQueuedMessagesFirst || lastMessage.role === "assistant") {
+		if (options.processQueuedMessagesFirst || lastMessage?.role === "assistant") {
 			const queuedSteering = this.steeringQueue.drain();
 			if (queuedSteering.length > 0) {
 				await this.runPromptMessages(queuedSteering, { skipInitialSteeringPoll: true });
@@ -401,6 +397,8 @@ export class Agent {
 			}
 		}
 
+		// Queued messages can start an empty transcript; plain continuation needs a message to continue from.
+		if (!lastMessage) throw new Error("No messages to continue from");
 		await this.runContinuation();
 	}
 

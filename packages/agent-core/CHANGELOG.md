@@ -20,6 +20,7 @@
 
 ### Fixed
 
+- Fixed `Agent.continue({ processQueuedMessagesFirst: true })` throwing `No messages to continue from` on an empty transcript with queued steering or follow-ups; the queued messages now start the run (for example RPC `steer` in a new session).
 - Fixed `Agent` emitting an unpaired `turn_end` when a run fails between turns, such as an abort during tool execution; the failure message now gets its own `turn_start`.
 - Fixed `agentLoopContinue` omitting `turn_start` for the model response that follows a restored unfinished tool batch.
 - Fixed `parseCommandArgs` dropping quoted empty arguments (`""`, `''`), which shifted later positional template arguments.

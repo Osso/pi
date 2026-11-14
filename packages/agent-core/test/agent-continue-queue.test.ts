@@ -80,4 +80,25 @@ describe("Agent queued continuation", () => {
 		expect(providerRequestTexts).toHaveLength(1);
 		expect(providerRequestTexts[0]).toContain("Queued follow-up");
 	});
+
+	it("starts an empty transcript from queued steering", async () => {
+		const providerRequestTexts: string[] = [];
+		const agent = new Agent({
+			streamFn: (_model, context) => {
+				providerRequestTexts.push(JSON.stringify(context.messages));
+				const stream = new MockAssistantStream();
+				queueMicrotask(() => {
+					stream.push({ type: "done", reason: "stop", message: createAssistantMessage("Processed") });
+				});
+				return stream;
+			},
+		});
+		agent.steer({ role: "user", content: [{ type: "text", text: "Idle steering" }], timestamp: Date.now() });
+
+		await agent.continue({ processQueuedMessagesFirst: true });
+
+		expect(providerRequestTexts).toHaveLength(1);
+		expect(providerRequestTexts[0]).toContain("Idle steering");
+		expect(agent.state.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+	});
 });
