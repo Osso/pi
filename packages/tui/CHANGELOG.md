@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed `TruncatedText` rendering lines wider than the render width when its horizontal padding fills the viewport.
 - Fixed `SettingsList` with no items rendering `No settings available` wider than the render width.
 - Fixed the `Image` placeholder shown on terminals without image support (`[Image: name [type] WxH]`) exceeding the render width, which made the TUI throw `Rendered line exceeds terminal width` in narrow terminals.
 - Fixed blank or stale TUI output after same-size native dtach reattachment by repainting the visible viewport without clearing terminal scrollback.

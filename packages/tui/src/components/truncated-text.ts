@@ -1,5 +1,5 @@
 import type { Component } from "../tui.ts";
-import { truncateToWidth, visibleWidth } from "../utils.ts";
+import { truncateToWidth } from "../utils.ts";
 
 /**
  * Text component that truncates to fit viewport width
@@ -48,10 +48,8 @@ export class TruncatedText implements Component {
 		const rightPadding = " ".repeat(this.paddingX);
 		const lineWithPadding = leftPadding + displayText + rightPadding;
 
-		// Pad line to exactly width characters
-		const lineVisibleWidth = visibleWidth(lineWithPadding);
-		const paddingNeeded = Math.max(0, width - lineVisibleWidth);
-		const finalLine = lineWithPadding + " ".repeat(paddingNeeded);
+		// Fit the line to exactly width characters; padding wider than the viewport is cut
+		const finalLine = truncateToWidth(lineWithPadding, width, "", true);
 
 		result.push(finalLine);
 

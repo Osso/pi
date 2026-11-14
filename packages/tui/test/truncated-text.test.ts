@@ -8,6 +8,15 @@ import { visibleWidth } from "../src/utils.ts";
 const chalk = new Chalk({ level: 3 });
 
 describe("TruncatedText component", () => {
+	it("keeps every line at the render width when padding fills the viewport", () => {
+		for (const width of [1, 2, 3, 4, 5]) {
+			for (const line of new TruncatedText("Hello", 2, 1).render(width)) {
+				assert.strictEqual(visibleWidth(line), width, `width ${width}: ${JSON.stringify(line)}`);
+			}
+		}
+		assert.deepStrictEqual(new TruncatedText("Hello", 2, 0).render(9), ["  Hello  "]);
+	});
+
 	it("pads output lines to exactly match width", () => {
 		const text = new TruncatedText("Hello world", 1, 0);
 		const lines = text.render(50);
