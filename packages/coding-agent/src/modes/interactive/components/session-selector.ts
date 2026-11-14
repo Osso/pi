@@ -412,7 +412,7 @@ class SessionList implements Component, Focusable {
 				ancestorContinues: [],
 			}));
 		}
-		this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.filteredSessions.length - 1));
+		this.selectedIndex = Math.max(0, Math.min(this.selectedIndex, this.filteredSessions.length - 1));
 	}
 
 	private setConfirmingDeletePath(path: string | null): void {

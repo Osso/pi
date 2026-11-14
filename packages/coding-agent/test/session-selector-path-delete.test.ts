@@ -288,6 +288,34 @@ describe("session selector path/delete interactions", () => {
 		expect(selectedPath).toBe(normal.path);
 	});
 
+	it.each([
+		["Down", "\x1b[B"],
+		["PageDown", "\x1b[6~"],
+	])("selects a restored session after %s on an empty search result", async (_name, key) => {
+		const session = makeSession({ id: "restored", firstMessage: "hello" });
+		let selectedPath: string | null = null;
+		const selector = new SessionSelectorComponent(
+			async () => [session],
+			async () => [],
+			(path) => {
+				selectedPath = path;
+			},
+			() => {},
+			() => {},
+			() => {},
+			{ keybindings },
+		);
+		await flushPromises();
+		const list = selector.getSessionList();
+
+		for (const char of "zzzzzz") list.handleInput(char);
+		list.handleInput(key);
+		list.handleInput("\x15");
+		list.handleInput("\r");
+
+		expect(selectedPath).toBe(session.path);
+	});
+
 	it("enters confirmation mode on Ctrl+Backspace when search query is empty", async () => {
 		const sessions = [makeSession({ id: "a" }), makeSession({ id: "b" })];
 
