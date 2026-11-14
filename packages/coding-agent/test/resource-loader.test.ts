@@ -321,6 +321,28 @@ export default function(pi) {
 			expect(globalState[loadCountKey]).toBe(1);
 		});
 
+		it("keeps project flag defaults ahead of user defaults loaded before trust", async () => {
+			const userExtDir = join(agentDir, "extensions");
+			const projectExtDir = join(cwd, ".pi", "extensions");
+			mkdirSync(userExtDir, { recursive: true });
+			mkdirSync(projectExtDir, { recursive: true });
+			const flagExtension = (defaultValue: boolean) => `export default function(pi) {
+	pi.registerFlag("plan", { type: "boolean", default: ${defaultValue} });
+}`;
+			writeFileSync(join(userExtDir, "user.ts"), flagExtension(true));
+			writeFileSync(join(projectExtDir, "project.ts"), flagExtension(false));
+
+			const loader = new DefaultResourceLoader({ cwd, agentDir });
+			await loader.reload({ resolveProjectTrust: async () => true });
+
+			const extensionsResult = loader.getExtensions();
+			expect(extensionsResult.extensions.map((extension) => extension.path)).toEqual([
+				join(projectExtDir, "project.ts"),
+				join(userExtDir, "user.ts"),
+			]);
+			expect(extensionsResult.runtime.flagValues.get("plan")).toBe(false);
+		});
+
 		it("should keep both extensions loaded when command names collide", async () => {
 			const userExtDir = join(agentDir, "extensions");
 			const projectExtDir = join(cwd, ".pi", "extensions");

@@ -9,6 +9,7 @@ export type { ResourceCollision, ResourceDiagnostic } from "./diagnostics.ts";
 
 import { canonicalizePath, isLocalPath, resolvePath } from "../utils/paths.ts";
 import { createEventBus, type EventBus } from "./event-bus.ts";
+import { applyFlagDefaultsInOrder } from "./extensions/flag-defaults.ts";
 import {
 	clearExtensionCache,
 	createExtensionRuntime,
@@ -37,9 +38,7 @@ export interface ResourceLoaderReloadOptions {
 
 function firstPartyExtensionName(extensionPath: string): string | undefined {
 	const prefix = "<first-party:";
-	if (!extensionPath.startsWith(prefix) || !extensionPath.endsWith(">")) {
-		return undefined;
-	}
+	if (!extensionPath.startsWith(prefix) || !extensionPath.endsWith(">")) return undefined;
 	return extensionPath.slice(prefix.length, -1);
 }
 
@@ -710,6 +709,7 @@ export class DefaultResourceLoader implements ResourceLoader {
 			.map((path) => loadedByPath.get(this.resolveExtensionLoadPath(path)))
 			.filter((extension): extension is Extension => extension !== undefined);
 		orderedExtensions.push(...inlineExtensions);
+		applyFlagDefaultsInOrder(orderedExtensions, preTrustExtensions.runtime);
 
 		const extensionsResult: LoadExtensionsResult = {
 			extensions: orderedExtensions,
