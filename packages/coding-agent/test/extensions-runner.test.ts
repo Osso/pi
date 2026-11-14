@@ -1017,6 +1017,26 @@ describe("ExtensionRunner", () => {
 			expect(() => modelRegistry.refresh()).not.toThrow();
 		});
 
+		it("does not install providers queued by a failed extension factory", async () => {
+			const runtime = createExtensionRuntime();
+			const failed = loadExtensionFromFactory(
+				(pi) => {
+					pi.registerProvider("failed-provider", providerModelConfig);
+					throw new Error("factory failed");
+				},
+				tempDir,
+				createEventBus(),
+				runtime,
+			);
+			await expect(failed).rejects.toThrow("factory failed");
+
+			new ExtensionRunner([], runtime, tempDir, sessionManager, modelRegistry).bindCore(
+				extensionActions,
+				extensionContextActions,
+			);
+			expect(modelRegistry.find("failed-provider", "instant-model")).toBeUndefined();
+		});
+
 		it("pre-bind unregister removes all queued registrations for a provider", () => {
 			const runtime = createExtensionRuntime();
 

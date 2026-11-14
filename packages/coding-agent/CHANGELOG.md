@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed an extension whose factory throws still registering the providers it queued with `pi.registerProvider()` before failing.
 - Fixed image-only `steer`/`followUp` messages staying in `pendingMessageCount` and the queue preview after delivery.
 - Fixed package filters loading resource types that the package's `pi` manifest omits, so `{ source, skills: [] }` no longer enables undeclared extensions.
 - Fixed single-file local package sources ignoring their `extensions` filter, so `{ "source": "/path/ext.ts", "extensions": [] }` still loaded the extension.

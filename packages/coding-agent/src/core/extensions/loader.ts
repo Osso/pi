@@ -527,14 +527,14 @@ export async function loadExtensionFromFactory(
 	registeredFlagNames.set(runtime, flagNames);
 	const previousNames = new Set(flagNames);
 	const previousValues = new Map(runtime.flagValues);
+	const previousProviders = [...runtime.pendingProviderRegistrations];
 	const api = createExtensionAPI(extension, runtime, resolvePath(cwd), eventBus, flagNames);
 	try {
 		await factory(api);
 	} catch (error) {
-		for (const name of flagNames) {
-			if (!previousNames.has(name)) flagNames.delete(name);
-		}
+		for (const name of flagNames) if (!previousNames.has(name)) flagNames.delete(name);
 		runtime.flagValues = previousValues;
+		runtime.pendingProviderRegistrations = previousProviders;
 		throw error;
 	}
 	time(`${extensionPath} factory`, "extensions");
