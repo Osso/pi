@@ -272,6 +272,8 @@ function createToolApprovalLlmReviewer(
 
 	if (dependencies.noSupervisor)
 		return async () => ({ block: true, reason: "Supervisor approval is unavailable in standalone worker mode" });
+	// The Supervisor session cannot review its own tool call while that call holds its turn open.
+	if (dependencies.getSessionId() === dependencies.settingsManager.getSupervisorSessionId()) return undefined;
 	return async () => {
 		const kbDir = process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR;
 		return reviewToolCallWithSupervisor(

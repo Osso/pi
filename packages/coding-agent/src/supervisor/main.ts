@@ -41,6 +41,7 @@ import {
 	parseSupervisorResponse,
 	runSupervisorRequest,
 	SUPERVISOR_INSTRUCTION_REJECTION_REASONS,
+	type SupervisorEvaluator,
 	type SupervisorInstructionRejectionReason,
 	type SupervisorInstructionReviewDecision,
 	supervisorInstructionRejectionFeedback,
@@ -273,15 +274,17 @@ export async function createSupervisorResourceLoader(
 	return resourceLoader;
 }
 
+/** `cwd` resolves relative paths the way the tool will; the resident runs in the KB root. */
 export function blockSupervisorFileAccess(
 	kbDir: string,
 	event: { input: unknown; toolName: string },
+	cwd = kbDir,
 ): { block: true; reason: string } | undefined {
 	if (!SUPERVISOR_TOOL_NAMES.includes(event.toolName)) return undefined;
 	const path = readToolPath(event.input);
 	if (!path) return supervisorFileAccessBlock();
 	try {
-		const resolvedPath = event.toolName === "read" ? resolveReadPath(path, kbDir) : resolveToCwd(path, kbDir);
+		const resolvedPath = event.toolName === "read" ? resolveReadPath(path, cwd) : resolveToCwd(path, cwd);
 		if (isPathWithinRoot(resolveExistingPath(resolvedPath), resolveExistingPath(kbDir))) return undefined;
 	} catch {}
 	return supervisorFileAccessBlock();
@@ -438,8 +441,10 @@ function isInstructionRejectionReason(value: unknown): value is SupervisorInstru
 	return SUPERVISOR_INSTRUCTION_REJECTION_REASONS.some((reason) => reason === value);
 }
 
+type SupervisorFeedbackTarget = Pick<SupervisorSession, "sendCustomMessage">;
+
 async function appendSupervisorPolicyFeedback<T>(
-	session: SupervisorSession,
+	session: SupervisorFeedbackTarget,
 	content: string,
 	details: T,
 ): Promise<void> {
@@ -452,7 +457,7 @@ async function appendSupervisorPolicyFeedback<T>(
 }
 
 async function appendSupervisorInstructionReviewFailure(
-	session: SupervisorSession,
+	session: SupervisorFeedbackTarget,
 	failure: "evaluation_error" | "invalid_response",
 ): Promise<void> {
 	await appendSupervisorPolicyFeedback(
@@ -462,10 +467,10 @@ async function appendSupervisorInstructionReviewFailure(
 	);
 }
 
-async function applySupervisorInstructionVeto(
+export async function applySupervisorInstructionVeto(
 	request: SupervisorRequest,
 	rawResponse: unknown,
-	session: SupervisorSession,
+	session: SupervisorFeedbackTarget,
 	reviewInstructions: SupervisorInstructionReviewer,
 	signal: AbortSignal,
 ): Promise<unknown> {
@@ -499,40 +504,46 @@ export async function processSupervisorRequest(
 	session: SupervisorSession,
 	reviewInstructions: SupervisorInstructionReviewer = async () => undefined,
 ): Promise<void> {
+	const evaluate: SupervisorEvaluator = async (prompt, signal) => {
+		const abort = () => void session.abort();
+		signal.addEventListener("abort", abort, { once: true });
+		try {
+			if (signal.aborted) {
+				await session.abort();
+				throw new Error("Supervisor request aborted");
+			}
+			const contextPercent = session.getContextUsage?.()?.percent;
+			if (
+				session.compact &&
+				contextPercent !== null &&
+				contextPercent !== undefined &&
+				contextPercent >= SUPERVISOR_COMPACTION_PERCENT
+			) {
+				await session.compact(
+					"Preserve Supervisor decisions, project-specific policies, instruction-veto policy feedback, and reusable approval rationale.",
+				);
+				if (session.sessionId) cleanupSupervisorProviderContext(session.sessionId);
+			}
+			if (signal.aborted) throw new Error("Supervisor request aborted");
+			const previousLeafId = session.sessionManager.getLeafId();
+			await session.prompt(prompt);
+			const rawResponse = readCurrentSupervisorResponse(session.sessionManager.getBranch(), previousLeafId);
+			return applySupervisorInstructionVeto(request, rawResponse, session, reviewInstructions, signal);
+		} finally {
+			signal.removeEventListener("abort", abort);
+		}
+	};
+	await evaluateAndCompleteSupervisorRequest(controlDbPath, request, evaluate);
+}
+
+/** Runs one claimed request through `evaluate` and records its typed response, or an error response on failure. */
+export async function evaluateAndCompleteSupervisorRequest(
+	controlDbPath: string,
+	request: SupervisorRequest,
+	evaluate: SupervisorEvaluator,
+): Promise<void> {
 	try {
-		await runSupervisorRequest({
-			controlDbPath,
-			evaluate: async (prompt, signal) => {
-				const abort = () => void session.abort();
-				signal.addEventListener("abort", abort, { once: true });
-				try {
-					if (signal.aborted) {
-						await session.abort();
-						throw new Error("Supervisor request aborted");
-					}
-					const contextPercent = session.getContextUsage?.()?.percent;
-					if (
-						session.compact &&
-						contextPercent !== null &&
-						contextPercent !== undefined &&
-						contextPercent >= SUPERVISOR_COMPACTION_PERCENT
-					) {
-						await session.compact(
-							"Preserve Supervisor decisions, project-specific policies, instruction-veto policy feedback, and reusable approval rationale.",
-						);
-						if (session.sessionId) cleanupSupervisorProviderContext(session.sessionId);
-					}
-					if (signal.aborted) throw new Error("Supervisor request aborted");
-					const previousLeafId = session.sessionManager.getLeafId();
-					await session.prompt(prompt);
-					const rawResponse = readCurrentSupervisorResponse(session.sessionManager.getBranch(), previousLeafId);
-					return applySupervisorInstructionVeto(request, rawResponse, session, reviewInstructions, signal);
-				} finally {
-					signal.removeEventListener("abort", abort);
-				}
-			},
-			request,
-		});
+		await runSupervisorRequest({ controlDbPath, evaluate, request });
 	} catch (error) {
 		if (readSupervisorRequest(controlDbPath, request.id)?.status === "cancelled") return;
 		try {

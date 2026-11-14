@@ -1,10 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { VERSION } from "../src/config.ts";
 import { type ResidentConsoleIdentity, ResidentConsoleServer } from "../src/core/resident-console-transport.ts";
+import { writeSessionHealth } from "../src/core/session-control-db/session-health.ts";
 import {
+	ensureSupervisorAvailable,
 	ensureSupervisorRunning,
 	getSupervisorStartLockPath,
 	resolveSupervisorLaunchInvocation,
@@ -211,5 +213,48 @@ describe("resolveSupervisorLaunchInvocation", () => {
 			cwd: "/Users/alessio",
 			env: { PATH: "/usr/bin", PI_SUPERVISOR_AUTOSTARTED: "1" },
 		});
+	});
+});
+
+describe("ensureSupervisorAvailable with a configured Supervisor session", () => {
+	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+
+	function configureSupervisorSession(sessionId: string): string {
+		const path = controlDbPath();
+		const agentDir = join(path, "..", "agent");
+		mkdirSync(agentDir, { recursive: true });
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ supervisor: { sessionId } }));
+		process.env.PI_CODING_AGENT_DIR = agentDir;
+		return path;
+	}
+
+	afterEach(() => {
+		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+	});
+
+	it("fails fast without starting a resident when the session is not running", async () => {
+		const path = configureSupervisorSession("supervisor-session");
+		await expect(ensureSupervisorAvailable({ controlDbPath: path })).rejects.toThrow(
+			"the Supervisor session supervisor-session is not running",
+		);
+		expect(existsSync(getSupervisorStartLockPath(path))).toBe(false);
+	});
+
+	it("accepts the configured session while its recorded Pi process is alive", async () => {
+		const path = configureSupervisorSession("supervisor-session");
+		const now = new Date().toISOString();
+		writeSessionHealth(path, {
+			sessionId: "supervisor-session",
+			agentGeneration: 1,
+			pid: process.pid,
+			lastActiveAt: now,
+			lastCheckedAt: now,
+			checkStatus: "ok",
+			checkedGeneration: 1,
+			checkLatencyMs: 1,
+			updatedAt: now,
+		});
+		await expect(ensureSupervisorAvailable({ controlDbPath: path })).resolves.toBeUndefined();
 	});
 });

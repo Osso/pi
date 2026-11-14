@@ -1,0 +1,235 @@
+import { randomUUID } from "node:crypto";
+import { getAgentDir } from "../../../src/config.ts";
+import type { ExtensionAPI, ExtensionContext, ToolCallEventResult } from "../../../src/core/extensions/types.ts";
+import {
+	claimNextSupervisorRequest,
+	hasPendingSupervisorApprovalRequest,
+	recoverSupervisorRequests,
+	type SupervisorRequest,
+} from "../../../src/core/session-control-db.ts";
+import type { SessionEntry } from "../../../src/core/session-manager.ts";
+import {
+	applySupervisorInstructionVeto,
+	blockSupervisorFileAccess,
+	createSupervisorInstructionEvaluator,
+	createSupervisorInstructionReviewer,
+	evaluateAndCompleteSupervisorRequest,
+	type SupervisorInstructionReviewer,
+} from "../../../src/supervisor/main.ts";
+import { DEFAULT_SUPERVISOR_KB_DIR } from "../../../src/supervisor/project-resolver.ts";
+import { notifySupervisorRequest, SupervisorRequestWakeServer } from "../../../src/supervisor/request-wake.ts";
+import { createSupervisorResponseTool, SUPERVISOR_RESPONSE_TOOL_NAME } from "../../../src/supervisor/response-tool.ts";
+import type { SupervisorEvaluator } from "../../../src/supervisor/service.ts";
+
+export const SUPERVISOR_REQUEST_MESSAGE_TYPE = "supervisor_request";
+export const SUPERVISOR_RESUME_MESSAGE_TYPE = "supervisor_resume";
+
+/** Every tool the Supervisor session may call, in user chat and request turns alike. */
+export const SUPERVISOR_SESSION_TOOL_NAMES = [
+	"read",
+	"edit",
+	"write",
+	SUPERVISOR_RESPONSE_TOOL_NAME,
+	"send_agent_message",
+	"ask_questions",
+	"reminders",
+	"end_turn",
+];
+
+const RESUME_INTERRUPTED_TURN =
+	"Your previous turn was interrupted so a Supervisor approval request could be answered. Continue that turn.";
+
+export function isSupervisorSession(ctx: ExtensionContext): boolean {
+	const sessionId = ctx.settingsManager?.getSupervisorSessionId();
+	return sessionId !== undefined && sessionId === ctx.sessionManager.getSessionId();
+}
+
+/** Restricts the session's tools to the allow-list and its file tools to the KB root. */
+export function blockSupervisorSessionTool(
+	kbDir: string,
+	cwd: string,
+	event: { input: unknown; toolName: string },
+): ToolCallEventResult | undefined {
+	if (!SUPERVISOR_SESSION_TOOL_NAMES.includes(event.toolName)) {
+		return { block: true, reason: `The Supervisor session cannot use ${event.toolName}.` };
+	}
+	return blockSupervisorFileAccess(kbDir, event, cwd);
+}
+
+/** The arguments of the last `supervisor_response` call after `previousLeafId`, which marks the request boundary. */
+export function readSupervisorResponseAfter(entries: SessionEntry[], previousLeafId: string | null): unknown {
+	const boundary = previousLeafId ? entries.findIndex((entry) => entry.id === previousLeafId) : -1;
+	if (previousLeafId && boundary === -1) throw new Error("Supervisor request boundary is missing from the branch");
+	let response: unknown;
+	for (const entry of entries.slice(boundary + 1)) {
+		if (entry.type !== "message" || entry.message.role !== "assistant") continue;
+		for (const part of entry.message.content) {
+			if (part.type === "toolCall" && part.name === SUPERVISOR_RESPONSE_TOOL_NAME) response = part.arguments;
+		}
+	}
+	if (response === undefined) throw new Error("Supervisor turn ended without a supervisor_response call");
+	return response;
+}
+
+/**
+ * Serves the durable Supervisor request queue from the interactive session named by `supervisor.sessionId`.
+ *
+ * Requests run as turns of this session between user turns, in queue priority order. A pending approval
+ * aborts a running user turn; that turn is resumed after the queue drains.
+ */
+class SupervisorSessionServer {
+	private readonly pi: ExtensionAPI;
+	private readonly claimToken = randomUUID();
+	private abortController: AbortController | undefined;
+	private wakeServer: SupervisorRequestWakeServer | undefined;
+	private controlDbPath: string | undefined;
+	private turnEndWaiters: Array<() => void> = [];
+	private chatInterrupted = false;
+	private reviewInstructions: SupervisorInstructionReviewer | undefined;
+
+	constructor(pi: ExtensionAPI) {
+		this.pi = pi;
+	}
+
+	get active(): boolean {
+		return this.abortController !== undefined;
+	}
+
+	async start(ctx: ExtensionContext): Promise<void> {
+		await this.stop();
+		if (!isSupervisorSession(ctx)) return;
+		const controlDbPath = ctx.controlDbPath;
+		if (!controlDbPath) throw new Error("The Supervisor session requires the Pi control database.");
+		this.pi.registerTool(createSupervisorResponseTool());
+		const available = new Set(this.pi.getAllTools().map((tool) => tool.name));
+		this.pi.setActiveTools(SUPERVISOR_SESSION_TOOL_NAMES.filter((name) => available.has(name)));
+		const wakeServer = new SupervisorRequestWakeServer(controlDbPath);
+		await wakeServer.start();
+		this.controlDbPath = controlDbPath;
+		this.wakeServer = wakeServer;
+		this.abortController = new AbortController();
+		void this.serve(ctx, controlDbPath, wakeServer, this.abortController.signal).catch((error: unknown) => {
+			const message = error instanceof Error ? error.message : String(error);
+			ctx.ui.notify(`Supervisor request loop stopped: ${message}`, "error");
+		});
+	}
+
+	async stop(): Promise<void> {
+		this.abortController?.abort();
+		this.abortController = undefined;
+		this.releaseTurnWaiters();
+		await this.wakeServer?.close();
+		this.wakeServer = undefined;
+	}
+
+	onAgentEnd(ctx: ExtensionContext): void {
+		if (!this.active || !this.controlDbPath) return;
+		if (ctx.hasActiveRetry()) return;
+		this.releaseTurnWaiters();
+		// The wake arrives after the run settles, so the loop sees the session idle.
+		notifySupervisorRequest(this.controlDbPath);
+	}
+
+	private releaseTurnWaiters(): void {
+		const waiters = this.turnEndWaiters;
+		this.turnEndWaiters = [];
+		for (const resolve of waiters) resolve();
+	}
+
+	private async serve(
+		ctx: ExtensionContext,
+		controlDbPath: string,
+		wakeServer: SupervisorRequestWakeServer,
+		signal: AbortSignal,
+	): Promise<void> {
+		recoverSupervisorRequests(controlDbPath);
+		while (!signal.aborted) {
+			const generation = wakeServer.currentGeneration();
+			await this.serveAvailableWork(ctx, controlDbPath);
+			await wakeServer.waitForWakeAfter(generation, signal);
+		}
+	}
+
+	private async serveAvailableWork(ctx: ExtensionContext, controlDbPath: string): Promise<void> {
+		if (!ctx.isIdle()) {
+			if (hasPendingSupervisorApprovalRequest(controlDbPath)) {
+				this.chatInterrupted = true;
+				ctx.abort();
+			}
+			return;
+		}
+		while (this.active && ctx.isIdle() && !ctx.hasPendingMessages()) {
+			const request = claimNextSupervisorRequest(controlDbPath, this.claimToken);
+			if (!request) break;
+			await evaluateAndCompleteSupervisorRequest(controlDbPath, request, this.createEvaluator(ctx, request));
+		}
+		if (this.chatInterrupted && ctx.isIdle()) {
+			this.chatInterrupted = false;
+			this.pi.sendMessage(
+				{ customType: SUPERVISOR_RESUME_MESSAGE_TYPE, content: RESUME_INTERRUPTED_TURN, display: true },
+				{ triggerTurn: true },
+			);
+		}
+	}
+
+	private createEvaluator(ctx: ExtensionContext, request: SupervisorRequest): SupervisorEvaluator {
+		return async (prompt, signal) => {
+			const abort = () => {
+				ctx.abort();
+				this.releaseTurnWaiters();
+			};
+			signal.addEventListener("abort", abort, { once: true });
+			try {
+				if (signal.aborted) throw new Error("Supervisor request aborted");
+				const previousLeafId = ctx.sessionManager.getLeafId();
+				const turnEnded = new Promise<void>((resolve) => this.turnEndWaiters.push(resolve));
+				this.pi.sendMessage(
+					{
+						customType: SUPERVISOR_REQUEST_MESSAGE_TYPE,
+						content: prompt,
+						display: true,
+						details: { id: request.id },
+					},
+					{ triggerTurn: true },
+				);
+				await turnEnded;
+				if (signal.aborted) throw new Error("Supervisor request aborted");
+				const rawResponse = readSupervisorResponseAfter(ctx.sessionManager.getBranch(), previousLeafId);
+				const feedbackTarget = {
+					sendCustomMessage: async (message: { customType: string; content: string; display: boolean }) =>
+						this.pi.sendMessage(message),
+				};
+				return applySupervisorInstructionVeto(
+					request,
+					rawResponse,
+					feedbackTarget,
+					this.instructionReviewer(ctx),
+					signal,
+				);
+			} finally {
+				signal.removeEventListener("abort", abort);
+			}
+		};
+	}
+
+	/** Built on first use: only non-generic goal continuations reach the veto gate, which needs its own model. */
+	private instructionReviewer(ctx: ExtensionContext): SupervisorInstructionReviewer {
+		return (instructions, signal) => {
+			this.reviewInstructions ??= createSupervisorInstructionReviewer(
+				createSupervisorInstructionEvaluator(ctx.modelRegistry, getAgentDir(), ctx.cwd),
+			);
+			return this.reviewInstructions(instructions, signal);
+		};
+	}
+}
+
+export default function supervisorSessionExtension(pi: ExtensionAPI): void {
+	const server = new SupervisorSessionServer(pi);
+	pi.registerToolGate((event, ctx) => {
+		if (!isSupervisorSession(ctx)) return undefined;
+		return blockSupervisorSessionTool(process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR, ctx.cwd, event);
+	});
+	pi.on("session_start", (_event, ctx) => server.start(ctx));
+	pi.on("session_shutdown", () => server.stop());
+	pi.on("agent_end", (_event, ctx) => server.onAgentEnd(ctx));
+}

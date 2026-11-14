@@ -93,7 +93,6 @@ async function sendRestrictionAdvisory(
 			projectId,
 			senderSessionId: options.senderSessionId,
 			timeoutMs: RESTRICTION_ADVISORY_TIMEOUT_MS,
-			maxAttempts: 1,
 			signal: options.signal,
 		});
 		if (options.signal?.aborted) return { kind: "blocked", reason: CANCELLATION_REASON };

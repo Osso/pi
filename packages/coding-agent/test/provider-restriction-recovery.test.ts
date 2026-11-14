@@ -318,8 +318,7 @@ describe("requestCodexRestrictionRescope", () => {
 					},
 					projectId: "pi",
 					senderSessionId: "main-session",
-					timeoutMs: 45_000,
-					maxAttempts: 1,
+					timeoutMs: 15 * 60 * 1_000,
 					signal: controller.signal,
 				},
 			],
@@ -455,7 +454,7 @@ describe("requestCodexRestrictionRescope", () => {
 				}),
 		);
 		const pending = requestCodexRestrictionRescope(options(requester));
-		await vi.advanceTimersByTimeAsync(45_000);
+		await vi.advanceTimersByTimeAsync(15 * 60 * 1_000);
 		expect(await pending).toEqual({ kind: "blocked", reason: "Supervisor request timed out" });
 		expect(requester).toHaveBeenCalledOnce();
 		expect(vi.getTimerCount()).toBe(0);

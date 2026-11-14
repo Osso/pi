@@ -55,6 +55,7 @@ import sessionArchiveExtension from "../extensions/session-archive/src/index.ts"
 import sessionAutonameExtension from "../extensions/session-autoname/src/index.ts";
 import sessionIdExtension from "../extensions/session-id/src/index.ts";
 import specValidationExtension from "../extensions/spec-validation/src/index.ts";
+import supervisorSessionExtension from "../extensions/supervisor-session/src/index.ts";
 import t3CodeExtension from "../extensions/t3-code/src/index.ts";
 import { runArchitectService } from "./architect/main.ts";
 import { type Args, type Mode, parseArgs, printHelp } from "./cli/args.ts";
@@ -739,6 +740,7 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("loop", loopExtension),
 		firstPartyExtensionFactory("periodic-checks", periodicChecksExtension),
 		firstPartyExtensionFactory("reminders", remindersExtension),
+		firstPartyExtensionFactory("supervisor-session", supervisorSessionExtension),
 		firstPartyExtensionFactory("run-plan", runPlanExtension),
 		firstPartyExtensionFactory("safe", safeExtension),
 		firstPartyExtensionFactory("spec-validation", specValidationExtension),
