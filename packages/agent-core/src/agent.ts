@@ -170,8 +170,10 @@ class PendingMessageQueue {
 		return [first];
 	}
 
-	clear(): void {
+	clear(): AgentMessage[] {
+		const cleared = this.messages;
 		this.messages = [];
+		return cleared;
 	}
 }
 
@@ -316,10 +318,9 @@ export class Agent {
 		this.followUpQueue.clear();
 	}
 
-	/** Remove all queued steering and follow-up messages. */
-	clearAllQueues(): void {
-		this.clearSteeringQueue();
-		this.clearFollowUpQueue();
+	/** Remove and return all queued steering messages, then follow-up messages. */
+	clearAllQueues(): AgentMessage[] {
+		return [...this.steeringQueue.clear(), ...this.followUpQueue.clear()];
 	}
 
 	/** Returns true when either queue still contains pending messages. */

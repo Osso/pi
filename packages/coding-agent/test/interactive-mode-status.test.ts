@@ -866,9 +866,9 @@ describe("InteractiveMode key handlers", () => {
 
 	test("escape interrupts with queued and current text preserved", async () => {
 		const fakeThis = {
-			clearAllQueues: vi.fn(() => ({ steering: ["queued steering"], followUp: ["queued follow-up"] })),
+			compactionQueuedMessages: [{ text: "queued steering" }, { text: "queued follow-up" }],
 			editor: { getText: () => "current draft", setText: vi.fn() },
-			session: { interrupt: vi.fn(async () => {}) },
+			session: { interrupt: vi.fn(async () => {}), pendingMessageCount: 0 },
 			updatePendingMessagesDisplay: vi.fn(),
 		};
 
@@ -2263,11 +2263,11 @@ describe("InteractiveMode key handlers", () => {
 		const interrupt = vi.fn(async () => {});
 		const editor = { getText: () => "current draft", setText: vi.fn() };
 		const fakeThis = {
-			clearAllQueues: vi.fn(() => ({ steering: ["urgent steering"], followUp: [] })),
+			compactionQueuedMessages: [{ text: "urgent steering" }],
 			cancelStreamingAndSubmitQueuedMessages: interactiveModeKeyHandlers.cancelStreamingAndSubmitQueuedMessages,
 			editor,
 			keybindings: { matches: (data: string, action: string) => action === "app.interrupt" && data === "\x1b" },
-			session: { interrupt, isStreaming: true },
+			session: { interrupt, isStreaming: true, pendingMessageCount: 0 },
 			showError: vi.fn(),
 			ui,
 			updatePendingMessagesDisplay: vi.fn(),

@@ -466,6 +466,8 @@
 - Fixed the `edit` tool inserting text at the start of a file when a missing whitespace-only `oldText` becomes empty after fuzzy normalization; the edit now reports text not found and leaves the file unchanged.
 - Fixed Bash output losing a long newline-terminated line after rolling-buffer trimming; the result now retains the final bytes as a partial line.
 
+- Fixed RPC `interrupt` and interactive Escape dropping images from queued steering and follow-up messages when resubmitting them after abort.
+
 ### Changed
 
 - Built-in `ls` calls now render as `ls` instead of `rtk ls`; execution still delegates to `rtk` when available and falls back to the filesystem implementation.

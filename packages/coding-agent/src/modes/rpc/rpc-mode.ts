@@ -450,8 +450,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			}
 
 			case "interrupt": {
-				const { steering, followUp } = session.clearQueue();
-				void session.interrupt([...steering, ...followUp].join("\n\n"), "rpc").catch((e) => {
+				void session.interrupt("", "rpc").catch((e) => {
 					console.error(`RPC interrupt failed: ${e instanceof Error ? e.message : String(e)}`);
 				});
 				return success(id, "interrupt");

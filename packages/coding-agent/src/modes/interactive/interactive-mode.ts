@@ -5657,15 +5657,14 @@ export class InteractiveMode {
 	}
 
 	private async cancelStreamingAndSubmitQueuedMessages(): Promise<void> {
-		const { steering, followUp } = this.clearAllQueues();
-		const allQueued = [...steering, ...followUp];
-		if (allQueued.length === 0) {
+		if (this.session.pendingMessageCount === 0 && this.compactionQueuedMessages.length === 0) {
 			this.updatePendingMessagesDisplay();
 			await this.session.abort();
 			return;
 		}
 
-		const queuedText = allQueued.join("\n\n");
+		const queuedText = this.compactionQueuedMessages.map((message) => message.text).join("\n\n");
+		this.compactionQueuedMessages = [];
 		const currentText = this.editor.getText();
 		const combinedText = [queuedText, currentText].filter((text) => text.trim()).join("\n\n");
 		this.editor.setText("");
