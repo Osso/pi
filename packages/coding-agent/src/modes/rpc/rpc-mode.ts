@@ -681,10 +681,9 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			}
 
 			case "set_session_name": {
+				if (typeof command.name !== "string") return error(id, "set_session_name", "name must be a string");
 				const name = command.name.trim();
-				if (!name) {
-					return error(id, "set_session_name", "Session name cannot be empty");
-				}
+				if (!name) return error(id, "set_session_name", "Session name cannot be empty");
 				session.setSessionName(name);
 				return success(id, "set_session_name");
 			}

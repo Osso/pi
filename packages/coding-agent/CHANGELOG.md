@@ -259,6 +259,7 @@
 
 - Fixed `grep` dropping the `Some paths could not be searched` notice when the match limit stopped the search.
 - Fixed RPC `prompt`, `steer` and `follow_up` with a missing or non-string `message` failing with an internal TypeError text; they now fail with `message must be a string`.
+- Fixed RPC `set_session_name` with a missing or non-string `name` failing with an internal TypeError text; it now fails with `name must be a string`.
 - Fixed `duplicate column name` failures when several processes open a new or older control database at the same time: the additive column migrations now check and alter each table inside one immediate transaction.
 - Fixed `database is locked` failures when several processes open a new control or other shared SQLite database at the same time: SQLite switches the journal mode to WAL without calling the busy handler, so the switch is now retried within the busy timeout.
 - Fixed the expanded `read` result for files over 10KB showing the head-read buffer's line count as the file's line total; it now shows `[Truncated: N lines shown (10.0KB limit)]`.

@@ -30,7 +30,7 @@
 	"packages/coding-agent/src/modes/interactive/components/tree-selector.ts": 1431,
 	"packages/coding-agent/src/modes/interactive/interactive-mode.ts": 8010,
 	"packages/coding-agent/src/modes/interactive/theme/theme.ts": 1289,
-	"packages/coding-agent/src/modes/rpc/rpc-mode.ts": 860,
+	"packages/coding-agent/src/modes/rpc/rpc-mode.ts": 859,
 	"packages/coding-agent/src/package-manager-cli.ts": 782,
 	"packages/tui/src/autocomplete.ts": 793,
 	"packages/tui/src/components/editor.ts": 2641,

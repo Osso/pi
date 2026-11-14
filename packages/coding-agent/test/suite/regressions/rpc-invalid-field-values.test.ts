@@ -62,6 +62,22 @@ describe("RPC field validation", () => {
 		});
 	});
 
+	it("rejects a session name that is missing or not a string", async () => {
+		await withHeadlessPi(async (agent) => {
+			const before = (await agent.send({ type: "get_state" })) as { data: { sessionName?: string } };
+			for (const request of ['{"type":"set_session_name"}', '{"type":"set_session_name","name":7}']) {
+				expect(await agent.send(raw(request))).toMatchObject({
+					command: "set_session_name",
+					success: false,
+					error: "name must be a string",
+				});
+			}
+			expect(await agent.send({ type: "get_state" })).toMatchObject({
+				data: { sessionName: before.data.sessionName },
+			});
+		});
+	});
+
 	it("rejects switching to a session file that does not exist instead of creating it", async () => {
 		await withHeadlessPi(async (agent) => {
 			const before = (await agent.send({ type: "get_state" })) as { data: { sessionFile: string } };
