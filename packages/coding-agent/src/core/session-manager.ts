@@ -1018,7 +1018,7 @@ function listMetadataSessions(
 ): SessionInfo[] | undefined {
 	if (!controlDbPath) return undefined;
 	const resolvedCwd = options.cwd ? resolvePath(options.cwd) : undefined;
-	const normalizedDir = options.dir ? normalizePath(options.dir) : undefined;
+	const normalizedDir = options.dir ? join(normalizePath(options.dir)) : undefined;
 	const sessionPathPrefix = normalizedDir && !normalizedDir.endsWith(sep) ? `${normalizedDir}${sep}` : normalizedDir;
 	return listResumeSessionMetadata(controlDbPath, {
 		archived: options.archived,
