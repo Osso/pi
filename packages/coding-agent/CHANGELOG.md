@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed `write` reporting the UTF-16 length of the content as its byte count; it now reports the UTF-8 bytes written.
 - Fixed `find` trimming spaces from file names, which returned paths such as `report.txt` for a file named `report.txt ` that does not exist.
 - Fixed prompt-template arguments dropping a quoted empty argument: `/t "" beta` now sets `$1` to empty (so `${1:-default}` applies) and `$2` to `beta`.
 - Fixed the control DB keeping every finished Supervisor request forever (245 MB after four months); `completed` and `cancelled` `supervisor_requests` rows are now deleted 24 hours after they finish.

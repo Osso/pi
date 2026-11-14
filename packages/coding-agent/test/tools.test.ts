@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isToolResultTextTooLarge } from "@earendil-works/pi-agent-core";
@@ -420,6 +420,15 @@ describe("Coding Agent Tools", () => {
 			});
 
 			expect(getTextOutput(result)).toContain("Successfully wrote");
+		});
+
+		it("reports the UTF-8 byte count it wrote", async () => {
+			const testFile = join(testDir, "café.txt");
+
+			const result = await writeTool.execute("test-call-utf8", { path: testFile, content: "é€😀" });
+
+			expect(statSync(testFile).size).toBe(9);
+			expect(getTextOutput(result)).toBe(`Successfully wrote 9 bytes to ${testFile}`);
 		});
 	});
 
