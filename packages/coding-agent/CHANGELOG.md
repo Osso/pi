@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed a package filter in settings enabling resources that the package's `pi` manifest disables with an empty array (for example `"extensions": []`); filters now only narrow what the manifest allows.
 - Fixed a partial `pi.registerProvider()` update (for example headers only) dropping the provider's registered API key until the next model refresh.
 - Fixed `authHeader: true` providers in `models.json` failing with `No API key found` when the key came only from the provider's environment variable.
 - Fixed pinned git extensions loaded with `-e` continuing to use the first downloaded commit after the ref changes ([#9982](https://github.com/earendil-works/pi/issues/9982)).

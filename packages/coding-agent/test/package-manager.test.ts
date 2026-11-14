@@ -1758,6 +1758,21 @@ Content`,
 			expect(result.extensions.some((r) => pathEndsWith(r.path, "baz.ts"))).toBe(false);
 		});
 
+		it("should not let a package filter enable extensions the manifest excludes with []", async () => {
+			const pkgDir = join(tempDir, "manifest-none-pkg");
+			mkdirSync(join(pkgDir, "extensions"), { recursive: true });
+			writeFileSync(join(pkgDir, "extensions", "hidden.ts"), "export default function() {}");
+			writeFileSync(
+				join(pkgDir, "package.json"),
+				JSON.stringify({ name: "manifest-none-pkg", pi: { extensions: [] } }),
+			);
+
+			settingsManager.setPackages([{ source: pkgDir, extensions: ["**/*.ts"] }]);
+
+			const result = await packageManager.resolve();
+			expect(result.extensions.some((r) => isEnabled(r, "hidden.ts"))).toBe(false);
+		});
+
 		it("should exclude extensions from package with ! pattern", async () => {
 			const pkgDir = join(tempDir, "pattern-pkg");
 			mkdirSync(join(pkgDir, "extensions"), { recursive: true });

@@ -2143,7 +2143,7 @@ export class DefaultPackageManager implements PackageManager {
 	): { allFiles: string[]; enabledByManifest: Set<string> } {
 		const manifest = this.readPiManifest(packageRoot);
 		const entries = manifest?.[resourceType as keyof PiManifest];
-		if (entries && entries.length > 0) {
+		if (entries) {
 			const allFiles = this.collectFilesFromManifestEntries(entries, packageRoot, resourceType);
 			const manifestPatterns = entries.filter(isOverridePattern);
 			const enabledByManifest =
