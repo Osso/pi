@@ -10,7 +10,7 @@
 	"packages/ai/src/api/openai-responses-shared.ts": 760,
 	"packages/ai/src/types.ts": 755,
 	"packages/coding-agent/extensions/claude-bridge/src/index.ts": 1739,
-	"packages/coding-agent/src/core/agent-session.ts": 5854,
+	"packages/coding-agent/src/core/agent-session.ts": 5668,
 	"packages/coding-agent/src/core/compaction/compaction.ts": 1070,
 	"packages/coding-agent/src/core/export-html/template.js": 1864,
 	"packages/coding-agent/src/core/export-html/vendor/highlight.min.js": 1213,
