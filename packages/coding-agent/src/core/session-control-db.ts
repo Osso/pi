@@ -1,15 +1,3 @@
-import type { AgentSnapshot } from "./multi-agent-store.ts";
-import { parseStoredJsonObject, validatePersistedAgentPayload } from "./session-control-db/codecs.ts";
-
-export {
-	prepareControlDbForSelfRestart,
-	retainControlDbConnection,
-	withControlDb,
-} from "./session-control-db/connection.ts";
-export { normalizeSessionName, withImmediateTransaction } from "./session-control-db/helpers.ts";
-
-import { withControlDb } from "./session-control-db/connection.ts";
-
 export {
 	claimPendingArchitectRequests,
 	completeArchitectRequest,
@@ -18,17 +6,25 @@ export {
 	renewArchitectRequestClaims,
 } from "./session-control-db/architect.ts";
 export {
+	prepareControlDbForSelfRestart,
+	retainControlDbConnection,
+	withControlDb,
+} from "./session-control-db/connection.ts";
+export {
 	claimCodexRestrictionRecovery,
 	getControlDbPath,
 	isKnownLocalSession,
 	readRunningSessionIdByPid,
 } from "./session-control-db/control-db-path.ts";
+export { listDetachedArtifactAgentsUpdatedAtOrBefore } from "./session-control-db/detached-job-artifacts.ts";
 export type { MultiAgentRuntimeOwnershipIdentity } from "./session-control-db/detached-job-finalization.ts";
 export { finalizeDetachedJob } from "./session-control-db/detached-job-finalization.ts";
 export {
 	reconcileDeadDetachedAgentRuntimes,
 	recoverDeadMultiAgentRuntime,
 } from "./session-control-db/detached-job-recovery.ts";
+export { normalizeSessionName, withImmediateTransaction } from "./session-control-db/helpers.ts";
+
 export {
 	claimLatestIncomingMessage,
 	completeIncomingMessage,
@@ -57,6 +53,7 @@ export {
 	readMultiAgentRuntimeOwnership,
 } from "./session-control-db/multi-agent-attachment.ts";
 export { bootstrapMultiAgentAgent } from "./session-control-db/multi-agent-bootstrap.ts";
+
 export type {
 	AcquireMultiAgentRuntimeOwnershipInput,
 	CreateFailedMultiAgentChildInput,
@@ -216,38 +213,3 @@ export type {
 	SupervisorResponse,
 	WritableSessionMetadata,
 } from "./session-control-db/types.ts";
-
-export interface DetachedArtifactAgentRecord {
-	sessionPath: string;
-	agent: AgentSnapshot;
-}
-
-export function listDetachedArtifactAgentsUpdatedAtOrBefore(
-	controlDbPath: string,
-	updatedAtCutoff: string,
-): DetachedArtifactAgentRecord[] {
-	return withControlDb(controlDbPath, (db) => {
-		const rows = db
-			.prepare(
-				`SELECT session_path, agent_id, data
-				 FROM multi_agent_agents
-				 WHERE CASE WHEN json_valid(data) THEN json_extract(data, '$.updatedAt') END <= ?
-				   AND json_extract(data, '$.lifecycle') IN ('completed', 'failed', 'aborted')
-				   AND EXISTS (
-				     SELECT 1
-				     FROM json_each(data, '$.result.fileRefs') AS file_ref
-				     WHERE json_extract(file_ref.value, '$.label') IN ('Bash output', 'Pyrun output')
-				   )
-				 ORDER BY CASE WHEN json_valid(data) THEN json_extract(data, '$.updatedAt') END,
-				          session_path,
-				          agent_id`,
-			)
-			.all(updatedAtCutoff) as Array<{ agent_id: string; data: string; session_path: string }>;
-		return rows.map((row) => {
-			const context = `multi_agent_agents:${row.session_path}#${row.agent_id}`;
-			const agent = parseStoredJsonObject(row.data, context);
-			validatePersistedAgentPayload(agent, context);
-			return { agent: agent as unknown as AgentSnapshot, sessionPath: row.session_path };
-		});
-	});
-}
