@@ -17,6 +17,7 @@ import {
 	setCapabilities,
 	setCellDimensions,
 } from "../src/terminal-image.ts";
+import { visibleWidth } from "../src/utils.ts";
 
 const ENV_KEYS = [
 	"TERM",
@@ -461,6 +462,27 @@ describe("Kitty image cursor movement", () => {
 		} finally {
 			resetCapabilitiesCache();
 			setCellDimensions({ widthPx: 9, heightPx: 18 });
+		}
+	});
+});
+
+describe("Image fallback", () => {
+	it("truncates the placeholder to the render width", () => {
+		setCapabilities({ images: null, trueColor: true, hyperlinks: false });
+		try {
+			const image = new Image(
+				"AAAA",
+				"image/png",
+				{ fallbackColor: (value) => value },
+				{ filename: "clankolas.png" },
+				{ widthPx: 800, heightPx: 600 },
+			);
+			assert.deepStrictEqual(image.render(64), ["[Image: clankolas.png [image/png] 800x600]"]);
+			const narrow = image.render(32);
+			assert.strictEqual(narrow.length, 1);
+			assert.ok(visibleWidth(narrow[0] ?? "") <= 32, JSON.stringify(narrow));
+		} finally {
+			resetCapabilitiesCache();
 		}
 	});
 });

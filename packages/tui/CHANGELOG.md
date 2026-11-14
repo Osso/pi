@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed the `Image` placeholder shown on terminals without image support (`[Image: name [type] WxH]`) exceeding the render width, which made the TUI throw `Rendered line exceeds terminal width` in narrow terminals.
 - Fixed blank or stale TUI output after same-size native dtach reattachment by repainting the visible viewport without clearing terminal scrollback.
 - Fixed a history-replay loop when a live line (such as a running tool's elapsed timer) sat above the viewport: each tick cleared scrollback and replayed the whole transcript. Such changes now repaint from the viewport down and leave scrollback unchanged.
 - Prevented global debug shortcuts from firing again for Kitty keyboard repeat and release events.
