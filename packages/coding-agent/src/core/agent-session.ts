@@ -53,6 +53,8 @@ import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
 import { type BackgroundCompactionCache, BackgroundCompactionState } from "./agent-session-background-compaction.ts";
+import { bindSessionMutationTargetResolver, createViewedSessionCommandContext } from "./agent-session-commands.ts";
+
 import { CodexRestrictionRecoveryState } from "./agent-session-restriction-recovery.ts";
 import { reviewToolApproval } from "./agent-session-tool-approval.ts";
 import { callActiveTool } from "./agent-session-tool-call.ts";
@@ -431,14 +433,11 @@ export interface AgentSessionConfig {
 	thinkingPhaseTimeoutMs?: number;
 }
 
-type SessionMutationTargetResolver = () => ViewedSessionMutationTarget | undefined;
-const sessionMutationTargetResolvers = new WeakMap<AgentSession, SessionMutationTargetResolver>();
-
 export function bindAgentSessionMutationTargetResolver(
 	session: AgentSession,
-	resolver: SessionMutationTargetResolver,
+	resolver: () => ViewedSessionMutationTarget | undefined,
 ): void {
-	sessionMutationTargetResolvers.set(session, resolver);
+	bindSessionMutationTargetResolver(session, resolver);
 }
 
 export interface ExtensionBindings {
@@ -2678,48 +2677,7 @@ export class AgentSession {
 	}
 
 	private _createViewedSessionCommandContext(context: ExtensionCommandContext): ExtensionCommandContext {
-		const owningModel = context.model;
-		const owningModelRegistry = context.modelRegistry;
-		const owningScopedModels = context.getScopedModels;
-		const owningGetThinkingLevel = context.getThinkingLevel;
-		const owningSetModel = context.setModel;
-		const owningSetThinkingLevel = context.setThinkingLevel;
-		const resolveViewedTarget = (): ViewedSessionMutationTarget | undefined =>
-			sessionMutationTargetResolvers.get(this)?.();
-
-		Object.defineProperty(context, "model", {
-			configurable: true,
-			enumerable: true,
-			get: () => {
-				const target = resolveViewedTarget();
-				return target ? target.model : owningModel;
-			},
-		});
-		Object.defineProperty(context, "modelRegistry", {
-			configurable: true,
-			enumerable: true,
-			get: () => {
-				const target = resolveViewedTarget();
-				return target ? target.modelRegistry : owningModelRegistry;
-			},
-		});
-		context.getScopedModels = () => {
-			const target = resolveViewedTarget();
-			return target ? target.scopedModels : (owningScopedModels?.() ?? []);
-		};
-		context.getThinkingLevel = () => resolveViewedTarget()?.thinkingLevel ?? owningGetThinkingLevel();
-		context.setModel = async (model) => {
-			const target = resolveViewedTarget();
-			if (!target) return owningSetModel(model);
-			await target.setModel(model);
-			return true;
-		};
-		context.setThinkingLevel = (level) => {
-			const target = resolveViewedTarget();
-			if (target) target.setThinkingLevel(level);
-			else owningSetThinkingLevel(level);
-		};
-		return context;
+		return createViewedSessionCommandContext(context, this);
 	}
 
 	private _expandSkillCommand(text: string): string {
