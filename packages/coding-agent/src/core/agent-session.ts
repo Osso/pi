@@ -269,11 +269,10 @@ async function waitForHeadlessSessionStartRelease(env: NodeJS.ProcessEnv = proce
 }
 
 function findAssistantMessageEntryIndex(entries: SessionEntry[], assistantMessage: AssistantMessage): number {
-	for (let index = entries.length - 1; index >= 0; index--) {
-		const entry = entries[index];
-		if (entry.type === "message" && entry.message === assistantMessage) return index;
-	}
-	return -1;
+	const reverseIndex = [...entries]
+		.reverse()
+		.findIndex((entry) => entry.type === "message" && entry.message === assistantMessage);
+	return reverseIndex === -1 ? -1 : entries.length - reverseIndex - 1;
 }
 
 function assistantMessagePrecedesCompaction(
@@ -1523,8 +1522,7 @@ export class AgentSession {
 		const dispatch = this._thinkingTimeoutDispatch;
 		const recoveryAvailable = dispatch?.recoveryUsed === false && dispatch.cancelled === false;
 		if (this._thinkingPhaseTimeoutError && recoveryAvailable) return true;
-		for (let i = event.messages.length - 1; i >= 0; i--) {
-			const message = event.messages[i];
+		for (const message of [...event.messages].reverse()) {
 			if (message.role !== "assistant") {
 				continue;
 			}
@@ -1555,8 +1553,7 @@ export class AgentSession {
 	/** Find the last assistant message in agent state (including aborted ones) */
 	private _findLastAssistantMessage(): AssistantMessage | undefined {
 		const messages = this.agent.state.messages;
-		for (let i = messages.length - 1; i >= 0; i--) {
-			const msg = messages[i];
+		for (const msg of [...messages].reverse()) {
 			if (msg.role === "assistant") {
 				return msg as AssistantMessage;
 			}
@@ -1569,13 +1566,12 @@ export class AgentSession {
 		let latestAssistantIndex = -1;
 		let latestCompletedAssistantIndex = -1;
 
-		for (let i = messages.length - 1; i >= 0; i--) {
-			const message = messages[i];
+		for (const [reverseIndex, message] of [...messages].reverse().entries()) {
 			if (latestUserIndex === -1 && message.role === "user") {
-				latestUserIndex = i;
+				latestUserIndex = messages.length - reverseIndex - 1;
 			}
 			if (latestAssistantIndex === -1 && message.role === "assistant") {
-				latestAssistantIndex = i;
+				latestAssistantIndex = messages.length - reverseIndex - 1;
 				const assistant = message as AssistantMessage;
 				if (assistant.stopReason === "aborted" || assistant.stopReason === "error") {
 					return true;
@@ -1584,7 +1580,7 @@ export class AgentSession {
 			if (latestCompletedAssistantIndex === -1 && message.role === "assistant") {
 				const assistant = message as AssistantMessage;
 				if (assistant.stopReason !== "aborted" && assistant.stopReason !== "error") {
-					latestCompletedAssistantIndex = i;
+					latestCompletedAssistantIndex = messages.length - reverseIndex - 1;
 				}
 			}
 			if (latestUserIndex !== -1 && latestAssistantIndex !== -1 && latestCompletedAssistantIndex !== -1) {
@@ -3465,6 +3461,7 @@ export class AgentSession {
 		const len = scopedModels.length;
 		const nextIndex = direction === "forward" ? (currentIndex + 1) % len : (currentIndex - 1 + len) % len;
 		const next = scopedModels[nextIndex];
+		if (next === undefined) throw new Error("scoped model missing while cycling models");
 		const thinkingLevel = this._getThinkingLevelForModelSwitch(next.thinkingLevel);
 
 		await this.setModel(next.model, "cycle", thinkingLevel);
@@ -3517,6 +3514,7 @@ export class AgentSession {
 		const currentIndex = levels.indexOf(this.thinkingLevel);
 		const nextIndex = (currentIndex + 1) % levels.length;
 		const nextLevel = levels[nextIndex];
+		if (nextLevel === undefined) throw new Error("thinking level missing while cycling levels");
 
 		this.setThinkingLevel(nextLevel);
 		return nextLevel;
@@ -3898,7 +3896,7 @@ export class AgentSession {
 				// Remove the error message from agent state (it IS saved to session for history,
 				// but we don't want it in context for the retry)
 				const messages = this.agent.state.messages;
-				if (messages.length > 0 && messages[messages.length - 1].role === "assistant") {
+				if (messages.length > 0 && messages.at(-1)?.role === "assistant") {
 					this.agent.state.messages = messages.slice(0, -1);
 				}
 			}
@@ -3919,6 +3917,7 @@ export class AgentSession {
 			// have stale usage reflecting the old (larger) context and would falsely
 			// trigger compaction right after one just finished.
 			const usageMsg = messages[estimate.lastUsageIndex];
+			if (usageMsg === undefined) throw new Error("usage message missing at estimated index");
 			if (
 				compactionEntry &&
 				usageMsg.role === "assistant" &&
@@ -4743,7 +4742,7 @@ export class AgentSession {
 
 		// Remove error message from agent state (keep in session for history)
 		const messages = this.agent.state.messages;
-		if (messages.length > 0 && messages[messages.length - 1].role === "assistant") {
+		if (messages.length > 0 && messages.at(-1)?.role === "assistant") {
 			this.agent.state.messages = messages.slice(0, -1);
 		}
 
@@ -5282,8 +5281,7 @@ export class AgentSession {
 		if (latestCompaction) {
 			const compactionIndex = branchEntries.lastIndexOf(latestCompaction);
 			let hasPostCompactionUsage = false;
-			for (let i = branchEntries.length - 1; i > compactionIndex; i--) {
-				const entry = branchEntries[i];
+			for (const entry of branchEntries.slice(compactionIndex + 1).reverse()) {
 				if (entry.type === "message" && entry.message.role === "assistant") {
 					const assistant = entry.message;
 					if (assistant.stopReason !== "aborted" && assistant.stopReason !== "error") {

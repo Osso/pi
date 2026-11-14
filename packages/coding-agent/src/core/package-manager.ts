@@ -795,13 +795,13 @@ export class DefaultPackageManager implements PackageManager {
 		const currentPackages = currentSettings.packages ?? [];
 		const normalizedSource = this.normalizePackageSourceForSettings(source, scope);
 		const matchIndex = currentPackages.findIndex((existing) => this.packageSourcesMatch(existing, source, scope));
-		if (matchIndex !== -1) {
-			const existing = currentPackages[matchIndex];
+		for (const [index, existing] of currentPackages.entries()) {
+			if (index !== matchIndex) continue;
 			if (this.getPackageSourceString(existing) === normalizedSource) {
 				return false;
 			}
 			const nextPackages = [...currentPackages];
-			nextPackages[matchIndex] =
+			nextPackages[index] =
 				typeof existing === "string" ? normalizedSource : { ...existing, source: normalizedSource };
 			if (scope === "project") {
 				this.settingsManager.setProjectPackages(nextPackages);
@@ -1135,8 +1135,10 @@ export class DefaultPackageManager implements PackageManager {
 			return;
 		}
 
-		const sourceLabel = sources.length === 1 ? sources[0].source : `${scope} npm packages`;
-		const message = sources.length === 1 ? `Updating ${sources[0].source}...` : `Updating ${scope} npm packages...`;
+		const singleSource = sources.length === 1 ? sources.reduce((_, entry) => entry.source, "") : undefined;
+		if (sources.length === 1 && singleSource === undefined) throw new Error("npm update source missing");
+		const sourceLabel = singleSource ?? `${scope} npm packages`;
+		const message = singleSource !== undefined ? `Updating ${singleSource}...` : `Updating ${scope} npm packages...`;
 		const specs = sources.map((entry) => (entry.parsed.version ? entry.parsed.spec : `${entry.parsed.name}@latest`));
 
 		await this.withProgress("update", sourceLabel, message, async () => {
@@ -1618,17 +1620,15 @@ export class DefaultPackageManager implements PackageManager {
 		}
 
 		const results: T[] = new Array(tasks.length);
-		let nextIndex = 0;
+		const taskIterator = tasks.entries();
 		const workerCount = Math.max(1, Math.min(limit, tasks.length));
 
 		const worker = async () => {
 			while (true) {
-				const index = nextIndex;
-				nextIndex += 1;
-				if (index >= tasks.length) {
-					return;
-				}
-				results[index] = await tasks[index]();
+				const nextTask = taskIterator.next();
+				if (nextTask.done) return;
+				const [index, task] = nextTask.value;
+				results[index] = await task();
 			}
 		};
 

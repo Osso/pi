@@ -4,6 +4,7 @@ import type { AssistantMessage } from "@earendil-works/pi-ai/compat";
 function findTrailingAssistantToolBatch(messages: readonly AgentMessage[]): AssistantMessage | undefined {
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const message = messages[index];
+		if (message === undefined) throw new Error("message missing while scanning session messages");
 		if (message.role === "toolResult") continue;
 		return message.role === "assistant" ? message : undefined;
 	}

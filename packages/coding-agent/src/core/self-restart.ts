@@ -52,7 +52,8 @@ export function parseSystemdEnvironment(output: string): NodeJS.ProcessEnv {
 		if (separator <= 0) continue;
 		const value = line.slice(separator + 1);
 		const escaped = /^\$'(.*)'$/s.exec(value);
-		environment[line.slice(0, separator)] = escaped ? unescapeCString(escaped[1]) : value;
+		const escapedValue = escaped?.[1];
+		environment[line.slice(0, separator)] = escapedValue === undefined ? value : unescapeCString(escapedValue);
 	}
 	return environment;
 }

@@ -148,7 +148,7 @@ function queueNotRunningNotice(
 	body: string,
 ): void {
 	const id = `${message.messageId}-not-running`;
-	const excerpt = body.split("\n")[0].slice(0, 120);
+	const excerpt = body.split("\n")[0]?.slice(0, 120) ?? "";
 	const session = recipient.agentId
 		? `agent ${recipient.agentId} in session ${recipient.sessionId}`
 		: `session ${recipient.sessionId}`;

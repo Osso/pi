@@ -63,7 +63,9 @@ function resolveLocalTime(wallTimestamp: number): Date {
 	if (candidates.length !== 1) {
 		throw new Error(`This local time is ambiguous because the timezone clock moves backward. ${INPUT_GUIDANCE}`);
 	}
-	return candidates[0];
+	const candidate = candidates[0];
+	if (candidate === undefined) throw new Error("reminder time candidate missing");
+	return candidate;
 }
 
 function readAbsoluteTime(iso: string): Date {

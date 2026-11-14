@@ -69,7 +69,11 @@ async function* readTranscriptEntriesReverse(path: string): AsyncGenerator<Sessi
 /** Search-only traversal, newest first. Never installs historical entries in model context. */
 export async function* readSessionHistoryReverse(manager: ReadonlySessionManager): AsyncGenerator<SessionEntry> {
 	const branch = manager.getBranch();
-	for (let index = branch.length - 1; index >= 0; index--) yield branch[index];
+	for (let index = branch.length - 1; index >= 0; index--) {
+		const entry = branch[index];
+		if (entry === undefined) throw new Error("session branch entry missing during reverse traversal");
+		yield entry;
+	}
 	let parentId = branch[0]?.parentId;
 	const path = manager.getSessionFile();
 	if (!parentId || !path) return;

@@ -224,7 +224,7 @@ function findFinalObjectBrace(content: string): number | undefined {
 
 function findNextNonWhitespace(content: string, start: number): number | undefined {
 	for (let index = start; index < content.length; index++) {
-		if (!/\s/.test(content[index])) {
+		if (!/\s/.test(content[index] ?? "")) {
 			return index;
 		}
 	}

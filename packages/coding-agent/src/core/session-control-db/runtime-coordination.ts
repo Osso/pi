@@ -48,6 +48,8 @@ export function resolveOwnMainRuntimeCoordinationRecipient(controlDbPath: string
 			)
 			.all(process.pid, RUNTIME_PROCESS_INSTANCE_ID) as Array<{ recipient_session_id: string }>;
 		if (rows.length !== 1) return undefined;
-		return { agentId: null, sessionId: rows[0].recipient_session_id };
+		const row = rows[0];
+		if (row === undefined) throw new Error("runtime coordination recipient row missing");
+		return { agentId: null, sessionId: row.recipient_session_id };
 	});
 }

@@ -648,10 +648,10 @@ export class ModelRegistry {
 			if (!builtInProviders.has(providerName)) return undefined;
 			if (builtInDefaultsCache.has(providerName)) return builtInDefaultsCache.get(providerName);
 			const builtIn = getModels(providerName as KnownProvider) as Model<Api>[];
-			if (builtIn.length === 0) return undefined;
-			const defaults = { api: builtIn[0].api, baseUrl: builtIn[0].baseUrl };
-			builtInDefaultsCache.set(providerName, defaults);
-			return defaults;
+			for (const first of builtIn) {
+				builtInDefaultsCache.set(providerName, { api: first.api, baseUrl: first.baseUrl });
+				return builtInDefaultsCache.get(providerName);
+			}
 		};
 
 		for (const [providerName, providerConfig] of Object.entries(config.providers)) {

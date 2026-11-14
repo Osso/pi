@@ -24,7 +24,9 @@ export function compactionRetryCooldownMs(errorMessage: string): number | undefi
 	if (!Number.isFinite(value) || value <= 0) {
 		return DEFAULT_COOLDOWN_MS;
 	}
-	const unit = hint[2].toLowerCase();
-	const factor = unit === "ms" ? 1 : unit.startsWith("m") ? 60_000 : 1_000;
+	const unit = hint[2];
+	if (unit === undefined) throw new Error("cooldown hint unit missing");
+	const normalizedUnit = unit.toLowerCase();
+	const factor = normalizedUnit === "ms" ? 1 : normalizedUnit.startsWith("m") ? 60_000 : 1_000;
 	return Math.min(MAX_COOLDOWN_MS, Math.max(MIN_COOLDOWN_MS, Math.round(value * factor)));
 }

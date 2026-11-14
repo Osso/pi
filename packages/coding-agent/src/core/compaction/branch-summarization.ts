@@ -118,8 +118,10 @@ export function collectEntriesForBranchSummary(
 	// targetPath is root-first, so iterate backwards to find deepest common ancestor
 	let commonAncestorId: string | null = null;
 	for (let i = targetPath.length - 1; i >= 0; i--) {
-		if (oldPath.has(targetPath[i].id)) {
-			commonAncestorId = targetPath[i].id;
+		const entry = targetPath[i];
+		if (entry === undefined) throw new Error("target path entry missing while finding common ancestor");
+		if (oldPath.has(entry.id)) {
+			commonAncestorId = entry.id;
 			break;
 		}
 	}
@@ -216,6 +218,7 @@ export function prepareBranchEntries(entries: SessionEntry[], tokenBudget: numbe
 	// Second pass: walk from newest to oldest, adding messages until token budget
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const entry = entries[i];
+		if (entry === undefined) throw new Error("session entry missing while summarizing branch");
 		const message = getMessageFromEntry(entry);
 		if (!message) continue;
 

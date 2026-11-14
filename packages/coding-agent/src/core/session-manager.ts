@@ -373,9 +373,9 @@ export function parseSessionEntries(content: string): FileEntry[] {
 }
 
 export function getLatestCompactionEntry(entries: SessionEntry[]): CompactionEntry | null {
-	for (let i = entries.length - 1; i >= 0; i--) {
-		if (entries[i].type === "compaction") {
-			return entries[i] as CompactionEntry;
+	for (const entry of [...entries].reverse()) {
+		if (entry.type === "compaction") {
+			return entry as CompactionEntry;
 		}
 	}
 	return null;
@@ -466,8 +466,7 @@ function messageFromContextEntry(entry: SessionEntry): AgentMessage | undefined 
 function collectKeptEntries(path: SessionEntry[], compaction: CompactionEntry, compactionIdx: number): SessionEntry[] {
 	const keptEntries: SessionEntry[] = [];
 	let foundFirstKept = false;
-	for (let i = 0; i < compactionIdx; i++) {
-		const entry = path[i];
+	for (const entry of path.slice(0, Math.max(0, compactionIdx))) {
 		if (entry.id === compaction.firstKeptEntryId) {
 			foundFirstKept = true;
 		}
@@ -520,8 +519,7 @@ export function buildContextEntries(
 
 	const contextEntries: SessionEntry[] = [compaction];
 	let foundFirstKept = false;
-	for (let i = 0; i < compactionIdx; i++) {
-		const entry = path[i];
+	for (const entry of path.slice(0, Math.max(0, compactionIdx))) {
 		if (entry.id === compaction.firstKeptEntryId) {
 			foundFirstKept = true;
 		}
@@ -835,6 +833,7 @@ export function loadEntriesFromFile(filePath: string): FileEntry[] {
 	// Validate session header
 	if (entries.length === 0) return entries;
 	const header = entries[0];
+	if (header === undefined) throw new Error("session header missing");
 	if (header.type !== "session" || typeof (header as { id?: unknown }).id !== "string") {
 		return [];
 	}

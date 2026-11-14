@@ -170,6 +170,7 @@ function buildFallbackModel(provider: string, modelId: string, availableModels: 
 		? (providerModels.find((m) => m.id === defaultId) ?? providerModels[0])
 		: providerModels[0];
 
+	if (baseModel === undefined) throw new Error(`default model not found for provider ${provider}`);
 	return {
 		...baseModel,
 		id: modelId,
@@ -590,9 +591,11 @@ export async function findInitialModel(options: {
 
 	// 2. Use first model from scoped models (skip if continuing/resuming)
 	if (scopedModels.length > 0 && !isContinuing) {
+		const firstScopedModel = scopedModels[0];
+		if (firstScopedModel === undefined) throw new Error("scoped model missing");
 		return {
-			model: scopedModels[0].model,
-			thinkingLevel: scopedModels[0].thinkingLevel ?? defaultThinkingLevel ?? DEFAULT_THINKING_LEVEL,
+			model: firstScopedModel.model,
+			thinkingLevel: firstScopedModel.thinkingLevel ?? defaultThinkingLevel ?? DEFAULT_THINKING_LEVEL,
 			fallbackMessage: undefined,
 		};
 	}
@@ -689,6 +692,8 @@ export async function restoreModelFromSession(
 		if (!fallbackModel) {
 			fallbackModel = availableModels[0];
 		}
+
+		if (fallbackModel === undefined) throw new Error("fallback model missing while restoring model");
 
 		if (shouldPrintMessages) {
 			console.log(chalk.dim(`Falling back to: ${fallbackModel.provider}/${fallbackModel.id}`));

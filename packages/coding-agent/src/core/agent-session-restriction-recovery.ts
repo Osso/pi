@@ -75,6 +75,7 @@ export class CodexRestrictionRecoveryState {
 		const entries = this.dependencies.getSessionManager().getBranch();
 		for (let index = entries.length - 1; index >= 0; index--) {
 			const entry = entries[index];
+			if (entry === undefined) throw new Error("session entry missing while scanning restriction context");
 			if (entry.type !== "custom" || entry.customType !== CODEX_RESTRICTION_CONTEXT_ENTRY) continue;
 			const data = entry.data;
 			if (typeof data !== "object" || data === null) return undefined;

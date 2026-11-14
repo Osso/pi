@@ -373,7 +373,9 @@ export function migrateLegacyMultiAgentPayloadTable(
 		}
 		const migrated = stripLegacyArtifactFields(parsed);
 		if (!migrated.changed) continue;
-		update.run(JSON.stringify(migrated.value), now, row.session_path, row[idColumn]);
+		const id = row[idColumn];
+		if (id === undefined) throw new Error(`session row is missing ${idColumn}`);
+		update.run(JSON.stringify(migrated.value), now, row.session_path, id);
 	}
 }
 

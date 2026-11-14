@@ -11,6 +11,7 @@ function readProtobufVarint(bytes: Uint8Array, offset: number): { value: number;
 	let value = 0;
 	for (let shift = 0; offset < bytes.length && shift < 35; shift += 7) {
 		const byte = bytes[offset++];
+		if (byte === undefined) throw new Error("truncated varint");
 		value += (byte & 0x7f) * 2 ** shift;
 		if (byte < 0x80) return { value, end: offset };
 	}

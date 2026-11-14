@@ -202,8 +202,7 @@ function getAssistantUsage(msg: AgentMessage): Usage | undefined {
  * Find the last valid assistant message usage from session entries.
  */
 export function getLastAssistantUsage(entries: SessionEntry[]): Usage | undefined {
-	for (let i = entries.length - 1; i >= 0; i--) {
-		const entry = entries[i];
+	for (const entry of [...entries].reverse()) {
 		if (entry.type === "message") {
 			const usage = getAssistantUsage(entry.message);
 			if (usage) return usage;
@@ -220,9 +219,9 @@ export interface ContextUsageEstimate {
 }
 
 function getLastAssistantUsageInfo(messages: AgentMessage[]): { usage: Usage; index: number } | undefined {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const usage = getAssistantUsage(messages[i]);
-		if (usage) return { usage, index: i };
+	for (const [reverseIndex, message] of [...messages].reverse().entries()) {
+		const usage = getAssistantUsage(message);
+		if (usage) return { usage, index: messages.length - reverseIndex - 1 };
 	}
 	return undefined;
 }
@@ -249,8 +248,8 @@ export function estimateContextTokens(messages: AgentMessage[]): ContextUsageEst
 
 	const usageTokens = calculateContextTokens(usageInfo.usage);
 	let trailingTokens = 0;
-	for (let i = usageInfo.index + 1; i < messages.length; i++) {
-		trailingTokens += estimateTokens(messages[i]);
+	for (const message of messages.slice(usageInfo.index + 1)) {
+		trailingTokens += estimateTokens(message);
 	}
 
 	return {
@@ -353,10 +352,10 @@ function findRecentMessagesStartIndex(
 	keepRecentMessages: number,
 ): number {
 	let messageCount = 0;
-	for (let i = endIndex - 1; i >= startIndex; i--) {
-		if (!getMessageFromEntry(entries[i])) continue;
+	for (const [reverseIndex, entry] of [...entries.slice(startIndex, endIndex)].reverse().entries()) {
+		if (!getMessageFromEntry(entry)) continue;
 		messageCount++;
-		if (messageCount >= keepRecentMessages) return i;
+		if (messageCount >= keepRecentMessages) return endIndex - reverseIndex - 1;
 	}
 	return startIndex;
 }
@@ -364,6 +363,7 @@ function findRecentMessagesStartIndex(
 /** Nearest cut point at or before `index`, so a kept tool result keeps its tool call. */
 function findCutPointAtOrBefore(cutPoints: number[], index: number): number {
 	let result = cutPoints[0];
+	if (result === undefined) throw new Error("cut points are empty");
 	for (const cutPoint of cutPoints) {
 		if (cutPoint > index) break;
 		result = cutPoint;
@@ -372,8 +372,8 @@ function findCutPointAtOrBefore(cutPoints: number[], index: number): number {
 }
 
 function findProtectedSuffixStartIndex(entries: SessionEntry[], startIndex: number, endIndex: number): number {
-	for (let i = endIndex - 1; i >= startIndex; i--) {
-		if (entries[i].type === "compaction") return i + 1;
+	for (const [reverseIndex, entry] of [...entries.slice(startIndex, endIndex)].reverse().entries()) {
+		if (entry.type === "compaction") return endIndex - reverseIndex;
 	}
 	return startIndex;
 }
@@ -397,8 +397,7 @@ function isTurnStartEntry(entry: SessionEntry): boolean {
  */
 function findValidCutPoints(entries: SessionEntry[], startIndex: number, endIndex: number): number[] {
 	const cutPoints: number[] = [];
-	for (let i = startIndex; i < endIndex; i++) {
-		const entry = entries[i];
+	for (const [offset, entry] of entries.slice(startIndex, endIndex).entries()) {
 		switch (entry.type) {
 			case "message": {
 				const role = entry.message.role;
@@ -409,7 +408,7 @@ function findValidCutPoints(entries: SessionEntry[], startIndex: number, endInde
 					case "compactionSummary":
 					case "user":
 					case "assistant":
-						cutPoints.push(i);
+						cutPoints.push(startIndex + offset);
 						break;
 					case "toolResult":
 						break;
@@ -429,7 +428,7 @@ function findValidCutPoints(entries: SessionEntry[], startIndex: number, endInde
 
 		// branch_summary and custom_message are user-role messages, valid cut points
 		if (entry.type === "branch_summary" || entry.type === "custom_message") {
-			cutPoints.push(i);
+			cutPoints.push(startIndex + offset);
 		}
 	}
 	return cutPoints;
@@ -441,10 +440,9 @@ function findValidCutPoints(entries: SessionEntry[], startIndex: number, endInde
  * BashExecutionMessage is treated like a user message for turn boundaries.
  */
 export function findTurnStartIndex(entries: SessionEntry[], entryIndex: number, startIndex: number): number {
-	for (let i = entryIndex; i >= startIndex; i--) {
-		const entry = entries[i];
+	for (const [reverseIndex, entry] of [...entries.slice(startIndex, entryIndex + 1)].reverse().entries()) {
 		if (isTurnStartEntry(entry)) {
-			return i;
+			return entryIndex - reverseIndex;
 		}
 	}
 	return -1;
@@ -495,6 +493,7 @@ export function findCutPoint(
 	while (cutIndex > startIndex) {
 		const prevEntry = entries[cutIndex - 1];
 		// Stop at session header or compaction boundaries
+		if (prevEntry === undefined) throw new Error("previous session entry missing while finding turn start");
 		if (prevEntry.type === "compaction") {
 			break;
 		}
@@ -512,6 +511,7 @@ export function findCutPoint(
 
 	// Determine if this is a split turn
 	const cutEntry = entries[cutIndex];
+	if (cutEntry === undefined) throw new Error("cut session entry missing");
 	const isUserMessage = cutEntry.type === "message" && cutEntry.message.role === "user";
 	const turnStartIndex = isUserMessage ? -1 : findTurnStartIndex(entries, cutIndex, startIndex);
 
@@ -823,14 +823,14 @@ export function prepareCompaction(
 	pathEntries: SessionEntry[],
 	settings: CompactionSettings,
 ): CompactionPreparation | undefined {
-	if (pathEntries.length > 0 && pathEntries[pathEntries.length - 1].type === "compaction") {
+	if (pathEntries.at(-1)?.type === "compaction") {
 		return undefined;
 	}
 
 	let prevCompactionIndex = -1;
-	for (let i = pathEntries.length - 1; i >= 0; i--) {
-		if (pathEntries[i].type === "compaction") {
-			prevCompactionIndex = i;
+	for (const [reverseIndex, entry] of [...pathEntries].reverse().entries()) {
+		if (entry.type === "compaction") {
+			prevCompactionIndex = pathEntries.length - reverseIndex - 1;
 			break;
 		}
 	}
@@ -860,16 +860,16 @@ export function prepareCompaction(
 
 	// Messages to summarize (will be discarded after summary)
 	const messagesToSummarize: AgentMessage[] = [];
-	for (let i = boundaryStart; i < historyEnd; i++) {
-		const msg = getMessageFromEntryForCompaction(pathEntries[i]);
+	for (const entry of pathEntries.slice(boundaryStart, historyEnd)) {
+		const msg = getMessageFromEntryForCompaction(entry);
 		if (msg) messagesToSummarize.push(msg);
 	}
 
 	// Messages for turn prefix summary (if splitting a turn)
 	const turnPrefixMessages: AgentMessage[] = [];
 	if (cutPoint.isSplitTurn) {
-		for (let i = cutPoint.turnStartIndex; i < cutPoint.firstKeptEntryIndex; i++) {
-			const msg = getMessageFromEntryForCompaction(pathEntries[i]);
+		for (const entry of pathEntries.slice(cutPoint.turnStartIndex, cutPoint.firstKeptEntryIndex)) {
+			const msg = getMessageFromEntryForCompaction(entry);
 			if (msg) turnPrefixMessages.push(msg);
 		}
 	}

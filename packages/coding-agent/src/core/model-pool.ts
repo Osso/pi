@@ -42,6 +42,7 @@ interface MemberCooldown {
 
 function createPoolModel(name: string, members: Model<Api>[]): Model<Api> {
 	const first = members[0];
+	if (first === undefined) throw new Error("pool has no member models");
 	const supportedLevels = members.map((member) => getSupportedThinkingLevels(member));
 	const thinkingLevelMap: NonNullable<Model<Api>["thinkingLevelMap"]> = {};
 	for (const level of THINKING_LEVELS) {

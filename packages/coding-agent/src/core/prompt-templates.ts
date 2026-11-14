@@ -40,7 +40,7 @@ export function parseCommandArgs(argsString: string): string[] {
 		} else if (char === '"' || char === "'") {
 			inQuote = char;
 			inArg = true;
-		} else if (/\s/.test(char)) {
+		} else if (/\s/.test(char ?? "")) {
 			if (inArg) {
 				args.push(current);
 				current = "";
