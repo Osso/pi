@@ -1,14 +1,33 @@
 import { isMailboxMessageExpired } from "./mailbox-retention.ts";
+import {
+	consumeCompletionNotificationsForAgent,
+	consumeFailureNotificationsForAgent,
+	contactParent,
+	expireMailboxMessages,
+	isActiveLifecycle,
+	listMailboxMessages,
+	listPendingLifecycleNotifications,
+	listPendingLifecycleNotificationsForAgent,
+	listPendingMailboxMessagesForAgent,
+	markMailboxMessageDelivered,
+	markMailboxMessageFailed,
+	prepareSteeringMessageForLifecycleCoordinator,
+	publishLifecycleCoordinatorSnapshot,
+	publishLifecycleCoordinatorSteering,
+	publishLifecycleCoordinatorSteeringDelivery,
+	publishTerminalOutboxSnapshot,
+	recordOutboundSessionMessage,
+	sendMailboxMessage,
+	sendMainThreadMailboxMessage,
+} from "./multi-agent-mailbox-state.ts";
 import type {
 	ActiveAgentTargetSelectionResult,
 	AgentCommandResult,
 	AgentCurrentActivity,
 	AgentCurrentActivityOwner,
 	AgentFileReference,
-	AgentLifecycleNotificationInput,
 	AgentLifecycleNotificationLifecycle,
 	AgentLifecycleNotificationListener,
-	AgentLifecycleState,
 	AgentMailboxMessage,
 	AgentMetadataCommandResult,
 	AgentNode,
@@ -29,14 +48,7 @@ import type {
 	SendMailboxMessageInput,
 	SendSteeringInput,
 } from "./multi-agent-types.ts";
-import {
-	COMPLETION_NOTIFICATION_THREAD_PREFIX,
-	FAILED_NOTIFICATION_THREAD_PREFIX,
-	LIFECYCLE_NOTIFICATION_LIFECYCLES,
-	MAIN_THREAD_AGENT_ID,
-	TERMINAL_STATES,
-	WAITING_FOR_INPUT_NOTIFICATION_THREAD_PREFIX,
-} from "./multi-agent-types.ts";
+import { MAIN_THREAD_AGENT_ID, TERMINAL_STATES } from "./multi-agent-types.ts";
 import type { SessionManager } from "./session-manager.ts";
 
 export type {
@@ -80,20 +92,10 @@ export type {
 	TerminalAgentLifecycleState,
 } from "./multi-agent-types.ts";
 
-import {
-	copyAgent,
-	copyFileRefs,
-	copyMessage,
-	copyTranscript,
-	validateFileRefs,
-	validateOptionalPath,
-} from "./multi-agent-snapshots.ts";
+import { copyAgent, copyMessage, copyTranscript, validateOptionalPath } from "./multi-agent-snapshots.ts";
 import {
 	allocateMultiAgentCounter,
-	consumeRuntimeMailboxMessageByStoreRef,
-	listLiveMultiAgentMailboxMessageIds,
 	type MultiAgentPersistedState,
-	markMultiAgentMailboxMessageFailed,
 	readMultiAgentState,
 	updateMultiAgentAgentActivity,
 	updateMultiAgentAgentCurrentActivity,
@@ -101,21 +103,25 @@ import {
 	updateMultiAgentAgentModel,
 	updateMultiAgentAgentSlot,
 	updateMultiAgentAgentTranscript,
-	upsertMultiAgentMailboxMessage,
 } from "./session-control-db.ts";
 
 export class MultiAgentStore {
-	private readonly agents = new Map<string, AgentNode>();
-	private readonly mailboxMessages = new Map<string, AgentMailboxMessage>();
-	private readonly lifecycleNotificationListeners = new Set<AgentLifecycleNotificationListener>();
+	/** @internal */
+	readonly agents = new Map<string, AgentNode>();
+	/** @internal */
+	readonly mailboxMessages = new Map<string, AgentMailboxMessage>();
+	/** @internal */
+	readonly lifecycleNotificationListeners = new Set<AgentLifecycleNotificationListener>();
 	private readonly transitionListeners = new Set<AgentTransitionListener>();
 	private readonly updateListeners = new Set<AgentUpdateListener>();
 	private readonly abortHandlers = new Map<string, () => void>();
-	private readonly now: () => string;
+	/** @internal */
+	readonly now: () => string;
 	private nextAgentNumber = 1;
 	private nextMessageNumber = 1;
 	private restoreGeneration = 0;
-	private persistence: { controlDbPath: string; sessionPath: string } | undefined;
+	/** @internal */
+	persistence: { controlDbPath: string; sessionPath: string } | undefined;
 	private selectedAgentId: string | undefined;
 
 	constructor(options: MultiAgentStoreOptions = {}) {
@@ -161,72 +167,23 @@ export class MultiAgentStore {
 	}
 
 	prepareSteeringMessageForLifecycleCoordinator(agentId: string, input: SendSteeringInput): AgentMailboxMessage {
-		const timestamp = this.now();
-		return {
-			body: input.body,
-			createdAt: timestamp,
-			fileRefs: validateFileRefs(input.fileRefs, "steer_agent"),
-			fromAgentId: input.fromAgentId,
-			id: this.createMessageId(),
-			kind: "steer",
-			status: "pending",
-			targetCheckpoint: input.targetCheckpoint,
-			threadId: input.threadId,
-			toAgentId: agentId,
-			updatedAt: timestamp,
-		};
+		return prepareSteeringMessageForLifecycleCoordinator(this, agentId, input);
 	}
 
 	publishLifecycleCoordinatorSteering(agent: AgentSnapshot, message: AgentMailboxMessage): void {
-		const previous = this.agents.get(agent.id);
-		const current = copyAgent(agent);
-		if (!isMailboxMessageExpired(message.createdAt, Date.parse(this.now()))) {
-			this.mailboxMessages.set(message.id, copyMessage(message));
-		}
-		this.agents.set(agent.id, current);
-		if (!previous) return;
-		this.notifyAgentUpdateListeners(previous, current);
-		this.notifyTransitionListenersIfLifecycleChanged(previous, current);
+		publishLifecycleCoordinatorSteering(this, agent, message);
 	}
 
 	publishLifecycleCoordinatorSteeringDelivery(agent: AgentSnapshot, message: AgentMailboxMessage): void {
-		this.mailboxMessages.delete(message.id);
-		this.publishLifecycleCoordinatorSnapshot(agent);
+		publishLifecycleCoordinatorSteeringDelivery(this, agent, message);
 	}
 
 	publishLifecycleCoordinatorSnapshot(agent: AgentSnapshot): void {
-		const previous = this.agents.get(agent.id);
-		const current = copyAgent(agent);
-		this.agents.set(agent.id, current);
-		if (!previous) {
-			this.clearSelectedTerminalAgent(current);
-			return;
-		}
-		this.notifyAgentUpdateListeners(previous, current);
-		if (previous.lifecycle !== current.lifecycle) {
-			if (current.lifecycle === "waiting_for_input") this.recordWaitingForInputNotification(current);
-			this.notifyTransitionListenersIfLifecycleChanged(previous, current);
-		}
-		this.clearSelectedTerminalAgent(current);
+		publishLifecycleCoordinatorSnapshot(this, agent);
 	}
 
 	publishTerminalOutboxSnapshot(agent: AgentSnapshot): void {
-		const previous = this.agents.get(agent.id);
-		const current = copyAgent(agent);
-		this.agents.set(agent.id, current);
-		if (current.suppressTerminalNotification !== true) {
-			if (current.lifecycle === "completed") this.retryOrRecordTerminalNotification(current, "completed");
-			if (current.lifecycle === "failed" || current.lifecycle === "aborted") {
-				this.retryOrRecordTerminalNotification(current, "failed");
-			}
-		}
-		if (!previous) {
-			this.clearSelectedTerminalAgent(current);
-			return;
-		}
-		this.notifyAgentUpdateListeners(previous, current);
-		this.notifyTransitionListenersIfLifecycleChanged(previous, current);
-		this.clearSelectedTerminalAgent(current);
+		publishTerminalOutboxSnapshot(this, agent);
 	}
 
 	selectAgentView(agentId: string): AgentSnapshot | undefined {
@@ -304,7 +261,8 @@ export class MultiAgentStore {
 		this.selectedAgentId = undefined;
 	}
 
-	private clearSelectedTerminalAgent(agent: AgentSnapshot): void {
+	/** @internal */
+	clearSelectedTerminalAgent(agent: AgentSnapshot): void {
 		if (this.selectedAgentId === agent.id && TERMINAL_STATES.has(agent.lifecycle)) {
 			this.selectedAgentId = undefined;
 		}
@@ -339,105 +297,43 @@ export class MultiAgentStore {
 	}
 
 	expireMailboxMessages(now: number): void {
-		if (this.mailboxMessages.size === 0) return;
-		const liveIds = this.persistence
-			? listLiveMultiAgentMailboxMessageIds(this.persistence.controlDbPath, this.persistence.sessionPath)
-			: undefined;
-		for (const [id, message] of this.mailboxMessages) {
-			if (isMailboxMessageExpired(message.createdAt, now) || (liveIds && !liveIds.has(id))) {
-				this.mailboxMessages.delete(id);
-			}
-		}
+		expireMailboxMessages(this, now);
 	}
 
 	listMailboxMessages(): AgentMailboxMessage[] {
-		this.expireMailboxMessages(Date.parse(this.now()));
-		return Array.from(this.mailboxMessages.values(), copyMessage);
+		return listMailboxMessages(this);
 	}
 
 	listPendingMailboxMessagesForAgent(agentId: string): AgentMailboxMessage[] {
-		return this.listMailboxMessages().filter(
-			(message) => message.toAgentId === agentId && message.status === "pending",
-		);
+		return listPendingMailboxMessagesForAgent(this, agentId);
 	}
 
 	markMailboxMessageDelivered(messageId: string): AgentMailboxMessage | undefined {
-		const message = this.mailboxMessages.get(messageId);
-		if (!message || isMailboxMessageExpired(message.createdAt, Date.parse(this.now()))) return undefined;
-		if (this.persistence) {
-			consumeRuntimeMailboxMessageByStoreRef(this.persistence.controlDbPath, {
-				messageId,
-				sessionPath: this.persistence.sessionPath,
-			});
-		}
-		this.mailboxMessages.delete(messageId);
-		return copyMessage(message);
+		return markMailboxMessageDelivered(this, messageId);
 	}
 
 	markMailboxMessageFailed(messageId: string, error: string): AgentMailboxMessage | undefined {
-		const message = this.mailboxMessages.get(messageId);
-		if (!message || message.status !== "pending") return undefined;
-		if (isMailboxMessageExpired(message.createdAt, Date.parse(this.now()))) {
-			return undefined;
-		}
-
-		if (
-			this.persistence &&
-			!markMultiAgentMailboxMessageFailed(
-				this.persistence.controlDbPath,
-				this.persistence.sessionPath,
-				messageId,
-				error,
-			)
-		) {
-			this.mailboxMessages.delete(messageId);
-			return undefined;
-		}
-		const updated = { ...message, error, status: "failed" as const, updatedAt: this.now() };
-		this.mailboxMessages.set(messageId, updated);
-		return copyMessage(updated);
+		return markMailboxMessageFailed(this, messageId, error);
 	}
 
 	consumeCompletionNotificationsForAgent(agentId: string): AgentMailboxMessage[] {
-		return this.consumeLifecycleNotificationsForAgent(agentId, "completed");
+		return consumeCompletionNotificationsForAgent(this, agentId);
 	}
 
 	consumeFailureNotificationsForAgent(agentId: string): AgentMailboxMessage[] {
-		return this.consumeLifecycleNotificationsForAgent(agentId, "failed");
-	}
-
-	private consumeLifecycleNotificationsForAgent(
-		agentId: string,
-		lifecycle: AgentLifecycleNotificationLifecycle,
-	): AgentMailboxMessage[] {
-		const consumed: AgentMailboxMessage[] = [];
-		for (const message of this.listMailboxMessages()) {
-			if (!isPendingLifecycleNotification(message, agentId, lifecycle)) {
-				continue;
-			}
-			const delivered = this.markMailboxMessageDelivered(message.id);
-			if (delivered) consumed.push(delivered);
-		}
-		return consumed;
+		return consumeFailureNotificationsForAgent(this, agentId);
 	}
 
 	listPendingLifecycleNotificationsForAgent(
 		agentId: string,
 		lifecycle: AgentLifecycleNotificationLifecycle,
 	): AgentMailboxMessage[] {
-		return this.listMailboxMessages().filter((message) =>
-			isPendingLifecycleNotification(message, agentId, lifecycle),
-		);
+		return listPendingLifecycleNotificationsForAgent(this, agentId, lifecycle);
 	}
 
 	/** Pending lifecycle notifications in mailbox order, derived from mailbox rows instead of agent history. */
 	listPendingLifecycleNotifications(): PendingLifecycleNotification[] {
-		return this.listMailboxMessages().flatMap((message) => {
-			const lifecycle = LIFECYCLE_NOTIFICATION_LIFECYCLES.find((candidate) =>
-				isPendingLifecycleNotification(message, message.fromAgentId, candidate),
-			);
-			return lifecycle ? [{ agentId: message.fromAgentId, lifecycle, message }] : [];
-		});
+		return listPendingLifecycleNotifications(this);
 	}
 
 	getProjectionSnapshot(): MultiAgentProjectionSnapshot {
@@ -578,69 +474,11 @@ export class MultiAgentStore {
 	}
 
 	contactParent(agentId: string, input: ContactParentInput): ParentContactResult {
-		const current = this.agents.get(agentId);
-		if (!current) {
-			return { ok: false, error: "not_found", agentId };
-		}
-
-		const fileRefs = validateFileRefs(input.fileRefs, "contact_parent");
-		if (!current.parentId) {
-			return { ok: false, error: "parent_not_found", current: copyAgent(current) };
-		}
-
-		const timestamp = this.now();
-		const message: AgentMailboxMessage = {
-			id: this.createMessageId(),
-			threadId: input.threadId,
-			fromAgentId: current.id,
-			toAgentId: current.parentId,
-			kind: "parent_request",
-			status: "pending",
-			createdAt: timestamp,
-			updatedAt: timestamp,
-			body: input.body,
-			fileRefs,
-		};
-		this.putMailboxMessage(message);
-
-		const updated = this.updateAgentMetadata(current, {
-			lastActivity: { description: "Contacted parent" },
-		});
-
-		return { ok: true, agent: copyAgent(updated), message: copyMessage(message) };
+		return contactParent(this, agentId, input);
 	}
 
 	sendMainThreadMailboxMessage(input: SendMailboxMessageInput): MailboxMessageCommandResult {
-		const target = this.agents.get(input.toAgentId);
-		const mainThread = this.createMainThreadSnapshot();
-		if (!target) {
-			return { ok: false, error: "target_not_found", current: mainThread, targetId: input.toAgentId };
-		}
-
-		if (!this.isMainThreadChild(target)) {
-			return { ok: false, error: "forbidden_target", current: mainThread, target: copyAgent(target) };
-		}
-
-		const timestamp = this.now();
-		const message: AgentMailboxMessage = {
-			id: this.createMessageId(),
-			threadId: input.threadId,
-			fromAgentId: MAIN_THREAD_AGENT_ID,
-			toAgentId: target.id,
-			kind: "message",
-			status: "pending",
-			createdAt: timestamp,
-			updatedAt: timestamp,
-			body: input.body,
-			fileRefs: validateFileRefs(input.fileRefs, "send_agent_message"),
-		};
-		this.putMailboxMessage(message);
-
-		const updated = this.updateAgentMetadata(target, {
-			lastActivity: { description: "Received mailbox message" },
-		});
-
-		return { ok: true, agent: copyAgent(updated), message: copyMessage(message) };
+		return sendMainThreadMailboxMessage(this, input);
 	}
 
 	sendMailboxMessage(
@@ -648,45 +486,7 @@ export class MultiAgentStore {
 		expectedRevision: number,
 		input: SendMailboxMessageInput,
 	): MailboxMessageCommandResult {
-		const current = this.agents.get(agentId);
-		if (!current) {
-			return { ok: false, error: "not_found", agentId };
-		}
-
-		const revisionCheck = this.checkRevision(current, expectedRevision);
-		if (revisionCheck) {
-			return revisionCheck;
-		}
-
-		const target = this.agents.get(input.toAgentId);
-		if (!target) {
-			return { ok: false, error: "target_not_found", current: copyAgent(current), targetId: input.toAgentId };
-		}
-
-		if (!this.canSendDirectMessage(current.id, target.id)) {
-			return { ok: false, error: "forbidden_target", current: copyAgent(current), target: copyAgent(target) };
-		}
-
-		const timestamp = this.now();
-		const message: AgentMailboxMessage = {
-			id: this.createMessageId(),
-			threadId: input.threadId,
-			fromAgentId: current.id,
-			toAgentId: target.id,
-			kind: "message",
-			status: "pending",
-			createdAt: timestamp,
-			updatedAt: timestamp,
-			body: input.body,
-			fileRefs: validateFileRefs(input.fileRefs, "send_agent_message"),
-		};
-		this.putMailboxMessage(message);
-
-		const updated = this.updateAgentMetadata(current, {
-			lastActivity: { description: "Sent mailbox message" },
-		});
-
-		return { ok: true, agent: copyAgent(updated), message: copyMessage(message) };
+		return sendMailboxMessage(this, agentId, expectedRevision, input);
 	}
 
 	/** Record a message addressed to another session; the target is not an agent in this store. */
@@ -697,21 +497,7 @@ export class MultiAgentStore {
 		threadId?: string;
 		fileRefs?: AgentFileReference[];
 	}): AgentMailboxMessage {
-		const timestamp = this.now();
-		const message: AgentMailboxMessage = {
-			fileRefs: validateFileRefs(input.fileRefs, "record_outbound_session_message"),
-			body: input.body,
-			createdAt: timestamp,
-			fromAgentId: input.fromAgentId,
-			id: this.createMessageId(),
-			kind: "message",
-			status: "pending",
-			threadId: input.threadId,
-			toAgentId: input.toAgentId,
-			updatedAt: timestamp,
-		};
-		this.putMailboxMessage(message);
-		return copyMessage(message);
+		return recordOutboundSessionMessage(this, input);
 	}
 
 	getRestoreGeneration(): number {
@@ -781,15 +567,6 @@ export class MultiAgentStore {
 		return { ...restored, worker: undefined };
 	}
 
-	private putMailboxMessage(message: AgentMailboxMessage): void {
-		if (isMailboxMessageExpired(message.createdAt, Date.parse(this.now()))) return;
-		this.mailboxMessages.set(message.id, message);
-		if (!this.persistence) {
-			return;
-		}
-		upsertMultiAgentMailboxMessage(this.persistence.controlDbPath, this.persistence.sessionPath, message.id, message);
-	}
-
 	private listSlotProjections(): AgentSlotProjection[] {
 		return Array.from(this.agents.values())
 			.filter((agent): agent is AgentNode & { slot: NonNullable<AgentNode["slot"]> } => agent.slot !== undefined)
@@ -845,17 +622,20 @@ export class MultiAgentStore {
 		return undefined;
 	}
 
-	private canSendDirectMessage(fromAgentId: string, toAgentId: string): boolean {
+	/** @internal */
+	canSendDirectMessage(fromAgentId: string, toAgentId: string): boolean {
 		const sender = this.agents.get(fromAgentId);
 		const recipient = this.agents.get(toAgentId);
 		return sender?.parentId === toAgentId || recipient?.parentId === fromAgentId;
 	}
 
-	private isMainThreadChild(agent: AgentNode): boolean {
+	/** @internal */
+	isMainThreadChild(agent: AgentNode): boolean {
 		return (agent.parentId ?? MAIN_THREAD_AGENT_ID) === MAIN_THREAD_AGENT_ID;
 	}
 
-	private createMainThreadSnapshot(): AgentSnapshot {
+	/** @internal */
+	createMainThreadSnapshot(): AgentSnapshot {
 		const timestamp = this.now();
 		return {
 			agentType: "main",
@@ -871,7 +651,8 @@ export class MultiAgentStore {
 		};
 	}
 
-	private checkRevision(
+	/** @internal */
+	checkRevision(
 		current: AgentNode,
 		expectedRevision: number,
 	): Extract<AgentCommandResult, { ok: false; error: "stale_revision" }> | undefined {
@@ -935,7 +716,8 @@ export class MultiAgentStore {
 		return updateMultiAgentAgentModel(dbPath, sessionPath, current.id, updates.model, updatedAt, owner);
 	}
 
-	private updateAgentMetadata(
+	/** @internal */
+	updateAgentMetadata(
 		current: AgentNode,
 		updates: Partial<
 			Pick<AgentNode, "currentActivity" | "displayName" | "lastActivity" | "model" | "slot" | "transcript">
@@ -954,88 +736,8 @@ export class MultiAgentStore {
 		return updated;
 	}
 
-	private retryOrRecordTerminalNotification(
-		agent: AgentNode,
-		lifecycle: Extract<AgentLifecycleNotificationLifecycle, "completed" | "failed">,
-	): void {
-		const existing = this.listPendingLifecycleNotificationsForAgent(agent.id, lifecycle)[0];
-		if (existing) {
-			this.notifyLifecycleNotificationListeners(existing);
-			return;
-		}
-		if (lifecycle === "completed") {
-			this.recordCompletionNotification(agent);
-			return;
-		}
-		this.recordFailureNotification(agent);
-	}
-
-	private recordCompletionNotification(agent: AgentNode): void {
-		if (this.hasPendingLifecycleNotification(agent.id, "completed")) {
-			return;
-		}
-
-		this.recordLifecycleNotification(agent, {
-			body: formatCompletionNotificationBody(agent),
-			fileRefs: copyFileRefs(agent.result?.fileRefs),
-			threadId: completionNotificationThreadId(agent.id),
-		});
-	}
-
-	private recordFailureNotification(agent: AgentNode): void {
-		if (this.hasPendingLifecycleNotification(agent.id, "failed")) {
-			return;
-		}
-
-		this.recordLifecycleNotification(agent, {
-			body: formatFailureNotificationBody(agent),
-			fileRefs: copyFileRefs(agent.result?.fileRefs),
-			threadId: failedNotificationThreadId(agent.id),
-		});
-	}
-
-	private recordWaitingForInputNotification(agent: AgentNode): void {
-		if (this.hasPendingLifecycleNotification(agent.id, "waiting_for_input")) {
-			return;
-		}
-
-		this.recordLifecycleNotification(agent, {
-			body: formatWaitingForInputNotificationBody(agent),
-			threadId: waitingForInputNotificationThreadId(agent.id),
-		});
-	}
-
-	private recordLifecycleNotification(agent: AgentNode, input: AgentLifecycleNotificationInput): void {
-		const timestamp = this.now();
-		if (isMailboxMessageExpired(agent.updatedAt, Date.parse(timestamp))) return;
-		const message: AgentMailboxMessage = {
-			body: input.body,
-			createdAt: timestamp,
-			fromAgentId: agent.id,
-			id: this.createMessageId(),
-			kind: "system",
-			status: "pending",
-			threadId: input.threadId,
-			toAgentId: agent.parentId ?? MAIN_THREAD_AGENT_ID,
-			updatedAt: timestamp,
-			fileRefs: validateFileRefs(input.fileRefs, "lifecycle_notification"),
-		};
-		this.putMailboxMessage(message);
-		this.notifyLifecycleNotificationListeners(message);
-	}
-
-	private notifyLifecycleNotificationListeners(message: AgentMailboxMessage): void {
-		const snapshot = copyMessage(message);
-		for (const listener of this.lifecycleNotificationListeners) {
-			try {
-				listener(snapshot);
-			} catch (error) {
-				console.error("MultiAgentStore lifecycle notification listener failed:", error);
-			}
-		}
-	}
-
-	private notifyTransitionListenersIfLifecycleChanged(previous: AgentNode, current: AgentNode): void {
+	/** @internal */
+	notifyTransitionListenersIfLifecycleChanged(previous: AgentNode, current: AgentNode): void {
 		if (previous.lifecycle !== current.lifecycle) {
 			this.notifyTransitionListeners(previous, current);
 		}
@@ -1053,7 +755,8 @@ export class MultiAgentStore {
 		}
 	}
 
-	private notifyAgentUpdateListeners(previous: AgentNode, current: AgentNode): void {
+	/** @internal */
+	notifyAgentUpdateListeners(previous: AgentNode, current: AgentNode): void {
 		const previousSnapshot = copyAgent(previous);
 		const currentSnapshot = copyAgent(current);
 		for (const listener of this.updateListeners) {
@@ -1065,22 +768,13 @@ export class MultiAgentStore {
 		}
 	}
 
-	private hasPendingLifecycleNotification(agentId: string, lifecycle: AgentLifecycleNotificationLifecycle): boolean {
-		for (const message of this.listMailboxMessages()) {
-			if (isPendingLifecycleNotification(message, agentId, lifecycle)) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
 	private createAgentId(prefix: "agent" | "bash" | "pyrun" = "agent"): string {
 		const allocated = this.allocateCounter("agent", this.nextAgentNumber);
 		return `${prefix}_${allocated}`;
 	}
 
-	private createMessageId(): string {
+	/** @internal */
+	createMessageId(): string {
 		const allocated = this.allocateCounter("message", this.nextMessageNumber);
 		return `message_${allocated}`;
 	}
@@ -1109,68 +803,8 @@ export class MultiAgentStore {
 	}
 }
 
-export function isActiveLifecycle(lifecycle: AgentLifecycleState): boolean {
-	return !TERMINAL_STATES.has(lifecycle);
-}
+export { isActiveLifecycle };
 
 export function formatInactiveAgentSelectionMessage(agent: Pick<AgentSnapshot, "displayName" | "lifecycle">): string {
 	return `Agent is not active: ${agent.displayName} (${agent.lifecycle})`;
-}
-
-function completionNotificationThreadId(agentId: string): string {
-	return `${COMPLETION_NOTIFICATION_THREAD_PREFIX}:${agentId}`;
-}
-
-function failedNotificationThreadId(agentId: string): string {
-	return `${FAILED_NOTIFICATION_THREAD_PREFIX}:${agentId}`;
-}
-
-function waitingForInputNotificationThreadId(agentId: string): string {
-	return `${WAITING_FOR_INPUT_NOTIFICATION_THREAD_PREFIX}:${agentId}`;
-}
-
-function isPendingLifecycleNotification(
-	message: AgentMailboxMessage,
-	agentId: string,
-	lifecycle: AgentLifecycleNotificationLifecycle,
-): boolean {
-	const isFromAgent = message.fromAgentId === agentId;
-	const isLifecycleNotice =
-		message.kind === "system" && message.threadId === lifecycleNotificationThreadId(agentId, lifecycle);
-	return isFromAgent && isLifecycleNotice && message.status === "pending";
-}
-
-function lifecycleNotificationThreadId(agentId: string, lifecycle: AgentLifecycleNotificationLifecycle): string {
-	switch (lifecycle) {
-		case "completed":
-			return completionNotificationThreadId(agentId);
-		case "failed":
-			return failedNotificationThreadId(agentId);
-		case "waiting_for_input":
-			return waitingForInputNotificationThreadId(agentId);
-	}
-}
-
-function formatCompletionNotificationBody(agent: AgentNode): string {
-	const summary = agent.result?.summary?.trim();
-	const body = summary ? `${agent.displayName} completed: ${summary}` : `${agent.displayName} completed.`;
-	return appendAgentDuration(body, agent.result?.durationMs);
-}
-
-function formatFailureNotificationBody(agent: AgentNode): string {
-	const errorMessage = agent.error?.message.trim();
-	const body = errorMessage ? `${agent.displayName} failed: ${errorMessage}` : `${agent.displayName} failed.`;
-	return appendAgentDuration(body, agent.result?.durationMs);
-}
-
-function appendAgentDuration(body: string, durationMs: number | undefined): string {
-	if (durationMs === undefined) {
-		return body;
-	}
-	const separator = /[.!?]$/.test(body) ? " " : ". ";
-	return `${body}${separator}Duration: ${durationMs}ms`;
-}
-
-function formatWaitingForInputNotificationBody(agent: AgentNode): string {
-	return `${agent.displayName} is waiting for input.`;
 }
