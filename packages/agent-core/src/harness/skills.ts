@@ -1,6 +1,6 @@
 import ignore from "ignore";
-import { parse } from "yaml";
-import { type ExecutionEnv, type FileInfo, type Result, type Skill, toError } from "./types.ts";
+import type { ExecutionEnv, FileInfo, Skill } from "./types.ts";
+import { parseFrontmatter } from "./utils/frontmatter.ts";
 
 const MAX_NAME_LENGTH = 64;
 const MAX_DESCRIPTION_LENGTH = 1024;
@@ -295,22 +295,6 @@ function validateDescription(description: string | undefined): string[] {
 		errors.push(`description exceeds ${MAX_DESCRIPTION_LENGTH} characters (${description.length})`);
 	}
 	return errors;
-}
-
-function parseFrontmatter<T extends Record<string, unknown>>(
-	content: string,
-): Result<{ frontmatter: T; body: string }, Error> {
-	try {
-		const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-		if (!normalized.startsWith("---")) return { ok: true, value: { frontmatter: {} as T, body: normalized } };
-		const endIndex = normalized.indexOf("\n---", 3);
-		if (endIndex === -1) return { ok: true, value: { frontmatter: {} as T, body: normalized } };
-		const yamlString = normalized.slice(4, endIndex);
-		const body = normalized.slice(endIndex + 4).trim();
-		return { ok: true, value: { frontmatter: (parse(yamlString) ?? {}) as T, body } };
-	} catch (error) {
-		return { ok: false, error: toError(error) };
-	}
 }
 
 async function resolveKind(

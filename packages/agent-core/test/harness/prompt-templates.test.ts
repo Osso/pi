@@ -29,6 +29,17 @@ describe("loadPromptTemplates", () => {
 		]);
 	});
 
+	it("keeps Markdown thematic breaks that are not frontmatter delimiters", async () => {
+		const root = createTempDir();
+		const env = new NodeExecutionEnv({ cwd: root });
+		await env.writeFile("review.md", "----\nReview $1\n----\nKeep this.");
+
+		const { promptTemplates, diagnostics } = await loadPromptTemplates(env, ["review.md"]);
+
+		expect(diagnostics).toEqual([]);
+		expect(promptTemplates[0]?.content).toBe("----\nReview $1\n----\nKeep this.");
+	});
+
 	it("preserves source info for sourced prompt templates", async () => {
 		const root = createTempDir();
 		const env = new NodeExecutionEnv({ cwd: root });

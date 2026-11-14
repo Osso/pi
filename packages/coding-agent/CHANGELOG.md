@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed prompt templates and skills that start with a `----` Markdown thematic break losing their first lines: frontmatter now requires whole `---` delimiter lines.
 - Fixed interactive built-in commands with arguments (`/name`, `/compact`, `/model`, `/cd`, `/export`, `/import`, `/login`) being sent to the model as a prompt when a newline or tab, not a space, followed the command name.
 - Fixed `send_agent_message` from a main-thread child to `toAgentId: "main"` without `toSessionId` failing with `target_not_found`; the direct parent edge to the main thread now delivers.
 - Fixed RPC `switch_session` not continuing an interrupted session or honoring an extension's `requestResumeContinuation()`; it now continues like RPC startup and interactive resume.

@@ -7,21 +7,19 @@ type ParsedFrontmatter<T extends Record<string, unknown>> = {
 
 const normalizeNewlines = (value: string): string => value.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
+// Frontmatter needs whole `---` delimiter lines; `----` is a Markdown thematic break, not a delimiter.
+const FRONTMATTER = /^---[ \t]*\n(?:([\s\S]*?)\n)?---[ \t]*(?:\n|$)/;
+
 const extractFrontmatter = (content: string): { yamlString: string | null; body: string } => {
 	const normalized = normalizeNewlines(content);
-
-	if (!normalized.startsWith("---")) {
-		return { yamlString: null, body: normalized };
-	}
-
-	const endIndex = normalized.indexOf("\n---", 3);
-	if (endIndex === -1) {
+	const match = FRONTMATTER.exec(normalized);
+	if (!match) {
 		return { yamlString: null, body: normalized };
 	}
 
 	return {
-		yamlString: normalized.slice(4, endIndex),
-		body: normalized.slice(endIndex + 4).trim(),
+		yamlString: match[1] ?? "",
+		body: normalized.slice(match[0].length).trim(),
 	};
 };
 

@@ -40,6 +40,19 @@ describe("parseFrontmatter", () => {
 		);
 	});
 
+	it("does not treat Markdown thematic breaks as frontmatter delimiters", () => {
+		const input = "----\nReview $1\n----\nKeep this.";
+		expect(parseFrontmatter(input)).toEqual({ frontmatter: {}, body: input });
+		expect(parseFrontmatter("---\nname: test\n----\nBody")).toEqual({
+			frontmatter: {},
+			body: "---\nname: test\n----\nBody",
+		});
+	});
+
+	it("strips empty frontmatter", () => {
+		expect(parseFrontmatter("---\n---\nBody")).toEqual({ frontmatter: {}, body: "Body" });
+	});
+
 	it("returns empty object for empty or comment-only frontmatter", () => {
 		const input = "---\n# just a comment\n---\nBody";
 		const { frontmatter } = parseFrontmatter(input);
