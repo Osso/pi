@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import lockfile from "proper-lockfile";
 import { isBunBinary, VERSION } from "../config.ts";
+import { isRelayRunning } from "../core/host-relay-resident.ts";
 import { probeResidentConsole, type ResidentConsoleIdentity } from "../core/resident-console-transport.ts";
 import { isRuntimeExecutableReplaced, isVerifiedPiRuntimeProcess } from "../core/runtime-process.ts";
 import { readSessionHealth } from "../core/session-control-db/session-health.ts";
@@ -78,7 +79,12 @@ export async function ensureSupervisorAvailable(input: EnsureSupervisorRunningIn
 		await ensureSupervisorRunning(input);
 		return RESIDENT_SUPERVISOR;
 	}
-	if (isRemoteHost(host)) return { sessionId, host };
+	if (isRemoteHost(host)) {
+		if (!isRelayRunning(input.controlDbPath)) {
+			throw new Error(`the relay to the Supervisor on host ${host} is not running`);
+		}
+		return { sessionId, host };
+	}
 	const pid = readSessionHealth(input.controlDbPath, sessionId)?.pid;
 	if (!pid || !isVerifiedPiRuntimeProcess(pid)) {
 		throw new Error(`the Supervisor session ${sessionId} is not running`);

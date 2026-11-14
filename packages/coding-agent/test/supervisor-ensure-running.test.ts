@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { VERSION } from "../src/config.ts";
 import { type ResidentConsoleIdentity, ResidentConsoleServer } from "../src/core/resident-console-transport.ts";
+import { readProcessIdentity } from "../src/core/runtime-process.ts";
 import { writeSessionHealth } from "../src/core/session-control-db/session-health.ts";
 import {
 	ensureSupervisorAvailable,
@@ -219,11 +220,11 @@ describe("resolveSupervisorLaunchInvocation", () => {
 describe("ensureSupervisorAvailable with a configured Supervisor session", () => {
 	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
 
-	function configureSupervisorSession(sessionId: string): string {
+	function configureSupervisorSession(sessionId: string, host?: string): string {
 		const path = controlDbPath();
 		const agentDir = join(path, "..", "agent");
 		mkdirSync(agentDir, { recursive: true });
-		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ supervisor: { sessionId } }));
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ supervisor: { sessionId, host } }));
 		process.env.PI_CODING_AGENT_DIR = agentDir;
 		return path;
 	}
@@ -258,5 +259,19 @@ describe("ensureSupervisorAvailable with a configured Supervisor session", () =>
 		await expect(ensureSupervisorAvailable({ controlDbPath: path })).resolves.toEqual({
 			sessionId: "supervisor-session",
 		});
+	});
+
+	it("addresses a Supervisor on another host while this host's relay runs", async () => {
+		const path = configureSupervisorSession("supervisor-session", "supervisor-test-host");
+		await expect(ensureSupervisorAvailable({ controlDbPath: path })).rejects.toThrow(
+			"the relay to the Supervisor on host supervisor-test-host is not running",
+		);
+
+		writeFileSync(`${path}.relay.json`, JSON.stringify({ ...readProcessIdentity(process.pid), version: VERSION }));
+		await expect(ensureSupervisorAvailable({ controlDbPath: path })).resolves.toEqual({
+			sessionId: "supervisor-session",
+			host: "supervisor-test-host",
+		});
+		expect(existsSync(getSupervisorStartLockPath(path))).toBe(false);
 	});
 });

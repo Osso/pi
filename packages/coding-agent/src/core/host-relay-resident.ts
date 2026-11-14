@@ -52,6 +52,11 @@ function readRelayIdentity(controlDbPath: string): RelayIdentity | undefined {
 	return isProcessIdentityAlive(identity) ? identity : undefined;
 }
 
+/** True while this host's `pi relay connect` process runs; it does not prove the SSH link is up. */
+export function isRelayRunning(controlDbPath: string): boolean {
+	return readRelayIdentity(controlDbPath) !== undefined;
+}
+
 async function waitForRelay(controlDbPath: string, ready: boolean): Promise<void> {
 	const deadline = Date.now() + 10000;
 	while (Date.now() < deadline) {
