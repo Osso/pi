@@ -2,6 +2,7 @@ import { Marked, type Token, Tokenizer, type Tokens } from "marked";
 import { getCapabilities, hyperlink, isImageLine } from "../terminal-image.ts";
 import type { Component } from "../tui.ts";
 import { applyBackgroundToLine, visibleWidth, wrapTextWithAnsi } from "../utils.ts";
+import { padTableCell } from "./table-cell.ts";
 
 const STRICT_STRIKETHROUGH_REGEX = /^(~~)(?=[^\s~])((?:\\.|[^\\])*?(?:\\.|[^\s~\\]))\1(?=[^~]|$)/;
 const HTML_COMMENT_ONLY_REGEX = /^<!--[\s\S]*-->$/;
@@ -923,8 +924,7 @@ export class Markdown implements Component {
 				const text = cellLines[lineIdx] || "";
 				const columnWidth = columnWidths[colIdx];
 				if (columnWidth === undefined) throw new Error(`Missing table width at index ${colIdx}`);
-				const padded = text + " ".repeat(Math.max(0, columnWidth - visibleWidth(text)));
-				return this.theme.bold(padded);
+				return this.theme.bold(padTableCell(text, columnWidth, token.align[colIdx]));
 			});
 			lines.push(`│ ${rowParts.join(" │ ")} │`);
 		}
@@ -951,7 +951,7 @@ export class Markdown implements Component {
 					const text = cellLines[lineIdx] || "";
 					const columnWidth = columnWidths[colIdx];
 					if (columnWidth === undefined) throw new Error(`Missing table width at index ${colIdx}`);
-					return text + " ".repeat(Math.max(0, columnWidth - visibleWidth(text)));
+					return padTableCell(text, columnWidth, token.align[colIdx]);
 				});
 				lines.push(`│ ${rowParts.join(" │ ")} │`);
 			}

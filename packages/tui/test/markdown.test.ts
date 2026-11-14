@@ -409,6 +409,9 @@ describe("Markdown component", () => {
 			assert.ok(plainLines.some((line) => line.includes("Right")));
 			// Check content
 			assert.ok(plainLines.some((line) => line.includes("Long text")));
+			const trimmed = plainLines.map((line) => line.trimEnd());
+			assert.ok(trimmed.includes("│ A         │   B    │     C │"));
+			assert.ok(trimmed.includes("│ Long text │ Middle │   End │"));
 		});
 
 		it("should handle tables with varying column widths", () => {
