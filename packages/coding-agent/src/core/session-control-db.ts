@@ -40,6 +40,15 @@ import {
 	validateMailboxPayload,
 	validatePersistedAgentPayload,
 } from "./session-control-db/codecs.ts";
+import {
+	normalizeSessionName,
+	type PersistedAgentRow,
+	parseProcessIdentity,
+	type TableInfoRow,
+	TERMINAL_AGENT_ROW_TABLES,
+	withImmediateTransaction,
+	writeCanonicalMailboxPayload,
+} from "./session-control-db/helpers.ts";
 import { CONTROL_DB_SCHEMA_SQL } from "./session-control-db/schema.ts";
 import {
 	type ArchitectRequest,
@@ -83,6 +92,8 @@ import {
 	type SessionHealthRecord,
 } from "./session-health.ts";
 import { configureSharedSqliteDatabase, createSqliteDatabase, type SqliteDatabase } from "./sqlite.ts";
+
+export { normalizeSessionName, withImmediateTransaction } from "./session-control-db/helpers.ts";
 
 export type {
 	ArchitectRequest,
@@ -204,10 +215,6 @@ type SessionMetadataPreservedRow = {
 	model_provider: string | null;
 	model_id: string | null;
 	thinking_level: string | null;
-};
-
-type TableInfoRow = {
-	name: string;
 };
 
 type GoalRow = {
@@ -876,18 +883,6 @@ function parseCanonicalMailboxPayload(row: RuntimeMailboxRow): Record<string, un
 	return message;
 }
 
-function writeCanonicalMailboxPayload(
-	db: SqliteDatabase,
-	id: number,
-	message: Record<string, unknown>,
-	updatedAt: string,
-): void {
-	const updated = db
-		.prepare("UPDATE multi_agent_mailbox_messages SET data = ?, updated_at = ? WHERE rowid = ?")
-		.run(JSON.stringify(message), updatedAt, id);
-	if (updated.changes !== 1) throw new Error(`Canonical mailbox mutation lost row ${id}`);
-}
-
 function compareAndWriteSerializedCanonicalMailboxPayload(
 	db: SqliteDatabase,
 	row: RuntimeMailboxRow,
@@ -1007,18 +1002,6 @@ export function consumeRuntimeMailboxMessageByStoreRef(
 		if (host && host !== hostname()) return 0;
 		return Number(withImmediateTransaction(db, () => compareAndDeleteCanonicalMailboxPayload(db, row)));
 	});
-}
-
-export function withImmediateTransaction<T>(db: SqliteDatabase, operation: () => T): T {
-	db.exec("BEGIN IMMEDIATE");
-	try {
-		const result = operation();
-		db.exec("COMMIT");
-		return result;
-	} catch (error) {
-		db.exec("ROLLBACK");
-		throw error;
-	}
 }
 
 const RUNTIME_MAILBOX_REGISTRATION_MAX_ATTEMPTS = 3;
@@ -2352,10 +2335,6 @@ function readLatestPromptHistoryEntry(db: SqliteDatabase): string | undefined {
 export interface SessionNameState {
 	name: string | undefined;
 	hasStoredValue: boolean;
-}
-
-export function normalizeSessionName(name: string | undefined): string | undefined {
-	return name?.replace(/[\r\n]+/g, " ").trim() || undefined;
 }
 
 export function writeSessionName(controlDbPath: string, sessionPath: string, name: string | undefined): void {
@@ -5482,21 +5461,6 @@ function serializeProcessIdentity(identity: ProcessIdentity): string {
 	return JSON.stringify(identity);
 }
 
-function parseProcessIdentity(value: string, context = "process_identity"): ProcessIdentity {
-	const parsed = parseStoredJsonObject(value, context) as Partial<ProcessIdentity>;
-	if (!Number.isSafeInteger(parsed.pid) || !Number.isSafeInteger(parsed.startTimeTicks)) {
-		throw new Error(`Invalid persisted process identity at ${context}`);
-	}
-	if (parsed.incarnation !== undefined && typeof parsed.incarnation !== "string") {
-		throw new Error(`Invalid persisted process incarnation at ${context}`);
-	}
-	return {
-		pid: parsed.pid,
-		startTimeTicks: parsed.startTimeTicks,
-		...(parsed.incarnation === undefined ? {} : { incarnation: parsed.incarnation }),
-	} as ProcessIdentity;
-}
-
 function multiAgentRuntimeOwnershipFromRow(row: MultiAgentRuntimeOwnershipRow): MultiAgentRuntimeOwnership {
 	return {
 		agentId: row.agent_id,
@@ -5760,12 +5724,6 @@ function upsertUnownedMultiAgentAgent(
 	if (result.changes !== 1) {
 		throw new Error(`Generic agent upsert cannot mutate process-owned lifecycle row ${sessionPath}#${agentId}`);
 	}
-}
-
-interface PersistedAgentRow {
-	session_path: string;
-	agent_id: string;
-	data: string;
 }
 
 const MULTI_AGENT_MAILBOX_UPSERT_MAX_ATTEMPTS = 3;
@@ -6196,8 +6154,6 @@ export function deleteReleasedTerminalMultiAgentAgents(
 		}),
 	);
 }
-
-const TERMINAL_AGENT_ROW_TABLES = ["multi_agent_terminal_outbox", "multi_agent_runtime_owners", "multi_agent_agents"];
 
 const ACTIVE_PARENT_KEYS_SQL = `SELECT DISTINCT session_path || char(0) || json_extract(data, '$.parentId') AS key
 	FROM multi_agent_agents
