@@ -13,6 +13,10 @@ import {
 	requeueSupervisorRequest,
 } from "../src/core/session-control-db.ts";
 
+function goalRoute(requestId: string) {
+	return { sessionId: "goal-session", agentId: null, requestId };
+}
+
 describe("Supervisor request repository", () => {
 	let tempDir: string;
 	let controlDbPath: string;
@@ -36,6 +40,7 @@ describe("Supervisor request repository", () => {
 				kind: "goal_idle_review",
 				payload: { objective },
 				projectId: "pi",
+				replyTo: { sessionId: "goal-session", agentId: null, requestId: objective },
 				senderSessionId: "goal-session",
 			});
 		const complete = (requestId: number) => {
@@ -46,12 +51,12 @@ describe("Supervisor request repository", () => {
 		const oldCompleted = request("old completed");
 		complete(oldCompleted);
 		const oldCancelled = request("old cancelled");
-		cancelSupervisorRequest(controlDbPath, oldCancelled, "goal-session", "Escape pressed");
+		cancelSupervisorRequest(controlDbPath, goalRoute("old cancelled"), "Escape pressed");
 		const oldPending = request("old pending");
 
 		vi.setSystemTime(new Date("2026-11-01T23:59:00.000Z"));
 		const recentCancelled = request("recent cancelled");
-		cancelSupervisorRequest(controlDbPath, recentCancelled, "goal-session", "Escape pressed");
+		cancelSupervisorRequest(controlDbPath, goalRoute("recent cancelled"), "Escape pressed");
 		expect(readSupervisorRequest(controlDbPath, oldCompleted)).toMatchObject({ status: "completed" });
 
 		vi.setSystemTime(new Date("2026-11-02T00:00:30.000Z"));
@@ -259,28 +264,30 @@ describe("Supervisor request repository", () => {
 			kind: "goal_idle_review",
 			payload: { objective: "keep active" },
 			projectId: "pi",
+			replyTo: goalRoute("pending"),
 			senderSessionId: "goal-session",
 		});
 
-		expect(cancelSupervisorRequest(controlDbPath, pendingId, "goal-session", "Escape pressed")).toBe(true);
+		expect(cancelSupervisorRequest(controlDbPath, goalRoute("pending"), "Escape pressed")).toBe(true);
 		expect(readSupervisorRequest(controlDbPath, pendingId)).toMatchObject({
 			status: "cancelled",
 			response: { kind: "error", reason: "Escape pressed" },
 		});
 		expect(claimNextSupervisorRequest(controlDbPath, "runtime")).toBeUndefined();
-		expect(cancelSupervisorRequest(controlDbPath, pendingId, "goal-session", "again")).toBe(false);
+		expect(cancelSupervisorRequest(controlDbPath, goalRoute("pending"), "again")).toBe(false);
 
 		const claimedId = postSupervisorRequest(controlDbPath, {
 			deadlineAt: "2026-08-13T12:03:00.000Z",
 			kind: "goal_idle_review",
 			payload: { objective: "keep active" },
 			projectId: "pi",
+			replyTo: goalRoute("claimed"),
 			senderSessionId: "goal-session",
 		});
 		const claimed = claimNextSupervisorRequest(controlDbPath, "runtime");
 		if (!claimed?.claimToken) throw new Error("expected claimed request");
 
-		expect(cancelSupervisorRequest(controlDbPath, claimedId, "goal-session", "Escape pressed")).toBe(true);
+		expect(cancelSupervisorRequest(controlDbPath, goalRoute("claimed"), "Escape pressed")).toBe(true);
 		expect(() =>
 			completeSupervisorRequest(controlDbPath, claimedId, claimed.claimToken as string, {
 				kind: "continue",

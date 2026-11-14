@@ -255,6 +255,8 @@ describe("ensureSupervisorAvailable with a configured Supervisor session", () =>
 			checkLatencyMs: 1,
 			updatedAt: now,
 		});
-		await expect(ensureSupervisorAvailable({ controlDbPath: path })).resolves.toBeUndefined();
+		await expect(ensureSupervisorAvailable({ controlDbPath: path })).resolves.toEqual({
+			sessionId: "supervisor-session",
+		});
 	});
 });

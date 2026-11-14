@@ -534,6 +534,10 @@ export function addMissingIncomingMessageColumns(db: SqliteDatabase): void {
 	alterTableColumns(db, "incoming_messages", { target_session_id: "TEXT" });
 }
 
+export function addMissingSupervisorRequestColumns(db: SqliteDatabase): void {
+	alterTableColumns(db, "supervisor_requests", { reply_to_json: "TEXT" });
+}
+
 export function addMissingArchitectRequestColumns(db: SqliteDatabase): void {
 	alterTableColumns(db, "architect_requests", { project_cwd: "TEXT", claimed_at: "TEXT", claim_token: "TEXT" });
 }

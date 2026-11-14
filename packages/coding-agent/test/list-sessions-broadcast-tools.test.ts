@@ -5,7 +5,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	archiveSession,
 	claimNextSupervisorRequest,
-	completeSupervisorRequest,
 	getControlDbPath,
 	listPendingArchitectRequests,
 	listSharedChannelMessagesAfter,
@@ -20,9 +19,12 @@ import { createAskSupervisorToolDefinition } from "../src/core/tools/ask-supervi
 import { createChannelPostToolDefinition } from "../src/core/tools/channel-post.ts";
 import { createAllToolDefinitions, DEFAULT_ACTIVE_TOOL_NAMES } from "../src/core/tools/index.ts";
 import { createListSessionsToolDefinition } from "../src/core/tools/list-sessions.ts";
+import { replyAsSupervisor } from "./helpers/supervisor-reply.ts";
 import { createHarness } from "./suite/harness.ts";
 
-vi.mock("../src/supervisor/ensure-running.ts", () => ({ ensureSupervisorAvailable: async () => {} }));
+vi.mock("../src/supervisor/ensure-running.ts", () => ({
+	ensureSupervisorAvailable: async () => ({ sessionId: "test-supervisor" }),
+}));
 
 describe("session coordination tools", () => {
 	it("excludes broadcast from active tools while keeping channel_post", async () => {
@@ -286,10 +288,7 @@ describe("historical subagent session authorization", () => {
 				senderSessionId: "main-session",
 			});
 			if (!request.claimToken) throw new Error("expected Supervisor request claim token");
-			completeSupervisorRequest(controlDbPath, request.id, request.claimToken, {
-				kind: "advisory",
-				answer: "Continue.",
-			});
+			replyAsSupervisor(controlDbPath, request, { kind: "advisory", answer: "Continue." });
 
 			await expect(decision).resolves.toMatchObject({
 				content: [{ type: "text", text: "Continue." }],

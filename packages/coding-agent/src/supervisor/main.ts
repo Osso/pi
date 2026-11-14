@@ -32,6 +32,7 @@ import { type SessionEntry, SessionManager } from "../core/session-manager.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
 import { resolveReadPath, resolveToCwd } from "../core/tools/path-utils.ts";
 import { SUPERVISOR_AUTOSTART_ENV } from "./ensure-running.ts";
+import { sendSupervisorReply } from "./mail.ts";
 import { DEFAULT_SUPERVISOR_KB_DIR } from "./project-resolver.ts";
 import { notifySupervisorRequest, SupervisorRequestWakeServer } from "./request-wake.ts";
 import { createSupervisorResponseTool, SUPERVISOR_RESPONSE_TOOL_NAME } from "./response-tool.ts";
@@ -533,11 +534,29 @@ export async function processSupervisorRequest(
 			signal.removeEventListener("abort", abort);
 		}
 	};
-	await evaluateAndCompleteSupervisorRequest(controlDbPath, request, evaluate);
+	await evaluateAndCompleteSupervisorRequest(controlDbPath, request, evaluate, SUPERVISOR_SESSION_ID);
 }
 
-/** Runs one claimed request through `evaluate` and records its typed response, or an error response on failure. */
+/**
+ * Runs one claimed request through `evaluate`, records its typed response (an error response on failure),
+ * and replies to the asking runtime. Preempted and cancelled requests get no reply.
+ */
 export async function evaluateAndCompleteSupervisorRequest(
+	controlDbPath: string,
+	request: SupervisorRequest,
+	evaluate: SupervisorEvaluator,
+	supervisorSessionId: string,
+): Promise<void> {
+	await recordSupervisorRequestOutcome(controlDbPath, request, evaluate);
+	const completed = readSupervisorRequest(controlDbPath, request.id);
+	if (completed?.status !== "completed" || !completed.response || !completed.replyTo) return;
+	sendSupervisorReply(controlDbPath, supervisorSessionId, completed.replyTo, {
+		requestKind: completed.kind,
+		response: completed.response,
+	});
+}
+
+async function recordSupervisorRequestOutcome(
 	controlDbPath: string,
 	request: SupervisorRequest,
 	evaluate: SupervisorEvaluator,

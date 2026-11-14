@@ -108,20 +108,12 @@ export type PackageSource =
 			themes?: string[];
 	  };
 
-export interface ReminderSettings {
-	/** Session ID of the machine assistant that delivers due reminders. */
-	deliverySessionId?: string;
-}
-
-export interface SupervisorSettings {
-	/** Session ID of the interactive Supervisor session that serves typed Supervisor requests. */
-	sessionId?: string;
-}
-
 export interface Settings {
 	relay?: RelaySettings;
-	reminders?: ReminderSettings;
-	supervisor?: SupervisorSettings;
+	/** `deliverySessionId`: the machine-assistant session that delivers due reminders. */
+	reminders?: { deliverySessionId?: string };
+	/** Interactive Supervisor session serving typed requests; `host` when it runs on another machine. */
+	supervisor?: { sessionId?: string; host?: string };
 	lastChangelogVersion?: string;
 	defaultProvider?: string;
 	defaultModel?: string;
@@ -540,10 +532,6 @@ export class SettingsManager {
 
 	getSupervisorModel(): string | undefined {
 		return this.settings.supervisorModel;
-	}
-
-	getSupervisorSessionId(): string | undefined {
-		return this.settings.supervisor?.sessionId;
 	}
 
 	getApprovalPolicy(): ApprovalPolicy {

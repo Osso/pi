@@ -39,7 +39,7 @@ interface ApprovalDependencies {
 	supervisorDecisionRequester: typeof requestSupervisorDecision;
 	controlDbPath: string;
 	sessionManager: SessionManager;
-	getSessionId: () => string;
+	getMailboxAddress: () => { sessionId: string; agentId: string | null };
 }
 
 export async function reviewToolApproval(
@@ -273,7 +273,11 @@ function createToolApprovalLlmReviewer(
 	if (dependencies.noSupervisor)
 		return async () => ({ block: true, reason: "Supervisor approval is unavailable in standalone worker mode" });
 	// The Supervisor session cannot review its own tool call while that call holds its turn open.
-	if (dependencies.getSessionId() === dependencies.settingsManager.getSupervisorSessionId()) return undefined;
+	if (
+		dependencies.getMailboxAddress().sessionId ===
+		dependencies.settingsManager.getMergedSettings().supervisor?.sessionId
+	)
+		return undefined;
 	return async () => {
 		const kbDir = process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR;
 		return reviewToolCallWithSupervisor(
@@ -290,7 +294,8 @@ function createToolApprovalLlmReviewer(
 						toolName: event.toolName,
 					},
 					projectId: resolveSupervisorProjectForCwd(dependencies.getCwd(), kbDir),
-					senderSessionId: dependencies.getSessionId(),
+					senderSessionId: dependencies.getMailboxAddress().sessionId,
+					senderAgentId: dependencies.getMailboxAddress().agentId,
 					timeoutMs: SUPERVISOR_APPROVAL_TIMEOUT_MS,
 				}),
 			async (reason) => {

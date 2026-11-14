@@ -585,9 +585,6 @@ function buildSessionOptions(
 		}));
 	}
 
-	// API key from CLI - set in authStorage
-	// (handled by caller before createAgentSession)
-
 	// Tools
 	if (parsed.noTools) {
 		options.noTools = "all";
@@ -740,7 +737,6 @@ function createFirstPartyExtensionFactories(
 		firstPartyExtensionFactory("loop", loopExtension),
 		firstPartyExtensionFactory("periodic-checks", periodicChecksExtension),
 		firstPartyExtensionFactory("reminders", remindersExtension),
-		firstPartyExtensionFactory("supervisor-session", supervisorSessionExtension),
 		firstPartyExtensionFactory("supervisor-session", supervisorSessionExtension),
 		firstPartyExtensionFactory("run-plan", runPlanExtension),
 		firstPartyExtensionFactory("safe", safeExtension),

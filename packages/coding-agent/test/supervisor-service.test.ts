@@ -141,6 +141,7 @@ describe("resident Supervisor service", () => {
 			kind: "goal_idle_review",
 			payload: { objective: "keep active" },
 			projectId: "pi",
+			replyTo: { sessionId: "goal-session", agentId: null, requestId: "escape" },
 			senderSessionId: "goal-session",
 		});
 		const request = claimNextSupervisorRequest(controlDbPath, "runtime");
@@ -163,9 +164,13 @@ describe("resident Supervisor service", () => {
 		});
 
 		await vi.waitFor(() => expect(evaluationSignal).toBeDefined());
-		expect(cancelSupervisorRequest(controlDbPath, requestId, "goal-session", "Supervisor request cancelled")).toBe(
-			true,
-		);
+		expect(
+			cancelSupervisorRequest(
+				controlDbPath,
+				{ sessionId: "goal-session", agentId: null, requestId: "escape" },
+				"Supervisor request cancelled",
+			),
+		).toBe(true);
 		releaseEvaluation();
 
 		expect(await run).toBe("cancelled");

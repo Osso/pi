@@ -208,6 +208,7 @@ export type {
 	SessionMetadata,
 	SharedChannelMessage,
 	SupervisorQuestionAnswer,
+	SupervisorReplyRoute,
 	SupervisorRequest,
 	SupervisorRequestKind,
 	SupervisorRequestStatus,

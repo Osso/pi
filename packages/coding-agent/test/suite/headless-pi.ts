@@ -33,6 +33,7 @@ import { type SessionEntry, SessionManager } from "../../src/core/session-manage
 import { createSqliteDatabase } from "../../src/core/sqlite.ts";
 import { RpcClient, type RpcCommandBody } from "../../src/modes/rpc/rpc-client.ts";
 import type { RpcExtensionUIRequest, RpcExtensionUIResponse, RpcResponse } from "../../src/modes/rpc/rpc-types.ts";
+import { sendSupervisorReply } from "../../src/supervisor/mail.ts";
 import { type HeadlessSupervisorProbe, startHeadlessSupervisorProbe } from "./fixtures/headless-supervisor-probe.ts";
 
 import {
@@ -1050,7 +1051,15 @@ function createHeadlessRuntime(options: {
 		},
 		respondToSupervisorRequest(request, response) {
 			if (!request.claimToken) throw new Error(`Supervisor request ${request.id} has no claim token`);
-			completeSupervisorRequest(getControlDbPath(options.paths.agentDir), request.id, request.claimToken, response);
+			const controlDbPath = getControlDbPath(options.paths.agentDir);
+			completeSupervisorRequest(controlDbPath, request.id, request.claimToken, response);
+			// Callers wait for the reply in their mailbox, as the Supervisor sends it.
+			if (request.replyTo) {
+				sendSupervisorReply(controlDbPath, "headless-supervisor", request.replyTo, {
+					requestKind: request.kind,
+					response,
+				});
+			}
 		},
 		respondToLlmRequest(requestId, message) {
 			const providerSocket = options.provider.getSocket();

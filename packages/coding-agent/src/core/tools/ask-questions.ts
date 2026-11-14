@@ -1,7 +1,6 @@
 import { Text } from "@earendil-works/pi-tui";
 import { type Static, Type } from "typebox";
 import type { Theme } from "../../modes/interactive/theme/theme.ts";
-import type { SupervisorQuestionReply } from "../../supervisor/question-reply.ts";
 import {
 	type DesktopNotificationHandle,
 	PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
@@ -14,7 +13,7 @@ import {
 	type RuntimeMailboxMessage,
 } from "../session-control-db.ts";
 import { type AskQuestionsPanelResult, createAskQuestionsPanel } from "./ask-questions-panel.ts";
-import { askSupervisorQuestions } from "./ask-questions-supervisor.ts";
+import { askSupervisorQuestions, type SupervisorQuestionReply } from "./ask-questions-supervisor.ts";
 
 const MIN_OPTIONS = 2;
 const MAX_OPTIONS = 4;
@@ -201,10 +200,10 @@ function supervisorAnswerResult(reply: Extract<SupervisorQuestionReply, { kind: 
 	const answers = Object.fromEntries(
 		Object.entries(reply.answers).map(([question, answer]) => {
 			const reason = reply.reasons[question];
-			return [question, reply.source === "supervisor" && reason ? `${answer} (Supervisor: ${reason})` : answer];
+			return [question, reply.answeredBy === "supervisor" && reason ? `${answer} (Supervisor: ${reason})` : answer];
 		}),
 	);
-	return { answers, cancelled: false, answeredBy: reply.source };
+	return { answers, cancelled: false, answeredBy: reply.answeredBy };
 }
 
 /**

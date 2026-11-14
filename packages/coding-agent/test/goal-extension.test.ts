@@ -31,15 +31,13 @@ import type {
 	ToolResultEvent,
 } from "../src/core/extensions/types.ts";
 import { archiveSessionFile } from "../src/core/session-archive-storage.ts";
-import {
-	claimNextSupervisorRequest,
-	completeSupervisorRequest,
-	getControlDbPath,
-	readSupervisorRequest,
-} from "../src/core/session-control-db.ts";
+import { claimNextSupervisorRequest, getControlDbPath, readSupervisorRequest } from "../src/core/session-control-db.ts";
 import { SUPERVISOR_REQUEST_CANCELLED_REASON } from "../src/supervisor/client.ts";
+import { replyAsSupervisor } from "./helpers/supervisor-reply.ts";
 
-vi.mock("../src/supervisor/ensure-running.ts", () => ({ ensureSupervisorAvailable: async () => {} }));
+vi.mock("../src/supervisor/ensure-running.ts", () => ({
+	ensureSupervisorAvailable: async () => ({ sessionId: "test-supervisor" }),
+}));
 
 type RegisteredGoalCommand = Omit<RegisteredCommand, "name" | "sourceInfo">;
 type GoalTool = ToolDefinition;
@@ -959,10 +957,7 @@ describe("goal extension", () => {
 			const deadlineMs = Date.parse(request.deadlineAt) - Date.parse(request.createdAt);
 			const claimed = claimNextSupervisorRequest(controlDbPath, "test-runtime");
 			if (!claimed?.claimToken) throw new Error("expected claimed resident Supervisor request");
-			completeSupervisorRequest(controlDbPath, claimed.id, claimed.claimToken, {
-				kind: "complete",
-				reason: "verified",
-			});
+			replyAsSupervisor(controlDbPath, claimed, { kind: "complete", reason: "verified" });
 			await review;
 			expect(deadlineMs).toBeGreaterThanOrEqual(15 * 60_000 - 1_000);
 			expect(deadlineMs).toBeLessThanOrEqual(15 * 60_000);

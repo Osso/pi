@@ -126,6 +126,18 @@ export interface SupervisorRequest {
 	claimToken?: string;
 	completedAt?: string;
 	response?: SupervisorResponse;
+	replyTo?: SupervisorReplyRoute;
+}
+
+/**
+ * Where the response to a Supervisor request goes: the asking runtime's mailbox, on `host` when the
+ * request arrived through the relay from another machine. `requestId` correlates the reply with the caller.
+ */
+export interface SupervisorReplyRoute {
+	host?: string;
+	sessionId: string;
+	agentId: string | null;
+	requestId: string;
 }
 
 export interface PostSupervisorRequestInput {
@@ -133,6 +145,7 @@ export interface PostSupervisorRequestInput {
 	projectId: string;
 	kind: SupervisorRequestKind;
 	payload: Record<string, unknown>;
+	replyTo?: SupervisorReplyRoute;
 	deadlineAt: string;
 }
 

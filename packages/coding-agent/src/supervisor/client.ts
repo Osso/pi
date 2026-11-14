@@ -1,12 +1,12 @@
-import {
-	cancelSupervisorRequest,
-	postSupervisorRequest,
-	readSupervisorRequest,
-	type SupervisorRequestKind,
-	type SupervisorResponse,
-} from "../core/session-control-db.ts";
+import { randomUUID } from "node:crypto";
+import type { SupervisorRequestKind, SupervisorResponse } from "../core/session-control-db.ts";
 import { ensureSupervisorAvailable } from "./ensure-running.ts";
-import { notifySupervisorRequest } from "./request-wake.ts";
+import {
+	cancelSubmittedSupervisorRequest,
+	type SupervisorAddress,
+	submitSupervisorRequest,
+	watchSupervisorReplies,
+} from "./mail.ts";
 
 export const SUPERVISOR_REQUEST_CANCELLED_REASON = "Supervisor request cancelled";
 export const DEFAULT_SUPERVISOR_POLL_INTERVAL_MS = 300;
@@ -17,101 +17,69 @@ export interface RequestSupervisorDecisionInput {
 	payload: Record<string, unknown>;
 	projectId: string;
 	senderSessionId: string;
+	/** The asking child agent; replies go to its mailbox. Omit for a main session. */
+	senderAgentId?: string | null;
 	timeoutMs: number;
-	pollIntervalMs?: number;
 	signal?: AbortSignal;
 }
 
 export interface SupervisorClientDependencies {
-	ensureRunning?: (input: { controlDbPath: string }) => Promise<unknown>;
+	ensureRunning?: (input: { controlDbPath: string }) => Promise<SupervisorAddress>;
 }
 
-async function requestSupervisorDecisionAttempt(
+function cancelledResponse(): SupervisorResponse {
+	return { kind: "error", reason: SUPERVISOR_REQUEST_CANCELLED_REASON };
+}
+
+/**
+ * Submits one request and waits for the Supervisor's reply in this runtime's mailbox until the deadline.
+ * The caller never reads the queue row, so local and remote Supervisors answer the same way.
+ */
+export async function requestSupervisorDecision(
 	input: RequestSupervisorDecisionInput,
-	dependencies: Required<SupervisorClientDependencies>,
-): Promise<SupervisorResponse | undefined> {
-	if (input.signal?.aborted) return { kind: "error", reason: SUPERVISOR_REQUEST_CANCELLED_REASON };
+	dependencies: SupervisorClientDependencies = {},
+): Promise<SupervisorResponse> {
+	if (input.signal?.aborted) return cancelledResponse();
+	let supervisor: SupervisorAddress;
 	try {
-		await dependencies.ensureRunning({ controlDbPath: input.controlDbPath });
+		supervisor = await (dependencies.ensureRunning ?? ensureSupervisorAvailable)({
+			controlDbPath: input.controlDbPath,
+		});
 	} catch (error) {
 		return {
 			kind: "error",
 			reason: `Supervisor startup failed: ${error instanceof Error ? error.message : String(error)}`,
 		};
 	}
-	const deadline = Date.now() + input.timeoutMs;
-	if (input.signal?.aborted) return { kind: "error", reason: SUPERVISOR_REQUEST_CANCELLED_REASON };
-	const requestId = postSupervisorRequest(input.controlDbPath, {
-		deadlineAt: new Date(deadline).toISOString(),
-		kind: input.kind,
-		payload: input.payload,
-		projectId: input.projectId,
-		senderSessionId: input.senderSessionId,
-	});
-	const cancelRequest = (): void => {
-		if (
-			cancelSupervisorRequest(
-				input.controlDbPath,
-				requestId,
-				input.senderSessionId,
-				SUPERVISOR_REQUEST_CANCELLED_REASON,
-			)
-		) {
-			notifySupervisorRequest(input.controlDbPath);
-		}
+	if (input.signal?.aborted) return cancelledResponse();
+	const route = {
+		sessionId: input.senderSessionId,
+		agentId: input.senderAgentId ?? null,
+		requestId: randomUUID(),
 	};
-	const onAbort = (): void => cancelRequest();
-	input.signal?.addEventListener("abort", onAbort, { once: true });
-	try {
-		notifySupervisorRequest(input.controlDbPath);
-		const pollIntervalMs = input.pollIntervalMs ?? DEFAULT_SUPERVISOR_POLL_INTERVAL_MS;
-		while (Date.now() < deadline) {
-			if (input.signal?.aborted) {
-				cancelRequest();
-				return { kind: "error", reason: SUPERVISOR_REQUEST_CANCELLED_REASON };
-			}
-			const request = readSupervisorRequest(input.controlDbPath, requestId);
-			if (request?.status === "completed" && request.response) return request.response;
-			if (request?.status === "cancelled") {
-				return {
-					kind: "error",
-					reason:
-						request.response?.kind === "error" ? request.response.reason : SUPERVISOR_REQUEST_CANCELLED_REASON,
-				};
-			}
-			if (!(await delay(pollIntervalMs, input.signal))) {
-				cancelRequest();
-				return { kind: "error", reason: SUPERVISOR_REQUEST_CANCELLED_REASON };
-			}
-		}
-		return undefined;
-	} finally {
-		input.signal?.removeEventListener("abort", onAbort);
-	}
-}
-
-export async function requestSupervisorDecision(
-	input: RequestSupervisorDecisionInput,
-	dependencies: SupervisorClientDependencies = {},
-): Promise<SupervisorResponse> {
-	const resolvedDependencies = { ensureRunning: dependencies.ensureRunning ?? ensureSupervisorAvailable };
-	const response = await requestSupervisorDecisionAttempt(input, resolvedDependencies);
-	return response ?? { kind: "error", reason: "Supervisor request timed out" };
-}
-
-function delay(milliseconds: number, signal?: AbortSignal): Promise<boolean> {
-	if (signal?.aborted) return Promise.resolve(false);
-	return new Promise((resolve) => {
-		let settled = false;
-		const finish = (completed: boolean): void => {
-			if (settled) return;
-			settled = true;
+	return new Promise<SupervisorResponse>((resolve) => {
+		const finish = (response: SupervisorResponse) => {
 			clearTimeout(timer);
-			signal?.removeEventListener("abort", onAbort);
-			resolve(completed);
+			input.signal?.removeEventListener("abort", onAbort);
+			stopWatching();
+			resolve(response);
 		};
-		const onAbort = (): void => finish(false);
-		const timer = setTimeout(() => finish(true), milliseconds);
-		signal?.addEventListener("abort", onAbort, { once: true });
+		const onAbort = () => {
+			cancelSubmittedSupervisorRequest(input.controlDbPath, supervisor, route, SUPERVISOR_REQUEST_CANCELLED_REASON);
+			finish(cancelledResponse());
+		};
+		const timer = setTimeout(
+			() => finish({ kind: "error", reason: "Supervisor request timed out" }),
+			input.timeoutMs,
+		);
+		const stopWatching = watchSupervisorReplies(input.controlDbPath, route, (reply) => finish(reply.response));
+		input.signal?.addEventListener("abort", onAbort, { once: true });
+		submitSupervisorRequest(input.controlDbPath, supervisor, {
+			deadlineAt: new Date(Date.now() + input.timeoutMs).toISOString(),
+			kind: input.kind,
+			payload: input.payload,
+			projectId: input.projectId,
+			replyTo: route,
+		});
 	});
 }

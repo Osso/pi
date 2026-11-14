@@ -9,6 +9,7 @@ import {
 	addMissingRuntimeMailboxListenerColumns,
 	addMissingSessionMetadataColumns,
 	addMissingSharedChannelOriginColumns,
+	addMissingSupervisorRequestColumns,
 	migrateLegacyMultiAgentCounters,
 	migrateLegacyMultiAgentPayloads,
 	migrateLegacySessionNames,
@@ -131,6 +132,7 @@ export function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: numb
 	migrateLegacySessionNames(db, selfRestartProcessId);
 	addMissingRuntimeMailboxListenerColumns(db);
 	addMissingArchitectRequestColumns(db);
+	addMissingSupervisorRequestColumns(db);
 	addMissingSharedChannelOriginColumns(db);
 	addMissingIncomingMessageColumns(db);
 	// Already-running legacy producers insert directly. Only new undated rows receive birth.

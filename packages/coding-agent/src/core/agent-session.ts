@@ -947,7 +947,7 @@ export class AgentSession {
 				supervisorDecisionRequester: this._supervisorDecisionRequester,
 				controlDbPath: this._controlDbPath,
 				sessionManager: this.sessionManager,
-				getSessionId: () => this.sessionId,
+				getMailboxAddress: () => ({ sessionId: this.sessionId, agentId: this._getRuntimeMailboxAgentId() }),
 			});
 		};
 

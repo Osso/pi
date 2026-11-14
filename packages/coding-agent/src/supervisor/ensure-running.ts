@@ -8,6 +8,7 @@ import { isRuntimeExecutableReplaced, isVerifiedPiRuntimeProcess } from "../core
 import { readSessionHealth } from "../core/session-control-db/session-health.ts";
 import { SettingsManager } from "../core/settings-manager.ts";
 import { spawnProcess } from "../utils/child-process.ts";
+import { isRemoteHost, type SupervisorAddress } from "./mail.ts";
 
 export const SUPERVISOR_AUTOSTART_ENV = "PI_SUPERVISOR_AUTOSTARTED";
 
@@ -63,22 +64,26 @@ export function resolveSupervisorLaunchInvocation(runtime: SupervisorLaunchRunti
 	};
 }
 
+const RESIDENT_SUPERVISOR: SupervisorAddress = { sessionId: "supervisor" };
+
 /**
- * Makes typed requests servable: the configured interactive Supervisor session must be live; without one,
- * the detached resident is started on demand.
+ * Makes typed requests servable and returns where to send them. A local configured Supervisor session
+ * must be live; one on another host is reached through the relay, which reports when it is not running.
+ * Without a configured session, the detached resident is started on demand.
  */
-export async function ensureSupervisorAvailable(input: EnsureSupervisorRunningInput): Promise<void> {
-	const sessionId = SettingsManager.create(process.cwd(), undefined, {
-		projectTrusted: false,
-	}).getSupervisorSessionId();
+export async function ensureSupervisorAvailable(input: EnsureSupervisorRunningInput): Promise<SupervisorAddress> {
+	const settings = SettingsManager.create(process.cwd(), undefined, { projectTrusted: false });
+	const { sessionId, host } = settings.getMergedSettings().supervisor ?? {};
 	if (!sessionId) {
 		await ensureSupervisorRunning(input);
-		return;
+		return RESIDENT_SUPERVISOR;
 	}
+	if (isRemoteHost(host)) return { sessionId, host };
 	const pid = readSessionHealth(input.controlDbPath, sessionId)?.pid;
 	if (!pid || !isVerifiedPiRuntimeProcess(pid)) {
 		throw new Error(`the Supervisor session ${sessionId} is not running`);
 	}
+	return { sessionId };
 }
 
 export async function ensureSupervisorRunning(

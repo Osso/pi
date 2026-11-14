@@ -4,6 +4,7 @@ import { withControlDb } from "./connection.ts";
 import { withImmediateTransaction } from "./helpers.ts";
 import type {
 	PostSupervisorRequestInput,
+	SupervisorReplyRoute,
 	SupervisorRequest,
 	SupervisorRequestKind,
 	SupervisorRequestStatus,
@@ -23,6 +24,7 @@ export type SupervisorRequestRow = {
 	claim_token: string | null;
 	completed_at: string | null;
 	response_json: string | null;
+	reply_to_json: string | null;
 };
 
 export function parseSupervisorResponse(value: string, requestId: number): SupervisorResponse {
@@ -46,19 +48,25 @@ export function supervisorRequestFromRow(row: SupervisorRequestRow): SupervisorR
 		claimToken: row.claim_token ?? undefined,
 		completedAt: row.completed_at ?? undefined,
 		response: row.response_json ? parseSupervisorResponse(row.response_json, row.id) : undefined,
+		replyTo: row.reply_to_json
+			? (parseStoredJsonObject(
+					row.reply_to_json,
+					`supervisor_requests:${row.id}.reply_to_json`,
+				) as unknown as SupervisorReplyRoute)
+			: undefined,
 	};
 }
 
 export const SUPERVISOR_REQUEST_COLUMNS = `id, sender_session_id, project_id, kind, payload_json, deadline_at,
-	status, created_at, claimed_at, claim_token, completed_at, response_json`;
+	status, created_at, claimed_at, claim_token, completed_at, response_json, reply_to_json`;
 
 export function postSupervisorRequest(controlDbPath: string, input: PostSupervisorRequestInput): number {
 	return withControlDb(controlDbPath, (db) => {
 		const result = db
 			.prepare(
 				`INSERT INTO supervisor_requests
-				 (sender_session_id, project_id, kind, payload_json, deadline_at, status, created_at)
-				 VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+				 (sender_session_id, project_id, kind, payload_json, deadline_at, status, created_at, reply_to_json)
+				 VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
 			)
 			.run(
 				input.senderSessionId,
@@ -67,6 +75,7 @@ export function postSupervisorRequest(controlDbPath: string, input: PostSupervis
 				JSON.stringify(input.payload),
 				input.deadlineAt,
 				new Date().toISOString(),
+				input.replyTo ? JSON.stringify(input.replyTo) : null,
 			);
 		return Number(result.lastInsertRowid);
 	});
@@ -81,12 +90,8 @@ export function readSupervisorRequest(controlDbPath: string, requestId: number):
 	});
 }
 
-export function cancelSupervisorRequest(
-	controlDbPath: string,
-	requestId: number,
-	senderSessionId: string,
-	reason: string,
-): boolean {
+/** Cancels the pending or claimed request that replies to `route`; true when one was cancelled. */
+export function cancelSupervisorRequest(controlDbPath: string, route: SupervisorReplyRoute, reason: string): boolean {
 	return withControlDb(controlDbPath, (db) =>
 		withImmediateTransaction(db, () => {
 			const response: SupervisorResponse = { kind: "error", reason };
@@ -94,9 +99,10 @@ export function cancelSupervisorRequest(
 				.prepare(
 					`UPDATE supervisor_requests
 					 SET status = 'cancelled', completed_at = ?, claim_token = NULL, response_json = ?
-					 WHERE id = ? AND sender_session_id = ? AND status IN ('pending', 'claimed')`,
+					 WHERE sender_session_id = ? AND json_extract(reply_to_json, '$.requestId') = ?
+					   AND status IN ('pending', 'claimed')`,
 				)
-				.run(new Date().toISOString(), JSON.stringify(response), requestId, senderSessionId);
+				.run(new Date().toISOString(), JSON.stringify(response), route.sessionId, route.requestId);
 			return result.changes === 1;
 		}),
 	);

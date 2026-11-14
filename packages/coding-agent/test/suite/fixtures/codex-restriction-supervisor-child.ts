@@ -6,6 +6,7 @@ import {
 	type SupervisorRequest,
 	type SupervisorResponse,
 } from "../../../src/core/session-control-db.ts";
+import { sendSupervisorReply } from "../../../src/supervisor/mail.ts";
 import { startHeadlessSupervisorProbe } from "./headless-supervisor-probe.ts";
 
 const controlDbPath = process.argv[2];
@@ -40,6 +41,12 @@ async function execute(command: Command): Promise<unknown> {
 	const { request, response } = command;
 	if (!request?.claimToken || !response) throw new Error("Claim and response required");
 	completeSupervisorRequest(controlDbPath, request.id, request.claimToken, response);
+	if (request.replyTo) {
+		sendSupervisorReply(controlDbPath, "headless-supervisor", request.replyTo, {
+			requestKind: request.kind,
+			response,
+		});
+	}
 	return readSupervisorRequest(controlDbPath, request.id);
 }
 
