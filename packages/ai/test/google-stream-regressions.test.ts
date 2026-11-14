@@ -118,6 +118,21 @@ describe.each(providers)("$api streamed responses", ({ api, stream }) => {
 		expect(convertMessages(makeModel(api), { messages: [message] })).toEqual([{ role: "model", parts }]);
 	});
 
+	it("keeps two signed thinking parts of one chunk apart during streaming and replay", async () => {
+		const parts: Part[] = [
+			{ thought: true, text: "First", thoughtSignature: "QUFB" },
+			{ thought: true, text: "Second", thoughtSignature: "QkJC" },
+		];
+		sdkStream.chunks = [{ candidates: [{ content: { parts }, finishReason: FinishReason.STOP }] }];
+		const message = await stream().result();
+
+		expect(message.content).toEqual([
+			{ type: "thinking", thinking: "First", thinkingSignature: "QUFB" },
+			{ type: "thinking", thinking: "Second", thinkingSignature: "QkJC" },
+		]);
+		expect(convertMessages(makeModel(api), { messages: [message] })).toEqual([{ role: "model", parts }]);
+	});
+
 	it("merges a signature-bearing delta from a later chunk into the current text part", async () => {
 		sdkStream.chunks = [
 			{ candidates: [{ content: { parts: [{ text: "First" }] } }] },

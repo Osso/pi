@@ -120,10 +120,10 @@ export const stream: StreamFunction<"google-vertex", GoogleVertexOptions> = (
 						if (part.text !== undefined) {
 							const isThinking = isThinkingPart(part);
 							// Distinct parts of one chunk keep their boundaries (and signatures); deltas across chunks merge.
-							const startsTextPart = !isThinking && partIndex > 0;
+							const startsNewPart = partIndex > 0;
 							if (
 								!currentBlock ||
-								startsTextPart ||
+								startsNewPart ||
 								(isThinking && currentBlock.type !== "thinking") ||
 								(!isThinking && currentBlock.type !== "text")
 							) {

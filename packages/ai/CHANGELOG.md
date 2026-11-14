@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Google Generative AI and Vertex merging distinct thinking parts of one streamed chunk into one block, which dropped the earlier part's thought signature on replay.
 - Fixed OpenAI Chat Completions and Responses sending `(see attached image)` for an empty tool result without images; they now send `(no output)`.
 - Fixed Mistral streams splitting one tool call into two when a continuation fragment omits the tool call id.
 - Fixed the `pi-ai login` provider prompt crashing with a `TypeError` on a non-numeric selection; it now prints `Invalid selection` and exits with code 1.
