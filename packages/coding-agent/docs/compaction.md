@@ -258,7 +258,7 @@ interface BranchSummaryEntry<T = unknown> {
   parentId: string;
   timestamp: number;
   summary: string;
-  fromId: string;      // Entry we navigated from
+  fromId: string;      // Entry we branched from (the navigation target)
   fromHook?: boolean;  // true if provided by extension (legacy field name)
   details?: T;         // implementation-specific data
 }
