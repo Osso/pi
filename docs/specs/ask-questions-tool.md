@@ -14,11 +14,11 @@ The `ask_questions` built-in tool lets the model ask choice or free-text questio
 
 ### Supervisor answering (planned)
 
-- [ ] In a main session, when a Supervisor session is configured and the caller is not that session, post the questions as a `question_review` [Supervisor request](supervisor-service.md#question-review) while the local panel opens.
-- [ ] The first answer wins: a Supervisor `answer` closes the local panel and returns its answers; a local user answer cancels the pending request.
+- [ ] In a main session, when a Supervisor session is configured and the caller is not that session, send the questions to it as a mailbox message (through the relay for another host) while the local panel opens. Sending never blocks or polls; see [Supervisor question answering](supervisor-service.md#question-answering).
+- [ ] The first answer wins: a Supervisor answer arriving while the panel is open closes it and becomes the tool result; a local user answer sends a withdrawal message, and a later Supervisor reply is ignored.
 - [ ] Mark the result source: `→ <answer> (Supervisor: <reason>)` for Supervisor answers.
 - [ ] On `escalate`, keep the local panel open; the user may answer either there or in the Supervisor UI.
-- [ ] In a non-TUI main session, wait for the Supervisor (blocking) or queue for inbox delivery (nonblocking) instead of failing; an escalation with no UI to answer from fails as today.
+- [ ] Nonblocking calls receive a Supervisor answer through the normal inbox, correlated by `requestId`.
 
 ### Scheduling and delivery
 

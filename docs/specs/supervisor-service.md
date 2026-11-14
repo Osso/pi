@@ -33,18 +33,25 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 The Supervisor becomes a normal, full-UI interactive Pi session on agent-server. It replaces the detached `pi supervisor` resident and absorbs the [machine assistant](machine-assistant.md) role. The user talks to it like any Pi session; it also serves typed Supervisor requests. Decided 2026-11-14.
 
 - [ ] Serve the durable `supervisor_requests` queue from the session named by setting `supervisor.sessionId` on the host that owns it; no detached resident is spawned when the setting is present.
-- [ ] Use one shared model context for user chat, duties, and typed requests. Process a claimed request as a turn between user turns; never interleave turns. Approval requests run before goal reviews, advisory, and question requests.
+- [ ] Use one shared model context for user chat, duties, and typed requests. Process a claimed request as a turn between user turns; never interleave turns. Approval requests run before goal reviews and advisory requests.
 - [ ] Record each typed response through a response tool whose arguments are validated per request kind; show each request and decision in the session UI.
-- [ ] Request deadlines: approval 5 min (then human escalation), goal review 15 min with one attempt (then `error` and the existing wake/55-minute re-review), advisory 15 min, question 30 min.
+- [ ] Request deadlines: approval 5 min (then human escalation), goal review 15 min with one attempt (then `error` and the existing wake/55-minute re-review), advisory 15 min.
 - [ ] When the Supervisor session is down or the deadline passes, callers get the existing failure results; no fallback resident is started.
 - [ ] Accept requests from other hosts through the relay (phase 3); a relay outage produces the same failure results as an unavailable Supervisor.
 
-### Question review
+### Question answering
 
-- [ ] `question_review` requests carry the asking session, host, project, `requestId`, blocking flag, and questions.
-- [ ] Respond with `answer` (answers keyed by exact question text, each with a short reason) or `escalate` (reason).
+Questions are asynchronous mailbox messages, not typed `supervisor_requests`: no polling, deadline, or request kind.
+
+- [ ] Receive questions from main sessions on any host as inbox messages carrying the asking host, session, `requestId`, blocking flag, and questions.
+- [ ] Reply with `answer_question` addressed by host, session, and `requestId`: either answers keyed by exact question text, each with a short reason, or `escalate` with a reason.
 - [ ] Answer trivial and non-trivial questions decidable from user rules, specs, KB, earlier user decisions, repo evidence, or reasoning. Always escalate new scope, cost, safety risk, irreversible actions, and product tradeoffs the evidence does not settle.
 - [ ] On `escalate`, open the questions as an `ask_questions` panel in the Supervisor UI; the user's answer there is delivered to the asking session as a user answer.
+- [ ] A withdrawal message from the asking session (the user answered locally) drops the question from the Supervisor's pending work.
+
+### Session tools
+
+- [ ] Limit the Supervisor session, including user chat, to `read`, `edit`, `write` inside the configured KB root, `supervisor_response`, `answer_question`, `send_agent_message`, `ask_questions`, `reminders`, and `end_turn`. Bash, Pyrun, agent spawn/attach, restart, and session control stay unavailable.
 
 ### Resident console
 
