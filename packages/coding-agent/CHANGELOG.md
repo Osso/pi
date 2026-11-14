@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed a symlinked working directory skipping project trust for `.agents`, `.codex` or `.claude` skills in its logical ancestors, so a saved denial or `defaultProjectTrust: "never"` did not stop those skills from loading.
 - Fixed the Bash truncation notice reporting `line is 0B` when a long final line ended with a newline; it now reports that line's size.
 - Fixed rule files loading in host-locale order (for example `10-a.md` before `10-B.md`) instead of the specified lexicographic filename order.
 - Fixed the resized-image note giving one scale factor for both axes when dimension rounding made them differ (for example a 100x12000 image shown at 17x2000); the note now gives separate x and y factors in that case.

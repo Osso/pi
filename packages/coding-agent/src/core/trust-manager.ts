@@ -183,35 +183,28 @@ function withTrustFileLock<T>(path: string, fn: () => T): T {
  * trusted user resource and is ignored here, even when cwd is $HOME.
  */
 export function hasTrustRequiringProjectResources(cwd: string): boolean {
-	const homeDir = canonicalizePath(resolvePath(process.env.HOME || homedir()));
-	const userAgentsSkillsDir = join(homeDir, ".agents", "skills");
-	const userToolSkillDirs = new Set([join(homeDir, ".codex", "skills"), join(homeDir, ".claude", "skills")]);
-	let currentDir = canonicalizePath(resolvePath(cwd));
+	const homeDir = resolvePath(process.env.HOME || homedir());
+	const userSkillDirs = new Set(
+		[".agents", ".codex", ".claude"].map((tool) => canonicalizePath(join(homeDir, tool, "skills"))),
+	);
+	const logicalCwd = resolvePath(cwd);
+	const canonicalCwd = canonicalizePath(logicalCwd);
 
-	const configDir = join(currentDir, CONFIG_DIR_NAME);
+	const configDir = join(canonicalCwd, CONFIG_DIR_NAME);
 	if (TRUST_REQUIRING_PROJECT_CONFIG_RESOURCES.some((entry) => existsSync(join(configDir, entry)))) {
 		return true;
 	}
+	// Skill discovery walks the logical cwd's ancestors, which differ from the canonical ones under a symlinked cwd.
+	return [canonicalCwd, logicalCwd].some((startDir) => hasProjectSkillDirs(startDir, userSkillDirs));
+}
 
-	while (true) {
-		const agentsSkillsDir = join(currentDir, ".agents", "skills");
-		if (agentsSkillsDir !== userAgentsSkillsDir && existsSync(agentsSkillsDir)) {
-			return true;
+function hasProjectSkillDirs(startDir: string, userSkillDirs: Set<string>): boolean {
+	for (let dir = startDir; ; dir = dirname(dir)) {
+		for (const tool of [".agents", ".codex", ".claude"]) {
+			const skillsDir = join(dir, tool, "skills");
+			if (existsSync(skillsDir) && !userSkillDirs.has(canonicalizePath(skillsDir))) return true;
 		}
-
-		const codexSkillsDir = join(currentDir, ".codex", "skills");
-		const claudeSkillsDir = join(currentDir, ".claude", "skills");
-		const hasProjectCodexSkills = !userToolSkillDirs.has(codexSkillsDir) && existsSync(codexSkillsDir);
-		const hasProjectClaudeSkills = !userToolSkillDirs.has(claudeSkillsDir) && existsSync(claudeSkillsDir);
-		if (hasProjectCodexSkills || hasProjectClaudeSkills) {
-			return true;
-		}
-
-		const parentDir = dirname(currentDir);
-		if (parentDir === currentDir) {
-			return false;
-		}
-		currentDir = parentDir;
+		if (dirname(dir) === dir) return false;
 	}
 }
 

@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -74,6 +74,29 @@ describe("ProjectTrustStore", () => {
 			mkdirSync(nestedProject, { recursive: true });
 			mkdirSync(join(workspace, ".codex", "skills"), { recursive: true });
 			expect(hasTrustRequiringProjectResources(nestedProject)).toBe(true);
+		} finally {
+			if (originalHome === undefined) {
+				delete process.env.HOME;
+			} else {
+				process.env.HOME = originalHome;
+			}
+		}
+	});
+
+	it("detects ancestor skills of a symlinked cwd and ignores user skills reached through a symlink", () => {
+		const originalHome = process.env.HOME;
+		process.env.HOME = tempDir;
+		try {
+			const physicalRepo = join(tempDir, "physical", "repo");
+			mkdirSync(physicalRepo, { recursive: true });
+			mkdirSync(join(tempDir, "logical", ".agents", "skills"), { recursive: true });
+			symlinkSync(physicalRepo, join(tempDir, "logical", "repo"));
+			expect(hasTrustRequiringProjectResources(physicalRepo)).toBe(false);
+			expect(hasTrustRequiringProjectResources(join(tempDir, "logical", "repo"))).toBe(true);
+
+			mkdirSync(join(tempDir, ".agents", "skills"), { recursive: true });
+			symlinkSync(tempDir, join(tempDir, "home-link"));
+			expect(hasTrustRequiringProjectResources(join(tempDir, "home-link", "project"))).toBe(false);
 		} finally {
 			if (originalHome === undefined) {
 				delete process.env.HOME;
