@@ -862,7 +862,7 @@ const { session } = await createAgentSession({
   settingsManager: SettingsManager.create(),
 });
 
-// With overrides
+// With overrides (kept on top of file settings across reloads; never written to disk)
 const settingsManager = SettingsManager.create();
 settingsManager.applyOverrides({
   compaction: { enabled: false },
