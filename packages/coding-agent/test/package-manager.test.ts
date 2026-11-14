@@ -1773,6 +1773,33 @@ Content`,
 			expect(result.extensions.some((r) => isEnabled(r, "hidden.ts"))).toBe(false);
 		});
 
+		it("should not load resource types the manifest omits when a package filter is set", async () => {
+			const pkgDir = join(tempDir, "skills-only-pkg");
+			mkdirSync(join(pkgDir, "skills", "example"), { recursive: true });
+			mkdirSync(join(pkgDir, "extensions"), { recursive: true });
+			writeFileSync(
+				join(pkgDir, "skills", "example", "SKILL.md"),
+				"---\nname: example\ndescription: Example\n---\n",
+			);
+			writeFileSync(join(pkgDir, "extensions", "undeclared.ts"), "export default function() {}");
+			writeFileSync(
+				join(pkgDir, "package.json"),
+				JSON.stringify({ name: "skills-only-pkg", pi: { skills: ["skills"] } }),
+			);
+
+			settingsManager.setPackages([pkgDir]);
+			const plain = await packageManager.resolve();
+			expect(plain.extensions.some((r) => isEnabled(r, "undeclared.ts"))).toBe(false);
+
+			settingsManager.setPackages([{ source: pkgDir, skills: [] }]);
+			const noSkills = await packageManager.resolve();
+			expect(noSkills.extensions.some((r) => isEnabled(r, "undeclared.ts"))).toBe(false);
+
+			settingsManager.setPackages([{ source: pkgDir, extensions: ["**/*.ts"] }]);
+			const included = await packageManager.resolve();
+			expect(included.extensions.some((r) => isEnabled(r, "undeclared.ts"))).toBe(false);
+		});
+
 		it("should disable a single-file local extension with an empty extensions filter", async () => {
 			const extensionPath = join(tempDir, "single.ts");
 			writeFileSync(extensionPath, "export default function() {}");

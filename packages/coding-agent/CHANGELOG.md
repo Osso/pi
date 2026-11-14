@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed package filters loading resource types that the package's `pi` manifest omits, so `{ source, skills: [] }` no longer enables undeclared extensions.
 - Fixed single-file local package sources ignoring their `extensions` filter, so `{ "source": "/path/ext.ts", "extensions": [] }` still loaded the extension.
 - Fixed a package filter in settings enabling resources that the package's `pi` manifest disables with an empty array (for example `"extensions": []`); filters now only narrow what the manifest allows.
 - Fixed a partial `pi.registerProvider()` update (for example headers only) dropping the provider's registered API key until the next model refresh.
