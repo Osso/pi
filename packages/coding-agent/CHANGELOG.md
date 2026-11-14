@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed `pyrun_eval` hiding the output of a captured command (`cli.X().capture().run()`) returned as the final value; the model now sees its stdout, stderr and non-zero exit code.
 - Fixed concurrent foreground `pyrun_eval` calls corrupting a pending Pi bridge reply; the runner now receives one evaluation at a time.
 - Fixed HTML export dropping images returned by custom tools; only `read` results showed their images.
 - Fixed saving an approved permission rule overwriting the next setting when another setting's value was the string `"permissionRules"`.

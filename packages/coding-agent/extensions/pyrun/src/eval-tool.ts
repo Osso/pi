@@ -66,12 +66,12 @@ function formatResultValue(result: CanonicalPyrunEvalResult): string | undefined
 	if (result.type === "needs_approval") {
 		return `needs approval: ${result.approval?.summary ?? "unknown Pyrun operation"}`;
 	}
-	const commandExitCode = getCommandResultExitCode(result.value);
-	if (commandExitCode === 0) {
-		return undefined;
-	}
-	if (commandExitCode !== undefined) {
-		return `exit code ${commandExitCode}`;
+	const commandResult = asCapturedCommandResult(result.value);
+	if (commandResult) {
+		// Only `.capture()` returns a CommandResult; its output was not forwarded to the console.
+		const output = [commandResult.stdout, commandResult.stderr].map((text) => text.trimEnd()).filter(Boolean);
+		if (commandResult.exit_code !== 0) output.push(`exit code ${commandResult.exit_code}`);
+		return output.length > 0 ? output.join("\n") : undefined;
 	}
 	if (result.value === undefined || result.value === null) {
 		return undefined;
@@ -82,11 +82,13 @@ function formatResultValue(result: CanonicalPyrunEvalResult): string | undefined
 	return JSON.stringify(result.value);
 }
 
-function getCommandResultExitCode(value: unknown): number | undefined {
+function asCapturedCommandResult(value: unknown): { stdout: string; stderr: string; exit_code: number } | undefined {
 	if (!value || typeof value !== "object") return undefined;
 	const record = value as Record<string, unknown>;
-	const hasCommandOutput = typeof record.stdout === "string" && typeof record.stderr === "string";
-	return hasCommandOutput && typeof record.exit_code === "number" ? record.exit_code : undefined;
+	const { stdout, stderr, exit_code } = record;
+	return typeof stdout === "string" && typeof stderr === "string" && typeof exit_code === "number"
+		? { stdout, stderr, exit_code }
+		: undefined;
 }
 
 function formatConsoleEntry(entry: NonNullable<CanonicalPyrunEvalResult["console"]>[number]): string {
