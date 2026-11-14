@@ -36,6 +36,10 @@ The Supervisor becomes a normal, full-UI interactive Pi session on agent-server.
 - [ ] Use one shared model context for user chat, duties, and typed requests. Process a claimed request as a turn between user turns; never interleave turns. Order: approval, goal review, advisory, question.
 - [ ] Record each typed response through a response tool whose arguments are validated per request kind; show each request and decision in the session UI.
 - [x] Request deadlines: approval 5 min (then human escalation), goal review 15 min with one attempt (then `error` and the existing wake/55-minute re-review), advisory 15 min.
+- [ ] An approval request arriving during a user chat turn aborts that turn, is answered, and the aborted turn then continues.
+- [ ] The session uses the model and effort the user selects; no model is pinned.
+- [ ] Run as a managed remote-agent session on agent-server (`remote-agent attach supervisor --host agent-server`), pinned in the Super+A switcher.
+- [ ] Switch aso to the agent-server Supervisor only after relay routing (phase 3) works; after both hosts use it, delete the detached resident (`pi supervisor`, `pi --supervisor`, autostart, systemd unit).
 - [ ] When the Supervisor session is down or the deadline passes, callers get the existing failure results; no fallback resident is started.
 - [ ] Use one transport for every kind: requests reach the queue through the relay from other hosts (phase 3), and every response is delivered to the asking session's runtime mailbox, through the relay for another host. Callers never read the queue row.
 - [ ] Approval, goal-review, and advisory callers wait for the correlated mailbox reply until their deadline; question callers do not wait.
