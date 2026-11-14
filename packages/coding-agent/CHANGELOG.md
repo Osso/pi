@@ -467,8 +467,8 @@
 - Fixed the `edit` tool inserting text at the start of a file when a missing whitespace-only `oldText` becomes empty after fuzzy normalization; the edit now reports text not found and leaves the file unchanged.
 - Fixed Bash output losing a long newline-terminated line after rolling-buffer trimming; the result now retains the final bytes as a partial line.
 - Fixed reopening compacted sessions replacing whole-session resume-list counts, first messages, and activity times with values from the retained slice; new messages now extend the authoritative metadata.
-
 - Fixed RPC `interrupt` and interactive Escape dropping images from queued steering and follow-up messages when resubmitting them after abort.
+- Fixed extension flag defaults to follow the first successfully loaded registration, including flags without defaults; failed factories no longer leave flag defaults behind. Explicit flag values still override defaults.
 
 ### Changed
 

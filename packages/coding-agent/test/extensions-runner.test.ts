@@ -8,7 +8,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
-import { createExtensionRuntime, discoverAndLoadExtensions, loadExtensions } from "../src/core/extensions/loader.ts";
+import { createEventBus } from "../src/core/event-bus.ts";
+import {
+	createExtensionRuntime,
+	discoverAndLoadExtensions,
+	loadExtensionFromFactory,
+	loadExtensions,
+} from "../src/core/extensions/loader.ts";
 import { ExtensionRunner, emitProjectTrustEvent } from "../src/core/extensions/runner.ts";
 import type {
 	ExtensionActions,
@@ -691,6 +697,114 @@ describe("ExtensionRunner", () => {
 
 			expect(flags.get("shared-flag")?.description).toBe("first");
 			expect(result.runtime.flagValues.get("shared-flag")).toBe(true);
+		});
+
+		it("keeps an absent first flag default when a later extension supplies one", async () => {
+			fs.writeFileSync(
+				path.join(extensionsDir, "a-first.ts"),
+				`export default function(pi) {
+	pi.registerFlag("plan", { type: "boolean" });
+	const duringLoad = pi.getFlag("plan");
+	pi.on("context", () => ({ messages: [{
+		role: "user", content: String(duringLoad) + ":" + String(pi.getFlag("plan")), timestamp: 0,
+	}] }));
+}`,
+			);
+			fs.writeFileSync(
+				path.join(extensionsDir, "b-second.ts"),
+				`export default function(pi) {
+	pi.registerFlag("plan", { type: "boolean", default: true });
+}`,
+			);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			expect(result.errors).toEqual([]);
+			expect(result.extensions.map((extension) => path.basename(extension.path))).toEqual([
+				"a-first.ts",
+				"b-second.ts",
+			]);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			expect(runner.getFlags().get("plan")?.default).toBeUndefined();
+			expect(await runner.emitContext([])).toEqual([{ role: "user", content: "undefined:undefined", timestamp: 0 }]);
+
+			runner.setFlagValue("plan", true);
+			expect(await runner.emitContext([])).toEqual([{ role: "user", content: "undefined:true", timestamp: 0 }]);
+		});
+
+		it("discards flag defaults and registrations from a failed factory", async () => {
+			const failedPath = path.join(extensionsDir, "a-failed.ts");
+			fs.writeFileSync(
+				failedPath,
+				`export default function(pi) {
+	pi.registerFlag("plan", { type: "boolean", default: true });
+	pi.registerFlag("failed-only", { type: "string", default: "discarded" });
+	throw new Error("factory failed");
+}`,
+			);
+			fs.writeFileSync(
+				path.join(extensionsDir, "b-loaded.ts"),
+				`export default function(pi) {
+	pi.registerFlag("plan", { type: "boolean", default: false });
+	pi.registerFlag("failed-only", { type: "string" });
+	const duringLoad = pi.getFlag("plan");
+	pi.on("context", () => ({ messages: [{
+		role: "user",
+		content: String(duringLoad) + ":" + String(pi.getFlag("plan")) + ":" + String(pi.getFlag("failed-only")),
+		timestamp: 0,
+	}] }));
+}`,
+			);
+
+			const result = await discoverAndLoadExtensions([], tempDir, tempDir);
+			expect(result.errors).toEqual([{ path: failedPath, error: "Failed to load extension: factory failed" }]);
+			expect(result.extensions.map((extension) => path.basename(extension.path))).toEqual(["b-loaded.ts"]);
+			const runner = new ExtensionRunner(result.extensions, result.runtime, tempDir, sessionManager, modelRegistry);
+			expect(runner.getFlags().get("plan")?.default).toBe(false);
+			expect(await runner.emitContext([])).toEqual([
+				{ role: "user", content: "false:false:undefined", timestamp: 0 },
+			]);
+		});
+
+		it("shares flag registration precedence and rollback with inline factories", async () => {
+			const runtime = createExtensionRuntime();
+			const eventBus = createEventBus();
+			runtime.flagValues.set("explicit", "cli-value");
+			const failed = loadExtensionFromFactory(
+				(pi) => {
+					pi.registerFlag("plan", { type: "boolean", default: true });
+					pi.registerFlag("explicit", { type: "string", default: "failed-default" });
+					expect(pi.getFlag("plan")).toBe(true);
+					throw new Error("inline factory failed");
+				},
+				tempDir,
+				eventBus,
+				runtime,
+			);
+			await expect(failed).rejects.toThrow("inline factory failed");
+
+			const loaded = await loadExtensionFromFactory(
+				(pi) => {
+					pi.registerFlag("plan", { type: "boolean" });
+					pi.registerFlag("explicit", { type: "string", default: "loaded-default" });
+					expect(pi.getFlag("plan")).toBeUndefined();
+					expect(pi.getFlag("explicit")).toBe("cli-value");
+				},
+				tempDir,
+				eventBus,
+				runtime,
+			);
+			await loadExtensionFromFactory(
+				(pi) => {
+					pi.registerFlag("plan", { type: "boolean", default: true });
+					expect(pi.getFlag("plan")).toBeUndefined();
+				},
+				tempDir,
+				eventBus,
+				runtime,
+			);
+			expect(loaded.flags.get("plan")?.default).toBeUndefined();
+			expect(runtime.flagValues.get("plan")).toBeUndefined();
+			expect(runtime.flagValues.get("explicit")).toBe("cli-value");
 		});
 
 		it("can set flag values", async () => {

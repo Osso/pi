@@ -1,7 +1,4 @@
-/**
- * Extension loader - loads TypeScript extension modules using jiti.
- *
- */
+/** Extension loader - loads TypeScript extension modules using jiti. */
 
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
@@ -151,6 +148,7 @@ type HandlerFn = (...args: unknown[]) => Promise<unknown>;
 let extensionCacheCwd: string | undefined;
 let extensionCacheGeneration = 0;
 const extensionCache = new Map<string, ExtensionFactory>();
+const registeredFlagNames = new WeakMap<ExtensionRuntime, Set<string>>();
 
 interface ExtensionCacheToken {
 	cwd: string;
@@ -237,6 +235,7 @@ function createExtensionAPI(
 	runtime: ExtensionRuntime,
 	cwd: string,
 	eventBus: EventBus,
+	flagNames: Set<string>,
 ): ExtensionAPI {
 	const api = {
 		get cwd(): string {
@@ -306,6 +305,8 @@ function createExtensionAPI(
 		): void {
 			runtime.assertActive();
 			extension.flags.set(name, { name, extensionPath: extension.path, ...options });
+			if (flagNames.has(name)) return;
+			flagNames.add(name);
 			if (options.default !== undefined && !runtime.flagValues.has(name)) {
 				runtime.flagValues.set(name, options.default);
 			}
@@ -466,9 +467,6 @@ async function loadExtensionModule(extensionPath: string, cacheToken?: Extension
 	return factory;
 }
 
-/**
- * Create an Extension object with empty collections.
- */
 function createExtension(extensionPath: string, resolvedPath: string): Extension {
 	const source =
 		extensionPath.startsWith("<") && extensionPath.endsWith(">")
@@ -508,11 +506,7 @@ async function loadExtension(
 			return { extension: null, error: `Extension does not export a valid factory function: ${extensionPath}` };
 		}
 
-		const extension = createExtension(extensionPath, resolvedPath);
-		const api = createExtensionAPI(extension, runtime, cwd, eventBus);
-		await factory(api);
-		time(`${extensionPath} factory`, "extensions");
-
+		const extension = await loadExtensionFromFactory(factory, cwd, eventBus, runtime, extensionPath, resolvedPath);
 		return { extension, error: null };
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
@@ -520,27 +514,33 @@ async function loadExtension(
 	}
 }
 
-/**
- * Create an Extension from an inline factory function.
- */
 export async function loadExtensionFromFactory(
 	factory: ExtensionFactory,
 	cwd: string,
 	eventBus: EventBus,
 	runtime: ExtensionRuntime,
 	extensionPath = "<inline>",
+	resolvedPath = extensionPath,
 ): Promise<Extension> {
-	const extension = createExtension(extensionPath, extensionPath);
-	const resolvedCwd = resolvePath(cwd);
-	const api = createExtensionAPI(extension, runtime, resolvedCwd, eventBus);
-	await factory(api);
+	const extension = createExtension(extensionPath, resolvedPath);
+	const flagNames = registeredFlagNames.get(runtime) ?? new Set<string>();
+	registeredFlagNames.set(runtime, flagNames);
+	const previousNames = new Set(flagNames);
+	const previousValues = new Map(runtime.flagValues);
+	const api = createExtensionAPI(extension, runtime, resolvePath(cwd), eventBus, flagNames);
+	try {
+		await factory(api);
+	} catch (error) {
+		for (const name of flagNames) {
+			if (!previousNames.has(name)) flagNames.delete(name);
+		}
+		runtime.flagValues = previousValues;
+		throw error;
+	}
 	time(`${extensionPath} factory`, "extensions");
 	return extension;
 }
 
-/**
- * Load extensions from paths.
- */
 async function loadExtensionsInternal(
 	paths: string[],
 	cwd: string,
