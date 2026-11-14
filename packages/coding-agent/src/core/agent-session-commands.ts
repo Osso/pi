@@ -1,7 +1,55 @@
-import type { ExtensionCommandContext, ViewedSessionMutationTarget } from "./extensions/index.ts";
+import type { ExtensionCommandContext, ResolvedCommand, ViewedSessionMutationTarget } from "./extensions/index.ts";
 import { BUILTIN_SLASH_COMMANDS } from "./slash-commands.ts";
 
 export type SessionMutationTargetResolver = () => ViewedSessionMutationTarget | undefined;
+
+export interface ExtensionCommandOptions {
+	expandPromptTemplates?: boolean;
+	preflightResult?: (success: boolean) => void;
+}
+
+export function tryExecuteExtensionCommand(
+	text: string,
+	options: ExtensionCommandOptions | undefined,
+	getCommand: (name: string) => ResolvedCommand | undefined,
+	execute: (
+		text: string,
+		args: string,
+		command: ResolvedCommand,
+		options: ExtensionCommandOptions | undefined,
+	) => Promise<void>,
+): Promise<void> | undefined {
+	const shouldExpandSlashCommand = (options?.expandPromptTemplates ?? true) && text.startsWith("/");
+	if (!shouldExpandSlashCommand) return undefined;
+	const spaceIndex = text.indexOf(" ");
+	const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
+	const args = spaceIndex === -1 ? "" : text.slice(spaceIndex + 1);
+	const command = getCommand(commandName);
+	if (!command) return undefined;
+	return execute(text, args, command, options);
+}
+
+export async function executeExtensionCommand(
+	text: string,
+	args: string,
+	command: ResolvedCommand,
+	options: ExtensionCommandOptions | undefined,
+	callbacks: {
+		runBeforeRecovery: (text: string, options: ExtensionCommandOptions | undefined) => Promise<boolean>;
+		createContext: (commandName: string) => ExtensionCommandContext;
+		emitError: (error: unknown, commandName: string) => void;
+		recordHistory: (text: string) => void;
+	},
+): Promise<void> {
+	if (await callbacks.runBeforeRecovery(text, options)) return;
+	try {
+		await command.handler(args, callbacks.createContext(command.invocationName));
+	} catch (error) {
+		callbacks.emitError(error, command.invocationName);
+	}
+	callbacks.recordHistory(text);
+	options?.preflightResult?.(true);
+}
 
 export function slashCommandName(text: string): string {
 	const match = text.match(/^\/([^\s]+)/);

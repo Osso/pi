@@ -56,8 +56,10 @@ import { type BackgroundCompactionCache, BackgroundCompactionState } from "./age
 import {
 	bindSessionMutationTargetResolver,
 	createViewedSessionCommandContext,
+	executeExtensionCommand,
 	isKnownSlashCommand,
 	slashCommandName,
+	tryExecuteExtensionCommand,
 } from "./agent-session-commands.ts";
 
 import { CodexRestrictionRecoveryState } from "./agent-session-restriction-recovery.ts";
@@ -2627,14 +2629,13 @@ export class AgentSession {
 	}
 
 	private _tryExecuteExtensionCommand(text: string, options?: PromptOptions): Promise<void> | undefined {
-		const shouldExpandSlashCommand = (options?.expandPromptTemplates ?? true) && text.startsWith("/");
-		if (!shouldExpandSlashCommand) return undefined;
-		const spaceIndex = text.indexOf(" ");
-		const commandName = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
-		const args = spaceIndex === -1 ? "" : text.slice(spaceIndex + 1);
-		const command = this._extensionRunner.getPromptCommand(commandName);
-		if (!command) return undefined;
-		return this._executeExtensionCommand(text, args, command, options);
+		return tryExecuteExtensionCommand(
+			text,
+			options,
+			(name) => this._extensionRunner.getPromptCommand(name),
+			(commandText, args, command, commandOptions) =>
+				this._executeExtensionCommand(commandText, args, command, commandOptions),
+		);
 	}
 
 	private async _executeExtensionCommand(
@@ -2643,24 +2644,24 @@ export class AgentSession {
 		command: ResolvedCommand,
 		options?: PromptOptions,
 	): Promise<void> {
-		if (!this.isStreaming) {
-			const replacement = await this._beforeWorkingDirectoryRecoveryRun?.();
-			if (replacement && replacement !== this) {
-				await replacement.prompt(text, options);
-				return;
-			}
-		}
-		try {
-			await command.handler(args, this._createCommandContext(command.invocationName));
-		} catch (err) {
-			this._extensionRunner.emitError({
-				extensionPath: `command:${command.invocationName}`,
-				event: "command",
-				error: err instanceof Error ? err.message : String(err),
-			});
-		}
-		this._recordHandledSlashCommandHistory(text);
-		options?.preflightResult?.(true);
+		return executeExtensionCommand(text, args, command, options, {
+			runBeforeRecovery: async (commandText, commandOptions) => {
+				if (this.isStreaming) return false;
+				const replacement = await this._beforeWorkingDirectoryRecoveryRun?.();
+				if (!replacement || replacement === this) return false;
+				await replacement.prompt(commandText, commandOptions);
+				return true;
+			},
+			createContext: (commandName) => this._createCommandContext(commandName),
+			emitError: (error, commandName) => {
+				this._extensionRunner.emitError({
+					extensionPath: `command:${commandName}`,
+					event: "command",
+					error: error instanceof Error ? error.message : String(error),
+				});
+			},
+			recordHistory: (commandText) => this._recordHandledSlashCommandHistory(commandText),
+		});
 	}
 
 	/**
