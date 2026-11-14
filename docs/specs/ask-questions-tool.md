@@ -12,6 +12,14 @@ The `ask_questions` built-in tool lets the model ask choice or free-text questio
 - [x] Support optional `header`, option `description`, option `preview`, `multiSelect`, and caller `metadata` fields.
 - [x] Add an `Other` path automatically instead of requiring callers to include one.
 
+### Supervisor answering (planned)
+
+- [ ] In a main session, when a Supervisor session is configured and the caller is not that session, post the questions as a `question_review` [Supervisor request](supervisor-service.md#question-review) while the local panel opens.
+- [ ] The first answer wins: a Supervisor `answer` closes the local panel and returns its answers; a local user answer cancels the pending request.
+- [ ] Mark the result source: `→ <answer> (Supervisor: <reason>)` for Supervisor answers.
+- [ ] On `escalate`, keep the local panel open; the user may answer either there or in the Supervisor UI.
+- [ ] In a non-TUI main session, wait for the Supervisor (blocking) or queue for inbox delivery (nonblocking) instead of failing; an escalation with no UI to answer from fails as today.
+
 ### Scheduling and delivery
 
 - [x] `blocking: true` awaits answers or cancellation and returns them in the tool result without a duplicate inbox message.
@@ -98,5 +106,5 @@ Acceptance at `51735c8ec`: independent verification inspected 43 passing feature
 ## Out of scope
 
 - HTML/Markdown preview rendering parity with Claude Code's AskUserQuestion permission component.
-- Non-TUI remote/channel answer relay other than the child-to-parent relay.
+- Non-TUI remote/channel answer relay other than the child-to-parent relay and Supervisor answering.
 - Durable pending-question storage or recovery of unanswered panels after restart.

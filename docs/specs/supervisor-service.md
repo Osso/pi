@@ -28,6 +28,24 @@ The resident Supervisor is a peer-unblocking policy engine that evaluates synchr
 - [x] Remain local-only without web access.
 - [x] Default deployment to Pi-managed lazy Supervisor startup: on Linux, invoke `scripts/configure-resident-services.sh <pi-binary> autostart` to stop, disable, and remove obsolete Architect and Supervisor user units; on Darwin, skip systemd configuration and reject the systemd opt-in explicitly. Select systemd mode only with `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1 ./deploy.sh`; direct one-argument `scripts/configure-resident-services.sh <pi-binary>` remains an explicit systemd installer.
 
+### Interactive Supervisor session (planned replacement of the resident)
+
+The Supervisor becomes a normal, full-UI interactive Pi session on agent-server. It replaces the detached `pi supervisor` resident and absorbs the [machine assistant](machine-assistant.md) role. The user talks to it like any Pi session; it also serves typed Supervisor requests. Decided 2026-11-14.
+
+- [ ] Serve the durable `supervisor_requests` queue from the session named by setting `supervisor.sessionId` on the host that owns it; no detached resident is spawned when the setting is present.
+- [ ] Use one shared model context for user chat, duties, and typed requests. Process a claimed request as a turn between user turns; never interleave turns. Approval requests run before goal reviews, advisory, and question requests.
+- [ ] Record each typed response through a response tool whose arguments are validated per request kind; show each request and decision in the session UI.
+- [ ] Request deadlines: approval 5 min (then human escalation), goal review 15 min with one attempt (then `error` and the existing wake/55-minute re-review), advisory 15 min, question 30 min.
+- [ ] When the Supervisor session is down or the deadline passes, callers get the existing failure results; no fallback resident is started.
+- [ ] Accept requests from other hosts through the relay (phase 3); a relay outage produces the same failure results as an unavailable Supervisor.
+
+### Question review
+
+- [ ] `question_review` requests carry the asking session, host, project, `requestId`, blocking flag, and questions.
+- [ ] Respond with `answer` (answers keyed by exact question text, each with a short reason) or `escalate` (reason).
+- [ ] Answer trivial and non-trivial questions decidable from user rules, specs, KB, earlier user decisions, repo evidence, or reasoning. Always escalate new scope, cost, safety risk, irreversible actions, and product tradeoffs the evidence does not settle.
+- [ ] On `escalate`, open the questions as an `ask_questions` panel in the Supervisor UI; the user's answer there is delivered to the asking session as a user answer.
+
 ### Resident console
 
 - [x] `pi --supervisor` attaches to an already-running Supervisor through its owner-only local console socket; it never starts a second Supervisor, creates a second session owner, or changes the resident cwd.

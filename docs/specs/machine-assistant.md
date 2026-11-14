@@ -2,6 +2,8 @@
 
 The machine assistant is a persistent, user-facing Pi conversation responsible for reminders, bounded machine-maintenance duties, and the permanent agent-server-to-laptop contact role for one OS user on one machine. This is a design under discussion, not an implemented or deployed service. [Reminders](reminders.md) defines the shared follow-up records; this document defines their delivery owner and the assistant's authority.
 
+**2026-11-14 decision:** the machine assistant and the Supervisor merge into one full-UI interactive Pi session on agent-server that keeps the name Supervisor. Requirements for typed decisions and question answering live in [Supervisor service](supervisor-service.md#interactive-supervisor-session-planned-replacement-of-the-resident); the duties below move to that session.
+
 ## What it must do
 
 ### Identity and state
