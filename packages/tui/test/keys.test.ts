@@ -268,6 +268,16 @@ describe("matchesKey", () => {
 			setKittyProtocolActive(false);
 		});
 
+		it("should prefer codepoint for digit keys even when base layout differs", () => {
+			setKittyProtocolActive(true);
+			// A remapped layout reports codepoint '2' (50) on the physical '1' key (base 49)
+			const remappedAlt2 = "\x1b[50::49;3u";
+			assert.strictEqual(parseKey(remappedAlt2), "alt+2");
+			assert.strictEqual(matchesKey(remappedAlt2, "alt+2"), true);
+			assert.strictEqual(matchesKey(remappedAlt2, "alt+1"), false);
+			setKittyProtocolActive(false);
+		});
+
 		it("should not match wrong key even with base layout", () => {
 			setKittyProtocolActive(true);
 			// Cyrillic ctrl+с with base 'c' should NOT match ctrl+d

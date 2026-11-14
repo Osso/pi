@@ -681,7 +681,7 @@ function matchesKittySequence(data: string, expectedCodepoint: number, expectedM
 	// the base layout key (the key in standard PC-101 layout).
 	//
 	// Only fall back to base layout key when the codepoint is NOT already a
-	// recognized Latin letter (a-z) or symbol (e.g., /, -, [, ;, etc.).
+	// recognized Latin letter (a-z), digit (0-9), or symbol (e.g., /, -, [, ;, etc.).
 	// When the codepoint is a recognized key, it is authoritative regardless
 	// of physical key position. This prevents remapped layouts (Dvorak, Colemak,
 	// xremap, etc.) from causing false matches: both letters and symbols move
@@ -690,9 +690,9 @@ function matchesKittySequence(data: string, expectedCodepoint: number, expectedM
 	// if the base layout key were always considered.
 	if (parsed.baseLayoutKey !== undefined && parsed.baseLayoutKey === expectedCodepoint) {
 		const cp = normalizedCodepoint;
-		const isLatinLetter = cp >= 97 && cp <= 122; // a-z
+		const isLatinLetterOrDigit = (cp >= 97 && cp <= 122) || (cp >= 48 && cp <= 57); // a-z, 0-9
 		const isKnownSymbol = SYMBOL_KEYS.has(String.fromCharCode(cp));
-		if (!isLatinLetter && !isKnownSymbol) return true;
+		if (!isLatinLetterOrDigit && !isKnownSymbol) return true;
 	}
 
 	return false;
