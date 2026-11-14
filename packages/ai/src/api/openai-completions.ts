@@ -309,6 +309,7 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 					toolCallBlocksByIndex.set(streamIndex, block);
 				}
 				if (toolCall.id) {
+					block.id ||= toolCall.id;
 					toolCallBlocksById.set(toolCall.id, block);
 				}
 				applyPendingReasoningDetail(block);
@@ -399,10 +400,6 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 					if (choice?.delta?.tool_calls) {
 						for (const toolCall of choice.delta.tool_calls) {
 							const block = ensureToolCallBlock(toolCall);
-							if (!block.id && toolCall.id) {
-								block.id = toolCall.id;
-								toolCallBlocksById.set(toolCall.id, block);
-							}
 							if (!block.name && toolCall.function?.name) {
 								block.name = toolCall.function.name;
 							}

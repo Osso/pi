@@ -115,4 +115,21 @@ describe("openai-completions reasoning_details streaming", () => {
 
 		expect(getAssistantPayload(mockState.payloads[1])?.reasoning_details).toEqual([reasoningDetail]);
 	});
+
+	it("preserves reasoning_details when the tool call id arrives on a later delta", async () => {
+		mockState.chunkSets = [
+			[
+				chunk({ reasoning_details: [reasoningDetail] }),
+				chunk({ tool_calls: [{ index: 0, function: { name: "read", arguments: '{"path":' } }] }),
+				chunk({ tool_calls: [{ index: 0, id: "call_1", function: { arguments: '"README.md"}' } }] }, "tool_calls"),
+			],
+		];
+
+		const assistantMessage = await runOpenAICompletionsStream();
+		expect(assistantMessage.content.find((block) => block.type === "toolCall")).toMatchObject({
+			id: "call_1",
+			arguments: { path: "README.md" },
+			thoughtSignature: JSON.stringify(reasoningDetail),
+		});
+	});
 });

@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed OpenAI Completions streams dropping encrypted `reasoning_details` for a tool call whose id arrives on a later delta.
 - Fixed Google and Vertex streams reporting a prompt blocked by `promptFeedback.blockReason` as a successful empty answer; it is now an error.
 - Fixed tool-call argument parsing dropping fields when a string contains an invalid `\u` escape such as `\usepackage` ([#10868](https://github.com/earendil-works/pi/issues/10868))
 - Fixed long tool call ids (for example Google ids built from MCP tool names) colliding after truncation to another provider's length limit; the shortened id now ends with a hash of the full id, so each call keeps its own result.
