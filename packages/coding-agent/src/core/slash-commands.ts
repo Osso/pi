@@ -45,3 +45,12 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
 	{ name: "reload", description: "Reload keybindings, extensions, skills, prompts, and themes" },
 	{ name: "quit", description: `Quit ${APP_NAME}` },
 ];
+
+const BUILTIN_SLASH_COMMAND_NAMES = new Set(BUILTIN_SLASH_COMMANDS.map((command) => command.name));
+
+/** Built-in dispatch matches "/name args"; accept any whitespace (e.g. Shift+Enter) after a built-in name. */
+export function normalizeBuiltinSlashCommandSeparator(text: string): string {
+	const match = /^\/(\S+)\s/.exec(text);
+	if (!match?.[1] || !BUILTIN_SLASH_COMMAND_NAMES.has(match[1])) return text;
+	return `/${match[1]} ${text.slice(match[0].length)}`;
+}

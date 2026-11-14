@@ -137,7 +137,7 @@ import {
 import { readSessionTranscriptPath } from "../../core/session-transcript.ts";
 import type { SettingsScope } from "../../core/settings-manager.ts";
 import { parseSkillBlock } from "../../core/skill-block.ts";
-import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
+import { BUILTIN_SLASH_COMMANDS, normalizeBuiltinSlashCommandSeparator } from "../../core/slash-commands.ts";
 import type { SourceInfo } from "../../core/source-info.ts";
 import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
 import type { TruncationResult } from "../../core/tools/truncate.ts";
@@ -4039,7 +4039,7 @@ export class InteractiveMode {
 				this.addSubmittedTextToHistory(text);
 			}
 
-			// Handle commands
+			text = normalizeBuiltinSlashCommandSeparator(text);
 			if (text === "/settings") {
 				this.showSettingsSelector();
 				this.editor.setText("");

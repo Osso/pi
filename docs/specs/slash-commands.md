@@ -11,7 +11,7 @@ Slash commands provide the user-facing dispatch layer for built-in commands, ext
 - [x] Recognize extension commands before normal prompt processing and execute their handlers directly.
 - [x] Expand matching skill commands and prompt templates before normal prompt processing.
 - [ ] Recognize built-in command names consistently across interactive, SDK, and RPC entry points.
-- [ ] Resolve the command name from the first non-whitespace token after `/`, leaving the remaining text as arguments.
+- [x] Resolve the command name from the first non-whitespace token after `/`, leaving the remaining text as arguments.
 
 ### Unknown commands
 
