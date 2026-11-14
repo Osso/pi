@@ -1,18 +1,12 @@
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources";
 import type { Context } from "@earendil-works/pi-ai";
-import type { ExtensionUIContext } from "../../../src/core/extensions/types.ts";
 import { debug } from "./diagnostics.ts";
 import type { McpResult } from "./extract-tool-results.ts";
-import { type PromptStream, userMessage } from "./prompt-stream.ts";
-
-let piUI: ExtensionUIContext | null = null;
-export function setLifecycleUI(ui: ExtensionUIContext | null): void {
-	piUI = ui;
-}
-
 import { extractUserPrompt, extractUserPromptBlocks } from "./isolated-summary.ts";
+import { type PromptStream, userMessage } from "./prompt-stream.ts";
 import { activeQueryContexts, type QueryContext } from "./query-state.ts";
 import { historyRewrittenBySession, sessionStateFor, setSessionStateFor } from "./session-mirror.ts";
+import { piUI } from "./ui-state.ts";
 
 /** The trailing user turn as content blocks, or null if there isn't one.
  *  Blocks rather than text so image steers keep their images. */

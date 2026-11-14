@@ -11,7 +11,6 @@ import {
 	type Session,
 } from "cc-session-io";
 import { realpathSync, statSync } from "fs";
-import type { ExtensionUIContext } from "../../../src/core/extensions/types.ts";
 import type { CompactionEntry } from "../../../src/core/session-manager.ts";
 import { collectCarriedAttachments, placeCarriedAttachments } from "./attachments.ts";
 import { convertPiMessages } from "./convert.ts";
@@ -29,10 +28,7 @@ import {
 import { activeQueryContexts } from "./query-state.ts";
 import { verifyWrittenSession as _verifyWrittenSession } from "./session-verify.ts";
 
-let piUI: ExtensionUIContext | null = null;
-export function setSessionUI(ui: ExtensionUIContext | null): void {
-	piUI = ui;
-}
+import { piUI } from "./ui-state.ts";
 
 // --- Session persistence ---
 

@@ -40,7 +40,7 @@ export const CC_CHILD_ENV = {
 } as const;
 
 let isolatedQueryImpl: typeof query = query;
-let longContextSettings: LongContextSettings = { plan: "pro", longContextExtraUsage: false };
+export let longContextSettings: LongContextSettings = { plan: "pro", longContextExtraUsage: false };
 
 export function setIsolatedQueryImpl(fn: typeof query | null): void {
 	isolatedQueryImpl = fn ?? query;

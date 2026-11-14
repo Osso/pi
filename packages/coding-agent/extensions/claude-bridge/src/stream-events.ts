@@ -1,7 +1,6 @@
 import type { query, SDKMessage, SDKPartialAssistantMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { Api, AssistantMessageEventStream, Model, ToolCall } from "@earendil-works/pi-ai";
 import { appendFileSync } from "fs";
-import type { ExtensionUIContext } from "../../../src/core/extensions/types.ts";
 import {
 	classifyAccountFailure,
 	completedStreams,
@@ -14,10 +13,7 @@ import { describeRateLimitFailure, resultErrorText } from "./isolated-summary.ts
 import type { QueryContext } from "./query-state.ts";
 import { MCP_TOOL_PREFIX } from "./skills.ts";
 
-let piUI: ExtensionUIContext | null = null;
-export function setStreamUI(ui: ExtensionUIContext | null): void {
-	piUI = ui;
-}
+import { piUI } from "./ui-state.ts";
 
 // --- Provider helpers: tool name mapping ---
 

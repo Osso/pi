@@ -26,8 +26,8 @@ import { debug } from "./diagnostics.ts";
 import { ACCOUNTS_EXHAUSTED, AccountProfileManager, newAssistantOutput, type QueryContext } from "./query-state.ts";
 import { type SdkUsage, updateUsage } from "./usage.ts";
 
-let providerSettings: NonNullable<Config["provider"]> = {};
-let claudeExecutable: string | undefined;
+export let providerSettings: NonNullable<Config["provider"]> = {};
+export let claudeExecutable: string | undefined;
 let accountProfileManager: AccountProfileManager | undefined;
 
 export function configureAccountRuntime(

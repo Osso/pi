@@ -13,16 +13,18 @@ import { getModels } from "@earendil-works/pi-ai/compat";
 import { Text } from "@earendil-works/pi-tui";
 import { type BranchSummaryResult, generateBranchSummary } from "../../../src/core/compaction/branch-summarization.ts";
 import { compact } from "../../../src/core/compaction/compaction.ts";
-import type { ExtensionAPI, ExtensionContext, ExtensionUIContext } from "../../../src/core/extensions/types.ts";
+import type { ExtensionAPI, ExtensionContext } from "../../../src/core/extensions/types.ts";
 import { buildSessionContext } from "../../../src/core/session-manager.ts";
 import { keyHint } from "../../../src/modes/interactive/components/keybinding-hints.ts";
 import {
+	claudeExecutable,
 	configureAccountRuntime,
 	emitAccountPreparationFailure,
 	errorMessage,
 	fetchAccountRetryProfiles,
 	markStreamComplete,
 	prepareProviderAccount,
+	providerSettings,
 	registerClaudeUsageListener,
 	resetAccountProfiles,
 } from "./account-runtime.ts";
@@ -38,7 +40,7 @@ import { buildActionSummary, type ToolCallState } from "./askclaude-ui.ts";
 import { recordAuthFailure, recordCredentialTrace } from "./auth-trace.ts";
 import { resolveClaudeCodeExecutable } from "./bundled-runtime.ts";
 
-import { type Config, claudeCodeSettings, loadConfig, markStartupNoticeShown } from "./config.ts";
+import { claudeCodeSettings, loadConfig, markStartupNoticeShown } from "./config.ts";
 import { PROVIDER_ID } from "./convert.ts";
 import { debug, diagDump, makeCliDebugOptions, moduleInstanceId } from "./diagnostics.ts";
 import { extractAllToolResults as _extractAllToolResults, type McpResult } from "./extract-tool-results.ts";
@@ -47,13 +49,14 @@ import {
 	extractUserPrompt,
 	extractUserPromptBlocks,
 	isolatedStreamFn,
+	longContextSettings,
 	requireSessionCwd,
 	resultErrorText,
 	setIsolatedQueryImpl,
 	setLongContextSettings,
 } from "./isolated-summary.ts";
 import { createToolServer } from "./mcp-server.ts";
-import { applyLongContext, buildModels, claudeCodeModelId, type LongContextSettings, resolveModel } from "./models.ts";
+import { applyLongContext, buildModels, claudeCodeModelId, resolveModel } from "./models.ts";
 import {
 	collectPromptSkills,
 	type PromptCapture,
@@ -68,7 +71,6 @@ import {
 	deliverToolResults,
 	discardRewrittenQuery,
 	drainForAbort,
-	setLifecycleUI,
 	steerBlocks,
 } from "./query-lifecycle.ts";
 import { ACCOUNTS_EXHAUSTED, activeQueryContexts, ctx, QueryContext } from "./query-state.ts";
@@ -82,22 +84,14 @@ import {
 	type SessionState,
 	sessionStateFor,
 	setSessionStateFor,
-	setSessionUI,
 	sharedSessions,
 	sponsorMarkRebuildForSession,
 	syncSharedSession,
 } from "./session-mirror.ts";
 import { ShapeTrace } from "./shape-trace.ts";
 import { MCP_SERVER_NAME, MCP_TOOL_PREFIX, renderSkillsBlock } from "./skills.ts";
-import {
-	claimCurrentPiStream,
-	consumeQuery,
-	finalizeCurrentStream,
-	mapToolName,
-	setStreamUI,
-} from "./stream-events.ts";
-
-let piUI: ExtensionUIContext | null = null;
+import { claimCurrentPiStream, consumeQuery, finalizeCurrentStream, mapToolName } from "./stream-events.ts";
+import { piUI, setPiUI } from "./ui-state.ts";
 
 // Pi owns context files on the provider path, so Claude Code must not load its
 // own on top: otherwise project CLAUDE.md/AGENTS.md files arrive twice, and
@@ -123,9 +117,6 @@ const ACTIVE_STREAM_SIMPLE_KEY = Symbol.for("claude-bridge:activeStreamSimple");
 // them. The provider enables only native WebSearch, not these tools.
 // MODELS is buildModels(getModels("anthropic")) — projection kept in models.js.
 const MODELS = buildModels(getModels("anthropic"));
-let providerSettings: NonNullable<Config["provider"]> = {};
-let claudeExecutable: string | undefined;
-let longContextSettings: LongContextSettings = { plan: "pro", longContextExtraUsage: false };
 const quotaRetrySessions = new Set<string | null>();
 
 async function resumeAfterAccountRecheck(
@@ -316,12 +307,7 @@ export const __test = {
 	getSharedSession(piSessionId: string | null = null) {
 		return sessionStateFor(piSessionId);
 	},
-	setPiUI(ui: ExtensionUIContext | null) {
-		piUI = ui;
-		setSessionUI(ui);
-		setStreamUI(ui);
-		setLifecycleUI(ui);
-	},
+	setPiUI,
 	syncSharedSession,
 	extractUserPromptBlocks,
 	consumeQuery,
@@ -1349,9 +1335,8 @@ export default function (pi: ExtensionAPI) {
 
 	const config = loadConfig(pi.cwd);
 	debug("loadConfig:", JSON.stringify(config));
-	providerSettings = config.provider ?? {};
-	claudeExecutable = resolveClaudeCodeExecutable(providerSettings.pathToClaudeCodeExecutable);
-	configureAccountRuntime(providerSettings, claudeExecutable);
+	const settings = config.provider ?? {};
+	configureAccountRuntime(settings, resolveClaudeCodeExecutable(settings.pathToClaudeCodeExecutable));
 	registerClaudeUsageListener(pi);
 	// We need these settings to know if we're eligible for 1M context on certain models
 	// Validate at the boundary: a non-array here would throw inside every
@@ -1359,12 +1344,11 @@ export default function (pi: ExtensionAPI) {
 	const forceTwoHundredK = Array.isArray(providerSettings.forceTwoHundredK)
 		? providerSettings.forceTwoHundredK.filter((id): id is string => typeof id === "string")
 		: undefined;
-	longContextSettings = {
+	setLongContextSettings({
 		plan: providerSettings.plan ?? "pro",
 		longContextExtraUsage: providerSettings.longContextExtraUsage ?? false,
 		forceTwoHundredK,
-	};
-	setLongContextSettings(longContextSettings);
+	});
 	const registeredModels = applyLongContext(MODELS, longContextSettings);
 	if (registeredModels.length === 0) {
 		console.error(
@@ -1401,10 +1385,7 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 	pi.on("session_start", (event, ctx) => {
-		piUI = ctx.ui;
-		setSessionUI(ctx.ui);
-		setStreamUI(ctx.ui);
-		setLifecycleUI(ctx.ui);
+		setPiUI(ctx.ui);
 		piMode = ctx.mode;
 		if (config.provider?.shapeTrace === true) {
 			new ShapeTrace(ctx.sessionManager.getSessionId()).recordPi("session_start", []);
