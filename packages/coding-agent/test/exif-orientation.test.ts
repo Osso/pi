@@ -94,6 +94,14 @@ describe("EXIF orientation", () => {
 		expect(orientPixels(bytes)).toEqual(flippedPixels);
 	});
 
+	it("applies JPEG orientation from an EXIF segment that follows an XMP segment", () => {
+		const segment = (data: Buffer) => Buffer.concat([Buffer.from([0xff, 0xe1, 0, data.length + 2]), data]);
+		const xmp = Buffer.from("http://ns.adobe.com/xap/1.0/\0<x:xmpmeta/>", "ascii");
+		const exif = Buffer.concat([Buffer.from("Exif\0\0", "ascii"), tiff]);
+		const bytes = Buffer.concat([Buffer.from([0xff, 0xd8]), segment(xmp), segment(exif)]);
+		expect(orientPixels(bytes)).toEqual(flippedPixels);
+	});
+
 	it("returns unchanged pixels for a truncated JPEG segment", () => {
 		expect(orientPixels(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0xff, 0xff]))).toEqual(originalPixels);
 	});

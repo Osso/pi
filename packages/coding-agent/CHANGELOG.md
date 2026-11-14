@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed JPEG EXIF orientation being ignored when an XMP APP1 segment comes before the EXIF segment, so such photos were sent rotated.
 - Fixed `!` and RPC `bash` output dropping all but the last short chunk when a large output chunk was followed by a small one, without marking the output truncated.
 - Fixed `!` and RPC `bash` output keeping fragments of color codes, such as a stray `m`, when a code was split across output chunks ([#10504](https://github.com/earendil-works/pi/issues/10504))
 - Fixed `SettingsManager.applyOverrides()` being discarded when settings reload (including the reload `createAgentSession()` performs) or when any setter saves; overrides now stay on top of global and project settings.
