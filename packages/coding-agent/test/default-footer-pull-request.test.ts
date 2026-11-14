@@ -204,6 +204,33 @@ describe("pull request polling", () => {
 		status.dispose();
 	});
 
+	it("drops a read that finishes after the branch changed and reads the new branch", async () => {
+		let branch = "feature-a";
+		const reads: string[] = [];
+		const pending: Array<(pullRequest: PullRequest | undefined) => void> = [];
+		const status = new PullRequestStatus(
+			"/repo",
+			() => branch,
+			() => {},
+			(readBranch) => {
+				reads.push(readBranch);
+				return new Promise((resolve) => pending.push(resolve));
+			},
+		);
+
+		const firstRead = status.refresh();
+		branch = "feature-b";
+		await status.refresh();
+		pending[0]?.(openPullRequest);
+		await vi.waitFor(() => expect(reads).toEqual(["feature-a", "feature-b"]));
+
+		expect(status.get()).toBeUndefined();
+		pending[1]?.(undefined);
+		await firstRead;
+		expect(status.get()).toBeUndefined();
+		status.dispose();
+	});
+
 	describe("github CLI reader", () => {
 		const originalPath = process.env.PATH;
 		let binDir: string;

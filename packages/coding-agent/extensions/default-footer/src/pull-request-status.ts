@@ -99,6 +99,8 @@ export class PullRequestStatus {
 		const result = await readPullRequest(this.read, branch, this.cwd);
 		this.reading = false;
 		if (this.disposed) return;
+		// The branch changed during the read: drop the stale result and read the current branch now.
+		if (this.branch !== branch) return this.refresh();
 		if (!result.failed) this.publish(result.pullRequest);
 		this.schedule(REFRESH_INTERVAL_MS);
 	}
