@@ -834,15 +834,10 @@
         return extToLang[ext];
       }
 
+      // Only the displayed path counts: a result on an abandoned branch is not part of this conversation.
       function findToolResult(toolCallId) {
-        for (const entry of entries) {
-          if (entry.type === 'message' && entry.message.role === 'toolResult') {
-            if (entry.message.toolCallId === toolCallId) {
-              return entry.message;
-            }
-          }
-        }
-        return null;
+        const entry = currentPath.find((e) => e.type === 'message' && e.message.role === 'toolResult' && e.message.toolCallId === toolCallId);
+        return entry ? entry.message : null;
       }
 
       function formatExpandableOutput(text, maxLines, lang) {
@@ -1460,6 +1455,7 @@
 
       // Cache for rendered entry DOM nodes
       const entryCache = new Map();
+      let currentPath = [];
 
       function getScrollTargetElementId(entryId) {
         const entry = byId.get(entryId);
@@ -1472,9 +1468,10 @@
       }
 
       function renderEntryToNode(entry) {
-        // Check cache first
-        if (entryCache.has(entry.id)) {
-          return entryCache.get(entry.id).cloneNode(true);
+        // Check cache first; assistant tool calls show the results of the displayed path
+        const cacheKey = entry.type === 'message' && entry.message.role === 'assistant' ? `${entry.id}@${currentLeafId}` : entry.id;
+        if (entryCache.has(cacheKey)) {
+          return entryCache.get(cacheKey).cloneNode(true);
         }
 
         // Render to HTML string, then parse to node
@@ -1487,7 +1484,7 @@
 
         // Cache the node
         if (node) {
-          entryCache.set(entry.id, node.cloneNode(true));
+          entryCache.set(cacheKey, node.cloneNode(true));
         }
         return node;
       }
@@ -1495,7 +1492,7 @@
       function navigateTo(targetId, scrollMode = 'target', scrollToEntryId = null) {
         currentLeafId = targetId;
         currentTargetId = scrollToEntryId || targetId;
-        const path = getPath(targetId);
+        const path = (currentPath = getPath(targetId));
 
         renderTree();
 

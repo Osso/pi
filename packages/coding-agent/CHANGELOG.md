@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed HTML export showing a tool result from an abandoned branch on the tool call of the selected branch.
 - Fixed a fork cancelled by a `session_before_fork` handler returning no text, so RPC `fork` omitted the documented `text` field.
 - Fixed RPC mode ignoring `ctx.shutdown()` until the client sent another command when it was requested by an extension command after a dialog or by a turn the extension started.
 - Fixed startup failing with `EISDIR` when a rules folder contained a directory (or broken symlink) whose name ends in `.md`.

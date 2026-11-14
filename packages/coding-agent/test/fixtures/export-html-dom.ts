@@ -55,7 +55,11 @@ function createRecordingDom(sessionDataBase64: string): { context: object; html:
 			getComputedStyle: () => node(),
 			matchMedia: () => node(),
 			addEventListener: () => {},
-			marked: node(),
+			// Markdown renders as its source text, so tests can assert on message text.
+			marked: new Proxy(
+				{},
+				{ get: (_target, property) => (property === "parse" ? (text: string) => text : node()) },
+			),
 			hljs: node(),
 			localStorage: node(),
 			navigator: node(),
