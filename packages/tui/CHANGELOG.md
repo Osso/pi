@@ -32,6 +32,7 @@
 - Fixed the `Editor` bottom scroll indicator (`─── ↓ N more`) being wider than a narrow terminal (about 15 columns or less) when the editor had content below the visible area, which made the TUI stop with a width error; it is now truncated like the top indicator.
 - Fixed `SelectList` with no items rendering `  No matching commands` wider than a narrow width (for example 22 columns at width 5), which made the TUI stop with a width error; the message is now truncated to the width.
 - Fixed `KeybindingsManager.getDefinition()` throwing `Missing keybinding definition` for an id the manager has no definition for (introduced while enabling `noUncheckedIndexedAccess`); it returns `undefined` again, and its return type is now `KeybindingDefinition | undefined`.
+- Fixed `+` key bindings, including modified Kitty and xterm sequences and typed `Key.plus` helpers.
 
 ## [0.80.3] - 2026-06-30
 

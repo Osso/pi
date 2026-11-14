@@ -17,7 +17,7 @@
  * - setKittyProtocolActive(active) - Set global Kitty protocol state
  * - isKittyProtocolActive() - Query global Kitty protocol state
  */
-
+import { splitKeyId } from "./key-id.ts";
 // =============================================================================
 // Global Kitty Protocol State
 // =============================================================================
@@ -791,7 +791,7 @@ function formatKeyNameWithModifiers(keyName: string, modifier: number): string |
 function parseKeyId(
 	keyId: string,
 ): { key: string; ctrl: boolean; shift: boolean; alt: boolean; super: boolean } | null {
-	const parts = keyId.toLowerCase().split("+");
+	const parts = splitKeyId(keyId);
 	const key = parts[parts.length - 1];
 	if (!key) return null;
 	return {

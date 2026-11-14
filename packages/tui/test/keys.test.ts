@@ -40,6 +40,35 @@ function withEnvVars(vars: Record<string, string | undefined>, fn: () => void): 
 }
 
 describe("matchesKey", () => {
+	describe("plus key bindings", () => {
+		for (const kittyActive of [false, true]) {
+			for (const [data, key] of [
+				["+", Key.plus],
+				["\x1b[43u", Key.plus],
+				["\x1b[57413u", Key.plus],
+				["\x1b[43;5u", Key.ctrl(Key.plus)],
+				["\x1b[57413;5u", Key.ctrl(Key.plus)],
+				["\x1b[43;2u", Key.shift(Key.plus)],
+				["\x1b[43;3u", Key.alt(Key.plus)],
+				["\x1b[43;9u", Key.super(Key.plus)],
+				["\x1b[43;6u", Key.shiftCtrl(Key.plus)],
+				["\x1b[27;5;43~", Key.ctrl(Key.plus)],
+			] as const) {
+				it(`matches ${JSON.stringify(data)} to ${key} with Kitty ${kittyActive}`, () => {
+					setKittyProtocolActive(kittyActive);
+					try {
+						assert.strictEqual(parseKey(data), key);
+						assert.strictEqual(matchesKey(data, key), true);
+						assert.strictEqual(matchesKey(data, Key.altCtrl(Key.plus)), false);
+						assert.strictEqual(matchesKey(data, "="), false);
+					} finally {
+						setKittyProtocolActive(false);
+					}
+				});
+			}
+		}
+	});
+
 	describe("Kitty protocol with alternate keys (non-Latin layouts)", () => {
 		// Kitty protocol flag 4 (Report alternate keys) sends:
 		// CSI codepoint:shifted:base ; modifier:event u
