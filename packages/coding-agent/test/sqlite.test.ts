@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
 	configureReadOnlySqliteDatabase,
 	configureSharedSqliteDatabase,
@@ -151,13 +151,18 @@ describe("SQLite adapter", () => {
 				run: () => ({ changes: 0, lastInsertRowid: 0 }),
 			}),
 		};
+		// Full backoff without jitter: retries at about 5, 15, 35 and 75 ms. The next 80 ms sleep must stop at 100 ms.
+		const random = vi.spyOn(Math, "random").mockReturnValue(0.999999);
 		const startedAt = performance.now();
-
-		expect(() => configureSharedSqliteDatabase(database, { busyTimeoutMs: 60 })).toThrow(busy);
+		try {
+			expect(() => configureSharedSqliteDatabase(database, { busyTimeoutMs: 100 })).toThrow(busy);
+		} finally {
+			random.mockRestore();
+		}
 		const elapsedMs = performance.now() - startedAt;
 		expect(walAttempts).toBeGreaterThan(1);
-		expect(elapsedMs).toBeGreaterThanOrEqual(55);
-		expect(elapsedMs).toBeLessThan(120);
+		expect(elapsedMs).toBeGreaterThanOrEqual(95);
+		expect(elapsedMs).toBeLessThan(135);
 	});
 
 	test("processes that open the same new database at the same time all enable WAL", async () => {
