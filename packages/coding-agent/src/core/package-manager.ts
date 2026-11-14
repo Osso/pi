@@ -1271,7 +1271,10 @@ export class DefaultPackageManager implements PackageManager {
 			const stats = statSync(resolved);
 			if (stats.isFile()) {
 				metadata.baseDir = dirname(resolved);
-				this.addResource(accumulator.extensions, resolved, metadata, true);
+				const patterns = filter?.extensions;
+				const enabled =
+					!patterns || (patterns.length > 0 && applyPatterns([resolved], patterns, dirname(resolved)).size > 0);
+				this.addResource(accumulator.extensions, resolved, metadata, enabled);
 				return;
 			}
 			if (stats.isDirectory()) {

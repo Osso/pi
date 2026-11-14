@@ -1773,6 +1773,23 @@ Content`,
 			expect(result.extensions.some((r) => isEnabled(r, "hidden.ts"))).toBe(false);
 		});
 
+		it("should disable a single-file local extension with an empty extensions filter", async () => {
+			const extensionPath = join(tempDir, "single.ts");
+			writeFileSync(extensionPath, "export default function() {}");
+
+			settingsManager.setPackages([{ source: extensionPath, extensions: [] }]);
+			const disabled = await packageManager.resolve();
+			expect(disabled.extensions.some((r) => isEnabled(r, "single.ts"))).toBe(false);
+
+			settingsManager.setPackages([{ source: extensionPath, extensions: ["!single.ts"] }]);
+			const excluded = await packageManager.resolve();
+			expect(excluded.extensions.some((r) => isEnabled(r, "single.ts"))).toBe(false);
+
+			settingsManager.setPackages([{ source: extensionPath }]);
+			const enabled = await packageManager.resolve();
+			expect(enabled.extensions.some((r) => isEnabled(r, "single.ts"))).toBe(true);
+		});
+
 		it("should exclude extensions from package with ! pattern", async () => {
 			const pkgDir = join(tempDir, "pattern-pkg");
 			mkdirSync(join(pkgDir, "extensions"), { recursive: true });
