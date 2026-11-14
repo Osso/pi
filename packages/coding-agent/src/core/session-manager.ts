@@ -867,9 +867,9 @@ export function findMostRecentSession(sessionDir: string, cwd?: string, controlD
 			.map((f) => join(resolvedSessionDir, f))
 			.map((path) => ({ path, header: readSessionHeader(path) }))
 			.filter(({ path, header }) => {
-				if (!header) return false;
+				if (!header || !resolvedCwd) return header !== null;
 				const metadata = controlDbPath ? readSessionMetadata(controlDbPath, path) : undefined;
-				return !resolvedCwd || sessionCwdMatches(metadata?.cwd ?? getSessionHeaderCwd(header), resolvedCwd);
+				return sessionCwdMatches(metadata?.cwd ?? getSessionHeaderCwd(header), resolvedCwd);
 			})
 			.map(({ path }) => ({ path, mtime: statSync(path).mtime }))
 			.sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
