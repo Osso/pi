@@ -3261,6 +3261,19 @@ describe("Editor component", () => {
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 0 });
 		});
 
+		it("jumps backward past the character under a cursor at column zero", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+
+			editor.setText("ax\nax");
+			editor.handleInput("\x01"); // Ctrl+A - line start, on the 'a' of line 2
+			assert.deepStrictEqual(editor.getCursor(), { line: 1, col: 0 });
+
+			editor.handleInput("\x1b\x1d"); // Ctrl+Alt+]
+			editor.handleInput("a");
+
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 0 });
+		});
+
 		it("does nothing when character is not found (forward)", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 

@@ -2339,7 +2339,7 @@ export class Editor implements Component, Focusable {
 
 			const idx = isForward ? line.indexOf(char, searchFrom) : line.lastIndexOf(char, searchFrom);
 
-			if (idx !== -1) {
+			if (idx !== -1 && searchFrom !== -1) {
 				this.state.cursorLine = lineIdx;
 				this.setCursorCol(idx);
 				return;

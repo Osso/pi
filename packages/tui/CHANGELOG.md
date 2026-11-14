@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed the editor's backward character jump (Ctrl+Alt+]) staying on the current character when the cursor is at column 0 and that character matches.
 - Fixed `matchesKey` matching a Kitty digit key by its base-layout key on remapped layouts, so `alt+2` reported on the physical `1` key also matched `alt+1`; digits are now authoritative like letters and symbols, as `parseKey` already did.
 - Fixed rxvt Shift-modified keys such as `ESC [ 2 $` (Shift+Insert) swallowing the next typed character when both arrived in one stdin chunk.
 - Fixed stdin splitting Linux console double-bracket keys such as `ESC [ [ 5 ~` (Page Up) into `ESC [ [`, `5`, and `~`.
