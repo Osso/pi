@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed skills, prompts and themes losing their package source metadata when an extension added resources ([#6968](https://github.com/earendil-works/pi-mono/issues/6968)).
 - Fixed branch summaries created by tree navigation dropping the read and modified file lists from earlier compaction entries.
 - Fixed user `!` bash commands returning `fullOutputPath` before the full-output file was written.
 - Fixed signal-terminated local shell commands being reported as successful with partial output ([#9577](https://github.com/earendil-works/pi/issues/9577)).
