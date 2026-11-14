@@ -59,6 +59,7 @@ import {
 	createViewedSessionCommandContext,
 	executeExtensionCommand,
 	isKnownSlashCommand,
+	recordHandledSlashCommandHistory,
 	slashCommandName,
 	tryExecuteExtensionCommand,
 } from "./agent-session-commands.ts";
@@ -184,7 +185,6 @@ import {
 	readMultiAgentRuntimeOwnership,
 	readRuntimeMailboxListener,
 	readSharedChannelTail,
-	recordPromptHistoryEntry,
 	registerRuntimeMailboxListener,
 	retainControlDbConnection,
 	retireRuntimeMailboxListener,
@@ -2608,14 +2608,7 @@ export class AgentSession {
 	}
 
 	private _recordHandledSlashCommandHistory(text: string): void {
-		try {
-			recordPromptHistoryEntry(this._controlDbPath, text);
-		} catch (error) {
-			console.error(
-				"Failed to persist prompt history for handled slash command:",
-				error instanceof Error ? error.message : String(error),
-			);
-		}
+		recordHandledSlashCommandHistory(this._controlDbPath, text);
 	}
 
 	/**

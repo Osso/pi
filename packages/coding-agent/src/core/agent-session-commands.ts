@@ -1,8 +1,20 @@
 import type { ExtensionCommandContext, ResolvedCommand, ViewedSessionMutationTarget } from "./extensions/index.ts";
 import { findExactModelReferenceMatch } from "./model-resolver.ts";
+import { recordPromptHistoryEntry } from "./session-control-db.ts";
 import { BUILTIN_SLASH_COMMANDS } from "./slash-commands.ts";
 
 export type SessionMutationTargetResolver = () => ViewedSessionMutationTarget | undefined;
+
+export function recordHandledSlashCommandHistory(controlDbPath: string, text: string): void {
+	try {
+		recordPromptHistoryEntry(controlDbPath, text);
+	} catch (error) {
+		console.error(
+			"Failed to persist prompt history for handled slash command:",
+			error instanceof Error ? error.message : String(error),
+		);
+	}
+}
 
 export interface ExtensionCommandOptions {
 	expandPromptTemplates?: boolean;
