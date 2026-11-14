@@ -458,6 +458,16 @@ function findShorterUnownedMirror(
 	return priorCount < sharedSession.cursor ? sharedSession : undefined;
 }
 
+export function deleteEphemeralSession(
+	capturedSessionId: string | undefined,
+	sharedSessionId: string | undefined,
+	cwd: string,
+): void {
+	if (!capturedSessionId || capturedSessionId === sharedSessionId) return;
+	deleteSession(capturedSessionId, cwd, process.env.CLAUDE_CONFIG_DIR);
+	debug(`provider: query done, deleted ephemeral session ${capturedSessionId.slice(0, 8)} to preserve shared session`);
+}
+
 export function syncSharedSession(
 	messages: Context["messages"],
 	cwd: string,

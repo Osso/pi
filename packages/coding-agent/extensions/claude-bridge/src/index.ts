@@ -11,7 +11,6 @@ import {
 } from "@earendil-works/pi-ai";
 import { getModels } from "@earendil-works/pi-ai/compat";
 import { Text } from "@earendil-works/pi-tui";
-import { deleteSession } from "cc-session-io";
 import { type BranchSummaryResult, generateBranchSummary } from "../../../src/core/compaction/branch-summarization.ts";
 import { compact } from "../../../src/core/compaction/compaction.ts";
 import type { ExtensionAPI, ExtensionContext, ExtensionUIContext } from "../../../src/core/extensions/types.ts";
@@ -75,6 +74,7 @@ import {
 import { ACCOUNTS_EXHAUSTED, activeQueryContexts, ctx, QueryContext } from "./query-state.ts";
 import {
 	armStaleContexts,
+	deleteEphemeralSession,
 	extractAllToolResults,
 	historyRewrittenBySession,
 	markRebuildForSession,
@@ -1020,12 +1020,7 @@ function streamClaudeAgentSdk(
 			// reassign the parent's conversation to the child's CC file.
 			if (syncResult.preserveSharedSession) {
 				const state = sessionStateFor(queryCtx.piSessionId);
-				if (capturedSessionId && capturedSessionId !== state?.sessionId) {
-					deleteSession(capturedSessionId, cwd, process.env.CLAUDE_CONFIG_DIR);
-					debug(
-						`provider: query done, deleted ephemeral session ${capturedSessionId.slice(0, 8)} to preserve shared session`,
-					);
-				}
+				deleteEphemeralSession(capturedSessionId, state?.sessionId, cwd);
 				debug(
 					`provider: query done, ignoring captured session ${capturedSessionId?.slice(0, 8) ?? "none"} to preserve shared session`,
 				);
