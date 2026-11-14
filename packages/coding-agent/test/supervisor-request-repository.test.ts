@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	cancelSupervisorRequest,
 	claimNextSupervisorRequest,
@@ -23,7 +23,42 @@ describe("Supervisor request repository", () => {
 	});
 
 	afterEach(() => {
+		vi.useRealTimers();
 		rmSync(tempDir, { force: true, recursive: true });
+	});
+
+	it("deletes completed and cancelled requests 24 hours after they finish", () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-11-01T00:00:00.000Z"));
+		const request = (objective: string) =>
+			postSupervisorRequest(controlDbPath, {
+				deadlineAt: "2026-12-01T00:00:00.000Z",
+				kind: "goal_idle_review",
+				payload: { objective },
+				projectId: "pi",
+				senderSessionId: "goal-session",
+			});
+		const complete = (requestId: number) => {
+			const claimed = claimNextSupervisorRequest(controlDbPath, `runtime-${requestId}`);
+			if (claimed?.id !== requestId || !claimed.claimToken) throw new Error(`expected claim of ${requestId}`);
+			completeSupervisorRequest(controlDbPath, requestId, claimed.claimToken, { kind: "pause", reason: "done" });
+		};
+		const oldCompleted = request("old completed");
+		complete(oldCompleted);
+		const oldCancelled = request("old cancelled");
+		cancelSupervisorRequest(controlDbPath, oldCancelled, "goal-session", "Escape pressed");
+		const oldPending = request("old pending");
+
+		vi.setSystemTime(new Date("2026-11-01T23:59:00.000Z"));
+		const recentCancelled = request("recent cancelled");
+		cancelSupervisorRequest(controlDbPath, recentCancelled, "goal-session", "Escape pressed");
+		expect(readSupervisorRequest(controlDbPath, oldCompleted)).toMatchObject({ status: "completed" });
+
+		vi.setSystemTime(new Date("2026-11-02T00:00:30.000Z"));
+		expect(readSupervisorRequest(controlDbPath, oldCompleted)).toBeUndefined();
+		expect(readSupervisorRequest(controlDbPath, oldCancelled)).toBeUndefined();
+		expect(readSupervisorRequest(controlDbPath, oldPending)).toMatchObject({ status: "pending" });
+		expect(readSupervisorRequest(controlDbPath, recentCancelled)).toMatchObject({ status: "cancelled" });
 	});
 
 	it("claims policy requests before older advisory requests", () => {

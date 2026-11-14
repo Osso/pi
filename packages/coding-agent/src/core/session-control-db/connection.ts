@@ -148,7 +148,7 @@ export function initializeSchema(db: SqliteDatabase, selfRestartProcessId?: numb
 	cleanupExpiredMessages(db);
 }
 
-/** Mailbox messages, shared-channel messages and terminal agents share one 24h retention. */
+/** Mailbox messages, shared-channel messages, finished Supervisor requests and terminal agents share one 24h retention. */
 
 export function cleanupExpiredMessages(db: SqliteDatabase): void {
 	const cutoff = Date.now() - MAILBOX_MESSAGE_RETENTION_MS;
@@ -165,6 +165,11 @@ export function cleanupExpiredMessages(db: SqliteDatabase): void {
 		.prepare("SELECT 1 FROM shared_channel_messages WHERE created_at <= ? LIMIT 1")
 		.get(channelCutoff);
 	if (channelDue) db.prepare("DELETE FROM shared_channel_messages WHERE created_at <= ?").run(channelCutoff);
+	const finishedSupervisorRequests =
+		"FROM supervisor_requests WHERE status IN ('completed', 'cancelled') AND completed_at <= ?";
+	if (db.prepare(`SELECT 1 ${finishedSupervisorRequests} LIMIT 1`).get(channelCutoff)) {
+		db.prepare(`DELETE ${finishedSupervisorRequests}`).run(channelCutoff);
+	}
 	cleanupExpiredTerminalAgents(db, channelCutoff);
 }
 
