@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "../../../src/core/extensions/types.ts";
 import { dispatchClaudeUsageRequest, handleUsageAccounts, handleUsageDeepseek, isUsageScope } from "./account-usage.ts";
 import { handleUsageRead, handleUsageReset } from "./codex-usage.ts";
 
-export {
+export type {
 	CodexAccountInfo,
 	CodexAdditionalRateLimitPayload,
 	CodexCredits,
@@ -13,15 +13,16 @@ export {
 	CodexRateLimitWindowPayload,
 	CodexUsage,
 	CodexUsagePayload,
+} from "./codex-usage.ts";
+export {
 	formatCodexUsage,
 	mapCodexUsagePayload,
 	resolveCodexAccountId,
 	resolveCodexAccountInfo,
 	resolveCodexDisplayEmail,
 } from "./codex-usage.ts";
+export type { DeepseekRow, DeepseekWindow } from "./deepseek-usage.ts";
 export {
-	DeepseekRow,
-	DeepseekWindow,
 	formatDeepseekUsage,
 	mapCommandCodeUsage,
 	mapDeepseekBalance,

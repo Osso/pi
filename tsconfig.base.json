@@ -5,6 +5,7 @@
 		"lib": ["ES2022"],
 		"strict": true,
 		"erasableSyntaxOnly": true,
+		"isolatedModules": true,
 		"esModuleInterop": true,
 		"skipLibCheck": true,
 		"forceConsistentCasingInFileNames": true,
