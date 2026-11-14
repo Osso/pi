@@ -1,15 +1,13 @@
+export type { MultiAgentRuntimeHandles } from "./contracts.ts";
+
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core";
+import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { clampThinkingLevel } from "@earendil-works/pi-ai/compat";
-import { type Static, Type } from "typebox";
 import { getAgentDir } from "../../../src/config.ts";
-import type { AgentSessionEvent } from "../../../src/core/agent-session.ts";
 import { DEFAULT_THINKING_LEVEL } from "../../../src/core/defaults.ts";
 import {
-	type DesktopNotification,
 	type DesktopNotificationHandle,
-	type DesktopNotifier,
 	PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
 	sendDesktopNotification,
 	toDesktopNotificationHandle,
@@ -63,13 +61,18 @@ import {
 } from "../../../src/core/session-control-db.ts";
 import { type SessionEntry, type SessionInfo, SessionManager } from "../../../src/core/session-manager.ts";
 import { deliverTerminalOutboxProjections } from "../../../src/core/terminal-outbox-delivery.ts";
-import { CHILD_DISABLED_AGENT_TOOL_NAMES, SUPERVISOR_ONLY_TOOL_NAMES } from "../../../src/core/tool-capabilities.ts";
 import { registerAgentViewerTools } from "../../agent-viewer/src/runtime.ts";
 import { registerSetAgentModelTool, resolveLiveAgentMutationTarget } from "./agent-model-tool.ts";
 import { type AttachSessionInfo, findAttachSessionsById, readStoredSessionModel } from "./attach-session-lookup.ts";
 import { readCurrentChildAssistantText } from "./child-response.ts";
-import { bindProductionChildSession, type UnboundChildAgentSession } from "./child-session.ts";
+import { bindProductionChildSession } from "./child-session.ts";
 import { createChildTools } from "./child-tools.ts";
+import type {
+	ActiveAgentDispatches,
+	BackgroundSessionHandles,
+	MultiAgentRuntimeHandles,
+	OwnedAgentRuntime,
+} from "./contracts.ts";
 import { waitForActiveDescendants } from "./descendant-settlement.ts";
 import {
 	type DetachedRuntimeCancellationOptions,
@@ -89,275 +92,70 @@ import { isRemoteSessionMessage, sessionMessageRouteError } from "./session-mess
 const MAX_GOAL_OBJECTIVE_CHARS = 10_000;
 const GOAL_EXTENSION_PATH = "<first-party:goal>";
 
-const checkpointSchema = Type.Union([
-	Type.Literal("next_model_call"),
-	Type.Literal("after_tool_result"),
-	Type.Literal("when_waiting"),
-]);
+export type {
+	AgentDesktopNotification,
+	AgentDesktopNotifier,
+	AttachedSessionDispatchInput,
+	AttachedSessionFactory,
+	ChildAgentDispatchInput,
+	ChildAgentSession,
+	ChildAgentSessionFactory,
+	MultiAgentExtensionOptions,
+	MultiAgentPiRequestHandler,
+	ProductionChildAgentSessionFactoryOptions,
+} from "./contracts.ts";
 
-const fileReferenceSchema = Type.Object({
-	path: Type.String(),
-	label: Type.Optional(Type.String()),
-});
+import {
+	type AgentDesktopNotifier,
+	type AgentListToolDetails,
+	type AgentSelectionDetails,
+	type AgentSteerToolDetails,
+	type AgentToolDetails,
+	type AttachedSessionFactory,
+	type AttachSessionAgentParams,
+	attachSessionAgentSchema,
+	CANCELLATION_SETTLEMENT_TIMEOUT_MS,
+	type CancelAgentParams,
+	CHILD_AGENT_CONTROL_TOOL_NAMES,
+	CHILD_EXCLUDED_TOOL_NAMES,
+	CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE,
+	type ChildAgentDispatchInput,
+	type ChildAgentSession,
+	type ChildAgentSessionFactory,
+	type ContactParentToolDetails,
+	CRASH_RECOVERY_PROMPT,
+	cancelAgentSchema,
+	type GoalObjectiveValidation,
+	type LastMessageDetails,
+	type ListAgentsParams,
+	listAgentsSchema,
+	MAIN_THREAD_AGENT_ID,
+	type MainThreadSnapshot,
+	MESSAGE_CONTENT_LIMIT,
+	type MultiAgentExtensionOptions,
+	type MultiAgentPiRequestHandler,
+	type ProductionChildAgentSessionFactory,
+	type ProductionChildAgentSessionFactoryOptions,
+	productionChildSessionFactoryMarker,
+	type ResolvedAgentProfile,
+	RUNTIME_COORDINATION_POLL_INTERVAL_MS,
+	requireSpawnAgentParams,
+	type SendAgentMessageToolDetails,
+	type SteerAgentParams,
+	SUBAGENT_TERMINAL_CLEANUP_REASON,
+	spawnAgentSchema,
+	steerAgentSchema,
+	THINKING_LEVELS,
+	WAIT_AGENT_SLICE_MS,
+	type WaitAgentsToolDetails,
+	type WaitAgentsWakeUp,
+	waitAgentsSchema,
+} from "./contracts.ts";
 
-const spawnAgentSchema = Type.Object({
-	agentType: Type.Optional(Type.String()),
-	context: Type.Optional(Type.Union([Type.Literal("fresh"), Type.Literal("inherit")])),
-	displayName: Type.Optional(
-		Type.String({
-			description: "Short task slug shown in the agent status list, e.g. fix-footer-count (max ~24 chars).",
-		}),
-	),
-	parentId: Type.Optional(Type.String()),
-	prompt: Type.String(),
-});
-
-const listAgentsSchema = Type.Object(
-	{
-		parentId: Type.Optional(Type.String()),
-	},
-	{ additionalProperties: false },
-);
-
-const attachSessionAgentSchema = Type.Object({
-	agentType: Type.Optional(Type.String()),
-	displayName: Type.Optional(Type.String()),
-	name: Type.Optional(Type.String({ description: "Session name; provide exactly one of name, path, or sessionId." })),
-	parentId: Type.Optional(Type.String()),
-	path: Type.Optional(
-		Type.String({ description: "Session transcript path; provide exactly one of name, path, or sessionId." }),
-	),
-	prompt: Type.Optional(Type.String()),
-	sessionId: Type.Optional(
-		Type.String({ description: "Session ID or unique prefix; provide exactly one of name, path, or sessionId." }),
-	),
-});
-
-const waitAgentsSchema = Type.Object({}, { additionalProperties: false });
-
-const cancelAgentSchema = Type.Object({
-	agentId: Type.String(),
-	reason: Type.Optional(Type.String()),
-});
-
-const steerAgentSchema = Type.Object({
-	agentId: Type.String(),
-	fileRefs: Type.Optional(Type.Array(fileReferenceSchema)),
-	message: Type.String(),
-	fromAgentId: Type.Optional(Type.String()),
-	targetCheckpoint: Type.Optional(checkpointSchema),
-});
-
-type SpawnAgentParams = Static<typeof spawnAgentSchema>;
-type AttachSessionAgentParams = Static<typeof attachSessionAgentSchema>;
-
-function requireSpawnAgentParams(params: unknown): asserts params is SpawnAgentParams {
-	if (!params || typeof params !== "object") {
-		throw new Error('spawn_agent context must be "fresh" or "inherit"');
-	}
-	const input = params as { context?: unknown; prompt?: unknown };
-	if (input.context !== undefined && input.context !== "fresh" && input.context !== "inherit") {
-		throw new Error('spawn_agent context must be "fresh" or "inherit"');
-	}
-	if (typeof input.prompt !== "string") {
-		throw new Error("spawn_agent prompt must be a string");
-	}
-}
-type ListAgentsParams = Static<typeof listAgentsSchema>;
-type CancelAgentParams = Static<typeof cancelAgentSchema>;
-type SteerAgentParams = Static<typeof steerAgentSchema>;
-
-type ChildSessionModel = CreateAgentSessionOptions["model"];
-
-type ResolvedAgentProfile = {
-	context?: "fresh" | "inherit";
-	model?: ChildSessionModel;
-	modelMetadata?: AgentSnapshot["model"];
-	thinkingLevel?: ThinkingLevel;
-	tools?: string[];
-};
-
-const THINKING_LEVELS = new Set<ThinkingLevel>(["off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
-const CHILD_AGENT_CONTROL_TOOL_NAMES = ["ask_questions", "contact_parent", "send_agent_message", "end_turn"] as const;
-const CHILD_EXCLUDED_TOOL_NAMES = [
-	...CHILD_DISABLED_AGENT_TOOL_NAMES,
-	...SUPERVISOR_ONLY_TOOL_NAMES,
-	"change_working_directory",
-];
-const MAIN_THREAD_AGENT_ID = "main";
-const CANCELLATION_SETTLEMENT_TIMEOUT_MS = 5_000;
-const SUBAGENT_TERMINAL_CLEANUP_REASON = "Owning subagent reached a terminal path";
-const CRASH_RECOVERY_PROMPT =
-	"Continue the conversation from where it left off without asking the user any further questions. Resume directly from the saved session context.";
-const MESSAGE_CONTENT_LIMIT = 2000;
-const RUNTIME_COORDINATION_POLL_INTERVAL_MS = 3_000;
-const WAIT_AGENT_SLICE_MS = 25 * 60_000;
-const CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE = "Agent orchestration is unavailable from child agent runtimes.";
-
-export type AgentDesktopNotification = DesktopNotification;
-
-export type AgentDesktopNotifier = DesktopNotifier;
-
-export interface MultiAgentExtensionOptions {
-	createAttachedSession?: AttachedSessionFactory;
-	createChildSession?: ChildAgentSessionFactory;
-	desktopNotifier?: AgentDesktopNotifier;
-	runtimeHandles?: MultiAgentRuntimeHandles;
-	selectAgentView?: (agentId: string) => boolean | undefined;
-	onSessionMessageSent?: (input: { message: AgentMailboxMessage; toSessionId: string }) => void;
-	store?: MultiAgentStore;
-}
-
-export interface ChildAgentDispatchInput {
-	activeToolCallId?: string;
-	agent: AgentSnapshot;
-	context: "fresh" | "inherit";
-	ctx: ExtensionContext;
-	prompt: string;
-	signal?: AbortSignal;
-}
-
-export interface ChildAgentSession {
-	abort?(): void;
-	dispose?(): void | Promise<void>;
-	drainRuntimeCoordination?(): Promise<void>;
-	/** Ended tool calls whose results the transcript has not received yet. */
-	finishedToolCalls?: ReadonlyMap<string, Extract<AgentSessionEvent, { type: "tool_execution_end" }>>;
-	messages: AgentMessage[];
-	prompt(text: string): Promise<void>;
-	subscribe?(listener: (event: AgentSessionEvent) => void): () => void;
-	transcript?: AgentSnapshot["transcript"];
-}
-
-export type ChildAgentSessionFactory = (input: ChildAgentDispatchInput) => Promise<ChildAgentSession>;
-
-const productionChildSessionFactoryMarker = Symbol("productionChildSessionFactory");
-
-type ProductionChildAgentSessionFactory = ChildAgentSessionFactory & {
-	[productionChildSessionFactoryMarker]: true;
-};
-
-type GoalObjectiveValidation =
-	| { objective: string; ok: true }
-	| { length: number; ok: false; reason: "empty" | "too_long" };
-
-export interface AttachedSessionDispatchInput extends Omit<ChildAgentDispatchInput, "context"> {
-	sessionPath: string;
-}
-
-export type AttachedSessionFactory = (input: AttachedSessionDispatchInput) => Promise<ChildAgentSession>;
-
-export interface ProductionChildAgentSessionFactoryOptions {
-	agentDir?: string;
-	browserAgentConfigRoot?: string;
-	createSession: (options: CreateAgentSessionOptions) => Promise<{ session: UnboundChildAgentSession }>;
-	createSessionManager: (
-		cwd: string,
-		sessionDir: string | undefined,
-		options: { parentSession: string; isSubagent?: boolean; subagentName?: string },
-	) => NonNullable<CreateAgentSessionOptions["sessionManager"]>;
-	extensionFactories?: ExtensionFactory[] | (() => ExtensionFactory[]);
-	multiAgentStore?: MultiAgentStore;
-	sessionDir?: string;
-}
-
-export interface MultiAgentPiRequestHandler {
-	(
-		request: { method: string; params: unknown },
-		ctx: ExtensionContext,
-		signal: AbortSignal | undefined,
-		activeToolCallId?: string,
-	): Promise<unknown> | unknown;
-	dispose(): void;
-}
-
-interface MainThreadSnapshot extends Record<string, unknown> {
-	displayName: "Main thread";
-	id: "main";
-	lifecycle: "current";
-	selected: true;
-}
-
-interface AgentSelectionDetails extends Record<string, unknown> {
-	agent: AgentSnapshot | MainThreadSnapshot;
-}
-
-interface LastMessageDetails extends Record<string, unknown> {
-	content?: string;
-	entryId: string;
-	role: string;
-	text?: string;
-	truncated?: true;
-}
-
-interface AgentToolDetails extends Record<string, unknown> {
-	agent: AgentSnapshot;
-	descendants?: AgentSnapshot[];
-	detached?: boolean;
-	dispatched?: boolean;
-	pendingMessages?: AgentMailboxMessage[];
-	prompt?: string;
-	reason?: string;
-	terminal?: boolean;
-}
-
-interface AgentListToolDetails {
-	agents: AgentSnapshot[];
-	activeCount: number;
-}
-
-interface AgentSteerToolDetails {
-	agent: AgentSnapshot;
-	message: AgentMailboxMessage;
-}
-
-interface ContactParentToolDetails {
-	agent: AgentSnapshot;
-	message: AgentMailboxMessage;
-}
-
-interface WaitAgentsWakeUp {
-	agentId?: string;
-	kind: "coordination" | "steering";
-	coordinationPrompt?: string;
-}
-
-interface WaitAgentsToolDetails {
-	runtimeMailboxDelivery?: RuntimeMailboxToolDelivery;
-	timedOut?: true;
-	agent?: AgentSnapshot;
-	agents?: AgentSnapshot[];
-	message?: AgentMailboxMessage;
-	messages?: AgentMailboxMessage[];
-	wakeUp?: WaitAgentsWakeUp;
-}
-
-interface SendAgentMessageToolDetails {
-	agent: AgentSnapshot;
-	message: AgentMailboxMessage;
-}
-
-type BackgroundSessionHandles = Map<string, ChildAgentSession>;
-type ActiveAgentDispatches = Map<string, Promise<AgentSnapshot>>;
 const artifactRootsByStore = new WeakMap<MultiAgentStore, string>();
 
 function artifactRootForStore(store: MultiAgentStore): string {
 	return artifactRootsByStore.get(store) ?? getAgentDir();
-}
-
-interface OwnedAgentRuntime {
-	abortController: AbortController;
-	coordinator: LifecycleCoordinator;
-	lifecycle: OwnedLifecycleCommandInput;
-}
-
-export interface MultiAgentRuntimeHandles {
-	cancellationSettlementTimeoutMs?: number;
-	latestModelRequestStartedAt?: number;
-	dispatches: ActiveAgentDispatches;
-	ownerships: Map<string, OwnedAgentRuntime>;
-	sessions: BackgroundSessionHandles;
-	waitWakeListeners: Set<(wakeUp: WaitAgentsWakeUp) => void>;
 }
 
 export function createMultiAgentRuntimeHandles(): MultiAgentRuntimeHandles {
