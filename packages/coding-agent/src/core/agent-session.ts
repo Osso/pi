@@ -18,12 +18,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import type {
 	Agent,
-	AgentContext,
 	AgentEvent,
 	AgentMessage,
 	AgentState,
 	AgentTool,
-	AgentToolCall,
 	AgentToolResult,
 	PrepareNextTurnContext,
 	ThinkingLevel,
@@ -47,7 +45,6 @@ import {
 	modelsAreEqual,
 	resetApiProviders,
 	streamSimple,
-	validateToolArguments,
 } from "@earendil-works/pi-ai/compat";
 import { getAgentDir } from "../config.ts";
 import { getThemeByName, theme } from "../modes/interactive/theme/theme.ts";
@@ -57,6 +54,7 @@ import { DEFAULT_SUPERVISOR_KB_DIR, resolveSupervisorProjectForCwd } from "../su
 import { stripFrontmatter } from "../utils/frontmatter.ts";
 import { resolvePath } from "../utils/paths.ts";
 import { sleep } from "../utils/sleep.ts";
+import { callActiveTool } from "./agent-session-tool-call.ts";
 import { formatNoApiKeyFoundMessage, formatNoModelSelectedMessage } from "./auth-guidance.ts";
 import { type BashResult, executeBashWithOperations } from "./bash-executor.ts";
 import {
@@ -2322,103 +2320,26 @@ export class AgentSession {
 		return this._toolDefinitions.get(name)?.definition;
 	}
 
-	private async _callActiveTool(
+	private _callActiveTool(
 		toolName: string,
 		params: unknown,
 		signal: AbortSignal | undefined,
 		activeToolCallId?: string,
 	): Promise<AgentToolResult<unknown>> {
-		if (this.noSupervisor && STANDALONE_DISABLED_TOOL_NAMES.has(toolName))
-			throw new Error(`Tool ${toolName} is unavailable in standalone worker mode`);
-		if (!this.getActiveToolNames().includes(toolName)) {
-			throw new Error(`Tool is not active: ${toolName}`);
-		}
-		if (toolName === "pyrun_eval") {
-			throw new Error("pyrun_eval cannot call itself through pi.tools.call");
-		}
-		const tool = this._toolRegistry.get(toolName);
-		if (!tool) {
-			throw new Error(`Tool is not registered: ${toolName}`);
-		}
-
-		const toolCallId = activeToolCallId ?? `pyrun:${toolName}:${Date.now()}`;
-		let toolCall = this._createSyntheticToolCall(toolName, toolCallId, params);
-		if (tool.prepareArguments) {
-			toolCall = this._createSyntheticToolCall(toolName, toolCallId, tool.prepareArguments(toolCall.arguments));
-		}
-		const validatedArgs = validateToolArguments(tool, toolCall) as unknown;
-		const context = this._createSyntheticToolCallContext();
-		const assistantMessage = this._createSyntheticToolCallAssistantMessage(toolCall);
-		const beforeResult = await this.agent.beforeToolCall?.(
-			{ assistantMessage, args: validatedArgs, context, toolCall },
+		return callActiveTool({
+			toolName,
+			params,
 			signal,
-		);
-		if (beforeResult?.block) {
-			return this._createErrorToolResult(beforeResult.reason ?? "Tool execution was blocked");
-		}
-
-		let result: AgentToolResult<unknown>;
-		let isError = false;
-		try {
-			result = await tool.execute(toolCallId, validatedArgs as never, signal);
-			isError = result.isError ?? false;
-		} catch (error) {
-			result = this._createErrorToolResult(error instanceof Error ? error.message : String(error));
-			isError = true;
-		}
-
-		const afterResult = await this.agent.afterToolCall?.(
-			{ assistantMessage, args: validatedArgs, context, isError, result, toolCall },
-			signal,
-		);
-		return afterResult ? { ...result, ...afterResult } : result;
-	}
-
-	private _createErrorToolResult(message: string): AgentToolResult<undefined> {
-		return {
-			content: [{ type: "text", text: message }],
-			details: undefined,
-			isError: true,
-		};
-	}
-
-	private _createSyntheticToolCall(toolName: string, toolCallId: string, params: unknown): AgentToolCall {
-		const toolArguments =
-			params && typeof params === "object" ? (params as Record<string, unknown>) : { value: params };
-		return {
-			type: "toolCall",
-			id: toolCallId,
-			name: toolName,
-			arguments: toolArguments,
-		};
-	}
-
-	private _createSyntheticToolCallAssistantMessage(toolCall: AgentToolCall): AssistantMessage {
-		return {
-			role: "assistant",
-			content: [toolCall],
-			api: this.model?.api ?? "openai-completions",
-			provider: this.model?.provider ?? "pyrun",
-			model: this.model?.id ?? "pyrun-tools-call",
-			usage: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 0,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
-			stopReason: "toolUse",
-			timestamp: Date.now(),
-		};
-	}
-
-	private _createSyntheticToolCallContext(): AgentContext {
-		return {
+			activeToolCallId,
+			noSupervisor: this.noSupervisor,
+			activeTools: this.agent.state.tools,
+			activeToolNames: this.getActiveToolNames(),
+			toolRegistry: this._toolRegistry,
 			systemPrompt: this._systemPromptOverride ?? this._baseSystemPrompt,
 			messages: this.agent.state.messages,
-			tools: this.agent.state.tools,
-		};
+			model: this.model,
+			toolHooks: this.agent,
+		});
 	}
 
 	/**
