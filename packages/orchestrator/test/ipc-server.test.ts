@@ -14,15 +14,18 @@ describe("IPC buffered lines", () => {
 	let client: Socket;
 	let responses: unknown[];
 	let handledRequests: OrchestratorRequest[];
+	let streamReadyDelay: Promise<void>;
 
 	beforeEach(async () => {
 		directory = await mkdtemp(join(tmpdir(), "ipc-"));
 		vi.stubEnv("PI_ORCHESTRATOR_DIR", directory);
 		responses = [];
 		handledRequests = [];
+		streamReadyDelay = Promise.resolve();
 		const handleRequest = async (request: OrchestratorRequest): Promise<OrchestratorResponse> => {
 			handledRequests.push(request);
 			if (request.type === "rpc_stream") {
+				await streamReadyDelay;
 				return { type: "rpc_ready", ok: true, instance: { id: "test", cwd: "/tmp", status: "online" } };
 			}
 			return { type: "list_result", ok: true, instances: [] };
@@ -81,6 +84,26 @@ describe("IPC buffered lines", () => {
 		await vi.waitFor(() => {
 			expect(responses[1]).toEqual({ type: "response", id: "partial", command: "get_state", success: true });
 		});
+	});
+
+	it("keeps stream commands that arrive while the stream is still opening", async () => {
+		let releaseStream = () => {};
+		streamReadyDelay = new Promise<void>((resolve) => {
+			releaseStream = resolve;
+		});
+		client.write('{"type":"rpc_stream","instanceId":"test"}\n');
+		await vi.waitFor(() => expect(handledRequests).toHaveLength(1));
+		client.write('{"id":"early","type":"get_state"}\n');
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		releaseStream();
+
+		await vi.waitFor(() => {
+			expect(responses).toEqual([
+				{ type: "rpc_ready", ok: true, instance: { id: "test", cwd: "/tmp", status: "online" } },
+				{ type: "response", id: "early", command: "get_state", success: true },
+			]);
+		});
+		expect(handledRequests).toEqual([{ type: "rpc_stream", instanceId: "test" }]);
 	});
 
 	it("ends an ordinary request after one response despite trailing complete requests", async () => {

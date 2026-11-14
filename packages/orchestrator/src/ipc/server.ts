@@ -50,9 +50,14 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 
 	const server = createServer((socket) => {
 		let buffer = "";
+		let requestReceived = false;
 
 		socket.on("data", async (chunk: Buffer | string) => {
 			buffer += chunk.toString();
+			// Bytes after the first request belong to the RPC stream once it opens.
+			if (requestReceived) {
+				return;
+			}
 			let line = "";
 			while (!line) {
 				const newlineIndex = buffer.indexOf("\n");
@@ -62,6 +67,7 @@ export async function startIpcServer(handler: IpcRequestHandler): Promise<Server
 				line = buffer.slice(0, newlineIndex).trim();
 				buffer = buffer.slice(newlineIndex + 1);
 			}
+			requestReceived = true;
 
 			try {
 				const request = parseRequestLine(line);
