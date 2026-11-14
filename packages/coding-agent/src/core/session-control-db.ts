@@ -1,6 +1,5 @@
 import type { AgentSnapshot } from "./multi-agent-store.ts";
 import { parseStoredJsonObject, validatePersistedAgentPayload } from "./session-control-db/codecs.ts";
-import type { RuntimeMailboxListedRow } from "./session-control-db/types.ts";
 
 export {
 	prepareControlDbForSelfRestart,
@@ -18,74 +17,6 @@ export {
 	postArchitectRequest,
 	renewArchitectRequestClaims,
 } from "./session-control-db/architect.ts";
-export {
-	readLastMessage,
-	readOrMigratePromptHistory,
-	readPromptHistory,
-	recordPromptHistoryEntry,
-	writeLastMessage,
-} from "./session-control-db/incoming-history.ts";
-export { archiveSession, archiveSessionsOlderThan, unarchiveSession } from "./session-control-db/session-archive.ts";
-export {
-	clearSessionSandboxProfile,
-	findActiveSessionMetadataById,
-	findActiveSessionMetadataByName,
-	listActiveSessionMetadata,
-	listArchivedSessionMetadata,
-	listEmptyMainSessionCandidates,
-	listResumeSessionMetadata,
-	listSessionMetadata,
-	readSessionGoal,
-	readSessionMetadata,
-	writeSessionGoal,
-	writeSessionMetadata,
-	writeSessionModel,
-	writeSessionSandboxProfile,
-	writeSessionThinkingLevel,
-} from "./session-control-db/session-metadata.ts";
-export {
-	listDescendantSessionPaths,
-	listSubagentSessionPaths,
-	readSessionNameState,
-	relocateAndArchiveSession,
-	relocateAndUnarchiveSession,
-	relocateSessionControlData,
-	removeDeletedSessionsControlData,
-	removeSessionMetadata,
-	removeSessionsMetadata,
-	writeSessionName,
-} from "./session-control-db/session-relocation.ts";
-export {
-	advanceSharedChannelCursor,
-	hasPendingRuntimeCoordinationMessage,
-	initializeSharedChannelCursorAtTail,
-	isRuntimeCoordinationMailboxMessage,
-	listSharedChannelMessagesAfter,
-	postSharedChannelMessage,
-	readSharedChannelCursor,
-	readSharedChannelTail,
-} from "./session-control-db/shared-channel.ts";
-export {
-	cancelSupervisorRequest,
-	claimNextSupervisorRequest,
-	completeSupervisorRequest,
-	hasPendingSupervisorApprovalRequest,
-	postSupervisorRequest,
-	readSupervisorRequest,
-	recoverSupervisorRequests,
-	requeueSupervisorRequest,
-} from "./session-control-db/supervisor.ts";
-
-export type { MultiAgentTerminalOutboxRecord } from "./session-control-db/terminal-outbox.ts";
-export {
-	claimMultiAgentTerminalOutbox,
-	cleanupMultiAgentTerminalOutbox,
-	deliverMultiAgentTerminalOutbox,
-	failMultiAgentTerminalOutbox,
-} from "./session-control-db/terminal-outbox.ts";
-
-import { runtimeMailboxClaimantIsLive } from "./session-control-db/runtime-mailbox-enqueue.ts";
-
 export {
 	claimCodexRestrictionRecovery,
 	getControlDbPath,
@@ -106,6 +37,13 @@ export {
 	readIncomingMessageStatus,
 } from "./session-control-db/incoming-control.ts";
 export {
+	readLastMessage,
+	readOrMigratePromptHistory,
+	readPromptHistory,
+	recordPromptHistoryEntry,
+	writeLastMessage,
+} from "./session-control-db/incoming-history.ts";
+export {
 	updateMultiAgentAgentActivity,
 	updateMultiAgentAgentCurrentActivity,
 	updateMultiAgentAgentDisplayName,
@@ -119,7 +57,6 @@ export {
 	readMultiAgentRuntimeOwnership,
 } from "./session-control-db/multi-agent-attachment.ts";
 export { bootstrapMultiAgentAgent } from "./session-control-db/multi-agent-bootstrap.ts";
-
 export type {
 	AcquireMultiAgentRuntimeOwnershipInput,
 	CreateFailedMultiAgentChildInput,
@@ -180,6 +117,7 @@ export {
 } from "./session-control-db/runtime-mailbox-enqueue.ts";
 export {
 	listRuntimeMailboxListeners,
+	readLiveRuntimeMailboxSessionAgentIds,
 	readRuntimeMailboxListener,
 	retireRuntimeMailboxListener,
 } from "./session-control-db/runtime-mailbox-listeners.ts";
@@ -192,8 +130,65 @@ export {
 	readRuntimeMailboxMessage,
 	releaseRuntimeMailboxMessageClaim,
 } from "./session-control-db/runtime-mailbox-status.ts";
+export { archiveSession, archiveSessionsOlderThan, unarchiveSession } from "./session-control-db/session-archive.ts";
 export { listSessionHealth, readSessionHealth, writeSessionHealth } from "./session-control-db/session-health.ts";
+export {
+	clearSessionSandboxProfile,
+	findActiveSessionMetadataById,
+	findActiveSessionMetadataByName,
+	listActiveSessionMetadata,
+	listArchivedSessionMetadata,
+	listEmptyMainSessionCandidates,
+	listResumeSessionMetadata,
+	listSessionMetadata,
+	readSessionGoal,
+	readSessionMetadata,
+	writeSessionGoal,
+	writeSessionMetadata,
+	writeSessionModel,
+	writeSessionSandboxProfile,
+	writeSessionThinkingLevel,
+} from "./session-control-db/session-metadata.ts";
+export {
+	listDescendantSessionPaths,
+	listSubagentSessionPaths,
+	readSessionNameState,
+	relocateAndArchiveSession,
+	relocateAndUnarchiveSession,
+	relocateSessionControlData,
+	removeDeletedSessionsControlData,
+	removeSessionMetadata,
+	removeSessionsMetadata,
+	writeSessionName,
+} from "./session-control-db/session-relocation.ts";
 export { readSessionSandboxProfile } from "./session-control-db/session-sandbox-profile.ts";
+export {
+	advanceSharedChannelCursor,
+	hasPendingRuntimeCoordinationMessage,
+	initializeSharedChannelCursorAtTail,
+	isRuntimeCoordinationMailboxMessage,
+	listSharedChannelMessagesAfter,
+	postSharedChannelMessage,
+	readSharedChannelCursor,
+	readSharedChannelTail,
+} from "./session-control-db/shared-channel.ts";
+export {
+	cancelSupervisorRequest,
+	claimNextSupervisorRequest,
+	completeSupervisorRequest,
+	hasPendingSupervisorApprovalRequest,
+	postSupervisorRequest,
+	readSupervisorRequest,
+	recoverSupervisorRequests,
+	requeueSupervisorRequest,
+} from "./session-control-db/supervisor.ts";
+export type { MultiAgentTerminalOutboxRecord } from "./session-control-db/terminal-outbox.ts";
+export {
+	claimMultiAgentTerminalOutbox,
+	cleanupMultiAgentTerminalOutbox,
+	deliverMultiAgentTerminalOutbox,
+	failMultiAgentTerminalOutbox,
+} from "./session-control-db/terminal-outbox.ts";
 
 export type {
 	ArchitectRequest,
@@ -221,22 +216,6 @@ export type {
 	SupervisorResponse,
 	WritableSessionMetadata,
 } from "./session-control-db/types.ts";
-
-export function readLiveRuntimeMailboxSessionAgentIds(controlDbPath: string, sessionId: string): Array<string | null> {
-	return withControlDb(controlDbPath, (db) => {
-		const rows = db
-			.prepare(
-				`SELECT recipient_agent_id_key, runtime_instance_id
-				 FROM runtime_mailbox_listeners
-				 WHERE recipient_session_id = ?`,
-			)
-			.all(sessionId) as Array<Pick<RuntimeMailboxListedRow, "recipient_agent_id_key" | "runtime_instance_id">>;
-		return rows.flatMap((row) => {
-			if (!row.runtime_instance_id || !runtimeMailboxClaimantIsLive(row.runtime_instance_id)) return [];
-			return [row.recipient_agent_id_key === "" ? null : row.recipient_agent_id_key];
-		});
-	});
-}
 
 export interface DetachedArtifactAgentRecord {
 	sessionPath: string;

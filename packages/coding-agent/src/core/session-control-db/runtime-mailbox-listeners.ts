@@ -1,7 +1,7 @@
 import type { SqliteDatabase } from "../sqlite.ts";
 import { withControlDb } from "./connection.ts";
 import { withImmediateTransaction } from "./helpers.ts";
-import { readRuntimeMailboxListenerRow } from "./runtime-mailbox-enqueue.ts";
+import { readRuntimeMailboxListenerRow, runtimeMailboxClaimantIsLive } from "./runtime-mailbox-enqueue.ts";
 import { retireSessionHealthForListener, trustedRuntimeMailboxSessionPath } from "./runtime-mailbox-registration.ts";
 import { runtimeMailboxAgentIdKey } from "./shared-channel.ts";
 import type { RuntimeMailboxAddress, RuntimeMailboxListedRow, RuntimeMailboxListener } from "./types.ts";
@@ -80,4 +80,20 @@ export function runtimeMailboxListenerFromRow(row: RuntimeMailboxListedRow): Run
 		sessionPath: trustedRuntimeMailboxSessionPath(row),
 		updatedAt: row.updated_at,
 	};
+}
+
+export function readLiveRuntimeMailboxSessionAgentIds(controlDbPath: string, sessionId: string): Array<string | null> {
+	return withControlDb(controlDbPath, (db) => {
+		const rows = db
+			.prepare(
+				`SELECT recipient_agent_id_key, runtime_instance_id
+				 FROM runtime_mailbox_listeners
+				 WHERE recipient_session_id = ?`,
+			)
+			.all(sessionId) as Array<Pick<RuntimeMailboxListedRow, "recipient_agent_id_key" | "runtime_instance_id">>;
+		return rows.flatMap((row) => {
+			if (!row.runtime_instance_id || !runtimeMailboxClaimantIsLive(row.runtime_instance_id)) return [];
+			return [row.recipient_agent_id_key === "" ? null : row.recipient_agent_id_key];
+		});
+	});
 }
