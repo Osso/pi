@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed Anthropic streams failing with `Could not parse Anthropic SSE event` when a CRLF line ending was split across network chunks.
 - Fixed OpenAI Completions streams dropping encrypted `reasoning_details` for a tool call whose id arrives on a later delta.
 - Fixed Google and Vertex streams reporting a prompt blocked by `promptFeedback.blockReason` as a successful empty answer; it is now an error.
 - Fixed tool-call argument parsing dropping fields when a string contains an invalid `\u` escape such as `\usepackage` ([#10868](https://github.com/earendil-works/pi/issues/10868))

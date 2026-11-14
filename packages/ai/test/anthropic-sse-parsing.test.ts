@@ -153,6 +153,31 @@ describe("Anthropic raw SSE parsing", () => {
 		},
 	);
 
+	it("parses CRLF line endings split across network chunks", async () => {
+		const body = minimalAnthropicEvents.map(({ event, data }) => `event: ${event}\r\ndata: ${data}\r\n\r\n`).join("");
+		const encoder = new TextEncoder();
+		const chunks = body.split(/(?<=\r)(?=\n)/).map((chunk) => encoder.encode(chunk));
+		expect(chunks.length).toBeGreaterThan(1);
+		const response = new Response(
+			new ReadableStream<Uint8Array>({
+				start(controller) {
+					for (const chunk of chunks) controller.enqueue(chunk);
+					controller.close();
+				},
+			}),
+			{ status: 200, headers: { "content-type": "text/event-stream" } },
+		);
+
+		const result = await streamAnthropic(
+			getModel("anthropic", "claude-haiku-4-5"),
+			{ messages: [{ role: "user", content: "Say hello.", timestamp: 1 }] },
+			{ client: createFakeAnthropicClient(response) },
+		).result();
+
+		expect(result.errorMessage).toBeUndefined();
+		expect(result.content).toEqual([{ type: "text", text: "Hello" }]);
+	});
+
 	it("repairs malformed SSE JSON and malformed streamed tool JSON", async () => {
 		const model = getModel("anthropic", "claude-haiku-4-5");
 		const context: Context = {
