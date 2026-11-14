@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed path completion listing quoted directories (names with spaces) after files.
 - Fixed `@` file autocomplete returning no results for queries containing regex metacharacters such as `[` or `(` ([#10972](https://github.com/earendil-works/pi/issues/10972))
 - Fixed keybinding conflict detection missing the same key written with a different modifier order (`shift+ctrl+x`) or alias (`return`, `esc`); added `canonicalKeyId`.
 - Fixed markdown tables ignoring GFM column alignment (`:---:`, `---:`); cells are now centered or right-aligned as declared.

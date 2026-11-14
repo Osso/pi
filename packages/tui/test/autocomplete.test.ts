@@ -566,6 +566,21 @@ describe("CombinedAutocompleteProvider", () => {
 			assert.ok(values?.includes('"my folder/"'));
 		});
 
+		test("lists quoted directories before files", async () => {
+			setupFolder(baseDir, {
+				dirs: ["z folder"],
+				files: { "a-file.txt": "content" },
+			});
+
+			const provider = new CombinedAutocompleteProvider([], baseDir);
+			const result = await getSuggestions(provider, [""], 0, 0, true);
+
+			assert.deepStrictEqual(
+				result?.items.map((item) => item.value),
+				['"z folder/"', "a-file.txt"],
+			);
+		});
+
 		test("continues completion inside quoted paths", async () => {
 			setupFolder(baseDir, {
 				files: {
