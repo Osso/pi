@@ -45,6 +45,23 @@ describe("RPC field validation", () => {
 		});
 	});
 
+	it("rejects a prompt, steer or follow-up message that is missing or not a string", async () => {
+		await withHeadlessPi(async (agent) => {
+			for (const type of ["prompt", "steer", "follow_up"]) {
+				for (const request of [`{"type":"${type}"}`, `{"type":"${type}","message":7}`]) {
+					expect(await agent.send(raw(request))).toMatchObject({
+						command: type,
+						success: false,
+						error: "message must be a string",
+					});
+				}
+			}
+			expect(await agent.send({ type: "get_state" })).toMatchObject({
+				data: { messageCount: 0, pendingMessageCount: 0 },
+			});
+		});
+	});
+
 	it("rejects switching to a session file that does not exist instead of creating it", async () => {
 		await withHeadlessPi(async (agent) => {
 			const before = (await agent.send({ type: "get_state" })) as { data: { sessionFile: string } };

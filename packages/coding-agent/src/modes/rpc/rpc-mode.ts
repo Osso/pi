@@ -404,6 +404,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			// =================================================================
 
 			case "prompt": {
+				if (typeof command.message !== "string") return error(id, "prompt", "message must be a string");
 				const behavior = command.streamingBehavior;
 				if (behavior !== undefined && behavior !== "steer" && behavior !== "followUp") {
 					return error(id, "prompt", `Invalid streamingBehavior: ${behavior}`);
@@ -432,11 +433,13 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			}
 
 			case "steer": {
+				if (typeof command.message !== "string") return error(id, "steer", "message must be a string");
 				await session.steer(command.message, command.images);
 				return success(id, "steer");
 			}
 
 			case "follow_up": {
+				if (typeof command.message !== "string") return error(id, "follow_up", "message must be a string");
 				await session.followUp(command.message, command.images);
 				return success(id, "follow_up");
 			}
@@ -562,9 +565,8 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			}
 
 			case "set_auto_compaction": {
-				if (typeof command.enabled !== "boolean") {
+				if (typeof command.enabled !== "boolean")
 					return error(id, "set_auto_compaction", "enabled must be a boolean");
-				}
 				session.setAutoCompactionEnabled(command.enabled);
 				return success(id, "set_auto_compaction");
 			}
@@ -574,9 +576,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			// =================================================================
 
 			case "set_auto_retry": {
-				if (typeof command.enabled !== "boolean") {
-					return error(id, "set_auto_retry", "enabled must be a boolean");
-				}
+				if (typeof command.enabled !== "boolean") return error(id, "set_auto_retry", "enabled must be a boolean");
 				session.setAutoRetryEnabled(command.enabled);
 				return success(id, "set_auto_retry");
 			}
@@ -591,9 +591,7 @@ export async function runRpcMode(runtimeHost: AgentSessionRuntime): Promise<neve
 			// =================================================================
 
 			case "bash": {
-				if (typeof command.command !== "string") {
-					return error(id, "bash", "command must be a string");
-				}
+				if (typeof command.command !== "string") return error(id, "bash", "command must be a string");
 				const result = await session.executeBash(command.command, undefined, {
 					excludeFromContext: command.excludeFromContext,
 				});
