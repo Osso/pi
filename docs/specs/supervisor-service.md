@@ -37,15 +37,16 @@ The Supervisor becomes a normal, full-UI interactive Pi session on agent-server.
 - [ ] Record each typed response through a response tool whose arguments are validated per request kind; show each request and decision in the session UI.
 - [x] Request deadlines: approval 5 min (then human escalation), goal review 15 min with one attempt (then `error` and the existing wake/55-minute re-review), advisory 15 min.
 - [ ] When the Supervisor session is down or the deadline passes, callers get the existing failure results; no fallback resident is started.
-- [ ] Accept requests from other hosts through the relay (phase 3); a relay outage produces the same failure results as an unavailable Supervisor.
+- [ ] Use one transport for every kind: requests reach the queue through the relay from other hosts (phase 3), and every response is delivered to the asking session's runtime mailbox, through the relay for another host. Callers never read the queue row.
+- [ ] Approval, goal-review, and advisory callers wait for the correlated mailbox reply until their deadline; question callers do not wait.
+- [ ] A relay outage produces the same failure results as an unavailable Supervisor.
 
 ### Question answering
 
-Questions use the same `supervisor_requests` queue as typed requests, with kind `question`. Only reply delivery differs: the asking session never polls, and the answer reaches it through its runtime mailbox.
+Questions use the same queue and reply transport as other requests, with kind `question`. The only difference is that the asking session does not wait for the reply.
 
 - [ ] A `question` row carries the asking host, session, `requestId`, blocking flag, and questions. It has no deadline and runs after approval, goal-review, and advisory requests.
 - [ ] Respond through `supervisor_response` with `answer` (answers keyed by exact question text, each with a short reason) or `escalate` (reason).
-- [ ] On completion, deliver the response to the asking session's mailbox, through the relay for another host.
 - [ ] Answer trivial and non-trivial questions decidable from user rules, specs, KB, earlier user decisions, repo evidence, or reasoning. Always escalate new scope, cost, safety risk, irreversible actions, and product tradeoffs the evidence does not settle.
 - [ ] On `escalate`, open the questions as an `ask_questions` panel in the Supervisor UI; the user's answer there is delivered to the asking session as a user answer.
 - [ ] A local user answer cancels the row; a cancelled question is never answered.
