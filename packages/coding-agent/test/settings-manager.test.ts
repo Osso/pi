@@ -241,6 +241,30 @@ describe("SettingsManager", () => {
 			expect(JSON.parse(readFileSync(settingsPath, "utf-8")).approvalPolicy).toBe("auto-approve");
 		});
 
+		it.each([
+			[
+				{ approvalPreset: "never-ask-deny", approvalPolicy: "never" },
+				{ approvalPolicy: "auto-approve" },
+				"auto-approve",
+			],
+			[
+				{ approvalPreset: "auto-approve", approvalPolicy: "auto-approve" },
+				{ approvalPolicy: "never" },
+				"never-ask-deny",
+			],
+			[{ approvalPreset: "llm-approved-ask", approvalPolicy: "on-request" }, {}, "llm-approved-ask"],
+		])(
+			"derives the preset from a project policy that overrides a global preset (%j + %j)",
+			(global, project, expected) => {
+				const storage = new InMemorySettingsStorage();
+				storage.withLock("global", () => JSON.stringify(global));
+				storage.withLock("project", () => JSON.stringify(project));
+				const settingsManager = SettingsManager.fromStorage(storage);
+
+				expect(settingsManager.getApprovalPreset()).toBe(expected);
+			},
+		);
+
 		it("migrates legacy LLM-approved preset to behavior-preserving deny preset", () => {
 			const settingsManager = SettingsManager.inMemory({ approvalPreset: "llm-approved" as never });
 

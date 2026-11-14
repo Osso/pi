@@ -551,11 +551,10 @@ export class SettingsManager {
 	}
 
 	getApprovalPreset(): ApprovalPresetName {
-		if (isApprovalPresetName(this.settings.approvalPreset)) {
-			return this.settings.approvalPreset;
-		}
-
-		return approvalPresetForPolicy(this.getApprovalPolicy());
+		const { approvalPreset: preset, approvalPolicy } = this.settings;
+		const policy = this.getApprovalPolicy(); // a higher-scope policy overrides an inherited preset for another policy
+		const keep = isApprovalPresetName(preset) && (!approvalPolicy || findApprovalPreset(preset).policy === policy);
+		return keep ? preset : approvalPresetForPolicy(policy);
 	}
 
 	setApprovalPolicy(policy: ApprovalPolicy): void {
