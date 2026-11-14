@@ -57,9 +57,9 @@
       // Labels are stored in 'label' entries that reference their target via targetId
       const labelMap = new Map();
       for (const entry of entries) {
-        if (entry.type === 'label' && entry.targetId && entry.label) {
-          labelMap.set(entry.targetId, entry.label);
-        }
+        if (entry.type !== 'label' || !entry.targetId) continue;
+        if (entry.label) labelMap.set(entry.targetId, entry.label);
+        else labelMap.delete(entry.targetId);
       }
 
       // ============================================================
