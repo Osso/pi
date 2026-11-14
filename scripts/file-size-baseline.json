@@ -23,7 +23,7 @@
 	"packages/coding-agent/src/core/multi-agent-store.ts": 1176,
 	"packages/coding-agent/src/core/package-manager.ts": 2630,
 	"packages/coding-agent/src/core/resource-loader.ts": 1231,
-	"packages/coding-agent/src/core/session-control-db.ts": 6242,
+	"packages/coding-agent/src/core/session-control-db.ts": 6118,
 	"packages/coding-agent/src/core/session-manager.ts": 2385,
 	"packages/coding-agent/src/core/settings-manager.ts": 1453,
 	"packages/coding-agent/src/core/tools/bash.ts": 865,
