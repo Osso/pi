@@ -5,9 +5,8 @@ import { type PullRequest, parsePullRequest } from "./pull-request.ts";
 const runFile = promisify(execFile);
 const GITHUB_TIMEOUT_MS = 10_000;
 const MAX_OUTPUT_BYTES = 1024 * 1024;
-/** Check often while a pull request is shown, rarely for a branch without one. */
-const FOUND_INTERVAL_MS = 30_000;
-const IDLE_INTERVAL_MS = 5 * 60_000;
+/** A pull request can appear for the current branch without a branch change, so poll both cases alike. */
+const REFRESH_INTERVAL_MS = 5 * 60_000;
 
 export type PullRequestReader = (branch: string, cwd: string) => Promise<PullRequest | undefined>;
 
@@ -92,7 +91,7 @@ export class PullRequestStatus {
 		this.forgetOtherBranch(branch);
 		if (this.reading || this.disposed) return;
 		if (!branch) {
-			this.schedule(IDLE_INTERVAL_MS);
+			this.schedule(REFRESH_INTERVAL_MS);
 			return;
 		}
 
@@ -101,7 +100,7 @@ export class PullRequestStatus {
 		this.reading = false;
 		if (this.disposed) return;
 		if (!result.failed) this.publish(result.pullRequest);
-		this.schedule(result.pullRequest ? FOUND_INTERVAL_MS : IDLE_INTERVAL_MS);
+		this.schedule(REFRESH_INTERVAL_MS);
 	}
 
 	/** A pull request read for another branch must not stay on screen while the new branch is read. */
