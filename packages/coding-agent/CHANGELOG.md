@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed `find` path patterns such as `src/**/*.ts` matching every file when a directory above the search root had a matching name.
 - Fixed `edit` in a file with mixed line endings swapping the ending of an untouched line that repeats the replacement text.
 - Fixed the `loop` tool and `/loop` trimming the prompt body; leading indentation and trailing whitespace are now delivered unchanged.
 - Fixed `pyrun_eval` hiding the output of a captured command (`cli.X().capture().run()`) returned as the final value; the model now sees its stdout, stderr and non-zero exit code.

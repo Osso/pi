@@ -69,4 +69,11 @@ describe("issue #3302 find returns no results for path-based glob patterns", () 
 		const files = await runFind("src/**/*.spec.ts");
 		expect(files).toEqual(["src/foo/bar/example.spec.ts"]);
 	});
+
+	it("does not match a directory above the search root", async () => {
+		const def = createFindToolDefinition(join(tempRoot, "src", "foo"));
+		const ctx = {} as Parameters<typeof def.execute>[4];
+		const result = await def.execute("call-1", { pattern: "src/**/*.ts" }, undefined, undefined, ctx);
+		expect(result.content[0]).toEqual({ type: "text", text: "No files found matching pattern" });
+	});
 });
