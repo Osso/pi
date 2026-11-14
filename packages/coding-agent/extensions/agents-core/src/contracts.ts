@@ -9,6 +9,7 @@ import type { LifecycleCoordinator, OwnedLifecycleCommandInput } from "../../../
 import type { AgentMailboxMessage, AgentSnapshot, MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
 import type { RuntimeMailboxToolDelivery } from "../../../src/core/runtime-mailbox-acceptance.ts";
 import type { CreateAgentSessionOptions } from "../../../src/core/sdk.ts";
+import type { RuntimeMailboxAddress } from "../../../src/core/session-control-db.ts";
 import type { SessionManager } from "../../../src/core/session-manager.ts";
 import { CHILD_DISABLED_AGENT_TOOL_NAMES, SUPERVISOR_ONLY_TOOL_NAMES } from "../../../src/core/tool-capabilities.ts";
 
@@ -274,6 +275,23 @@ export interface ContactParentToolDetails {
 	agent: AgentSnapshot;
 	message: AgentMailboxMessage;
 }
+
+export type WaitNotificationsWake =
+	| { kind: "agent"; agent: AgentSnapshot }
+	| { kind: "cancelled" }
+	| { kind: "coordination"; prompt?: string }
+	| { kind: "error"; error: unknown }
+	| { kind: "none" }
+	| { kind: "timeout" }
+	| { kind: "unavailable"; message: string }
+	| { kind: "wake_up"; wakeUp: WaitAgentsWakeUp };
+
+export type RuntimeCoordinationRecipient = {
+	address: RuntimeMailboxAddress;
+	controlDbPath: string;
+};
+
+export type PendingTerminalNotification = { agent: AgentSnapshot; message: AgentMailboxMessage };
 
 export interface WaitAgentsWakeUp {
 	agentId?: string;
