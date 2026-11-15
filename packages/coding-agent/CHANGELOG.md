@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed hot reload of the active custom theme when its file name differs from its `name`, or when it comes from a project, package or settings path; edits were ignored, and an unrelated global theme file with the matching file name could replace it
 - Fixed custom themes accepting malformed hex colors such as `#12345g`, which produced wrong or invalid color escape sequences instead of an `Invalid hex color` error
 - Fixed `--model <fuzzy>`, such as `pi --model sonnet:high`, choosing a model on a provider without credentials, such as Amazon Bedrock, when a provider with credentials also matched
 - Fixed a `--models` glob with a misspelled thinking level, such as `*sonnet*:hgih`, matching no models; it now uses the default level with a warning like other patterns

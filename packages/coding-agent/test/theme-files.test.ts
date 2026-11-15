@@ -2,7 +2,13 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadThemeFromPath, setRegisteredThemes } from "../src/modes/interactive/theme/theme.ts";
+import {
+	loadThemeFromPath,
+	setRegisteredThemes,
+	setTheme,
+	stopThemeWatcher,
+	theme,
+} from "../src/modes/interactive/theme/theme.ts";
 
 const darkTheme = JSON.parse(
 	readFileSync(new URL("../src/modes/interactive/theme/dark.json", import.meta.url), "utf-8"),
@@ -22,6 +28,8 @@ describe("custom theme files", () => {
 	});
 
 	afterEach(() => {
+		stopThemeWatcher();
+		setTheme("dark");
 		setRegisteredThemes([]);
 		rmSync(tempRoot, { recursive: true, force: true });
 		vi.unstubAllEnvs();
@@ -32,5 +40,19 @@ describe("custom theme files", () => {
 		writeTheme(themePath, "bad", accent);
 
 		expect(() => loadThemeFromPath(themePath, "truecolor")).toThrow(`Invalid hex color: ${accent}`);
+	});
+
+	it("reloads the active theme from the file it was loaded from", async () => {
+		const projectThemes = join(tempRoot, "project", ".pi", "themes");
+		mkdirSync(projectThemes, { recursive: true });
+		const themePath = join(projectThemes, "foo.json");
+		writeTheme(themePath, "bar", 196);
+		setRegisteredThemes([loadThemeFromPath(themePath, "256color")]);
+		expect(setTheme("bar", true)).toEqual({ success: true });
+		expect(theme.getFgAnsi("accent")).toBe("\x1b[38;5;196m");
+
+		writeTheme(themePath, "bar", 46);
+
+		await expect.poll(() => theme.getFgAnsi("accent"), { timeout: 3_000 }).toBe("\x1b[38;5;46m");
 	});
 });
