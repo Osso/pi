@@ -6,6 +6,7 @@ import { Editor, type EditorTheme, wordWrapLine } from "../src/components/editor
 import { type FixedCell, TUI } from "../src/tui.ts";
 import { visibleWidth } from "../src/utils.ts";
 import { defaultEditorTheme } from "./test-themes.ts";
+import { typeText } from "./type-text.ts";
 import { VirtualTerminal } from "./virtual-terminal.ts";
 
 /** Create a TUI with a virtual terminal for testing */
@@ -626,9 +627,7 @@ describe("Editor component", () => {
 
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 0 });
 
-			editor.handleInput("a");
-			editor.handleInput("b");
-			editor.handleInput("c");
+			typeText(editor, "abc");
 
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 3 });
 
@@ -736,17 +735,7 @@ describe("Editor component", () => {
 		it("inserts mixed ASCII, umlauts, and emojis as literal text", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			editor.handleInput("H");
-			editor.handleInput("e");
-			editor.handleInput("l");
-			editor.handleInput("l");
-			editor.handleInput("o");
-			editor.handleInput(" ");
-			editor.handleInput("ä");
-			editor.handleInput("ö");
-			editor.handleInput("ü");
-			editor.handleInput(" ");
-			editor.handleInput("😀");
+			typeText(editor, "Hello \u00e4\u00f6\u00fc \ud83d\ude00");
 
 			const text = editor.getText();
 			assert.strictEqual(text, "Hello äöü 😀");
@@ -755,9 +744,7 @@ describe("Editor component", () => {
 		it("deletes single-code-unit unicode characters (umlauts) with Backspace", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			editor.handleInput("ä");
-			editor.handleInput("ö");
-			editor.handleInput("ü");
+			typeText(editor, "\u00e4\u00f6\u00fc");
 
 			// Delete the last character (ü)
 			editor.handleInput("\x7f"); // Backspace
@@ -782,9 +769,7 @@ describe("Editor component", () => {
 		it("inserts characters at the correct position after cursor movement over umlauts", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			editor.handleInput("ä");
-			editor.handleInput("ö");
-			editor.handleInput("ü");
+			typeText(editor, "\u00e4\u00f6\u00fc");
 
 			// Move cursor left twice
 			editor.handleInput("\x1b[D"); // Left arrow
@@ -800,9 +785,7 @@ describe("Editor component", () => {
 		it("moves cursor across multi-code-unit emojis with single arrow key", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			editor.handleInput("😀");
-			editor.handleInput("👍");
-			editor.handleInput("🎉");
+			typeText(editor, "\ud83d\ude00\ud83d\udc4d\ud83c\udf89");
 
 			// Move cursor left over last emoji (🎉) - single arrow moves over whole grapheme
 			editor.handleInput("\x1b[D"); // Left arrow
@@ -820,13 +803,9 @@ describe("Editor component", () => {
 		it("preserves umlauts across line breaks", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			editor.handleInput("ä");
-			editor.handleInput("ö");
-			editor.handleInput("ü");
+			typeText(editor, "\u00e4\u00f6\u00fc");
 			editor.handleInput("\n"); // new line
-			editor.handleInput("Ä");
-			editor.handleInput("Ö");
-			editor.handleInput("Ü");
+			typeText(editor, "\u00c4\u00d6\u00dc");
 
 			const text = editor.getText();
 			assert.strictEqual(text, "äöü\nÄÖÜ");
@@ -1949,17 +1928,7 @@ describe("Editor component", () => {
 		it("coalesces consecutive word characters into one undo unit", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			editor.handleInput("h");
-			editor.handleInput("e");
-			editor.handleInput("l");
-			editor.handleInput("l");
-			editor.handleInput("o");
-			editor.handleInput(" ");
-			editor.handleInput("w");
-			editor.handleInput("o");
-			editor.handleInput("r");
-			editor.handleInput("l");
-			editor.handleInput("d");
+			typeText(editor, "hello world");
 			assert.strictEqual(editor.getText(), "hello world");
 
 			// Undo removes " world" (space captured state before it, so we restore to "hello")
@@ -1974,13 +1943,7 @@ describe("Editor component", () => {
 		it("undoes spaces one at a time", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			editor.handleInput("h");
-			editor.handleInput("e");
-			editor.handleInput("l");
-			editor.handleInput("l");
-			editor.handleInput("o");
-			editor.handleInput(" ");
-			editor.handleInput(" ");
+			typeText(editor, "hello  ");
 			assert.strictEqual(editor.getText(), "hello  ");
 
 			editor.handleInput("\x1b[45;5u"); // Ctrl+- (undo) - removes second " "
@@ -1996,17 +1959,9 @@ describe("Editor component", () => {
 		it("undoes newlines and signals next word to capture state", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			editor.handleInput("h");
-			editor.handleInput("e");
-			editor.handleInput("l");
-			editor.handleInput("l");
-			editor.handleInput("o");
+			typeText(editor, "hello");
 			editor.handleInput("\n");
-			editor.handleInput("w");
-			editor.handleInput("o");
-			editor.handleInput("r");
-			editor.handleInput("l");
-			editor.handleInput("d");
+			typeText(editor, "world");
 			assert.strictEqual(editor.getText(), "hello\nworld");
 
 			editor.handleInput("\x1b[45;5u"); // Ctrl+- (undo)
@@ -2022,11 +1977,7 @@ describe("Editor component", () => {
 		it("undoes backspace", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			editor.handleInput("h");
-			editor.handleInput("e");
-			editor.handleInput("l");
-			editor.handleInput("l");
-			editor.handleInput("o");
+			typeText(editor, "hello");
 			editor.handleInput("\x7f"); // Backspace
 			assert.strictEqual(editor.getText(), "hell");
 
@@ -2037,11 +1988,7 @@ describe("Editor component", () => {
 		it("undoes forward delete", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			editor.handleInput("h");
-			editor.handleInput("e");
-			editor.handleInput("l");
-			editor.handleInput("l");
-			editor.handleInput("o");
+			typeText(editor, "hello");
 			editor.handleInput("\x01"); // Ctrl+A - go to start
 			editor.handleInput("\x1b[C"); // Right arrow
 			editor.handleInput("\x1b[3~"); // Delete key
@@ -2054,17 +2001,7 @@ describe("Editor component", () => {
 		it("undoes Ctrl+W (delete word backward)", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			editor.handleInput("h");
-			editor.handleInput("e");
-			editor.handleInput("l");
-			editor.handleInput("l");
-			editor.handleInput("o");
-			editor.handleInput(" ");
-			editor.handleInput("w");
-			editor.handleInput("o");
-			editor.handleInput("r");
-			editor.handleInput("l");
-			editor.handleInput("d");
+			typeText(editor, "hello world");
 			assert.strictEqual(editor.getText(), "hello world");
 
 			editor.handleInput("\x17"); // Ctrl+W
@@ -2077,17 +2014,7 @@ describe("Editor component", () => {
 		it("undoes Ctrl+K (delete to line end)", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			editor.handleInput("h");
-			editor.handleInput("e");
-			editor.handleInput("l");
-			editor.handleInput("l");
-			editor.handleInput("o");
-			editor.handleInput(" ");
-			editor.handleInput("w");
-			editor.handleInput("o");
-			editor.handleInput("r");
-			editor.handleInput("l");
-			editor.handleInput("d");
+			typeText(editor, "hello world");
 			editor.handleInput("\x01"); // Ctrl+A - go to start
 			for (let i = 0; i < 6; i++) editor.handleInput("\x1b[C"); // Move right 6 times
 
@@ -2104,17 +2031,7 @@ describe("Editor component", () => {
 		it("undoes Ctrl+U (delete to line start)", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			editor.handleInput("h");
-			editor.handleInput("e");
-			editor.handleInput("l");
-			editor.handleInput("l");
-			editor.handleInput("o");
-			editor.handleInput(" ");
-			editor.handleInput("w");
-			editor.handleInput("o");
-			editor.handleInput("r");
-			editor.handleInput("l");
-			editor.handleInput("d");
+			typeText(editor, "hello world");
 			editor.handleInput("\x01"); // Ctrl+A - go to start
 			for (let i = 0; i < 6; i++) editor.handleInput("\x1b[C"); // Move right 6 times
 
@@ -2128,12 +2045,7 @@ describe("Editor component", () => {
 		it("undoes yank", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			editor.handleInput("h");
-			editor.handleInput("e");
-			editor.handleInput("l");
-			editor.handleInput("l");
-			editor.handleInput("o");
-			editor.handleInput(" ");
+			typeText(editor, "hello ");
 			editor.handleInput("\x17"); // Ctrl+W - delete "hello "
 			editor.handleInput("\x19"); // Ctrl+Y - yank
 			assert.strictEqual(editor.getText(), "hello ");
@@ -2270,17 +2182,7 @@ describe("Editor component", () => {
 		it("undoes setText to empty string", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			editor.handleInput("h");
-			editor.handleInput("e");
-			editor.handleInput("l");
-			editor.handleInput("l");
-			editor.handleInput("o");
-			editor.handleInput(" ");
-			editor.handleInput("w");
-			editor.handleInput("o");
-			editor.handleInput("r");
-			editor.handleInput("l");
-			editor.handleInput("d");
+			typeText(editor, "hello world");
 			assert.strictEqual(editor.getText(), "hello world");
 
 			editor.setText("");
@@ -2297,11 +2199,7 @@ describe("Editor component", () => {
 				submitted = text;
 			};
 
-			editor.handleInput("h");
-			editor.handleInput("e");
-			editor.handleInput("l");
-			editor.handleInput("l");
-			editor.handleInput("o");
+			typeText(editor, "hello");
 			editor.handleInput("\r"); // Enter - submit
 
 			assert.strictEqual(submitted, "hello");
@@ -2320,11 +2218,7 @@ describe("Editor component", () => {
 			assert.strictEqual(editor.getText(), "");
 
 			// Type "world"
-			editor.handleInput("w");
-			editor.handleInput("o");
-			editor.handleInput("r");
-			editor.handleInput("l");
-			editor.handleInput("d");
+			typeText(editor, "world");
 			assert.strictEqual(editor.getText(), "world");
 
 			// Ctrl+W - delete word
@@ -2353,13 +2247,7 @@ describe("Editor component", () => {
 			editor.addToHistory("third");
 
 			// Type something
-			editor.handleInput("c");
-			editor.handleInput("u");
-			editor.handleInput("r");
-			editor.handleInput("r");
-			editor.handleInput("e");
-			editor.handleInput("n");
-			editor.handleInput("t");
+			typeText(editor, "current");
 			assert.strictEqual(editor.getText(), "current");
 
 			// Clear editor
@@ -2386,26 +2274,14 @@ describe("Editor component", () => {
 		it("cursor movement starts new undo unit", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			editor.handleInput("h");
-			editor.handleInput("e");
-			editor.handleInput("l");
-			editor.handleInput("l");
-			editor.handleInput("o");
-			editor.handleInput(" ");
-			editor.handleInput("w");
-			editor.handleInput("o");
-			editor.handleInput("r");
-			editor.handleInput("l");
-			editor.handleInput("d");
+			typeText(editor, "hello world");
 			assert.strictEqual(editor.getText(), "hello world");
 
 			// Move cursor left 5 (to after "hello ")
 			for (let i = 0; i < 5; i++) editor.handleInput("\x1b[D");
 
 			// Type "lol" in the middle
-			editor.handleInput("l");
-			editor.handleInput("o");
-			editor.handleInput("l");
+			typeText(editor, "lol");
 			assert.strictEqual(editor.getText(), "hello lolworld");
 
 			// Undo should restore to "hello world" (before inserting "lol")
@@ -2419,11 +2295,7 @@ describe("Editor component", () => {
 		it("no-op delete operations do not push undo snapshots", () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
-			editor.handleInput("h");
-			editor.handleInput("e");
-			editor.handleInput("l");
-			editor.handleInput("l");
-			editor.handleInput("o");
+			typeText(editor, "hello");
 			assert.strictEqual(editor.getText(), "hello");
 
 			// Delete word on empty - multiple times (should be no-ops)
@@ -2500,10 +2372,7 @@ describe("Editor component", () => {
 			editor.setAutocompleteProvider(mockProvider);
 
 			// Type "Work"
-			editor.handleInput("W");
-			editor.handleInput("o");
-			editor.handleInput("r");
-			editor.handleInput("k");
+			typeText(editor, "Work");
 			assert.strictEqual(editor.getText(), "Work");
 
 			// Press Tab - should auto-apply without showing menu
@@ -2544,9 +2413,7 @@ describe("Editor component", () => {
 			editor.setAutocompleteProvider(mockProvider);
 
 			// Type "src"
-			editor.handleInput("s");
-			editor.handleInput("r");
-			editor.handleInput("c");
+			typeText(editor, "src");
 			assert.strictEqual(editor.getText(), "src");
 
 			// Press Tab - should show menu because there are multiple suggestions
@@ -2631,10 +2498,7 @@ describe("Editor component", () => {
 
 			editor.setAutocompleteProvider(mockProvider);
 
-			editor.handleInput("@");
-			editor.handleInput("m");
-			editor.handleInput("a");
-			editor.handleInput("i");
+			typeText(editor, "@mai");
 
 			assert.strictEqual(suggestionCalls, 0);
 			assert.strictEqual(editor.isShowingAutocomplete(), false);
@@ -2748,10 +2612,7 @@ describe("Editor component", () => {
 
 			editor.setAutocompleteProvider(mockProvider);
 
-			editor.handleInput("#");
-			editor.handleInput("2");
-			editor.handleInput("9");
-			editor.handleInput("8");
+			typeText(editor, "#298");
 
 			assert.strictEqual(suggestionCalls, 0);
 			assert.strictEqual(editor.isShowingAutocomplete(), false);
@@ -2777,9 +2638,7 @@ describe("Editor component", () => {
 				applyCompletion,
 			});
 
-			editor.handleInput("$");
-			editor.handleInput("s");
-			editor.handleInput("k");
+			typeText(editor, "$sk");
 
 			assert.strictEqual(suggestionCalls, 0);
 			await new Promise((resolve) => setTimeout(resolve, 50));
@@ -2841,10 +2700,7 @@ describe("Editor component", () => {
 
 			editor.setAutocompleteProvider(mockProvider);
 
-			editor.handleInput("@");
-			editor.handleInput("m");
-			editor.handleInput("a");
-			editor.handleInput("i");
+			typeText(editor, "@mai");
 			await new Promise((resolve) => setTimeout(resolve, 250));
 			editor.handleInput("n");
 			await new Promise((resolve) => setTimeout(resolve, 50));
@@ -2924,18 +2780,7 @@ describe("Editor component", () => {
 			editor.setAutocompleteProvider(mockProvider);
 
 			// Type "/argtest two"
-			editor.handleInput("/");
-			editor.handleInput("a");
-			editor.handleInput("r");
-			editor.handleInput("g");
-			editor.handleInput("t");
-			editor.handleInput("e");
-			editor.handleInput("s");
-			editor.handleInput("t");
-			editor.handleInput(" ");
-			editor.handleInput("t");
-			editor.handleInput("w");
-			editor.handleInput("o");
+			typeText(editor, "/argtest two");
 
 			assert.strictEqual(editor.getText(), "/argtest two");
 			await flushAutocomplete();
@@ -2980,16 +2825,7 @@ describe("Editor component", () => {
 			editor.setAutocompleteProvider(mockProvider);
 
 			// Type "/argtest t" - filtered to [two, three, twelve], prefix "t" matches "two" first
-			editor.handleInput("/");
-			editor.handleInput("a");
-			editor.handleInput("r");
-			editor.handleInput("g");
-			editor.handleInput("t");
-			editor.handleInput("e");
-			editor.handleInput("s");
-			editor.handleInput("t");
-			editor.handleInput(" ");
-			editor.handleInput("t");
+			typeText(editor, "/argtest t");
 
 			await flushAutocomplete();
 			assert.strictEqual(editor.isShowingAutocomplete(), true);
@@ -3027,17 +2863,7 @@ describe("Editor component", () => {
 			editor.setAutocompleteProvider(mockProvider);
 
 			// Type "/argtest tw" - "tw" is a prefix of only "two"
-			editor.handleInput("/");
-			editor.handleInput("a");
-			editor.handleInput("r");
-			editor.handleInput("g");
-			editor.handleInput("t");
-			editor.handleInput("e");
-			editor.handleInput("s");
-			editor.handleInput("t");
-			editor.handleInput(" ");
-			editor.handleInput("t");
-			editor.handleInput("w");
+			typeText(editor, "/argtest tw");
 
 			assert.strictEqual(editor.getText(), "/argtest tw");
 			await flushAutocomplete();
@@ -3075,16 +2901,7 @@ describe("Editor component", () => {
 			editor.setAutocompleteProvider(mockProvider);
 
 			// Type "/argtest t" - "t" is a prefix of both "two" and "three"
-			editor.handleInput("/");
-			editor.handleInput("a");
-			editor.handleInput("r");
-			editor.handleInput("g");
-			editor.handleInput("t");
-			editor.handleInput("e");
-			editor.handleInput("s");
-			editor.handleInput("t");
-			editor.handleInput(" ");
-			editor.handleInput("t");
+			typeText(editor, "/argtest t");
 
 			await flushAutocomplete();
 			assert.strictEqual(editor.isShowingAutocomplete(), true);
@@ -3127,24 +2944,7 @@ describe("Editor component", () => {
 			editor.setAutocompleteProvider(mockProvider);
 
 			// Type "/model gpt-4o-mini" - exact match for second item in list
-			editor.handleInput("/");
-			editor.handleInput("m");
-			editor.handleInput("o");
-			editor.handleInput("d");
-			editor.handleInput("e");
-			editor.handleInput("l");
-			editor.handleInput(" ");
-			editor.handleInput("g");
-			editor.handleInput("p");
-			editor.handleInput("t");
-			editor.handleInput("-");
-			editor.handleInput("4");
-			editor.handleInput("o");
-			editor.handleInput("-");
-			editor.handleInput("m");
-			editor.handleInput("i");
-			editor.handleInput("n");
-			editor.handleInput("i");
+			typeText(editor, "/model gpt-4o-mini");
 
 			assert.strictEqual(editor.getText(), "/model gpt-4o-mini");
 			await flushAutocomplete();
@@ -3220,9 +3020,7 @@ describe("Editor component", () => {
 			);
 			editor.setAutocompleteProvider(provider);
 
-			editor.handleInput("/");
-			editor.handleInput("h");
-			editor.handleInput("e");
+			typeText(editor, "/he");
 			await flushAutocomplete();
 			assert.strictEqual(editor.isShowingAutocomplete(), true);
 
