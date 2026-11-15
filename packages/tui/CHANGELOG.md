@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed `StdinBuffer` splitting an emoji outside the Basic Multilingual Plane into two surrogate halves, which also made Kitty duplicate suppression miss the raw copy so the emoji was typed twice.
 - Fixed yanking a killed large-paste marker after a submit restoring a marker for cleared content, which a later paste then reused so the wrong text was submitted; kill-ring entries now keep the pasted text.
 - Fixed the editor keeping a stale autocomplete picker open after Home, End, or word cursor moves, so Tab inserted a suggestion computed for the old cursor position (for example `/help /he`).
 - Fixed the editor's backward character jump (Ctrl+Alt+]) staying on the current character when the cursor is at column 0 and that character matches.

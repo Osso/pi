@@ -239,6 +239,16 @@ describe("StdinBuffer", () => {
 			assert.deepStrictEqual(emittedSequences, ["\x1b[224u"]);
 		});
 
+		it("should drop a raw duplicate emoji after its Kitty printable sequence", () => {
+			processInput("\x1b[128512u😀");
+			assert.deepStrictEqual(emittedSequences, ["\x1b[128512u"]);
+		});
+
+		it("should emit a plain emoji as one sequence", () => {
+			processInput("a😀b");
+			assert.deepStrictEqual(emittedSequences, ["a", "😀", "b"]);
+		});
+
 		it("should drop raw duplicate character after matching Kitty printable sequence across chunks", () => {
 			processInput("\x1b[64u");
 			processInput("@");
