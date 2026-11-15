@@ -7793,13 +7793,12 @@ export class InteractiveMode {
 	private async handleBashCommand(command: string, excludeFromContext = false): Promise<void> {
 		const extensionRunner = this.session.extensionRunner;
 
-		// Emit user_bash event to let extensions intercept
-		const eventResult = await extensionRunner.emitUserBash({
-			type: "user_bash",
-			command,
-			excludeFromContext,
-			cwd: this.sessionManager.getCwd(),
-		});
+		// Emit user_bash event to let extensions intercept. A failed handler was already reported by the
+		// runner; do not fall back to local execution.
+		const eventResult = await extensionRunner
+			.emitUserBash({ type: "user_bash", command, excludeFromContext, cwd: this.sessionManager.getCwd() })
+			.catch(() => null);
+		if (eventResult === null) return;
 
 		// If extension returned a full result, use it directly
 		if (eventResult?.result) {
