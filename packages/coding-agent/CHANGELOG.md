@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed the `/model` selector keeping the previous highlight position when typing a filter instead of highlighting the best match ([#7209](https://github.com/earendil-works/pi-mono/issues/7209))
 - Fixed syntax highlighting losing token colors after the first line of multiline tokens such as Python docstrings ([#10143](https://github.com/earendil-works/pi-mono/issues/10143))
 - Fixed `/import` (session import) overwriting a stored session that has the same file name; the import now gets the next free numbered name ([#8985](https://github.com/earendil-works/pi-mono/pull/8985))
 - Fixed prompts that start with `-` being parsed as options; `--` now ends option parsing, so `pi -p -- "- summarize this"` sends the text as a prompt ([#7269](https://github.com/earendil-works/pi-mono/issues/7269))

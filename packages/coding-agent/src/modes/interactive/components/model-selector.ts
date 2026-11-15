@@ -219,7 +219,8 @@ export class ModelSelectorComponent extends Container implements Focusable {
 					getModelSearchCandidates({ id, provider, name: model.name }),
 				)
 			: this.activeModels;
-		this.selectedIndex = Math.min(this.selectedIndex, Math.max(0, this.filteredModels.length - 1));
+		// A query highlights the best match; clearing it keeps the position clamped to the restored list.
+		this.selectedIndex = query ? 0 : Math.min(this.selectedIndex, Math.max(0, this.filteredModels.length - 1));
 		this.updateList();
 	}
 
