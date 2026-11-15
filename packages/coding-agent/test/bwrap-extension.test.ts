@@ -475,6 +475,38 @@ console.log(JSON.stringify({
 		}
 	});
 
+	it("find and grep skip symlinks below the root that resolve outside the workspace", () => {
+		writeFileSync(join(tempDir, "outside.txt"), "needle outside\n", "utf8");
+		symlinkSync(join(tempDir, "outside.txt"), join(workspaceDir, "outside-link.txt"));
+		writeFileSync(join(workspaceDir, "inside.txt"), "needle inside\n", "utf8");
+		symlinkSync(join(workspaceDir, "inside.txt"), join(workspaceDir, "inside-link.txt"));
+		const runWorker = (operation: string) =>
+			spawnSync(
+				process.execPath,
+				[
+					FS_WORKER_PATH,
+					operation,
+					JSON.stringify({
+						cwd: workspaceDir,
+						path: workspaceDir,
+						pattern: operation === "find" ? "*.txt" : "needle",
+						workspace: workspaceDir,
+					}),
+				],
+				{ encoding: "utf8" },
+			);
+
+		const grep = runWorker("grep");
+		expect(grep.status).toBe(0);
+		expect(JSON.parse(grep.stdout).text.split("\n").sort()).toEqual([
+			"inside-link.txt:1: needle inside",
+			"inside.txt:1: needle inside",
+		]);
+		const find = runWorker("find");
+		expect(find.status).toBe(0);
+		expect(JSON.parse(find.stdout).results.sort()).toEqual(["inside-link.txt", "inside.txt"]);
+	});
+
 	it("grep skips inaccessible files and returns readable matches", () => {
 		const readablePath = join(workspaceDir, "readable.txt");
 		const inaccessiblePath = join(workspaceDir, "inaccessible.txt");

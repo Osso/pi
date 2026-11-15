@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed the bwrap sandbox `grep` and `find` following symlinks below the search root to files outside the workspace; such symlinks are now skipped, matching direct reads.
 - Fixed a pool whose last member was out of quota returning a non-retryable error even though an earlier member was only rate limited; the pool error now quotes the rate-limit error, so automatic retry reaches the member when it frees.
 - Fixed a symlinked working directory skipping project trust for `.agents`, `.codex` or `.claude` skills in its logical ancestors, so a saved denial or `defaultProjectTrust: "never"` did not stop those skills from loading.
 - Fixed the Bash truncation notice reporting `line is 0B` when a long final line ended with a newline; it now reports that line's size.

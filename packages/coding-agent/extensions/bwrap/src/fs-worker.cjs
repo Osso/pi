@@ -59,6 +59,15 @@ async function resolveWorkspacePathWithFilesystemChecks(value, options = {}) {
 	}
 }
 
+async function symlinkStaysInWorkspace(linkPath) {
+	try {
+		return isInsideWorkspace(await fs.realpath(linkPath), await fs.realpath(workspace));
+	} catch {
+		return false;
+	}
+}
+
+// Symlinks are only returned when their target stays inside the workspace, like a direct path lookup.
 async function readFilesRecursively(root) {
 	const entries = await fs.readdir(root, { withFileTypes: true });
 	const visibleEntries = entries.filter((entry) => entry.name !== ".git" && entry.name !== "node_modules");
@@ -66,6 +75,7 @@ async function readFilesRecursively(root) {
 		visibleEntries.map(async (entry) => {
 			const absolutePath = path.join(root, entry.name);
 			if (entry.isDirectory()) return readFilesRecursively(absolutePath);
+			if (entry.isSymbolicLink() && !(await symlinkStaysInWorkspace(absolutePath))) return [];
 			return [absolutePath];
 		}),
 	);
