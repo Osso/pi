@@ -630,6 +630,23 @@ describe("buildSessionContext", () => {
 });
 
 describe("prepareCompaction with previous compaction", () => {
+	it("does not report stale usage from kept pre-compaction messages as tokensBefore", () => {
+		const u1 = createMessageEntry(createUserMessage("first"));
+		const a1 = createMessageEntry(createAssistantMessage("first answer", createMockUsage(150_000, 100)));
+		const u2 = createMessageEntry(createUserMessage("second"));
+		const a2 = createMessageEntry(createAssistantMessage("second answer", createMockUsage(160_000, 100)));
+		const compaction = createCompactionEntry("Summary of the first turn", u2.id);
+		const u3 = createMessageEntry(createUserMessage("hello again"));
+
+		const preparation = prepareCompaction([u1, a1, u2, a2, compaction, u3], {
+			...DEFAULT_COMPACTION_SETTINGS,
+			keepRecentMessages: 1,
+		});
+
+		expect(requireValue(preparation).tokensBefore).toBeGreaterThan(0);
+		expect(requireValue(preparation).tokensBefore).toBeLessThan(1_000);
+	});
+
 	it("carries file lists from summarized branch summaries into the compaction details", () => {
 		const user = createMessageEntry(createUserMessage("start"));
 		const branchSummary: SessionEntry = {
