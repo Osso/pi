@@ -1,6 +1,7 @@
 import { constants as bufferConstants } from "buffer";
 import fs, {
 	appendFileSync,
+	chmodSync,
 	closeSync,
 	existsSync,
 	mkdirSync,
@@ -29,6 +30,7 @@ import {
 	writeSessionName,
 } from "../../src/core/session-control-db.ts";
 import { findMostRecentSession, loadEntriesFromFile, SessionManager } from "../../src/core/session-manager.ts";
+import { assistantMsg, userMsg } from "../utilities.ts";
 
 describe("loadEntriesFromFile", () => {
 	let tempDir: string;
@@ -818,5 +820,61 @@ describe("SessionManager.setSessionFile with corrupted files", () => {
 		const sm2 = SessionManager.open(emptyFile, tempDir);
 		expect(sm2.getSessionId()).toBe(sessionId);
 		expect(sm2.getHeader()?.type).toBe("session");
+	});
+});
+
+// #10166, #10661, #11460: a failed write must not leave later entries pointing to a missing parent
+describe("SessionManager failed writes", () => {
+	let tempDir: string;
+
+	beforeEach(() => {
+		tempDir = join(tmpdir(), `session-write-fail-${Date.now()}`);
+		mkdirSync(tempDir, { recursive: true });
+	});
+
+	afterEach(() => {
+		chmodSync(tempDir, 0o755);
+		rmSync(tempDir, { recursive: true, force: true });
+	});
+
+	it("does not keep an entry in memory when appending it fails", () => {
+		const session = SessionManager.create(tempDir, tempDir);
+		session.appendMessage(userMsg("first question"));
+		const firstId = session.appendMessage(assistantMsg("first answer"));
+		const file = session.getSessionFile() ?? "";
+
+		chmodSync(file, 0o444);
+		expect(() => session.appendMessage(userMsg("lost question"))).toThrow();
+		expect(session.getLeafId()).toBe(firstId);
+		expect(session.getEntries()).toHaveLength(2);
+
+		chmodSync(file, 0o644);
+		const secondId = session.appendMessage(userMsg("second question"));
+		expect(session.getEntry(secondId)?.parentId).toBe(firstId);
+
+		const reopened = SessionManager.open(file, tempDir);
+		expect(reopened.getBranch().map((entry) => entry.id)).toEqual(session.getBranch().map((entry) => entry.id));
+		expect(reopened.getBranch()).toHaveLength(3);
+	});
+
+	it("does not keep an entry in memory when creating the file fails", () => {
+		const sessionDir = join(tempDir, "sessions");
+		mkdirSync(sessionDir);
+		const session = SessionManager.create(tempDir, sessionDir);
+		const userId = session.appendMessage(userMsg("first question"));
+
+		chmodSync(sessionDir, 0o555);
+		try {
+			expect(() => session.appendMessage(assistantMsg("lost answer"))).toThrow();
+		} finally {
+			chmodSync(sessionDir, 0o755);
+		}
+		expect(session.getLeafId()).toBe(userId);
+		expect(session.getEntries().map((entry) => entry.id)).toEqual([userId]);
+
+		const answerId = session.appendMessage(assistantMsg("second answer"));
+		expect(session.getEntry(answerId)?.parentId).toBe(userId);
+		const reopened = SessionManager.open(session.getSessionFile() ?? "", tempDir);
+		expect(reopened.getBranch().map((entry) => entry.id)).toEqual([userId, answerId]);
 	});
 });

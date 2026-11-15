@@ -1390,22 +1390,14 @@ export class SessionManager {
 		if (!this.persist || !this.sessionFile) return;
 
 		const hasAssistant = this.fileEntries.some((e) => e.type === "message" && e.message.role === "assistant");
+		// An unflushed session is written in full when its first assistant message arrives.
 		if (!hasAssistant) {
-			if (this.flushed) {
-				this._appendToFile(this.sessionFile, entry);
-			} else {
-				// Mark as not flushed so when assistant arrives, all entries get written
-				this.flushed = false;
-			}
+			if (this.flushed) this._appendToFile(this.sessionFile, entry);
 			return;
 		}
-
-		if (!this.flushed) {
-			this._writeNewFile();
-			this.flushed = true;
-		} else {
-			this._appendToFile(this.sessionFile, entry);
-		}
+		if (this.flushed) this._appendToFile(this.sessionFile, entry);
+		else this._writeNewFile();
+		this.flushed = true;
 	}
 
 	private _appendToFile(sessionFile: string, entry: SessionEntry): void {
@@ -1431,16 +1423,22 @@ export class SessionManager {
 	private _appendEntry(entry: SessionEntry): void {
 		const affectsInfo = affectsSessionInfo(entry);
 		const accumulator = affectsInfo ? this.currentSessionInfoAccumulator() : this.sessionInfoAccumulator;
+		const previousLeafId = this.leafId;
 		this.fileEntries.push(entry);
 		this.byId.set(entry.id, entry);
 		this.leafId = entry.id;
-		this._persist(entry);
-		if (accumulator) {
-			applySessionInfoEntry(accumulator, entry);
+		try {
+			this._persist(entry);
+		} catch (error) {
+			// An entry that was not written must not become the parent of later entries: the file
+			// would then hold entries pointing to a missing parent, and resume would drop history.
+			this.fileEntries.pop();
+			this.byId.delete(entry.id);
+			this.leafId = previousLeafId;
+			throw error;
 		}
-		if (affectsInfo) {
-			this.writeMetadataSnapshot();
-		}
+		if (accumulator) applySessionInfoEntry(accumulator, entry);
+		if (affectsInfo) this.writeMetadataSnapshot();
 	}
 
 	/** Append a message as child of current leaf, then advance leaf. Returns entry id.

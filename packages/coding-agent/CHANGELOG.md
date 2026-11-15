@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed a failed session write (for example `ENOSPC` or `EBUSY`) leaving the unwritten entry in memory as the current leaf, so later entries on disk pointed to a missing parent and resume dropped all earlier history ([#11460](https://github.com/earendil-works/pi-mono/issues/11460))
 - Fixed a trailing or doubled comma in `--models` producing an empty model pattern ([#10334](https://github.com/earendil-works/pi-mono/issues/10334))
 - Fixed `pi.exec()` returning an empty `stderr` when the command cannot be spawned (for example `ENOENT`); the spawn error message is now reported ([#11085](https://github.com/earendil-works/pi-mono/issues/11085))
 - Fixed `pi.exec()` corrupting multi-byte UTF-8 characters split across output chunks into U+FFFD ([#11312](https://github.com/earendil-works/pi-mono/issues/11312))
