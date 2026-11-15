@@ -167,15 +167,13 @@ type ColorMode = "truecolor" | "256color";
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
 	const cleaned = hex.replace("#", "");
-	if (cleaned.length !== 6) {
+	// parseInt stops at the first non-hex character, so validate the whole string first.
+	if (!/^[0-9a-f]{6}$/i.test(cleaned)) {
 		throw new Error(`Invalid hex color: ${hex}`);
 	}
 	const r = parseInt(cleaned.substring(0, 2), 16);
 	const g = parseInt(cleaned.substring(2, 4), 16);
 	const b = parseInt(cleaned.substring(4, 6), 16);
-	if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
-		throw new Error(`Invalid hex color: ${hex}`);
-	}
 	return { r, g, b };
 }
 

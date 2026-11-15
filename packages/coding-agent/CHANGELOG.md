@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed custom themes accepting malformed hex colors such as `#12345g`, which produced wrong or invalid color escape sequences instead of an `Invalid hex color` error
 - Fixed `--model <fuzzy>`, such as `pi --model sonnet:high`, choosing a model on a provider without credentials, such as Amazon Bedrock, when a provider with credentials also matched
 - Fixed a `--models` glob with a misspelled thinking level, such as `*sonnet*:hgih`, matching no models; it now uses the default level with a warning like other patterns
 - Fixed `--models` and `enabledModels` rejecting a provider-prefixed fuzzy pattern such as `anthropic/sonnet`, which `--model` accepts
