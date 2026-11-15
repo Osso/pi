@@ -198,6 +198,23 @@ describe("goal extension mission", () => {
 		expect(prompt).not.toContain('action "complete"');
 	});
 
+	it("keeps a waiting user goal's scheduled review when the mission is paused", async () => {
+		const reviewGoal = vi.fn<GoalSupervisorReview>(async () => ({ kind: "wait", reason: "deploy is rolling out" }));
+		const harness = createMissionHarness({ entries: [] }, reviewGoal);
+		await harness.command("goal", "set ship the parser");
+		await harness.command("mission", "set maintain the compiler");
+		await harness.runStart();
+		await harness.agentEnd();
+		expect(reviewGoal).toHaveBeenCalledOnce();
+
+		await harness.command("mission", "pause");
+		await vi.advanceTimersByTimeAsync(COMPLETION_WAIT_MS);
+
+		expect(harness.goal()).toMatchObject({ objective: "ship the parser" });
+		expect(reviewGoal).toHaveBeenCalledTimes(2);
+		expect(reviewGoal).toHaveBeenLastCalledWith(idleReviewOf("ship the parser"));
+	});
+
 	it("exposes the mission only through the /mission command, not as a tool", () => {
 		expect(createMissionHarness().toolNames).toEqual(["manage_goal"]);
 	});

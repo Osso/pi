@@ -197,8 +197,10 @@ export function registerMissionCommand(
 		description:
 			"Set, view, pause, resume, or clear the user-owned continuous mission (/mission set <objective> | /mission | /mission pause | /mission resume | /mission clear)",
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
-			if (args.trim()) clearGoalSchedules(ctx.sessionManager.getSessionId());
+			// Only a mission goal the command replaced, paused, or cleared loses its scheduled review.
+			const before = JSON.stringify(loadOrMigrateGoal(ctx));
 			handleMissionCommand(args, ctx, pi, goalWork);
+			if (JSON.stringify(loadOrMigrateGoal(ctx)) !== before) clearGoalSchedules(ctx.sessionManager.getSessionId());
 		},
 	});
 }
