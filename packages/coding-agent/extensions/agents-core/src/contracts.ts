@@ -121,6 +121,8 @@ export const CHILD_EXCLUDED_TOOL_NAMES = [
 	...CHILD_DISABLED_AGENT_TOOL_NAMES,
 	...SUPERVISOR_ONLY_TOOL_NAMES,
 	"change_working_directory",
+	// Child sessions cannot be named; offering the tool only produces refused calls.
+	"set_session_name",
 ];
 export const MAIN_THREAD_AGENT_ID = "main";
 export const CANCELLATION_SETTLEMENT_TIMEOUT_MS = 5_000;

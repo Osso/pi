@@ -70,6 +70,9 @@ an agents-mailbox coordination surface. The runtime contract belongs here; imple
       turn termination, leaving the child cwd and runtime unchanged. Main and standalone behavior remains
       governed by the [working-directory tool contract](change-working-directory-tool.md); this restriction
       does not provide child relocation support.
+- [x] Spawned and attached subagents must not expose `set_session_name`: child sessions cannot be named,
+      so offering the tool only produces refused calls. Proven by
+      `packages/coding-agent/test/suite/regressions/child-session-name-tool.test.ts` against a real spawned child.
 - [x] When multi-agent mode is disabled in a main runtime, remove the active orchestration and mailbox tool
       surface (`spawn_agent`, `list_agents`, `attach_session_agent`, `wait_agent`, `close_agent`,
       `steer_agent`, `agent_viewer`, `send_agent_message`, and `contact_parent`) without cancelling

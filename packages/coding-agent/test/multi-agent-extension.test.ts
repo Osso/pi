@@ -4664,6 +4664,7 @@ describe("multi-agent extension tools", () => {
 				"ask_supervisor",
 				"manage_goal",
 				"change_working_directory",
+				"set_session_name",
 			],
 			model: parentHarness.getModel(),
 			modelRegistry: parentHarness.session.modelRegistry,
@@ -4927,6 +4928,7 @@ describe("multi-agent extension tools", () => {
 				"ask_supervisor",
 				"manage_goal",
 				"change_working_directory",
+				"set_session_name",
 			],
 			multiAgentAgentId: spawned.details.agent.id,
 			multiAgentParentSessionId: parentHarness.sessionManager.getSessionId(),
@@ -5494,6 +5496,7 @@ describe("multi-agent extension tools", () => {
 				"ask_supervisor",
 				"manage_goal",
 				"change_working_directory",
+				"set_session_name",
 			],
 			multiAgentStore: store,
 		});

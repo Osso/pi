@@ -265,6 +265,7 @@
 
 ### Fixed
 
+- Fixed child agents being offered `set_session_name`, which always refuses in a child session; the tool is now excluded from spawned and attached child sessions (282 refused calls in 36 hours on each host)
 - Fixed Supervisor goal reviews failing with "Supervisor turn ended without a supervisor_response call": the request text the model receives now carries the `[Supervisor request]` label the policy refers to and names `supervisor_response`, so the model no longer answers requests in plain text as if they were user chat
 - Fixed `grep` reporting "matches limit reached" and suggesting a larger limit when the match count only equaled the limit; the notice now appears only when more matches exist
 - Fixed `/mission pause`, `/mission resume`, and `/mission set` canceling the scheduled re-review of a separate waiting goal; a `/mission` command now clears goal schedules only when it changes the working goal
