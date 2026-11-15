@@ -653,13 +653,12 @@ class TreeList implements Component {
 	}
 
 	updateNodeLabel(entryId: string, label: string | undefined, labelTimestamp?: string): void {
-		for (const flatNode of this.flatNodes) {
-			if (flatNode.node.entry.id === entryId) {
-				flatNode.node.label = label;
-				flatNode.node.labelTimestamp = label ? (labelTimestamp ?? new Date().toISOString()) : undefined;
-				break;
-			}
+		const node = this.flatNodes.find((flatNode) => flatNode.node.entry.id === entryId)?.node;
+		if (node) {
+			node.label = label;
+			node.labelTimestamp = label ? (labelTimestamp ?? new Date().toISOString()) : undefined;
 		}
+		this.applyFilter(); // the labeled-only filter and label search depend on labels
 	}
 
 	private getStatusLabels(): string {

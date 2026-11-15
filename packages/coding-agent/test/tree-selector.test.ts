@@ -400,6 +400,35 @@ describe("TreeSelectorComponent", () => {
 		});
 	});
 
+	describe("label edits", () => {
+		test("hides an entry from the labeled-only view when its label is cleared", () => {
+			const tree = buildTree([userMessage("one", null, "checkpoint message"), assistantMessage("two", "one", "ok")]);
+			const labeled = tree[0];
+			assertDefined(labeled);
+			labeled.label = "checkpoint";
+			const changes: Array<[string, string | undefined]> = [];
+			const selector = new TreeSelectorComponent(
+				tree,
+				"one",
+				24,
+				() => {},
+				() => {},
+				(id, label) => changes.push([id, label]),
+			);
+
+			selector.handleInput("\x0c"); // Ctrl+L: labeled-only
+			expect(selector.getTreeList().getSelectedNode()?.entry.id).toBe("one");
+			selector.handleInput("L"); // edit label
+			selector.handleInput("\x1b[F");
+			for (let i = 0; i < "checkpoint".length; i++) selector.handleInput("\x7f");
+			selector.handleInput("\r");
+
+			expect(changes).toEqual([["one", undefined]]);
+			expect(selector.getTreeList().getSelectedNode()).toBeUndefined();
+			expect(stripVTControlCharacters(selector.render(120).join("\n"))).toContain("No entries found");
+		});
+	});
+
 	describe("branch navigation and folding with ctrl+arrow keys", () => {
 		// Key escape sequences
 		const UP = "\x1b[A";
