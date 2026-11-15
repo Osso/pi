@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed terminal color scheme detection ignoring batched `CSI ? 997 ; n` reports delivered in one input chunk; the last report now wins ([#7538](https://github.com/earendil-works/pi-mono/issues/7538))
 - Fixed the terminal progress clear sequence carrying a trailing `;` (`OSC 9;4;0;`), which some terminals reject, leaving the progress indicator active ([#7581](https://github.com/earendil-works/pi-mono/pull/7581))
 - Fixed visible tabs reaching the terminal unexpanded, where terminal tab stops could push a line past its computed width and wrap or misplace overlays; tabs inside OSC/APC payloads stay untouched ([#6697](https://github.com/earendil-works/pi-mono/pull/6697))
 - Fixed `wrapTextWithAnsi` leaving CRLF and bare CR line endings in wrapped lines, which let a carriage return move the cursor to column 0 and overwrite rendered text ([#6764](https://github.com/earendil-works/pi-mono/pull/6764))
