@@ -82,6 +82,22 @@ async function testTotalTokensWithCache<TApi extends Api>(
 	return { first: response1.usage, second: response2.usage };
 }
 
+async function assertProviderTotalTokens(
+	llm: Model<Api>,
+	provider: string,
+	options: StreamOptionsWithExtras = {},
+): Promise<{ first: Usage; second: Usage }> {
+	console.log(`\n${provider} / ${llm.id}:`);
+	const { first, second } = await testTotalTokensWithCache(llm, options);
+
+	logUsage("First request", first);
+	logUsage("Second request", second);
+
+	assertTotalTokensEqualsComponents(first);
+	assertTotalTokensEqualsComponents(second);
+	return { first, second };
+}
+
 function logUsage(label: string, usage: Usage) {
 	const computed = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
 	console.log(`  ${label}:`);
@@ -108,14 +124,9 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("anthropic", "claude-sonnet-4-5");
 
-				console.log(`\nAnthropic / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.ANTHROPIC_API_KEY });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				const { first, second } = await assertProviderTotalTokens(llm, "Anthropic", {
+					apiKey: process.env.ANTHROPIC_API_KEY,
+				});
 
 				// Anthropic should have cache activity
 				const hasCache = second.cacheRead > 0 || second.cacheWrite > 0 || first.cacheWrite > 0;
@@ -131,14 +142,9 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("anthropic", "claude-sonnet-4-6");
 
-				console.log(`\nAnthropic OAuth / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: anthropicOAuthToken });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				const { first, second } = await assertProviderTotalTokens(llm, "Anthropic OAuth", {
+					apiKey: anthropicOAuthToken,
+				});
 
 				// Anthropic should have cache activity
 				const hasCache = second.cacheRead > 0 || second.cacheWrite > 0 || first.cacheWrite > 0;
@@ -163,14 +169,7 @@ describe("totalTokens field", () => {
 					api: "openai-completions",
 				};
 
-				console.log(`\nOpenAI Completions / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm);
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "OpenAI Completions", {});
 			},
 		);
 	});
@@ -182,14 +181,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("openai", "gpt-4o");
 
-				console.log(`\nOpenAI Responses / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm);
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "OpenAI Responses", {});
 			},
 		);
 	});
@@ -205,14 +197,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("google", "gemini-2.0-flash");
 
-				console.log(`\nGoogle / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm);
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "Google", {});
 			},
 		);
 	});
@@ -228,14 +213,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("xai", "grok-3-fast");
 
-				console.log(`\nxAI / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.XAI_API_KEY });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "xAI", { apiKey: process.env.XAI_API_KEY });
 			},
 		);
 	});
@@ -251,14 +229,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("groq", "openai/gpt-oss-120b");
 
-				console.log(`\nGroq / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.GROQ_API_KEY });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "Groq", { apiKey: process.env.GROQ_API_KEY });
 			},
 		);
 	});
@@ -274,14 +245,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("cerebras", "gpt-oss-120b");
 
-				console.log(`\nCerebras / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.CEREBRAS_API_KEY });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "Cerebras", { apiKey: process.env.CEREBRAS_API_KEY });
 			},
 		);
 	});
@@ -297,16 +261,9 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("cloudflare-workers-ai", "@cf/moonshotai/kimi-k2.6");
 
-				console.log(`\nCloudflare Workers AI / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, {
+				await assertProviderTotalTokens(llm, "Cloudflare Workers AI", {
 					apiKey: process.env.CLOUDFLARE_API_KEY,
 				});
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
 			},
 		);
 	});
@@ -322,16 +279,9 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("cloudflare-ai-gateway", "workers-ai/@cf/moonshotai/kimi-k2.6");
 
-				console.log(`\nCloudflare AI Gateway / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, {
+				await assertProviderTotalTokens(llm, "Cloudflare AI Gateway", {
 					apiKey: process.env.CLOUDFLARE_API_KEY,
 				});
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
 			},
 		);
 	});
@@ -344,14 +294,7 @@ describe("totalTokens field", () => {
 		it("Kimi-K2.5 - should return totalTokens equal to sum of components", { retry: 3, timeout: 60000 }, async () => {
 			const llm = getModel("huggingface", "moonshotai/Kimi-K2.5");
 
-			console.log(`\nHugging Face / ${llm.id}:`);
-			const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.HF_TOKEN });
-
-			logUsage("First request", first);
-			logUsage("Second request", second);
-
-			assertTotalTokensEqualsComponents(first);
-			assertTotalTokensEqualsComponents(second);
+			await assertProviderTotalTokens(llm, "Hugging Face", { apiKey: process.env.HF_TOKEN });
 		});
 	});
 
@@ -363,17 +306,10 @@ describe("totalTokens field", () => {
 		it("Kimi-K2.6 - should return totalTokens equal to sum of components", { retry: 3, timeout: 60000 }, async () => {
 			const llm = getModel("together", "moonshotai/Kimi-K2.6");
 
-			console.log(`\nTogether AI / ${llm.id}:`);
-			const { first, second } = await testTotalTokensWithCache(llm, {
+			await assertProviderTotalTokens(llm, "Together AI", {
 				apiKey: process.env.TOGETHER_API_KEY,
 				reasoningEffort: "high",
 			});
-
-			logUsage("First request", first);
-			logUsage("Second request", second);
-
-			assertTotalTokensEqualsComponents(first);
-			assertTotalTokensEqualsComponents(second);
 		});
 	});
 
@@ -388,14 +324,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("zai", "glm-4.5-air");
 
-				console.log(`\nz.ai / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.ZAI_API_KEY });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "z.ai", { apiKey: process.env.ZAI_API_KEY });
 			},
 		);
 	});
@@ -411,14 +340,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("mistral", "devstral-medium-latest");
 
-				console.log(`\nMistral / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.MISTRAL_API_KEY });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "Mistral", { apiKey: process.env.MISTRAL_API_KEY });
 			},
 		);
 	});
@@ -434,14 +356,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("minimax", "MiniMax-M2.7");
 
-				console.log(`\nMiniMax / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.MINIMAX_API_KEY });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "MiniMax", { apiKey: process.env.MINIMAX_API_KEY });
 			},
 		);
 	});
@@ -457,14 +372,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("xiaomi", "mimo-v2.5-pro");
 
-				console.log(`\nXiaomi MiMo / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.XIAOMI_API_KEY });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "Xiaomi MiMo", { apiKey: process.env.XIAOMI_API_KEY });
 			},
 		);
 	});
@@ -480,16 +388,9 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("xiaomi-token-plan-cn", "mimo-v2.5-pro");
 
-				console.log(`\nXiaomi MiMo Token Plan CN / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, {
+				await assertProviderTotalTokens(llm, "Xiaomi MiMo Token Plan CN", {
 					apiKey: process.env.XIAOMI_TOKEN_PLAN_CN_API_KEY,
 				});
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
 			},
 		);
 	});
@@ -505,16 +406,9 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("xiaomi-token-plan-ams", "mimo-v2.5-pro");
 
-				console.log(`\nXiaomi MiMo Token Plan AMS / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, {
+				await assertProviderTotalTokens(llm, "Xiaomi MiMo Token Plan AMS", {
 					apiKey: process.env.XIAOMI_TOKEN_PLAN_AMS_API_KEY,
 				});
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
 			},
 		);
 	});
@@ -530,16 +424,9 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("xiaomi-token-plan-sgp", "mimo-v2.5-pro");
 
-				console.log(`\nXiaomi MiMo Token Plan SGP / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, {
+				await assertProviderTotalTokens(llm, "Xiaomi MiMo Token Plan SGP", {
 					apiKey: process.env.XIAOMI_TOKEN_PLAN_SGP_API_KEY,
 				});
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
 			},
 		);
 	});
@@ -555,14 +442,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("kimi-coding", "kimi-k2-thinking");
 
-				console.log(`\nKimi For Coding / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.KIMI_API_KEY });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "Kimi For Coding", { apiKey: process.env.KIMI_API_KEY });
 			},
 		);
 	});
@@ -578,14 +458,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("vercel-ai-gateway", "google/gemini-2.5-flash");
 
-				console.log(`\nVercel AI Gateway / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.AI_GATEWAY_API_KEY });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "Vercel AI Gateway", { apiKey: process.env.AI_GATEWAY_API_KEY });
 			},
 		);
 	});
@@ -601,14 +474,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("openrouter", "anthropic/claude-sonnet-4");
 
-				console.log(`\nOpenRouter / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.OPENROUTER_API_KEY });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "OpenRouter", { apiKey: process.env.OPENROUTER_API_KEY });
 			},
 		);
 
@@ -618,14 +484,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("openrouter", "deepseek/deepseek-chat");
 
-				console.log(`\nOpenRouter / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.OPENROUTER_API_KEY });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "OpenRouter", { apiKey: process.env.OPENROUTER_API_KEY });
 			},
 		);
 
@@ -635,14 +494,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("openrouter", "mistralai/mistral-small-3.2-24b-instruct");
 
-				console.log(`\nOpenRouter / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.OPENROUTER_API_KEY });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "OpenRouter", { apiKey: process.env.OPENROUTER_API_KEY });
 			},
 		);
 
@@ -652,14 +504,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("openrouter", "google/gemini-2.5-flash");
 
-				console.log(`\nOpenRouter / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.OPENROUTER_API_KEY });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "OpenRouter", { apiKey: process.env.OPENROUTER_API_KEY });
 			},
 		);
 
@@ -669,14 +514,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("openrouter", "deepseek/deepseek-chat");
 
-				console.log(`\nOpenRouter / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: process.env.OPENROUTER_API_KEY });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "OpenRouter", { apiKey: process.env.OPENROUTER_API_KEY });
 			},
 		);
 	});
@@ -692,14 +530,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("github-copilot", "claude-haiku-4.5");
 
-				console.log(`\nGitHub Copilot / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: githubCopilotToken });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "GitHub Copilot", { apiKey: githubCopilotToken });
 			},
 		);
 
@@ -709,14 +540,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("github-copilot", "claude-sonnet-4.6");
 
-				console.log(`\nGitHub Copilot / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: githubCopilotToken });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "GitHub Copilot", { apiKey: githubCopilotToken });
 			},
 		);
 	});
@@ -734,14 +558,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("amazon-bedrock", "global.anthropic.claude-sonnet-4-5-20250929-v1:0");
 
-				console.log(`\nAmazon Bedrock / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm);
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "Amazon Bedrock", {});
 			},
 		);
 	});
@@ -757,14 +574,7 @@ describe("totalTokens field", () => {
 			async () => {
 				const llm = getModel("openai-codex", "gpt-5.5");
 
-				console.log(`\nOpenAI Codex / ${llm.id}:`);
-				const { first, second } = await testTotalTokensWithCache(llm, { apiKey: openaiCodexToken });
-
-				logUsage("First request", first);
-				logUsage("Second request", second);
-
-				assertTotalTokensEqualsComponents(first);
-				assertTotalTokensEqualsComponents(second);
+				await assertProviderTotalTokens(llm, "OpenAI Codex", { apiKey: openaiCodexToken });
 			},
 		);
 	});
