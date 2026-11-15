@@ -1832,7 +1832,7 @@ describe("AgentSession compaction characterization", () => {
 					enabled: true,
 					keepRecentMessages: 1,
 					reserveTokens: 0,
-					thresholdPercent: 50,
+					thresholdTokens: 50,
 					backgroundStartTokens: 40,
 				},
 			},

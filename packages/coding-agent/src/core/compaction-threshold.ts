@@ -1,24 +1,19 @@
-/** Validate the optional percentage used to trigger automatic compaction. */
-export function parseCompactionThresholdPercent(value: unknown): number | undefined {
+function parseTokenCountSetting(name: string, value: unknown): number | undefined {
 	if (value === undefined) return undefined;
-	const isNumber = typeof value === "number";
-	const isFinitePercentage = isNumber && Number.isFinite(value);
-	const isValidRange = isNumber && value > 0 && value <= 100;
-	if (!isFinitePercentage || !isValidRange) {
+	if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
 		throw new Error(
-			`Invalid compaction.thresholdPercent setting: ${String(value)}. Use a finite number greater than 0 and at most 100, or remove the setting.`,
+			`Invalid compaction.${name} setting: ${String(value)}. Use a positive integer, or remove the setting.`,
 		);
 	}
 	return value;
 }
 
+/** Validate the optional absolute context token count that triggers automatic compaction. */
+export function parseCompactionThresholdTokens(value: unknown): number | undefined {
+	return parseTokenCountSetting("thresholdTokens", value);
+}
+
 /** Validate the optional absolute token count that starts speculative background compaction. */
 export function parseBackgroundCompactionStartTokens(value: unknown): number | undefined {
-	if (value === undefined) return undefined;
-	if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
-		throw new Error(
-			`Invalid compaction.backgroundStartTokens setting: ${String(value)}. Use a positive integer, or remove the setting.`,
-		);
-	}
-	return value;
+	return parseTokenCountSetting("backgroundStartTokens", value);
 }

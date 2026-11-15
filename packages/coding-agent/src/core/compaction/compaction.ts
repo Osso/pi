@@ -17,7 +17,7 @@ import type {
 	Usage,
 } from "@earendil-works/pi-ai/compat";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
-import { parseCompactionThresholdPercent } from "../compaction-threshold.ts";
+import { parseCompactionThresholdTokens } from "../compaction-threshold.ts";
 import {
 	convertToLlm,
 	createBranchSummaryMessage,
@@ -145,7 +145,7 @@ export interface CompactionResult<T = unknown> {
 // ============================================================================
 
 export interface CompactionSettings {
-	thresholdPercent?: number;
+	thresholdTokens?: number;
 	enabled: boolean;
 	reserveTokens: number;
 	keepRecentMessages: number;
@@ -250,20 +250,19 @@ export function estimateContextTokens(messages: AgentMessage[]): ContextUsageEst
 	};
 }
 
-/**
- * Check if compaction should trigger based on context usage.
- */
+/** Check if compaction should trigger. The reserve trigger also covers windows at or below `thresholdTokens`. */
 export function shouldCompact(
 	contextTokens: number,
 	contextWindow: number,
 	settings: CompactionSettings,
 	autoCompactionThreshold?: number,
 ): boolean {
-	const thresholdPercent = parseCompactionThresholdPercent(settings.thresholdPercent);
+	const thresholdTokens = parseCompactionThresholdTokens(settings.thresholdTokens);
 	if (!settings.enabled) return false;
-	if (thresholdPercent !== undefined) return contextTokens >= (contextWindow * thresholdPercent) / 100;
+	const reserveReached = contextTokens > contextWindow - settings.reserveTokens;
+	if (thresholdTokens !== undefined) return contextTokens >= thresholdTokens || reserveReached;
 	if (autoCompactionThreshold !== undefined) return contextTokens >= autoCompactionThreshold;
-	return contextTokens > contextWindow - settings.reserveTokens;
+	return reserveReached;
 }
 
 // ============================================================================

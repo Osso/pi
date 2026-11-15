@@ -27,24 +27,24 @@ function seedHistory(harness: Harness): void {
 	harness.session.agent.state.messages = harness.sessionManager.buildSessionContext().messages;
 }
 
-describe("AgentSession percentage compaction", () => {
+describe("AgentSession token threshold compaction", () => {
 	const harnesses: Harness[] = [];
 	afterEach(() => {
 		for (const harness of harnesses.splice(0)) harness.cleanup();
 	});
 
 	it.each([true, false])(
-		"uses percentage boundary with built-in compaction enabled=%s and preserves extension handling",
+		"uses the token threshold with built-in compaction enabled=%s and preserves extension handling",
 		async (enabled) => {
 			const harness = await createHarness({
 				noSupervisor: true,
-				models: [{ id: "percentage-model", contextWindow: 200_000 }],
-				settings: { compaction: { enabled, thresholdPercent: 50, keepRecentMessages: 1 } },
+				models: [{ id: "threshold-model", contextWindow: 200_000 }],
+				settings: { compaction: { enabled, thresholdTokens: 100_000, keepRecentMessages: 1 } },
 				extensionFactories: [
 					(pi) => {
 						pi.on("compaction", async (event) => ({
 							compaction: {
-								summary: "percentage boundary summary",
+								summary: "token threshold summary",
 								firstKeptEntryId: event.preparation.firstKeptEntryId,
 								tokensBefore: event.preparation.tokensBefore,
 							},
@@ -64,7 +64,7 @@ describe("AgentSession percentage compaction", () => {
 			expect(harness.sessionManager.getEntries().filter((entry) => entry.type === "compaction")).toHaveLength(1);
 			expect(harness.session.messages[0]).toMatchObject({
 				role: "compactionSummary",
-				summary: "percentage boundary summary",
+				summary: "token threshold summary",
 			});
 			expect(harness.eventsOfType("compaction_end").at(-1)).toMatchObject({ reason: "threshold", aborted: false });
 		},
@@ -73,8 +73,8 @@ describe("AgentSession percentage compaction", () => {
 	it("does not invoke built-in summarization when disabled without an extension", async () => {
 		const harness = await createHarness({
 			noSupervisor: true,
-			models: [{ id: "percentage-disabled", contextWindow: 200_000 }],
-			settings: { compaction: { enabled: false, thresholdPercent: 50, keepRecentMessages: 1 } },
+			models: [{ id: "threshold-disabled", contextWindow: 200_000 }],
+			settings: { compaction: { enabled: false, thresholdTokens: 100_000, keepRecentMessages: 1 } },
 		});
 		harnesses.push(harness);
 		seedHistory(harness);

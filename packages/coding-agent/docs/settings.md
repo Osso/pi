@@ -126,9 +126,9 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
 |---------|------|---------|-------------|
 | `compaction.enabled` | boolean | `true` | Enable auto-compaction |
 | `compaction.idle` | boolean | `true` | Compact eligible idle sessions at 90% of assigned API cache TTL; requires `compaction.enabled` |
-| `compaction.thresholdPercent` | number | - | Optional auto-compaction threshold as a percentage of the model context window; finite, greater than 0 and at most 100 |
+| `compaction.thresholdTokens` | number | - | Optional auto-compaction threshold as an absolute context token count; positive integer |
 | `compaction.backgroundStartTokens` | number | - | Optional context token count that starts speculative background compaction; positive integer. Default: 70% of the model context window. Must be below the normal trigger to take effect |
-| `compaction.reserveTokens` | number | `16384` | Summarization output token budget; also determines the default trigger when no percentage or model threshold is set |
+| `compaction.reserveTokens` | number | `16384` | Summarization output token budget; also determines the default trigger when no token or model threshold is set |
 | `compaction.keepRecentMessages` | number | `20` | Most recent context messages (user, assistant, tool results) kept verbatim; older ones are summarized |
 
 ```json
@@ -141,17 +141,17 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
 }
 ```
 
-To trigger automatic compaction at 50% across projects and models, add this to `~/.pi/agent/settings.json`:
+To trigger automatic compaction at 500k tokens across projects and models, add this to `~/.pi/agent/settings.json`:
 
 ```json
 {
   "compaction": {
-    "thresholdPercent": 50
+    "thresholdTokens": 500000
   }
 }
 ```
 
-Trusted project settings can override this global value. The configured percentage triggers at or above `contextWindow * thresholdPercent / 100`, taking precedence over the model's `autoCompactionThreshold` and the `reserveTokens`-based trigger. Omit it to retain existing defaults. `reserveTokens` still controls summarization output budgets; `keepRecentMessages` is unchanged. See [compaction.md](compaction.md#when-it-triggers) for trigger details.
+Trusted project settings can override this global value. The configured count triggers at or above `thresholdTokens`, taking precedence over the model's `autoCompactionThreshold`. The `reserveTokens`-based trigger still applies, so models whose window is at or below the count still compact before overflow. Omit it to retain existing defaults. `reserveTokens` still controls summarization output budgets; `keepRecentMessages` is unchanged. See [compaction.md](compaction.md#when-it-triggers) for trigger details.
 
 Idle compaction requires at least 100,000 context tokens in the latest assistant request on the current model, with no later compaction. It schedules at request start + 54 minutes for `claude-bridge`, or + 27 minutes for `openai-codex-responses`. Codex's 30-minute TTL is an assumption, not verified ChatGPT backend retention. Other APIs, including direct Anthropic, are excluded. Set `"compaction": { "idle": false }` to disable only this trigger; `enabled: false` also disables it. See [idle compaction](compaction.md#idle-compaction) for lifecycle and TTL details.
 

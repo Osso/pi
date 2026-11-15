@@ -4,7 +4,7 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat
 import { expect, it } from "vitest";
 import { requireHeadlessAgentSessionId, withHeadlessPi } from "./headless-pi.ts";
 
-it("compacts at 50% after a tool result with a live child preserved across supervisor restart", async () => {
+it("compacts at the token threshold after a tool result with a live child preserved across supervisor restart", async () => {
 	await withHeadlessPi(async (runtime) => {
 		const mainSessionId = runtime.sessionId;
 		await runtime.send({ type: "prompt", message: "Record prior completed work" });
@@ -44,7 +44,7 @@ it("compacts at 50% after a tool result with a live child preserved across super
 			settingsPath,
 			JSON.stringify({
 				...settings,
-				compaction: { enabled: false, thresholdPercent: 50, keepRecentMessages: 1, reserveTokens: 100 },
+				compaction: { enabled: false, thresholdTokens: 64_000, keepRecentMessages: 1, reserveTokens: 100 },
 			}),
 		);
 		const effectPath = join(runtime.paths.workspaceDir, "live50-effects");

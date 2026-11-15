@@ -28,17 +28,17 @@ Both use the same structured summary format and track file operations cumulative
 
 Automatic threshold compaction uses the first applicable rule:
 
-1. With `compaction.thresholdPercent` configured, trigger when `contextTokens >= contextWindow * thresholdPercent / 100`.
+1. With `compaction.thresholdTokens` configured, trigger when `contextTokens >= thresholdTokens` or `contextTokens > contextWindow - reserveTokens`. The reserve term covers models whose window is at or below the configured count.
 2. Otherwise, if the model defines `autoCompactionThreshold`, trigger when `contextTokens >= autoCompactionThreshold`. GPT-5.6 Sol uses 272,000 tokens to avoid crossing its higher long-context pricing tier.
 3. Otherwise, trigger when `contextTokens > contextWindow - reserveTokens`.
 
-`thresholdPercent` must be a finite number greater than 0 and at most 100; fractional percentages are supported. Equality triggers compaction, including at 100%. Omission preserves the existing model/reserve defaults.
+`thresholdTokens` must be a positive integer. Equality triggers compaction. Omission preserves the existing model/reserve defaults.
 
-During a running tool-bearing turn, Pi checks the configured threshold after current tool results are completed and committed, before the subsequent provider request. Compaction preserves coherent tool-call/output pairs and continues the same active turn with compacted context. It does not interrupt an in-flight provider stream or uncommitted tool execution. A 50% threshold therefore applies at this safe boundary without waiting for the whole turn to end or for a speculative 70% cache to become ready; usage can cross the threshold while the current response or tools finish.
+During a running tool-bearing turn, Pi checks the configured threshold after current tool results are completed and committed, before the subsequent provider request. Compaction preserves coherent tool-call/output pairs and continues the same active turn with compacted context. It does not interrupt an in-flight provider stream or uncommitted tool execution. The token threshold therefore applies at this safe boundary without waiting for the whole turn to end or for a speculative 70% cache to become ready; usage can cross the threshold while the current response or tools finish.
 
-Set `"compaction": { "thresholdPercent": 50 }` in `~/.pi/agent/settings.json` to apply 50% across projects and models. Trusted `<project-dir>/.pi/settings.json` values can override the global setting; see [settings.md](settings.md#compaction).
+Set `"compaction": { "thresholdTokens": 500000 }` in `~/.pi/agent/settings.json` to compact at 500k tokens across projects and models. Trusted `<project-dir>/.pi/settings.json` values can override the global setting; see [settings.md](settings.md#compaction).
 
-`reserveTokens` defaults to 16384 and still controls summarization output budgets even with a percentage configured. `keepRecentMessages` remains unchanged. The percentage does not change the separate speculative cache boundary (70%, or `compaction.backgroundStartTokens`). Normal compaction is checked first, so the speculative boundary takes effect only when it is below the normal trigger or add a UI control.
+`reserveTokens` defaults to 16384 and still controls summarization output budgets even with a token threshold configured. `keepRecentMessages` remains unchanged. The token threshold does not change the separate speculative cache boundary (70%, or `compaction.backgroundStartTokens`). Normal compaction is checked first, so the speculative boundary takes effect only when it is below the normal trigger or add a UI control.
 
 You can also trigger manually with `/compact [instructions]`, where optional instructions focus the summary.
 
@@ -467,8 +467,8 @@ Configure compaction in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settin
 |---------|---------|-------------|
 | `enabled` | `true` | Enable auto-compaction |
 | `idle` | `true` | Compact eligible idle sessions before assumed prompt-cache expiry; also requires `enabled` |
-| `thresholdPercent` | Unset | Auto-compaction percentage: finite, greater than 0 and at most 100; takes precedence over model/reserve thresholds |
-| `reserveTokens` | `16384` | Summarization output token budget; default trigger reserve when neither percentage nor model threshold applies |
+| `thresholdTokens` | Unset | Auto-compaction context token count: positive integer; takes precedence over the model threshold, reserve trigger still applies |
+| `reserveTokens` | `16384` | Summarization output token budget; default trigger reserve when no token or model threshold applies |
 | `keepRecentMessages` | `20` | Most recent context messages kept verbatim (not summarized) |
 
 Disable auto-compaction with `"enabled": false`. You can still compact manually with `/compact`.

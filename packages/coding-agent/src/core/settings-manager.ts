@@ -5,7 +5,7 @@ import { dirname, join } from "path";
 import lockfile from "proper-lockfile";
 import { CONFIG_DIR_NAME, getAgentDir } from "../config.ts";
 import { normalizePath, resolvePath } from "../utils/paths.ts";
-import { parseCompactionThresholdPercent } from "./compaction-threshold.ts";
+import { parseCompactionThresholdTokens } from "./compaction-threshold.ts";
 import type { RelaySettings } from "./host-relay-client.ts";
 import { DEFAULT_HTTP_IDLE_TIMEOUT_MS, parseHttpIdleTimeoutMs } from "./http-dispatcher.ts";
 import { type ApprovalPolicy, normalizeApprovalPolicy } from "./permissions/policy.ts";
@@ -21,7 +21,7 @@ import {
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
 export interface CompactionSettings {
-	thresholdPercent?: number; // optional trigger percentage, greater than 0 and at most 100
+	thresholdTokens?: number; // optional context token count that triggers auto-compaction; positive integer
 	backgroundStartTokens?: number; // optional context tokens that start speculative background compaction; default: 70% of context window
 	enabled?: boolean; // default: true
 	reserveTokens?: number; // default: 16384
@@ -945,11 +945,11 @@ export class SettingsManager {
 		enabled: boolean;
 		reserveTokens: number;
 		keepRecentMessages: number;
-		thresholdPercent?: number;
+		thresholdTokens?: number;
 	} {
-		const thresholdPercent = parseCompactionThresholdPercent(this.settings.compaction?.thresholdPercent);
+		const thresholdTokens = parseCompactionThresholdTokens(this.settings.compaction?.thresholdTokens);
 		return {
-			...(thresholdPercent === undefined ? {} : { thresholdPercent }),
+			...(thresholdTokens === undefined ? {} : { thresholdTokens }),
 			enabled: this.getCompactionEnabled(),
 			reserveTokens: this.getCompactionReserveTokens(),
 			keepRecentMessages: this.settings.compaction?.keepRecentMessages ?? 20,

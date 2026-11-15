@@ -248,9 +248,9 @@ function estimateThresholdContextTokens(
 	messages: AgentMessage[],
 	assistantMessage: AssistantMessage,
 	directContextTokens: number,
-	thresholdPercent: number | undefined,
+	thresholdTokens: number | undefined,
 ): number {
-	if (thresholdPercent === undefined) return directContextTokens;
+	if (thresholdTokens === undefined) return directContextTokens;
 	const assistantIndex = messages.indexOf(assistantMessage);
 	if (assistantIndex < 0) return directContextTokens;
 	const trailingMessages = messages.slice(assistantIndex + 1);
@@ -977,7 +977,7 @@ export class AgentSession {
 	private async _compactForNextTurn(turn: PrepareNextTurnContext): Promise<PrepareNextTurnContext> {
 		const settings = this.settingsManager.getCompactionSettings();
 		const usage = this.getContextUsage();
-		const canCheckThreshold = settings.thresholdPercent !== undefined && usage !== undefined;
+		const canCheckThreshold = settings.thresholdTokens !== undefined && usage !== undefined;
 		const thresholdReached =
 			canCheckThreshold &&
 			usage.tokens !== null &&
@@ -3906,7 +3906,7 @@ export class AgentSession {
 				this.agent.state.messages,
 				assistantMessage,
 				directContextTokens,
-				settings.thresholdPercent,
+				settings.thresholdTokens,
 			);
 		}
 		if (shouldCompact(contextTokens, contextWindow, { ...settings, enabled: true }, model?.autoCompactionThreshold)) {
