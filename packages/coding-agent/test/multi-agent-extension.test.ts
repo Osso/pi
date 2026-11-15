@@ -397,6 +397,15 @@ function spawnStoreFixture(
 	};
 }
 
+/** The parent harness context fields a multi-agent harness needs to spawn children. */
+function harnessCtx(harness: Harness): Partial<ExtensionContext> {
+	return {
+		model: harness.getModel(),
+		modelRegistry: harness.session.modelRegistry,
+		sessionManager: harness.sessionManager,
+	};
+}
+
 function createMultiAgentHarness(
 	options: {
 		appendEntry?: (customType: string, data?: unknown) => void;
@@ -4621,11 +4630,7 @@ describe("multi-agent extension tools", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const childSessionDir = `${parentHarness.tempDir}/child-sessions`;
 		const harness = createMultiAgentHarness({
-			ctx: {
-				model: parentHarness.getModel(),
-				modelRegistry: parentHarness.session.modelRegistry,
-				sessionManager: parentHarness.sessionManager,
-			},
+			ctx: harnessCtx(parentHarness),
 			store,
 			createChildSession: createProductionChildAgentSessionFactory({
 				sessionDir: childSessionDir,
@@ -4744,9 +4749,7 @@ describe("multi-agent extension tools", () => {
 		});
 		const harness = createMultiAgentHarness({
 			ctx: {
-				model: parentHarness.getModel(),
-				modelRegistry: parentHarness.session.modelRegistry,
-				sessionManager: parentHarness.sessionManager,
+				...harnessCtx(parentHarness),
 				settingsManager: parentHarness.settingsManager,
 			},
 			store,
@@ -4813,11 +4816,7 @@ describe("multi-agent extension tools", () => {
 			},
 		});
 		const harness = createMultiAgentHarness({
-			ctx: {
-				model: parentHarness.getModel(),
-				modelRegistry: parentHarness.session.modelRegistry,
-				sessionManager: parentHarness.sessionManager,
-			},
+			ctx: harnessCtx(parentHarness),
 			store,
 			createChildSession: async (input) => {
 				receivedContext = "context" in input ? input.context : undefined;
@@ -4889,11 +4888,7 @@ describe("multi-agent extension tools", () => {
 			},
 		});
 		const harness = createMultiAgentHarness({
-			ctx: {
-				model: parentHarness.getModel(),
-				modelRegistry: parentHarness.session.modelRegistry,
-				sessionManager: parentHarness.sessionManager,
-			},
+			ctx: harnessCtx(parentHarness),
 			store,
 			createChildSession: async (input) => {
 				receivedContext = "context" in input ? input.context : undefined;
@@ -4998,11 +4993,7 @@ describe("multi-agent extension tools", () => {
 			},
 		});
 		const harness = createMultiAgentHarness({
-			ctx: {
-				model: parentHarness.getModel(),
-				modelRegistry: parentHarness.session.modelRegistry,
-				sessionManager: parentHarness.sessionManager,
-			},
+			ctx: harnessCtx(parentHarness),
 			store,
 			createChildSession: productionFactory,
 		});
@@ -5179,11 +5170,7 @@ describe("multi-agent extension tools", () => {
 		childHarnesses.push(parentHarness);
 		const createSession = vi.fn();
 		const harness = createMultiAgentHarness({
-			ctx: {
-				model: parentHarness.getModel(),
-				modelRegistry: parentHarness.session.modelRegistry,
-				sessionManager: parentHarness.sessionManager,
-			},
+			ctx: harnessCtx(parentHarness),
 			createChildSession: createProductionChildAgentSessionFactory({
 				createSessionManager: SessionManager.create,
 				createSession,
@@ -5220,11 +5207,7 @@ describe("multi-agent extension tools", () => {
 			});
 		};
 		const harness = createMultiAgentHarness({
-			ctx: {
-				model: parentHarness.getModel(),
-				modelRegistry: parentHarness.session.modelRegistry,
-				sessionManager: parentHarness.sessionManager,
-			},
+			ctx: harnessCtx(parentHarness),
 			createChildSession: createProductionChildAgentSessionFactory({
 				agentDir: parentHarness.tempDir,
 				extensionFactories: [externalGoalExtension, probeExtension],
@@ -5650,11 +5633,7 @@ describe("multi-agent extension tools", () => {
 		let childGoalBeforePrompt: string | undefined;
 		let childSessionManager: SessionManager | undefined;
 		const harness = createMultiAgentHarness({
-			ctx: {
-				model: parentHarness.getModel(),
-				modelRegistry: parentHarness.session.modelRegistry,
-				sessionManager: parentHarness.sessionManager,
-			},
+			ctx: harnessCtx(parentHarness),
 			createChildSession: createProductionChildAgentSessionFactory({
 				createSessionManager: SessionManager.create,
 				createSession: async (options) => {
@@ -5685,11 +5664,7 @@ describe("multi-agent extension tools", () => {
 		let childGoalBeforePrompt: string | undefined;
 		let childSessionManager: SessionManager | undefined;
 		const harness = createMultiAgentHarness({
-			ctx: {
-				model: parentHarness.getModel(),
-				modelRegistry: parentHarness.session.modelRegistry,
-				sessionManager: parentHarness.sessionManager,
-			},
+			ctx: harnessCtx(parentHarness),
 			createChildSession: createProductionChildAgentSessionFactory({
 				createSessionManager: SessionManager.create,
 				createSession: async (options) => {
@@ -5720,11 +5695,7 @@ describe("multi-agent extension tools", () => {
 		childHarnesses.push(parentHarness);
 		const notifications: Array<{ level?: string; message: string }> = [];
 		const harness = createMultiAgentHarness({
-			ctx: {
-				model: parentHarness.getModel(),
-				modelRegistry: parentHarness.session.modelRegistry,
-				sessionManager: parentHarness.sessionManager,
-			},
+			ctx: harnessCtx(parentHarness),
 			createChildSession: createProductionChildAgentSessionFactory({
 				createSessionManager: SessionManager.create,
 				createSession: async () => {
@@ -5784,11 +5755,7 @@ describe("multi-agent extension tools", () => {
 		const parentHarness = await createHarness();
 		childHarnesses.push(parentHarness);
 		const harness = createMultiAgentHarness({
-			ctx: {
-				model: parentHarness.getModel(),
-				modelRegistry: parentHarness.session.modelRegistry,
-				sessionManager: parentHarness.sessionManager,
-			},
+			ctx: harnessCtx(parentHarness),
 			createChildSession: createProductionChildAgentSessionFactory({
 				createSessionManager: SessionManager.create,
 				createSession: async () => {
@@ -5824,9 +5791,7 @@ describe("multi-agent extension tools", () => {
 				agent,
 				context: "fresh",
 				ctx: {
-					model: parentHarness.getModel(),
-					modelRegistry: parentHarness.session.modelRegistry,
-					sessionManager: parentHarness.sessionManager,
+					...harnessCtx(parentHarness),
 				} as unknown as ExtensionContext,
 				prompt: " ",
 			}),
@@ -5857,9 +5822,7 @@ describe("multi-agent extension tools", () => {
 				agent,
 				context: "inherit",
 				ctx: {
-					model: parentHarness.getModel(),
-					modelRegistry: parentHarness.session.modelRegistry,
-					sessionManager: parentHarness.sessionManager,
+					...harnessCtx(parentHarness),
 				} as unknown as ExtensionContext,
 				prompt: "Continue work",
 			}),
@@ -5879,11 +5842,7 @@ describe("multi-agent extension tools", () => {
 			});
 		};
 		const harness = createMultiAgentHarness({
-			ctx: {
-				model: parentHarness.getModel(),
-				modelRegistry: parentHarness.session.modelRegistry,
-				sessionManager: parentHarness.sessionManager,
-			},
+			ctx: harnessCtx(parentHarness),
 			createChildSession: createProductionChildAgentSessionFactory({
 				agentDir: parentHarness.tempDir,
 				extensionFactories: [firstPartyGoalExtension, captureFirstTurnSystemPrompt],
@@ -5916,11 +5875,7 @@ describe("multi-agent extension tools", () => {
 		const parentHarness = await createHarness();
 		childHarnesses.push(parentHarness);
 		const harness = createMultiAgentHarness({
-			ctx: {
-				model: parentHarness.getModel(),
-				modelRegistry: parentHarness.session.modelRegistry,
-				sessionManager: parentHarness.sessionManager,
-			},
+			ctx: harnessCtx(parentHarness),
 			createChildSession: createProductionChildAgentSessionFactory({
 				createSessionManager: SessionManager.create,
 				createSession: async () => {
@@ -5944,11 +5899,7 @@ describe("multi-agent extension tools", () => {
 		parentHarness.setResponses([fauxAssistantMessage("child done")]);
 		let childSession: Harness["session"] | undefined;
 		const harness = createMultiAgentHarness({
-			ctx: {
-				model: parentHarness.getModel(),
-				modelRegistry: parentHarness.session.modelRegistry,
-				sessionManager: parentHarness.sessionManager,
-			},
+			ctx: harnessCtx(parentHarness),
 			createChildSession: createProductionChildAgentSessionFactory({
 				agentDir: parentHarness.tempDir,
 				extensionFactories: [firstPartyGoalExtension],
