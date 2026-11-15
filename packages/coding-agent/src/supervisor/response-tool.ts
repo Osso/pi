@@ -1,5 +1,7 @@
-import { Type } from "typebox";
+import { Text } from "@earendil-works/pi-tui";
+import { type Static, Type } from "typebox";
 import type { ToolDefinition } from "../core/extensions/types.ts";
+import type { Theme } from "../modes/interactive/theme/theme.ts";
 
 export const SUPERVISOR_RESPONSE_TOOL_NAME = "supervisor_response";
 
@@ -35,6 +37,22 @@ const supervisorResponseParameters = Type.Object({
 	),
 });
 
+/** The decision as the Supervisor TUI shows it: the kind, then each text field and question answer that is set. */
+function formatSupervisorResponse(
+	params: Partial<Static<typeof supervisorResponseParameters>> | undefined,
+	theme: Theme,
+): string {
+	const title = theme.fg("toolTitle", theme.bold(SUPERVISOR_RESPONSE_TOOL_NAME));
+	const header = params?.kind ? `${title} ${theme.fg("accent", params.kind)}` : title;
+	const texts = [params?.answer, params?.reason, params?.instructions, params?.objective]
+		.map((text) => text?.trim())
+		.filter((text): text is string => Boolean(text));
+	const answers = Object.entries(params?.answers ?? {}).map(
+		([question, { answer, reason }]) => `${question} → ${answer} (${reason})`,
+	);
+	return [header, ...[...texts, ...answers].map((line) => theme.fg("toolOutput", line))].join("\n");
+}
+
 export function createSupervisorResponseTool(): ToolDefinition<typeof supervisorResponseParameters, unknown> {
 	return {
 		name: SUPERVISOR_RESPONSE_TOOL_NAME,
@@ -56,5 +74,12 @@ export function createSupervisorResponseTool(): ToolDefinition<typeof supervisor
 				terminate: true,
 			};
 		},
+		renderCall(args, theme, context) {
+			const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+			text.setText(formatSupervisorResponse(args, theme));
+			return text;
+		},
+		// The call already shows the decision; the result only acknowledges it.
+		renderResult: () => new Text("", 0, 0),
 	};
 }

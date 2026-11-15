@@ -264,6 +264,7 @@
 
 ### Fixed
 
+- Fixed the Supervisor session showing its `supervisor_response` calls as a bare tool name; the call now shows the decision kind, reason, instructions, answer, objective and question answers
 - Fixed the edit tool writing LF line breaks into CR-only files; edited lines now use the file's lone-CR ending.
 - Fixed Claude bridge session rebuilds discarding the reusable Claude Code prefix after a turn in which Claude Code ran its own WebSearch or rejected an unserved tool name
 - Fixed Claude bridge session rebuilds discarding the reusable Claude Code prefix and dropping `@file` attachments after a turn of several user messages (steers, extension messages), a queued steer, or a prompt merged with the synthetic result of an aborted tool call
