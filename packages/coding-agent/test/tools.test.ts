@@ -1069,6 +1069,15 @@ describe("Coding Agent Tools", () => {
 			expect(getTextOutput(result)).toBe("latin1.txt:1: needle ok\nlatin1.txt:2: needle \uFFFD");
 		});
 
+		it("keeps the path of matches under a directory whose name starts with ..", async () => {
+			mkdirSync(join(testDir, "..cfg"));
+			writeFileSync(join(testDir, "..cfg", "x.txt"), "needle\n");
+
+			const result = await grepTool.execute("grep-dotdot-dir", { pattern: "needle", path: testDir });
+
+			expect(getTextOutput(result)).toBe("..cfg/x.txt:1: needle");
+		});
+
 		it("should respect global limit and include context lines", async () => {
 			const testFile = join(testDir, "context.txt");
 			const content = ["before", "match one", "after", "middle", "match two", "after two"].join("\n");

@@ -193,7 +193,8 @@ export function createGrepToolDefinition(
 						const formatPath = (filePath: string): string => {
 							if (isDirectory) {
 								const relative = path.relative(searchPath, filePath);
-								if (relative && !relative.startsWith("..")) {
+								// Names like '..cfg' are inside the search root; only '..' path segments leave it.
+								if (relative && relative !== ".." && !relative.startsWith(`..${path.sep}`)) {
 									return relative.replace(/\\/g, "/");
 								}
 							}
