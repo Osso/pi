@@ -324,6 +324,18 @@ describe("runtime SQLite mailbox delivery", () => {
 	const harnesses: Harness[] = [];
 	let tempDir: string | undefined;
 
+	/** A temp control DB with a persisted parent session backing a fresh multi-agent store. */
+	function openParentStore() {
+		const dir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
+		tempDir = dir;
+		const controlDbPath = getControlDbPath(dir);
+		const parentSession = SessionManager.create(dir, join(dir, "sessions"), { id: "parent-session" });
+		parentSession.setMetadataControlDbPath(controlDbPath);
+		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+		store.setPersistenceSessionManager(parentSession);
+		return { controlDbPath, parentSession, store };
+	}
+
 	afterEach(() => {
 		vi.useRealTimers();
 		while (harnesses.length > 0) {
@@ -1074,12 +1086,7 @@ describe("runtime SQLite mailbox delivery", () => {
 	});
 
 	it("disposes Pyrun multi-agent bridge lifecycle mirroring before its session context becomes stale", async () => {
-		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, store } = openParentStore();
 		const handler = createMultiAgentPiRequestHandler({ store });
 		const staleContext = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 		let contextReplaced = false;
@@ -1110,12 +1117,7 @@ describe("runtime SQLite mailbox delivery", () => {
 	});
 
 	it("retires a stale lifecycle mirror subscription instead of logging listener errors after context invalidation", async () => {
-		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, store } = openParentStore();
 		const handler = createMultiAgentPiRequestHandler({ store });
 		const staleContext = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 		let contextReplaced = false;
@@ -1147,12 +1149,7 @@ describe("runtime SQLite mailbox delivery", () => {
 	});
 
 	it("rebinds Pyrun multi-agent bridge lifecycle mirroring when a session context is replaced", async () => {
-		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, store } = openParentStore();
 		const handler = createMultiAgentPiRequestHandler({ store });
 		const staleContext = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
 		let contextReplaced = false;
@@ -1498,12 +1495,7 @@ describe("runtime SQLite mailbox delivery", () => {
 	});
 
 	it("Pyrun multi-agent bridge agents.wait observes the mirrored completion notification", async () => {
-		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, store } = openParentStore();
 		const createChildSession = createTranscriptBackedFauxSessionFactory(store, async () => ({
 			lifecycle: "completed",
 			result: { summary: "tests passed" },
@@ -1528,12 +1520,7 @@ describe("runtime SQLite mailbox delivery", () => {
 	});
 
 	it("wait_agent observes the mirrored completion notification", async () => {
-		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, store } = openParentStore();
 		const createChildSession = createTranscriptBackedFauxSessionFactory(store, async () => ({
 			lifecycle: "completed",
 			result: { summary: "tests passed" },
@@ -1566,12 +1553,7 @@ describe("runtime SQLite mailbox delivery", () => {
 	});
 
 	it("wait_agent observes a failed detached Pyrun notification with duration details", async () => {
-		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, store } = openParentStore();
 		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
 		if (!waitAgents) {
 			throw new Error("expected wait_agent tool");
@@ -1613,12 +1595,7 @@ describe("runtime SQLite mailbox delivery", () => {
 	});
 
 	it("wait_agent observes a detached Pyrun failure after waiting starts", async () => {
-		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, store } = openParentStore();
 		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
 		if (!waitAgents) {
 			throw new Error("expected wait_agent tool");
@@ -1798,12 +1775,7 @@ describe("runtime SQLite mailbox delivery", () => {
 	});
 
 	it("shares transient wake handles with exported interactive steering", async () => {
-		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, store } = openParentStore();
 		registerRuntimeMailboxListener(
 			controlDbPath,
 			{ agentId: null, sessionId: parentSession.getSessionId() },
@@ -1842,12 +1814,7 @@ describe("runtime SQLite mailbox delivery", () => {
 	});
 
 	it("wakes an active wait immediately after supervisor steering is queued", async () => {
-		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, store } = openParentStore();
 		createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo");
 		const runtimeHandles = createMultiAgentRuntimeHandles();
 		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
@@ -1862,12 +1829,7 @@ describe("runtime SQLite mailbox delivery", () => {
 	});
 
 	it("wakes an active wait with a signal-drained shared-channel prompt", async () => {
-		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, store } = openParentStore();
 		createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo");
 		const runtimeHandles = createMultiAgentRuntimeHandles();
 		const context = createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession });
@@ -1881,12 +1843,7 @@ describe("runtime SQLite mailbox delivery", () => {
 	});
 
 	it("does not wake for steering accepted after the active-agent snapshot", async () => {
-		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, store } = openParentStore();
 		registerRuntimeMailboxListener(
 			controlDbPath,
 			{ agentId: null, sessionId: parentSession.getSessionId() },
@@ -2193,12 +2150,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 	it("wait_agent ignores pending terminal transport rows until actionable coordination arrives", async () => {
 		vi.useFakeTimers();
-		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, store } = openParentStore();
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo");
 		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
 		if (!waitAgents) throw new Error("expected wait_agent tool");
@@ -2244,12 +2196,7 @@ describe("runtime SQLite mailbox delivery", () => {
 	});
 
 	it("wait_agent returns coordination input when no agents are active", async () => {
-		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, store } = openParentStore();
 		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
 		if (!waitAgents) throw new Error("expected wait_agent tool");
 		registerRuntimeMailboxListener(
@@ -2280,12 +2227,7 @@ describe("runtime SQLite mailbox delivery", () => {
 	});
 
 	it("wait_agent returns each distinct coordination message exactly once", async () => {
-		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, store } = openParentStore();
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo");
 		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
 		if (!waitAgents) throw new Error("expected wait_agent tool");
@@ -2323,12 +2265,7 @@ describe("runtime SQLite mailbox delivery", () => {
 	});
 
 	it("wait_agent returns every coordination message pending at wake", async () => {
-		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, store } = openParentStore();
 		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
 		if (!waitAgents) throw new Error("expected wait_agent tool");
 		const recipient = { agentId: null, sessionId: parentSession.getSessionId() };
@@ -2359,12 +2296,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 	it("wait_agent returns an eligible shared-channel message and advances its cursor", async () => {
 		vi.useFakeTimers();
-		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, store } = openParentStore();
 		createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo");
 		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
 		if (!waitAgents) throw new Error("expected wait_agent tool");
@@ -2393,12 +2325,7 @@ describe("runtime SQLite mailbox delivery", () => {
 	});
 
 	it("wait_agent observes failed agents with result file references", async () => {
-		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, store } = openParentStore();
 		const waitAgents = collectMultiAgentTools(store).get("wait_agent");
 		if (!waitAgents) {
 			throw new Error("expected wait_agent tool");
