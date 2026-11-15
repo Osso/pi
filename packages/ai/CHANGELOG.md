@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed OpenAI Codex SSE parsing dropping a terminal event that is not followed by a blank line, which turned a completed response into an error ([#9047](https://github.com/earendil-works/pi-mono/issues/9047))
 - Fixed OpenAI Completions messages ending up as `[text, thinking]` when a proxy such as LiteLLM sends `reasoning_content` and `content` in one stream delta; reasoning is now handled first ([#10926](https://github.com/earendil-works/pi-mono/issues/10926))
 - Fixed whitespace-only tool results (for example a bare `\r\n` from bash) being sent verbatim to OpenAI Completions, OpenAI Responses and Google, where some providers reject them with a 400 on every later request; they now use the empty-output placeholder ([#8720](https://github.com/earendil-works/pi-mono/issues/8720))
 - Fixed streaming tool-call argument previews dropping fields when the unfinished JSON contained raw control characters or invalid escapes such as `\d` or `C:\users`

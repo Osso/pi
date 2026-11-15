@@ -2801,3 +2801,25 @@ describe("openai-codex streaming", () => {
 		expect(codexRequests).toBe(4);
 	});
 });
+
+describe("openai-codex SSE framing", () => {
+	// Regression test for https://github.com/earendil-works/pi/issues/9047
+	it("processes a terminal SSE event without a trailing blank line", async () => {
+		process.env.PI_CODING_AGENT_DIR = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
+		const sse = buildSSEPayload({ status: "completed" }).trimEnd();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response(sse, { status: 200, headers: { "content-type": "text/event-stream" } })),
+		);
+		const model = OPENAI_CODEX_MODELS["gpt-5.6-sol"];
+		const context: Context = { messages: [{ role: "user", content: "Say hello", timestamp: Date.now() }] };
+
+		const result = await streamOpenAICodexResponses(model, context, {
+			apiKey: mockToken(),
+			transport: "sse",
+		}).result();
+
+		expect(result.stopReason).toBe("stop");
+		expect(result.content.find((content) => content.type === "text")?.text).toBe("Hello");
+	});
+});
