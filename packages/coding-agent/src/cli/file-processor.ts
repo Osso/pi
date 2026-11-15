@@ -8,7 +8,7 @@ import chalk from "chalk";
 import { resolve } from "path";
 import { resolveReadPath } from "../core/tools/path-utils.ts";
 import { processImage } from "../utils/image-process.ts";
-import { detectSupportedImageMimeTypeFromFile } from "../utils/mime.ts";
+import { detectSupportedImageMimeType } from "../utils/mime.ts";
 
 export interface ProcessedFiles {
 	text: string;
@@ -49,50 +49,32 @@ export async function processFileArguments(fileArgs: string[], options?: Process
 			console.error(chalk.red(`Error: ${absolutePath} is a directory; @ arguments must be files`));
 			process.exit(1);
 		}
-		if (stats.size === 0) {
-			// Skip empty files
-			continue;
-		}
 
-		let mimeType: string | null;
+		// Read once: pipes such as `@<(git diff)` report size 0 and cannot be read twice.
+		let content: Buffer;
 		try {
-			mimeType = await detectSupportedImageMimeTypeFromFile(absolutePath);
+			content = await readFile(absolutePath);
 		} catch (error: unknown) {
 			exitUnreadableFile(absolutePath, error);
 		}
-
-		if (mimeType) {
-			// Handle image file
-			const content = await readFile(absolutePath);
-			const processed = await processImage(content, mimeType, { autoResizeImages });
-
-			if (!processed.ok) {
-				text += `<file name="${absolutePath}">${processed.message}</file>\n`;
-				continue;
-			}
-
-			const attachment: ImageContent = {
-				type: "image",
-				mimeType: processed.mimeType,
-				data: processed.data,
-			};
-			images.push(attachment);
-
-			// Add text reference to image with optional processing hints
-			if (processed.hints.length > 0) {
-				text += `<file name="${absolutePath}">${processed.hints.join("\n")}</file>\n`;
-			} else {
-				text += `<file name="${absolutePath}"></file>\n`;
-			}
-		} else {
-			// Handle text file
-			try {
-				const content = await readFile(absolutePath, "utf-8");
-				text += `<file name="${absolutePath}">\n${content}\n</file>\n`;
-			} catch (error: unknown) {
-				exitUnreadableFile(absolutePath, error);
-			}
+		if (content.length === 0) {
+			continue;
 		}
+
+		const mimeType = detectSupportedImageMimeType(content);
+		if (!mimeType) {
+			text += `<file name="${absolutePath}">\n${content.toString("utf-8")}\n</file>\n`;
+			continue;
+		}
+
+		const processed = await processImage(content, mimeType, { autoResizeImages });
+		if (!processed.ok) {
+			text += `<file name="${absolutePath}">${processed.message}</file>\n`;
+			continue;
+		}
+		images.push({ type: "image", mimeType: processed.mimeType, data: processed.data });
+		// Add text reference to image with optional processing hints
+		text += `<file name="${absolutePath}">${processed.hints.join("\n")}</file>\n`;
 	}
 
 	return { text, images };

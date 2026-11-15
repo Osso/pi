@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed `@file` arguments that name a pipe, such as `pi @<(git diff) "review"`, being silently dropped because pipes report size 0; each file is now read once and its image type is detected from that content
 - Fixed hot reload of the active custom theme when its file name differs from its `name`, or when it comes from a project, package or settings path; edits were ignored, and an unrelated global theme file with the matching file name could replace it
 - Fixed custom themes accepting malformed hex colors such as `#12345g`, which produced wrong or invalid color escape sequences instead of an `Invalid hex color` error
 - Fixed `--model <fuzzy>`, such as `pi --model sonnet:high`, choosing a model on a provider without credentials, such as Amazon Bedrock, when a provider with credentials also matched
