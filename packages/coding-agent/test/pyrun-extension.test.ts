@@ -559,7 +559,7 @@ async function resultFor(request) {
     if (request.stream_console === true) {
       process.stdout.write(JSON.stringify({ type: "console", stream: "stderr", text: "before error" }) + "\\n");
     }
-    return { type: "error", executed: request.code, console: ["before error"], error: "boom" };
+    return { type: "error", executed: request.code, console: ["before error"], error: "Error: boom" };
   }
   if (request.code === "print.noisy_stream()") {
     if (request.stream_console === true) {

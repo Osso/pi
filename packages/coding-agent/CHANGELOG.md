@@ -261,6 +261,7 @@
 
 ### Fixed
 
+- Fixed `pyrun_eval` error results showing `Error: Error:` when the Pyrun runner already prefixed the evaluation error
 - Fixed `/tree` keeping an entry visible and selected in the labeled-only view after its label was cleared; label edits now reapply the filter.
 - Fixed `/scoped-models` throwing `Missing selected model at index -1` when reordering a model while a search filter was active; the moved model now stays selected.
 - Fixed the default footer keeping a stale pull-request link when only the pull request's URL changed; a URL change now redraws the footer.

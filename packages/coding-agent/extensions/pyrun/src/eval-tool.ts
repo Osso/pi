@@ -138,7 +138,8 @@ function formatToolText(params: PyrunEvalParams, result: CanonicalPyrunEvalResul
 		lines.push(formatConsoleEntry(entry));
 	}
 	if (result.error) {
-		lines.push(`Error: ${result.error}`);
+		// Pyrun evaluation errors already carry the prefix; protocol and Pi-side errors do not.
+		lines.push(result.error.startsWith("Error:") ? result.error : `Error: ${result.error}`);
 	} else {
 		const formattedResult = formatResultValue(result);
 		if (formattedResult !== undefined) {
