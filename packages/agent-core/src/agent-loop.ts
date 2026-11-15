@@ -27,6 +27,7 @@ import type {
 
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
 
+export const STEERING_INTERRUPTION_NOTE = "(Interrupted after thinking by a steering message.)";
 const END_TURN_CONTINUATION_INSTRUCTION =
 	"Your previous response was already delivered. Do not continue, repeat, or infer a new user request. Call `end_turn` now with a concise reason.";
 
@@ -478,19 +479,23 @@ async function streamAssistantResponse(
 	const resolvedApiKey =
 		(config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey;
 
+	// Aborts only this provider request, when steering interrupts it at the end of a thinking block.
+	const requestController = new AbortController();
+	const requestSignal = signal ? AbortSignal.any([signal, requestController.signal]) : requestController.signal;
 	const response = await awaitWithAbort(
 		streamFunction(config.model, llmContext, {
 			...config,
 			apiKey: resolvedApiKey,
-			signal,
+			signal: requestSignal,
 		}),
 		signal,
 	);
 
 	let partialMessage: AssistantMessage | null = null;
 	let addedPartial = false;
+	let interrupted: AssistantMessage | undefined;
 
-	for await (const event of iterateWithAbort(response, signal)) {
+	stream: for await (const event of iterateWithAbort(response, signal)) {
 		switch (event.type) {
 			case "start":
 				partialMessage = event.partial;
@@ -516,28 +521,23 @@ async function streamAssistantResponse(
 						assistantMessageEvent: event,
 						message: { ...partialMessage },
 					});
+					if (event.type === "thinking_end" && config.shouldInterruptAfterThinking?.()) {
+						requestController.abort();
+						// Keep the completed blocks; the note gives replayed thinking the following item providers require.
+						const note = { type: "text" as const, text: STEERING_INTERRUPTION_NOTE };
+						interrupted = { ...partialMessage, content: [...partialMessage.content, note], stopReason: "stop" };
+						break stream;
+					}
 				}
 				break;
 
 			case "done":
-			case "error": {
-				const providerMessage = await awaitWithAbort(response.result(), signal);
-				const finalMessage = await prepareAssistantToolExecutions(providerMessage, context.tools, signal);
-				if (addedPartial) {
-					context.messages[context.messages.length - 1] = finalMessage;
-				} else {
-					context.messages.push(finalMessage);
-				}
-				if (!addedPartial) {
-					await emit({ type: "message_start", message: { ...finalMessage } });
-				}
-				await emit({ type: "message_end", message: finalMessage });
-				return finalMessage;
-			}
+			case "error":
+				break stream;
 		}
 	}
 
-	const providerMessage = await awaitWithAbort(response.result(), signal);
+	const providerMessage = interrupted ?? (await awaitWithAbort(response.result(), signal));
 	const finalMessage = await prepareAssistantToolExecutions(providerMessage, context.tools, signal);
 	if (addedPartial) {
 		context.messages[context.messages.length - 1] = finalMessage;

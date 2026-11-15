@@ -27,9 +27,10 @@ Module boundary: core subsystem. The interactive-mode default working indicator 
 
 ### Steering
 
-- [x] Steering submitted during model thinking aborts the active provider request and automatically continues with the steering message; agent-core owns authoritative model-request activity rather than deriving it from session events (`packages/agent-core/test/agent.test.ts`, `packages/coding-agent/test/agent-session-concurrent.test.ts`).
+- [x] Steering submitted during an active provider request outside a thinking block aborts the request and automatically continues with the steering message; agent-core owns authoritative model-request activity rather than deriving it from session events (`packages/agent-core/test/agent.test.ts`, `packages/coding-agent/test/agent-session-concurrent.test.ts`).
+- [x] Steering submitted inside a thinking block waits until that block ends, then ends the provider request. The assistant message keeps its completed blocks, including the signed thinking, plus the note `(Interrupted after thinking by a steering message.)`, with stopReason `stop`, so the next request in the same run replays the thinking before the steering message (`packages/agent-core/test/steer-after-thinking.test.ts`, `packages/coding-agent/test/agent-session-concurrent.test.ts`). The note gives replayed reasoning the following item that OpenAI Responses requires.
 - [x] Steering submitted during tool execution does not abort the tool and is delivered before the next model request (`packages/coding-agent/test/suite/agent-session-queue.test.ts`).
-- [x] Terminal runtime notifications for completed subagents and detached background jobs interrupt model thinking, but not tool execution (`packages/coding-agent/test/runtime-mailbox.test.ts`).
+- [x] Terminal runtime notifications for completed subagents and detached background jobs interrupt model thinking like steering, but not tool execution (`packages/coding-agent/test/runtime-mailbox.test.ts`).
 
 ## How it works
 

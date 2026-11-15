@@ -194,6 +194,10 @@ export class Agent {
 	private readonly listeners = new Set<(event: AgentEvent, signal: AbortSignal) => Promise<void> | void>();
 	private readonly steeringQueue: PendingMessageQueue;
 	private readonly followUpQueue: PendingMessageQueue;
+	/** A thinking block of the active model request is streaming. */
+	private thinkingOpen = false;
+	/** Steering arrived during thinking; end the request when the thinking block ends. */
+	private interruptAfterThinking = false;
 
 	public convertToLlm: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	public transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
@@ -296,12 +300,15 @@ export class Agent {
 		return this.followUpQueue.mode;
 	}
 
-	/** Queue steering and interrupt the active model request without aborting tools. */
+	/**
+	 * Queue steering and interrupt the active model request without aborting tools.
+	 * During a thinking block the interrupt waits for the block to end, so the thinking stays in context.
+	 */
 	steer(message: AgentMessage): void {
 		this.steeringQueue.enqueue(message);
-		if (this._state.isModelRequestActive) {
-			this.activeRun?.abortController.abort();
-		}
+		if (!this._state.isModelRequestActive) return;
+		if (this.thinkingOpen) this.interruptAfterThinking = true;
+		else this.activeRun?.abortController.abort();
 	}
 
 	/** Queue a message to run only after the agent would otherwise stop. */
@@ -493,6 +500,7 @@ export class Agent {
 				return this.steeringQueue.drain();
 			},
 			getFollowUpMessages: async () => this.followUpQueue.drain(),
+			shouldInterruptAfterThinking: () => this.interruptAfterThinking,
 		};
 	}
 
@@ -572,6 +580,8 @@ export class Agent {
 
 			case "model_request_end":
 				this._state.isModelRequestActive = false;
+				this.thinkingOpen = false;
+				this.interruptAfterThinking = false;
 				break;
 
 			case "message_start":
@@ -580,6 +590,8 @@ export class Agent {
 
 			case "message_update":
 				this._state.streamingMessage = event.message;
+				if (event.assistantMessageEvent.type === "thinking_start") this.thinkingOpen = true;
+				if (event.assistantMessageEvent.type === "thinking_end") this.thinkingOpen = false;
 				break;
 
 			case "message_end":

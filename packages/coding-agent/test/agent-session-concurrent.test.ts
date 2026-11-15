@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Agent } from "@earendil-works/pi-agent-core";
+import { Agent, STEERING_INTERRUPTION_NOTE, type StreamFn } from "@earendil-works/pi-agent-core";
 import { fauxToolCall } from "@earendil-works/pi-ai";
 import {
 	type AssistantMessage,
@@ -13,6 +13,7 @@ import {
 	EventStream,
 	getModel,
 	type ImageContent,
+	type Message,
 	type TextContent,
 } from "@earendil-works/pi-ai/compat";
 import { Type } from "typebox";
@@ -103,7 +104,7 @@ describe("AgentSession concurrent prompt guard", () => {
 		}
 	});
 
-	function createSession(options: { authenticated?: boolean } = {}) {
+	function createSession(options: { authenticated?: boolean; streamFn?: StreamFn } = {}) {
 		const model = requireModel(getModel("anthropic", "claude-sonnet-4-5"));
 		let abortSignal: AbortSignal | undefined;
 
@@ -115,32 +116,34 @@ describe("AgentSession concurrent prompt guard", () => {
 				systemPrompt: "Test",
 				tools: [],
 			},
-			streamFn: (_model, context, options) => {
-				abortSignal = options?.signal;
-				const stream = new MockAssistantStream();
-				queueMicrotask(() => {
-					const userTexts = context.messages.map((message) =>
-						message.role === "user" ? getUserMessageText(message.content) : "",
-					);
-					if (userTexts.includes("Steering message") || userTexts.includes("Follow-up message")) {
-						stream.push({ type: "start", partial: createAssistantMessage("") });
-						const message = createCompletedAssistantMessage("Queued");
-						stream.push({ type: "done", reason: "toolUse", message });
-						return;
-					}
-
-					stream.push({ type: "start", partial: createAssistantMessage("") });
-					const checkAbort = () => {
-						if (abortSignal?.aborted) {
-							stream.push({ type: "error", reason: "aborted", error: createAssistantMessage("Aborted") });
-						} else {
-							setTimeout(checkAbort, 5);
+			streamFn:
+				options.streamFn ??
+				((_model, context, options) => {
+					abortSignal = options?.signal;
+					const stream = new MockAssistantStream();
+					queueMicrotask(() => {
+						const userTexts = context.messages.map((message) =>
+							message.role === "user" ? getUserMessageText(message.content) : "",
+						);
+						if (userTexts.includes("Steering message") || userTexts.includes("Follow-up message")) {
+							stream.push({ type: "start", partial: createAssistantMessage("") });
+							const message = createCompletedAssistantMessage("Queued");
+							stream.push({ type: "done", reason: "toolUse", message });
+							return;
 						}
-					};
-					checkAbort();
-				});
-				return stream;
-			},
+
+						stream.push({ type: "start", partial: createAssistantMessage("") });
+						const checkAbort = () => {
+							if (abortSignal?.aborted) {
+								stream.push({ type: "error", reason: "aborted", error: createAssistantMessage("Aborted") });
+							} else {
+								setTimeout(checkAbort, 5);
+							}
+						};
+						checkAbort();
+					});
+					return stream;
+				}),
 		});
 
 		const sessionManager = SessionManager.inMemory();
@@ -225,6 +228,61 @@ describe("AgentSession concurrent prompt guard", () => {
 				.filter((message) => message.role === "user")
 				.map((message) => getUserMessageText(message.content)),
 		).toEqual(["First message", "Steering message"]);
+	});
+
+	it("waits for the thinking block to end, then continues with the thinking and the steering", async () => {
+		const requests: Message[][] = [];
+		const thinking = { type: "thinking" as const, thinking: "Plan A", thinkingSignature: "sig-a" };
+		let endThinking = () => {};
+		createSession({
+			streamFn: (_model, context) => {
+				requests.push(structuredClone(context.messages));
+				const stream = new MockAssistantStream();
+				const open = {
+					...createAssistantMessage(""),
+					content: [{ type: "thinking" as const, thinking: "Plan A" }],
+				};
+				queueMicrotask(() => {
+					stream.push({ type: "start", partial: createAssistantMessage("") });
+					if (requests.length > 1) {
+						stream.push({ type: "done", reason: "toolUse", message: createCompletedAssistantMessage("Steered") });
+						return;
+					}
+					stream.push({ type: "thinking_start", contentIndex: 0, partial: open });
+				});
+				endThinking = () => {
+					const closed = { ...open, content: [thinking] };
+					stream.push({ type: "thinking_end", contentIndex: 0, content: "Plan A", partial: closed });
+				};
+				return stream;
+			},
+		});
+		const firstPrompt = session.prompt("First message");
+		await new Promise((resolve) => setTimeout(resolve, 10));
+
+		await session.steer("Steering message");
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		expect(requests).toHaveLength(1);
+
+		endThinking();
+		await firstPrompt;
+
+		const kept = {
+			role: "assistant",
+			stopReason: "stop",
+			content: [thinking, { type: "text", text: STEERING_INTERRUPTION_NOTE }],
+		};
+		expect(requests[1]?.slice(1, 3)).toMatchObject([
+			kept,
+			{ role: "user", content: [{ type: "text", text: "Steering message" }] },
+		]);
+		expect(
+			session.sessionManager
+				.getEntries()
+				.filter((entry) => entry.type === "message")
+				.map((entry) => entry.message)
+				.slice(0, 4),
+		).toMatchObject([{ role: "user" }, kept, { role: "user" }, { role: "assistant", stopReason: "toolUse" }]);
 	});
 
 	it("should allow followUp() while streaming", async () => {

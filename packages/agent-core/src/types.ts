@@ -235,6 +235,16 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 	getSteeringMessages?: () => Promise<AgentMessage[]>;
 
 	/**
+	 * Called when a thinking block ends during a model request. Returning true ends the request there:
+	 * the provider request is aborted, and the assistant message keeps its completed blocks plus a short
+	 * interruption note, with stopReason "stop", so the thinking stays in context. The run continues and
+	 * polls steering messages as after any turn.
+	 *
+	 * Contract: must not throw.
+	 */
+	shouldInterruptAfterThinking?: () => boolean;
+
+	/**
 	 * Returns follow-up messages to process after the agent would otherwise stop.
 	 *
 	 * Called when the agent has no more tool calls and no steering messages.

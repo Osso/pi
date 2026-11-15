@@ -18,6 +18,10 @@
 - Added optional `AgentTool.prepareExecution` for preparing durable execution metadata before the assistant tool call is persisted.
 - Added optional `processQueuedMessagesFirst` handling to `Agent.continue()` so callers can drain steering and follow-up messages queued by `agent_end` handlers before a blank continuation.
 
+### Changed
+
+- `Agent.steer()` during a thinking block now waits for the block to end instead of aborting mid-thought; the request ends there, the completed signed thinking is kept with a short interruption note (stopReason `stop`), and the run continues with the steering message. New `AgentLoopConfig.shouldInterruptAfterThinking` hook and exported `STEERING_INTERRUPTION_NOTE`.
+
 ### Fixed
 
 - Fixed `streamProxy` leaving `result()` pending when the proxy closed the stream without a `done` or `error` event; it now ends with an error ([#8996](https://github.com/earendil-works/pi-mono/issues/8996)).
