@@ -172,6 +172,35 @@ function createTranscriptBackedFauxSessionFactory(store: MultiAgentStore, run: F
 	};
 }
 
+/** Parent and Worker child sessions sharing one control DB, with the store persisted through the parent. */
+function createParentChildStore(dir: string) {
+	const controlDbPath = getControlDbPath(dir);
+	const parentSession = SessionManager.create(dir, join(dir, "sessions"), { id: "parent-session" });
+	const childSession = SessionManager.create(dir, join(dir, "sessions"), {
+		id: "child-session",
+		isSubagent: true,
+		parentSession: parentSession.getSessionFile(),
+		subagentName: "Worker",
+	});
+	parentSession.setMetadataControlDbPath(controlDbPath);
+	childSession.setMetadataControlDbPath(controlDbPath);
+	const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+	store.setPersistenceSessionManager(parentSession);
+	return { controlDbPath, parentSession, childSession, store };
+}
+
+/** Sender and target main sessions sharing one control DB, with the store persisted through the sender. */
+function createSenderTargetStore(dir: string) {
+	const controlDbPath = getControlDbPath(dir);
+	const targetSession = SessionManager.create(dir, join(dir, "sessions"), { id: "target-session" });
+	targetSession.setMetadataControlDbPath(controlDbPath);
+	const senderSession = SessionManager.create(dir, join(dir, "sessions"), { id: "sender-session" });
+	senderSession.setMetadataControlDbPath(controlDbPath);
+	const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
+	store.setPersistenceSessionManager(senderSession);
+	return { controlDbPath, targetSession, senderSession, store };
+}
+
 describe("terminal outbox cleanup schedule", () => {
 	it("runs cleanup initially and then no more than once per hour", () => {
 		const firstCleanupAt = Date.parse("2026-07-16T12:00:00.000Z");
@@ -645,13 +674,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 	it("sends direct messages to an explicit runtime session", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const targetSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "target-session" });
-		targetSession.setMetadataControlDbPath(controlDbPath);
-		const senderSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "sender-session" });
-		senderSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(senderSession);
+		const { controlDbPath, senderSession, store } = createSenderTargetStore(tempDir);
 		const parent = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
@@ -833,13 +856,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 	it("sends direct messages to an explicit main runtime session", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const targetSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "target-session" });
-		targetSession.setMetadataControlDbPath(controlDbPath);
-		const senderSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "sender-session" });
-		senderSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(senderSession);
+		const { controlDbPath, senderSession, store } = createSenderTargetStore(tempDir);
 		const onSessionMessageSent = vi.fn();
 		const tools = collectMultiAgentTools(store, { onSessionMessageSent });
 		const sendAgentMessage = tools.get("send_agent_message");
@@ -888,13 +905,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 	it("rejects explicit runtime sessions that do not match the target agent transcript", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const targetSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "target-session" });
-		targetSession.setMetadataControlDbPath(controlDbPath);
-		const senderSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "sender-session" });
-		senderSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(senderSession);
+		const { controlDbPath, senderSession, store } = createSenderTargetStore(tempDir);
 		const parent = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
 			cwd: "/repo",
@@ -955,18 +966,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 	it("mirrors steering into the runtime mailbox for a child session", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		const childSession = SessionManager.create(tempDir, join(tempDir, "sessions"), {
-			id: "child-session",
-			isSubagent: true,
-			parentSession: parentSession.getSessionFile(),
-			subagentName: "Worker",
-		});
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		childSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, childSession, store } = createParentChildStore(tempDir);
 		const running = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			agentType: "worker",
 			displayName: "Worker",
@@ -1701,18 +1701,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 	it("wakes an active wait_agent naturally after successful steering", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		const childSession = SessionManager.create(tempDir, join(tempDir, "sessions"), {
-			id: "child-session",
-			isSubagent: true,
-			parentSession: parentSession.getSessionFile(),
-			subagentName: "Worker",
-		});
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		childSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, childSession, store } = createParentChildStore(tempDir);
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			transcriptSessionId: childSession.getSessionId(),
 		});
@@ -1909,18 +1898,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 	it("does not retain a stale wake when steering succeeds without an active wait", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		const childSession = SessionManager.create(tempDir, join(tempDir, "sessions"), {
-			id: "child-session",
-			isSubagent: true,
-			parentSession: parentSession.getSessionFile(),
-			subagentName: "Worker",
-		});
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		childSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, childSession, store } = createParentChildStore(tempDir);
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			transcriptSessionId: childSession.getSessionId(),
 		});
@@ -1997,18 +1975,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 	it("preserves completion when steering wakes wait_agent during a terminal race", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		const childSession = SessionManager.create(tempDir, join(tempDir, "sessions"), {
-			id: "child-session",
-			isSubagent: true,
-			parentSession: parentSession.getSessionFile(),
-			subagentName: "Worker",
-		});
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		childSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, childSession, store } = createParentChildStore(tempDir);
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			transcriptSessionId: childSession.getSessionId(),
 		});
@@ -2072,18 +2039,7 @@ describe("runtime SQLite mailbox delivery", () => {
 
 	it("returns terminal state when steering terminalizes before wake_up observation", async () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
-		const controlDbPath = getControlDbPath(tempDir);
-		const parentSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "parent-session" });
-		const childSession = SessionManager.create(tempDir, join(tempDir, "sessions"), {
-			id: "child-session",
-			isSubagent: true,
-			parentSession: parentSession.getSessionFile(),
-			subagentName: "Worker",
-		});
-		parentSession.setMetadataControlDbPath(controlDbPath);
-		childSession.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		store.setPersistenceSessionManager(parentSession);
+		const { controlDbPath, parentSession, childSession, store } = createParentChildStore(tempDir);
 		const runtime = createReservedRuntimeAgent(store, parentSession.getSessionId(), "/repo", {
 			transcriptSessionId: childSession.getSessionId(),
 		});
