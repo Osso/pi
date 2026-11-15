@@ -96,6 +96,14 @@ describe("provider retry classification", () => {
 		).toBe(true);
 	});
 
+	it("matches gateway wording for upstream provider errors", () => {
+		expect(
+			isRetryableAssistantError(
+				fauxAssistantMessage("", { stopReason: "error", errorMessage: "The upstream provider returned an error" }),
+			),
+		).toBe(true);
+	});
+
 	it("matches explicit provider retry guidance", () => {
 		expect(
 			isRetryableAssistantError(
