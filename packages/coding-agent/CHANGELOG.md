@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed the session picker showing an archived, deleted or renamed session in another scope it had already loaded; a mutation now drops every scope's cached list.
 - Fixed a detached Bash command that ignores SIGTERM running on after its timeout or cancellation; the runner now sends SIGKILL to the process group one second after SIGTERM.
 - Fixed the bwrap sandbox file worker rejecting workspace files whose names start with two dots (for example `..notes.txt`) as workspace escapes.
 - Fixed the bwrap sandbox `grep` and `find` following symlinks below the search root to files outside the workspace; such symlinks are now skipped, matching direct reads.

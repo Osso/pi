@@ -1044,6 +1044,8 @@ export class SessionSelectorComponent extends Container implements Focusable {
 	}
 
 	private async refreshSessionsAfterMutation(): Promise<void> {
+		// The mutation also changes the other scopes' lists, so drop their caches and reload them on toggle.
+		this.currentSessions = this.allSessions = this.archivedSessions = null;
 		await this.loadScope(this.scope, "refresh");
 	}
 

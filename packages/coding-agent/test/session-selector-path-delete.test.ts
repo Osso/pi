@@ -213,6 +213,43 @@ describe("session selector path/delete interactions", () => {
 		).toBe(true);
 	});
 
+	it("reloads the All scope after archiving from Current", async () => {
+		const baseDir = mkdtempSync(join(tmpdir(), "pi-session-selector-archive-scopes-"));
+		tempDirs.push(baseDir);
+		const projectDir = join(baseDir, "project");
+		mkdirSync(projectDir, { recursive: true });
+		const controlDbPath = getControlDbPath(baseDir);
+		const otherProjectDir = join(baseDir, "other");
+		mkdirSync(otherProjectDir, { recursive: true });
+		const keptPath = createMetadataBackedSession(otherProjectDir, baseDir, controlDbPath, "keep me");
+		const sessionPath = createMetadataBackedSession(projectDir, baseDir, controlDbPath, "archive me", {
+			timestamp: 1_000,
+		});
+		const selector = new SessionSelectorComponent(
+			(onProgress) => SessionManager.list(projectDir, baseDir, onProgress, controlDbPath),
+			(onProgress) => SessionManager.listAll(baseDir, onProgress, controlDbPath),
+			() => {},
+			() => {},
+			() => {},
+			() => {},
+			{ keybindings, controlDbPath },
+		);
+		await flushPromises();
+		const list = selector.getSessionList();
+		list.handleInput("\t");
+		await waitFor(() => list.getSelectedSessionPath() === sessionPath);
+		list.handleInput("\t");
+		await flushPromises();
+		list.handleInput("\t");
+		await waitFor(() => list.getSelectedSessionPath() === sessionPath);
+
+		list.handleInput(CTRL_A);
+		await waitFor(() => list.getSelectedSessionPath() === undefined);
+		list.handleInput("\t");
+		await waitFor(() => list.getSelectedSessionPath() === keptPath);
+		expect(stripAnsi(selector.render(120).join("\n"))).not.toContain("archive me");
+	});
+
 	it("reports an archive failure in the header instead of rejecting", async () => {
 		const baseDir = mkdtempSync(join(tmpdir(), "pi-session-selector-archive-fail-"));
 		tempDirs.push(baseDir);
