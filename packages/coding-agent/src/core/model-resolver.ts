@@ -476,9 +476,11 @@ export function resolveCliModel(options: {
 	}
 
 	const candidates = provider ? availableModels.filter((m) => m.provider === provider) : availableModels;
-	const { model, thinkingLevel, warning } = parseModelPattern(pattern, candidates, {
-		allowInvalidThinkingLevelFallback: false,
-	});
+	const parse = (models: Model<Api>[]) =>
+		parseModelPattern(pattern, models, { allowInvalidThinkingLevelFallback: false });
+	// Without a provider, prefer a match among models with credentials over one on an unusable provider.
+	const usable = provider ? undefined : parse(candidates.filter((m) => modelRegistry.hasConfiguredAuth(m)));
+	const { model, thinkingLevel, warning } = usable?.model ? usable : parse(candidates);
 
 	if (model) {
 		// If provider inference matched an unauthenticated provider/model pair, prefer

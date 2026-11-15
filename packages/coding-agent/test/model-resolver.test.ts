@@ -292,6 +292,7 @@ describe("resolveCliModel", () => {
 	test("supports --model <pattern>:<thinking> (without explicit --thinking)", () => {
 		const registry = {
 			getAll: () => allModels,
+			hasConfiguredAuth: () => true,
 		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
 
 		const result = resolveCliModel({
@@ -301,6 +302,25 @@ describe("resolveCliModel", () => {
 
 		expect(result.error).toBeUndefined();
 		expect(result.model?.id).toBe("claude-sonnet-4-5");
+		expect(result.thinkingLevel).toBe("high");
+	});
+
+	test("prefers a fuzzy match on a provider with credentials", () => {
+		const gatewayModel: Model<"anthropic-messages"> = {
+			...mockModels[0],
+			id: "us.claude-sonnet-5",
+			name: "Claude Sonnet 5",
+			provider: "amazon-bedrock",
+		};
+		const registry = {
+			getAll: () => [gatewayModel, ...mockModels],
+			hasConfiguredAuth: (model: { provider: string }) => model.provider === "anthropic",
+		} as unknown as Parameters<typeof resolveCliModel>[0]["modelRegistry"];
+
+		const result = resolveCliModel({ cliModel: "sonnet:high", modelRegistry: registry });
+
+		expect(result.error).toBeUndefined();
+		expect(`${result.model?.provider}/${result.model?.id}`).toBe("anthropic/claude-sonnet-4-5");
 		expect(result.thinkingLevel).toBe("high");
 	});
 

@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed `--model <fuzzy>`, such as `pi --model sonnet:high`, choosing a model on a provider without credentials, such as Amazon Bedrock, when a provider with credentials also matched
 - Fixed a `--models` glob with a misspelled thinking level, such as `*sonnet*:hgih`, matching no models; it now uses the default level with a warning like other patterns
 - Fixed `--models` and `enabledModels` rejecting a provider-prefixed fuzzy pattern such as `anthropic/sonnet`, which `--model` accepts
 - Fixed `--permission-prompt-tool` allow decisions being discarded, and the native prompt shown instead, when `updatedPermissions` rules used Claude Code's `{toolName, ruleContent}` object format
