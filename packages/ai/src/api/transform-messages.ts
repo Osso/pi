@@ -150,13 +150,26 @@ export function transformMessages<TApi extends Api>(
 	// Second pass: insert synthetic empty tool results for orphaned tool calls
 	// This preserves thinking signatures and satisfies API requirements
 	const result: Message[] = [];
+	// A result stored after the user message that interrupted its batch moves up to where its call is
+	// resolved, so the call gets that one result instead of a synthetic one plus a stray late one.
+	const unseenResults = new Map<string, ToolResultMessage>();
+	for (const msg of transformed) {
+		if (msg.role === "toolResult" && !unseenResults.has(msg.toolCallId)) unseenResults.set(msg.toolCallId, msg);
+	}
+	const movedResults = new Set<ToolResultMessage>();
 	let pendingToolCalls: ToolCall[] = [];
 	let pendingToolCallIds = new Set<string>();
 	let existingToolResultIds = new Set<string>();
 	const insertSyntheticToolResults = () => {
 		if (pendingToolCalls.length > 0) {
 			for (const tc of pendingToolCalls) {
-				if (!existingToolResultIds.has(tc.id)) {
+				if (existingToolResultIds.has(tc.id)) continue;
+				const lateResult = unseenResults.get(tc.id);
+				if (lateResult) {
+					unseenResults.delete(tc.id);
+					movedResults.add(lateResult);
+					result.push(lateResult);
+				} else {
 					result.push({
 						role: "toolResult",
 						toolCallId: tc.id,
@@ -198,6 +211,8 @@ export function transformMessages<TApi extends Api>(
 
 			result.push(msg);
 		} else if (msg.role === "toolResult") {
+			if (movedResults.has(msg)) continue;
+			if (unseenResults.get(msg.toolCallId) === msg) unseenResults.delete(msg.toolCallId);
 			if (pendingToolCallIds.has(msg.toolCallId)) {
 				existingToolResultIds.add(msg.toolCallId);
 			}

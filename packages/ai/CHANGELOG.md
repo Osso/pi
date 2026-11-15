@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed a tool result stored after the user message that interrupted its tool batch being sent twice: once as a synthetic `No result provided` error before the user message and again as a stray result after it. The real result now takes the synthetic result's place.
 - Fixed Codex cost ignoring a service tier set through `onPayload` (the codex-fast `/fast` path), which priced priority requests at the default rate
 - Fixed cached Codex WebSockets being reused across accounts in the same session, which sent requests as the previous account after account rotation
 - Fixed provider error display replacing the real SDK message with serialized response-stream internals (for example Bedrock `{"_events":...}`): only plain objects are now used as error bodies ([#7205](https://github.com/earendil-works/pi-mono/pull/7205) by [@erikogenvik](https://github.com/erikogenvik))
