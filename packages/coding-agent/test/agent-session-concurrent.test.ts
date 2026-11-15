@@ -104,6 +104,20 @@ describe("AgentSession concurrent prompt guard", () => {
 		}
 	});
 
+	/** The in-memory services an AgentSession around `agent` needs; `authenticated` stores an Anthropic key. */
+	function sessionServices(agent: Agent, authenticated = true) {
+		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
+		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
+		if (authenticated) authStorage.setRuntimeApiKey("anthropic", "test-key");
+		return {
+			agent,
+			sessionManager: SessionManager.inMemory(),
+			settingsManager: SettingsManager.create(tempDir, tempDir),
+			cwd: tempDir,
+			modelRegistry,
+		};
+	}
+
 	function createSession(options: { authenticated?: boolean; streamFn?: StreamFn } = {}) {
 		const model = requireModel(getModel("anthropic", "claude-sonnet-4-5"));
 		let abortSignal: AbortSignal | undefined;
@@ -146,20 +160,8 @@ describe("AgentSession concurrent prompt guard", () => {
 				}),
 		});
 
-		const sessionManager = SessionManager.inMemory();
-		const settingsManager = SettingsManager.create(tempDir, tempDir);
-		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
-		if (options.authenticated !== false) {
-			authStorage.setRuntimeApiKey("anthropic", "test-key");
-		}
-
 		session = new AgentSession({
-			agent,
-			sessionManager,
-			settingsManager,
-			cwd: tempDir,
-			modelRegistry,
+			...sessionServices(agent, options.authenticated !== false),
 			resourceLoader: createTestResourceLoader(),
 		});
 
@@ -343,12 +345,6 @@ describe("AgentSession concurrent prompt guard", () => {
 			},
 		});
 
-		const sessionManager = SessionManager.inMemory();
-		const settingsManager = SettingsManager.create(tempDir, tempDir);
-		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
-		authStorage.setRuntimeApiKey("anthropic", "test-key");
-
 		const extensionsResult = await createTestExtensionsResult([
 			(pi) => {
 				(globalThis as typeof globalThis & { testExtensionApi?: unknown }).testExtensionApi = pi;
@@ -361,11 +357,7 @@ describe("AgentSession concurrent prompt guard", () => {
 		]);
 
 		session = new AgentSession({
-			agent,
-			sessionManager,
-			settingsManager,
-			cwd: tempDir,
-			modelRegistry,
+			...sessionServices(agent),
 			resourceLoader: createTestResourceLoader({ extensionsResult }),
 		});
 		session.subscribe((event) => {
@@ -421,18 +413,8 @@ describe("AgentSession concurrent prompt guard", () => {
 			},
 		});
 
-		const sessionManager = SessionManager.inMemory();
-		const settingsManager = SettingsManager.create(tempDir, tempDir);
-		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
-		authStorage.setRuntimeApiKey("anthropic", "test-key");
-
 		session = new AgentSession({
-			agent,
-			sessionManager,
-			settingsManager,
-			cwd: tempDir,
-			modelRegistry,
+			...sessionServices(agent),
 			resourceLoader: createTestResourceLoader(),
 		});
 
@@ -513,18 +495,8 @@ describe("AgentSession concurrent prompt guard", () => {
 			},
 		});
 
-		const sessionManager = SessionManager.inMemory();
-		const settingsManager = SettingsManager.create(tempDir, tempDir);
-		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
-		authStorage.setRuntimeApiKey("anthropic", "test-key");
-
 		session = new AgentSession({
-			agent,
-			sessionManager,
-			settingsManager,
-			cwd: tempDir,
-			modelRegistry,
+			...sessionServices(agent),
 			resourceLoader: createTestResourceLoader(),
 			baseToolsOverride: { dummy: tool },
 		});
@@ -532,7 +504,7 @@ describe("AgentSession concurrent prompt guard", () => {
 		const snapshots: string[][] = [];
 		agent.beforeToolCall = async () => {
 			snapshots.push(
-				sessionManager
+				session.sessionManager
 					.getEntries()
 					.filter((entry) => entry.type === "message")
 					.map((entry) => entry.message.role),
@@ -608,18 +580,8 @@ describe("AgentSession concurrent prompt guard", () => {
 			},
 		});
 
-		const sessionManager = SessionManager.inMemory();
-		const settingsManager = SettingsManager.create(tempDir, tempDir);
-		const authStorage = AuthStorage.create(join(tempDir, "auth.json"));
-		const modelRegistry = ModelRegistry.create(authStorage, tempDir);
-		authStorage.setRuntimeApiKey("anthropic", "test-key");
-
 		session = new AgentSession({
-			agent,
-			sessionManager,
-			settingsManager,
-			cwd: tempDir,
-			modelRegistry,
+			...sessionServices(agent),
 			resourceLoader: createTestResourceLoader(),
 			baseToolsOverride: { dummy: tool },
 		});
@@ -640,7 +602,7 @@ describe("AgentSession concurrent prompt guard", () => {
 		await session.agent.waitForIdle();
 		await new Promise((resolve) => setTimeout(resolve, 100));
 
-		const messageEntries = sessionManager.getEntries().filter((entry) => entry.type === "message");
+		const messageEntries = session.sessionManager.getEntries().filter((entry) => entry.type === "message");
 		expect(messageEntries.map((entry) => entry.message.role)).toEqual([
 			"user",
 			"assistant",
