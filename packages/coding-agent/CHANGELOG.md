@@ -256,6 +256,8 @@
 - Added a seven-day runtime OpenRouter model catalog cache under the XDG cache root, with additive bundled-first merging and `--refresh-models` for forced refreshes.
 - Added cross-host agent messaging via `send_agent_message.toHost`, global shared-channel replication, `pi relay serve`, and an optional Supervisor SSH relay with bounded reconnect backoff. Persisted per-peer mailbox sequences prevent lost-ack replay after receiver deletion without receipts or tombstones; unknown local session targets now fail explicitly.
 - Added read-only `--export-terminal <file-or-id> --export-columns <columns>` to render the current compaction-aware history (summary and retained/current active-branch messages, excluding the pre-compaction archive and discarded branches) as collapsed SGR-only ANSI text on stdout without provider/extension startup or session/settings writes. Unresolved session IDs exit `4`; other failures exit `1`. Existing HTML export and live history rendering are unchanged. See [terminal history export](docs/terminal-history-export.md).
+- Added an interactive Supervisor session configured by `supervisor.sessionId` and optional `supervisor.host`. Typed requests and replies use the relay for remote sessions; requests fail explicitly without a configured session ID.
+- Added Supervisor `inspect_session` for bounded local or remote session evidence, and Supervisor answers or escalation for `ask_questions`.
 
 ### Fixed
 
@@ -894,6 +896,7 @@
 - Removed the optional `openai-remote-compact` extension, its OpenAI `/responses/compact` and Codex `/codex/responses/compact` callers, endpoint-only tests, and remote-only source metadata and UI labels. Existing provider-native saved-history readers, request serialization, and `/tree` materialization/editing remain supported. Normal plaintext compaction, generic hooks, and local/generic source metadata remain unchanged.
 - Removed the Hostrun extension and its Pi documentation.
 - Removed default attribution headers from Vercel AI Gateway requests.
+- Removed the detached Supervisor resident, `pi supervisor`, `pi --supervisor`, resident autostart, the Supervisor systemd unit, and `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES`. Linux deployment removes retired Architect and Supervisor user units.
 
 ## [0.80.3] - 2026-06-30
 

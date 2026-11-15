@@ -250,7 +250,20 @@ Sandbox profiles resolve by precedence: session override, project setting, then 
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `supervisorModel` | string | - | `provider/modelId` for the resident Supervisor, read from global settings, e.g. `openrouter/deepseek/deepseek-v4.1-flash-1017`. Unset: `gpt-6.1-sol` on the first authenticated `openai-codex`, `openai-codex-gc`, `openai-codex-team`. A configured model must be authenticated and has no fallback. |
+| `supervisor.sessionId` | string | - | Session ID of the interactive Supervisor. Required for typed Supervisor requests. |
+| `supervisor.host` | string | - | Host of the Supervisor session when it runs remotely; requests and replies use the relay. |
+| `supervisorModel` | string | - | Global `provider/modelId` for the separate stateless instruction-veto evaluator. When unset, it uses `gpt-6.1-sol` on authenticated Codex providers. This does not select the interactive Supervisor session's model. |
+
+```json
+{
+  "supervisor": {
+    "sessionId": "your-supervisor-session-id",
+    "host": "agent-server"
+  }
+}
+```
+
+Omit `host` for a local Supervisor. Without `sessionId`, typed requests fail with `no Supervisor session is configured; set supervisor.sessionId`. The Supervisor uses the model and effort selected in its session.
 
 Use `/sandbox <read-only|workspace-write|full-access|inherit> <session|project|global>` for direct control, or `/sandbox` to open the selector. `inherit` is valid only for session scope and removes the session override, falling back to project/global settings. Session overrides are stored in the host control-session database, not session JSONL, for the exact persisted session and survive restart/resume; new sessions, forks, and imported/exported session files do not inherit them.
 
