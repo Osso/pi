@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed `sliceByColumn` emitting style codes from before the slice after a reset at the slice start, which leaked color into the rest of the line, for example in the horizontally scrolled `/tree` view ([#10169](https://github.com/earendil-works/pi-mono/issues/10169))
 - Fixed slash-command completion returning no suggestions after leading whitespace (for example ` /mod`), although the editor opens the command menu there and submitted text is trimmed ([#10218](https://github.com/earendil-works/pi-mono/issues/10218))
 - Fixed deeply nested blockquotes (a long run of `>`) rendering exponentially many lines and crashing with `RangeError: Maximum call stack size exceeded` ([#11272](https://github.com/earendil-works/pi-mono/issues/11272))
 - Fixed a Markdown component whose text renders no visible lines, such as only an HTML comment, returning `[""]` on the first render and `[]` from the cache afterwards, which changed its height between frames

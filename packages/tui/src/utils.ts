@@ -1078,8 +1078,10 @@ export function sliceWithWidth(
 	while (i < line.length) {
 		const ansi = extractAnsiCode(line, i);
 		if (ansi) {
-			if (currentCol >= startCol && currentCol < endCol) result += ansi.code;
-			else if (currentCol < startCol) pendingAnsi += ansi.code;
+			if (currentCol >= startCol && currentCol < endCol) {
+				result += pendingAnsi + ansi.code; // codes from before the range precede codes at the boundary
+				pendingAnsi = "";
+			} else if (currentCol < startCol) pendingAnsi += ansi.code;
 			i += ansi.length;
 			continue;
 		}
@@ -1092,11 +1094,8 @@ export function sliceWithWidth(
 			const inRange = currentCol >= startCol && currentCol < endCol;
 			const fits = !strict || currentCol + w <= endCol;
 			if (inRange && fits) {
-				if (pendingAnsi) {
-					result += pendingAnsi;
-					pendingAnsi = "";
-				}
-				result += segment;
+				result += pendingAnsi + segment;
+				pendingAnsi = "";
 				resultWidth += w;
 			}
 			currentCol += w;
