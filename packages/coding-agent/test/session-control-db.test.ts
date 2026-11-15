@@ -252,6 +252,29 @@ async function runWithoutWriterLockWait(
 	return completed;
 }
 
+function createLegacyRuntimeMailboxMessagesTable(db: ReturnType<typeof createSqliteDatabase>): void {
+	db.exec("PRAGMA user_version = 13");
+	db.exec(`
+		CREATE TABLE runtime_mailbox_messages (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			recipient_session_id TEXT NOT NULL,
+			recipient_agent_id TEXT,
+			sender_session_id TEXT,
+			sender_agent_id TEXT,
+			kind TEXT NOT NULL,
+			body TEXT NOT NULL,
+			store_session_path TEXT,
+			store_message_id TEXT,
+			status TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			claimed_at TEXT,
+			delivered_at TEXT,
+			error TEXT
+		)
+	`);
+}
+
 /** Writes session metadata with fixed test defaults for the fields a test does not set. */
 function writeTestSessionMetadata(
 	controlDbPath: string,
@@ -4102,26 +4125,7 @@ Date.now = () => ${Date.now()};
 		readMultiAgentState(controlDbPath, sessionPath);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
-			db.exec("PRAGMA user_version = 13");
-			db.exec(`
-				CREATE TABLE runtime_mailbox_messages (
-					id INTEGER PRIMARY KEY AUTOINCREMENT,
-					recipient_session_id TEXT NOT NULL,
-					recipient_agent_id TEXT,
-					sender_session_id TEXT,
-					sender_agent_id TEXT,
-					kind TEXT NOT NULL,
-					body TEXT NOT NULL,
-					store_session_path TEXT,
-					store_message_id TEXT,
-					status TEXT NOT NULL,
-					created_at TEXT NOT NULL,
-					updated_at TEXT NOT NULL,
-					claimed_at TEXT,
-					delivered_at TEXT,
-					error TEXT
-				)
-			`);
+			createLegacyRuntimeMailboxMessagesTable(db);
 			db.prepare(
 				`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
 				 VALUES (?, ?, ?, ?)`,
@@ -4181,26 +4185,7 @@ Date.now = () => ${Date.now()};
 		readMultiAgentState(controlDbPath, sessionPath);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
-			db.exec("PRAGMA user_version = 13");
-			db.exec(`
-				CREATE TABLE runtime_mailbox_messages (
-					id INTEGER PRIMARY KEY AUTOINCREMENT,
-					recipient_session_id TEXT NOT NULL,
-					recipient_agent_id TEXT,
-					sender_session_id TEXT,
-					sender_agent_id TEXT,
-					kind TEXT NOT NULL,
-					body TEXT NOT NULL,
-					store_session_path TEXT,
-					store_message_id TEXT,
-					status TEXT NOT NULL,
-					created_at TEXT NOT NULL,
-					updated_at TEXT NOT NULL,
-					claimed_at TEXT,
-					delivered_at TEXT,
-					error TEXT
-				)
-			`);
+			createLegacyRuntimeMailboxMessagesTable(db);
 			const insertCanonical = db.prepare(
 				`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
 				 VALUES (?, ?, ?, ?)`,
@@ -4309,26 +4294,7 @@ Date.now = () => ${Date.now()};
 		readMultiAgentState(controlDbPath, sessionPath);
 		const db = createSqliteDatabase(controlDbPath);
 		try {
-			db.exec("PRAGMA user_version = 13");
-			db.exec(`
-				CREATE TABLE runtime_mailbox_messages (
-					id INTEGER PRIMARY KEY AUTOINCREMENT,
-					recipient_session_id TEXT NOT NULL,
-					recipient_agent_id TEXT,
-					sender_session_id TEXT,
-					sender_agent_id TEXT,
-					kind TEXT NOT NULL,
-					body TEXT NOT NULL,
-					store_session_path TEXT,
-					store_message_id TEXT,
-					status TEXT NOT NULL,
-					created_at TEXT NOT NULL,
-					updated_at TEXT NOT NULL,
-					claimed_at TEXT,
-					delivered_at TEXT,
-					error TEXT
-				)
-			`);
+			createLegacyRuntimeMailboxMessagesTable(db);
 			db.prepare(
 				`INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
 				 VALUES (?, ?, 'not-json', ?)`,
