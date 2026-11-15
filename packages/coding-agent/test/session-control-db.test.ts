@@ -163,6 +163,57 @@ function waitForWorkerStatus(worker: Worker, options: WaitForWorkerStatusOptions
 	});
 }
 
+type WriterLockRun = { ready: WorkerStatusMessage; completed: WorkerStatusMessage; blockedBeforeRelease: unknown };
+
+/**
+ * Sends `request` to a ready worker while another connection holds the writer lock, then releases it.
+ * `blockedBeforeRelease` is set when the worker did not reach `expectedType` within a second under the lock.
+ */
+async function runWorkerUnderWriterLock(
+	worker: Worker,
+	controlDbPath: string,
+	request: unknown,
+	label: string,
+	expectedType = "completed",
+): Promise<WriterLockRun> {
+	const holder = createSqliteDatabase(controlDbPath);
+	configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
+	try {
+		const ready = await waitForWorkerStatus(worker, {
+			expectedType: "ready",
+			timeoutMessage: `${label} worker did not load`,
+		});
+		holder.exec("BEGIN IMMEDIATE");
+		worker.postMessage(request);
+		let completed: WorkerStatusMessage | undefined;
+		let blockedBeforeRelease: unknown;
+		try {
+			completed = await waitForWorkerStatus(worker, {
+				expectedType,
+				timeoutMessage: `${label} waited for the writer lock`,
+				timeoutMs: 1_000,
+			});
+		} catch (error) {
+			blockedBeforeRelease = error;
+		}
+		holder.exec("ROLLBACK");
+		completed ??= await waitForWorkerStatus(worker, {
+			expectedType,
+			ignoredTypes: ["ready"],
+			timeoutMessage: `${label} worker did not finish after lock release`,
+		});
+		return { ready, completed, blockedBeforeRelease };
+	} finally {
+		try {
+			holder.exec("ROLLBACK");
+		} catch {
+			// The holder already released its transaction unless the run failed while holding it.
+		}
+		await worker.terminate();
+		holder.close();
+	}
+}
+
 function claimTestRuntimeMailboxMessages(
 	controlDbPath: string,
 	recipient: Parameters<typeof claimRuntimeMailboxMessages>[1],
@@ -621,43 +672,12 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "Architect request worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("claim");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "empty Architect request claim waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "Architect request worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"claim",
+			"Architect request",
+		);
 
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed).toMatchObject({ count: 0, type: "completed" });
@@ -867,43 +887,12 @@ Date.now = () => ${Date.now()};
 				workerData: { conflicting, controlDbPath, messageId, sessionPath },
 			},
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "mailbox collision worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("upsert");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "mailbox collision validation waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "mailbox collision worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"upsert",
+			"mailbox collision",
+		);
 
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed?.error).toContain("Mailbox message ID collision");
@@ -1332,43 +1321,12 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "invalid failed-child worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("create");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "invalid failed-child validation waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "invalid failed-child worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"create",
+			"invalid failed-child",
+		);
 
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed?.error).toContain("Failed child creation requires failed revision 1");
@@ -1436,43 +1394,12 @@ Date.now = () => ${Date.now()};
 				workerData: { agent, agentId, controlDbPath, sessionPath },
 			},
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "bootstrap contention worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("bootstrap");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "process-owned bootstrap waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "bootstrap worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"bootstrap",
+			"bootstrap contention",
+		);
 
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed?.error).toContain("Generic agent upsert cannot mutate process-owned lifecycle row");
@@ -1519,43 +1446,12 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "invalid-attachment worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("create");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "invalid attachment validation waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "invalid-attachment worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"create",
+			"invalid-attachment",
+		);
 
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed?.error).toContain("Attached agent payload ID does not match command identity");
@@ -1669,43 +1565,12 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "invalid-child worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("create");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "invalid-child validation waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "invalid-child worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"create",
+			"invalid-child",
+		);
 
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed?.error).toContain("Child agent payload ID does not match runtime ownership identity");
@@ -1798,43 +1663,12 @@ Date.now = () => ${Date.now()};
 				workerData: { attachmentInput, childInput, controlDbPath, failedInput },
 			},
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "creation parent validation worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("create");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "creation parent validation waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "creation parent validation worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"create",
+			"creation parent validation",
+		);
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed?.results).toEqual([
 			{ error: "parent_not_found", ok: false },
@@ -1957,43 +1791,12 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "lifecycle validation worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("mutate");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "lifecycle validation waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "lifecycle validation worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"mutate",
+			"lifecycle validation",
+		);
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed).toMatchObject({ error: "mutation_mismatch", ok: false, type: "completed" });
 		expect(readMultiAgentState(controlDbPath, sessionPath)).toEqual(beforeState);
@@ -2080,43 +1883,12 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "steering validation worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("steer");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "steering validation waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "steering validation worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"steer",
+			"steering validation",
+		);
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed).toMatchObject({ error: "mutation_mismatch", ok: false, type: "completed" });
 		expect(readMultiAgentState(controlDbPath, sessionPath)).toEqual(beforeState);
@@ -2483,43 +2255,12 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "steering delivery validation worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("deliver");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "steering delivery validation waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "steering delivery validation worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"deliver",
+			"steering delivery validation",
+		);
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed).toMatchObject({ error: "message_not_found", ok: false, type: "completed" });
 		expect(readMultiAgentState(controlDbPath, sessionPath)).toEqual(beforeState);
@@ -2729,43 +2470,12 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "terminal validation worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("terminalize");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "terminal validation waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "terminal validation worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"terminalize",
+			"terminal validation",
+		);
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed).toMatchObject({ error: "mutation_mismatch", ok: false, type: "completed" });
 		expect(readMultiAgentState(controlDbPath, sessionPath)).toEqual(beforeState);
@@ -3031,43 +2741,13 @@ Date.now = () => ${Date.now()};
 				},
 			},
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "activity ownership worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("update");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "undefined",
-					timeoutMessage: "mismatched activity ownership waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "undefined",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "activity ownership worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"update",
+			"activity ownership",
+			"undefined",
+		);
 
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed?.type).toBe("undefined");
@@ -3269,43 +2949,12 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "detached lookup worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("finalize");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "detached lookup waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "detached lookup worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"finalize",
+			"detached lookup",
+		);
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed).toMatchObject({ error: "agent_not_found", ok: false, type: "completed" });
 		expect(readMultiAgentState(controlDbPath, sessionPath)?.agents ?? []).toEqual([]);
@@ -3480,43 +3129,12 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "detach validation worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("detach");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "detach validation waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "detach validation worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"detach",
+			"detach validation",
+		);
 
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed).toMatchObject({ error: "mutation_mismatch", ok: false, type: "completed" });
@@ -3837,43 +3455,12 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, recoveryInput } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "live-owner recovery worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("recover");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "live-owner recovery waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "live-owner recovery did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"recover",
+			"live-owner recovery",
+		);
 
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed).toMatchObject({ error: "owner_alive", ok: false, type: "completed" });
@@ -3987,43 +3574,12 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "attached ownership worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("acquire");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "attached ownership lookup waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "attached ownership worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"acquire",
+			"attached ownership",
+		);
 
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed).toMatchObject({ ok: true, type: "completed" });
@@ -4305,43 +3861,12 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, sessionPath } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "migration quiescence worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("migrate");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "migration quiescence validation waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "migration quiescence worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"migrate",
+			"migration quiescence",
+		);
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed?.error).toMatch(/stop all pi and detached runner processes/i);
 	});
@@ -6084,43 +5609,12 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "empty prompt-history worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("migrate");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "empty legacy prompt migration waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "empty prompt-history worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"migrate",
+			"empty prompt-history",
+		);
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed?.entries).toEqual(["   "]);
 		expect(readPromptHistory(controlDbPath)).toEqual([]);
@@ -6436,43 +5930,12 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, recipient } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let result: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "claim worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("claim");
-			try {
-				result = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "unauthorized mailbox scan waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!result) {
-				result = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "claim worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { completed: result, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"claim",
+			"claim",
+		);
 
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(result?.count).toBe(0);
@@ -6803,45 +6266,13 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, recipient } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		let completed: WorkerStatusMessage | undefined;
-		let blockedBeforeRelease: unknown;
-		try {
-			const ready = await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "recovery worker did not claim the mailbox row",
-			});
-			expect(ready.id).toBeTypeOf("number");
-
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("recover");
-			try {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					timeoutMessage: "live-claim recovery waited for the writer lock",
-					timeoutMs: 1_000,
-				});
-			} catch (error) {
-				blockedBeforeRelease = error;
-			}
-			holder.exec("ROLLBACK");
-			if (!completed) {
-				completed = await waitForWorkerStatus(worker, {
-					expectedType: "completed",
-					ignoredTypes: ["ready"],
-					timeoutMessage: "recovery worker did not finish after lock release",
-				});
-			}
-		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
-		}
+		const { ready, completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(
+			worker,
+			controlDbPath,
+			"recover",
+			"mailbox recovery",
+		);
+		expect(ready.id).toBeTypeOf("number");
 
 		expect(blockedBeforeRelease).toBeUndefined();
 		expect(completed?.count).toBe(0);
