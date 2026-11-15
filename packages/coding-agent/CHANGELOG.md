@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed `createAgentSessionServices()` turning an explicit `false` in `extensionFlagValues` into `true` for boolean extension flags.
 - Fixed `RpcClient` skipping the next event listener when a listener unsubscribes while handling an event, which could make `waitForIdle()` time out after `collectEvents()` ([#9990](https://github.com/earendil-works/pi/issues/9990)).
 - Fixed the session picker showing an archived, deleted or renamed session in another scope it had already loaded; a mutation now drops every scope's cached list.
 - Fixed a detached Bash command that ignores SIGTERM running on after its timeout or cancellation; the runner now sends SIGKILL to the process group one second after SIGTERM.

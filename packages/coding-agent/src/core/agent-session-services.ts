@@ -112,7 +112,8 @@ function applyExtensionFlagValues(
 			continue;
 		}
 		if (flag.type === "boolean") {
-			extensionsResult.runtime.flagValues.set(name, true);
+			// A bare CLI flag arrives as true; SDK callers may pass an explicit false.
+			extensionsResult.runtime.flagValues.set(name, typeof value === "boolean" ? value : true);
 			continue;
 		}
 		if (typeof value === "string") {
