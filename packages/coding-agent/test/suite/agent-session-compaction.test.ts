@@ -1631,7 +1631,7 @@ describe("AgentSession compaction characterization", () => {
 		expect(compactionCalls).toBe(1);
 		expect(errorSpy).toHaveBeenCalledTimes(1);
 		expect(errorSpy).toHaveBeenCalledWith(
-			`Background compaction cache generation failed: Turn prefix summarization failed: ${overloadError}`,
+			`Background compaction cache generation failed: Summarization failed: ${overloadError}`,
 		);
 		expect(harness.eventsOfType("compaction_start")).toHaveLength(0);
 		expect(harness.eventsOfType("compaction_end")).toHaveLength(0);
