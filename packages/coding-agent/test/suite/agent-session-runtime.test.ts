@@ -41,6 +41,25 @@ type RecordedSessionEvent =
 	| SessionShutdownEvent
 	| SessionStartEvent;
 
+/** Registers the faux provider's models through the extension API, as a real provider extension would. */
+function registerFauxModels(pi: ExtensionAPI, faux: ReturnType<typeof registerFauxProvider>): void {
+	pi.registerProvider(faux.getModel().provider, {
+		baseUrl: faux.getModel().baseUrl,
+		apiKey: "faux-key",
+		api: faux.api,
+		models: faux.models.map((registeredModel) => ({
+			id: registeredModel.id,
+			name: registeredModel.name,
+			api: registeredModel.api,
+			reasoning: registeredModel.reasoning,
+			input: registeredModel.input,
+			cost: registeredModel.cost,
+			contextWindow: registeredModel.contextWindow,
+			maxTokens: registeredModel.maxTokens,
+		})),
+	});
+}
+
 describe("AgentSessionRuntime characterization", () => {
 	const cleanups: Array<() => Promise<void> | void> = [];
 
@@ -88,21 +107,7 @@ describe("AgentSessionRuntime characterization", () => {
 			resourceLoaderOptions: {
 				extensionFactories: [
 					(pi: ExtensionAPI) => {
-						pi.registerProvider(faux.getModel().provider, {
-							baseUrl: faux.getModel().baseUrl,
-							apiKey: "faux-key",
-							api: faux.api,
-							models: faux.models.map((registeredModel) => ({
-								id: registeredModel.id,
-								name: registeredModel.name,
-								api: registeredModel.api,
-								reasoning: registeredModel.reasoning,
-								input: registeredModel.input,
-								cost: registeredModel.cost,
-								contextWindow: registeredModel.contextWindow,
-								maxTokens: registeredModel.maxTokens,
-							})),
-						});
+						registerFauxModels(pi, faux);
 						extensionFactory(pi);
 					},
 				],
@@ -679,25 +684,7 @@ describe("AgentSessionRuntime characterization", () => {
 			authStorage,
 			model: faux.getModel(),
 			resourceLoaderOptions: {
-				extensionFactories: [
-					(pi: ExtensionAPI) => {
-						pi.registerProvider(faux.getModel().provider, {
-							baseUrl: faux.getModel().baseUrl,
-							apiKey: "faux-key",
-							api: faux.api,
-							models: faux.models.map((registeredModel) => ({
-								id: registeredModel.id,
-								name: registeredModel.name,
-								api: registeredModel.api,
-								reasoning: registeredModel.reasoning,
-								input: registeredModel.input,
-								cost: registeredModel.cost,
-								contextWindow: registeredModel.contextWindow,
-								maxTokens: registeredModel.maxTokens,
-							})),
-						});
-					},
-				],
+				extensionFactories: [(pi: ExtensionAPI) => registerFauxModels(pi, faux)],
 				noSkills: true,
 				noPromptTemplates: true,
 				noThemes: true,
@@ -789,25 +776,7 @@ describe("AgentSessionRuntime characterization", () => {
 			agentDir: tempDir,
 			authStorage: otherAuthStorage,
 			resourceLoaderOptions: {
-				extensionFactories: [
-					(pi: ExtensionAPI) => {
-						pi.registerProvider(faux.getModel().provider, {
-							baseUrl: faux.getModel().baseUrl,
-							apiKey: "faux-key",
-							api: faux.api,
-							models: faux.models.map((registeredModel) => ({
-								id: registeredModel.id,
-								name: registeredModel.name,
-								api: registeredModel.api,
-								reasoning: registeredModel.reasoning,
-								input: registeredModel.input,
-								cost: registeredModel.cost,
-								contextWindow: registeredModel.contextWindow,
-								maxTokens: registeredModel.maxTokens,
-							})),
-						});
-					},
-				],
+				extensionFactories: [(pi: ExtensionAPI) => registerFauxModels(pi, faux)],
 				noSkills: true,
 				noPromptTemplates: true,
 				noThemes: true,
@@ -899,25 +868,7 @@ describe("AgentSessionRuntime characterization", () => {
 			agentDir: tempDir,
 			authStorage: otherAuthStorage,
 			resourceLoaderOptions: {
-				extensionFactories: [
-					(pi: ExtensionAPI) => {
-						pi.registerProvider(faux.getModel().provider, {
-							baseUrl: faux.getModel().baseUrl,
-							apiKey: "faux-key",
-							api: faux.api,
-							models: faux.models.map((registeredModel) => ({
-								id: registeredModel.id,
-								name: registeredModel.name,
-								api: registeredModel.api,
-								reasoning: registeredModel.reasoning,
-								input: registeredModel.input,
-								cost: registeredModel.cost,
-								contextWindow: registeredModel.contextWindow,
-								maxTokens: registeredModel.maxTokens,
-							})),
-						});
-					},
-				],
+				extensionFactories: [(pi: ExtensionAPI) => registerFauxModels(pi, faux)],
 				noSkills: true,
 				noPromptTemplates: true,
 				noThemes: true,
