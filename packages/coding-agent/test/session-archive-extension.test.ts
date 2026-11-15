@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import sessionArchiveExtension from "../extensions/session-archive/src/index.ts";
+import { createEventBus } from "../src/core/event-bus.ts";
 import type { ExtensionAPI, ExtensionCommandContext, RegisteredCommand } from "../src/core/extensions/types.ts";
 import { archivePersistedSession, restoreArchivedSession } from "../src/core/session-archive-storage.ts";
 import {
@@ -140,8 +141,10 @@ describe("session archive extension", () => {
 		const childPath = writeSession("child", { parentSession: sessionPath });
 		const otherPath = writeSession("other");
 		const commands = new Map<string, RegisteredCommand>();
+		const events = createEventBus();
 		const shutdownHandlers: Array<(event: { reason: string }) => void | Promise<void>> = [];
 		sessionArchiveExtension({
+			events,
 			on(event: string, handler: (event: { reason: string }) => void | Promise<void>) {
 				if (event === "session_shutdown") shutdownHandlers.push(handler);
 			},
@@ -158,7 +161,7 @@ describe("session archive extension", () => {
 		const shutdown = vi.fn();
 		const ctx = {
 			controlDbPath,
-			sessionManager: { getSessionFile: () => sessionPath },
+			sessionManager: { getSessionFile: () => sessionPath, getSessionId: () => "current-session" },
 			shutdown,
 			ui: { confirm, notify },
 		} as unknown as ExtensionCommandContext;
@@ -172,6 +175,7 @@ describe("session archive extension", () => {
 			confirm,
 			controlDbPath,
 			ctx,
+			events,
 			notify,
 			otherPath,
 			quit,
@@ -231,8 +235,17 @@ describe("session archive extension", () => {
 		expect(readSessionMetadata(f.controlDbPath, f.sessionPath)?.isArchived).toBe(false);
 	});
 
-	it("refuses /delete while a child agent session is still running", async () => {
+	it.each([
+		[[], "deletes"],
+		[[{ id: "agent_1", displayName: "Worker" }], "keeps"],
+	])("closes running child agents before /delete; still running %j %s the session", async (stillRunning, outcome) => {
 		const f = quitCommandFixture();
+		const closeRequests: unknown[] = [];
+		f.events.on("agents:close-all", (payload) => {
+			const request = payload as { closed?: Promise<unknown[]> };
+			closeRequests.push({ ...request });
+			request.closed = Promise.resolve(stillRunning);
+		});
 		const ctx = {
 			...f.ctx,
 			multiAgentStore: {
@@ -244,13 +257,18 @@ describe("session archive extension", () => {
 		} as unknown as ExtensionCommandContext;
 		await requireValue(f.commands.get("delete")).handler("", ctx);
 
-		expect(f.notify).toHaveBeenCalledWith(
-			"Close the 1 running child agent before /delete; it could still write its transcript.",
-			"warning",
+		expect(f.confirm).toHaveBeenCalledWith(
+			"Delete session?",
+			"Close the 1 running child agent, delete the current session and its child agent sessions, then quit.",
 		);
-		expect(f.confirm).not.toHaveBeenCalled();
-		expect(f.shutdown).not.toHaveBeenCalled();
-		expect([f.sessionPath, f.childPath].map((path) => existsSync(path))).toEqual([true, true]);
+		expect(closeRequests).toEqual([{ ownerSessionId: "current-session", reason: "closed by /delete" }]);
+		await f.quit();
+		if (outcome === "keeps") {
+			expect(f.notify).toHaveBeenCalledWith("Could not close Worker; the session was not deleted.", "error");
+			expect(f.shutdown).not.toHaveBeenCalled();
+		}
+		const exists = outcome === "keeps";
+		expect([f.sessionPath, f.childPath].map((path) => existsSync(path))).toEqual([exists, exists]);
 	});
 
 	it("rejects /delete arguments without confirming or quitting", async () => {
@@ -315,7 +333,7 @@ describe("session archive extension", () => {
 		await requireValue(command).handler("", {
 			controlDbPath,
 			ui: { notify: vi.fn() },
-			sessionManager: { getSessionFile: () => sessionPath },
+			sessionManager: { getSessionFile: () => sessionPath, getSessionId: () => "current-session" },
 			shutdown: () => onShutdown?.({ reason: "quit" }),
 		} as unknown as ExtensionCommandContext);
 

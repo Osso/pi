@@ -7,7 +7,14 @@ export {
 
 import type { AttachSessionDispatchInput } from "./attachment.ts";
 import { attachSessionAgent, dispatchAttachedSessionAgent } from "./attachment.ts";
-import { abortAgentHandleSafely, cancelAgent, steerAgent } from "./control.ts";
+import {
+	abortAgentHandleSafely,
+	CLOSE_ALL_AGENTS_EVENT,
+	type CloseAllAgentsRequest,
+	cancelAgent,
+	closeAllAgents,
+	steerAgent,
+} from "./control.ts";
 import type { BackgroundDispatchContext } from "./dispatch.ts";
 import { backgroundCommand, formatAgentStatus, isChildAgentRuntime, spawnAgent } from "./dispatch.ts";
 import type { WaitingDesktopNotificationHandles } from "./dispatch-pipeline.ts";
@@ -577,7 +584,12 @@ export function registerAgentsCoreTools(pi: ExtensionAPI, options: MultiAgentExt
 			waitingDesktopNotifications,
 		});
 	});
+	const unsubscribeCloseAll = pi.events?.on(CLOSE_ALL_AGENTS_EVENT, (payload) => {
+		const request = payload as CloseAllAgentsRequest;
+		request.closed ??= closeAllAgents(store, runtimeHandles, request);
+	});
 	pi.on?.("session_shutdown", async (event, ctx) => {
+		unsubscribeCloseAll?.();
 		runtimeLifecycleMirror.dispose();
 		if (event.reason === "reload" || isChildAgentRuntime(ctx)) {
 			return;

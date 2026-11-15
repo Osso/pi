@@ -27,7 +27,7 @@ For read-only ANSI output of the current compaction-aware history (summary and r
 |---------|-------------|
 | `/resume` | Browse and select previous sessions |
 | `/archive` | Archive the current persisted session and quit; accepts no arguments |
-| `/delete` | After confirmation, delete the current session and its child agent sessions, then quit |
+| `/delete` | After confirmation, close running child agents, delete the current session and its child agent sessions, then quit |
 | `/unarchive` | Clear archive state for the current persisted session; accepts no arguments |
 | `/new` | Start a new session |
 | `/name <name>` | Set the current session display name |

@@ -113,6 +113,7 @@
 - Changed Supervisor goal-review policy to return `wait` only when a pending asynchronous result or recheckable external condition blocks all remaining goal work, including when the only remaining work needs that result; a running test suite, build, agent, or external job no longer idles a goal while other authorized work can proceed without it.
 - Child agents can now call read-only `list_agents` and the new child-only `search_parent_session_history`, which searches the direct parent session's active branch. Periodic-checks audits use them to inspect main's delegation and behavior.
 - Periodic checks now arm outside Git repositories: the checklist is read from the session's working directory when it has no Git root. Inside a repository the Git root is still used.
+- `/delete` with running child agents now closes them after confirmation, then deletes the session; before, it refused until each child was closed by hand. It keeps the session when a child cannot be closed.
 
 ### Added
 

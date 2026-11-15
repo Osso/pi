@@ -134,6 +134,35 @@ export function closeIdleAgentWithoutRuntime(
 	return { ok: true, agent: aborted.agent };
 }
 
+/** Event other extensions emit to close every running child agent of this session. */
+export const CLOSE_ALL_AGENTS_EVENT = "agents:close-all";
+
+/** The agents runtime assigns `closed` during emit; it resolves with the agents still running afterwards. */
+export interface CloseAllAgentsRequest {
+	ownerSessionId: string;
+	reason: string;
+	closed?: Promise<AgentSnapshot[]>;
+}
+
+/** Active agents with a transcript; detached tool jobs have none. */
+export function runningChildAgents(store: MultiAgentStore): AgentSnapshot[] {
+	return store.listActiveAgents().filter((agent) => agent.transcript?.path);
+}
+
+/** Closes each running child agent with its descendants and waits for its turn to settle. */
+export async function closeAllAgents(
+	store: MultiAgentStore,
+	runtimeHandles: MultiAgentRuntimeHandles,
+	request: CloseAllAgentsRequest,
+): Promise<AgentSnapshot[]> {
+	for (const agent of runningChildAgents(store)) {
+		const current = store.getAgent(agent.id);
+		if (!current || !isActiveLifecycle(current.lifecycle)) continue;
+		await cancelOwnedAgentRuntime(store, runtimeHandles, agent.id, request.ownerSessionId, request.reason);
+	}
+	return runningChildAgents(store);
+}
+
 export async function cancelAgent(
 	store: MultiAgentStore,
 	runtimeHandles: MultiAgentRuntimeHandles,

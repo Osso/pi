@@ -2,6 +2,11 @@ import type { ExtensionAPI, ExtensionCommandContext } from "../../../src/core/ex
 import { archivePersistedSession } from "../../../src/core/session-archive-storage.ts";
 import { readSessionMetadata, unarchiveSession } from "../../../src/core/session-control-db.ts";
 import { deleteSessionTree } from "../../../src/core/session-delete.ts";
+import {
+	CLOSE_ALL_AGENTS_EVENT,
+	type CloseAllAgentsRequest,
+	runningChildAgents,
+} from "../../agents-core/src/control.ts";
 
 function validateCurrentSessionCommandAndNotify(
 	command: "archive" | "delete" | "unarchive",
@@ -52,6 +57,24 @@ async function deleteAtQuit(session: CurrentSession): Promise<void> {
 	if (!result.ok) throw new Error(`Failed to delete session: ${result.error}`);
 }
 
+/** Closes the running child agents; a child still running afterwards could keep writing its transcript. */
+async function closeRunningChildren(pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<boolean> {
+	const request: CloseAllAgentsRequest = {
+		ownerSessionId: ctx.sessionManager.getSessionId(),
+		reason: "closed by /delete",
+	};
+	pi.events.emit(CLOSE_ALL_AGENTS_EVENT, request);
+	if (!request.closed) {
+		ctx.ui.notify("Cannot close the running child agents: the agents runtime is unavailable.", "error");
+		return false;
+	}
+	const stillRunning = await request.closed;
+	if (stillRunning.length === 0) return true;
+	const names = stillRunning.map((agent) => agent.displayName ?? agent.id).join(", ");
+	ctx.ui.notify(`Could not close ${names}; the session was not deleted.`, "error");
+	return false;
+}
+
 export default function sessionArchiveExtension(pi: ExtensionAPI): void {
 	// Archive/delete run at quit teardown, after the last session write and before the resume hint is printed.
 	let pendingQuitAction: (() => void | Promise<void>) | undefined;
@@ -90,22 +113,16 @@ export default function sessionArchiveExtension(pi: ExtensionAPI): void {
 		handler: async (args, ctx) => {
 			const session = validateCurrentSessionCommandAndNotify("delete", args, ctx);
 			if (!session) return;
-			// A running child keeps writing its transcript after abort, so deleting it now could leave a partial file.
-			const runningChildren =
-				ctx.multiAgentStore?.listActiveAgents().filter((agent) => agent.transcript?.path) ?? [];
-			if (runningChildren.length > 0) {
-				const count = runningChildren.length;
-				ctx.ui.notify(
-					`Close the ${count} running child ${count === 1 ? "agent" : "agents"} before /delete; ${count === 1 ? "it" : "they"} could still write ${count === 1 ? "its transcript" : "their transcripts"}.`,
-					"warning",
-				);
-				return;
-			}
+			const running = ctx.multiAgentStore ? runningChildAgents(ctx.multiAgentStore).length : 0;
+			const closeStep =
+				running === 0 ? "" : `Close the ${running} running child ${running === 1 ? "agent" : "agents"}, `;
 			const confirmed = await ctx.ui.confirm(
 				"Delete session?",
-				"Delete the current session and its child agent sessions, then quit.",
+				`${closeStep}${closeStep ? "delete" : "Delete"} the current session and its child agent sessions, then quit.`,
 			);
-			if (confirmed) quitWith(deleteAtQuit, session, ctx);
+			if (!confirmed) return;
+			if (running > 0 && !(await closeRunningChildren(pi, ctx))) return;
+			quitWith(deleteAtQuit, session, ctx);
 		},
 	});
 }
