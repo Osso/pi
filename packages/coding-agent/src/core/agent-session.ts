@@ -649,7 +649,7 @@ export class AgentSession {
 	private _retryAttempt = 0;
 
 	// Bash execution state
-	private _bashAbortController: AbortController | undefined = undefined;
+	private readonly _bashAbortControllers = new Set<AbortController>();
 	private readonly _toolDetachRegistry: ToolDetachRegistry | undefined;
 	private _pendingBashMessages: BashExecutionMessage[] = [];
 
@@ -886,9 +886,7 @@ export class AgentSession {
 		reason: CompactionReason,
 		willRetry: boolean,
 	): Promise<CompactionSourceInfo | undefined> {
-		if (!this.model) {
-			return undefined;
-		}
+		if (!this.model) return undefined;
 
 		if (this._extensionRunner.hasHandlers("session_compaction_source")) {
 			const result = await this._extensionRunner.emit({ type: "session_compaction_source", reason, willRetry });
@@ -4801,7 +4799,8 @@ export class AgentSession {
 		onChunk?: (chunk: string) => void,
 		options?: { excludeFromContext?: boolean; operations?: BashOperations },
 	): Promise<BashResult> {
-		this._bashAbortController = new AbortController();
+		const abortController = new AbortController();
+		this._bashAbortControllers.add(abortController);
 
 		// Apply command prefix if configured (e.g., "shopt -s expand_aliases" for alias support)
 		const prefix = this.settingsManager.getShellCommandPrefix();
@@ -4815,14 +4814,14 @@ export class AgentSession {
 				options?.operations ?? createLocalBashOperations({ shellPath }),
 				{
 					onChunk,
-					signal: this._bashAbortController.signal,
+					signal: abortController.signal,
 				},
 			);
 
 			this.recordBashResult(command, result, options);
 			return result;
 		} finally {
-			this._bashAbortController = undefined;
+			this._bashAbortControllers.delete(abortController);
 		}
 	}
 
@@ -4861,7 +4860,7 @@ export class AgentSession {
 	 * Cancel running bash command.
 	 */
 	abortBash(): void {
-		this._bashAbortController?.abort();
+		for (const abortController of [...this._bashAbortControllers]) abortController.abort();
 	}
 
 	detachRunningTool(): boolean {
@@ -4878,7 +4877,7 @@ export class AgentSession {
 
 	/** Whether a bash command is currently running */
 	get isBashRunning(): boolean {
-		return this._bashAbortController !== undefined;
+		return this._bashAbortControllers.size > 0;
 	}
 
 	get hasDetachableTool(): boolean {

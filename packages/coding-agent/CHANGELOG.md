@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed concurrent user bash commands: cancelling now aborts every running command, and `isBashRunning` stays true until the last one finishes ([#7103](https://github.com/earendil-works/pi-mono/pull/7103))
 - Fixed duplicate transcript messages when a startup session rebind overlapped a session switch: the stale rebind subscribed to the agent a second time ([#7110](https://github.com/earendil-works/pi-mono/pull/7110))
 - Fixed a saved "Do not trust" decision being ignored for projects without trust-requiring resources, so `ctx.isProjectTrusted()` returned true ([#10947](https://github.com/earendil-works/pi-mono/issues/10947))
 - Fixed image resizing returning a PNG whenever it fit the size limit, even when the JPEG was many times smaller; photos are now sent as the smaller format ([#11551](https://github.com/earendil-works/pi-mono/issues/11551))
