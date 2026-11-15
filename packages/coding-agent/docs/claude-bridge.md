@@ -124,10 +124,6 @@ Selection, dated rejections, and successful quota observations are shared throug
 
 The bridge uses the calling Pi session's working directory for provider and AskClaude calls. Project configuration follows that directory.
 
-## Mailbox shape diagnostics
-
-Set `provider.shapeTrace: true` in Claude-bridge configuration and restart the affected runtime to record private, bounded SDK/bridge block types and correlated message/tool-call IDs. No text, reasoning or arguments are captured; no model probe or mailbox send is triggered. The private trace is written to `claude-bridge-shapes.jsonl` in the Pi agent directory, excludes content and arguments, and stops at a per-writer 4 MiB limit. This is diagnostic instrumentation, not a fix for the unresolved missing-text report.
-
 ## Debugging
 
 Configured-profile OAuth observations use a private normal-operation trace, independent of debug logging. The trace is written to `claude-bridge-auth.jsonl` in the Pi agent directory and excludes raw credentials.

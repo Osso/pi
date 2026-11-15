@@ -23,7 +23,6 @@ import {
 } from "./account-profiles.ts";
 import type { McpResult } from "./extract-tool-results.ts";
 import type { PromptStream } from "./prompt-stream.ts";
-import type { ShapeTrace } from "./shape-trace.ts";
 
 export const ACCOUNTS_EXHAUSTED = "Claude account profiles exhausted. No eligible account remains.";
 
@@ -183,7 +182,6 @@ export class QueryContext {
 	activeQuery: unknown | null = null;
 	currentPiStream: AssistantMessageEventStream | null = null;
 	latestCursor = 0;
-	shapeTrace?: ShapeTrace;
 	pendingToolCalls = new Map<string, PendingToolCall>();
 	pendingResults = new Map<string, McpResult>();
 	/** tool_use ids emitted this turn. Sole purpose is routing a delivered result
@@ -256,7 +254,6 @@ export class QueryContext {
 	}
 
 	resetTurnState(model: Model<Api>): void {
-		this.shapeTrace?.recordPi("turn_reset", this.turnOutput, this.turnStreamMessageId);
 		this.turnOutput = newAssistantOutput(model, "", "stop");
 		this.turnStarted = false;
 		this.turnSawStreamEvent = false;

@@ -25,8 +25,6 @@ export interface Config {
 	provider?: {
 		/** Ordered named credential profiles; rotation requires an explicit quota rejection. */
 		accountProfiles?: string[];
-		/** Opt-in private SDK/Pi block-shape diagnostics; never captures content. */
-		shapeTrace?: boolean;
 		strictMcpConfig?: boolean;
 		autoMemoryEnabled?: boolean;
 		pathToClaudeCodeExecutable?: string;

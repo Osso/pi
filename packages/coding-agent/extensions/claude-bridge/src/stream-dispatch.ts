@@ -1,12 +1,11 @@
 import type { Api, AssistantMessageEventStream, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
-import { type prepareProviderAccount, providerSettings } from "./account-runtime.ts";
+import type { prepareProviderAccount } from "./account-runtime.ts";
 import { debug, diagDump } from "./diagnostics.ts";
 import type { McpResult } from "./extract-tool-results.ts";
 import { extractUserPrompt, extractUserPromptBlocks } from "./isolated-summary.ts";
 import { CONTINUE_AFTER_REWRITE_PROMPT, deliverToolResults, steerBlocks } from "./query-lifecycle.ts";
 import { activeQueryContexts, piRequests, QueryContext } from "./query-state.ts";
 import { historyRewrittenBySession, sessionStateFor } from "./session-mirror.ts";
-import { ShapeTrace } from "./shape-trace.ts";
 import { claimCurrentPiStream, finalizeCurrentStream } from "./stream-events.ts";
 
 /** A tool failed after its query died; answer the returning tool result with that failure. */
@@ -112,7 +111,6 @@ export function resetQueryContextForFreshQuery(
 	queryCtx.latestCursor = context.messages.length;
 	queryCtx.turnEnded = false;
 	queryCtx.piSessionId = options?.sessionId ?? null;
-	queryCtx.shapeTrace = providerSettings.shapeTrace === true ? new ShapeTrace(queryCtx.piSessionId) : undefined;
 	queryCtx.historyStale = false;
 	queryCtx.missedSteer = false;
 	queryCtx.rateLimitRejection = null;

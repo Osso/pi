@@ -34,7 +34,6 @@ import {
 	sharedSessions,
 	sponsorMarkRebuildForSession,
 } from "./session-mirror.ts";
-import { ShapeTrace } from "./shape-trace.ts";
 import { setPiUI } from "./ui-state.ts";
 
 export interface ExtensionRegistrationDependencies {
@@ -121,9 +120,6 @@ export function registerExtension(pi: ExtensionAPI, dependencies: ExtensionRegis
 	pi.on("session_start", (event, ctx) => {
 		setPiUI(ctx.ui);
 		dependencies.setPiMode(ctx.mode);
-		if (config.provider?.shapeTrace === true) {
-			new ShapeTrace(ctx.sessionManager.getSessionId()).recordPi("session_start", []);
-		}
 		if (event.reason === "new" || event.reason === "resume" || event.reason === "fork") {
 			clearSession(`session_start:${event.reason}`);
 		}

@@ -972,6 +972,7 @@
 - Removed the Hostrun extension and its Pi documentation.
 - Removed default attribution headers from Vercel AI Gateway requests.
 - Removed the detached Supervisor resident, `pi supervisor`, `pi --supervisor`, resident autostart, the Supervisor systemd unit, and `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES`. Linux deployment removes retired Architect and Supervisor user units.
+- Removed the Claude bridge `provider.shapeTrace` diagnostic and its `claude-bridge-shapes.jsonl` trace.
 
 ## [0.80.3] - 2026-06-30
 

@@ -129,7 +129,6 @@ export function finalizeCurrentStream(c: QueryContext, stopReason?: string): voi
 		`provider: finalizeCurrentStream called, stopReason=${stopReason}, turnOutput=${JSON.stringify({ stopReason: output.stopReason, error: output.errorMessage })}`,
 	);
 	if (!c.turnStarted) ensureTurnStarted(c);
-	c.shapeTrace?.recordPi("pi_final", output, c.turnStreamMessageId);
 	if (output.stopReason === "error") {
 		stream.push({ type: "error", reason: "error", error: output });
 	} else {
@@ -282,7 +281,6 @@ function processStreamEvent(
 		// consumeQuery to skip it. The MCP handler blocks the generator until
 		// pi delivers the tool result via the next streamSimple call.
 		output.stopReason = "toolUse";
-		c.shapeTrace?.recordPi("pi_tool_boundary", output, c.turnStreamMessageId);
 		stream.push({ type: "done", reason: "toolUse", message: output });
 		markStreamComplete(stream);
 		stream.end();
@@ -308,7 +306,6 @@ function processStreamEvent(
  *  rejects a repeated start, so it would need a change there to drive this provider. */
 function dropAbandonedStreamBlocks(c: QueryContext, why: string): void {
 	const dropped = c.turnBlocks.splice(c.turnStreamBlockStart);
-	c.shapeTrace?.recordPi("discarded", dropped, c.turnStreamMessageId);
 	debug(
 		`dropAbandonedStreamBlocks: ${why}; dropped ${dropped.length} blocks from ${c.turnStreamMessageId} types=${dropped.map((b) => b.type).join(",")}`,
 	);
@@ -446,7 +443,6 @@ function processAssistantMessage(
 	// End the stream on tool_use, same as processStreamEvent's message_stop handler.
 	if (c.turnSawToolCall && c.currentPiStream && c.turnOutput) {
 		c.turnOutput.stopReason = "toolUse";
-		c.shapeTrace?.recordPi("pi_tool_boundary", c.turnOutput, assistantMsg.id);
 		const stream = c.currentPiStream;
 		stream.push({ type: "done", reason: "toolUse", message: c.turnOutput });
 		markStreamComplete(stream);
@@ -476,7 +472,6 @@ export async function consumeQuery(
 		// Code really emitted rather than ones we imagined.
 		const recordStreamPath = process.env.CLAUDE_BRIDGE_RECORD_STREAM;
 		if (recordStreamPath) appendFileSync(recordStreamPath, `${JSON.stringify(message)}\n`);
-		queryCtx.shapeTrace?.recordSdk(message);
 		if (wasAborted()) break;
 		// Everything below the currentPiStream guard is content, which there is
 		// nowhere to put once a turn has ended on a tool call. These three are not
