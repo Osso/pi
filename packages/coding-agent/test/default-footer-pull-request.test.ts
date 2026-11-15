@@ -152,16 +152,21 @@ describe("pull request polling", () => {
 		await status.refresh();
 		expect(onChange).toHaveBeenCalledTimes(2);
 
+		// The URL is the rendered hyperlink target, so a URL-only change is a display change.
+		next = { ...next, url: "https://github.com/earendil-works/pi-fork/pull/41208" };
+		await status.refresh();
+		expect(onChange).toHaveBeenCalledTimes(3);
+
 		next = undefined;
 		await status.refresh();
 		expect(status.get()).toBeUndefined();
-		expect(onChange).toHaveBeenCalledTimes(3);
+		expect(onChange).toHaveBeenCalledTimes(4);
 
 		status.dispose();
 		next = openPullRequest;
 		await status.refresh();
 		expect(status.get()).toBeUndefined();
-		expect(onChange).toHaveBeenCalledTimes(3);
+		expect(onChange).toHaveBeenCalledTimes(4);
 	});
 
 	it("keeps the displayed pull request when the github CLI fails", async () => {

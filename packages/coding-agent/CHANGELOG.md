@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed the default footer keeping a stale pull-request link when only the pull request's URL changed; a URL change now redraws the footer.
 - Fixed claude-bridge repeating a non-streamed assistant reply: the final `result` text was added again after the assistant message had already delivered it.
 - Fixed `createAgentSessionServices()` turning an explicit `false` in `extensionFlagValues` into `true` for boolean extension flags.
 - Fixed `RpcClient` skipping the next event listener when a listener unsubscribes while handling an event, which could make `waitForIdle()` time out after `collectEvents()` ([#9990](https://github.com/earendil-works/pi/issues/9990)).

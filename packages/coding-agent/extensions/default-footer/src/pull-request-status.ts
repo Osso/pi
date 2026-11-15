@@ -40,6 +40,7 @@ function samePullRequest(left: PullRequest | undefined, right: PullRequest | und
 	if (!left || !right) return left === right;
 	return (
 		left.number === right.number &&
+		left.url === right.url &&
 		left.state === right.state &&
 		left.checks.passed === right.checks.passed &&
 		left.checks.running === right.checks.running &&
