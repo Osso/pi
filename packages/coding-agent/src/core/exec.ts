@@ -3,6 +3,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import { waitForChildProcess } from "../utils/child-process.ts";
 
 /**
@@ -46,6 +47,9 @@ export async function execCommand(
 
 		let stdout = "";
 		let stderr = "";
+		// A multi-byte UTF-8 character can be split between chunks; decoding each chunk alone corrupts it.
+		const stdoutDecoder = new StringDecoder("utf8");
+		const stderrDecoder = new StringDecoder("utf8");
 		let killed = false;
 		let timeoutId: NodeJS.Timeout | undefined;
 
@@ -79,11 +83,11 @@ export async function execCommand(
 		}
 
 		proc.stdout?.on("data", (data) => {
-			stdout += data.toString();
+			stdout += stdoutDecoder.write(data);
 		});
 
 		proc.stderr?.on("data", (data) => {
-			stderr += data.toString();
+			stderr += stderrDecoder.write(data);
 		});
 
 		// Wait for process termination without hanging on inherited stdio handles
@@ -91,6 +95,8 @@ export async function execCommand(
 		waitForChildProcess(proc)
 			.then((code) => {
 				if (timeoutId) clearTimeout(timeoutId);
+				stdout += stdoutDecoder.end();
+				stderr += stderrDecoder.end();
 				if (options?.signal) {
 					options.signal.removeEventListener("abort", killProcess);
 				}
@@ -98,6 +104,8 @@ export async function execCommand(
 			})
 			.catch((_err) => {
 				if (timeoutId) clearTimeout(timeoutId);
+				stdout += stdoutDecoder.end();
+				stderr += stderrDecoder.end();
 				if (options?.signal) {
 					options.signal.removeEventListener("abort", killProcess);
 				}

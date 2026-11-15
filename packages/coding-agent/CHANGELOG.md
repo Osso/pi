@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed `pi.exec()` corrupting multi-byte UTF-8 characters split across output chunks into U+FFFD ([#11312](https://github.com/earendil-works/pi-mono/issues/11312))
 - Fixed the grep tool reading the user's ripgrep config (`RIPGREP_CONFIG_PATH`), which could silently change its semantics, for example making `literal: false` searches literal ([#11203](https://github.com/earendil-works/pi-mono/issues/11203))
 - Fixed forking a compacted session from an entry before the compaction cutoff, such as `spawn_agent` with inherited context after a mid-turn compaction, copying the post-compaction slice instead of the path to that entry
 - Fixed `grep` truncating a long match line in the middle of an emoji, which left half a surrogate pair before `... [truncated]`
