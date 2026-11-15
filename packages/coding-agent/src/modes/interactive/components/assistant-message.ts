@@ -1,6 +1,7 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { type Component, Container, Markdown, type MarkdownTheme, Spacer, Text } from "@earendil-works/pi-tui";
 import { isServerNarrationSignature } from "../../../core/assistant-narration.ts";
+import { sanitizeToolDisplayText } from "../../../core/tools/render-utils.ts";
 import { getMarkdownTheme, theme } from "../theme/theme.ts";
 
 const OSC133_ZONE_START = "\x1b]133;A\x07";
@@ -291,13 +292,13 @@ export class AssistantMessageComponent extends Container {
 		if (message.stopReason === "aborted") {
 			const abortMessage =
 				message.errorMessage && message.errorMessage !== "Request was aborted"
-					? message.errorMessage
+					? sanitizeToolDisplayText(message.errorMessage)
 					: "Operation aborted";
 			return theme.fg("error", abortMessage);
 		}
 
 		if (message.stopReason === "error") {
-			return theme.fg("error", `Error: ${message.errorMessage || "Unknown error"}`);
+			return theme.fg("error", `Error: ${sanitizeToolDisplayText(message.errorMessage || "Unknown error")}`);
 		}
 
 		return undefined;

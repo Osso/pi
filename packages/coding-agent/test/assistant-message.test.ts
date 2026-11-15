@@ -40,6 +40,19 @@ function createAssistantMessage(
 }
 
 describe("AssistantMessageComponent", () => {
+	test("shows provider error text without terminal controls", () => {
+		initTheme("dark");
+		const message = {
+			...createAssistantMessage([], { stopReason: "error" }),
+			errorMessage: "SAFE\x1b]0;owned\x07AFTER",
+		};
+
+		const rendered = new AssistantMessageComponent(message).render(80).join("\n");
+
+		expect(rendered).not.toContain("\x1b]0;");
+		expect(stripAnsi(rendered)).toContain("Error: SAFEAFTER");
+	});
+
 	test("adds OSC 133 zone markers to assistant messages without tool calls", () => {
 		initTheme("dark");
 

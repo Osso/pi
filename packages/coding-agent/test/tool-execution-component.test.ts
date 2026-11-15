@@ -42,6 +42,37 @@ describe("ToolExecutionComponent parity", () => {
 		initTheme("dark");
 	});
 
+	test("shows model-chosen tool names and write content without terminal controls", () => {
+		const osc52 = "\x1b]52;c;ZXZpbA==\x07";
+		const unknown = new ToolExecutionComponent(
+			`evil${osc52}_tool`,
+			"tool-name-controls",
+			{},
+			{},
+			undefined,
+			createFakeTui(),
+			process.cwd(),
+		);
+		const write = new ToolExecutionComponent(
+			"write",
+			"write-content-controls",
+			{ path: "notes.txt", content: `safe${osc52}after` },
+			{},
+			createWriteToolDefinition(process.cwd()),
+			createFakeTui(),
+			process.cwd(),
+		);
+		write.setArgsComplete();
+
+		for (const component of [unknown, write]) {
+			const rendered = component.render(120).join("\n");
+			expect(rendered).not.toContain("\x1b]52");
+			expect(rendered).not.toContain("\x07");
+		}
+		expect(stripAnsi(unknown.render(120).join("\n"))).toContain("evil_tool");
+		expect(stripAnsi(write.render(120).join("\n"))).toContain("safeafter");
+	});
+
 	test("caps expanded general tool output at 100 lines", () => {
 		const toolDefinition: ToolDefinition = {
 			...createBaseToolDefinition(),

@@ -51,7 +51,7 @@ export function replaceTabs(text: string): string {
 }
 
 export function normalizeDisplayText(text: string): string {
-	return text.replace(/\r/g, "");
+	return sanitizeToolDisplayText(text).replace(/\r/g, "");
 }
 
 export function sanitizeToolDisplayText(text: string): string {

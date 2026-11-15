@@ -265,6 +265,7 @@
 
 ### Fixed
 
+- Fixed raw terminal controls in provider error text, model-chosen tool names, and `write` content previews reaching the terminal; they are now stripped like tool output
 - Fixed the Supervisor session answering user chat through a `supervisor_response` tool call, which left the user without a visible answer; outside request turns the call is now blocked and the Supervisor answers in text
 - Fixed the Supervisor session showing its `supervisor_response` calls as a bare tool name; the call now shows the decision kind, reason, instructions, answer, objective and question answers
 - Fixed the edit tool writing LF line breaks into CR-only files; edited lines now use the file's lone-CR ending.

@@ -12,7 +12,7 @@ import {
 } from "@earendil-works/pi-tui";
 import type { ToolDefinition, ToolRenderContext } from "../../../core/extensions/types.ts";
 import { createAllToolDefinitions, type ToolName } from "../../../core/tools/index.ts";
-import { getTextOutput as getRenderedTextOutput } from "../../../core/tools/render-utils.ts";
+import { getTextOutput as getRenderedTextOutput, sanitizeToolDisplayText } from "../../../core/tools/render-utils.ts";
 import { convertToPng } from "../../../utils/image-convert.ts";
 import { theme } from "../theme/theme.ts";
 import { formatElapsedDuration } from "./elapsed-time.ts";
@@ -82,6 +82,8 @@ export class ToolExecutionComponent extends Container {
 	private imageComponents: Image[] = [];
 	private imageSpacers: Spacer[] = [];
 	private toolName: string;
+	/** The model chooses the tool name, so it is shown without terminal controls. */
+	private toolTitle: string;
 	private toolCallId: string;
 	private args: unknown;
 	private expanded = false;
@@ -125,6 +127,7 @@ export class ToolExecutionComponent extends Container {
 	) {
 		super();
 		this.toolName = toolName;
+		this.toolTitle = sanitizeToolDisplayText(toolName);
 		this.toolCallId = toolCallId;
 		this.args = args;
 		this.toolDefinition = toolDefinition;
@@ -208,7 +211,7 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private createCallFallback(): Component {
-		return new Text(theme.fg("toolTitle", theme.bold(this.toolName)), 0, 0);
+		return new Text(theme.fg("toolTitle", theme.bold(this.toolTitle)), 0, 0);
 	}
 
 	private createTimerComponent(): Component | undefined {
@@ -411,7 +414,7 @@ export class ToolExecutionComponent extends Container {
 		const timing = [this.formatTimerText(), this.formatCompletionTime()].filter(
 			(text): text is string => text !== undefined,
 		);
-		const title = theme.fg("toolTitle", theme.bold(this.toolName));
+		const title = theme.fg("toolTitle", theme.bold(this.toolTitle));
 		const row = [title, ...timing.map((text) => theme.fg("muted", text))].join(" ");
 		const line = margin + truncateToWidth(row, contentWidth, "");
 		const lines = [line];
@@ -558,7 +561,7 @@ export class ToolExecutionComponent extends Container {
 	}
 
 	private formatToolExecution(): string {
-		let text = theme.fg("toolTitle", theme.bold(this.toolName));
+		let text = theme.fg("toolTitle", theme.bold(this.toolTitle));
 		const content = this.shouldHideCallDetails() ? undefined : JSON.stringify(this.args, null, 2);
 		if (content) {
 			text += `\n\n${content}`;
