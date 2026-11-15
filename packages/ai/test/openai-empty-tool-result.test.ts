@@ -27,6 +27,7 @@ const compat: Required<OpenAICompletionsCompat> = {
 
 function emptyToolResultContext(
 	model: Model<"openai-completions" | "openai-responses" | "openai-codex-responses">,
+	text = "",
 ): Context {
 	const toolCall: AssistantMessage = {
 		role: "assistant",
@@ -53,7 +54,7 @@ function emptyToolResultContext(
 				role: "toolResult",
 				toolCallId: "call_1|fc_1",
 				toolName: "touch",
-				content: [{ type: "text", text: "" }],
+				content: [{ type: "text", text }],
 				isError: false,
 				timestamp: 2,
 			},
@@ -72,6 +73,19 @@ describe("OpenAI empty tool results", () => {
 	it("does not claim an attached image in Responses", () => {
 		const model = getModel("openai-codex", "gpt-5.5");
 		const input = convertResponsesMessages(model, emptyToolResultContext(model), new Set(["openai-codex"]));
+		expect(input.find((item) => item.type === "function_call_output")).toMatchObject({ output: "(no output)" });
+	});
+
+	// https://github.com/earendil-works/pi/issues/8720
+	it("sends the empty-output placeholder for whitespace-only tool output", () => {
+		const { compat: _compat, ...baseModel } = getModel("openai", "gpt-4o-mini");
+		const completionsModel: Model<"openai-completions"> = { ...baseModel, api: "openai-completions" };
+		const messages = convertMessages(completionsModel, emptyToolResultContext(completionsModel, "\r\n"), compat);
+		expect(messages.find((message) => message.role === "tool")?.content).toBe("(no output)");
+
+		const responsesModel = getModel("openai-codex", "gpt-5.5");
+		const context = emptyToolResultContext(responsesModel, " \n");
+		const input = convertResponsesMessages(responsesModel, context, new Set(["openai-codex"]));
 		expect(input.find((item) => item.type === "function_call_output")).toMatchObject({ output: "(no output)" });
 	});
 });

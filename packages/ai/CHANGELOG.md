@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed whitespace-only tool results (for example a bare `\r\n` from bash) being sent verbatim to OpenAI Completions, OpenAI Responses and Google, where some providers reject them with a 400 on every later request; they now use the empty-output placeholder ([#8720](https://github.com/earendil-works/pi-mono/issues/8720))
 - Fixed streaming tool-call argument previews dropping fields when the unfinished JSON contained raw control characters or invalid escapes such as `\d` or `C:\users`
 - Fixed OpenAI Responses, Completions and Azure simple streams downgrading `max` and `ultra` thinking to `high` before applying the model's `thinkingLevelMap`, so mapped models such as `max: "max"` received the wrong effort
 - Fixed Bedrock Claude replays dropping the signature of `thinkingDisplay: "omitted"` thinking blocks, whose text is empty.
