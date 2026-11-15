@@ -919,16 +919,11 @@ export function closeOpenAICodexWebSocketSessions(sessionId?: string): void {
 		if (entry.idleTimer) clearTimeout(entry.idleTimer);
 		closeWebSocketSilently(entry.socket, 1000, "debug_close");
 	};
-	if (sessionId) {
-		const entry = websocketSessionCache.get(sessionId);
-		if (entry) closeEntry(entry);
-		websocketSessionCache.delete(sessionId);
-		return;
-	}
-	for (const entry of websocketSessionCache.values()) {
+	for (const [cacheKey, entry] of websocketSessionCache) {
+		if (sessionId && !cacheKey.startsWith(`${sessionId}\n`)) continue;
 		closeEntry(entry);
+		websocketSessionCache.delete(cacheKey);
 	}
-	websocketSessionCache.clear();
 }
 
 registerSessionResourceCleanup(closeOpenAICodexWebSocketSessions);
@@ -1109,7 +1104,7 @@ async function connectWebSocket(
 async function acquireWebSocket(
 	url: string,
 	headers: Headers,
-	sessionId: string | undefined,
+	cacheSessionId: string | undefined,
 	signal?: AbortSignal,
 	connectTimeoutMs?: number,
 	env?: ProviderEnv,
@@ -1119,7 +1114,7 @@ async function acquireWebSocket(
 	reused: boolean;
 	release: (options?: { keep?: boolean }) => void;
 }> {
-	if (!sessionId) {
+	if (!cacheSessionId) {
 		const socket = await connectWebSocket(url, headers, signal, connectTimeoutMs, env);
 		return {
 			socket,
@@ -1127,6 +1122,8 @@ async function acquireWebSocket(
 			release: () => closeWebSocketSilently(socket),
 		};
 	}
+	// A socket is authenticated as the account that opened it; never reuse it for another account.
+	const sessionId = `${cacheSessionId}\n${headers.get("chatgpt-account-id")}`;
 
 	const cached = websocketSessionCache.get(sessionId);
 	if (cached) {
