@@ -51,19 +51,19 @@ function temporaryDirectory(prefix: string): string {
 }
 
 describe("main resident console dispatch", () => {
-	it("connects --supervisor to the resident transport without ordinary AgentSession startup", async () => {
-		const stateDir = temporaryDirectory("pi-supervisor-cli-state-");
-		process.env.PI_CODING_AGENT_DIR = temporaryDirectory("pi-supervisor-cli-agent-");
+	it("connects --architect to the resident transport without ordinary AgentSession startup", async () => {
+		const stateDir = temporaryDirectory("pi-architect-cli-state-");
+		process.env.PI_CODING_AGENT_DIR = temporaryDirectory("pi-architect-cli-agent-");
 		process.env.PI_CODING_AGENT_STATE_DIR = stateDir;
 		Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true });
 		Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: true });
 		let submittedPrompt: string | undefined;
 		const server = new ResidentConsoleServer({
-			socketPath: join(stateDir, "control.sqlite.supervisor-console.sock"),
-			service: "supervisor",
+			socketPath: join(stateDir, "control.sqlite.architect-console.sock"),
+			service: "architect",
 			getSnapshot: () => ({
-				service: "supervisor",
-				sessionId: "resident-supervisor",
+				service: "architect",
+				sessionId: "resident-architect",
 				cwd: "/resident-kb",
 				generation: 42,
 				branch: [],
@@ -75,7 +75,7 @@ describe("main resident console dispatch", () => {
 		});
 		await server.start();
 
-		const command = main(["--supervisor", "inspect", "this"]);
+		const command = main(["--architect", "inspect", "this"]);
 		await vi.waitFor(() => expect(submittedPrompt).toBe("inspect this"));
 		await server.close();
 		await command;

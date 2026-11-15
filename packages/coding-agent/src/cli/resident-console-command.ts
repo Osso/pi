@@ -10,7 +10,6 @@ import { SettingsManager } from "../core/settings-manager.ts";
 import { AssistantMessageComponent } from "../modes/interactive/components/assistant-message.ts";
 import { UserMessageComponent } from "../modes/interactive/components/user-message.ts";
 import { theme } from "../modes/interactive/theme/theme.ts";
-import { SUPERVISOR_RESPONSE_TOOL_NAME } from "../supervisor/response-tool.ts";
 import { createStartupTui, startStartupTui } from "./startup-ui.ts";
 
 export interface ResidentConsoleCommand {
@@ -19,7 +18,7 @@ export interface ResidentConsoleCommand {
 }
 
 export function parseResidentConsoleArgs(args: string[]): ResidentConsoleCommand | undefined {
-	const service = args[0] === "--supervisor" ? "supervisor" : args[0] === "--architect" ? "architect" : undefined;
+	const service = args[0] === "--architect" ? "architect" : undefined;
 	if (!service) return undefined;
 	const promptParts = args.slice(1);
 	if (promptParts.some((part) => part.startsWith("-"))) {
@@ -155,10 +154,6 @@ export class ResidentConsoleUi extends Container implements Focusable {
 		if (message.role === "user") {
 			if (isDuplicateTurnGuardMessage(message, runtimeMessageMarker)) return;
 			this.chat.addChild(new UserMessageComponent(readTextContent(message.content)));
-			return;
-		}
-		if (message.role === "toolResult" && message.toolName === SUPERVISOR_RESPONSE_TOOL_NAME) {
-			this.chat.addChild(new Text(readTextContent(message.content), 1, 0));
 			return;
 		}
 		if (message.role !== "assistant") return;

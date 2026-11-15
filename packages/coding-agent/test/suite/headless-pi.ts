@@ -34,7 +34,12 @@ import { createSqliteDatabase } from "../../src/core/sqlite.ts";
 import { RpcClient, type RpcCommandBody } from "../../src/modes/rpc/rpc-client.ts";
 import type { RpcExtensionUIRequest, RpcExtensionUIResponse, RpcResponse } from "../../src/modes/rpc/rpc-types.ts";
 import { sendSupervisorReply } from "../../src/supervisor/mail.ts";
-import { type HeadlessSupervisorProbe, startHeadlessSupervisorProbe } from "./fixtures/headless-supervisor-probe.ts";
+import {
+	HEADLESS_SUPERVISOR_SESSION_ID,
+	HEADLESS_SUPERVISOR_SETTINGS,
+	type HeadlessSupervisor,
+	registerHeadlessSupervisor,
+} from "./fixtures/headless-supervisor.ts";
 
 import {
 	type StandaloneSupervisorSentinel,
@@ -341,9 +346,6 @@ function createHeadlessRpcClient(
 			PI_CODING_AGENT_STATE_DIR: paths.agentDir,
 			PI_CODING_AGENT_SESSION_DIR: paths.sessionDir,
 			PI_HEADLESS_PROVIDER_SOCKET: providerSocketPath,
-			...(options.noSupervisor
-				? { PI_HEADLESS_SUPERVISOR_STARTS: `${getControlDbPath(paths.agentDir)}.supervisor-starts` }
-				: {}),
 			...(options.autoDetachTools ? { PI_HEADLESS_TOOL_AUTO_DETACH_MS: "50" } : {}),
 			...(options.env ?? {}),
 			...(sessionStartReleasePath ? { PI_HEADLESS_SESSION_START_RELEASE_PATH: sessionStartReleasePath } : {}),
@@ -654,7 +656,7 @@ function cleanupHeadlessStartup(
 	paths: HeadlessRuntimePaths,
 	client: RpcClient | undefined,
 	provider: ProviderServerControl | undefined,
-	supervisorProbe: HeadlessSupervisorProbe | undefined,
+	supervisorProbe: HeadlessSupervisor | undefined,
 ): Promise<void> {
 	return cleanupHeadlessPiResources({
 		stopClient: () => client?.stop() ?? Promise.resolve(),
@@ -855,7 +857,7 @@ function createHeadlessRuntime(options: {
 	requests: HeadlessLlmRequest[];
 	requestListeners: Set<() => void>;
 	context: HeadlessSessionContext;
-	supervisorProbe?: HeadlessSupervisorProbe;
+	supervisorProbe?: HeadlessSupervisor;
 	supervisorSentinel?: StandaloneSupervisorSentinel;
 }): HeadlessPiRuntime {
 	const waitForEvent = (predicate: (event: AgentSessionEvent) => boolean): Promise<AgentSessionEvent> =>
@@ -1055,7 +1057,7 @@ function createHeadlessRuntime(options: {
 			completeSupervisorRequest(controlDbPath, request.id, request.claimToken, response);
 			// Callers wait for the reply in their mailbox, as the Supervisor sends it.
 			if (request.replyTo) {
-				sendSupervisorReply(controlDbPath, "headless-supervisor", request.replyTo, {
+				sendSupervisorReply(controlDbPath, HEADLESS_SUPERVISOR_SESSION_ID, request.replyTo, {
 					requestKind: request.kind,
 					response,
 				});
@@ -1158,6 +1160,7 @@ export default function(pi) {
 			sandboxProfile: fixtureOptions.sandboxProfile,
 			agents: { background: { context: "fresh" } },
 			disabledExtensions: selectHeadlessDisabledExtensions(fixtureOptions.enableMemoryEnrichment),
+			...(fixtureOptions.noSupervisor ? {} : HEADLESS_SUPERVISOR_SETTINGS),
 		}),
 	);
 	const context: HeadlessSessionContext = { mainSessionId: "", sessionFile: "" };
@@ -1180,14 +1183,14 @@ export default function(pi) {
 	};
 	const recordRequest = createRequestRecorder({ requests, listeners: requestListeners, resolveAgentId });
 	let provider: ProviderServerControl | undefined;
-	let supervisorProbe: HeadlessSupervisorProbe | undefined;
+	let supervisorProbe: HeadlessSupervisor | undefined;
 	let supervisorSentinel: StandaloneSupervisorSentinel | undefined;
 	let client: RpcClient | undefined;
 	let unsubscribeEvents = (): void => {};
 	try {
 		if (fixtureOptions.noSupervisor)
 			supervisorSentinel = await startStandaloneSupervisorSentinel(getControlDbPath(paths.agentDir));
-		else supervisorProbe = await startHeadlessSupervisorProbe(getControlDbPath(paths.agentDir));
+		else supervisorProbe = await registerHeadlessSupervisor(getControlDbPath(paths.agentDir));
 		provider = await createProviderServer(paths.socketPath, recordRequest);
 		client = createHeadlessRpcClient(paths, fixtureOptions);
 		unsubscribeEvents = subscribeHeadlessRpcOutput(client, {

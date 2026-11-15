@@ -88,26 +88,9 @@ describe("resident console command", () => {
 		expect((ui as unknown as ResidentConsoleUiInternals).chat.children).toHaveLength(1);
 	});
 
-	it("renders the structured Supervisor advisory answer from live tool-result events", () => {
-		const ui = createResidentConsoleUi();
-
-		residentConsoleUi.handleEvent.call(ui, {
-			type: "message_start",
-			message: {
-				role: "toolResult",
-				toolCallId: "response-1",
-				toolName: "supervisor_response",
-				content: [{ type: "text", text: "Hello." }],
-				isError: false,
-				timestamp: Date.now(),
-			},
-		});
-
-		expect((ui as unknown as ResidentConsoleUiInternals).chat.children).toHaveLength(1);
-	});
-
-	it("recognizes Supervisor and Architect console flags with optional initial prompts", () => {
-		expect(parseResidentConsoleArgs(["--supervisor"])).toEqual({ service: "supervisor" });
+	it("recognizes the Architect console flag with an optional initial prompt; --supervisor is gone", () => {
+		expect(parseResidentConsoleArgs(["--supervisor"])).toBeUndefined();
+		expect(parseResidentConsoleArgs(["--architect"])).toEqual({ service: "architect" });
 		expect(parseResidentConsoleArgs(["--architect", "review", "this"])).toEqual({
 			service: "architect",
 			initialPrompt: "review this",
@@ -120,6 +103,6 @@ describe("resident console command", () => {
 	});
 
 	it("rejects resident console flags combined with normal CLI flags", () => {
-		expect(() => parseResidentConsoleArgs(["--supervisor", "--model", "openai/gpt"])).toThrow("cannot be combined");
+		expect(() => parseResidentConsoleArgs(["--architect", "--model", "openai/gpt"])).toThrow("cannot be combined");
 	});
 });

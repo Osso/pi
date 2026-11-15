@@ -15,6 +15,7 @@ import {
 	ingestSupervisorRequestMail,
 	sendSupervisorReply,
 } from "../../../src/supervisor/mail.ts";
+import { DEFAULT_SUPERVISOR_KB_DIR } from "../../../src/supervisor/project-resolver.ts";
 import {
 	applySupervisorInstructionVeto,
 	blockSupervisorFileAccess,
@@ -22,8 +23,7 @@ import {
 	createSupervisorInstructionReviewer,
 	evaluateAndCompleteSupervisorRequest,
 	type SupervisorInstructionReviewer,
-} from "../../../src/supervisor/main.ts";
-import { DEFAULT_SUPERVISOR_KB_DIR } from "../../../src/supervisor/project-resolver.ts";
+} from "../../../src/supervisor/request-evaluation.ts";
 import { notifySupervisorRequest, SupervisorRequestWakeServer } from "../../../src/supervisor/request-wake.ts";
 import { createSupervisorResponseTool, SUPERVISOR_RESPONSE_TOOL_NAME } from "../../../src/supervisor/response-tool.ts";
 import type { SupervisorEvaluator } from "../../../src/supervisor/service.ts";

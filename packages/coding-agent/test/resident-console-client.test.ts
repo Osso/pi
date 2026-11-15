@@ -27,7 +27,7 @@ function socketPath(): string {
 
 function snapshot(): ResidentConsoleSnapshot<{ value: string }> {
 	return {
-		service: "supervisor",
+		service: "architect",
 		sessionId: "supervisor",
 		cwd: "/resident",
 		generation: 9,
@@ -48,7 +48,7 @@ describe("ResidentConsoleClient", () => {
 	it("attaches to the existing resident and receives its full snapshot", async () => {
 		const server = new ResidentConsoleServer({
 			socketPath: socketPath(),
-			service: "supervisor",
+			service: "architect",
 			getSnapshot: snapshot,
 			enqueuePrompt: () => {},
 			subscribe: () => () => {},
@@ -56,7 +56,7 @@ describe("ResidentConsoleClient", () => {
 		resources.push(server);
 		await server.start();
 
-		const client = await ResidentConsoleClient.connect({ socketPath: server.socketPath, service: "supervisor" });
+		const client = await ResidentConsoleClient.connect({ socketPath: server.socketPath, service: "architect" });
 		resources.push(client);
 
 		expect(client.snapshot).toEqual(snapshot());
@@ -68,7 +68,7 @@ describe("ResidentConsoleClient", () => {
 		delete (invalidSnapshot.identity as { ready?: true }).ready;
 		const server = new ResidentConsoleServer({
 			socketPath: socketPath(),
-			service: "supervisor",
+			service: "architect",
 			getSnapshot: () => invalidSnapshot,
 			enqueuePrompt: () => {},
 			subscribe: () => () => {},
@@ -76,7 +76,7 @@ describe("ResidentConsoleClient", () => {
 		resources.push(server);
 		await server.start();
 
-		await expect(probeResidentConsole({ socketPath: server.socketPath, service: "supervisor" })).rejects.toThrow(
+		await expect(probeResidentConsole({ socketPath: server.socketPath, service: "architect" })).rejects.toThrow(
 			"Invalid resident console identity",
 		);
 	});
@@ -86,7 +86,7 @@ describe("ResidentConsoleClient", () => {
 		const prompts: string[] = [];
 		const server = new ResidentConsoleServer({
 			socketPath: socketPath(),
-			service: "supervisor",
+			service: "architect",
 			getSnapshot: snapshot,
 			enqueuePrompt: (text) => {
 				prompts.push(text);
@@ -98,10 +98,10 @@ describe("ResidentConsoleClient", () => {
 		});
 		resources.push(server);
 		await server.start();
-		const client = await ResidentConsoleClient.connect({ socketPath: server.socketPath, service: "supervisor" });
+		const client = await ResidentConsoleClient.connect({ socketPath: server.socketPath, service: "architect" });
 		resources.push(client);
 
-		await expect(probeResidentConsole({ socketPath: server.socketPath, service: "supervisor" })).resolves.toEqual(
+		await expect(probeResidentConsole({ socketPath: server.socketPath, service: "architect" })).resolves.toEqual(
 			snapshot(),
 		);
 		await client.prompt("prompt-1", "still owner");
@@ -115,7 +115,7 @@ describe("ResidentConsoleClient", () => {
 		const prompts: string[] = [];
 		const server = new ResidentConsoleServer({
 			socketPath: socketPath(),
-			service: "supervisor",
+			service: "architect",
 			getSnapshot: snapshot,
 			enqueuePrompt: (text) => {
 				prompts.push(text);
@@ -131,7 +131,7 @@ describe("ResidentConsoleClient", () => {
 		await server.start();
 		const client = await ResidentConsoleClient.connect<{ value: string }, { type: string }>({
 			socketPath: server.socketPath,
-			service: "supervisor",
+			service: "architect",
 		});
 		resources.push(client);
 		const events: Array<{ sequence: number; event: { type: string } }> = [];
@@ -152,7 +152,7 @@ describe("ResidentConsoleClient", () => {
 	it("transfers writable ownership to the newest console client", async () => {
 		const server = new ResidentConsoleServer({
 			socketPath: socketPath(),
-			service: "supervisor",
+			service: "architect",
 			getSnapshot: snapshot,
 			enqueuePrompt: () => {},
 			subscribe: () => () => {},
@@ -161,14 +161,14 @@ describe("ResidentConsoleClient", () => {
 		await server.start();
 		const firstClient = await ResidentConsoleClient.connect({
 			socketPath: server.socketPath,
-			service: "supervisor",
+			service: "architect",
 		});
 		resources.push(firstClient);
 		const firstClientDisconnected = new Promise<void>((resolve) => firstClient.onDisconnect(() => resolve()));
 
 		const secondClient = await ResidentConsoleClient.connect({
 			socketPath: server.socketPath,
-			service: "supervisor",
+			service: "architect",
 		});
 		resources.push(secondClient);
 
@@ -186,7 +186,7 @@ describe("ResidentConsoleClient", () => {
 	it("rejects non-object JSON frames on server and client sockets", async () => {
 		const server = new ResidentConsoleServer({
 			socketPath: socketPath(),
-			service: "supervisor",
+			service: "architect",
 			getSnapshot: snapshot,
 			enqueuePrompt: () => {},
 			subscribe: () => () => {},
@@ -219,7 +219,7 @@ describe("ResidentConsoleClient", () => {
 		});
 		await new Promise<void>((resolve) => mockServer.listen(badClientSocketPath, resolve));
 		try {
-			await expect(probeResidentConsole({ socketPath: badClientSocketPath, service: "supervisor" })).rejects.toThrow(
+			await expect(probeResidentConsole({ socketPath: badClientSocketPath, service: "architect" })).rejects.toThrow(
 				"Invalid resident console attach response",
 			);
 		} finally {

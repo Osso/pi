@@ -202,9 +202,9 @@ describe("session listener isolation", () => {
 		let emitEvent: ((event: string) => void) | undefined;
 		const server = new ResidentConsoleServer<string, string>({
 			socketPath: join(harness.tempDir, "console.sock"),
-			service: "supervisor",
+			service: "architect",
 			getSnapshot: () => ({
-				service: "supervisor",
+				service: "architect",
 				sessionId: "test",
 				cwd: harness.tempDir,
 				generation: 1,
@@ -221,7 +221,7 @@ describe("session listener isolation", () => {
 		let client: ResidentConsoleClient<string, string> | undefined;
 		try {
 			await server.start();
-			client = await ResidentConsoleClient.connect({ socketPath: server.socketPath, service: "supervisor" });
+			client = await ResidentConsoleClient.connect({ socketPath: server.socketPath, service: "architect" });
 			const deliveries: string[] = [];
 			client.onEvent(() => {
 				deliveries.push("throwing event");

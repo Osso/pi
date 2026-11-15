@@ -143,7 +143,6 @@ import {
 	stopThemeWatcher,
 } from "./modes/interactive/theme/theme.ts";
 import { handleConfigCommand, handlePackageCommand } from "./package-manager-cli.ts";
-import { runSupervisorService } from "./supervisor/main.ts";
 import { isExecutableAvailable } from "./utils/executable.ts";
 import { resolveWorktree, WorktreeStartupError } from "./utils/git-worktree.ts";
 import { isLocalPath, normalizePath, resolvePath } from "./utils/paths.ts";
@@ -751,7 +750,7 @@ function createFirstPartyExtensionFactories(
 
 function rejectInvalidStandaloneWorkerStartup(args: string[], parsed: Args): void {
 	if (!parsed.noSupervisor) return;
-	const requestsResidentConsole = args.includes("--supervisor") || args.includes("--architect");
+	const requestsResidentConsole = args.includes("--architect");
 	const hasArgumentErrors = parsed.diagnostics.some((diagnostic) => diagnostic.type === "error");
 	if (hasArgumentErrors || requestsResidentConsole) {
 		reportDiagnostics(parsed.diagnostics);
@@ -918,11 +917,6 @@ export async function main(args: string[], options?: MainOptions) {
 	if (args.length === 1 && args[0] === "architect") {
 		await loadOpenRouterCatalogAtStartup();
 		await runArchitectService();
-		return;
-	}
-	if (args.length === 1 && args[0] === "supervisor") {
-		await loadOpenRouterCatalogAtStartup();
-		await runSupervisorService();
 		return;
 	}
 	if (offlineMode) {

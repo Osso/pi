@@ -3,7 +3,7 @@ import { createConnection, createServer, type Server, type Socket } from "node:n
 import { dirname } from "node:path";
 
 export const RESIDENT_CONSOLE_PROTOCOL_VERSION = 1;
-export type ResidentConsoleService = "architect" | "supervisor";
+export type ResidentConsoleService = "architect";
 
 export interface ResidentConsoleIdentity {
 	version: string;

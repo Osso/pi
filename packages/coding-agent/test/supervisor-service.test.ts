@@ -1,33 +1,18 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	cancelSupervisorRequest,
 	claimNextSupervisorRequest,
 	getControlDbPath,
 	postSupervisorRequest,
-	readSessionMetadata,
 	readSupervisorRequest,
-	registerRuntimeMailboxListener,
-	writeSessionMetadata,
 } from "../src/core/session-control-db.ts";
-import { SessionManager } from "../src/core/session-manager.ts";
-import {
-	blockSupervisorFileAccess,
-	createSupervisorModelRegistry,
-	createSupervisorResourceLoader,
-	createSupervisorSettingsManager,
-	openSupervisorSession,
-	processSupervisorRequest,
-	SUPERVISOR_EXCLUDED_TOOL_NAMES,
-	SUPERVISOR_TOOL_NAMES,
-	validateSupervisorExtensionLoad,
-} from "../src/supervisor/main.ts";
+import { blockSupervisorFileAccess } from "../src/supervisor/request-evaluation.ts";
 import { buildSupervisorPrompt, parseSupervisorResponse, runSupervisorRequest } from "../src/supervisor/service.ts";
 
-describe("resident Supervisor service", () => {
+describe("Supervisor request service", () => {
 	let tempDir: string;
 	let controlDbPath: string;
 
@@ -38,101 +23,6 @@ describe("resident Supervisor service", () => {
 
 	afterEach(() => {
 		rmSync(tempDir, { force: true, recursive: true });
-	});
-
-	it("retains the newest Supervisor transcript and removes stale files and metadata", () => {
-		const sessionDir = join(tempDir, "supervisor-sessions");
-		mkdirSync(sessionDir);
-		const legacyPath = join(sessionDir, "supervisor.jsonl");
-		const stalePath = join(sessionDir, "2026-09-01T00-00-00-000Z_supervisor.jsonl");
-		const retainedPath = join(sessionDir, "2026-09-02T00-00-00-000Z_supervisor.jsonl");
-		for (const [sessionPath, name] of [
-			[legacyPath, "Remove legacy"],
-			[stalePath, "Remove me"],
-			[retainedPath, "Retain me"],
-		] as const) {
-			writeFileSync(
-				sessionPath,
-				`${JSON.stringify({
-					type: "session",
-					version: 3,
-					id: "supervisor",
-					timestamp: "2026-09-01T00:00:00.000Z",
-					cwd: tempDir,
-				})}\n`,
-			);
-			writeSessionMetadata(controlDbPath, {
-				sessionPath,
-				id: "supervisor",
-				cwd: tempDir,
-				name,
-				createdAt: "2026-09-01T00:00:00.000Z",
-				modifiedAt: "2026-09-01T00:00:00.000Z",
-				messageCount: 0,
-				firstMessage: "(no messages)",
-			});
-		}
-
-		const session = openSupervisorSession(tempDir, tempDir, controlDbPath);
-
-		expect(session.getSessionFile()).toBe(retainedPath);
-		expect(existsSync(legacyPath)).toBe(false);
-		expect(readSessionMetadata(controlDbPath, legacyPath)).toBeUndefined();
-		expect(existsSync(stalePath)).toBe(false);
-		expect(readSessionMetadata(controlDbPath, stalePath)).toBeUndefined();
-		expect(existsSync(retainedPath)).toBe(true);
-		expect(readSessionMetadata(controlDbPath, retainedPath)).toMatchObject({ name: "Retain me" });
-	});
-
-	it("retains a live Supervisor transcript while pruning stale files and fileless metadata", () => {
-		const sessionDir = join(tempDir, "supervisor-sessions");
-		mkdirSync(sessionDir);
-		const activePath = join(sessionDir, "2026-09-01T00-00-00-000Z_supervisor.jsonl");
-		const stalePath = join(sessionDir, "2026-09-02T00-00-00-000Z_supervisor.jsonl");
-		const missingPath = join(sessionDir, "2026-09-03T00-00-00-000Z_supervisor.jsonl");
-		for (const sessionPath of [activePath, stalePath]) {
-			writeFileSync(
-				sessionPath,
-				`${JSON.stringify({
-					type: "session",
-					version: 3,
-					id: "supervisor",
-					timestamp: "2026-09-01T00:00:00.000Z",
-					cwd: tempDir,
-				})}\n`,
-			);
-		}
-		for (const [sessionPath, name] of [
-			[activePath, "Live transcript"],
-			[stalePath, "Stale transcript"],
-			[missingPath, "Missing transcript"],
-		] as const) {
-			writeSessionMetadata(controlDbPath, {
-				sessionPath,
-				id: "supervisor",
-				cwd: tempDir,
-				name,
-				createdAt: "2026-09-01T00:00:00.000Z",
-				modifiedAt: "2026-09-01T00:00:00.000Z",
-				messageCount: 1,
-				firstMessage: name,
-			});
-		}
-		registerRuntimeMailboxListener(
-			controlDbPath,
-			{ agentId: null, sessionId: "supervisor" },
-			process.pid,
-			activePath,
-		);
-
-		const session = openSupervisorSession(tempDir, tempDir, controlDbPath);
-
-		expect(session.getSessionFile()).toBe(activePath);
-		expect(existsSync(activePath)).toBe(true);
-		expect(readSessionMetadata(controlDbPath, activePath)).toMatchObject({ name: "Live transcript" });
-		expect(existsSync(stalePath)).toBe(false);
-		expect(readSessionMetadata(controlDbPath, stalePath)).toBeUndefined();
-		expect(readSessionMetadata(controlDbPath, missingPath)).toBeUndefined();
 	});
 
 	it("aborts an active evaluation after caller cancellation without writing a response", async () => {
@@ -178,37 +68,7 @@ describe("resident Supervisor service", () => {
 		expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({ status: "cancelled" });
 	});
 
-	it("loads only the Supervisor mutation gate extension", async () => {
-		const settingsManager = createSupervisorSettingsManager();
-		const resourceLoader = await createSupervisorResourceLoader(
-			tempDir,
-			tempDir,
-			settingsManager,
-			createSupervisorModelRegistry(tempDir),
-		);
-
-		const extensions = resourceLoader.getExtensions().extensions;
-		expect(extensions).toHaveLength(1);
-		expect(extensions.some((extension) => extension.handlers.has("compaction"))).toBe(false);
-		expect(extensions[0]?.toolGates.length).toBeGreaterThan(0);
-	});
-
-	it("rejects extension diagnostics before the Supervisor session starts", () => {
-		expect(() =>
-			validateSupervisorExtensionLoad({
-				errors: [{ path: "<supervisor-mutation-gate>", error: "factory failed" }],
-				extensions: [],
-				runtime: {} as never,
-			}),
-		).toThrow("Supervisor extension load failed: <supervisor-mutation-gate>: factory failed");
-	});
-
 	it("limits file access to Supervisor KB memory", () => {
-		const settings = createSupervisorSettingsManager();
-		expect(settings.getExplicitSandboxProfile()).toBe("full-access");
-		expect(settings.getApprovalPolicy()).toBe("auto-approve");
-		expect(SUPERVISOR_TOOL_NAMES).toEqual(["read", "edit", "write"]);
-		expect(SUPERVISOR_EXCLUDED_TOOL_NAMES).toEqual(expect.arrayContaining(["bash", "pyrun_eval", "spawn_agent"]));
 		expect(
 			blockSupervisorFileAccess("/syncthing/Sync/KB", {
 				input: { path: "/worktree/source.ts" },
@@ -465,178 +325,6 @@ describe("resident Supervisor service", () => {
 			}),
 		).toBeUndefined();
 	});
-
-	it("does not reuse a prior assistant response when the current request produces none", async () => {
-		postSupervisorRequest(controlDbPath, {
-			deadlineAt: new Date(Date.now() + 30_000).toISOString(),
-			kind: "approval_review",
-			payload: { toolName: "read" },
-			projectId: "pi",
-			senderSessionId: "main",
-		});
-		const approvalRequest = claimNextSupervisorRequest(controlDbPath, "runtime");
-		if (!approvalRequest) throw new Error("expected approval request");
-		let promptCount = 0;
-		const sessionManager = SessionManager.create(tempDir, tempDir);
-		const session = {
-			abort: async () => {},
-			dispose: () => {},
-			prompt: async () => {
-				promptCount += 1;
-				if (promptCount !== 1) return;
-				sessionManager.appendMessage(fauxAssistantMessage('{"kind":"approve","reason":"prior approval"}'));
-			},
-			sessionManager,
-		};
-		await processSupervisorRequest(controlDbPath, approvalRequest, session);
-
-		const goalRequestId = postSupervisorRequest(controlDbPath, {
-			deadlineAt: new Date(Date.now() + 30_000).toISOString(),
-			kind: "goal_idle_review",
-			payload: { objective: "finish" },
-			projectId: "pi",
-			senderSessionId: "main",
-		});
-		const goalRequest = claimNextSupervisorRequest(controlDbPath, "runtime");
-		if (!goalRequest) throw new Error("expected goal request");
-		await processSupervisorRequest(controlDbPath, goalRequest, session);
-
-		expect(readSupervisorRequest(controlDbPath, goalRequestId)).toMatchObject({
-			response: { kind: "error", reason: "Supervisor model returned no assistant text for current request" },
-			status: "completed",
-		});
-	});
-
-	it("extracts the current response after compaction replaces the message array", async () => {
-		const requestId = postSupervisorRequest(controlDbPath, {
-			deadlineAt: new Date(Date.now() + 30_000).toISOString(),
-			kind: "goal_idle_review",
-			payload: { objective: "finish" },
-			projectId: "pi",
-			senderSessionId: "main",
-		});
-		const request = claimNextSupervisorRequest(controlDbPath, "runtime");
-		if (!request) throw new Error("expected request");
-		const sessionManager = SessionManager.create(tempDir, tempDir);
-		const firstEntryId = sessionManager.appendMessage({ role: "user", content: "old user", timestamp: 1 });
-		sessionManager.appendMessage(fauxAssistantMessage("old assistant"));
-		const session = {
-			abort: async () => {},
-			dispose: () => {},
-			prompt: async () => {
-				sessionManager.appendCompaction("compacted history", firstEntryId, 100);
-				sessionManager.appendMessage(fauxAssistantMessage('{"kind":"complete","reason":"current response"}'));
-			},
-			sessionManager,
-		};
-
-		await processSupervisorRequest(controlDbPath, request, session);
-
-		expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({
-			response: { kind: "complete", reason: "current response" },
-			status: "completed",
-		});
-	});
-
-	it("accepts a structured supervisor response tool call without assistant JSON text", async () => {
-		const requestId = postSupervisorRequest(controlDbPath, {
-			deadlineAt: new Date(Date.now() + 30_000).toISOString(),
-			kind: "goal_completion_review",
-			payload: { objective: "finish" },
-			projectId: "pi",
-			senderSessionId: "main",
-		});
-		const request = claimNextSupervisorRequest(controlDbPath, "runtime");
-		if (!request) throw new Error("expected request");
-		const sessionManager = SessionManager.create(tempDir, tempDir);
-		const session = {
-			abort: async () => {},
-			dispose: () => {},
-			prompt: async () => {
-				sessionManager.appendMessage(
-					fauxAssistantMessage(
-						fauxToolCall("supervisor_response", { kind: "complete", reason: "structured proof" }),
-						{ stopReason: "toolUse" },
-					),
-				);
-			},
-			sessionManager,
-		};
-
-		await processSupervisorRequest(controlDbPath, request, session);
-
-		expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({
-			response: { kind: "complete", reason: "structured proof" },
-			status: "completed",
-		});
-	});
-
-	it("uses the last completed JSON response when the duplicate guard ends with end_turn", async () => {
-		const requestId = postSupervisorRequest(controlDbPath, {
-			deadlineAt: new Date(Date.now() + 30_000).toISOString(),
-			kind: "goal_idle_review",
-			payload: { objective: "finish" },
-			projectId: "pi",
-			senderSessionId: "main",
-		});
-		const request = claimNextSupervisorRequest(controlDbPath, "runtime");
-		if (!request) throw new Error("expected request");
-		const sessionManager = SessionManager.create(tempDir, tempDir);
-		const session = {
-			abort: async () => {},
-			dispose: () => {},
-			prompt: async () => {
-				sessionManager.appendMessage(fauxAssistantMessage('{"kind":"complete","reason":"guarded response"}'));
-				sessionManager.appendMessage(
-					fauxAssistantMessage(fauxToolCall("end_turn", { reason: "duplicate response detected" }), {
-						stopReason: "toolUse",
-					}),
-				);
-			},
-			sessionManager,
-		};
-
-		await processSupervisorRequest(controlDbPath, request, session);
-
-		expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({
-			response: { kind: "complete", reason: "guarded response" },
-			status: "completed",
-		});
-	});
-
-	it.each(["error", "aborted", "length"] as const)(
-		"rejects valid partial JSON when the terminal assistant stops with %s",
-		async (stopReason) => {
-			const requestId = postSupervisorRequest(controlDbPath, {
-				deadlineAt: new Date(Date.now() + 30_000).toISOString(),
-				kind: "goal_idle_review",
-				payload: { objective: "finish" },
-				projectId: "pi",
-				senderSessionId: "main",
-			});
-			const request = claimNextSupervisorRequest(controlDbPath, "runtime");
-			if (!request) throw new Error("expected request");
-			const sessionManager = SessionManager.create(tempDir, tempDir);
-			const session = {
-				abort: async () => {},
-				dispose: () => {},
-				prompt: async () => {
-					sessionManager.appendMessage(fauxAssistantMessage('{"kind":"complete","reason":"intermediate"}'));
-					sessionManager.appendMessage(
-						fauxAssistantMessage('{"kind":"complete","reason":"partial terminal response"}', { stopReason }),
-					);
-				},
-				sessionManager,
-			};
-
-			await processSupervisorRequest(controlDbPath, request, session);
-
-			expect(readSupervisorRequest(controlDbPath, requestId)).toMatchObject({
-				response: { kind: "error", reason: `Supervisor model request ended with ${stopReason}` },
-				status: "completed",
-			});
-		},
-	);
 
 	it("persists the parsed model decision", async () => {
 		const requestId = postSupervisorRequest(controlDbPath, {

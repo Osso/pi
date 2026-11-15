@@ -69,8 +69,6 @@ describe("standalone worker real CLI", () => {
 				await agent.waitForEvent((event) => event.type === "agent_end");
 				expect(readdirSync(agent.paths.sessionDir)).toEqual([]);
 				expect(agent.readSupervisorActivity()).toEqual({
-					connections: 0,
-					starts: 0,
 					requests: 0,
 					listeners: 0,
 					cursors: 0,

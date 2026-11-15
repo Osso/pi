@@ -1,5 +1,4 @@
 import { fork } from "node:child_process";
-import { unlinkSync } from "node:fs";
 import { join } from "node:path";
 import {
 	getControlDbPath,
@@ -26,9 +25,6 @@ export async function startControlledRestrictionSupervisor(
 	agent: HeadlessPi,
 ): Promise<ControlledRestrictionSupervisor> {
 	const controlDbPath = getControlDbPath(agent.paths.agentDir);
-	// Transfer the disposable probe pathname to a real resident child. The original
-	// fixture still owns its now-unlinked server and cleans it up at disposal.
-	unlinkSync(`${controlDbPath}.supervisor-console.sock`);
 	const child = fork(join(import.meta.dirname, "codex-restriction-supervisor-child.ts"), [controlDbPath], {
 		execArgv: ["--experimental-strip-types"],
 		cwd: agent.paths.workspaceDir,

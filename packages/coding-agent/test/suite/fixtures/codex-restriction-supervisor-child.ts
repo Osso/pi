@@ -7,11 +7,10 @@ import {
 	type SupervisorResponse,
 } from "../../../src/core/session-control-db.ts";
 import { sendSupervisorReply } from "../../../src/supervisor/mail.ts";
-import { startHeadlessSupervisorProbe } from "./headless-supervisor-probe.ts";
+import { HEADLESS_SUPERVISOR_SESSION_ID, writeHeadlessSupervisorHealth } from "./headless-supervisor.ts";
 
 const controlDbPath = process.argv[2];
 if (!controlDbPath || !process.send) throw new Error("Controlled Supervisor requires isolated DB and IPC");
-const residentReady = startHeadlessSupervisorProbe(controlDbPath);
 
 interface Command {
 	id: number;
@@ -31,18 +30,18 @@ async function claimRequest(): Promise<SupervisorRequest> {
 }
 
 async function execute(command: Command): Promise<unknown> {
-	const resident = await residentReady;
 	if (command.kind === "claim") return claimRequest();
 	if (command.kind === "ping") return { pid: process.pid, ready: true };
 	if (command.kind === "close") {
-		await resident.close();
+		// The fixture's stand-in Supervisor session stops; new requests fail fast.
+		writeHeadlessSupervisorHealth(controlDbPath, null);
 		return { closed: true };
 	}
 	const { request, response } = command;
 	if (!request?.claimToken || !response) throw new Error("Claim and response required");
 	completeSupervisorRequest(controlDbPath, request.id, request.claimToken, response);
 	if (request.replyTo) {
-		sendSupervisorReply(controlDbPath, "headless-supervisor", request.replyTo, {
+		sendSupervisorReply(controlDbPath, HEADLESS_SUPERVISOR_SESSION_ID, request.replyTo, {
 			requestKind: request.kind,
 			response,
 		});

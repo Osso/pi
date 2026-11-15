@@ -1,7 +1,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fauxAssistantMessage } from "@earendil-works/pi-ai/compat";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	claimNextSupervisorRequest,
@@ -11,13 +10,13 @@ import {
 	type SupervisorRequest,
 	type SupervisorRequestKind,
 } from "../src/core/session-control-db.ts";
-import { SessionManager } from "../src/core/session-manager.ts";
 import {
+	applySupervisorInstructionVeto,
 	createSupervisorInstructionReviewer,
+	evaluateAndCompleteSupervisorRequest,
 	GENERIC_GOAL_CONTINUATION,
-	processSupervisorRequest,
 	type SupervisorInstructionReviewer,
-} from "../src/supervisor/main.ts";
+} from "../src/supervisor/request-evaluation.ts";
 import {
 	buildSupervisorInstructionReviewContext,
 	parseSupervisorInstructionReviewDecision,
@@ -27,38 +26,41 @@ import {
 const REJECTED_INSTRUCTION = "Implement the parser tests next.";
 const ACCEPTED_INSTRUCTION = "The current evidence shows an unresolved completion gap.";
 
-type SupervisorSessionForTest = Parameters<typeof processSupervisorRequest>[2];
-
 interface ClaimedRequest {
 	id: number;
 	request: SupervisorRequest;
 }
 
-interface FakeResidentSession {
-	promptCount: () => number;
-	sendCustomMessage: ReturnType<typeof vi.fn>;
-	session: SupervisorSessionForTest;
-	sessionManager: SessionManager;
-}
-
-function createFakeResidentSession(tempDir: string, responses: unknown[]): FakeResidentSession {
-	const sessionManager = SessionManager.create(tempDir, tempDir);
+/** The Supervisor session's side of a request: its model's raw response, vetted, then recorded. */
+function createFakeSupervisorSession() {
 	const sendCustomMessage = vi.fn(async () => {});
-	let promptCount = 0;
-	const session = {
-		abort: async () => {},
-		dispose: () => {},
-		prompt: async () => {
-			const response = responses[promptCount];
-			promptCount += 1;
-			if (response === undefined) return;
-			const text = typeof response === "string" ? response : JSON.stringify(response);
-			sessionManager.appendMessage(fauxAssistantMessage(text));
-		},
+	let evaluations = 0;
+	return {
 		sendCustomMessage,
-		sessionManager,
+		evaluations: () => evaluations,
+		answer(
+			controlDbPath: string,
+			request: SupervisorRequest,
+			rawResponse: unknown,
+			reviewInstructions: SupervisorInstructionReviewer,
+		): Promise<void> {
+			return evaluateAndCompleteSupervisorRequest(
+				controlDbPath,
+				request,
+				(_prompt, signal) => {
+					evaluations += 1;
+					return applySupervisorInstructionVeto(
+						request,
+						rawResponse,
+						{ sendCustomMessage },
+						reviewInstructions,
+						signal,
+					);
+				},
+				"supervisor",
+			);
+		},
 	};
-	return { promptCount: () => promptCount, sendCustomMessage, session, sessionManager };
 }
 
 describe("Supervisor instruction veto contract", () => {
@@ -186,17 +188,20 @@ describe("Supervisor instruction veto delivery", () => {
 
 	it("replaces rejected instructions, records fixed hidden feedback, and does not retry", async () => {
 		const { id, request } = postAndClaim("goal_idle_review", { objective: "finish" });
-		const fake = createFakeResidentSession(tempDir, [
-			{ kind: "continue", reason: "local gap", instructions: REJECTED_INSTRUCTION },
-		]);
+		const fake = createFakeSupervisorSession();
 		const reviewInstructions: SupervisorInstructionReviewer = async (instructions) => {
 			expect(instructions).toBe(REJECTED_INSTRUCTION);
 			return "reject_task_assignment";
 		};
 
-		await processSupervisorRequest(controlDbPath, request, fake.session, reviewInstructions);
+		await fake.answer(
+			controlDbPath,
+			request,
+			{ kind: "continue", reason: "local gap", instructions: REJECTED_INSTRUCTION },
+			reviewInstructions,
+		);
 
-		expect(fake.promptCount()).toBe(1);
+		expect(fake.evaluations()).toBe(1);
 		expect(readSupervisorRequest(controlDbPath, id)).toMatchObject({
 			response: { kind: "continue", instructions: GENERIC_GOAL_CONTINUATION, reason: "local gap" },
 			status: "completed",
@@ -215,12 +220,15 @@ describe("Supervisor instruction veto delivery", () => {
 			completionReport: "Not finished.",
 			objective: "finish",
 		});
-		const fake = createFakeResidentSession(tempDir, [
-			{ kind: "continue", reason: "missing proof", instructions: ACCEPTED_INSTRUCTION },
-		]);
+		const fake = createFakeSupervisorSession();
 		const reviewInstructions = vi.fn<SupervisorInstructionReviewer>(async () => "accept");
 
-		await processSupervisorRequest(controlDbPath, request, fake.session, reviewInstructions);
+		await fake.answer(
+			controlDbPath,
+			request,
+			{ kind: "continue", reason: "missing proof", instructions: ACCEPTED_INSTRUCTION },
+			reviewInstructions,
+		);
 
 		expect(reviewInstructions).toHaveBeenCalledOnce();
 		expect(readSupervisorRequest(controlDbPath, id)).toMatchObject({
@@ -232,14 +240,21 @@ describe("Supervisor instruction veto delivery", () => {
 
 	it("bypasses the gate for exact generic continuation and advisory responses", async () => {
 		const reviewInstructions = vi.fn<SupervisorInstructionReviewer>(async () => "reject_task_assignment");
-		const fake = createFakeResidentSession(tempDir, [
-			{ kind: "continue", reason: "keep going", instructions: GENERIC_GOAL_CONTINUATION },
-			{ kind: "advisory", answer: REJECTED_INSTRUCTION },
-		]);
+		const fake = createFakeSupervisorSession();
 		const goal = postAndClaim("goal_idle_review", { objective: "finish" });
-		await processSupervisorRequest(controlDbPath, goal.request, fake.session, reviewInstructions);
+		await fake.answer(
+			controlDbPath,
+			goal.request,
+			{ kind: "continue", reason: "keep going", instructions: GENERIC_GOAL_CONTINUATION },
+			reviewInstructions,
+		);
 		const advisory = postAndClaim("supervisor_advisory", { question: "What remains?" });
-		await processSupervisorRequest(controlDbPath, advisory.request, fake.session, reviewInstructions);
+		await fake.answer(
+			controlDbPath,
+			advisory.request,
+			{ kind: "advisory", answer: REJECTED_INSTRUCTION },
+			reviewInstructions,
+		);
 
 		expect(reviewInstructions).not.toHaveBeenCalled();
 		expect(readSupervisorRequest(controlDbPath, goal.id)).toMatchObject({
@@ -247,19 +262,6 @@ describe("Supervisor instruction veto delivery", () => {
 		});
 		expect(readSupervisorRequest(controlDbPath, advisory.id)).toMatchObject({
 			response: { kind: "advisory", answer: REJECTED_INSTRUCTION },
-		});
-	});
-
-	it("fails closed when no reviewer is supplied", async () => {
-		const { id, request } = postAndClaim("goal_idle_review", { objective: "finish" });
-		const fake = createFakeResidentSession(tempDir, [
-			{ kind: "continue", reason: "local gap", instructions: REJECTED_INSTRUCTION },
-		]);
-
-		await processSupervisorRequest(controlDbPath, request, fake.session);
-
-		expect(readSupervisorRequest(controlDbPath, id)).toMatchObject({
-			response: { kind: "continue", instructions: GENERIC_GOAL_CONTINUATION, reason: "local gap" },
 		});
 	});
 
@@ -278,11 +280,14 @@ describe("Supervisor instruction veto delivery", () => {
 		],
 	] as const)("fails closed on %s without leaking instructions", async (failure, reviewInstructions, feedback) => {
 		const { id, request } = postAndClaim("goal_idle_review", { objective: "finish" });
-		const fake = createFakeResidentSession(tempDir, [
-			{ kind: "continue", reason: "local gap", instructions: REJECTED_INSTRUCTION },
-		]);
+		const fake = createFakeSupervisorSession();
 
-		await processSupervisorRequest(controlDbPath, request, fake.session, reviewInstructions);
+		await fake.answer(
+			controlDbPath,
+			request,
+			{ kind: "continue", reason: "local gap", instructions: REJECTED_INSTRUCTION },
+			reviewInstructions,
+		);
 
 		expect(readSupervisorRequest(controlDbPath, id)).toMatchObject({
 			response: { kind: "continue", instructions: GENERIC_GOAL_CONTINUATION, reason: "local gap" },
@@ -310,7 +315,7 @@ describe("Supervisor instruction veto lifecycle", () => {
 		rmSync(tempDir, { force: true, recursive: true });
 	});
 
-	function postAndClaim(kind: SupervisorRequestKind, payload: Record<string, unknown>): ClaimedRequest {
+	function _postAndClaim(kind: SupervisorRequestKind, payload: Record<string, unknown>): ClaimedRequest {
 		const id = postSupervisorRequest(controlDbPath, {
 			deadlineAt: new Date(Date.now() + 30_000).toISOString(),
 			kind,
@@ -323,23 +328,6 @@ describe("Supervisor instruction veto lifecycle", () => {
 		return { id, request };
 	}
 
-	it("preserves veto feedback during resident compaction", async () => {
-		const { request } = postAndClaim("goal_idle_review", { objective: "finish" });
-		const fake = createFakeResidentSession(tempDir, [{ kind: "complete", reason: "done" }]);
-		const compact = vi.fn(async () => {});
-		const session = {
-			...fake.session,
-			compact,
-			getContextUsage: () => ({ percent: 80 }),
-		};
-
-		await processSupervisorRequest(controlDbPath, request, session);
-
-		expect(compact).toHaveBeenCalledWith(
-			"Preserve Supervisor decisions, project-specific policies, instruction-veto policy feedback, and reusable approval rationale.",
-		);
-	});
-
 	it("aborts an in-flight veto and requeues its goal review when approval arrives", async () => {
 		const goalId = postSupervisorRequest(controlDbPath, {
 			deadlineAt: new Date(Date.now() + 120_000).toISOString(),
@@ -350,9 +338,7 @@ describe("Supervisor instruction veto lifecycle", () => {
 		});
 		const request = claimNextSupervisorRequest(controlDbPath, "runtime");
 		if (!request) throw new Error("expected goal review");
-		const fake = createFakeResidentSession(tempDir, [
-			{ kind: "continue", reason: "local gap", instructions: REJECTED_INSTRUCTION },
-		]);
+		const fake = createFakeSupervisorSession();
 		let vetoSignal: AbortSignal | undefined;
 		let markVetoStarted!: () => void;
 		const vetoStarted = new Promise<void>((resolve) => {
@@ -365,7 +351,12 @@ describe("Supervisor instruction veto lifecycle", () => {
 			throw new Error("veto aborted");
 		};
 
-		const processing = processSupervisorRequest(controlDbPath, request, fake.session, reviewInstructions);
+		const processing = fake.answer(
+			controlDbPath,
+			request,
+			{ kind: "continue", reason: "local gap", instructions: REJECTED_INSTRUCTION },
+			reviewInstructions,
+		);
 		await vetoStarted;
 		postSupervisorRequest(controlDbPath, {
 			deadlineAt: new Date(Date.now() + 30_000).toISOString(),

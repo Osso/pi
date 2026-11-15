@@ -1,13 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { openArchitectSession } from "../../src/architect/main.ts";
 import {
 	getControlDbPath,
 	readRuntimeMailboxListener,
 	readSessionMetadata,
 	writeSessionMetadata,
 } from "../../src/core/session-control-db.ts";
-import { openSupervisorSession } from "../../src/supervisor/main.ts";
 import { withHeadlessPi } from "./headless-pi.ts";
 
 function writeResidentTranscript(path: string, id: string, cwd: string, content: string): void {
@@ -26,25 +26,25 @@ function writeResidentTranscript(path: string, id: string, cwd: string, content:
 }
 
 describe("resident session recovery", () => {
-	it("preserves a live child Supervisor transcript while replacing stale resident history", async () => {
+	it("preserves a live child Architect transcript while replacing stale resident history", async () => {
 		await withHeadlessPi(async (runtime) => {
 			const controlDbPath = getControlDbPath(runtime.paths.agentDir);
-			const sessionDir = join(runtime.paths.agentDir, "supervisor-sessions");
+			const sessionDir = join(runtime.paths.agentDir, "architect-sessions");
 			mkdirSync(sessionDir);
-			const activePath = join(sessionDir, "2026-09-01T00-00-00-000Z_supervisor.jsonl");
-			const stalePath = join(sessionDir, "2026-09-02T00-00-00-000Z_supervisor.jsonl");
-			const missingPath = join(sessionDir, "2026-09-03T00-00-00-000Z_supervisor.jsonl");
-			writeResidentTranscript(activePath, "supervisor", runtime.paths.workspaceDir, "live child content");
+			const activePath = join(sessionDir, "2026-09-01T00-00-00-000Z_architect.jsonl");
+			const stalePath = join(sessionDir, "2026-09-02T00-00-00-000Z_architect.jsonl");
+			const missingPath = join(sessionDir, "2026-09-03T00-00-00-000Z_architect.jsonl");
+			writeResidentTranscript(activePath, "architect", runtime.paths.workspaceDir, "live child content");
 			const child = await runtime.startSharedSession({ sessionFile: activePath });
 			try {
 				await vi.waitFor(() =>
 					expect(
-						readRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "supervisor" })?.sessionPath,
+						readRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "architect" })?.sessionPath,
 					).toBe(activePath),
 				);
 				writeSessionMetadata(controlDbPath, {
 					sessionPath: activePath,
-					id: "supervisor",
+					id: "architect",
 					cwd: runtime.paths.workspaceDir,
 					name: "Live transcript",
 					createdAt: "2026-09-01T00:00:00.000Z",
@@ -52,10 +52,10 @@ describe("resident session recovery", () => {
 					messageCount: 1,
 					firstMessage: "live child content",
 				});
-				writeResidentTranscript(stalePath, "supervisor", runtime.paths.workspaceDir, "stale content");
+				writeResidentTranscript(stalePath, "architect", runtime.paths.workspaceDir, "stale content");
 				writeSessionMetadata(controlDbPath, {
 					sessionPath: stalePath,
-					id: "supervisor",
+					id: "architect",
 					cwd: runtime.paths.workspaceDir,
 					name: "Stale transcript",
 					createdAt: "2026-09-02T00:00:00.000Z",
@@ -65,7 +65,7 @@ describe("resident session recovery", () => {
 				});
 				writeSessionMetadata(controlDbPath, {
 					sessionPath: missingPath,
-					id: "supervisor",
+					id: "architect",
 					cwd: runtime.paths.workspaceDir,
 					name: "Missing transcript",
 					createdAt: "2026-09-03T00:00:00.000Z",
@@ -74,7 +74,7 @@ describe("resident session recovery", () => {
 					firstMessage: "missing content",
 				});
 
-				const retained = openSupervisorSession(runtime.paths.agentDir, runtime.paths.workspaceDir, controlDbPath);
+				const retained = openArchitectSession(runtime.paths.agentDir, runtime.paths.workspaceDir, controlDbPath);
 
 				expect(retained.getSessionFile()).toBe(activePath);
 				expect(existsSync(activePath)).toBe(true);
@@ -84,7 +84,7 @@ describe("resident session recovery", () => {
 				expect(readSessionMetadata(controlDbPath, stalePath)).toBeUndefined();
 				expect(readSessionMetadata(controlDbPath, missingPath)).toBeUndefined();
 				expect(
-					readRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "supervisor" })?.sessionPath,
+					readRuntimeMailboxListener(controlDbPath, { agentId: null, sessionId: "architect" })?.sessionPath,
 				).toBe(activePath);
 			} finally {
 				await child.dispose();

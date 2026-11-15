@@ -8,7 +8,7 @@ import { expect, it } from "vitest";
 import { MultiAgentStore } from "../../../src/core/multi-agent-store.ts";
 import { getControlDbPath, readSessionMetadata } from "../../../src/core/session-control-db.ts";
 import { SessionManager } from "../../../src/core/session-manager.ts";
-import { startHeadlessSupervisorProbe } from "../fixtures/headless-supervisor-probe.ts";
+import { HEADLESS_SUPERVISOR_SETTINGS, registerHeadlessSupervisor } from "../fixtures/headless-supervisor.ts";
 import { createHeadlessPaths } from "../headless-pi.ts";
 
 interface Observation {
@@ -102,6 +102,7 @@ function writeRestartFixture() {
 			approvalPreset: "auto-approve",
 			disabledExtensions: ["claude-memory-enrich", "effort", "session-autoname"],
 			agents: { explore: { model: `headless-faux/${modelC}`, thinkingLevel: "off" } },
+			...HEADLESS_SUPERVISOR_SETTINGS,
 		}),
 	);
 	writeFileSync(
@@ -227,10 +228,10 @@ it.skipIf(process.platform === "win32").each([true, false])(
 		const { paths, startupsPath, modelA, modelB, modelC } = fixture;
 		const { requests, sockets, server } = startProviderTransport(fixture.observationsPath);
 		let bridge: ChildProcessWithoutNullStreams | undefined;
-		let probe: Awaited<ReturnType<typeof startHeadlessSupervisorProbe>> | undefined;
+		let probe: Awaited<ReturnType<typeof registerHeadlessSupervisor>> | undefined;
 		let output = "";
 		try {
-			probe = await startHeadlessSupervisorProbe(getControlDbPath(paths.agentDir));
+			probe = await registerHeadlessSupervisor(getControlDbPath(paths.agentDir));
 			await new Promise<void>((resolve, reject) => {
 				server.once("error", reject);
 				server.listen(paths.socketPath, resolve);
