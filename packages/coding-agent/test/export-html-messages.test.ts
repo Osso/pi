@@ -39,4 +39,26 @@ describe("export HTML messages", () => {
 		expect(html).toContain('<div class="tool-execution error"');
 		expect(html).toContain("(exit 2)");
 	});
+
+	it("keeps the text blocks of a custom message on separate lines", () => {
+		const html = renderExportHtml(
+			[
+				{
+					type: "custom_message",
+					id: "c1",
+					parentId: null,
+					timestamp,
+					customType: "notice",
+					content: [
+						{ type: "text", text: "FIRST" },
+						{ type: "text", text: "SECOND" },
+					],
+					display: true,
+				},
+			],
+			"c1",
+		);
+
+		expect(html).toContain('<div class="markdown-content">FIRST\nSECOND</div>');
+	});
 });

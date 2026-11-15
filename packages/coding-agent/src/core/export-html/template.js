@@ -302,13 +302,13 @@
         return false;
       }
 
-      function extractContent(content) {
+      function extractContent(content, separator = '') {
         if (typeof content === 'string') return content;
         if (Array.isArray(content)) {
           return content
             .filter(c => c.type === 'text' && c.text)
             .map(c => c.text)
-            .join('');
+            .join(separator);
         }
         return '';
       }
@@ -1304,7 +1304,7 @@
         if (entry.type === 'custom_message' && entry.display) {
           return `<div class="hook-message" id="${entryDomId}">${tsHtml}
             <div class="hook-type">[${escapeHtml(entry.customType)}]</div>
-            <div class="markdown-content">${safeMarkedParse(extractContent(entry.content))}</div>
+            <div class="markdown-content">${safeMarkedParse(extractContent(entry.content, '\n'))}</div>
           </div>`;
         }
 

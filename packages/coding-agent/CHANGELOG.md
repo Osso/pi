@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed HTML exports joining the text blocks of a displayed extension custom message without a separator; they are now separated by newlines as in the TUI
 - Fixed HTML exports showing a `!` command killed by a signal, which has no exit code, as failed with `(exit undefined)`
 - Fixed `read` line-range labels for numeric-string or null arguments in the TUI, session tree, HTML exports, and examples; a non-numeric `offset` is no longer inserted into the HTML export as markup ([#9887](https://github.com/earendil-works/pi/issues/9887))
 - Fixed prompt templates with invalid YAML frontmatter disappearing without a warning; the parse error is now reported as a resource diagnostic ([#9830](https://github.com/earendil-works/pi-mono/pull/9830))
