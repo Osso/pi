@@ -327,6 +327,17 @@ function collectMultiAgentTools(
 	return tools;
 }
 
+function requireTool(tools: Map<string, RegisteredTool>, name: string): RegisteredTool {
+	const tool = tools.get(name);
+	if (!tool) throw new Error(`expected ${name} tool`);
+	return tool;
+}
+
+/** Spawns a fresh child named "Worker" through the spawn_agent tool. */
+function spawnWorker(spawnAgent: RegisteredTool, prompt: string, ctx: ExtensionContext) {
+	return spawnAgent.execute("spawn", { context: "fresh", displayName: "Worker", prompt }, undefined, undefined, ctx);
+}
+
 function createRuntimeMailboxContext(input: {
 	controlDbPath: string;
 	multiAgentAgentId?: string;
@@ -628,10 +639,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			transcript: { sessionId: childSession.getSessionId() },
 		});
 		const tools = collectMultiAgentTools(store);
-		const contactParent = tools.get("contact_parent");
-		if (!contactParent) {
-			throw new Error("expected contact_parent tool");
-		}
+		const contactParent = requireTool(tools, "contact_parent");
 		expect(tools.has("contact_supervisor")).toBe(false);
 		const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("provider socket closed"));
 
@@ -694,10 +702,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const transcript = store.updateAgentTranscript(child.agent.id, { sessionId: "target-session" });
 		expect(transcript.ok).toBe(true);
 		const tools = collectMultiAgentTools(store);
-		const sendAgentMessage = tools.get("send_agent_message");
-		if (!sendAgentMessage) {
-			throw new Error("expected send_agent_message tool");
-		}
+		const sendAgentMessage = requireTool(tools, "send_agent_message");
 
 		senderSession.appendMessage(
 			fauxAssistantMessage(
@@ -761,10 +766,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		});
 		expect(store.updateAgentTranscript(child.agent.id, { sessionId: "target-session" }).ok).toBe(true);
 		const tools = collectMultiAgentTools(store);
-		const sendAgentMessage = tools.get("send_agent_message");
-		if (!sendAgentMessage) {
-			throw new Error("expected send_agent_message tool");
-		}
+		const sendAgentMessage = requireTool(tools, "send_agent_message");
 
 		senderSession.appendMessage(
 			fauxAssistantMessage(
@@ -812,10 +814,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const senderSession = SessionManager.create(tempDir, join(tempDir, "sessions"), { id: "sender-session" });
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
 		const tools = collectMultiAgentTools(store);
-		const sendAgentMessage = tools.get("send_agent_message");
-		if (!sendAgentMessage) {
-			throw new Error("expected send_agent_message tool");
-		}
+		const sendAgentMessage = requireTool(tools, "send_agent_message");
 
 		senderSession.appendMessage(
 			fauxAssistantMessage(
@@ -859,10 +858,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const { controlDbPath, senderSession, store } = createSenderTargetStore(tempDir);
 		const onSessionMessageSent = vi.fn();
 		const tools = collectMultiAgentTools(store, { onSessionMessageSent });
-		const sendAgentMessage = tools.get("send_agent_message");
-		if (!sendAgentMessage) {
-			throw new Error("expected send_agent_message tool");
-		}
+		const sendAgentMessage = requireTool(tools, "send_agent_message");
 
 		senderSession.appendMessage(
 			fauxAssistantMessage(
@@ -923,10 +919,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		const parentTranscript = store.updateAgentTranscript(parent.agent.id, { sessionId: "sender-session" });
 		expect(parentTranscript.ok).toBe(true);
 		const tools = collectMultiAgentTools(store);
-		const sendAgentMessage = tools.get("send_agent_message");
-		if (!sendAgentMessage) {
-			throw new Error("expected send_agent_message tool");
-		}
+		const sendAgentMessage = requireTool(tools, "send_agent_message");
 
 		senderSession.appendMessage(
 			fauxAssistantMessage(
@@ -985,10 +978,7 @@ describe("runtime SQLite mailbox delivery", () => {
 			process.pid,
 		);
 		const tools = collectMultiAgentTools(store);
-		const steerAgent = tools.get("steer_agent");
-		if (!steerAgent) {
-			throw new Error("expected steer_agent tool");
-		}
+		const steerAgent = requireTool(tools, "steer_agent");
 
 		const steered = await steerAgent.execute(
 			"steer",
@@ -1022,16 +1012,11 @@ describe("runtime SQLite mailbox delivery", () => {
 			return { lifecycle: "waiting_for_input" };
 		});
 		const tools = collectMultiAgentTools(store, { createChildSession });
-		const spawnAgent = tools.get("spawn_agent");
-		if (!spawnAgent) {
-			throw new Error("expected spawn_agent tool");
-		}
+		const spawnAgent = requireTool(tools, "spawn_agent");
 
-		await spawnAgent.execute(
-			"spawn",
-			{ context: "fresh", displayName: "Worker", prompt: "ask user" },
-			undefined,
-			undefined,
+		await spawnWorker(
+			spawnAgent,
+			"ask user",
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
 		);
 		for (let attempt = 0; attempt < 20 && waitingAgents.length === 0; attempt += 1) {
@@ -1200,16 +1185,11 @@ describe("runtime SQLite mailbox delivery", () => {
 			transcript: { path: join(tmpdir(), `${agent.id}.jsonl`), sessionId: `session-${agent.id}` },
 		});
 		const tools = collectMultiAgentTools(store, { createChildSession });
-		const spawnAgent = tools.get("spawn_agent");
-		if (!spawnAgent) {
-			throw new Error("expected spawn_agent tool");
-		}
+		const spawnAgent = requireTool(tools, "spawn_agent");
 
-		await spawnAgent.execute(
-			"spawn",
-			{ context: "fresh", displayName: "Worker", prompt: "ask user" },
-			undefined,
-			undefined,
+		await spawnWorker(
+			spawnAgent,
+			"ask user",
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
 		);
 		for (let attempt = 0; attempt < 20 && !transitionedToWaiting; attempt += 1) {
@@ -1245,16 +1225,11 @@ describe("runtime SQLite mailbox delivery", () => {
 				return undefined;
 			},
 		});
-		const spawnAgent = tools.get("spawn_agent");
-		if (!spawnAgent) {
-			throw new Error("expected spawn_agent tool");
-		}
+		const spawnAgent = requireTool(tools, "spawn_agent");
 
-		await spawnAgent.execute(
-			"spawn",
-			{ context: "fresh", displayName: "Worker", prompt: "ask user" },
-			undefined,
-			undefined,
+		await spawnWorker(
+			spawnAgent,
+			"ask user",
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
 		);
 		for (let attempt = 0; attempt < 20 && desktopNotifications.length === 0; attempt += 1) {
@@ -1307,11 +1282,9 @@ describe("runtime SQLite mailbox delivery", () => {
 			throw new Error("expected spawn_agent and wait_agent tools");
 		}
 
-		await spawnAgent.execute(
-			"spawn",
-			{ context: "fresh", displayName: "Worker", prompt: "ask user" },
-			undefined,
-			undefined,
+		await spawnWorker(
+			spawnAgent,
+			"ask user",
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
 		);
 		await delay(5);
@@ -1344,16 +1317,11 @@ describe("runtime SQLite mailbox delivery", () => {
 			createChildSession,
 			desktopNotifier: () => ({ close }),
 		});
-		const spawnAgent = tools.get("spawn_agent");
-		if (!spawnAgent) {
-			throw new Error("expected spawn_agent tool");
-		}
+		const spawnAgent = requireTool(tools, "spawn_agent");
 
-		await spawnAgent.execute(
-			"spawn",
-			{ context: "fresh", displayName: "Worker", prompt: "ask user" },
-			undefined,
-			undefined,
+		await spawnWorker(
+			spawnAgent,
+			"ask user",
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
 		);
 		for (
@@ -1395,16 +1363,11 @@ describe("runtime SQLite mailbox delivery", () => {
 				throw new Error("notification failed");
 			},
 		});
-		const spawnAgent = tools.get("spawn_agent");
-		if (!spawnAgent) {
-			throw new Error("expected spawn_agent tool");
-		}
+		const spawnAgent = requireTool(tools, "spawn_agent");
 
-		await spawnAgent.execute(
-			"spawn",
-			{ context: "fresh", displayName: "Worker", prompt: "ask user" },
-			undefined,
-			undefined,
+		await spawnWorker(
+			spawnAgent,
+			"ask user",
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
 		);
 		for (let attempt = 0; attempt < 20 && listRuntimeMailboxMessages(controlDbPath).length === 0; attempt += 1) {
@@ -1438,16 +1401,11 @@ describe("runtime SQLite mailbox delivery", () => {
 			return { lifecycle: "completed", result: { summary: "tests passed" } };
 		});
 		const tools = collectMultiAgentTools(store, { createChildSession });
-		const spawnAgent = tools.get("spawn_agent");
-		if (!spawnAgent) {
-			throw new Error("expected spawn_agent tool");
-		}
+		const spawnAgent = requireTool(tools, "spawn_agent");
 
-		await spawnAgent.execute(
-			"spawn",
-			{ context: "fresh", displayName: "Worker", prompt: "run tests" },
-			undefined,
-			undefined,
+		await spawnWorker(
+			spawnAgent,
+			"run tests",
 			createRuntimeMailboxContext({ controlDbPath, sessionManager: parentSession }),
 		);
 		for (let attempt = 0; attempt < 20 && listRuntimeMailboxMessages(controlDbPath).length === 0; attempt += 1) {
