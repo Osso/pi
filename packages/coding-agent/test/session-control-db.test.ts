@@ -240,6 +240,18 @@ async function runWorkerUnderWriterLock(
 	}
 }
 
+/** Runs `request` while another connection holds the writer lock; fails if the worker waited for that lock. */
+async function runWithoutWriterLockWait(
+	worker: Worker,
+	controlDbPath: string,
+	request: unknown,
+	label: string,
+): Promise<WorkerStatusMessage> {
+	const { completed, blockedBeforeRelease } = await runWorkerUnderWriterLock(worker, controlDbPath, request, label);
+	if (blockedBeforeRelease) throw blockedBeforeRelease;
+	return completed;
+}
+
 function claimTestRuntimeMailboxMessages(
 	controlDbPath: string,
 	recipient: Parameters<typeof claimRuntimeMailboxMessages>[1],
@@ -4478,42 +4490,24 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "identical-enqueue worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("enqueue");
-			const result = await waitForWorkerStatus(worker, {
-				expectedType: "completed",
-				timeoutMessage: "identical runtime mailbox enqueue waited for the writer lock",
-				timeoutMs: 1_000,
-			});
-			expect(result).toMatchObject({ id: before.id, type: "completed" });
-			holder.exec("ROLLBACK");
+		const result = await runWithoutWriterLockWait(
+			worker,
+			controlDbPath,
+			"enqueue",
+			"identical runtime mailbox enqueue",
+		);
+		expect(result).toMatchObject({ id: before.id, type: "completed" });
 
-			const afterDb = createSqliteDatabase(controlDbPath);
-			try {
-				const after = afterDb
-					.prepare(
-						"SELECT rowid AS id, data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
-					)
-					.get(sessionPath, messageId) as { data: string; id: number; updated_at: string };
-				expect(after).toEqual(before);
-			} finally {
-				afterDb.close();
-			}
+		const afterDb = createSqliteDatabase(controlDbPath);
+		try {
+			const after = afterDb
+				.prepare(
+					"SELECT rowid AS id, data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
+				)
+				.get(sessionPath, messageId) as { data: string; id: number; updated_at: string };
+			expect(after).toEqual(before);
 		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
+			afterDb.close();
 		}
 	});
 
@@ -4571,42 +4565,24 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, input } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "identical-stored-enqueue worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("enqueue");
-			const result = await waitForWorkerStatus(worker, {
-				expectedType: "completed",
-				timeoutMessage: "identical stored runtime mailbox enqueue waited for the writer lock",
-				timeoutMs: 1_000,
-			});
-			expect(result).toMatchObject({ id: before.id, type: "completed" });
-			holder.exec("ROLLBACK");
+		const result = await runWithoutWriterLockWait(
+			worker,
+			controlDbPath,
+			"enqueue",
+			"identical stored runtime mailbox enqueue",
+		);
+		expect(result).toMatchObject({ id: before.id, type: "completed" });
 
-			const afterDb = createSqliteDatabase(controlDbPath);
-			try {
-				const after = afterDb
-					.prepare(
-						"SELECT rowid AS id, data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
-					)
-					.get(sessionPath, messageId) as { data: string; id: number; updated_at: string };
-				expect(after).toEqual(before);
-			} finally {
-				afterDb.close();
-			}
+		const afterDb = createSqliteDatabase(controlDbPath);
+		try {
+			const after = afterDb
+				.prepare(
+					"SELECT rowid AS id, data, updated_at FROM multi_agent_mailbox_messages WHERE session_path = ? AND message_id = ?",
+				)
+				.get(sessionPath, messageId) as { data: string; id: number; updated_at: string };
+			expect(after).toEqual(before);
 		} finally {
-			try {
-				holder.exec("ROLLBACK");
-			} catch {
-				// The holder may already have released its transaction after the assertion.
-			}
-			await worker.terminate();
-			holder.close();
+			afterDb.close();
 		}
 	});
 
@@ -5226,26 +5202,8 @@ Date.now = () => ${Date.now()};
 			`,
 			{ controlDbPath },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "incoming-message worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("claim");
-			const result = await waitForWorkerStatus(worker, {
-				expectedType: "completed",
-				timeoutMessage: "empty incoming-message claim waited for the writer lock",
-				timeoutMs: 1_000,
-			});
-			expect(result.claimed).toBe(false);
-		} finally {
-			holder.exec("ROLLBACK");
-			await worker.terminate();
-			holder.close();
-		}
+		const result = await runWithoutWriterLockWait(worker, controlDbPath, "claim", "empty incoming-message claim");
+		expect(result.claimed).toBe(false);
 	});
 
 	it("allows claimed incoming messages to be completed", () => {
@@ -5269,26 +5227,8 @@ Date.now = () => ${Date.now()};
 			`,
 			{ controlDbPath },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "Supervisor request worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("claim");
-			const result = await waitForWorkerStatus(worker, {
-				expectedType: "completed",
-				timeoutMessage: "empty Supervisor claim waited for the writer lock",
-				timeoutMs: 1_000,
-			});
-			expect(result.claimed).toBe(false);
-		} finally {
-			holder.exec("ROLLBACK");
-			await worker.terminate();
-			holder.close();
-		}
+		const result = await runWithoutWriterLockWait(worker, controlDbPath, "claim", "empty Supervisor claim");
+		expect(result.claimed).toBe(false);
 	});
 
 	it("returns without a writer lock when no Supervisor request needs recovery", async () => {
@@ -5301,25 +5241,7 @@ Date.now = () => ${Date.now()};
 			`,
 			{ controlDbPath },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "Supervisor recovery worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("recover");
-			await waitForWorkerStatus(worker, {
-				expectedType: "completed",
-				timeoutMessage: "idle Supervisor recovery waited for the writer lock",
-				timeoutMs: 1_000,
-			});
-		} finally {
-			holder.exec("ROLLBACK");
-			await worker.terminate();
-			holder.close();
-		}
+		await runWithoutWriterLockWait(worker, controlDbPath, "recover", "idle Supervisor recovery");
 	});
 
 	it("returns without a writer lock when no terminal outbox row is eligible", async () => {
@@ -5338,26 +5260,8 @@ Date.now = () => ${Date.now()};
 			`,
 			{ controlDbPath },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "terminal-outbox worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("claim");
-			const result = await waitForWorkerStatus(worker, {
-				expectedType: "completed",
-				timeoutMessage: "empty terminal-outbox claim waited for the writer lock",
-				timeoutMs: 1_000,
-			});
-			expect(result.claimed).toBe(false);
-		} finally {
-			holder.exec("ROLLBACK");
-			await worker.terminate();
-			holder.close();
-		}
+		const result = await runWithoutWriterLockWait(worker, controlDbPath, "claim", "empty terminal-outbox claim");
+		expect(result.claimed).toBe(false);
 	});
 
 	it("reads existing prompt history without acquiring the writer lock", async () => {
@@ -5370,26 +5274,8 @@ Date.now = () => ${Date.now()};
 			`,
 			{ controlDbPath },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "prompt-history worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("read");
-			const result = await waitForWorkerStatus(worker, {
-				expectedType: "completed",
-				timeoutMessage: "persisted prompt history waited for the writer lock",
-				timeoutMs: 1_000,
-			});
-			expect(result.entries).toEqual(["persisted prompt"]);
-		} finally {
-			holder.exec("ROLLBACK");
-			await worker.terminate();
-			holder.close();
-		}
+		const result = await runWithoutWriterLockWait(worker, controlDbPath, "read", "persisted prompt history");
+		expect(result.entries).toEqual(["persisted prompt"]);
 	});
 
 	it("skips empty legacy prompt migration before acquiring the writer lock", async () => {
@@ -5632,26 +5518,8 @@ Date.now = () => ${Date.now()};
 			`,
 			{ eval: true, execArgv: ["--experimental-strip-types"], workerData: { controlDbPath, messageId, storeRef } },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "completed-mailbox worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("read");
-			const result = await waitForWorkerStatus(worker, {
-				expectedType: "completed",
-				timeoutMessage: "completed mailbox reads waited for the writer lock",
-				timeoutMs: 1_000,
-			});
-			expect(result).toMatchObject({ consumed: 0, delivered: false });
-		} finally {
-			holder.exec("ROLLBACK");
-			await worker.terminate();
-			holder.close();
-		}
+		const result = await runWithoutWriterLockWait(worker, controlDbPath, "read", "completed mailbox reads");
+		expect(result).toMatchObject({ consumed: 0, delivered: false });
 	});
 
 	it("claims canonical mailbox rows atomically without a runtime message table", () => {
@@ -6728,26 +6596,8 @@ Date.now = () => ${Date.now()};
 			`,
 			{ controlDbPath, cutoff },
 		);
-		const holder = createSqliteDatabase(controlDbPath);
-		configureSharedSqliteDatabase(holder, { busyTimeoutMs: 100 });
-		try {
-			await waitForWorkerStatus(worker, {
-				expectedType: "ready",
-				timeoutMessage: "session-archive worker did not load",
-			});
-			holder.exec("BEGIN IMMEDIATE");
-			worker.postMessage("archive");
-			const result = await waitForWorkerStatus(worker, {
-				expectedType: "completed",
-				timeoutMessage: "empty session archive waited for the writer lock",
-				timeoutMs: 1_000,
-			});
-			expect(result.paths).toEqual([]);
-		} finally {
-			holder.exec("ROLLBACK");
-			await worker.terminate();
-			holder.close();
-		}
+		const result = await runWithoutWriterLockWait(worker, controlDbPath, "archive", "empty session archive");
+		expect(result.paths).toEqual([]);
 	});
 
 	it("updates existing session metadata without changing its session path or name", () => {
