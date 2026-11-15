@@ -178,6 +178,21 @@ describe("writePermissionRules", () => {
 		expect(settings.getMergedSettings().theme).toBe("dark");
 	});
 
+	it("keeps user rules for a tool when project settings also have rules for it", () => {
+		writeFileSync(
+			join(agentDir, "settings.json"),
+			JSON.stringify({ permissionRules: { allow: { bash: ["git diff"] } } }),
+		);
+		writeFileSync(
+			join(cwd, ".pi", "settings.json"),
+			JSON.stringify({ permissionRules: { allow: { bash: ["git status"] } } }),
+		);
+		const store = PermissionRuleStore.forSession(SettingsManager.create(cwd, agentDir), cwd, agentDir);
+
+		expect(store.hasAllowRule("bash", "git diff")).toBe(true);
+		expect(store.hasAllowRule("bash", "git status")).toBe(true);
+	});
+
 	it("does not suppress MCP reviews with local rules from an untrusted project", async () => {
 		writeFileSync(
 			join(cwd, ".pi", "settings.local.json"),

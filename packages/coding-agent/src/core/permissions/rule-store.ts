@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { CONFIG_DIR_NAME } from "../../config.ts";
+import type { SettingsManager } from "../settings-manager.ts";
 
 export type PermissionRuleDestination = "session" | "userSettings" | "projectSettings" | "localSettings";
 export type PermissionRuleBehavior = "allow";
@@ -53,6 +54,24 @@ export class PermissionRuleStore {
 
 	static fromSettings(settings: { permissionRules?: unknown }): PermissionRuleStore {
 		return new PermissionRuleStore({ settings });
+	}
+
+	/** Loads global, project and (trusted) local rules for a session. */
+	static forSession(
+		settingsManager: Pick<SettingsManager, "getGlobalSettings" | "getProjectSettings" | "isProjectTrusted">,
+		cwd: string,
+		agentDir: string,
+	): PermissionRuleStore {
+		const projectTrusted = settingsManager.isProjectTrusted();
+		const store = new PermissionRuleStore({
+			cwd,
+			agentDir,
+			settings: settingsManager.getGlobalSettings(),
+			projectTrusted,
+		});
+		// Read each layer: merged settings replace arrays, so project rules for a tool would hide the user's.
+		store.addSettingsRules(settingsManager.getProjectSettings());
+		return store;
 	}
 
 	hasAllowRule(toolName: string, ruleContent: string): boolean {

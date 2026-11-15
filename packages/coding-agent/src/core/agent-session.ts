@@ -763,12 +763,7 @@ export class AgentSession {
 		this._agentDir = config.agentDir ?? getAgentDir();
 		this._controlDbPath = this.sessionManager.getMetadataControlDbPath() ?? getControlDbPath();
 		this._supervisorDecisionRequester = config.supervisorDecisionRequester ?? requestSupervisorDecision;
-		this._permissionRuleStore = new PermissionRuleStore({
-			agentDir: this._agentDir,
-			cwd: this._cwd,
-			settings: this.settingsManager.getMergedSettings(),
-			projectTrusted: this.settingsManager.isProjectTrusted(),
-		});
+		this._permissionRuleStore = PermissionRuleStore.forSession(this.settingsManager, this._cwd, this._agentDir);
 		this._baseToolsOverride = config.baseToolsOverride;
 		this._sessionStartEvent = config.sessionStartEvent ?? { type: "session_start", reason: "startup" };
 		this.sessionManager.setMetadataControlDbPath(this._controlDbPath);
