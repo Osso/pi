@@ -395,6 +395,15 @@ function spawnStoreFixture(
 	};
 }
 
+function spawnTestWorker(store: MultiAgentStore) {
+	return legacyMultiAgentStore(store).spawnAgent({
+		agentType: "worker",
+		cwd: "/repo",
+		displayName: "Worker",
+		permission: { narrowed: true, policy: "on-request" },
+	});
+}
+
 /** The parent harness context fields a multi-agent harness needs to spawn children. */
 function harnessCtx(harness: Harness): Partial<ExtensionContext> {
 	return {
@@ -631,6 +640,12 @@ describe("multi-agent extension tools", () => {
 	});
 	const childHarnesses: Harness[] = [];
 	const childSessions: Harness["session"][] = [];
+
+	async function createTrackedHarness(): Promise<Harness> {
+		const harness = await createHarness();
+		childHarnesses.push(harness);
+		return harness;
+	}
 
 	afterEach(async () => {
 		vi.useRealTimers();
@@ -2500,12 +2515,7 @@ describe("multi-agent extension tools", () => {
 
 	it("routes Pi request handler agents.select through the interactive view callback when available", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		const spawned = legacyMultiAgentStore(store).spawnAgent({
-			agentType: "worker",
-			cwd: "/repo",
-			displayName: "Worker",
-			permission: { narrowed: true, policy: "on-request" },
-		});
+		const spawned = spawnTestWorker(store);
 		const selectAgentView = vi.fn((agentId: string) => store.selectActiveAgentTarget(agentId) !== undefined);
 		const handler = createMultiAgentPiRequestHandler({ selectAgentView, store });
 		const ctx = { cwd: "/repo", hasUI: false, mode: "print" } as ExtensionContext;
@@ -2519,12 +2529,7 @@ describe("multi-agent extension tools", () => {
 	it("resolves main after a bridge-selected child view returns to main", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const runtimeHandles = createMultiAgentRuntimeHandles();
-		const spawned = legacyMultiAgentStore(store).spawnAgent({
-			agentType: "worker",
-			cwd: "/repo",
-			displayName: "Worker",
-			permission: { narrowed: true, policy: "on-request" },
-		});
+		const spawned = spawnTestWorker(store);
 		store.selectActiveAgentTarget(spawned.agent.id);
 		store.clearSelectedAgentView();
 
@@ -2534,12 +2539,7 @@ describe("multi-agent extension tools", () => {
 	it("rejects a selected live session without viewed model capabilities", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const runtimeHandles = createMultiAgentRuntimeHandles();
-		const spawned = legacyMultiAgentStore(store).spawnAgent({
-			agentType: "worker",
-			cwd: "/repo",
-			displayName: "Worker",
-			permission: { narrowed: true, policy: "on-request" },
-		});
+		const spawned = spawnTestWorker(store);
 		store.selectActiveAgentTarget(spawned.agent.id);
 		runtimeHandles.sessions.set(spawned.agent.id, {
 			messages: [],
@@ -2558,12 +2558,7 @@ describe("multi-agent extension tools", () => {
 	it("rejects a selected active row without a live session handle persistently", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const runtimeHandles = createMultiAgentRuntimeHandles();
-		const spawned = legacyMultiAgentStore(store).spawnAgent({
-			agentType: "worker",
-			cwd: "/repo",
-			displayName: "Worker",
-			permission: { narrowed: true, policy: "on-request" },
-		});
+		const spawned = spawnTestWorker(store);
 		store.selectActiveAgentTarget(spawned.agent.id);
 
 		expect(() => resolveSelectedSessionMutationTarget(store, runtimeHandles)).toThrow(
@@ -2577,12 +2572,7 @@ describe("multi-agent extension tools", () => {
 	it("leaves the current mutation view unchanged when Pi request handler agents.select fails", async () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const runtimeHandles = createMultiAgentRuntimeHandles();
-		const spawned = legacyMultiAgentStore(store).spawnAgent({
-			agentType: "worker",
-			cwd: "/repo",
-			displayName: "Worker",
-			permission: { narrowed: true, policy: "on-request" },
-		});
+		const spawned = spawnTestWorker(store);
 		const handler = createMultiAgentPiRequestHandler({
 			runtimeHandles,
 			selectAgentView: () => false,
@@ -4287,12 +4277,7 @@ describe("multi-agent extension tools", () => {
 
 	it("routes completed notices for main-thread children to the main mailbox", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
-		const spawned = legacyMultiAgentStore(store).spawnAgent({
-			agentType: "worker",
-			cwd: "/repo",
-			displayName: "Worker",
-			permission: { narrowed: true, policy: "on-request" },
-		});
+		const spawned = spawnTestWorker(store);
 		const running = { ok: true as const, agent: spawned.agent };
 		const waiting = legacyMultiAgentStore(store).transitionAgent(
 			running.agent.id,
@@ -4621,8 +4606,7 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("wires spawn_agent to a production child AgentSession factory with parent session metadata", async () => {
-		const parentHarness = await createHarness();
-		childHarnesses.push(parentHarness);
+		const parentHarness = await createTrackedHarness();
 		let childHarness: Harness | undefined;
 		let sessionOptions: CreateAgentSessionOptions | undefined;
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
@@ -5164,8 +5148,7 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("rejects inherited context when the parent transcript is not persisted", async () => {
-		const parentHarness = await createHarness();
-		childHarnesses.push(parentHarness);
+		const parentHarness = await createTrackedHarness();
 		const createSession = vi.fn();
 		const harness = createMultiAgentHarness({
 			ctx: harnessCtx(parentHarness),
@@ -5191,8 +5174,7 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("denies externally registered manage_goal in production child sessions", async () => {
-		const parentHarness = await createHarness();
-		childHarnesses.push(parentHarness);
+		const parentHarness = await createTrackedHarness();
 		let childSession: Harness["session"] | undefined;
 		let manageGoalCallError: string | undefined;
 		const probeExtension: ExtensionFactory = (pi) => {
@@ -5234,8 +5216,7 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("denies externally registered manage_goal in production attached sessions", async () => {
-		const parentHarness = await createHarness();
-		childHarnesses.push(parentHarness);
+		const parentHarness = await createTrackedHarness();
 		const target = SessionManager.create("/repo", parentHarness.tempDir, { id: "attached-session" });
 		target.appendMessage({ role: "user", content: "existing", timestamp: 1 });
 		target.persistForRecovery();
@@ -5434,8 +5415,7 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("passes the shared store into production attached AgentSession factories", async () => {
-		const parentHarness = await createHarness();
-		childHarnesses.push(parentHarness);
+		const parentHarness = await createTrackedHarness();
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const target = SessionManager.create("/repo", parentHarness.tempDir, { id: "attached-session" });
 		target.appendMessage({ role: "user", content: "existing", timestamp: 1 });
@@ -5484,8 +5464,7 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("rejects recovery before runtime creation when the persisted child cwd is missing", async () => {
-		const parentHarness = await createHarness();
-		childHarnesses.push(parentHarness);
+		const parentHarness = await createTrackedHarness();
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const target = SessionManager.create("/repo", parentHarness.tempDir, { id: "missing-cwd-child" });
 		target.appendMessage({ role: "user", content: "existing", timestamp: 1 });
@@ -5513,8 +5492,7 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("rejects recovery when the persisted child transcript is missing", async () => {
-		const parentHarness = await createHarness();
-		childHarnesses.push(parentHarness);
+		const parentHarness = await createTrackedHarness();
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const transcriptPath = join(parentHarness.tempDir, "missing-child.jsonl");
 		const createSession = vi.fn(async (options: CreateAgentSessionOptions) => inertChildSession(options));
@@ -5539,8 +5517,7 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("rejects recovery when the child transcript session identity changed", async () => {
-		const parentHarness = await createHarness();
-		childHarnesses.push(parentHarness);
+		const parentHarness = await createTrackedHarness();
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const target = SessionManager.create("/repo", parentHarness.tempDir, { id: "replacement-child-session" });
 		target.appendMessage({ role: "user", content: "unrelated context", timestamp: 1 });
@@ -5623,8 +5600,7 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("does not seed a session-local goal from the spawn prompt", async () => {
-		const parentHarness = await createHarness();
-		childHarnesses.push(parentHarness);
+		const parentHarness = await createTrackedHarness();
 		parentHarness.sessionManager.setSessionGoalJson(
 			JSON.stringify({ objective: "parent objective", branch: "test", createdAt: "2026-01-01T00:00:00.000Z" }),
 		);
@@ -5657,8 +5633,7 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("does not seed a session-local goal for production /bg child jobs", async () => {
-		const parentHarness = await createHarness();
-		childHarnesses.push(parentHarness);
+		const parentHarness = await createTrackedHarness();
 		let childGoalBeforePrompt: string | undefined;
 		let childSessionManager: SessionManager | undefined;
 		const harness = createMultiAgentHarness({
@@ -5687,8 +5662,7 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("rejects oversized /bg prompts without creating production child agents", async () => {
-		const parentHarness = await createHarness();
-		childHarnesses.push(parentHarness);
+		const parentHarness = await createTrackedHarness();
 		const notifications: Array<{ level?: string; message: string }> = [];
 		const harness = createMultiAgentHarness({
 			ctx: harnessCtx(parentHarness),
@@ -5746,8 +5720,7 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("rejects oversized prompts before creating production child agents", async () => {
-		const parentHarness = await createHarness();
-		childHarnesses.push(parentHarness);
+		const parentHarness = await createTrackedHarness();
 		const harness = createMultiAgentHarness({
 			ctx: harnessCtx(parentHarness),
 			createChildSession: createProductionChildAgentSessionFactory({
@@ -5765,8 +5738,7 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("rejects invalid direct production factory prompts before session creation", async () => {
-		const parentHarness = await createHarness();
-		childHarnesses.push(parentHarness);
+		const parentHarness = await createTrackedHarness();
 		const store = new MultiAgentStore({ now: () => "2026-07-09T00:00:00.000Z" });
 		const agent = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
@@ -5825,8 +5797,7 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("does not inject goal continuation into a completed production child", async () => {
-		const parentHarness = await createHarness();
-		childHarnesses.push(parentHarness);
+		const parentHarness = await createTrackedHarness();
 		parentHarness.setResponses([fauxAssistantMessage("child done")]);
 		let firstSystemPrompt: string | undefined;
 		let childSession: Harness["session"] | undefined;
@@ -5866,8 +5837,7 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("rejects blank prompts before creating production child agents", async () => {
-		const parentHarness = await createHarness();
-		childHarnesses.push(parentHarness);
+		const parentHarness = await createTrackedHarness();
 		const harness = createMultiAgentHarness({
 			ctx: harnessCtx(parentHarness),
 			createChildSession: createProductionChildAgentSessionFactory({
@@ -6045,8 +6015,7 @@ describe("multi-agent extension tools", () => {
 	});
 
 	it("uses the parent session directory for production child sessions by default", async () => {
-		const parentHarness = await createHarness();
-		childHarnesses.push(parentHarness);
+		const parentHarness = await createTrackedHarness();
 		let sessionOptions: CreateAgentSessionOptions | undefined;
 		const parentSessionDir = `${parentHarness.tempDir}/parent-sessions`;
 		const parentSessionManager = SessionManager.create("/repo", parentSessionDir);
