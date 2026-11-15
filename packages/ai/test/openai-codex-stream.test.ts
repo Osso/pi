@@ -110,6 +110,28 @@ function buildSSEPayload({
 	return `${events.join("\n\n")}\n\n`;
 }
 
+/** Minimal WebSocket event plumbing for mock sockets; subclasses dispatch the events a test needs. */
+class ListenerWebSocket {
+	private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
+
+	addEventListener(type: string, listener: (event: unknown) => void): void {
+		let listeners = this.listeners.get(type);
+		if (!listeners) {
+			listeners = new Set();
+			this.listeners.set(type, listeners);
+		}
+		listeners.add(listener);
+	}
+
+	removeEventListener(type: string, listener: (event: unknown) => void): void {
+		this.listeners.get(type)?.delete(listener);
+	}
+
+	protected dispatch(type: string, event: unknown): void {
+		for (const listener of this.listeners.get(type) ?? []) listener(event);
+	}
+}
+
 describe("Codex metadata diagnostics", () => {
 	const model = OPENAI_CODEX_MODELS["gpt-5.6-sol"];
 	const context: Context = { messages: [{ role: "user", content: "secret prompt", timestamp: 1 }] };
@@ -1412,27 +1434,13 @@ describe("openai-codex streaming", () => {
 		const fetchMock = vi.fn(async () => new Response("unexpected fetch", { status: 500 }));
 		vi.stubGlobal("fetch", fetchMock);
 
-		class MockWebSocket {
-			private listeners = new Map<string, Set<(event: unknown) => void>>();
-
+		class MockWebSocket extends ListenerWebSocket {
 			constructor(_url: string, protocols?: string | string[] | { headers?: Record<string, string> }) {
+				super();
 				if (protocols && typeof protocols === "object" && !Array.isArray(protocols)) {
 					capturedWebSocketHeaders = protocols.headers;
 				}
 				queueMicrotask(() => this.dispatch("open", {}));
-			}
-
-			addEventListener(type: string, listener: (event: unknown) => void): void {
-				let listeners = this.listeners.get(type);
-				if (!listeners) {
-					listeners = new Set();
-					this.listeners.set(type, listeners);
-				}
-				listeners.add(listener);
-			}
-
-			removeEventListener(type: string, listener: (event: unknown) => void): void {
-				this.listeners.get(type)?.delete(listener);
 			}
 
 			send(data: string): void {
@@ -1475,12 +1483,6 @@ describe("openai-codex streaming", () => {
 			}
 
 			close(): void {}
-
-			private dispatch(type: string, event: unknown): void {
-				for (const listener of this.listeners.get(type) ?? []) {
-					listener(event);
-				}
-			}
 		}
 
 		vi.stubGlobal("WebSocket", MockWebSocket);
@@ -1513,29 +1515,16 @@ describe("openai-codex streaming", () => {
 		const connectedHeaders: Record<string, string>[] = [];
 		let responseId = 0;
 
-		class MockWebSocket {
+		class MockWebSocket extends ListenerWebSocket {
 			static OPEN = 1;
 			readyState = MockWebSocket.OPEN;
-			private listeners = new Map<string, Set<(event: unknown) => void>>();
 
 			constructor(_url: string, protocols?: string | string[] | { headers?: Record<string, string> }) {
+				super();
 				const headers =
 					protocols && typeof protocols === "object" && !Array.isArray(protocols) ? protocols.headers : undefined;
 				connectedHeaders.push(headers ?? {});
 				queueMicrotask(() => this.dispatch("open", {}));
-			}
-
-			addEventListener(type: string, listener: (event: unknown) => void): void {
-				let listeners = this.listeners.get(type);
-				if (!listeners) {
-					listeners = new Set();
-					this.listeners.set(type, listeners);
-				}
-				listeners.add(listener);
-			}
-
-			removeEventListener(type: string, listener: (event: unknown) => void): void {
-				this.listeners.get(type)?.delete(listener);
 			}
 
 			send(): void {
@@ -1555,10 +1544,6 @@ describe("openai-codex streaming", () => {
 
 			close(): void {
 				this.readyState = 3;
-			}
-
-			private dispatch(type: string, event: unknown): void {
-				for (const listener of this.listeners.get(type) ?? []) listener(event);
 			}
 		}
 
@@ -1598,24 +1583,10 @@ describe("openai-codex streaming", () => {
 			vi.fn(async () => new Response("unexpected fetch", { status: 500 })),
 		);
 
-		class MockWebSocket {
-			private listeners = new Map<string, Set<(event: unknown) => void>>();
-
+		class MockWebSocket extends ListenerWebSocket {
 			constructor() {
+				super();
 				queueMicrotask(() => this.dispatch("open", {}));
-			}
-
-			addEventListener(type: string, listener: (event: unknown) => void): void {
-				let listeners = this.listeners.get(type);
-				if (!listeners) {
-					listeners = new Set();
-					this.listeners.set(type, listeners);
-				}
-				listeners.add(listener);
-			}
-
-			removeEventListener(type: string, listener: (event: unknown) => void): void {
-				this.listeners.get(type)?.delete(listener);
 			}
 
 			send(): void {
@@ -1635,12 +1606,6 @@ describe("openai-codex streaming", () => {
 			}
 
 			close(): void {}
-
-			private dispatch(type: string, event: unknown): void {
-				for (const listener of this.listeners.get(type) ?? []) {
-					listener(event);
-				}
-			}
 		}
 
 		vi.stubGlobal("WebSocket", MockWebSocket);
@@ -1679,25 +1644,12 @@ describe("openai-codex streaming", () => {
 			vi.fn(async () => new Response("unexpected fetch", { status: 500 })),
 		);
 
-		class ReasoningOnlyWebSocket {
-			private listeners = new Map<string, Set<(event: unknown) => void>>();
+		class ReasoningOnlyWebSocket extends ListenerWebSocket {
 			private pings = 0;
 
 			constructor() {
+				super();
 				queueMicrotask(() => this.dispatch("open", {}));
-			}
-
-			addEventListener(type: string, listener: (event: unknown) => void): void {
-				let listeners = this.listeners.get(type);
-				if (!listeners) {
-					listeners = new Set();
-					this.listeners.set(type, listeners);
-				}
-				listeners.add(listener);
-			}
-
-			removeEventListener(type: string, listener: (event: unknown) => void): void {
-				this.listeners.get(type)?.delete(listener);
 			}
 
 			send(): void {
@@ -1717,12 +1669,6 @@ describe("openai-codex streaming", () => {
 			}
 
 			close(): void {}
-
-			private dispatch(type: string, event: unknown): void {
-				for (const listener of this.listeners.get(type) ?? []) {
-					listener(event);
-				}
-			}
 		}
 
 		vi.stubGlobal("WebSocket", ReasoningOnlyWebSocket);
@@ -1797,24 +1743,10 @@ describe("openai-codex streaming", () => {
 			vi.fn(async () => new Response("unexpected fetch", { status: 500 })),
 		);
 
-		class MockWebSocket {
-			private listeners = new Map<string, Set<(event: unknown) => void>>();
-
+		class MockWebSocket extends ListenerWebSocket {
 			constructor() {
+				super();
 				queueMicrotask(() => this.dispatch("open", {}));
-			}
-
-			addEventListener(type: string, listener: (event: unknown) => void): void {
-				let listeners = this.listeners.get(type);
-				if (!listeners) {
-					listeners = new Set();
-					this.listeners.set(type, listeners);
-				}
-				listeners.add(listener);
-			}
-
-			removeEventListener(type: string, listener: (event: unknown) => void): void {
-				this.listeners.get(type)?.delete(listener);
 			}
 
 			send(data: string): void {
@@ -1830,12 +1762,6 @@ describe("openai-codex streaming", () => {
 			}
 
 			close(): void {}
-
-			private dispatch(type: string, event: unknown): void {
-				for (const listener of this.listeners.get(type) ?? []) {
-					listener(event);
-				}
-			}
 		}
 
 		vi.stubGlobal("WebSocket", MockWebSocket);
@@ -1978,26 +1904,13 @@ describe("openai-codex streaming", () => {
 		const fetchMock = vi.fn(async () => new Response("unexpected fetch", { status: 500 }));
 		vi.stubGlobal("fetch", fetchMock);
 
-		class MockWebSocket {
+		class MockWebSocket extends ListenerWebSocket {
 			static OPEN = 1;
 			readyState = MockWebSocket.OPEN;
-			private listeners = new Map<string, Set<(event: unknown) => void>>();
 
 			constructor(_url: string, _protocols?: string | string[] | { headers?: Record<string, string> }) {
+				super();
 				queueMicrotask(() => this.dispatch("open", {}));
-			}
-
-			addEventListener(type: string, listener: (event: unknown) => void): void {
-				let listeners = this.listeners.get(type);
-				if (!listeners) {
-					listeners = new Set();
-					this.listeners.set(type, listeners);
-				}
-				listeners.add(listener);
-			}
-
-			removeEventListener(type: string, listener: (event: unknown) => void): void {
-				this.listeners.get(type)?.delete(listener);
 			}
 
 			send(data: string): void {
@@ -2006,12 +1919,6 @@ describe("openai-codex streaming", () => {
 
 			close(): void {
 				this.readyState = 3;
-			}
-
-			private dispatch(type: string, event: unknown): void {
-				for (const listener of this.listeners.get(type) ?? []) {
-					listener(event);
-				}
 			}
 		}
 
@@ -2050,26 +1957,13 @@ describe("openai-codex streaming", () => {
 		const fetchMock = vi.fn(async () => new Response("unexpected fetch", { status: 500 }));
 		vi.stubGlobal("fetch", fetchMock);
 
-		class MockWebSocket {
+		class MockWebSocket extends ListenerWebSocket {
 			static OPEN = 1;
 			readyState = MockWebSocket.OPEN;
-			private listeners = new Map<string, Set<(event: unknown) => void>>();
 
 			constructor(_url: string, _protocols?: string | string[] | { headers?: Record<string, string> }) {
+				super();
 				queueMicrotask(() => this.dispatch("open", {}));
-			}
-
-			addEventListener(type: string, listener: (event: unknown) => void): void {
-				let listeners = this.listeners.get(type);
-				if (!listeners) {
-					listeners = new Set();
-					this.listeners.set(type, listeners);
-				}
-				listeners.add(listener);
-			}
-
-			removeEventListener(type: string, listener: (event: unknown) => void): void {
-				this.listeners.get(type)?.delete(listener);
 			}
 
 			send(): void {
@@ -2085,12 +1979,6 @@ describe("openai-codex streaming", () => {
 
 			close(): void {
 				this.readyState = 3;
-			}
-
-			private dispatch(type: string, event: unknown): void {
-				for (const listener of this.listeners.get(type) ?? []) {
-					listener(event);
-				}
 			}
 		}
 
@@ -2125,28 +2013,15 @@ describe("openai-codex streaming", () => {
 		const sentConnectionIds: number[] = [];
 		let connections = 0;
 
-		class MockWebSocket {
+		class MockWebSocket extends ListenerWebSocket {
 			static OPEN = 1;
 			static CLOSED = 3;
 			readyState = MockWebSocket.OPEN;
 			private readonly connectionId = ++connections;
-			private listeners = new Map<string, Set<(event: unknown) => void>>();
 
 			constructor(_url: string, _protocols?: string | string[] | { headers?: Record<string, string> }) {
+				super();
 				queueMicrotask(() => this.dispatch("open", {}));
-			}
-
-			addEventListener(type: string, listener: (event: unknown) => void): void {
-				let listeners = this.listeners.get(type);
-				if (!listeners) {
-					listeners = new Set();
-					this.listeners.set(type, listeners);
-				}
-				listeners.add(listener);
-			}
-
-			removeEventListener(type: string, listener: (event: unknown) => void): void {
-				this.listeners.get(type)?.delete(listener);
 			}
 
 			send(): void {
@@ -2168,12 +2043,6 @@ describe("openai-codex streaming", () => {
 
 			close(): void {
 				this.readyState = MockWebSocket.CLOSED;
-			}
-
-			private dispatch(type: string, event: unknown): void {
-				for (const listener of this.listeners.get(type) ?? []) {
-					listener(event);
-				}
 			}
 		}
 
@@ -2219,26 +2088,13 @@ describe("openai-codex streaming", () => {
 			{ responseId: "resp_2", messageId: "msg_2", text: "Done" },
 		];
 
-		class MockWebSocket {
+		class MockWebSocket extends ListenerWebSocket {
 			static OPEN = 1;
 			readyState = MockWebSocket.OPEN;
-			private listeners = new Map<string, Set<(event: unknown) => void>>();
 
 			constructor(_url: string, _protocols?: string | string[] | { headers?: Record<string, string> }) {
+				super();
 				queueMicrotask(() => this.dispatch("open", {}));
-			}
-
-			addEventListener(type: string, listener: (event: unknown) => void): void {
-				let listeners = this.listeners.get(type);
-				if (!listeners) {
-					listeners = new Set();
-					this.listeners.set(type, listeners);
-				}
-				listeners.add(listener);
-			}
-
-			removeEventListener(type: string, listener: (event: unknown) => void): void {
-				this.listeners.get(type)?.delete(listener);
 			}
 
 			send(data: string): void {
@@ -2292,12 +2148,6 @@ describe("openai-codex streaming", () => {
 
 			close(): void {
 				this.readyState = 3;
-			}
-
-			private dispatch(type: string, event: unknown): void {
-				for (const listener of this.listeners.get(type) ?? []) {
-					listener(event);
-				}
 			}
 		}
 
