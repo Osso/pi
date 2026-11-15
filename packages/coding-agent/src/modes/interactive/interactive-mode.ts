@@ -2447,9 +2447,7 @@ export class InteractiveMode {
 	private stopWorkingLoader(): void {
 		this.stopChildActivityTimer();
 		const loader = this.loadingAnimation;
-		if (!loader) {
-			return;
-		}
+		if (!loader) return;
 
 		loader.stop();
 		this.loadingAnimation = undefined;
@@ -2459,9 +2457,7 @@ export class InteractiveMode {
 
 	private stopRetryLoader(): void {
 		const loader = this.retryLoader;
-		if (!loader) {
-			return;
-		}
+		if (!loader) return;
 
 		loader.stop();
 		this.retryLoader = undefined;
@@ -3162,12 +3158,14 @@ export class InteractiveMode {
 
 		return new Promise((resolve, reject) => {
 			let component: Component & { dispose?(): void };
+			let overlayHandle: OverlayHandle | undefined;
 			let closed = false;
 
 			const close = (result: T) => {
 				if (closed) return;
 				closed = true;
-				if (isOverlay) this.ui.hideOverlay();
+				// Remove this overlay, not the topmost one: another overlay may have opened above it.
+				if (isOverlay) overlayHandle?.hide();
 				else restoreEditor();
 				// Note: both branches above already call requestRender
 				resolve(result);
@@ -3196,9 +3194,9 @@ export class InteractiveMode {
 							const w = (component as { width?: number }).width;
 							return w ? { width: w } : undefined;
 						};
-						const handle = this.ui.showOverlay(component, resolveOptions());
+						overlayHandle = this.ui.showOverlay(component, resolveOptions());
 						// Expose handle to caller for visibility control
-						options?.onHandle?.(handle);
+						options?.onHandle?.(overlayHandle);
 					} else {
 						this.editorContainer.clear();
 						this.editorContainer.addChild(component);
