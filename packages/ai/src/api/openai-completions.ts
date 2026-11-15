@@ -349,21 +349,8 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 				}
 
 				if (choice.delta) {
-					if (
-						choice.delta.content !== null &&
-						choice.delta.content !== undefined &&
-						choice.delta.content.length > 0
-					) {
-						const block = ensureTextBlock();
-						block.text += choice.delta.content;
-						stream.push({
-							type: "text_delta",
-							contentIndex: getContentIndex(block),
-							delta: choice.delta.content,
-							partial: output,
-						});
-					}
-
+					// Handle reasoning before content: some proxies (e.g. LiteLLM) send both in one delta,
+					// and the thinking block must precede the text block.
 					// Some endpoints return reasoning in reasoning_content (llama.cpp),
 					// or reasoning (other openai compatible endpoints)
 					// Use the first non-empty reasoning field to avoid duplication
@@ -395,6 +382,18 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 								partial: output,
 							});
 						}
+					}
+
+					const content = choice.delta.content;
+					if (content) {
+						const block = ensureTextBlock();
+						block.text += content;
+						stream.push({
+							type: "text_delta",
+							contentIndex: getContentIndex(block),
+							delta: content,
+							partial: output,
+						});
 					}
 
 					if (choice?.delta?.tool_calls) {
