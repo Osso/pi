@@ -32,6 +32,17 @@ import {
 import { findMostRecentSession, loadEntriesFromFile, SessionManager } from "../../src/core/session-manager.ts";
 import { assistantMsg, userMsg } from "../utilities.ts";
 
+function tokenUsage(input: number, output = 0) {
+	return {
+		input,
+		output,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: input + output,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	};
+}
+
 describe("loadEntriesFromFile", () => {
 	let tempDir: string;
 
@@ -274,14 +285,7 @@ describe("SessionManager relocate", () => {
 			api: "anthropic-messages",
 			provider: "anthropic",
 			model: "test",
-			usage: {
-				input: 1,
-				output: 1,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 2,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(1, 1),
 			timestamp: 2,
 		});
 
@@ -391,14 +395,7 @@ describe("SessionManager custom flat session directory", () => {
 			api: "anthropic-messages",
 			provider: "anthropic",
 			model: "test",
-			usage: {
-				input: 1,
-				output: 1,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 2,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(1, 1),
 			stopReason: "stop",
 			timestamp: Date.now(),
 		});
@@ -468,14 +465,7 @@ describe("SessionManager custom flat session directory", () => {
 			api: "anthropic-messages",
 			provider: "anthropic",
 			model: "test",
-			usage: {
-				input: 1,
-				output: 1,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 2,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(1, 1),
 			stopReason: "stop",
 			timestamp: 2,
 		});
@@ -516,14 +506,7 @@ describe("SessionManager custom flat session directory", () => {
 			api: "anthropic-messages",
 			provider: "anthropic",
 			model: "test",
-			usage: {
-				input: 1,
-				output: 1,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 2,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(1, 1),
 			stopReason: "stop",
 			timestamp: 2,
 		});
@@ -715,14 +698,7 @@ describe("SessionManager custom flat session directory", () => {
 			api: "anthropic-messages",
 			provider: "anthropic",
 			model: "test",
-			usage: {
-				input: 1,
-				output: 1,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 2,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(1, 1),
 			stopReason: "stop",
 			timestamp: 2,
 		});

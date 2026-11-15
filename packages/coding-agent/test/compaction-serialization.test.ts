@@ -2,6 +2,17 @@ import type { Message } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import { serializeConversation } from "../src/core/compaction/utils.ts";
 
+function tokenUsage(input: number, output = 0) {
+	return {
+		input,
+		output,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: input + output,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	};
+}
+
 describe("serializeConversation", () => {
 	it("should truncate long tool results", () => {
 		const longContent = "x".repeat(5000);
@@ -64,14 +75,7 @@ describe("serializeConversation", () => {
 				api: "anthropic",
 				provider: "anthropic",
 				model: "test",
-				usage: {
-					input: 0,
-					output: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					totalTokens: 0,
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-				},
+				usage: tokenUsage(0),
 				stopReason: "stop",
 				timestamp: Date.now(),
 			},
@@ -115,14 +119,7 @@ describe("serializeConversation", () => {
 				api: "anthropic",
 				provider: "anthropic",
 				model: "test",
-				usage: {
-					input: 0,
-					output: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					totalTokens: 0,
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-				},
+				usage: tokenUsage(0),
 				stopReason: "stop",
 				timestamp: Date.now(),
 			},
@@ -149,14 +146,7 @@ describe("serializeConversation", () => {
 				api: "anthropic",
 				provider: "anthropic",
 				model: "test",
-				usage: {
-					input: 0,
-					output: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					totalTokens: 0,
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-				},
+				usage: tokenUsage(0),
 				stopReason: "stop",
 				timestamp: Date.now(),
 			},

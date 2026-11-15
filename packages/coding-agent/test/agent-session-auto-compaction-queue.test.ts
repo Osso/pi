@@ -22,6 +22,17 @@ function requireModel<T>(model: T | undefined): T {
 	return model;
 }
 
+function tokenUsage(input: number, output = 0) {
+	return {
+		input,
+		output,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: input + output,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	};
+}
+
 describe("AgentSession auto-compaction queue resume", () => {
 	let session: AgentSession;
 	let sessionManager: SessionManager;
@@ -82,14 +93,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 			api: model.api,
 			provider: model.provider,
 			model: model.id,
-			usage: {
-				input: 100,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 100,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(100),
 			stopReason: "stop",
 			timestamp: now - 2500,
 		});
@@ -104,14 +108,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 			api: model.api,
 			provider: model.provider,
 			model: model.id,
-			usage: {
-				input: 100,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 100,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(100),
 			stopReason: "stop",
 			timestamp: now - 500,
 		});
@@ -127,14 +124,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 						api: summaryModel.api,
 						provider: summaryModel.provider,
 						model: summaryModel.id,
-						usage: {
-							input: 10,
-							output: 0,
-							cacheRead: 0,
-							cacheWrite: 0,
-							totalTokens: 10,
-							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-						},
+						usage: tokenUsage(10),
 					},
 				});
 			});
@@ -173,14 +163,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 			api: model.api,
 			provider: model.provider,
 			model: model.id,
-			usage: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 0,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(0),
 			stopReason: "error",
 			errorMessage: "prompt is too long",
 			timestamp: Date.now(),
@@ -229,14 +212,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 			api: model.api,
 			provider: model.provider,
 			model: model.id,
-			usage: {
-				input: 600_000,
-				output: 10_000,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 610_000,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(600_000, 10_000),
 			stopReason: "stop",
 			timestamp: staleAssistantTimestamp,
 		};
@@ -288,14 +264,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 			api: model.api,
 			provider: model.provider,
 			model: model.id,
-			usage: {
-				input: highContextTokens,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: highContextTokens,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(highContextTokens),
 			stopReason: "stop",
 			timestamp: Date.now(),
 		};
@@ -307,14 +276,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 			api: model.api,
 			provider: model.provider,
 			model: model.id,
-			usage: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 0,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(0),
 			stopReason: "error",
 			errorMessage: "529 overloaded",
 			timestamp: Date.now() + 1000,
@@ -358,14 +320,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 			api: model.api,
 			provider: model.provider,
 			model: model.id,
-			usage: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 0,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(0),
 			stopReason: "error",
 			errorMessage: "529 overloaded",
 			timestamp: Date.now(),
@@ -407,14 +362,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 			api: model.api,
 			provider: model.provider,
 			model: model.id,
-			usage: {
-				input: 180_000,
-				output: 10_000,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 190_000,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(180_000, 10_000),
 			stopReason: "stop",
 			timestamp: preCompactionTimestamp,
 		};
@@ -436,14 +384,7 @@ describe("AgentSession auto-compaction queue resume", () => {
 			api: model.api,
 			provider: model.provider,
 			model: model.id,
-			usage: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 0,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(0),
 			stopReason: "error",
 			errorMessage: "529 overloaded",
 			timestamp: Date.now(),

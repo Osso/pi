@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { type LabelEntry, SessionManager } from "../../src/core/session-manager.ts";
 
+function tokenUsage(input: number, output = 0) {
+	return {
+		input,
+		output,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: input + output,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	};
+}
+
 describe("SessionManager labels", () => {
 	it("sets and gets labels", () => {
 		const session = SessionManager.inMemory();
@@ -64,14 +75,7 @@ describe("SessionManager labels", () => {
 			api: "anthropic-messages",
 			provider: "anthropic",
 			model: "test",
-			usage: {
-				input: 1,
-				output: 1,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 2,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(1, 1),
 			stopReason: "stop",
 			timestamp: 2,
 		});
@@ -105,14 +109,7 @@ describe("SessionManager labels", () => {
 			api: "anthropic-messages",
 			provider: "anthropic",
 			model: "test",
-			usage: {
-				input: 1,
-				output: 1,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 2,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(1, 1),
 			stopReason: "stop",
 			timestamp: 2,
 		});
@@ -165,14 +162,7 @@ describe("SessionManager labels", () => {
 			api: "anthropic-messages",
 			provider: "anthropic",
 			model: "test",
-			usage: {
-				input: 1,
-				output: 1,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 2,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(1, 1),
 			stopReason: "stop",
 			timestamp: 2,
 		});

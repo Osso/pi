@@ -53,14 +53,7 @@ function createAssistantMessage(text: string): AssistantMessage {
 		api: "anthropic-messages",
 		provider: "anthropic",
 		model: "mock",
-		usage: {
-			input: 0,
-			output: 0,
-			cacheRead: 0,
-			cacheWrite: 0,
-			totalTokens: 0,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-		},
+		usage: tokenUsage(0),
 		stopReason: "stop",
 		timestamp: Date.now(),
 	};
@@ -77,6 +70,17 @@ function createCompletedAssistantMessage(text: string): AssistantMessage {
 function requireModel<T>(model: T | undefined): T {
 	if (!model) throw new Error("Expected test model to exist");
 	return model;
+}
+
+function tokenUsage(input: number, output = 0) {
+	return {
+		input,
+		output,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: input + output,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	};
 }
 
 describe("AgentSession concurrent prompt guard", () => {
@@ -421,14 +425,7 @@ describe("AgentSession concurrent prompt guard", () => {
 							api: "anthropic-messages",
 							provider: "anthropic",
 							model: "mock",
-							usage: {
-								input: 1,
-								output: 1,
-								cacheRead: 0,
-								cacheWrite: 0,
-								totalTokens: 2,
-								cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-							},
+							usage: tokenUsage(1, 1),
 							stopReason: "stop",
 							timestamp: Date.now(),
 						};
@@ -446,14 +443,7 @@ describe("AgentSession concurrent prompt guard", () => {
 						api: "anthropic-messages",
 						provider: "anthropic",
 						model: "mock",
-						usage: {
-							input: 1,
-							output: 1,
-							cacheRead: 0,
-							cacheWrite: 0,
-							totalTokens: 2,
-							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-						},
+						usage: tokenUsage(1, 1),
 						stopReason: "toolUse",
 						timestamp: Date.now(),
 					};
@@ -548,14 +538,7 @@ describe("AgentSession concurrent prompt guard", () => {
 						api: "anthropic-messages",
 						provider: "anthropic",
 						model: "mock",
-						usage: {
-							input: 1,
-							output: 1,
-							cacheRead: 0,
-							cacheWrite: 0,
-							totalTokens: 2,
-							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-						},
+						usage: tokenUsage(1, 1),
 						stopReason: "toolUse",
 						timestamp: Date.now(),
 					};
