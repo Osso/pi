@@ -240,15 +240,10 @@ describe("run-plan extension", () => {
 		writeFileSync(join(cwd, "ALT.md"), "- [ ] Alternate\n");
 		writeFileSync(join(cwd, "notes.txt"), "- [ ] Ignored\n");
 		const harness = createRunPlanHarness(cwd);
-		const originalCwd = process.cwd();
-		process.chdir(cwd);
+		await harness.runEvent("session_start");
 
-		try {
-			const completions = await harness.complete("");
-
-			expect(completions?.map((completion) => completion.value).sort()).toEqual(["ALT.md", "PLAN.md"]);
-		} finally {
-			process.chdir(originalCwd);
-		}
+		expect(process.cwd()).not.toBe(cwd);
+		const completions = await harness.complete("");
+		expect(completions?.map((completion) => completion.value).sort()).toEqual(["ALT.md", "PLAN.md"]);
 	});
 });

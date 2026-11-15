@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed `/run-plan` completing markdown files from the process directory instead of the session directory after `/cd`
 - Fixed persisted permission-prompt allow rules from user settings being ignored for a tool when the project settings also had allow rules for that tool
 - Fixed `pi install` with an uppercase URL scheme such as `HTTPS://github.com/user/repo` producing a broken `https://HTTPS://` clone URL
 - Fixed `/usage` showing a usage just below the limit, such as 99.96%, as `100.0%`, which also pushed the account table columns out of line

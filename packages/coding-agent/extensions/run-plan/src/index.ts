@@ -121,8 +121,11 @@ function completeMarkdownFiles(cwd: string, argumentPrefix: string): Array<{ lab
 
 export default function runPlanExtension(pi: ExtensionAPI) {
 	let activePlan: ActivePlan | undefined;
+	// Completions get no context; cwd relocation rebuilds the extension and emits session_start again.
+	let sessionCwd: string | undefined;
 
 	pi.on("session_start", async (_event, ctx) => {
+		sessionCwd = ctx.cwd;
 		clearPlanEnvironment();
 		activePlan = readPersistedActivePlan(ctx);
 		if (activePlan) exportPlanEnvironment(activePlan);
@@ -142,10 +145,8 @@ export default function runPlanExtension(pi: ExtensionAPI) {
 
 	pi.registerCommand("run-plan", {
 		description: "Submit the first unchecked item from PLAN.md or another markdown plan file.",
-		getArgumentCompletions: (argumentPrefix: string) => {
-			const cwd = process.cwd();
-			return completeMarkdownFiles(cwd, argumentPrefix);
-		},
+		getArgumentCompletions: (argumentPrefix: string) =>
+			sessionCwd ? completeMarkdownFiles(sessionCwd, argumentPrefix) : null,
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			activePlan = await runPlan(args, ctx, pi);
 		},
