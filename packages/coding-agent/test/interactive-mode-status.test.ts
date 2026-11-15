@@ -3102,6 +3102,10 @@ describe("InteractiveMode.showLoadedResources", () => {
 		return fakeThis;
 	}
 
+	function renderLoadedResources(fakeThis: ReturnType<typeof createShowLoadedResourcesThis>): void {
+		interactiveModePrototype.showLoadedResources.call(fakeThis, { force: false });
+	}
+
 	function createSourceInfo(
 		filePath: string,
 		options: {
@@ -3209,9 +3213,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
 		});
 
-		interactiveModePrototype.showLoadedResources.call(fakeThis, {
-			force: false,
-		});
+		renderLoadedResources(fakeThis);
 
 		const output = renderAll(fakeThis.loadedResourcesContainer);
 		expect(output).toContain("[Skills]");
@@ -3225,9 +3227,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			activeToolNames: ["read", "bash", "edit", "write"],
 		});
 
-		interactiveModePrototype.showLoadedResources.call(fakeThis, {
-			force: false,
-		});
+		renderLoadedResources(fakeThis);
 
 		const output = renderAll(fakeThis.loadedResourcesContainer);
 		expect(output).toContain("[Tools]");
@@ -3242,9 +3242,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			rulesFiles: [{ path: path.join(homedir(), "AgentConfig/rules/01-identity.md") }],
 		});
 
-		interactiveModePrototype.showLoadedResources.call(fakeThis, {
-			force: false,
-		});
+		renderLoadedResources(fakeThis);
 
 		const output = renderAll(fakeThis.loadedResourcesContainer);
 		expect(output).toContain("[Context]");
@@ -3260,9 +3258,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
 		});
 
-		interactiveModePrototype.showLoadedResources.call(fakeThis, {
-			force: false,
-		});
+		renderLoadedResources(fakeThis);
 
 		const output = renderAll(fakeThis.loadedResourcesContainer);
 		expect(output).toContain("[Skills]");
@@ -3278,9 +3274,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			skills: [{ filePath: "/tmp/skill/SKILL.md", name: "commit" }],
 		});
 
-		interactiveModePrototype.showLoadedResources.call(fakeThis, {
-			force: false,
-		});
+		renderLoadedResources(fakeThis);
 
 		const output = renderAll(fakeThis.loadedResourcesContainer);
 		expect(output).toContain("[Skills]");
@@ -3294,9 +3288,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			extensions: [{ path: "/tmp/extensions/answer.ts" }, { path: "/tmp/extensions/btw.ts" }],
 		});
 
-		interactiveModePrototype.showLoadedResources.call(fakeThis, {
-			force: false,
-		});
+		renderLoadedResources(fakeThis);
 
 		const output = renderAll(fakeThis.loadedResourcesContainer);
 		expect(output).toContain("[Extensions]");
@@ -3311,9 +3303,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		interactiveModePrototype.showLoadedResources.call(fakeThis, {
-			force: false,
-		});
+		renderLoadedResources(fakeThis);
 
 		expect(normalizeRenderedOutput(fakeThis.loadedResourcesContainer)).toMatchInlineSnapshot(`
 "[Extensions]
@@ -3357,9 +3347,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		interactiveModePrototype.showLoadedResources.call(fakeThis, {
-			force: false,
-		});
+		renderLoadedResources(fakeThis);
 
 		expect(normalizeRenderedOutput(fakeThis.loadedResourcesContainer)).toMatchInlineSnapshot(`
 "[Extensions]
@@ -3385,9 +3373,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		interactiveModePrototype.showLoadedResources.call(fakeThis, {
-			force: false,
-		});
+		renderLoadedResources(fakeThis);
 
 		expect(normalizeRenderedOutput(fakeThis.loadedResourcesContainer)).toMatchInlineSnapshot(`
 "[Extensions]
@@ -3413,9 +3399,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		interactiveModePrototype.showLoadedResources.call(fakeThis, {
-			force: false,
-		});
+		renderLoadedResources(fakeThis);
 
 		expect(normalizeRenderedOutput(fakeThis.loadedResourcesContainer)).toMatchInlineSnapshot(`
 "[Extensions]
@@ -3450,9 +3434,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		interactiveModePrototype.showLoadedResources.call(fakeThis, {
-			force: false,
-		});
+		renderLoadedResources(fakeThis);
 
 		expect(normalizeRenderedOutput(fakeThis.loadedResourcesContainer)).toMatchInlineSnapshot(`
 "[Extensions]
@@ -3487,9 +3469,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		interactiveModePrototype.showLoadedResources.call(fakeThis, {
-			force: false,
-		});
+		renderLoadedResources(fakeThis);
 
 		expect(normalizeRenderedOutput(fakeThis.loadedResourcesContainer)).toMatchInlineSnapshot(`
 "[Extensions]
@@ -3524,9 +3504,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		interactiveModePrototype.showLoadedResources.call(fakeThis, {
-			force: false,
-		});
+		renderLoadedResources(fakeThis);
 
 		expect(normalizeRenderedOutput(fakeThis.loadedResourcesContainer)).toMatchInlineSnapshot(`
 "[Extensions]
@@ -3552,9 +3530,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		interactiveModePrototype.showLoadedResources.call(fakeThis, {
-			force: false,
-		});
+		renderLoadedResources(fakeThis);
 
 		expect(normalizeRenderedOutput(fakeThis.loadedResourcesContainer)).toMatchInlineSnapshot(`
 "[Extensions]
@@ -3580,9 +3556,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		interactiveModePrototype.showLoadedResources.call(fakeThis, {
-			force: false,
-		});
+		renderLoadedResources(fakeThis);
 
 		expect(normalizeRenderedOutput(fakeThis.loadedResourcesContainer)).toMatchInlineSnapshot(`
 "[Extensions]
@@ -3596,9 +3570,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			useRealScopeGroups: true,
 		});
 
-		interactiveModePrototype.showLoadedResources.call(fakeThis, {
-			force: false,
-		});
+		renderLoadedResources(fakeThis);
 
 		expect(normalizeRenderedOutput(fakeThis.loadedResourcesContainer)).toMatchInlineSnapshot(`
 "[Extensions]
@@ -3630,9 +3602,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			],
 		});
 
-		interactiveModePrototype.showLoadedResources.call(fakeThis, {
-			force: false,
-		});
+		renderLoadedResources(fakeThis);
 
 		const output = renderAll(fakeThis.loadedResourcesContainer).replace(/\\/g, "/");
 		expect(output).toContain("[Context]");
@@ -3653,9 +3623,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			],
 		});
 
-		interactiveModePrototype.showLoadedResources.call(fakeThis, {
-			force: false,
-		});
+		renderLoadedResources(fakeThis);
 
 		const output = renderAll(fakeThis.loadedResourcesContainer).replace(/\\/g, "/");
 		expect(output).toContain("[Context]");
