@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed saving a second permission rule to a pretty-printed settings file breaking its indentation and closing-brace layout
 - Fixed `--models` and `enabledModels` resolving an exact model id that two providers share, such as `gpt-5.5`, to a different model whose id contains it, such as `gpt-5.5-pro`
 - Fixed bare exact `--model` IDs shared by multiple providers choosing the first catalog entry instead of the sole authenticated provider or a clear ambiguity error ([#7327](https://github.com/earendil-works/pi/issues/7327))
 - Fixed `/run-plan /absolute/path/PLAN.md` reporting the plan file as missing

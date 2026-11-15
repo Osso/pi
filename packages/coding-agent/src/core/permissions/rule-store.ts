@@ -178,7 +178,12 @@ function updatePermissionRulesContent(currentContent: string | undefined, permis
 
 	const propertyRange = findTopLevelPropertyValueRange(currentContent, "permissionRules");
 	if (propertyRange) {
-		return `${currentContent.slice(0, propertyRange.start)}${formattedRules}${currentContent.slice(propertyRange.end)}`;
+		// Keep the whitespace after the old value and indent the new one like its property.
+		const end = propertyRange.start + currentContent.slice(propertyRange.start, propertyRange.end).trimEnd().length;
+		const lineStart = currentContent.lastIndexOf("\n", propertyRange.start) + 1;
+		const indent = /^[ \t]*/.exec(currentContent.slice(lineStart))?.[0] ?? "";
+		const rules = formattedRules.replace(/\n/g, `\n${indent}`);
+		return `${currentContent.slice(0, propertyRange.start)}${rules}${currentContent.slice(end)}`;
 	}
 
 	const closingBraceIndex = findFinalObjectBrace(currentContent);

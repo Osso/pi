@@ -259,6 +259,26 @@ describe("writePermissionRules", () => {
 		expect(JSON.parse(content).permissionRules.allow.bash).toEqual(["git status"]);
 	});
 
+	it("keeps pretty-printed settings formatting when replacing existing rules", () => {
+		const settingsPath = join(agentDir, "settings.json");
+		const write = (rules: string[]) =>
+			writePermissionRules({
+				agentDir,
+				behavior: "allow",
+				cwd,
+				destination: "userSettings",
+				rules,
+				toolName: "bash",
+			});
+		writeFileSync(settingsPath, '{\n  "theme": "dark"\n}\n');
+		write(["git status"]);
+		write(["git diff"]);
+
+		expect(readFileSync(settingsPath, "utf-8")).toBe(
+			`${JSON.stringify({ theme: "dark", permissionRules: { allow: { bash: ["git status", "git diff"] } } }, null, 2)}\n`,
+		);
+	});
+
 	it("fails with file path context without overwriting corrupt settings JSON", () => {
 		const settingsPath = join(agentDir, "settings.json");
 		writeFileSync(settingsPath, "{not-valid-json");
