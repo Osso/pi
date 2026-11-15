@@ -28,6 +28,7 @@ import { notifySupervisorRequest, SupervisorRequestWakeServer } from "../../../s
 import { createSupervisorResponseTool, SUPERVISOR_RESPONSE_TOOL_NAME } from "../../../src/supervisor/response-tool.ts";
 import type { SupervisorEvaluator } from "../../../src/supervisor/service.ts";
 import { createInspectSessionTool } from "./inspect-session-tool.ts";
+import { renderSupervisorRequestMessage } from "./request-message.ts";
 
 export const SUPERVISOR_REQUEST_MESSAGE_TYPE = "supervisor_request";
 export const SUPERVISOR_RESUME_MESSAGE_TYPE = "supervisor_resume";
@@ -284,6 +285,7 @@ class SupervisorSessionServer {
 
 export default function supervisorSessionExtension(pi: ExtensionAPI): void {
 	const server = new SupervisorSessionServer(pi);
+	pi.registerMessageRenderer(SUPERVISOR_REQUEST_MESSAGE_TYPE, renderSupervisorRequestMessage);
 	pi.registerToolGate((event, ctx) => {
 		if (!isSupervisorSession(ctx)) return undefined;
 		return blockSupervisorSessionTool(process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR, ctx.cwd, event);
