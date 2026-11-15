@@ -156,6 +156,28 @@ describe("interactive Supervisor session", () => {
 		expect(harness.getPendingResponseCount()).toBe(0);
 	});
 
+	it("answers user chat in text: supervisor_response is blocked outside request turns", async () => {
+		const harness = await openSession({ supervisor: true });
+		harness.setResponses([
+			respond({ kind: "advisory", answer: "Hidden in a tool call." }),
+			fauxAssistantMessage("The blocker is cleared."),
+		]);
+
+		await harness.session.prompt("Why can't you clear that blocker?");
+
+		expect(lastToolResultText(harness)).toContain("Answer the user's message in plain text");
+		const answers = harness.session.messages.flatMap((message) =>
+			message.role === "assistant"
+				? message.content.filter((part) => part.type === "text").map((part) => part.text)
+				: [],
+		);
+		expect(answers).toContain("The blocker is cleared.");
+
+		harness.setResponses([respond({ kind: "approve", reason: "bounded read" })]);
+		const id = postRequest(harness, "approval_review", { toolName: "read", input: { path: "README.md" } });
+		expect((await waitForCompletion(harness, id)).response).toEqual({ kind: "approve", reason: "bounded read" });
+	});
+
 	it("limits tools to the allow-list and file tools to the KB root", async () => {
 		const harness = await openSession({ supervisor: true });
 		const kbDir = process.env.PI_KB_DIR as string;

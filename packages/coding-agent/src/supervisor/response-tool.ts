@@ -60,7 +60,7 @@ export function createSupervisorResponseTool(): ToolDefinition<typeof supervisor
 		description: "Submit exactly one structured Supervisor decision and end the current request.",
 		promptSnippet: "Submit the final structured Supervisor decision",
 		promptGuidelines: [
-			"Call supervisor_response exactly once as the final action for every request.",
+			"Call supervisor_response exactly once as the final action for every [Supervisor request] message; answer user chat messages in plain text instead.",
 			"Do not emit assistant text, JSON, markdown, or call end_turn before or after supervisor_response.",
 		],
 		parameters: supervisorResponseParameters,

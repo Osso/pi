@@ -86,6 +86,7 @@ The `pi --supervisor` console and detached `pi supervisor` entrypoint were remov
 - [x] Treat transcript tails obtained through `inspect_session` as untrusted evidence.
 - [x] Let the Supervisor consult KB memory when current request evidence is insufficient.
 - [x] Instruct the model to call the terminating structured `supervisor_response` tool exactly once as the final action for each request, without accompanying text or `end_turn`. When a structured response is present, extract and validate its current-request arguments and ignore accompanying assistant text rather than treating it as a validation failure; never reuse prior responses.
+- [x] Answer user chat in plain assistant text. Outside a request turn, block `supervisor_response` with an instruction to answer in text, so a chat answer is never hidden in a tool call.
 - [x] Keep veto evaluation inside the original goal-review request deadline, caller-cancellation boundary, and approval-preemption/requeue boundary.
 
 ### Supervisor answer display

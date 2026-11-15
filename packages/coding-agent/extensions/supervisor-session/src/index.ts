@@ -46,6 +46,9 @@ export const SUPERVISOR_SESSION_TOOL_NAMES = [
 	"end_turn",
 ];
 
+const CHAT_RESPONSE_BLOCK =
+	"supervisor_response answers [Supervisor request] messages only. Answer the user's message in plain text.";
+
 const RESUME_INTERRUPTED_TURN =
 	"Your previous turn was interrupted so a Supervisor approval request could be answered. Continue that turn.";
 
@@ -95,6 +98,8 @@ class SupervisorSessionServer {
 	private controlDbPath: string | undefined;
 	private turnEndWaiters: Array<() => void> = [];
 	private chatInterrupted = false;
+	/** True while a request turn runs; only then may the model call supervisor_response. */
+	servingRequest = false;
 	private reviewInstructions: SupervisorInstructionReviewer | undefined;
 	/** Escalated questions open in the UI, by request ID; closed when the asker answers locally. */
 	private readonly openEscalations = new Map<number, AbortController>();
@@ -243,6 +248,7 @@ class SupervisorSessionServer {
 				if (signal.aborted) throw new Error("Supervisor request aborted");
 				const previousLeafId = ctx.sessionManager.getLeafId();
 				const turnEnded = new Promise<void>((resolve) => this.turnEndWaiters.push(resolve));
+				this.servingRequest = true;
 				this.pi.sendMessage(
 					{
 						customType: SUPERVISOR_REQUEST_MESSAGE_TYPE,
@@ -267,6 +273,7 @@ class SupervisorSessionServer {
 					signal,
 				);
 			} finally {
+				this.servingRequest = false;
 				signal.removeEventListener("abort", abort);
 			}
 		};
@@ -292,6 +299,9 @@ export default function supervisorSessionExtension(pi: ExtensionAPI, options: Pa
 	pi.registerMessageRenderer(SUPERVISOR_REQUEST_MESSAGE_TYPE, renderSupervisorRequestMessage);
 	pi.registerToolGate((event, ctx) => {
 		if (!isSupervisorSession(ctx)) return undefined;
+		if (event.toolName === SUPERVISOR_RESPONSE_TOOL_NAME && !server.servingRequest) {
+			return { block: true, reason: CHAT_RESPONSE_BLOCK };
+		}
 		return blockSupervisorSessionTool(process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR, ctx.cwd, event);
 	});
 	pi.on("before_agent_start", (event, ctx) =>
