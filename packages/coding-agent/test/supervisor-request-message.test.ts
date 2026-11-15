@@ -18,7 +18,7 @@ function request(overrides: Partial<SupervisorRequest>): SupervisorRequest {
 }
 
 describe("Supervisor request display", () => {
-	it("shows a goal review as labeled fields without user messages or objective, and keeps the instructions", () => {
+	it("shows a goal review as labeled fields without user messages or objective, and splits off the instructions", () => {
 		const prompt = buildSupervisorPrompt(
 			request({
 				payload: {
@@ -45,7 +45,7 @@ describe("Supervisor request display", () => {
 		expect(display.body).not.toContain("secret chat line");
 		expect(display.body).not.toContain("Ship the relay");
 		expect(display.body).not.toContain("{");
-		expect(display.instructions).toContain("Call supervisor_response exactly once");
+		expect(display.instructions).toContain("Respond with kind complete");
 		expect(display.instructions).not.toContain("Request:");
 	});
 

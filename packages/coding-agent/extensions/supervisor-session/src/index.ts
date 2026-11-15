@@ -26,7 +26,7 @@ import {
 } from "../../../src/supervisor/request-evaluation.ts";
 import { notifySupervisorRequest, SupervisorRequestWakeServer } from "../../../src/supervisor/request-wake.ts";
 import { createSupervisorResponseTool, SUPERVISOR_RESPONSE_TOOL_NAME } from "../../../src/supervisor/response-tool.ts";
-import type { SupervisorEvaluator } from "../../../src/supervisor/service.ts";
+import { SUPERVISOR_REQUEST_POLICY, type SupervisorEvaluator } from "../../../src/supervisor/service.ts";
 import { createInspectSessionTool } from "./inspect-session-tool.ts";
 import { renderSupervisorRequestMessage } from "./request-message.ts";
 
@@ -290,6 +290,9 @@ export default function supervisorSessionExtension(pi: ExtensionAPI): void {
 		if (!isSupervisorSession(ctx)) return undefined;
 		return blockSupervisorSessionTool(process.env.PI_KB_DIR ?? DEFAULT_SUPERVISOR_KB_DIR, ctx.cwd, event);
 	});
+	pi.on("before_agent_start", (event, ctx) =>
+		isSupervisorSession(ctx) ? { systemPrompt: `${event.systemPrompt}\n\n${SUPERVISOR_REQUEST_POLICY}` } : undefined,
+	);
 	pi.on("session_start", (_event, ctx) => server.start(ctx));
 	pi.on("session_shutdown", () => server.stop());
 	pi.on("agent_end", (_event, ctx) => server.onAgentEnd(ctx));

@@ -88,78 +88,75 @@ export function buildSupervisorInstructionReviewContext(instructions: string, ti
 	};
 }
 
-function goalRequirementAuthorityContract(): string {
-	return [
-		"Requirements are binding only when they come from explicit user instructions or persistent project contracts.",
-		"Use payload.userMessages (the user's own messages and ask_questions answers, oldest first) and user-kind conversationEvents as user evidence; a later message adds to or overrides earlier ones. end_turn reasons are assistant reports, not user instructions.",
-		"Assistant-authored plans, summaries, task IDs, issue IDs, and prior review instructions are evidence or context only; repetition in objectives or KB memory does not establish user authorization.",
-		"Discard unsupported constraints rather than preserving them. Disposable pilot task IDs are diagnostic references unless the user or a governing contract explicitly requires those identities.",
-	].join("\n");
-}
+const GOAL_REQUIREMENT_AUTHORITY = [
+	"Requirements are binding only when they come from explicit user instructions or persistent project contracts.",
+	"Use payload.userMessages (the user's own messages and ask_questions answers, oldest first) and user-kind conversationEvents as user evidence; a later message adds to or overrides earlier ones. end_turn reasons are assistant reports, not user instructions.",
+	"Assistant-authored plans, summaries, task IDs, issue IDs, and prior review instructions are evidence or context only; repetition in objectives or KB memory does not establish user authorization.",
+	"Discard unsupported constraints rather than preserving them. Disposable pilot task IDs are diagnostic references unless the user or a governing contract explicitly requires those identities.",
+	"Only an explicit user instruction may reset or narrow the grounded parent objective.",
+];
 
-function goalProgressResponseContract(): string {
-	return [
-		"Use kind complete, pause, wait, continue, or error with a non-empty reason.",
-		"Primary responsibility: maintain cumulative big-picture consistency across requests, not routine task decomposition.",
-		"Treat payload.objective and any current claims as claims about the active goal, not automatically as the full scope.",
-		goalRequirementAuthorityContract(),
-		"Preserve the grounded unfinished parent objective, not unsupported additions copied into prior objectives, plans, or memory.",
-		"Detect narrowed or lost goals; dropped requirements, exclusions, or completion criteria; contradictions between claims and evidence; repeated or circular work; and missing completion proof.",
-		"Only an explicit user instruction may reset or narrow that parent.",
-		"Return complete only when evidence proves every requirement and completion criterion of the full parent objective.",
-		"A child-slice completion that lacks that proof must return continue with the smallest corrective instruction.",
-		'When the agent is making competent progress or can determine its own next step, use continue with instructions exactly "Continue working toward the active goal."',
-		"Use different continue instructions only when evidence identifies a concrete omission or another listed exception. Name only the exception and smallest corrective action.",
-		"Do not prescribe routine decomposition, sequencing, implementation details, or oversight when evidence is uncertain.",
-		"Use wait when a pending asynchronous result or recheckable external condition blocks all remaining goal work, including when the only remaining work needs that result.",
-		"Do not use wait while other authorized goal work can proceed without that result; use continue.",
-		"Use pause only when progress requires user action or input and cannot advance automatically.",
-	].join("\n");
-}
+/**
+ * Standing policy for typed requests. The Supervisor session carries it once in its system prompt;
+ * each request message then holds only the response shape and the request itself.
+ */
+export const SUPERVISOR_REQUEST_POLICY = [
+	"# Supervisor requests",
+	"You are the Pi Supervisor, a peer unblocker and policy engine for other Pi sessions.",
+	"Other sessions send you typed requests as [Supervisor request] messages. Evaluate each against the cumulative objective from your shared context and KB memory; avoid routine task management.",
+	"Project memory lives at memory/supervisor/<projectId>.md and global memory at memory/supervisor/global.md; read and update them as needed.",
+	"Answer each request by calling supervisor_response exactly once as the final action, with no assistant text, JSON, markdown, or end_turn before or after it.",
+	"",
+	"## Goal requirement authority (goal set, idle, and completion reviews)",
+	...GOAL_REQUIREMENT_AUTHORITY,
+	"",
+	"## Goal set review",
+	"Treat currentObjective and proposedObjective as current claims, not automatically as the full scope.",
+	"Reconcile them against that authority: preserve every grounded requirement, exclusion, and completion criterion, but remove unsupported additions.",
+	"When no grounded parent is known, derive the objective from the user request and supported parts of the proposal; do not copy unsupported constraints unchanged.",
+	"",
+	"## Goal idle and completion reviews",
+	"Primary responsibility: maintain cumulative big-picture consistency across requests, not routine task decomposition.",
+	"Treat payload.objective and any current claims as claims about the active goal, not automatically as the full scope.",
+	"Preserve the grounded unfinished parent objective, not unsupported additions copied into prior objectives, plans, or memory.",
+	"Detect narrowed or lost goals; dropped requirements, exclusions, or completion criteria; contradictions between claims and evidence; repeated or circular work; and missing completion proof.",
+	"Return complete only when evidence proves every requirement and completion criterion of the full parent objective.",
+	"A child-slice completion that lacks that proof must return continue with the smallest corrective instruction.",
+	'When the agent is making competent progress or can determine its own next step, use continue with instructions exactly "Continue working toward the active goal."',
+	"Use different continue instructions only when evidence identifies a concrete omission or another listed exception. Name only the exception and smallest corrective action.",
+	"Do not prescribe routine decomposition, sequencing, implementation details, or oversight when evidence is uncertain.",
+	"Use wait when a pending asynchronous result or recheckable external condition blocks all remaining goal work, including when the only remaining work needs that result.",
+	"Do not use wait while other authorized goal work can proceed without that result; use continue.",
+	"Use pause only when progress requires user action or input and cannot advance automatically.",
+	"",
+	"## Questions",
+	"payload.questions are questions an agent asked its user; the user may also answer them directly, and the first answer wins.",
+	"Answer when user rules, specs, KB memory, earlier user decisions, repository evidence, or sound reasoning settle every question, trivial or not. Give answers keyed by the exact question text, one per question, each with a short reason naming its evidence. For a question with options, answer with one option label, or several comma-separated labels when multiSelect is true.",
+	"Escalate when any question involves new scope, cost, safety risk, an irreversible action, or a product tradeoff the evidence does not settle. The user then answers.",
+	"",
+	"## Advisory questions",
+	"An advisory answer is advice only; it cannot direct or control the caller.",
+].join("\n");
 
-function questionResponseContract(): string {
-	return [
-		"payload.questions are questions an agent asked its user; the user may also answer them directly, and the first answer wins.",
-		"Use kind answer when user rules, specs, KB memory, earlier user decisions, repository evidence, or sound reasoning settle every question, trivial or not.",
-		"An answer gives answers keyed by the exact question text, one entry per question, each with a non-empty answer and a short reason naming its evidence. For a question with options, answer with one option label, or several comma-separated labels when multiSelect is true.",
-		"Use kind escalate with a non-empty reason when any question involves new scope, cost, safety risk, an irreversible action, or a product tradeoff the evidence does not settle. The user then answers.",
-	].join("\n");
-}
-
-function responseContractForRequest(kind: SupervisorRequestKind): string {
+function responseShapeForRequest(kind: SupervisorRequestKind): string {
 	switch (kind) {
 		case "approval_review":
-			return "Use kind approve or reject with a non-empty reason.";
+			return "Respond with kind approve or reject and a non-empty reason.";
 		case "goal_set_review":
-			return [
-				"Use kind set with a non-empty reason and objective.",
-				"Treat currentObjective and proposedObjective as current claims, not automatically as the full scope.",
-				goalRequirementAuthorityContract(),
-				"Reconcile currentObjective and proposedObjective against that authority: preserve every grounded requirement, exclusion, and completion criterion, but remove unsupported additions.",
-				"Only an explicit user instruction may reset or narrow that parent.",
-				"When no grounded parent is known, derive the objective from the user request and supported parts of the proposal; do not copy unsupported constraints unchanged.",
-			].join("\n");
+			return "Respond with kind set, a non-empty reason, and the objective.";
 		case "question":
-			return questionResponseContract();
+			return "Respond with kind answer (answers keyed by exact question text, each with answer and reason) or kind escalate with a non-empty reason.";
 		case "supervisor_advisory":
-			return "Use kind advisory with a non-empty answer. This response is advisory only and cannot direct or control the caller.";
+			return "Respond with kind advisory and a non-empty answer.";
 		case "goal_completion_review":
 		case "goal_idle_review":
-			return goalProgressResponseContract();
+			return "Respond with kind complete, pause, wait, continue (with instructions), or error, and a non-empty reason.";
 	}
 }
 
 export function buildSupervisorPrompt(request: SupervisorRequest): string {
-	const responseContract = responseContractForRequest(request.kind);
 	return [
-		"You are Pi Supervisor, a resident peer unblocker and policy engine.",
-		"Evaluate this bounded request against the cumulative objective from shared Supervisor context and KB memory; avoid routine task management.",
-		"Do not request or reconstruct historical session transcripts.",
-		"You may read and write KB memory synchronously. Do not edit workspace files or control sessions, goals, processes, or agents.",
-		`Project memory: memory/supervisor/${request.projectId}.md`,
-		"Global memory: memory/supervisor/global.md",
-		responseContract,
-		"Call supervisor_response exactly once as the final action. Do not emit assistant text, JSON, markdown, or call end_turn before or after it.",
+		`${responseShapeForRequest(request.kind)} Policy: the Supervisor requests section of your system prompt.`,
 		"Request:",
 		JSON.stringify(
 			{

@@ -10,7 +10,12 @@ import {
 	readSupervisorRequest,
 } from "../src/core/session-control-db.ts";
 import { blockSupervisorFileAccess } from "../src/supervisor/request-evaluation.ts";
-import { buildSupervisorPrompt, parseSupervisorResponse, runSupervisorRequest } from "../src/supervisor/service.ts";
+import {
+	buildSupervisorPrompt,
+	parseSupervisorResponse,
+	runSupervisorRequest,
+	SUPERVISOR_REQUEST_POLICY,
+} from "../src/supervisor/service.ts";
 
 describe("Supervisor request service", () => {
 	let tempDir: string;
@@ -156,42 +161,23 @@ describe("Supervisor request service", () => {
 		).toBeUndefined();
 	});
 
-	it("grounds goal set constraints in user and project authority", () => {
-		const prompt = buildSupervisorPrompt({
-			claimToken: "runtime",
-			claimedAt: "2026-08-01T12:00:00.000Z",
-			createdAt: "2026-08-01T12:00:00.000Z",
-			deadlineAt: "2026-08-01T12:01:00.000Z",
-			id: 3,
-			kind: "goal_set_review",
-			payload: { currentObjective: "ship the feature", proposedObjective: "write one test" },
-			projectId: "pi",
-			senderSessionId: "main",
-			status: "claimed",
-		});
-
-		expect(prompt).toContain("Use kind set with a non-empty reason and objective");
-		expect(prompt).toContain(
-			"Treat currentObjective and proposedObjective as current claims, not automatically as the full scope",
-		);
-		expect(prompt).toContain(
+	it("keeps the standing goal policy in the session policy, not in each request", () => {
+		const policy = SUPERVISOR_REQUEST_POLICY;
+		for (const rule of [
 			"Requirements are binding only when they come from explicit user instructions or persistent project contracts",
-		);
-		expect(prompt).toContain(
 			"Assistant-authored plans, summaries, task IDs, issue IDs, and prior review instructions are evidence or context only",
-		);
-		expect(prompt).toContain(
 			"preserve every grounded requirement, exclusion, and completion criterion, but remove unsupported additions",
-		);
-		expect(prompt).toContain("Only an explicit user instruction may reset or narrow that parent");
-		expect(prompt).not.toContain("Only an explicit user instruction may reset, narrow, or complete that parent");
-		expect(prompt).not.toContain("complete that parent");
-		expect(prompt).toContain(
-			"derive the objective from the user request and supported parts of the proposal; do not copy unsupported constraints unchanged",
-		);
-	});
-
-	it("frames goal reviews as exception-based peer unblocking", () => {
+			"Only an explicit user instruction may reset or narrow the grounded parent objective",
+			"Return complete only when evidence proves every requirement and completion criterion of the full parent objective",
+			"A child-slice completion that lacks that proof must return continue with the smallest corrective instruction",
+			'instructions exactly "Continue working toward the active goal."',
+			"Do not use wait while other authorized goal work can proceed without that result; use continue",
+			"Use pause only when progress requires user action",
+			"Escalate when any question involves new scope, cost, safety risk, an irreversible action, or a product tradeoff",
+			"calling supervisor_response exactly once as the final action",
+		]) {
+			expect(policy).toContain(rule);
+		}
 		const prompt = buildSupervisorPrompt({
 			claimToken: "runtime",
 			claimedAt: "2026-07-17T12:00:00.000Z",
@@ -199,102 +185,15 @@ describe("Supervisor request service", () => {
 			deadlineAt: "2026-07-17T12:03:00.000Z",
 			id: 2,
 			kind: "goal_idle_review",
-			payload: { objective: "Fix every unresolved Sentry issue", terminalTurn: [] },
+			payload: { objective: "Fix every unresolved Sentry issue" },
 			projectId: "pi",
 			senderSessionId: "main",
 			status: "claimed",
 		});
-
-		expect(prompt).toContain("resident peer unblocker and policy engine");
-		expect(prompt).toContain(
-			"Evaluate this bounded request against the cumulative objective from shared Supervisor context and KB memory; avoid routine task management.",
-		);
-		expect(prompt).not.toContain("Evaluate only this bounded request");
-		expect(prompt).toContain(
-			"Primary responsibility: maintain cumulative big-picture consistency across requests, not routine task decomposition",
-		);
-		expect(prompt).toContain(
-			"Treat payload.objective and any current claims as claims about the active goal, not automatically as the full scope",
-		);
-		expect(prompt).toContain(
-			"Requirements are binding only when they come from explicit user instructions or persistent project contracts",
-		);
-		expect(prompt).toContain(
-			"Assistant-authored plans, summaries, task IDs, issue IDs, and prior review instructions are evidence or context only",
-		);
-		expect(prompt).toContain("Preserve the grounded unfinished parent objective, not unsupported additions");
-		expect(prompt).toContain("Only an explicit user instruction may reset or narrow that parent");
-		expect(prompt).toContain(
-			"Return complete only when evidence proves every requirement and completion criterion of the full parent objective",
-		);
-		expect(prompt).toContain(
-			"A child-slice completion that lacks that proof must return continue with the smallest corrective instruction",
-		);
-		expect(prompt).toContain("narrowed or lost goals");
-		expect(prompt).toContain("dropped requirements, exclusions, or completion criteria");
-		expect(prompt).toContain("contradictions between claims and evidence");
-		expect(prompt).toContain("repeated or circular work");
-		expect(prompt).toContain("missing completion proof");
-		expect(prompt).toContain('instructions exactly "Continue working toward the active goal."');
-		expect(prompt).toContain("Use different continue instructions only when evidence identifies a concrete omission");
-		expect(prompt).toContain(
-			"Do not prescribe routine decomposition, sequencing, implementation details, or oversight",
-		);
-		expect(prompt).toContain(
-			"Use wait when a pending asynchronous result or recheckable external condition blocks all remaining goal work, including when the only remaining work needs that result",
-		);
-		expect(prompt).toContain(
-			"Do not use wait while other authorized goal work can proceed without that result; use continue",
-		);
-		expect(prompt).toContain("Use pause only when progress requires user action");
-		expect(prompt).toContain("Call supervisor_response exactly once as the final action");
-	});
-
-	it("builds a bounded prompt without historical transcript retrieval", () => {
-		const prompt = buildSupervisorPrompt({
-			claimToken: "runtime",
-			claimedAt: "2026-07-14T12:00:00.000Z",
-			createdAt: "2026-07-14T12:00:00.000Z",
-			deadlineAt: "2026-07-14T12:00:30.000Z",
-			id: 1,
-			kind: "approval_review",
-			payload: { toolName: "read" },
-			projectId: "pi",
-			senderSessionId: "main",
-			status: "claimed",
-		});
-
-		expect(prompt).toContain("memory/supervisor/pi.md");
-		expect(prompt).toContain('"toolName": "read"');
-		expect(prompt).toContain("Do not request or reconstruct historical session transcripts");
-		expect(
-			buildSupervisorPrompt({
-				claimToken: "runtime",
-				claimedAt: "2026-07-17T12:00:00.000Z",
-				createdAt: "2026-07-17T12:00:00.000Z",
-				deadlineAt: "2026-07-17T12:03:00.000Z",
-				id: 2,
-				kind: "goal_idle_review",
-				payload: { objective: "finish" },
-				projectId: "pi",
-				senderSessionId: "main",
-				status: "claimed",
-			}),
-		).toContain('instructions exactly "Continue working toward the active goal."');
-		expect(
-			buildSupervisorPrompt({
-				claimToken: "runtime",
-				claimedAt: "2026-07-17T12:00:00.000Z",
-				createdAt: "2026-07-17T12:00:00.000Z",
-				deadlineAt: "2026-07-17T12:03:00.000Z",
-				id: 3,
-				kind: "goal_idle_review",
-				payload: { objective: "finish" },
-				projectId: "pi",
-				senderSessionId: "main",
-				status: "claimed",
-			}),
-		).toContain("Use kind complete, pause, wait, continue, or error");
+		expect(prompt).toContain("Respond with kind complete, pause, wait, continue (with instructions), or error");
+		expect(prompt).toContain('"objective": "Fix every unresolved Sentry issue"');
+		expect(prompt).not.toContain("Requirements are binding");
+		expect(prompt.length).toBeLessThan(600);
 	});
 
 	it("prompts for and parses advisory-only responses", () => {
@@ -310,9 +209,8 @@ describe("Supervisor request service", () => {
 			senderSessionId: "main",
 			status: "claimed" as const,
 		};
-		const prompt = buildSupervisorPrompt(request);
-		expect(prompt).toContain("Use kind advisory with a non-empty answer");
-		expect(prompt).toContain("advisory only");
+		expect(buildSupervisorPrompt(request)).toContain("Respond with kind advisory and a non-empty answer");
+		expect(SUPERVISOR_REQUEST_POLICY).toContain("advice only");
 		expect(parseSupervisorResponse(request.kind, { kind: "advisory", answer: "Nothing is missing." })).toEqual({
 			kind: "advisory",
 			answer: "Nothing is missing.",

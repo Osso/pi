@@ -15,6 +15,7 @@ import {
 	type SupervisorRequestKind,
 } from "../../src/core/session-control-db.ts";
 import { getSupervisorRequestSocketPath, notifySupervisorRequest } from "../../src/supervisor/request-wake.ts";
+import { SUPERVISOR_REQUEST_POLICY } from "../../src/supervisor/service.ts";
 import { createHarness, type Harness } from "./harness.ts";
 
 const harnesses: Harness[] = [];
@@ -95,6 +96,23 @@ describe("interactive Supervisor session", () => {
 		const shown = customTexts(harness, SUPERVISOR_REQUEST_MESSAGE_TYPE);
 		expect(shown).toHaveLength(1);
 		expect(shown[0]).toContain('"toolName": "read"');
+	});
+
+	it("carries the request policy in the Supervisor session's system prompt only", async () => {
+		const prompts: string[] = [];
+		const capture = (context: { systemPrompt?: string }) => {
+			prompts.push(context.systemPrompt ?? "");
+			return fauxAssistantMessage("Done.");
+		};
+		const supervisor = await openSession({ supervisor: true });
+		supervisor.setResponses([capture]);
+		await supervisor.session.prompt("Hello.");
+		const other = await openSession({ supervisor: false });
+		other.setResponses([capture]);
+		await other.session.prompt("Hello.");
+
+		expect(prompts[0]).toContain(SUPERVISOR_REQUEST_POLICY);
+		expect(prompts[1]).not.toContain("# Supervisor requests");
 	});
 
 	it("records an error response when the turn ends without supervisor_response", async () => {
