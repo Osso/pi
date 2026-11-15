@@ -96,6 +96,30 @@ describe("issue #3217 scoped model ordering", () => {
 		expect(changes).toEqual([[orderedIds[1], orderedIds[0], orderedIds[2]]]);
 	});
 
+	it("reorders the selected model while a search filter is active", async () => {
+		const harness = await createHarness({
+			models: [
+				{ id: "faux-1", name: "One", reasoning: true },
+				{ id: "faux-2", name: "Two", reasoning: true },
+				{ id: "faux-3", name: "Three", reasoning: true },
+			],
+		});
+		harnesses.push(harness);
+
+		const orderedIds = harness.models.map((model) => `${model.provider}/${model.id}`);
+		const changes: Array<string[] | null> = [];
+		const selector = new ScopedModelsSelectorComponent(
+			{ allModels: [...harness.models], enabledModelIds: orderedIds },
+			{ onChange: (enabledModelIds) => void changes.push(enabledModelIds), onPersist: () => {}, onCancel: () => {} },
+		);
+
+		for (const char of "faux-2") selector.handleInput(char);
+		selector.handleInput("\x1b[1;3A");
+
+		expect(changes).toEqual([[orderedIds[1], orderedIds[0], orderedIds[2]]]);
+		expect(stripAnsi(selector.render(120).join("\n"))).toContain("→ faux-2");
+	});
+
 	it("preserves scoped model order in the /model scoped tab", async () => {
 		const harness = await createHarness({
 			models: [

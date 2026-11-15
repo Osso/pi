@@ -276,8 +276,13 @@ export class ScopedModelsSelectorComponent extends Container implements Focusabl
 				if (newIndex >= 0 && newIndex < this.enabledIds.length) {
 					this.enabledIds = move(this.enabledIds, item.fullId, delta);
 					this.isDirty = true;
-					this.selectedIndex += delta;
 					this.refresh();
+					// Keep the moved model selected; a search filter does not follow the enabled order.
+					this.selectedIndex = Math.max(
+						0,
+						this.filteredItems.findIndex((i) => i.fullId === item.fullId),
+					);
+					this.updateList();
 					this.notifyChange();
 				}
 			}
