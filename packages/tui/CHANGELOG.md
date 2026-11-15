@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed visible tabs reaching the terminal unexpanded, where terminal tab stops could push a line past its computed width and wrap or misplace overlays; tabs inside OSC/APC payloads stay untouched ([#6697](https://github.com/earendil-works/pi-mono/pull/6697))
 - Fixed `wrapTextWithAnsi` leaving CRLF and bare CR line endings in wrapped lines, which let a carriage return move the cursor to column 0 and overwrite rendered text ([#6764](https://github.com/earendil-works/pi-mono/pull/6764))
 - Fixed `sliceByColumn` emitting style codes from before the slice after a reset at the slice start, which leaked color into the rest of the line, for example in the horizontally scrolled `/tree` view ([#10169](https://github.com/earendil-works/pi-mono/issues/10169))
 - Fixed slash-command completion returning no suggestions after leading whitespace (for example ` /mod`), although the editor opens the command menu there and submitted text is trimmed ([#10218](https://github.com/earendil-works/pi-mono/issues/10218))

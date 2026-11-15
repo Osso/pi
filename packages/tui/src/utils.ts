@@ -115,9 +115,7 @@ function truncateFragmentToWidth(text: string, maxWidth: number): { text: string
 		let end = i;
 		while (end < text.length && text[end] !== "\t") {
 			const nextAnsi = extractAnsiCode(text, end);
-			if (nextAnsi) {
-				break;
-			}
+			if (nextAnsi) break;
 			end++;
 		}
 
@@ -230,9 +228,7 @@ export function visibleWidth(str: string): number {
 
 	// Normalize: tabs to 3 spaces, strip ANSI escape codes
 	let clean = str;
-	if (str.includes("\t")) {
-		clean = clean.replace(/\t/g, "   ");
-	}
+	if (str.includes("\t")) clean = clean.replace(/\t/g, "   ");
 	if (clean.includes("\x1b")) {
 		// Strip supported ANSI/OSC/APC escape sequences in one pass.
 		// This covers CSI styling/cursor codes, OSC hyperlinks and prompt markers,
@@ -260,9 +256,7 @@ export function visibleWidth(str: string): number {
 	// Cache result
 	if (widthCache.size >= WIDTH_CACHE_SIZE) {
 		const firstKey = widthCache.keys().next().value;
-		if (firstKey !== undefined) {
-			widthCache.delete(firstKey);
-		}
+		if (firstKey !== undefined) widthCache.delete(firstKey);
 	}
 	widthCache.set(str, width);
 
@@ -279,8 +273,18 @@ const THAI_LAO_AM_REGEX = /[\u0e33\u0eb3]/;
 const THAI_LAO_AM_GLOBAL_REGEX = /[\u0e33\u0eb3]/g;
 
 export function normalizeTerminalOutput(str: string): string {
-	if (!THAI_LAO_AM_REGEX.test(str)) return str;
-	return str.replace(THAI_LAO_AM_GLOBAL_REGEX, (char) => (char === "\u0e33" ? "\u0e4d\u0e32" : "\u0ecd\u0eb2"));
+	const normalized = THAI_LAO_AM_REGEX.test(str)
+		? str.replace(THAI_LAO_AM_GLOBAL_REGEX, (char) => (char === "\u0e33" ? "\u0e4d\u0e32" : "\u0ecd\u0eb2"))
+		: str;
+	if (!normalized.includes("\t")) return normalized;
+	// Expand visible tabs to the layout width; tabs inside OSC/APC payloads stay untouched.
+	let result = "";
+	for (let i = 0; i < normalized.length; ) {
+		const ansi = extractAnsiCode(normalized, i);
+		result += ansi?.code ?? (normalized[i] === "\t" ? "   " : normalized[i]);
+		i += ansi?.length ?? 1;
+	}
+	return result;
 }
 
 /**
@@ -390,9 +394,7 @@ class AnsiCodeTracker {
 			return;
 		}
 
-		if (!ansiCode.endsWith("m")) {
-			return;
-		}
+		if (!ansiCode.endsWith("m")) return;
 
 		// Extract the parameters between \x1b[ and m
 		const match = ansiCode.match(/\x1b\[([\d;]*)m/);
@@ -614,9 +616,7 @@ function splitIntoTokensWithAnsi(text: string): string[] {
 	let i = 0;
 
 	const flushCurrent = (): void => {
-		if (!current) {
-			return;
-		}
+		if (!current) return;
 		tokens.push(current);
 		current = "";
 		currentKind = null;
