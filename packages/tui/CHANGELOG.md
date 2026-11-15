@@ -19,6 +19,7 @@
 
 ### Fixed
 
+- Fixed the terminal progress clear sequence carrying a trailing `;` (`OSC 9;4;0;`), which some terminals reject, leaving the progress indicator active ([#7581](https://github.com/earendil-works/pi-mono/pull/7581))
 - Fixed Markdown rendering raw terminal controls from model or extension text (title, clipboard, cursor, and screen-clear sequences, BEL, CR); they executed when written, and under `remote-agent-rs` an unmodeled sequence ends the session. SGR styling is kept
 - Fixed editor state left stale by non-typing edits: Undo and the kill/yank keys now refresh an open autocomplete picker (Tab applied an outdated suggestion and corrupted the text), Ctrl+] no longer lands inside a paste marker, marker-like text inside a paste is submitted literally, an accepted Ctrl+R search can be undone to the draft, and Undo clears the paste-marker snap column
 - Fixed closing an overlay after `stop()` hiding the terminal cursor, which left the shell with an invisible cursor ([#10026](https://github.com/earendil-works/pi-mono/issues/10026))

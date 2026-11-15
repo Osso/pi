@@ -228,7 +228,7 @@ describe("ProcessTerminal Kitty keyboard protocol negotiation", () => {
 });
 
 describe("ProcessTerminal progress", () => {
-	it("writes the OSC 9;4 clear sequence that remote-agent-rs accepts", () => {
+	it("writes a valid OSC 9;4 clear sequence", () => {
 		const terminal = new ProcessTerminal();
 		const writes: string[] = [];
 		const previousWrite = process.stdout.write;
@@ -239,7 +239,7 @@ describe("ProcessTerminal progress", () => {
 
 		try {
 			terminal.setProgress(false);
-			assert.deepEqual(writes, ["\x1b]9;4;0;\x07"]);
+			assert.deepEqual(writes, ["\x1b]9;4;0\x07"]);
 		} finally {
 			process.stdout.write = previousWrite;
 		}
