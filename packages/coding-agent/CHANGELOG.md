@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed prompt templates with invalid YAML frontmatter disappearing without a warning; the parse error is now reported as a resource diagnostic ([#9830](https://github.com/earendil-works/pi-mono/pull/9830))
 - Fixed skills, prompt templates and other Markdown resources saved with a UTF-8 byte order mark losing their frontmatter; skills were dropped with a misleading `description is required` warning
 - Fixed skills whose YAML `name` is a number or boolean, such as `name: 2048`, failing to load with `name.startsWith is not a function`; the name now falls back to the skill directory, and a non-string `description` is reported as missing
 - Fixed `find` patterns with a leading `./`, such as `./src/*.ts`, matching nothing
