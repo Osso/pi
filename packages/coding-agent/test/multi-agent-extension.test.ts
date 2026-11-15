@@ -150,6 +150,20 @@ function requireSessionManager(options: CreateAgentSessionOptions): SessionManag
 	return options.sessionManager;
 }
 
+/** A child session that records nothing; `prompt` defaults to a no-op. */
+function inertChildSession(options: CreateAgentSessionOptions, prompt: () => Promise<void> = async () => {}) {
+	return {
+		session: {
+			...createChildSessionMutationFixture(),
+			sessionManager: requireSessionManager(options),
+			extensionRunner: { emit: async () => {} },
+			bindExtensions: async () => {},
+			messages: [],
+			prompt,
+		},
+	};
+}
+
 function createControlDbSession(cwd = "/repo"): SessionManager {
 	const tempDir = mkdtempSync(join(tmpdir(), "pi-agent-ext-db-"));
 	managedTempDirs.push(tempDir);
@@ -5447,16 +5461,7 @@ describe("multi-agent extension tools", () => {
 		const attachedFactory = createProductionAttachedSessionFactory({
 			createSession: async (options) => {
 				sessionOptions = options;
-				return {
-					session: {
-						...createChildSessionMutationFixture(),
-						sessionManager: requireSessionManager(options),
-						extensionRunner: { emit: async () => {} },
-						bindExtensions: async () => {},
-						messages: [],
-						prompt: async () => {},
-					},
-				};
+				return inertChildSession(options);
 			},
 			multiAgentStore: store,
 		});
@@ -5502,16 +5507,7 @@ describe("multi-agent extension tools", () => {
 		target.appendMessage({ role: "user", content: "existing", timestamp: 1 });
 		target.persistForRecovery();
 		const missingCwd = join(parentHarness.tempDir, "deleted-agent-cwd");
-		const createSession = vi.fn(async (options: CreateAgentSessionOptions) => ({
-			session: {
-				...createChildSessionMutationFixture(),
-				sessionManager: requireSessionManager(options),
-				extensionRunner: { emit: async () => {} },
-				bindExtensions: async () => {},
-				messages: [],
-				prompt: async () => {},
-			},
-		}));
+		const createSession = vi.fn(async (options: CreateAgentSessionOptions) => inertChildSession(options));
 		const attachedFactory = createProductionAttachedSessionFactory({ createSession, multiAgentStore: store });
 		const agent = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "verifier",
@@ -5537,16 +5533,7 @@ describe("multi-agent extension tools", () => {
 		childHarnesses.push(parentHarness);
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const transcriptPath = join(parentHarness.tempDir, "missing-child.jsonl");
-		const createSession = vi.fn(async (options: CreateAgentSessionOptions) => ({
-			session: {
-				...createChildSessionMutationFixture(),
-				sessionManager: requireSessionManager(options),
-				extensionRunner: { emit: async () => {} },
-				bindExtensions: async () => {},
-				messages: [],
-				prompt: async () => {},
-			},
-		}));
+		const createSession = vi.fn(async (options: CreateAgentSessionOptions) => inertChildSession(options));
 		const attachedFactory = createProductionAttachedSessionFactory({ createSession, multiAgentStore: store });
 		const agent = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "verifier",
@@ -5575,16 +5562,7 @@ describe("multi-agent extension tools", () => {
 		target.appendMessage({ role: "user", content: "unrelated context", timestamp: 1 });
 		target.appendMessage(fauxAssistantMessage("replacement context"));
 		const transcriptPath = target.getSessionFile() ?? "";
-		const createSession = vi.fn(async (options: CreateAgentSessionOptions) => ({
-			session: {
-				...createChildSessionMutationFixture(),
-				sessionManager: requireSessionManager(options),
-				extensionRunner: { emit: async () => {} },
-				bindExtensions: async () => {},
-				messages: [],
-				prompt: async () => {},
-			},
-		}));
+		const createSession = vi.fn(async (options: CreateAgentSessionOptions) => inertChildSession(options));
 		const attachedFactory = createProductionAttachedSessionFactory({ createSession, multiAgentStore: store });
 		const agent = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "verifier",
@@ -5678,18 +5656,9 @@ describe("multi-agent extension tools", () => {
 				createSessionManager: SessionManager.create,
 				createSession: async (options) => {
 					childSessionManager = options.sessionManager;
-					return {
-						session: {
-							...createChildSessionMutationFixture(),
-							sessionManager: requireSessionManager(options),
-							extensionRunner: { emit: async () => {} },
-							bindExtensions: async () => {},
-							messages: [],
-							prompt: async () => {
-								childGoalBeforePrompt = childSessionManager?.getSessionGoalJson();
-							},
-						},
-					};
+					return inertChildSession(options, async () => {
+						childGoalBeforePrompt = childSessionManager?.getSessionGoalJson();
+					});
 				},
 			}),
 		});
@@ -5722,18 +5691,9 @@ describe("multi-agent extension tools", () => {
 				createSessionManager: SessionManager.create,
 				createSession: async (options) => {
 					childSessionManager = options.sessionManager;
-					return {
-						session: {
-							...createChildSessionMutationFixture(),
-							sessionManager: requireSessionManager(options),
-							extensionRunner: { emit: async () => {} },
-							bindExtensions: async () => {},
-							messages: [],
-							prompt: async () => {
-								childGoalBeforePrompt = childSessionManager?.getSessionGoalJson();
-							},
-						},
-					};
+					return inertChildSession(options, async () => {
+						childGoalBeforePrompt = childSessionManager?.getSessionGoalJson();
+					});
 				},
 			}),
 		});
