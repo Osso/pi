@@ -1218,6 +1218,15 @@ describe("Coding Agent Tools", () => {
 			expect(over.details?.resultLimitReached).toBe(1);
 		});
 
+		it("treats a leading ./ in a pattern as the search root", async () => {
+			mkdirSync(join(testDir, "src"));
+			writeFileSync(join(testDir, "src", "x.ts"), "x");
+
+			const result = await findTool.execute("find-dot-slash", { pattern: "./src/*.ts", path: testDir });
+
+			expect(getTextOutput(result)).toBe("src/x.ts");
+		});
+
 		it("should respect .gitignore", async () => {
 			writeFileSync(join(testDir, ".gitignore"), "ignored.txt\n");
 			writeFileSync(join(testDir, "ignored.txt"), "ignored");

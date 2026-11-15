@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed `find` patterns with a leading `./`, such as `./src/*.ts`, matching nothing
 - Fixed the `find` tool reporting "results limit reached" when exactly `limit` files matched
 - Fixed the `find` tool listing `.git` internals such as `.git/HEAD` and `.git/hooks/*` in repositories, which also used up the result limit
 - Fixed `pi install`, `pi remove`, `pi update`, `-e` and settings package entries treating sources with uppercase URL schemes, such as `HTTPS://github.com/user/repo`, as local paths
