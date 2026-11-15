@@ -43,7 +43,7 @@ Both commands remain available while main is busy. See the [command contract](..
 
 ## Runtime flow
 
-`session_start` resolves the project root (Git root, or the working directory outside a repository) and validates metadata before creating an interval timer. Main TUI/RPC sessions need the multi-agent store and active `spawn_agent`/`send_agent_message` tools; child sessions do not arm timers.
+`session_start` resolves the project root (Git root, or the working directory outside a repository) and validates metadata before arming the timer. The first tick comes one interval after the creation time of the session's latest stored `periodic-checks-audit` child, so restart and reload keep the schedule and an overdue audit runs right away; with no stored audit it comes one full interval after arming. Main TUI/RPC sessions need the multi-agent store and active `spawn_agent`/`send_agent_message` tools; child sessions do not arm timers.
 
 Each tick advances the stored schedule boundary and attempts direct `pi.callTool("spawn_agent", ...)` dispatch. A pending call or stored live `periodic-checks-audit` blocks overlap. The child is a fresh-context `explore` agent; its prompt rereads the checklist and requires report-only findings sent to the originating main session with successful-delivery confirmation. The child inspects main with `list_agents` and `search_parent_session_history`. The report opens with a `[periodic-checks: <fact> · …]` tag line; `compactCoordinationText` in `src/modes/interactive/coordination-visibility.ts` makes main's chat show only that line, while the transcript and model context keep the full report. No model prompt asks main to start the audit. Schedule generations fence late results after reload or shutdown.
 

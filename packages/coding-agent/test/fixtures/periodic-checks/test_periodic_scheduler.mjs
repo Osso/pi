@@ -509,7 +509,26 @@ test("Git worktree uses its own checklist, not canonical checkout", async (t) =>
 	assert.ok(!f.calls[0].params.prompt.includes(f.checklist));
 });
 
-test("every session_start rearms from zero; shutdown clears; stale identity cannot fire", async (t) => {
+test("restart keeps the countdown from the latest audit start", async (t) => {
+	const f = await fixture(t);
+	f.emit("session_start");
+	await f.tick();
+	assert.equal(f.calls.length, 1);
+	f.finishAudit();
+	await f.tick(10 * 60000);
+	f.emit("session_shutdown");
+	f.emit("session_start", { reason: "restart" });
+	assert.equal(
+		await f.status(),
+		`Periodic checks: armed\nChecklist: ${f.checklist}\ninterval_seconds: 1800\nNext run: in 20 minutes`,
+	);
+	await f.tick(20 * 60000 - 1);
+	assert.equal(f.calls.length, 1);
+	await f.tick(1);
+	assert.equal(f.calls.length, 2);
+});
+
+test("session_start without audits rearms from zero; an overdue audit runs on resume; stale identity cannot fire", async (t) => {
 	const f = await fixture(t);
 	f.emit("session_start");
 	await f.tick(interval - 1);
@@ -523,14 +542,17 @@ test("every session_start rearms from zero; shutdown clears; stale identity cann
 	assert.equal(f.calls.length, 1);
 	f.finishAudit();
 	f.emit("session_start", { reason: "resume" });
-	await f.tick(interval - 1);
-	assert.equal(f.calls.length, 1);
-	await f.tick(1);
+	await f.tick(0);
 	assert.equal(f.calls.length, 2);
+	f.finishAudit();
+	await f.tick(interval - 1);
+	assert.equal(f.calls.length, 2);
+	await f.tick(1);
+	assert.equal(f.calls.length, 3);
 	f.finishAudit();
 	f.switchIdentity();
 	await f.tick();
-	assert.equal(f.calls.length, 2);
+	assert.equal(f.calls.length, 3);
 });
 
 test("only supported Pi main runtimes arm", async (t) => {

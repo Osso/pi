@@ -31,7 +31,7 @@ async function fixture(t, overrides = {}, tools = ["spawn_agent", "send_agent_me
 	const project = createProject(home, "first-project");
 	const secondProject = createProject(home, "second-project");
 	const checklist = join(project, "periodic-checks.md");
-	t.mock.timers.enable({ apis: ["setInterval", "Date"], now: 1800000000000 });
+	t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"], now: 1800000000000 });
 	const handlers = new Map();
 	const commands = new Map();
 	const notifications = [];
@@ -43,6 +43,7 @@ async function fixture(t, overrides = {}, tools = ["spawn_agent", "send_agent_me
 			id: `audit-${calls.length}`,
 			displayName: params.displayName,
 			lifecycle: "running",
+			createdAt: new Date().toISOString(),
 		};
 		agents.push(agent);
 		return {

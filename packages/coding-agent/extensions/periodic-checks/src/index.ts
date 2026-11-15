@@ -84,6 +84,15 @@ function hasLiveAudit(ctx: ExtensionContext): boolean {
 	);
 }
 
+/** When the session's latest audit child was created; the store persists it across restarts. */
+function latestAuditStart(ctx: ExtensionContext): number | undefined {
+	const starts = (ctx.multiAgentStore?.listAgents() ?? [])
+		.filter((agent) => agent.displayName === auditName)
+		.map((agent) => Date.parse(agent.createdAt))
+		.filter((start) => Number.isFinite(start));
+	return starts.length > 0 ? Math.max(...starts) : undefined;
+}
+
 function auditPrompt(checklist: string, parentSessionId: string): string {
 	return [
 		`Perform one read-only, bounded project audit. Reread the current project's checklist at ${JSON.stringify(checklist)} for this audit. Follow only the checklist; do not invent unrelated task scope.`,
@@ -115,7 +124,7 @@ type ScheduledAudit = {
 };
 
 export default function periodicExtension(pi: ExtensionAPI) {
-	let timer: ReturnType<typeof setInterval> | undefined;
+	let timer: ReturnType<typeof setTimeout> | undefined;
 	let generation = 0;
 	let inFlight = false;
 	let scheduledAudit: ScheduledAudit | undefined;
@@ -125,7 +134,7 @@ export default function periodicExtension(pi: ExtensionAPI) {
 	let disabledReason = "Session not started";
 
 	function stopTimer(reason: string): void {
-		if (timer !== undefined) clearInterval(timer);
+		if (timer !== undefined) clearTimeout(timer);
 		timer = undefined;
 		scheduledAudit = undefined;
 		intervalMs = undefined;
@@ -227,8 +236,13 @@ export default function periodicExtension(pi: ExtensionAPI) {
 	}
 
 	function armTimer(ctx: ExtensionContext, projectRoot: string, path: string): void {
-		intervalMs = readChecklistInterval(path);
-		nextTick = Date.now() + intervalMs;
+		const interval = readChecklistInterval(path);
+		const now = Date.now();
+		const previousStart = latestAuditStart(ctx);
+		// Keep the schedule of the previous audit across restarts; an overdue audit runs right away.
+		const firstTick = previousStart === undefined ? now + interval : Math.max(now, previousStart + interval);
+		intervalMs = interval;
+		nextTick = firstTick;
 		const audit = {
 			projectRoot,
 			checklist: path,
@@ -236,7 +250,10 @@ export default function periodicExtension(pi: ExtensionAPI) {
 			generation,
 		};
 		scheduledAudit = audit;
-		timer = setInterval(() => dispatchAuditTick(ctx, audit), intervalMs);
+		timer = setTimeout(() => {
+			timer = setInterval(() => dispatchAuditTick(ctx, audit), interval);
+			dispatchAuditTick(ctx, audit);
+		}, firstTick - now);
 	}
 
 	function notifyStatus(ctx: ExtensionContext): void {

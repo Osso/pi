@@ -10,7 +10,7 @@ Bundled first-party `periodic-checks` schedules report-only project audits from 
 - [x] On `session_start`, including reload, resolve the project root, which is the current directory's Git root inside a repository and the current directory itself otherwise, and its host-private `periodic-checks.md` (Git-ignored inside a repository). No checklist means no timer and no audit; status reports `No checklist` with the expected path. Deployment never copies checklists; each host configures its own file.
 - [x] Arm only main TUI or RPC sessions with a multi-agent store and active `spawn_agent` and `send_agent_message` tools. Exclude child sessions and unsupported runtimes.
 - [x] Require Google OKF YAML frontmatter with nonempty string `type` and positive safe-integer `interval_seconds` in 1–2147483 seconds. Allow unknown fields. Missing, malformed, or invalid metadata raises an explicit error and disables scheduling; no fixed-interval fallback.
-- [x] Read metadata at start/reload, or when status discovers a checklist previously missing at startup. Wait the full configured interval from discovery before the first tick. Apply metadata edits to an armed schedule or re-arm a checklist removed from an armed schedule only after another start/reload. Stop the timer on shutdown or checklist removal detected at dispatch, including during a pending spawn.
+- [x] Read metadata at start/reload, or when status discovers a checklist previously missing at startup. Schedule the first tick one interval after the creation time of the session's latest `periodic-checks-audit` child, scheduled or manual. The multi-agent store keeps that child, so the schedule survives restart and reload; an overdue tick runs right after arming. Without such a child, wait the full configured interval from arming or discovery. Apply metadata edits to an armed schedule or re-arm a checklist removed from an armed schedule only after another start/reload. Stop the timer on shutdown or checklist removal detected at dispatch, including during a pending spawn.
 
 ### Commands
 
@@ -49,7 +49,7 @@ Bundled first-party `periodic-checks` schedules report-only project audits from 
 - `packages/coding-agent/test/cli-runtime-inventory.test.ts` — first-party extension and command inventory, including bundled periodic-checks and exit-command.
 - `packages/coding-agent/test/interactive-mode-coordination-visibility.test.ts` — audit reports render as their tag line; batched and typed text stays whole.
 - `packages/coding-agent/test/periodic-checks-extension.test.ts` — runs the ported native Node scheduler suite against the bundled source.
-- `packages/coding-agent/test/fixtures/periodic-checks/test_periodic_scheduler.mjs` — metadata, discovery, timing, status, and manual-run behavior.
+- `packages/coding-agent/test/fixtures/periodic-checks/test_periodic_scheduler.mjs` — metadata, discovery, timing, schedule kept across restart, status, and manual-run behavior.
 - `packages/coding-agent/test/fixtures/periodic-checks/periodic_scheduler_dispatch.mjs` — direct dispatch, overlap, busy/pending commands, failure feedback, and late-result fencing.
 - Remote-agent `tests/test_periodic_runtime.py` with `tests/fixtures/periodic-runtime-provider.ts` — installed-Pi integration acceptance using private state and an offline faux provider, without explicit extension injection.
 
