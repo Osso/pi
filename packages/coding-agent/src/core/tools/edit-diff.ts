@@ -7,12 +7,12 @@ import { constants } from "fs";
 import { access, readFile } from "fs/promises";
 import { resolveToCwd } from "./path-utils.ts";
 
-export function detectLineEnding(content: string): "\r\n" | "\n" {
-	const crlfIdx = content.indexOf("\r\n");
-	const lfIdx = content.indexOf("\n");
-	if (lfIdx === -1) return "\n";
-	if (crlfIdx === -1) return "\n";
-	return crlfIdx < lfIdx ? "\r\n" : "\n";
+type LineEnding = "\r\n" | "\n" | "\r";
+
+/** The file's first line break; `\n` when it has none. */
+export function detectLineEnding(content: string): LineEnding {
+	const first = /\r\n|\n|\r/.exec(content)?.[0];
+	return first === "\r\n" || first === "\r" ? first : "\n";
 }
 
 export function normalizeToLF(text: string): string {
@@ -30,7 +30,7 @@ export function restoreOriginalLineEndings(
 	original: string,
 	normalizedBase: string,
 	normalizedEdited: string,
-	ending: "\r\n" | "\n",
+	ending: LineEnding,
 ): string {
 	const originalLines = original.match(ORIGINAL_LINE) ?? [];
 	const baseLines = splitLinesWithEndings(normalizedBase);
@@ -47,7 +47,7 @@ export function restoreOriginalLineEndings(
 		baseLines[baseLines.length - 1 - suffix] === editedLines[editedLines.length - 1 - suffix]
 	)
 		suffix++;
-	const withEnding = (line: string) => (ending === "\r\n" ? line.replace(/\n$/, "\r\n") : line);
+	const withEnding = (line: string) => (ending === "\n" ? line : line.replace(/\n$/, ending));
 	let baseIndex = prefix;
 	let result = originalLines.slice(0, prefix).join("");
 	const changedBase = baseLines.slice(prefix, baseLines.length - suffix);

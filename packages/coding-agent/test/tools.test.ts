@@ -1662,6 +1662,18 @@ describe("edit tool CRLF handling", () => {
 		expect(readFileSync(testFile, "utf-8")).toBe("a\r\nB1\r\nB2\r\nc\nd\r\n");
 	});
 
+	it("writes CR endings for edited lines in a CR-only file", async () => {
+		const testFile = join(testDir, "cr-only.txt");
+		writeFileSync(testFile, "first\rsecond\rthird\r");
+
+		await editTool.execute("test-cr-only", {
+			path: testFile,
+			edits: [{ oldText: "second\n", newText: "B1\nB2\n" }],
+		});
+
+		expect(readFileSync(testFile, "utf-8")).toBe("first\rB1\rB2\rthird\r");
+	});
+
 	it("keeps the ending of an untouched line that repeats the replacement", async () => {
 		const testFile = join(testDir, "mixed-repeat.txt");
 		writeFileSync(testFile, "prefix\r\ntarget\r\nsame\nsuffix\r\n");
