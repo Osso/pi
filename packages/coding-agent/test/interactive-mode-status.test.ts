@@ -3322,7 +3322,7 @@ describe("InteractiveMode.showLoadedResources", () => {
 			quietStartup: false,
 			cwd: "/tmp/project",
 			contextFiles: [{ path: "/tmp/project/AGENTS.md" }],
-			rulesFiles: [{ path: "/home/osso/AgentConfig/rules/01-identity.md" }],
+			rulesFiles: [{ path: path.join(homedir(), "AgentConfig/rules/01-identity.md") }],
 		});
 
 		(
