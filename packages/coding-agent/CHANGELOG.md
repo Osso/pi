@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed the `outputPad` setting having no effect in interactive mode: an upstream merge had dropped its wiring, so assistant and user messages always used padding 1. Error lines now honor it too.
 - Fixed read tool errors being syntax-highlighted with the requested file's language instead of rendering as plain tool output ([#6731](https://github.com/earendil-works/pi-mono/pull/6731))
 - Fixed `pi update` and update checks treating an installed npm package newer than the registry's latest version as outdated and reinstalling the older version ([#8239](https://github.com/earendil-works/pi-mono/pull/8239))
 - Fixed `pi.registerFlag()` accepting default values that do not match the declared flag type, e.g. a `"false"` string default for a boolean flag that then read as truthy ([#8064](https://github.com/earendil-works/pi-mono/issues/8064))

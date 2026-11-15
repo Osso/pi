@@ -571,6 +571,7 @@ export class InteractiveMode {
 
 	// Thinking block visibility state
 	private hideThinkingBlock = false;
+	private outputPad = 1;
 
 	// Skill commands: command name -> skill file path
 	private skillCommands = new Map<string, string>();
@@ -747,6 +748,7 @@ export class InteractiveMode {
 
 		// Load hide thinking block setting
 		this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
+		this.outputPad = this.settingsManager.getOutputPad();
 
 		// Register themes from resource loader and initialize
 		setRegisteredThemes(this.session.resourceLoader.getThemes().themes);
@@ -2176,6 +2178,7 @@ export class InteractiveMode {
 		this.footer.setAutoCompactEnabled(this.session.autoCompactionEnabled);
 		this.footerDataProvider.setCwd(this.sessionManager.getCwd());
 		this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
+		this.outputPad = this.settingsManager.getOutputPad();
 		this.ui.setShowHardwareCursor(this.settingsManager.getShowHardwareCursor());
 		this.ui.setClearOnShrink(this.settingsManager.getClearOnShrink());
 		const editorPaddingX = this.settingsManager.getEditorPaddingX();
@@ -2315,13 +2318,9 @@ export class InteractiveMode {
 		}
 
 		const activity = this.multiAgentStore?.getAgent(selectedAgentId)?.currentActivity;
-		if (!activity) {
-			return "Working...";
-		}
+		if (!activity) return "Working...";
 		const startedAt = Date.parse(activity.startedAt);
-		if (!Number.isFinite(startedAt)) {
-			return "Working...";
-		}
+		if (!Number.isFinite(startedAt)) return "Working...";
 		if (activity.phase === "tool") {
 			return this.getToolWaitingMessage(activity.toolName, startedAt);
 		}
@@ -2339,9 +2338,7 @@ export class InteractiveMode {
 	}
 
 	private updateThinkingWorkingMessage(): void {
-		if (this.executingToolNames.size > 0) {
-			return;
-		}
+		if (this.executingToolNames.size > 0) return;
 
 		this.setDefaultWorkingMessage(this.getThinkingWorkingMessage());
 	}
@@ -2357,14 +2354,10 @@ export class InteractiveMode {
 
 	private addCompletedThinkingDurationBeforeToolCall(message: AssistantMessage): void {
 		const hasToolCall = message.content.some((content) => content.type === "toolCall");
-		if (!hasToolCall || this.thinkingStartedAt === undefined) {
-			return;
-		}
+		if (!hasToolCall || this.thinkingStartedAt === undefined) return;
 
 		const elapsedMs = Date.now() - this.thinkingStartedAt;
-		if (elapsedMs < MIN_VISIBLE_ELAPSED_MS) {
-			return;
-		}
+		if (elapsedMs < MIN_VISIBLE_ELAPSED_MS) return;
 
 		const duration = formatElapsedDuration(elapsedMs);
 		this.chatContainer.addChild(new Text(theme.fg("muted", `Thought for ${duration}`), 1, 0));
@@ -4495,6 +4488,7 @@ export class InteractiveMode {
 						this.hideThinkingBlock,
 						this.getMarkdownThemeWithSettings(),
 						this.hiddenThinkingLabel,
+						this.outputPad,
 					);
 					this.streamingMessage = event.message;
 					this.transcriptTailContainer.addChild(this.streamingComponent);
@@ -4919,11 +4913,16 @@ export class InteractiveMode {
 							const userComponent = new UserMessageComponent(
 								skillBlock.userMessage,
 								this.getMarkdownThemeWithSettings(),
+								this.outputPad,
 							);
 							this.chatContainer.addChild(userComponent);
 						}
 					} else {
-						const userComponent = new UserMessageComponent(textContent, this.getMarkdownThemeWithSettings());
+						const userComponent = new UserMessageComponent(
+							textContent,
+							this.getMarkdownThemeWithSettings(),
+							this.outputPad,
+						);
 						this.chatContainer.addChild(userComponent);
 					}
 					const shouldPopulateHistory =
@@ -4938,6 +4937,7 @@ export class InteractiveMode {
 					this.hideThinkingBlock,
 					this.getMarkdownThemeWithSettings(),
 					this.hiddenThinkingLabel,
+					this.outputPad,
 				);
 				this.chatContainer.addChild(assistantComponent);
 				break;
@@ -5576,7 +5576,7 @@ export class InteractiveMode {
 
 	showError(errorMessage: string): void {
 		this.chatContainer.addChild(new Spacer(1));
-		this.chatContainer.addChild(new Text(theme.fg("error", `Error: ${errorMessage}`), 1, 0));
+		this.chatContainer.addChild(new Text(theme.fg("error", `Error: ${errorMessage}`), this.outputPad, 0));
 		this.ui.requestRender();
 	}
 
@@ -5963,6 +5963,9 @@ export class InteractiveMode {
 					},
 					onOutputPadChange: (padding) => {
 						this.settingsManager.setOutputPad(padding);
+						this.outputPad = padding;
+						this.streamingComponent?.setOutputPad(padding);
+						this.rebuildChatFromMessages();
 					},
 					onAutocompleteMaxVisibleChange: (maxVisible) => {
 						this.settingsManager.setAutocompleteMaxVisible(maxVisible);
@@ -7246,6 +7249,7 @@ export class InteractiveMode {
 				return;
 			}
 			this.hideThinkingBlock = this.settingsManager.getHideThinkingBlock();
+			this.outputPad = this.settingsManager.getOutputPad();
 			this.rebuildChatFromMessages();
 			chatRestoredBeforeSessionStart = true;
 		};
