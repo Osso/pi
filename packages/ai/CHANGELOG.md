@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed OpenAI Responses and Azure OpenAI Responses requests failing when `maxTokens` is below 16: `max_output_tokens` is now raised to the API minimum of 16 ([#6265](https://github.com/earendil-works/pi-mono/issues/6265))
 - Fixed context estimation using stale assistant usage when a newer message such as a compaction summary precedes it, which could clamp `maxTokens` far below the available context ([#6464](https://github.com/earendil-works/pi-mono/issues/6464))
 - Fixed OpenAI Codex SSE parsing dropping a terminal event that is not followed by a blank line, which turned a completed response into an error ([#9047](https://github.com/earendil-works/pi-mono/issues/9047))
 - Fixed OpenAI Completions messages ending up as `[text, thinking]` when a proxy such as LiteLLM sends `reasoning_content` and `content` in one stream delta; reasoning is now handled first ([#10926](https://github.com/earendil-works/pi-mono/issues/10926))
