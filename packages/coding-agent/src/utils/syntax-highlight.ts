@@ -87,7 +87,13 @@ export function renderHighlightedHtml(html: string, theme: HighlightTheme = {}):
 			return;
 		}
 		const formatter = getActiveFormatter(scopes, theme);
-		output += formatter ? formatter(textBuffer) : textBuffer;
+		// Format each line separately: callers split the output into lines, and a style must not span them.
+		output += formatter
+			? textBuffer
+					.split("\n")
+					.map((line) => (line ? formatter(line) : line))
+					.join("\n")
+			: textBuffer;
 		textBuffer = "";
 	};
 
