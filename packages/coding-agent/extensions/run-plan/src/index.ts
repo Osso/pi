@@ -137,7 +137,10 @@ export default function runPlanExtension(pi: ExtensionAPI) {
 			return;
 		}
 
-		if (!(await submitNextPlanItem(activePlan, ctx, pi, { followUp: true }))) {
+		// A deleted plan file ends the run like a finished one, so it cannot resume later.
+		const planExists = existsSync(activePlan.path);
+		if (!planExists) ctx.ui.notify(`Plan file not found: ${activePlan.file}; stopped /run-plan`, "warning");
+		if (!planExists || !(await submitNextPlanItem(activePlan, ctx, pi, { followUp: true }))) {
 			activePlan = undefined;
 			persistActivePlan(pi, undefined);
 		}

@@ -195,6 +195,22 @@ describe("run-plan extension", () => {
 		expect(entries.at(-1)).toMatchObject({ type: "custom", customType: "run-plan:active", data: null });
 	});
 
+	it("stops the active plan when its file is deleted before the run ends", async () => {
+		const planPath = join(cwd, "PLAN.md");
+		writeFileSync(planPath, "- [ ] Old task\n");
+		const harness = createRunPlanHarness(cwd);
+		await harness.runCommand("");
+		rmSync(planPath);
+
+		await harness.runEvent("agent_end");
+		expect(harness.entries.at(-1)).toEqual({ type: "custom", customType: "run-plan:active", data: null });
+		expect(harness.notify).toHaveBeenCalledWith("Plan file not found: PLAN.md; stopped /run-plan", "warning");
+
+		writeFileSync(planPath, "- [ ] Unrelated new plan\n");
+		await harness.runEvent("agent_end");
+		expect(harness.sendUserMessage).toHaveBeenCalledTimes(1);
+	});
+
 	it("uses an inline plan filename argument", async () => {
 		writeFileSync(join(cwd, "ALT.md"), "* [ ] Alternate plan\n");
 		const harness = createRunPlanHarness(cwd);
