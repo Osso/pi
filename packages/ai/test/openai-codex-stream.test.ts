@@ -110,6 +110,17 @@ function buildSSEPayload({
 	return `${events.join("\n\n")}\n\n`;
 }
 
+/** Canned responses for the Codex release lookup and instruction prompt download. */
+function codexAssetResponse(url: string): Response | undefined {
+	if (url === "https://api.github.com/repos/openai/codex/releases/latest") {
+		return new Response(JSON.stringify({ tag_name: "rust-v0.0.0" }), { status: 200 });
+	}
+	if (url.startsWith("https://raw.githubusercontent.com/openai/codex/")) {
+		return new Response("PROMPT", { status: 200, headers: { etag: '"etag"' } });
+	}
+	return undefined;
+}
+
 /** Minimal WebSocket event plumbing for mock sockets; subclasses dispatch the events a test needs. */
 class ListenerWebSocket {
 	private readonly listeners = new Map<string, Set<(event: unknown) => void>>();
@@ -591,12 +602,8 @@ describe("openai-codex streaming", () => {
 
 		const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
 			const url = typeof input === "string" ? input : input.toString();
-			if (url === "https://api.github.com/repos/openai/codex/releases/latest") {
-				return new Response(JSON.stringify({ tag_name: "rust-v0.0.0" }), { status: 200 });
-			}
-			if (url.startsWith("https://raw.githubusercontent.com/openai/codex/")) {
-				return new Response("PROMPT", { status: 200, headers: { etag: '"etag"' } });
-			}
+			const asset = codexAssetResponse(url);
+			if (asset) return asset;
 			if (url === "https://chatgpt.com/backend-api/codex/responses") {
 				const headers = init?.headers instanceof Headers ? init.headers : undefined;
 				expect(headers?.get("Authorization")).toBe(`Bearer ${token}`);
@@ -650,12 +657,8 @@ describe("openai-codex streaming", () => {
 		let codexCalls = 0;
 		const fetchMock = vi.fn(async (input: string | URL) => {
 			const url = typeof input === "string" ? input : input.toString();
-			if (url === "https://api.github.com/repos/openai/codex/releases/latest") {
-				return new Response(JSON.stringify({ tag_name: "rust-v0.0.0" }), { status: 200 });
-			}
-			if (url.startsWith("https://raw.githubusercontent.com/openai/codex/")) {
-				return new Response("PROMPT", { status: 200, headers: { etag: '"etag"' } });
-			}
+			const asset = codexAssetResponse(url);
+			if (asset) return asset;
 			if (url === "https://chatgpt.com/backend-api/codex/responses") {
 				codexCalls += 1;
 				if (codexCalls === 1) {
@@ -714,12 +717,8 @@ describe("openai-codex streaming", () => {
 
 		const fetchMock = vi.fn(async (input: string | URL) => {
 			const url = typeof input === "string" ? input : input.toString();
-			if (url === "https://api.github.com/repos/openai/codex/releases/latest") {
-				return new Response(JSON.stringify({ tag_name: "rust-v0.0.0" }), { status: 200 });
-			}
-			if (url.startsWith("https://raw.githubusercontent.com/openai/codex/")) {
-				return new Response("PROMPT", { status: 200, headers: { etag: '"etag"' } });
-			}
+			const asset = codexAssetResponse(url);
+			if (asset) return asset;
 			if (url === "https://chatgpt.com/backend-api/codex/responses") {
 				return new Response(stream, {
 					status: 200,
@@ -763,12 +762,8 @@ describe("openai-codex streaming", () => {
 
 		const fetchMock = vi.fn(async (input: string | URL) => {
 			const url = typeof input === "string" ? input : input.toString();
-			if (url === "https://api.github.com/repos/openai/codex/releases/latest") {
-				return new Response(JSON.stringify({ tag_name: "rust-v0.0.0" }), { status: 200 });
-			}
-			if (url.startsWith("https://raw.githubusercontent.com/openai/codex/")) {
-				return new Response("PROMPT", { status: 200, headers: { etag: '"etag"' } });
-			}
+			const asset = codexAssetResponse(url);
+			if (asset) return asset;
 			if (url === "https://chatgpt.com/backend-api/codex/responses") {
 				return new Response(stream, {
 					status: 200,
@@ -1001,12 +996,8 @@ describe("openai-codex streaming", () => {
 		const sessionId = "test-session-123";
 		const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
 			const url = typeof input === "string" ? input : input.toString();
-			if (url === "https://api.github.com/repos/openai/codex/releases/latest") {
-				return new Response(JSON.stringify({ tag_name: "rust-v0.0.0" }), { status: 200 });
-			}
-			if (url.startsWith("https://raw.githubusercontent.com/openai/codex/")) {
-				return new Response("PROMPT", { status: 200, headers: { etag: '"etag"' } });
-			}
+			const asset = codexAssetResponse(url);
+			if (asset) return asset;
 			if (url === "https://chatgpt.com/backend-api/codex/responses") {
 				const headers = init?.headers instanceof Headers ? init.headers : undefined;
 				// Verify sessionId is set in headers
@@ -1131,12 +1122,8 @@ describe("openai-codex streaming", () => {
 
 		const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
 			const url = typeof input === "string" ? input : input.toString();
-			if (url === "https://api.github.com/repos/openai/codex/releases/latest") {
-				return new Response(JSON.stringify({ tag_name: "rust-v0.0.0" }), { status: 200 });
-			}
-			if (url.startsWith("https://raw.githubusercontent.com/openai/codex/")) {
-				return new Response("PROMPT", { status: 200, headers: { etag: '"etag"' } });
-			}
+			const asset = codexAssetResponse(url);
+			if (asset) return asset;
 			if (url === "https://chatgpt.com/backend-api/codex/responses") {
 				const body = decodeCodexRequestBody(init?.body);
 				requestedReasoning = body?.reasoning;
@@ -1183,12 +1170,8 @@ describe("openai-codex streaming", () => {
 
 		const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
 			const url = typeof input === "string" ? input : input.toString();
-			if (url === "https://api.github.com/repos/openai/codex/releases/latest") {
-				return new Response(JSON.stringify({ tag_name: "rust-v0.0.0" }), { status: 200 });
-			}
-			if (url.startsWith("https://raw.githubusercontent.com/openai/codex/")) {
-				return new Response("PROMPT", { status: 200, headers: { etag: '"etag"' } });
-			}
+			const asset = codexAssetResponse(url);
+			if (asset) return asset;
 			if (url === "https://chatgpt.com/backend-api/codex/responses") {
 				const body = decodeCodexRequestBody(init?.body);
 				requestedReasoning = body?.reasoning;
@@ -1238,12 +1221,8 @@ describe("openai-codex streaming", () => {
 
 		const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
 			const url = typeof input === "string" ? input : input.toString();
-			if (url === "https://api.github.com/repos/openai/codex/releases/latest") {
-				return new Response(JSON.stringify({ tag_name: "rust-v0.0.0" }), { status: 200 });
-			}
-			if (url.startsWith("https://raw.githubusercontent.com/openai/codex/")) {
-				return new Response("PROMPT", { status: 200, headers: { etag: '"etag"' } });
-			}
+			const asset = codexAssetResponse(url);
+			if (asset) return asset;
 			if (url === "https://chatgpt.com/backend-api/codex/responses") {
 				const body = decodeCodexRequestBody(init?.body);
 				requestedReasoning = body?.reasoning;
@@ -1329,12 +1308,8 @@ describe("openai-codex streaming", () => {
 
 			const fetchMock = vi.fn(async (input: string | URL) => {
 				const url = typeof input === "string" ? input : input.toString();
-				if (url === "https://api.github.com/repos/openai/codex/releases/latest") {
-					return new Response(JSON.stringify({ tag_name: "rust-v0.0.0" }), { status: 200 });
-				}
-				if (url.startsWith("https://raw.githubusercontent.com/openai/codex/")) {
-					return new Response("PROMPT", { status: 200, headers: { etag: '"etag"' } });
-				}
+				const asset = codexAssetResponse(url);
+				if (asset) return asset;
 				if (url === "https://chatgpt.com/backend-api/codex/responses") {
 					return new Response(stream, {
 						status: 200,
@@ -1392,12 +1367,8 @@ describe("openai-codex streaming", () => {
 
 		const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
 			const url = typeof input === "string" ? input : input.toString();
-			if (url === "https://api.github.com/repos/openai/codex/releases/latest") {
-				return new Response(JSON.stringify({ tag_name: "rust-v0.0.0" }), { status: 200 });
-			}
-			if (url.startsWith("https://raw.githubusercontent.com/openai/codex/")) {
-				return new Response("PROMPT", { status: 200, headers: { etag: '"etag"' } });
-			}
+			const asset = codexAssetResponse(url);
+			if (asset) return asset;
 			if (url === "https://chatgpt.com/backend-api/codex/responses") {
 				const headers = init?.headers instanceof Headers ? init.headers : undefined;
 				// Verify headers are not set when sessionId is not provided
