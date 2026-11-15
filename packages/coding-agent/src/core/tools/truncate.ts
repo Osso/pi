@@ -279,5 +279,7 @@ export function truncateLine(
 	if (line.length <= maxChars) {
 		return { text: line, wasTruncated: false };
 	}
-	return { text: `${line.slice(0, maxChars)}... [truncated]`, wasTruncated: true };
+	// Do not end on the first half of a surrogate pair such as an emoji.
+	const end = /[\uD800-\uDBFF]/.test(line[maxChars - 1] ?? "") ? maxChars - 1 : maxChars;
+	return { text: `${line.slice(0, end)}... [truncated]`, wasTruncated: true };
 }

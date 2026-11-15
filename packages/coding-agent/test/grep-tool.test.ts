@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createGrepTool } from "../src/core/tools/grep.ts";
-import { DEFAULT_MAX_BYTES } from "../src/core/tools/truncate.ts";
+import { DEFAULT_MAX_BYTES, truncateLine } from "../src/core/tools/truncate.ts";
 
 const originalPath = process.env.PATH;
 const originalArgsPath = process.env.RG_ARGS_PATH;
@@ -65,5 +65,14 @@ process.stdout.write(JSON.stringify({
 		expect(getTextOutput(result)).toContain("searched.txt:1: match");
 		expect(ripgrepArgs).toContain("--max-columns");
 		expect(ripgrepArgs).toContain(String(DEFAULT_MAX_BYTES));
+	});
+});
+
+describe("truncateLine", () => {
+	it("does not cut an emoji in half at the character limit", () => {
+		expect(truncateLine(`${"a".repeat(499)}😀tail`)).toEqual({
+			text: `${"a".repeat(499)}... [truncated]`,
+			wasTruncated: true,
+		});
 	});
 });
