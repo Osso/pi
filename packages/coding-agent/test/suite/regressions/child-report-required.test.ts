@@ -60,6 +60,16 @@ async function spawnInheritedChild(agent: HeadlessPi, savedSessionFile?: string)
 	return { child, request };
 }
 
+function createSavedChildSession(agent: HeadlessPi): string {
+	const saved = SessionManager.create(agent.paths.workspaceDir, agent.paths.sessionDir);
+	saved.setMetadataControlDbPath(getControlDbPath(agent.paths.agentDir));
+	saved.appendMessage({ role: "user", content: "Earlier child task", timestamp: 1 });
+	saved.appendMessage(fauxAssistantMessage("Earlier child report must not satisfy the next task"));
+	const path = saved.getSessionFile();
+	if (!path) throw new Error("Missing saved child transcript");
+	return path;
+}
+
 async function expectToolResult(agent: HeadlessPi, agentId: string | null, toolCallId: string, isError: boolean) {
 	const entry = await agent.waitForSessionEntry(
 		agentId,
@@ -151,25 +161,30 @@ describe("child report required", () => {
 		});
 	});
 
-	it("accepts successful contact_parent without public assistant text", async () => {
-		await withHeadlessPi(async (agent) => {
-			const { child, request } = await spawnInheritedChild(agent);
-			const report = "Explicit child report delivered to parent";
-			const contact = fauxToolCall("contact_parent", { body: report });
-			agent.respondToLlmRequest(request.id, fauxAssistantMessage(contact, { stopReason: "toolUse" }));
-			const sent = await expectToolResult(agent, child.id, contact.id, false);
-			expect(sent.details).toMatchObject({ message: { body: report, fromAgentId: child.id } });
-			const continuation = await agent.waitForLlmRequest((candidate) => candidate.agentId === child.id);
-			const end = fauxToolCall("end_turn", { reason: "Report delivered" });
-			agent.respondToLlmRequest(continuation.id, fauxAssistantMessage(end, { stopReason: "toolUse" }));
-			await expectToolResult(agent, child.id, end.id, false);
-			await agent.waitForAgent((candidate) => candidate.id === child.id && candidate.lifecycle === "completed");
-			const notification = await agent.waitForLlmRequest(
-				(candidate) => candidate.agentId === null && candidate.userMessages.some((text) => text.includes(report)),
-			);
-			expect(notification.userMessages.filter((text) => text.includes(report))).toHaveLength(1);
-		});
-	});
+	it.each(["spawned", "attached"] as const)(
+		"accepts successful contact_parent from a %s child without public assistant text",
+		async (origin) => {
+			await withHeadlessPi(async (agent) => {
+				const savedPath = origin === "attached" ? createSavedChildSession(agent) : undefined;
+				const { child, request } = await spawnInheritedChild(agent, savedPath);
+				const report = "Explicit child report delivered to parent";
+				const contact = fauxToolCall("contact_parent", { body: report });
+				agent.respondToLlmRequest(request.id, fauxAssistantMessage(contact, { stopReason: "toolUse" }));
+				const sent = await expectToolResult(agent, child.id, contact.id, false);
+				expect(sent.details).toMatchObject({ message: { body: report, fromAgentId: child.id } });
+				const continuation = await agent.waitForLlmRequest((candidate) => candidate.agentId === child.id);
+				const end = fauxToolCall("end_turn", { reason: "Report delivered" });
+				agent.respondToLlmRequest(continuation.id, fauxAssistantMessage(end, { stopReason: "toolUse" }));
+				await expectToolResult(agent, child.id, end.id, false);
+				await agent.waitForAgent((candidate) => candidate.id === child.id && candidate.lifecycle === "completed");
+				const notification = await agent.waitForLlmRequest(
+					(candidate) =>
+						candidate.agentId === null && candidate.userMessages.some((text) => text.includes(report)),
+				);
+				expect(notification.userMessages.filter((text) => text.includes(report))).toHaveLength(1);
+			});
+		},
+	);
 
 	it("does not count a contact_parent call that fails body validation", async () => {
 		await withHeadlessPi(async (agent) => {
@@ -211,13 +226,7 @@ describe("child report required", () => {
 
 	it("does not borrow the attached child's own report from an earlier task", async () => {
 		await withHeadlessPi(async (agent) => {
-			const saved = SessionManager.create(agent.paths.workspaceDir, agent.paths.sessionDir);
-			saved.setMetadataControlDbPath(getControlDbPath(agent.paths.agentDir));
-			saved.appendMessage({ role: "user", content: "Earlier child task", timestamp: 1 });
-			saved.appendMessage(fauxAssistantMessage("Earlier child report must not satisfy the next task"));
-			const path = saved.getSessionFile();
-			if (!path) throw new Error("Missing saved child transcript");
-			const { child, request } = await spawnInheritedChild(agent, path);
+			const { child, request } = await spawnInheritedChild(agent, createSavedChildSession(agent));
 			expect(request.messages.filter((message) => message.role === "assistant").map(getMessageText)).toContain(
 				"Earlier child report must not satisfy the next task",
 			);

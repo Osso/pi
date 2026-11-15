@@ -265,7 +265,8 @@ export function readParentRequestTargetSnapshot(
 	const toAgentId = requireStringField(payload, "toAgentId", "parent_request");
 	const row = readParentRequestTargetRow(db, sessionPath, fromAgentId);
 	const sender = row ? parseJsonObject(row.data) : undefined;
-	if (!sender || sender.parentId !== toAgentId) {
+	// Attached agents store no parentId; like spawned agents, their parent is the main thread.
+	if (!sender || (sender.parentId ?? "main") !== toAgentId) {
 		throw new Error(`Invalid parent request target at ${sessionPath}#${fromAgentId}`);
 	}
 	return row;

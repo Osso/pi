@@ -225,16 +225,13 @@ export function contactParent(store: MultiAgentStore, agentId: string, input: Co
 	}
 
 	const fileRefs = validateFileRefs(input.fileRefs, "contact_parent");
-	if (!current.parentId) {
-		return { ok: false, error: "parent_not_found", current: copyAgent(current) };
-	}
 
 	const timestamp = store.now();
 	const message: AgentMailboxMessage = {
 		id: store.createMessageId(),
 		threadId: input.threadId,
 		fromAgentId: current.id,
-		toAgentId: current.parentId,
+		toAgentId: current.parentId ?? MAIN_THREAD_AGENT_ID,
 		kind: "parent_request",
 		status: "pending",
 		createdAt: timestamp,

@@ -1109,7 +1109,7 @@ describe("MultiAgentStore", () => {
 		});
 	});
 
-	it("rejects parent contact when the agent has no direct parent", () => {
+	it("routes parent contact from a root agent to the main thread", () => {
 		const store = new MultiAgentStore({ now: () => "2026-06-21T00:00:00.000Z" });
 		const root = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "lead",
@@ -1120,12 +1120,8 @@ describe("MultiAgentStore", () => {
 
 		const contact = store.contactParent(root.agent.id, { body: "Need clarification" });
 
-		expect(contact).toMatchObject({
-			ok: false,
-			error: "parent_not_found",
-			current: { id: root.agent.id },
-		});
-		expect(store.listMailboxMessages()).toEqual([]);
+		expect(contact).toMatchObject({ ok: true, message: { fromAgentId: root.agent.id, toAgentId: "main" } });
+		expect(store.listMailboxMessages()).toHaveLength(1);
 	});
 
 	it("sends direct mailbox messages only across parent-child relationships", () => {

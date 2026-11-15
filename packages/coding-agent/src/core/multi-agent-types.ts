@@ -197,7 +197,6 @@ export type SpawnChildAgentResult =
 export type ParentContactResult =
 	| { ok: true; agent: AgentSnapshot; message: AgentMailboxMessage }
 	| { ok: false; error: "not_found"; agentId: string }
-	| { ok: false; error: "parent_not_found"; current: AgentSnapshot }
 	| { ok: false; error: "stale_revision"; current: AgentSnapshot };
 
 export type MailboxMessageCommandResult =
