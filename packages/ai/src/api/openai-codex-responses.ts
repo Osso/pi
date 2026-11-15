@@ -1479,9 +1479,7 @@ function getCachedWebSocketInputDelta(
 
 function buildCachedWebSocketRequestBody(entry: CachedWebSocketConnection, body: RequestBody): RequestBody {
 	const continuation = entry.continuation;
-	if (!continuation) {
-		return body;
-	}
+	if (!continuation) return body;
 
 	const delta = getCachedWebSocketInputDelta(body, continuation);
 	if (!delta || !continuation.lastResponseId) {
@@ -1672,7 +1670,12 @@ function buildBaseCodexHeaders(
 	accountId: string,
 	token: string,
 ): Headers {
-	const headers = new Headers(initHeaders);
+	// Defaults first so model and caller headers can override them, matching the other providers.
+	const headers = new Headers({
+		originator: "pi",
+		"User-Agent": _os ? `pi (${_os.platform()} ${_os.release()}; ${_os.arch()})` : "pi (browser)",
+	});
+	for (const [key, value] of Object.entries(initHeaders || {})) headers.set(key, value);
 	for (const [key, value] of Object.entries(additionalHeaders || {})) {
 		if (value === null) {
 			headers.delete(key);
@@ -1682,9 +1685,6 @@ function buildBaseCodexHeaders(
 	}
 	headers.set("Authorization", `Bearer ${token}`);
 	headers.set("chatgpt-account-id", accountId);
-	headers.set("originator", "pi");
-	const userAgent = _os ? `pi (${_os.platform()} ${_os.release()}; ${_os.arch()})` : "pi (browser)";
-	headers.set("User-Agent", userAgent);
 	return headers;
 }
 
