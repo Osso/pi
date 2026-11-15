@@ -428,7 +428,7 @@ export const stream: StreamFunction<"openai-codex-responses", OpenAICodexRespons
 			}
 
 			stream.push({ type: "start", partial: output });
-			await processStream(response, output, stream, model, httpTimeoutMs, options);
+			await processStream(response, body.service_tier, output, stream, model, httpTimeoutMs, options);
 
 			if (options?.signal?.aborted) {
 				throw new Error("Request was aborted");
@@ -588,6 +588,7 @@ function resolveCodexWebSocketUrl(baseUrl?: string): string {
 
 async function processStream(
 	response: Response,
+	requestServiceTier: RequestBody["service_tier"],
 	output: AssistantMessage,
 	stream: AssistantMessageEventStream,
 	model: Model<"openai-codex-responses">,
@@ -600,7 +601,7 @@ async function processStream(
 		stream,
 		model,
 		{
-			serviceTier: options?.serviceTier,
+			serviceTier: requestServiceTier,
 			resolveServiceTier: resolveCodexServiceTier,
 			applyServiceTierPricing: (usage, serviceTier) => applyServiceTierPricing(usage, serviceTier, model),
 		},
@@ -1568,7 +1569,8 @@ async function processWebSocketStream(
 			stream,
 			model,
 			{
-				serviceTier: options?.serviceTier,
+				// The final payload, so a tier set by onPayload (codex-fast) is priced too.
+				serviceTier: body.service_tier,
 				resolveServiceTier: resolveCodexServiceTier,
 				applyServiceTierPricing: (usage, serviceTier) => applyServiceTierPricing(usage, serviceTier, model),
 			},

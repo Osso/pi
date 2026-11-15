@@ -1459,13 +1459,15 @@ describe("openai-codex streaming", () => {
 	});
 
 	it.each([
-		["gpt-5.1-codex", "flex", 0.5],
-		["gpt-5.1-codex", "priority", 2],
-		["gpt-5.5", "flex", 0.5],
-		["gpt-5.5", "priority", 2.5],
+		["gpt-5.1-codex", "flex", 0.5, "option"],
+		["gpt-5.1-codex", "priority", 2, "option"],
+		["gpt-5.5", "flex", 0.5, "option"],
+		["gpt-5.5", "priority", 2.5, "option"],
+		// codex-fast sets the tier through onPayload, not the serviceTier option.
+		["gpt-5.5", "priority", 2.5, "onPayload"],
 	] as const)(
-		"uses the client-sent %s service tier for %s when Codex echoes default",
-		async (modelId, serviceTier, multiplier) => {
+		"prices %s with the client-sent %s tier (x%s, set via %s) when Codex echoes default",
+		async (modelId, serviceTier, multiplier, via) => {
 			const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
 			process.env.PI_CODING_AGENT_DIR = tempDir;
 			const token = mockToken();
@@ -1547,7 +1549,9 @@ describe("openai-codex streaming", () => {
 
 			const result = await streamOpenAICodexResponses(model, context, {
 				apiKey: token,
-				serviceTier,
+				...(via === "option"
+					? { serviceTier }
+					: { onPayload: (body) => ({ ...(body as object), service_tier: serviceTier }) }),
 				transport: "sse",
 			}).result();
 
