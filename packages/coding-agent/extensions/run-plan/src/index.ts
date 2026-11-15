@@ -3,7 +3,8 @@ import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-const uncheckedItemPattern = /^\s*[-*]\s+\[\s\]\s+(.*)$/;
+// An item needs text; a blank "- [ ]" line must not hide the items after it.
+const uncheckedItemPattern = /^\s*[-*]\s+\[\s\]\s+(\S.*)$/;
 const activePlanEntryType = "run-plan:active";
 
 export async function findNextPlanItem(filePath: string): Promise<string | null> {

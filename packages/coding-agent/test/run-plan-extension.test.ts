@@ -80,6 +80,13 @@ describe("run-plan extension", () => {
 		await expect(findNextPlanItem(planPath)).resolves.toBe("First open item");
 	});
 
+	it("skips unchecked items without text", async () => {
+		const planPath = join(cwd, "PLAN.md");
+		writeFileSync(planPath, "- [ ] \n- [ ] Real item\n");
+
+		await expect(findNextPlanItem(planPath)).resolves.toBe("Real item");
+	});
+
 	it("returns null when all plan items are checked", async () => {
 		const planPath = join(cwd, "PLAN.md");
 		writeFileSync(planPath, "- [x] Done item\n* [X] Also done\n");
