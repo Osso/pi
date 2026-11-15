@@ -484,6 +484,38 @@ describe("findCutPoint", () => {
 
 		expect(result).toEqual({ firstKeptEntryIndex: 4, turnStartIndex: 2, isSplitTurn: true });
 	});
+
+	it.each([
+		["model change", createModelChangeEntry("anthropic", "claude-sonnet-4-5")],
+		["thinking level change", createThinkingLevelEntry("high")],
+	])("keeps whole turns when a %s precedes the kept user message", (_label, settingsEntry) => {
+		const entries: SessionEntry[] = [
+			createMessageEntry(createUserMessage("Turn 1")),
+			createMessageEntry(createAssistantMessage("A1")),
+			createMessageEntry(createUserMessage("Turn 2")),
+			createMessageEntry(createAssistantMessage("A2")),
+			settingsEntry, // index 4
+			createMessageEntry(createUserMessage("Turn 3")),
+			createMessageEntry(createAssistantMessage("A3")),
+		];
+
+		const result = findCutPoint(entries, 0, entries.length, 2);
+
+		expect(result).toEqual({ firstKeptEntryIndex: 4, turnStartIndex: -1, isSplitTurn: false });
+	});
+
+	it("does not report a split turn when the cut is at a custom message", () => {
+		const entries: SessionEntry[] = [
+			createMessageEntry(createUserMessage("Turn 1")),
+			createMessageEntry(createAssistantMessage("A1")),
+			createCustomMessageEntry("extension context"), // index 2
+			createMessageEntry(createAssistantMessage("A2")),
+		];
+
+		const result = findCutPoint(entries, 0, entries.length, 2);
+
+		expect(result).toEqual({ firstKeptEntryIndex: 2, turnStartIndex: -1, isSplitTurn: false });
+	});
 });
 
 describe("buildSessionContext", () => {

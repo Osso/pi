@@ -445,7 +445,7 @@ export interface CutPointResult {
 	firstKeptEntryIndex: number;
 	/** Index of user message that starts the turn being split, or -1 if not splitting */
 	turnStartIndex: number;
-	/** Whether this cut splits a turn (cut point is not a user message) */
+	/** Whether this cut splits a turn (cut point is not a turn start such as a user message) */
 	isSplitTurn: boolean;
 }
 
@@ -480,6 +480,10 @@ export function findCutPoint(
 
 	const recentStartIndex = findRecentMessagesStartIndex(entries, protectedStartIndex, endIndex, keepRecentMessages);
 	let cutIndex = findCutPointAtOrBefore(cutPoints, recentStartIndex);
+	// A cut at a turn start keeps whole turns; the backward scan below only adds non-context entries.
+	const cutEntry = entries[cutIndex];
+	if (cutEntry === undefined) throw new Error("cut session entry missing");
+	const isTurnStart = isTurnStartEntry(cutEntry);
 
 	// Scan backwards from cutIndex to include any non-message entries (bash, settings, etc.)
 	while (cutIndex > startIndex) {
@@ -501,16 +505,12 @@ export function findCutPoint(
 		return { firstKeptEntryIndex: endIndex, turnStartIndex: -1, isSplitTurn: false };
 	}
 
-	// Determine if this is a split turn
-	const cutEntry = entries[cutIndex];
-	if (cutEntry === undefined) throw new Error("cut session entry missing");
-	const isUserMessage = cutEntry.type === "message" && cutEntry.message.role === "user";
-	const turnStartIndex = isUserMessage ? -1 : findTurnStartIndex(entries, cutIndex, startIndex);
+	const turnStartIndex = isTurnStart ? -1 : findTurnStartIndex(entries, cutIndex, startIndex);
 
 	return {
 		firstKeptEntryIndex: cutIndex,
 		turnStartIndex,
-		isSplitTurn: !isUserMessage && turnStartIndex !== -1,
+		isSplitTurn: !isTurnStart && turnStartIndex !== -1,
 	};
 }
 
