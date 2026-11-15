@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed `pi.registerFlag()` accepting default values that do not match the declared flag type, e.g. a `"false"` string default for a boolean flag that then read as truthy ([#8064](https://github.com/earendil-works/pi-mono/issues/8064))
 - Fixed the first model turn after a prompt showing only a static `Thinking...` label before its tool call; it now gets the same `Thought for <duration>` row as later tool calls.
 - Fixed the `/model` selector keeping the previous highlight position when typing a filter instead of highlighting the best match ([#7209](https://github.com/earendil-works/pi-mono/issues/7209))
 - Fixed syntax highlighting losing token colors after the first line of multiline tokens such as Python docstrings ([#10143](https://github.com/earendil-works/pi-mono/issues/10143))

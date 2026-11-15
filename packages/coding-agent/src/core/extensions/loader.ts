@@ -180,9 +180,7 @@ export function createExtensionRuntime(): ExtensionRuntime {
 	};
 	const state: { staleMessage?: string } = {};
 	const assertActive = () => {
-		if (state.staleMessage) {
-			throw new Error(state.staleMessage);
-		}
+		if (state.staleMessage) throw new Error(state.staleMessage);
 	};
 
 	const runtime: ExtensionRuntime = {
@@ -304,6 +302,11 @@ function createExtensionAPI(
 			options: { description?: string; type: "boolean" | "string"; default?: boolean | string },
 		): void {
 			runtime.assertActive();
+			if (options.default !== undefined && typeof options.default !== options.type) {
+				throw new Error(
+					`Invalid default for flag "${name}": expected ${options.type}, got ${typeof options.default}`,
+				);
+			}
 			extension.flags.set(name, { name, extensionPath: extension.path, ...options });
 			if (flagNames.has(name)) return;
 			flagNames.add(name);
@@ -569,9 +572,7 @@ async function loadExtensionsInternal(
 			continue;
 		}
 
-		if (extension) {
-			extensions.push(extension);
-		}
+		if (extension) extensions.push(extension);
 	}
 
 	return {
@@ -641,9 +642,7 @@ function resolveExtensionEntries(dir: string): string[] | null {
 			const entries: string[] = [];
 			for (const extPath of manifest.extensions) {
 				const resolvedExtPath = path.resolve(dir, extPath);
-				if (fs.existsSync(resolvedExtPath)) {
-					entries.push(resolvedExtPath);
-				}
+				if (fs.existsSync(resolvedExtPath)) entries.push(resolvedExtPath);
 			}
 			if (entries.length > 0) {
 				return entries;
