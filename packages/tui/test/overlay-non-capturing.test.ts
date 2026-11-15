@@ -51,16 +51,22 @@ async function renderAndFlush(tui: TUI, terminal: VirtualTerminal): Promise<void
 	await terminal.waitForRender();
 }
 
+/** A started 80x24 TUI with the "EDITOR" component focused and an unshown "OVERLAY" component. */
+function startWithFocusedEditor() {
+	const terminal = new VirtualTerminal(80, 24);
+	const tui = new TUI(terminal);
+	const editor = new FocusableOverlay(["EDITOR"]);
+	const overlay = new FocusableOverlay(["OVERLAY"]);
+	tui.addChild(new EmptyContent());
+	tui.setFocus(editor);
+	tui.start();
+	return { terminal, tui, editor, overlay };
+}
+
 describe("TUI overlay non-capturing", () => {
 	describe("focus management", () => {
 		it("non-capturing overlay preserves focus on creation", async () => {
-			const terminal = new VirtualTerminal(80, 24);
-			const tui = new TUI(terminal);
-			const editor = new FocusableOverlay(["EDITOR"]);
-			const overlay = new FocusableOverlay(["OVERLAY"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			const { terminal, tui, editor, overlay } = startWithFocusedEditor();
 			try {
 				tui.showOverlay(overlay, { nonCapturing: true });
 				await renderAndFlush(tui, terminal);
@@ -72,13 +78,7 @@ describe("TUI overlay non-capturing", () => {
 		});
 
 		it("focus() transfers focus to the overlay", async () => {
-			const terminal = new VirtualTerminal(80, 24);
-			const tui = new TUI(terminal);
-			const editor = new FocusableOverlay(["EDITOR"]);
-			const overlay = new FocusableOverlay(["OVERLAY"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			const { terminal, tui, editor, overlay } = startWithFocusedEditor();
 			try {
 				const handle = tui.showOverlay(overlay, { nonCapturing: true });
 				handle.focus();
@@ -92,13 +92,7 @@ describe("TUI overlay non-capturing", () => {
 		});
 
 		it("unfocus() restores previous focus", async () => {
-			const terminal = new VirtualTerminal(80, 24);
-			const tui = new TUI(terminal);
-			const editor = new FocusableOverlay(["EDITOR"]);
-			const overlay = new FocusableOverlay(["OVERLAY"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			const { terminal, tui, editor, overlay } = startWithFocusedEditor();
 			try {
 				const handle = tui.showOverlay(overlay, { nonCapturing: true });
 				handle.focus();
@@ -113,13 +107,7 @@ describe("TUI overlay non-capturing", () => {
 		});
 
 		it("setHidden(false) on non-capturing overlay does not auto-focus", async () => {
-			const terminal = new VirtualTerminal(80, 24);
-			const tui = new TUI(terminal);
-			const editor = new FocusableOverlay(["EDITOR"]);
-			const overlay = new FocusableOverlay(["OVERLAY"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			const { terminal, tui, editor, overlay } = startWithFocusedEditor();
 			try {
 				const handle = tui.showOverlay(overlay, { nonCapturing: true });
 				handle.setHidden(true);
@@ -133,13 +121,7 @@ describe("TUI overlay non-capturing", () => {
 		});
 
 		it("hide() when overlay is not focused does not change focus", async () => {
-			const terminal = new VirtualTerminal(80, 24);
-			const tui = new TUI(terminal);
-			const editor = new FocusableOverlay(["EDITOR"]);
-			const overlay = new FocusableOverlay(["OVERLAY"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			const { terminal, tui, editor, overlay } = startWithFocusedEditor();
 			try {
 				const handle = tui.showOverlay(overlay, { nonCapturing: true });
 				handle.hide();
@@ -151,13 +133,7 @@ describe("TUI overlay non-capturing", () => {
 		});
 
 		it("hide() when focused restores focus correctly", async () => {
-			const terminal = new VirtualTerminal(80, 24);
-			const tui = new TUI(terminal);
-			const editor = new FocusableOverlay(["EDITOR"]);
-			const overlay = new FocusableOverlay(["OVERLAY"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			const { terminal, tui, editor, overlay } = startWithFocusedEditor();
 			try {
 				const handle = tui.showOverlay(overlay, { nonCapturing: true });
 				handle.focus();
@@ -640,13 +616,7 @@ describe("TUI overlay non-capturing", () => {
 		});
 
 		it("unfocus() prevents visible overlay from regaining input", async () => {
-			const terminal = new VirtualTerminal(80, 24);
-			const tui = new TUI(terminal);
-			const editor = new FocusableOverlay(["EDITOR"]);
-			const overlay = new FocusableOverlay(["OVERLAY"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			const { terminal, tui, editor, overlay } = startWithFocusedEditor();
 			try {
 				const handle = tui.showOverlay(overlay);
 				handle.unfocus();
@@ -874,13 +844,7 @@ describe("TUI overlay non-capturing", () => {
 
 	describe("no-op guards", () => {
 		it("focus() on hidden overlay is a no-op", async () => {
-			const terminal = new VirtualTerminal(80, 24);
-			const tui = new TUI(terminal);
-			const editor = new FocusableOverlay(["EDITOR"]);
-			const overlay = new FocusableOverlay(["OVERLAY"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			const { terminal, tui, editor, overlay } = startWithFocusedEditor();
 			try {
 				const handle = tui.showOverlay(overlay, { nonCapturing: true });
 				handle.setHidden(true);
@@ -894,13 +858,7 @@ describe("TUI overlay non-capturing", () => {
 		});
 
 		it("focus() after hide() is a no-op", async () => {
-			const terminal = new VirtualTerminal(80, 24);
-			const tui = new TUI(terminal);
-			const editor = new FocusableOverlay(["EDITOR"]);
-			const overlay = new FocusableOverlay(["OVERLAY"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			const { terminal, tui, editor, overlay } = startWithFocusedEditor();
 			try {
 				const handle = tui.showOverlay(overlay, { nonCapturing: true });
 				handle.hide();
@@ -914,13 +872,7 @@ describe("TUI overlay non-capturing", () => {
 		});
 
 		it("unfocus() when overlay does not have focus is a no-op", async () => {
-			const terminal = new VirtualTerminal(80, 24);
-			const tui = new TUI(terminal);
-			const editor = new FocusableOverlay(["EDITOR"]);
-			const overlay = new FocusableOverlay(["OVERLAY"]);
-			tui.addChild(new EmptyContent());
-			tui.setFocus(editor);
-			tui.start();
+			const { terminal, tui, editor, overlay } = startWithFocusedEditor();
 			try {
 				const handle = tui.showOverlay(overlay, { nonCapturing: true });
 				handle.unfocus();
