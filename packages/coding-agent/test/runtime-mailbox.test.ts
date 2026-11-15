@@ -406,6 +406,25 @@ describe("runtime SQLite mailbox delivery", () => {
 		return { controlDbPath, parentSession, store };
 	}
 
+	async function createPersistedAgentHarness(
+		controlDbPath: string,
+		store: MultiAgentStore,
+		options: { disableActiveTools?: boolean; withConfiguredAuth?: boolean } = {},
+	) {
+		const harness = await createHarness({
+			multiAgentAgentId: "agent_1",
+			multiAgentStore: store,
+			persistedSession: true,
+			...(options.withConfiguredAuth === undefined ? {} : { withConfiguredAuth: options.withConfiguredAuth }),
+		});
+		if (options.disableActiveTools) harness.session.setActiveToolsByName([]);
+		harnesses.push(harness);
+		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
+		store.setPersistenceSessionManager(harness.sessionManager);
+		await harness.session.bindExtensions({ controlDbPath });
+		return harness;
+	}
+
 	afterEach(() => {
 		vi.useRealTimers();
 		while (harnesses.length > 0) {
@@ -3202,16 +3221,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		const harness = await createHarness({
-			multiAgentAgentId: "agent_1",
-			multiAgentStore: store,
-			persistedSession: true,
-		});
-		harness.session.setActiveToolsByName([]);
-		harnesses.push(harness);
-		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
-		store.setPersistenceSessionManager(harness.sessionManager);
-		await harness.session.bindExtensions({ controlDbPath });
+		const harness = await createPersistedAgentHarness(controlDbPath, store, { disableActiveTools: true });
 		harness.setResponses([fauxAssistantMessage("initial reply"), fauxAssistantMessage("steer done")]);
 		const running = spawnReservedRuntimeAgent(store, harness.sessionManager.getSessionId(), harness.tempDir);
 		const spawned = { agent: running };
@@ -3244,16 +3254,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		const harness = await createHarness({
-			multiAgentAgentId: "agent_1",
-			multiAgentStore: store,
-			persistedSession: true,
-		});
-		harness.session.setActiveToolsByName([]);
-		harnesses.push(harness);
-		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
-		store.setPersistenceSessionManager(harness.sessionManager);
-		await harness.session.bindExtensions({ controlDbPath });
+		const harness = await createPersistedAgentHarness(controlDbPath, store, { disableActiveTools: true });
 		harness.setResponses([fauxAssistantMessage("initial reply"), fauxAssistantMessage("preserved parent result")]);
 		const parent = createReservedRuntimeAgent(store, harness.sessionManager.getSessionId(), harness.tempDir);
 		const child = createReservedRuntimeAgent(store, harness.sessionManager.getSessionId(), harness.tempDir, {
@@ -3287,16 +3288,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		const harness = await createHarness({
-			multiAgentAgentId: "agent_1",
-			multiAgentStore: store,
-			persistedSession: true,
-		});
-		harness.session.setActiveToolsByName([]);
-		harnesses.push(harness);
-		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
-		store.setPersistenceSessionManager(harness.sessionManager);
-		await harness.session.bindExtensions({ controlDbPath });
+		const harness = await createPersistedAgentHarness(controlDbPath, store, { disableActiveTools: true });
 		harness.setResponses([fauxAssistantMessage("idle steer done")]);
 		const running = spawnReservedRuntimeAgent(store, harness.sessionManager.getSessionId(), harness.tempDir);
 		const spawned = { agent: running };
@@ -3333,16 +3325,7 @@ describe("runtime SQLite mailbox delivery", () => {
 		tempDir = mkdtempSync(join(tmpdir(), "pi-runtime-mailbox-"));
 		const controlDbPath = getControlDbPath(tempDir);
 		const store = new MultiAgentStore({ now: () => "2026-07-01T00:00:00.000Z" });
-		const harness = await createHarness({
-			multiAgentAgentId: "agent_1",
-			multiAgentStore: store,
-			persistedSession: true,
-			withConfiguredAuth: false,
-		});
-		harnesses.push(harness);
-		harness.sessionManager.setMetadataControlDbPath(controlDbPath);
-		store.setPersistenceSessionManager(harness.sessionManager);
-		await harness.session.bindExtensions({ controlDbPath });
+		const harness = await createPersistedAgentHarness(controlDbPath, store, { withConfiguredAuth: false });
 		const running = spawnReservedRuntimeAgent(store, harness.sessionManager.getSessionId(), harness.tempDir);
 		const spawned = { agent: running };
 		const steered = legacyMultiAgentStore(store).sendSteering(running.id, running.revision, {
