@@ -5,7 +5,7 @@ import type {
 	ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
 import type { RuntimeMailboxEvent } from "../../../src/core/extensions/types.ts";
-import { readQueuedQuestionAnswers } from "../../../src/core/tools/ask-questions.ts";
+import { readQueuedQuestionAnswers, readQueuedQuestionRequestId } from "../../../src/core/tools/ask-questions.ts";
 import type {
 	Goal,
 	GoalEvidenceReview,
@@ -87,6 +87,38 @@ function createEvidenceReview(store: GoalReviewEvidenceStore, reviewGoal: GoalSu
 /** Enough to cover a request and its follow-ups; older messages are dropped first. */
 const MAX_USER_MESSAGES = 20;
 
+interface OpenQuestionRequest {
+	requestId: string;
+	questions: string[];
+}
+
+/** A nonblocking ask_questions call that is now waiting for its answer in the session inbox. */
+function queuedQuestionRequest(event: ToolResultEvent): OpenQuestionRequest | undefined {
+	if (event.toolName !== "ask_questions" || event.isError) return undefined;
+	const details = event.details as AskQuestionsToolDetails | undefined;
+	if (!details?.queued || !details.requestId) return undefined;
+	return { requestId: details.requestId, questions: details.questions.map((entry) => entry.question) };
+}
+
+/**
+ * Each session's unanswered nonblocking ask_questions requests. In memory only: the question panel
+ * lives in this process, so a restart closes the question as well.
+ */
+function createOpenQuestionTracker() {
+	const open = new Map<string, OpenQuestionRequest[]>();
+	return {
+		add(sessionId: string, request: OpenQuestionRequest) {
+			open.set(sessionId, [...(open.get(sessionId) ?? []), request]);
+		},
+		close(sessionId: string, requestId: string) {
+			const remaining = (open.get(sessionId) ?? []).filter((request) => request.requestId !== requestId);
+			if (remaining.length > 0) open.set(sessionId, remaining);
+			else open.delete(sessionId);
+		},
+		get: (sessionId: string) => open.get(sessionId),
+	};
+}
+
 export function createGoalReviewEvidenceController(
 	store: GoalReviewEvidenceStore,
 	reviewGoal: GoalSupervisorReview,
@@ -99,6 +131,7 @@ export function createGoalReviewEvidenceController(
 		const messages = [...(userMessages.get(sessionId) ?? []), text];
 		userMessages.set(sessionId, messages.slice(-MAX_USER_MESSAGES));
 	};
+	const openQuestions = createOpenQuestionTracker();
 	const review = createEvidenceReview(store, reviewGoal);
 	return {
 		appendInput(event, ctx) {
@@ -107,6 +140,8 @@ export function createGoalReviewEvidenceController(
 		},
 		appendToolResult(event, ctx) {
 			appendEndTurnEvidence(store, event, ctx);
+			const queued = queuedQuestionRequest(event);
+			if (queued) openQuestions.add(ctx.sessionManager.getSessionId(), queued);
 			const answers = answeredQuestionsText(event);
 			if (!answers) return;
 			recordUserMessage(ctx, answers);
@@ -114,15 +149,25 @@ export function createGoalReviewEvidenceController(
 		},
 		// Nonblocking ask_questions answers arrive through the session inbox, not as a tool result.
 		appendMailboxMessage(event, ctx) {
-			const answers = readQueuedQuestionAnswers(event.message, ctx.sessionManager.getSessionId());
+			const sessionId = ctx.sessionManager.getSessionId();
+			const requestId = readQueuedQuestionRequestId(event.message, sessionId);
+			if (requestId !== undefined) openQuestions.close(sessionId, requestId);
+			const answers = readQueuedQuestionAnswers(event.message, sessionId);
 			if (!answers) return;
 			recordUserMessage(ctx, answers);
 			appendEvidence(store, ctx, { kind: "user", text: answers });
 		},
 		consume: consumeEvidence.bind(undefined, store),
 		review(input) {
-			const messages = userMessages.get(input.ctx.sessionManager.getSessionId());
-			return review({ ...input, payload: { ...input.payload, ...(messages ? { userMessages: messages } : {}) } });
+			const sessionId = input.ctx.sessionManager.getSessionId();
+			const messages = userMessages.get(sessionId);
+			const open = openQuestions.get(sessionId);
+			const payload = {
+				...input.payload,
+				...(messages ? { userMessages: messages } : {}),
+				...(open ? { openQuestions: open } : {}),
+			};
+			return review({ ...input, payload });
 		},
 	};
 }

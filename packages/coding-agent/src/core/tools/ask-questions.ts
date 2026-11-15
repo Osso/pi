@@ -302,16 +302,25 @@ async function deliverQueuedAnswers(
 }
 
 /**
- * The user's answers when `message` is this session's own reply to a nonblocking ask_questions call;
- * undefined for cancelled or failed questions and for every other mailbox message.
+ * The request ID when `message` is this session's own reply to a nonblocking ask_questions call
+ * (answered, cancelled, or failed); undefined for every other mailbox message.
  */
-export function readQueuedQuestionAnswers(message: RuntimeMailboxMessage, sessionId: string): string | undefined {
+export function readQueuedQuestionRequestId(message: RuntimeMailboxMessage, sessionId: string): string | undefined {
 	const isOwnReply =
 		message.kind === "reply" &&
 		message.senderHost === undefined &&
 		message.sender.sessionId === sessionId &&
 		message.recipient.sessionId === sessionId;
 	if (!isOwnReply || !message.storeRef.messageId.startsWith(QUEUED_ANSWER_MESSAGE_ID_PREFIX)) return undefined;
+	return message.storeRef.messageId.slice(QUEUED_ANSWER_MESSAGE_ID_PREFIX.length);
+}
+
+/**
+ * The user's answers when `message` is this session's own reply to a nonblocking ask_questions call;
+ * undefined for cancelled or failed questions and for every other mailbox message.
+ */
+export function readQueuedQuestionAnswers(message: RuntimeMailboxMessage, sessionId: string): string | undefined {
+	if (readQueuedQuestionRequestId(message, sessionId) === undefined) return undefined;
 	return message.body.startsWith(QUEUED_ANSWER_TITLE_PREFIX) ? message.body : undefined;
 }
 

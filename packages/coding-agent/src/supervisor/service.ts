@@ -129,6 +129,7 @@ export const SUPERVISOR_REQUEST_POLICY = [
 	"Use wait when a pending asynchronous result or recheckable external condition blocks all remaining goal work, including when the only remaining work needs that result.",
 	"Do not use wait while other authorized goal work can proceed without that result; use continue.",
 	"Use pause only when progress requires user action or input and cannot advance automatically.",
+	"payload.openQuestions lists the session's unanswered nonblocking ask_questions requests; a question not listed there is answered, cancelled, or closed by a restart.",
 	"",
 	"## Questions",
 	"payload.questions are questions an agent asked its user; the user may also answer them directly, and the first answer wins.",

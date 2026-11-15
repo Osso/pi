@@ -17,7 +17,10 @@ function captureReviews() {
 	return { controller, requests, ctx };
 }
 
-function answeredQuestions(answer: string, flags: { cancelled?: boolean; queued?: boolean } = {}): ToolResultEvent {
+function answeredQuestions(
+	answer: string,
+	flags: { cancelled?: boolean; queued?: boolean; requestId?: string } = {},
+): ToolResultEvent {
 	const question = "Which objective?";
 	return {
 		type: "tool_result",
@@ -32,6 +35,7 @@ function answeredQuestions(answer: string, flags: { cancelled?: boolean; queued?
 			answers: { [question]: answer },
 			cancelled: flags.cancelled ?? false,
 			queued: flags.queued,
+			requestId: flags.requestId,
 		},
 	};
 }
@@ -167,6 +171,18 @@ describe("Supervisor raw user evidence", () => {
 		controller.appendMailboxMessage(queuedAnswer({ body: "Questions cancelled (request q-1)\n" }), ctx);
 		await controller.review({ ctx, kind: "goal_set_review", payload: { proposedObjective: "Add deploy.sh" } });
 		expect(requests).toEqual([{ proposedObjective: "Add deploy.sh" }]);
+	});
+
+	it("lists a nonblocking question as open until its inbox reply arrives", async () => {
+		const { controller, requests, ctx } = captureReviews();
+		controller.appendToolResult(answeredQuestions("", { queued: true, requestId: "q-1" }), ctx);
+		await controller.review({ ctx, kind: "goal_idle_review", payload: { objective: "Ship" } });
+		controller.appendMailboxMessage(queuedAnswer({ body: "Questions cancelled (request q-1)\n" }), ctx);
+		await controller.review({ ctx, kind: "goal_idle_review", payload: { objective: "Ship" } });
+		expect(requests).toEqual([
+			{ objective: "Ship", openQuestions: [{ requestId: "q-1", questions: ["Which objective?"] }] },
+			{ objective: "Ship" },
+		]);
 	});
 
 	it("keeps the 20 most recent user messages", async () => {
