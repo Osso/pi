@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed `pi install`, `pi remove`, `pi update`, `-e` and settings package entries treating sources with uppercase URL schemes, such as `HTTPS://github.com/user/repo`, as local paths
 - Fixed a second compaction before any new assistant reply reporting the stale pre-compaction usage of kept messages as its `tokensBefore` ("Compacted from X tokens"); it now estimates the rebuilt context from content
 - Fixed hidden `!!` command output counting toward the context-usage estimate, the auto-compaction threshold and the compaction `tokensBefore`, although it never reaches the model
 - Fixed compaction treating a cut before a whole turn as a split turn when a custom, label or settings-change entry came before the kept user message, or when the cut was at a custom message; it summarized the previous finished turn a second time as a turn prefix

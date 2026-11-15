@@ -39,19 +39,9 @@ export function canonicalizePath(path: string): string {
  * are considered local.
  */
 export function isLocalPath(value: string): boolean {
-	const trimmed = value.trim();
-	// Known non-local prefixes. file: URLs are local paths and are intentionally resolved by resolvePath().
-	if (
-		trimmed.startsWith("npm:") ||
-		trimmed.startsWith("git:") ||
-		trimmed.startsWith("github:") ||
-		trimmed.startsWith("http:") ||
-		trimmed.startsWith("https:") ||
-		trimmed.startsWith("ssh:")
-	) {
-		return false;
-	}
-	return true;
+	// Known non-local prefixes; URL schemes are case-insensitive. file: URLs are local paths and are
+	// intentionally resolved by resolvePath().
+	return !/^(npm|git|github|https?|ssh):/i.test(value.trim());
 }
 
 export function normalizePath(input: string, options: PathInputOptions = {}): string {

@@ -1388,6 +1388,15 @@ Content`,
 			expect(settingsManager.getGlobalSettings().packages).toEqual(["git:github.com/user/repo@v1"]);
 		});
 
+		it("treats uppercase URL schemes as git sources when adding and removing", () => {
+			packageManager.addSourceToSettings("https://github.com/user/repo");
+
+			packageManager.addSourceToSettings("HTTPS://github.com/user/repo");
+			expect(settingsManager.getGlobalSettings().packages).toEqual(["HTTPS://github.com/user/repo"]);
+			expect(packageManager.removeSourceFromSettings("HTTPS://github.com/user/repo")).toBe(true);
+			expect(settingsManager.getGlobalSettings().packages).toEqual([]);
+		});
+
 		it("should update the ref when adding the same git source with a different ref", () => {
 			packageManager.addSourceToSettings("git:github.com/user/repo@v1");
 
