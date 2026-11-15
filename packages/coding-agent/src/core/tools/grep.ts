@@ -218,7 +218,10 @@ export function createGrepToolDefinition(
 							return lines;
 						};
 
+						// --no-config: the tool contract (literal, glob, limit, ...) must not depend on ambient user
+						// config such as RIPGREP_CONFIG_PATH. Users can customize rg through bash or extensions.
 						const args: string[] = [
+							"--no-config",
 							"--json",
 							"--max-columns",
 							String(DEFAULT_MAX_BYTES),
