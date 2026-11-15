@@ -173,6 +173,85 @@ describe("detached Pyrun runner", () => {
 		]);
 	});
 
+	it("reads a foreground bridge response that is still being written", async () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-detached-pyrun-partial-"));
+		temporaryDirectories.push(root);
+		const runnerPath = join(root, "fake-pyrun.mjs");
+		writeFileSync(
+			runnerPath,
+			[
+				"#!/usr/bin/env node",
+				"import { createInterface } from 'node:readline';",
+				"const lines = createInterface({ input: process.stdin })[Symbol.asyncIterator]();",
+				"await lines.next();",
+				"process.stdout.write(JSON.stringify({ type: 'pi_request', method: 'models.scoped', params: null }) + '\\n');",
+				"const response = JSON.parse((await lines.next()).value);",
+				"process.stdout.write(JSON.stringify({ type: 'completed', value: response.result ?? response.error }) + '\\n');",
+			].join("\n"),
+		);
+		chmodSync(runnerPath, 0o700);
+		const controlDbPath = join(root, "control.sqlite");
+		const sessionPath = join(root, "session.jsonl");
+		const store = new MultiAgentStore();
+		const lifecycle = createDetachedJobLifecycleController({
+			artifactRoot: root,
+			controlDbPath,
+			coordinator: new LifecycleCoordinator({
+				controlDbPath,
+				createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
+				now: () => new Date().toISOString(),
+				processIdentity: testProcessIdentity("pyrun-partial-response"),
+				sessionPath,
+			}),
+			ownerSessionId: "main",
+			sessionPath,
+			store,
+		});
+		const jobId = lifecycle.allocateJobId("pyrun");
+		const artifacts = lifecycle.createArtifacts(jobId);
+		const manifestPath = join(artifacts.directory, "launch.json");
+		const bridgeRequestPath = join(artifacts.directory, "foreground-bridge-requests.jsonl");
+		const bridgeResponsePath = join(artifacts.directory, "foreground-bridge-responses.jsonl");
+		const foregroundCompletionPath = join(artifacts.directory, "foreground-completed");
+		const runnerPid = launchDetachedPyrunRunner(manifestPath, {
+			entryPath: join(import.meta.dirname, "../extensions/pyrun/src/detached-runner-entry.ts"),
+		});
+		try {
+			writeDetachedPyrunLaunchManifest(manifestPath, {
+				activationPath: join(artifacts.directory, "activation.json"),
+				artifacts,
+				bridgeRequestPath,
+				bridgeResponsePath,
+				controlDbPath,
+				foregroundCompletionPath,
+				params: { code: "pi.models.scoped()" },
+				runnerAddress: { agentId: jobId, sessionId: "main" },
+				runnerOptions: { command: runnerPath, inheritEnv: true },
+				runnerProcessIdentity: readProcessIdentity(runnerPid),
+				sessionPath,
+				startedAt: Date.now(),
+				supervisorProcessIdentity: readProcessIdentity(process.pid),
+				toolCallId: "test-pyrun-partial-response",
+			});
+			await waitFor(() => existsSync(bridgeRequestPath));
+			const { requestId } = JSON.parse(readFileSync(bridgeRequestPath, "utf8")) as { requestId: string };
+			const response = `${JSON.stringify({ requestId, result: [{ id: "model-1" }] })}\n`;
+			const split = response.indexOf("model-1");
+			writeFileSync(bridgeResponsePath, response.slice(0, split));
+			// The runner polls every second; let it read the unfinished line before the rest arrives.
+			await new Promise((resolve) => setTimeout(resolve, 1_500));
+			writeFileSync(bridgeResponsePath, response.slice(split), { flag: "a" });
+			await waitFor(
+				() =>
+					existsSync(artifacts.outputPath) &&
+					readFileSync(artifacts.outputPath, "utf8").includes('"kind":"result"'),
+			);
+			expect(readFileSync(artifacts.outputPath, "utf8")).toContain('"value":[{"id":"model-1"}]');
+		} finally {
+			writeFileSync(foregroundCompletionPath, "");
+		}
+	});
+
 	it.runIf(process.platform === "linux")(
 		"keeps one stable control database connection while evaluation remains active",
 		async () => {

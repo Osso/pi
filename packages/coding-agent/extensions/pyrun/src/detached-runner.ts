@@ -24,6 +24,7 @@ import {
 	retainControlDbConnection,
 } from "../../../src/core/session-control-db.ts";
 import { enqueueDetachedPyrunBridgeRequest } from "./detached-bridge.ts";
+import { createJsonLineReadCursor, readNewJsonLines } from "./detached-evaluation-artifacts.ts";
 import { PyrunArtifactWriter } from "./detached-output.ts";
 import {
 	type CanonicalPyrunEvalParams,
@@ -226,14 +227,13 @@ async function dispatchForegroundPyrunBridgeRequest(
 ): Promise<unknown> {
 	const requestId = randomUUID();
 	appendArtifactRecord(manifest.bridgeRequestPath, { ...request, requestId });
-	let offset = 0;
+	const cursor = createJsonLineReadCursor();
 	for (;;) {
-		const records = readJsonLines<{ claimed?: boolean; error?: string; requestId: string; result?: unknown }>(
+		const records = readNewJsonLines<{ claimed?: boolean; error?: string; requestId: string; result?: unknown }>(
 			manifest.bridgeResponsePath,
-			offset,
+			cursor,
 		);
-		offset = records.offset;
-		for (const response of records.values.filter((record) => record.requestId === requestId)) {
+		for (const response of records.filter((record) => record.requestId === requestId)) {
 			if (response.claimed) continue;
 			if (response.error) throw new Error(response.error);
 			return response.result;
@@ -345,19 +345,6 @@ async function waitForPyrunOwnershipDecision(
 		if (!isProcessIdentityAlive(manifest.supervisorProcessIdentity)) return undefined;
 		await new Promise((resolve) => setTimeout(resolve, CONTROL_POLL_MS));
 	}
-}
-
-function readJsonLines<T>(path: string, offset: number): { offset: number; values: T[] } {
-	if (!existsSync(path)) return { offset, values: [] };
-	const data = readFileSync(path);
-	if (data.length <= offset) return { offset, values: [] };
-	const values = data
-		.subarray(offset)
-		.toString("utf8")
-		.split("\n")
-		.filter(Boolean)
-		.map((line) => JSON.parse(line) as T);
-	return { offset: data.length, values };
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
