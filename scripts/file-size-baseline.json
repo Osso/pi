@@ -13,7 +13,7 @@
 	"packages/coding-agent/src/core/compaction/compaction.ts": 1065,
 	"packages/coding-agent/src/core/export-html/template.js": 1861,
 	"packages/coding-agent/src/core/export-html/vendor/highlight.min.js": 1213,
-	"packages/coding-agent/src/core/extensions/loader.ts": 762,
+	"packages/coding-agent/src/core/extensions/loader.ts": 761,
 	"packages/coding-agent/src/core/extensions/runner.ts": 1564,
 	"packages/coding-agent/src/core/extensions/types.ts": 1955,
 	"packages/coding-agent/src/core/model-registry.ts": 1097,
@@ -25,14 +25,14 @@
 	"packages/coding-agent/src/modes/interactive/components/session-selector.ts": 1084,
 	"packages/coding-agent/src/modes/interactive/components/settings-selector.ts": 852,
 	"packages/coding-agent/src/modes/interactive/components/tree-selector.ts": 1419,
-	"packages/coding-agent/src/modes/interactive/interactive-mode.ts": 8009,
+	"packages/coding-agent/src/modes/interactive/interactive-mode.ts": 8008,
 	"packages/coding-agent/src/modes/interactive/theme/theme.ts": 1289,
 	"packages/coding-agent/src/modes/rpc/rpc-mode.ts": 851,
 	"packages/coding-agent/src/package-manager-cli.ts": 782,
-	"packages/tui/src/autocomplete.ts": 788,
+	"packages/tui/src/autocomplete.ts": 787,
 	"packages/tui/src/components/editor.ts": 2603,
 	"packages/tui/src/components/markdown.ts": 927,
 	"packages/tui/src/keys.ts": 1407,
 	"packages/tui/src/tui.ts": 2382,
-	"packages/tui/src/utils.ts": 1190
+	"packages/tui/src/utils.ts": 1189
 }
