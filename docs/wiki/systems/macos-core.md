@@ -23,7 +23,7 @@ On real Darwin kernels, `proc_pidinfo(PROC_PIDTBSDINFO)` returns `ESRCH` for unr
 
 Artifact cleanup is a different capability: `detached-job-cleanup.ts` requires Linux `/proc` references to executable, cwd, and open descriptors. On Mac it skips reference-safe eviction rather than deleting with weaker evidence. This preserves artifacts but does not enforce Linux's age/size retention policy on Mac.
 
-Missing/default and `full-access` sandbox profiles execute unsandboxed. Explicit `read-only` and `workspace-write` profiles are unsupported off Linux and fail closed before bubblewrap execution. Standard agent types and the resident Supervisor do not force a sandbox. Architect explicit readonly policy is optional, not a supported macOS core claim. Existing direct Supervisor startup and optional systemd management are unchanged. Profile details belong to the [sandbox spec](../../specs/bwrap-sandbox.md).
+Missing/default and `full-access` sandbox profiles execute unsandboxed. Explicit `read-only` and `workspace-write` profiles are unsupported off Linux and fail closed before bubblewrap execution. Standard agent types and the interactive Supervisor do not force a sandbox. Architect explicit readonly policy is optional, not a supported macOS core claim. The detached Supervisor and its systemd management have since been removed. Profile details belong to the [sandbox spec](../../specs/bwrap-sandbox.md).
 
 ## Native assets and rollback
 
@@ -39,7 +39,7 @@ Deployment rollback targets preservation of prior launcher inode/link/bytes, or 
 
 Native identity/bootstrap passed 5/5 per architecture, including the explicit Bun subprocess adapter/bootstrap probe. Headless scenarios passed 8/8 per runtime per architecture: invalid selectors (2), main/child runtime identity, persisted goal restoration in a replacement process plus offline Supervisor completion review, thinking live-child crash/restart, live Bash and canonical Pyrun runner reattachment (`Osso/pyrun@0c6a16f4` via uv), and foreground Bash backgrounding across `/restart`. Node-hosted Vitest selects actual Node then Bun Pi processes through `PI_HEADLESS_RUNTIME`.
 
-Production `ensureSupervisorRunning` with isolated inert Sol auth started, concurrently reused, and exited one resident per runtime on each architecture; zero fetch/WebSocket requests. Runtime scenarios use offline faux-provider control; dependency installation is not offline.
+At the tested revision, production `ensureSupervisorRunning` with isolated inert Sol auth started, concurrently reused, and exited one resident per runtime on each architecture; zero fetch/WebSocket requests. That resident and its autostart have since been removed. Runtime scenarios use offline faux-provider control; dependency installation is not offline.
 
 Native-run fixes: `TMPDIR=/tmp` avoids Darwin fixture socket paths reaching 112 bytes beyond the 104-byte `sun_path` limit; provider buffering is per connection so a crashed process's partial line cannot corrupt a replacement request under macOS 8 KiB chunks (`headless-provider-server.test.ts` supplies Linux regression proof). `npm run build` compiles committed model catalogs and no longer fetches provider APIs (regeneration is manual), so validation and release builds no longer depend on live catalog drift; native CI asserts the build leaves `packages/ai/src` unchanged.
 
@@ -56,7 +56,7 @@ Independent Linux integration passed 92 tests across eight files and two selecte
 | Default/full-access file ops; protected profiles fail closed | `bwrap-platform.test.ts`, `approval-selector.test.ts`, `session-sandbox-profile.test.ts`: 39/39 on real macOS, Node-hosted Vitest | Passed arm64/x64 | No separate Bun-hosted sandbox suite |
 | Installed native layout and CLI startup | External-checkout npm install; compiled host Bun binary; `--help`/`--version`; Mach-O verification and merged release preflight | Passed arm64/x64 | Passed arm64/x64 |
 | Goal restoration, live child, Bash/Pyrun restart | `headless-runtime.test.ts`: 8/8 per runtime per architecture | Passed arm64/x64 | Passed arm64/x64 |
-| Production resident autostart/reuse/exit | `supervisor-autostart-runtime.test.ts`: one resident per runtime/architecture, zero provider requests | Passed arm64/x64 | Passed arm64/x64 |
+| Historical resident autostart/reuse/exit (removed) | At the tested revision, `supervisor-autostart-runtime.test.ts` tested one resident per runtime/architecture, zero provider requests | Passed arm64/x64 | Passed arm64/x64 |
 | Tagged release gating/publication | Native artifact download wired before build/publish; merged layout verified; publishing workflow not executed | Unproven end-to-end | Unproven end-to-end |
 | Launcher rollback | `deploy-resident-services.test.ts`: 38 Linux-controlled fixture cases | Not executed on Mac | Not executed on Mac |
 | Reference-safe artifact eviction | Linux-only procfs implementation | Unsupported, safely skipped | Unsupported, safely skipped |

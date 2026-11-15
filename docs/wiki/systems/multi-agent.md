@@ -19,7 +19,7 @@ revision 1, while construction interruption or failure stores `failed` revision 
 attachment is a separate operation. Production has no optional dispatcher or dormant-row fallback.
 `list_agents` always returns active agents and can scope results to descendants below a parent ID, using core store state rather than rendered TUI rows. Terminal agents remain inspectable by ID through `agent_viewer`. `contact_parent` is direct-parent-only: the caller's exact runtime identity
 `(session_id, agent_id)` must match the sending row, persisted `parent_request` rows must target that row's
-current direct parent, parentless runtimes are rejected, and the tool cannot target the resident Supervisor
+current direct parent, parentless runtimes are rejected, and the tool cannot target the Supervisor session
 or an arbitrary sibling. The old `contact_supervisor` name has no compatibility alias.
 Mailbox messages can carry validated absolute `fileRefs` entries with
 optional labels, so logs and diffs remain direct file references rather than registry records.

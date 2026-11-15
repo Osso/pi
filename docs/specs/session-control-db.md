@@ -68,7 +68,7 @@ in [docs/wiki/systems/multi-agent.md](../wiki/systems/multi-agent.md) and
       the legacy `all_messages_text` column drops that column.
 - [x] Resume lists treat a nonempty `session_metadata` table as authoritative: Current Folder,
       All, and Archived return only non-resident main-session rows matching archive state, cwd, and
-      configured session-directory scope; resident Supervisor and Architect histories are excluded from
+      configured session-directory scope; resident Architect histories are excluded from
       every picker scope. Transcript scanning/indexing runs only when the table is empty. Startup
       empty-session cleanup uses an index-scoped lookup of active non-subagent zero-message candidate IDs
       and paths; it does not scan the full `session_metadata` table, while resident, file, liveness, and deletion checks remain unchanged.

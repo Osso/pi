@@ -55,14 +55,14 @@ Unchecked items retain acceptance gaps: release gating is wired and merged nativ
 - `packages/coding-agent/test/deploy-resident-services.test.ts` — controlled deployment/rollback fixtures, not native Mac deployment.
 - `packages/coding-agent/test/suite/headless-runtime.test.ts` — invalid runtime selectors (2), main/child runtime identity, and replacement-process goal restoration with offline Supervisor review.
 - `packages/coding-agent/test/suite/headless-pi.test.ts` — selected thinking-child supervisor crash/restart, live Bash and Pyrun runner reattachment, and foreground Bash backgrounding across `/restart`. With `headless-runtime.test.ts`: 8/8 per Node/Bun runtime per architecture.
-- `packages/coding-agent/test/suite/supervisor-autostart-runtime.test.ts` — production resident autostart under Node/Bun: one resident concurrently reused and exited per runtime, with zero fetch/WebSocket requests.
+- Historical evidence at the tested revision: `supervisor-autostart-runtime.test.ts` exercised resident autostart under Node/Bun. The resident and test have since been removed.
 - `packages/coding-agent/test/suite/headless-provider-server.test.ts` — Linux regression for per-connection buffering after a crashed process leaves a partial request.
 - `packages/coding-agent/test/fixtures/native-process-probe.ts` — explicit Bun subprocess probe of the real identity adapter and gated bootstrap; identity/bootstrap tests passed 5/5 per architecture.
 
 ## Known gaps (current cycle)
 
 - [x] Execute native CI: `.github/workflows/macos-core.yml`, Osso/pi run `38651327008`, revision `bcaee48e5`; `macos-15` arm64 succeeded in 2m51s, `macos-15-intel` x64 in 6m41s. Real SDK builds, Node/Bun loading, installed Node tarballs and host Bun `--help`/`--version`, and live-child restart passed.
-- [x] Execute offline persisted-goal/restart and production resident-autostart scenarios under Node and Bun on both architectures.
+- [x] Execute offline persisted-goal/restart and then-existing resident-autostart scenarios under Node and Bun on both architectures; the resident was later removed.
 - [x] Complete Linux real-process restart/live-child rerun; two selected scenarios passed.
 - [x] Run final integrated `npm run check` after publication/status changes and test readability fixes; exit 0, 1,199 files, no fixes. `npm run build` compiles committed model catalogs without regeneration; run `38658162451` at `d6635a884` passed both architectures through the standard build.
 
@@ -71,5 +71,5 @@ Unchecked items retain acceptance gaps: release gating is wired and merged nativ
 - Native macOS sandboxing; explicit protected profiles cannot silently become full access.
 - macOS artifact eviction: reference-safe cleanup remains Linux-only and safely skips Mac, so age/size retention parity is not provided.
 - Architect readonly execution as a supported core capability; it is optional and requires a sandbox unavailable on Mac.
-- Resident Supervisor startup redesign or mandatory systemd; existing direct startup and optional systemd behavior remain unchanged.
+- Supervisor session design; see [Supervisor service](supervisor-service.md).
 - Weaker fencing, in-memory recovery, compatibility fallbacks, or unrelated feature changes.

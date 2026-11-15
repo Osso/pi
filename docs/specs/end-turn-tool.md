@@ -70,5 +70,5 @@ Terminal result validation must enforce the structural report contract even when
 - Semantic quality or correctness of model findings and live-model compliance: the guard checks report presence and successful send evidence only.
 - Automatic report generation, policy evaluation, or extra persistent report state.
 - Goal continuation policy and `/goal` lifecycle decisions.
-- Resident Supervisor review or completion policy.
+- Supervisor review or completion policy.
 - Replacing existing abort, error, steering, or explicit stop-hook behavior.

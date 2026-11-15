@@ -1,6 +1,6 @@
 # Standalone worker runtime
 
-An explicit ephemeral worker mode in `packages/coding-agent/src/main.ts` and the session SDK runs ordinary tools and canonical foreground Pyrun without resident Supervisor or multi-agent orchestration. `--no-session` alone retains its existing behavior.
+An explicit ephemeral worker mode in `packages/coding-agent/src/main.ts` and the session SDK runs ordinary tools and canonical foreground Pyrun without Supervisor or multi-agent orchestration. `--no-session` alone retains its existing behavior.
 
 ## What it must do
 

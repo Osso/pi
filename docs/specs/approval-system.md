@@ -42,7 +42,7 @@ Implementation details belong in
 - [x] Support human-reviewed approvals for `on-request` via the native
   `tool_call` hook and `ui.confirm`.
 - [x] Support LLM-approved approvals as `on-request` by sending a synchronous
-  `approval_review` request to the resident Supervisor service. `LLM Approved
+  `approval_review` request to the interactive Supervisor session. `LLM Approved
   (and deny)` blocks Supervisor rejection; `LLM Approved (and ask)` escalates
   Supervisor rejection to the human reviewer.
 - [x] Expose LLM-approved deny and LLM-approved ask modes as explicit choices
@@ -173,7 +173,7 @@ Implementation details belong in
 - [x] Define `ApprovalPolicy` type and config read/write in `policy.ts`.
 - [x] Implement approval orchestrator with policy-gating and hook-shortcircuit
   logic.
-- [x] Replace the LLM-approved auto-reviewer with resident Supervisor review.
+- [x] Replace the LLM-approved auto-reviewer with Supervisor review.
 - [x] Register `/approvals` command with preset selector UI.
 - [x] Register `/sandbox` command with profile selector UI.
 - [x] Wire orchestrator into `agent-session.ts` `beforeToolCall`.

@@ -8,7 +8,7 @@ Contract: [Approval system](../../specs/approval-system.md).
 
 [`policy.ts`](../../../packages/coding-agent/src/core/permissions/policy.ts) distinguishes `on-request`, `never`, and `auto-approve`. `never` blocks approval-required calls without invoking approval reviewers. Auto-approve first lets registered approval reviewers rewrite input or deny, then skips ordinary human/Supervisor review. It is not permission to bypass unconditional gates.
 
-For on-request, [`orchestrator.ts`](../../../packages/coding-agent/src/core/permissions/orchestrator.ts) asks the hook/rule reviewer first. An explicit allow or block ends review; undefined falls through. Human presets use the native reviewer. LLM presets submit bounded current-request evidence (tool/input/call ID, request and active goal) to the resident Supervisor with a 30-second timeout, not a historical transcript.
+For on-request, [`orchestrator.ts`](../../../packages/coding-agent/src/core/permissions/orchestrator.ts) asks the hook/rule reviewer first. An explicit allow or block ends review; undefined falls through. Human presets use the native reviewer. LLM presets submit bounded current-request evidence (tool/input/call ID, request and active goal) to the interactive Supervisor with a five-minute timeout, not a historical transcript.
 
 [`approval-reviewer.ts`](../../../packages/coding-agent/src/supervisor/approval-reviewer.ts) maps typed approve/reject/error responses. Deny presets block rejection; ask presets escalate rejection to human review. Errors/invalid responses escalate where human review exists, otherwise block. [`client.ts`](../../../packages/coding-agent/src/supervisor/client.ts) supplies durable request/response transport.
 

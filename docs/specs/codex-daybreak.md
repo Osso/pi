@@ -51,5 +51,5 @@ Codex Daybreak provides a main-thread `/daybreak` selection that adds the OpenAI
 ## Out of scope
 
 - Daybreak Red selection; Red-only models stay unchanged.
-- Child agents, the resident Supervisor, and the stateless Supervisor instruction evaluator.
+- Child agents, the interactive Supervisor, and the stateless Supervisor instruction evaluator.
 - Settings defaults, automatic selection, entitlement checks, retries, model substitution, or fallback when the provider rejects a request.

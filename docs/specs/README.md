@@ -51,7 +51,7 @@ codex's hook-style features, so each transposed feature falls into one of three 
 | First-party `ask_secret` tool | [`ask-secret-tool.md`](ask-secret-tool.md) | **BUILD** (done) | Interactive-TUI-only browser credential provisioning and single-value secret-file persistence without returning secret values. |
 | Bubblewrap sandbox backend | [`bwrap-sandbox.md`](bwrap-sandbox.md) | **BUILD** | Linux `bwrap` backend for routing tool workers through sandbox profiles while leaving host Pi outside. |
 | Resident Architect service | [`architect-service.md`](architect-service.md) | **BUILD** (done) | Systemd-supervised, event-driven Sol advisor that observes shared Pi state without dispatching or remediating. |
-| Resident Supervisor service | [`supervisor-service.md`](supervisor-service.md) | **BUILD** (done) | Systemd-supervised, event-driven Sol policy engine for LLM approvals and goal completion/continuation decisions. |
+| Supervisor session | [`supervisor-service.md`](supervisor-service.md) | **BUILD** (done) | Interactive session policy engine for LLM approvals and goal completion/continuation decisions. |
 | Prompt / context injection | [`prompt-context-hooks.md`](prompt-context-hooks.md) | **NATIVE** | `before_agent_start` / `context` / `before_provider_request` / `session_start`. |
 | PreToolUse command rewrites | [`pre-tool-use-rewrites.md`](pre-tool-use-rewrites.md) | **NATIVE** | `tool_call` mutates `input` in place + `{block}`; `tool_result`. |
 | Session lifecycle hooks | [`session-lifecycle-hooks.md`](session-lifecycle-hooks.md) | **NATIVE** | 8 session events + `resources_discover` + `project_trust`, with cancel/replace semantics. |

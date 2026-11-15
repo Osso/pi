@@ -110,7 +110,7 @@ The following evidence describes the earlier deployment, not current runtime sta
 - Final `osso` inventory: five `aso` and two `agent-server` mains, all current-hash and `checkStatus=ok`;
   `pi` launchers and PID/start identities preserved, new incarnations, generations incremented once.
   Evidence: `/tmp/pi-ask-inventory-aso-final.json`, `/tmp/pi-ask-inventory-agent-server-final.json`.
-- Obsolete resident Supervisors stopped; [lazy startup](supervisor-service.md) preserved, no systemd enabled.
+- Historical rollout: obsolete resident Supervisors were stopped. The [interactive Supervisor](supervisor-service.md) has since replaced lazy startup.
 - Allison's independent `agent-server` install: `/home/allison/.local/share/pi/pi`, same artifact,
   owned by UID 1001. [Current-account update](../../../packages/coding-agent/docs/development.md)
   preserved private auth/settings/session paths during activation; one live main resumed with the

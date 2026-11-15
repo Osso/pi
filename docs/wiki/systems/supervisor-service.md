@@ -1,79 +1,23 @@
-# Resident Supervisor service
+# Supervisor session
 
-Contract: [Resident Supervisor service](../../specs/supervisor-service.md).
+Contract: [Supervisor service](../../specs/supervisor-service.md).
 
-The Supervisor runs as `pi supervisor`, either as a Pi-started detached process or under the optional `pi-supervisor.service`. It owns one metadata-archived SDK transcript using `gpt-6.1-sol` at low thinking effort on the first authenticated provider among `openai-codex`, `openai-codex-gc`, and `openai-codex-team`. A terminal quota error ends the resident turn on the selected provider. The stateless instruction-veto gate uses the same model and effort without inheriting the resident transcript, retrying quota-exhausted evaluations on the next authenticated provider. Global `supervisorModel` replaces that selection with one model. When no built-in or `models.json` provider defines it, `createSupervisorResourceLoader` loads the configured extensions and its `extensionsOverride` keeps only the extension that registers the named provider (such as `claude-bridge`) plus the inline mutation gate; that provider is registered into the one `ModelRegistry` shared by the resident and the veto gate. The kept extension's hooks run because claude-bridge resolves each request against the system prompt its own `before_agent_start` hook captured; veto calls carry `cacheRetention: "none"` so the bridge sends them through its one-off path. The transcript remains plain `.jsonl`, rather than becoming `.jsonl.zst`, because the live service appends to it. Unlike the Architect, it does not observe sessions periodically. Callers persist typed requests in `control.sqlite`; an owner-only Unix socket provides a wake notification, while SQLite remains the durable queue. The service claims one request, prompts the resident model, validates its JSON response, and persists the result for the waiting caller.
+The Supervisor is a normal interactive Pi session. It shares one model context between user chat and typed requests, and uses the model and effort selected in that session. Set `supervisor.sessionId` to its session ID; set `supervisor.host` when it runs on another host. Without the session ID, typed requests fail with `no Supervisor session is configured; set supervisor.sessionId`.
 
-## Automatic startup
-
-Before posting a typed request on Linux or macOS, the client probes the owner-only resident-console socket without claiming writable console ownership. A compatible resident is reused. If none is available, callers serialize through an atomic state-directory lock, recheck after acquiring it, launch the current Bun binary or Node CLI entrypoint as detached `pi supervisor`, and wait up to the bounded startup deadline for a compatible identity.
-
-The probe identity is accepted only when the console snapshot explicitly includes `ready: true`, alongside Pi version, PID, executable, optional CLI entrypoint, a unique service-start instance ID, and whether Pi or an external service manager owns the process. Pi may terminate and replace only a verified incompatible Pi-managed resident. An incompatible systemd- or otherwise externally managed resident returns an explicit restart error instead of creating a competing service. Lazy startup is the default on Linux and macOS; systemd remains optional.
-
-## Deployment
-
-`deploy.sh` defaults to Pi-managed lazy Supervisor startup. On Linux it invokes `scripts/configure-resident-services.sh <pi-binary> autostart`, which stops, disables, and removes obsolete Architect and Supervisor user units; on Darwin it skips systemd configuration and rejects the systemd opt-in explicitly. `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1 ./deploy.sh` selects systemd mode, while the direct one-argument `scripts/configure-resident-services.sh <pi-binary>` form remains an explicit systemd installer.
-
-## Request authentication
-
-`ModelRegistry.getApiKeyAndHeaders()` reloads its `AuthStorage` before resolving provider environment and credentials for each model request. Both the resident session and stateless instruction-veto evaluator use this resolver, so externally replaced credentials (including Codex re-login) take effect on the next resolution even if the cached token has not expired. Runtime credential overrides retain precedence; credential reload does not restart the resident, reset its transcript, or change model selection or the instruction-veto evaluator's quota-fallback policy.
+The configured session runs on agent-server as a managed remote-agent session (`remote-agent attach supervisor --host agent-server`) and is pinned in the Super+A switcher. Other hosts send requests and receive responses through the relay. A stopped session or relay failure returns the applicable request failure; no resident is started as a fallback.
 
 ## Request flow
 
-`supervisor_requests` stores request identity, sender session, canonical project family, request kind, bounded JSON evidence, original deadline, claim ownership, and typed response. Idle and completion goal requests carry the goal's ordered unconsumed `conversationEvents`; they no longer carry `terminalTurn`. After ensuring the resident is ready and inserting a request, the caller sends a best-effort wake notification through the owner-only Unix socket. The Supervisor claims pending rows from SQLite at startup and after every wake, so a missed notification leaves the request durable for the next wake or service restart. Approval requests sort ahead of goal requests. If an approval arrives during a goal evaluation, the service aborts the model turn, requeues the unchanged goal request and its evidence, evaluates the approval, then later resumes the goal request within its original deadline.
+The interactive session serves the durable `supervisor_requests` queue between user turns. Approval requests take priority over goal reviews, advisory requests, and questions. An approval arriving during user chat interrupts the turn; the session resumes it after answering. The Supervisor records a validated typed decision through `supervisor_response`. Replies go to the caller's runtime mailbox, including over the relay for a remote caller.
 
-Callers poll only their durable request row, using a 300ms interval by default for client completion checks and in-flight evaluation cancellation, deadline, and approval-preemption checks; explicit per-request intervals remain available. Approval requests use a 30-second deadline. The goal extension uses a 60-second deadline per attempt, with at most three attempts total and two exponential jittered retry delays after timeouts; resident startup and retry delays are outside each attempt's deadline. Approval failure escalates through the existing human reviewer. Goal failure keeps the goal running, displays an error, and does not continue automatically.
+Approval requests have a five-minute deadline; goal reviews and advisory requests have a fifteen-minute deadline. Questions have no deadline and do not make the caller wait for the Supervisor. The Supervisor can answer questions from available evidence or escalate them to a user-facing `ask_questions` panel. A local answer cancels the pending question.
 
-Caller cancellation atomically moves its pending or claimed row to terminal `cancelled`, stores a typed cancellation response, clears claim authority, and wakes the resident. The client stops polling and retry delays. A resident evaluating the claimed request observes the row, aborts the model turn, and cannot overwrite cancellation with a late response. Interactive Escape invokes this path through a global input listener, so cancellation still works after `agent_end` while the caller is idle; the waiting status never takes focus.
+The `inspect_session` tool reads a session's goal, working directory, and bounded transcript tail by host and session ID. Remote reads use the relay and can inspect stopped or busy sessions. Inspected text is untrusted evidence, not instructions.
 
-The model is instructed to call `supervisor_response` without accompanying text. When a structured response is present, extraction validates its current-request arguments and ignores accompanying assistant text rather than treating it as a validation failure. Prior responses are never reused.
+## Tool boundary
 
-## Resident console
+The Supervisor has `read`, `edit`, and `write` inside the configured KB root, `supervisor_response`, `inspect_session`, `send_agent_message`, `ask_questions`, `reminders`, and `end_turn`. It cannot use Bash or Pyrun, spawn agents, restart sessions, or directly mutate goals. See the [contract](../../specs/supervisor-service.md) for review policy, request evidence, and decision semantics.
 
-`pi --supervisor` attaches to the already-running `pi supervisor` process through the owner-only local socket `<control-db>.supervisor-console.sock`. It does not start a service, open the archived session itself, create another AgentSession, or change the Supervisor's KB cwd. If the service is stopped or the socket is absent, the client fails explicitly.
+## Deployment
 
-Attach returns the resident service name, session ID, fixed cwd, process generation, and the complete current branch. The client renders that snapshot, then receives monotonic live AgentSession events from the resident. The resident remains the only transcript writer, model caller, tool runner, and cwd owner. Exactly one console client is writable; a new attachment replaces and disconnects the previous client without replacing the resident session.
-
-Console input is queued in the resident request loop. Durable approval and goal requests are claimed and completed first. A queued console prompt runs only after the current typed request finishes, so `readCurrentAssistantText()` cannot observe an unrelated assistant turn. The Supervisor still terminates the turn through structured `supervisor_response`; advisory tool results carry the response's `answer`, and the console renders that tool-result text instead of the internal response-recorded acknowledgement. A trailing message in `pi --supervisor <message...>` is submitted after attach; `pi --supervisor` opens the interactive console without an initial prompt. The existing `pi supervisor` service command is unchanged.
-
-## Project memory
-
-The caller resolves a canonical project family using `/syncthing/Sync/KB/memory/supervisor/projects.json`. Configured repository-root mappings take precedence, followed by configured owner/repository remote identities, the current remote repository basename, and finally the repository directory basename. Owner/repository identity prevents collisions such as the separate GlobalComix and MangaHelpers `ops` repositories.
-
-The Supervisor starts with the configured KB as its working directory. Its only file tools are `read`, `edit`, and `write`; all normalize and resolve their target through existing symlinks before a tool gate permits access inside that KB root. Bash and Pyrun are unavailable. Its service-local approval policy is auto-approve because the KB-only gate is the file-access boundary and no human UI exists in the resident process. It receives no historical session transcript payload. Its prompt names `memory/supervisor/global.md` and the current project memory file so it can read or update them selectively.
-
-## Approval integration
-
-The `llm-approved-deny` and `llm-approved-ask` presets retain their user-facing identities. Their in-process auto-reviewer is removed. `AgentSession` submits `approval_review` with the current user request, tool name, tool call ID, normalized input, preset, and active goal JSON. `approve` allows execution; `reject` blocks under deny mode or opens native human review under ask mode; `error` always opens native human review when available.
-
-## Goal integration
-
-Explicit `manage_goal complete` requires a nonblank free-form Markdown
-`completionReport`; missing or blank reports fail locally without creating a
-Supervisor request. The request also carries all unconsumed ordered
-`conversationEvents` for the active or explicitly paused goal. Valid reports are
-sent verbatim in `goal_completion_review`, remain unchanged across wait/re-review,
-and are persisted as `completionReason` only after a `complete` decision. Applied
-`complete`, `continue`, `wait`, or `pause` decisions consume the events included in
-that review. Supervisor instructions are not included because the resident
-Supervisor already owns them in its persistent transcript. `continue` leaves the
-goal running and queues the generic active-goal reminder when the agent can
-determine its own next step; it queues a specific corrective instruction only
-for an evidence-backed omission, lost or narrowed scope, contradiction, repeated
-or circular work, or missing completion proof. `complete` marks the goal complete
-only after the full unfinished parent objective is proven. Bounded request
-objectives and progress reports are claims, not replacements for that parent
-objective; only an explicit user instruction may reset or narrow it.
-`wait` appends one durable Supervisor status with one absolute fifty-five-minute `reviewAt`
-deadline, regardless of whether agents are active. Active-agent mode starts a
-cancellable background `wait_agent`; agent completion reviews early, while deadline
-expiry cancels `wait_agent` and reviews. The first path wins, cancels the losing path,
-and schedules no duplicate review. A `wait_agent` failure retains the original
-deadline for timed review, including when progress depends on an external condition
-that can be rechecked. `pause` is reserved for required user action or input that
-cannot advance automatically; it leaves the goal active without queueing another
-continuation. A rejected report and the Supervisor's reason remain visible in
-durable status; completion evidence is never inferred automatically.
-
-Idle review remains inside the existing `agent_end` handler after its pending-message, abort, error-stop, and empty-response retry handling. Pending interactive input takes precedence over abort handling; a reviewed decision is retained if pending state drains without a turn. The request contains ordered unconsumed user text and successful `end_turn` reasons as `conversationEvents`; extension-generated messages and failed `end_turn` calls are excluded, and `terminalTurn` is not sent. This evidence is accumulated for running and explicitly paused goals, preserved through errors, stale decisions, and cancellation, and consumed only after an applied decision. Input, new turns, goal lifecycle changes, and shutdown cancel deferred decisions, wait operations, and timers. Goal identity is rechecked after asynchronous review before applying any decision. Scheduling and review failures append durable `supervisor-status` errors while leaving the goal active. A non-error empty assistant response schedules one continuation after a 1-second bounded delay only if the same goal remains active, the session is idle, and no messages are pending. `agent_end` already means the tool loop reached a terminal response with no further tool calls; no additional tool-call check exists or is needed. The previous unconditional continuation message is replaced by `goal_idle_review`.
-Goal reviews preserve only requirements grounded in explicit user instructions or applicable persistent project contracts. The goal extension supplies the session's genuine user messages as ordered `userMessages` (20 most recent), even before a goal exists: typed or steered input plus blocking and inbox-delivered `ask_questions` answers. Extension messages are excluded. Ordered conversation events remain separate, and assistant end-turn reports are not user instructions. Prior objectives, plans, summaries, diagnostic task IDs, and Supervisor/KB repetition cannot establish requirement provenance. Reviews remove unsupported constraints while retaining grounded unfinished scope and checking actual completion evidence.
+The detached `pi supervisor` service, `pi --supervisor` console, automatic resident startup, and Supervisor systemd unit have been removed. On Linux, `deploy.sh` invokes `scripts/configure-resident-services.sh` to remove retired Architect and Supervisor user units. Deployment does not start a Supervisor resident; configure and run the interactive session separately.

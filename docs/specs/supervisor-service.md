@@ -1,36 +1,18 @@
-# Resident Supervisor Service
+# Supervisor Session
 
-Module boundary: core resident SDK policy service.
-
-The resident Supervisor is a peer-unblocking policy engine that evaluates synchronous approval and goal decisions for Pi sessions. Pi can own it as a detached resident, while systemd remains an optional external owner. It preserves one global model transcript, reads and writes durable project memories in the shared KB, and returns typed decisions to the calling subsystem. It does not coordinate work across sessions or mutate supervised sessions directly. Implementation details belong in [../wiki/systems/supervisor-service.md](../wiki/systems/supervisor-service.md).
+The Supervisor is an interactive Pi session that evaluates approval and goal decisions for Pi sessions. It shares context between user chat and typed requests, reads and writes project memories in the shared KB, and returns typed decisions to callers. Implementation details belong in [../wiki/systems/supervisor-service.md](../wiki/systems/supervisor-service.md).
 
 ## What it must do
 
 ### Service lifecycle and model
 
-- [x] Run as one resident SDK service, separate from the resident Architect; systemd ownership is optional.
-- [x] Before posting a Supervisor request on Linux or macOS, probe for a compatible resident and automatically connect or spawn the current Pi launcher as a detached `pi supervisor` process.
-- [x] Serialize concurrent startup through an atomic state-directory lock, recheck readiness after acquiring it, recover stale startup locks, and launch exactly one resident.
-- [x] Preserve Bun-binary launches directly and Node development or installed launches through the active CLI entrypoint and runtime flags.
-- [x] Expose read-only resident identity only when the console snapshot explicitly includes `ready: true`, alongside Pi version, PID, executable, optional entrypoint, unique service-start instance ID, and Pi-versus-external ownership without claiming writable console ownership.
-- [x] Reuse compatible externally managed residents, replace only verified incompatible Pi-managed residents, and report an explicit restart requirement for incompatible externally managed residents.
-- [x] Treat a resident as incompatible when its version differs or, on Linux, when a deployment replaced or removed its executable (`/proc/<pid>/exe` ends in ` (deleted)`), because builds share one version. The next Supervisor request after a deployment replaces the stale Pi-managed resident with the deployed executable. A probe the stopping resident drops (`ECONNRESET`, `EPIPE`, disconnect) means it is still stopping.
-- [x] Bound startup/readiness failures and return them through the typed Supervisor error path without posting an unserviceable durable request.
-- [x] Use `gpt-6.1-sol` with low thinking effort on the first authenticated provider in `openai-codex` → `openai-codex-gc` → `openai-codex-team`; fail startup naming those providers when none is authenticated.
-- [x] When global setting `supervisorModel` (`provider/modelId`) is set, use only that model, with low thinking effort, for the resident session and instruction review; fail startup naming the setting when it is not an authenticated model.
-- [x] When `supervisorModel` names a model absent from built-in and `models.json` providers, the Supervisor resource loader loads the configured extensions once and keeps only the extension that registers that provider (for example `claude-bridge`), with its hooks, plus only that provider registration, in the one registry shared by the resident session and instruction review. Other extensions' hooks, tools, and providers never reach the Supervisor session, and the active tool allowlist is unchanged. Instruction review passes the Supervisor cwd and `cacheRetention: "none"`, so a session-backed provider handles each stateless review as a one-off call.
-- [x] Reload persisted credentials at each model-request auth resolution for both the resident session and instruction-veto evaluator, so external re-login takes effect without restarting the Supervisor, even when cached credentials are unexpired. Preserve runtime credential overrides, model-selection policy, and the resident transcript.
-- [x] On quota exhaustion, retry each instruction-veto evaluation on the next authenticated provider in the same order; other errors do not fall back. The resident `AgentSession` ends a terminal quota error on its selected provider.
-- [x] Preserve exactly one global Supervisor model transcript across requests and service restarts. Its metadata remains archived while its live storage remains plain `.jsonl` for appends and is excluded from every resume-picker scope, including Archived. Opening the role reuses its live transcript when present; otherwise it reuses the latest resident transcript, prunes only inactive stale transcripts and metadata, and removes stale fileless resident metadata. Proactively compact the shared context before a bounded request when usage reaches 75%, preserving prior decisions, project-specific policies, and reusable approval rationale rather than resetting history. Invalidate provider continuation state after compaction so the next request starts from the compacted local context rather than the pre-compaction remote chain.
-- [x] Process requests through an event-driven request/response queue rather than polling sessions. Idle recovery probes the Supervisor request queue read-only for expired pending or claimed work; when recovery is needed, expired requests are completed and remaining claimed requests are requeued in one immediate transaction.
-- [x] Delete `completed` and `cancelled` request rows 24 hours after `completed_at`, in the shared control-DB retention sweep; pending and claimed rows are kept. The Supervisor transcript is separate and unaffected.
-- [x] Exit promptly on SIGTERM or SIGINT, including after model requests: shutdown disposes the resident session so provider connections such as the cached Codex WebSocket and session timers no longer keep the process alive.
-- [x] Remain local-only without web access.
-- [x] Default deployment to Pi-managed lazy Supervisor startup: on Linux, invoke `scripts/configure-resident-services.sh <pi-binary> autostart` to stop, disable, and remove obsolete Architect and Supervisor user units; on Darwin, skip systemd configuration and reject the systemd opt-in explicitly. Select systemd mode only with `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1 ./deploy.sh`; direct one-argument `scripts/configure-resident-services.sh <pi-binary>` remains an explicit systemd installer.
+- [x] Configure the interactive Supervisor with `supervisor.sessionId` and optional remote `supervisor.host`; fail typed requests explicitly when no session is configured.
+- [x] Do not start a detached resident. On Linux, deployment removes retired Architect and Supervisor user units.
+- [x] Delete completed and cancelled request rows 24 hours after completion; retain pending and claimed rows.
 
-### Interactive Supervisor session (planned replacement of the resident)
+### Interactive Supervisor session
 
-The Supervisor becomes a normal, full-UI interactive Pi session on agent-server. It replaces the detached `pi supervisor` resident and absorbs the [machine assistant](machine-assistant.md) role. The user talks to it like any Pi session; it also serves typed Supervisor requests. Decided 2026-11-14.
+The Supervisor is a normal, full-UI interactive Pi session on agent-server. It replaced the detached resident and absorbs the [machine assistant](machine-assistant.md) role. The user talks to it like any Pi session; it also serves typed Supervisor requests.
 
 - [x] Serve the durable `supervisor_requests` queue from the session named by setting `supervisor.sessionId` on the host that owns it; no detached resident is spawned when the setting is present.
 - [x] Use one shared model context for user chat, duties, and typed requests. Process a claimed request as a turn between user turns; never interleave turns. Order: approval, goal review, advisory, question.
@@ -38,8 +20,8 @@ The Supervisor becomes a normal, full-UI interactive Pi session on agent-server.
 - [x] Request deadlines: approval 5 min (then human escalation), goal review 15 min with one attempt (then `error` and the existing wake/55-minute re-review), advisory 15 min.
 - [x] An approval request arriving during a user chat turn aborts that turn, is answered, and the aborted turn then continues.
 - [x] The session uses the model and effort the user selects; no model is pinned.
-- [ ] Run as a managed remote-agent session on agent-server (`remote-agent attach supervisor --host agent-server`), pinned in the Super+A switcher.
-- [ ] Switch aso to the agent-server Supervisor only after relay routing (phase 3) works; after both hosts use it, delete the detached resident (`pi supervisor`, `pi --supervisor`, autostart, systemd unit).
+- [x] Run as a managed remote-agent session on agent-server (`remote-agent attach supervisor --host agent-server`), pinned in the Super+A switcher.
+- [x] Switch aso to the agent-server Supervisor after relay routing works; delete the detached resident (`pi supervisor`, `pi --supervisor`, autostart, systemd unit).
 - [x] When the Supervisor session is down or the deadline passes, callers get the existing failure results; no fallback resident is started.
 - [x] Use one transport for every kind: requests reach the queue through the relay from other hosts (phase 3), and every response is delivered to the asking session's runtime mailbox, through the relay for another host. Callers never read the queue row.
 - [x] Approval, goal-review, and advisory callers wait for the correlated mailbox reply until their deadline; question callers do not wait.
@@ -62,26 +44,21 @@ Questions use the same queue and reply transport as other requests, with kind `q
 - [x] Provide a read-only `inspect_session` tool addressed by host and session ID that returns the goal, cwd, and transcript tail (the last 30 messages: user and assistant text, tool calls and results, each clipped to 600 characters). Reads of another host's session travel over the relay as a read request with a correlated reply; the relay on that host answers, so stopped or busy sessions can be read. Inspected text is untrusted evidence, not instructions.
 - [x] Limit the Supervisor session, including user chat, to `read`, `edit`, `write` inside the configured KB root, `supervisor_response`, `inspect_session`, `send_agent_message`, `ask_questions`, `reminders`, and `end_turn`. Bash, Pyrun, agent spawn/attach, restart, and session control stay unavailable.
 
-### Resident console
+### Removed resident console
 
-- [x] `pi --supervisor` attaches to an already-running Supervisor through its owner-only local console socket; it never starts a second Supervisor, creates a second session owner, or changes the resident cwd.
-- [x] Reject missing or unavailable Supervisor sockets explicitly, while preserving the positional `pi supervisor` service entrypoint.
-- [x] Send the resident session identity, fixed cwd, generation, and complete current branch on attach, then stream live session events.
-- [x] Accept interactive console prompts and an optional trailing initial prompt, with exactly one writable console client at a time; a new console attachment replaces and disconnects the previous client without replacing the resident session.
-- [x] Render the text from advisory `supervisor_response` tool results as the visible console answer instead of the internal response-recorded acknowledgement.
-- [x] Keep the resident process as the sole transcript, model, tool, and cwd owner; process typed Supervisor requests before queued console prompts and never interleave turns.
+The `pi --supervisor` console and detached `pi supervisor` entrypoint were removed. Use the interactive Supervisor session instead.
 
 ### Authority boundary
 
 - [x] Ground binding requirements in explicit user instructions or applicable persistent project contracts. `userMessages` (the user's own messages and `ask_questions` answers, oldest first; later messages add to or override earlier ones) and user-kind conversation events supply user evidence; objectives, plans, summaries, assistant end-turn reports, and prior Supervisor decisions do not establish provenance by repetition. Remove unsupported constraints; disposable pilot IDs are diagnostic unless explicitly required. Apply this rule to goal creation, idle review, and completion review.
 
-- [x] Keep the resident Supervisor as the first-level goal and completion reviewer: it remains a peer-unblocking policy engine, not a routine task manager, preserves agent autonomy and cumulative parent-goal consistency across requests, and intervenes only on evidence-backed exceptions; the calling subsystem enforces the typed response.
+- [x] Keep the Supervisor as the first-level goal and completion reviewer: it remains a peer-unblocking policy engine, not a routine task manager, preserves agent autonomy and cumulative parent-goal consistency across requests, and intervenes only on evidence-backed exceptions; the calling subsystem enforces the typed response.
 - [x] Detect narrowed or lost goals, dropped requirements, exclusions, or completion criteria, contradictions between claims and evidence, repeated or circular work, and missing completion proof without prescribing routine decomposition; only an explicit user instruction may reset or narrow a known parent objective.
 - [x] Audit every automatic non-generic `continue.instructions` from goal idle and completion review through a separate stateless veto gate before delivery; the gate receives only the raw instruction message and has no goal, project, evidence, transcript, workspace, memory, or prior-decision context.
 - [x] Run each veto evaluation as one fresh direct low-effort call to the configured Supervisor `gpt-6.1-sol` model under one fixed system policy, with one raw instructions user message, no tools, and no inherited transcript context.
 - [x] Restrict veto output to `ACCEPT`, `REJECT_TASK_ASSIGNMENT`, `REJECT_IMPLEMENTATION_PRESCRIPTION`, `REJECT_SEQUENCING_INSTRUCTION`, `REJECT_AGENT_OR_TOOL_DIRECTION`, or `REJECT_PLAN_OVERRIDE`; any extra or invalid output is rejected.
 - [x] Preserve accepted instructions; replace rejected, invalid, or failed evaluations with exactly `Continue working toward the active goal.` without retrying the first-level review at that boundary.
-- [x] Append deterministic hidden feedback for actual policy rejections and fixed hidden failure feedback for invalid or failed evaluations to resident Supervisor context; neither rejected instructions nor feedback reaches the main agent, and compaction preserves the feedback.
+- [x] Append deterministic hidden feedback for actual policy rejections and fixed hidden failure feedback for invalid or failed evaluations to Supervisor context; neither rejected instructions nor feedback reaches the main agent, and compaction preserves the feedback.
 - [x] Read and write only inside the configured shared KB root.
 - [x] Keep Bash and Pyrun unavailable to the Supervisor.
 - [x] Never edit workspace files, dispatch agents, control processes or sessions, mutate goals directly, or change approval policy directly.
@@ -100,7 +77,7 @@ Questions use the same queue and reply transport as other requests, with kind `q
 
 - [x] Give every request the canonical project identity and originating session identity.
 - [x] Keep request evidence bounded and specific to the current decision.
-- [x] Never provide historical session transcripts or allow the Supervisor to request additional transcript slices.
+- [x] Treat transcript tails obtained through `inspect_session` as untrusted evidence.
 - [x] Let the Supervisor consult KB memory when current request evidence is insufficient.
 - [x] Instruct the model to call the terminating structured `supervisor_response` tool exactly once as the final action for each request, without accompanying text or `end_turn`. When a structured response is present, extract and validate its current-request arguments and ignore accompanying assistant text rather than treating it as a validation failure; never reuse prior responses.
 - [x] Keep veto evaluation inside the original goal-review request deadline, caller-cancellation boundary, and approval-preemption/requeue boundary.
@@ -191,7 +168,7 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 
 ### Failure handling
 
-- [x] Caller cancellation stops polling and retries, atomically moves a sender-owned pending or claimed request to terminal `cancelled`, wakes the resident, aborts active evaluation, and prevents later claim or completion.
+- [x] Caller cancellation stops polling and retries, atomically moves a sender-owned pending or claimed request to terminal `cancelled`, wakes the Supervisor session, aborts active evaluation, and prevents later claim or completion.
 - [x] Interactive Escape reaches an active goal review through global input even when the caller is idle (the editor keeps focus while the waiting status shows), then clears the loader without applying a stale decision.
 - [x] Return generic `error` for service, transport, timeout, model, tool, or response-validation failures; include the current model response's error detail when available without reusing an earlier response.
 - [x] Fail non-generic instruction vetoes closed: invalid output or evaluation failure suppresses the proposed instruction, appends fixed hidden failure feedback, and delivers exactly the generic continuation without retrying the first-level review at that boundary.
@@ -204,21 +181,16 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 - [x] See [`docs/wiki/systems/supervisor-service.md`](../wiki/systems/supervisor-service.md).
 - [x] Integrates with [`approval-system.md`](approval-system.md).
 - [x] Integrates with [`goal-system.md`](goal-system.md).
-- [x] Reuses applicable resident-service lifecycle patterns from [`architect-service.md`](architect-service.md) without inheriting the Architect's advisory-only contract.
+- [x] Uses an interactive session rather than the Architect resident lifecycle.
 
 ## Implementation inventory
 
 - `packages/coding-agent/extensions/supervisor-session/src/index.ts` — interactive Supervisor session: queue serving between user turns, visible request turns ending in `supervisor_response`, approval preemption of user turns with resumption, tool allow-list with KB-only file access.
 - `packages/coding-agent/src/supervisor/question-reply.ts` — question reply mailbox messages from the Supervisor session to the asker.
-- `packages/coding-agent/src/supervisor/ensure-running.ts` `ensureSupervisorAvailable` — fails fast when the configured Supervisor session is not running; starts the resident only when `supervisor.sessionId` is unset.
-- `packages/coding-agent/src/supervisor/main.ts` — resident `gpt-6.1-sol` SDK service with Codex provider selection and instruction-veto quota fallback, restricted tool surface, persistent transcript, stateless instruction-veto evaluation, hidden policy feedback, and request loop.
+- `packages/coding-agent/src/supervisor/ensure-running.ts` `ensureSupervisorAvailable` — fails fast when the configured Supervisor session is not running; fails explicitly when `supervisor.sessionId` is unset.
 - `packages/coding-agent/src/supervisor/service.ts` — bounded prompts, typed response validation, veto tokens and policy contract, deadlines, approval preemption, and active-evaluation cancellation.
-- `packages/coding-agent/src/supervisor/client.ts` — ensures resident readiness, performs durable synchronous caller transport, and propagates caller cancellation.
-- `packages/coding-agent/src/supervisor/ensure-running.ts` — cross-platform probe, singleton startup lock, detached launch, compatibility checks, and Pi-managed replacement.
-- `packages/coding-agent/src/supervisor/request-wake.ts` — owner-only Unix-socket wake notification for the durable request queue.
-- `packages/coding-agent/src/core/resident-console-transport.ts` — owner-only attach protocol, branch snapshot, live events, and single-client prompt transport.
-- `packages/coding-agent/src/cli/resident-console-command.ts` — `--supervisor` console client and optional initial prompt handling.
-- `packages/coding-agent/src/main.ts` — early dispatch for resident-console flags without changing service commands.
+- `packages/coding-agent/src/supervisor/client.ts` — checks session availability, performs durable synchronous caller transport, and propagates caller cancellation.
+- `packages/coding-agent/src/supervisor/ensure-running.ts` — checks the configured session address and availability.
 - `packages/coding-agent/src/supervisor/project-resolver.ts` — KB config loading and canonical project-family resolution.
 - `packages/coding-agent/src/supervisor/approval-reviewer.ts` — approval decision enforcement and human escalation.
 - `packages/coding-agent/src/core/session-control-db/supervisor.ts` — durable `supervisor_requests` repository.
@@ -228,8 +200,7 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 - `packages/coding-agent/extensions/goal/src/goal-review-evidence.ts` — supplies ordered unconsumed conversation events to goal reviews and consumes them after applied decisions.
 - `packages/coding-agent/extensions/goal/src/goal-scheduling.ts` — cancellable agent waits, pending-decision handoff, timed review, identity rechecks, and visible scheduling failures.
 - `packages/coding-agent/extensions/goal/src/rendering.ts` — durable Supervisor status entries and tagged continuation rendering.
-- `packages/coding-agent/systemd/pi-supervisor.service` / `deploy.sh` — optional systemd service template and default lazy-start deployment lifecycle.
-- `scripts/configure-resident-services.sh` — explicit systemd installation or deployment-mode cleanup of Architect and Supervisor user units.
+- `scripts/configure-resident-services.sh` — cleanup of retired Architect and Supervisor user units.
 
 ## Tests asserting this spec
 
@@ -243,11 +214,7 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 - `packages/coding-agent/test/supervisor-request-repository.test.ts`
 - `packages/coding-agent/test/supervisor-project-resolver.test.ts`
 - `packages/coding-agent/test/supervisor-client.test.ts`
-- `packages/coding-agent/test/supervisor-request-loop.test.ts` — Codex provider selection and instruction-veto quota fallback, configured `supervisorModel` selection, and unauthenticated configured-model startup failure.
-- `packages/coding-agent/test/suite/supervisor-extension-provider.test.ts` — instruction review as a one-off call and a real resident process answering through a `supervisorModel` provider registered only by a configured extension that registers once per process, requires the session cwd, and requires the system prompt its own `before_agent_start` hook captured; an unrelated configured extension's prompt hook and tool stay out of the Supervisor session.
 - `packages/coding-agent/test/supervisor-ensure-running.test.ts`
-- `packages/coding-agent/test/suite/supervisor-autostart-runtime.test.ts` — real-process detached startup and concurrent reuse.
-- `packages/coding-agent/test/suite/regressions/supervisor-sigterm-after-request.test.ts` — real-process SIGTERM exit after a Codex WebSocket request leaves a cached connection open.
 - `packages/coding-agent/test/supervisor-service.test.ts` — advisory response contract, validation, and claimed-request evaluation cancellation.
 - `packages/coding-agent/test/supervisor-structured-response.test.ts` — structured response decisions with accompanying assistant text, conflicting text, and invalid response kinds.
 - `packages/coding-agent/test/supervisor-instruction-veto.test.ts` — stateless veto classification, closed output, fail-closed replacement, hidden feedback, compaction preservation, and approval preemption during veto evaluation.
@@ -261,9 +228,8 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 - `packages/coding-agent/test/suite/agent-session-model-extension.test.ts`
 - `packages/coding-agent/test/resident-console-command.test.ts`
 - `packages/coding-agent/test/resident-console-client.test.ts`
-- `packages/coding-agent/test/supervisor-resident-console.test.ts`
-- `packages/coding-agent/test/deploy-resident-services.test.ts` — deployment mode selection and default systemd-unit cleanup.
-- `packages/coding-agent/test/architect-service.test.ts` — explicit systemd rewrite/reload skip and lifecycle-action contract.
+- `packages/coding-agent/test/deploy-resident-services.test.ts` — retired systemd-unit cleanup.
+- `packages/coding-agent/test/architect-service.test.ts` — retained Architect lifecycle behavior.
 
 ## Known gaps (current cycle)
 
@@ -273,18 +239,18 @@ Proof boundary: the supplied current results are 23 unit tests (including sessio
 
 - [x] Define and test the typed Supervisor request and response protocol.
 - [x] Implement the persistent request/response repository with priority and preemption semantics.
-- [x] Implement the resident Supervisor SDK service and restricted tool boundary.
+- [x] Implement the interactive Supervisor session and restricted tool boundary.
 - [x] Implement KB-backed canonical project resolution and memory access.
 - [x] Replace the approval auto-reviewer call with `approval_review`.
 - [x] Gate explicit goal completion with `goal_completion_review`.
 - [x] Replace the existing `agent_end` continuation decision with `goal_idle_review` without changing its trigger or guards.
-- [x] Deploy and verify the systemd service.
+- [x] Remove the detached Supervisor service and systemd unit.
 
 ## Out of scope
 
 - Cross-session work coordination, checkout ownership, duplicate-work detection, or incompatible-goal detection.
 - Goal merging, broader orchestration, or any change to first-level goal/completion review authority; the veto gate only filters automatic continuation instructions.
-- Full or on-demand historical transcript delivery.
+- Full historical transcript delivery; bounded tails are available through `inspect_session`.
 - Automatic web research.
 - Workspace mutation, autonomous remediation, agent dispatch, or direct session/goal mutation by the Supervisor.
 - Separate models for approvals and goals.

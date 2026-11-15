@@ -235,27 +235,11 @@ Configure delivery in [settings](docs/settings.md): `steeringMode` and `followUp
 
 ## Supervisor Service
 
-The Supervisor is a separate resident process that backs `ask_supervisor` plus configured approval and goal reviews. It preserves one shared Supervisor context across requests.
+The Supervisor is a normal interactive Pi session that serves `ask_supervisor`, approval and goal reviews, and questions. Its conversation and typed requests share one context.
 
-On Linux and macOS, the first Supervisor-backed request automatically connects to a compatible resident or starts the current Pi launcher as one detached `pi supervisor` process. Concurrent Pi sessions serialize startup and reuse the same resident. The detached process survives terminal exit; after a reboot, the next Supervisor-backed request starts it again.
+Set `supervisor.sessionId` to the session ID and, for a session on another host, set `supervisor.host` to that host. Remote requests use the relay. See [Supervisor settings](docs/settings.md#supervisor). Without a session ID, typed requests fail with `no Supervisor session is configured; set supervisor.sessionId`; Pi does not start a replacement resident.
 
-Pi replaces an incompatible resident only when Pi started that process. A version mismatch with an externally managed service fails explicitly so its service manager retains ownership.
-
-### Optional Linux systemd user service
-
-Use systemd when the Supervisor must start before the first Pi request or restart automatically after failure. A ready-made unit ships with the source tree at `packages/coding-agent/systemd/pi-supervisor.service`. Point its `@PI_SUPERVISOR_BINARY@` placeholder at your `pi` binary, install the unit, and enable it:
-
-```bash
-mkdir -p ~/.config/systemd/user
-sed 's|@PI_SUPERVISOR_BINARY@|/path/to/pi|' \
-  packages/coding-agent/systemd/pi-supervisor.service \
-  > ~/.config/systemd/user/pi-supervisor.service
-systemctl --user daemon-reload
-systemctl --user enable --now pi-supervisor.service
-systemctl --user is-active pi-supervisor.service   # verify
-```
-
-Deployments that build pi from source default to Pi-managed lazy startup. On Linux, `deploy.sh` invokes `scripts/configure-resident-services.sh <pi-binary> autostart` to stop, disable, and remove obsolete Architect and Supervisor user units; on Darwin it skips systemd configuration. Set `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=1` for systemd mode; Darwin rejects that opt-in. For staging paths for remote transfer, set `PI_DEPLOY_CONFIGURE_RESIDENT_SERVICES=skip` to leave local resident services untouched. The direct one-argument `scripts/configure-resident-services.sh <pi-binary>` form remains an explicit systemd installer. To run the service in the foreground, use `pi supervisor`.
+On Linux, `deploy.sh` removes retired Architect and Supervisor user units. The detached Supervisor command, console, autostart, and systemd unit have been removed.
 
 ## Sessions
 
