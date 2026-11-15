@@ -1187,9 +1187,9 @@ The library supports seamless handoffs between different LLM providers within th
 
 When messages from one provider are sent to a different provider, the library automatically transforms them for compatibility:
 
-- **User and tool result messages** are passed through unchanged
-- **Assistant messages from the same provider/API** are preserved as-is
-- **Assistant messages from different providers** have their thinking blocks converted to text with `<thinking>` tags
+- **User and tool result messages** are passed through unchanged, except that images become text placeholders for models without image input
+- **Assistant messages from the same provider, API and model** are preserved as-is
+- **Assistant messages from other models** have their thinking blocks converted to plain text; redacted thinking is dropped
 - **Tool calls and regular text** are preserved unchanged
 
 ```typescript
@@ -1210,7 +1210,7 @@ const claude = models.getModel('anthropic', 'claude-sonnet-4-5')!;
 context.messages.push({ role: 'user', content: 'What is 25 * 18?', timestamp: Date.now() });
 context.messages.push(await models.completeSimple(claude, context, { reasoning: 'medium' }));
 
-// Switch to GPT-5 - it will see Claude's thinking as <thinking> tagged text
+// Switch to GPT-5 - it will see Claude's thinking as plain text
 const gpt5 = models.getModel('openai', 'gpt-5-mini')!;
 context.messages.push({ role: 'user', content: 'Is that calculation correct?', timestamp: Date.now() });
 context.messages.push(await models.complete(gpt5, context));
@@ -1221,7 +1221,7 @@ context.messages.push({ role: 'user', content: 'What was the original question?'
 const geminiResponse = await models.complete(gemini, context);
 ```
 
-All providers can handle messages from other providers — text, tool calls and results (including images), thinking blocks (transformed to tagged text), and aborted messages with partial content. This enables flexible workflows: start with a fast model, switch to a more capable one for complex reasoning, or maintain continuity across provider outages.
+All providers can handle messages from other providers — text, tool calls and results (including images), and thinking blocks (transformed to plain text). Errored and aborted assistant messages are left out. This enables flexible workflows: start with a fast model, switch to a more capable one for complex reasoning, or maintain continuity across provider outages.
 
 ## Context Serialization
 
