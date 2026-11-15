@@ -718,6 +718,16 @@ export function wrapTextWithAnsi(text: string, width: number): string[] {
 	return result.length > 0 ? result : [""];
 }
 
+/** True when every visible character is whitespace; ANSI codes attached to the token are ignored. */
+function isWhitespaceToken(token: string): boolean {
+	for (let i = 0; i < token.length; i++) {
+		const ansi = extractAnsiCode(token, i);
+		if (ansi) i += ansi.length - 1;
+		else if (token[i]?.trim()) return false;
+	}
+	return true;
+}
+
 function wrapSingleLine(line: string, width: number): string[] {
 	if (!line) {
 		return [""];
@@ -737,17 +747,13 @@ function wrapSingleLine(line: string, width: number): string[] {
 
 	for (const token of tokens) {
 		const tokenVisibleLength = visibleWidth(token);
-		const isWhitespace = token.trim() === "";
+		const isWhitespace = isWhitespaceToken(token);
 
 		// Token itself is too long - break it character by character
 		if (tokenVisibleLength > width && !isWhitespace) {
 			if (currentLine) {
 				// Add specific reset for underline only (preserves background)
-				const lineEndReset = tracker.getLineEndReset();
-				if (lineEndReset) {
-					currentLine += lineEndReset;
-				}
-				wrapped.push(currentLine);
+				wrapped.push(currentLine + tracker.getLineEndReset());
 				currentLine = "";
 				currentVisibleLength = 0;
 			}
@@ -770,20 +776,16 @@ function wrapSingleLine(line: string, width: number): string[] {
 
 		if (totalNeeded > width && currentVisibleLength > 0) {
 			// Trim trailing whitespace, then add underline reset (not full reset, to preserve background)
-			let lineToWrap = currentLine.trimEnd();
-			const lineEndReset = tracker.getLineEndReset();
-			if (lineEndReset) {
-				lineToWrap += lineEndReset;
-			}
-			wrapped.push(lineToWrap);
+			wrapped.push(currentLine.trimEnd() + tracker.getLineEndReset());
 			if (isWhitespace) {
-				// Don't start new line with whitespace
+				// Don't start new line with whitespace, but keep the style changes it carries
+				updateTrackerFromText(token, tracker);
 				currentLine = tracker.getActiveCodes();
 				currentVisibleLength = 0;
-			} else {
-				currentLine = tracker.getActiveCodes() + token;
-				currentVisibleLength = tokenVisibleLength;
+				continue;
 			}
+			currentLine = tracker.getActiveCodes() + token;
+			currentVisibleLength = tokenVisibleLength;
 		} else {
 			// Add to current line
 			currentLine += token;
@@ -866,11 +868,7 @@ function breakLongWord(word: string, width: number, tracker: AnsiCodeTracker): s
 
 		if (currentWidth + graphemeWidth > width) {
 			// Add specific reset for underline only (preserves background)
-			const lineEndReset = tracker.getLineEndReset();
-			if (lineEndReset) {
-				currentLine += lineEndReset;
-			}
-			lines.push(currentLine);
+			lines.push(currentLine + tracker.getLineEndReset());
 			currentLine = tracker.getActiveCodes();
 			currentWidth = 0;
 		}

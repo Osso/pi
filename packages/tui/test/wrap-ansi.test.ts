@@ -172,6 +172,15 @@ describe("wrapTextWithAnsi", () => {
 				assert.strictEqual(wrapped[i].endsWith("\x1b[0m"), false);
 			}
 		});
+
+		it("drops a styled space at a wrap point like a plain one", () => {
+			assert.deepStrictEqual(wrapTextWithAnsi("\x1b[1maaaa\x1b[22m bbbb", 4), ["\x1b[1maaaa", "bbbb"]);
+			assert.deepStrictEqual(wrapTextWithAnsi("aaaa\x1b[31m bbbb", 4), ["aaaa", "\x1b[31mbbbb"]);
+			assert.deepStrictEqual(wrapTextWithAnsi("\x1b[1mImportant:\x1b[22m the rest", 10), [
+				"\x1b[1mImportant:",
+				"the rest",
+			]);
+		});
 	});
 });
 
