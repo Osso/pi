@@ -232,6 +232,18 @@ describe("run-plan extension", () => {
 		);
 	});
 
+	it("accepts an absolute plan path", async () => {
+		const otherDir = join(cwd, "other");
+		mkdirSync(otherDir);
+		writeFileSync(join(otherDir, "TODO.md"), "- [ ] Elsewhere\n");
+		const harness = createRunPlanHarness(join(cwd, "session"));
+
+		await harness.runCommand(join(otherDir, "TODO.md"));
+
+		expect(process.env.PLAN_PATH).toBe(join(otherDir, "TODO.md"));
+		expect(harness.sendUserMessage).toHaveBeenCalledTimes(1);
+	});
+
 	it("throws when the plan file is missing", async () => {
 		const harness = createRunPlanHarness(cwd);
 

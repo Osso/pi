@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed `/run-plan /absolute/path/PLAN.md` reporting the plan file as missing
 - Fixed `/run-plan` reporting no unchecked items when the plan had a blank `- [ ]` line before real items
 - Fixed `/run-plan` failing after every turn when its plan file was deleted, and later running a new `PLAN.md` without being asked; a missing plan file now stops the active run
 - Fixed `/run-plan` completing markdown files from the process directory instead of the session directory after `/cd`

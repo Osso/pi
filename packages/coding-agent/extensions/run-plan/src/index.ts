@@ -1,6 +1,6 @@
 import { existsSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, resolve } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 // An item needs text; a blank "- [ ]" line must not hide the items after it.
@@ -45,7 +45,7 @@ function persistActivePlan(pi: ExtensionAPI, plan: ActivePlan | undefined): void
 
 function resolvePlanFile(cwd: string, args: string): ActivePlan {
 	const file = args.trim() || "PLAN.md";
-	return { file, path: join(cwd, file) };
+	return { file, path: resolve(cwd, file) };
 }
 
 function buildPlanPrompt(item: string): string {
