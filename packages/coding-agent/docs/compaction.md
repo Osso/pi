@@ -46,9 +46,9 @@ Overflow recovery treats Envoy HTTP 507 errors containing `exceeded request buff
 
 ### Idle compaction
 
-With `compaction.idle` enabled (default `true`), Pi compacts an idle session once when the latest assistant request on the current model has at least 100,000 context tokens and has not been followed by compaction. The deadline is request-start timestamp + 90% of the assigned prompt-cache TTL: 54 minutes for `claude-bridge` (60-minute TTL), or 27 minutes for `openai-codex-responses` (assumed 30-minute TTL).
+With `compaction.idle` enabled (default `true`), Pi compacts an idle session once when the latest assistant request on the current model has at least 100,000 context tokens and has not been followed by compaction. The deadline is request-start timestamp + 90% of the prompt-cache TTL: 54 minutes for Claude models (model id `claude-*` through any API; 60-minute TTL), 10.8 hours for `openai-codex-responses` (12-hour TTL), or 4.5 minutes for any other provider (5-minute default).
 
-The Claude bridge TTL comes from the Claude Agent SDK's automatic subscription default within usage limits. The Codex TTL is a user-approved assumption based on OpenAI's prompt-caching guide, **not verified ChatGPT Codex backend retention**. Other APIs, including direct Anthropic, are intentionally excluded. See [TTL evidence and assumptions](../../../docs/wiki/systems/idle-compaction.md#ttl-evidence-and-assumptions).
+The Claude and Codex TTLs are user-stated assumptions, **not verified backend retention**. Pi's direct Anthropic provider requests a 5-minute cache unless `PI_CACHE_RETENTION=long`, so its 54-minute deadline falls after expiry. See [TTL evidence and assumptions](../../../docs/wiki/systems/idle-compaction.md#ttl-evidence-and-assumptions).
 
 Scheduling re-arms after session startup/resume and each run, using persisted request timestamps across restart. Eligibility is rechecked under the turn-start lock; idle compaction never interrupts streaming, tools, or another compaction. It uses normal compaction with reason `"idle"`, without retrying a turn. Interactive mode displays “Compacting idle context before its prompt cache expires”.
 

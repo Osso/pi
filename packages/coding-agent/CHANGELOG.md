@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed idle compaction never running for Claude models outside the Claude bridge (for example a proxy speaking the Anthropic Messages API); Claude models now compact after 54 idle minutes, Codex after 10.8 hours (12-hour cache), and other providers after 4.5 minutes
 - Fixed the Claude bridge adding a 120-second timeout to every bash call, which killed long test runs and builds; bash calls now keep only a timeout the model chose
 - Fixed diff lines containing U+2028/U+2029 rendering in the context color instead of red/green
 - Fixed a failed edit keeping the green success header when its diff preview had succeeded (for example a read-only file, or a second edit to the same file in one batch)

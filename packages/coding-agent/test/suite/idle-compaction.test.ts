@@ -8,6 +8,13 @@ import type { ExtensionFactory } from "../../src/index.ts";
 import { createHarness, type Harness, type HarnessOptions } from "./harness.ts";
 
 const MINUTE_MS = 60_000;
+const HOUR_MS = 60 * MINUTE_MS;
+// 90% of each cache lifetime: Codex 12 hours, Claude models 1 hour, other providers 5 minutes.
+const CODEX_DUE_MS = 10.8 * HOUR_MS;
+const CLAUDE_DUE_MS = 54 * MINUTE_MS;
+const DEFAULT_DUE_MS = 4.5 * MINUTE_MS;
+// Longer than every deadline, so a missing compaction is not just a late one.
+const PAST_EVERY_DEADLINE_MS = 24 * HOUR_MS;
 const SECOND_MS = 1_000;
 // The faux provider counts four characters per token, so this prompt alone exceeds the 100K-token minimum.
 const LARGE_CONTEXT_PROMPT = `large context ${"x".repeat(410_000)}`;
@@ -16,6 +23,7 @@ const SMALL_CONTEXT_PROMPT = "small context";
 interface IdleScenario {
 	api: string;
 	provider: string;
+	model?: string;
 	settings?: Partial<Settings>;
 	tools?: HarnessOptions["tools"];
 	extensionFactories?: ExtensionFactory[];
@@ -42,7 +50,7 @@ function endTurn(text: string): FauxResponseStep {
 async function createIdleHarness(scenario: IdleScenario): Promise<Harness> {
 	const harness = await createHarness({
 		fauxProvider: { api: scenario.api, provider: scenario.provider },
-		models: [{ id: `${scenario.provider}-model`, contextWindow: 2_000_000 }],
+		models: [{ id: scenario.model ?? `${scenario.provider}-model`, contextWindow: 2_000_000 }],
 		// Keep only the follow-up turn (user, end_turn call, result) so the first turn is summarized.
 		settings: { ...scenario.settings, compaction: { keepRecentMessages: 3, ...scenario.settings?.compaction } },
 		tools: scenario.tools,
@@ -82,12 +90,15 @@ async function expectIdleCompaction(harness: Harness): Promise<void> {
 
 describe("idle compaction 100K-token boundary", () => {
 	it.each([
-		{ api: "openai-codex-responses", dueAfterMs: 27 * MINUTE_MS },
-		{ api: "claude-bridge", dueAfterMs: 54 * MINUTE_MS },
-	])("checks context below, at, and above the minimum for $api", ({ api, dueAfterMs }) => {
+		{ api: "openai-codex-responses", model: "gpt-5.6", dueAfterMs: CODEX_DUE_MS },
+		{ api: "claude-bridge", model: "claude-opus-5-5", dueAfterMs: CLAUDE_DUE_MS },
+		{ api: "anthropic-messages", model: "claude-opus-5-5", dueAfterMs: CLAUDE_DUE_MS },
+		{ api: "openai-completions", model: "local-model", dueAfterMs: DEFAULT_DUE_MS },
+	])("checks context below, at, and above the minimum for $api $model", ({ api, model, dueAfterMs }) => {
 		for (const contextTokens of [99_999, 100_000, 100_001]) {
 			const message = fauxAssistantMessage("answer", { timestamp: 1_700_000_000_000 });
 			message.api = api;
+			message.model = model;
 			message.usage = {
 				...message.usage,
 				input: 40_000,
@@ -110,13 +121,16 @@ describe("idle prompt-cache compaction", () => {
 	});
 
 	it.each([
-		{ api: "openai-codex-responses", provider: "openai-codex", dueAfterMs: 27 * MINUTE_MS },
-		{ api: "claude-bridge", provider: "claude-bridge", dueAfterMs: 54 * MINUTE_MS },
+		{ api: "openai-codex-responses", provider: "openai-codex", model: undefined, dueAfterMs: CODEX_DUE_MS },
+		{ api: "claude-bridge", provider: "claude-bridge", model: "claude-opus-5-5", dueAfterMs: CLAUDE_DUE_MS },
+		// A Claude model behind a proxy that speaks the Anthropic Messages API keeps the same cache.
+		{ api: "anthropic-messages", provider: "proxy", model: "claude-opus-5-5", dueAfterMs: CLAUDE_DUE_MS },
+		{ api: "faux-unknown-cache", provider: "faux-unknown-cache", model: undefined, dueAfterMs: DEFAULT_DUE_MS },
 	])(
 		"compacts an idle $provider session at 90% of its cache lifetime, once",
-		async ({ api, provider, dueAfterMs }) => {
+		async ({ api, provider, model, dueAfterMs }) => {
 			vi.useFakeTimers({ shouldAdvanceTime: true, toFake: ["setTimeout", "clearTimeout", "Date"] });
-			const harness = await createIdleHarness({ api, provider });
+			const harness = await createIdleHarness({ api, provider, model });
 			harnesses.push(harness);
 
 			await runConversation(harness, LARGE_CONTEXT_PROMPT);
@@ -127,7 +141,7 @@ describe("idle prompt-cache compaction", () => {
 			await advanceTo(dueAt + SECOND_MS);
 			await expectIdleCompaction(harness);
 
-			await advanceTo(Date.now() + 3 * 60 * MINUTE_MS);
+			await advanceTo(Date.now() + PAST_EVERY_DEADLINE_MS);
 			expect(countCompactions(harness)).toBe(1);
 		},
 	);
@@ -145,10 +159,10 @@ describe("idle prompt-cache compaction", () => {
 		]);
 
 		await runConversation(harness, LARGE_CONTEXT_PROMPT);
-		const firstDueAt = lastRequestStartedAt(harness) + 27 * MINUTE_MS;
+		const firstDueAt = lastRequestStartedAt(harness) + CODEX_DUE_MS;
 		await advanceTo(lastRequestStartedAt(harness) + 20 * MINUTE_MS);
 		await harness.session.prompt("late prompt refreshes the cache");
-		const secondDueAt = lastRequestStartedAt(harness) + 27 * MINUTE_MS;
+		const secondDueAt = lastRequestStartedAt(harness) + CODEX_DUE_MS;
 
 		await advanceTo(firstDueAt + SECOND_MS);
 		expect(countCompactions(harness)).toBe(0);
@@ -183,7 +197,7 @@ describe("idle prompt-cache compaction", () => {
 		]);
 
 		await runConversation(harness, LARGE_CONTEXT_PROMPT);
-		const firstDueAt = lastRequestStartedAt(harness) + 27 * MINUTE_MS;
+		const firstDueAt = lastRequestStartedAt(harness) + CODEX_DUE_MS;
 		await advanceTo(firstDueAt - 5 * MINUTE_MS);
 		const run = harness.session.prompt("run the slow tool");
 		await toolStarted.promise;
@@ -192,7 +206,7 @@ describe("idle prompt-cache compaction", () => {
 		expect(countCompactions(harness)).toBe(0);
 		releaseTool.resolve();
 		await run;
-		const secondDueAt = lastRequestStartedAt(harness) + 27 * MINUTE_MS;
+		const secondDueAt = lastRequestStartedAt(harness) + CODEX_DUE_MS;
 		await advanceTo(secondDueAt - SECOND_MS);
 		expect(countCompactions(harness)).toBe(0);
 		await advanceTo(secondDueAt + SECOND_MS);
@@ -220,7 +234,7 @@ describe("idle prompt-cache compaction", () => {
 		harnesses.push(harness);
 
 		await runConversation(harness, LARGE_CONTEXT_PROMPT);
-		const dueAt = lastRequestStartedAt(harness) + 27 * MINUTE_MS;
+		const dueAt = lastRequestStartedAt(harness) + CODEX_DUE_MS;
 		await advanceTo(dueAt - MINUTE_MS);
 		const manual = harness.session.compact();
 		await manualStarted.promise;
@@ -228,7 +242,7 @@ describe("idle prompt-cache compaction", () => {
 		expect(harness.eventsOfType("compaction_start").map((event) => event.reason)).toEqual(["manual"]);
 		releaseManual.resolve();
 		await manual;
-		await advanceTo(Date.now() + 3 * 60 * MINUTE_MS);
+		await advanceTo(Date.now() + PAST_EVERY_DEADLINE_MS);
 
 		expect(countCompactions(harness)).toBe(1);
 		expect(harness.eventsOfType("compaction_start").map((event) => event.reason)).toEqual(["manual"]);
@@ -250,7 +264,7 @@ describe("idle prompt-cache compaction", () => {
 		const switchedModel = harness.getModel("switched-to");
 		if (!switchedModel) throw new Error("Missing switched-to model");
 		await harness.session.setModel(switchedModel);
-		await advanceTo(lastRequestStartedAt(harness) + 3 * 60 * MINUTE_MS);
+		await advanceTo(lastRequestStartedAt(harness) + PAST_EVERY_DEADLINE_MS);
 
 		expect(countCompactions(harness)).toBe(0);
 	});
@@ -272,7 +286,7 @@ describe("idle prompt-cache compaction", () => {
 		await runConversation(harness, LARGE_CONTEXT_PROMPT);
 		const assistant = [...harness.session.messages].reverse().find((message) => message.role === "assistant");
 		expect(assistant).toMatchObject({ provider: "openai-codex", model: "cache-writer" });
-		const dueAt = lastRequestStartedAt(harness) + 27 * MINUTE_MS;
+		const dueAt = lastRequestStartedAt(harness) + CODEX_DUE_MS;
 		await advanceTo(dueAt - SECOND_MS);
 		expect(countCompactions(harness)).toBe(0);
 		await advanceTo(dueAt + SECOND_MS);
@@ -286,7 +300,7 @@ describe("idle prompt-cache compaction", () => {
 
 		await runConversation(harness, LARGE_CONTEXT_PROMPT);
 		harness.session.agent.followUp({ role: "user", content: "queued follow-up", timestamp: Date.now() });
-		await advanceTo(lastRequestStartedAt(harness) + 3 * 60 * MINUTE_MS);
+		await advanceTo(lastRequestStartedAt(harness) + PAST_EVERY_DEADLINE_MS);
 
 		expect(harness.session.agent.hasQueuedMessages()).toBe(true);
 		expect(countCompactions(harness)).toBe(0);
@@ -297,11 +311,6 @@ describe("idle prompt-cache compaction", () => {
 			name: "context below 100K tokens",
 			prompt: SMALL_CONTEXT_PROMPT,
 			scenario: { api: "openai-codex-responses", provider: "openai-codex" },
-		},
-		{
-			name: "provider without a known cache lifetime",
-			prompt: LARGE_CONTEXT_PROMPT,
-			scenario: { api: "faux-unknown-cache", provider: "faux-unknown-cache" },
 		},
 		{
 			name: "idle compaction disabled",
@@ -327,7 +336,7 @@ describe("idle prompt-cache compaction", () => {
 		harnesses.push(harness);
 
 		await runConversation(harness, prompt);
-		await advanceTo(lastRequestStartedAt(harness) + 3 * 60 * MINUTE_MS);
+		await advanceTo(lastRequestStartedAt(harness) + PAST_EVERY_DEADLINE_MS);
 
 		expect(countCompactions(harness)).toBe(0);
 		expect(harness.eventsOfType("compaction_start")).toHaveLength(0);

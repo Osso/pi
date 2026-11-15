@@ -4,9 +4,9 @@ Idle compaction summarizes large idle sessions before their assumed provider pro
 
 ## What it must do
 
-- [x] Compact idle `claude-bridge` sessions at request start + 54 minutes and `openai-codex-responses` sessions at request start + 27 minutes, once per eligible request.
+- [x] Compact idle sessions once per eligible request, at request start + 90% of the cache lifetime: 54 minutes for Claude models (model id `claude-*`, any API), 10.8 hours for `openai-codex-responses`, and 4.5 minutes for any other provider.
 - [x] Measure the deadline from the latest assistant request, not the first request.
-- [x] Require at least 100,000 context tokens; skip APIs without an assigned TTL.
+- [x] Require at least 100,000 context tokens.
 - [x] Default `compaction.idle` to true; skip idle compaction when it or `compaction.enabled` is false.
 - [x] Run normal compaction with reason `"idle"`, saving a summary without retrying a turn.
 - [x] Require the latest assistant request to match the current provider/model and not precede a later compaction.
@@ -34,11 +34,10 @@ Paths below are relative to `packages/coding-agent/`:
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/suite/idle-compaction.test.ts` — both TTL deadlines, latest-request timing, one saved compaction, idle reason/summary, tool run spanning the deadline (skip, then re-arm from the run's latest request), manual compaction spanning the deadline (no concurrent idle start, single compaction), model switch, queued agent message, context minimum, unsupported API, and disable settings.
+- `packages/coding-agent/test/suite/idle-compaction.test.ts` — Claude (bridge and proxy), Codex and default deadlines, latest-request timing, one saved compaction, idle reason/summary, tool run spanning the deadline (skip, then re-arm from the run's latest request), manual compaction spanning the deadline (no concurrent idle start, single compaction), model switch, queued agent message, context minimum, and disable settings.
 - `packages/coding-agent/test/suite/regressions/idle-compaction-restart.test.ts` — real process crashed before the deadline compacts after restart at the persisted deadline, same session, reason `"idle"`, no repeat; below-minimum context does not compact.
 
 ## Out of scope
 
-- Verifying ChatGPT Codex backend cache retention. The 30-minute Codex TTL is the user's accepted assumption, not verified backend behavior; it is not an open blocker.
-- Other APIs, including Pi's direct Anthropic provider with its 5-minute default: intentionally excluded.
+- Verifying provider cache retention. The 1-hour Claude and 12-hour Codex lifetimes are user-stated, not verified backend behavior; they are not open blockers.
 - Guaranteed completion before cache eviction: scheduling at 90% leaves time but does not guarantee retention or summary duration.

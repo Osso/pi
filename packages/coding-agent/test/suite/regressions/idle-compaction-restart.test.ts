@@ -11,7 +11,8 @@ const API = "openai-codex-responses";
 const MODEL_ID = "idle-cache-model";
 const SOURCE_TEXT = "IDLE_SOURCE: completed investigation; preserve the findings in a checkpoint.";
 const SUMMARY_TEXT = "Idle restart checkpoint: investigation completed, findings preserved.";
-const CACHE_DUE_OFFSET_MS = 27 * 60_000;
+// 90% of the 12-hour Codex cache lifetime.
+const CACHE_DUE_OFFSET_MS = 10.8 * 60 * 60_000;
 const DUE_AFTER_RESPONSE_MS = 10_000;
 const OBSERVATION_WINDOW_MS = 3000;
 

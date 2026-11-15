@@ -125,7 +125,7 @@ Set `PI_SKIP_VERSION_CHECK=1` to disable the Pi version update check. Use `--off
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `compaction.enabled` | boolean | `true` | Enable auto-compaction |
-| `compaction.idle` | boolean | `true` | Compact eligible idle sessions at 90% of assigned API cache TTL; requires `compaction.enabled` |
+| `compaction.idle` | boolean | `true` | Compact eligible idle sessions at 90% of the provider cache TTL; requires `compaction.enabled` |
 | `compaction.thresholdTokens` | number | - | Optional auto-compaction threshold as an absolute context token count, capped at 90% of the model context window; positive integer |
 | `compaction.backgroundStartTokens` | number | - | Optional context token count that starts speculative background compaction; positive integer. Default: 70% of the model context window. Must be below the normal trigger to take effect |
 | `compaction.reserveTokens` | number | `16384` | Summarization output token budget; also determines the default trigger when no token or model threshold is set |
@@ -153,7 +153,7 @@ To trigger automatic compaction at 500k tokens across projects and models, add t
 
 Trusted project settings can override this global value. The configured count triggers at or above `min(thresholdTokens, contextWindow * 0.9)`, taking precedence over the model's `autoCompactionThreshold`, so smaller windows compact at 90%. The `reserveTokens`-based trigger still applies to very small windows. Omit it to retain existing defaults. `reserveTokens` still controls summarization output budgets; `keepRecentMessages` is unchanged. See [compaction.md](compaction.md#when-it-triggers) for trigger details.
 
-Idle compaction requires at least 100,000 context tokens in the latest assistant request on the current model, with no later compaction. It schedules at request start + 54 minutes for `claude-bridge`, or + 27 minutes for `openai-codex-responses`. Codex's 30-minute TTL is an assumption, not verified ChatGPT backend retention. Other APIs, including direct Anthropic, are excluded. Set `"compaction": { "idle": false }` to disable only this trigger; `enabled: false` also disables it. See [idle compaction](compaction.md#idle-compaction) for lifecycle and TTL details.
+Idle compaction requires at least 100,000 context tokens in the latest assistant request on the current model, with no later compaction. It schedules at request start + 54 minutes for Claude models (1-hour cache), + 10.8 hours for `openai-codex-responses` (12-hour cache), or + 4.5 minutes for other providers (5-minute default). The Claude and Codex lifetimes are assumptions, not verified backend retention. Set `"compaction": { "idle": false }` to disable only this trigger; `enabled: false` also disables it. See [idle compaction](compaction.md#idle-compaction) for lifecycle and TTL details.
 
 ### Branch Summary
 
