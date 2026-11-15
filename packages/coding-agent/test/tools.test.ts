@@ -1099,6 +1099,18 @@ describe("Coding Agent Tools", () => {
 			expect(output).not.toContain("match two");
 		});
 
+		it("reports no limit when the match count equals the limit", async () => {
+			const testFile = join(testDir, "exact-limit.txt");
+			writeFileSync(testFile, "match one\nother\nmatch two\n");
+
+			const result = await grepTool.execute("test-call-exact-limit", { pattern: "match", path: testFile, limit: 2 });
+
+			const output = getTextOutput(result);
+			expect(output).toContain("exact-limit.txt:3: match two");
+			expect(output).not.toContain("limit reached");
+			expect(result.details?.matchLimitReached).toBeUndefined();
+		});
+
 		// chmod cannot hide a directory from root or on Windows.
 		it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
 			"keeps matches when some paths cannot be searched",

@@ -293,7 +293,7 @@ export function createGrepToolDefinition(
 						// Collect matches during streaming, then format them after rg exits.
 						const matches: Array<{ filePath: string; lineNumber: number; lineText?: string }> = [];
 						rl.on("line", (line) => {
-							if (!line.trim() || matchCount >= effectiveLimit) return;
+							if (!line.trim() || matchLimitReached) return;
 							let event: {
 								type?: unknown;
 								data?: {
@@ -310,6 +310,12 @@ export function createGrepToolDefinition(
 							const filePath = event.data?.path?.text;
 							if (glob && isDirectory && filePath && !matchesGrepGlob(formatPath(filePath), glob)) return;
 							if (event.type === "match") {
+								// Only a match beyond the limit proves the results were cut short.
+								if (matchCount >= effectiveLimit) {
+									matchLimitReached = true;
+									stopChild(true);
+									return;
+								}
 								matchCount++;
 								const lineNumber = event.data?.line_number;
 								// rg replaces lines over --max-columns with a placeholder and sends non-UTF-8 lines as
@@ -317,10 +323,6 @@ export function createGrepToolDefinition(
 								const lineText = event.data?.lines?.omitted ? undefined : event.data?.lines?.text;
 								if (filePath && typeof lineNumber === "number")
 									matches.push({ filePath, lineNumber, lineText });
-								if (matchCount >= effectiveLimit) {
-									matchLimitReached = true;
-									stopChild(true);
-								}
 							}
 						});
 
