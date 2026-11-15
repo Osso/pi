@@ -142,6 +142,26 @@ const CTRL_BACKSPACE = "\x1b[127;5u";
 
 describe("session selector path/delete interactions", () => {
 	const keybindings = new KeybindingsManager();
+
+	type SelectorArgs = ConstructorParameters<typeof SessionSelectorComponent>;
+	async function openSelector(
+		currentSessionsLoader: SelectorArgs[0],
+		allSessionsLoader: SelectorArgs[1],
+		options: Omit<NonNullable<SelectorArgs[6]>, "keybindings"> = {},
+		onSelect: SelectorArgs[2] = () => {},
+	): Promise<SessionSelectorComponent> {
+		const selector = new SessionSelectorComponent(
+			currentSessionsLoader,
+			allSessionsLoader,
+			onSelect,
+			() => {},
+			() => {},
+			() => {},
+			{ keybindings, ...options },
+		);
+		await flushPromises();
+		return selector;
+	}
 	const tempDirs: string[] = [];
 
 	afterEach(() => {
@@ -162,16 +182,10 @@ describe("session selector path/delete interactions", () => {
 	it("does not treat Ctrl+Backspace as delete when search query is non-empty", async () => {
 		const sessions = [makeSession({ id: "a" }), makeSession({ id: "b" })];
 
-		const selector = new SessionSelectorComponent(
+		const selector = await openSelector(
 			async () => sessions,
 			async () => [],
-			() => {},
-			() => {},
-			() => {},
-			() => {},
-			{ keybindings },
 		);
-		await flushPromises();
 
 		const list = selector.getSessionList();
 		const confirmationChanges: Array<string | null> = [];
@@ -190,16 +204,11 @@ describe("session selector path/delete interactions", () => {
 		mkdirSync(projectDir, { recursive: true });
 		const controlDbPath = getControlDbPath(baseDir);
 		const sessionPath = createMetadataBackedSession(projectDir, baseDir, controlDbPath, "archive me");
-		const selector = new SessionSelectorComponent(
+		const selector = await openSelector(
 			(onProgress) => SessionManager.list(projectDir, baseDir, onProgress, controlDbPath),
 			(onProgress) => SessionManager.listAll(baseDir, onProgress, controlDbPath),
-			() => {},
-			() => {},
-			() => {},
-			() => {},
-			{ keybindings, controlDbPath },
+			{ controlDbPath },
 		);
-		await flushPromises();
 
 		selector.getSessionList().handleInput(CTRL_A);
 		const archivedPath = `${sessionPath}.zst`;
@@ -225,16 +234,11 @@ describe("session selector path/delete interactions", () => {
 		const sessionPath = createMetadataBackedSession(projectDir, baseDir, controlDbPath, "archive me", {
 			timestamp: 1_000,
 		});
-		const selector = new SessionSelectorComponent(
+		const selector = await openSelector(
 			(onProgress) => SessionManager.list(projectDir, baseDir, onProgress, controlDbPath),
 			(onProgress) => SessionManager.listAll(baseDir, onProgress, controlDbPath),
-			() => {},
-			() => {},
-			() => {},
-			() => {},
-			{ keybindings, controlDbPath },
+			{ controlDbPath },
 		);
-		await flushPromises();
 		const list = selector.getSessionList();
 		list.handleInput("\t");
 		await waitFor(() => list.getSelectedSessionPath() === sessionPath);
@@ -257,16 +261,11 @@ describe("session selector path/delete interactions", () => {
 		mkdirSync(projectDir, { recursive: true });
 		const controlDbPath = getControlDbPath(baseDir);
 		const sessionPath = createMetadataBackedSession(projectDir, baseDir, controlDbPath, "vanishes");
-		const selector = new SessionSelectorComponent(
+		const selector = await openSelector(
 			(onProgress) => SessionManager.list(projectDir, baseDir, onProgress, controlDbPath),
 			(onProgress) => SessionManager.listAll(baseDir, onProgress, controlDbPath),
-			() => {},
-			() => {},
-			() => {},
-			() => {},
-			{ keybindings, controlDbPath },
+			{ controlDbPath },
 		);
-		await flushPromises();
 		// The listed transcript disappears before archiving, as when idle archival moved it.
 		rmSync(sessionPath);
 
@@ -280,16 +279,10 @@ describe("session selector path/delete interactions", () => {
 	it("enters confirmation mode on Ctrl+D even with a non-empty search query", async () => {
 		const sessions = [makeSession({ id: "a" }), makeSession({ id: "b" })];
 
-		const selector = new SessionSelectorComponent(
+		const selector = await openSelector(
 			async () => sessions,
 			async () => [],
-			() => {},
-			() => {},
-			() => {},
-			() => {},
-			{ keybindings },
 		);
-		await flushPromises();
 
 		const list = selector.getSessionList();
 		const confirmationChanges: Array<string | null> = [];
@@ -307,18 +300,14 @@ describe("session selector path/delete interactions", () => {
 		const sessions = [empty, normal];
 		let selectedPath: string | null = null;
 
-		const selector = new SessionSelectorComponent(
+		const selector = await openSelector(
 			async () => sessions,
 			async () => [],
+			{},
 			(path) => {
 				selectedPath = path;
 			},
-			() => {},
-			() => {},
-			() => {},
-			{ keybindings },
 		);
-		await flushPromises();
 
 		selector.getSessionList().handleInput("\r");
 
@@ -331,18 +320,14 @@ describe("session selector path/delete interactions", () => {
 	])("selects a restored session after %s on an empty search result", async (_name, key) => {
 		const session = makeSession({ id: "restored", firstMessage: "hello" });
 		let selectedPath: string | null = null;
-		const selector = new SessionSelectorComponent(
+		const selector = await openSelector(
 			async () => [session],
 			async () => [],
+			{},
 			(path) => {
 				selectedPath = path;
 			},
-			() => {},
-			() => {},
-			() => {},
-			{ keybindings },
 		);
-		await flushPromises();
 		const list = selector.getSessionList();
 
 		for (const char of "zzzzzz") list.handleInput(char);
@@ -356,16 +341,10 @@ describe("session selector path/delete interactions", () => {
 	it("enters confirmation mode on Ctrl+Backspace when search query is empty", async () => {
 		const sessions = [makeSession({ id: "a" }), makeSession({ id: "b" })];
 
-		const selector = new SessionSelectorComponent(
+		const selector = await openSelector(
 			async () => sessions,
 			async () => [],
-			() => {},
-			() => {},
-			() => {},
-			() => {},
-			{ keybindings },
 		);
-		await flushPromises();
 
 		const list = selector.getSessionList();
 		const confirmationChanges: Array<string | null> = [];
@@ -398,16 +377,10 @@ describe("session selector path/delete interactions", () => {
 			timestamp: 3,
 		});
 
-		const selector = new SessionSelectorComponent(
+		const selector = await openSelector(
 			(onProgress) => SessionManager.list(projectDir, baseDir, onProgress, controlDbPath),
 			(onProgress) => SessionManager.listAll(baseDir, onProgress, controlDbPath),
-			() => {},
-			() => {},
-			() => {},
-			() => {},
-			{ keybindings },
 		);
-		await flushPromises();
 
 		let output = stripAnsi(selector.render(120).join("\n"));
 		expect(output).toContain("main resume prompt");
@@ -427,16 +400,11 @@ describe("session selector path/delete interactions", () => {
 			firstMessage: "archived session",
 			isArchived: true,
 		});
-		const selector = new SessionSelectorComponent(
+		const selector = await openSelector(
 			async () => [active],
 			async () => [active],
-			() => {},
-			() => {},
-			() => {},
-			() => {},
-			{ keybindings, archivedSessionsLoader: async () => [archived] },
+			{ archivedSessionsLoader: async () => [archived] },
 		);
-		await flushPromises();
 
 		let output = stripAnsi(selector.render(120).join("\n"));
 		expect(output).toContain("active");
@@ -457,19 +425,13 @@ describe("session selector path/delete interactions", () => {
 		const allDeferred = createDeferred<SessionInfo[]>();
 		let allLoadCalls = 0;
 
-		const selector = new SessionSelectorComponent(
+		const selector = await openSelector(
 			async () => currentSessions,
 			async () => {
 				allLoadCalls++;
 				return allDeferred.promise;
 			},
-			() => {},
-			() => {},
-			() => {},
-			() => {},
-			{ keybindings },
 		);
-		await flushPromises();
 
 		const list = selector.getSessionList();
 		list.handleInput("\t"); // current -> all (starts async load)
@@ -490,19 +452,13 @@ describe("session selector path/delete interactions", () => {
 		const allDeferred = createDeferred<SessionInfo[]>();
 		let allLoadCalls = 0;
 
-		const selector = new SessionSelectorComponent(
+		const selector = await openSelector(
 			async () => currentSessions,
 			async () => {
 				allLoadCalls++;
 				return allDeferred.promise;
 			},
-			() => {},
-			() => {},
-			() => {},
-			() => {},
-			{ keybindings },
 		);
-		await flushPromises();
 
 		const list = selector.getSessionList();
 		list.handleInput("\t"); // current -> all (starts async load)
@@ -535,16 +491,10 @@ describe("session selector path/delete interactions", () => {
 			}),
 		];
 
-		const selector = new SessionSelectorComponent(
+		const selector = await openSelector(
 			async () => sessions,
 			async () => [],
-			() => {},
-			() => {},
-			() => {},
-			() => {},
-			{ keybindings },
 		);
-		await flushPromises();
 
 		const output = stripAnsi(selector.render(120).join("\n"));
 		expect(output).toContain("Parent");
@@ -569,16 +519,10 @@ describe("session selector path/delete interactions", () => {
 			modified: new Date("2026-01-03T00:00:00.000Z"),
 		});
 
-		const selector = new SessionSelectorComponent(
+		const selector = await openSelector(
 			async () => [parentOne, parentTwo, childTwo],
 			async () => [],
-			() => {},
-			() => {},
-			() => {},
-			() => {},
-			{ keybindings },
 		);
-		await flushPromises();
 
 		const output = stripAnsi(selector.render(120).join("\n"));
 		const parentTwoIndex = output.indexOf("Parent two");
@@ -598,16 +542,11 @@ describe("session selector path/delete interactions", () => {
 		const controlDbPath = getControlDbPath(baseDir);
 		const sessionPath = createMetadataBackedSession(projectDir, baseDir, controlDbPath, "delete me");
 
-		const selector = new SessionSelectorComponent(
+		const selector = await openSelector(
 			(onProgress) => SessionManager.list(projectDir, baseDir, onProgress, controlDbPath),
 			(onProgress) => SessionManager.listAll(baseDir, onProgress, controlDbPath),
-			() => {},
-			() => {},
-			() => {},
-			() => {},
-			{ keybindings, controlDbPath },
+			{ controlDbPath },
 		);
-		await flushPromises();
 
 		const list = selector.getSessionList();
 		list.handleInput(CTRL_D);
@@ -627,16 +566,11 @@ describe("session selector path/delete interactions", () => {
 		const olderPath = createMetadataBackedSession(projectDir, baseDir, controlDbPath, "keep me", { timestamp: 1 });
 		const newerPath = createMetadataBackedSession(projectDir, baseDir, controlDbPath, "delete me", { timestamp: 3 });
 
-		const selector = new SessionSelectorComponent(
+		const selector = await openSelector(
 			(onProgress) => SessionManager.list(projectDir, baseDir, onProgress, controlDbPath),
 			(onProgress) => SessionManager.listAll(baseDir, onProgress, controlDbPath),
-			() => {},
-			() => {},
-			() => {},
-			() => {},
-			{ keybindings, controlDbPath },
+			{ controlDbPath },
 		);
-		await flushPromises();
 
 		const list = selector.getSessionList();
 		expect(list.getSelectedSessionPath()).toBe(newerPath);
@@ -668,16 +602,11 @@ describe("session selector path/delete interactions", () => {
 			timestamp: 7,
 		});
 
-		const selector = new SessionSelectorComponent(
+		const selector = await openSelector(
 			(onProgress) => SessionManager.list(projectDir, baseDir, onProgress, controlDbPath),
 			(onProgress) => SessionManager.listAll(baseDir, onProgress, controlDbPath),
-			() => {},
-			() => {},
-			() => {},
-			() => {},
-			{ keybindings, controlDbPath },
+			{ controlDbPath },
 		);
-		await flushPromises();
 
 		const list = selector.getSessionList();
 		expect(list.getSelectedSessionPath()).toBe(parentPath);
