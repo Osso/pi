@@ -222,7 +222,8 @@ export function createFindToolDefinition(
 							return;
 						}
 
-						const args: string[] = ["--glob", "--color=never", "--hidden"];
+						// --hidden lists dotfiles, but git internals are never project files (custom glob() ignores them too).
+						const args: string[] = ["--glob", "--color=never", "--hidden", "--exclude", ".git"];
 
 						if (!(await isInsideGitRepo(searchPath))) args.push("--no-require-git");
 						args.push("--max-results", String(effectiveLimit));

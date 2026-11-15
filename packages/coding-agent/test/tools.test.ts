@@ -1192,6 +1192,17 @@ describe("Coding Agent Tools", () => {
 			expect(outputLines).toContain(".secret/hidden.txt");
 		});
 
+		it("does not list git internals in a repository", async () => {
+			mkdirSync(join(testDir, ".git", "refs"), { recursive: true });
+			writeFileSync(join(testDir, ".git", "HEAD"), "ref: refs/heads/main\n");
+			writeFileSync(join(testDir, ".env"), "KEY=value\n");
+			writeFileSync(join(testDir, "a.txt"), "a");
+
+			const result = await findTool.execute("find-git-internals", { pattern: "**/*", path: testDir });
+
+			expect(getTextOutput(result).split("\n").sort()).toEqual([".env", "a.txt"]);
+		});
+
 		it("should respect .gitignore", async () => {
 			writeFileSync(join(testDir, ".gitignore"), "ignored.txt\n");
 			writeFileSync(join(testDir, "ignored.txt"), "ignored");
