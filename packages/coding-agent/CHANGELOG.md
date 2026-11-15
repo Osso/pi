@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed `grep` showing `[Omitted long matching line]` for matches on lines over 10KB, such as minified files, instead of the first 500 characters, and printing earlier matches again when a matching line was not valid UTF-8
 - Fixed `@file` arguments for files whose name starts with `@`, such as `pi @@notes.md`, which removed both `@` characters and reported the file as not found
 - Fixed HTML exports joining the text blocks of a displayed extension custom message without a separator; they are now separated by newlines as in the TUI
 - Fixed HTML exports showing a `!` command killed by a signal, which has no exit code, as failed with `(exit undefined)`

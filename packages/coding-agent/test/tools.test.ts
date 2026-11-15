@@ -1050,6 +1050,25 @@ describe("Coding Agent Tools", () => {
 			expect(output).toContain("example.txt:2: match line");
 		});
 
+		it("shows the start of a matching line longer than ripgrep's column limit", async () => {
+			const testFile = join(testDir, "min.js");
+			writeFileSync(testFile, `${"abcdefghij".repeat(1200)} needle\n`);
+
+			const result = await grepTool.execute("grep-long-line", { pattern: "needle", path: testFile });
+
+			expect(getTextOutput(result)).toMatch(/^min\.js:1: (abcdefghij){50}\.\.\. \[truncated\]\n\n\[.*\]$/s);
+			expect(result.details?.linesTruncated).toBe(true);
+		});
+
+		it("prints each match once when a file has a line that is not valid UTF-8", async () => {
+			const testFile = join(testDir, "latin1.txt");
+			writeFileSync(testFile, Buffer.from("needle ok\nneedle \xff\n", "latin1"));
+
+			const result = await grepTool.execute("grep-invalid-utf8", { pattern: "needle", path: testFile });
+
+			expect(getTextOutput(result)).toBe("latin1.txt:1: needle ok\nlatin1.txt:2: needle \uFFFD");
+		});
+
 		it("should respect global limit and include context lines", async () => {
 			const testFile = join(testDir, "context.txt");
 			const content = ["before", "match one", "after", "middle", "match two", "after two"].join("\n");

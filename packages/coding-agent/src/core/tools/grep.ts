@@ -292,7 +292,11 @@ export function createGrepToolDefinition(
 							if (!line.trim() || matchCount >= effectiveLimit) return;
 							let event: {
 								type?: unknown;
-								data?: { path?: { text?: string }; line_number?: number; lines?: { text?: string } };
+								data?: {
+									path?: { text?: string };
+									line_number?: number;
+									lines?: { text?: string; omitted?: unknown };
+								};
 							};
 							try {
 								event = JSON.parse(line) as typeof event;
@@ -304,7 +308,9 @@ export function createGrepToolDefinition(
 							if (event.type === "match") {
 								matchCount++;
 								const lineNumber = event.data?.line_number;
-								const lineText = event.data?.lines?.text;
+								// rg replaces lines over --max-columns with a placeholder and sends non-UTF-8 lines as
+								// bytes; read those lines from the file instead.
+								const lineText = event.data?.lines?.omitted ? undefined : event.data?.lines?.text;
 								if (filePath && typeof lineNumber === "number")
 									matches.push({ filePath, lineNumber, lineText });
 								if (matchCount >= effectiveLimit) {
@@ -357,6 +363,8 @@ export function createGrepToolDefinition(
 									const { text: truncatedText, wasTruncated } = truncateLine(sanitized);
 									if (wasTruncated) linesTruncated = true;
 									outputLines.push(`${relativePath}:${match.lineNumber}: ${truncatedText}`);
+								} else if (contextValue === 0) {
+									outputLines.push(...(await formatBlock(match.filePath, [match.lineNumber])));
 								} else {
 									const fileMatchLines = matchLinesByFile.get(match.filePath);
 									if (!fileMatchLines) continue;
