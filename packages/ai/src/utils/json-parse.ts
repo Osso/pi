@@ -28,6 +28,7 @@ function escapeControlCharacter(char: string): string {
  * Repairs malformed JSON string literals by:
  * - escaping raw control characters inside strings
  * - doubling backslashes before invalid escape characters
+ * - dropping an escape that is cut off at the end of streamed input
  */
 export function repairJson(json: string): string {
 	let repaired = "";
@@ -53,10 +54,7 @@ export function repairJson(json: string): string {
 
 		if (char === "\\") {
 			const nextChar = json[index + 1];
-			if (nextChar === undefined) {
-				repaired += "\\\\";
-				continue;
-			}
+			if (nextChar === undefined) break;
 
 			if (nextChar === "u") {
 				const unicodeDigits = json.slice(index + 2, index + 6);
@@ -65,6 +63,7 @@ export function repairJson(json: string): string {
 					index += 5;
 					continue;
 				}
+				if (/^[0-9a-fA-F]{0,3}$/.test(unicodeDigits) && index + 6 > json.length) break;
 			}
 
 			if (VALID_JSON_ESCAPES.has(nextChar)) {
@@ -111,15 +110,10 @@ export function parseStreamingJson<T = Record<string, unknown>>(partialJson: str
 		return parseJsonWithRepair<T>(partialJson);
 	} catch {
 		try {
-			const result = partialParse(partialJson);
+			const result = partialParse(repairJson(partialJson));
 			return (result ?? {}) as T;
 		} catch {
-			try {
-				const result = partialParse(repairJson(partialJson));
-				return (result ?? {}) as T;
-			} catch {
-				return {} as T;
-			}
+			return {} as T;
 		}
 	}
 }

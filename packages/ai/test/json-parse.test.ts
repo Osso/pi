@@ -19,4 +19,15 @@ describe("parseStreamingJson", () => {
 	it("omits a \\u escape that is cut off mid-stream", () => {
 		expect(parseStreamingJson(String.raw`{"text":"ab\u00`)).toEqual({ text: "ab" });
 	});
+
+	it("omits a lone backslash that is cut off mid-stream", () => {
+		expect(parseStreamingJson('{"text":"ab\\')).toEqual({ text: "ab" });
+	});
+
+	it("keeps every streamed field when unfinished arguments need repair", () => {
+		expect(parseStreamingJson(String.raw`{"pattern":"\d+", "path":"src`)).toEqual({ pattern: "\\d+", path: "src" });
+		expect(parseStreamingJson('{"a":"line1\nline2')).toEqual({ a: "line1\nline2" });
+		expect(parseStreamingJson('{"path":"a.ts","content":"x\ty')).toEqual({ path: "a.ts", content: "x\ty" });
+		expect(parseStreamingJson(String.raw`{"path":"C:\users`)).toEqual({ path: "C:\\users" });
+	});
 });
