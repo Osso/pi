@@ -1203,6 +1203,21 @@ describe("Coding Agent Tools", () => {
 			expect(getTextOutput(result).split("\n").sort()).toEqual([".env", "a.txt"]);
 		});
 
+		it("reports the result limit only when more files match than the limit", async () => {
+			writeFileSync(join(testDir, "a.txt"), "a");
+			writeFileSync(join(testDir, "b.txt"), "b");
+
+			const exact = await findTool.execute("find-limit-exact", { pattern: "*.txt", path: testDir, limit: 2 });
+			const over = await findTool.execute("find-limit-over", { pattern: "*.txt", path: testDir, limit: 1 });
+
+			expect(getTextOutput(exact).split("\n").sort()).toEqual(["a.txt", "b.txt"]);
+			expect(exact.details?.resultLimitReached).toBeUndefined();
+			expect(getTextOutput(over)).toMatch(
+				/^(a|b)\.txt\n\n\[1 results limit reached\. Use limit=2 for more, or refine pattern\]$/,
+			);
+			expect(over.details?.resultLimitReached).toBe(1);
+		});
+
 		it("should respect .gitignore", async () => {
 			writeFileSync(join(testDir, ".gitignore"), "ignored.txt\n");
 			writeFileSync(join(testDir, "ignored.txt"), "ignored");

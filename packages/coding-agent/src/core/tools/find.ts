@@ -164,7 +164,7 @@ export function createFindToolDefinition(
 							}
 							const results = await ops.glob(pattern, searchPath, {
 								ignore: ["**/node_modules/**", "**/.git/**"],
-								limit: effectiveLimit,
+								limit: effectiveLimit + 1,
 							});
 							if (signal?.aborted) {
 								settle(() => reject(new Error("Operation aborted")));
@@ -182,10 +182,10 @@ export function createFindToolDefinition(
 
 							// Relativize paths against the search root for stable output.
 							// glob() returns paths relative to searchPath, or absolute paths.
-							const relativized = results.map((p) =>
-								toPosixPath(path.isAbsolute(p) ? path.relative(searchPath, p) : p),
-							);
-							const resultLimitReached = relativized.length >= effectiveLimit;
+							const relativized = results
+								.slice(0, effectiveLimit)
+								.map((p) => toPosixPath(path.isAbsolute(p) ? path.relative(searchPath, p) : p));
+							const resultLimitReached = results.length > effectiveLimit;
 							const rawOutput = relativized.join("\n");
 							const truncation = truncateHead(rawOutput, { maxLines: Number.MAX_SAFE_INTEGER });
 							let resultOutput = truncation.content;
@@ -226,7 +226,8 @@ export function createFindToolDefinition(
 						const args: string[] = ["--glob", "--color=never", "--hidden", "--exclude", ".git"];
 
 						if (!(await isInsideGitRepo(searchPath))) args.push("--no-require-git");
-						args.push("--max-results", String(effectiveLimit));
+						// One extra result tells "exactly limit" matches apart from more.
+						args.push("--max-results", String(effectiveLimit + 1));
 
 						// fd --glob matches against the basename unless --full-path is set; in --full-path
 						// mode it matches against the absolute candidate path, so a path-containing
@@ -307,8 +308,8 @@ export function createFindToolDefinition(
 								relativized.push(toPosixPath(relativePath));
 							}
 
-							const resultLimitReached = relativized.length >= effectiveLimit;
-							const rawOutput = relativized.join("\n");
+							const resultLimitReached = relativized.length > effectiveLimit;
+							const rawOutput = relativized.slice(0, effectiveLimit).join("\n");
 							const truncation = truncateHead(rawOutput, { maxLines: Number.MAX_SAFE_INTEGER });
 							let resultOutput = truncation.content;
 							const details: FindToolDetails = {};
