@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { getControlDbPath } from "../../../src/core/session-control-db.ts";
 import { createSqliteDatabase } from "../../../src/core/sqlite.ts";
 import { type HeadlessPi, requireHeadlessAgentSessionId, withHeadlessPi } from "../headless-pi.ts";
+import { spawnFreshAgentFromMain } from "../headless-spawn.ts";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -69,18 +70,7 @@ describe("terminal agent row expiry across a supervisor restart", () => {
 	it("expires old terminal history and job output while the live child keeps its identity and completes once", async () => {
 		await withHeadlessPi(async (pi) => {
 			await pi.send({ type: "prompt", message: "Start a child that outlives terminal history" });
-			const mainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
-			pi.respondToLlmRequest(
-				mainRequest.id,
-				fauxAssistantMessage(
-					fauxToolCall("spawn_agent", {
-						context: "fresh",
-						displayName: "Expiry survivor",
-						prompt: "Keep working until Pi restarts",
-					}),
-					{ stopReason: "toolUse" },
-				),
-			);
+			await spawnFreshAgentFromMain(pi, "Expiry survivor", "Keep working until Pi restarts");
 			const spawned = await pi.waitForAgent((agent) => agent.displayName === "Expiry survivor");
 			const childSessionId = requireHeadlessAgentSessionId(spawned);
 			await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);

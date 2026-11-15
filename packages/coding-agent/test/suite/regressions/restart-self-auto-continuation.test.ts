@@ -9,6 +9,7 @@ import {
 	requireHeadlessAgentSessionId,
 	withHeadlessPi,
 } from "../headless-pi.ts";
+import { spawnFreshAgentFromMain } from "../headless-spawn.ts";
 
 async function persistCompletedEndTurn(pi: HeadlessPi): Promise<void> {
 	await pi.send({ type: "prompt", message: "Finish this turn before process restart" });
@@ -210,18 +211,7 @@ it("keeps a completed turn idle after process restart without a running goal", a
 it("continues a completed running goal after restart while a child remains live", async () => {
 	await withHeadlessPi(async (pi) => {
 		await pi.send({ type: "prompt", message: "Spawn a child, then complete the main turn" });
-		const mainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
-		pi.respondToLlmRequest(
-			mainRequest.id,
-			fauxAssistantMessage(
-				fauxToolCall("spawn_agent", {
-					context: "fresh",
-					displayName: "Resume policy child",
-					prompt: "Wait across restart",
-				}),
-				{ stopReason: "toolUse" },
-			),
-		);
+		const mainRequest = await spawnFreshAgentFromMain(pi, "Resume policy child", "Wait across restart");
 		const child = await pi.waitForAgent((agent) => agent.displayName === "Resume policy child");
 		const childSessionId = requireHeadlessAgentSessionId(child);
 		await pi.waitForLlmRequest((request) => request.sessionId === childSessionId);

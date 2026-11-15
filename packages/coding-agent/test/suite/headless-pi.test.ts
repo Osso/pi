@@ -38,6 +38,7 @@ import {
 	runWithCleanup,
 	withHeadlessPi,
 } from "./headless-pi.ts";
+import { spawnFreshAgentFromMain } from "./headless-spawn.ts";
 
 function fauxCompletedAssistantMessage(text: string): ReturnType<typeof fauxAssistantMessage> {
 	return fauxAssistantMessage([{ type: "text", text }, fauxToolCall("end_turn", { reason: text })], {
@@ -862,18 +863,7 @@ describe("headless Pi fixture", () => {
 	it("resumes a spawned agent that was thinking when its supervisor process died", async () => {
 		await withHeadlessPi(async (agent) => {
 			await agent.send({ type: "prompt", message: "Delegate work, then wait" });
-			const mainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
-			agent.respondToLlmRequest(
-				mainRequest.id,
-				fauxAssistantMessage(
-					fauxToolCall("spawn_agent", {
-						context: "fresh",
-						displayName: "Interrupted reviewer",
-						prompt: "Review until the supervisor restarts",
-					}),
-					{ stopReason: "toolUse" },
-				),
-			);
+			await spawnFreshAgentFromMain(agent, "Interrupted reviewer", "Review until the supervisor restarts");
 			const spawned = await agent.waitForAgent((candidate) => candidate.displayName === "Interrupted reviewer");
 			const childSessionId = requireHeadlessAgentSessionId(spawned);
 			const originalTranscript = spawned.transcript;
@@ -913,18 +903,7 @@ describe("headless Pi fixture", () => {
 	it("steers a restored child through the current main session after restart", async () => {
 		await withHeadlessPi(async (agent) => {
 			await agent.send({ type: "prompt", message: "Delegate work before restart" });
-			const mainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
-			agent.respondToLlmRequest(
-				mainRequest.id,
-				fauxAssistantMessage(
-					fauxToolCall("spawn_agent", {
-						context: "fresh",
-						displayName: "Restarted steering target",
-						prompt: "Wait for steering after restart",
-					}),
-					{ stopReason: "toolUse" },
-				),
-			);
+			await spawnFreshAgentFromMain(agent, "Restarted steering target", "Wait for steering after restart");
 			const spawned = await agent.waitForAgent((candidate) => candidate.displayName === "Restarted steering target");
 			const childSessionId = requireHeadlessAgentSessionId(spawned);
 			await agent.waitForLlmRequest((request) => request.sessionId === childSessionId);
@@ -968,17 +947,10 @@ describe("headless Pi fixture", () => {
 			await withHeadlessPi(
 				async (agent) => {
 					await agent.send({ type: "prompt", message: "Delegate a foreground Pyrun evaluation" });
-					const mainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
-					agent.respondToLlmRequest(
-						mainRequest.id,
-						fauxAssistantMessage(
-							fauxToolCall("spawn_agent", {
-								context: "fresh",
-								displayName: "Foreground Pyrun caller",
-								prompt: "Run the foreground Pyrun evaluation",
-							}),
-							{ stopReason: "toolUse" },
-						),
+					const mainRequest = await spawnFreshAgentFromMain(
+						agent,
+						"Foreground Pyrun caller",
+						"Run the foreground Pyrun evaluation",
 					);
 					const caller = await agent.waitForAgent(
 						(candidate) => candidate.displayName === "Foreground Pyrun caller",
@@ -1050,17 +1022,10 @@ describe("headless Pi fixture", () => {
 				const attemptPath = join(agent.paths.workspaceDir, "attempts-child-dead-pyrun");
 				const releasePath = join(agent.paths.workspaceDir, "release-child-dead-pyrun");
 				await agent.send({ type: "prompt", message: "Delegate a detached evaluation" });
-				const mainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
-				agent.respondToLlmRequest(
-					mainRequest.id,
-					fauxAssistantMessage(
-						fauxToolCall("spawn_agent", {
-							context: "fresh",
-							displayName: "Interrupted detached caller",
-							prompt: "Run a detached Pyrun evaluation until release",
-						}),
-						{ stopReason: "toolUse" },
-					),
+				await spawnFreshAgentFromMain(
+					agent,
+					"Interrupted detached caller",
+					"Run a detached Pyrun evaluation until release",
 				);
 				const caller = await agent.waitForAgent(
 					(candidate) => candidate.displayName === "Interrupted detached caller",
@@ -1374,18 +1339,7 @@ describe("headless Pi fixture", () => {
 				const releasePath = join(agent.paths.workspaceDir, "release-subagent-detached");
 				const toolCallId = "subagent-detached-tool-call";
 				await agent.send({ type: "prompt", message: "Delegate a detached evaluation" });
-				const mainRequest = await agent.waitForLlmRequest((request) => request.agentId === null);
-				agent.respondToLlmRequest(
-					mainRequest.id,
-					fauxAssistantMessage(
-						fauxToolCall("spawn_agent", {
-							context: "fresh",
-							displayName: "Detached caller",
-							prompt: "Run the detached Pyrun evaluation",
-						}),
-						{ stopReason: "toolUse" },
-					),
-				);
+				await spawnFreshAgentFromMain(agent, "Detached caller", "Run the detached Pyrun evaluation");
 				const caller = await agent.waitForAgent((candidate) => candidate.displayName === "Detached caller");
 				const callerRequest = await agent.waitForLlmRequest((request) => request.agentId === caller.id);
 				const code = [

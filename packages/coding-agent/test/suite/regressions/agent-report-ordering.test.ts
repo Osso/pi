@@ -2,22 +2,16 @@ import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai/compat
 import { describe, expect, it } from "vitest";
 import { getControlDbPath, readRuntimeMailboxListener } from "../../../src/core/session-control-db.ts";
 import { withHeadlessPi } from "../headless-pi.ts";
+import { spawnFreshAgentFromMain } from "../headless-spawn.ts";
 
 describe("sub-agent completion report ordering", () => {
 	it("includes a terminal child report in the parent model call after list_agents", async () => {
 		await withHeadlessPi(async (pi) => {
 			await pi.send({ type: "prompt", message: "Spawn a short-lived tracing child" });
-			const mainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
-			pi.respondToLlmRequest(
-				mainRequest.id,
-				fauxAssistantMessage(
-					fauxToolCall("spawn_agent", {
-						context: "fresh",
-						displayName: "Short-lived tracing child",
-						prompt: "Return the exact text: trace complete",
-					}),
-					{ stopReason: "toolUse" },
-				),
+			const mainRequest = await spawnFreshAgentFromMain(
+				pi,
+				"Short-lived tracing child",
+				"Return the exact text: trace complete",
 			);
 
 			const spawned = await pi.waitForAgent((agent) => agent.displayName === "Short-lived tracing child");

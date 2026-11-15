@@ -8,6 +8,7 @@ import {
 } from "../../../src/core/session-control-db.ts";
 import { createSqliteDatabase } from "../../../src/core/sqlite.ts";
 import { type HeadlessPi, requireHeadlessAgentSessionId, withHeadlessPi } from "../headless-pi.ts";
+import { spawnFreshAgentFromMain } from "../headless-spawn.ts";
 
 function fauxCompletedAssistantMessage(text: string): ReturnType<typeof fauxAssistantMessage> {
 	return fauxAssistantMessage([{ type: "text", text }, fauxToolCall("end_turn", { reason: text })], {
@@ -157,18 +158,7 @@ describe("sub-agent ControlDB restart recovery", () => {
 	it("steers a live child with a registered listener without restarting Pi", async () => {
 		await withHeadlessPi(async (pi) => {
 			await pi.send({ type: "prompt", message: "Start a child, then steer it without restarting" });
-			const mainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
-			pi.respondToLlmRequest(
-				mainRequest.id,
-				fauxAssistantMessage(
-					fauxToolCall("spawn_agent", {
-						context: "fresh",
-						displayName: "Live steering target",
-						prompt: "Wait for steering",
-					}),
-					{ stopReason: "toolUse" },
-				),
-			);
+			const mainRequest = await spawnFreshAgentFromMain(pi, "Live steering target", "Wait for steering");
 			const spawned = await pi.waitForAgent((agent) => agent.displayName === "Live steering target");
 			const initialChildRequest = await pi.waitForLlmRequest((request) => request.agentId === spawned.id);
 			const childSessionId = spawned.transcript?.sessionId;
@@ -209,18 +199,7 @@ describe("sub-agent ControlDB restart recovery", () => {
 	it("reports a terminal child as inactive when its listener retires before a stale steering request", async () => {
 		await withHeadlessPi(async (pi) => {
 			await pi.send({ type: "prompt", message: "Start a child that completes before stale steering" });
-			const mainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
-			pi.respondToLlmRequest(
-				mainRequest.id,
-				fauxAssistantMessage(
-					fauxToolCall("spawn_agent", {
-						context: "fresh",
-						displayName: "Terminal steering target",
-						prompt: "Complete now",
-					}),
-					{ stopReason: "toolUse" },
-				),
-			);
+			const mainRequest = await spawnFreshAgentFromMain(pi, "Terminal steering target", "Complete now");
 			const spawned = await pi.waitForAgent((agent) => agent.displayName === "Terminal steering target");
 			const childRequest = await pi.waitForLlmRequest((request) => request.agentId === spawned.id);
 			const mainAfterSpawn = await pi.waitForLlmRequest(
@@ -344,18 +323,7 @@ describe("sub-agent ControlDB restart recovery", () => {
 	it("restores the same DB child and completes once without journal writes after a supervisor crash", async () => {
 		await withHeadlessPi(async (pi) => {
 			await pi.send({ type: "prompt", message: "Start a reviewer that survives restart" });
-			const mainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
-			pi.respondToLlmRequest(
-				mainRequest.id,
-				fauxAssistantMessage(
-					fauxToolCall("spawn_agent", {
-						context: "fresh",
-						displayName: "Restart-persisted reviewer",
-						prompt: "Review until Pi restarts",
-					}),
-					{ stopReason: "toolUse" },
-				),
-			);
+			await spawnFreshAgentFromMain(pi, "Restart-persisted reviewer", "Review until Pi restarts");
 
 			const spawned = await pi.waitForAgent((agent) => agent.displayName === "Restart-persisted reviewer");
 			const childSessionId = requireHeadlessAgentSessionId(spawned);
@@ -420,18 +388,7 @@ describe("sub-agent ControlDB restart recovery", () => {
 	it("recovers a dead-owned DB child without any parent restart journal", async () => {
 		await withHeadlessPi(async (pi) => {
 			await pi.send({ type: "prompt", message: "Start a DB-only child" });
-			const mainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
-			pi.respondToLlmRequest(
-				mainRequest.id,
-				fauxAssistantMessage(
-					fauxToolCall("spawn_agent", {
-						context: "fresh",
-						displayName: "Unjournaled child",
-						prompt: "Wait for restart",
-					}),
-					{ stopReason: "toolUse" },
-				),
-			);
+			await spawnFreshAgentFromMain(pi, "Unjournaled child", "Wait for restart");
 			const spawned = await pi.waitForAgent((agent) => agent.displayName === "Unjournaled child");
 			await pi.waitForLlmRequest((request) => request.agentId === spawned.id);
 			expectNoAgentJournal(pi, spawned.id);
@@ -461,18 +418,7 @@ describe("sub-agent ControlDB restart recovery", () => {
 	it("persists a failed DB child without journal writes when recovery cannot open its transcript", async () => {
 		await withHeadlessPi(async (pi) => {
 			await pi.send({ type: "prompt", message: "Start a child whose transcript will be lost" });
-			const mainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
-			pi.respondToLlmRequest(
-				mainRequest.id,
-				fauxAssistantMessage(
-					fauxToolCall("spawn_agent", {
-						context: "fresh",
-						displayName: "Failing child",
-						prompt: "Wait for restart",
-					}),
-					{ stopReason: "toolUse" },
-				),
-			);
+			await spawnFreshAgentFromMain(pi, "Failing child", "Wait for restart");
 			const spawned = await pi.waitForAgent((agent) => agent.displayName === "Failing child");
 			await pi.waitForLlmRequest((request) => request.agentId === spawned.id);
 			const transcriptPath = spawned.transcript?.path;
@@ -497,18 +443,7 @@ describe("sub-agent ControlDB restart recovery", () => {
 	it("persists an aborted DB child without journal writes", async () => {
 		await withHeadlessPi(async (pi) => {
 			await pi.send({ type: "prompt", message: "Start and cancel a child" });
-			const mainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
-			pi.respondToLlmRequest(
-				mainRequest.id,
-				fauxAssistantMessage(
-					fauxToolCall("spawn_agent", {
-						context: "fresh",
-						displayName: "Cancelled child",
-						prompt: "Wait for cancellation",
-					}),
-					{ stopReason: "toolUse" },
-				),
-			);
+			const mainRequest = await spawnFreshAgentFromMain(pi, "Cancelled child", "Wait for cancellation");
 			const spawned = await pi.waitForAgent((agent) => agent.displayName === "Cancelled child");
 			await pi.waitForLlmRequest((request) => request.agentId === spawned.id);
 			const afterSpawn = await pi.waitForLlmRequest(
@@ -526,18 +461,7 @@ describe("sub-agent ControlDB restart recovery", () => {
 	it("does not resurrect a DB-terminal child after restart without journal records", async () => {
 		await withHeadlessPi(async (pi) => {
 			await pi.send({ type: "prompt", message: "Complete a child before restart" });
-			const mainRequest = await pi.waitForLlmRequest((request) => request.agentId === null);
-			pi.respondToLlmRequest(
-				mainRequest.id,
-				fauxAssistantMessage(
-					fauxToolCall("spawn_agent", {
-						context: "fresh",
-						displayName: "Completed child",
-						prompt: "Complete now",
-					}),
-					{ stopReason: "toolUse" },
-				),
-			);
+			await spawnFreshAgentFromMain(pi, "Completed child", "Complete now");
 			const spawned = await pi.waitForAgent((agent) => agent.displayName === "Completed child");
 			const childRequest = await pi.waitForLlmRequest((request) => request.agentId === spawned.id);
 			pi.respondToLlmRequest(childRequest.id, fauxCompletedAssistantMessage("Done before restart"));
