@@ -71,4 +71,16 @@ describe("model scope identifiers", () => {
 		]);
 	});
 
+	test("keeps a glob whose thinking level suffix is misspelled and warns", async () => {
+		const registry = ModelRegistry.inMemory(AuthStorage.inMemory());
+		vi.spyOn(registry, "getAvailable").mockResolvedValue(models);
+		const result = await resolveModelScopeWithDiagnostics(["*simple*:hgih"], registry);
+
+		expect(result.scopedModels.map(({ model, thinkingLevel }) => [model.id, thinkingLevel])).toEqual([
+			["sonnet-simple", undefined],
+		]);
+		expect(result.diagnostics.map(({ message }) => message)).toEqual([
+			'Invalid thinking level "hgih" in pattern "*simple*:hgih". Using default instead.',
+		]);
+	});
 });

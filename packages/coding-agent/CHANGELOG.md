@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed a `--models` glob with a misspelled thinking level, such as `*sonnet*:hgih`, matching no models; it now uses the default level with a warning like other patterns
 - Fixed `--models` and `enabledModels` rejecting a provider-prefixed fuzzy pattern such as `anthropic/sonnet`, which `--model` accepts
 - Fixed `--permission-prompt-tool` allow decisions being discarded, and the native prompt shown instead, when `updatedPermissions` rules used Claude Code's `{toolName, ruleContent}` object format
 - Fixed saving a second permission rule to a pretty-printed settings file breaking its indentation and closing-brace layout

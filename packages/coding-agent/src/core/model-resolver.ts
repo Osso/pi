@@ -288,23 +288,22 @@ export async function resolveModelScopeWithDiagnostics(
 		if (pattern.includes("*") || pattern.includes("?") || pattern.includes("[")) {
 			// Extract optional thinking level suffix (e.g., "provider/*:high")
 			const colonIdx = pattern.lastIndexOf(":");
-			let globPattern = pattern;
-			let thinkingLevel: ThinkingLevel | undefined;
-
-			if (colonIdx !== -1) {
-				const suffix = pattern.substring(colonIdx + 1);
-				if (isValidThinkingLevel(suffix)) {
-					thinkingLevel = suffix;
-					globPattern = pattern.substring(0, colonIdx);
+			const suffix = colonIdx === -1 ? undefined : pattern.substring(colonIdx + 1);
+			const thinkingLevel = suffix !== undefined && isValidThinkingLevel(suffix) ? suffix : undefined;
+			// Match against "provider/modelId" or just the model ID, so "*sonnet*" needs no provider.
+			const matchGlob = (glob: string) =>
+				availableModels.filter(
+					(m) => matchesModelGlob(`${m.provider}/${m.id}`, glob) || matchesModelGlob(m.id, glob),
+				);
+			let matchingModels = matchGlob(thinkingLevel ? pattern.substring(0, colonIdx) : pattern);
+			// An invalid level suffix falls back to the default level with a warning, as for plain patterns.
+			if (matchingModels.length === 0 && suffix !== undefined && !thinkingLevel) {
+				matchingModels = matchGlob(pattern.substring(0, colonIdx));
+				if (matchingModels.length > 0) {
+					const message = `Invalid thinking level "${suffix}" in pattern "${pattern}". Using default instead.`;
+					diagnostics.push({ type: "warning", message, pattern });
 				}
 			}
-
-			// Match against "provider/modelId" format OR just model ID
-			// This allows "*sonnet*" to match without requiring "anthropic/*sonnet*"
-			const matchingModels = availableModels.filter((m) => {
-				const fullId = `${m.provider}/${m.id}`;
-				return matchesModelGlob(fullId, globPattern) || matchesModelGlob(m.id, globPattern);
-			});
 
 			if (matchingModels.length === 0) {
 				diagnostics.push({ type: "warning", message: `No models match pattern "${pattern}"`, pattern });
