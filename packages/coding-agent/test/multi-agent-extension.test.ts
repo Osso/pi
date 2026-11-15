@@ -99,6 +99,17 @@ Object.defineProperty(externalGoalExtension, "extensionPath", {
 	value: join(process.cwd(), "test/multi-agent-extension.test.ts"),
 });
 
+function harnessPrintContext(harness: Harness, cwd = "/repo"): ExtensionContext {
+	return {
+		cwd,
+		hasUI: false,
+		mode: "print",
+		model: harness.getModel(),
+		modelRegistry: harness.session.modelRegistry,
+		sessionManager: harness.sessionManager,
+	} as unknown as ExtensionContext;
+}
+
 function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -5247,14 +5258,7 @@ describe("multi-agent extension tools", () => {
 
 		await attachedFactory({
 			agent,
-			ctx: {
-				cwd: "/repo",
-				hasUI: false,
-				mode: "print",
-				model: parentHarness.getModel(),
-				modelRegistry: parentHarness.session.modelRegistry,
-				sessionManager: parentHarness.sessionManager,
-			} as unknown as ExtensionContext,
+			ctx: harnessPrintContext(parentHarness),
 			prompt: "resume",
 			sessionPath: target.getSessionFile() ?? "",
 		});
@@ -5319,14 +5323,7 @@ describe("multi-agent extension tools", () => {
 
 		await attachedFactory({
 			agent: attachedAgent,
-			ctx: {
-				cwd: "/repo",
-				hasUI: false,
-				mode: "print",
-				model: parentHarness.getModel(),
-				modelRegistry: parentHarness.session.modelRegistry,
-				sessionManager: parentHarness.sessionManager,
-			} as unknown as ExtensionContext,
+			ctx: harnessPrintContext(parentHarness),
 			prompt: "resume",
 			sessionPath: target.getSessionFile() ?? "",
 		});
@@ -5481,14 +5478,7 @@ describe("multi-agent extension tools", () => {
 
 		await attachedFactory({
 			agent,
-			ctx: {
-				cwd: "/repo",
-				hasUI: false,
-				mode: "print",
-				model: parentHarness.getModel(),
-				modelRegistry: parentHarness.session.modelRegistry,
-				sessionManager: parentHarness.sessionManager,
-			} as unknown as ExtensionContext,
+			ctx: harnessPrintContext(parentHarness),
 			prompt: "resume",
 			sessionPath: target.getSessionFile() ?? "",
 		});
@@ -5542,14 +5532,7 @@ describe("multi-agent extension tools", () => {
 		await expect(
 			attachedFactory({
 				agent,
-				ctx: {
-					cwd: parentHarness.tempDir,
-					hasUI: false,
-					mode: "print",
-					model: parentHarness.getModel(),
-					modelRegistry: parentHarness.session.modelRegistry,
-					sessionManager: parentHarness.sessionManager,
-				} as unknown as ExtensionContext,
+				ctx: harnessPrintContext(parentHarness, parentHarness.tempDir),
 				prompt: "resume",
 				sessionPath: target.getSessionFile() ?? "",
 			}),
@@ -5584,14 +5567,7 @@ describe("multi-agent extension tools", () => {
 		await expect(
 			attachedFactory({
 				agent,
-				ctx: {
-					cwd: "/repo",
-					hasUI: false,
-					mode: "print",
-					model: parentHarness.getModel(),
-					modelRegistry: parentHarness.session.modelRegistry,
-					sessionManager: parentHarness.sessionManager,
-				} as unknown as ExtensionContext,
+				ctx: harnessPrintContext(parentHarness),
 				prompt: "resume",
 				sessionPath: transcriptPath,
 			}),
@@ -5629,14 +5605,7 @@ describe("multi-agent extension tools", () => {
 		await expect(
 			attachedFactory({
 				agent,
-				ctx: {
-					cwd: "/repo",
-					hasUI: false,
-					mode: "print",
-					model: parentHarness.getModel(),
-					modelRegistry: parentHarness.session.modelRegistry,
-					sessionManager: parentHarness.sessionManager,
-				} as unknown as ExtensionContext,
+				ctx: harnessPrintContext(parentHarness),
 				prompt: "resume",
 				sessionPath: transcriptPath,
 			}),
