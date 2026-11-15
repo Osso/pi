@@ -23,7 +23,8 @@ describe("send_agent_message from a main-thread child", () => {
 		const controlDbPath = getControlDbPath(dir);
 		const session = SessionManager.create("/repo", dir);
 		session.setMetadataControlDbPath(controlDbPath);
-		const store = new MultiAgentStore({ now: () => "2026-11-14T00:00:00.000Z" });
+		// Real clock: the control DB drops mailbox rows older than the 24-hour retention, measured from now.
+		const store = new MultiAgentStore();
 		store.setPersistenceSessionManager(session);
 		const child = legacyMultiAgentStore(store).spawnAgent({
 			agentType: "worker",
