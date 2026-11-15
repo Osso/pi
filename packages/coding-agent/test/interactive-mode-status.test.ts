@@ -138,6 +138,23 @@ function setupKeyHandlerStubs() {
 	};
 }
 
+/** The editor, settings and handler stubs that setupKeyHandlers needs; editor actions are recorded in `actions`. */
+function escapeKeyStubs(actions: Map<string, () => void>) {
+	return {
+		defaultEditor: {
+			onEscape: undefined as (() => void) | undefined,
+			onAction: (action: string, handler: () => void) => actions.set(action, handler),
+		},
+		editor: { getText: () => "", setText: vi.fn() },
+		registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
+		registerGlobalAgentSlotInputHandler: vi.fn(),
+		registerGlobalInterruptInputHandler: vi.fn(),
+		settingsManager: { getDoubleEscapeAction: () => "none" },
+		ui: { onDebug: undefined, requestRender: vi.fn() },
+		...setupKeyHandlerStubs(),
+	};
+}
+
 describe("InteractiveMode.showStatus", () => {
 	beforeAll(() => {
 		// showStatus uses the global theme instance
@@ -640,23 +657,13 @@ describe("InteractiveMode key handlers", () => {
 			agent: { ...running.agent, lifecycle: "aborted" as const },
 		}));
 		const fakeThis = {
-			defaultEditor: {
-				onEscape: undefined as (() => void) | undefined,
-				onAction: (action: string, handler: () => void) => actions.set(action, handler),
-			},
-			editor: { getText: () => "", setText: vi.fn() },
+			...escapeKeyStubs(actions),
 			multiAgentStore: store,
 			options: { cancelMultiAgent },
 			selectedAgentBanner: new AgentSelectionBannerComponent(store),
 			footer: { invalidate: vi.fn() },
-			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
-			registerGlobalAgentSlotInputHandler: vi.fn(),
-			registerGlobalInterruptInputHandler: vi.fn(),
 			session: { abortBash: vi.fn(), isBashRunning: false, isStreaming: false },
-			settingsManager: { getDoubleEscapeAction: () => "none" },
-			ui: { onDebug: undefined, requestRender: vi.fn() },
 			cancelSelectedAgentTurn: interactiveModeKeyHandlers.cancelSelectedAgentTurn,
-			...setupKeyHandlerStubs(),
 			cancelStreamingAndSubmitQueuedMessages: vi.fn(),
 			showStatus: vi.fn(),
 			updateSelectedAgentSelectionWidgets: interactiveModeKeyHandlers.updateSelectedAgentSelectionWidgets,
@@ -711,25 +718,15 @@ describe("InteractiveMode key handlers", () => {
 		const actions = new Map<string, () => void>();
 		const cancelSupervisorReview = vi.fn(() => true);
 		const fakeThis = {
-			defaultEditor: {
-				onEscape: undefined as (() => void) | undefined,
-				onAction: (action: string, handler: () => void) => actions.set(action, handler),
-			},
-			editor: { getText: () => "", setText: vi.fn() },
+			...escapeKeyStubs(actions),
 			multiAgentStore: undefined,
-			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
-			registerGlobalAgentSlotInputHandler: vi.fn(),
-			registerGlobalInterruptInputHandler: vi.fn(),
 			session: {
 				abortBash: vi.fn(),
 				cancelSupervisorReview,
 				isBashRunning: false,
 				isStreaming: false,
 			},
-			settingsManager: { getDoubleEscapeAction: () => "none" },
-			ui: { onDebug: undefined, requestRender: vi.fn() },
 			cancelSelectedAgentTurn: vi.fn(() => false),
-			...setupKeyHandlerStubs(),
 			cancelStreamingAndSubmitQueuedMessages: vi.fn(),
 			clearStatusIndicator: vi.fn(),
 			showStatus: vi.fn(),
@@ -750,25 +747,15 @@ describe("InteractiveMode key handlers", () => {
 		const actions = new Map<string, () => void>();
 		const cancelSupervisorReview = vi.fn(() => true);
 		const fakeThis = {
-			defaultEditor: {
-				onEscape: undefined as (() => void) | undefined,
-				onAction: (action: string, handler: () => void) => actions.set(action, handler),
-			},
-			editor: { getText: () => "", setText: vi.fn() },
+			...escapeKeyStubs(actions),
 			multiAgentStore: undefined,
-			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
-			registerGlobalAgentSlotInputHandler: vi.fn(),
-			registerGlobalInterruptInputHandler: vi.fn(),
 			session: {
 				abortBash: vi.fn(),
 				cancelSupervisorReview,
 				isBashRunning: false,
 				isStreaming: true,
 			},
-			settingsManager: { getDoubleEscapeAction: () => "none" },
-			ui: { onDebug: undefined, requestRender: vi.fn() },
 			cancelSelectedAgentTurn: vi.fn(() => false),
-			...setupKeyHandlerStubs(),
 			cancelStreamingAndSubmitQueuedMessages: vi.fn(),
 			clearStatusIndicator: vi.fn(),
 			showStatus: vi.fn(),
@@ -788,20 +775,10 @@ describe("InteractiveMode key handlers", () => {
 	test("escape while streaming cancels and submits queued messages", () => {
 		const actions = new Map<string, () => void>();
 		const fakeThis = {
-			defaultEditor: {
-				onEscape: undefined as (() => void) | undefined,
-				onAction: (action: string, handler: () => void) => actions.set(action, handler),
-			},
-			editor: { getText: () => "", setText: vi.fn() },
+			...escapeKeyStubs(actions),
 			multiAgentStore: undefined,
-			registerAgentSlotKeyHandlers: interactiveModeKeyHandlers.registerAgentSlotKeyHandlers,
-			registerGlobalAgentSlotInputHandler: vi.fn(),
-			registerGlobalInterruptInputHandler: vi.fn(),
 			session: { abortBash: vi.fn(), isBashRunning: false, isStreaming: true },
-			settingsManager: { getDoubleEscapeAction: () => "none" },
-			ui: { onDebug: undefined, requestRender: vi.fn() },
 			cancelSelectedAgentTurn: vi.fn(() => false),
-			...setupKeyHandlerStubs(),
 			cancelStreamingAndSubmitQueuedMessages: vi.fn(),
 		};
 
