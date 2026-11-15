@@ -89,7 +89,6 @@ type HandleEventContext = {
 	stopWorkingLoader(): void;
 	streamingComponent: { updateContent(message: unknown): void } | undefined;
 	streamingMessage: unknown;
-	thinkingFollowsTool: boolean;
 	ui: {
 		requestComponentRender(component: Component): boolean;
 		requestRender(): void;
@@ -172,7 +171,6 @@ function createContext(): HandleEventContext {
 	context.stopWorkingLoader = interactiveModePrototype.stopWorkingLoader;
 	context.streamingComponent = undefined;
 	context.streamingMessage = undefined;
-	context.thinkingFollowsTool = false;
 	const requestRender = vi.fn();
 	context.ui = {
 		requestRender,

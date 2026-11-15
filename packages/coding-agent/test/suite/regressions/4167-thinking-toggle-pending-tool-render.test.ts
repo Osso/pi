@@ -50,7 +50,6 @@ type RenderSessionContextThis = {
 	executingToolStartedAt: Map<string, number>;
 	completedToolTimings: Map<string, { startedAt: number; finishedAt: number }>;
 	defaultStreamingMessage: string;
-	thinkingFollowsTool: boolean;
 	clearToolExecutionTrackingFor(toolCallId: string): void;
 	getPendingToolStartedAt(toolCallId: string): number | undefined;
 	isInitialized: boolean;
@@ -98,7 +97,6 @@ function createFakeInteractiveModeThis(): RenderSessionContextThis {
 		executingToolStartedAt: new Map<string, number>(),
 		completedToolTimings: new Map<string, { startedAt: number; finishedAt: number }>(),
 		defaultStreamingMessage: "Streaming...",
-		thinkingFollowsTool: false,
 		clearToolExecutionTrackingFor: (
 			InteractiveMode.prototype as unknown as { clearToolExecutionTrackingFor(toolCallId: string): void }
 		).clearToolExecutionTrackingFor,

@@ -73,7 +73,6 @@ type AgentEndContext = {
 	stopChildActivityTimer(): void;
 	stopWorkingLoader(): void;
 	streamingComponent: undefined;
-	thinkingFollowsTool: boolean;
 	ui: { requestRender(): void; terminal: { setProgress(active: boolean): void } };
 };
 
@@ -282,7 +281,6 @@ describe("InteractiveMode working editor", () => {
 			stopChildActivityTimer: vi.fn(),
 			stopWorkingLoader: vi.fn(),
 			streamingComponent: undefined,
-			thinkingFollowsTool: true,
 			ui: { requestRender: vi.fn(), terminal: { setProgress: vi.fn() } },
 		};
 		const event: AgentEndEvent = { type: "agent_end", messages: [], willRetry: false };

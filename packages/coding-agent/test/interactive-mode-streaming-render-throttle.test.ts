@@ -288,12 +288,11 @@ describe("InteractiveMode streaming render throttling", () => {
 		expect(fakeThis.chatContainer.render(80).join("\n")).toContain("ordinary response");
 	});
 
-	test("renders completed thinking time between consecutive tool calls", async () => {
+	test("renders completed thinking time before the first tool call of a turn", async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(1_000);
 		const fakeThis = createFakeInteractiveModeThis();
 		fakeThis.thinkingStartedAt = 1_000;
-		fakeThis.thinkingFollowsTool = true;
 
 		await handleEvent.call(fakeThis, { type: "message_start", message: createAssistantMessage("") });
 		vi.setSystemTime(3_400);
@@ -302,7 +301,6 @@ describe("InteractiveMode streaming render throttling", () => {
 		const rendered = fakeThis.chatContainer.render(120).join("\n");
 		expect(rendered).toContain("Thought for 2s");
 		expect(rendered.indexOf("Thought for 2s")).toBeLessThan(rendered.indexOf("next command"));
-		expect(fakeThis.thinkingFollowsTool).toBe(false);
 	});
 
 	test("defers tool call argument rendering and root renders until message completion", async () => {

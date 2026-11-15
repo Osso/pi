@@ -69,7 +69,6 @@ type HandleEventThis = {
 	};
 	streamingComponent: unknown;
 	streamingMessage: AssistantMessage | undefined;
-	thinkingFollowsTool: boolean;
 	thinkingStartedAt: number | undefined;
 	toolOutputExpanded: boolean;
 	workingIndicatorOptions: LoaderIndicatorOptions | undefined;
@@ -147,7 +146,6 @@ export function createFakeInteractiveModeThis(): HandleEventThis {
 		},
 		streamingComponent: undefined,
 		streamingMessage: undefined,
-		thinkingFollowsTool: false,
 		thinkingStartedAt: undefined,
 		toolOutputExpanded: false,
 		workingIndicatorOptions: undefined,
