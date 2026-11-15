@@ -371,8 +371,7 @@ function verifyWrittenSession(
 		piUI?.notify(
 			`Session file issue: ${msg}\n` +
 				`cwd=${cwd} realpath=${safeRealpath(cwd)} CLAUDE_CONFIG_DIR=${process.env.CLAUDE_CONFIG_DIR ?? "(unset)"}\n` +
-				`Please copy and paste this message into a new issue at https://github.com/elidickinson/pi-claude-bridge/issues/new` +
-				(DEBUG ? ` and attach ${debugLogPath()}` : ` (rerun with CLAUDE_BRIDGE_DEBUG=1 to capture a debug log)`),
+				(DEBUG ? `Debug log: ${debugLogPath()}` : "Rerun with CLAUDE_BRIDGE_DEBUG=1 to capture a debug log."),
 			"warning",
 		);
 		diagDump("session_verify_fail", {
