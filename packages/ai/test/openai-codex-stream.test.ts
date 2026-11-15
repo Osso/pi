@@ -61,6 +61,35 @@ function mockToken(accountId = "acc_test"): string {
 	return `aaa.${payload}.bbb`;
 }
 
+function useTempAgentDir(): string {
+	const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
+	process.env.PI_CODING_AGENT_DIR = tempDir;
+	return tempDir;
+}
+
+function sseResponse(sse: string, { close = true }: { close?: boolean } = {}): Response {
+	const encoder = new TextEncoder();
+	const body = new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(encoder.encode(sse));
+			if (close) controller.close();
+		},
+	});
+	return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+}
+
+function stubCodexFetch(respond: (init?: RequestInit) => Response | Promise<Response>) {
+	const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+		const url = typeof input === "string" ? input : input.toString();
+		const asset = codexAssetResponse(url);
+		if (asset) return asset;
+		if (url === "https://chatgpt.com/backend-api/codex/responses") return respond(init);
+		return new Response("not found", { status: 404 });
+	});
+	vi.stubGlobal("fetch", fetchMock);
+	return fetchMock;
+}
+
 function decodeCodexRequestBody(body: RequestInit["body"] | undefined): Record<string, unknown> | null {
 	if (typeof body === "string") {
 		return JSON.parse(body) as Record<string, unknown>;
@@ -589,42 +618,27 @@ describe("Codex metadata diagnostics", () => {
 
 describe("openai-codex streaming", () => {
 	it("streams SSE responses into AssistantMessageEventStream", async () => {
-		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-		process.env.PI_CODING_AGENT_DIR = tempDir;
+		useTempAgentDir();
 
 		const token = mockToken();
 
 		const sse = buildSSEPayload({ status: "completed" });
 
-		const encoder = new TextEncoder();
-		const stream = new ReadableStream<Uint8Array>({
-			start(controller) {
-				controller.enqueue(encoder.encode(sse));
-				controller.close();
-			},
-		});
+		const stream = sseResponse(sse).body;
 
-		const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
-			const url = typeof input === "string" ? input : input.toString();
-			const asset = codexAssetResponse(url);
-			if (asset) return asset;
-			if (url === "https://chatgpt.com/backend-api/codex/responses") {
-				const headers = init?.headers instanceof Headers ? init.headers : undefined;
-				expect(headers?.get("Authorization")).toBe(`Bearer ${token}`);
-				expect(headers?.get("chatgpt-account-id")).toBe("acc_test");
-				expect(headers?.get("OpenAI-Beta")).toBe("responses=experimental");
-				expect(headers?.get("originator")).toBe("pi");
-				expect(headers?.get("accept")).toBe("text/event-stream");
-				expect(headers?.has("x-api-key")).toBe(false);
-				return new Response(stream, {
-					status: 200,
-					headers: { "content-type": "text/event-stream" },
-				});
-			}
-			return new Response("not found", { status: 404 });
+		stubCodexFetch((init) => {
+			const headers = init?.headers instanceof Headers ? init.headers : undefined;
+			expect(headers?.get("Authorization")).toBe(`Bearer ${token}`);
+			expect(headers?.get("chatgpt-account-id")).toBe("acc_test");
+			expect(headers?.get("OpenAI-Beta")).toBe("responses=experimental");
+			expect(headers?.get("originator")).toBe("pi");
+			expect(headers?.get("accept")).toBe("text/event-stream");
+			expect(headers?.has("x-api-key")).toBe(false);
+			return new Response(stream, {
+				status: 200,
+				headers: { "content-type": "text/event-stream" },
+			});
 		});
-
-		vi.stubGlobal("fetch", fetchMock);
 
 		const model = codexModel();
 
@@ -649,33 +663,18 @@ describe("openai-codex streaming", () => {
 	});
 
 	it("reports SSE HTTP retries through onRetry", async () => {
-		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-		process.env.PI_CODING_AGENT_DIR = tempDir;
+		useTempAgentDir();
 		const token = mockToken();
-		const encoder = new TextEncoder();
 		const sse = buildSSEPayload({ status: "completed", includeDone: true });
 
 		let codexCalls = 0;
-		const fetchMock = vi.fn(async (input: string | URL) => {
-			const url = typeof input === "string" ? input : input.toString();
-			const asset = codexAssetResponse(url);
-			if (asset) return asset;
-			if (url === "https://chatgpt.com/backend-api/codex/responses") {
-				codexCalls += 1;
-				if (codexCalls === 1) {
-					return new Response("server error", { status: 500, headers: { "retry-after-ms": "0" } });
-				}
-				const body = new ReadableStream<Uint8Array>({
-					start(controller) {
-						controller.enqueue(encoder.encode(sse));
-						controller.close();
-					},
-				});
-				return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+		stubCodexFetch(() => {
+			codexCalls += 1;
+			if (codexCalls === 1) {
+				return new Response("server error", { status: 500, headers: { "retry-after-ms": "0" } });
 			}
-			return new Response("not found", { status: 404 });
+			return sseResponse(sse);
 		});
-		vi.stubGlobal("fetch", fetchMock);
 
 		const model = codexModel();
 		const context = sayHelloContext();
@@ -701,31 +700,11 @@ describe("openai-codex streaming", () => {
 	});
 
 	it("completes after response.completed even when the SSE body stays open", async () => {
-		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-		process.env.PI_CODING_AGENT_DIR = tempDir;
+		useTempAgentDir();
 		const token = mockToken();
-		const encoder = new TextEncoder();
 		const sse = buildSSEPayload({ status: "completed", includeDone: true });
 
-		const stream = new ReadableStream<Uint8Array>({
-			start(controller) {
-				controller.enqueue(encoder.encode(sse));
-			},
-		});
-
-		const fetchMock = vi.fn(async (input: string | URL) => {
-			const url = typeof input === "string" ? input : input.toString();
-			const asset = codexAssetResponse(url);
-			if (asset) return asset;
-			if (url === "https://chatgpt.com/backend-api/codex/responses") {
-				return new Response(stream, {
-					status: 200,
-					headers: { "content-type": "text/event-stream" },
-				});
-			}
-			return new Response("not found", { status: 404 });
-		});
-		vi.stubGlobal("fetch", fetchMock);
+		stubCodexFetch(() => sseResponse(sse, { close: false }));
 
 		const model = codexModel();
 
@@ -743,31 +722,11 @@ describe("openai-codex streaming", () => {
 	});
 
 	it("returns a length stop for max-output response.incomplete even when the SSE body stays open", async () => {
-		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-		process.env.PI_CODING_AGENT_DIR = tempDir;
+		useTempAgentDir();
 		const token = mockToken();
-		const encoder = new TextEncoder();
 		const sse = buildSSEPayload({ status: "incomplete" });
 
-		const stream = new ReadableStream<Uint8Array>({
-			start(controller) {
-				controller.enqueue(encoder.encode(sse));
-			},
-		});
-
-		const fetchMock = vi.fn(async (input: string | URL) => {
-			const url = typeof input === "string" ? input : input.toString();
-			const asset = codexAssetResponse(url);
-			if (asset) return asset;
-			if (url === "https://chatgpt.com/backend-api/codex/responses") {
-				return new Response(stream, {
-					status: 200,
-					headers: { "content-type": "text/event-stream" },
-				});
-			}
-			return new Response("not found", { status: 404 });
-		});
-		vi.stubGlobal("fetch", fetchMock);
+		stubCodexFetch(() => sseResponse(sse, { close: false }));
 
 		const model = codexModel();
 
@@ -957,20 +916,13 @@ describe("openai-codex streaming", () => {
 	});
 
 	it("sets session-id/x-client-request-id headers and prompt_cache_key when sessionId is provided", async () => {
-		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-		process.env.PI_CODING_AGENT_DIR = tempDir;
+		useTempAgentDir();
 
 		const token = mockToken();
 
 		const sse = buildSSEPayload({ status: "completed" });
 
-		const encoder = new TextEncoder();
-		const stream = new ReadableStream<Uint8Array>({
-			start(controller) {
-				controller.enqueue(encoder.encode(sse));
-				controller.close();
-			},
-		});
+		const stream = sseResponse(sse).body;
 
 		const sessionId = "test-session-123";
 		const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
@@ -1077,34 +1029,20 @@ describe("openai-codex streaming", () => {
 	});
 
 	it("preserves gpt-5.5 xhigh reasoning effort from simple options", async () => {
-		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-		process.env.PI_CODING_AGENT_DIR = tempDir;
+		useTempAgentDir();
 		const token = mockToken();
 		const sse = buildSSEPayload({ status: "completed" });
-		const encoder = new TextEncoder();
-		const stream = new ReadableStream<Uint8Array>({
-			start(controller) {
-				controller.enqueue(encoder.encode(sse));
-				controller.close();
-			},
-		});
+		const stream = sseResponse(sse).body;
 		let requestedReasoning: unknown;
 
-		const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
-			const url = typeof input === "string" ? input : input.toString();
-			const asset = codexAssetResponse(url);
-			if (asset) return asset;
-			if (url === "https://chatgpt.com/backend-api/codex/responses") {
-				const body = decodeCodexRequestBody(init?.body);
-				requestedReasoning = body?.reasoning;
-				return new Response(stream, {
-					status: 200,
-					headers: { "content-type": "text/event-stream" },
-				});
-			}
-			return new Response("not found", { status: 404 });
+		stubCodexFetch((init) => {
+			const body = decodeCodexRequestBody(init?.body);
+			requestedReasoning = body?.reasoning;
+			return new Response(stream, {
+				status: 200,
+				headers: { "content-type": "text/event-stream" },
+			});
 		});
-		vi.stubGlobal("fetch", fetchMock);
 
 		const model = codexModel({ id: "gpt-5.5", name: "GPT-5.5", thinkingLevelMap: { xhigh: "xhigh" } });
 		const context = sayHelloContext();
@@ -1122,34 +1060,20 @@ describe("openai-codex streaming", () => {
 		["max", "max"],
 		["ultra", "max"],
 	] as const)("serializes GPT-5.6 Sol %s as provider effort %s", async (logicalEffort, providerEffort) => {
-		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-		process.env.PI_CODING_AGENT_DIR = tempDir;
+		useTempAgentDir();
 		const token = mockToken();
 		const sse = buildSSEPayload({ status: "completed" });
-		const encoder = new TextEncoder();
-		const stream = new ReadableStream<Uint8Array>({
-			start(controller) {
-				controller.enqueue(encoder.encode(sse));
-				controller.close();
-			},
-		});
+		const stream = sseResponse(sse).body;
 		let requestedReasoning: unknown;
 
-		const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
-			const url = typeof input === "string" ? input : input.toString();
-			const asset = codexAssetResponse(url);
-			if (asset) return asset;
-			if (url === "https://chatgpt.com/backend-api/codex/responses") {
-				const body = decodeCodexRequestBody(init?.body);
-				requestedReasoning = body?.reasoning;
-				return new Response(stream, {
-					status: 200,
-					headers: { "content-type": "text/event-stream" },
-				});
-			}
-			return new Response("not found", { status: 404 });
+		stubCodexFetch((init) => {
+			const body = decodeCodexRequestBody(init?.body);
+			requestedReasoning = body?.reasoning;
+			return new Response(stream, {
+				status: 200,
+				headers: { "content-type": "text/event-stream" },
+			});
 		});
-		vi.stubGlobal("fetch", fetchMock);
 
 		const context = sayHelloContext();
 
@@ -1163,21 +1087,14 @@ describe("openai-codex streaming", () => {
 	});
 
 	it.each(["gpt-5.3-codex", "gpt-5.4", "gpt-5.5"])("clamps %s minimal reasoning effort to low", async (modelId) => {
-		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-		process.env.PI_CODING_AGENT_DIR = tempDir;
+		useTempAgentDir();
 
 		const token = mockToken();
 
 		const sse = buildSSEPayload({ status: "completed" });
 
 		let requestedReasoning: unknown;
-		const encoder = new TextEncoder();
-		const stream = new ReadableStream<Uint8Array>({
-			start(controller) {
-				controller.enqueue(encoder.encode(sse));
-				controller.close();
-			},
-		});
+		const stream = sseResponse(sse).body;
 
 		const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
 			const url = typeof input === "string" ? input : input.toString();
@@ -1220,8 +1137,7 @@ describe("openai-codex streaming", () => {
 	] as const)(
 		"prices %s with the client-sent %s tier (x%s, set via %s) when Codex echoes default",
 		async (modelId, serviceTier, multiplier, via) => {
-			const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-			process.env.PI_CODING_AGENT_DIR = tempDir;
+			useTempAgentDir();
 			const token = mockToken();
 			const sse = `${[
 				`data: ${JSON.stringify({
@@ -1255,27 +1171,15 @@ describe("openai-codex streaming", () => {
 				})}`,
 			].join("\n\n")}\n\n`;
 
-			const encoder = new TextEncoder();
-			const stream = new ReadableStream<Uint8Array>({
-				start(controller) {
-					controller.enqueue(encoder.encode(sse));
-					controller.close();
-				},
-			});
+			const stream = sseResponse(sse).body;
 
-			const fetchMock = vi.fn(async (input: string | URL) => {
-				const url = typeof input === "string" ? input : input.toString();
-				const asset = codexAssetResponse(url);
-				if (asset) return asset;
-				if (url === "https://chatgpt.com/backend-api/codex/responses") {
-					return new Response(stream, {
+			stubCodexFetch(
+				() =>
+					new Response(stream, {
 						status: 200,
 						headers: { "content-type": "text/event-stream" },
-					});
-				}
-				return new Response("not found", { status: 404 });
-			});
-			vi.stubGlobal("fetch", fetchMock);
+					}),
+			);
 
 			const model = codexModel({
 				id: modelId,
@@ -1300,41 +1204,26 @@ describe("openai-codex streaming", () => {
 	);
 
 	it("does not set session-id/x-client-request-id headers when sessionId is not provided", async () => {
-		const tempDir = mkdtempSync(join(tmpdir(), "pi-codex-stream-"));
-		process.env.PI_CODING_AGENT_DIR = tempDir;
+		useTempAgentDir();
 
 		const token = mockToken();
 
 		const sse = buildSSEPayload({ status: "completed" });
 
-		const encoder = new TextEncoder();
-		const stream = new ReadableStream<Uint8Array>({
-			start(controller) {
-				controller.enqueue(encoder.encode(sse));
-				controller.close();
-			},
+		const stream = sseResponse(sse).body;
+
+		stubCodexFetch((init) => {
+			const headers = init?.headers instanceof Headers ? init.headers : undefined;
+			// Verify headers are not set when sessionId is not provided
+			expect(headers?.has("session-id")).toBe(false);
+			expect(headers?.has("session_id")).toBe(false);
+			expect(headers?.has("x-client-request-id")).toBe(false);
+
+			return new Response(stream, {
+				status: 200,
+				headers: { "content-type": "text/event-stream" },
+			});
 		});
-
-		const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
-			const url = typeof input === "string" ? input : input.toString();
-			const asset = codexAssetResponse(url);
-			if (asset) return asset;
-			if (url === "https://chatgpt.com/backend-api/codex/responses") {
-				const headers = init?.headers instanceof Headers ? init.headers : undefined;
-				// Verify headers are not set when sessionId is not provided
-				expect(headers?.has("session-id")).toBe(false);
-				expect(headers?.has("session_id")).toBe(false);
-				expect(headers?.has("x-client-request-id")).toBe(false);
-
-				return new Response(stream, {
-					status: 200,
-					headers: { "content-type": "text/event-stream" },
-				});
-			}
-			return new Response("not found", { status: 404 });
-		});
-
-		vi.stubGlobal("fetch", fetchMock);
 
 		const model = codexModel();
 
