@@ -41,7 +41,7 @@ import { getErrorRetryAfterMs, getRetryAfterMsFromText } from "../utils/retry-af
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.ts";
 import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.ts";
 import { clampOpenAIPromptCacheKey } from "./openai-prompt-cache.ts";
-import { buildBaseOptions, clampStandardReasoningLevel } from "./simple-options.ts";
+import { buildBaseOptions } from "./simple-options.ts";
 import { groupToolResults, transformMessages } from "./transform-messages.ts";
 
 /**
@@ -110,7 +110,7 @@ function isEncryptedReasoningDetail(detail: unknown): detail is OpenAIEncryptedR
 
 export interface OpenAICompletionsOptions extends StreamOptions {
 	toolChoice?: "auto" | "none" | "required" | { type: "function"; function: { name: string } };
-	reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh";
+	reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 }
 
 interface OpenAICompatCacheControl {
@@ -490,7 +490,7 @@ export const streamSimple: StreamFunction<"openai-completions", SimpleStreamOpti
 
 	const base = buildBaseOptions(model, context, options, options?.apiKey);
 	const clampedReasoning = options?.reasoning ? clampThinkingLevel(model, options.reasoning) : undefined;
-	const reasoningEffort = clampStandardReasoningLevel(clampedReasoning);
+	const reasoningEffort = clampedReasoning === "off" ? undefined : clampedReasoning;
 	const toolChoice = (options as OpenAICompletionsOptions | undefined)?.toolChoice;
 
 	return stream(model, context, {

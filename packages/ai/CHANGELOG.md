@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- Fixed OpenAI Responses, Completions and Azure simple streams downgrading `max` and `ultra` thinking to `high` before applying the model's `thinkingLevelMap`, so mapped models such as `max: "max"` received the wrong effort
 - Fixed Bedrock Claude replays dropping the signature of `thinkingDisplay: "omitted"` thinking blocks, whose text is empty.
 - Fixed Bedrock dropping encrypted `redactedContent` reasoning from non-Anthropic models and not replaying it on the next turn ([#8314](https://github.com/earendil-works/pi-mono/pull/8314)).
 - Fixed Anthropic-compatible streams losing tool input that arrives only in `content_block_start` without `input_json_delta` events.
