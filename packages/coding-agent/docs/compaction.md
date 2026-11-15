@@ -28,7 +28,7 @@ Both use the same structured summary format and track file operations cumulative
 
 Automatic threshold compaction uses the first applicable rule:
 
-1. With `compaction.thresholdTokens` configured, trigger when `contextTokens >= thresholdTokens` or `contextTokens > contextWindow - reserveTokens`. The reserve term covers models whose window is at or below the configured count.
+1. With `compaction.thresholdTokens` configured, trigger when `contextTokens >= min(thresholdTokens, contextWindow * 0.9)` or `contextTokens > contextWindow - reserveTokens`. A 250k-window model with `thresholdTokens: 500000` compacts at 225k; the reserve term still applies to very small windows.
 2. Otherwise, if the model defines `autoCompactionThreshold`, trigger when `contextTokens >= autoCompactionThreshold`. GPT-5.6 Sol uses 272,000 tokens to avoid crossing its higher long-context pricing tier.
 3. Otherwise, trigger when `contextTokens > contextWindow - reserveTokens`.
 
@@ -467,7 +467,7 @@ Configure compaction in `~/.pi/agent/settings.json` or `<project-dir>/.pi/settin
 |---------|---------|-------------|
 | `enabled` | `true` | Enable auto-compaction |
 | `idle` | `true` | Compact eligible idle sessions before assumed prompt-cache expiry; also requires `enabled` |
-| `thresholdTokens` | Unset | Auto-compaction context token count: positive integer; takes precedence over the model threshold, reserve trigger still applies |
+| `thresholdTokens` | Unset | Auto-compaction context token count: positive integer, capped at 90% of the window; takes precedence over the model threshold, reserve trigger still applies |
 | `reserveTokens` | `16384` | Summarization output token budget; default trigger reserve when no token or model threshold applies |
 | `keepRecentMessages` | `20` | Most recent context messages kept verbatim (not summarized) |
 

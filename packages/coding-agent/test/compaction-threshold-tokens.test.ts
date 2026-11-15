@@ -9,10 +9,16 @@ describe("compaction.thresholdTokens", () => {
 		expect(shouldCompact(500_000, contextWindow, settings)).toBe(true);
 	});
 
-	it("keeps the reserve trigger for windows at or below the token threshold", () => {
-		const settings = { ...DEFAULT_COMPACTION_SETTINGS, thresholdTokens: 500_000, reserveTokens: 10_000 };
-		expect(shouldCompact(490_000, 500_000, settings)).toBe(false);
-		expect(shouldCompact(490_001, 500_000, settings)).toBe(true);
+	it("caps the token threshold at 90% of smaller windows", () => {
+		const settings = { ...DEFAULT_COMPACTION_SETTINGS, thresholdTokens: 500_000 };
+		expect(shouldCompact(224_999, 250_000, settings)).toBe(false);
+		expect(shouldCompact(225_000, 250_000, settings)).toBe(true);
+	});
+
+	it("keeps the reserve trigger when it is below 90% of the window", () => {
+		const settings = { ...DEFAULT_COMPACTION_SETTINGS, thresholdTokens: 500_000, reserveTokens: 16_384 };
+		expect(shouldCompact(16_384, 32_768, settings)).toBe(false);
+		expect(shouldCompact(16_385, 32_768, settings)).toBe(true);
 	});
 
 	it("overrides both lower and higher model thresholds", () => {

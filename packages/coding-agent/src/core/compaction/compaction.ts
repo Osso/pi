@@ -250,7 +250,7 @@ export function estimateContextTokens(messages: AgentMessage[]): ContextUsageEst
 	};
 }
 
-/** Check if compaction should trigger. The reserve trigger also covers windows at or below `thresholdTokens`. */
+/** Check if compaction should trigger. `thresholdTokens` is capped at 90% of smaller windows. */
 export function shouldCompact(
 	contextTokens: number,
 	contextWindow: number,
@@ -260,7 +260,8 @@ export function shouldCompact(
 	const thresholdTokens = parseCompactionThresholdTokens(settings.thresholdTokens);
 	if (!settings.enabled) return false;
 	const reserveReached = contextTokens > contextWindow - settings.reserveTokens;
-	if (thresholdTokens !== undefined) return contextTokens >= thresholdTokens || reserveReached;
+	if (thresholdTokens !== undefined)
+		return contextTokens >= Math.min(thresholdTokens, contextWindow * 0.9) || reserveReached;
 	if (autoCompactionThreshold !== undefined) return contextTokens >= autoCompactionThreshold;
 	return reserveReached;
 }

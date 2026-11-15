@@ -5,8 +5,8 @@
 ## What it must do
 
 - [x] Accept an optional positive integer; reject invalid configured values explicitly.
-- [x] With a token count configured, trigger when `contextTokens >= thresholdTokens`, including equality, before considering model `autoCompactionThreshold`.
-- [x] With a token count configured, still trigger when `contextTokens > contextWindow - reserveTokens`, so models whose window is at or below the count compact before overflow.
+- [x] With a token count configured, trigger when `contextTokens >= min(thresholdTokens, contextWindow * 0.9)`, including equality, before considering model `autoCompactionThreshold`; smaller windows compact at 90%.
+- [x] With a token count configured, still trigger when `contextTokens > contextWindow - reserveTokens`, so very small windows keep summarization room.
 - [x] With the token count omitted, preserve existing model-threshold and reserve-based trigger defaults.
 - [x] Apply global configuration across sessions and models, subject to normal project and explicit settings overrides.
 - [x] Preserve `reserveTokens` summarization output budgets and `keepRecentMessages` behavior.
@@ -27,7 +27,7 @@
 
 ## Tests asserting this spec
 
-- `packages/coding-agent/test/compaction-threshold-tokens.test.ts` — token boundaries, reserve trigger for small windows, precedence, validation, and settings resolution.
+- `packages/coding-agent/test/compaction-threshold-tokens.test.ts` — token boundaries, the 90% cap and reserve trigger for small windows, precedence, validation, and settings resolution.
 - `packages/coding-agent/test/suite/compaction-threshold-tokens.test.ts` — existing session threshold coverage; direct private `_checkCompaction` calls do not prove running-turn enforcement.
 - `packages/coding-agent/test/suite/live-compaction-boundary.test.ts` — public `session.prompt()` regression for compaction between completed tool results and the next provider request, with coherent pairs and continued work.
 - `packages/coding-agent/test/suite/live-compaction-restart.test.ts` — real-process supervisor restart with a live child; same session/assignment and one committed effect while the configured boundary executes.
