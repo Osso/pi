@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed `sendCustomMessage` with `triggerTurn: false` starting another turn when sent while the agent is streaming; the message is now only recorded ([#8022](https://github.com/earendil-works/pi-mono/pull/8022))
 - Fixed the `outputPad` setting having no effect in interactive mode: an upstream merge had dropped its wiring, so assistant and user messages always used padding 1. Error lines now honor it too.
 - Fixed read tool errors being syntax-highlighted with the requested file's language instead of rendering as plain tool output ([#6731](https://github.com/earendil-works/pi-mono/pull/6731))
 - Fixed `pi update` and update checks treating an installed npm package newer than the registry's latest version as outdated and reinstalling the older version ([#8239](https://github.com/earendil-works/pi-mono/pull/8239))

@@ -441,6 +441,32 @@ describe("AgentSession queue characterization", () => {
 		);
 	});
 
+	it("does not start another turn for triggerTurn false custom messages sent while streaming", async () => {
+		const waiting = await createWaitingHarness();
+		const { harness, waitForToolStart, promptPromise, releaseToolExecution } = waiting;
+		harnesses.push(harness);
+		harness.session.setActiveToolsByName(["wait"]);
+
+		harness.setResponses([
+			fauxAssistantMessage(fauxToolCall("wait", {}), { stopReason: "toolUse" }),
+			fauxAssistantMessage("original turn complete"),
+			fauxAssistantMessage("unexpected extra turn"),
+		]);
+
+		await waitForToolStart;
+		await harness.session.sendCustomMessage(
+			{ customType: "queue-test", content: "record only", display: true, details: {} },
+			{ deliverAs: "followUp", triggerTurn: false },
+		);
+		releaseToolExecution();
+		await promptPromise;
+
+		expect(getAssistantTexts(harness)).toEqual(["", "original turn complete"]);
+		expect(harness.session.messages).toContainEqual(
+			expect.objectContaining({ role: "custom", customType: "queue-test", content: "record only" }),
+		);
+	});
+
 	it("injects nextTurn custom messages into the next prompt", async () => {
 		const harness = await createHarness();
 		harnesses.push(harness);
