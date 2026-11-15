@@ -142,22 +142,22 @@ export const SUPERVISOR_REQUEST_POLICY = [
 function responseShapeForRequest(kind: SupervisorRequestKind): string {
 	switch (kind) {
 		case "approval_review":
-			return "Respond with kind approve or reject and a non-empty reason.";
+			return "kind approve or reject and a non-empty reason.";
 		case "goal_set_review":
-			return "Respond with kind set, a non-empty reason, and the objective.";
+			return "kind set, a non-empty reason, and the objective.";
 		case "question":
-			return "Respond with kind answer (answers keyed by exact question text, each with answer and reason) or kind escalate with a non-empty reason.";
+			return "kind answer (answers keyed by exact question text, each with answer and reason) or kind escalate with a non-empty reason.";
 		case "supervisor_advisory":
-			return "Respond with kind advisory and a non-empty answer.";
+			return "kind advisory and a non-empty answer.";
 		case "goal_completion_review":
 		case "goal_idle_review":
-			return "Respond with kind complete, pause, wait, continue (with instructions), or error, and a non-empty reason.";
+			return "kind complete, pause, wait, continue (with instructions), or error, and a non-empty reason.";
 	}
 }
 
 export function buildSupervisorPrompt(request: SupervisorRequest): string {
 	return [
-		`${responseShapeForRequest(request.kind)} Policy: the Supervisor requests section of your system prompt.`,
+		`[Supervisor request] Call supervisor_response with ${responseShapeForRequest(request.kind)} Policy: the Supervisor requests section of your system prompt.`,
 		"Request:",
 		JSON.stringify(
 			{

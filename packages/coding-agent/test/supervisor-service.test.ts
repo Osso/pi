@@ -190,7 +190,9 @@ describe("Supervisor request service", () => {
 			senderSessionId: "main",
 			status: "claimed",
 		});
-		expect(prompt).toContain("Respond with kind complete, pause, wait, continue (with instructions), or error");
+		expect(prompt).toContain(
+			"Call supervisor_response with kind complete, pause, wait, continue (with instructions), or error",
+		);
 		expect(prompt).toContain('"objective": "Fix every unresolved Sentry issue"');
 		expect(prompt).not.toContain("Requirements are binding");
 		expect(prompt.length).toBeLessThan(600);
@@ -209,7 +211,9 @@ describe("Supervisor request service", () => {
 			senderSessionId: "main",
 			status: "claimed" as const,
 		};
-		expect(buildSupervisorPrompt(request)).toContain("Respond with kind advisory and a non-empty answer");
+		expect(buildSupervisorPrompt(request)).toContain(
+			"Call supervisor_response with kind advisory and a non-empty answer",
+		);
 		expect(SUPERVISOR_REQUEST_POLICY).toContain("advice only");
 		expect(parseSupervisorResponse(request.kind, { kind: "advisory", answer: "Nothing is missing." })).toEqual({
 			kind: "advisory",

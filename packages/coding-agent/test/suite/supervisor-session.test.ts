@@ -87,12 +87,22 @@ afterEach(async () => {
 describe("interactive Supervisor session", () => {
 	it("answers a queued approval as a visible turn and records the typed response", async () => {
 		const harness = await openSession({ supervisor: true });
-		harness.setResponses([respond({ kind: "approve", reason: "bounded read" })]);
+		let modelSaw = "";
+		harness.setResponses([
+			(context) => {
+				const last = context.messages.at(-1);
+				modelSaw = last?.role === "user" ? JSON.stringify(last.content) : "";
+				return respond({ kind: "approve", reason: "bounded read" });
+			},
+		]);
 
 		const id = postRequest(harness, "approval_review", { toolName: "read", input: { path: "README.md" } });
 		const request = await waitForCompletion(harness, id);
 
 		expect(request.response).toEqual({ kind: "approve", reason: "bounded read" });
+		// The policy tells the model to call supervisor_response only for [Supervisor request] messages,
+		// and the TUI label is not part of the model context, so the request text itself must carry it.
+		expect(modelSaw).toContain("[Supervisor request] Call supervisor_response with kind approve or reject");
 		const shown = customTexts(harness, SUPERVISOR_REQUEST_MESSAGE_TYPE);
 		expect(shown).toHaveLength(1);
 		expect(shown[0]).toContain('"toolName": "read"');

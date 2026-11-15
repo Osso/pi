@@ -45,7 +45,7 @@ describe("Supervisor request display", () => {
 		expect(display.body).not.toContain("secret chat line");
 		expect(display.body).not.toContain("Ship the relay");
 		expect(display.body).not.toContain("{");
-		expect(display.instructions).toContain("Respond with kind complete");
+		expect(display.instructions).toContain("Call supervisor_response with kind complete");
 		expect(display.instructions).not.toContain("Request:");
 	});
 
