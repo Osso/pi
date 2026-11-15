@@ -137,6 +137,55 @@ describe("detached Bash runner", () => {
 		expect(store.listAgents()).toHaveLength(0);
 	});
 
+	it("kills a payload that ignores SIGTERM after its timeout", async () => {
+		const root = mkdtempSync(join(tmpdir(), "pi-detached-bash-timeout-"));
+		temporaryDirectories.push(root);
+		const controlDbPath = join(root, "control.sqlite");
+		const sessionPath = join(root, "session.jsonl");
+		const store = new MultiAgentStore();
+		const coordinator = new LifecycleCoordinator({
+			controlDbPath,
+			createAgentId: () => store.allocateAgentIdForLifecycleCoordinator(),
+			now: () => "2026-07-11T22:00:00.000Z",
+			processIdentity: testProcessIdentity("timeout-runner"),
+			sessionPath,
+		});
+		const lifecycle = createDetachedJobLifecycleController({
+			artifactRoot: root,
+			controlDbPath,
+			coordinator,
+			ownerSessionId: "main",
+			sessionPath,
+			store,
+		});
+		const jobId = lifecycle.allocateJobId("bash");
+		const artifacts = lifecycle.createArtifacts(jobId);
+		const manifestPath = join(artifacts.directory, "launch.json");
+		const foregroundCompletionPath = join(artifacts.directory, "foreground-completed");
+		writeDetachedBashLaunchManifest(manifestPath, {
+			activationPath: join(artifacts.directory, "activation.json"),
+			args: [
+				"-e",
+				'process.on("SIGTERM", () => console.log("ignored")); console.log("ready"); setInterval(() => {}, 1000)',
+			],
+			artifacts,
+			command: process.execPath,
+			controlDbPath,
+			cwd: root,
+			env: process.env,
+			foregroundCompletionPath,
+			runnerAddress: { agentId: jobId, sessionId: "main" },
+			sessionPath,
+			timeoutMs: 300,
+		});
+
+		await runDetachedBashRunner(manifestPath);
+		expect(JSON.parse(readFileSync(foregroundCompletionPath, "utf8"))).toMatchObject({
+			signal: "SIGKILL",
+			timedOut: true,
+		});
+	}, 10_000);
+
 	it("launches an independent runner that remains the payload parent", async () => {
 		if (process.platform !== "linux") return;
 		const root = mkdtempSync(join(tmpdir(), "pi-detached-bash-process-"));

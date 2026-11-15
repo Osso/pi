@@ -19,6 +19,7 @@ import { isSqliteContentionError } from "./sqlite.ts";
 export const DETACHED_BASH_RUNNER_MODE = "--internal-detached-bash-runner";
 const DETACHED_BASH_LAUNCH_VERSION = 3;
 const LAUNCH_MANIFEST_POLL_MS = 10;
+const PAYLOAD_KILL_GRACE_MS = 1_000;
 const LAUNCH_MANIFEST_TIMEOUT_MS = 30_000;
 
 export interface DetachedBashLaunchManifestData {
@@ -196,7 +197,12 @@ async function waitForDetachedBashExit(
 	let cancelReason: string | undefined;
 	let identity = readDetachedBashActivation(manifest.activationPath);
 	let timedOut = false;
+	let killAt: number | undefined;
 	const timeoutAt = manifest.timeoutMs === undefined ? undefined : Date.now() + manifest.timeoutMs;
+	const terminatePayload = () => {
+		signalPayloadGroup(payload.pid, "SIGTERM");
+		killAt ??= Date.now() + PAYLOAD_KILL_GRACE_MS;
+	};
 	const exitPromise = payload.waitForExit().then((result) => {
 		exit = result;
 	});
@@ -204,8 +210,10 @@ async function waitForDetachedBashExit(
 		identity ??= readDetachedBashActivation(manifest.activationPath);
 		if (!timedOut && timeoutAt !== undefined && Date.now() >= timeoutAt) {
 			timedOut = true;
-			signalPayloadGroup(payload.pid);
+			terminatePayload();
 		}
+		// A payload that ignores SIGTERM must still stop after a timeout or cancellation.
+		if (killAt !== undefined && Date.now() >= killAt) signalPayloadGroup(payload.pid, "SIGKILL");
 		if (identity) {
 			for (const command of claimDetachedJobRuntimeCommands(
 				manifest.controlDbPath,
@@ -227,7 +235,7 @@ async function waitForDetachedBashExit(
 				if (command.command !== "cancel") continue;
 				identity = command.identity;
 				cancelReason = command.reason ?? "cancelled";
-				signalPayloadGroup(payload.pid);
+				terminatePayload();
 			}
 		}
 		await Promise.race([exitPromise, new Promise((resolve) => setTimeout(resolve, 25))]);
@@ -236,9 +244,9 @@ async function waitForDetachedBashExit(
 	return { cancelReason, exit, identity, timedOut };
 }
 
-function signalPayloadGroup(pid: number): void {
+function signalPayloadGroup(pid: number, signal: NodeJS.Signals): void {
 	try {
-		process.kill(-pid, "SIGTERM");
+		process.kill(-pid, signal);
 	} catch (error) {
 		if (!(error instanceof Error) || !("code" in error) || error.code !== "ESRCH") throw error;
 	}

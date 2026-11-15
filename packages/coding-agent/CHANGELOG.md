@@ -258,6 +258,7 @@
 
 ### Fixed
 
+- Fixed a detached Bash command that ignores SIGTERM running on after its timeout or cancellation; the runner now sends SIGKILL to the process group one second after SIGTERM.
 - Fixed the bwrap sandbox file worker rejecting workspace files whose names start with two dots (for example `..notes.txt`) as workspace escapes.
 - Fixed the bwrap sandbox `grep` and `find` following symlinks below the search root to files outside the workspace; such symlinks are now skipped, matching direct reads.
 - Fixed a pool whose last member was out of quota returning a non-retryable error even though an earlier member was only rate limited; the pool error now quotes the rate-limit error, so automatic retry reaches the member when it frees.
