@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed hidden `!!` command output counting toward the context-usage estimate, the auto-compaction threshold and the compaction `tokensBefore`, although it never reaches the model
 - Fixed compaction treating a cut before a whole turn as a split turn when a custom, label or settings-change entry came before the kept user message, or when the cut was at a custom message; it summarized the previous finished turn a second time as a turn prefix
 - Fixed `@file` arguments that name a pipe, such as `pi @<(git diff) "review"`, being silently dropped because pipes report size 0; each file is now read once and its image type is detected from that content
 - Fixed hot reload of the active custom theme when its file name differs from its `name`, or when it comes from a project, package or settings path; edits were ignored, and an unrelated global theme file with the matching file name could replace it

@@ -273,6 +273,31 @@ describe("estimateContextTokens", () => {
 		expect(estimate.trailingTokens).toBeGreaterThan(0);
 		expect(estimate.tokens).toBe(150 + estimate.trailingTokens);
 	});
+
+	it("does not count hidden !! command output after the last usage", () => {
+		const hiddenCommand: AgentMessage = {
+			role: "bashExecution",
+			command: "cat huge.log",
+			output: "x".repeat(400_000),
+			exitCode: 0,
+			cancelled: false,
+			truncated: false,
+			excludeFromContext: true,
+			timestamp: Date.now(),
+		};
+		const messages: AgentMessage[] = [
+			createUserMessage("Hello"),
+			createAssistantMessage("Hi", createMockUsage(900, 100)),
+			hiddenCommand,
+		];
+
+		expect(estimateContextTokens(messages)).toEqual({
+			tokens: 1000,
+			usageTokens: 1000,
+			trailingTokens: 0,
+			lastUsageIndex: 1,
+		});
+	});
 });
 
 describe("shouldCompact", () => {

@@ -320,10 +320,9 @@ export function estimateTokens(message: AgentMessage): number {
 			chars = estimateTextAndImageContentChars(message.content);
 			return Math.ceil(chars / 4);
 		}
-		case "bashExecution": {
-			chars = message.command.length + message.output.length;
-			return Math.ceil(chars / 4);
-		}
+		case "bashExecution":
+			// Hidden `!!` commands never reach the model.
+			return message.excludeFromContext ? 0 : Math.ceil((message.command.length + message.output.length) / 4);
 		case "branchSummary":
 		case "compactionSummary": {
 			chars = message.summary.length;
