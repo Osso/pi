@@ -138,17 +138,31 @@ async function expectSilentDetachedCleanupAndSingleParentCompletion(
 	expect(pi.listRuntimeMailboxMessages().filter((message) => message.sender.agentId === detachedAgentId)).toHaveLength(
 		0,
 	);
+	// Main may take the parent's notice into its transcript before this check, which removes it from the mailbox.
 	await vi.waitFor(() => {
-		expect(pi.listMailboxMessages().filter((message) => message.fromAgentId === parentAgentId)).toHaveLength(1);
+		const pending = pi.listMailboxMessages().filter((message) => message.fromAgentId === parentAgentId).length;
 		expect(
 			pi.listRuntimeMailboxMessages().filter((message) => message.sender.agentId === parentAgentId),
-		).toHaveLength(1);
+		).toHaveLength(pending);
+		expect(pending + countMainNoticesFrom(pi, parentAgentId)).toBe(1);
 	});
 	expect(
 		pi
 			.readSessionEntries(parentAgentId)
 			.some((entry) => entry.type === "custom" && entry.customType === "detached_tool_call_completion"),
 	).toBe(false);
+}
+
+function countMainNoticesFrom(pi: HeadlessPi, agentId: string): number {
+	return pi.readSessionEntries(null).filter((entry) => {
+		if (entry.type !== "message" || entry.message.role !== "user") return false;
+		const content = entry.message.content;
+		const text =
+			typeof content === "string"
+				? content
+				: content.map((part) => (part.type === "text" ? part.text : "")).join("");
+		return text.includes(`- agent: ${agentId}\n`);
+	}).length;
 }
 
 describe("subagent detached cleanup", () => {
