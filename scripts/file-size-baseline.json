@@ -22,7 +22,7 @@
 	"packages/coding-agent/src/core/session-manager.ts": 2147,
 	"packages/coding-agent/src/core/settings-manager.ts": 1447,
 	"packages/coding-agent/src/main.ts": 1445,
-	"packages/coding-agent/src/modes/interactive/components/session-selector.ts": 1085,
+	"packages/coding-agent/src/modes/interactive/components/session-selector.ts": 1084,
 	"packages/coding-agent/src/modes/interactive/components/settings-selector.ts": 852,
 	"packages/coding-agent/src/modes/interactive/components/tree-selector.ts": 1427,
 	"packages/coding-agent/src/modes/interactive/interactive-mode.ts": 8009,
