@@ -39,10 +39,10 @@ const failIfExecuted: AgentTool["execute"] = async () => {
 	throw new Error("tool should have been blocked");
 };
 
-/** The model calls echo("hello"), then answers with the tool result text. */
-function setEchoHelloResponses(harness: Harness): void {
+/** The model calls echo(text), then answers with the tool result text. */
+function setEchoResponses(harness: Harness, text = "hello"): void {
 	harness.setResponses([
-		fauxAssistantMessage([fauxToolCall("echo", { text: "hello" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage([fauxToolCall("echo", { text })], { stopReason: "toolUse" }),
 		(context) => {
 			const toolResult = context.messages.find((message) => message.role === "toolResult");
 			return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
@@ -380,13 +380,7 @@ describe("AgentSession model and extension characterization", () => {
 			],
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "original" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoResponses(harness, "original");
 
 		await harness.session.prompt("hi");
 
@@ -420,13 +414,7 @@ describe("AgentSession model and extension characterization", () => {
 			],
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "original" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoResponses(harness, "original");
 
 		await harness.session.prompt("hi");
 
@@ -449,7 +437,7 @@ describe("AgentSession model and extension characterization", () => {
 			],
 		});
 		harnesses.push(harness);
-		setEchoHelloResponses(harness);
+		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -466,7 +454,7 @@ describe("AgentSession model and extension characterization", () => {
 			uiContext: createConfirmUiContext(vi.fn()),
 		});
 		harnesses.push(harness);
-		setEchoHelloResponses(harness);
+		setEchoResponses(harness);
 
 		await harness.session.prompt("/safe on");
 		await harness.session.prompt("hi");
@@ -491,7 +479,7 @@ describe("AgentSession model and extension characterization", () => {
 			uiContext: createConfirmUiContext(vi.fn()),
 		});
 		harnesses.push(harness);
-		setEchoHelloResponses(harness);
+		setEchoResponses(harness);
 
 		await harness.session.prompt("/safe on");
 		await harness.session.prompt("hi");
@@ -539,7 +527,7 @@ describe("AgentSession model and extension characterization", () => {
 			],
 		});
 		harnesses.push(harness);
-		setEchoHelloResponses(harness);
+		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -560,7 +548,7 @@ describe("AgentSession model and extension characterization", () => {
 			uiContext: createConfirmUiContext(confirm, select),
 		});
 		harnesses.push(harness);
-		setEchoHelloResponses(harness);
+		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -597,7 +585,7 @@ describe("AgentSession model and extension characterization", () => {
 			uiContext: createConfirmUiContext(confirm, select),
 		});
 		harnesses.push(harness);
-		setEchoHelloResponses(harness);
+		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -630,7 +618,7 @@ describe("AgentSession model and extension characterization", () => {
 			uiContext: createConfirmUiContext(confirm, select),
 		});
 		harnesses.push(harness);
-		setEchoHelloResponses(harness);
+		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -661,7 +649,7 @@ describe("AgentSession model and extension characterization", () => {
 			],
 		});
 		harnesses.push(harness);
-		setEchoHelloResponses(harness);
+		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -685,7 +673,7 @@ describe("AgentSession model and extension characterization", () => {
 			],
 		});
 		harnesses.push(harness);
-		setEchoHelloResponses(harness);
+		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -709,7 +697,7 @@ describe("AgentSession model and extension characterization", () => {
 			],
 		});
 		harnesses.push(harness);
-		setEchoHelloResponses(harness);
+		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -809,7 +797,7 @@ describe("AgentSession model and extension characterization", () => {
 			tools: [echoTool],
 		});
 		harnesses.push(harness);
-		setEchoHelloResponses(harness);
+		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -930,7 +918,7 @@ describe("AgentSession model and extension characterization", () => {
 			uiContext: createConfirmUiContext(vi.fn(), select),
 		});
 		harnesses.push(harness);
-		setEchoHelloResponses(harness);
+		setEchoResponses(harness);
 
 		await harness.session.prompt("hi");
 
@@ -1119,13 +1107,7 @@ describe("AgentSession model and extension characterization", () => {
 			tools: [echoTool, approvalTool],
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "original" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoResponses(harness, "original");
 
 		await harness.session.prompt("hi");
 
@@ -1171,13 +1153,7 @@ describe("AgentSession model and extension characterization", () => {
 		};
 		const harness = await createHarness({ tools: [echoTool, approvalTool] });
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "original" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoResponses(harness, "original");
 
 		await harness.session.prompt("hi");
 
@@ -1223,13 +1199,7 @@ describe("AgentSession model and extension characterization", () => {
 			),
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "original" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoResponses(harness, "original");
 
 		await harness.session.prompt("hi");
 
@@ -1259,13 +1229,7 @@ describe("AgentSession model and extension characterization", () => {
 			tools: [echoTool, approvalTool],
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "original" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoResponses(harness, "original");
 
 		await harness.session.prompt("hi");
 
@@ -1308,13 +1272,7 @@ describe("AgentSession model and extension characterization", () => {
 			tools: [echoTool, approvalTool],
 		});
 		harnesses.push(harness);
-		harness.setResponses([
-			fauxAssistantMessage([fauxToolCall("echo", { text: "original" })], { stopReason: "toolUse" }),
-			(context) => {
-				const toolResult = context.messages.find((message) => message.role === "toolResult");
-				return fauxAssistantMessage(toolResult ? getMessageText(toolResult) : "");
-			},
-		]);
+		setEchoResponses(harness, "original");
 
 		await harness.session.prompt("hi");
 
