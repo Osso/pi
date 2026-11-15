@@ -103,6 +103,17 @@ async function captureSimpleParams(
 	return (payload ?? mockState.lastParams) as CapturedParams;
 }
 
+function tokenUsage(input: number, output = 0) {
+	return {
+		input,
+		output,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: input + output,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	};
+}
+
 describe("openai-completions tool_choice", () => {
 	beforeEach(() => {
 		mockState.lastParams = undefined;
@@ -367,14 +378,7 @@ describe("openai-completions tool_choice", () => {
 				{ type: "thinking", thinking: "prior reasoning", thinkingSignature: "reasoning_content" },
 				{ type: "toolCall", id: "call_1", name: "read", arguments: { path: "README.md" } },
 			],
-			usage: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 0,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(0),
 			stopReason: "toolUse",
 			timestamp: Date.now(),
 		};
@@ -1104,14 +1108,7 @@ describe("openai-completions tool_choice", () => {
 			provider: "xiaomi",
 			model: "mimo-v2.5-pro",
 			content: [{ type: "toolCall", id: "call_1", name: "read", arguments: { path: "README.md" } }],
-			usage: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 0,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
+			usage: tokenUsage(0),
 			stopReason: "toolUse",
 			timestamp: Date.now(),
 		};
@@ -1224,14 +1221,7 @@ describe("openai-completions tool_choice", () => {
 							{ type: "thinking", thinking: "think", thinkingSignature: "reasoning" },
 							{ type: "toolCall", id: "call_1", name: "read", arguments: { path: "README.md" } },
 						],
-						usage: {
-							input: 0,
-							output: 0,
-							cacheRead: 0,
-							cacheWrite: 0,
-							totalTokens: 0,
-							cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-						},
+						usage: tokenUsage(0),
 						stopReason: "stop",
 						timestamp: Date.now(),
 					},

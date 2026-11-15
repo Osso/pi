@@ -66,6 +66,17 @@ async function capturePayload(context: Context): Promise<unknown> {
 	return capturedPayload;
 }
 
+function tokenUsage(input: number, output = 0) {
+	return {
+		input,
+		output,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: input + output,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	};
+}
+
 describe("bedrock convertMessages skips unknown content types", () => {
 	it("skips unknown user content blocks instead of throwing", async () => {
 		const messages: Message[] = [
@@ -97,14 +108,7 @@ describe("bedrock convertMessages skips unknown content types", () => {
 				api: "bedrock-converse-stream",
 				provider: "amazon-bedrock",
 				model: baseModel.id,
-				usage: {
-					input: 0,
-					output: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					totalTokens: 0,
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-				},
+				usage: tokenUsage(0),
 				stopReason: "stop",
 				timestamp: Date.now(),
 			},
@@ -179,14 +183,7 @@ describe("bedrock convertMessages skips unknown content types", () => {
 				api: "bedrock-converse-stream",
 				provider: "amazon-bedrock",
 				model: baseModel.id,
-				usage: {
-					input: 0,
-					output: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					totalTokens: 0,
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-				},
+				usage: tokenUsage(0),
 				stopReason: "stop",
 				timestamp: Date.now(),
 			},
@@ -228,14 +225,7 @@ describe("bedrock convertMessages skips unknown content types", () => {
 				api: "bedrock-converse-stream",
 				provider: "amazon-bedrock",
 				model: baseModel.id,
-				usage: {
-					input: 0,
-					output: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					totalTokens: 0,
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-				},
+				usage: tokenUsage(0),
 				stopReason: "stop",
 				timestamp: Date.now(),
 			},
@@ -292,14 +282,7 @@ describe("bedrock convertMessages omitted thinking", () => {
 				api: "bedrock-converse-stream",
 				provider: "amazon-bedrock",
 				model: baseModel.id,
-				usage: {
-					input: 0,
-					output: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					totalTokens: 0,
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-				},
+				usage: tokenUsage(0),
 				stopReason: "stop",
 				timestamp: 2,
 			},

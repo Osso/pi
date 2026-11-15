@@ -33,16 +33,20 @@ function makeAssistantMessage(content: AssistantMessage["content"]): AssistantMe
 		api: "openai-responses",
 		provider: "github-copilot",
 		model: "gpt-5",
-		usage: {
-			input: 0,
-			output: 0,
-			cacheRead: 0,
-			cacheWrite: 0,
-			totalTokens: 0,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-		},
+		usage: tokenUsage(0),
 		stopReason: "toolUse",
 		timestamp: Date.now(),
+	};
+}
+
+function tokenUsage(input: number, output = 0) {
+	return {
+		input,
+		output,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: input + output,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 	};
 }
 
@@ -65,14 +69,7 @@ describe("OpenAI to Anthropic session migration for Copilot Claude", () => {
 				api: "openai-responses",
 				provider: "github-copilot",
 				model: "gpt-5",
-				usage: {
-					input: 0,
-					output: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					totalTokens: 0,
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-				},
+				usage: tokenUsage(0),
 				stopReason: "toolUse",
 				timestamp: Date.now(),
 			},
@@ -110,14 +107,7 @@ describe("OpenAI to Anthropic session migration for Copilot Claude", () => {
 				api: model.api,
 				provider: model.provider,
 				model: model.id,
-				usage: {
-					input: 0,
-					output: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					totalTokens: 0,
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-				},
+				usage: tokenUsage(0),
 				stopReason: "toolUse",
 				timestamp: Date.now(),
 			},

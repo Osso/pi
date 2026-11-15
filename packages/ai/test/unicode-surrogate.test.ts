@@ -55,14 +55,7 @@ async function testEmojiInToolResults<TApi extends Api>(llm: Model<TApi>, option
 				api: llm.api,
 				provider: llm.provider,
 				model: llm.id,
-				usage: {
-					input: 0,
-					output: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					totalTokens: 0,
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-				},
+				usage: tokenUsage(0),
 				stopReason: "toolUse",
 				timestamp: Date.now(),
 			},
@@ -141,14 +134,7 @@ async function testRealWorldLinkedInData<TApi extends Api>(llm: Model<TApi>, opt
 				api: llm.api,
 				provider: llm.provider,
 				model: llm.id,
-				usage: {
-					input: 0,
-					output: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					totalTokens: 0,
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-				},
+				usage: tokenUsage(0),
 				stopReason: "toolUse",
 				timestamp: Date.now(),
 			},
@@ -230,14 +216,7 @@ async function testUnpairedHighSurrogate<TApi extends Api>(llm: Model<TApi>, opt
 				api: llm.api,
 				provider: llm.provider,
 				model: llm.id,
-				usage: {
-					input: 0,
-					output: 0,
-					cacheRead: 0,
-					cacheWrite: 0,
-					totalTokens: 0,
-					cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-				},
+				usage: tokenUsage(0),
 				stopReason: "toolUse",
 				timestamp: Date.now(),
 			},
@@ -279,6 +258,17 @@ async function testUnpairedHighSurrogate<TApi extends Api>(llm: Model<TApi>, opt
 	expect(response.stopReason).not.toBe("error");
 	expect(response.errorMessage).toBeFalsy();
 	expect(response.content.length).toBeGreaterThan(0);
+}
+
+function tokenUsage(input: number, output = 0) {
+	return {
+		input,
+		output,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: input + output,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	};
 }
 
 describe("AI Providers Unicode Surrogate Pair Tests", () => {
