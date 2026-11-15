@@ -576,12 +576,12 @@ describe("parseArgs", () => {
 
 		test("parses @file arguments", () => {
 			const result = parseArgs(["@README.md", "@src/main.ts"]);
-			expect(result.fileArgs).toEqual(["README.md", "src/main.ts"]);
+			expect(result.fileArgs).toEqual(["@README.md", "@src/main.ts"]);
 		});
 
 		test("parses mixed messages and file args", () => {
 			const result = parseArgs(["@file.txt", "explain this", "@image.png"]);
-			expect(result.fileArgs).toEqual(["file.txt", "image.png"]);
+			expect(result.fileArgs).toEqual(["@file.txt", "@image.png"]);
 			expect(result.messages).toEqual(["explain this"]);
 		});
 
@@ -619,7 +619,7 @@ describe("parseArgs", () => {
 			expect(result.model).toBe("claude-sonnet");
 			expect(result.print).toBe(true);
 			expect(result.thinking).toBe("high");
-			expect(result.fileArgs).toEqual(["prompt.md"]);
+			expect(result.fileArgs).toEqual(["@prompt.md"]);
 			expect(result.messages).toEqual(["Do the task"]);
 		});
 	});

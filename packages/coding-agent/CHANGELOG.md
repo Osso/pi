@@ -263,6 +263,7 @@
 
 ### Fixed
 
+- Fixed `@file` arguments for files whose name starts with `@`, such as `pi @@notes.md`, which removed both `@` characters and reported the file as not found
 - Fixed HTML exports joining the text blocks of a displayed extension custom message without a separator; they are now separated by newlines as in the TUI
 - Fixed HTML exports showing a `!` command killed by a signal, which has no exit code, as failed with `(exit undefined)`
 - Fixed `read` line-range labels for numeric-string or null arguments in the TUI, session tree, HTML exports, and examples; a non-numeric `offset` is no longer inserted into the HTML export as markup ([#9887](https://github.com/earendil-works/pi/issues/9887))
