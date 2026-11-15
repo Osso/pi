@@ -4,7 +4,7 @@ import type { MessageRenderer } from "../../../src/core/extensions/types.ts";
 const REQUEST_MARKER = "\nRequest:\n";
 
 /** Payload fields left out of the display; the model still receives them. */
-const HIDDEN_PAYLOAD_FIELDS = new Set(["userMessages"]);
+const HIDDEN_PAYLOAD_FIELDS = new Set(["userMessages", "objective"]);
 
 const KIND_LABELS: Record<string, string> = {
 	approval_review: "Approval review",
