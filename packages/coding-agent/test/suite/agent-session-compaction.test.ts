@@ -11,7 +11,7 @@ import {
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { estimateTokens } from "../../src/core/compaction/index.ts";
-import type { ExtensionRunner } from "../../src/core/extensions/index.ts";
+import type { CompactionEvent, CompactionEventResult, ExtensionRunner } from "../../src/core/extensions/index.ts";
 import { getLatestCompactionEntry, type SessionMessageEntry } from "../../src/core/session-manager.ts";
 import { createHarness, getAssistantTexts, getUserTexts, type Harness } from "./harness.ts";
 
@@ -140,6 +140,18 @@ function expectToolResultsToFollowCalls(messages: readonly AgentMessage[], toolN
 		}
 	}
 	return matchingResultCount;
+}
+
+/** A compaction hook result that keeps the prepared cut point and replaces only the summary text. */
+function summarizedAs(event: CompactionEvent, summary: string): CompactionEventResult {
+	return {
+		compaction: {
+			summary,
+			firstKeptEntryId: event.preparation.firstKeptEntryId,
+			tokensBefore: event.preparation.tokensBefore,
+			details: {},
+		},
+	};
 }
 
 function seedCompactableSession(harness: Harness): void {
@@ -482,14 +494,7 @@ describe("AgentSession compaction characterization", () => {
 					pi.on("compaction", async (event) => {
 						compactionStarted.resolve();
 						await releaseCompaction.promise;
-						return {
-							compaction: {
-								summary: "gated summary",
-								firstKeptEntryId: event.preparation.firstKeptEntryId,
-								tokensBefore: event.preparation.tokensBefore,
-								details: {},
-							},
-						};
+						return summarizedAs(event, "gated summary");
 					});
 				},
 			],
@@ -549,14 +554,7 @@ describe("AgentSession compaction characterization", () => {
 				(pi) => {
 					pi.on("compaction", async (event) => {
 						requireSessionInternals(sessionInternalsRef)._compactionAbortController = undefined;
-						return {
-							compaction: {
-								summary: "manual compacted after controller clear",
-								firstKeptEntryId: event.preparation.firstKeptEntryId,
-								tokensBefore: event.preparation.tokensBefore,
-								details: {},
-							},
-						};
+						return summarizedAs(event, "manual compacted after controller clear");
 					});
 				},
 			],
@@ -580,14 +578,7 @@ describe("AgentSession compaction characterization", () => {
 				(pi) => {
 					pi.on("compaction", async (event) => {
 						requireSessionInternals(sessionInternalsRef)._autoCompactionAbortController = replacementController;
-						return {
-							compaction: {
-								summary: "auto compacted after controller replacement",
-								firstKeptEntryId: event.preparation.firstKeptEntryId,
-								tokensBefore: event.preparation.tokensBefore,
-								details: {},
-							},
-						};
+						return summarizedAs(event, "auto compacted after controller replacement");
 					});
 				},
 			],
@@ -871,14 +862,7 @@ describe("AgentSession compaction characterization", () => {
 				(pi) => {
 					pi.on("compaction", async (event) => {
 						compactionCalls++;
-						return {
-							compaction: {
-								summary: "request-buffer overflow summary",
-								firstKeptEntryId: event.preparation.firstKeptEntryId,
-								tokensBefore: event.preparation.tokensBefore,
-								details: {},
-							},
-						};
+						return summarizedAs(event, "request-buffer overflow summary");
 					});
 				},
 			],
@@ -930,14 +914,7 @@ describe("AgentSession compaction characterization", () => {
 				(pi) => {
 					pi.on("compaction", async (event) => {
 						compactionCalls++;
-						return {
-							compaction: {
-								summary: "pool overflow summary",
-								firstKeptEntryId: event.preparation.firstKeptEntryId,
-								tokensBefore: event.preparation.tokensBefore,
-								details: {},
-							},
-						};
+						return summarizedAs(event, "pool overflow summary");
 					});
 				},
 			],
@@ -977,14 +954,7 @@ describe("AgentSession compaction characterization", () => {
 				(pi) => {
 					pi.on("compaction", async (event) => {
 						compactionCalls++;
-						return {
-							compaction: {
-								summary: "repeated request-buffer overflow summary",
-								firstKeptEntryId: event.preparation.firstKeptEntryId,
-								tokensBefore: event.preparation.tokensBefore,
-								details: {},
-							},
-						};
+						return summarizedAs(event, "repeated request-buffer overflow summary");
 					});
 				},
 			],
@@ -1143,14 +1113,7 @@ describe("AgentSession compaction characterization", () => {
 				(pi) => {
 					pi.on("compaction", async (event) => {
 						compactionCalls++;
-						return {
-							compaction: {
-								summary: "repeated-results overflow summary",
-								firstKeptEntryId: event.preparation.firstKeptEntryId,
-								tokensBefore: event.preparation.tokensBefore,
-								details: {},
-							},
-						};
+						return summarizedAs(event, "repeated-results overflow summary");
 					});
 				},
 			],
@@ -1541,14 +1504,7 @@ describe("AgentSession compaction characterization", () => {
 								return { cancel: true };
 							}
 							if (outcome === "extension cancellation") return { cancel: true };
-							return {
-								compaction: {
-									summary: "speculative lifecycle summary",
-									firstKeptEntryId: event.preparation.firstKeptEntryId,
-									tokensBefore: event.preparation.tokensBefore,
-									details: {},
-								},
-							};
+							return summarizedAs(event, "speculative lifecycle summary");
 						});
 					},
 				],
@@ -1676,14 +1632,7 @@ describe("AgentSession compaction characterization", () => {
 					pi.on("compaction", async (event) => {
 						compactionCalls++;
 						await releaseCompaction.promise;
-						return {
-							compaction: {
-								summary: "mid-turn cached summary",
-								firstKeptEntryId: event.preparation.firstKeptEntryId,
-								tokensBefore: event.preparation.tokensBefore,
-								details: {},
-							},
-						};
+						return summarizedAs(event, "mid-turn cached summary");
 					});
 				},
 			],
@@ -1778,14 +1727,7 @@ describe("AgentSession compaction characterization", () => {
 					pi.on("compaction", async (event) => {
 						compactionCalls++;
 						await releaseCompaction.promise;
-						return {
-							compaction: {
-								summary: "speculative summary",
-								firstKeptEntryId: event.preparation.firstKeptEntryId,
-								tokensBefore: event.preparation.tokensBefore,
-								details: {},
-							},
-						};
+						return summarizedAs(event, "speculative summary");
 					});
 				},
 			],
@@ -1842,14 +1784,7 @@ describe("AgentSession compaction characterization", () => {
 					pi.on("compaction", async (event) => {
 						compactionCalls++;
 						await releaseCompaction.promise;
-						return {
-							compaction: {
-								summary: "speculative summary",
-								firstKeptEntryId: event.preparation.firstKeptEntryId,
-								tokensBefore: event.preparation.tokensBefore,
-								details: {},
-							},
-						};
+						return summarizedAs(event, "speculative summary");
 					});
 				},
 			],
@@ -1886,14 +1821,7 @@ describe("AgentSession compaction characterization", () => {
 					pi.on("compaction", async (event) => {
 						compactionCalls++;
 						await releaseCompaction.promise;
-						return {
-							compaction: {
-								summary: "completed background summary",
-								firstKeptEntryId: event.preparation.firstKeptEntryId,
-								tokensBefore: event.preparation.tokensBefore,
-								details: {},
-							},
-						};
+						return summarizedAs(event, "completed background summary");
 					});
 				},
 			],
@@ -1944,14 +1872,7 @@ describe("AgentSession compaction characterization", () => {
 					pi.on("compaction", async (event) => {
 						compactionCalls++;
 						await releaseCompaction.promise;
-						return {
-							compaction: {
-								summary: "summary generated after first user turn",
-								firstKeptEntryId: event.preparation.firstKeptEntryId,
-								tokensBefore: event.preparation.tokensBefore,
-								details: {},
-							},
-						};
+						return summarizedAs(event, "summary generated after first user turn");
 					});
 				},
 			],
@@ -2067,14 +1988,7 @@ describe("AgentSession compaction characterization", () => {
 					pi.on("compaction", async (event) => {
 						compactionCalls++;
 						if (compactionCalls === 1) await releaseCompaction.promise;
-						return {
-							compaction: {
-								summary: "invalidated background summary",
-								firstKeptEntryId: event.preparation.firstKeptEntryId,
-								tokensBefore: event.preparation.tokensBefore,
-								details: {},
-							},
-						};
+						return summarizedAs(event, "invalidated background summary");
 					});
 				},
 			],
@@ -2108,14 +2022,7 @@ describe("AgentSession compaction characterization", () => {
 					pi.on("compaction", async (event) => {
 						compactionCalls++;
 						if (compactionCalls === 1) await releaseCompaction.promise;
-						return {
-							compaction: {
-								summary: "stale background summary",
-								firstKeptEntryId: event.preparation.firstKeptEntryId,
-								tokensBefore: event.preparation.tokensBefore,
-								details: {},
-							},
-						};
+						return summarizedAs(event, "stale background summary");
 					});
 				},
 			],
@@ -2163,14 +2070,7 @@ describe("AgentSession compaction characterization", () => {
 									event.signal.addEventListener("abort", () => resolve(), { once: true });
 								});
 							}
-							return {
-								compaction: {
-									summary: "synchronous fallback summary",
-									firstKeptEntryId: event.preparation.firstKeptEntryId,
-									tokensBefore: event.preparation.tokensBefore,
-									details: {},
-								},
-							};
+							return summarizedAs(event, "synchronous fallback summary");
 						} finally {
 							activeCompactions--;
 						}
