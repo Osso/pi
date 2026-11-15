@@ -442,9 +442,7 @@ export class TUI extends Container {
 	setShowHardwareCursor(enabled: boolean): void {
 		if (this.showHardwareCursor === enabled) return;
 		this.showHardwareCursor = enabled;
-		if (!enabled) {
-			this.terminal.hideCursor();
-		}
+		if (!enabled) this.hideTerminalCursor();
 		this.requestRender();
 	}
 
@@ -738,7 +736,7 @@ export class TUI extends Container {
 		if (!options?.nonCapturing && this.isOverlayVisible(entry)) {
 			this.setFocus(component);
 		}
-		this.terminal.hideCursor();
+		this.hideTerminalCursor();
 		this.requestRender();
 
 		// Return handle for controlling this overlay
@@ -754,7 +752,7 @@ export class TUI extends Container {
 						const topVisible = this.getTopmostVisibleOverlay();
 						this.setFocus(topVisible?.component ?? entry.preFocus);
 					}
-					if (this.overlayStack.length === 0) this.terminal.hideCursor();
+					if (this.overlayStack.length === 0) this.hideTerminalCursor();
 					this.requestRender();
 				}
 			},
@@ -832,8 +830,13 @@ export class TUI extends Container {
 			const topVisible = this.getTopmostVisibleOverlay();
 			this.setFocus(topVisible?.component ?? overlay.preFocus);
 		}
-		if (this.overlayStack.length === 0) this.terminal.hideCursor();
+		if (this.overlayStack.length === 0) this.hideTerminalCursor();
 		this.requestRender();
+	}
+
+	/** Hide the cursor while running. After stop(), the shell owns the cursor and it must stay visible. */
+	private hideTerminalCursor(): void {
+		if (!this.stopped) this.terminal.hideCursor();
 	}
 
 	/** Check if there are any visible overlays */
@@ -1082,13 +1085,9 @@ export class TUI extends Container {
 	}
 
 	private consumeOsc11BackgroundResponse(data: string): boolean {
-		if (this.pendingOsc11BackgroundReplies <= 0) {
-			return false;
-		}
+		if (this.pendingOsc11BackgroundReplies <= 0) return false;
 
-		if (!isOsc11BackgroundColorResponse(data)) {
-			return false;
-		}
+		if (!isOsc11BackgroundColorResponse(data)) return false;
 
 		const rgb = parseOsc11BackgroundColor(data);
 		this.pendingOsc11BackgroundReplies -= 1;
